@@ -397,6 +397,76 @@ func TestRotateKeyMakesADeletedSecretAgain(t *testing.T) {
 	assert.Equal(t, keyTwo, key)
 }
 
+// failingUpdates is an endpoint store whose Update fails.
+type failingUpdates struct{ aiendpoint.Store }
+
+func (failingUpdates) Update(context.Context, aiendpoint.Scope, string, func(*aiendpoint.Endpoint) error) (*aiendpoint.Endpoint, error) {
+	return nil, errors.New("disk full")
+}
+
+// A rotation whose record update fails leaves the old key in use, so the key
+// still matches the fingerprint that the endpoint shows.
+func TestRotateKeyThatFailsKeepsTheOldKey(t *testing.T) {
+	ctx := context.Background()
+	stores := newSharedStores(t)
+	svc, err := aiendpoint.NewService(stores.endpoints, stores.secrets)
+	require.NoError(t, err)
+	created, err := svc.Create(ctx, globalInput("cle1", keyOne, []string{"*"}, []string{"*"}))
+	require.NoError(t, err)
+
+	failing, err := aiendpoint.NewService(failingUpdates{stores.endpoints}, stores.secrets)
+	require.NoError(t, err)
+	_, err = failing.RotateKey(ctx, created.Scope, "cle1", keyTwo, "admin")
+	require.Error(t, err)
+
+	key, err := svc.ReadKey(ctx, *created)
+	require.NoError(t, err)
+	assert.Equal(t, keyOne, key)
+}
+
+// A rotation that made the secret again, because an administrator had deleted
+// it, deletes that secret when the record update fails: no secret holds a key
+// that no endpoint names.
+func TestRotateKeyThatFailsDeletesTheSecretItMade(t *testing.T) {
+	ctx := context.Background()
+	stores := newSharedStores(t)
+	svc, err := aiendpoint.NewService(stores.endpoints, stores.secrets)
+	require.NoError(t, err)
+	created, err := svc.Create(ctx, globalInput("cle1", keyOne, []string{"*"}, []string{"*"}))
+	require.NoError(t, err)
+	require.NoError(t, stores.secrets.Delete(ctx, created.SecretID))
+
+	failing, err := aiendpoint.NewService(failingUpdates{stores.endpoints}, stores.secrets)
+	require.NoError(t, err)
+	_, err = failing.RotateKey(ctx, created.Scope, "cle1", keyTwo, "admin")
+	require.Error(t, err)
+
+	_, err = stores.secrets.GetByRef(ctx, created.Scope.SecretWorkspace(), aiendpoint.SecretRef("cle1"))
+	require.ErrorIs(t, err, secret.ErrNotFound)
+}
+
+// When the old key cannot be put back either, the error asks for another
+// rotation. It holds no key.
+func TestRotateKeyReportsAFailedRestore(t *testing.T) {
+	ctx := context.Background()
+	stores := newSharedStores(t)
+	svc, err := aiendpoint.NewService(stores.endpoints, stores.secrets)
+	require.NoError(t, err)
+	created, err := svc.Create(ctx, globalInput("cle1", keyOne, []string{"*"}, []string{"*"}))
+	require.NoError(t, err)
+
+	// The first write sets the new key. The second, which puts the old key back,
+	// fails.
+	failing, err := aiendpoint.NewService(failingUpdates{stores.endpoints}, &failingWrites{Store: stores.secrets, fail: 2})
+	require.NoError(t, err)
+	_, err = failing.RotateKey(ctx, created.Scope, "cle1", keyTwo, "admin")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "disk full")
+	assert.Contains(t, err.Error(), `the old key of AI endpoint "cle1" could not be put back`)
+	assert.NotContains(t, err.Error(), keyOne)
+	assert.NotContains(t, err.Error(), keyTwo)
+}
+
 func TestResolveEndpointUseRule(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t)

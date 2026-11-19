@@ -202,7 +202,8 @@ func (s *Service) Update(ctx context.Context, scope Scope, name string, in Updat
 }
 
 // RotateKey sets the key of an endpoint. The old value stays in the secret store
-// as an encrypted old version.
+// as an encrypted old version. A rotation that fails leaves the old key in use,
+// so the key always matches the fingerprint of the endpoint.
 func (s *Service) RotateKey(ctx context.Context, scope Scope, name, key, actor string) (*Endpoint, error) {
 	if err := ValidateKey(key); err != nil {
 		return nil, err
@@ -214,13 +215,17 @@ func (s *Service) RotateKey(ctx context.Context, scope Scope, name, key, actor s
 	if err != nil {
 		return nil, err
 	}
+	previous, err := s.currentKey(ctx, ep.SecretID)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 	secretID, err := s.writeKey(ctx, ep, ep.SecretID, key, actor, now)
 	if err != nil {
 		return nil, err
 	}
 	prefix, fingerprint := KeyDisplay(key)
-	return s.store.Update(ctx, scope, name, func(ep *Endpoint) error {
+	saved, err := s.store.Update(ctx, scope, name, func(ep *Endpoint) error {
 		ep.SecretID = secretID
 		ep.KeyPrefix, ep.KeyFingerprint = prefix, fingerprint
 		ep.KeyUpdatedAt = now
@@ -228,6 +233,45 @@ func (s *Service) RotateKey(ctx context.Context, scope Scope, name, key, actor s
 		ep.UpdatedAt = now
 		return nil
 	})
+	if err != nil {
+		return nil, s.undoKey(ctx, ep, secretID, previous, actor, now, err)
+	}
+	return saved, nil
+}
+
+// currentKey reads the key that a rotation overwrites. A record with no secret,
+// or whose secret no longer exists, has no key to keep.
+func (s *Service) currentKey(ctx context.Context, secretID string) (string, error) {
+	if secretID == "" {
+		return "", nil
+	}
+	key, _, err := s.secrets.ReadValue(ctx, secretID)
+	if errors.Is(err, secret.ErrNotFound) {
+		return "", nil
+	}
+	return key, err
+}
+
+// undoKey reverts the key write of a rotation whose record update failed with
+// cause, and returns the error to report. The secret of the record gets its old
+// key back as a new version. A secret that the rotation made, which the record
+// does not name, is deleted. When the old key cannot be put back, the endpoint
+// can use the new key under the old fingerprint, and the error says to rotate
+// again.
+func (s *Service) undoKey(ctx context.Context, ep *Endpoint, secretID, previous, actor string, now time.Time, cause error) error {
+	ctx = context.WithoutCancel(ctx)
+	if secretID != ep.SecretID {
+		_ = s.secrets.Delete(ctx, secretID)
+		return cause
+	}
+	if previous == "" {
+		return cause
+	}
+	input := secret.WriteValueInput{Value: previous, CreatedBy: actor, CreatedAt: now}
+	if _, err := s.secrets.WriteValue(ctx, secretID, input); err != nil {
+		return fmt.Errorf("%w; the old key of AI endpoint %q could not be put back, so rotate its key again", cause, ep.Name)
+	}
+	return cause
 }
 
 // Delete removes an endpoint, then its key, then its models list. A models list
