@@ -178,8 +178,7 @@ func (s *MCPService) SetCredentials(ctx context.Context, scope Scope, name strin
 	now := time.Now().UTC()
 	written, err := s.writeCredentials(ctx, server, in.Token, headers, actor, now)
 	if err != nil {
-		s.undoWrites(ctx, before, previous, written, actor, now)
-		return nil, err
+		return nil, s.undoWrites(ctx, name, before, previous, written, actor, now, err)
 	}
 	var old map[string]string
 	saved, err := s.store.Update(ctx, scope, name, func(cur *MCPServer) error {
@@ -189,8 +188,7 @@ func (s *MCPService) SetCredentials(ctx context.Context, scope Scope, name strin
 		return nil
 	})
 	if err != nil {
-		s.undoWrites(ctx, before, previous, written, actor, now)
-		return nil, err
+		return nil, s.undoWrites(ctx, name, before, previous, written, actor, now, err)
 	}
 	// A secret that the new set no longer uses has no record.
 	kept := credentialIDs(saved)
@@ -378,19 +376,31 @@ func (s *MCPService) currentValues(ctx context.Context, ids map[string]string, t
 	return values, nil
 }
 
-// undoWrites reverts the writes of a replacement that failed. A secret that the
-// entry already had gets its old value back as a new version. A secret that the
-// replacement made, which no record uses, is deleted.
-func (s *MCPService) undoWrites(ctx context.Context, before, previous map[string]string, written []Credential, actor string, now time.Time) {
+// undoWrites reverts the writes of a replacement that failed with cause, and
+// returns the error to report. A secret that the entry already had gets its old
+// value back as a new version. A secret that the replacement made, which no
+// record uses, is deleted. When an old value cannot be put back, the entry can
+// read part of the new set, and the error says that the set must be written
+// again.
+func (s *MCPService) undoWrites(ctx context.Context, name string, before, previous map[string]string, written []Credential, actor string, now time.Time, cause error) error {
 	ctx = context.WithoutCancel(ctx)
+	var stale []string
 	for _, c := range written {
 		value, ok := previous[c.Header]
 		if !ok || c.SecretID != before[c.Header] {
 			_ = s.secrets.Delete(ctx, c.SecretID)
 			continue
 		}
-		_, _ = s.secrets.WriteValue(ctx, c.SecretID, secret.WriteValueInput{Value: value, CreatedBy: actor, CreatedAt: now})
+		input := secret.WriteValueInput{Value: value, CreatedBy: actor, CreatedAt: now}
+		if _, err := s.secrets.WriteValue(ctx, c.SecretID, input); err != nil {
+			stale = append(stale, c.Header)
+		}
 	}
+	if len(stale) == 0 {
+		return cause
+	}
+	return fmt.Errorf("%w; the old value of %s of MCP server %q could not be put back, so set its credentials again",
+		cause, strings.Join(stale, ", "), name)
 }
 
 // secretIDs returns the IDs of the secrets of the credentials.

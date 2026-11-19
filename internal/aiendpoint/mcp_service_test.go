@@ -280,16 +280,17 @@ func TestMCPSetCredentialsReplacesTheWholeSet(t *testing.T) {
 	require.ErrorIs(t, err, aiendpoint.ErrNotFound)
 }
 
-// failingWrites is a secret store whose WriteValue fails once, at the call
-// number fail.
+// failingWrites is a secret store whose WriteValue fails at the call number
+// fail, and at each later call when always is set.
 type failingWrites struct {
 	secret.Store
 	calls, fail int
+	always      bool
 }
 
 func (s *failingWrites) WriteValue(ctx context.Context, id string, in secret.WriteValueInput) (*secret.Secret, error) {
 	s.calls++
-	if s.calls == s.fail {
+	if s.calls == s.fail || (s.always && s.calls > s.fail) {
 		return nil, errors.New("disk full")
 	}
 	return s.Store.WriteValue(ctx, id, in)
@@ -323,6 +324,30 @@ func TestMCPSetCredentialsThatFailsKeepsTheOldSet(t *testing.T) {
 	assert.Equal(t, map[string]string{"x-api-key": tokenOne, "x-team": headerVal}, creds.Headers)
 	_, err = stores.secrets.GetByRef(ctx, "", "ai/mcp/docs/x-extra")
 	require.ErrorIs(t, err, secret.ErrNotFound, "the secret that the failed rotation made is gone")
+}
+
+// When the old value cannot be put back either, the error names the header that
+// may hold the new value and asks for the credentials again. It holds no value.
+func TestMCPSetCredentialsReportsAFailedRestore(t *testing.T) {
+	ctx := context.Background()
+	stores := newSharedStores(t)
+	svc, err := aiendpoint.NewMCPService(stores.servers, stores.secrets)
+	require.NoError(t, err)
+	in := mcpInput("docs", "", []string{"*"}, []string{"*"})
+	in.Credentials.Headers = map[string]string{"X-Api-Key": tokenOne, "X-Team": headerVal}
+	_, err = svc.Create(ctx, in)
+	require.NoError(t, err)
+
+	failing, err := aiendpoint.NewMCPService(stores.servers, &failingWrites{Store: stores.secrets, fail: 2, always: true})
+	require.NoError(t, err)
+	_, err = failing.SetCredentials(ctx, aiendpoint.GlobalScope(), "docs", aiendpoint.MCPCredentialsInput{
+		Headers: map[string]string{"X-Api-Key": tokenTwo, "X-Team": "team-value-0123456789"},
+	}, "admin")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "the old value of x-api-key")
+	assert.Contains(t, err.Error(), "set its credentials again")
+	assert.NotContains(t, err.Error(), tokenOne)
+	assert.NotContains(t, err.Error(), tokenTwo)
 }
 
 func TestMCPUpdateAndDelete(t *testing.T) {
