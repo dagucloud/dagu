@@ -169,7 +169,7 @@ func (h *Handler) validateSubDAGRootLease(
 		}
 		return "", nil, status.Error(codes.Internal, "failed to load root status: "+err.Error())
 	}
-	if rootStatus == nil || isTerminalRunStatus(rootStatus.Status) {
+	if rootStatus == nil || rootStatus.Status.IsTerminal() {
 		return "", nil, status.Error(codes.FailedPrecondition, remoteAttemptRejectedLeaseInactive)
 	}
 

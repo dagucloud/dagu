@@ -2057,7 +2057,7 @@ func (a *Agent) recordCurrentStatus(ctx context.Context, attempt runstate.Attemp
 func (a *Agent) pushStatus(ctx context.Context, status ir.DAGRunStatus) error {
 	pushCtx := context.WithoutCancel(ctx)
 	timeout := remoteStatusPushTimeout
-	if status.Status != ir.NotStarted && !status.Status.IsActive() {
+	if status.Status.IsTerminal() {
 		timeout = remoteTerminalStatusPushTimeout
 	}
 	if timeout > 0 {
