@@ -87,6 +87,10 @@ function renderEditor() {
 const editor = () =>
   screen.findByLabelText<HTMLTextAreaElement>('Markdown editor');
 
+// The editor of the open file. It is absent while the file loads.
+const editorText = () =>
+  screen.getByLabelText<HTMLTextAreaElement>('Markdown editor').value;
+
 const written = (files: SkillFile[], hash: string) => ({
   ok: true,
   result: { hash, errors: [], warnings: [], files },
@@ -145,7 +149,7 @@ describe('SkillEditor', () => {
     renderEditor();
 
     fireEvent.click(screen.getByRole('button', { name: /a\.md/ }));
-    await waitFor(async () => expect((await editor()).value).toBe('saved\n'));
+    await waitFor(() => expect(editorText()).toBe('saved\n'));
     fireEvent.change(await editor(), { target: { value: 'draft\n' } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Rename the file' }));
@@ -165,7 +169,7 @@ describe('SkillEditor', () => {
       'saved\n',
       'h1',
     ]);
-    await waitFor(async () => expect((await editor()).value).toBe('draft\n'));
+    await waitFor(() => expect(editorText()).toBe('draft\n'));
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
   });
 
