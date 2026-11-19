@@ -47,4 +47,7 @@ func TestDo_AuditLineHasNoKey(t *testing.T) {
 	for _, secret := range []string{realKey, "header-value-secret", "claude-secret-model-name", "top secret prompt", realKey[:8]} {
 		assert.NotContains(t, line, secret)
 	}
+	// A text field with no value is absent: the refusal has no route and the
+	// success has no reason.
+	assert.NotContains(t, line, `":""`)
 }

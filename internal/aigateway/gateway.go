@@ -574,31 +574,35 @@ func buildUpstreamRequest(ctx context.Context, ep aiendpoint.Endpoint, route Rou
 // 094, "Audit", and never a key.
 func (g *Gateway) writeAudit(ctx context.Context, r AuditRecord) {
 	g.requests.Add(1)
-	attrs := []slog.Attr{
-		slog.String("action", "ai_relay_request"),
-		slog.String("run_id", r.RunID),
-		slog.String("dag", r.DAGName),
-		slog.String("step", r.StepName),
-		slog.String("worker_id", r.WorkerID),
-		slog.String("target_kind", r.TargetKind),
-		slog.String("target", r.Name),
-		slog.String("scope", r.Scope),
-		slog.String("method", r.Method),
-		slog.String("route", r.Route),
+	attrs := []slog.Attr{slog.String("action", "ai_relay_request")}
+	// Spec 094, "Audit": a text field with no value is absent. The numbers
+	// are always present.
+	for _, field := range [...]struct{ key, value string }{
+		{"run_id", r.RunID},
+		{"dag", r.DAGName},
+		{"step", r.StepName},
+		{"worker_id", r.WorkerID},
+		{"target_kind", r.TargetKind},
+		{"target", r.Name},
+		{"scope", r.Scope},
+		{"method", r.Method},
+		{"route", r.Route},
+		{"reason", string(r.Reason)},
+		{"key_fingerprint", r.Fingerprint},
+		{"rpc_method", r.RPCMethod},
+		{"tool", r.Tool},
+	} {
+		if field.value != "" {
+			attrs = append(attrs, slog.String(field.key, field.value))
+		}
+	}
+	attrs = append(attrs,
 		slog.Int("status", r.Status),
-		slog.String("reason", string(r.Reason)),
 		slog.Int64("request_bytes", r.RequestBytes),
 		slog.Int64("response_bytes", r.ResponseBytes),
 		slog.Int64("first_byte_ms", r.FirstByteMs),
 		slog.Int64("duration_ms", r.DurationMs),
-		slog.String("key_fingerprint", r.Fingerprint),
-	}
-	if r.RPCMethod != "" {
-		attrs = append(attrs, slog.String("rpc_method", r.RPCMethod))
-	}
-	if r.Tool != "" {
-		attrs = append(attrs, slog.String("tool", r.Tool))
-	}
+	)
 	logger.Info(ctx, "AI relay request", attrs...)
 	if g.audit != nil {
 		g.audit(ctx, r)

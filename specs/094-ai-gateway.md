@@ -540,8 +540,8 @@ an identity check gives a line with no run ID. The action is `ai_relay_request`.
   milliseconds. A response that streams has a first byte long before its end.
 - the fingerprint of the key that the request used
 
-The line never has the key, a prefix, a header value, a body or a model name. A field with no value is
-absent.
+The line never has the key, a prefix, a header value, a body or a model name. A text field with no
+value is absent. The numbers are always present, with 0 when there is no value.
 
 The line is a line of the log of the process, with the message "AI relay request" and the attribute
 `action=ai_relay_request`. The coordinator is often a process with no audit store, and the audit store of
