@@ -96,7 +96,7 @@ func (s *MCPService) Create(ctx context.Context, in MCPCreateInput) (*MCPServer,
 	}
 	saved, err := s.completeCreate(ctx, server, in.Credentials.Token, headers, in.Actor, now)
 	if err != nil {
-		_ = s.store.Delete(context.WithoutCancel(ctx), server.Scope, server.Name)
+		_ = s.store.Delete(context.WithoutCancel(ctx), server)
 		return nil, err
 	}
 	return saved, nil
@@ -231,7 +231,7 @@ func (s *MCPService) Delete(ctx context.Context, scope Scope, name string) error
 	if len(failed) > 0 {
 		return fmt.Errorf("MCP server %q was not deleted: %d of its credentials could not be deleted", name, len(failed))
 	}
-	return s.store.Delete(ctx, scope, name)
+	return s.store.Delete(ctx, server)
 }
 
 // ResolveMCPServer finds the entry that a step names, for a DAG, and checks the use

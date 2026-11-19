@@ -448,6 +448,48 @@ func TestMCPDeleteThatFailsCanBeRetried(t *testing.T) {
 	}
 }
 
+// replacingMCPGets is replacingGets for the MCP server entries.
+type replacingMCPGets struct {
+	aiendpoint.MCPStore
+	replace func()
+}
+
+func (s *replacingMCPGets) Get(ctx context.Context, scope aiendpoint.Scope, name string) (*aiendpoint.MCPServer, error) {
+	server, err := s.MCPStore.Get(ctx, scope, name)
+	if replace := s.replace; replace != nil {
+		s.replace = nil
+		replace()
+	}
+	return server, err
+}
+
+// Another server deletes the entry and makes the name again between the read
+// and the delete of a third. The delete leaves the new entry and its
+// credentials.
+func TestMCPDeleteLeavesAReplacement(t *testing.T) {
+	ctx := context.Background()
+	stores := newSharedStores(t)
+	other, err := aiendpoint.NewMCPService(stores.servers, stores.secrets)
+	require.NoError(t, err)
+	created, err := other.Create(ctx, raceMCPInput(tokenOne))
+	require.NoError(t, err)
+
+	svc, err := aiendpoint.NewMCPService(&replacingMCPGets{MCPStore: stores.servers, replace: func() {
+		require.NoError(t, other.Delete(ctx, created.Scope, created.Name))
+		waitPast(created.CreatedAt)
+		_, err := other.Create(ctx, raceMCPInput(tokenTwo))
+		require.NoError(t, err)
+	}}, stores.secrets)
+	require.NoError(t, err)
+	require.ErrorIs(t, svc.Delete(ctx, created.Scope, created.Name), aiendpoint.ErrNotFound)
+
+	replacement, err := other.Get(ctx, created.Scope, created.Name)
+	require.NoError(t, err)
+	creds, err := other.ReadCredentials(ctx, *replacement)
+	require.NoError(t, err)
+	assert.Equal(t, tokenTwo, creds.Token)
+}
+
 func TestMCPResolveAppliesTheScopeAndUseRules(t *testing.T) {
 	ctx := context.Background()
 	f := newMCPFixture(t)

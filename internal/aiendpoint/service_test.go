@@ -401,6 +401,63 @@ func TestDeleteThatFailsCanBeRetried(t *testing.T) {
 	require.ErrorIs(t, err, secret.ErrNotFound)
 }
 
+// replacingGets is an endpoint store whose first Get runs replace after the
+// read, as another server that deletes the endpoint and makes the name again
+// before the caller acts on what it read.
+type replacingGets struct {
+	aiendpoint.Store
+	replace func()
+}
+
+func (s *replacingGets) Get(ctx context.Context, scope aiendpoint.Scope, name string) (*aiendpoint.Endpoint, error) {
+	ep, err := s.Store.Get(ctx, scope, name)
+	if replace := s.replace; replace != nil {
+		s.replace = nil
+		replace()
+	}
+	return ep, err
+}
+
+// replaceEndpoint deletes old through svc and makes its name again with in.
+func replaceEndpoint(t *testing.T, svc *aiendpoint.Service, old *aiendpoint.Endpoint, in aiendpoint.CreateInput) {
+	t.Helper()
+	ctx := context.Background()
+	require.NoError(t, svc.Delete(ctx, old.Scope, old.Name))
+	waitPast(old.CreatedAt)
+	_, err := svc.Create(ctx, in)
+	require.NoError(t, err)
+}
+
+// requireKey checks that the endpoint cle1 reads key.
+func requireKey(t *testing.T, svc *aiendpoint.Service, key string) {
+	t.Helper()
+	ctx := context.Background()
+	ep, err := svc.Get(ctx, aiendpoint.GlobalScope(), "cle1")
+	require.NoError(t, err)
+	got, err := svc.ReadKey(ctx, *ep)
+	require.NoError(t, err)
+	assert.Equal(t, key, got)
+}
+
+// Another server deletes the endpoint and makes the name again between the
+// read and the delete of a third. The delete leaves the new endpoint and its
+// key.
+func TestDeleteLeavesAReplacement(t *testing.T) {
+	ctx := context.Background()
+	stores := newSharedStores(t)
+	other, err := aiendpoint.NewService(stores.endpoints, stores.secrets)
+	require.NoError(t, err)
+	created, err := other.Create(ctx, globalInput("cle1", keyOne, []string{"*"}, []string{"*"}))
+	require.NoError(t, err)
+
+	svc, err := aiendpoint.NewService(&replacingGets{Store: stores.endpoints, replace: func() {
+		replaceEndpoint(t, other, created, globalInput("cle1", keyTwo, []string{"*"}, []string{"*"}))
+	}}, stores.secrets)
+	require.NoError(t, err)
+	require.ErrorIs(t, svc.Delete(ctx, created.Scope, "cle1"), aiendpoint.ErrNotFound)
+	requireKey(t, other, keyTwo)
+}
+
 // An administrator can delete the secret of a key through the secret routes. A
 // later rotation makes the secret again, so the endpoint can be repaired.
 func TestRotateKeyMakesADeletedSecretAgain(t *testing.T) {
@@ -553,7 +610,7 @@ func (s deletingUpdates) Update(ctx context.Context, scope aiendpoint.Scope, nam
 	if err != nil {
 		return nil, err
 	}
-	if err := s.Delete(ctx, scope, name); err != nil {
+	if err := s.Delete(ctx, ep); err != nil {
 		return nil, err
 	}
 	if err := s.secrets.Delete(ctx, ep.SecretID); err != nil {

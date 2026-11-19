@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -95,6 +96,14 @@ func (s *interleavedMCPStore) Create(ctx context.Context, server *aiendpoint.MCP
 		before()
 	}
 	return s.MCPStore.Create(ctx, server)
+}
+
+// waitPast returns once the clock has passed at, so that an entry made again
+// has another CreatedAt. Some clocks tick in steps of milliseconds.
+func waitPast(at time.Time) {
+	for !time.Now().After(at) {
+		time.Sleep(time.Millisecond)
+	}
 }
 
 // refusingSecrets is a secret store whose Create fails.

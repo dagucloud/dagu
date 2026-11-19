@@ -119,7 +119,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Endpoint, error)
 	}
 	saved, err := s.completeCreate(ctx, ep, in.Key, in.Actor, now)
 	if err != nil {
-		_ = s.store.Delete(context.WithoutCancel(ctx), ep.Scope, ep.Name)
+		_ = s.store.Delete(context.WithoutCancel(ctx), ep)
 		return nil, err
 	}
 	return saved, nil
@@ -316,7 +316,7 @@ func (s *Service) Delete(ctx context.Context, scope Scope, name string) error {
 			return fmt.Errorf("AI endpoint %q was not deleted: its key could not be deleted: %w", name, err)
 		}
 	}
-	if err := s.store.Delete(ctx, scope, name); err != nil {
+	if err := s.store.Delete(ctx, ep); err != nil {
 		return err
 	}
 	if s.models != nil {

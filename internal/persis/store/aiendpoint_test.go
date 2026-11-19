@@ -48,7 +48,8 @@ func TestAIEndpointStoreCreateGetListDelete(t *testing.T) {
 	ctx := context.Background()
 	s, col := newAIEndpointStore(t)
 
-	require.NoError(t, s.Create(ctx, aiEndpoint(aiendpoint.GlobalScope(), "cle1")))
+	global := aiEndpoint(aiendpoint.GlobalScope(), "cle1")
+	require.NoError(t, s.Create(ctx, global))
 	require.NoError(t, s.Create(ctx, aiEndpoint(aiendpoint.WorkspaceScope("team"), "cle1")))
 	require.NoError(t, s.Create(ctx, aiEndpoint(aiendpoint.GlobalScope(), "alpha")))
 
@@ -74,12 +75,56 @@ func TestAIEndpointStoreCreateGetListDelete(t *testing.T) {
 	assert.True(t, all[1].Scope.IsGlobal())
 	assert.Equal(t, "team", all[2].Scope.Workspace)
 
-	require.NoError(t, s.Delete(ctx, aiendpoint.GlobalScope(), "cle1"))
+	require.NoError(t, s.Delete(ctx, global))
 	_, err = s.Get(ctx, aiendpoint.GlobalScope(), "cle1")
 	require.ErrorIs(t, err, aiendpoint.ErrNotFound)
-	require.ErrorIs(t, s.Delete(ctx, aiendpoint.GlobalScope(), "cle1"), aiendpoint.ErrNotFound)
+	require.ErrorIs(t, s.Delete(ctx, global), aiendpoint.ErrNotFound)
 	_, err = s.Get(ctx, aiendpoint.WorkspaceScope("team"), "cle1")
 	require.NoError(t, err, "the workspace endpoint stays")
+}
+
+// A delete with an endpoint read before the name was deleted and made again
+// leaves the new endpoint.
+func TestAIEndpointStoreDeleteLeavesAReplacement(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newAIEndpointStore(t)
+	old := aiEndpoint(aiendpoint.GlobalScope(), "cle1")
+	require.NoError(t, s.Create(ctx, old))
+	require.NoError(t, s.Delete(ctx, old))
+	replacement := aiEndpoint(aiendpoint.GlobalScope(), "cle1")
+	replacement.CreatedAt = old.CreatedAt.Add(time.Second)
+	replacement.SecretID = "secret-new"
+	require.NoError(t, s.Create(ctx, replacement))
+
+	require.ErrorIs(t, s.Delete(ctx, old), aiendpoint.ErrNotFound)
+	got, err := s.Get(ctx, aiendpoint.GlobalScope(), "cle1")
+	require.NoError(t, err)
+	assert.Equal(t, "secret-new", got.SecretID)
+}
+
+// An update of another process between the read and the delete does not stop
+// the delete: the endpoint is still the one the caller read.
+func TestAIEndpointStoreDeleteAfterAnUpdateOfAnotherProcess(t *testing.T) {
+	ctx := context.Background()
+	col := &interleavedCollection{Collection: testutil.NewMemoryBackend().Collection("ai_endpoints")}
+	s, err := store.NewAIEndpointStore(col)
+	require.NoError(t, err)
+	other, err := store.NewAIEndpointStore(col.Collection)
+	require.NoError(t, err)
+	ep := aiEndpoint(aiendpoint.GlobalScope(), "cle1")
+	require.NoError(t, s.Create(ctx, ep))
+
+	col.before = func() {
+		_, err := other.Update(ctx, aiendpoint.GlobalScope(), "cle1", func(ep *aiendpoint.Endpoint) error {
+			ep.Description = "Changed"
+			return nil
+		})
+		require.NoError(t, err)
+	}
+	col.armed.Store(true)
+	require.NoError(t, s.Delete(ctx, ep))
+	_, err = s.Get(ctx, aiendpoint.GlobalScope(), "cle1")
+	require.ErrorIs(t, err, aiendpoint.ErrNotFound)
 }
 
 func TestAIEndpointStoreUpdate(t *testing.T) {
@@ -143,8 +188,8 @@ func TestAIEndpointStoreListSkipsABadRecord(t *testing.T) {
 	assert.Equal(t, "cle1", all[0].Name)
 }
 
-// interleavedCollection, once armed, runs before before its next swap: the write
-// of another process between a read and a save.
+// interleavedCollection, once armed, runs before before its next swap or
+// compare-and-delete: the write of another process between a read and a save.
 type interleavedCollection struct {
 	persis.Collection
 	armed  atomic.Bool
@@ -156,6 +201,13 @@ func (c *interleavedCollection) CompareAndSwap(ctx context.Context, id string, e
 		c.before()
 	}
 	return c.Collection.CompareAndSwap(ctx, id, expected, next)
+}
+
+func (c *interleavedCollection) CompareAndDelete(ctx context.Context, expected *persis.Record) error {
+	if c.armed.CompareAndSwap(true, false) {
+		c.before()
+	}
+	return c.Collection.CompareAndDelete(ctx, expected)
 }
 
 func TestAIEndpointStoreRejectsInvalidNames(t *testing.T) {
@@ -173,7 +225,7 @@ func TestAIEndpointStoreRejectsInvalidNames(t *testing.T) {
 	require.ErrorIs(t, s.Create(ctx, aiEndpoint(escape, "cle1")), aiendpoint.ErrInvalid)
 	_, err = s.Get(ctx, escape, "cle1")
 	require.ErrorIs(t, err, aiendpoint.ErrInvalid)
-	require.ErrorIs(t, s.Delete(ctx, escape, "cle1"), aiendpoint.ErrInvalid)
+	require.ErrorIs(t, s.Delete(ctx, aiEndpoint(escape, "cle1")), aiendpoint.ErrInvalid)
 	_, err = s.Get(ctx, aiendpoint.GlobalScope(), "cle1")
 	require.NoError(t, err)
 }

@@ -22,7 +22,8 @@ type Store interface {
 	// the store read again and apply change again. It returns the saved endpoint,
 	// ErrNotFound when it does not exist, or the error of change.
 	Update(ctx context.Context, scope Scope, name string, change func(*Endpoint) error) (*Endpoint, error)
-	// Delete removes the endpoint of the scope. It returns ErrNotFound when it does
-	// not exist.
-	Delete(ctx context.Context, scope Scope, name string) error
+	// Delete removes the endpoint that expected was read from. It returns
+	// ErrNotFound when the scope has no endpoint of that name, or when the
+	// endpoint of that name is another one, made again after a delete.
+	Delete(ctx context.Context, expected *Endpoint) error
 }

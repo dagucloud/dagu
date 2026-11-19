@@ -44,7 +44,8 @@ func TestAIMCPServerStoreCreateGetListDelete(t *testing.T) {
 	ctx := context.Background()
 	s, col := newAIMCPServerStore(t)
 
-	require.NoError(t, s.Create(ctx, aiMCPServer(aiendpoint.GlobalScope(), "cle1")))
+	global := aiMCPServer(aiendpoint.GlobalScope(), "cle1")
+	require.NoError(t, s.Create(ctx, global))
 	require.NoError(t, s.Create(ctx, aiMCPServer(aiendpoint.WorkspaceScope("team"), "cle1")))
 	require.NoError(t, s.Create(ctx, aiMCPServer(aiendpoint.GlobalScope(), "alpha")))
 
@@ -70,12 +71,31 @@ func TestAIMCPServerStoreCreateGetListDelete(t *testing.T) {
 	assert.True(t, all[1].Scope.IsGlobal())
 	assert.Equal(t, "team", all[2].Scope.Workspace)
 
-	require.NoError(t, s.Delete(ctx, aiendpoint.GlobalScope(), "cle1"))
+	require.NoError(t, s.Delete(ctx, global))
 	_, err = s.Get(ctx, aiendpoint.GlobalScope(), "cle1")
 	require.ErrorIs(t, err, aiendpoint.ErrNotFound)
-	require.ErrorIs(t, s.Delete(ctx, aiendpoint.GlobalScope(), "cle1"), aiendpoint.ErrNotFound)
+	require.ErrorIs(t, s.Delete(ctx, global), aiendpoint.ErrNotFound)
 	_, err = s.Get(ctx, aiendpoint.WorkspaceScope("team"), "cle1")
 	require.NoError(t, err, "the workspace entry stays")
+}
+
+// A delete with an entry read before the name was deleted and made again
+// leaves the new entry.
+func TestAIMCPServerStoreDeleteLeavesAReplacement(t *testing.T) {
+	ctx := context.Background()
+	s, _ := newAIMCPServerStore(t)
+	old := aiMCPServer(aiendpoint.GlobalScope(), "docs")
+	require.NoError(t, s.Create(ctx, old))
+	require.NoError(t, s.Delete(ctx, old))
+	replacement := aiMCPServer(aiendpoint.GlobalScope(), "docs")
+	replacement.CreatedAt = old.CreatedAt.Add(time.Second)
+	replacement.Token.SecretID = "secret-new"
+	require.NoError(t, s.Create(ctx, replacement))
+
+	require.ErrorIs(t, s.Delete(ctx, old), aiendpoint.ErrNotFound)
+	got, err := s.Get(ctx, aiendpoint.GlobalScope(), "docs")
+	require.NoError(t, err)
+	assert.Equal(t, "secret-new", got.Token.SecretID)
 }
 
 func TestAIMCPServerStoreUpdate(t *testing.T) {
@@ -109,5 +129,5 @@ func TestAIMCPServerStoreRejectsInvalidNames(t *testing.T) {
 	// A workspace name with a slash cannot reach the record of another scope.
 	escape := aiendpoint.WorkspaceScope("../global")
 	require.ErrorIs(t, s.Create(ctx, aiMCPServer(escape, "docs")), aiendpoint.ErrInvalid)
-	require.ErrorIs(t, s.Delete(ctx, escape, "docs"), aiendpoint.ErrInvalid)
+	require.ErrorIs(t, s.Delete(ctx, aiMCPServer(escape, "docs")), aiendpoint.ErrInvalid)
 }

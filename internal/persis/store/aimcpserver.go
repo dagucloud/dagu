@@ -111,19 +111,17 @@ func (s *AIMCPServerStore) Update(ctx context.Context, scope aiendpoint.Scope, n
 	}, change)
 }
 
-func (s *AIMCPServerStore) Delete(ctx context.Context, scope aiendpoint.Scope, name string) error {
-	id, err := aiMCPServerRecordID(scope, name)
+func (s *AIMCPServerStore) Delete(ctx context.Context, expected *aiendpoint.MCPServer) error {
+	if expected == nil {
+		return errors.New("MCP server entry store: entry cannot be nil")
+	}
+	id, err := aiMCPServerRecordID(expected.Scope, expected.Name)
 	if err != nil {
 		return err
 	}
-	// Collection.Delete gives no error for a missing record, so the check comes first.
-	if _, err := s.col.Get(ctx, id); err != nil {
-		if errors.Is(err, persis.ErrNotFound) {
-			return aiendpoint.ErrNotFound
-		}
-		return err
-	}
-	return s.col.Delete(ctx, id)
+	return deleteRecord(ctx, s.col, id, decodeAIMCPServer, func(server *aiendpoint.MCPServer) bool {
+		return server.CreatedAt.Equal(expected.CreatedAt)
+	})
 }
 
 func decodeAIMCPServer(rec *persis.Record) (*aiendpoint.MCPServer, error) {

@@ -168,19 +168,52 @@ func swapRecord[T any](ctx context.Context, col persis.Collection, id string,
 	return zero, fmt.Errorf("record %q: other processes changed it during %d updates", id, maxRecordUpdates)
 }
 
-func (s *AIEndpointStore) Delete(ctx context.Context, scope aiendpoint.Scope, name string) error {
-	id, err := aiEndpointRecordID(scope, name)
+func (s *AIEndpointStore) Delete(ctx context.Context, expected *aiendpoint.Endpoint) error {
+	if expected == nil {
+		return errors.New("AI endpoint store: endpoint cannot be nil")
+	}
+	id, err := aiEndpointRecordID(expected.Scope, expected.Name)
 	if err != nil {
 		return err
 	}
-	// Collection.Delete gives no error for a missing record, so the check comes first.
-	if _, err := s.col.Get(ctx, id); err != nil {
+	return deleteRecord(ctx, s.col, id, decodeAIEndpoint, func(ep *aiendpoint.Endpoint) bool {
+		return ep.CreatedAt.Equal(expected.CreatedAt)
+	})
+}
+
+// deleteRecord removes the record id with a compare-and-delete on the bytes
+// that it read, when same tells that the record is the one the caller knows. A
+// write of another process between the read and the delete makes it read
+// again. It returns aiendpoint.ErrNotFound when the record does not exist or is
+// another one.
+func deleteRecord[T any](ctx context.Context, col persis.Collection, id string,
+	decode func(*persis.Record) (T, error), same func(T) bool) error {
+	for range maxRecordUpdates {
+		rec, err := col.Get(ctx, id)
 		if errors.Is(err, persis.ErrNotFound) {
 			return aiendpoint.ErrNotFound
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		value, err := decode(rec)
+		if err != nil {
+			return err
+		}
+		if !same(value) {
+			return aiendpoint.ErrNotFound
+		}
+		err = col.CompareAndDelete(ctx, rec)
+		switch {
+		case err == nil:
+			return nil
+		case errors.Is(err, persis.ErrNotFound):
+			return aiendpoint.ErrNotFound
+		case !errors.Is(err, persis.ErrConflict):
+			return err
+		}
 	}
-	return s.col.Delete(ctx, id)
+	return fmt.Errorf("record %q: other processes changed it during %d deletes", id, maxRecordUpdates)
 }
 
 func decodeAIEndpoint(rec *persis.Record) (*aiendpoint.Endpoint, error) {

@@ -20,7 +20,6 @@ type MCPStore interface {
 	// Update reads the entry of the scope, applies change and saves the result in
 	// one step, as Store.Update does.
 	Update(ctx context.Context, scope Scope, name string, change func(*MCPServer) error) (*MCPServer, error)
-	// Delete removes the entry of the scope. It returns ErrNotFound when it does not
-	// exist.
-	Delete(ctx context.Context, scope Scope, name string) error
+	// Delete removes the entry that expected was read from, as Store.Delete does.
+	Delete(ctx context.Context, expected *MCPServer) error
 }
