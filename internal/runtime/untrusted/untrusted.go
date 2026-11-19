@@ -210,9 +210,9 @@ func (s *Step) End(ctx context.Context) error {
 func StartManagedProcess(ctx context.Context, cmd *exec.Cmd) (*cmdutil.ManagedProcess, error) {
 	step := FromContext(ctx)
 	if step == nil || cmd == nil {
-		// A nil Env inherits the variables of Dagu; it stays nil.
-		if cmd != nil && cmd.Env != nil && gitSafetyFrom(ctx) {
-			cmd.Env = WithGitSafety(cmd.Env)
+		if cmd != nil && gitSafetyFrom(ctx) {
+			// Environ also gives the variables that a nil Env inherits.
+			cmd.Env = WithGitSafety(cmd.Environ())
 		}
 		return cmdutil.StartManagedProcess(cmd)
 	}
