@@ -650,13 +650,17 @@ func (s *step) build(ctx stepBuildContext) (*ir.Step, error) {
 		return nil, err
 	}
 
+	// The refusal comes first, so that it shows also when the other rules of
+	// the step fail.
+	unsupported := rejectUnsupportedStepKeys(s)
+
 	// An agent.run step compiles to the step of its engine, and keeps the
 	// compiled form.
 	var agentRun *ir.AgentRun
 	if s.AgentRun != nil {
 		compiled, run, err := compileAgentRun(ctx, s)
 		if err != nil {
-			return nil, err
+			return nil, append(unsupported, err)
 		}
 		s, agentRun = compiled, run
 	}
@@ -667,7 +671,7 @@ func (s *step) build(ctx stepBuildContext) (*ir.Step, error) {
 	}
 
 	// Run the transformer pipeline
-	errs := runStepTransformers(ctx, s, result)
+	errs := append(unsupported, runStepTransformers(ctx, s, result)...)
 
 	actionErrs, stop := runStepActionStages(ctx, s, result)
 	errs = append(errs, actionErrs...)
