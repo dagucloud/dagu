@@ -88,7 +88,14 @@ func TestDescribeValidationReport(t *testing.T) {
 	require.True(t, ok)
 	assert.True(t, strings.HasSuffix(mismatch.Error(), "f4 is not a string; and 2 more"), mismatch.Error())
 
-	for _, message := range []string{"Element not visible (no box model)", `[]`, `[{"message": "no code"}]`} {
+	notAnswers := []string{
+		"Element not visible (no box model)",
+		`[]`,
+		`[{"message": "no code"}]`,
+		// A report about the request rather than the model's answer.
+		`[{"code": "invalid_type", "expected": "number", "path": ["options", "timeout"]}]`,
+	}
+	for _, message := range notAnswers {
 		_, ok := describeValidationReport(message)
 		assert.False(t, ok, message)
 	}

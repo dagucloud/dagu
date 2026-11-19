@@ -14,6 +14,11 @@ import (
 // maxListedProblems bounds the problems an answer mismatch names.
 const maxListedProblems = 5
 
+// answerRoot is the first path element of a validation issue about the
+// model's answer: the runtime checks the answer as the structuredContent of
+// the model's response, which is no part of the step's schema.
+const answerRoot = "structuredContent"
+
 // answerMismatch is an extract answer that does not fit the step's schema,
 // told in words.
 type answerMismatch struct{ message string }
@@ -97,7 +102,8 @@ type zodIssue struct {
 }
 
 // describeValidationReport tells in words the runtime's validation report
-// that message holds, or returns false when message is not one.
+// on the model's answer that message holds, or returns false when message
+// is not one.
 func describeValidationReport(message string) (answerMismatch, bool) {
 	var issues []zodIssue
 	if err := json.Unmarshal([]byte(strings.TrimSpace(message)), &issues); err != nil || len(issues) == 0 {
@@ -105,7 +111,7 @@ func describeValidationReport(message string) (answerMismatch, bool) {
 	}
 	problems := make([]string, 0, len(issues))
 	for _, issue := range issues {
-		if issue.Code == "" {
+		if issue.Code == "" || !issue.aboutAnswer() {
 			return answerMismatch{}, false
 		}
 		problems = append(problems, issue.describe())
@@ -121,9 +127,19 @@ func describeValidationReport(message string) (answerMismatch, bool) {
 	return answerMismatch{message: text}, true
 }
 
+// aboutAnswer reports whether the issue concerns the model's answer rather
+// than the request the runtime received.
+func (i zodIssue) aboutAnswer() bool {
+	if len(i.Path) == 0 {
+		return false
+	}
+	var root string
+	return json.Unmarshal(i.Path[0], &root) == nil && root == answerRoot
+}
+
 func (i zodIssue) describe() string {
 	path := ""
-	for n, raw := range i.Path {
+	for _, raw := range i.Path[1:] {
 		var index int
 		if json.Unmarshal(raw, &index) == nil {
 			path += "[" + strconv.Itoa(index) + "]"
@@ -131,11 +147,6 @@ func (i zodIssue) describe() string {
 		}
 		var name string
 		_ = json.Unmarshal(raw, &name)
-		// The runtime checks the answer as the structuredContent of the
-		// model's response, which is no part of the step's schema.
-		if n == 0 && name == "structuredContent" {
-			continue
-		}
 		path = joinPath(path, name)
 	}
 	field := cmp.Or(path, "the answer")
