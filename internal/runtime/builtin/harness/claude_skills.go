@@ -6,7 +6,9 @@ package harness
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -94,7 +96,7 @@ func skillFileContent(entry ir.SkillEntry, f ir.SkillFile) ([]byte, error) {
 		if entry.Dir == "" {
 			return nil, fmt.Errorf("skill %q: the file %s is not in the record of the run and the skill has no folder", entry.Name, f.Path)
 		}
-		read, err := os.ReadFile(filepath.Join(entry.Dir, filepath.FromSlash(f.Path))) //nolint:gosec // The path passed skill.CheckPath.
+		read, err := readSkillFile(entry.Dir, f.Path, f.Size)
 		if err != nil {
 			return nil, fmt.Errorf("skill %q: file %s: %w (the skill changed after the run got version %s)", entry.Name, f.Path, err, entry.Hash)
 		}
@@ -105,6 +107,49 @@ func skillFileContent(entry ir.SkillEntry, f ir.SkillFile) ([]byte, error) {
 		if hex.EncodeToString(sum[:]) != f.SHA256 {
 			return nil, fmt.Errorf("skill %q: file %s changed after the run got version %s of the skill", entry.Name, f.Path, entry.Hash)
 		}
+	}
+	return data, nil
+}
+
+// readSkillFile reads the file rel of the skill folder dir. The file must be a
+// regular file inside the folder, with no link in its place, and must still
+// have the recorded size. The read stops one byte past that size, so a file
+// that changed can neither fill the memory nor block the attempt.
+func readSkillFile(dir, rel string, size int64) ([]byte, error) {
+	if size < 0 || size > skill.MaxFileBytes {
+		return nil, fmt.Errorf("the recorded size %d is outside the limit of %d bytes", size, skill.MaxFileBytes)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = root.Close() }()
+	name := filepath.FromSlash(rel)
+	before, err := root.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !before.Mode().IsRegular() {
+		return nil, errors.New("not a regular file")
+	}
+	file, err := root.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !os.SameFile(before, opened) {
+		return nil, errors.New("the file was replaced while it was opened")
+	}
+	data, err := io.ReadAll(io.LimitReader(file, size+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) != size {
+		return nil, fmt.Errorf("the file has %d bytes, not the recorded %d", len(data), size)
 	}
 	return data, nil
 }

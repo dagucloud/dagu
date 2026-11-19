@@ -94,6 +94,38 @@ func TestMaterializeSkillsRefusesAChangedAsset(t *testing.T) {
 	assert.Contains(t, err.Error(), "changed after the run got version h1")
 }
 
+// A skill folder holds no link. A binary file that became one after the run got
+// its version fails the mount, even when the target has the recorded bytes, so
+// the read cannot leave the folder or block on a device.
+func TestMaterializeSkillsRefusesALinkedAsset(t *testing.T) {
+	t.Parallel()
+
+	outside := filepath.Join(t.TempDir(), "logo.bin")
+	require.NoError(t, os.WriteFile(outside, []byte("old"), 0o644))
+	targets := map[string]string{"outside the folder": outside, "inside the folder": "real.bin"}
+	if runtime.GOOS != "windows" {
+		targets["a device"] = "/dev/zero"
+	}
+	for name, target := range targets {
+		assetDir := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(assetDir, "assets"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(assetDir, "assets", "real.bin"), []byte("old"), 0o644))
+		if err := os.Symlink(target, filepath.Join(assetDir, "assets", "logo.bin")); err != nil {
+			t.Skipf("symbolic links are not available: %v", err)
+		}
+		entry := ir.SkillEntry{
+			Name: "guide", Hash: "h1", Dir: assetDir,
+			Files: []ir.SkillFile{
+				textFile("SKILL.md", "---\nname: guide\ndescription: d\n---\nb\n"),
+				{Path: "assets/logo.bin", Size: 3, SHA256: sum("old")},
+			},
+		}
+		_, _, err := materializeSkills([]ir.SkillEntry{entry})
+		require.Error(t, err, name)
+		assert.Contains(t, err.Error(), "assets/logo.bin", name)
+	}
+}
+
 func TestMaterializeSkillsRefusesAPathOutsideTheLayout(t *testing.T) {
 	t.Parallel()
 
