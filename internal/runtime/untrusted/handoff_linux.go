@@ -200,6 +200,11 @@ func (iso *isolation) handoff() error {
 		case protected[e.path]:
 			return false, iso.protectDir(e)
 		default:
+			// A change of owner acts on the file, so it would also give the
+			// other paths of a file with more than one link.
+			if e.isRegular() && e.st.Nlink > 1 {
+				return false, stepError(iso.step, "give", e.path, errors.New("the file has more than one link"))
+			}
 			if err := chownFD(e, int(iso.uid), int(iso.gid)); err != nil {
 				return false, stepError(iso.step, "change the owner of", e.path, err)
 			}

@@ -198,6 +198,30 @@ func TestIsolatedStepPlace(t *testing.T) {
 	assert.Equal(t, os.Geteuid(), ownerUID(t, filepath.Join(workDir, "repo", "src")), "a failed Begin gives nothing")
 }
 
+// A file with more than one link, such as one of a package store, fails the
+// step: a change of owner would also give its path outside the work directory.
+func TestIsolatedStepHardLink(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	outside := filepath.Join(workDir, "..", filepath.Base(workDir)+"-store")
+	require.NoError(t, os.WriteFile(outside, []byte("store\n"), 0o644))
+	t.Cleanup(func() { _ = os.Remove(outside) })
+	linked := filepath.Join(workDir, "repo", "src", "linked.txt")
+	require.NoError(t, os.Link(outside, linked))
+
+	step, err := Begin(ctx, testRequest(t, workDir, workDir))
+	if err == nil {
+		_ = step.End(ctx)
+	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "the file has more than one link")
+	assert.Contains(t, err.Error(), linked)
+	assert.Equal(t, os.Geteuid(), ownerUID(t, outside), "the other path keeps its owner")
+	assert.FileExists(t, linked)
+	assert.Equal(t, os.Geteuid(), ownerUID(t, filepath.Join(workDir, "repo", "src", "main.txt")), "a failed Begin gives nothing")
+}
+
 // Untrusted steps run one at a time. The second step waits with a line in its
 // log.
 func TestIsolatedStepsOneAtATime(t *testing.T) {

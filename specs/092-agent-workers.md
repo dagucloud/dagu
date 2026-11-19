@@ -545,6 +545,8 @@ isolation. An agent worker always has isolation. A process with neither these ke
      entries in them, and cannot rename or remove an entry of another owner.
    Dagu changes each owner and each mode through a file descriptor that it opens with `O_NOFOLLOW`.
    A link that replaces a path during the change cannot redirect it.
+   A file with more than one link fails the step, because a change of owner would also give its
+   other paths.
 4. **Home.** Dagu makes a new folder for the step, owned by the restricted user, with the mode
    `0700`. `HOME` and `TMPDIR` name it. Dagu removes it when the step ends.
 
