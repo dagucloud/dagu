@@ -14,14 +14,19 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode/utf8"
 )
 
 // DecodeStrict decodes one JSON value. Unlike encoding/json it fails on an
-// object that has the same key two times. It also fails on data after the
-// value. Numbers stay json.Number, so an integer keeps all its digits.
+// object that has the same key two times and on text that is not valid UTF-8.
+// It also fails on data after the value. Numbers stay json.Number, so an
+// integer keeps all its digits.
 //
 // The error names the path of the duplicate key.
 func DecodeStrict(data []byte) (any, error) {
+	if !utf8.Valid(data) {
+		return nil, errors.New("the JSON text is not valid UTF-8")
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	value, err := decodeValue(decoder, "$")

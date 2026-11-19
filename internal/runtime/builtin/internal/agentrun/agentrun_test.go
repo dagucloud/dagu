@@ -34,6 +34,17 @@ func TestDecodeStrictRejectsADuplicateField(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestDecodeStrictInvalidUTF8(t *testing.T) {
+	t.Parallel()
+
+	_, err := DecodeStrict([]byte("{\"a\":\"\xff\"}"))
+	require.Error(t, err)
+
+	value, err := DecodeStrict([]byte(`{"a":"é"}`))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{"a": "é"}, value)
+}
+
 const closedSchema = `{
   "type": "object",
   "additionalProperties": false,
