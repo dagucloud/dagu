@@ -78,11 +78,12 @@ func TestNewUpstreamRefusesUserInformation(t *testing.T) {
 	assert.NotContains(t, err.Error(), "hunter2")
 }
 
-// The forms are x-api-key and bearer. Another name is an error that names both.
+// The forms are x-api-key, bearer and anthropic-oauth. Another name is an error
+// that names each of them.
 func TestUpstreamAuthForms(t *testing.T) {
 	t.Parallel()
 
-	for _, form := range []string{"x-api-key", "bearer"} {
+	for _, form := range []string{"x-api-key", "bearer", "anthropic-oauth"} {
 		auth, err := egress.ParseUpstreamAuth(form)
 		require.NoError(t, err)
 		assert.Equal(t, form, string(auth))
@@ -92,6 +93,7 @@ func TestUpstreamAuthForms(t *testing.T) {
 		require.Error(t, err, form)
 		assert.Contains(t, err.Error(), `"x-api-key"`)
 		assert.Contains(t, err.Error(), `"bearer"`)
+		assert.Contains(t, err.Error(), `"anthropic-oauth"`)
 		assert.Contains(t, err.Error(), fmt.Sprintf("%q", form))
 	}
 	_, err := egress.NewUpstream("https://api.example.com", egress.UpstreamAuth("basic"), "k")
