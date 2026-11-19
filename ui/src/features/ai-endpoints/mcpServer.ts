@@ -41,6 +41,8 @@ export const RESERVED_HEADERS: readonly string[] = [
   'content-length',
   'content-type',
   'accept',
+  'accept-encoding',
+  'content-encoding',
   'mcp-session-id',
   'mcp-protocol-version',
   'connection',

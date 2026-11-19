@@ -133,6 +133,16 @@ describe('headerNameProblems', () => {
     expect(problems.get(6)).toBeUndefined();
     expect(headerNameProblems(rows, 'token').size).toBe(0);
   });
+
+  it('refuses the encoding headers that the server reserves', () => {
+    const rows = [
+      { id: 1, name: 'Accept-Encoding' },
+      { id: 2, name: 'content-encoding' },
+    ];
+    const problems = headerNameProblems(rows, 'headers');
+    expect(problems.get(1)).toBe('header-reserved');
+    expect(problems.get(2)).toBe('header-reserved');
+  });
 });
 
 describe('values', () => {

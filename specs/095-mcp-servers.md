@@ -82,9 +82,10 @@ A MCP server entry has these fields:
 
 An entry has a `token`, or `headers`, or none. It does not have a `token` and a header
 `authorization`. A header name matches `^[A-Za-z][A-Za-z0-9-]{0,63}$`. The server keeps it in lower
-case. A header name is not `host`, `content-length`, `content-type`, `accept`, `mcp-session-id`,
-`mcp-protocol-version` or a hop-by-hop header. Two names that differ by case only are an error. A value
-is not empty, has no control character and has at most 8192 bytes.
+case. A header name is not `host`, `content-length`, `content-type`, `accept`, `accept-encoding`,
+`content-encoding`, `mcp-session-id`, `mcp-protocol-version` or a hop-by-hop header. Two names that
+differ by case only are an error. A value is not empty, has no control character and has at most 8192
+bytes.
 
 The credentials follow the display rule of [The key](093-ai-endpoints.md#the-key). The page shows the header names, and a
 prefix and a fingerprint for each value. Each value is a managed secret with the ref
