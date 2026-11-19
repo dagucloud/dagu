@@ -34,7 +34,7 @@ export function ToolDefinitionCard({ tool }: ToolDefinitionCardProps) {
       className="text-xs border-l-2 border-l-purple-500 pl-2 py-0.5"
     >
       <div className="flex min-w-0 items-center gap-1.5">
-        <span className="min-w-0 truncate font-mono font-medium text-purple-500">
+        <span className="min-w-0 whitespace-normal break-words font-mono font-medium text-purple-500">
           {tool.name}
         </span>
         {tool.source && (

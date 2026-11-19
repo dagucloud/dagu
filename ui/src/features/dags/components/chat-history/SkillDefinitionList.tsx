@@ -31,7 +31,7 @@ export function SkillDefinitionList({ skills }: { skills: SkillDefinition[] }) {
             open && 'rotate-90'
           )}
         />
-        <BookOpen className="h-3 w-3 text-purple-500" />
+        <BookOpen className="h-3 w-3 text-primary" />
         <span className="text-xs font-medium">
           <I18nText text="Skills ({count})" values={{ count: skills.length }} />
         </span>
@@ -42,15 +42,17 @@ export function SkillDefinitionList({ skills }: { skills: SkillDefinition[] }) {
             <div
               key={skill.name}
               data-testid="skill-definition"
-              className="text-xs border-l-2 border-l-purple-500 pl-2 py-0.5"
+              className="text-xs border-l-2 border-l-primary pl-2 py-0.5"
             >
               <div className="flex min-w-0 items-center gap-1.5">
-                <span className="min-w-0 truncate font-mono font-medium text-purple-500">
+                <span className="min-w-0 whitespace-normal break-words font-mono font-medium text-primary">
                   {skill.name}
                 </span>
               </div>
               {skill.description && (
-                <div className="text-muted-foreground">{skill.description}</div>
+                <div className="whitespace-normal break-words text-muted-foreground">
+                  {skill.description}
+                </div>
               )}
             </div>
           ))}
