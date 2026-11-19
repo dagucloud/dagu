@@ -50,11 +50,9 @@ function renderCard(
 ): {
   onWebhookChange: () => void;
   onTokenCreated: () => void;
-  onSecretVisibleChange: () => void;
 } {
   const onWebhookChange = vi.fn();
   const onTokenCreated = vi.fn();
-  const onSecretVisibleChange = vi.fn();
   render(
     <WebhookProfileTokensCard
       fileName="example"
@@ -64,10 +62,9 @@ function renderCard(
       activeProfileNames={['customer-a-profile', 'customer-b-profile']}
       onWebhookChange={onWebhookChange}
       onTokenCreated={onTokenCreated}
-      onSecretVisibleChange={onSecretVisibleChange}
     />
   );
-  return { onWebhookChange, onTokenCreated, onSecretVisibleChange };
+  return { onWebhookChange, onTokenCreated };
 }
 
 // parity:webhook-profile-tokens
@@ -87,9 +84,7 @@ describe('WebhookProfileTokensCard', () => {
     });
 
     const user = userEvent.setup();
-    const { onWebhookChange, onTokenCreated, onSecretVisibleChange } =
-      renderCard();
-    expect(onSecretVisibleChange).not.toHaveBeenCalled();
+    const { onWebhookChange, onTokenCreated } = renderCard();
 
     await user.type(
       screen.getByRole('textbox', { name: 'Token name' }),
@@ -114,8 +109,6 @@ describe('WebhookProfileTokensCard', () => {
     );
     expect(onWebhookChange).toHaveBeenCalledWith(updatedWebhook);
     expect(onTokenCreated).toHaveBeenCalledWith('dagu_wh_secret');
-    expect(onSecretVisibleChange).toHaveBeenCalledTimes(1);
-    expect(onSecretVisibleChange).toHaveBeenCalledWith(true);
   });
 
   it('revokes a token after confirmation', async () => {
