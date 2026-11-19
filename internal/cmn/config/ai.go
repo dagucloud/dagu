@@ -259,9 +259,8 @@ func setAIKey(cfg *AIConfig, path string, value any) error {
 		if !ok {
 			return fail(value)
 		}
-		proxy, err := parseAIProxyURL(text)
-		if err != nil {
-			return fail(proxy)
+		if err := checkAIProxyURL(text); err != nil {
+			return fail(hideUserInfo(text))
 		}
 		cfg.Upstream.ProxyURL = text
 		cfg.Sources[path] = "file"
@@ -276,23 +275,37 @@ func setAIKey(cfg *AIConfig, path string, value any) error {
 	return nil
 }
 
-// parseAIProxyURL checks a proxy URL. An empty string means a direct call. On an
-// error it returns the text to show, with the user information hidden.
-func parseAIProxyURL(text string) (shown string, err error) {
+// checkAIProxyURL checks a proxy URL. An empty string means a direct call.
+func checkAIProxyURL(text string) error {
 	if text == "" {
-		return "", nil
+		return nil
 	}
-	u, parseErr := url.Parse(text)
-	if parseErr != nil {
-		return text, parseErr
+	u, err := url.Parse(text)
+	if err != nil {
+		return err
 	}
 	if u.User != nil {
-		return u.Redacted(), fmt.Errorf("the URL has user information")
+		return fmt.Errorf("the URL has user information")
 	}
 	if u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
-		return text, fmt.Errorf("the URL is not an http or https URL")
+		return fmt.Errorf("the URL is not an http or https URL")
 	}
-	return text, nil
+	return nil
+}
+
+// hideUserInfo replaces the user information of a URL with xxxxx, so that an
+// error never shows a credential. It works on the text because a URL that does
+// not parse can still hold one.
+func hideUserInfo(text string) string {
+	prefix, rest := "", text
+	if i := strings.Index(text, "://"); i >= 0 {
+		prefix, rest = text[:i+3], text[i+3:]
+	}
+	at := strings.LastIndex(rest, "@")
+	if at < 0 {
+		return text
+	}
+	return prefix + "xxxxx" + rest[at:]
 }
 
 // checkAIContradictions stops the pairs of keys that contradict each other. The
