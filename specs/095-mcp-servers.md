@@ -205,8 +205,10 @@ only refuses the call.
 The coordinator takes `allow` from the DAG that it holds, and never from the request. A `tools/call`
 with no tool name is not valid. The error of a refused tool has the code -32001 and the id of the
 request. A refused item of a batch refuses the whole batch: no item runs, and each request of the
-batch gets an error with its id. A refused call with no id has the status 202 and no body. A response
-of the client to a request of the server is valid.
+batch gets an error with its id. A refused call with no id has the status 202 and no body. The
+message of the error quotes at most 128 bytes of the tool name. Errors over `max_response_bytes`
+of Spec 094 give `response_too_large` instead. A response of the client to a request of the server
+is valid.
 
 The coordinator and the server must read the same message. The coordinator reads the keys with their
 exact case, and refuses a body with two equal keys at any depth. It also refuses a key of a message, or

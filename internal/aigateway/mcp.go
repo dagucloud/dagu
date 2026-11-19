@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 )
 
 // Spec 095, "The key allow". The coordinator parses each POST body of the MCP
@@ -255,19 +257,31 @@ func inspectMCPBody(body []byte, allow []string) (*mcpInspection, *Failure) {
 	return insp, nil
 }
 
+// maxEchoedToolBytes bounds the tool name that the message of a refusal quotes.
+// Each answer of a batch repeats the message.
+const maxEchoedToolBytes = 128
+
 // refusalBody returns the answer to a body that holds a refused tools/call: the
 // JSON-RPC error of the item that has an id. A batch gets an array with one error
 // for each request, because Dagu refuses the whole batch. A body with no request
-// has no answer: the caller sends the status 202 with no body.
-func (i *mcpInspection) refusalBody(server string) []byte {
-	message := string(ReasonMCPToolNotAllowed) + ": the tool " + quote(i.refused.tool) +
+// has no answer: the caller sends the status 202 with no body. An answer of more
+// than maxBytes gives response_too_large, before the answer is built.
+func (i *mcpInspection) refusalBody(server string, maxBytes int64) ([]byte, *Failure) {
+	tool := i.refused.tool
+	if len(tool) > maxEchoedToolBytes {
+		tool = stringutil.TruncUTF8Bytes(tool, maxEchoedToolBytes) + "..."
+	}
+	message := string(ReasonMCPToolNotAllowed) + ": the tool " + quote(tool) +
 		" is not in allow of the MCP server " + quote(server)
 	if i.batch {
-		message = string(ReasonMCPToolNotAllowed) + ": the batch has a call of the tool " + quote(i.refused.tool) +
+		message = string(ReasonMCPToolNotAllowed) + ": the batch has a call of the tool " + quote(tool) +
 			", which is not in allow of the MCP server " + quote(server) + ", so no item ran"
 	}
 	if len(i.requests) == 0 {
-		return nil
+		return nil, nil
+	}
+	if size := i.refusalSize(message); size > maxBytes {
+		return nil, Fail(ReasonResponseTooLarge, "the refusal of the batch has more than %d bytes", maxBytes)
 	}
 	answers := make([]map[string]any, 0, len(i.requests))
 	for _, request := range i.requests {
@@ -279,9 +293,23 @@ func (i *mcpInspection) refusalBody(server string) []byte {
 	}
 	data, err := json.Marshal(out)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
-	return data
+	return data, nil
+}
+
+// refusalSize returns an upper bound of the size of the refusal answers. An
+// answer is the encoded error with the empty id, plus the raw id and a comma.
+func (i *mcpInspection) refusalSize(message string) int64 {
+	empty, err := json.Marshal(rpcError(json.RawMessage(`""`), jsonRPCToolNotAllowed, message))
+	if err != nil {
+		return 0
+	}
+	size := int64(2) // the brackets of a batch
+	for _, request := range i.requests {
+		size += int64(len(empty) + len(request.id) + 1)
+	}
+	return size
 }
 
 func rpcError(id json.RawMessage, code int, message string) map[string]any {

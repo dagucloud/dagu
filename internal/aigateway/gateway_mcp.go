@@ -131,7 +131,10 @@ func (g *Gateway) doMCP(ctx context.Context, req Request, sink ResponseSink) (fa
 // is written within the total timeout of the call.
 func (g *Gateway) refuseTool(ctx, callCtx context.Context, sink ResponseSink, server string, inspection *mcpInspection, record *AuditRecord) *Failure {
 	record.Reason = ReasonMCPToolNotAllowed
-	answer := inspection.refusalBody(server)
+	answer, failure := inspection.refusalBody(server, g.limits.MaxResponseBytes)
+	if failure != nil {
+		return failure
+	}
 	header := http.Header{}
 	status := http.StatusOK
 	if answer == nil {

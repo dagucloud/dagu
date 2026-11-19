@@ -327,6 +327,36 @@ func TestDoMCP_BatchIsParsedItemByItem(t *testing.T) {
 	assert.Equal(t, int32(1), calls.Load())
 }
 
+// Each answer of a refused batch repeats the message, so the message quotes a
+// long tool name in part, and an answer over max_response_bytes is not built.
+func TestDoMCP_RefusalIsBounded(t *testing.T) {
+	t.Parallel()
+	limits := testLimits()
+	limits.MaxResponseBytes = 8 << 10
+	g := newMCPGateway(t, mcpSourceFor("https://docs.example.com/mcp"), limits, nil)
+
+	sink := &recSink{}
+	require.Nil(t, g.Do(context.Background(), mcpRequest(http.MethodPost, rpcCall(1, strings.Repeat("x", 1000))), sink))
+	var answer struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(sink.body()), &answer))
+	assert.Contains(t, answer.Error.Message, `"`+strings.Repeat("x", 128)+`..."`)
+
+	items := make([]string, 0, 101)
+	for range 100 {
+		items = append(items, `{"jsonrpc":"2.0","id":1,"method":"ping"}`)
+	}
+	batch := "[" + strings.Join(append(items, rpcCall(2, "drop")), ",") + "]"
+	sink = &recSink{}
+	failure := g.Do(context.Background(), mcpRequest(http.MethodPost, batch), sink)
+	require.NotNil(t, failure)
+	assert.Equal(t, aigateway.ReasonResponseTooLarge, failure.Reason)
+	assert.Empty(t, sink.body())
+}
+
 func TestDoMCP_InvalidBodiesAreRefused(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
