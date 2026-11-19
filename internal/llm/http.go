@@ -13,8 +13,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 )
 
@@ -110,9 +108,7 @@ func (c *HTTPClient) Do(ctx context.Context, url string, body []byte, headers ma
 		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		_ = resp.Body.Close()
 
-		apiErr := NewAPIError("llm", resp.StatusCode, string(errBody))
-		apiErr.RetryAt = parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
-		lastErr = apiErr
+		lastErr = NewAPIError("llm", resp.StatusCode, string(errBody))
 
 		if !isRetryableStatusCode(resp.StatusCode) {
 			return nil, lastErr
@@ -120,25 +116,6 @@ func (c *HTTPClient) Do(ctx context.Context, url string, body []byte, headers ma
 	}
 
 	return nil, lastErr
-}
-
-// parseRetryAfter reads the header Retry-After: a number of seconds or an HTTP
-// date. It returns the zero time when the value is absent or not usable.
-func parseRetryAfter(value string, now time.Time) time.Time {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return time.Time{}
-	}
-	if seconds, err := strconv.Atoi(value); err == nil {
-		if seconds < 0 {
-			return time.Time{}
-		}
-		return now.Add(time.Duration(seconds) * time.Second)
-	}
-	if at, err := http.ParseTime(value); err == nil {
-		return at
-	}
-	return time.Time{}
 }
 
 // backoff returns the wait duration for the given attempt (1-indexed).
