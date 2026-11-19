@@ -550,6 +550,9 @@ func TestDoMCP_SSEIsRelayedChunkByChunk(t *testing.T) {
 		flusher.Flush()
 	}))
 	defer upstream.Close()
+	// Close waits for the handler, so a failed check must release it first.
+	releaseServer := sync.OnceFunc(func() { close(release) })
+	defer releaseServer()
 	g := newMCPGateway(t, mcpSourceFor(upstream.URL), testLimits(), nil)
 
 	first := make(chan struct{})
@@ -569,7 +572,7 @@ func TestDoMCP_SSEIsRelayedChunkByChunk(t *testing.T) {
 		t.Fatal("the call ended before the server sent the second event")
 	default:
 	}
-	close(release)
+	releaseServer()
 	require.Nil(t, <-done)
 	assert.Contains(t, sink.body(), `"method":"two"`)
 	assert.GreaterOrEqual(t, len(sink.chunks), 2)
@@ -636,6 +639,9 @@ func TestDoMCP_StreamLimitsAreShared(t *testing.T) {
 		<-block
 	}))
 	defer upstream.Close()
+	// Close waits for the handler, so a failed check must release it first.
+	unblock := sync.OnceFunc(func() { close(block) })
+	defer unblock()
 	limits := testLimits()
 	limits.MaxStreamsPerRun = 1
 	g := newMCPGateway(t, mcpSourceFor(upstream.URL), limits, nil)
@@ -646,7 +652,7 @@ func TestDoMCP_StreamLimitsAreShared(t *testing.T) {
 	failure := g.Do(context.Background(), mcpRequest(http.MethodGet, ""), &recSink{})
 	require.NotNil(t, failure)
 	assert.Equal(t, aigateway.ReasonTooManyStreams, failure.Reason)
-	close(block)
+	unblock()
 	require.Nil(t, <-done)
 }
 
