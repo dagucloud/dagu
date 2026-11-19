@@ -108,6 +108,12 @@ func TestFilterHeaders(t *testing.T) {
 	for _, name := range []string{"Set-Cookie", "Connection", "Transfer-Encoding", "Proxy-Authenticate", "Proxy-Foo", "Upgrade"} {
 		assert.Empty(t, resp.Get(name), name)
 	}
+
+	// A header named in Connection is hop-by-hop too (RFC 9110, section 7.6.1).
+	resp = aigateway.FilterResponseHeaders(http.Header{
+		"Connection": {"x-internal, X-Debug"}, "X-Internal": {"v"}, "X-Debug": {"v"}, "Retry-After": {"5"},
+	})
+	assert.Equal(t, http.Header{"Retry-After": {"5"}}, resp)
 }
 
 func TestReasonStatuses(t *testing.T) {

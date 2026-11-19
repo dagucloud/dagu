@@ -231,12 +231,19 @@ var hopByHop = []string{
 }
 
 // FilterResponseHeaders returns the response headers that reach the client: all
-// but the hop-by-hop headers, set-cookie and the headers that start with proxy-.
+// but the hop-by-hop headers, the headers that connection names, set-cookie and
+// the headers that start with proxy-.
 func FilterResponseHeaders(in http.Header) http.Header {
+	named := map[string]bool{}
+	for _, value := range in.Values("Connection") {
+		for token := range strings.SplitSeq(value, ",") {
+			named[http.CanonicalHeaderKey(strings.TrimSpace(token))] = true
+		}
+	}
 	out := http.Header{}
 	for name, values := range in {
 		canonical := http.CanonicalHeaderKey(name)
-		if slices.Contains(hopByHop, canonical) || strings.HasPrefix(canonical, "Proxy-") {
+		if slices.Contains(hopByHop, canonical) || named[canonical] || strings.HasPrefix(canonical, "Proxy-") {
 			continue
 		}
 		out[canonical] = slices.Clone(values)
