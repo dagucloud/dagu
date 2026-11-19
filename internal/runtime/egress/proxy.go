@@ -149,6 +149,7 @@ func New(opts Options) (*Proxy, error) {
 			r.Out.Host = r.In.URL.Host
 			r.Out.Header.Del("Proxy-Authorization")
 			r.Out.Header.Del("Proxy-Connection")
+			declineUpgrade(r.Out.Header)
 		},
 		Transport: p.transport,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -229,6 +230,7 @@ func (p *Proxy) rewriteOrigin(r *httputil.ProxyRequest) {
 	for _, name := range []string{"X-Api-Key", "Authorization", "Proxy-Authorization", "Proxy-Connection"} {
 		header.Del(name)
 	}
+	declineUpgrade(header)
 	switch p.upstream.auth {
 	case AuthXAPIKey:
 		header.Set("X-Api-Key", p.upstream.key)
@@ -238,6 +240,16 @@ func (p *Proxy) rewriteOrigin(r *httputil.ProxyRequest) {
 		header.Set("Authorization", "Bearer "+p.upstream.key)
 		header.Set("Anthropic-Beta", anthropicbeta.Join(header.Values("Anthropic-Beta"), AnthropicOAuthBeta))
 	}
+}
+
+// declineUpgrade removes the protocol upgrade from an outgoing request, so the
+// destination answers in HTTP/1.1. A switched connection would escape the idle
+// limits of the proxy. The reverse proxy fails a 101 answer to a request without
+// an upgrade. The hop-by-hop headers are gone by now, so Connection holds only
+// the upgrade.
+func declineUpgrade(header http.Header) {
+	header.Del("Connection")
+	header.Del("Upgrade")
 }
 
 // clientCredential describes the credential that a client sent to the route of

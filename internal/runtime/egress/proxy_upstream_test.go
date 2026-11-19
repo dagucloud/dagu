@@ -462,6 +462,55 @@ func TestUpstreamRedirectDoesNotLeave(t *testing.T) {
 	assert.Empty(t, other.all(), "the redirect target gets no request from the proxy")
 }
 
+// A switched protocol would hold a raw connection that no idle limit covers, and
+// no route needs one. On both routes the proxy sends the request without the
+// upgrade, and a destination that switches protocols anyway gives 502.
+func TestProtocolUpgradeIsNotForwarded(t *testing.T) {
+	t.Parallel()
+
+	switchProtocols := func(w http.ResponseWriter, _ *http.Request) {
+		conn, buffered, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_, _ = io.WriteString(conn, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+		_, _ = io.Copy(io.Discard, buffered)
+	}
+	for _, tc := range []struct {
+		name    string
+		handler http.HandlerFunc
+		want    int
+	}{
+		{name: "switches when asked", want: http.StatusOK, handler: func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Upgrade") != "" {
+				switchProtocols(w, r)
+				return
+			}
+			_, _ = io.WriteString(w, "ok")
+		}},
+		{name: "always switches", want: http.StatusBadGateway, handler: switchProtocols},
+	} {
+		rec, host, port := startRecorder(t, false, tc.handler)
+		destination := "allowed.example.test:" + port
+		upstream := mustUpstream(t, "http://"+destination, egress.AuthXAPIKey)
+		proxyAddr, _ := upstreamProxy(t, []string{destination}, upstream, resolverFor("allowed.example.test", host), nil, nil)
+		for _, target := range []string{"http://" + destination + "/ws", "/ws"} {
+			conn, err := net.Dial("tcp", proxyAddr)
+			require.NoError(t, err)
+			_, err = fmt.Fprintf(conn, "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n", target, destination)
+			require.NoError(t, err)
+			response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+			require.NoError(t, err)
+			_ = conn.Close()
+			assert.Equal(t, tc.want, response.StatusCode, "%s: %s", tc.name, target)
+		}
+		for _, req := range rec.all() {
+			assert.Empty(t, req.Header.Get("Upgrade"), "%s: the destination gets no upgrade", tc.name)
+		}
+	}
+}
+
 // The upstream MUST match a rule: the host and the port. A wildcard rule that
 // covers the host matches.
 func TestNewChecksTheUpstreamAgainstTheRules(t *testing.T) {

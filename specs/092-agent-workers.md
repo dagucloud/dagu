@@ -781,7 +781,9 @@ a name that has no IDNA ASCII form is refused at start. A name that only a wildc
 `*.github.io`, gets public addresses only, and so does an address that only a wildcard such as
 `*.0.0.1` matches. An entry that names the host or the address reaches any address. A special-purpose address, such as `198.18.0.1`, is not public, and a NAT64 or 6to4
 address is public only when the IPv4 address in it is. A `CONNECT` tunnel in which no byte moves
-for 10 minutes ends. A kept connection with no request for 2 minutes ends.
+for 10 minutes ends. A kept connection with no request for 2 minutes ends. The proxy forwards no
+protocol upgrade, such as WebSocket, so no connection escapes these limits: the request goes without
+the upgrade, and a destination that switches protocols anyway gives the status 502.
 
 These options add a route to one upstream, with the real key of the model API. A step of the
 provider `claude` does not use this route: it names an endpoint (Spec 094). The route serves a CLI
