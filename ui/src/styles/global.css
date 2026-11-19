@@ -146,7 +146,7 @@
     --success-foreground: #ffffff;
     --success-muted: color-mix(in srgb, var(--success) 10%, transparent);
     --warning: #9a5d0b;
-    /* White on the amber: 5.3:1. The dark text had 3.3:1. */
+    /* White on the amber: 5.3:1. */
     --warning-foreground: #ffffff;
     --warning-muted: color-mix(in srgb, var(--warning) 10%, transparent);
     --info: #5d4fe0;
@@ -169,7 +169,8 @@
     --tool-builtin: #be185d;
 
     /* The status colours of the graph lines and tints. Each one equals the
-       --status-* token of the same theme and the palette of the export. */
+       --status-* token of the same theme and GRAPH_TONE_COLORS of
+       src/lib/statusPalette.ts, which the export and Mermaid draw with. */
     --graph-success: #178a44;
     --graph-error: #c8382f;
     --graph-running: #5d4fe0;

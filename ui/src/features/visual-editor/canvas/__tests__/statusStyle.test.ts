@@ -4,7 +4,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import postcss from 'postcss';
 import { NodeStatus } from '@/api/v1/schema';
+import { GRAPH_TONE_COLORS } from '@/lib/statusPalette';
 import { describe, expect, it } from 'vitest';
 import {
   edgeTintStatus,
@@ -13,6 +15,25 @@ import {
   statusDashArray,
   statusStrokeClass,
 } from '../statusStyle';
+
+/** The custom properties that the rule `selector` of global.css declares. */
+function themeTokens(selector: ':root' | '.dark'): Map<string, string> {
+  const css = fs.readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../../../styles/global.css'
+    ),
+    'utf8'
+  );
+  const tokens = new Map<string, string>();
+  postcss.parse(css).walkRules((rule) => {
+    if (rule.selector !== selector) return;
+    rule.walkDecls(/^--/, (decl) => {
+      tokens.set(decl.prop, decl.value);
+    });
+  });
+  return tokens;
+}
 
 // The graph shows a status by the --graph-* tokens. Each one has the value of
 // the --status-* token of its theme.
@@ -37,26 +58,21 @@ describe('status classes', () => {
     expect(statusStrokeClass(status)).toBe(`stroke-[var(${token})]`);
   });
 
-  // One value in the light theme, then one in the dark theme.
-  it('defines each graph token in both themes', () => {
-    const css = fs.readFileSync(
-      path.resolve(
-        path.dirname(fileURLToPath(import.meta.url)),
-        '../../../../styles/global.css'
-      ),
-      'utf8'
-    );
-    const values = (token: string) =>
-      [...css.matchAll(new RegExp(`\\s${token}:\\s*([^;]+);`, 'g'))].map(
-        (m) => m[1]
-      );
-    expect(values('--graph-success')).toEqual(['#178a44', '#22c55e']);
-    expect(values('--graph-error')).toEqual(['#c8382f', '#ef5350']);
-    expect(values('--graph-running')).toEqual(['#5d4fe0', '#a89ff8']);
-    expect(values('--graph-warning')).toEqual(['#9a5d0b', '#d9a03c']);
-    expect(values('--graph-aborted')).toEqual(['#a8208a', '#e57ac8']);
-    expect(values('--graph-neutral')).toEqual(['#80808b', '#8a8d99']);
-  });
+  // A drawing that cannot read a token, such as an exported image or the
+  // Mermaid graph, takes the same colours from GRAPH_TONE_COLORS.
+  it.each([
+    [':root', 'light'],
+    ['.dark', 'dark'],
+  ] as const)(
+    'gives each graph token in %s its status colour',
+    (selector, theme) => {
+      const tokens = themeTokens(selector);
+      for (const [tone, color] of Object.entries(GRAPH_TONE_COLORS[theme])) {
+        expect(tokens.get(`--graph-${tone}`), `--graph-${tone}`).toBe(color);
+        expect(tokens.get(`--status-${tone}`), `--status-${tone}`).toBe(color);
+      }
+    }
+  );
 });
 
 // The status of a step of the run reads at any zoom: a line of two widths
