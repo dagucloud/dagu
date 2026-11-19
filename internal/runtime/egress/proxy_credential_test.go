@@ -206,8 +206,9 @@ func TestCredentialRulesNeedTheProxyCredential(t *testing.T) {
 
 // New refuses a list of destinations with a proxy credential without the
 // credential, a credential without such a destination, a short credential, a
-// credential with a control character, and two lists that can match one
-// destination. No error holds the credential.
+// credential with a control character, two lists that can match one
+// destination, and a plain wildcard next to such a list. No error holds the
+// credential.
 func TestNewChecksTheCredentialRules(t *testing.T) {
 	t.Parallel()
 
@@ -220,7 +221,9 @@ func TestNewChecksTheCredentialRules(t *testing.T) {
 	}{
 		{"valid", []string{"api.example.com:443"}, []string{"github.com:443"}, testProxyCredential, ""},
 		{"other port", []string{"github.com:80"}, []string{"github.com:443"}, testProxyCredential, ""},
-		{"sibling wildcards", []string{"*.a.example.com"}, []string{"*.b.example.com"}, testProxyCredential, ""},
+		{"guarded wildcard only", []string{"api.example.com:443"}, []string{"*.b.example.com"}, testProxyCredential, ""},
+		{"sibling wildcards", []string{"*.a.example.com"}, []string{"*.b.example.com"}, testProxyCredential, `"*.a.example.com" that needs no proxy credential is a wildcard`},
+		{"unrelated plain wildcard", []string{"*.cdn.example.net:443"}, []string{"github.com:443"}, testProxyCredential, "is a wildcard"},
 		{"no credential", []string{"api.example.com"}, []string{"github.com:443"}, "", "need a proxy credential, got none"},
 		{"no rule", []string{"api.example.com"}, nil, testProxyCredential, "needs at least one destination"},
 		{"short", []string{"api.example.com"}, []string{"github.com:443"}, "short-0123", "has 10 characters, expected at least 16"},

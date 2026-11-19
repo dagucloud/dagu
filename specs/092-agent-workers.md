@@ -843,8 +843,10 @@ With `--allow-with-credential`, give exactly one of `--proxy-credential-env` and
 `--proxy-credential-file`. Without `--allow-with-credential`, these two options are errors.
 The credential has at least 16 characters and no control character. A destination that can
 match an entry of `--allow` and an entry of `--allow-with-credential` is an error, because the
-two entries contradict each other. Each error stops the proxy at start. It names the option and
-never holds the credential.
+two entries contradict each other. With `--allow-with-credential`, a wildcard entry of `--allow`
+is an error too: a client that controls the DNS of a name below the wildcard can point the name
+at a destination of `--allow-with-credential` and reach it with no credential. Each error stops
+the proxy at start. It names the option and never holds the credential.
 
 A request in absolute form or a `CONNECT` request to such a destination MUST have one header
 `Proxy-Authorization: Basic <base64 of user:credential>`. The user name can be any name. A
@@ -1403,6 +1405,9 @@ sends `POST https://api.openai.com/v1/chat/completions` with the real key.
   `--listen` can use the key. The network of the deployment limits who reaches the proxy.
 - A destination of `--allow` is open to the agent. Put a destination that only trusted steps
   need in `--allow-with-credential`.
+- The proxy sees the name of a `CONNECT`, not the name inside TLS. A destination of `--allow`
+  whose servers also serve a destination of `--allow-with-credential`, such as two hosts behind
+  one CDN, opens that destination to the agent.
 - A group of steps cannot repeat in one run. The verify loop writes each round as a pair of steps.
   The number of rounds is fixed, and each round costs a full run of the agent. See [Limits of the
   loop](#limits-of-the-loop).

@@ -182,7 +182,9 @@ var ErrCredentialRules = errors.New("the destinations with a proxy credential ar
 // checkCredentialRules checks the destinations that need the proxy credential.
 // The credential is set exactly when a rule needs it. Two lists that can both
 // match one destination contradict each other: a client would reach it with no
-// credential. The error never holds the credential.
+// credential. A plain wildcard voids the credential too: a client that controls
+// the DNS of a name below it points the name at a guarded host and tunnels there
+// with no credential. The error never holds the credential.
 func checkCredentialRules(plain, guarded *Rules, credential string) error {
 	hasRules := guarded.Len() > 0
 	switch {
@@ -207,6 +209,12 @@ func checkCredentialRules(plain, guarded *Rules, credential string) error {
 				return fmt.Errorf("%w: the destination %q that needs the proxy credential overlaps the destination %q that needs none",
 					ErrCredentialRules, rule.Text, other.Text)
 			}
+		}
+	}
+	for _, other := range plain.rules {
+		if other.Wildcard {
+			return fmt.Errorf("%w: the destination %q that needs no proxy credential is a wildcard; a name below it can point at a destination that needs the credential, so list each name",
+				ErrCredentialRules, other.Text)
 		}
 	}
 	return nil
