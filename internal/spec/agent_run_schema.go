@@ -41,7 +41,8 @@ func validateAgentOutputSchema(schema map[string]any) error {
 	return validateClosedSchemaNode(schema, "output_schema")
 }
 
-// validateClosedSchemaNode walks a schema node and the schemas below it.
+// validateClosedSchemaNode walks a schema node and the schemas below it, under
+// every keyword that the validator applies, those of draft 2020-12 included.
 func validateClosedSchemaNode(node map[string]any, path string) error {
 	if isObjectSchema(node) {
 		if additional, ok := node["additionalProperties"].(bool); !ok || additional {
@@ -57,7 +58,7 @@ func validateClosedSchemaNode(node map[string]any, path string) error {
 	}
 
 	// Keywords whose value is a map from a name to a schema.
-	for _, keyword := range []string{"properties", "patternProperties", "definitions", "$defs", "dependencies"} {
+	for _, keyword := range []string{"properties", "patternProperties", "definitions", "$defs", "dependencies", "dependentSchemas"} {
 		children, ok := node[keyword].(map[string]any)
 		if !ok {
 			continue
@@ -76,7 +77,8 @@ func validateClosedSchemaNode(node map[string]any, path string) error {
 		}
 	}
 	// Keywords whose value is one schema or a list of schemas.
-	for _, keyword := range []string{"items", "additionalItems", "contains", "not", "if", "then", "else", "propertyNames", "anyOf", "allOf", "oneOf"} {
+	for _, keyword := range []string{"items", "prefixItems", "additionalItems", "unevaluatedItems", "contains", "not", "if", "then", "else",
+		"propertyNames", "unevaluatedProperties", "anyOf", "allOf", "oneOf"} {
 		switch child := node[keyword].(type) {
 		case map[string]any:
 			if err := validateClosedSchemaNode(child, path+"."+keyword); err != nil {
