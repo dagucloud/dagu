@@ -10,6 +10,7 @@ import {
   formatBytes,
   imageType,
   languageForPath,
+  linkedSkillPath,
 } from '../skillFiles';
 import type { SkillFile } from '../skillIssues';
 
@@ -133,6 +134,37 @@ describe('filePathProblem', () => {
     expect(filePathProblem('references/a.md', ['references/a.md'])).toBe(
       'exists'
     );
+  });
+});
+
+describe('linkedSkillPath', () => {
+  it('resolves a relative link from the folder of the file', () => {
+    expect(linkedSkillPath('SKILL.md', 'references/a.md')).toBe(
+      'references/a.md'
+    );
+    expect(linkedSkillPath('SKILL.md', './references/a.md#part')).toBe(
+      'references/a.md'
+    );
+    expect(linkedSkillPath('references/a.md', 'b.md')).toBe('references/b.md');
+    expect(linkedSkillPath('references/a.md', '../scripts/run%20me.sh')).toBe(
+      'scripts/run me.sh'
+    );
+  });
+
+  it('has no path for a link that leaves the skill or names no file', () => {
+    for (const href of [
+      'https://example.com/a.md',
+      'mailto:a@example.com',
+      'javascript:alert(1)',
+      '/etc/passwd',
+      '//example.com/x',
+      '../outside.md',
+      '#part',
+      '?x',
+      '',
+    ]) {
+      expect(linkedSkillPath('SKILL.md', href)).toBeNull();
+    }
   });
 });
 

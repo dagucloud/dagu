@@ -32,7 +32,6 @@ import { Button } from '@/components/ui/button';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { IconButton } from '@/components/ui/icon-button';
 import { Input } from '@/components/ui/input';
-import { WikiPageMarkdownPreview } from '@/components/ui/wiki-page-markdown-preview';
 import { NoticeLine } from '@/features/dags/components/dag-editor/NoticeLine';
 import { editorNotices, SKILLS_PATH } from '@/features/skills/skill';
 import { formatBytes, languageForPath } from '@/features/skills/skillFiles';
@@ -54,6 +53,7 @@ import {
   SkillStateBadge,
 } from '@/features/skills/SkillIssueViews';
 import { SkillMeter } from '@/features/skills/SkillMeter';
+import { SkillPreview } from '@/features/skills/SkillPreview';
 import {
   downloadSkillZip,
   INITIAL_SYNC,
@@ -809,7 +809,12 @@ export function SkillEditor({
               <PageLoading />
             ) : mode === 'preview' && isMarkdown ? (
               <div className="h-full overflow-y-auto p-4">
-                <WikiPageMarkdownPreview content={text} />
+                <SkillPreview
+                  content={onSkillMd && parsed.ok ? parsed.form.body : text}
+                  path={active}
+                  files={files.map((file) => file.path)}
+                  onOpenFile={setActive}
+                />
               </div>
             ) : (
               <Suspense fallback={<PageLoading />}>

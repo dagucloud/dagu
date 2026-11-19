@@ -213,6 +213,31 @@ export function filePathProblem(
   return null;
 }
 
+/**
+ * The path in the skill that a relative link of the Markdown file `from`
+ * points to, resolved from the folder of that file. It is null for any other
+ * link: an address with a scheme, an absolute path, a link to a part of the
+ * same page, or a path that leaves the skill folder.
+ */
+export function linkedSkillPath(from: string, href: string): string | null {
+  if (/^[a-z][a-z\d+.-]*:/i.test(href) || href.startsWith('/')) return null;
+  const target = href.split(/[?#]/, 1)[0] ?? '';
+  if (target === '') return null;
+  let decoded = target;
+  try {
+    decoded = decodeURIComponent(target);
+  } catch {
+    // A malformed escape stays as written.
+  }
+  const parts = from.split('/').slice(0, -1);
+  for (const part of decoded.split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part !== '..') parts.push(part);
+    else if (parts.pop() === undefined) return null;
+  }
+  return parts.length > 0 ? parts.join('/') : null;
+}
+
 /** A size in bytes as a short text: 512 B, 1.5 KB, 2.0 MB. */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

@@ -168,4 +168,32 @@ describe('SkillEditor', () => {
     await waitFor(async () => expect((await editor()).value).toBe('draft\n'));
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
   });
+
+  // A skill can come from anyone: the preview loads no image, runs no block
+  // and opens a linked file of the skill in the editor.
+  it('previews Markdown without loading or running anything', async () => {
+    load(
+      `---\nname: triage\ndescription: ${DESCRIPTION}\n---\n` +
+        'Read [the guide](references/a.md) and [the docs](https://example.com).\n\n' +
+        '![chart](https://example.com/chart.png)\n\n' +
+        '```dagu-run\nname: deploy\n```\n',
+      [file('SKILL.md'), file('references/a.md')]
+    );
+    mocks.readSkillFileText.mockResolvedValue('# Guide\n');
+    renderEditor();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(document.querySelector('img')).toBeNull();
+    expect(screen.getByText('chart')).toBeInTheDocument();
+    expect(screen.getByText('name: deploy')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'the docs' })).toHaveAttribute(
+      'target',
+      '_blank'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'the guide' }));
+    expect(screen.getByTestId('skill-active-file')).toHaveTextContent(
+      'references/a.md'
+    );
+  });
 });
