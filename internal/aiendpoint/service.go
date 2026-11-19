@@ -234,7 +234,7 @@ func (s *Service) RotateKey(ctx context.Context, scope Scope, name, key, actor s
 		return nil
 	})
 	if err != nil {
-		return nil, s.undoKey(ctx, ep, secretID, previous, actor, now, err)
+		return nil, s.undoKey(ctx, ep, secretID, key, previous, actor, now, err)
 	}
 	return saved, nil
 }
@@ -255,21 +255,32 @@ func (s *Service) currentKey(ctx context.Context, secretID string) (string, erro
 // undoKey reverts the key write of a rotation whose record update failed with
 // cause, and returns the error to report. The secret of the record gets its old
 // key back as a new version. A secret that the rotation made, which the record
-// does not name, is deleted. When the old key cannot be put back into a secret
-// that still exists, the endpoint can use the new key under the old fingerprint,
-// and the error says to rotate again.
-func (s *Service) undoKey(ctx context.Context, ep *Endpoint, secretID, previous, actor string, now time.Time, cause error) error {
+// does not name, is deleted. A secret that no longer holds key is left alone:
+// another rotation, on this server or another, wrote and published its own key
+// meanwhile. When the old key cannot be put back, the endpoint can use the new
+// key under the old fingerprint, and the error says to rotate again.
+func (s *Service) undoKey(ctx context.Context, ep *Endpoint, secretID, key, previous, actor string, now time.Time, cause error) error {
 	ctx = context.WithoutCancel(ctx)
-	if secretID != ep.SecretID {
+	stale := func() error {
+		return fmt.Errorf("%w; the old key of AI endpoint %q could not be put back, so rotate its key again", cause, ep.Name)
+	}
+	current, _, err := s.secrets.ReadValue(ctx, secretID)
+	switch {
+	case errors.Is(err, secret.ErrNotFound):
+		return cause
+	case err != nil:
+		return stale()
+	case current != key:
+		return cause
+	case secretID != ep.SecretID:
 		_ = s.secrets.Delete(ctx, secretID)
 		return cause
-	}
-	if previous == "" {
+	case previous == "":
 		return cause
 	}
 	input := secret.WriteValueInput{Value: previous, CreatedBy: actor, CreatedAt: now}
 	if _, err := s.secrets.WriteValue(ctx, secretID, input); err != nil && !errors.Is(err, secret.ErrNotFound) {
-		return fmt.Errorf("%w; the old key of AI endpoint %q could not be put back, so rotate its key again", cause, ep.Name)
+		return stale()
 	}
 	return cause
 }

@@ -467,6 +467,48 @@ func TestRotateKeyReportsAFailedRestore(t *testing.T) {
 	assert.NotContains(t, err.Error(), keyTwo)
 }
 
+// interruptedUpdates is an endpoint store whose Update fails after meanwhile ran.
+type interruptedUpdates struct {
+	aiendpoint.Store
+	meanwhile func()
+}
+
+func (s interruptedUpdates) Update(context.Context, aiendpoint.Scope, string, func(*aiendpoint.Endpoint) error) (*aiendpoint.Endpoint, error) {
+	s.meanwhile()
+	return nil, errors.New("disk full")
+}
+
+// Two servers rotate the key at once. The second publishes its key between the
+// key write and the failed record update of the first. The first leaves that
+// key in place, so the key still matches the fingerprint of the endpoint.
+func TestRotateKeyThatFailsKeepsAKeyRotatedMeanwhile(t *testing.T) {
+	const keyThree = "sk-ant-api03-third-0123456789abcdef"
+	ctx := context.Background()
+	stores := newSharedStores(t)
+	svc, err := aiendpoint.NewService(stores.endpoints, stores.secrets)
+	require.NoError(t, err)
+	created, err := svc.Create(ctx, globalInput("cle1", keyOne, []string{"*"}, []string{"*"}))
+	require.NoError(t, err)
+
+	other, err := aiendpoint.NewService(stores.endpoints, stores.secrets)
+	require.NoError(t, err)
+	failing, err := aiendpoint.NewService(interruptedUpdates{Store: stores.endpoints, meanwhile: func() {
+		_, err := other.RotateKey(ctx, created.Scope, "cle1", keyThree, "admin2")
+		require.NoError(t, err)
+	}}, stores.secrets)
+	require.NoError(t, err)
+	_, err = failing.RotateKey(ctx, created.Scope, "cle1", keyTwo, "admin")
+	require.Error(t, err)
+
+	ep, err := stores.endpoints.Get(ctx, created.Scope, "cle1")
+	require.NoError(t, err)
+	_, fingerprint := aiendpoint.KeyDisplay(keyThree)
+	assert.Equal(t, fingerprint, ep.KeyFingerprint)
+	key, err := svc.ReadKey(ctx, *ep)
+	require.NoError(t, err)
+	assert.Equal(t, keyThree, key)
+}
+
 // deletingUpdates is an endpoint store whose Update finds that another server
 // deleted the endpoint and its key.
 type deletingUpdates struct {
