@@ -514,12 +514,18 @@ func subagentProvider(t *testing.T) *httptest.Server {
 			say(w, "PARENT_LAUNCHED")
 		case strings.Contains(last, `"role":"tool"`):
 			say(w, "CHILD_DONE")
+		case !strings.Contains(all, "SPAWN") && strings.Contains(all, "CHILD_ASK"):
+			call(w, "question", map[string]any{"questions": []any{map[string]any{"question": "Choose a branch", "header": "Branch", "options": []any{map[string]any{"label": "Stable", "description": "Use stable"}}}}})
 		case !strings.Contains(all, "SPAWN"):
 			call(w, "shell", map[string]any{"command": "touch bg.started; sleep 3; echo done > bg.done", "description": "slow work"})
 		case strings.Contains(last, "<subagent"):
 			say(w, "PARENT_FOLLOWUP")
 		default:
-			call(w, "subagent", map[string]any{"agent": "general", "description": "slow work", "prompt": "CHILD_WORK"})
+			prompt := "CHILD_WORK"
+			if strings.Contains(all, "ASKCHILD") {
+				prompt = "CHILD_ASK"
+			}
+			call(w, "subagent", map[string]any{"agent": "general", "description": "slow work", "prompt": prompt})
 		}
 	}))
 	t.Cleanup(server.Close)
@@ -533,10 +539,9 @@ func nilIfEmpty(value string) any {
 	return value
 }
 
-// OpenCode 2.3 subagents run in the background and report back to the parent
-// later. A managed step settles only after they do, and a cancelled step
-// leaves none of them running.
-func TestRealV2Subagent(t *testing.T) {
+// realSubagentHost starts the real OpenCode 2.3 host against the subagent
+// provider, or skips the test without one.
+func realSubagentHost(t *testing.T, permissions []any) (string, opencodehost.Config) {
 	binary := os.Getenv("DAGU_TEST_OPENCODE_V2_EXECUTABLE")
 	if binary == "" {
 		t.Skip("DAGU_TEST_OPENCODE_V2_EXECUTABLE is not set")
@@ -556,20 +561,31 @@ func TestRealV2Subagent(t *testing.T) {
 	t.Setenv("OPENCODE_DISABLE_CLAUDE_CODE", "1")
 	t.Setenv("OPENCODE_DISABLE_MODELS_FETCH", "1")
 	settings := map[string]any{"model": "dagutest/test", "providers": map[string]any{"dagutest": map[string]any{"package": "@ai-sdk/openai-compatible", "settings": map[string]any{"baseURL": provider.URL + "/v1", "apiKey": "local-test"}, "models": map[string]any{"test": map[string]any{"name": "test"}}}}}
+	if permissions != nil {
+		settings["permissions"] = permissions
+	}
 	content, err := json.Marshal(settings)
 	require.NoError(t, err)
 	t.Setenv("OPENCODE_CONFIG_CONTENT", string(content))
 	host := opencodehost.New(t.Context(), config.OpenCodeConfig{Executable: binary})
-	defer func() {
+	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		require.NoError(t, host.Close(ctx))
-	}()
+	})
 	hostConfig, err := host.Ensure()
 	require.NoError(t, err)
 	if hostConfig.Version == "2.1.4" {
 		t.Skip("background subagents need OpenCode 2.3 or newer")
 	}
+	return root, hostConfig
+}
+
+// OpenCode 2.3 subagents run in the background and report back to the parent
+// later. A managed step settles only after they do, and a cancelled step
+// leaves none of them running.
+func TestRealV2Subagent(t *testing.T) {
+	root, hostConfig := realSubagentHost(t, nil)
 	cfg := providerConfig{flags: map[string]any{"model": "dagutest/test"}}
 	ctx, cancel := context.WithTimeout(runtime.WithEnv(t.Context(), runtime.Env{}), 90*time.Second)
 	defer cancel()
@@ -710,16 +726,16 @@ func TestV2Interactions(t *testing.T) {
 	require.Len(t, permissions, 1)
 	require.Equal(t, "bash", permissions[0].Permission)
 	require.Equal(t, []string{"git *"}, permissions[0].Always)
-	require.NoError(t, client.replyPermission(t.Context(), "per_test", "once"))
+	require.NoError(t, client.replyPermission(t.Context(), "", "per_test", "once"))
 	require.Equal(t, map[string]any{"decision": "once"}, permission)
 	questions, err := client.questions(t.Context())
 	require.NoError(t, err)
 	require.Len(t, questions, 1)
 	require.Len(t, questions[0].Questions, 3)
 	require.True(t, questions[0].Questions[2].Multiple)
-	require.NoError(t, client.replyQuestion(t.Context(), "form_test", [][]string{{"Stable"}, {"3"}, {"Alpha"}}))
+	require.NoError(t, client.replyQuestion(t.Context(), "", "form_test", [][]string{{"Stable"}, {"3"}, {"Alpha"}}))
 	require.Equal(t, map[string]any{"answer": map[string]any{"choice": "stable", "count": float64(3), "many": []any{"a"}}}, answer)
-	require.NoError(t, client.rejectQuestion(t.Context(), "form_test"))
+	require.NoError(t, client.rejectQuestion(t.Context(), "", "form_test"))
 	require.True(t, rejected)
 }
 
@@ -1043,4 +1059,129 @@ func TestV2CommandCancellation(t *testing.T) {
 	require.Empty(t, e.agentSession.PromptMessageID)
 	require.True(t, submitted.Load())
 	require.True(t, interrupted.Load(), "accepted command must be interrupted even after caller cancellation")
+}
+
+func childRequestServer(t *testing.T, parents map[string]string, replies *[]string) *httptest.Server {
+	const form = `{"id":"form_c","sessionID":"ses_child","fields":[{"key":"k","type":"string","title":"T"}]}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/permission/request":
+			_, _ = io.WriteString(w, `{"data":[{"id":"per_c","sessionID":"ses_child","action":"bash","resources":["ls"]}]}`)
+		case strings.HasPrefix(r.URL.Path, "/api/session/ses_") && r.Method == http.MethodGet && strings.Count(r.URL.Path, "/") == 3:
+			id := strings.TrimPrefix(r.URL.Path, "/api/session/")
+			parent, ok := parents[id]
+			if !ok {
+				http.Error(w, "boom", http.StatusInternalServerError)
+				return
+			}
+			_, _ = io.WriteString(w, `{"data":{"id":"`+id+`","parentID":"`+parent+`","location":{"directory":"/workspace"}}}`)
+		case r.URL.Path == "/api/form":
+			_, _ = io.WriteString(w, `{"data":[`+form+`]}`)
+		case r.URL.Path == "/api/session/ses_child/form/form_c" && r.Method == http.MethodGet:
+			_, _ = io.WriteString(w, `{"data":`+form+`}`)
+		case r.Method == http.MethodPost || r.Method == http.MethodDelete:
+			*replies = append(*replies, r.Method+" "+r.URL.Path)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			_, _ = io.WriteString(w, `{"data":[]}`)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+// A request from a descendant of the root puts the step in waiting; requests
+// from unrelated or unresolvable sessions are ignored.
+func TestV2ChildRequest(t *testing.T) {
+	ctx := runtime.WithEnv(t.Context(), runtime.Env{})
+	for name, parents := range map[string]map[string]string{
+		"child":     {"ses_child": "ses_root"},
+		"unrelated": {"ses_child": ""},
+		"unknown":   {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := childRequestServer(t, parents, new([]string))
+			client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+			executor := &harnessExecutor{agentSession: &ir.AgentSession{SessionID: "ses_root"}}
+			waiting, err := executor.reconcileManagedSession(ctx, client, "ses_root")
+			require.NoError(t, err)
+			require.Equal(t, name == "child", waiting)
+			if name == "child" {
+				require.Len(t, executor.agentSession.Interactions, 1)
+				require.Equal(t, "ses_child", executor.agentSession.Interactions[0].SessionID)
+			} else {
+				require.Empty(t, executor.agentSession.Interactions)
+			}
+		})
+	}
+}
+
+// Recorded answers are delivered to the session that owns the request.
+func TestV2ChildReply(t *testing.T) {
+	var replies []string
+	server := childRequestServer(t, map[string]string{}, &replies)
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", sessionID: "ses_root", http: server.Client()}
+	executor := &harnessExecutor{agentSession: &ir.AgentSession{SessionID: "ses_root", Interactions: []ir.AgentInteraction{
+		{ID: "per_c", SessionID: "ses_child", Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionAnswered, Decision: "once"},
+		{ID: "form_c", SessionID: "ses_child", Kind: ir.AgentInteractionQuestion, Status: ir.AgentInteractionAnswered, Answers: [][]string{{"v"}}},
+		{ID: "form_r", SessionID: "ses_child", Kind: ir.AgentInteractionQuestion, Status: ir.AgentInteractionRejected},
+	}}}
+	_, err := executor.applyManagedInteractionResponses(runtime.WithEnv(t.Context(), runtime.Env{}), client, "ses_root")
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"POST /api/session/ses_child/permission/per_c/reply",
+		"POST /api/session/ses_child/form/form_c/reply",
+		"DELETE /api/session/ses_child/form/form_r",
+	}, replies)
+}
+
+// OpenCode v1 has no background children, so another session's request is ignored.
+func TestV1OtherSessionRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/permission" {
+			_, _ = io.WriteString(w, `[{"id":"per_c","sessionID":"ses_child","permission":"bash"}]`)
+			return
+		}
+		_, _ = io.WriteString(w, `[]`)
+	}))
+	defer server.Close()
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "1.14.0"}, http: server.Client()}
+	executor := &harnessExecutor{agentSession: &ir.AgentSession{SessionID: "ses_root"}}
+	waiting, err := executor.reconcileManagedSession(runtime.WithEnv(t.Context(), runtime.Env{}), client, "ses_root")
+	require.NoError(t, err)
+	require.False(t, waiting)
+}
+
+// A subagent's permission and form requests put the step in waiting, and the
+// recorded answers reach the subagent's own session when the step resumes.
+func TestRealV2ChildRequest(t *testing.T) {
+	root, hostConfig := realSubagentHost(t, []any{map[string]any{"action": "question", "resource": "*", "effect": "ask"}})
+	cfg := providerConfig{flags: map[string]any{"model": "dagutest/test"}}
+	ctx, cancel := context.WithTimeout(runtime.WithEnv(t.Context(), runtime.Env{}), 120*time.Second)
+	defer cancel()
+	executor := &harnessExecutor{prompt: "SPAWN ASKCHILD", workDir: root}
+	for _, answer := range []func(*ir.AgentInteraction){
+		func(i *ir.AgentInteraction) { i.Status, i.Decision = ir.AgentInteractionAnswered, "once" },
+		func(i *ir.AgentInteraction) {
+			i.Status, i.Answers = ir.AgentInteractionAnswered, [][]string{{"Stable"}}
+		},
+	} {
+		stdout, err := executor.runManagedOpenCode(ctx, cfg, hostConfig)
+		require.NoError(t, err)
+		require.NoError(t, cleanupStdoutSpool(stdout))
+		session := executor.GetAgentSession()
+		require.Equal(t, ir.AgentSessionWaiting, session.State, session.LastError)
+		last := &executor.agentSession.Interactions[len(session.Interactions)-1]
+		require.NotEmpty(t, last.SessionID)
+		require.NotEqual(t, session.SessionID, last.SessionID, "the request belongs to the subagent")
+		answer(last)
+	}
+	stdout, err := executor.runManagedOpenCode(ctx, cfg, hostConfig)
+	require.NoError(t, err)
+	output, err := io.ReadAll(stdout)
+	require.NoError(t, err)
+	require.NoError(t, cleanupStdoutSpool(stdout))
+	require.Equal(t, ir.AgentSessionSucceeded, executor.GetAgentSession().State, executor.GetAgentSession().LastError)
+	require.Contains(t, string(output), "PARENT_FOLLOWUP")
 }

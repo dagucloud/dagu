@@ -470,12 +470,12 @@ func (e *harnessExecutor) applyManagedInteractionResponses(ctx context.Context, 
 				e.recordManagedPermissionGrant(interaction)
 				reply = "once"
 			}
-			err = client.replyPermission(ctx, interaction.ID, reply)
+			err = client.replyPermission(ctx, interaction.SessionID, interaction.ID, reply)
 		case ir.AgentInteractionQuestion:
 			if interaction.Status == ir.AgentInteractionRejected {
-				err = client.rejectQuestion(ctx, interaction.ID)
+				err = client.rejectQuestion(ctx, interaction.SessionID, interaction.ID)
 			} else {
-				err = client.replyQuestion(ctx, interaction.ID, interaction.Answers)
+				err = client.replyQuestion(ctx, interaction.SessionID, interaction.ID, interaction.Answers)
 			}
 		}
 		if err != nil {
@@ -505,7 +505,15 @@ func (e *harnessExecutor) handleManagedEvent(ctx context.Context, client *openCo
 					SessionID string `json:"sessionID"`
 				} `json:"form"`
 			}
-			if json.Unmarshal(event.Data, &data) == nil && (data.SessionID == sessionID || data.Form.SessionID == sessionID) {
+			if json.Unmarshal(event.Data, &data) == nil {
+				owner := data.SessionID
+				if owner == "" {
+					owner = data.Form.SessionID
+				}
+				owned, ownErr := client.ownsRequest(ctx, sessionID, owner)
+				if ownErr != nil || !owned {
+					return false, false, ownErr
+				}
 				waiting, err = e.reconcileManagedSession(ctx, client, sessionID)
 				return waiting, false, err
 			}
@@ -559,7 +567,11 @@ func (e *harnessExecutor) reconcileManagedSession(ctx context.Context, client *o
 		}
 	} else {
 		for _, request := range permissions {
-			if request.SessionID == sessionID {
+			owned, ownErr := client.ownsRequest(ctx, sessionID, request.SessionID)
+			if ownErr != nil {
+				return false, ownErr
+			}
+			if owned {
 				autoApproved, replyErr := e.replyFromManagedGrant(ctx, client, request)
 				if replyErr != nil {
 					return false, replyErr
@@ -579,7 +591,11 @@ func (e *harnessExecutor) reconcileManagedSession(ctx context.Context, client *o
 		}
 	} else {
 		for _, request := range questions {
-			if request.SessionID == sessionID {
+			owned, ownErr := client.ownsRequest(ctx, sessionID, request.SessionID)
+			if ownErr != nil {
+				return false, ownErr
+			}
+			if owned {
 				e.addManagedQuestion(request)
 				return true, nil
 			}
@@ -1068,7 +1084,7 @@ func number(value any) float64 {
 
 func (e *harnessExecutor) addManagedPermission(request openCodePermissionRequest) {
 	interaction := ir.AgentInteraction{
-		ID: request.ID, Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending,
+		ID: request.ID, SessionID: request.SessionID, Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending,
 		Permission: request.Permission, Patterns: request.Patterns, AllowForSessionPatterns: request.Always,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}
@@ -1101,7 +1117,7 @@ func (e *harnessExecutor) replyFromManagedGrant(ctx context.Context, client *ope
 		if grant.Permission != request.Permission || !permissionPatternsCovered(grant.Patterns, request.Patterns) {
 			continue
 		}
-		if err := client.replyPermission(ctx, request.ID, "once"); err != nil {
+		if err := client.replyPermission(ctx, request.SessionID, request.ID, "once"); err != nil {
 			return false, err
 		}
 		e.mu.Lock()
@@ -1151,7 +1167,7 @@ func openCodeWildcardMatch(pattern, target string) bool {
 
 func (e *harnessExecutor) addManagedQuestion(request openCodeQuestionRequest) {
 	interaction := ir.AgentInteraction{
-		ID: request.ID, Kind: ir.AgentInteractionQuestion, Status: ir.AgentInteractionPending,
+		ID: request.ID, SessionID: request.SessionID, Kind: ir.AgentInteractionQuestion, Status: ir.AgentInteractionPending,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	for _, question := range request.Questions {

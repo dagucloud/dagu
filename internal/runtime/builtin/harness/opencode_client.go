@@ -468,25 +468,47 @@ func (c *openCodeClient) questions(ctx context.Context) ([]openCodeQuestionReque
 	return requests, err
 }
 
-func (c *openCodeClient) replyPermission(ctx context.Context, requestID, reply string) error {
+// replyPermission answers a request in the session that owns it; an empty
+// sessionID means the client's root session.
+func (c *openCodeClient) replyPermission(ctx context.Context, sessionID, requestID, reply string) error {
 	if c.host.IsV2() {
-		return c.json(ctx, http.MethodPost, "/session/"+url.PathEscape(c.sessionID)+"/permission/"+url.PathEscape(requestID)+"/reply", map[string]any{"decision": reply}, nil)
+		return c.json(ctx, http.MethodPost, "/session/"+url.PathEscape(c.ownerID(sessionID))+"/permission/"+url.PathEscape(requestID)+"/reply", map[string]any{"decision": reply}, nil)
 	}
 	return c.json(ctx, http.MethodPost, "/permission/"+url.PathEscape(requestID)+"/reply", map[string]any{"reply": reply}, nil)
 }
 
-func (c *openCodeClient) replyQuestion(ctx context.Context, requestID string, answers [][]string) error {
+func (c *openCodeClient) replyQuestion(ctx context.Context, sessionID, requestID string, answers [][]string) error {
 	if c.host.IsV2() {
-		return c.replyQuestionV2(ctx, requestID, answers)
+		return c.replyQuestionV2(ctx, c.ownerID(sessionID), requestID, answers)
 	}
 	return c.json(ctx, http.MethodPost, "/question/"+url.PathEscape(requestID)+"/reply", map[string]any{"answers": answers}, nil)
 }
 
-func (c *openCodeClient) rejectQuestion(ctx context.Context, requestID string) error {
+func (c *openCodeClient) rejectQuestion(ctx context.Context, sessionID, requestID string) error {
 	if c.host.IsV2() {
-		return c.json(ctx, http.MethodDelete, "/session/"+url.PathEscape(c.sessionID)+"/form/"+url.PathEscape(requestID), nil, nil)
+		return c.json(ctx, http.MethodDelete, "/session/"+url.PathEscape(c.ownerID(sessionID))+"/form/"+url.PathEscape(requestID), nil, nil)
 	}
 	return c.json(ctx, http.MethodPost, "/question/"+url.PathEscape(requestID)+"/reject", nil, nil)
+}
+
+func (c *openCodeClient) ownerID(sessionID string) string {
+	if sessionID == "" {
+		return c.sessionID
+	}
+	return sessionID
+}
+
+// ownsRequest reports whether a pending request belongs to the root session or
+// one of its descendants. Unresolvable ancestry is not a match.
+func (c *openCodeClient) ownsRequest(ctx context.Context, rootID, sessionID string) (bool, error) {
+	if sessionID == rootID {
+		return true, nil
+	}
+	if !c.host.IsV2() || sessionID == "" {
+		return false, nil
+	}
+	member, err := c.descendsFrom(ctx, sessionID, rootID)
+	return member == memberYes, err
 }
 
 func (c *openCodeClient) abort(ctx context.Context, sessionID string) error {
