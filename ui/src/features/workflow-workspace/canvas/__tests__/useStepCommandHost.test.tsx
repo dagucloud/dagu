@@ -128,8 +128,7 @@ describe('useDeepLinkReveal', () => {
     } as unknown as VisualEditorHandle;
   }
 
-  // The step view of a link opens on the YAML, and on the form when the
-  // form was the last mode of the session.
+  // The step view of a link opens on the YAML, never on the form.
   it('opens the step view in the YAML when the link names one', () => {
     const h = handle(true);
     renderHook(() =>
@@ -138,16 +137,6 @@ describe('useDeepLinkReveal', () => {
     expect(h.openYaml).toHaveBeenCalledWith('a');
     expect(h.openForm).not.toHaveBeenCalled();
     expect(h.revealStep).not.toHaveBeenCalled();
-  });
-
-  it('opens the step view in the form after the form', () => {
-    sessionStorage.setItem('dagu.stepView.mode', 'form');
-    const h = handle(true);
-    renderHook(() =>
-      useDeepLinkReveal(h, { step: 'a', ndv: 'expanded' }, true)
-    );
-    expect(h.openForm).toHaveBeenCalledWith('a');
-    expect(h.openYaml).not.toHaveBeenCalled();
   });
 
   it('reveals the step when there is no step view, and only once', () => {

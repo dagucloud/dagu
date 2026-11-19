@@ -124,6 +124,8 @@ export function useEdgeHover(
     return () => {
       stop();
       clearTimeout(timer);
+      // An edge that leaves gets no `mouseleave`: the hover must not outlive it.
+      store.leave(id);
     };
   }, [store, id]);
   const set = useCallback(

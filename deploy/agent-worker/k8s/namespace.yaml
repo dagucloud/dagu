@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dagu-agent
+  labels:
+    app.kubernetes.io/part-of: dagu
+    # The agent worker starts as user ID 0 and keeps CAP_SETUID. The level "restricted"
+    # forbids this, so the example uses "baseline". See README.md, "Open items".
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: latest

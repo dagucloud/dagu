@@ -24,7 +24,7 @@ import {
   type ReferenceEditorState,
 } from './editorState';
 import { registerReferenceHover } from './monacoHover';
-import { findOpenReference } from './tokens';
+import { findOpenReference, findReferenceTokens } from './tokens';
 
 type Monaco = typeof import('monaco-editor');
 
@@ -219,8 +219,15 @@ function replacedRange(
 ): { from: number; to: number } | null {
   const open = findOpenReference(text, offset);
   if (open && (atOffset || text[open.from + 1] === '{')) {
-    // The editor closes a brace that the user types: replace it too.
-    return { from: open.from, to: text[offset] === '}' ? offset + 1 : offset };
+    // Replace the whole token that the caret is inside, up to its '}'. This
+    // includes the brace that the editor closes when the user types "${".
+    const closed = findReferenceTokens(text).find(
+      (token) => token.from === open.from && offset < token.to
+    );
+    return {
+      from: open.from,
+      to: closed ? closed.to : text[offset] === '}' ? offset + 1 : offset,
+    };
   }
   return atOffset ? { from: offset, to: offset } : null;
 }

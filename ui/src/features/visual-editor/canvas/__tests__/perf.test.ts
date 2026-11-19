@@ -4,8 +4,14 @@
 import { availableParallelism, loadavg } from 'node:os';
 import { describe, expect, it } from 'vitest';
 import { buildCanvasGraph } from '../graph';
-import { layoutGraph } from '../layout';
-import { makeLargeGraphInput } from './fixtures';
+import { layoutRoutes, layoutGraph } from '../layout';
+import { withToolSatellites } from '../toolSatellites';
+import {
+  makeLargeGraphInput,
+  makeModel,
+  makeNames,
+  makeStep,
+} from './fixtures';
 
 const input = makeLargeGraphInput(300);
 const BUDGET_MS = 200;
@@ -50,4 +56,60 @@ describe('canvas projection and layout', () => {
     }
     expect(best).toBeLessThan(BUDGET_MS);
   });
+});
+
+// 100 agent steps in 10 parallel chains, each with a Model, a Prompt, Skills
+// and a Tools card: the layout, the places of the sub-nodes and the waypoints.
+describe('layout with sub-nodes', () => {
+  const AGENT = {
+    action: 'agent.run',
+    with: {
+      endpoint: { name: 'main', model: 'm' },
+      prompt: 'Fix the test.',
+      skills: ['a', 'b'],
+      dags: Array.from({ length: 6 }, (_, i) => ({ name: `d${i}` })),
+      tools: {
+        builtin: { read: true, write: true },
+      },
+    },
+  };
+  function chains() {
+    const steps = Array.from({ length: 100 }, (_, i) =>
+      makeStep({
+        key: `steps[${i}]`,
+        explicitName: `s${i}`,
+        kind: 'action',
+        action: 'agent.run',
+        depends: i < 10 ? [] : [`s${i - 10}`],
+        value: AGENT,
+      })
+    );
+    const model = makeModel(steps);
+    return withToolSatellites(
+      buildCanvasGraph({
+        model,
+        names: makeNames(model),
+        issues: { byStep: {}, dag: [] },
+      })
+    );
+  }
+
+  it(
+    `lays out 100 agent steps with their sub-nodes in under ${BUDGET_MS} ms`,
+    { retry: 3 },
+    () => {
+      const graph = chains();
+      expect(graph.nodes.length).toBeGreaterThan(400);
+      for (const direction of ['TB', 'LR'] as const) {
+        layoutRoutes(graph, direction);
+        let best = Infinity;
+        for (let run = 0; run < 4; run++) {
+          const start = cpuMs();
+          layoutRoutes(graph, direction);
+          best = Math.min(best, cpuMs() - start);
+        }
+        expect(best).toBeLessThan(busy() ? BUSY_CEILING_MS : BUDGET_MS);
+      }
+    }
+  );
 });

@@ -97,6 +97,18 @@ func (s *WorkerHeartbeatStore) List(ctx context.Context) ([]dispatch.WorkerHeart
 	return out, nil
 }
 
+// Delete removes the record of a worker. A worker with no record is not an
+// error.
+func (s *WorkerHeartbeatStore) Delete(ctx context.Context, workerID string) error {
+	if workerID == "" {
+		return fmt.Errorf("worker heartbeat store: workerID is required")
+	}
+	if err := s.col.Delete(ctx, workerHeartbeatKey(workerID)); err != nil && !errors.Is(err, persis.ErrNotFound) {
+		return fmt.Errorf("worker heartbeat store: delete %q: %w", workerID, err)
+	}
+	return nil
+}
+
 // DeleteStale removes all records whose last heartbeat is before the given time.
 // Returns the number of records deleted.
 func (s *WorkerHeartbeatStore) DeleteStale(ctx context.Context, before time.Time) (int, error) {

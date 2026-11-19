@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 	"time"
 )
@@ -64,7 +65,7 @@ func (v *view) newestStart(t Tier) (int64, bool) {
 	}
 	var nb newestBucket
 	if t == TierRaw {
-		if ms, ok := v.r.st.newestRaw(); ok {
+		if ms, _, ok := v.r.st.newestRaw(); ok {
 			nb = newestBucket{ms / 1000, true}
 		}
 	} else if s, ok := v.newestStart(t - 1); ok {
@@ -203,12 +204,21 @@ func (r *reader) Samples(ctx context.Context, q SampleQuery) (Series, error) {
 	if err != nil {
 		return series, err
 	}
-	if len(aggs) > maxPoints {
-		aggs = aggs[len(aggs)-maxPoints:]
-	}
 	series.Buckets = make([]Bucket, len(aggs))
 	for i := range aggs {
 		series.Buckets[i] = aggs[i].bucket()
+	}
+	if tier != TierRaw {
+		ups, err := newStore(filepath.Join(r.st.dir, upDirName)).upBuckets(ctx, tier, first, toS)
+		if err != nil {
+			return series, err
+		}
+		for _, u := range ups {
+			series.Buckets = addUp(series.Buckets, time.Unix(u.sec, 0).UTC(), time.Duration(u.ms)*time.Millisecond)
+		}
+	}
+	if len(series.Buckets) > maxPoints {
+		series.Buckets = series.Buckets[len(series.Buckets)-maxPoints:]
 	}
 	return series, nil
 }
@@ -238,16 +248,24 @@ func (r *reader) Events(ctx context.Context, q EventQuery) (EventPage, error) {
 	if err != nil {
 		return page, err
 	}
+	// A cursor counts the bytes since the first event ever written. base is the
+	// count of bytes that a compaction dropped, and hdr is the header line.
+	base, hdr, err := readBase(f)
+	if err != nil {
+		return page, err
+	}
 	end := st.Size()
 	if before >= 0 {
-		issued, err := isEventStart(f, before, end)
-		if err != nil {
-			return page, err
+		issued := false
+		if rel := before - base; rel > 0 && rel < end-hdr {
+			if issued, err = isEventStart(f, rel+hdr, end); err != nil {
+				return page, err
+			}
 		}
 		if !issued {
 			return page, fmt.Errorf("%w %q", ErrInvalidCursor, q.Before)
 		}
-		end = before
+		end = before - base + hdr
 	}
 	limit := q.Limit
 	if limit <= 0 {
@@ -270,7 +288,7 @@ func (r *reader) Events(ctx context.Context, q EventQuery) (EventPage, error) {
 			return true
 		}
 		if len(page.Events) == limit {
-			page.NextCursor = encodeCursor(lastOff)
+			page.NextCursor = encodeCursor(base + lastOff - hdr)
 			return false
 		}
 		page.Events = append(page.Events, e)
@@ -285,7 +303,7 @@ func (r *reader) Events(ctx context.Context, q EventQuery) (EventPage, error) {
 
 // isEventStart reports whether off can be a cursor of the events file of the
 // given size: the start of a line that follows another line. The file only
-// grows, so every cursor that the store gave stays one.
+// grows, except for a compaction that keeps the line starts of the kept events.
 func isEventStart(f *os.File, off, size int64) (bool, error) {
 	if off <= 0 || off >= size {
 		return false, nil
@@ -376,6 +394,11 @@ func (r *reader) Availability(ctx context.Context, nowT time.Time) (Availability
 		stat(Window30d, rawC, m, h30),
 		stat(Window365d, rawC, m, h, d),
 	}}
+	for i, w := range []time.Duration{24 * time.Hour, 7 * 24 * time.Hour, 30 * 24 * time.Hour, 365 * 24 * time.Hour} {
+		if av.Windows[i].Uptime, err = r.uptime(ctx, nowT.Add(-w), nowT, nowT); err != nil {
+			return av, err
+		}
+	}
 	streak, last, err := v.streak()
 	if err != nil {
 		return av, err

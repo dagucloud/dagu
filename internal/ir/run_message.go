@@ -50,6 +50,9 @@ type ToolDefinition struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description,omitempty"`
 	Parameters  map[string]any `json:"parameters,omitempty"`
+	// Source tells where the tool comes from: dag:<name> or mcp:<name> (the label of
+	// the server), or skills. It is empty for a tool of an older run.
+	Source string `json:"source,omitempty"`
 }
 
 // DeduplicateSystemMessages keeps only the first system message.

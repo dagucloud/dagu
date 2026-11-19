@@ -1,0 +1,16 @@
+# untrusted is valid only on a step that runs a process, also in a DAG with an agent.run step.
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Fix the failing test.
+  - id: note
+    depends: [code]
+    untrusted: false
+    action: log.write
+    with:
+      message: hello

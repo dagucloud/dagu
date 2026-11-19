@@ -1,0 +1,13 @@
+description: A local run of an agent step whose DAG is not in the allow list of the endpoint.
+working_dir: .
+env:
+  - AITEST_DIR: ${AITEST_DIR}
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Fix the failing test.

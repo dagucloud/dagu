@@ -262,11 +262,16 @@ function tree(props: Extra = {}, sibling?: React.ReactNode) {
   );
 }
 
-/** Lets the lazy chunks resolve. */
+/** Lets the lazy chunks resolve and the animation frames of a Save pass. */
 async function settle() {
   await act(async () => {
     for (let i = 0; i < 8; i++) {
       await Promise.resolve();
+    }
+    if (vi.isFakeTimers()) {
+      await vi.advanceTimersByTimeAsync(40);
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 40));
     }
   });
 }

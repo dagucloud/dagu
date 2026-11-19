@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 )
 
 // Sentinel errors for common LLM error conditions.
@@ -46,6 +47,9 @@ type APIError struct {
 	Message string
 	// Retryable indicates whether the request can be retried.
 	Retryable bool
+	// RetryAt is the time that the header Retry-After of the response names.
+	// It is zero when the response had no usable header.
+	RetryAt time.Time
 	// Err is the underlying error, if any.
 	Err error
 }

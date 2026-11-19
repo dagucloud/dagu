@@ -9,6 +9,10 @@ export default defineMessages({
   en: {
     Continuous: 'Continuous',
     'Availability {window}': 'Availability {window}',
+    'Uptime {window}': 'Uptime {window}',
+    'Success rate {window}': 'Success rate {window}',
+    'The share of the window in which a run was active':
+      'The share of the window in which a run was active',
     '{failures} failed of {count} executions':
       '{failures} failed of {count} executions',
     'Current streak': 'Current streak',
@@ -42,6 +46,10 @@ export default defineMessages({
   'zh-CN': {
     Continuous: '持续运行',
     'Availability {window}': '{window} 可用率',
+    'Uptime {window}': '{window} 在线率',
+    'Success rate {window}': '{window} 成功率',
+    'The share of the window in which a run was active':
+      '窗口内有运行处于活动状态的时间占比',
     '{failures} failed of {count} executions':
       '{count} 次执行中失败 {failures} 次',
     'Current streak': '当前连续成功',
@@ -75,6 +83,10 @@ export default defineMessages({
   ja: {
     Continuous: '継続実行',
     'Availability {window}': '{window} の稼働率',
+    'Uptime {window}': '{window} の稼働時間率',
+    'Success rate {window}': '{window} の成功率',
+    'The share of the window in which a run was active':
+      '期間のうち実行が動いていた時間の割合',
     '{failures} failed of {count} executions':
       '{count} 回の実行のうち {failures} 回失敗',
     'Current streak': '現在の連続成功',

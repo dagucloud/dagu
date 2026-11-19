@@ -28,6 +28,8 @@ export interface TextFieldProps {
   readOnly: boolean;
   multiline?: boolean;
   placeholder?: string;
+  /** Short grey text under the field. */
+  help?: ReactNode;
   issues?: ValidationIssue[];
   /** References to offer. Without them, the field takes plain text only. */
   candidates?: ReferenceCandidate[];
@@ -53,6 +55,7 @@ export function TextField({
   readOnly,
   multiline = false,
   placeholder,
+  help,
   issues,
   candidates,
   validate,
@@ -141,6 +144,7 @@ export function TextField({
           onChange={(event) => setDraft(event.target.value)}
         />
       )}
+      {help && <p className="text-[11px] text-muted-foreground">{help}</p>}
       <FieldIssues issues={fieldIssues} />
     </div>
   );

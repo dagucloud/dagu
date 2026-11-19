@@ -1,0 +1,14 @@
+description: A chat step whose model is a reference, for the model check of Spec 093.
+working_dir: .
+env:
+  - MODEL: ${MODEL}
+steps:
+  - id: ask
+    action: chat.completion
+    stdout: result.out
+    with:
+      endpoint:
+        name: test-endpoint
+        model: ${MODEL}
+      stream: false
+      prompt: Say hello.

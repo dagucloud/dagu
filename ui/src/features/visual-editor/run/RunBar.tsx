@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { ReactElement } from 'react';
-import { Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { useCanExecute } from '@/contexts/AuthContext';
+import { useCanExecuteForWorkspace } from '@/contexts/AuthContext';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { EditorRunActions } from '../contracts';
 import { useRunSpecStale } from './useRunSpecStale';
@@ -17,14 +16,18 @@ export function RunBar(p: {
   onRunIdChange(id: string | null): void;
   actions: EditorRunActions;
   isDirty: boolean;
+  /** Workspace of the DAG: the run permission is checked there. */
+  workspace?: string | null;
 }): ReactElement {
   const { ts } = useI18n();
-  const canExecute = useCanExecute();
+  const canExecute = useCanExecuteForWorkspace(p.workspace);
   const stale = useRunSpecStale(p);
 
   const { actions } = p;
   const busy = actions.isStarting;
   const noPermission = ts('You do not have permission to run workflows.');
+  // The saved definition starts from the Start button of the header, which
+  // opens the start dialog. Only the draft has no other way to run.
 
   // Starting a run shows it, so the overlay colors the canvas with the new run.
   const start = async (run: () => Promise<string | null>) => {
@@ -34,24 +37,6 @@ export function RunBar(p: {
 
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
-      <Button
-        variant="primary"
-        size="xs"
-        disabled={!canExecute || busy || p.isDirty}
-        title={
-          !canExecute
-            ? noPermission
-            : p.isDirty
-              ? ts(
-                  'The saved definition differs from the editor. Save first, or run the unsaved draft.'
-                )
-              : undefined
-        }
-        onClick={() => void start(actions.runDag)}
-      >
-        <Play aria-hidden="true" className="size-3" />
-        {ts('Run')}
-      </Button>
       {p.isDirty && (
         <Button
           size="xs"

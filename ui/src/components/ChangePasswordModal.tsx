@@ -176,7 +176,11 @@ export function ChangePasswordModal({
               <X className="h-4 w-4" />
               {t('common.cancel')}
             </Button>
-            <Button type="submit" variant="primary" disabled={isLoading || success}>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={isLoading || success}
+            >
               <KeyRound className="h-4 w-4" />
               {isLoading
                 ? t('auth.changingPassword')

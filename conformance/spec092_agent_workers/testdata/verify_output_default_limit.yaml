@@ -1,0 +1,6 @@
+# No max_output_size: the limit is 1048576 bytes. The step writes 2097152 bytes.
+working_dir: .
+steps:
+  - id: produce
+    run: head -c 2097152 /dev/zero | tr '\0' 'a'
+    output: BIG

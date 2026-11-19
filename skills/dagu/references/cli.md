@@ -1,5 +1,46 @@
 # Dagu CLI Reference
 
+**Contents**
+
+- [Core Commands](#core-commands)
+  - [dagu start](#dagu-start)
+  - [dagu enqueue](#dagu-enqueue)
+  - [dagu exec](#dagu-exec)
+  - [dagu dequeue](#dagu-dequeue)
+  - [dagu stop](#dagu-stop)
+  - [dagu restart](#dagu-restart)
+  - [dagu retry](#dagu-retry)
+  - [dagu human-task complete](#dagu-human-task-complete)
+  - [dagu human-task push-back](#dagu-human-task-push-back)
+  - [dagu dry](#dagu-dry)
+  - [dagu validate](#dagu-validate)
+  - [dagu status](#dagu-status)
+  - [dagu history](#dagu-history)
+  - [dagu ls](#dagu-ls)
+  - [dagu rm](#dagu-rm)
+  - [dagu browser cache clear](#dagu-browser-cache-clear)
+  - [dagu browser session](#dagu-browser-session)
+  - [dagu computer check](#dagu-computer-check)
+  - [dagu computer elements](#dagu-computer-elements)
+  - [dagu computer cache clear](#dagu-computer-cache-clear)
+  - [dagu computer cache show](#dagu-computer-cache-show)
+  - [dagu xlsx inspect](#dagu-xlsx-inspect)
+  - [dagu xlsx read](#dagu-xlsx-read)
+  - [dagu ps](#dagu-ps)
+  - [dagu cleanup](#dagu-cleanup)
+  - [dagu prune-artifacts](#dagu-prune-artifacts)
+  - [dagu schema](#dagu-schema)
+  - [dagu config](#dagu-config)
+- [Server & Scheduling](#server--scheduling)
+  - [dagu start-all](#dagu-start-all)
+  - [dagu server](#dagu-server)
+  - [dagu scheduler](#dagu-scheduler)
+- [Distributed Execution](#distributed-execution)
+  - [dagu coordinator](#dagu-coordinator)
+  - [dagu worker](#dagu-worker)
+- [Git Sync](#git-sync)
+- [Other Commands](#other-commands)
+
 Global flags on all commands: `--config/-c`, `--dagu-home`, `--quiet/-q`, `--cpu-profile`
 
 Advanced and deprecated flags below remain implemented in `internal/cmd/start.go`, `internal/cmd/enqueue.go`, and `internal/cmd/exec.go`, so this reference keeps them documented even when they are mainly used by automation or backward-compatibility paths.
