@@ -4,14 +4,15 @@
 package browser
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 )
 
-// maxListedFields bounds the fields an answer mismatch names.
-const maxListedFields = 5
+// maxListedProblems bounds the problems an answer mismatch names.
+const maxListedProblems = 5
 
 // answerMismatch is an extract answer that does not fit the step's schema,
 // told in words.
@@ -84,13 +85,6 @@ func article(noun string) string {
 	return "a " + noun
 }
 
-func cmpPath(path string) string {
-	if path == "" {
-		return "the answer"
-	}
-	return path
-}
-
 // zodIssue is one entry of the validation report the runtime gives when a
 // model's answer does not fit the schema.
 type zodIssue struct {
@@ -117,8 +111,8 @@ func describeValidationReport(message string) (answerMismatch, bool) {
 		problems = append(problems, issue.describe())
 	}
 	listed := problems
-	if len(listed) > maxListedFields {
-		listed = listed[:maxListedFields]
+	if len(listed) > maxListedProblems {
+		listed = listed[:maxListedProblems]
 	}
 	text := "the model's answer does not fit the extract schema: " + strings.Join(listed, "; ")
 	if more := len(problems) - len(listed); more > 0 {
@@ -144,7 +138,7 @@ func (i zodIssue) describe() string {
 		}
 		path = joinPath(path, name)
 	}
-	field := cmpPath(path)
+	field := cmp.Or(path, "the answer")
 	switch i.Code {
 	case "invalid_type":
 		return fmt.Sprintf("%s is not %s", field, article(i.Expected))

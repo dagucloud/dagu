@@ -522,7 +522,7 @@ func (o *operator) extract(ctx context.Context, index int, spec extractSpec, tim
 		if pageURL, err := o.eng.CurrentURL(ctx); err == nil {
 			where = " on " + pageURL
 		}
-		o.warn(index, fmt.Sprintf("extract found nothing%s: every value the model read was empty", where))
+		o.warn(index, fmt.Sprintf("extract found nothing%s: every value the model read was null or empty", where))
 	}
 	// Only the fields a schema lists are published, matching the output
 	// names known when the DAG loads.

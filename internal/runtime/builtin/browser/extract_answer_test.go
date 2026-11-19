@@ -5,6 +5,8 @@ package browser
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -76,6 +78,15 @@ func TestDescribeValidationReport(t *testing.T) {
 		`status is not one of "open", "closed"; `+
 		"the answer has fields the schema does not list: extra; "+
 		"items: Too small: expected array to have >=1 items", mismatch.Error())
+
+	// Problems past the limit are counted, not named.
+	issues := make([]string, maxListedProblems+2)
+	for i := range issues {
+		issues[i] = fmt.Sprintf(`{"code": "invalid_type", "expected": "string", "path": ["structuredContent", "f%d"]}`, i)
+	}
+	mismatch, ok = describeValidationReport("[" + strings.Join(issues, ",") + "]")
+	require.True(t, ok)
+	assert.True(t, strings.HasSuffix(mismatch.Error(), "f4 is not a string; and 2 more"), mismatch.Error())
 
 	for _, message := range []string{"Element not visible (no box model)", `[]`, `[{"message": "no code"}]`} {
 		_, ok := describeValidationReport(message)

@@ -2792,9 +2792,10 @@ func startBrowserOnRacedPort(ctx context.Context, path, portFile, profile string
 }
 
 // An extract whose answer holds only empty values ends as found nothing,
-// blank list items are dropped, and nulls the runtime rejects fail in
-// words that name the fields and the page.
-func TestStagehandExtractNullAnswers(t *testing.T) {
+// blank rows are dropped, and nulls the runtime rejects fail in words that
+// name the fields and the page. The fake model answers without the bridge's
+// correction, so the nulls reach the runtime.
+func TestStagehandExtractBlankAnswers(t *testing.T) {
 	t.Parallel()
 	statements := map[string]any{"type": "object", "required": []any{"statements"}, "properties": map[string]any{
 		"statements": map[string]any{"type": "array", "items": map[string]any{
