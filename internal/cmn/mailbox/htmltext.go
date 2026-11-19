@@ -23,7 +23,8 @@ func htmlToText(r io.Reader) string {
 	tokenizer := html.NewTokenizer(r)
 	skip := 0
 	for {
-		switch tokenizer.Next() {
+		tokenType := tokenizer.Next()
+		switch tokenType {
 		case html.ErrorToken:
 			return finishText(b.String())
 		case html.TextToken:
@@ -34,7 +35,11 @@ func htmlToText(r io.Reader) string {
 			name, _ := tokenizer.TagName()
 			switch tag := string(name); tag {
 			case "script", "style", "head", "title":
-				skip++
+				// A self-closing tag has no matching end tag, so it must not
+				// raise skip: nothing will ever balance it.
+				if tokenType == html.StartTagToken {
+					skip++
+				}
 			case "br":
 				b.WriteString("\n")
 			case "li":
