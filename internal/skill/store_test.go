@@ -415,6 +415,7 @@ func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
+	var writeErr error
 	wg.Go(func() {
 		hash := cur.Hash
 		for i := 0; ; i++ {
@@ -425,6 +426,7 @@ func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 			}
 			next, err := s.WriteFile(ctx, "demo", "references/big.md", []byte(strings.ReplaceAll(big, "0", string(rune('a'+i%20)))), skill.Precondition{IfMatch: hash})
 			if err != nil {
+				writeErr = err
 				return
 			}
 			hash = next.Hash
@@ -446,10 +448,14 @@ func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 		data, ok := sk.Text("references/big.md")
 		require.True(t, ok, "a complete version has references/big.md")
 		require.Len(t, data, len(big))
+		// Every version is big with one letter for each zero, and big starts
+		// with a zero: the first byte names the version that the read must hold.
+		require.Equal(t, strings.ReplaceAll(big, "0", string(data[0])), string(data), "a reader saw a mix of two versions")
 		require.Equal(t, skill.HashFiles(sk.Files), sk.Hash)
 	}
 	close(stop)
 	wg.Wait()
+	require.NoError(t, writeErr, "the writes stopped before the reads ended")
 	require.Less(t, changing, 200, "no read got one version of the skill")
 }
 
