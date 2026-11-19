@@ -72,3 +72,22 @@ func TestStepGate(t *testing.T) {
 	require.NoError(t, err)
 	release()
 }
+
+// A caller whose context has ended never takes the gate, even when the gate is
+// free. A waiter woken by a release at the moment its context ends takes this
+// same path.
+func TestStepGateCanceled(t *testing.T) {
+	t.Parallel()
+	gate := runctx.NewStepGate()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := gate.Read(ctx, nil)
+	require.ErrorIs(t, err, context.Canceled)
+	_, err = gate.Write(ctx, nil)
+	require.ErrorIs(t, err, context.Canceled)
+
+	leave, err := gate.Write(context.Background(), nil)
+	require.NoError(t, err, "the refused callers leave the gate free")
+	leave()
+}

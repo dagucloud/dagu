@@ -42,6 +42,10 @@ func (g *StepGate) Read(ctx context.Context, onWait func()) (func(), error) {
 	}
 	waited := false
 	for {
+		// A wake-up and the end of ctx can come together; the end wins.
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		g.mu.Lock()
 		if !g.writer && g.waiting == 0 {
 			g.readers++
@@ -57,7 +61,6 @@ func (g *StepGate) Read(ctx context.Context, onWait func()) (func(), error) {
 		select {
 		case <-ch:
 		case <-ctx.Done():
-			return nil, ctx.Err()
 		}
 	}
 }
@@ -74,6 +77,13 @@ func (g *StepGate) Write(ctx context.Context, onWait func()) (func(), error) {
 	waited := false
 	for {
 		g.mu.Lock()
+		// A wake-up and the end of ctx can come together; the end wins.
+		if err := ctx.Err(); err != nil {
+			g.waiting--
+			g.notify()
+			g.mu.Unlock()
+			return nil, err
+		}
 		if !g.writer && g.readers == 0 {
 			g.writer = true
 			g.waiting--
@@ -89,11 +99,6 @@ func (g *StepGate) Write(ctx context.Context, onWait func()) (func(), error) {
 		select {
 		case <-ch:
 		case <-ctx.Done():
-			g.mu.Lock()
-			g.waiting--
-			g.notify()
-			g.mu.Unlock()
-			return nil, ctx.Err()
 		}
 	}
 }
