@@ -258,10 +258,41 @@ func redactURL(raw string) string {
 	if i := strings.IndexAny(raw, "?#"); i >= 0 {
 		raw = raw[:i]
 	}
-	if u, err := url.Parse(raw); err == nil && u.User != nil {
+	u, err := url.Parse(raw)
+	switch {
+	case err == nil && u.User != nil:
 		return u.Redacted()
+	case err == nil && u.Opaque == "":
+		return raw
 	}
-	return raw
+	return hideUserInfo(raw)
+}
+
+// hideUserInfo replaces the text before the last @ of a URL with xxxxx, and
+// keeps only a scheme in front of it. It works on the text because a URL that
+// does not parse can still hold a credential.
+func hideUserInfo(text string) string {
+	at := strings.LastIndex(text, "@")
+	if at < 0 {
+		return text
+	}
+	prefix := ""
+	if scheme, _, ok := strings.Cut(text[:at], "://"); ok && isURLScheme(scheme) {
+		prefix = scheme + "://"
+	}
+	return prefix + "xxxxx" + text[at:]
+}
+
+// isURLScheme reports whether text has the form of a URL scheme (RFC 3986).
+func isURLScheme(text string) bool {
+	for i, r := range text {
+		letter := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
+		other := r >= '0' && r <= '9' || r == '+' || r == '-' || r == '.'
+		if !letter && (i == 0 || !other) {
+			return false
+		}
+	}
+	return text != ""
 }
 
 // validateAllow checks an allow block for a scope.

@@ -104,8 +104,9 @@ func TestParseScope(t *testing.T) {
 	}
 }
 
-// An error about a URL does not repeat its query or its fragment, where a
-// pasted URL can hold a key.
+// An error about a URL does not repeat its query, its fragment or its
+// password, where a pasted URL can hold a key, also when the URL does not
+// parse.
 func TestURLErrorsHideQueryAndFragment(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -116,13 +117,18 @@ func TestURLErrorsHideQueryAndFragment(t *testing.T) {
 	require.NoError(t, err)
 
 	const leak = "sk-leak-0123456789"
-	for _, raw := range []string{
+	withPassword := []string{
+		"https://user:" + leak + "@api.example.com/%ZZ",
+		"https://user:" + leak + "@api example.com/v1",
+		"user:" + leak + "@api.example.com/v1",
+	}
+	for _, raw := range append([]string{
 		"https://api.example.com/v1?key=" + leak,
 		"https://api.example.com/v1#" + leak,
 		"ftp://api.example.com/v1?key=" + leak,
 		"http://api.example.com/v1?key=" + leak,
 		"api.example.com/v1?key=" + leak,
-	} {
+	}, withPassword...) {
 		in := raceEndpointInput(raceKeyWinner)
 		in.BaseURL = raw
 		_, err := endpoints.Create(ctx, in)
@@ -130,11 +136,13 @@ func TestURLErrorsHideQueryAndFragment(t *testing.T) {
 		assert.NotContains(t, err.Error(), leak, raw)
 	}
 
-	in := raceMCPInput(raceKeyWinner)
-	in.URL = "ftp://docs.example.com/mcp?token=" + leak
-	_, err = servers.Create(ctx, in)
-	require.ErrorIs(t, err, aiendpoint.ErrInvalid)
-	assert.NotContains(t, err.Error(), leak)
+	for _, raw := range append([]string{"ftp://docs.example.com/mcp?token=" + leak}, withPassword...) {
+		in := raceMCPInput(raceKeyWinner)
+		in.URL = raw
+		_, err = servers.Create(ctx, in)
+		require.ErrorIs(t, err, aiendpoint.ErrInvalid, raw)
+		assert.NotContains(t, err.Error(), leak, raw)
+	}
 }
 
 func TestLookupPreset(t *testing.T) {
