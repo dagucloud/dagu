@@ -368,7 +368,9 @@ Rules of the table:
 ## The models list
 
 For each endpoint, the server keeps a list of model names and the date of its last good read. The
-list is a help for the author. It is not a check: a step can name a model that the list does not hold.
+list gives the author suggestions, and it decides if a step runs: once a read gave a list with a name,
+a step can name only a model of the list, after one refresh on a miss. With no such list, a step can
+name any model. See [The model check](#the-model-check).
 
 ### Read
 
