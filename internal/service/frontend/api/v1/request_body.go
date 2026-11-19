@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	"net/http"
 	"strings"
 
@@ -21,10 +20,12 @@ import (
 )
 
 // The routes of the AI endpoints (Spec 093), the MCP server entries (Spec 095) and
-// the skills (Spec 096) check each JSON body against the OpenAPI document, also
-// when server.strict_validation is off: a body is bounded, and a field that the
-// schema does not have is refused. A typo then gives a 400, not a request that
-// silently does less, such as a set of credentials with no value.
+// the skills (Spec 096) check each body against the OpenAPI document, also when
+// server.strict_validation is off: a body is bounded, and a field that the schema
+// does not have is refused. A typo then gives a 400, not a request that silently
+// does less, such as a set of credentials with no value. The check does not
+// depend on the Content-Type: the generated handlers decode JSON whatever the
+// header says, so a body with another type, or with none, is refused instead.
 const (
 	maxAIRequestBodyBytes     = 1 << 20
 	maxSkillsRequestBodyBytes = 8 << 20
@@ -32,21 +33,27 @@ const (
 
 // closedBodyMiddleware applies the rule above. The error has the shape of each
 // other error of the API, and never quotes a value of the body: a value can be a
-// key.
+// key. A path or a method that the document does not have passes on, so the
+// router answers it as it answers any other unknown route.
 func closedBodyMiddleware(swagger *openapi3.T, mountedAPIPath string) func(http.Handler) http.Handler {
 	filterOptions := openapi3filter.Options{
 		AuthenticationFunc: func(context.Context, *openapi3filter.AuthenticationInput) error { return nil },
 	}
 	filterOptions.WithCustomSchemaErrorFunc(func(err *openapi3.SchemaError) string { return err.Reason })
-	validate := oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapimiddleware.Options{
-		SilenceServersWarning: true,
-		Options:               filterOptions,
-		ErrorHandler: func(w http.ResponseWriter, message string, _ int) {
-			WriteErrorResponse(w, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: message})
-		},
-	})
 	return func(next http.Handler) http.Handler {
-		validated := validate(next)
+		validated := oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapimiddleware.Options{
+			SilenceServersWarning: true,
+			Options:               filterOptions,
+			ErrorHandlerWithOpts: func(_ context.Context, err error, w http.ResponseWriter, r *http.Request, opts oapimiddleware.ErrorHandlerOpts) {
+				if opts.MatchedRoute == nil {
+					next.ServeHTTP(w, r)
+					return
+				}
+				// The first line of a validation error names the field and the rule.
+				message, _, _ := strings.Cut(err.Error(), "\n")
+				WriteErrorResponse(w, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: message})
+			},
+		})(next)
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			limit, ok := closedBodyLimit(r, mountedAPIPath)
 			if !ok {
@@ -73,16 +80,12 @@ func closedBodyMiddleware(swagger *openapi3.T, mountedAPIPath string) func(http.
 	}
 }
 
-// closedBodyLimit returns the limit of the body of a request with a JSON body
+// closedBodyLimit returns the limit of the body of a request that can carry one
 // to the routes of the rule. It returns false for another request.
 func closedBodyLimit(r *http.Request, mountedAPIPath string) (int64, bool) {
 	switch r.Method {
 	case http.MethodPost, http.MethodPut, http.MethodPatch:
 	default:
-		return 0, false
-	}
-	mediaType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if mediaType != "application/json" {
 		return 0, false
 	}
 	relative, ok := strings.CutPrefix(r.URL.Path, strings.TrimSuffix(mountedAPIPath, "/"))

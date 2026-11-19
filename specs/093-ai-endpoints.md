@@ -267,7 +267,8 @@ An endpoint request never has the key in its response. It has the key in the bod
 only. The server never writes a body in a log.
 
 The JSON body of a request to a route under `/ai/` has a closed schema. An unknown field gives the
-status 400. A body above 1 MiB gives the status 413. The error never quotes a value of the body.
+status 400. A body above 1 MiB gives the status 413. A body with no `Content-Type`, or with a type
+that the route does not take, gives the status 400. The error never quotes a value of the body.
 
 Each create, change, rotation, delete and reload writes one line to the audit log, with the category
 `secret`. The actions are `ai_endpoint_create`, `ai_endpoint_update`, `ai_endpoint_key_rotate`,
