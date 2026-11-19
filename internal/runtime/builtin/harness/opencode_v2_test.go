@@ -271,6 +271,29 @@ func TestV2ChildrenSettle(t *testing.T) {
 	require.EqualValues(t, 2, listed.Load())
 }
 
+// A failed child listing is not an empty listing: the root may have children.
+func TestV2ListingFailureAssumesChildren(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/session/active":
+			_, _ = w.Write([]byte(`{"data":{}}`))
+		case "/api/session":
+			http.Error(w, "boom", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+
+	family, err := client.family(t.Context(), "ses_root")
+
+	require.NoError(t, err)
+	require.True(t, family.idle())
+	require.True(t, family.hasChildren)
+}
+
 // An active session whose ancestry cannot be read has unknown membership: it
 // blocks idle and is retried on every poll.
 func TestV2UnreadableSessionUnknown(t *testing.T) {
@@ -949,6 +972,8 @@ func TestV2InterruptAwaitsIdle(t *testing.T) {
 				return
 			}
 			_, _ = w.Write([]byte(`{"data":{}}`))
+		case "/api/session":
+			_, _ = w.Write([]byte(`{"data":[]}`))
 		default:
 			http.NotFound(w, r)
 		}

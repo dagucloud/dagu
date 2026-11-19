@@ -444,8 +444,8 @@ func (c *openCodeClient) hasChildren(ctx context.Context, sessionID string) (boo
 		if isManagedUnavailable(err) {
 			return false, err
 		}
-		// The check only delays settling, so a host that rejects it is treated as childless.
-		return false, nil
+		// A failed listing is not an empty one; assuming children only costs a tick.
+		return true, nil
 	}
 	return len(children) > 0, nil
 }
