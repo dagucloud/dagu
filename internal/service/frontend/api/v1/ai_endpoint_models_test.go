@@ -34,6 +34,8 @@ type aiModelsProvider struct {
 	status int
 	body   string
 	auths  []string
+	// gate, when set, holds each answer until it is closed. See hold.
+	gate   chan struct{}
 	server *httptest.Server
 }
 
@@ -42,6 +44,12 @@ func newAIModelsProvider(t *testing.T) *aiModelsProvider {
 	p := &aiModelsProvider{status: http.StatusOK, body: `{"data":[{"id":"gpt-5"},{"id":"gpt-5-mini"}]}`}
 	p.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.mu.Lock()
+		gate := p.gate
+		p.mu.Unlock()
+		if gate != nil {
+			<-gate
+		}
+		p.mu.Lock()
 		defer p.mu.Unlock()
 		p.auths = append(p.auths, r.Header.Get("Authorization"))
 		w.WriteHeader(p.status)
@@ -49,6 +57,20 @@ func newAIModelsProvider(t *testing.T) *aiModelsProvider {
 	}))
 	t.Cleanup(p.server.Close)
 	return p
+}
+
+// hold makes the provider wait before each answer until release runs. The
+// cleanup of the test releases it too, before the server closes, so a failed
+// test cannot block the close.
+func (p *aiModelsProvider) hold(t *testing.T) (release func()) {
+	t.Helper()
+	gate := make(chan struct{})
+	p.mu.Lock()
+	p.gate = gate
+	p.mu.Unlock()
+	release = sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(release)
+	return release
 }
 
 func (p *aiModelsProvider) set(status int, body string) {
@@ -146,16 +168,28 @@ func getModels(t *testing.T, api *apiv1.API, name string) apigen.AIEndpointModel
 	return apigen.AIEndpointModels(got)
 }
 
+// The provider holds the first read until the create has answered. A create
+// that waited for the read would answer only after the read timed out, with its
+// error in the response.
 func TestAIModelsAPI_CreateStartsTheFirstReadWithoutWaitingForIt(t *testing.T) {
 	provider := newAIModelsProvider(t)
+	release := provider.hold(t)
 	api, _, service := newAIModelsTestAPI(t, provider)
 
-	created := aiCreate(t, api, service, aiCustomBody("cle1", provider, true))
+	body := aiCustomBody("cle1", provider, true)
+	resp, err := api.CreateAIEndpoint(context.Background(), apigen.CreateAIEndpointRequestObject{Body: &body})
+	require.NoError(t, err)
+	created, ok := resp.(apigen.CreateAIEndpoint201JSONResponse)
+	require.True(t, ok, "%T", resp)
 
-	// The response of the create has the state of the list. The read ran after it.
+	// The response of the create has the state of the list before any read ended.
 	require.NotNil(t, created.Models)
 	assert.True(t, created.Models.Supported)
+	assert.Nil(t, created.Models.RefreshedAt)
+	assert.Nil(t, created.Models.Error, "the create waited for the read")
 
+	release()
+	service.WaitModels()
 	got := getModels(t, api, "cle1")
 	assert.True(t, got.Supported)
 	assert.Equal(t, []string{"gpt-5", "gpt-5-mini"}, got.Models)
