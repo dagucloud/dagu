@@ -310,10 +310,6 @@ func parseSecretRefs(ctx buildContext, d *dag) ([]secretref.Ref, error) {
 			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("secret %q: registry ref must be a slash-separated lowercase slug path", def.Name))
 		}
 
-		if hasRef && secretref.IsReserved(def.Ref) {
-			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("secret %q: registry ref %q is reserved for the AI feature: no registry ref may start with %q", def.Name, def.Ref, secretref.ReservedPrefix))
-		}
-
 		secrets = append(secrets, secretref.Ref{
 			Name:     def.Name,
 			Ref:      def.Ref,
