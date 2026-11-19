@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
 	"github.com/google/jsonschema-go/jsonschema"
@@ -89,10 +91,13 @@ func (s *ResultSchema) Check(raw []byte) ([]byte, *ResultError) {
 		return nil, &ResultError{Reason: ReasonSchemaMismatch,
 			Err: fmt.Errorf("the result must be a JSON object, got %T (value: %s)", decoded, CutBytes(string(raw), valueCutBytes))}
 	}
-	// The validator reads plain numbers, so it gets a plain decode of the value.
-	var plain any
-	if err := json.Unmarshal(raw, &plain); err != nil {
-		return nil, &ResultError{Reason: ReasonInvalidJSON, Err: err}
+	plain, err := validatorValue(object)
+	if err != nil {
+		reason := ReasonInvalidJSON
+		if errors.Is(err, errInexactInteger) {
+			reason = ReasonSchemaMismatch
+		}
+		return nil, &ResultError{Reason: reason, Err: fmt.Errorf("%w (value: %s)", err, CutBytes(string(raw), valueCutBytes))}
 	}
 	if err := s.resolved.Validate(plain); err != nil {
 		return nil, &ResultError{Reason: ReasonSchemaMismatch,
@@ -103,6 +108,61 @@ func (s *ResultSchema) Check(raw []byte) ([]byte, *ResultError) {
 		return nil, &ResultError{Reason: ReasonInvalidJSON, Err: err}
 	}
 	return trimLine(line), nil
+}
+
+// errInexactInteger marks an integer that the validator cannot compare exactly.
+var errInexactInteger = errors.New("the integer is outside the 64-bit range that the check compares exactly")
+
+// validatorValue returns a copy of a value of DecodeStrict with numbers that the
+// validator compares exactly: an integer becomes an int64 or a uint64, any other
+// number a float64. The validator reads a json.Number as a string, and a float64
+// copy of an integer above 2^53 is rounded, so a value could pass a bound that
+// the published value breaks.
+func validatorValue(value any) (any, error) {
+	switch typed := value.(type) {
+	case map[string]any:
+		object := make(map[string]any, len(typed))
+		for key, item := range typed {
+			converted, err := validatorValue(item)
+			if err != nil {
+				return nil, err
+			}
+			object[key] = converted
+		}
+		return object, nil
+	case []any:
+		list := make([]any, len(typed))
+		for i, item := range typed {
+			converted, err := validatorValue(item)
+			if err != nil {
+				return nil, err
+			}
+			list[i] = converted
+		}
+		return list, nil
+	case json.Number:
+		return validatorNumber(typed)
+	default:
+		return value, nil
+	}
+}
+
+func validatorNumber(number json.Number) (any, error) {
+	text := number.String()
+	if n, err := strconv.ParseInt(text, 10, 64); err == nil {
+		return n, nil
+	}
+	if n, err := strconv.ParseUint(text, 10, 64); err == nil {
+		return n, nil
+	}
+	if !strings.ContainsAny(text, ".eE") {
+		return nil, fmt.Errorf("%s: %w", CutBytes(text, valueCutBytes), errInexactInteger)
+	}
+	f, err := number.Float64()
+	if err != nil {
+		return nil, fmt.Errorf("the number %s is out of range", CutBytes(text, valueCutBytes))
+	}
+	return f, nil
 }
 
 func trimLine(data []byte) []byte {

@@ -123,6 +123,59 @@ func TestResultErrorCutsTheValueAt80Bytes(t *testing.T) {
 	assert.Contains(t, err.Error(), "(value: ")
 }
 
+func integerSchema(t *testing.T, field map[string]any) *ResultSchema {
+	t.Helper()
+	schema, err := NewResultSchema(map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties":           map[string]any{"n": field},
+	})
+	require.NoError(t, err)
+	return schema
+}
+
+// The check must see the integer that the step emits, not a float64 copy
+// rounded to 53 bits.
+func TestCheckExactIntegers(t *testing.T) {
+	t.Parallel()
+
+	bounded := integerSchema(t, map[string]any{"type": "integer", "maximum": 1 << 53})
+	line, err := bounded.Check([]byte(`{"n":9007199254740992}`))
+	require.Nil(t, err)
+	assert.Equal(t, `{"n":9007199254740992}`, string(line))
+
+	_, err = bounded.Check([]byte(`{"n":9007199254740993}`))
+	require.NotNil(t, err, "above the maximum by one")
+	assert.Equal(t, ReasonSchemaMismatch, err.Reason)
+
+	minimum := integerSchema(t, map[string]any{"type": "integer", "minimum": 18446744073709551615.0})
+	_, err = minimum.Check([]byte(`{"n":18446744073709551614}`))
+	require.NotNil(t, err, "a uint64 below the minimum")
+	assert.Equal(t, ReasonSchemaMismatch, err.Reason)
+
+	open := integerSchema(t, map[string]any{"type": "integer"})
+	line, err = open.Check([]byte(`{"n":12345678901234567891}`))
+	require.Nil(t, err)
+	assert.Equal(t, `{"n":12345678901234567891}`, string(line), "every digit is kept")
+
+	_, err = open.Check([]byte(`{"n":123456789012345678901234567890}`))
+	require.NotNil(t, err, "no exact check above 64 bits")
+	assert.Equal(t, ReasonSchemaMismatch, err.Reason)
+
+	_, err = open.Check([]byte(`{"n":1.5}`))
+	require.NotNil(t, err)
+	assert.Equal(t, ReasonSchemaMismatch, err.Reason)
+
+	_, err = open.Check([]byte(`{"n":1e400}`))
+	require.NotNil(t, err, "a number that no float64 holds")
+	assert.Equal(t, ReasonInvalidJSON, err.Reason)
+
+	number := integerSchema(t, map[string]any{"type": "number"})
+	line, err = number.Check([]byte(`{"n":2.5e3}`))
+	require.Nil(t, err)
+	assert.Equal(t, `{"n":2.5e3}`, string(line))
+}
+
 func TestNormalizeToolName(t *testing.T) {
 	t.Parallel()
 
