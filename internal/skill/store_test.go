@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/skill"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -456,6 +457,64 @@ func TestWriteAndDeleteRefuseSymbolicLinks(t *testing.T) {
 			require.NotEqual(t, "references/link.md", f.Path)
 		}
 		untouched(t, outside)
+	})
+}
+
+// loseLock hands the lock of the skill name to another owner, as the takeover
+// of a stale lock by another instance would.
+func loseLock(t *testing.T, s *skill.Store, name string) {
+	t.Helper()
+	dir := filepath.Join(s.Root(), ".locks", name)
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, dirlock.LockDirectoryName)))
+	other := dirlock.New(dir, nil)
+	require.NoError(t, other.TryLock())
+	t.Cleanup(func() { _ = other.Unlock() })
+}
+
+// A writer that lost its lock commits nothing: the new holder may have passed
+// the same precondition.
+func TestLostLockCommitsNothing(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	setup := func(t *testing.T) (*skill.Store, string) {
+		t.Helper()
+		s := newStore(t)
+		created := create(t, s, "demo")
+		cur, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("one"), skill.Precondition{IfMatch: created.Hash})
+		require.NoError(t, err)
+		skill.SetBeforeHeldCheck(s, func() { loseLock(t, s, "demo") })
+		return s, cur.Hash
+	}
+	unchanged := func(t *testing.T, s *skill.Store, hash string) {
+		t.Helper()
+		got, err := s.Read("demo")
+		require.NoError(t, err)
+		require.Equal(t, hash, got.Hash)
+		entries, err := os.ReadDir(filepath.Join(s.Dir("demo"), "references"))
+		require.NoError(t, err)
+		require.Len(t, entries, 1, "a temporary file stayed")
+	}
+
+	t.Run("write", func(t *testing.T) {
+		t.Parallel()
+		s, hash := setup(t)
+		_, err := s.WriteFile(ctx, "demo", "references/a.md", []byte("two"), skill.Precondition{IfMatch: hash})
+		require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
+		unchanged(t, s, hash)
+	})
+	t.Run("delete file", func(t *testing.T) {
+		t.Parallel()
+		s, hash := setup(t)
+		_, err := s.DeleteFile(ctx, "demo", "references/a.md", skill.Precondition{IfMatch: hash})
+		require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
+		unchanged(t, s, hash)
+	})
+	t.Run("delete skill", func(t *testing.T) {
+		t.Parallel()
+		s, hash := setup(t)
+		err := s.DeleteSkill(ctx, "demo", skill.Precondition{IfMatch: hash})
+		require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
+		unchanged(t, s, hash)
 	})
 }
 

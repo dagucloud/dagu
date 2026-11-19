@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -74,6 +75,9 @@ type Precondition struct {
 // in several processes, can use the same directory.
 type Store struct {
 	root string
+	// beforeHeldCheck is a test seam. When set, it runs right before a write
+	// checks that it still holds the lock of the skill.
+	beforeHeldCheck func()
 }
 
 // NewStore returns the store of the skills directory root.
@@ -242,7 +246,7 @@ func (s *Store) WriteFile(ctx context.Context, name, rel string, data []byte, pr
 	}
 
 	var result *Skill
-	err = s.withLock(ctx, name, pre, func() error {
+	err = s.withLock(ctx, name, pre, func(held func() error) error {
 		current, err := s.checkPrecondition(name, pre)
 		if err != nil {
 			return err
@@ -263,7 +267,7 @@ func (s *Store) WriteFile(ctx context.Context, name, rel string, data []byte, pr
 			return err
 		}
 		defer func() { _ = root.Close() }()
-		if err := writeInRoot(root, rel, data); err != nil {
+		if err := writeInRoot(root, rel, data, held); err != nil {
 			return err
 		}
 		result, err = Read(s.Dir(name))
@@ -336,8 +340,9 @@ func checkNoLink(root *os.Root, rel string, leafMayBeLink bool) error {
 
 // writeInRoot durably replaces the file rel of the folder of root. It writes a
 // temporary file next to the target and renames it, as WriteFileAtomic does. It
-// checks the path for links before the write and again right before the rename.
-func writeInRoot(root *os.Root, rel string, data []byte) error {
+// checks the path for links before the write and again right before the rename,
+// and it renames only while held returns nil.
+func writeInRoot(root *os.Root, rel string, data []byte, held func() error) error {
 	if err := checkNoLink(root, rel, false); err != nil {
 		return err
 	}
@@ -372,6 +377,10 @@ func writeInRoot(root *os.Root, rel string, data []byte) error {
 		return fmt.Errorf("write %s: %w", rel, err)
 	}
 	if err := checkNoLink(root, rel, false); err != nil {
+		_ = root.Remove(temp)
+		return err
+	}
+	if err := held(); err != nil {
 		_ = root.Remove(temp)
 		return err
 	}
@@ -439,7 +448,7 @@ func (s *Store) DeleteFile(ctx context.Context, name, rel string, pre Preconditi
 		return nil, ErrNotFound
 	}
 	var result *Skill
-	err = s.withLock(ctx, name, pre, func() error {
+	err = s.withLock(ctx, name, pre, func(held func() error) error {
 		current, err := s.checkPrecondition(name, pre)
 		if err != nil {
 			return err
@@ -464,10 +473,13 @@ func (s *Store) DeleteFile(ctx context.Context, name, rel string, pre Preconditi
 			}
 			return err
 		}
+		if info.IsDir() && layoutAllowsDir(rel) {
+			return &InvalidError{Issues: []Issue{pathIssue(rel, "a folder of the layout cannot be deleted; delete its files")}}
+		}
+		if err := held(); err != nil {
+			return err
+		}
 		if info.IsDir() {
-			if layoutAllowsDir(rel) {
-				return &InvalidError{Issues: []Issue{pathIssue(rel, "a folder of the layout cannot be deleted; delete its files")}}
-			}
 			err = root.RemoveAll(rel)
 		} else {
 			err = root.Remove(rel)
@@ -517,13 +529,16 @@ func (s *Store) DeleteSkill(ctx context.Context, name string, pre Precondition) 
 	if pre.MustNotExist {
 		return ErrPreconditionRequired
 	}
-	return s.withLock(ctx, name, pre, func() error {
+	return s.withLock(ctx, name, pre, func(held func() error) error {
 		current, err := s.checkPrecondition(name, pre)
 		if err != nil {
 			return err
 		}
 		if current == nil {
 			return ErrNotFound
+		}
+		if err := held(); err != nil {
+			return err
 		}
 		if err := os.RemoveAll(s.Dir(name)); err != nil {
 			return fmt.Errorf("delete the skill folder: %w", err)
@@ -564,8 +579,9 @@ func (s *Store) checkPrecondition(name string, pre Precondition) (*Skill, error)
 // withLock runs fn while it holds the lock of the skill. The lock is a
 // directory lock in the skills directory, so it works between processes and
 // between instances that share the directory. A crashed holder is detected by
-// the stale threshold of the lock.
-func (s *Store) withLock(ctx context.Context, name string, pre Precondition, fn func() error) error {
+// the stale threshold of the lock. fn calls held right before each commit
+// point: held fails with dirlock.ErrLockNotHeld once the lock may be lost.
+func (s *Store) withLock(ctx context.Context, name string, pre Precondition, fn func(held func() error) error) error {
 	// A change of a skill that does not exist ends before the lock, so a request
 	// for any name makes no lock folder.
 	if !pre.MustNotExist {
@@ -588,22 +604,46 @@ func (s *Store) withLock(ctx context.Context, name string, pre Precondition, fn 
 	}
 	defer func() { _ = lock.Unlock() }()
 	// A slow write on shared storage can last longer than the stale threshold. The
-	// heartbeat keeps the lock fresh, so another instance does not take it.
-	done := make(chan struct{})
-	defer close(done)
+	// heartbeat keeps the lock fresh, so another instance does not take it. held
+	// refuses a commit once the last renewal is three quarters of the stale
+	// threshold old, before another writer can judge the lock stale, or once
+	// another writer holds the lock.
+	var renewedAt atomic.Pointer[time.Time]
+	markRenewed := func() {
+		now := time.Now()
+		renewedAt.Store(&now)
+	}
+	markRenewed()
+	renewCtx, stopRenewing := context.WithCancel(ctx)
+	renewed := make(chan struct{})
 	go func() {
+		defer close(renewed)
 		ticker := time.NewTicker(lockStaleThreshold / 3)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-done:
+			case <-renewCtx.Done():
 				return
 			case <-ticker.C:
-				_ = lock.Heartbeat(ctx)
+				if lock.Heartbeat(renewCtx) == nil {
+					markRenewed()
+				}
 			}
 		}
 	}()
-	return fn()
+	defer func() {
+		stopRenewing()
+		<-renewed
+	}()
+	return fn(func() error {
+		if s.beforeHeldCheck != nil {
+			s.beforeHeldCheck()
+		}
+		if time.Since(*renewedAt.Load()) > lockStaleThreshold*3/4 || !lock.IsHeldByMe() {
+			return fmt.Errorf("the lock of the skill %q was lost: %w", name, dirlock.ErrLockNotHeld)
+		}
+		return nil
+	})
 }
 
 func onlyErrors(issues []Issue) []Issue {
