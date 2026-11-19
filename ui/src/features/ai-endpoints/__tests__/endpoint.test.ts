@@ -76,6 +76,21 @@ describe('name and url rules', () => {
     expect(urlProblem('https://api.example.com/v1', false)).toBeNull();
   });
 
+  // The browser drops an empty query, fragment or user part; the server
+  // reads them from the text and refuses each.
+  it.each([
+    'https://api.example.com/v1?',
+    'https://api.example.com/v1#',
+    'https://@api.example.com/v1',
+    'https://:@api.example.com/v1',
+  ])('refuses the empty URL part of %s', (raw) => {
+    expect(urlProblem(raw, false)).toBe('url-parts');
+  });
+
+  it('accepts an "@" in the path', () => {
+    expect(urlProblem('https://api.example.com/v1/@team', false)).toBeNull();
+  });
+
   it('checks the name, the URL and the allow lists of a new endpoint', () => {
     const form = {
       ...formForPreset(anthropic, anthropic.protocols[0]!.protocol),

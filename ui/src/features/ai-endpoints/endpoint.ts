@@ -180,7 +180,14 @@ export function urlProblem(raw: string, allowHttp: boolean): Problem | null {
   if (url.protocol !== 'https:' && !(allowHttp && url.protocol === 'http:')) {
     return 'url-scheme';
   }
-  if (url.username || url.password || url.search || url.hash) {
+  // The server reads the text: any "?" or "#", and any "@" before the path,
+  // count as a part even when the part is empty.
+  if (
+    url.username ||
+    url.password ||
+    /[?#]/.test(value) ||
+    /^[^/]*\/\/[^/]*@/.test(value)
+  ) {
     return 'url-parts';
   }
   return null;
