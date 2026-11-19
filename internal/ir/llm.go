@@ -4,6 +4,7 @@
 package ir
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 )
@@ -230,6 +231,28 @@ const (
 	// DefaultToolResultMaxBytes is the default size limit of one tool result.
 	DefaultToolResultMaxBytes = 524288
 )
+
+// UnmarshalJSON reads the tool DAGs of a dag.json written before tool
+// entries, a list of names in the field tools, as entries of the list form.
+func (c *LLMConfig) UnmarshalJSON(data []byte) error {
+	type alias LLMConfig
+	aux := struct {
+		*alias
+		DeprecatedTools []string `json:"tools,omitempty"`
+	}{
+		alias: (*alias)(c),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if len(c.ToolEntries) > 0 {
+		return nil
+	}
+	for _, name := range aux.DeprecatedTools {
+		c.ToolEntries = append(c.ToolEntries, ToolEntry{Kind: ToolEntryDAG, Name: name, DAG: name, NameFromDAG: true})
+	}
+	return nil
+}
 
 // HasTools returns true if tools are configured.
 func (c *LLMConfig) HasTools() bool {
