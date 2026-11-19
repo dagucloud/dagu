@@ -384,11 +384,11 @@ function PickerList({
               aria-hidden="true"
             />
             <span className="min-w-0 flex-1">
-              <span className="block truncate" title={item.label}>
+              <span className="block whitespace-normal break-words">
                 {item.label}
               </span>
               {item.detail !== undefined && item.detail !== item.label && (
-                <span className="block truncate text-[11px] font-normal text-muted-foreground">
+                <span className="block whitespace-normal break-words text-[11px] font-normal text-muted-foreground">
                   {item.detail}
                 </span>
               )}
