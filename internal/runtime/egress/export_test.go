@@ -18,3 +18,9 @@ func (p *Proxy) SetTLSConfigForTest(config *tls.Config) {
 func (p *Proxy) SetTunnelIdleForTest(idle time.Duration) {
 	p.tunnelIdle = idle
 }
+
+// SetKeepAliveIdleForTest sets the time after which a kept connection with no
+// request ends.
+func (p *Proxy) SetKeepAliveIdleForTest(idle time.Duration) {
+	p.keepAliveIdle = idle
+}

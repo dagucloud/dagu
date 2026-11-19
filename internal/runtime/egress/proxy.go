@@ -74,6 +74,8 @@ type Proxy struct {
 
 	// tunnelIdle ends a tunnel in which no byte moved for this time.
 	tunnelIdle time.Duration
+	// keepAliveIdle ends a kept connection with no request for this time.
+	keepAliveIdle time.Duration
 
 	transport *http.Transport
 	reverse   *httputil.ReverseProxy
@@ -114,7 +116,7 @@ func New(opts Options) (*Proxy, error) {
 	p := &Proxy{
 		rules: opts.Rules, resolver: opts.Resolver, dial: opts.Dial, log: opts.Log, upstream: opts.Upstream,
 		credentialRules: opts.CredentialRules, credential: opts.ProxyCredential,
-		tunnelIdle: tunnelIdleTimeout,
+		tunnelIdle: tunnelIdleTimeout, keepAliveIdle: keepAliveIdleTimeout,
 	}
 	if p.resolver == nil {
 		p.resolver = net.DefaultResolver
@@ -357,15 +359,56 @@ func (p *Proxy) dialAllowed(ctx context.Context, network, address string) (net.C
 	return nil, lastErr
 }
 
-// sharedAddressSpace is the range of carrier-grade NAT (RFC 6598), which is not
-// a public address either.
-var sharedAddressSpace = netip.MustParsePrefix("100.64.0.0/10")
+// specialPrefixes are the special-purpose ranges of the IANA registries that
+// IsGlobalUnicast accepts and that are not addresses of the internet.
+var specialPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),       // this network
+	netip.MustParsePrefix("100.64.0.0/10"),   // shared address space (carrier-grade NAT)
+	netip.MustParsePrefix("192.0.0.0/24"),    // IETF protocol assignments
+	netip.MustParsePrefix("192.0.2.0/24"),    // documentation
+	netip.MustParsePrefix("192.88.99.0/24"),  // 6to4 relay anycast
+	netip.MustParsePrefix("198.18.0.0/15"),   // benchmarking
+	netip.MustParsePrefix("198.51.100.0/24"), // documentation
+	netip.MustParsePrefix("203.0.113.0/24"),  // documentation
+	netip.MustParsePrefix("240.0.0.0/4"),     // reserved, and the broadcast address
+	netip.MustParsePrefix("64:ff9b:1::/48"),  // local-use NAT64
+	netip.MustParsePrefix("100::/64"),        // discard-only
+	netip.MustParsePrefix("2001::/23"),       // IETF protocol assignments, Teredo
+	netip.MustParsePrefix("2001:db8::/32"),   // documentation
+	netip.MustParsePrefix("3fff::/20"),       // documentation
+	netip.MustParsePrefix("5f00::/16"),       // segment routing
+}
+
+var (
+	// nat64Prefix is the well-known NAT64 prefix: the last 32 bits are an IPv4
+	// address (RFC 6052).
+	nat64Prefix = netip.MustParsePrefix("64:ff9b::/96")
+	// sixToFourPrefix is the 6to4 prefix: the 32 bits after it are an IPv4
+	// address (RFC 3056).
+	sixToFourPrefix = netip.MustParsePrefix("2002::/16")
+)
 
 // publicAddr reports whether addr is an address of the internet: not loopback,
-// private, link-local, multicast, unspecified or shared.
+// private, link-local, multicast, unspecified or special-purpose. A NAT64 or
+// 6to4 address is public when the IPv4 address in it is.
 func publicAddr(addr netip.Addr) bool {
 	addr = addr.Unmap()
-	return addr.IsGlobalUnicast() && !addr.IsPrivate() && !sharedAddressSpace.Contains(addr)
+	if !addr.IsGlobalUnicast() || addr.IsPrivate() {
+		return false
+	}
+	for _, prefix := range specialPrefixes {
+		if prefix.Contains(addr) {
+			return false
+		}
+	}
+	raw := addr.As16()
+	switch {
+	case nat64Prefix.Contains(addr):
+		return publicAddr(netip.AddrFrom4([4]byte(raw[12:16])))
+	case sixToFourPrefix.Contains(addr):
+		return publicAddr(netip.AddrFrom4([4]byte(raw[2:6])))
+	}
+	return true
 }
 
 // DeniedError is the error of a destination that the policy does not list.
@@ -474,6 +517,11 @@ func (p *Proxy) serveConnect(w http.ResponseWriter, r *http.Request) {
 // hold the descriptors of the proxy for ever.
 const tunnelIdleTimeout = 10 * time.Minute
 
+// keepAliveIdleTimeout ends a kept connection on which no next request came,
+// for the same reason. It is longer than the idle time of common HTTP clients,
+// so a client closes its idle connection first.
+const keepAliveIdleTimeout = 2 * time.Minute
+
 // pipe copies the bytes of both directions until each side has ended, and closes
 // both connections. It closes both at once when no byte moved for idle.
 func pipe(client net.Conn, buffered io.Reader, upstream net.Conn, idle time.Duration) {
@@ -533,7 +581,8 @@ func closeWrite(conn net.Conn) {
 
 // Serve accepts connections on the listener until it closes.
 func (p *Proxy) Serve(l net.Listener) error {
-	server := &http.Server{Handler: p, ReadHeaderTimeout: 30 * time.Second}
+	// No WriteTimeout: it would cut a long stream of a model answer.
+	server := &http.Server{Handler: p, ReadHeaderTimeout: 30 * time.Second, IdleTimeout: p.keepAliveIdle}
 	err := server.Serve(l)
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		return nil

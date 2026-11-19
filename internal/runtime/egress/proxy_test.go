@@ -316,6 +316,84 @@ func TestWildcardAndAddresses(t *testing.T) {
 	}())
 }
 
+// A name that only a wildcard allows reaches public addresses only. The
+// special-purpose ranges are not public, and a NAT64 or 6to4 address is public
+// only when the IPv4 address in it is.
+func TestWildcardRefusesSpecialAddresses(t *testing.T) {
+	t.Parallel()
+
+	refused := []string{
+		"0.1.2.3", "192.0.0.8", "198.18.0.1", "203.0.113.5", "240.0.0.1", "255.255.255.255",
+		"64:ff9b::a9fe:a9fe", "64:ff9b::a00:1", "64:ff9b:1::1", "2002:a9fe:a9fe::1",
+		"2001::1", "2001:db8::1", "100::1",
+	}
+	allowed := []string{"8.8.8.8", "64:ff9b::808:808", "2002:808:808::1", "2606:4700::1111"}
+	resolver := &fakeResolver{answers: map[string][]netip.Addr{}}
+	name := func(addr string) string {
+		return strings.NewReplacer(".", "-", ":", "-").Replace(addr) + ".wild.example.test"
+	}
+	for _, addr := range append(append([]string{}, refused...), allowed...) {
+		resolver.answers[name(addr)] = []netip.Addr{netip.MustParseAddr(addr)}
+	}
+	dials := &dialRecord{}
+	noRoute := func(_ context.Context, _, address string) (net.Conn, error) {
+		dials.mu.Lock()
+		dials.addrs = append(dials.addrs, address)
+		dials.mu.Unlock()
+		return nil, errors.New("no route")
+	}
+	client := proxyClient(t, startProxy(t, []string{"*.wild.example.test"}, resolver, noRoute))
+	get := func(target string) int {
+		resp, err := client.Get(target)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	for _, addr := range refused {
+		assert.Equal(t, http.StatusForbidden, get("http://"+name(addr)+"/"), addr)
+	}
+	var want []string
+	for _, addr := range allowed {
+		assert.Equal(t, http.StatusBadGateway, get("http://"+name(addr)+"/"), "%s is dialed", addr)
+		want = append(want, net.JoinHostPort(addr, "80"))
+	}
+	assert.Equal(t, want, dials.seen(), "only the public addresses are dialed")
+}
+
+// A kept connection on which no next request comes ends, so a client cannot
+// hold the descriptors of the proxy with idle connections.
+func TestIdleKeepAliveEnds(t *testing.T) {
+	t.Parallel()
+
+	rules, err := egress.ParseRules([]string{"example.test"})
+	require.NoError(t, err)
+	proxy, err := egress.New(egress.Options{Rules: rules})
+	require.NoError(t, err)
+	proxy.SetKeepAliveIdleForTest(300 * time.Millisecond)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	go func() { _ = proxy.Serve(listener) }()
+	t.Cleanup(func() { _ = listener.Close() })
+
+	conn, err := net.Dial("tcp", listener.Addr().String())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	// A refused request of HTTP/1.1 keeps the connection.
+	_, err = io.WriteString(conn, "GET / HTTP/1.1\r\nHost: example.test\r\n\r\n")
+	require.NoError(t, err)
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	require.NoError(t, err)
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	_, err = reader.ReadByte()
+	require.ErrorIs(t, err, io.EOF, "the proxy closes the idle connection")
+}
+
 // A request that is not an absolute URL, and one with another scheme, is refused. A
 // failed upstream gives 502 and a name that does not resolve gives 502.
 func TestMalformedAndFailedRequests(t *testing.T) {
