@@ -537,7 +537,8 @@ isolation. An agent worker always has isolation. A process with neither these ke
      restricted user can read it and cannot write it.
    - The same rule applies to each git folder. A git folder is the folder that a `.git` file or a
      `.git` link names (`gitdir:`), or the folder that its file `commondir` names. A folder that git
-     opens as a repository, with `HEAD`, `objects` and `refs`, is a git folder too. A git folder outside the work
+     opens as a repository, with `HEAD`, `objects` and `refs`, is a git folder too, also when
+     `objects` or `refs` is a link, and also when it is the work directory. A git folder outside the work
      directory fails the step.
    - The work directory and each folder on the way to a git folder or to an entry `.git` keep the
      owner of the worker. They get the mode `1777`. The restricted user can make and remove its own
@@ -566,13 +567,15 @@ isolation. An agent worker always has isolation. A process with neither these ke
    (`/proc/<pid>/task/<tid>`) stops each thread group with a live task of that user. This includes a
    group whose leader is a zombie. Dagu waits until
    no live task of that user is left. Then Dagu changes the owner of each file and folder of the work
-   directory back to the user of the worker. Then it reads the outputs of the step.
+   directory back to the user of the worker, and gives each entry of a git folder its mode back. Then
+   it reads the outputs of the step.
 8. **Checks at the end.** Dagu checks the work directory before it gives it back. For each of these
    entries of the restricted user, it fails the step and removes the entry:
    - a new entry `.git`, or a new entry in a git folder
-   - a new folder that git opens as a repository: Dagu removes its files `HEAD`, `commondir` and
-     `gitdir`
-   - a link to a path outside the work directory or into a git folder
+   - a new folder that git opens as a repository, the work directory included: Dagu removes its
+     files `HEAD`, `commondir` and `gitdir`
+   - a link to a path outside the work directory or into a git folder, by the text of its target or
+     by the path that it reaches through other links
    - a file with more than one link
 
    A file of the restricted user loses the bits set-user-ID and set-group-ID.
@@ -675,7 +678,9 @@ through `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, aft
 these variables already have. So git opens a bare repository only when the command names it.
 
 The author checks the changed files in a trusted step before a push. For example, a step refuses a
-change below `.github/`:
+change below `.github/`. The check gives the protected paths to git as a pathspec. A check that
+reads the paths of `git status --porcelain` as text misses a path that git quotes, such as a name
+with a special character:
 
 ```yaml
   - id: check_paths
@@ -683,7 +688,7 @@ change below `.github/`:
     untrusted: false
     working_dir: repo
     run: |
-      if git status --porcelain | cut -c4- | grep -q '^\.github/'; then
+      if [ -n "$(git status --porcelain -- .github/)" ]; then
         echo "the agent changed .github/" >&2; exit 1
       fi
 ```
@@ -768,7 +773,9 @@ and to the CI.
 `dagu egress-proxy serve` forwards the requests of a client to the destinations of `--allow` and
 refuses the others with the status 403. A name that only a wildcard entry allows, such as
 `*.github.io`, gets public addresses only. An entry that names the host or the address reaches any
-address. A `CONNECT` tunnel in which no byte moves for 10 minutes ends.
+address. A special-purpose address, such as `198.18.0.1`, is not public, and a NAT64 or 6to4
+address is public only when the IPv4 address in it is. A `CONNECT` tunnel in which no byte moves
+for 10 minutes ends. A kept connection with no request for 2 minutes ends.
 
 These options add a route to one upstream, with the real key of the model API. A step of the
 provider `claude` does not use this route: it names an endpoint (Spec 094). The route serves a CLI
@@ -1232,7 +1239,7 @@ steps:
     untrusted: false
     working_dir: repo
     run: |
-      if git status --porcelain | cut -c4- | grep -Eq '^(scripts/|test_|\.github/)'; then
+      if [ -n "$(git status --porcelain -- scripts/ 'test_*' .github/)" ]; then
         echo "the agent changed a test, a script or the CI" >&2; exit 1
       fi
 
@@ -1390,6 +1397,8 @@ sends `POST https://api.openai.com/v1/chat/completions` with the real key.
   makes sure that the terms of the subscription let this use.
 - For a CLI provider other than `claude`, the proxy sends each path of a request in origin form to
   the upstream, with the key. The agent can call each endpoint of the upstream that the key opens.
+  The route of the upstream asks for no credential: each client that reaches the address of
+  `--listen` can use the key. The network of the deployment limits who reaches the proxy.
 - A destination of `--allow` is open to the agent. Put a destination that only trusted steps
   need in `--allow-with-credential`.
 - A group of steps cannot repeat in one run. The verify loop writes each round as a pair of steps.
