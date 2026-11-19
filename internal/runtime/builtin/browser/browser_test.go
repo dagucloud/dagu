@@ -232,6 +232,78 @@ func TestRunPublishesExtractedOutputs(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-final.png"), "a successful step keeps no screenshot by default")
 }
 
+// An extract whose published values are all empty completes as found
+// nothing, with a warning and a screenshot of the page it read. Fields the
+// schema does not list are not published, so they do not count as found.
+func TestExtractFoundNothingWarnsAndCapturesPage(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		answer string
+		order  string
+		want   map[string]any
+	}{
+		"empty values": {
+			answer: `{"order":""}`,
+			order:  `{"type": "string"}`,
+			want:   map[string]any{"order": ""},
+		},
+		"unlisted fields": {
+			answer: `{"order":null,"note":"no orders yet"}`,
+			order:  `{"type": ["string", "null"]}`,
+			want:   map[string]any{"order": nil},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			run := newTestRun(t, pageModel(map[string]string{"The order number": tt.answer}))
+			execution := run.execute(`{"url": "https://shop.example.com/cart", "do": [
+				{"extract": {"instruction": "The order number", "schema": {"type": "object", "required": ["order"], "properties": {"order": `+tt.order+`}}}}
+			]}`, nil)
+			require.NoError(t, execution.err)
+
+			assert.Equal(t, tt.want, extracted(execution.exec))
+			assert.Contains(t, execution.stderr.String(), "extract found nothing on https://shop.example.com/cart")
+			assert.Equal(t, []string{"goto:completed", "extract:completed"}, eventNames(execution.exec.GetAgentSession()))
+			assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-found-nothing.png"))
+		})
+	}
+}
+
+// The extract's detail shows the answer as the model wrote it: with the
+// blank rows its outputs drop, and with &, < and > unescaped.
+func TestExtractDetailShowsAnswerAsRead(t *testing.T) {
+	t.Parallel()
+
+	answer := `{"link":"https://shop.example.com/search?q=a&page=2","rows":[{"name":"Alpha"},{"name":""}]}`
+	run := newTestRun(t, pageModel(map[string]string{"The search results": answer}))
+	execution := run.execute(`{"url": "https://shop.example.com/cart", "do": [
+		{"extract": {"instruction": "The search results", "schema": {"type": "object", "properties": {
+			"link": {"type": "string", "format": "uri"},
+			"rows": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}}}}
+		}}}}
+	]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Equal(t, []any{map[string]any{"name": "Alpha"}}, extracted(execution.exec)["rows"])
+	assert.Contains(t, execution.stderr.String(), answer)
+}
+
+// An extract answered with null rather than an object fails. A paged
+// extract would otherwise add later pages' items to a nil map.
+func TestExtractRejectsNullAnswer(t *testing.T) {
+	t.Parallel()
+
+	eng := newFakeEngine()
+	eng.attach(func(context.Context, generateRequest) (generateResponse, error) {
+		return generateResponse{JSON: json.RawMessage("null")}, nil
+	})
+	op := &operator{eng: eng, bridge: &modelBridge{}, warn: func(int, string) {}}
+	_, err := op.extract(t.Context(), 0, extractSpec{Instruction: "The orders", Schema: map[string]any{"type": "object"}}, time.Minute)
+	require.ErrorContains(t, err, "extract returned a non-object value")
+}
+
 func TestWhenSkipsOperation(t *testing.T) {
 	t.Parallel()
 
