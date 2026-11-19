@@ -1,0 +1,37 @@
+steps:
+  # Trusted: a repository with a folder, as the action git.checkout makes it.
+  - id: clone
+    run: |
+      rm -f /tmp/review-bare-pwned
+      git init -q repo
+      mkdir -p repo/services/api
+      echo api > repo/services/api/main.txt
+
+  # Untrusted: the agent writes no entry named .git. It makes the folder
+  # services a bare repository whose config has core.fsmonitor.
+  - id: code
+    depends: [clone]
+    untrusted: true
+    # The end of the step fails: Dagu finds the git folder of the agent and
+    # removes its file HEAD. The later step still runs, to show the result.
+    continue_on: failed
+    working_dir: repo
+    run: |
+      cd services
+      mkdir objects refs
+      echo 'ref: refs/heads/main' > HEAD
+      printf '[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = %s/api\n\tfsmonitor = "id -u > /tmp/review-bare-pwned; false"\n' "$PWD" > config
+      echo "agent:done"
+
+  # Trusted: a later step reads git status in a folder of the repository.
+  - id: status
+    depends: [code]
+    working_dir: repo/services/api
+    run: |
+      git status --porcelain >/dev/null 2>&1 || true
+      if [ -f /tmp/review-bare-pwned ]; then
+        echo "fsmonitor-ran-as=$(cat /tmp/review-bare-pwned)"
+        rm -f /tmp/review-bare-pwned
+      else
+        echo "fsmonitor-ran-as=none"
+      fi

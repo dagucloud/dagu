@@ -1,0 +1,10 @@
+# The control of verify_output_truncated.yaml: the output of 10 bytes is under the limit of 64 bytes.
+max_output_size: 64
+working_dir: .
+steps:
+  - id: produce
+    run: head -c 10 /dev/zero | tr '\0' 'a'
+    output: SMALL
+  - id: write
+    depends: [produce]
+    run: printf '%s' "$SMALL" > small.out

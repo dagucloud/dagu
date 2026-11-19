@@ -10,6 +10,19 @@ import type {
 } from '../contracts';
 import { routedCurve, type Obstacle } from './edgeRouting';
 import {
+  LOOP_BOTTOM_HEAD,
+  LOOP_BOTTOM_INSET,
+  LOOP_BOTTOM_PATH,
+  LOOP_TOP_INSET,
+  LOOP_FOOT,
+  LOOP_HEAD,
+  LOOP_HEIGHT,
+  LOOP_PATH,
+  LOOP_SCALE,
+  LOOP_WIDTH,
+  loopArcs,
+} from './loopArcs';
+import {
   Position,
   curvePathData,
   curvePointAt,
@@ -18,13 +31,13 @@ import {
 import {
   COMPACT_CAPTION_HEIGHT,
   COMPACT_CAPTION_WIDTH,
-  COMPACT_NODE_SIZE,
+  cardSize,
   compactCardOffset,
   hasCompactCaption,
   nodeSize,
   routePorts,
 } from './layout';
-import type { NodePositions } from './types';
+import type { CanvasNodeWithRoutes, NodePositions } from './types';
 
 const MARGIN = 24;
 const GHOST_STEP = 4;
@@ -40,23 +53,20 @@ const LABEL_CHAR_PX = 7.4;
 /** Average width of a character of the 12 px caption of a compact card. */
 const CAPTION_CHAR_PX = 6.4;
 const MONO_CHAR_PX = 6.7;
+/** Width in px that a character of the 10 px label of a loop arc takes. */
+const LOOP_LABEL_CHAR_PX = 5.8;
+/** How far the arc of a loop and its label hang out of a side of the card, in px. */
+const LOOP_REACH = 42;
+/** The same, above the upper edge of the card. */
+const LOOP_TOP_REACH = 38;
 const SMALL_MONO_CHAR_PX = 6.1;
-
-// The status colours of the graph, the same in both themes (the --graph-*
-// tokens of global.css).
-const GRAPH_STATUS = {
-  success: '#22c55e',
-  failed: '#ef5350',
-  running: '#7c6ef4',
-  warning: '#d9a03c',
-  aborted: '#c084fc',
-  neutral: '#8a8d99',
-};
 
 interface Palette {
   background: string;
   card: string;
   border: string;
+  /** Outline of a node card: the node line token. */
+  line: string;
   text: string;
   muted: string;
   edge: string;
@@ -73,23 +83,41 @@ const LIGHT: Palette = {
   background: '#ffffff',
   card: '#ffffff',
   border: '#d3d3da',
+  line: '#85858f',
   text: '#1c1c22',
   muted: '#6b6b76',
   edge: '#80808b',
   edgeMuted: '#b0b0ba',
-  ...GRAPH_STATUS,
+  success: '#178a44',
+  failed: '#c8382f',
+  running: '#5d4fe0',
+  warning: '#9a5d0b',
+  aborted: '#a8208a',
+  neutral: '#80808b',
 };
 
 const DARK: Palette = {
   background: '#15151a',
   card: '#1f1f26',
   border: '#3b3b46',
+  line: '#66666f',
   text: '#ececf1',
   muted: '#9a9aa6',
   edge: '#8b8b97',
   edgeMuted: '#5a5a66',
-  ...GRAPH_STATUS,
+  success: '#22c55e',
+  failed: '#ef5350',
+  running: '#a89ff8',
+  warning: '#d9a03c',
+  aborted: '#e57ac8',
+  neutral: '#8a8d99',
 };
+
+/** The status colours of both palettes, for the test of the --graph-* tokens. */
+export const EXPORT_STATUS_COLORS = {
+  light: LIGHT,
+  dark: DARK,
+} as const;
 
 /** Same grouping as `statusStrokeClass`. */
 function statusColor(status: NodeStatus, palette: Palette): string {
@@ -171,7 +199,7 @@ function boxOf(
 }
 
 function nodeStroke(node: CanvasNode, palette: Palette): string {
-  return node.run ? statusColor(node.run.status, palette) : palette.border;
+  return node.run ? statusColor(node.run.status, palette) : palette.line;
 }
 
 function text(
@@ -196,6 +224,75 @@ function initials(label: string): string {
   return Array.from(label.trim()).slice(0, 2).join('').toUpperCase();
 }
 
+/**
+ * The arcs of the retry and the repeat of a step, where the step starts, as
+ * `drawCard` draws them: on the upper edge in a vertical graph (retry at the
+ * right corner, repeat at the left one), on the left side in a horizontal
+ * graph (retry low, repeat high).
+ */
+function drawLoops(
+  node: CanvasNode,
+  size: { width: number; height: number },
+  palette: Palette,
+  direction: CanvasDirection,
+  compact: boolean
+): string {
+  const lr = direction === 'LR';
+  return loopArcs((source) => source, node)
+    .map((arc) => {
+      const dash = arc.kind === 'repeat' ? ' stroke-dasharray="3 2.5"' : '';
+      const stroke = `fill="none" stroke="${palette.edge}" stroke-width="1.5" stroke-linecap="round"${dash}`;
+      const parts: string[] = [];
+      let label: { x: number; y: number; width: number } | null = null;
+      const width = Math.max(20, arc.label.length * LOOP_LABEL_CHAR_PX + 10);
+      if (lr) {
+        const top =
+          arc.kind === 'repeat'
+            ? LOOP_FOOT
+            : size.height - LOOP_FOOT - LOOP_HEIGHT;
+        parts.push(
+          `<g data-loop="${arc.kind}" transform="translate(0 ${num(top)}) scale(${-LOOP_SCALE} ${LOOP_SCALE})">` +
+            `<path d="${LOOP_PATH}" ${stroke}/>` +
+            `<path d="${LOOP_HEAD}" fill="${palette.edge}"/>` +
+            `</g>`
+        );
+        label = {
+          x: -12 * LOOP_SCALE - width,
+          y: top + LOOP_HEIGHT / 2,
+          width,
+        };
+      } else {
+        const inset = compact ? LOOP_TOP_INSET : LOOP_BOTTOM_INSET;
+        const left =
+          arc.side === 'right' ? size.width - inset - LOOP_WIDTH : inset;
+        parts.push(
+          `<g data-loop="${arc.kind}" transform="translate(${num(left)} 0) scale(${LOOP_SCALE} ${-LOOP_SCALE})">` +
+            `<path d="${LOOP_BOTTOM_PATH}" ${stroke}/>` +
+            `<path d="${LOOP_BOTTOM_HEAD}" fill="${palette.edge}"/>` +
+            `</g>`
+        );
+        label = {
+          x: left + LOOP_WIDTH / 2 - width / 2,
+          y: -18 * LOOP_SCALE,
+          width,
+        };
+      }
+      if (arc.label) {
+        parts.push(
+          `<rect x="${num(label.x)}" y="${num(label.y - 8)}" width="${num(label.width)}" height="16" rx="4" ry="4" fill="${palette.card}" stroke="${palette.border}" stroke-width="1"/>`,
+          text(label.x + label.width / 2, label.y + 3.5, arc.label, {
+            size: 10,
+            fill: palette.muted,
+            family: SANS,
+            anchor: 'middle',
+          })
+        );
+      }
+      return parts.join('');
+    })
+    .join('');
+}
+
 function drawCard(
   full: Box & { node: CanvasNode },
   palette: Palette,
@@ -205,10 +302,11 @@ function drawCard(
   const { node } = full;
   const compact = compactMode && hasCompactCaption(node);
   // A compact step is a square in a box that also holds its caption.
-  const offset = compact ? compactCardOffset(direction) : { left: 0, top: 0 };
-  const box = compact
-    ? { ...full, width: COMPACT_NODE_SIZE, height: COMPACT_NODE_SIZE }
-    : full;
+  const size = cardSize(node as CanvasNodeWithRoutes, true);
+  const offset = compact
+    ? compactCardOffset(direction, size)
+    : { left: 0, top: 0 };
+  const box = compact ? { ...full, ...size } : full;
   const subDag = node.kind === 'call';
   const stacked = subDag && node.parallel === true;
   const handler = node.lane === 'handler';
@@ -278,6 +376,7 @@ function drawCard(
       );
     }
   }
+  parts.push(drawLoops(node, box, palette, direction, compact));
   if (handler) {
     const caption = 'Handler';
     parts.push(
@@ -298,7 +397,7 @@ function drawCard(
   const caption = compact
     ? text(
         full.width / 2,
-        offset.top + COMPACT_NODE_SIZE + COMPACT_CAPTION_HEIGHT - 6,
+        offset.top + size.height + COMPACT_CAPTION_HEIGHT - 6,
         truncate(node.label, COMPACT_CAPTION_WIDTH, CAPTION_CHAR_PX),
         {
           size: 12,
@@ -504,14 +603,20 @@ export function buildExportSvg(
     // The caption of a compact card can hang out of its box.
     const captioned = compact && hasCompactCaption(node);
     const hang = captioned ? (COMPACT_CAPTION_WIDTH - box.width) / 2 : 0;
+    const card = cardSize(node as CanvasNodeWithRoutes, true);
     const below = captioned
-      ? compactCardOffset(direction).top +
-        COMPACT_NODE_SIZE +
+      ? compactCardOffset(direction, card).top +
+        card.height +
         COMPACT_CAPTION_HEIGHT -
         box.height
       : 0;
-    minX = Math.min(minX, box.x - Math.max(0, hang));
-    minY = Math.min(minY, box.y - rise);
+    // The arcs of a retry and of a repeat hang out where the step starts: of
+    // the upper edge in a vertical graph, of the left side in a horizontal one.
+    const looped = (node as CanvasNodeWithRoutes).retry || node.repeat;
+    const sideReach = looped && direction === 'LR' ? LOOP_REACH : 0;
+    const topReach = looped && direction !== 'LR' ? LOOP_TOP_REACH : 0;
+    minX = Math.min(minX, box.x - Math.max(0, hang, sideReach));
+    minY = Math.min(minY, box.y - Math.max(rise, topReach));
     maxX = Math.max(maxX, box.x + box.width + ghost + Math.max(0, hang));
     maxY = Math.max(maxY, box.y + box.height + ghost + Math.max(0, below));
   }

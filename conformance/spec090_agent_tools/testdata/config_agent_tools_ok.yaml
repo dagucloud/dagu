@@ -1,0 +1,3 @@
+agent_tools:
+  max_tools: 8
+  tool_result_max_bytes: 0

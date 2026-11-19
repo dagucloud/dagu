@@ -12,13 +12,17 @@ import { Timing } from './flow/Timing';
 
 /**
  * Flow settings of a step: dependencies (read-only), timeout and retry,
- * `continue_on`, preconditions, environment and declared outputs.
+ * `continue_on`, preconditions, environment and declared outputs. `timeout`
+ * false leaves the timeout out, for a step whose own section has it.
  */
-export function FlowSection(props: SectionProps): ReactElement {
+export function FlowSection({
+  timeout = true,
+  ...props
+}: SectionProps & { timeout?: boolean }): ReactElement {
   return (
     <div className="space-y-3">
       <Dependencies {...props} />
-      <Timing {...props} />
+      <Timing {...props} timeout={timeout} />
       <ContinueOn {...props} />
       <Preconditions {...props} />
       <EnvEditor {...props} />

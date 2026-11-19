@@ -37,9 +37,12 @@ afterEach(() => {
 
 function setup(element: HTMLDivElement = document.createElement('div')) {
   const fit = vi.fn();
+  const onHeightChange = vi.fn();
   const ref = { current: element };
-  const { result } = renderHook(() => useAutoFit(ref, fit));
-  return { fit, result };
+  const { result } = renderHook(() =>
+    useAutoFit(ref, fit, undefined, onHeightChange)
+  );
+  return { fit, onHeightChange, result };
 }
 
 /** An element with a layout: jsdom gives every element a size of 0. */
@@ -104,19 +107,63 @@ describe('useAutoFit', () => {
     expect(AUTO_FIT_DELAY_MS).toBe(150);
   });
 
-  // A dock that opens under the canvas takes its height: a graph that kept
-  // its place was cut by the dock while the space above it stayed empty.
-  it('fits again after a height-only change, until the user moves', () => {
-    const { fit, result } = setup();
+  // A dock that opens or closes changes the height only: the graph stays.
+  it('does not fit again after a height-only change', () => {
+    const { fit, onHeightChange, result } = setup();
     notify(800, 420);
     notify(800, 300);
+    act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS * 4));
+    expect(fit).not.toHaveBeenCalled();
+    expect(onHeightChange).toHaveBeenCalledTimes(1);
+
+    // A width change afterwards fits again, as before.
+    notify(700, 300);
+    act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
+    expect(fit).toHaveBeenCalledTimes(1);
+    expect(onHeightChange).toHaveBeenCalledTimes(1);
+
+    // A user move stops the height callback too.
+    result.current.onUserMove();
+    notify(700, 200);
+    act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
+    expect(onHeightChange).toHaveBeenCalledTimes(1);
+  });
+
+  // A panel that opens shrinks the canvas: the host moves the view only as far
+  // as the graph needs. A panel that closes, or a height change, is not that.
+  it('calls onShrink, not the fit, when a width change makes it smaller', () => {
+    const fit = vi.fn();
+    const onHeightChange = vi.fn();
+    const onShrink = vi.fn();
+    const ref = { current: document.createElement('div') };
+    const { result } = renderHook(() =>
+      useAutoFit(ref, fit, undefined, onHeightChange, onShrink)
+    );
+    notify(500, 600);
+    act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
+    expect(onShrink).toHaveBeenCalledTimes(1);
+
+    // The width grows while the height shrinks (a panel leaves, a dock comes).
+    notify(900, 300);
+    act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
+    expect(onShrink).toHaveBeenCalledTimes(2);
+
+    // The width grows alone: the view fits again.
+    notify(1000, 300);
     act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
     expect(fit).toHaveBeenCalledTimes(1);
 
-    result.current.onUserMove();
-    notify(800, 200);
+    // The height shrinks alone: the graph stays.
+    notify(1000, 200);
     act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
-    expect(fit).toHaveBeenCalledTimes(1);
+    expect(onShrink).toHaveBeenCalledTimes(2);
+    expect(onHeightChange).toHaveBeenCalledTimes(1);
+
+    // A user move stops it too.
+    result.current.onUserMove();
+    notify(600, 200);
+    act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
+    expect(onShrink).toHaveBeenCalledTimes(2);
   });
 
   // The flow fits the size that it measures at its first layout. A panel
@@ -195,5 +242,54 @@ describe('useAutoFit', () => {
     result.current.onUserMove();
     result.current.refit();
     expect(fit).toHaveBeenCalledTimes(2);
+  });
+
+  // A panel that opens and leaves, or changes, never changes the zoom: after
+  // the first moments, a width change pans (onShrink) or restores (onGrow).
+  describe('after the first moments', () => {
+    function withCallbacks() {
+      const fit = vi.fn();
+      const onShrink = vi.fn();
+      const onGrow = vi.fn();
+      const ref = { current: document.createElement('div') };
+      renderHook(() =>
+        useAutoFit(ref, fit, undefined, undefined, onShrink, onGrow)
+      );
+      return { fit, onShrink, onGrow };
+    }
+
+    it('keeps the zoom when a panel opens and closes', () => {
+      const { fit, onShrink, onGrow } = withCallbacks();
+      act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS));
+      notify(500, 600);
+      act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
+      notify(800, 600);
+      act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
+      expect(onShrink).toHaveBeenCalledTimes(1);
+      expect(onGrow).toHaveBeenCalledTimes(1);
+      expect(fit).not.toHaveBeenCalled();
+    });
+
+    it('keeps the zoom when a panel gives its place to a wider one', () => {
+      const { fit, onShrink, onGrow } = withCallbacks();
+      act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS));
+      notify(600, 600);
+      act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
+      notify(400, 600);
+      act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
+      notify(700, 600);
+      act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
+      expect(onShrink).toHaveBeenCalledTimes(2);
+      expect(onGrow).toHaveBeenCalledTimes(1);
+      expect(fit).not.toHaveBeenCalled();
+    });
+
+    it('still fits a size that changes in the first moments', () => {
+      const { fit, onGrow } = withCallbacks();
+      notify(1000, 600);
+      act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
+      expect(fit).toHaveBeenCalledTimes(1);
+      expect(onGrow).not.toHaveBeenCalled();
+    });
   });
 });

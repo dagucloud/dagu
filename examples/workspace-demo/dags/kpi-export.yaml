@@ -1,0 +1,7 @@
+# Export the KPI figures to a file.
+group: reports
+description: Export the KPI figures to a file.
+type: chain
+steps:
+  - name: run
+    run: echo "kpi-export"
