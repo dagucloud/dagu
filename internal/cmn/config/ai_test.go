@@ -202,6 +202,16 @@ func TestAIProxyURL(t *testing.T) {
 		assert.NotContains(t, err.Error(), "hunter2", secret)
 		assert.Contains(t, err.Error(), "http://xxxxx@proxy.example.com", secret)
 	}
+	// User information in front of the scheme, or with a "://" of its own.
+	for _, secret := range []string{
+		"user:hunter2@http://proxy.example.com",
+		"user:hunter2://x@proxy.example.com",
+	} {
+		err := loadAIError(t, aiYAML("upstream.proxy_url", `"`+secret+`"`))
+		require.Error(t, err, secret)
+		assert.NotContains(t, err.Error(), "hunter2", secret)
+		assert.Contains(t, err.Error(), "xxxxx@", secret)
+	}
 }
 
 // Two keys that contradict each other stop Dagu at start. The check uses the

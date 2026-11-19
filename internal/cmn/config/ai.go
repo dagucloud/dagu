@@ -293,19 +293,32 @@ func checkAIProxyURL(text string) error {
 	return nil
 }
 
-// hideUserInfo replaces the user information of a URL with xxxxx, so that an
-// error never shows a credential. It works on the text because a URL that does
-// not parse can still hold one.
+// hideUserInfo replaces the text before the last @ of a URL with xxxxx, and
+// keeps only a scheme in front of it, so that an error never shows a
+// credential. It works on the text because a URL that does not parse can still
+// hold one, also in front of its scheme.
 func hideUserInfo(text string) string {
-	prefix, rest := "", text
-	if i := strings.Index(text, "://"); i >= 0 {
-		prefix, rest = text[:i+3], text[i+3:]
-	}
-	at := strings.LastIndex(rest, "@")
+	at := strings.LastIndex(text, "@")
 	if at < 0 {
 		return text
 	}
-	return prefix + "xxxxx" + rest[at:]
+	prefix := ""
+	if scheme, _, ok := strings.Cut(text[:at], "://"); ok && isURLScheme(scheme) {
+		prefix = scheme + "://"
+	}
+	return prefix + "xxxxx" + text[at:]
+}
+
+// isURLScheme reports whether text has the form of a URL scheme (RFC 3986).
+func isURLScheme(text string) bool {
+	for i, r := range text {
+		letter := r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z'
+		other := r >= '0' && r <= '9' || r == '+' || r == '-' || r == '.'
+		if !letter && (i == 0 || !other) {
+			return false
+		}
+	}
+	return text != ""
 }
 
 // checkAIContradictions stops the pairs of keys that contradict each other. The
