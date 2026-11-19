@@ -755,7 +755,8 @@ func ownerOf(info fs.FileInfo) (uid, gid int) {
 
 // writableBy reports whether the user uid or the group gid can write the
 // folder path. A folder that does not exist counts as writable: the user could
-// make it.
+// make it. So does a folder of the user, whatever its mode: the owner can
+// change the mode.
 func writableBy(path string, uid, gid uint32) bool {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -763,5 +764,5 @@ func writableBy(path string, uid, gid uint32) bool {
 	}
 	owner, group := ownerOf(info)
 	mode := info.Mode().Perm()
-	return (owner == int(uid) && mode&0o200 != 0) || (group == int(gid) && mode&0o020 != 0) || mode&0o002 != 0
+	return owner == int(uid) || (group == int(gid) && mode&0o020 != 0) || mode&0o002 != 0
 }

@@ -49,6 +49,14 @@ func TestTrustedHome(t *testing.T) {
 	entries, err = TrustedHome(testUID, testGID, filepath.Join(safe, "missing"), none)
 	require.NoError(t, err)
 	assert.NotNil(t, entries, "a HOME that does not exist could be made by the restricted user")
+
+	// The owner of a folder can give itself write access. The test process
+	// stands in for the restricted user, so this needs no root either.
+	owned := t.TempDir()
+	require.NoError(t, os.Chmod(owned, 0o500))
+	entries, err = TrustedHome(uint32(os.Getuid()), testGID, owned, none) // #nosec G115 -- a user ID is not negative.
+	require.NoError(t, err)
+	assert.NotNil(t, entries, "a HOME of the restricted user is replaced whatever its mode")
 }
 
 func TestForChildRunMarksTheChildRun(t *testing.T) {
