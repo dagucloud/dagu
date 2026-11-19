@@ -39,7 +39,7 @@ describe('describeScheduleCoincidence', () => {
   const coincidences = [
     {
       scheduleIndex: 1,
-      startedScheduleIndex: 0,
+      precedingScheduleIndex: 0,
       time: '2026-11-23T05:00:00+09:00',
       timezone: 'Asia/Tokyo',
     },
@@ -50,20 +50,20 @@ describe('describeScheduleCoincidence', () => {
     profile,
   });
 
-  it('names the schedule that starts instead', () => {
+  it('names the schedule that takes precedence', () => {
     expect(
       describeScheduleCoincidence(1, coincidences, [cron(), cron()], ts, 'en')
     ).toBe(
-      'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo: 0 5 * * * is due then and starts instead.'
+      'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo: 0 5 * * * is due then too and takes precedence.'
     );
     expect(
       describeScheduleCoincidence(0, coincidences, [cron(), cron()], ts, 'en')
     ).toBeUndefined();
   });
 
-  // A schedule of a profile starts in place of one without a profile only
-  // while that profile is active.
-  it('names the profile under which the other schedule starts instead', () => {
+  // A schedule of a profile takes precedence over one without a profile
+  // only while that profile is active.
+  it('names the profile under which the other schedule takes precedence', () => {
     expect(
       describeScheduleCoincidence(
         1,
@@ -73,7 +73,7 @@ describe('describeScheduleCoincidence', () => {
         'en'
       )
     ).toBe(
-      'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo while profile prod is active: 0 5 * * * (prod) is due then and starts instead.'
+      'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo while profile prod is active: 0 5 * * * (prod) is due then too and takes precedence.'
     );
   });
 });

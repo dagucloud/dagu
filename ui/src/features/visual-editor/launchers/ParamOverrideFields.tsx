@@ -40,21 +40,26 @@ function scalarText(value: ParamScalar): string {
   return typeof value === 'string' ? value : String(value);
 }
 
+/** A decimal number, which reads the same in YAML and in the backend. */
+const DECIMAL = /^-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/;
+
 /**
  * The value an override takes in the YAML: a number or boolean for a param
- * of that type when the text reads back the same, and the text otherwise.
+ * of that type, and the text otherwise. An integer beyond the precision of a
+ * JavaScript number stays text, so that no digit is lost.
  */
 function typedValue(def: ParamDef | undefined, text: string): OverrideValue {
   if (!def || DYNAMIC_VALUE.test(text)) return text;
   switch (def.type) {
     case ParamDefType.integer:
     case ParamDefType.number: {
-      const number = Number(text);
-      const exact =
-        def.type === ParamDefType.number || Number.isSafeInteger(number);
-      return text.trim() !== '' && exact && String(number) === text.trim()
-        ? number
-        : text;
+      const trimmed = text.trim();
+      const number = Number(trimmed);
+      const representable =
+        def.type === ParamDefType.number
+          ? Number.isFinite(number)
+          : Number.isSafeInteger(number);
+      return DECIMAL.test(trimmed) && representable ? number : text;
     }
     case ParamDefType.boolean:
       if (text === 'true') return true;

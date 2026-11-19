@@ -58,7 +58,7 @@ describe('DAGAttributes', () => {
     );
   });
 
-  it('warns on a schedule that another one starts in place of', () => {
+  it('warns on a schedule that another one takes precedence over', () => {
     render(
       <DAGAttributes
         dag={{
@@ -78,7 +78,7 @@ describe('DAGAttributes', () => {
           scheduleCoincidences: [
             {
               scheduleIndex: 1,
-              startedScheduleIndex: 0,
+              precedingScheduleIndex: 0,
               time: '2026-11-23T05:00:00+09:00',
               timezone: 'Asia/Tokyo',
             },
@@ -90,7 +90,7 @@ describe('DAGAttributes', () => {
     const warnings = screen.getAllByRole('img');
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toHaveAccessibleName(
-      'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo: 0 * * * * · mode: x is due then and starts instead.'
+      'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo: 0 * * * * · mode: x is due then too and takes precedence.'
     );
     expect(screen.getByText('0 5 * * *').closest('[title]')).toHaveAttribute(
       'title',

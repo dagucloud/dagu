@@ -654,10 +654,11 @@ type ScheduleFire struct {
 type Coincidence struct {
 	// Index is the position in DAG.Schedule of the schedule that starts no run.
 	Index int
-	// StartedIndex is the position of the schedule that starts in its place.
-	// It is one active whenever Index is, if one is due. Otherwise it has a
-	// runtime profile, and starts in its place only under that profile.
-	StartedIndex int
+	// PrecedingIndex is the position of a schedule that takes precedence over
+	// it at the instant. It is one active whenever Index is, if one is due.
+	// Otherwise it has a runtime profile, and takes precedence only under
+	// that profile. It may itself give way to another schedule.
+	PrecedingIndex int
 }
 
 // UpcomingFires returns up to limit start-schedule fire times after from,
@@ -721,8 +722,8 @@ func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
 }
 
 // coincidences returns the schedules of due, all due at one instant, that a
-// preferred schedule starts in place of under some runtime profile. Only one
-// profile is active at a time, and a schedule without a profile is active
+// preferred schedule takes precedence over under some runtime profile. Only
+// one profile is active at a time, and a schedule without a profile is active
 // under every profile.
 func (d *DAG) coincidences(due []int) []Coincidence {
 	var result []Coincidence
@@ -743,12 +744,12 @@ func (d *DAG) coincidences(due []int) []Coincidence {
 				}
 			}
 		}
-		started := always
-		if started < 0 {
-			started = sometimes
+		preceding := always
+		if preceding < 0 {
+			preceding = sometimes
 		}
-		if started >= 0 {
-			result = append(result, Coincidence{Index: j, StartedIndex: started})
+		if preceding >= 0 {
+			result = append(result, Coincidence{Index: j, PrecedingIndex: preceding})
 		}
 	}
 	return result

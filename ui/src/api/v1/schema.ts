@@ -6527,14 +6527,14 @@ export interface components {
         ScheduleCoincidence: {
             /** @description Position in the DAG's schedule list of the entry that starts no run */
             scheduleIndex: number;
-            /** @description Position in the DAG's schedule list of the entry that starts the run instead. When it has a runtime profile and the other entry has none, it starts instead only while that profile is active. */
-            startedScheduleIndex: number;
+            /** @description Position in the DAG's schedule list of an entry due at the same time that takes precedence over this one. When it has a runtime profile and this entry has none, it takes precedence only while that profile is active. It may itself give way to another entry. */
+            precedingScheduleIndex: number;
             /**
              * Format: date-time
-             * @description First upcoming time both are due, with the offset of the zone the started schedule is evaluated in
+             * @description First upcoming time both are due, with the offset of the zone the preceding schedule is evaluated in
              */
             time: string;
-            /** @description Name of the zone the started schedule is evaluated in */
+            /** @description Name of the zone the preceding schedule is evaluated in */
             timezone: string;
         };
         /**

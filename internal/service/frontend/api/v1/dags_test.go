@@ -459,7 +459,7 @@ steps:
 	require.Len(t, *dag.ScheduleCoincidences, 1)
 	coincidence := (*dag.ScheduleCoincidences)[0]
 	require.Equal(t, 1, coincidence.ScheduleIndex)
-	require.Equal(t, 0, coincidence.StartedScheduleIndex)
+	require.Equal(t, 0, coincidence.PrecedingScheduleIndex)
 	require.Equal(t, 5, coincidence.Time.In(server.Config.Core.Location).Hour())
 	require.Equal(t, server.Config.Core.Location.String(), coincidence.Timezone)
 

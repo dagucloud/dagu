@@ -2876,9 +2876,10 @@ func (a *API) scheduleFires(dag *ir.DAG) (*[]api.UpcomingRun, *[]api.ScheduleCoi
 	return &runs, coincidences
 }
 
-// scheduleCoincidences reports each schedule that another one starts in
-// place of, at its first such fire in the zone of the started schedule, or
-// nil when none does. location is the zone that unzoned schedules use.
+// scheduleCoincidences reports each schedule that another one takes
+// precedence over, at its first such fire in the zone of the preceding
+// schedule, or nil when none does. location is the zone that unzoned
+// schedules use.
 func scheduleCoincidences(schedules []ir.Schedule, fires []ir.ScheduleFire, location *time.Location) *[]api.ScheduleCoincidence {
 	var coincidences []api.ScheduleCoincidence
 	reported := make(map[int]bool)
@@ -2888,16 +2889,16 @@ func scheduleCoincidences(schedules []ir.Schedule, fires []ir.ScheduleFire, loca
 				continue
 			}
 			reported[coincidence.Index] = true
-			zone := schedules[coincidence.StartedIndex].Location()
+			zone := schedules[coincidence.PrecedingIndex].Location()
 			if zone == nil {
 				zone = location
 			}
 			at := fire.Time.In(zone)
 			coincidences = append(coincidences, api.ScheduleCoincidence{
-				ScheduleIndex:        coincidence.Index,
-				StartedScheduleIndex: coincidence.StartedIndex,
-				Time:                 at,
-				Timezone:             fireZoneLabel(at),
+				ScheduleIndex:          coincidence.Index,
+				PrecedingScheduleIndex: coincidence.PrecedingIndex,
+				Time:                   at,
+				Timezone:               fireZoneLabel(at),
 			})
 		}
 	}

@@ -331,13 +331,11 @@ function RowParams({
  */
 function describesEntry(
   server: Schedule | undefined,
-  entry: ScheduleEntryView
+  { schedule }: ScheduleEntryView
 ): boolean {
   if (!server) return false;
-  const { schedule } = entry;
   const sameExpression =
     (server.expression ?? '').trim() === (schedule.expression ?? '').trim();
-  if (entry.expressionIndex !== undefined) return sameExpression;
   const sameTiming =
     schedule.kind === ScheduleKind.at
       ? server.kind === ScheduleKind.at &&

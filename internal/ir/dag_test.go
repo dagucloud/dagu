@@ -263,7 +263,7 @@ func TestUpcomingFires(t *testing.T) {
 
 		assert.Equal(t, []ir.ScheduleFire{
 			{Time: time.Date(2027, 1, 1, 1, 0, 0, 0, time.UTC), ScheduleIndex: 0},
-			{Time: time.Date(2027, 1, 1, 2, 0, 0, 0, time.UTC), ScheduleIndex: 0, Coinciding: []ir.Coincidence{{Index: 1, StartedIndex: 0}}},
+			{Time: time.Date(2027, 1, 1, 2, 0, 0, 0, time.UTC), ScheduleIndex: 0, Coinciding: []ir.Coincidence{{Index: 1, PrecedingIndex: 0}}},
 			{Time: time.Date(2027, 1, 1, 3, 0, 0, 0, time.UTC), ScheduleIndex: 0},
 		}, fires)
 	})
@@ -271,7 +271,7 @@ func TestUpcomingFires(t *testing.T) {
 	// Only one profile is active at a time, so schedules of two profiles
 	// never compete, while two of one profile do. A schedule without a
 	// profile is active under every profile; one that is always active with
-	// a losing schedule is named as the one that starts instead.
+	// a losing schedule is named as the one that takes precedence.
 	t.Run("coinciding schedules compete within each profile", func(t *testing.T) {
 		t.Parallel()
 
@@ -286,10 +286,10 @@ func TestUpcomingFires(t *testing.T) {
 			want     []ir.Coincidence
 		}{
 			{"two profiles", []string{"prod", "staging"}, nil},
-			{"two of one profile", []string{"prod", "staging", "staging"}, []ir.Coincidence{{Index: 2, StartedIndex: 1}}},
-			{"a profile before none", []string{"prod", "staging", ""}, []ir.Coincidence{{Index: 2, StartedIndex: 0}}},
-			{"none before a profile", []string{"", "prod"}, []ir.Coincidence{{Index: 1, StartedIndex: 0}}},
-			{"always active preferred", []string{"prod", "", ""}, []ir.Coincidence{{Index: 1, StartedIndex: 0}, {Index: 2, StartedIndex: 1}}},
+			{"two of one profile", []string{"prod", "staging", "staging"}, []ir.Coincidence{{Index: 2, PrecedingIndex: 1}}},
+			{"a profile before none", []string{"prod", "staging", ""}, []ir.Coincidence{{Index: 2, PrecedingIndex: 0}}},
+			{"none before a profile", []string{"", "prod"}, []ir.Coincidence{{Index: 1, PrecedingIndex: 0}}},
+			{"always active preferred", []string{"prod", "", ""}, []ir.Coincidence{{Index: 1, PrecedingIndex: 0}, {Index: 2, PrecedingIndex: 1}}},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
@@ -308,7 +308,7 @@ func TestUpcomingFires(t *testing.T) {
 		}
 	})
 
-	t.Run("a coinciding one-off starts in place of a recurring schedule", func(t *testing.T) {
+	t.Run("a coinciding one-off takes precedence over a recurring schedule", func(t *testing.T) {
 		t.Parallel()
 
 		oneOff, err := ir.NewOneOffSchedule("2027-01-01T06:00:00Z")
@@ -318,7 +318,7 @@ func TestUpcomingFires(t *testing.T) {
 		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 5, 0, 0, 0, time.UTC), 1)
 
 		require.Len(t, fires, 1)
-		assert.Equal(t, []ir.Coincidence{{Index: 0, StartedIndex: 1}}, fires[0].Coinciding)
+		assert.Equal(t, []ir.Coincidence{{Index: 0, PrecedingIndex: 1}}, fires[0].Coinciding)
 	})
 
 	t.Run("a one-off takes precedence over a recurring fire", func(t *testing.T) {

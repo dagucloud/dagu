@@ -608,6 +608,24 @@ describe('CronLauncherPanel typed overrides', () => {
     expect(onParamChange).toHaveBeenCalledExactlyOnceWith(0, 'count', 3);
   });
 
+  // A number is written as one whatever its spelling, unless it would lose
+  // digits or is not decimal, which the backend would read otherwise.
+  it.each([
+    [ParamDefType.number, '1.50', 1.5],
+    [ParamDefType.number, '1e3', 1000],
+    [ParamDefType.number, '0x10', '0x10'],
+    [ParamDefType.integer, '01', 1],
+    [ParamDefType.integer, '9007199254740993', '9007199254740993'],
+  ])('writes the %s override %s as %j', (type, text, want) => {
+    const onParamChange = renderTyped([
+      { name: 'value', type, required: false },
+    ]);
+    const field = screen.getByLabelText('value');
+    fireEvent.change(field, { target: { value: text } });
+    fireEvent.blur(field);
+    expect(onParamChange).toHaveBeenCalledWith(0, 'value', want);
+  });
+
   // A variable is resolved when the run starts, so only the server checks it.
   it('sends a variable to a typed param unchecked', () => {
     const onParamChange = renderTyped([
@@ -698,13 +716,13 @@ describe('CronLauncherPanel coinciding schedules', () => {
   const coincidences = [
     {
       scheduleIndex: 1,
-      startedScheduleIndex: 0,
+      precedingScheduleIndex: 0,
       time: '2026-11-23T05:00:00+09:00',
       timezone: 'Asia/Tokyo',
     },
   ];
   const warning =
-    'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo: 0 * * * * · mode: x is due then and starts instead.';
+    'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo: 0 * * * * · mode: x is due then too and takes precedence.';
 
   function renderCoinciding(
     schedules: Parameters<typeof CronLauncherPanel>[0]['schedules']
@@ -725,7 +743,7 @@ describe('CronLauncherPanel coinciding schedules', () => {
     return within(screen.getByLabelText('Schedules')).getAllByRole('listitem');
   }
 
-  it('warns on the schedule that another one starts in place of', () => {
+  it('warns on the schedule that another one takes precedence over', () => {
     const rows = renderCoinciding([
       {
         expression: '0 * * * *',
@@ -748,6 +766,25 @@ describe('CronLauncherPanel coinciding schedules', () => {
     const rows = renderCoinciding([
       { expression: '0 * * * *', kind: ScheduleKind.cron },
       { expression: '0 6 * * *', kind: ScheduleKind.cron },
+    ]);
+    expect(rows[1]).not.toHaveTextContent('Does not start');
+  });
+
+  // A plain cron entry whose profile was just removed still has one on the
+  // server until the text is validated again.
+  it('matches plain cron entries by their profile too', () => {
+    const rows = renderCoinciding([
+      {
+        expression: '0 * * * *',
+        kind: ScheduleKind.cron,
+        paramOverrides: { mode: 'x' },
+      },
+      {
+        expression: '0 5 * * *',
+        kind: ScheduleKind.cron,
+        profile: 'prod',
+        paramOverrides: { mode: 'y' },
+      },
     ]);
     expect(rows[1]).not.toHaveTextContent('Does not start');
   });

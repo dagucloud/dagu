@@ -50,26 +50,26 @@ export function describeScheduleCoincidence(
   const coincidence = coincidences?.find(
     (item) => item.scheduleIndex === index
   );
-  const started = schedules[coincidence?.startedScheduleIndex ?? -1];
-  if (!coincidence || !started) return undefined;
+  const preceding = schedules[coincidence?.precedingScheduleIndex ?? -1];
+  if (!coincidence || !preceding) return undefined;
   const time = formatFireTime(
     coincidence.time,
     'ddd YYYY-MM-DD HH:mm',
     dayjsLocale
   );
   // A schedule without a profile is active under every profile, so one of a
-  // profile starts in its place only while that profile is active.
-  const underProfile = !!started.profile && !schedules[index]?.profile;
+  // profile takes precedence over it only while that profile is active.
+  const underProfile = !!preceding.profile && !schedules[index]?.profile;
   return ts(
     underProfile
-      ? 'Does not start at {time} while profile {profile} is active: {schedule} is due then and starts instead.'
-      : 'Does not start at {time}: {schedule} is due then and starts instead.',
+      ? 'Does not start at {time} while profile {profile} is active: {schedule} is due then too and takes precedence.'
+      : 'Does not start at {time}: {schedule} is due then too and takes precedence.',
     {
       time: `${time} ${coincidence.timezone}`,
-      profile: started.profile ?? '',
+      profile: preceding.profile ?? '',
       schedule: [
-        getScheduleSummary(started),
-        formatParamOverrides(started.paramOverrides),
+        getScheduleSummary(preceding),
+        formatParamOverrides(preceding.paramOverrides),
       ]
         .filter(Boolean)
         .join(' · '),
