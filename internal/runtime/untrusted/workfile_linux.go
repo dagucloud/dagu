@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -36,8 +35,12 @@ func OpenWorkFile(workDir, path string, flags int, perm fs.FileMode) (*os.File, 
 	how := unix.OpenHow{
 		// O_NONBLOCK: an open of a FIFO that an untrusted step made does not wait.
 		Flags:   uint64(flags) | unix.O_CLOEXEC | unix.O_NONBLOCK, // #nosec G115 -- open flags are not negative.
-		Mode:    uint64(perm.Perm()),
 		Resolve: unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_BENEATH,
+	}
+	// openat2 refuses a mode for an open that makes no file, where os.OpenFile
+	// ignores it.
+	if flags&unix.O_CREAT != 0 || flags&unix.O_TMPFILE == unix.O_TMPFILE {
+		how.Mode = uint64(perm.Perm())
 	}
 	fd, err := unix.Openat2(int(dir.Fd()), rel, &how) // #nosec G115 -- a file descriptor fits in int.
 	if errors.Is(err, unix.ENOSYS) {
@@ -45,11 +48,15 @@ func OpenWorkFile(workDir, path string, flags int, perm fs.FileMode) (*os.File, 
 	}
 	if err != nil {
 		if errors.Is(err, unix.ELOOP) || errors.Is(err, unix.EXDEV) {
-			return nil, fmt.Errorf("open %s: the path has a symbolic link below the work directory of the run, which an untrusted step could have made", path)
+			return nil, symlinkError(path)
 		}
 		return nil, &fs.PathError{Op: "open", Path: path, Err: err}
 	}
 	return regularWorkFile(fd, path)
+}
+
+func symlinkError(path string) error {
+	return fmt.Errorf("open %s: the path has a symbolic link below the work directory of the run, which an untrusted step could have made", path)
 }
 
 // regularWorkFile keeps the file of fd when it is a regular file, and clears the
@@ -72,38 +79,39 @@ func regularWorkFile(fd int, path string) (*os.File, error) {
 	return os.NewFile(uintptr(fd), path), nil
 }
 
-// openWorkFileWalk is OpenWorkFile for a kernel without openat2: it checks
-// each part of the path, then opens the last part with O_NOFOLLOW.
+// openWorkFileWalk is OpenWorkFile for a kernel without openat2. It opens each
+// folder of the path relative to the descriptor of the folder before it, with
+// O_NOFOLLOW, and the last part relative to the last folder. So no part can
+// become a link between a check and the open.
 func openWorkFileWalk(base, rel string, flags int, perm fs.FileMode) (*os.File, error) {
-	current := base
+	path := filepath.Join(base, rel)
+	dirfd, err := unix.Open(base, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, &fs.PathError{Op: "open", Path: base, Err: err}
+	}
 	parts := strings.Split(rel, string(filepath.Separator))
 	for _, part := range parts[:len(parts)-1] {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
+		next, err := unix.Openat(dirfd, part, unix.O_PATH|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		if err != nil {
-			break
+			link := hasChild(dirfd, part, unix.S_IFLNK)
+			_ = unix.Close(dirfd)
+			if link {
+				return nil, symlinkError(path)
+			}
+			return nil, &fs.PathError{Op: "open", Path: path, Err: err}
 		}
-		if info.Mode()&fs.ModeSymlink != 0 {
-			return nil, fmt.Errorf("open %s: the path has the symbolic link %s below the work directory of the run", filepath.Join(base, rel), current)
-		}
+		_ = unix.Close(dirfd)
+		dirfd = next
 	}
-	path := filepath.Join(base, rel)
-	file, err := os.OpenFile(path, flags|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, perm) // #nosec G304 -- checked above.
-	if err != nil {
-		return nil, err
-	}
-	info, err := file.Stat()
-	if err == nil && !info.Mode().IsRegular() {
-		err = fmt.Errorf("open %s: not a regular file; an untrusted step could have made it", path)
-	}
-	if err == nil {
-		err = unix.SetNonblock(int(file.Fd()), false) // #nosec G115 -- a file descriptor fits in int.
+	defer func() { _ = unix.Close(dirfd) }()
+	fd, err := unix.Openat(dirfd, parts[len(parts)-1], flags|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, uint32(perm.Perm()))
+	if errors.Is(err, unix.ELOOP) {
+		return nil, symlinkError(path)
 	}
 	if err != nil {
-		_ = file.Close()
-		return nil, err
+		return nil, &fs.PathError{Op: "open", Path: path, Err: err}
 	}
-	return file, nil
+	return regularWorkFile(fd, path)
 }
 
 // workRelative returns path relative to the work directory, and the work
