@@ -271,18 +271,23 @@ func TestExtractFoundNothingWarnsAndCapturesPage(t *testing.T) {
 	}
 }
 
-// The extract's detail shows the answer's text as read, without escaping
-// &, < or >.
-func TestExtractDetailKeepsCharacters(t *testing.T) {
+// The extract's detail shows the answer as the model wrote it: with the
+// blank rows its outputs drop, and with &, < and > unescaped.
+func TestExtractDetailShowsAnswerAsRead(t *testing.T) {
 	t.Parallel()
 
-	run := newTestRun(t, pageModel(map[string]string{"The search link": `{"link":"https://shop.example.com/search?q=a&page=2"}`}))
+	answer := `{"link":"https://shop.example.com/search?q=a&page=2","rows":[{"name":"Alpha"},{"name":""}]}`
+	run := newTestRun(t, pageModel(map[string]string{"The search results": answer}))
 	execution := run.execute(`{"url": "https://shop.example.com/cart", "do": [
-		{"extract": {"instruction": "The search link", "schema": {"type": "object", "properties": {"link": {"type": "string", "format": "uri"}}}}}
+		{"extract": {"instruction": "The search results", "schema": {"type": "object", "properties": {
+			"link": {"type": "string", "format": "uri"},
+			"rows": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}}}}
+		}}}}
 	]}`, nil)
 	require.NoError(t, execution.err)
 
-	assert.Contains(t, execution.stderr.String(), "q=a&page=2")
+	assert.Equal(t, []any{map[string]any{"name": "Alpha"}}, extracted(execution.exec)["rows"])
+	assert.Contains(t, execution.stderr.String(), answer)
 }
 
 // An extract answered with null rather than an object fails. A paged

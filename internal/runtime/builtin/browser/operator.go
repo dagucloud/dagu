@@ -507,16 +507,16 @@ func (o *operator) extract(ctx context.Context, index int, spec extractSpec, tim
 	if values == nil {
 		return opResult{}, errors.New("extract returned a non-object value: null")
 	}
+	// The detail shows the answer as the model wrote it, blank rows included.
+	detail := string(data)
 	// Later pages are compared with this one, so it is tidied as they are.
 	tidy(values)
-	settled, _ := jsonutil.MarshalUnescaped(values)
-	detail := string(settled)
 	if spec.Pages != nil {
 		pages, err := o.readPages(ctx, index, spec, schema, values, timeout)
 		if err != nil {
 			return opResult{}, o.onPage(ctx, err)
 		}
-		settled, _ = jsonutil.MarshalUnescaped(values)
+		settled, _ := jsonutil.MarshalUnescaped(values)
 		detail = fmt.Sprintf("%d pages: %s", pages, settled)
 	}
 	// Only the fields a schema lists are published, matching the output
