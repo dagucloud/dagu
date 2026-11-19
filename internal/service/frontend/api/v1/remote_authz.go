@@ -184,6 +184,11 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"UploadWikiPageAttachment": remoteNodeAccessWrite,
 	"RenameWikiPage":           remoteNodeAccessWrite,
 
+	// The AI choices of the DAG editor, which need write permission, as their
+	// local handlers do.
+	"ListAIEndpointChoices":  remoteNodeAccessWrite,
+	"ListAIMCPServerChoices": remoteNodeAccessWrite,
+
 	// Runs from an inline or edited spec, which need write and run permission.
 	"ExecuteDAGRunFromSpec":  remoteNodeAccessWriteAndRun,
 	"EnqueueDAGRunFromSpec":  remoteNodeAccessWriteAndRun,

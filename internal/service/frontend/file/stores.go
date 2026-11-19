@@ -107,6 +107,8 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 	}
 
 	stores.Secret = persisfile.NewSecretStore(ctx, cfg, backend.Collection(persis.CollectionSecrets))
+	stores.AIEndpoint = persisfile.NewAIEndpointService(ctx, backend.Collection(persis.CollectionAIEndpoints), stores.Secret)
+	stores.AIMCPServer = persisfile.NewAIMCPServerService(ctx, backend.Collection(persis.CollectionAIMCPServers), stores.Secret)
 
 	wikiStore, err := newWikiStore(cfg)
 	if err != nil {
