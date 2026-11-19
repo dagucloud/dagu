@@ -135,8 +135,5 @@ func (l *ConfigLoader) loadUntrustedConfig(cfg *Config) error {
 		return err
 	}
 	cfg.Untrusted = parsed
-	if parsed.IsolationOff {
-		l.warnings = append(l.warnings, `untrusted.isolation is "off": an untrusted step runs without isolation, as the process user; use it for development only`)
-	}
 	return nil
 }
