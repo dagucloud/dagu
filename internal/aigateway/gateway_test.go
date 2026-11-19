@@ -252,6 +252,33 @@ func TestDo_UpstreamStatusIsNeverChanged(t *testing.T) {
 	}
 }
 
+// echoKey answers 401 with an error text that quotes the given credential,
+// split over two flushed writes so that a copy can span two chunks.
+func echoKey(credential string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		half := len(credential) / 2
+		_, _ = io.WriteString(w, `{"error":{"message":"Incorrect API key provided: `+credential[:half])
+		w.(http.Flusher).Flush()
+		_, _ = io.WriteString(w, credential[half:]+`."}}`)
+	}
+}
+
+// Some providers quote the key in the text of an error. The client gets the
+// text with the key masked, at the same length.
+func TestDo_ErrorBodyHidesTheKey(t *testing.T) {
+	t.Parallel()
+	upstream := httptest.NewServer(echoKey(realKey))
+	defer upstream.Close()
+	src := &fakeSource{ep: endpointFor(upstream.URL, aiendpoint.ProtocolOpenAI, aiendpoint.AuthBearer), key: realKey}
+	g := newGateway(t, src, testLimits(), nil)
+	sink := &recSink{}
+	require.Nil(t, g.Do(context.Background(), request("/v1/chat/completions", `{}`), sink))
+
+	assert.Equal(t, http.StatusUnauthorized, sink.status)
+	assert.Equal(t, `{"error":{"message":"Incorrect API key provided: `+strings.Repeat("*", len(realKey))+`."}}`, sink.body())
+}
+
 func TestDo_RefusalsNeverCallTheProvider(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32

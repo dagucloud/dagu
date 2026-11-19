@@ -204,7 +204,8 @@ request is not allowed.
 
 The coordinator returns the status and the response headers of the upstream, except the hop-by-hop
 headers, `set-cookie` and the headers that start with `proxy-`. So `retry-after` and the rate limit
-headers reach the client.
+headers reach the client. Some providers quote the key in the text of an error, so in the body of a
+response with a status of 400 or more, each copy of the key becomes as many `*`.
 
 A status of the upstream is never changed, except a redirect (below). A 401 of the upstream gives
 the failure kind `auth_required` of Spec 091, and a 429 gives `rate_limited`. The administrator then

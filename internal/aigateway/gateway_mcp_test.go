@@ -175,6 +175,31 @@ func TestDoMCP_HeaderCredentials(t *testing.T) {
 	assert.Equal(t, "x-api-key:aaaaaaaaaaaa,x-team:bbbbbbbbbbbb", records[0].Fingerprint)
 }
 
+// An error text of the server that quotes a credential of the entry reaches the
+// client with the credential masked, as for an endpoint key.
+func TestDoMCP_ErrorBodyHidesTheCredentials(t *testing.T) {
+	t.Parallel()
+	for name, creds := range map[string]aiendpoint.MCPCredentials{
+		"token":  {Token: mcpToken},
+		"header": {Headers: map[string]string{"x-api-key": "header-SECRET-0123456789"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			echoed := creds.Token + creds.Headers["x-api-key"]
+			upstream := httptest.NewServer(echoKey(echoed))
+			defer upstream.Close()
+			src := mcpSourceFor(upstream.URL)
+			src.creds = creds
+			g := newMCPGateway(t, src, testLimits(), nil)
+			sink := &recSink{}
+			require.Nil(t, g.Do(context.Background(), mcpRequest(http.MethodPost, rpcCall(1, "search")), sink))
+
+			assert.Equal(t, http.StatusUnauthorized, sink.status)
+			assert.Equal(t, `{"error":{"message":"Incorrect API key provided: `+strings.Repeat("*", len(echoed))+`."}}`, sink.body())
+		})
+	}
+}
+
 // A tool outside allow gets a JSON-RPC error and no call to the server.
 func TestDoMCP_ToolOutsideAllowIsRefused(t *testing.T) {
 	t.Parallel()

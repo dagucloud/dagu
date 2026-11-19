@@ -118,7 +118,11 @@ func (g *Gateway) doMCP(ctx context.Context, req Request, sink ResponseSink) (fa
 	if failure != nil {
 		return failure
 	}
-	return g.roundTrip(ctx, callCtx, cancel, httpReq, sink, &record)
+	secrets := []string{credentials.Token}
+	for _, value := range credentials.Headers {
+		secrets = append(secrets, value)
+	}
+	return g.roundTrip(ctx, callCtx, cancel, httpReq, secrets, sink, &record)
 }
 
 // refuseTool answers a body that holds a tools/call for a tool outside allow. The

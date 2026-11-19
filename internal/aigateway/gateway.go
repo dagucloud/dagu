@@ -363,13 +363,14 @@ func (g *Gateway) Do(ctx context.Context, req Request, sink ResponseSink) (failu
 		return failure
 	}
 
-	return g.roundTrip(ctx, callCtx, cancel, httpReq, sink, &record)
+	return g.roundTrip(ctx, callCtx, cancel, httpReq, []string{key}, sink, &record)
 }
 
 // roundTrip sends the call to the upstream and streams its response to the sink.
-// It does not follow a redirect: a status 3xx is an upstream_error. It sets the
-// status and the number of response bytes in the audit record.
-func (g *Gateway) roundTrip(ctx, callCtx context.Context, cancel context.CancelFunc, httpReq *http.Request, sink ResponseSink, record *AuditRecord) *Failure {
+// It does not follow a redirect: a status 3xx is an upstream_error. In an error
+// response, each copy of one of the secrets that the call carries is masked. It
+// sets the status and the number of response bytes in the audit record.
+func (g *Gateway) roundTrip(ctx, callCtx context.Context, cancel context.CancelFunc, httpReq *http.Request, secrets []string, sink ResponseSink, record *AuditRecord) *Failure {
 	resp, err := g.client.Do(httpReq)
 	if err != nil {
 		return g.classify(ctx, callCtx, err)
@@ -384,7 +385,12 @@ func (g *Gateway) roundTrip(ctx, callCtx context.Context, cancel context.CancelF
 		return g.classify(ctx, callCtx, err)
 	}
 
-	total, failure := g.copyResponse(ctx, callCtx, cancel, resp.Body, &firstByteSink{ResponseSink: sink, record: record})
+	var body io.Reader = resp.Body
+	if resp.StatusCode >= http.StatusBadRequest {
+		// Some providers quote the credential in the text of an error.
+		body = maskSecrets(resp.Body, secrets)
+	}
+	total, failure := g.copyResponse(ctx, callCtx, cancel, body, &firstByteSink{ResponseSink: sink, record: record})
 	record.ResponseBytes = total
 	return failure
 }

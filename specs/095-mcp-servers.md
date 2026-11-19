@@ -166,7 +166,8 @@ The relay allows the MCP streamable HTTP transport only:
 The query is not allowed. The coordinator sends each request to the URL of the entry. A path of the
 client after `/mcp/<name>` is refused. The coordinator sends these request headers, and no other:
 `content-type`, `accept`, `mcp-session-id`, `mcp-protocol-version`, `last-event-id` and `user-agent`.
-It adds the credentials of the entry. It returns the response headers as for an endpoint.
+It adds the credentials of the entry. It returns the response headers as for an endpoint, and masks
+each credential value in the body of an error response as it masks the key of an endpoint.
 
 The rules of the stream, the limits, the timeouts, the redirect rule and the audit line are the rules of
 the model traffic. The route name in the audit line is `mcp`, and the line adds the fields `rpc_method`
