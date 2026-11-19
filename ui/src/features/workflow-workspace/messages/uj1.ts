@@ -69,6 +69,8 @@ export default defineMessages({
     'Default (not set)': 'Default (not set)',
     'Default (computed when the run starts)':
       'Default (computed when the run starts)',
+    'Does not start at {time} while profile {profile} is active: {schedule} is due then and starts instead.':
+      'Does not start at {time} while profile {profile} is active: {schedule} is due then and starts instead.',
   },
   'zh-CN': {
     Cron: '定时（Cron）',
@@ -130,6 +132,8 @@ export default defineMessages({
     'Default ({value})': '默认（{value}）',
     'Default (not set)': '默认（未设置）',
     'Default (computed when the run starts)': '默认（运行开始时计算）',
+    'Does not start at {time} while profile {profile} is active: {schedule} is due then and starts instead.':
+      '在配置文件 {profile} 生效期间，{time} 不会启动：{schedule} 同时到期，将由它启动。',
   },
   ja: {
     Cron: '定期実行（Cron）',
@@ -195,5 +199,7 @@ export default defineMessages({
     'Default ({value})': '既定値（{value}）',
     'Default (not set)': '既定値（未設定）',
     'Default (computed when the run starts)': '既定値（実行開始時に計算）',
+    'Does not start at {time} while profile {profile} is active: {schedule} is due then and starts instead.':
+      'プロファイル {profile} が有効なとき、{time} には起動しません。同時刻の {schedule} が代わりに起動します。',
   },
 });

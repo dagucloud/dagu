@@ -485,6 +485,14 @@ describe('CronLauncherPanel parameter overrides', () => {
   });
 });
 
+/** Picks the option of a native select by its text. */
+function choose(select: HTMLElement, label: string) {
+  const option = within(select).getByRole('option', { name: label });
+  fireEvent.change(select, {
+    target: { value: (option as HTMLOptionElement).value },
+  });
+}
+
 describe('CronLauncherPanel typed overrides', () => {
   function renderTyped(
     paramDefs: Parameters<typeof CronLauncherPanel>[0]['paramDefs'],
@@ -518,13 +526,24 @@ describe('CronLauncherPanel typed overrides', () => {
     ]);
     const select = screen.getByLabelText('mode');
     expect(select).toHaveDisplayValue('Default (y)');
-    fireEvent.change(select, { target: { value: 'z' } });
+    choose(select, 'z');
     expect(onParamChange).toHaveBeenLastCalledWith(0, 'mode', 'z');
-    const fallback = screen.getByRole('option', { name: 'Default (y)' });
-    fireEvent.change(select, {
-      target: { value: (fallback as HTMLOptionElement).value },
-    });
+    choose(select, 'Default (y)');
     expect(onParamChange).toHaveBeenLastCalledWith(0, 'mode', null);
+  });
+
+  // The default option must not be taken for an allowed value.
+  it('stores an allowed value that looks like an option name', () => {
+    const onParamChange = renderTyped([
+      {
+        name: 'mode',
+        type: ParamDefType.string,
+        required: false,
+        enum: ['__default__', ''],
+      },
+    ]);
+    choose(screen.getByLabelText('mode'), '__default__');
+    expect(onParamChange).toHaveBeenLastCalledWith(0, 'mode', '__default__');
   });
 
   it('writes a boolean override as a boolean', () => {
@@ -538,8 +557,18 @@ describe('CronLauncherPanel typed overrides', () => {
     ]);
     const select = screen.getByLabelText('dry_run');
     expect(select).toHaveDisplayValue('Default (false)');
-    fireEvent.change(select, { target: { value: 'true' } });
+    choose(select, 'true');
     expect(onParamChange).toHaveBeenCalledWith(0, 'dry_run', true);
+  });
+
+  // A variable is resolved when the run starts, so only the server checks it.
+  it('keeps a variable of a select param without an error', () => {
+    renderTyped(
+      [{ name: 'dry_run', type: ParamDefType.boolean, required: false }],
+      { dry_run: '${FLAG}' }
+    );
+    expect(screen.getByLabelText('dry_run')).toHaveDisplayValue('${FLAG}');
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('marks an override outside the allowed values', () => {
@@ -721,5 +750,46 @@ describe('CronLauncherPanel coinciding schedules', () => {
       { expression: '0 6 * * *', kind: ScheduleKind.cron },
     ]);
     expect(rows[1]).not.toHaveTextContent('Does not start');
+  });
+
+  // An entry that is not plain cron is matched by its timing and profile:
+  // after an edit of its time, the warning of the old time must go.
+  it('matches entries that are not plain cron by their timing', () => {
+    const text = `schedule:
+  - at: 2030-01-01T09:00:00+09:00
+  - at: 2030-01-01T09:00:00+09:00
+    profile: prod
+`;
+    const oneOffs = (second: string) => [
+      { kind: ScheduleKind.at, at: '2030-01-01T00:00:00Z' },
+      { kind: ScheduleKind.at, at: second, profile: 'prod' },
+    ];
+    const view = render(
+      <CronLauncherPanel
+        schedule={readSchedule(text)}
+        editable
+        schedules={oneOffs('2030-01-01T00:00:00Z')}
+        coincidences={[
+          { ...coincidences[0]!, time: '2030-01-01T09:00:00+09:00' },
+        ]}
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+    expect(screen.getByText(/Does not start at/)).toBeInTheDocument();
+
+    view.rerender(
+      <CronLauncherPanel
+        schedule={readSchedule(text)}
+        editable
+        schedules={oneOffs('2030-01-02T00:00:00Z')}
+        coincidences={[
+          { ...coincidences[0]!, time: '2030-01-01T09:00:00+09:00' },
+        ]}
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+    expect(screen.queryByText(/Does not start at/)).toBeNull();
   });
 });

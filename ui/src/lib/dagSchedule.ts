@@ -57,10 +57,16 @@ export function describeScheduleCoincidence(
     'ddd YYYY-MM-DD HH:mm',
     dayjsLocale
   );
+  // A schedule without a profile is active under every profile, so one of a
+  // profile starts in its place only while that profile is active.
+  const underProfile = !!started.profile && !schedules[index]?.profile;
   return ts(
-    'Does not start at {time}: {schedule} is due then and starts instead.',
+    underProfile
+      ? 'Does not start at {time} while profile {profile} is active: {schedule} is due then and starts instead.'
+      : 'Does not start at {time}: {schedule} is due then and starts instead.',
     {
       time: `${time} ${coincidence.timezone}`,
+      profile: started.profile ?? '',
       schedule: [
         getScheduleSummary(started),
         formatParamOverrides(started.paramOverrides),

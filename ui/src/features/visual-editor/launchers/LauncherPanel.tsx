@@ -3,7 +3,11 @@
 
 import { AlertTriangle, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useState, type ReactElement, type ReactNode } from 'react';
-import type { components, UpcomingRunsHold } from '@/api/v1/schema';
+import {
+  ScheduleKind,
+  type components,
+  type UpcomingRunsHold,
+} from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
 import { useConfig } from '@/contexts/ConfigContext';
@@ -321,6 +325,34 @@ function RowParams({
 }
 
 /**
+ * Whether a server schedule still describes a start entry as the text writes
+ * it: the same timing and profile. A server schedule may take the calendar
+ * of the DAG, so a calendar is compared only when the entry names one.
+ */
+function describesEntry(
+  server: Schedule | undefined,
+  entry: ScheduleEntryView
+): boolean {
+  if (!server) return false;
+  const { schedule } = entry;
+  const sameExpression =
+    (server.expression ?? '').trim() === (schedule.expression ?? '').trim();
+  if (entry.expressionIndex !== undefined) return sameExpression;
+  const sameTiming =
+    schedule.kind === ScheduleKind.at
+      ? server.kind === ScheduleKind.at &&
+        Date.parse(server.at ?? '') === Date.parse(schedule.at ?? '')
+      : server.kind !== ScheduleKind.at && sameExpression;
+  return (
+    sameTiming &&
+    (server.profile ?? '') === (schedule.profile ?? '') &&
+    (schedule.calendar === undefined ||
+      server.calendar === schedule.calendar) &&
+    (server.businessDays ?? []).join() === (schedule.businessDays ?? []).join()
+  );
+}
+
+/**
  * The start schedule of the workflow. Plain cron entries are edited here;
  * other entries, such as one-offs, show with their parameter overrides. An
  * edit is one change of the YAML text. The server's next runs, when given,
@@ -383,10 +415,8 @@ export function CronLauncherPanel({
   // describe the rows only when they list the same entries.
   const aligned =
     schedules.length === schedule.entries.length &&
-    schedule.entries.every(
-      (entry, index) =>
-        entry.expressionIndex === undefined ||
-        schedules[index]?.expression?.trim() === entry.schedule.expression
+    schedule.entries.every((entry, index) =>
+      describesEntry(schedules[index], entry)
     );
   const coincidenceOf = (entryIndex: number) =>
     aligned

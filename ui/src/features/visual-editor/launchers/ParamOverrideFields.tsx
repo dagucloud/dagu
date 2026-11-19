@@ -24,8 +24,11 @@ export type OverrideValue = string | number | boolean;
 /** Placeholder of an override set to the empty string, which a blank field hides. */
 const EMPTY_OVERRIDE = '""';
 
-/** The option of a select that clears the override. */
-const DEFAULT_OPTION = '__default__';
+/**
+ * The option of a select that clears the override. The other options are
+ * named by their position, so that no value can be taken for this one.
+ */
+const DEFAULT_OPTION = '';
 
 /** A variable or a command substitution, resolved when the run starts. */
 const DYNAMIC_VALUE = /\$\{|`/;
@@ -186,7 +189,11 @@ function OverrideControl({
     );
   }
 
+  // A value outside the list, such as one written in the YAML, stays an
+  // option of its own; only a literal one is an error.
   const unknown = value !== undefined && !choices.includes(value);
+  const options = unknown ? [...choices, value] : choices;
+  const invalid = unknown && !DYNAMIC_VALUE.test(value);
   const defaultLabel = def?.computed
     ? ts('Default (computed when the run starts)')
     : def?.default === undefined
@@ -202,24 +209,30 @@ function OverrideControl({
       </label>
       <select
         id={id}
-        value={value ?? DEFAULT_OPTION}
+        value={
+          value === undefined ? DEFAULT_OPTION : String(options.indexOf(value))
+        }
         disabled={!editable}
-        aria-invalid={unknown || undefined}
+        aria-invalid={invalid || undefined}
         className={SELECT_CLASS}
         onChange={(event) => {
           const next = event.target.value;
-          onChange(next === DEFAULT_OPTION ? null : typedValue(def, next));
+          const option = options[Number(next)];
+          onChange(
+            next === DEFAULT_OPTION || option === undefined
+              ? null
+              : typedValue(def, option)
+          );
         }}
       >
         <option value={DEFAULT_OPTION}>{defaultLabel}</option>
-        {choices.map((choice) => (
-          <option key={choice} value={choice}>
-            {choice}
+        {options.map((option, index) => (
+          <option key={index} value={String(index)}>
+            {option}
           </option>
         ))}
-        {unknown && <option value={value}>{value}</option>}
       </select>
-      {unknown && (
+      {invalid && (
         <FieldIssues
           issues={[
             {
