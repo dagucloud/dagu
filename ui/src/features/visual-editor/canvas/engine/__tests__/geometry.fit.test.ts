@@ -27,11 +27,31 @@ describe('fitViewport with a readable zoom', () => {
     expect(view.y).toBeLessThan(60);
   });
 
+  // A panel narrows the area: the content is below the readable zoom in
+  // width only, and stays centred in height like a fit of all of it.
+  it('centres in height a content that fits in height', () => {
+    const bounds = { x: 0, y: 0, width: 992, height: 454 };
+    const narrow = { width: 698, height: 825 };
+    const inset = { top: 48, right: 24, bottom: 48, left: 24 };
+    const view = fitViewport(bounds, narrow, {
+      ...options,
+      readableZoom: 0.5,
+      inset,
+    });
+    // (698 - 48) / (992 * 1.4) = 0.468: the largest step under it is 25 %.
+    expect(view.zoom).toBe(0.25);
+    expect(view.y + (bounds.height / 2) * view.zoom).toBeCloseTo(
+      48 + (825 - 96) / 2,
+      5
+    );
+  });
+
   it('fits the width when the width gives more than the floor', () => {
-    // 900 x 3000 px at 1000 px of canvas: the width fit is 1000 / 1260.
+    // 900 x 3000 px at 1000 px of canvas: the width fit is 1000 / 1260 =
+    // 0.79, and the ladder floors it to 75 %.
     const bounds = { x: 0, y: 0, width: 900, height: 3000 };
     const view = fitViewport(bounds, size, { ...options, readableZoom: 0.5 });
-    expect(view.zoom).toBeCloseTo(1000 / 1260, 5);
+    expect(view.zoom).toBe(0.75);
     // Centred on the width.
     expect(view.x + (bounds.width / 2) * view.zoom).toBeCloseTo(500, 5);
   });
@@ -43,8 +63,8 @@ describe('fitViewport with a readable zoom', () => {
     const whole = fitViewport(bounds, size, options);
     expect(whole.zoom).toBeLessThan(0.2);
     const view = fitViewport(bounds, size, { ...options, readableZoom: 0.5 });
-    // The floor is 70 % of the readable zoom.
-    expect(view.zoom).toBeCloseTo(0.35, 5);
+    // The floor is 0.35: the ladder floors it to 25 %.
+    expect(view.zoom).toBe(0.25);
     // A content wider than the area starts at its left edge, at the top.
     expect(view.x).toBe(24);
     expect(view.y).toBe(24);
@@ -53,7 +73,7 @@ describe('fitViewport with a readable zoom', () => {
       readableZoom: 0.5,
       readableFrom: 'left',
     });
-    expect(left.zoom).toBeCloseTo(0.35, 5);
+    expect(left.zoom).toBe(0.25);
     expect(left.x).toBe(24);
     expect(left.y).toBe(24);
   });
@@ -69,7 +89,8 @@ describe('fitViewport with a readable zoom', () => {
       readableZoom: 0.5,
       readableFrom: 'left',
     });
-    expect(view.zoom).toBeCloseTo(734 / (1200 * 1.4), 5);
+    // The fit is 0.437: the largest step under it is 25 %.
+    expect(view.zoom).toBe(0.25);
     const left = view.x + bounds.x * view.zoom;
     const right = left + bounds.width * view.zoom;
     expect(left).toBeGreaterThanOrEqual(0);
@@ -92,7 +113,8 @@ describe('fitViewport with a readable zoom', () => {
       overview: true,
     });
     expect(first.zoom).toBeGreaterThan(0.9);
-    expect(overview.zoom).toBeCloseTo(0.3, 5);
+    // A readable zoom of 30 % floors to the step of 25 %.
+    expect(overview.zoom).toBe(0.25);
     // Centred on the width, from the top.
     expect(overview.x + (bounds.width / 2) * overview.zoom).toBeCloseTo(500, 5);
     expect(overview.y).toBe(24);
@@ -103,7 +125,7 @@ describe('fitViewport with a readable zoom', () => {
       minZoom: 0.02,
       overview: true,
     });
-    expect(left.zoom).toBeCloseTo(0.3, 5);
+    expect(left.zoom).toBe(0.25);
   });
 
   it('does not fall to a stripe on an area a few pixels too narrow', () => {
@@ -140,10 +162,8 @@ describe('fitViewport with a readable zoom', () => {
 
   it('keeps the old fit without the option', () => {
     const bounds = { x: 0, y: 0, width: 1000, height: 1800 };
-    expect(fitViewport(bounds, size, options).zoom).toBeCloseTo(
-      700 / (1800 * 1.4),
-      5
-    );
+    // 700 / (1800 * 1.4) = 0.28: the largest step under it is 25 %.
+    expect(fitViewport(bounds, size, options).zoom).toBe(0.25);
   });
 });
 
@@ -177,7 +197,8 @@ describe('fitViewport with an inset', () => {
   it('fits in the smaller area', () => {
     const bounds = { x: 0, y: 0, width: 800, height: 1000 };
     const view = fitViewport(bounds, size, { ...options, inset });
-    expect(view.zoom).toBeCloseTo((700 - 72) / (1000 * 1.4), 5);
+    // (700 - 72) / (1000 * 1.4) = 0.45: the largest step under it is 25 %.
+    expect(view.zoom).toBe(0.25);
   });
 
   it('puts the top of a tall content at the top inset', () => {
@@ -209,8 +230,10 @@ describe('fitViewport with a largest margin', () => {
 
   it('keeps no more than maxMargin px on each side of a long graph', () => {
     const view = fitViewport(long, area, { ...options, maxMargin: 32 });
-    expect(view.zoom).toBeCloseTo((1562 - 64) / 2974, 5);
-    expect(view.x).toBeCloseTo(32, 5);
+    // The fit is 0.504: the largest step under it is 50 %, centred.
+    expect(view.zoom).toBe(0.5);
+    expect(view.x + (long.width / 2) * view.zoom).toBeCloseTo(1562 / 2, 5);
+    expect(view.x).toBeGreaterThanOrEqual(32);
   });
 
   it('keeps the padding where it is the smaller margin', () => {
