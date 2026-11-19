@@ -96,7 +96,7 @@ export function ModelsDialog({
                 {shown.map((name) => (
                   <li
                     key={name}
-                    className="border-b border-border px-2 py-1 font-mono text-xs last:border-b-0"
+                    className="whitespace-normal break-words border-b border-border px-2 py-1 font-mono text-xs last:border-b-0"
                   >
                     {name}
                   </li>
