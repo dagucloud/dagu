@@ -271,9 +271,9 @@ func TestV2ChildrenSettle(t *testing.T) {
 	require.EqualValues(t, 2, listed.Load())
 }
 
-// A failing lookup of an unrelated active session must not fail the step, and
-// parent links are read once.
-func TestV2UnrelatedSessionError(t *testing.T) {
+// An active session whose ancestry cannot be read has unknown membership: it
+// blocks idle and is retried on every poll.
+func TestV2UnreadableSessionUnknown(t *testing.T) {
 	var gets atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -290,12 +290,113 @@ func TestV2UnrelatedSessionError(t *testing.T) {
 	defer server.Close()
 	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
 
+	for range 2 {
+		family, err := client.family(t.Context(), "ses_root")
+		require.NoError(t, err)
+		require.Empty(t, family.descendants)
+		require.Equal(t, []string{"ses_other"}, family.unknown)
+		require.False(t, family.idle())
+	}
+
+	require.EqualValues(t, 2, gets.Load())
+}
+
+// A session confirmed unrelated (root-less or missing) is ignored.
+func TestV2ConfirmedUnrelated(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/session/active":
+			_, _ = w.Write([]byte(`{"data":{"ses_a":{"type":"running"},"ses_b":{"type":"running"}}}`))
+		case "/api/session/ses_a":
+			_, _ = w.Write([]byte(`{"data":{"id":"ses_a"}}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"_tag":"SessionNotFoundError"}`))
+		}
+	}))
+	defer server.Close()
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+
 	family, err := client.family(t.Context(), "ses_root")
 
 	require.NoError(t, err)
-	require.Empty(t, family.descendants)
-	require.Equal(t, "idle", family.status)
-	require.EqualValues(t, 1, gets.Load())
+	require.True(t, family.idle())
+}
+
+// Exhausting the depth bound or meeting a cycle leaves membership unknown.
+func TestV2DepthAndCycleUnknown(t *testing.T) {
+	for name, parents := range map[string]func(int) string{
+		"depth": func(i int) string { return fmt.Sprintf("ses_%d", i+1) },
+		"cycle": func(i int) string { return fmt.Sprintf("ses_%d", (i+1)%2) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/api/session/active" {
+					_, _ = w.Write([]byte(`{"data":{"ses_0":{"type":"running"}}}`))
+					return
+				}
+				var i int
+				if _, err := fmt.Sscanf(r.URL.Path, "/api/session/ses_%d", &i); err != nil {
+					http.NotFound(w, r)
+					return
+				}
+				_, _ = fmt.Fprintf(w, `{"data":{"id":"ses_%d","parentID":%q}}`, i, parents(i))
+			}))
+			defer server.Close()
+			client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+
+			family, err := client.family(t.Context(), "ses_root")
+
+			require.NoError(t, err)
+			require.Equal(t, []string{"ses_0"}, family.unknown)
+			require.False(t, family.idle())
+		})
+	}
+}
+
+// Settlement waits while an active session is unreadable and finishes once
+// it can be read.
+func TestV2SettleUnreadable(t *testing.T) {
+	var gets atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/session/active":
+			_, _ = w.Write([]byte(`{"data":{"ses_other":{"type":"running"}}}`))
+		case "/api/session/ses_other":
+			if gets.Add(1) < 3 {
+				http.Error(w, "boom", http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":{"id":"ses_other"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+
+	require.NoError(t, client.awaitIdle(t.Context(), "ses_root"))
+	require.GreaterOrEqual(t, gets.Load(), int32(3))
+
+	always := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/session/active" {
+			_, _ = w.Write([]byte(`{"data":{"ses_other":{"type":"running"}}}`))
+			return
+		}
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer always.Close()
+	blocked := &openCodeClient{host: opencodehost.Config{URL: always.URL, Version: "2.3.2"}, directory: "/workspace", http: always.Client()}
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+
+	err := blocked.awaitIdle(ctx, "ses_root")
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "ses_other")
 }
 
 // Parent links are cached, so repeated polls do not re-read a session.

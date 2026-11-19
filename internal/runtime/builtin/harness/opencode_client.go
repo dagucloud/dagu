@@ -327,12 +327,14 @@ type openCodeFamily struct {
 	status string
 	// descendants are the active sessions descended from the root.
 	descendants []string
+	// unknown are active sessions whose ancestry could not be established.
+	unknown []string
 	// hasChildren is set only when the whole family is idle.
 	hasChildren bool
 }
 
 func (f openCodeFamily) idle() bool {
-	return f.status == "idle" && len(f.descendants) == 0
+	return f.status == "idle" && len(f.descendants) == 0 && len(f.unknown) == 0
 }
 
 // family reads the status of a root session and its descendants. Sessions are
@@ -355,12 +357,15 @@ func (c *openCodeClient) family(ctx context.Context, rootID string) (openCodeFam
 		if id == rootID {
 			continue
 		}
-		descended, err := c.descendsFrom(ctx, id, rootID)
+		membership, err := c.descendsFrom(ctx, id, rootID)
 		if err != nil {
 			return openCodeFamily{}, err
 		}
-		if descended {
+		switch membership {
+		case memberYes:
 			family.descendants = append(family.descendants, id)
+		case memberUnknown:
+			family.unknown = append(family.unknown, id)
 		}
 	}
 	if family.idle() {
@@ -369,24 +374,41 @@ func (c *openCodeClient) family(ctx context.Context, rootID string) (openCodeFam
 	return family, err
 }
 
-// descendsFrom walks the parent chain of a session. A session whose parent
-// cannot be read is unknown and counts as unrelated for this poll; only a lost
-// host or a cancelled context is an error.
-func (c *openCodeClient) descendsFrom(ctx context.Context, sessionID, rootID string) (bool, error) {
+type membership int
+
+const (
+	memberNo membership = iota
+	memberYes
+	memberUnknown
+)
+
+// descendsFrom walks the parent chain of a session. A chain that ends without
+// the root, or hits a missing session, is unrelated. A read error, a cycle, or
+// exhausting maxSessionDepth leaves membership unknown, to be retried on the
+// next poll; only a lost host or a cancelled context is an error.
+func (c *openCodeClient) descendsFrom(ctx context.Context, sessionID, rootID string) (membership, error) {
+	seen := map[string]bool{}
 	for range maxSessionDepth {
+		if seen[sessionID] {
+			return memberUnknown, nil
+		}
+		seen[sessionID] = true
 		parent, err := c.parentOf(ctx, sessionID)
-		if errors.Is(err, errManagedHostUnavailable) || ctx.Err() != nil {
-			return false, errors.Join(err, ctx.Err())
-		}
-		if err != nil || parent == "" {
-			return false, nil
-		}
-		if parent == rootID {
-			return true, nil
+		switch {
+		case errors.Is(err, errManagedHostUnavailable) || ctx.Err() != nil:
+			return memberNo, errors.Join(err, ctx.Err())
+		case errors.Is(err, errManagedSessionUnavailable):
+			return memberNo, nil
+		case err != nil:
+			return memberUnknown, nil
+		case parent == "":
+			return memberNo, nil
+		case parent == rootID:
+			return memberYes, nil
 		}
 		sessionID = parent
 	}
-	return false, nil
+	return memberUnknown, nil
 }
 
 // parentOf returns a session's parent ID. Parent links never change, so they
@@ -475,11 +497,21 @@ func (c *openCodeClient) abort(ctx context.Context, sessionID string) error {
 // its descendants. It returns nil only once the host reports the whole family
 // idle or no longer has the session.
 func (c *openCodeClient) interruptAndAwaitIdle(ctx context.Context, sessionID string) error {
+	return c.interruptAndSettle(ctx, sessionID, true)
+}
+
+// interruptRootAndAwaitIdle interrupts only the session itself and waits for
+// its descendants, which may belong to earlier turns of a user's session.
+func (c *openCodeClient) interruptRootAndAwaitIdle(ctx context.Context, sessionID string) error {
+	return c.interruptAndSettle(ctx, sessionID, false)
+}
+
+func (c *openCodeClient) interruptAndSettle(ctx context.Context, sessionID string, descendants bool) error {
 	abortErr := c.abort(ctx, sessionID)
 	if errors.Is(abortErr, errManagedSessionUnavailable) {
 		return nil
 	}
-	if err := c.settle(ctx, sessionID, true); err != nil {
+	if err := c.settle(ctx, sessionID, true, descendants); err != nil {
 		return errors.Join(abortErr, err)
 	}
 	// A failed interrupt request is moot once the family is idle.
@@ -489,13 +521,15 @@ func (c *openCodeClient) interruptAndAwaitIdle(ctx context.Context, sessionID st
 // awaitIdle waits until the host reports no active execution for the session
 // or its descendants. Settlement is scoped to this host's process.
 func (c *openCodeClient) awaitIdle(ctx context.Context, sessionID string) error {
-	return c.settle(ctx, sessionID, false)
+	return c.settle(ctx, sessionID, false, false)
 }
 
 // settle waits for the session's family to stay idle for one more poll when
 // the session has children, because a child's report can start another turn of
-// the session. With interrupt, active descendants are interrupted.
-func (c *openCodeClient) settle(ctx context.Context, sessionID string, interrupt bool) error {
+// the session. With interrupt, an active root is interrupted again; with
+// descendants, so are the active descendants. Sessions of unknown membership
+// are never interrupted.
+func (c *openCodeClient) settle(ctx context.Context, sessionID string, interrupt, descendants bool) error {
 	ticker := time.NewTicker(managedIdlePollInterval)
 	defer ticker.Stop()
 	var lastErr error
@@ -513,11 +547,16 @@ func (c *openCodeClient) settle(ctx context.Context, sessionID string, interrupt
 				lastErr = fmt.Errorf("OpenCode session %s is still %s", sessionID, family.status)
 				if family.status == "idle" {
 					lastErr = fmt.Errorf("OpenCode session %s has active subagent sessions %v", sessionID, family.descendants)
+					if len(family.descendants) == 0 {
+						lastErr = fmt.Errorf("OpenCode session %s has active sessions of unresolved ancestry %v", sessionID, family.unknown)
+					}
 				}
 			}
 			if interrupt {
-				for _, id := range family.descendants {
-					_ = c.abort(ctx, id)
+				if descendants {
+					for _, id := range family.descendants {
+						_ = c.abort(ctx, id)
+					}
 				}
 				// A child's report can start a new turn of an interrupted root.
 				if rootIdle && family.status != "idle" {

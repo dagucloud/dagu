@@ -261,7 +261,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 			}
 			statusFailures = 0
 			status := family.status
-			if status == "idle" && len(family.descendants) > 0 {
+			if status == "idle" && len(family.descendants)+len(family.unknown) > 0 {
 				status = "busy"
 			}
 			seenBusy = seenBusy || status == "busy" || status == "retry"
@@ -742,7 +742,7 @@ func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *op
 
 // settleUserSession stops Dagu's turn in a session the user supplied. While
 // Dagu's prompt is the session's latest input the active turn is Dagu's and
-// is interrupted; newer input belongs to the user, whose turn is waited on.
+// is interrupted, but not its subagents, which may belong to earlier turns; newer input belongs to the user, whose turn is waited on.
 func settleUserSession(ctx context.Context, client *openCodeClient, sessionID, promptID string) error {
 	messages, err := client.messages(ctx, sessionID)
 	if errors.Is(err, errManagedSessionUnavailable) {
@@ -752,7 +752,7 @@ func settleUserSession(ctx context.Context, client *openCodeClient, sessionID, p
 		return err
 	}
 	if promptID != "" && latestOpenCodeUserMessageID(messages) == promptID {
-		return client.interruptAndAwaitIdle(ctx, sessionID)
+		return client.interruptRootAndAwaitIdle(ctx, sessionID)
 	}
 	return client.awaitIdle(ctx, sessionID)
 }

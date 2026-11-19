@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1055,7 +1056,7 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/config":
 		_, _ = io.WriteString(w, `{"share":"disabled"}`)
-	case r.Method == http.MethodGet && h.parentOf(strings.TrimPrefix(r.URL.Path, "/session/")) != "":
+	case r.Method == http.MethodGet && h.isOtherSession(r.URL.Path):
 		id := strings.TrimPrefix(r.URL.Path, "/session/")
 		_ = json.NewEncoder(w).Encode(map[string]string{"id": id, "parentID": h.parentOf(id)})
 	case r.Method == http.MethodPost && r.URL.Path == "/session",
@@ -1138,6 +1139,12 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// isOtherSession matches a GET of any session but the managed one.
+func (h *managedTestHost) isOtherSession(path string) bool {
+	id, ok := strings.CutPrefix(path, "/session/")
+	return ok && id != "" && id != "status" && id != "session-1" && !strings.Contains(id, "/")
 }
 
 func (h *managedTestHost) parentOf(sessionID string) string {
@@ -2827,6 +2834,37 @@ func TestManagedOpenCodeCancelUnconfirmedSubagent(t *testing.T) {
 
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Contains(t, err.Error(), "active subagent sessions")
+}
+
+// Only an owned root's descendants are interrupted; an unowned root's are
+// waited on.
+func TestInterruptRootSparesDescendants(t *testing.T) {
+	t.Parallel()
+
+	for _, owned := range []bool{false, true} {
+		t.Run(fmt.Sprintf("owned=%v", owned), func(t *testing.T) {
+			t.Parallel()
+			host := subagentHost(t, func(h *managedTestHost) { h.busy["session-child"] = true })
+			client := &openCodeClient{host: host.config, http: newOpenCodeHTTPClient(time.Second)}
+			ctx, cancel := context.WithTimeout(t.Context(), 400*time.Millisecond)
+			defer cancel()
+
+			var err error
+			if owned {
+				err = client.interruptAndAwaitIdle(ctx, "session-1")
+			} else {
+				err = client.interruptRootAndAwaitIdle(ctx, "session-1")
+			}
+
+			if owned {
+				require.NoError(t, err)
+				assert.True(t, host.wasInterrupted("session-child"))
+				return
+			}
+			require.ErrorIs(t, err, context.DeadlineExceeded)
+			assert.NotContains(t, host.requestLog(), "POST /session/session-child/abort")
+		})
+	}
 }
 
 func TestSettleDiscardedSessionWaitsForSubagent(t *testing.T) {
