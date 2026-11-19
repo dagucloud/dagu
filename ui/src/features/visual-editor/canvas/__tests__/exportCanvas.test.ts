@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { NodeStatus } from '@/api/v1/schema';
+import { GRAPH_TONE_COLORS } from '@/lib/statusPalette';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   CanvasEdge,
@@ -174,28 +175,32 @@ describe('buildExportSvg', () => {
     expect(rects[0]?.hasAttribute('stroke-dasharray')).toBe(false);
   });
 
-  it('colors the border and dot of a step by its run status', () => {
-    const cases: [NodeStatus, string][] = [
-      [NodeStatus.Success, '#22c55e'],
-      [NodeStatus.Failed, '#ef5350'],
-      [NodeStatus.Running, '#7c6ef4'],
-      [NodeStatus.Waiting, '#d9a03c'],
-      [NodeStatus.Aborted, '#c084fc'],
-      [NodeStatus.NotStarted, '#8a8d99'],
-    ];
-    for (const [status, color] of cases) {
-      const graph = graphOf([node('a', { run: run(status) })]);
-      const g = nodeEl(parse(buildExportSvg(graph, ONE, 'LR').svg), 'a');
-      expect(g.querySelector('rect')?.getAttribute('stroke')).toBe(color);
-      expect(g.querySelector('circle')?.getAttribute('fill')).toBe(color);
+  // The image has the status colours of the canvas in the same theme.
+  it.each([
+    [false, GRAPH_TONE_COLORS.light],
+    [true, GRAPH_TONE_COLORS.dark],
+  ])(
+    'colors the border and dot of a step by its run status (dark: %s)',
+    (dark, colors) => {
+      const cases: [NodeStatus, string][] = [
+        [NodeStatus.Success, colors.success],
+        [NodeStatus.Failed, colors.error],
+        [NodeStatus.Running, colors.running],
+        [NodeStatus.Waiting, colors.warning],
+        [NodeStatus.Aborted, colors.aborted],
+        [NodeStatus.NotStarted, colors.neutral],
+      ];
+      for (const [status, color] of cases) {
+        const graph = graphOf([node('a', { run: run(status) })]);
+        const g = nodeEl(
+          parse(buildExportSvg(graph, ONE, 'LR', { dark }).svg),
+          'a'
+        );
+        expect(g.querySelector('rect')?.getAttribute('stroke')).toBe(color);
+        expect(g.querySelector('circle')?.getAttribute('fill')).toBe(color);
+      }
     }
-    const dark = graphOf([node('a', { run: run(NodeStatus.Success) })]);
-    const g = nodeEl(
-      parse(buildExportSvg(dark, ONE, 'LR', { dark: true }).svg),
-      'a'
-    );
-    expect(g.querySelector('rect')?.getAttribute('stroke')).toBe('#22c55e');
-  });
+  );
 
   it('draws a sub-DAG with two vertical bars', () => {
     const graph = graphOf([node('a', { kind: 'call', subDag: 'child' })]);
