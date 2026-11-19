@@ -436,8 +436,9 @@ export function SkillEditor({
     return outcome.message;
   };
 
-  // Renames a file: write the new path, then delete the old one with the new
-  // hash. If the second call fails, the new file exists: the message says so.
+  // Renames a file: write the saved content to the new path, then delete the
+  // old one with the new hash. A draft moves with the file and stays unsaved.
+  // If the second call fails, the new file exists: the message says so.
   const renameFile = async (to: string) => {
     const from = active;
     const source = files.find((file) => file.path === from);
@@ -447,9 +448,7 @@ export function SkillEditor({
       let content: string | Blob;
       try {
         content = source.text
-          ? (drafts[from] ??
-            savedText(from) ??
-            (await readSkillFileText(client, target, from)))
+          ? (savedText(from) ?? (await readSkillFileText(client, target, from)))
           : await readSkillFileBlob(client, target, from);
       } catch (failure) {
         return failure instanceof Error
@@ -476,6 +475,11 @@ export function SkillEditor({
       if (typeof content === 'string') {
         setWritten((previous) => ({ ...previous, [to]: content as string }));
       }
+      setDrafts((previous) =>
+        previous[from] === undefined
+          ? previous
+          : { ...without(previous, from), [to]: previous[from] }
+      );
       setActive(to);
       const removed = await removeSkillFile(
         client,
@@ -499,7 +503,6 @@ export function SkillEditor({
         return null;
       }
       settle(removed);
-      setDrafts((previous) => without(previous, from));
       setWritten((previous) => without(previous, from));
       setDialog(null);
       await refresh();

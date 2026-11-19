@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SkillFile } from '@/features/skills/skillIssues';
@@ -87,6 +87,11 @@ function renderEditor() {
 const editor = () =>
   screen.findByLabelText<HTMLTextAreaElement>('Markdown editor');
 
+const written = (files: SkillFile[], hash: string) => ({
+  ok: true,
+  result: { hash, errors: [], warnings: [], files },
+});
+
 beforeEach(() => {
   mocks.readSkillFileText.mockReset();
   mocks.writeSkillFile.mockReset();
@@ -125,5 +130,42 @@ describe('SkillEditor', () => {
     expect(
       screen.getByText('A step cannot use this skill until you fix its errors.')
     ).toBeInTheDocument();
+  });
+
+  it('moves a draft with a renamed file and saves nothing of it', async () => {
+    const before = [file('SKILL.md'), file('references/a.md')];
+    load(VALID, before);
+    mocks.readSkillFileText.mockResolvedValue('saved\n');
+    mocks.writeSkillFile.mockResolvedValue(
+      written([...before, file('references/b.md')], 'h2')
+    );
+    mocks.removeSkillFile.mockResolvedValue(
+      written([file('SKILL.md'), file('references/b.md')], 'h3')
+    );
+    renderEditor();
+
+    fireEvent.click(screen.getByRole('button', { name: /a\.md/ }));
+    await waitFor(async () => expect((await editor()).value).toBe('saved\n'));
+    fireEvent.change(await editor(), { target: { value: 'draft\n' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename the file' }));
+    fireEvent.change(screen.getByLabelText('Path in the skill'), {
+      target: { value: 'references/b.md' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('skill-active-file')).toHaveTextContent(
+        'references/b.md'
+      )
+    );
+    expect(mocks.writeSkillFile).toHaveBeenCalledTimes(1);
+    expect(mocks.writeSkillFile.mock.calls[0]?.slice(2, 5)).toEqual([
+      'references/b.md',
+      'saved\n',
+      'h1',
+    ]);
+    await waitFor(async () => expect((await editor()).value).toBe('draft\n'));
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
   });
 });
