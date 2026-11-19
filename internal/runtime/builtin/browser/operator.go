@@ -503,6 +503,9 @@ func (o *operator) extract(ctx context.Context, index int, spec extractSpec, tim
 	if err := json.Unmarshal(data, &values); err != nil {
 		return opResult{}, fmt.Errorf("extract returned a non-object value: %w", err)
 	}
+	if values == nil {
+		return opResult{}, errors.New("extract returned a non-object value: null")
+	}
 	// Later pages are compared with this one, so it is tidied as they are.
 	tidy(values)
 	settled, _ := json.Marshal(values)

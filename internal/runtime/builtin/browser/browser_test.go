@@ -271,6 +271,20 @@ func TestExtractFoundNothingWarnsAndCapturesPage(t *testing.T) {
 	}
 }
 
+// An extract answered with null rather than an object fails. A paged
+// extract would otherwise add later pages' items to a nil map.
+func TestExtractRejectsNullAnswer(t *testing.T) {
+	t.Parallel()
+
+	eng := newFakeEngine()
+	eng.attach(func(context.Context, generateRequest) (generateResponse, error) {
+		return generateResponse{JSON: json.RawMessage("null")}, nil
+	})
+	op := &operator{eng: eng, bridge: &modelBridge{}, warn: func(int, string) {}}
+	_, err := op.extract(t.Context(), 0, extractSpec{Instruction: "The orders", Schema: map[string]any{"type": "object"}}, time.Minute)
+	require.ErrorContains(t, err, "extract returned a non-object value")
+}
+
 func TestWhenSkipsOperation(t *testing.T) {
 	t.Parallel()
 
