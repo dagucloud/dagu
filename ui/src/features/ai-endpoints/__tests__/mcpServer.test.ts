@@ -61,6 +61,13 @@ describe('mcpUrlProblem', () => {
       'url-parts'
     );
     expect(mcpUrlProblem('https://docs.example.com/mcp#')).toBe('url-parts');
+    // The browser drops an empty user part; the server refuses it.
+    expect(mcpUrlProblem('https://@docs.example.com/mcp')).toBe('url-parts');
+    expect(mcpUrlProblem('https://:@docs.example.com/mcp')).toBe('url-parts');
+  });
+
+  it('accepts an "@" in the path', () => {
+    expect(mcpUrlProblem('https://docs.example.com/mcp/@team')).toBeNull();
   });
 });
 

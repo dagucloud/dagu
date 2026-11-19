@@ -138,7 +138,15 @@ export function mcpUrlProblem(raw: string): McpProblem | null {
   if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     return 'url-scheme';
   }
-  if (url.username || url.password || url.hash || value.includes('#')) {
+  // The server reads the text: any "#", and any "@" before the path, count as
+  // a part even when the part is empty.
+  if (
+    url.username ||
+    url.password ||
+    url.hash ||
+    value.includes('#') ||
+    /^[^/]*\/\/[^/]*@/.test(value)
+  ) {
     return 'url-parts';
   }
   return null;
