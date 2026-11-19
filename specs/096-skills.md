@@ -328,7 +328,8 @@ A write returns `SkillWriteResult`: the new `hash`, the `errors`, the `warnings`
 The client uses the new hash for its next write. `DELETE /skills/{name}` returns 204 with no body.
 `DELETE /skills/{name}/files` returns 200 with `SkillWriteResult`. `PUT /skills/{name}/files` refuses
 the path `SKILL.md` with 400, because `SKILL.md` has its own route. `GET /skills/{name}/files` gives 409
-when the skill changed while the server read the file.
+when the skill changed while the server read the file. It gives 413 for a file above 4 MiB; the ZIP
+download includes such a file.
 
 A write validates the file that it writes. `PUT /skills/{name}` refuses a `SKILL.md` that breaks a
 rule of the file. A write of another file refuses a path that breaks the layout, and a file above the
@@ -343,7 +344,7 @@ The status codes:
 | 400 | `bad_request` | The name, the path or the content breaks a rule. The body lists the issues. |
 | 404 | `not_found` | The skill or the file does not exist. |
 | 409 | `conflict` | The precondition fails. The body has the current `hash`. |
-| 413 | `payload_too_large` | The body of `PUT /skills/{name}/files` is larger than 4 MiB. A `SKILL.md` above 4 MiB gives 400 with the rule `file-too-large`. |
+| 413 | `payload_too_large` | The body of `PUT /skills/{name}/files` is larger than 4 MiB, or `GET /skills/{name}/files` reads a file above 4 MiB. A `SKILL.md` above 4 MiB gives 400 with the rule `file-too-large`. |
 | 428 | `bad_request` | The request has no `If-Match` and no `If-None-Match`. |
 
 A path MUST be relative, with `/` separators, and without an empty, `.` or `..` part. A route never

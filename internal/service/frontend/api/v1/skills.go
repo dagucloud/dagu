@@ -179,6 +179,9 @@ func (a *API) GetSkillFile(ctx context.Context, request api.GetSkillFileRequestO
 		return nil, &Error{Code: api.ErrorCodeNotFound, Message: "Skill file not found", HTTPStatus: http.StatusNotFound}
 	}
 	data, err := sk.ReadVerified(rel)
+	if errors.Is(err, skill.ErrFileTooLarge) {
+		return nil, errSkillFileTooLarge
+	}
 	if err != nil {
 		logger.Error(ctx, "Failed to read skill file", tag.Name(request.Name), tag.Error(err))
 		return nil, &Error{Code: api.ErrorCodeConflict, Message: "The skill changed while it was read; try again", HTTPStatus: http.StatusConflict}

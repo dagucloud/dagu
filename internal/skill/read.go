@@ -25,6 +25,9 @@ import (
 // ErrNotFound is returned when the skill folder does not exist.
 var ErrNotFound = errors.New("skill not found")
 
+// ErrFileTooLarge is returned when a file of the skill is above MaxFileBytes.
+var ErrFileTooLarge = errors.New("the file is above the size limit")
+
 // maxReadAttempts is the number of times that a read starts again when the
 // folder changes while Dagu reads it.
 const maxReadAttempts = 4
@@ -462,7 +465,8 @@ func hashFile(path string) (string, int64, error) {
 // ReadVerified returns the content of one file of the skill. A text file that
 // the read kept comes from the read. Any other file is read from disk, and the
 // call fails when its content no longer has the size and the SHA-256 that the
-// read recorded: the skill has changed since.
+// read recorded: the skill has changed since. A file above MaxFileBytes fails
+// with ErrFileTooLarge.
 func (s *Skill) ReadVerified(rel string) ([]byte, error) {
 	file, ok := s.File(rel)
 	if !ok {
@@ -472,7 +476,7 @@ func (s *Skill) ReadVerified(rel string) ([]byte, error) {
 		return data, nil
 	}
 	if file.Size > MaxFileBytes {
-		return nil, fmt.Errorf("skill %q: file %q is above the size limit", s.Name, rel)
+		return nil, fmt.Errorf("skill %q: file %q: %w", s.Name, rel, ErrFileTooLarge)
 	}
 	data, err := readAtMost(filepath.Join(s.Dir, filepath.FromSlash(rel)), file.Size)
 	if err != nil {

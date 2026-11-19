@@ -301,6 +301,16 @@ func TestSkillsFiles(t *testing.T) {
 		assert.Equal(t, h, getSkill(t, server, "refund-policy").Hash, "a refused write changes nothing")
 	})
 
+	// A file above the limit can only come from git or a person. Its read is
+	// refused for its size, not reported as a change of the skill.
+	t.Run("ReadAFileAboveTheLimit", func(t *testing.T) {
+		big := filepath.Join(skillsDir(server), "refund-policy", "assets", "big.bin")
+		require.NoError(t, os.MkdirAll(filepath.Dir(big), 0o750))
+		require.NoError(t, os.WriteFile(big, bytes.Repeat([]byte("x"), 4<<20+1), 0o600))
+		t.Cleanup(func() { _ = os.Remove(big) })
+		server.Client().Get("/api/v1/skills/refund-policy/files?path=assets/big.bin").ExpectStatus(http.StatusRequestEntityTooLarge).Send(t)
+	})
+
 	t.Run("ReadAnUnknownFileOrAnEscape", func(t *testing.T) {
 		server.Client().Get("/api/v1/skills/refund-policy/files?path=references/none.md").ExpectStatus(http.StatusNotFound).Send(t)
 		server.Client().Get("/api/v1/skills/refund-policy/files?path=..%2F..%2Fx").ExpectStatus(http.StatusBadRequest).Send(t)
