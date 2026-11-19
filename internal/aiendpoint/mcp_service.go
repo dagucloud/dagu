@@ -7,12 +7,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 )
 
@@ -155,9 +157,10 @@ func (s *MCPService) Update(ctx context.Context, scope Scope, name string, in MC
 
 // SetCredentials replaces the whole set of credentials of an entry. The old values
 // stay in the secret store as encrypted old versions. A credential that the new
-// set does not have is deleted with its secret. A replacement that fails puts the
-// old values back, so the entry keeps its whole old set rather than a mix of
-// both sets.
+// set does not have is deleted with its secret. A secret that cannot be deleted
+// does not fail the replacement: a warning names its header. A replacement that
+// fails puts the old values back, so the entry keeps its whole old set rather
+// than a mix of both sets.
 func (s *MCPService) SetCredentials(ctx context.Context, scope Scope, name string, in MCPCredentialsInput, actor string) (*MCPServer, error) {
 	headers, err := checkCredentials(in)
 	if err != nil {
@@ -190,15 +193,19 @@ func (s *MCPService) SetCredentials(ctx context.Context, scope Scope, name strin
 	if err != nil {
 		return nil, s.undoWrites(ctx, name, before, previous, written, actor, now, err)
 	}
-	// A secret that the new set no longer uses has no record.
+	// A secret that the new set no longer uses has no record. One that cannot be
+	// deleted stays unread until the next write of its header reuses it.
 	kept := credentialIDs(saved)
-	var obsolete []string
 	for header, id := range old {
-		if kept[header] != id {
-			obsolete = append(obsolete, id)
+		if kept[header] == id {
+			continue
+		}
+		if err := s.secrets.Delete(context.WithoutCancel(ctx), id); err != nil && !errors.Is(err, secret.ErrNotFound) {
+			logger.Warn(ctx, "Old credential of an MCP server entry was not deleted",
+				slog.String("mcp_server", name), slog.String("scope", scope.String()),
+				slog.String("header", header), slog.String("error", err.Error()))
 		}
 	}
-	s.deleteSecrets(ctx, obsolete)
 	return saved, nil
 }
 

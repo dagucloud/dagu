@@ -19,6 +19,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/aiendpoint"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
@@ -280,6 +281,41 @@ func TestMCPSetCredentialsReplacesTheWholeSet(t *testing.T) {
 
 	_, err = f.svc.SetCredentials(ctx, aiendpoint.GlobalScope(), "nope", aiendpoint.MCPCredentialsInput{Token: tokenOne}, "admin")
 	require.ErrorIs(t, err, aiendpoint.ErrNotFound)
+}
+
+// failingDeletes is a secret store whose Delete fails.
+type failingDeletes struct{ secret.Store }
+
+func (failingDeletes) Delete(context.Context, string) error {
+	return errors.New("disk full")
+}
+
+// A replacement whose old secret cannot be deleted still succeeds, and a
+// warning names the header of that secret, never its value.
+func TestMCPSetCredentialsWarnsOfAnOldSecretThatStays(t *testing.T) {
+	stores := newSharedStores(t)
+	svc, err := aiendpoint.NewMCPService(stores.servers, stores.secrets)
+	require.NoError(t, err)
+	in := mcpInput("docs", "", []string{"*"}, []string{"*"})
+	in.Credentials.Headers = map[string]string{"X-Api-Key": tokenOne, "X-Team": headerVal}
+	_, err = svc.Create(context.Background(), in)
+	require.NoError(t, err)
+
+	var logs bytes.Buffer
+	ctx := logger.WithLogger(context.Background(), logger.NewLogger(
+		logger.WithFormat("text"), logger.WithWriter(&logs), logger.WithQuiet()))
+	failing, err := aiendpoint.NewMCPService(stores.servers, failingDeletes{stores.secrets})
+	require.NoError(t, err)
+	saved, err := failing.SetCredentials(ctx, aiendpoint.GlobalScope(), "docs", aiendpoint.MCPCredentialsInput{
+		Headers: map[string]string{"X-Api-Key": tokenTwo},
+	}, "admin")
+	require.NoError(t, err)
+
+	creds, err := svc.ReadCredentials(ctx, *saved)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"x-api-key": tokenTwo}, creds.Headers)
+	assert.Contains(t, logs.String(), "x-team")
+	assert.NotContains(t, logs.String(), headerVal)
 }
 
 // failingWrites is a secret store whose WriteValue fails at the call number
