@@ -112,10 +112,17 @@ type isolation struct {
 	watchers sync.WaitGroup
 	stopping atomic.Bool
 	ended    atomic.Bool
-	// generation counts the processes of the step. The watcher of a process
-	// stops when a later process of the step is prepared, unless that process
-	// fails to start.
-	generation atomic.Int64
+	// startMu guards the generations of the processes of the step. The
+	// watcher of a process leaves the processes of the restricted user alone
+	// once a later process started, and waits while a later one is starting.
+	startMu sync.Mutex
+	// lastGeneration is the generation that prepare gave last.
+	lastGeneration int64
+	// startedGeneration is the highest generation whose process started.
+	startedGeneration int64
+	// starting holds the generations that prepare gave and whose process has
+	// neither started nor failed to start.
+	starting map[int64]struct{}
 	// files numbers the files of the attempt, so that two attempts of the step
 	// get two files.
 	files atomic.Int64
@@ -592,7 +599,15 @@ func (iso *isolation) prepare(cmd *exec.Cmd, env []string) (int64, error) {
 	cmd.SysProcAttr.Setctty = false
 	cmd.SysProcAttr.Noctty = false
 	cmd.SysProcAttr.Pgid = 0
-	return iso.generation.Add(1), nil
+
+	iso.startMu.Lock()
+	defer iso.startMu.Unlock()
+	iso.lastGeneration++
+	if iso.starting == nil {
+		iso.starting = map[int64]struct{}{}
+	}
+	iso.starting[iso.lastGeneration] = struct{}{}
+	return iso.lastGeneration, nil
 }
 
 // started watches the root process of the step, of the generation that
@@ -601,6 +616,10 @@ func (iso *isolation) prepare(cmd *exec.Cmd, env []string) (int64, error) {
 // The watch stops when a later process of the step starts: it does not stop
 // that process.
 func (iso *isolation) started(pid int, generation int64) {
+	iso.startMu.Lock()
+	delete(iso.starting, generation)
+	iso.startedGeneration = max(iso.startedGeneration, generation)
+	iso.startMu.Unlock()
 	if pid <= 0 {
 		return
 	}
@@ -625,16 +644,29 @@ func (iso *isolation) started(pid int, generation int64) {
 	})
 }
 
-// abandon gives back the generation of a process that failed to start, so
-// that the watcher of the process before it still stops what that process
-// left. A process prepared after it keeps its own generation.
+// abandon settles the generation of a process that failed to start, so that
+// the watcher of the process before it still stops what that process left.
 func (iso *isolation) abandon(generation int64) {
-	iso.generation.CompareAndSwap(generation, generation-1)
+	iso.startMu.Lock()
+	defer iso.startMu.Unlock()
+	delete(iso.starting, generation)
 }
 
-// killLeftovers stops the processes of the restricted user while no next
-// process of the step started. The check of the count comes after each scan:
-// a process that the scan sees started after the count changed.
+// laterProcess reports whether a process of a later generation started, and
+// whether one is still starting.
+func (iso *isolation) laterProcess(generation int64) (started, starting bool) {
+	iso.startMu.Lock()
+	defer iso.startMu.Unlock()
+	for g := range iso.starting {
+		starting = starting || g > generation
+	}
+	return iso.startedGeneration > generation, starting
+}
+
+// killLeftovers stops the processes of the restricted user while no later
+// process of the step started. While a later process is starting, it waits to
+// see whether that process starts or fails. The check comes after each scan:
+// a process that the scan sees was prepared before the check.
 func (iso *isolation) killLeftovers(generation int64) {
 	deadline := time.Now().Add(killTimeout)
 	for !iso.stopping.Load() && time.Now().Before(deadline) {
@@ -642,11 +674,14 @@ func (iso *isolation) killLeftovers(generation int64) {
 		if err != nil || len(pids) == 0 {
 			return
 		}
-		if iso.generation.Load() != generation {
+		started, starting := iso.laterProcess(generation)
+		if started {
 			return
 		}
-		for _, pid := range pids {
-			_ = syscall.Kill(pid, syscall.SIGKILL)
+		if !starting {
+			for _, pid := range pids {
+				_ = syscall.Kill(pid, syscall.SIGKILL)
+			}
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

@@ -303,8 +303,14 @@ func TestIsolatedStepKeepsALaterProcess(t *testing.T) {
 
 // A process that fails to start does not keep the watcher of the process
 // before it from stopping what that process left: the leftover holds the
-// stdout pipe, so Wait returns only once the watcher stops it.
+// stdout pipe, so Wait returns only once the watcher stops it. The subtests
+// fail the second start before and after the first process ends.
 func TestIsolatedStepFailedStartKeepsTheCleanup(t *testing.T) {
+	t.Run("before", func(t *testing.T) { testFailedStartKeepsTheCleanup(t, false) })
+	t.Run("after", func(t *testing.T) { testFailedStartKeepsTheCleanup(t, true) })
+}
+
+func testFailedStartKeepsTheCleanup(t *testing.T, failAfterExit bool) {
 	requireIsolation(t)
 	ctx := context.Background()
 	workDir := testWorkDir(t)
@@ -313,7 +319,11 @@ func TestIsolatedStepFailedStartKeepsTheCleanup(t *testing.T) {
 	t.Cleanup(func() { _ = step.End(ctx) })
 	stepCtx := WithStep(ctx, step)
 
-	first := exec.Command("/bin/sh", "-c", "sleep 1000 & sleep 1") //nolint:gosec
+	script := "sleep 1000 & sleep 1"
+	if failAfterExit {
+		script = "sleep 1000 & sleep 0.2"
+	}
+	first := exec.Command("/bin/sh", "-c", script) //nolint:gosec
 	first.Dir = workDir
 	first.Env = []string{"PATH=/usr/bin:/bin"}
 	var stdout bytes.Buffer
@@ -324,8 +334,18 @@ func TestIsolatedStepFailedStartKeepsTheCleanup(t *testing.T) {
 
 	failing := exec.Command(filepath.Join(workDir, "no-such-binary")) //nolint:gosec
 	failing.Dir = workDir
-	_, err = StartManagedProcess(stepCtx, failing)
-	require.Error(t, err)
+	if failAfterExit {
+		// The start is prepared while the first process runs. The first
+		// process ends and its watcher sees the later generation, and only
+		// then does the start fail.
+		generation, err := step.prepare(failing)
+		require.NoError(t, err)
+		time.Sleep(time.Second)
+		step.iso.abandon(generation)
+	} else {
+		_, err = StartManagedProcess(stepCtx, failing)
+		require.Error(t, err)
+	}
 
 	waited := make(chan error, 1)
 	go func() { waited <- firstProcess.Wait() }()
