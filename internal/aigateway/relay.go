@@ -374,24 +374,46 @@ func (r *Relay) writeBody(w http.ResponseWriter, failure *Failure, contentType s
 }
 
 // httpSink writes the response of the gateway to the client, and flushes each
-// chunk at once.
+// chunk at once. A write ends after relayWriteTimeout, or when the context of
+// the call ends.
 type httpSink struct {
 	w        http.ResponseWriter
 	rc       *http.ResponseController
 	headSent bool
 }
 
-func (s *httpSink) Head(_ context.Context, status int, header http.Header) error {
+func (s *httpSink) Head(ctx context.Context, status int, header http.Header) error {
 	maps.Copy(s.w.Header(), header)
 	s.w.WriteHeader(status)
 	s.headSent = true
-	return s.rc.Flush()
+	return s.bounded(ctx, s.rc.Flush)
 }
 
-func (s *httpSink) Write(_ context.Context, chunk []byte) error {
-	_ = s.rc.SetWriteDeadline(time.Now().Add(relayWriteTimeout))
-	if _, err := s.w.Write(chunk); err != nil {
+func (s *httpSink) Write(ctx context.Context, chunk []byte) error {
+	return s.bounded(ctx, func() error {
+		if _, err := s.w.Write(chunk); err != nil {
+			return err
+		}
+		return s.rc.Flush()
+	})
+}
+
+// bounded runs one write to the client under the write deadline, and expires
+// the deadline when ctx ends, which stops a write that the client blocks.
+func (s *httpSink) bounded(ctx context.Context, write func() error) error {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return s.rc.Flush()
+	_ = s.rc.SetWriteDeadline(time.Now().Add(relayWriteTimeout))
+	expired := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		defer close(expired)
+		_ = s.rc.SetWriteDeadline(time.Now())
+	})
+	err := write()
+	if !stop() {
+		// ctx ended: wait until the deadline is expired, so it cannot cut a later write.
+		<-expired
+	}
+	return err
 }

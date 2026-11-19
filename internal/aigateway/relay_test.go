@@ -463,6 +463,40 @@ func TestRelay_RefusalHasTheRetryHeader(t *testing.T) {
 	assert.Equal(t, "false", resp.Header.Get("X-Should-Retry"))
 }
 
+// A write to a client that reads nothing ends with the context of the call,
+// which the idle and total timeouts of the gateway end, and not after the write
+// timeout of the relay.
+func TestRelay_WriteEndsWithTheContextOfTheCall(t *testing.T) {
+	t.Parallel()
+	ended := make(chan error, 1)
+	client := &fakeClient{handler: func(ctx context.Context, _ io.Reader, sink aigateway.ResponseSink) error {
+		callCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+		defer cancel()
+		err := sink.Head(callCtx, http.StatusOK, http.Header{"Content-Type": {"text/event-stream"}})
+		chunk := bytes.Repeat([]byte("x"), 64<<10)
+		for err == nil {
+			err = sink.Write(callCtx, chunk)
+		}
+		ended <- err
+		return err
+	}}
+	relay := startRelay(t, client, nil)
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(relay.URL(), "http://"))
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 3*time.Second)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+	_, err = io.WriteString(conn, "POST /v1/messages HTTP/1.1\r\nHost: 127.0.0.1:"+port+"\r\nX-Api-Key: "+relay.Secret()+
+		"\r\nContent-Length: 2\r\n\r\n{}")
+	require.NoError(t, err)
+
+	select {
+	case err := <-ended:
+		assert.Error(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the write to the client outlived the context of the call")
+	}
+}
+
 func TestRelay_CutResponseBreaksTheConnection(t *testing.T) {
 	t.Parallel()
 	client := &fakeClient{handler: func(ctx context.Context, _ io.Reader, sink aigateway.ResponseSink) error {
