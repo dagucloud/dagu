@@ -56,9 +56,11 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/resourcelimit"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/runtime/transform"
+	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/telemetry"
@@ -283,6 +285,12 @@ type Agent struct {
 	secretReferenceResolver providers.ReferenceResolver
 	// secretMasker redacts resolved secret values from status/history snapshots.
 	secretMasker *masking.Masker
+	// runSecrets holds every secret value of the run, also the registry secrets
+	// that a step fetches when it starts (Spec 092). secretMaskerVersion is the
+	// version of runSecrets that secretMasker covers.
+	runSecrets          *runctx.RunSecrets
+	secretMaskerVersion int
+	secretMaskerMu      sync.Mutex
 
 	// remoteDAGLoader loads a DAG from a remote source when local store misses.
 	remoteDAGLoader RemoteDAGLoader
@@ -565,6 +573,8 @@ func workspaceNameFromDAG(dag *ir.DAG) string {
 
 // Run setups the runner and runs the DAG.
 func (a *Agent) Run(ctx context.Context) (runErr error) {
+	// A child run of an untrusted step, such as a DAG tool, is trusted.
+	ctx = untrusted.ForChildRun(ctx)
 	ctx, cancel := context.WithCancel(ctx)
 	startupCtx, cancelStartup := context.WithCancel(ctx)
 	defer cancelStartup()
@@ -639,6 +649,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	secretEnvs, secretErr := startup.secrets, startup.secretErr
 	credentials := startup.credentials
 	masks := credentialMasks(credentials)
+	deferredSecrets := startup.deferredSecrets
 	profileValues, profileErr := startup.profileValues, startup.profileErr
 	a.lock.Lock()
 	if a.stopRequest != nil || startupCtx.Err() != nil {
@@ -654,7 +665,14 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	for label, value := range masks {
 		statusSecrets = append(statusSecrets, label+"="+value)
 	}
+	a.secretMaskerMu.Lock()
 	a.secretMasker = newStatusSecretMasker(statusSecrets)
+	// The SSH credential masks join the run secrets, so that the masker rebuilt
+	// after a step fetches a deferred secret still covers them.
+	a.runSecrets = runctx.NewRunSecrets(statusSecrets,
+		deferredSecrets, stepSecretResolver(a.secretReferenceResolver, deferredSecrets))
+	a.secretMaskerVersion = a.runSecrets.Version()
+	a.secretMaskerMu.Unlock()
 	a.lock.Unlock()
 	for _, warning := range resolvedEnv.Warnings {
 		logger.Warn(ctx, warning)
@@ -817,6 +835,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		),
 		runtime.WithSecrets(secretEnvs),
 		runtime.WithMaskedSecrets(masks),
+		runtime.WithRunSecrets(a.runSecrets),
 		runtime.WithDefaultExecMode(a.defaultExecMode),
 		runtime.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
 	}
@@ -1296,6 +1315,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	stopRequested = a.stopRequest != nil || startupCtx.Err() != nil
 	a.lock.Unlock()
 	if stopRequested {
+		stopRunningStatus()
 		return context.Canceled
 	}
 	executionStarted = true
@@ -1563,14 +1583,7 @@ func (a *Agent) buildOutputs(ctx context.Context, finalStatus ir.Status) *ir.DAG
 
 	// Mask any secrets in output values to prevent exposing sensitive data
 	// Use EnvScope.AllSecrets() for unified source tracking
-	rCtx := runtime.GetDAGContext(ctx)
-	secrets := rCtx.EnvScope.AllSecrets()
-	if len(secrets) > 0 {
-		// Convert secret envs map to the format expected by masker
-		var secretEnvs []string
-		for k, v := range secrets {
-			secretEnvs = append(secretEnvs, k+"="+v)
-		}
+	if secretEnvs := runtime.GetDAGContext(ctx).SecretsForMasking(); len(secretEnvs) > 0 {
 		masker := masking.NewMasker(masking.SourcedEnvVars{
 			Secrets: secretEnvs,
 		})
@@ -2363,9 +2376,14 @@ func profileEntries(resolved *profilepkg.Resolved) []ir.RuntimeProfileEntry {
 
 // resolveSecrets resolves all secrets defined in the DAG and returns them as
 // environment variable strings in "NAME=value" format.
-func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfileValues) ([]string, error) {
+//
+// In a DAG with step scope on a worker, a registry secret has two phases (Spec
+// 092): the run start checks it with no value, and the step that lists it
+// fetches the value when it starts. resolveSecrets returns such a secret in
+// deferred.
+func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfileValues) (resolved []string, deferred []secretref.Ref, err error) {
 	if len(a.dag.Secrets) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	logger.Info(ctx, "Resolving secrets", tag.Count(len(a.dag.Secrets)))
@@ -2381,13 +2399,38 @@ func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfil
 		}
 	}()
 
-	resolvedSecrets, err := secretRegistry.ResolveAll(secretCtx, a.dag.Secrets)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve secrets: %w", err)
+	refs := a.dag.Secrets
+	if _, perStep := a.secretReferenceResolver.(runctx.StepSecretResolver); perStep && a.dag.HasSecretStepScope() {
+		refs = nil
+		for _, ref := range a.dag.Secrets {
+			if ref.Ref == "" {
+				refs = append(refs, ref)
+				continue
+			}
+			deferred = append(deferred, ref)
+		}
+		if err := secretRegistry.CheckAccessibility(secretCtx, deferred); err != nil {
+			return nil, nil, fmt.Errorf("failed to check secrets: %w", err)
+		}
 	}
 
-	logger.Debug(ctx, "Secrets resolved successfully", tag.Count(len(resolvedSecrets)))
-	return resolvedSecrets, nil
+	resolvedSecrets, err := secretRegistry.ResolveAll(secretCtx, refs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to resolve secrets: %w", err)
+	}
+
+	logger.Debug(ctx, "Secrets resolved successfully", tag.Count(len(resolvedSecrets)), slog.Int("deferred", len(deferred)))
+	return resolvedSecrets, deferred, nil
+}
+
+// stepSecretResolver returns the resolver of the deferred registry secrets, or
+// nil when no secret is deferred.
+func stepSecretResolver(resolver providers.ReferenceResolver, deferred []secretref.Ref) runctx.StepSecretResolver {
+	if len(deferred) == 0 {
+		return nil
+	}
+	stepResolver, _ := resolver.(runctx.StepSecretResolver)
+	return stepResolver
 }
 
 // resolveCredentialRefs resolves the secret refs that SSH connections read
