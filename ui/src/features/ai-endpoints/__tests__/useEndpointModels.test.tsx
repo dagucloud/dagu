@@ -91,6 +91,15 @@ describe('useEndpointModels', () => {
     ]);
   });
 
+  it('gives the aliases of the CLI that the server lists', () => {
+    mocks.data = {
+      ...(mocks.data as object),
+      cliModelAliases: ['sonnet', 'opus'],
+    };
+    const { result } = renderHook(() => useEndpointModels('cle1', dag));
+    expect(result.current.cliModelAliases).toEqual(['sonnet', 'opus']);
+  });
+
   it('gives an empty list for an endpoint with no list', () => {
     const { result } = renderHook(() => useEndpointModels('plain', dag));
     expect(result.current).toEqual({
