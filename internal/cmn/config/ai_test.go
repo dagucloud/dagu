@@ -203,10 +203,13 @@ func TestAIProxyURL(t *testing.T) {
 		assert.NotContains(t, err.Error(), "hunter2", secret)
 		assert.Contains(t, err.Error(), "http://xxxxx@proxy.example.com", secret)
 	}
-	// User information in front of the scheme, or with a "://" of its own.
+	// User information in front of the scheme, with a "://" of its own, or in
+	// a URL with no scheme, which may not parse either.
 	for _, secret := range []string{
 		"user:hunter2@http://proxy.example.com",
 		"user:hunter2://x@proxy.example.com",
+		"//user:hunter2@proxy.example.com",
+		"//user:hunter2@proxy.example.com:bad",
 	} {
 		err := loadAIError(t, aiYAML("upstream.proxy_url", `"`+secret+`"`))
 		require.Error(t, err, secret)
