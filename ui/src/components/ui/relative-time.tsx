@@ -110,20 +110,15 @@ export function RelativeTime({
   }
 
   const lapse = compact ? text : undefined;
-  const label = lapse
-    ? until && lapse !== now
-      ? ts('in {time}', { time: lapse })
-      : ago && lapse !== now
-        ? ts('{time} ago', { time: lapse })
-        : lapse
-    : text;
+  // The words around a compact lapse: "in 3m" or "3m ago".
+  const affixed = (time: string) =>
+    until ? ts('in {time}', { time }) : ago ? ts('{time} ago', { time }) : time;
+  const label = lapse && lapse !== now ? affixed(lapse) : text;
 
-  // The widest text of the same unit has two digits: "99m", "99m ago".
+  // The widest text of the same unit has two digits: "99m", "in 99m".
   const widest =
     stable && lapse && lapse !== now
-      ? ago
-        ? ts('{time} ago', { time: lapse.replace(/\d+/, '99') })
-        : lapse.replace(/\d+/, '99')
+      ? affixed(lapse.replace(/\d+/, '99'))
       : null;
 
   return (
