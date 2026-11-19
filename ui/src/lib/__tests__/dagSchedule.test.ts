@@ -44,36 +44,29 @@ describe('describeScheduleCoincidence', () => {
       timezone: 'Asia/Tokyo',
     },
   ];
-  const cron = (profile?: string) => ({
-    kind: ScheduleKind.cron,
-    expression: '0 5 * * *',
-    profile,
-  });
+  const cron = (
+    expression: string,
+    paramOverrides?: Record<string, string>
+  ) => ({ kind: ScheduleKind.cron, expression, paramOverrides });
 
-  it('names the schedule that takes precedence', () => {
+  it('names the schedule that starts instead', () => {
+    const schedules = [cron('0 * * * *', { mode: 'x' }), cron('0 5 * * *')];
     expect(
-      describeScheduleCoincidence(1, coincidences, [cron(), cron()], ts, 'en')
+      describeScheduleCoincidence(1, coincidences, schedules, ts, 'en')
     ).toBe(
-      'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo: 0 5 * * * is due then too and takes precedence.'
+      'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo: 0 * * * * starts instead.'
     );
     expect(
-      describeScheduleCoincidence(0, coincidences, [cron(), cron()], ts, 'en')
+      describeScheduleCoincidence(0, coincidences, schedules, ts, 'en')
     ).toBeUndefined();
   });
 
-  // A schedule of a profile takes precedence over one without a profile
-  // only while that profile is active.
-  it('names the profile under which the other schedule takes precedence', () => {
+  it('tells apart two entries with the same timing by their overrides', () => {
+    const schedules = [cron('0 5 * * *', { mode: 'x' }), cron('0 5 * * *')];
     expect(
-      describeScheduleCoincidence(
-        1,
-        coincidences,
-        [cron('prod'), cron()],
-        ts,
-        'en'
-      )
+      describeScheduleCoincidence(1, coincidences, schedules, ts, 'en')
     ).toBe(
-      'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo while profile prod is active: 0 5 * * * (prod) is due then too and takes precedence.'
+      'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo: 0 5 * * * · mode: x starts instead.'
     );
   });
 });

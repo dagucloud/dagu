@@ -725,7 +725,7 @@ describe('CronLauncherPanel coinciding schedules', () => {
     },
   ];
   const warning =
-    'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo: 0 * * * * · mode: x is due then too and takes precedence.';
+    'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo: 0 * * * * starts instead.';
 
   function renderCoinciding(
     schedules: Parameters<typeof CronLauncherPanel>[0]['schedules']
