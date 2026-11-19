@@ -4,14 +4,15 @@
 
 Not implemented.
 
-The store and the service of the MCP server entries exist. No route, page or step uses them yet.
+The store, the service and the routes of the MCP server entries exist. No page or step uses them
+yet.
 
-Specs 090, 091, 094 and 096, which this spec cites, are not in this repository yet.
+Specs 090, 091 and 096, which this spec cites, are not in this repository yet.
 
 This spec is the companion of [Spec 059: Chat Completion](059-chat-completion.md), Spec 090: Agent
 Tools, Spec 091: Agent Node, [Spec 092: Agent Workers](092-agent-workers.md), [Spec 093: AI
-Endpoints](093-ai-endpoints.md), Spec 094: AI Gateway and Spec 096: Skills. It also uses [Spec 069:
-Secrets Providers](069-secrets-providers.md).
+Endpoints](093-ai-endpoints.md), [Spec 094: AI Gateway](094-ai-gateway.md) and Spec 096: Skills. It
+also uses [Spec 069: Secrets Providers](069-secrets-providers.md).
 
 Spec 093 defines the rules of the endpoints, which the entries of this spec follow for their scope,
 their name and their secrets. Spec 094 defines the gateway that carries the MCP traffic.
