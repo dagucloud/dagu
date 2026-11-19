@@ -63,7 +63,7 @@ func TestToolEntriesKeepTheCategoryOrder(t *testing.T) {
 	assert.True(t, cfg.HasTools())
 }
 
-// The list form of main, a list of DAG names, is deprecated. It equals the
+// The list form, a list of DAG names, is deprecated. It equals the
 // entries of the key dags with no params.
 func TestToolListFormIsTheDAGEntriesWithNoParams(t *testing.T) {
 	t.Parallel()
@@ -86,7 +86,7 @@ func TestToolListFormIsTheDAGEntriesWithNoParams(t *testing.T) {
 	assert.True(t, cfg.HasTools())
 }
 
-// The list form is valid in the llm block too, as on main.
+// The list form is valid in the llm block too.
 func TestToolListFormInTheLLMBlock(t *testing.T) {
 	t.Parallel()
 

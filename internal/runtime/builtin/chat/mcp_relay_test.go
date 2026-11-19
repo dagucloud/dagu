@@ -295,7 +295,7 @@ func TestChatNamedMCPRelayEndsWithTheStep(t *testing.T) {
 }
 
 // A tool in allow that the server does not list fails the step when it starts, as for an
-// inline entry (Spec 090). The error names the entry, not the address of the relay.
+// inline entry. The error names the entry, not the address of the relay.
 func TestChatNamedMCPChecksAllowAgainstTheListOfTheServer(t *testing.T) {
 	t.Parallel()
 

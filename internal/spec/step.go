@@ -342,12 +342,12 @@ type llmConfig struct {
 	Stream *bool `yaml:"stream,omitempty"`
 	// Thinking enables extended thinking/reasoning mode.
 	Thinking *thinkingConfig `yaml:"thinking,omitempty"`
-	// DAGs lists the DAG tools of Spec 090. The loader parses the raw value once
-	// the build context is known.
+	// DAGs lists the DAG tools. The loader parses the raw value once the build
+	// context is known.
 	DAGs any `yaml:"dags,omitempty"`
-	// Tools is the tool map of Spec 090: the category mcp. The loader parses
-	// the raw value once the build context is known. The list form of main, a
-	// list of DAG names, is deprecated.
+	// Tools is the tool map: the category mcp. The loader parses the raw value
+	// once the build context is known. The list form, a list of DAG names, is
+	// deprecated.
 	Tools any `yaml:"tools,omitempty"`
 	// Skills is a list of skill names.
 	Skills skillEntryList `yaml:"skills,omitempty"`

@@ -10,7 +10,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-// Spec 090, "Limits". The keys agent_tools.max_tools and
+// The keys agent_tools.max_tools and
 // agent_tools.tool_result_max_bytes of the Dagu configuration are the defaults of
 // each step of the process. A chat.completion step can set its own value. An
 // agent.run step has no key for these limits, so it always uses the defaults.

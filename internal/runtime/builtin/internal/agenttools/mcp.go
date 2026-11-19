@@ -17,7 +17,7 @@ import (
 )
 
 // mcpTimeout bounds the connection, the listing and each call of an MCP tool.
-// The limit is fixed (Spec 090).
+// The limit is fixed.
 const mcpTimeout = 30 * time.Second
 
 // mcpBinding is the server and the tool name that a catalog tool calls.

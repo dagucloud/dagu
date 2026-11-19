@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package agenttools builds the effective tool catalog of a chat.completion
-// step (Spec 090) and runs the calls of its tools.
+// step and runs the calls of its tools.
 package agenttools
 
 import (

@@ -15,9 +15,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-// Spec 090 defines the tools of a step. The key dags holds the DAG tools. The
-// key tools is a map with the category mcp. Spec 091 adds the category builtin on
-// an agent.run step.
+// The tools of a step. The key dags holds the DAG tools. The key tools is a
+// map with the category mcp. Spec 091 adds the category builtin on an
+// agent.run step.
 
 // Categories of the tool entries. The entries of dags are in the key dags. The
 // other categories are keys of the tool map.
@@ -72,7 +72,7 @@ func (tm *toolMap) isEmpty() bool {
 
 // parseToolMapValue parses the keys dags and tools of a chat.completion step or
 // of an llm block. prefix is the path of the block. It returns nil when no key
-// is set. The key tools holds the map form, or the list form of main.
+// is set. The key tools holds the map form, or the deprecated list form.
 func parseToolMapValue(rawDAGs, rawTools any, prefix string) (*toolMap, error) {
 	if rawDAGs == nil && rawTools == nil {
 		return nil, nil
@@ -99,9 +99,9 @@ func parseToolMapValue(rawDAGs, rawTools any, prefix string) (*toolMap, error) {
 	return tm, nil
 }
 
-// parseToolList parses the list form of tools: a list of DAG names, as on main.
-// The list form is DEPRECATED: use the key dags. Each name is an entry of dags
-// with no params, and the tool name is the name of the loaded DAG, as on main.
+// parseToolList parses the list form of tools: a list of DAG names. The list
+// form is DEPRECATED: use the key dags. Each name is an entry of dags with no
+// params, and the tool name is the name of the loaded DAG.
 func parseToolList(list []any, path string) (*toolMap, error) {
 	tm := &toolMap{}
 	for i, item := range list {
@@ -123,7 +123,7 @@ func parseToolList(list []any, path string) (*toolMap, error) {
 
 // parseAgentTools parses the keys dags and tools of the with of an agent.run
 // step. label is the path of the with. The key tools takes the map form only:
-// the list form of main is valid on chat.completion only.
+// the list form is valid on chat.completion only.
 func parseAgentTools(with map[string]any, label string) (*toolMap, error) {
 	tm := &toolMap{}
 	if raw, present := with[toolCategoryDAGs]; present {

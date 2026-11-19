@@ -18,7 +18,7 @@ const (
 	ToolEntryBuiltin ToolEntryKind = "builtin"
 )
 
-// ToolEntry is one tool entry of a chat or agent step (Spec 090). The key dags
+// ToolEntry is one tool entry of a chat or agent step. The key dags
 // holds the DAG entries. The tool map has the categories mcp and builtin. A list
 // of entries keeps the order DAG, mcp, then the builtin entry.
 type ToolEntry struct {
@@ -29,8 +29,8 @@ type ToolEntry struct {
 	// DAG is the DAG that a ToolEntryDAG entry runs.
 	DAG string `json:"dag,omitempty"`
 	// NameFromDAG is set for an entry of the list form of tools, which is
-	// deprecated. The tool name is then the name of the loaded DAG, as on main,
-	// and the name of the entry only when the DAG has no name.
+	// deprecated. The tool name is then the name of the loaded DAG, and the
+	// name of the entry only when the DAG has no name.
 	NameFromDAG bool `json:"nameFromDag,omitempty"`
 	// Params maps an input name of the tool to a fixed value or to the model.
 	Params map[string]ToolParam `json:"params,omitempty"`

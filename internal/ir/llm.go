@@ -140,8 +140,8 @@ type LLMConfig struct {
 	// Provider-specific: Anthropic uses budget_tokens, OpenAI uses reasoning.effort,
 	// Gemini uses thinkingLevel/thinkingBudget, OpenRouter normalizes across providers.
 	Thinking *ThinkingConfig `json:"thinking,omitempty"`
-	// ToolEntries lists the tool entries (Spec 090). The DAG entries of the key
-	// dags come first, then the mcp entries.
+	// ToolEntries lists the tool entries. The DAG entries of the key dags come
+	// first, then the mcp entries.
 	ToolEntries []ToolEntry `json:"toolEntries,omitempty"`
 	// Skills lists the skills offered to the model, with their files already
 	// read.

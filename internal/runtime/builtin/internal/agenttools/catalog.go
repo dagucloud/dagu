@@ -146,8 +146,8 @@ func (b *catalogBuilder) addDAG(entry ir.ToolEntry, path string) error {
 		return err
 	}
 	if entry.NameFromDAG && dag.Name != "" {
-		// The list form of tools is deprecated. As on main, its tool name is the
-		// name of the loaded DAG.
+		// The list form of tools is deprecated. Its tool name is the name of the
+		// loaded DAG.
 		name = dag.Name
 	}
 	declared, err := toolParamsForDAG(dag, entry.DAG)

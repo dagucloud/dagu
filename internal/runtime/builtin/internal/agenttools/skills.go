@@ -15,7 +15,7 @@ import (
 )
 
 // LoadSkillToolName is the name of the tool that returns the instructions of
-// a skill. A tool of the map cannot have this name (Spec 090).
+// a skill. A tool of the map cannot have this name.
 const LoadSkillToolName = "load_skill"
 
 // ReadSkillFileToolName is the name of the tool that returns a file of the
