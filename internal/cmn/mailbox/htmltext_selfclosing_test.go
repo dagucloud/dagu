@@ -10,13 +10,14 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// A self-closing script/style/head/title tag must not leave the text skip
-// counter stuck: no end tag will ever arrive to balance it, so all following
-// mail body text would be silently dropped.
-func TestHTMLToTextSelfClosingStyleDoesNotSwallowBody(t *testing.T) {
+// A self-closing raw-text tag must not leave the tokenizer in raw mode nor
+// the skip counter stuck: either would drop the following body or leak its
+// markup into the plain-text preview used by mail search.
+func TestHTMLToTextSelfClosingRawTextTag(t *testing.T) {
 	t.Parallel()
 
-	got := htmlToText(strings.NewReader("<style/>hello<body>world</body>"))
-	assert.Contains(t, got, "hello")
-	assert.Contains(t, got, "world")
+	got := htmlToText(strings.NewReader("<head><style/></head><body>Hello</body>"))
+	assert.Contains(t, got, "Hello")
+	assert.NotContains(t, got, "<body>")
+	assert.NotContains(t, got, "</head>")
 }

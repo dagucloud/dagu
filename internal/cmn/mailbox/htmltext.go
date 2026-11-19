@@ -35,9 +35,12 @@ func htmlToText(r io.Reader) string {
 			name, _ := tokenizer.TagName()
 			switch tag := string(name); tag {
 			case "script", "style", "head", "title":
-				// A self-closing tag has no matching end tag, so it must not
-				// raise skip: nothing will ever balance it.
-				if tokenType == html.StartTagToken {
+				if tokenType == html.SelfClosingTagToken {
+					// Without this the tokenizer stays in raw-text mode and
+					// returns the rest of the document as literal text. The
+					// tag also has no end tag to balance a skip increment.
+					tokenizer.NextIsNotRawText()
+				} else {
 					skip++
 				}
 			case "br":
