@@ -14,6 +14,8 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/aiendpoint"
 	"github.com/dagucloud/dagu/v2/internal/audit"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -69,10 +71,7 @@ func (a *API) ListAIEndpoints(ctx context.Context, _ api.ListAIEndpointsRequestO
 	if err != nil {
 		return nil, fmt.Errorf("failed to list AI endpoints: %w", err)
 	}
-	lists, err := a.aiEndpoints.ModelsByEndpoint(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list the models lists: %w", err)
-	}
+	lists := a.aiModelsLists(ctx)
 	out := make([]api.AIEndpoint, 0, len(endpoints))
 	for _, ep := range endpoints {
 		resp := toAIEndpointResponse(ep)
@@ -282,10 +281,7 @@ func (a *API) ListAIEndpointChoices(ctx context.Context, request api.ListAIEndpo
 	if err != nil {
 		return nil, fmt.Errorf("failed to list AI endpoint choices: %w", err)
 	}
-	lists, err := a.aiEndpoints.ModelsByEndpoint(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list the models lists: %w", err)
-	}
+	lists := a.aiModelsLists(ctx)
 	out := make([]api.AIEndpointChoice, 0, len(choices))
 	for _, ep := range choices {
 		names := []string{}
@@ -371,6 +367,17 @@ func (a *API) aiEndpointResponse(ctx context.Context, ep *aiendpoint.Endpoint) a
 	status := a.aiModelsStatus(ep, models)
 	resp.Models = &status
 	return resp
+}
+
+// aiModelsLists returns the models lists of all endpoints, by scope and name. A
+// store that fails to give them yields no lists, because the model data is
+// optional help and must not hide the endpoints.
+func (a *API) aiModelsLists(ctx context.Context) map[aiendpoint.ModelsKey]*aiendpoint.Models {
+	lists, err := a.aiEndpoints.ModelsByEndpoint(ctx)
+	if err != nil {
+		logger.Warn(ctx, "Failed to list the AI models lists", tag.Error(err))
+	}
+	return lists
 }
 
 // toAIEndpointResponse converts an endpoint. It has no key: the endpoint holds the

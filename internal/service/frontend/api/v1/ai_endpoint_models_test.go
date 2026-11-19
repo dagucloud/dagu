@@ -5,6 +5,7 @@ package api_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -88,6 +89,13 @@ func (p *aiModelsProvider) calls() []string {
 // newAIModelsTestAPI is newAIEndpointsTestAPI with the models list turned on.
 func newAIModelsTestAPI(t *testing.T, provider *aiModelsProvider) (*apiv1.API, *aiAuditStore, *aiendpoint.Service) {
 	t.Helper()
+	return newAIModelsTestAPIWithStore(t, provider, func(store aiendpoint.ModelsStore) aiendpoint.ModelsStore { return store })
+}
+
+// newAIModelsTestAPIWithStore is newAIModelsTestAPI with the models store that
+// wrap returns in place of the memory store.
+func newAIModelsTestAPIWithStore(t *testing.T, provider *aiModelsProvider, wrap func(aiendpoint.ModelsStore) aiendpoint.ModelsStore) (*apiv1.API, *aiAuditStore, *aiendpoint.Service) {
+	t.Helper()
 	backend := testutil.NewMemoryBackend()
 	enc, err := crypto.NewEncryptor("test-key-for-ai-endpoints")
 	require.NoError(t, err)
@@ -101,7 +109,7 @@ func newAIModelsTestAPI(t *testing.T, provider *aiModelsProvider) (*apiv1.API, *
 	require.NoError(t, err)
 	reader, err := aiendpoint.NewModelsReader(provider.server.Client(), 2*time.Second)
 	require.NoError(t, err)
-	require.NoError(t, service.EnableModels(modelsStore, reader))
+	require.NoError(t, service.EnableModels(wrap(modelsStore), reader))
 	workspaces, err := persiststore.NewWorkspaceStore(backend.Collection("workspaces"))
 	require.NoError(t, err)
 	require.NoError(t, workspaces.Create(context.Background(), workspace.NewWorkspace("team", "")))
@@ -114,6 +122,16 @@ func newAIModelsTestAPI(t *testing.T, provider *aiModelsProvider) (*apiv1.API, *
 		apiv1.WithWorkspaceStore(workspaces),
 		apiv1.WithAuditService(audit.New(auditStore)),
 	), auditStore, service
+}
+
+// aiListFailingModelsStore is a models store whose List fails. The other
+// methods use the wrapped store.
+type aiListFailingModelsStore struct {
+	aiendpoint.ModelsStore
+}
+
+func (aiListFailingModelsStore) List(context.Context) ([]*aiendpoint.Models, error) {
+	return nil, errors.New("models collection unavailable")
 }
 
 // aiCustomBody is a global endpoint of the preset custom that lists its models at the fake provider.
@@ -324,6 +342,36 @@ func TestAIModelsAPI_ChoicesCarryTheModels(t *testing.T) {
 	// The UI marks a model that the list lacks, so it needs the aliases of the CLI.
 	require.NotNil(t, list.CliModelAliases)
 	assert.Equal(t, aiendpoint.CLIModelAliases, *list.CliModelAliases)
+}
+
+// The model names are optional help, so the list of endpoints and the route of
+// choices still answer, with no model data, when the models store cannot list.
+func TestAIModelsAPI_ListsSurviveAStoreFailure(t *testing.T) {
+	ctx := context.Background()
+	provider := newAIModelsProvider(t)
+	api, _, service := newAIModelsTestAPIWithStore(t, provider, func(store aiendpoint.ModelsStore) aiendpoint.ModelsStore {
+		return aiListFailingModelsStore{ModelsStore: store}
+	})
+	aiCreate(t, api, service, aiCustomBody("cle1", provider, true))
+
+	listResp, err := api.ListAIEndpoints(ctx, apigen.ListAIEndpointsRequestObject{})
+	require.NoError(t, err)
+	list, ok := listResp.(apigen.ListAIEndpoints200JSONResponse)
+	require.True(t, ok, "%T", listResp)
+	require.Len(t, list.Endpoints, 1)
+	require.NotNil(t, list.Endpoints[0].Models)
+	assert.Zero(t, list.Endpoints[0].Models.Count)
+	assert.Nil(t, list.Endpoints[0].Models.RefreshedAt)
+
+	choicesResp, err := api.ListAIEndpointChoices(ctx, apigen.ListAIEndpointChoicesRequestObject{Params: apigen.ListAIEndpointChoicesParams{Dag: "fix-bug"}})
+	require.NoError(t, err)
+	choices, ok := choicesResp.(apigen.ListAIEndpointChoices200JSONResponse)
+	require.True(t, ok, "%T", choicesResp)
+	require.Len(t, choices.Choices, 1)
+	require.NotNil(t, choices.Choices[0].Models)
+	assert.Empty(t, *choices.Choices[0].Models)
+	require.NotNil(t, choices.Choices[0].ModelInfo)
+	assert.Empty(t, *choices.Choices[0].ModelInfo)
 }
 
 // The protocol anthropic gives the display name and the efforts of a model. The
