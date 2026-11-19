@@ -25,6 +25,7 @@ var humanTaskIncompatibleStepFields = []string{
 	"stderr",
 	"stdout",
 	"timeout_sec",
+	"untrusted",
 	"worker_selector",
 }
 

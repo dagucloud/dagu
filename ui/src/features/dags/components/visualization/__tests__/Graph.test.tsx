@@ -10,6 +10,7 @@ import Graph from '../Graph';
 
 const mermaidRenderMock = vi.hoisted(() => vi.fn());
 const downloadBlobMock = vi.hoisted(() => vi.fn());
+const themeMock = vi.hoisted(() => ({ resolved: 'light' }));
 
 vi.mock('mermaid', () => ({
   default: {
@@ -23,13 +24,14 @@ vi.mock('@/lib/download', () => ({
 }));
 
 vi.mock('@/contexts/UserPreference', () => ({
-  useUserPreferences: () => ({ preferences: { theme: 'light' } }),
-  useResolvedTheme: () => 'light',
+  useUserPreferences: () => ({ preferences: { theme: themeMock.resolved } }),
+  useResolvedTheme: () => themeMock.resolved,
 }));
 
 beforeEach(() => {
   mermaidRenderMock.mockReset();
   downloadBlobMock.mockReset();
+  themeMock.resolved = 'light';
 });
 
 function node(
@@ -77,7 +79,7 @@ describe('Graph', () => {
     }
     const definition = firstCall[1] as string;
     expect(definition).toContain(
-      'classDef done color:#111114,fill:#e9f9ef,stroke:#22c55e'
+      'classDef done color:#111114,fill:#e8f3ec,stroke:#178a44'
     );
     expect(definition).toContain(
       'linkStyle 0 stroke:#3fa76b,stroke-width:1.8px'
@@ -92,12 +94,7 @@ describe('Graph', () => {
       bindFunctions: vi.fn(),
     });
 
-    render(
-      <Graph
-        type="status"
-        steps={[node('load', NodeStatus.Running)]}
-      />
-    );
+    render(<Graph type="status" steps={[node('load', NodeStatus.Running)]} />);
 
     await waitFor(() => {
       expect(mermaidRenderMock).toHaveBeenCalled();
@@ -109,7 +106,7 @@ describe('Graph', () => {
     }
     const definition = firstCall[1] as string;
     expect(definition).toContain(
-      'classDef running color:#111114,fill:#f2f1fe,stroke:#7c6ef4'
+      'classDef running color:#111114,fill:#efedfc,stroke:#5d4fe0'
     );
     expect(definition).not.toContain('#81c784');
   });
@@ -138,11 +135,39 @@ describe('Graph', () => {
     const doneNode = await screen.findByTestId('done-node');
     const runningNode = await screen.findByTestId('running-node');
 
-    expect(doneNode).toHaveAttribute('stroke', '#22c55e');
+    expect(doneNode).toHaveAttribute('stroke', '#178a44');
     expect(doneNode).toHaveAttribute('stroke-width', '2px');
     expect(doneNode).toHaveAttribute('rx', '6');
-    expect(runningNode).toHaveAttribute('stroke', '#7c6ef4');
+    expect(runningNode).toHaveAttribute('stroke', '#5d4fe0');
     expect(runningNode).toHaveAttribute('stroke-width', '2px');
+  });
+
+  // A node has the status colour that the canvas has in the same theme.
+  it('draws the nodes with the status colours of the dark theme', async () => {
+    themeMock.resolved = 'dark';
+    mermaidRenderMock.mockResolvedValueOnce({
+      svg: '<svg><g class="node running"><rect data-testid="running-node"></rect></g></svg>',
+      bindFunctions: vi.fn(),
+    });
+
+    render(
+      <Graph
+        type="status"
+        steps={[
+          node('prepare', NodeStatus.Success),
+          node('load', NodeStatus.Running, ['prepare']),
+        ]}
+      />
+    );
+
+    expect(await screen.findByTestId('running-node')).toHaveAttribute(
+      'stroke',
+      '#a89ff8'
+    );
+    const definition = mermaidRenderMock.mock.calls[0]?.[1] as string;
+    expect(definition).toContain(
+      'classDef done color:#ededf0,fill:#15261e,stroke:#22c55e'
+    );
   });
 
   it('labels a step with its name when it also has an id', async () => {
@@ -301,8 +326,7 @@ describe('Graph', () => {
 
     const canvas = container.querySelector('.custom-scrollbar')!;
     expect(
-      toolbar.compareDocumentPosition(canvas) &
-        Node.DOCUMENT_POSITION_FOLLOWING
+      toolbar.compareDocumentPosition(canvas) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(toolbar).not.toContainElement(canvas as HTMLElement);
   });

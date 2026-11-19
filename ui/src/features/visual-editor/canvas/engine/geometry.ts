@@ -281,12 +281,16 @@ export function fitViewport(
     // A content wider than the area starts at its left edge, so that no
     // branch is cut on the start side.
     const wide = bounds.width * readable > area.width;
+    // A content that fits in height is centred, as in a fit of all of it.
+    const tall = bounds.height * readable > area.height;
     return {
       zoom: readable,
       x: wide
         ? left + TOP_MARGIN - bounds.x * readable
         : centreX - (bounds.x + bounds.width / 2) * readable,
-      y: (inset?.top ?? TOP_MARGIN) - bounds.y * readable,
+      y: tall
+        ? (inset?.top ?? TOP_MARGIN) - bounds.y * readable
+        : centreY - (bounds.y + bounds.height / 2) * readable,
     };
   }
   return {
