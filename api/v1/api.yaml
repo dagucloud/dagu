@@ -15025,11 +15025,6 @@ components:
           items:
             $ref: "#/components/schemas/ToolDefinition"
           description: "Tool definitions that were available to the LLM"
-        skillDefinitions:
-          type: array
-          items:
-            $ref: "#/components/schemas/SkillDefinition"
-          description: "Skills that the effective catalog offered to the LLM or left out"
         stepStatus:
           $ref: "#/components/schemas/NodeStatus"
         stepStatusLabel:
@@ -15233,25 +15228,6 @@ components:
         - code
         - message
 
-    SkillDefinition:
-      type: object
-      description: "A skill that the effective catalog of a step offered to the LLM"
-      properties:
-        name:
-          type: string
-          description: "Name of the skill"
-        description:
-          type: string
-          description: "Description of the skill"
-        hash:
-          type: string
-          description: "Hash of the version of the skill that the step received"
-        omitted:
-          type: string
-          description: "Set only in the record of an older run, where a condition left the skill out. The effective catalog no longer leaves a skill out."
-      required:
-        - name
-
     ToolDefinition:
       type: object
       description: "A tool definition that was available to the LLM"
@@ -15266,9 +15242,6 @@ components:
           type: object
           additionalProperties: true
           description: "JSON Schema describing the tool's parameters"
-        source:
-          type: string
-          description: "Where the tool comes from: dag:<name>, mcp:<name> (the label of the server) or skills (the tool load_skill)"
       required:
         - name
 

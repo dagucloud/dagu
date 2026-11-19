@@ -5307,8 +5307,6 @@ export interface components {
             messages: components["schemas"]["ChatMessage"][];
             /** @description Tool definitions that were available to the LLM */
             toolDefinitions?: components["schemas"]["ToolDefinition"][];
-            /** @description Skills that the effective catalog offered to the LLM or left out */
-            skillDefinitions?: components["schemas"]["SkillDefinition"][];
             stepStatus: components["schemas"]["NodeStatus"];
             stepStatusLabel: components["schemas"]["NodeStatusLabel"];
             /** @description True if step is still running and more messages may arrive */
@@ -5405,17 +5403,6 @@ export interface components {
             /** @description For a conflict: the hash of the skill now. Empty when the skill does not exist. */
             hash?: string;
         };
-        /** @description A skill that the effective catalog of a step offered to the LLM */
-        SkillDefinition: {
-            /** @description Name of the skill */
-            name: string;
-            /** @description Description of the skill */
-            description?: string;
-            /** @description Hash of the version of the skill that the step received */
-            hash?: string;
-            /** @description Set only in the record of an older run, where a condition left the skill out. The effective catalog no longer leaves a skill out. */
-            omitted?: string;
-        };
         /** @description A tool definition that was available to the LLM */
         ToolDefinition: {
             /** @description Name of the tool */
@@ -5426,8 +5413,6 @@ export interface components {
             parameters?: {
                 [key: string]: unknown;
             };
-            /** @description Where the tool comes from: dag:<name>, mcp:<name> (the label of the server) or skills (the tool load_skill) */
-            source?: string;
         };
         /** @description Request body for rejecting a waiting step */
         RejectStepRequest: {

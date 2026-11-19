@@ -9,7 +9,6 @@ import { whenEnabled } from '@/hooks/queryUtils';
 import { cn } from '@/lib/utils';
 import { Check, ChevronRight, Copy, Loader2, Wrench } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { SkillDefinitionList } from './SkillDefinitionList';
 import { ToolDefinitionCard } from './ToolDefinitionCard';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
@@ -123,7 +122,6 @@ export function StepMessagesTable({
 
   const messages = data?.messages || [];
   const toolDefinitions = data?.toolDefinitions || [];
-  const skillDefinitions = data?.skillDefinitions || [];
 
   // State for showing/hiding the tool definitions section
   const [showTools, setShowTools] = useState(false);
@@ -206,19 +204,13 @@ export function StepMessagesTable({
           </button>
           {showTools && (
             <div className="px-4 pb-2 space-y-2">
-              {toolDefinitions.map((tool, index) => (
-                <ToolDefinitionCard
-                  key={`${tool.source ?? ''}:${tool.name}:${index}`}
-                  tool={tool}
-                />
+              {toolDefinitions.map((tool) => (
+                <ToolDefinitionCard key={tool.name} tool={tool} />
               ))}
             </div>
           )}
         </div>
       )}
-
-      {/* Skills of the step */}
-      <SkillDefinitionList skills={skillDefinitions} />
 
       {/* Messages list */}
       {messages.map((msg, i) => {
