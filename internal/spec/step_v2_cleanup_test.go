@@ -56,6 +56,81 @@ steps:
 	}, warnings)
 }
 
+// The list form of tools is deprecated: the warning says so for a with block
+// and for an llm block. The key dags gives no warning.
+func TestDeprecatedSyntaxWarningsToolsListForm(t *testing.T) {
+	t.Parallel()
+
+	warnings := DeprecatedSyntaxWarnings([]byte(`
+llm:
+  provider: local
+  model: m
+  tools: [lookup]
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      prompt: hi
+      tools:
+        - lookup
+  - id: mapped
+    action: chat.completion
+    with:
+      prompt: hi
+      dags:
+        - name: lookup
+`))
+
+	require.Equal(t, []string{
+		"Deprecated DAG syntax: llm.tools: The list form of `tools` is deprecated. Use the key dags.",
+		"Deprecated DAG syntax: steps[0].with.tools: The list form of `tools` is deprecated. Use the key dags.",
+	}, warnings)
+}
+
+// The old provider method of chat.completion stays valid and gives one validate-only
+// warning for each step. It names each key of the old method that the step uses,
+// in the with and in the rows of the model list. The block endpoint gives none.
+func TestDeprecatedSyntaxWarningsChatProvider(t *testing.T) {
+	t.Parallel()
+
+	warnings := DeprecatedSyntaxWarnings([]byte(`
+steps:
+  - id: old
+    action: chat.completion
+    with:
+      provider: openai
+      model: gpt-4o
+      api_key_name: OPENAI_API_KEY
+      prompt: hi
+  - id: rows
+    action: chat.completion
+    with:
+      model:
+        - name: claude-sonnet-4-6
+          endpoint: cle1
+        - name: gpt-4o
+          provider: openai
+          api_key_name: OPENAI_API_KEY
+      prompt: hi
+  - id: new
+    action: chat.completion
+    with:
+      endpoint:
+        name: cle1
+        model: claude-sonnet-4-6
+      prompt: hi
+  - id: other
+    action: http.request
+    with:
+      provider: x
+`))
+
+	require.Equal(t, []string{
+		"Deprecated DAG syntax: steps[0].with.provider, steps[0].with.api_key_name: use with.endpoint, an endpoint of the AI page",
+		"Deprecated DAG syntax: steps[1].with.model[1].provider, steps[1].with.model[1].api_key_name: use with.endpoint, an endpoint of the AI page",
+	}, warnings)
+}
+
 func TestBuiltinActionNamesMatchDAGSchema(t *testing.T) {
 	t.Parallel()
 

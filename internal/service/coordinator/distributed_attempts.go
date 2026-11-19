@@ -236,6 +236,11 @@ func (o *attemptOwnership) syncLeaseFromStatus(
 		if attemptKey == "" {
 			return
 		}
+		if claimKey := status.EffectiveClaimKey(); claimKey != "" && claimKey != attemptKey {
+			// The status was checked against the lease of an ancestor. It ends
+			// no lease of its own.
+			return
+		}
 		if err := o.leaseStore.Delete(ctx, attemptKey); err != nil {
 			logger.Warn(ctx, "Failed to delete distributed run lease",
 				tag.RunID(status.DAGRunID),
@@ -417,9 +422,12 @@ func (o *attemptOwnership) recordTaskClaim(
 	ctx context.Context,
 	task *coordinatorv1.Task,
 	workerID string,
+	workerPool string,
 ) error {
 	now := o.now()
-	if err := o.leaseStore.Upsert(ctx, o.leaseFromTask(task, workerID, now)); err != nil {
+	lease := o.leaseFromTask(task, workerID, now)
+	lease.WorkerPool = workerPool
+	if err := o.leaseStore.Upsert(ctx, lease); err != nil {
 		return err
 	}
 	o.upsertActiveFromTask(ctx, task, workerID, now)
