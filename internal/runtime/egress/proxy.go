@@ -20,6 +20,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/llm/anthropicbeta"
 )
 
 // Resolver looks up the addresses of a host name. *net.Resolver implements it.
@@ -225,32 +227,8 @@ func (p *Proxy) rewriteOrigin(r *httputil.ProxyRequest) {
 		header.Set("Authorization", "Bearer "+p.upstream.key)
 	case AuthAnthropicOAuth:
 		header.Set("Authorization", "Bearer "+p.upstream.key)
-		header.Set("Anthropic-Beta", withBeta(header.Values("Anthropic-Beta"), AnthropicOAuthBeta))
+		header.Set("Anthropic-Beta", anthropicbeta.Join(header.Values("Anthropic-Beta"), AnthropicOAuthBeta))
 	}
-}
-
-// WithBeta is withBeta for the gateway of Spec 094, which sets the same header.
-func WithBeta(values []string, beta string) string { return withBeta(values, beta) }
-
-// withBeta returns the values of anthropic-beta as one list, with the beta added
-// when no value names it. The values of the client stay in their order.
-func withBeta(values []string, beta string) string {
-	var list []string
-	found := false
-	for _, value := range values {
-		for item := range strings.SplitSeq(value, ",") {
-			item = strings.TrimSpace(item)
-			if item == "" {
-				continue
-			}
-			found = found || item == beta
-			list = append(list, item)
-		}
-	}
-	if !found {
-		list = append(list, beta)
-	}
-	return strings.Join(list, ",")
 }
 
 // clientCredential describes the credential that a client sent to the route of

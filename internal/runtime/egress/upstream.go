@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/dagucloud/dagu/v2/internal/llm/anthropicbeta"
 )
 
 // UpstreamAuth is the form in which the proxy gives the key to the upstream.
@@ -30,7 +32,7 @@ const (
 
 // AnthropicOAuthBeta is the value of anthropic-beta that the Anthropic API needs
 // with an OAuth token.
-const AnthropicOAuthBeta = "oauth-2025-04-20"
+const AnthropicOAuthBeta = anthropicbeta.OAuth
 
 // ParseUpstreamAuth reads the name of a form.
 func ParseUpstreamAuth(text string) (UpstreamAuth, error) {

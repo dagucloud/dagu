@@ -6,7 +6,7 @@ package aiendpoint
 import (
 	"net/http"
 
-	"github.com/dagucloud/dagu/v2/internal/runtime/egress"
+	"github.com/dagucloud/dagu/v2/internal/llm/anthropicbeta"
 )
 
 // SetCredential removes each credential header of the client from h and sets the
@@ -26,6 +26,6 @@ func SetCredential(h http.Header, auth Auth, key string) {
 		h.Set("Authorization", "Bearer "+key)
 	case AuthAnthropicOAuth:
 		h.Set("Authorization", "Bearer "+key)
-		h.Set("Anthropic-Beta", egress.WithBeta(h.Values("Anthropic-Beta"), egress.AnthropicOAuthBeta))
+		h.Set("Anthropic-Beta", anthropicbeta.Join(h.Values("Anthropic-Beta"), anthropicbeta.OAuth))
 	}
 }
