@@ -58,6 +58,7 @@ import { SkillPreview } from '@/features/skills/SkillPreview';
 import {
   downloadSkillZip,
   INITIAL_SYNC,
+  readSkill,
   readSkillFileText,
   removeSkill,
   removeSkillFile,
@@ -156,6 +157,8 @@ export function SkillEditor({
   const [refused, setRefused] = useState<SkillIssue[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The editor is read-only while a reload runs: the reload drops every draft.
+  const [reloading, setReloading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [dialog, setDialog] = useState<FileDialogMode | null>(null);
   const [confirming, setConfirming] = useState<'skill' | 'file' | null>(null);
@@ -345,9 +348,27 @@ export function SkillEditor({
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [canWrite]);
 
+  // Loads the server version and drops every draft. A failed read keeps them.
   const reload = async () => {
     setBusy(true);
-    await mutate();
+    setReloading(true);
+    try {
+      const fresh = await readSkill(
+        client,
+        target,
+        ts("Couldn't load the skill")
+      );
+      await mutate(fresh, { revalidate: false });
+    } catch (failure) {
+      setProblem(
+        failure instanceof Error
+          ? failure.message
+          : ts("Couldn't load the skill")
+      );
+      setReloading(false);
+      setBusy(false);
+      return;
+    }
     setDrafts({});
     setWritten({});
     setFetched({});
@@ -357,6 +378,7 @@ export function SkillEditor({
     setProblem(null);
     dispatch({ type: 'reset' });
     onChanged();
+    setReloading(false);
     setBusy(false);
   };
 
@@ -609,6 +631,7 @@ export function SkillEditor({
   const textFile = onSkillMd || !!activeFile?.text;
   const loadingText = textFile && savedText(active) === undefined;
   const readFailure = fileProblems[active];
+  const editable = canWrite && !reloading;
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto lg:overflow-visible [&>*]:shrink-0">
@@ -682,7 +705,7 @@ export function SkillEditor({
             aria-label={ts('What the skill is for')}
             placeholder={ts('What the skill is for')}
             value={description}
-            readOnly={!canWrite}
+            readOnly={!editable}
             disabled={!parsed.ok}
             aria-invalid={
               parsed.ok && description.trim() === '' ? true : undefined
@@ -837,8 +860,8 @@ export function SkillEditor({
                   key={active}
                   value={text}
                   language={language}
-                  readOnly={!canWrite}
-                  onChange={canWrite ? onText : undefined}
+                  readOnly={!editable}
+                  onChange={editable ? onText : undefined}
                 />
               </Suspense>
             )}

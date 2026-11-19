@@ -7,6 +7,7 @@ import {
   classifyFailure,
   downloadSkillZip,
   INITIAL_SYNC,
+  readSkill,
   removeSkillFile,
   syncReducer,
   writeHash,
@@ -134,6 +135,7 @@ describe('attachmentName', () => {
 
 describe('requests', () => {
   const client = {
+    GET: vi.fn(),
     PUT: vi.fn(),
     DELETE: vi.fn(),
     POST: vi.fn(),
@@ -149,6 +151,27 @@ describe('requests', () => {
     client.PUT.mockReset().mockResolvedValue(ok);
     client.DELETE.mockReset().mockResolvedValue(ok);
     client.POST.mockReset();
+    client.GET.mockReset();
+  });
+
+  it('reads a skill, and throws with the message of the server', async () => {
+    const detail = { name: 'triage', content: 'x', hash: 'h1' };
+    client.GET.mockResolvedValueOnce({
+      data: detail,
+      response: { ok: true, status: 200 },
+    });
+    expect(await readSkill(client as never, target, 'f')).toBe(detail);
+    expect(client.GET.mock.calls[0]![1].params).toEqual({
+      path: { name: 'triage' },
+      query: { remoteNode: 'edge' },
+    });
+    client.GET.mockResolvedValueOnce({
+      error: { message: 'no access' },
+      response: { ok: false, status: 403 },
+    });
+    await expect(readSkill(client as never, target, 'f')).rejects.toThrow(
+      'no access'
+    );
   });
 
   it('sends If-Match to update SKILL.md and If-None-Match to create it', async () => {

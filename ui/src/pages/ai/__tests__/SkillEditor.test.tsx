@@ -10,6 +10,7 @@ import { SkillEditor } from '../SkillEditor';
 const mocks = vi.hoisted(() => ({
   detail: undefined as unknown,
   client: {},
+  readSkill: vi.fn(),
   readSkillFileText: vi.fn(),
   writeSkillFile: vi.fn(),
   removeSkillFile: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock('@/hooks/api', () => ({
 
 vi.mock('@/features/skills/skillSync', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/skills/skillSync')>()),
+  readSkill: mocks.readSkill,
   readSkillFileText: mocks.readSkillFileText,
   writeSkillFile: mocks.writeSkillFile,
   removeSkillFile: mocks.removeSkillFile,
@@ -96,7 +98,29 @@ const written = (files: SkillFile[], hash: string) => ({
   result: { hash, errors: [], warnings: [], files },
 });
 
+// Opens references/a.md, types a draft and saves it into a conflict.
+async function conflictOnDraft() {
+  load(VALID, [file('SKILL.md'), file('references/a.md')]);
+  mocks.readSkillFileText.mockResolvedValue('saved\n');
+  mocks.writeSkillFile.mockResolvedValue({
+    ok: false,
+    kind: 'conflict',
+    hash: 'h9',
+    message: 'changed',
+  });
+  renderEditor();
+  fireEvent.click(screen.getByRole('button', { name: /a\.md/ }));
+  await waitFor(() => expect(editorText()).toBe('saved\n'));
+  fireEvent.change(await editor(), { target: { value: 'draft\n' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByTestId('skill-conflict');
+}
+
+const reloadButton = () =>
+  screen.getByRole('button', { name: 'Discard my changes and reload' });
+
 beforeEach(() => {
+  mocks.readSkill.mockReset();
   mocks.readSkillFileText.mockReset();
   mocks.writeSkillFile.mockReset();
   mocks.removeSkillFile.mockReset();
@@ -235,6 +259,45 @@ describe('SkillEditor', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
 
     await waitFor(() => expect(editorText()).toBe('saved\n'));
+  });
+
+  // Nothing was reloaded, so nothing of the draft or the conflict goes.
+  it('keeps the draft and the conflict when the reload fails', async () => {
+    mocks.readSkill.mockRejectedValue(new Error('The server is down.'));
+    await conflictOnDraft();
+
+    fireEvent.click(reloadButton());
+
+    expect(await screen.findByText('The server is down.')).toBeInTheDocument();
+    expect(screen.getByTestId('skill-conflict')).toBeInTheDocument();
+    expect(editorText()).toBe('draft\n');
+  });
+
+  // The reload drops every draft: text typed meanwhile would go with them.
+  it('locks the editor while the reload runs', async () => {
+    let finish: (detail: unknown) => void = () => {};
+    mocks.readSkill.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+    );
+    await conflictOnDraft();
+
+    fireEvent.click(reloadButton());
+    await waitFor(() =>
+      expect(screen.getByLabelText('Markdown editor')).toHaveAttribute(
+        'readonly'
+      )
+    );
+
+    finish(mocks.detail);
+    await waitFor(() =>
+      expect(screen.queryByTestId('skill-conflict')).not.toBeInTheDocument()
+    );
+    await waitFor(() => expect(editorText()).toBe('saved\n'));
+    expect(screen.getByLabelText('Markdown editor')).not.toHaveAttribute(
+      'readonly'
+    );
   });
 
   // A skill can come from anyone: the preview loads no image, runs no block

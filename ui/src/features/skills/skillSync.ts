@@ -8,6 +8,7 @@ import type { SkillIssue } from './skillIssues';
 
 type Client = ReturnType<typeof useClient>;
 type SkillWriteResult = components['schemas']['SkillWriteResult'];
+type SkillDetail = components['schemas']['SkillDetail'];
 
 // --- the hash chain ---
 
@@ -230,6 +231,24 @@ export async function removeSkill(
       message: failure instanceof Error ? failure.message : fallback,
     };
   }
+}
+
+/** Reads a skill: SKILL.md, its hash and its files. Throws with the message of the server. */
+export async function readSkill(
+  client: Client,
+  target: Target,
+  fallback: string
+): Promise<SkillDetail> {
+  const { data, error, response } = await client.GET('/skills/{name}', {
+    params: {
+      path: { name: target.name },
+      query: { remoteNode: target.remoteNode },
+    },
+  });
+  if (!response.ok || data === undefined) {
+    throw new Error((error as ErrorBody | undefined)?.message || fallback);
+  }
+  return data;
 }
 
 /** Reads one text file of a skill. Throws with the message of the server. */
