@@ -1199,7 +1199,7 @@
         },
         "worker_wait_timeout": {
           "type": "string",
-          "description": "How long a dispatch waits for a matching worker to take it before the run fails. A dispatch with no healthy worker matching its selector waits as a queued run. Default: '2m'. Set to '0' to refuse such a dispatch at once; a dispatch that a healthy worker matched then waits 90 seconds."
+          "description": "How long a dispatch with no healthy worker matching its selector is held, as a queued run, for such a worker to register before the run fails. Default: '2m'. Set to '0' to refuse the dispatch at once."
         },
         "worker_pools": {
           "type": "array",
@@ -1267,7 +1267,7 @@
     "UntrustedDef": {
       "type": "object",
       "additionalProperties": false,
-      "dependentRequired": {
+      "dependencies": {
         "uid": ["gid"],
         "gid": ["uid"]
       },
@@ -1295,7 +1295,7 @@
     },
     "AgentToolsDef": {
       "type": "object",
-      "description": "Limits of the tool catalog of an agent step (Spec 090). They are the defaults of each step of the process. The block is closed: an unknown key stops Dagu at start. The file is the only source of these values.",
+      "description": "Limits of the tool catalog of an agent step. They are the defaults of each step of the process. The block is closed: an unknown key stops Dagu at start. The file is the only source of these values.",
       "additionalProperties": false,
       "properties": {
         "max_tools": {
