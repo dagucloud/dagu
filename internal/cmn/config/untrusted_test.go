@@ -4,14 +4,29 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// freeIDs returns a user ID and a group ID that the test process does not have.
+// The loader refuses the IDs of the process for the restricted user, so a fixed
+// ID would fail on a host whose user has it.
+func freeIDs() (uid, gid uint32) {
+	free := func(id int, taken ...int) uint32 {
+		for slices.Contains(taken, id) {
+			id++
+		}
+		return uint32(id)
+	}
+	return free(10001, os.Getuid(), os.Geteuid()), free(10002, os.Getgid(), os.Getegid())
+}
 
 // Without the block, there is no restricted user, and isolation is not turned off.
 func TestUntrustedDefault(t *testing.T) {
@@ -27,8 +42,9 @@ func TestUntrustedIsolation(t *testing.T) {
 	cfg = loadFromYAML(t, "untrusted:\n  isolation: on\n")
 	assert.Equal(t, UntrustedConfig{}, cfg.Untrusted)
 
-	cfg = loadFromYAML(t, "untrusted:\n  isolation: on\n  uid: 10001\n  gid: 10002\n")
-	assert.Equal(t, UntrustedConfig{Enabled: true, UID: 10001, GID: 10002}, cfg.Untrusted)
+	uid, gid := freeIDs()
+	cfg = loadFromYAML(t, fmt.Sprintf("untrusted:\n  isolation: on\n  uid: %d\n  gid: %d\n", uid, gid))
+	assert.Equal(t, UntrustedConfig{Enabled: true, UID: uid, GID: gid}, cfg.Untrusted)
 }
 
 // The blocks ai, untrusted and agent_tools are file only. A variable that names
@@ -52,8 +68,9 @@ func TestFileOnlyBlockVariablesStopStart(t *testing.T) {
 
 // The file sets both keys.
 func TestUntrustedFromFile(t *testing.T) {
-	cfg := loadFromYAML(t, "untrusted:\n  uid: 10001\n  gid: 10002\n")
-	assert.Equal(t, UntrustedConfig{Enabled: true, UID: 10001, GID: 10002}, cfg.Untrusted)
+	uid, gid := freeIDs()
+	cfg := loadFromYAML(t, fmt.Sprintf("untrusted:\n  uid: %d\n  gid: %d\n", uid, gid))
+	assert.Equal(t, UntrustedConfig{Enabled: true, UID: uid, GID: gid}, cfg.Untrusted)
 }
 
 // No environment variable sets a key of the block.
@@ -67,6 +84,7 @@ func TestUntrustedHasNoEnvironmentVariable(t *testing.T) {
 // A wrong value stops Dagu at start. The error names the key, the expected
 // range and the value, and no value is changed to make it fit.
 func TestUntrustedErrors(t *testing.T) {
+	uid, _ := freeIDs()
 	for _, tc := range []struct {
 		name string
 		yaml string
@@ -75,7 +93,7 @@ func TestUntrustedErrors(t *testing.T) {
 		{"uid without gid", "untrusted:\n  uid: 10001\n", []string{`"untrusted.gid" is required with "untrusted.uid"`}},
 		{"gid without uid", "untrusted:\n  gid: 10001\n", []string{`"untrusted.uid" is required with "untrusted.gid"`}},
 		{"zero", "untrusted:\n  uid: 0\n  gid: 10001\n", []string{`"untrusted.uid"`, "from 1 to 4294967294", "got 0"}},
-		{"negative", "untrusted:\n  uid: 10001\n  gid: -1\n", []string{`"untrusted.gid"`, "from 1 to 4294967294", "got -1"}},
+		{"negative", fmt.Sprintf("untrusted:\n  uid: %d\n  gid: -1\n", uid), []string{`"untrusted.gid"`, "from 1 to 4294967294", "got -1"}},
 		{"too large", "untrusted:\n  uid: 4294967295\n  gid: 10001\n", []string{`"untrusted.uid"`, "from 1 to 4294967294", "4294967295"}},
 		{"string", "untrusted:\n  uid: \"10001\"\n  gid: 10001\n", []string{`"untrusted.uid"`, `got "10001"`}},
 		{"fraction", "untrusted:\n  uid: 10001.5\n  gid: 10001\n", []string{`"untrusted.uid"`, "10001.5"}},
