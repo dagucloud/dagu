@@ -282,7 +282,9 @@ func TestUpstreamStreamsTheAnswer(t *testing.T) {
 
 	release := make(chan struct{})
 	var releaseOnce sync.Once
-	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })
+	// A defer runs before the cleanups, so the handler returns before the
+	// recorder's Close waits for it, also when an assertion fails early.
+	defer releaseOnce.Do(func() { close(release) })
 	_, host, port := startRecorder(t, false, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: one\n\n")
