@@ -346,10 +346,10 @@ func TestDoMCP_AmbiguousBodiesAreRefused(t *testing.T) {
 		"notification":       `{"jsonrpc":"2.0","method":"tools/call","METHOD":"ping","params":{"name":"forbidden"}}`,
 		// Duplicate keys: Go keeps the last one, a server can keep the first one.
 		"method twice":         `{"jsonrpc":"2.0","id":1,"method":"ping","method":"tools/call","params":{"name":"forbidden"}}`,
-		"method twice escaped": `{"jsonrpc":"2.0","id":1,"method":"tools/call","method":"ping","params":{"name":"forbidden"}}`,
+		"method twice escaped": `{"jsonrpc":"2.0","id":1,"method":"tools/call","\u006dethod":"ping","params":{"name":"forbidden"}}`,
 		"params twice":         `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"forbidden"},"params":{"name":"search"}}`,
 		"name twice":           `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"forbidden","name":"search"}}`,
-		"name twice escaped":   `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"forbidden","name":"search"}}`,
+		"name twice escaped":   `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"forbidden","\u006eame":"search"}}`,
 		"id twice":             `{"jsonrpc":"2.0","id":1,"id":2,"method":"ping"}`,
 		"jsonrpc twice":        `{"jsonrpc":"2.0","jsonrpc":"2.0","id":1,"method":"ping"}`,
 		"nested twice":         `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"a":{"b":1,"b":2}}}}`,
@@ -395,7 +395,7 @@ func TestDoMCP_UnambiguousBodiesAreForwardedAsTheyAre(t *testing.T) {
 
 	for name, body := range map[string]string{
 		"arguments with the same names": " \n" + `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"Name":"x","METHOD":"y","ID":1,"method":"z"}}}` + "\n",
-		"escaped tool name":             `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search"}}`,
+		"escaped tool name":             `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"\u006eame":"se\u0061rch"}}`,
 		"result with its own keys":      `{"jsonrpc":"2.0","id":"s1","result":{"Method":"a","method":"b"}}`,
 		"custom method":                 `{"jsonrpc":"2.0","id":1,"method":"notifications/x-y_z.1"}`,
 		"batch":                         `[{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"ID":1}}},{"jsonrpc":"2.0","method":"notifications/initialized"}]`,
