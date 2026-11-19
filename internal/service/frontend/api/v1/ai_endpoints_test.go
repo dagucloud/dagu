@@ -462,3 +462,28 @@ func TestAIEndpointsAPI_Presets(t *testing.T) {
 	assert.Nil(t, custom.Protocols[0].BaseUrl)
 	assert.Nil(t, custom.Protocols[0].Auth)
 }
+
+// A change of a URL sends the key to another host from then on, so the audit
+// line records the old and the new URL.
+func TestAIEndpointsAPI_URLChangeIsAudited(t *testing.T) {
+	ctx := context.Background()
+	api, auditStore := newAIEndpointsTestAPI(t)
+	_, err := api.CreateAIEndpoint(ctx, apigen.CreateAIEndpointRequestObject{Body: new(aiCreateBody("cle1", "global"))})
+	require.NoError(t, err)
+
+	_, err = api.UpdateAIEndpoint(ctx, apigen.UpdateAIEndpointRequestObject{
+		Name: "cle1", Body: &apigen.UpdateAIEndpointRequest{Description: new("Main key")},
+	})
+	require.NoError(t, err)
+	assert.NotContains(t, auditStore.entries[len(auditStore.entries)-1].Details, "base_url", "a change that keeps the URLs records none")
+
+	_, err = api.UpdateAIEndpoint(ctx, apigen.UpdateAIEndpointRequestObject{
+		Name: "cle1", Body: &apigen.UpdateAIEndpointRequest{BaseUrl: new("https://relay.example.com")},
+	})
+	require.NoError(t, err)
+	entry := auditStore.entries[len(auditStore.entries)-1]
+	assert.Equal(t, "ai_endpoint_update", entry.Action)
+	assert.Contains(t, entry.Details, `"previous_base_url":"https://api.anthropic.com"`)
+	assert.Contains(t, entry.Details, `"base_url":"https://relay.example.com"`)
+	assert.NotContains(t, entry.Details, aiTestKey)
+}

@@ -362,3 +362,24 @@ func TestAIMCPServersAPI_SecretRoutesProtectTheCredentialSecrets(t *testing.T) {
 	_, fingerprint := aiendpoint.KeyDisplay(mcpTestToken)
 	assert.Contains(t, listed.Body, fingerprint)
 }
+
+// A change of the URL sends the credentials to another host from then on, so the
+// audit line records the old and the new URL, without a query that can hold a
+// credential.
+func TestAIMCPServersAPI_URLChangeIsAudited(t *testing.T) {
+	ctx := context.Background()
+	api, auditStore := newAIMCPTestAPI(t)
+	body := mcpCreateBody("docs", "global")
+	_, err := api.CreateAIMCPServer(ctx, apigen.CreateAIMCPServerRequestObject{Body: &body})
+	require.NoError(t, err)
+
+	_, err = api.UpdateAIMCPServer(ctx, apigen.UpdateAIMCPServerRequestObject{
+		Name: "docs", Body: &apigen.UpdateAIMCPServerRequest{Url: new("https://mcp.other.example.com/mcp?api_key=k3y-in-query")},
+	})
+	require.NoError(t, err)
+	entry := auditStore.entries[len(auditStore.entries)-1]
+	assert.Equal(t, "ai_mcp_server_update", entry.Action)
+	assert.Contains(t, entry.Details, `"previous_url":"https://docs.example.com/mcp"`)
+	assert.Contains(t, entry.Details, `"url":"https://mcp.other.example.com/mcp"`)
+	assert.NotContains(t, entry.Details, "k3y-in-query")
+}

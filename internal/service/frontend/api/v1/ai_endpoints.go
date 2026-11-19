@@ -176,6 +176,13 @@ func (a *API) UpdateAIEndpoint(ctx context.Context, request api.UpdateAIEndpoint
 		allow := fromAIEndpointAllow(*body.Allow)
 		input.Allow = &allow
 	}
+	existing, err := a.aiEndpoints.Get(ctx, scope, string(request.Name))
+	if err != nil {
+		if errors.Is(err, aiendpoint.ErrNotFound) {
+			return api.UpdateAIEndpoint404JSONResponse(aiEndpointNotFound()), nil
+		}
+		return nil, fmt.Errorf("failed to read AI endpoint: %w", err)
+	}
 	updated, err := a.aiEndpoints.Update(ctx, scope, string(request.Name), input)
 	if err != nil {
 		switch {
@@ -187,7 +194,11 @@ func (a *API) UpdateAIEndpoint(ctx context.Context, request api.UpdateAIEndpoint
 		return nil, fmt.Errorf("failed to update AI endpoint: %w", err)
 	}
 
-	a.logAudit(ctx, audit.CategorySecret, "ai_endpoint_update", aiEndpointAuditDetails(updated))
+	a.logAudit(ctx, audit.CategorySecret, "ai_endpoint_update", aiEndpointUpdateAuditDetails(existing, updated))
+	// A list read from another URL or with another form tells nothing about the new one.
+	if updated.ListURL() != existing.ListURL() || updated.Auth != existing.Auth {
+		a.aiEndpoints.RefreshModelsAsync(ctx, updated.Scope, updated.Name)
+	}
 	return api.UpdateAIEndpoint200JSONResponse(a.aiEndpointResponse(ctx, updated)), nil
 }
 
@@ -397,6 +408,20 @@ func aiEndpointAuditDetails(ep *aiendpoint.Endpoint) map[string]any {
 		"name":  ep.Name,
 		"scope": ep.Scope.String(),
 	}
+}
+
+// aiEndpointUpdateAuditDetails adds the old and the new value of each URL that
+// the change moved, because the key goes to the new host from then on. The URLs
+// of an endpoint have no user information and no query.
+func aiEndpointUpdateAuditDetails(before, after *aiendpoint.Endpoint) map[string]any {
+	details := aiEndpointAuditDetails(after)
+	if before.BaseURL != after.BaseURL {
+		details["previous_base_url"], details["base_url"] = before.BaseURL, after.BaseURL
+	}
+	if before.ModelsURL != after.ModelsURL {
+		details["previous_models_url"], details["models_url"] = before.ModelsURL, after.ModelsURL
+	}
+	return details
 }
 
 // aiEndpointKeyAuditDetails adds the fingerprint of the key. It never adds the key

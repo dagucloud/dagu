@@ -112,8 +112,9 @@ of choices gives the name and the scope, and no URL and no credential data.
 Each create, change, rotation and delete writes one line to the audit log, with the category `secret`.
 The actions are `ai_mcp_server_create`, `ai_mcp_server_update`, `ai_mcp_server_key_rotate` and
 `ai_mcp_server_delete`. The line has the user, the name and the scope. For a create and a rotation it
-has the fingerprint of each value, in the fields `token_fingerprint` and `header_fingerprints`. It never
-has a value or a prefix. A call that fails writes no line.
+has the fingerprint of each value, in the fields `token_fingerprint` and `header_fingerprints`. A change
+of `url` adds the old and the new URL without their query, in the fields `previous_url` and `url`. It
+never has a value or a prefix. A call that fails writes no line.
 
 An entry in use can be deleted. The next relay request of a run that names it fails with
 `mcp_server_unknown`.

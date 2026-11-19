@@ -343,3 +343,29 @@ func TestAIModelsAPI_DeleteRemovesTheList(t *testing.T) {
 	assert.Empty(t, got.Models)
 	assert.Nil(t, got.RefreshedAt)
 }
+
+// A list read from the old models URL tells nothing about the new one, so a
+// change of the URL starts a read, as a create does.
+func TestAIModelsAPI_URLChangeReadsTheList(t *testing.T) {
+	ctx := context.Background()
+	provider := newAIModelsProvider(t)
+	api, _, service := newAIModelsTestAPI(t, provider)
+	aiCreate(t, api, service, aiCustomBody("cle1", provider, true))
+	require.Len(t, provider.calls(), 1)
+
+	_, err := api.UpdateAIEndpoint(ctx, apigen.UpdateAIEndpointRequestObject{
+		Name: "cle1", Body: &apigen.UpdateAIEndpointRequest{Description: new("Main key")},
+	})
+	require.NoError(t, err)
+	service.WaitModels()
+	assert.Len(t, provider.calls(), 1, "a change that keeps the URLs reads nothing")
+
+	provider.set(http.StatusOK, `{"data":[{"id":"gpt-6"}]}`)
+	_, err = api.UpdateAIEndpoint(ctx, apigen.UpdateAIEndpointRequestObject{
+		Name: "cle1", Body: &apigen.UpdateAIEndpointRequest{ModelsUrl: new(provider.server.URL + "/v2/models")},
+	})
+	require.NoError(t, err)
+	service.WaitModels()
+	assert.Len(t, provider.calls(), 2)
+	assert.Equal(t, []string{"gpt-6"}, getModels(t, api, "cle1").Models)
+}

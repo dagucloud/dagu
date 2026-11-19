@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/aiendpoint"
@@ -127,6 +128,13 @@ func (a *API) UpdateAIMCPServer(ctx context.Context, request api.UpdateAIMCPServ
 		allow := fromAIMCPServerAllow(*request.Body.Allow)
 		input.Allow = &allow
 	}
+	existing, err := a.aiMCPServers.Get(ctx, scope, string(request.Name))
+	if err != nil {
+		if errors.Is(err, aiendpoint.ErrNotFound) {
+			return api.UpdateAIMCPServer404JSONResponse(aiMCPServerNotFound()), nil
+		}
+		return nil, fmt.Errorf("failed to read MCP server entry: %w", err)
+	}
 	updated, err := a.aiMCPServers.Update(ctx, scope, string(request.Name), input)
 	if err != nil {
 		switch {
@@ -138,7 +146,7 @@ func (a *API) UpdateAIMCPServer(ctx context.Context, request api.UpdateAIMCPServ
 		return nil, fmt.Errorf("failed to update MCP server entry: %w", err)
 	}
 
-	a.logAudit(ctx, audit.CategorySecret, "ai_mcp_server_update", aiMCPServerAuditDetails(updated))
+	a.logAudit(ctx, audit.CategorySecret, "ai_mcp_server_update", aiMCPServerUpdateAuditDetails(existing, updated))
 	return api.UpdateAIMCPServer200JSONResponse(toAIMCPServerResponse(updated)), nil
 }
 
@@ -284,6 +292,27 @@ func aiMCPServerAuditDetails(server *aiendpoint.MCPServer) map[string]any {
 		"name":  server.Name,
 		"scope": server.Scope.String(),
 	}
+}
+
+// aiMCPServerUpdateAuditDetails adds the old and the new URL when the change moved
+// it, because the credentials go to the new URL from then on. The URLs have no
+// query, which can hold a credential.
+func aiMCPServerUpdateAuditDetails(before, after *aiendpoint.MCPServer) map[string]any {
+	details := aiMCPServerAuditDetails(after)
+	if before.URL != after.URL {
+		details["previous_url"], details["url"] = urlWithoutQuery(before.URL), urlWithoutQuery(after.URL)
+	}
+	return details
+}
+
+// urlWithoutQuery drops the query and the fragment of a URL.
+func urlWithoutQuery(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = "", false, "", ""
+	return u.String()
 }
 
 // aiMCPServerCredentialAuditDetails adds the fingerprint of each credential. It

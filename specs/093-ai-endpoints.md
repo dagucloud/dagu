@@ -273,8 +273,10 @@ that the route does not take, gives the status 400. The error never quotes a val
 Each create, change, rotation, delete and reload writes one line to the audit log, with the category
 `secret`. The actions are `ai_endpoint_create`, `ai_endpoint_update`, `ai_endpoint_key_rotate`,
 `ai_endpoint_delete` and `ai_endpoint_models_reload`. The line has the user, the endpoint name, the
-scope and, for a create and a rotation, the fingerprint. It never has a key or a prefix. A call that
-fails writes no line.
+scope and, for a create and a rotation, the fingerprint. A change of `base_url` or `models_url` adds the
+old and the new value, in the fields `previous_base_url` and `base_url`, or `previous_models_url` and
+`models_url`, because the key goes to the new host from then on. It never has a key or a prefix. A call
+that fails writes no line.
 
 An endpoint in use can be deleted. The next relay request of a run that names it fails with
 `endpoint_unknown`.
@@ -430,8 +432,9 @@ value 0 stops the automatic refresh. The first read comes when an administrator 
 rotates the key or presses Reload. The create and the rotation start the read and answer at once: the
 save of a key does not wait for the provider. An administrator can reload one endpoint at any time. The
 Reload waits for the provider, up to `ai.models_timeout_sec`. A reload writes the audit action
-`ai_endpoint_models_reload`, with the field `ok` that tells if the read was good. A change of the base
-URL, the form or the models URL does not start a read.
+`ai_endpoint_models_reload`, with the field `ok` that tells if the read was good. A change that moves
+the models URL, directly or through the base URL, or that changes the form, starts a read too, and
+answers at once.
 
 The server process runs the refresh. The coordinator and the workers do not. The server keeps the list,
 the time of the last read, good or not, and the last error in the collection `ai_endpoint_models`. The
