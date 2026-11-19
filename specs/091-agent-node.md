@@ -416,7 +416,9 @@ stream. The stream has one JSON object per line. Dagu ignores a line that is not
 reads JSON from the free text field `result`.
 
 **Validation.** Dagu validates the value against the schema. An unknown field or a duplicate field
-is an error. The error names the key, the expected type and the value, cut at 80 bytes.
+is an error. The error names the key, the expected type and the value, cut at 80 bytes. Dagu checks
+an integer with all its digits; an integer outside the 64-bit range is a `schema_mismatch`, because
+it cannot be checked exactly. Text that is not valid UTF-8 is `invalid_json`.
 
 | Reason | Case |
 | --- | --- |
