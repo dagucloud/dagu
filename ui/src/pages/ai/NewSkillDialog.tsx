@@ -44,11 +44,9 @@ export function NewSkillDialog({
         )
       : problem === 'length'
         ? ts('Use at most {max} characters.', { max: SKILL_NAME_MAX })
-        : problem === 'reserved'
-          ? ts('"{name}" is reserved. Choose another name.', { name })
-          : problem === 'exists'
-            ? ts('A skill named "{name}" exists.', { name })
-            : null;
+        : problem === 'exists'
+          ? ts('A skill named "{name}" exists.', { name })
+          : null;
   const canCreate =
     name !== '' && problem === null && existing !== undefined && !busy;
 
@@ -81,7 +79,6 @@ export function NewSkillDialog({
               value={text}
               autoFocus
               autoComplete="off"
-              maxLength={SKILL_NAME_MAX + 1}
               spellCheck={false}
               disabled={busy}
               aria-invalid={message ? true : undefined}

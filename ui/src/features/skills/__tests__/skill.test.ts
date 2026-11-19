@@ -150,11 +150,28 @@ describe('skill names and lists', () => {
     expect(skillNameProblem('a'.repeat(64))).toBeNull();
     expect(skillNameProblem('a'.repeat(65))).toBe('length');
     expect(skillNameProblem('a_b')).toBe('pattern');
-    expect(skillNameProblem('new')).toBe('reserved');
     expect(skillNameProblem('triage', ['triage'])).toBe('exists');
-    for (const name of ['-abc', 'abc-', 'a b', 'a.b', 'a/b', 'é', 'Abc']) {
+    for (const name of [
+      '-abc',
+      'abc-',
+      'a b',
+      'a.b',
+      'a/b',
+      'Abc',
+      'Données',
+    ]) {
       expect(skillNameProblem(name)).toBe('pattern');
     }
+  });
+
+  // The server accepts lower case letters and digits of any script, and
+  // counts characters, not UTF-16 units.
+  it('accepts the Unicode names of the server and every free name', () => {
+    for (const name of ['données', 'é', 'имя-2', 'new', '٣-days']) {
+      expect(skillNameProblem(name)).toBeNull();
+    }
+    expect(skillNameProblem('𝐚'.repeat(64))).toBeNull();
+    expect(skillNameProblem('é'.repeat(65))).toBe('length');
   });
 
   it('filters by name or description', () => {
@@ -170,7 +187,7 @@ describe('skill names and lists', () => {
 
   it('writes the usage snippet and the create path', () => {
     expect(stepSnippet('triage')).toBe('with:\n  skills: [triage]\n');
-    expect(NEW_SKILL_PATH).toBe('/ai/skills/new');
+    expect(NEW_SKILL_PATH).toBe('/ai/skills/.new');
   });
 
   it('writes the skeleton of a new skill, and quotes a name that YAML reads as a value', () => {

@@ -10,10 +10,14 @@ export type SkillSummary = components['schemas']['SkillSummary'];
 /** The skills tab of the AI page. It lists the skills and opens the selected one. */
 export const SKILLS_PATH = '/ai/skills';
 
-export type NameProblem = 'pattern' | 'length' | 'reserved' | 'exists';
+export type NameProblem = 'pattern' | 'length' | 'exists';
 
-/** The last path segment of the address that opens the new-skill dialog. */
-export const NEW_SKILL_SEGMENT = 'new';
+/**
+ * The last path segment of the address that opens the new-skill dialog. It is
+ * a hidden name: the server lists no hidden folder, so the address never
+ * hides a skill, and every name stays free for a skill.
+ */
+export const NEW_SKILL_SEGMENT = '.new';
 
 /** The address that selects one skill. */
 export function skillPath(name: string): string {
@@ -23,28 +27,27 @@ export function skillPath(name: string): string {
 /** The address that opens the new-skill dialog. */
 export const NEW_SKILL_PATH = `${SKILLS_PATH}/${NEW_SKILL_SEGMENT}`;
 
-/** The longest name that the Agent Skills format accepts. */
+/** The longest name that the Agent Skills format accepts, in characters. */
 export const SKILL_NAME_MAX = 64;
 
 /**
- * The name rule of the Agent Skills format: lowercase letters and digits in
- * groups that single hyphens join. A digit may come first. The name is the
- * folder `skills/<name>/`.
+ * The name rule of the Agent Skills format: lower case letters and digits of
+ * any script, in groups that single hyphens join. A digit may come first. The
+ * name is the folder `skills/<name>/`.
  */
-export const SKILL_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+export const SKILL_NAME_PATTERN = /^[\p{Ll}\p{Nd}]+(?:-[\p{Ll}\p{Nd}]+)*$/u;
 
 /**
- * Checks the name of a new skill, with 'new' reserved for its address.
- * The server refuses a name that exists, and the check here says so first.
+ * Checks the name of a new skill against the rule of the server. The server
+ * refuses a name that exists, and the check here says so first.
  */
 export function skillNameProblem(
   name: string,
   existing: readonly string[] = []
 ): NameProblem | null {
   if (name === '') return null;
-  if (name.length > SKILL_NAME_MAX) return 'length';
+  if ([...name].length > SKILL_NAME_MAX) return 'length';
   if (!SKILL_NAME_PATTERN.test(name)) return 'pattern';
-  if (name === NEW_SKILL_SEGMENT) return 'reserved';
   if (existing.includes(name)) return 'exists';
   return null;
 }

@@ -10,8 +10,6 @@ export default defineMessages({
     'No skill selected': 'No skill selected',
     AI: 'AI',
     'Revert changes': 'Revert changes',
-    '"{name}" is reserved. Choose another name.':
-      '"{name}" is reserved. Choose another name.',
     'MCP server': 'MCP server',
     'A description is required.': 'A description is required.',
     'Input name': 'Input name',
@@ -120,8 +118,6 @@ export default defineMessages({
     'No skill selected': '未选择技能',
     AI: 'AI',
     'Revert changes': '撤销更改',
-    '"{name}" is reserved. Choose another name.':
-      '“{name}”是保留名称。请选择其他名称。',
     'MCP server': 'MCP 服务器',
     'A description is required.': '必须填写说明。',
     'Input name': '输入名称',
@@ -228,8 +224,6 @@ export default defineMessages({
     'No skill selected': 'スキルが選択されていません',
     AI: 'AI',
     'Revert changes': '変更を元に戻す',
-    '"{name}" is reserved. Choose another name.':
-      '「{name}」は予約されています。別の名前を選んでください。',
     'MCP server': 'MCP サーバー',
     'A description is required.': '説明は必須です。',
     'Input name': '入力名',
