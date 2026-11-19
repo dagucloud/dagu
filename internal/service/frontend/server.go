@@ -1078,7 +1078,6 @@ func (srv *Server) Serve(ctx context.Context) error {
 	srv.startPeriodicUpdateCheck(ctx)
 	srv.startAIModelsRefresh(ctx)
 	srv.startEphemeralRunCleanup(ctx)
-	srv.startEphemeralRunCleanup(ctx)
 
 	serveErr := make(chan error, 1)
 	go srv.startServer(ctx, serveErr)
