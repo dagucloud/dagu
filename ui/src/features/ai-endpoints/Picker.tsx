@@ -54,7 +54,11 @@ interface Place {
   scale: number;
   /** The tallest list in layout px, so that the scaled list fits the window. */
   maxHeight: number;
-  /** True when the list is over the trigger: there is no room under it. */
+  /**
+   * True when the list is over the trigger: there is no room under it. False
+   * also when neither side has room for a row: the list then covers the
+   * trigger.
+   */
   up: boolean;
   top?: number;
   bottom?: number;
@@ -66,8 +70,9 @@ interface Place {
  * layout box, and the list takes the same scale: it has the layout width of
  * the trigger, and after the scale the width on the screen. It joins the
  * trigger: it is flush under it (or over it, when there is no room under) and
- * covers the border that they share. `height` is the layout height that the
- * whole list needs.
+ * covers the border that they share. When neither side has room for a row, it
+ * takes the height of the window over the trigger. `height` is the layout
+ * height that the whole list needs.
  */
 function placeOf(anchor: HTMLElement, height: number): Place {
   const rect = anchor.getBoundingClientRect();
@@ -78,9 +83,14 @@ function placeOf(anchor: HTMLElement, height: number): Place {
   const join = BORDER * scale;
   const below = window.innerHeight - rect.bottom + join - MARGIN;
   const above = rect.top + join - MARGIN;
+  if (Math.max(below, above) < ROW_HEIGHT * scale) {
+    const room = Math.max(0, window.innerHeight - 2 * MARGIN) / scale;
+    const maxHeight = Math.min(MAX_HEIGHT, room);
+    return { left, width, scale, maxHeight, up: false, top: MARGIN };
+  }
   const up = below < Math.min(MAX_HEIGHT, height) * scale && above > below;
   const room = (up ? above : below) / scale;
-  const maxHeight = Math.max(ROW_HEIGHT, Math.min(MAX_HEIGHT, room));
+  const maxHeight = Math.min(MAX_HEIGHT, room);
   return up
     ? {
         left,

@@ -128,6 +128,31 @@ describe('Picker', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
 
+  it('keeps the list in a window that has no room for a row on either side', () => {
+    const innerHeight = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', {
+      value: 60,
+      configurable: true,
+    });
+    try {
+      const { trigger } = renderPicker();
+      vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ x: 0, y: 16, width: 200, height: 28 })
+      );
+      fireEvent.click(trigger);
+      const popover = screen.getByTestId('ai-picker-popover');
+      const top = parseFloat(popover.style.top);
+      const maxHeight = parseFloat(popover.style.maxHeight);
+      expect(top).toBeGreaterThanOrEqual(0);
+      expect(top + maxHeight).toBeLessThanOrEqual(60);
+    } finally {
+      Object.defineProperty(window, 'innerHeight', {
+        value: innerHeight,
+        configurable: true,
+      });
+    }
+  });
+
   it('does not open while disabled', () => {
     const { trigger } = renderPicker(MODELS, '', true);
     fireEvent.click(trigger);
