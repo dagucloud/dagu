@@ -97,7 +97,7 @@ local run is a run that one process does without a coordinator.
 | The agent reads the API key. | The key stays in the coordinator. The agent has the relay secret only. | None. |
 | The agent sends the key or data to another host. | The coordinator calls the host of the base URL only. The relay refuses each other host and path. | Data goes to the provider. |
 | The agent uses the relay of another step or run. | Each relay has its own secret and its own file. The coordinator checks the run, the step and the target. | None. |
-| The agent spends the quota of the key. | A limit of streams, of bytes and of time applies to each run. | The agent can call each allowed path while the run is alive, at the cost of the owner. |
+| The agent spends the quota of the key. | A run has a limit of open streams. Each request has a limit of bytes and of time. | The agent can call each allowed path while the run is alive, at the cost of the owner. |
 | A process of the same host calls the relay. | The relay needs the secret in each request. It compares in constant time. | A process that reads the secret. See Spec 091 for the file rules. |
 | A compromised worker asks for a key. | No message of the gateway carries a key. | The worker can use the targets that the runs on it may use. It cannot read the key. |
 | A worker uses a target that its run does not name. | The coordinator takes the target of the step from the DAG of the attempt. | None. |
@@ -206,9 +206,9 @@ The coordinator returns the status and the response headers of the upstream, exc
 headers, `set-cookie` and the headers that start with `proxy-`. So `retry-after` and the rate limit
 headers reach the client.
 
-A status of the upstream is never changed. A 401 of the upstream gives the failure kind
-`auth_required` of Spec 091, and a 429 gives `rate_limited`. The administrator then checks or
-rotates the key.
+A status of the upstream is never changed, except a redirect (below). A 401 of the upstream gives
+the failure kind `auth_required` of Spec 091, and a 429 gives `rate_limited`. The administrator then
+checks or rotates the key.
 
 The coordinator does not follow a redirect. A response with a status 3xx is an `upstream_error`.
 

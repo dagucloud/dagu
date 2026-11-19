@@ -197,7 +197,9 @@ For a named entry, the key `allow` of Spec 090 has three effects:
 3. For `chat.completion`, the check of Spec 090 stays: each name in `allow` must be in the list of
    the server. Dagu reads the list through the relay when the step starts.
 
-The coordinator does not change `tools/list`. The CLI hides the tools that it may not call.
+The coordinator does not change `tools/list`, and the CLI lists every tool of the server, also a
+tool that `allow` does not name. So `allow` does not hide the name or the description of a tool; it
+only refuses the call.
 
 The coordinator takes `allow` from the DAG that it holds, and never from the request. A `tools/call`
 with no tool name is not valid. The error of a refused tool has the code -32001 and the id of the
