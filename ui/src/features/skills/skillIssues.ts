@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { SkillIssueSeverity, type components } from '@/api/v1/schema';
-import { SKILL_KEYS, readSkillForm } from './skillForm';
+import { SKILL_NAME_MAX } from './skill';
+import { SKILL_KEYS, measuredBody, readSkillParts } from './skillForm';
 
 export type SkillIssue = components['schemas']['SkillIssue'];
 export type SkillSummary = components['schemas']['SkillSummary'];
@@ -23,6 +24,7 @@ export const SKILL_LIMITS = {
   descriptionMax: 1024,
   descriptionMin: 20,
   compatibilityMax: 500,
+  licenseMax: 128,
 } as const;
 
 /** The state of a skill: an error makes the server refuse it. */
@@ -143,10 +145,15 @@ export interface BodyStats {
   tokens: number;
 }
 
-/** The size of the Markdown body of the text of a SKILL.md. */
+/**
+ * The size of the Markdown body of the text of a SKILL.md, measured as the
+ * server measures it.
+ */
 export function bodyStats(content: string): BodyStats {
-  const parsed = readSkillForm(content);
-  const body = parsed.ok ? parsed.form.body : content;
+  return statsOf(measuredBody(content));
+}
+
+function statsOf(body: string): BodyStats {
   const bytes = encoder.encode(body).length;
   return { bytes, lines: countLines(body), tokens: estimateTokens(bytes) };
 }
@@ -187,9 +194,12 @@ export function bodyMeter(stats: BodyStats): {
   return { tokens, lines, over: tokens.over || lines.over };
 }
 
-// --- the cheap rules, checked on the draft ---
+// --- the rules of SKILL.md, checked on the draft ---
 
 const XML_TAG = /<\/?[A-Za-z][^<>]*>/;
+
+// One character of a name: a lower case letter or a digit of any script, or -.
+const NAME_CHAR = /^[\p{Ll}\p{Nd}-]$/u;
 
 function issue(
   severity: 'error' | 'warning',
@@ -207,20 +217,116 @@ function issue(
   };
 }
 
+/** The number of characters of a text, as the server counts runes. */
+function characters(text: string): number {
+  return [...text].length;
+}
+
+/** The issues of a name: one for each rule that it breaks, as on the server. */
+function nameIssues(name: string): SkillIssue[] {
+  const found: SkillIssue[] = [];
+  const count = characters(name);
+  if (count < 1 || count > SKILL_NAME_MAX) {
+    found.push(
+      issue(
+        'error',
+        'name-length',
+        `The name "${name}" has ${count} characters. It must have 1 to ${SKILL_NAME_MAX}.`
+      )
+    );
+  }
+  const bad = [...name].find((char) => !NAME_CHAR.test(char));
+  if (bad !== undefined) {
+    found.push(
+      issue(
+        'error',
+        'name-charset',
+        `The name "${name}" holds the character "${bad}". Only lower case letters, digits and - are allowed.`
+      )
+    );
+  }
+  if (name.startsWith('-') || name.endsWith('-')) {
+    found.push(
+      issue(
+        'error',
+        'name-hyphen-edge',
+        `The name "${name}" starts or ends with a hyphen.`
+      )
+    );
+  }
+  if (name.includes('--')) {
+    found.push(
+      issue(
+        'error',
+        'name-hyphen-double',
+        `The name "${name}" holds two hyphens in a row.`
+      )
+    );
+  }
+  return found;
+}
+
+/** Checks a key whose text must have 1 to `max` characters once trimmed. */
+function boundedText(
+  found: SkillIssue[],
+  value: unknown,
+  key: 'license' | 'compatibility',
+  max: number
+): void {
+  if (value === undefined) return;
+  if (typeof value !== 'string') {
+    found.push(
+      issue('error', key, `The front matter key ${key} must be a string.`)
+    );
+    return;
+  }
+  const count = characters(value.trim());
+  if (count === 0 || count > max) {
+    found.push(
+      issue('error', key, `The ${key} must have 1 to ${max} characters.`)
+    );
+  }
+}
+
+function metadataIssues(found: SkillIssue[], value: unknown): void {
+  if (value === undefined) return;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    found.push(
+      issue(
+        'error',
+        'metadata',
+        'The front matter key metadata must be a map of strings to strings.'
+      )
+    );
+    return;
+  }
+  const entries = value as Record<string, unknown>;
+  for (const key of Object.keys(entries).sort()) {
+    if (typeof entries[key] === 'string') continue;
+    found.push(
+      issue(
+        'error',
+        'metadata',
+        `metadata.${key} must be a string. Quote the value.`
+      )
+    );
+  }
+}
+
 /**
- * The rules of SKILL.md that the browser checks while the user types. The
- * server checks the whole format again on a save and gives the final answer.
+ * The rules of SKILL.md, checked in the browser while the user types. They
+ * are the rules of the server, with its rule names, so that a draft shows the
+ * state that a save gets. The server checks again on a save.
  */
 export function checkSkillText(name: string, content: string): SkillIssue[] {
+  const parsed = readSkillParts(content);
+  if (!parsed.ok) return [issue('error', parsed.rule, parsed.error)];
+  const { values, body } = parsed;
   const found: SkillIssue[] = [];
-  const parsed = readSkillForm(content);
-  if (!parsed.ok) {
-    found.push(issue('error', 'front-matter-yaml', parsed.error));
-    return found;
-  }
-  const { form } = parsed;
+
   const allowed: readonly string[] = SKILL_KEYS;
-  for (const key of form.unknown) {
+  for (const key of Object.keys(values).sort()) {
+    if (allowed.includes(key)) continue;
     found.push(
       issue(
         'error',
@@ -229,44 +335,107 @@ export function checkSkillText(name: string, content: string): SkillIssue[] {
       )
     );
   }
-  if (form.name !== name) {
+
+  const named = values.name;
+  if (named === undefined) {
+    found.push(
+      issue('error', 'name-missing', 'The front matter key name is required.')
+    );
+  } else if (typeof named !== 'string') {
+    found.push(
+      issue('error', 'name-type', 'The front matter key name must be a string.')
+    );
+  } else {
+    if (named !== name) {
+      found.push(
+        issue(
+          'error',
+          'name-folder',
+          `The name "${named}" must be the name of the folder, "${name}".`
+        )
+      );
+    }
+    found.push(...nameIssues(named));
+  }
+
+  const described = values.description;
+  if (described === undefined) {
     found.push(
       issue(
         'error',
-        'name-folder',
-        `The name "${form.name}" must be the name of the folder, "${name}".`
+        'description-missing',
+        'The front matter key description is required.'
       )
     );
-  }
-  const description = form.description.trim().replace(/\s+/g, ' ');
-  if (description === '') {
-    found.push(
-      issue('error', 'description-length', 'The description is empty.')
-    );
-  } else if (description.length > SKILL_LIMITS.descriptionMax) {
+  } else if (typeof described !== 'string') {
     found.push(
       issue(
         'error',
-        'description-length',
-        `The description has ${description.length} characters. The limit is ${SKILL_LIMITS.descriptionMax}.`
+        'description-type',
+        'The front matter key description must be a string.'
       )
     );
-  } else if (description.length < SKILL_LIMITS.descriptionMin) {
+  } else {
+    const description = described.split(/\s+/).filter(Boolean).join(' ');
+    const count = characters(description);
+    if (count === 0) {
+      found.push(
+        issue('error', 'description-missing', 'The description is empty.')
+      );
+    } else if (count > SKILL_LIMITS.descriptionMax) {
+      found.push(
+        issue(
+          'error',
+          'description-length',
+          `The description has ${count} characters. The limit is ${SKILL_LIMITS.descriptionMax}.`
+        )
+      );
+    }
+    if (XML_TAG.test(description)) {
+      found.push(
+        issue('error', 'description-xml', 'The description holds an XML tag.')
+      );
+    }
+    if (count > 0 && count < SKILL_LIMITS.descriptionMin) {
+      found.push(
+        issue(
+          'warning',
+          'description-short',
+          `The description has ${count} characters. Say what the skill does and when to use it.`
+        )
+      );
+    }
+  }
+
+  boundedText(found, values.license, 'license', SKILL_LIMITS.licenseMax);
+  boundedText(
+    found,
+    values.compatibility,
+    'compatibility',
+    SKILL_LIMITS.compatibilityMax
+  );
+
+  const tools = values['allowed-tools'];
+  if (tools !== undefined && typeof tools !== 'string') {
     found.push(
       issue(
-        'warning',
-        'description-short',
-        `The description has ${description.length} characters. Say what the skill does and when to use it.`
+        'error',
+        'allowed-tools',
+        'The front matter key allowed-tools must be a string of tool names separated by spaces.'
       )
     );
-  }
-  if (XML_TAG.test(form.description)) {
+  } else if (typeof tools === 'string' && tools.trim() === '') {
     found.push(
-      issue('error', 'description-xml', 'The description holds an XML tag.')
+      issue('error', 'allowed-tools', 'allowed-tools must not be empty.')
     );
   }
-  const stats = bodyStats(content);
-  if (stats.bytes > SKILL_LIMITS.bodyBytes) {
+
+  metadataIssues(found, values.metadata);
+
+  const stats = statsOf(body);
+  if (body.trim() === '') {
+    found.push(issue('error', 'body-empty', 'The Markdown body is empty.'));
+  } else if (stats.bytes > SKILL_LIMITS.bodyBytes) {
     found.push(
       issue(
         'error',
@@ -297,8 +466,44 @@ export function checkSkillText(name: string, content: string): SkillIssue[] {
 }
 
 /**
+ * The rules that the text of SKILL.md decides, which checkSkillText replaces
+ * on a draft. A draft is always UTF-8, and its save creates a missing
+ * SKILL.md.
+ */
+const DRAFT_RULES: ReadonlySet<string> = new Set([
+  'front-matter-start',
+  'front-matter-end',
+  'front-matter-yaml',
+  'front-matter-key',
+  'front-matter-duplicate-key',
+  'name-missing',
+  'name-type',
+  'name-length',
+  'name-charset',
+  'name-hyphen-edge',
+  'name-hyphen-double',
+  'name-folder',
+  'description-missing',
+  'description-type',
+  'description-length',
+  'description-xml',
+  'description-short',
+  'license',
+  'compatibility',
+  'metadata',
+  'allowed-tools',
+  'body-empty',
+  'body-too-large',
+  'body-lines',
+  'body-tokens',
+  'not-utf8',
+  'skill-md-missing',
+]);
+
+/**
  * The issues to show. While the draft of SKILL.md differs from the saved
- * text, the cheap rules of the draft replace the server issues of that file.
+ * text, the checks of the draft replace the server issues of its text. The
+ * other issues of SKILL.md, such as a link, stay until the server answers.
  */
 export function visibleIssues(
   server: readonly SkillIssue[],
@@ -307,6 +512,8 @@ export function visibleIssues(
   if (draft === null) return sortIssues(server);
   return sortIssues([
     ...checkSkillText(draft.name, draft.text),
-    ...server.filter((item) => item.file !== SKILL_FILE),
+    ...server.filter(
+      (item) => item.file !== SKILL_FILE || !DRAFT_RULES.has(item.rule)
+    ),
   ]);
 }

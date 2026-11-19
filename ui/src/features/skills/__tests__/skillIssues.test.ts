@@ -127,6 +127,13 @@ describe('size of the body', () => {
     expect(bodyStats('abc').bytes).toBe(3);
   });
 
+  // The server reads the body with LF breaks and without its first blank lines.
+  it('measures the body as the server does', () => {
+    expect(bodyStats('---\r\nname: a\r\n---\r\n\r\n\r\né\r\nline\r\n')).toEqual(
+      { bytes: 8, lines: 2, tokens: 3 }
+    );
+  });
+
   it('puts the marker at the limit and flags a value past it', () => {
     const at = meterBar(5000, 5000);
     expect(at.over).toBe(false);
@@ -184,9 +191,13 @@ describe('checkSkillText', () => {
   });
 
   it('checks the description: empty, long, XML and short', () => {
-    expect(rules(`${front('triage', '')}B\n`)).toContain(
-      'error:description-length'
-    );
+    expect(rules(`${front('triage', "' '")}B\n`)).toEqual([
+      'error:description-missing',
+    ]);
+    // A key with no value is null in YAML, which is not a string.
+    expect(rules(`${front('triage', '')}B\n`)).toEqual([
+      'error:description-type',
+    ]);
     expect(rules(`${front('triage', 'x'.repeat(1025))}B\n`)).toContain(
       'error:description-length'
     );
@@ -195,6 +206,61 @@ describe('checkSkillText', () => {
     ).toContain('error:description-xml');
     expect(rules(`${front('triage', 'Short')}B\n`)).toEqual([
       'warning:description-short',
+    ]);
+  });
+
+  // The server counts runes: an emoji is one character, not two UTF-16 units.
+  it('counts the characters of the description as the server does', () => {
+    expect(rules(`${front('triage', '😀'.repeat(1024))}B\n`)).toEqual([]);
+    expect(rules(`${front('triage', '😀'.repeat(1025))}B\n`)).toEqual([
+      'error:description-length',
+    ]);
+    expect(rules(`${front('triage', '😀'.repeat(19))}B\n`)).toEqual([
+      'warning:description-short',
+    ]);
+  });
+
+  it('checks the name as the server does', () => {
+    const good = 'Sort the tickets. Use when needed.';
+    expect(rules(`---\ndescription: ${good}\n---\nB\n`)).toEqual([
+      'error:name-missing',
+    ]);
+    expect(rules(`${front('12', good)}B\n`, '12')).toEqual(['error:name-type']);
+    expect(rules(`${front('Tri--', good)}B\n`, 'Tri--')).toEqual([
+      'error:name-charset',
+      'error:name-hyphen-edge',
+      'error:name-hyphen-double',
+    ]);
+    expect(rules(`${front('données', good)}B\n`, 'données')).toEqual([]);
+  });
+
+  it('checks the keys that the form does not edit', () => {
+    const head = (extra: string) =>
+      front('triage', 'Sort the tickets. Use when needed.', extra);
+    expect(rules(`${head("license: ' '\n")}B\n`)).toEqual(['error:license']);
+    expect(rules(`${head(`license: ${'x'.repeat(129)}\n`)}B\n`)).toEqual([
+      'error:license',
+    ]);
+    expect(rules(`${head(`compatibility: ${'x'.repeat(501)}\n`)}B\n`)).toEqual([
+      'error:compatibility',
+    ]);
+    expect(rules(`${head('allowed-tools: [Read]\n')}B\n`)).toEqual([
+      'error:allowed-tools',
+    ]);
+    expect(rules(`${head("allowed-tools: ''\n")}B\n`)).toEqual([
+      'error:allowed-tools',
+    ]);
+    expect(rules(`${head('metadata: x\n')}B\n`)).toEqual(['error:metadata']);
+    expect(rules(`${head('metadata:\n  a: 1\n  b: ok\n')}B\n`)).toEqual([
+      'error:metadata',
+    ]);
+  });
+
+  it('refuses an empty body and a repeated key', () => {
+    const head = front('triage', 'Sort the tickets. Use when needed.');
+    expect(rules(`${head}\n  \n`)).toEqual(['error:body-empty']);
+    expect(rules(`${head.replace('---\n', '---\nname: x\n')}B\n`)).toEqual([
+      'error:front-matter-duplicate-key',
     ]);
   });
 
@@ -213,7 +279,11 @@ describe('checkSkillText', () => {
   });
 
   it('reports a text without a front matter', () => {
-    expect(rules('Body only\n')).toEqual(['error:front-matter-yaml']);
+    expect(rules('Body only\n')).toEqual(['error:front-matter-start']);
+    expect(rules('---\nname: triage\n')).toEqual(['error:front-matter-end']);
+    expect(rules('---\nname: [\n---\nB\n')).toEqual([
+      'error:front-matter-yaml',
+    ]);
   });
 });
 
@@ -237,5 +307,19 @@ describe('visibleIssues', () => {
     expect(
       visibleIssues(server, { name: 'triage', text }).map((i) => i.rule)
     ).toEqual(['root-entry', 'reference-depth']);
+  });
+
+  // A draft cannot fix a link: its error stays until the server answers.
+  it('keeps the issues of SKILL.md that its text does not decide', () => {
+    const text = `${front('triage', 'Sort the tickets. Use when needed.')}Body\n`;
+    expect(
+      visibleIssues(
+        [error('symlink', 'SKILL.md'), error('body-empty', 'SKILL.md')],
+        {
+          name: 'triage',
+          text,
+        }
+      ).map((i) => i.rule)
+    ).toEqual(['symlink']);
   });
 });

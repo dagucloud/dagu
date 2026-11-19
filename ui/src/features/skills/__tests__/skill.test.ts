@@ -65,6 +65,14 @@ describe('readSkillForm', () => {
   it('refuses a text without a front matter', () => {
     expect(readSkillForm('Body only\n')).toMatchObject({ ok: false });
     expect(readSkillForm('---\nname: a\n')).toMatchObject({ ok: false });
+    // The server needs a first line that is exactly ---, with its break.
+    expect(readSkillForm('--- \nname: a\n---\nBody')).toMatchObject({
+      ok: false,
+    });
+    expect(readSkillForm('---')).toMatchObject({ ok: false });
+    expect(readSkillForm('---\r\nname: a\r\n--- \r\nBody')).toMatchObject({
+      ok: true,
+    });
     expect(readSkillForm('---\nname: [\n---\nBody')).toMatchObject({
       ok: false,
     });
