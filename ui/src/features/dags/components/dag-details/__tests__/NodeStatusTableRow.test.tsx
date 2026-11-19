@@ -212,28 +212,26 @@ describe('NodeStatusTableRow', () => {
     }
   });
 
-  // The name of a DAG can differ from the name of its file.
-  it('links the step log to the source file of the run', () => {
+  // A sub-run opens on the workflow page of its root run. The file of the
+  // root run names that page, as the DAG name can differ from it.
+  it('opens a sub-run on the file of its root run', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
     const node = {
       ...timedNode,
-      stdout: '/tmp/build.out',
+      step: { name: 'build', call: 'child' },
+      subRuns: [{ dagRunId: 'child-1' }],
     } as components['schemas']['Node'];
-    const { container, unmount } = renderRow(node, 'desktop', {
+    renderRow(node, 'desktop', {
       dagRun: { ...dagRun, sourceFileName: 'example-v2' },
     });
-    expect(container.querySelector('a[href^="/dags/"]')).toHaveAttribute(
-      'href',
-      expect.stringMatching(/^\/dags\/example-v2\/log\?/)
-    );
-    unmount();
 
-    const fallback = renderRow(node, 'desktop');
-    expect(
-      fallback.container.querySelector('a[href^="/dags/"]')
-    ).toHaveAttribute(
-      'href',
-      expect.stringMatching(/^\/dags\/example\.yaml\/log\?/)
+    fireEvent.click(screen.getByText(/View Sub DAG Run:/), { metaKey: true });
+
+    expect(open).toHaveBeenCalledWith(
+      '/dags/example-v2?remoteNode=local&run=run-1&dagRunName=example&subRun=child-1',
+      '_blank'
     );
+    open.mockRestore();
   });
 
   it('shows log step messages in the status table without opening step logs', () => {
