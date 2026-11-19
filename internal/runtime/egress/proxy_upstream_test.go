@@ -502,6 +502,7 @@ func TestProtocolUpgradeIsNotForwarded(t *testing.T) {
 			require.NoError(t, err)
 			response, err := http.ReadResponse(bufio.NewReader(conn), nil)
 			require.NoError(t, err)
+			_ = response.Body.Close()
 			_ = conn.Close()
 			assert.Equal(t, tc.want, response.StatusCode, "%s: %s", tc.name, target)
 		}
