@@ -162,17 +162,55 @@ func (c *grpcRelayClient) Relay(ctx context.Context, step aigateway.StepRef, tar
 	// RelayCancel that tells the coordinator that the client went away.
 	streamCtx, cancelStream := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelStream()
-	stream, err := c.client.RelayAIRequestTo(streamCtx, c.owner)
-	if err != nil {
-		return aigateway.Fail(aigateway.ReasonRelayUnavailable, "the relay cannot reach the coordinator: %s", err.Error())
-	}
 
-	var sendMu sync.Mutex
+	var (
+		sendMu sync.Mutex
+		stream coordinatorv1.CoordinatorService_RelayAIRequestClient
+	)
 	send := func(msg *coordinatorv1.RelayClientMessage) error {
 		sendMu.Lock()
 		defer sendMu.Unlock()
 		return stream.Send(msg)
 	}
+
+	// A client that goes away makes the relay send RelayCancel and close the stream.
+	// Before the stream is open, it ends the opening of the stream. A send can
+	// hold the send lock in a send that the flow control blocks, so the wait for
+	// the cancel message is bounded: the stream closes anyway.
+	opened := make(chan struct{})
+	finished := make(chan struct{})
+	defer close(finished)
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-finished:
+			return
+		}
+		select {
+		case <-opened:
+			sent := make(chan struct{})
+			go func() {
+				defer close(sent)
+				_ = send(&coordinatorv1.RelayClientMessage{Kind: &coordinatorv1.RelayClientMessage_Cancel{Cancel: &coordinatorv1.RelayCancel{}}})
+			}()
+			select {
+			case <-sent:
+			case <-time.After(relayCancelSendTimeout):
+			}
+		default:
+		}
+		cancelStream()
+	}()
+
+	opening, err := c.client.RelayAIRequestTo(streamCtx, c.owner)
+	if err != nil {
+		if ctx.Err() != nil {
+			return aigateway.Fail(aigateway.ReasonCanceled, "the request was canceled")
+		}
+		return aigateway.Fail(aigateway.ReasonRelayUnavailable, "the relay cannot reach the coordinator: %s", err.Error())
+	}
+	stream = opening
+	close(opened)
 	open := &coordinatorv1.RelayOpen{
 		WorkerId:      c.run.WorkerID,
 		AttemptKey:    c.run.AttemptKey,
@@ -195,28 +233,6 @@ func (c *grpcRelayClient) Relay(ctx context.Context, step aigateway.StepRef, tar
 	if err := send(&coordinatorv1.RelayClientMessage{Kind: &coordinatorv1.RelayClientMessage_Open{Open: open}}); err != nil && !errors.Is(err, io.EOF) {
 		return aigateway.Fail(aigateway.ReasonRelayUnavailable, "the relay cannot send to the coordinator: %s", err.Error())
 	}
-
-	// A client that goes away makes the relay send RelayCancel and close the stream.
-	// The upload can hold the send lock in a send that the flow control blocks, so
-	// the wait for the cancel message is bounded: the stream closes anyway.
-	finished := make(chan struct{})
-	defer close(finished)
-	go func() {
-		select {
-		case <-ctx.Done():
-			sent := make(chan struct{})
-			go func() {
-				defer close(sent)
-				_ = send(&coordinatorv1.RelayClientMessage{Kind: &coordinatorv1.RelayClientMessage_Cancel{Cancel: &coordinatorv1.RelayCancel{}}})
-			}()
-			select {
-			case <-sent:
-			case <-time.After(relayCancelSendTimeout):
-			}
-			cancelStream()
-		case <-finished:
-		}
-	}()
 
 	first, err := stream.Recv()
 	if err != nil {

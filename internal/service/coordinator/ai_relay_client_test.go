@@ -334,6 +334,29 @@ func TestAIRelayClientCancel(t *testing.T) {
 	requireCallEnd(t, next)
 }
 
+// A client that goes away while the stream opens ends the opening, which can
+// wait for a coordinator that does not answer its health check.
+func TestAIRelayClientCancelWhileTheStreamOpens(t *testing.T) {
+	t.Parallel()
+
+	opener := &stalledOpener{opening: make(chan struct{})}
+	client := coordinator.NewAIRelayClientOver(opener, serviceregistry.HostInfo{}, testRelayRun)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- client.Relay(ctx, testRelayStep, aigateway.EndpointTarget("team"), jsonRequest(2), bytes.NewReader([]byte("{}")), &responseRecorder{})
+	}()
+	<-opener.opening
+	cancel()
+	select {
+	case err := <-result:
+		requireRelayFailure(t, err, aigateway.ReasonCanceled, "canceled")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the opening of the stream outlived the request")
+	}
+}
+
 // A message of the response larger than MaxMessageBytes ends the call with
 // response_too_large.
 func TestAIRelayClientResponseMessageTooLarge(t *testing.T) {
@@ -617,6 +640,21 @@ func (o streamOpener) CheckAIEndpointTo(context.Context, serviceregistry.HostInf
 func (o streamOpener) RelayAIRequestTo(ctx context.Context, _ serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_RelayAIRequestClient, error) {
 	o.stream.ctx = ctx
 	return o.stream, nil
+}
+
+// stalledOpener opens no stream: the opening waits until its context ends.
+type stalledOpener struct {
+	opening chan struct{}
+}
+
+func (o *stalledOpener) CheckAIEndpointTo(context.Context, serviceregistry.HostInfo, *coordinatorv1.CheckAIEndpointRequest) (*coordinatorv1.CheckAIEndpointResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unknown method")
+}
+
+func (o *stalledOpener) RelayAIRequestTo(ctx context.Context, _ serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_RelayAIRequestClient, error) {
+	close(o.opening)
+	<-ctx.Done()
+	return nil, status.FromContextError(ctx.Err()).Err()
 }
 
 // endedStream is a relay stream that the coordinator ends after the first sends
