@@ -5,6 +5,11 @@ import { components, RestartPolicy } from '../api/v1/schema';
 import dayjs from './dayjs';
 
 type Schedule = components['schemas']['Schedule'];
+type ScheduleCoincidence = components['schemas']['ScheduleCoincidence'];
+type Translate = (
+  source: string,
+  values?: Record<string, string | number>
+) => string;
 type RestartPolicyFields = Pick<
   components['schemas']['DAG'],
   'restartPolicy' | 'restartWaitSec'
@@ -23,6 +28,61 @@ export function getScheduleLabel(schedule: Schedule): string {
     parts.push(`${schedule.calendar}${days}`);
   }
   return parts.join(' · ');
+}
+
+/** The label of a schedule, with the runtime profile that activates it. */
+export function getScheduleSummary(schedule: Schedule): string {
+  const label = getScheduleLabel(schedule);
+  return schedule.profile ? `${label} (${schedule.profile})` : label;
+}
+
+/**
+ * Why the index-th schedule starts no run at a time it shares with another
+ * one, or undefined when it shares none. dayjsLocale names a dayjs locale.
+ */
+export function describeScheduleCoincidence(
+  index: number,
+  coincidences: ScheduleCoincidence[] | undefined,
+  schedules: Schedule[],
+  ts: Translate,
+  dayjsLocale: string
+): string | undefined {
+  const coincidence = coincidences?.find(
+    (item) => item.scheduleIndex === index
+  );
+  const own = schedules[index];
+  const preceding = schedules[coincidence?.precedingScheduleIndex ?? -1];
+  if (!coincidence || !own || !preceding) return undefined;
+  const time = formatFireTime(
+    coincidence.time,
+    'ddd YYYY-MM-DD HH:mm',
+    dayjsLocale
+  );
+  // Overrides tell apart two entries with the same timing.
+  const summary = getScheduleSummary(preceding);
+  const overrides =
+    summary === getScheduleSummary(own)
+      ? formatParamOverrides(preceding.paramOverrides)
+      : '';
+  return ts('Does not start at {time}: {schedule} starts instead.', {
+    time: `${time} ${coincidence.timezone}`,
+    schedule: [summary, overrides].filter(Boolean).join(' · '),
+  });
+}
+
+/**
+ * The parameter overrides of a schedule as `name: value` pairs, or an empty
+ * string without overrides. Past max pairs, the rest are counted as `+N`.
+ */
+export function formatParamOverrides(
+  overrides: Record<string, string> | undefined,
+  max = Infinity
+): string {
+  const pairs = Object.entries(overrides ?? {}).map(
+    ([name, value]) => `${name}: ${value}`
+  );
+  if (pairs.length <= max) return pairs.join(', ');
+  return [...pairs.slice(0, max), `+${pairs.length - max}`].join(', ');
 }
 
 export function getScheduleKey(schedule: Schedule, index: number): string {

@@ -169,7 +169,7 @@ func TestCalendarSchedule(t *testing.T) {
 		schedule := boundSchedule(t, jpBanking(), map[string]any{"expression": "0 18 * * *"})
 		dag := &ir.DAG{Schedule: []ir.Schedule{schedule}}
 
-		fires := dag.UpcomingFires(from, 6)
+		fires := dag.UpcomingFires(from, 6, "")
 
 		assert.Equal(t, []time.Time{
 			time.Date(2027, 1, 4, 18, 0, 0, 0, time.UTC),
@@ -190,7 +190,7 @@ func TestCalendarSchedule(t *testing.T) {
 		schedule := boundSchedule(t, jpBanking(), map[string]any{"expression": "0 18 * * *"})
 		dag := &ir.DAG{Schedule: []ir.Schedule{schedule}}
 
-		fires := dag.UpcomingFires(time.Date(2027, 10, 8, 19, 0, 0, 0, time.UTC), 1)
+		fires := dag.UpcomingFires(time.Date(2027, 10, 8, 19, 0, 0, 0, time.UTC), 1, "")
 
 		require.Len(t, fires, 1)
 		assert.Equal(t, time.Date(2027, 10, 9, 18, 0, 0, 0, time.UTC), fires[0].Time)
@@ -206,7 +206,7 @@ func TestCalendarSchedule(t *testing.T) {
 		})
 		dag := &ir.DAG{Schedule: []ir.Schedule{schedule}}
 
-		fires := dag.UpcomingFires(from, 4)
+		fires := dag.UpcomingFires(from, 4, "")
 
 		assert.Equal(t, []time.Time{
 			time.Date(2027, 1, 6, 23, 0, 0, 0, time.UTC),
@@ -325,7 +325,7 @@ func TestCalendarScheduleProperties(t *testing.T) {
 		schedule := boundSchedule(t, cal, entry)
 		dag := &ir.DAG{Schedule: []ir.Schedule{schedule}}
 
-		fires := dag.UpcomingFires(start, 20)
+		fires := dag.UpcomingFires(start, 20, "")
 		cursor := start
 		for _, fire := range fires {
 			require.True(t, cal.IsBusinessDay(ir.DateOf(fire.Time)), "%v fired on %v", entry, fire.Time)

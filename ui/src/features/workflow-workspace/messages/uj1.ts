@@ -18,7 +18,6 @@ export default defineMessages({
       'Use the Start button of the bar to run this workflow now. The run takes the parameters that you give in the Start dialog.',
     'This workflow has no parameters': 'This workflow has no parameters',
     'Cron expression': 'Cron expression',
-    'Cron expressions': 'Cron expressions',
     'New cron expression': 'New cron expression',
     'Add an expression': 'Add an expression',
     'Add schedule': 'Add schedule',
@@ -26,10 +25,6 @@ export default defineMessages({
     'Remove schedule': 'Remove schedule',
     'Next runs:': 'Next runs:',
     'No preview for this expression': 'No preview for this expression',
-    'The workflow starts on each of these cron expressions.':
-      'The workflow starts on each of these cron expressions.',
-    '{count} other schedule entries stay in the YAML. Edit them there.':
-      '{count} other schedule entries stay in the YAML. Edit them there.',
     Hourly: 'Hourly',
     'Daily at 09:00': 'Daily at 09:00',
     'Weekdays at 09:00': 'Weekdays at 09:00',
@@ -58,6 +53,22 @@ export default defineMessages({
       'Times are in the time zone of the scheduler ({tz}).',
     'Workflow sections': 'Workflow sections',
     'Workflow > {tab}': 'Workflow > {tab}',
+    'Does not start at {time}: {schedule} starts instead.':
+      'Does not start at {time}: {schedule} starts instead.',
+    'The workflow starts on each of these schedules.':
+      'The workflow starts on each of these schedules.',
+    Schedules: 'Schedules',
+    'This expression is already in the schedule.':
+      'This expression is already in the schedule.',
+    'Edit the timing of this entry in the YAML.':
+      'Edit the timing of this entry in the YAML.',
+    'Edit this entry and its parameters in the YAML.':
+      'Edit this entry and its parameters in the YAML.',
+    'Not a parameter of this workflow': 'Not a parameter of this workflow',
+    'Default ({value})': 'Default ({value})',
+    'Default (not set)': 'Default (not set)',
+    'Default (computed when the run starts)':
+      'Default (computed when the run starts)',
   },
   'zh-CN': {
     Cron: '定时（Cron）',
@@ -71,7 +82,6 @@ export default defineMessages({
       '使用顶栏的“启动”按钮立即运行此工作流。运行使用你在启动对话框中填写的参数。',
     'This workflow has no parameters': '此工作流没有参数',
     'Cron expression': 'Cron 表达式',
-    'Cron expressions': 'Cron 表达式',
     'New cron expression': '新的 Cron 表达式',
     'Add an expression': '添加表达式',
     'Add schedule': '添加计划',
@@ -79,10 +89,6 @@ export default defineMessages({
     'Remove schedule': '删除计划',
     'Next runs:': '后续运行：',
     'No preview for this expression': '此表达式无法预览',
-    'The workflow starts on each of these cron expressions.':
-      '工作流按以下每个 Cron 表达式启动。',
-    '{count} other schedule entries stay in the YAML. Edit them there.':
-      '另有 {count} 个计划条目保留在 YAML 中，请在 YAML 中编辑。',
     Hourly: '每小时',
     'Daily at 09:00': '每天 09:00',
     'Weekdays at 09:00': '工作日 09:00',
@@ -110,6 +116,20 @@ export default defineMessages({
       '时间采用调度器的时区（{tz}）。',
     'Workflow sections': '工作流分区',
     'Workflow > {tab}': '工作流 > {tab}',
+    'Does not start at {time}: {schedule} starts instead.':
+      '在 {time} 不会启动：改为由 {schedule} 启动。',
+    'The workflow starts on each of these schedules.':
+      '工作流按以下每个计划启动。',
+    Schedules: '计划',
+    'This expression is already in the schedule.': '该表达式已在计划中。',
+    'Edit the timing of this entry in the YAML.':
+      '请在 YAML 中编辑此条目的时间。',
+    'Edit this entry and its parameters in the YAML.':
+      '请在 YAML 中编辑此条目及其参数。',
+    'Not a parameter of this workflow': '不是此工作流的参数',
+    'Default ({value})': '默认（{value}）',
+    'Default (not set)': '默认（未设置）',
+    'Default (computed when the run starts)': '默认（运行开始时计算）',
   },
   ja: {
     Cron: '定期実行（Cron）',
@@ -124,7 +144,6 @@ export default defineMessages({
     'This workflow has no parameters':
       'このワークフローにパラメータはありません',
     'Cron expression': 'Cron 式',
-    'Cron expressions': 'Cron 式',
     'New cron expression': '新しい Cron 式',
     'Add an expression': '式を追加',
     'Add schedule': 'スケジュールを追加',
@@ -132,10 +151,6 @@ export default defineMessages({
     'Remove schedule': 'スケジュールを削除',
     'Next runs:': '次回の実行:',
     'No preview for this expression': 'この式はプレビューできません',
-    'The workflow starts on each of these cron expressions.':
-      'ワークフローは、次の各 Cron 式で開始します。',
-    '{count} other schedule entries stay in the YAML. Edit them there.':
-      'ほかのスケジュール項目 {count} 件は YAML に残ります。YAML で編集してください。',
     Hourly: '毎時',
     'Daily at 09:00': '毎日 09:00',
     'Weekdays at 09:00': '平日 09:00',
@@ -164,5 +179,21 @@ export default defineMessages({
       '時刻はスケジューラーのタイムゾーン（{tz}）です。',
     'Workflow sections': 'ワークフローのセクション',
     'Workflow > {tab}': 'ワークフロー > {tab}',
+    'Does not start at {time}: {schedule} starts instead.':
+      '{time} には起動しません。代わりに {schedule} が起動します。',
+    'The workflow starts on each of these schedules.':
+      'ワークフローは、次の各スケジュールで開始します。',
+    Schedules: 'スケジュール',
+    'This expression is already in the schedule.':
+      'この式はすでにスケジュールにあります。',
+    'Edit the timing of this entry in the YAML.':
+      'この項目の実行タイミングは YAML で編集してください。',
+    'Edit this entry and its parameters in the YAML.':
+      'この項目とそのパラメータは YAML で編集してください。',
+    'Not a parameter of this workflow':
+      'このワークフローのパラメータではありません',
+    'Default ({value})': '既定値（{value}）',
+    'Default (not set)': '既定値（未設定）',
+    'Default (computed when the run starts)': '既定値（実行開始時に計算）',
   },
 });

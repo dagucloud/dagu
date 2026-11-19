@@ -34,6 +34,7 @@ import {
   stringifyParamSchemaFormData,
 } from './paramSchemaForm';
 import { ParamLabel } from './ParamLabel';
+import { validateParamValue } from './paramValue';
 import { paramFormTemplates } from './paramFormTemplates';
 import { paramFormWidgets } from './paramFormWidgets';
 import { autoGrowTextarea } from './textareaAutoGrow';
@@ -141,106 +142,17 @@ function validateParamFields(fields: ParamField[]): Record<string, string> {
   const errors: Record<string, string> = {};
 
   for (const field of fields) {
-    if (!field.hasValue) {
+    const blankNumber =
+      field.type === ParamDefType.number && field.value.trim() === '';
+    if (!field.hasValue || blankNumber) {
       if (field.required) {
         errors[field.key] = 'Required';
       }
       continue;
     }
-
-    const value = field.value;
-    switch (field.type) {
-      case ParamDefType.string:
-        if (field.minLength !== undefined && value.length < field.minLength) {
-          errors[field.key] = `Must be at least ${field.minLength} characters`;
-          continue;
-        }
-        if (field.maxLength !== undefined && value.length > field.maxLength) {
-          errors[field.key] = `Must be at most ${field.maxLength} characters`;
-          continue;
-        }
-        if (field.pattern) {
-          try {
-            const pattern = new RegExp(field.pattern);
-            if (!pattern.test(value)) {
-              errors[field.key] = 'Does not match the required pattern';
-              continue;
-            }
-          } catch {
-            errors[field.key] = 'Invalid validation pattern';
-            continue;
-          }
-        }
-        if (
-          field.enum &&
-          !field.enum.some((item) => typeof item === 'string' && item === value)
-        ) {
-          errors[field.key] = 'Must be one of the allowed values';
-        }
-        break;
-
-      case ParamDefType.integer: {
-        if (!/^-?\d+$/.test(value.trim())) {
-          errors[field.key] = 'Must be an integer';
-          continue;
-        }
-        const number = Number(value);
-        if (field.minimum !== undefined && number < field.minimum) {
-          errors[field.key] = `Must be at least ${field.minimum}`;
-          continue;
-        }
-        if (field.maximum !== undefined && number > field.maximum) {
-          errors[field.key] = `Must be at most ${field.maximum}`;
-          continue;
-        }
-        if (
-          field.enum &&
-          !field.enum.some(
-            (item) => typeof item === 'number' && Number(item) === number
-          )
-        ) {
-          errors[field.key] = 'Must be one of the allowed values';
-        }
-        break;
-      }
-
-      case ParamDefType.number: {
-        const trimmed = value.trim();
-        if (trimmed === '') {
-          if (field.required) {
-            errors[field.key] = 'Required';
-          }
-          continue;
-        }
-        const number = Number(trimmed);
-        if (Number.isNaN(number)) {
-          errors[field.key] = 'Must be a number';
-          continue;
-        }
-        if (field.minimum !== undefined && number < field.minimum) {
-          errors[field.key] = `Must be at least ${field.minimum}`;
-          continue;
-        }
-        if (field.maximum !== undefined && number > field.maximum) {
-          errors[field.key] = `Must be at most ${field.maximum}`;
-          continue;
-        }
-        if (
-          field.enum &&
-          !field.enum.some(
-            (item) => typeof item === 'number' && Number(item) === number
-          )
-        ) {
-          errors[field.key] = 'Must be one of the allowed values';
-        }
-        break;
-      }
-
-      case ParamDefType.boolean:
-        if (value !== 'true' && value !== 'false') {
-          errors[field.key] = 'Must be true or false';
-        }
-        break;
+    const error = validateParamValue(field, field.value);
+    if (error) {
+      errors[field.key] = error;
     }
   }
 

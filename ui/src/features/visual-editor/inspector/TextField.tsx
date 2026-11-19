@@ -12,6 +12,10 @@ import {
 } from 'react';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  ValidationIssueSeverity,
+  ValidationIssueSource,
+} from '@/api/v1/schema';
 import { ReferenceInput } from '@/features/visual-editor/references';
 import type { ReferenceCandidate, ValidationIssue } from '../contracts';
 import { FieldIssues } from './FieldIssues';
@@ -27,6 +31,11 @@ export interface TextFieldProps {
   issues?: ValidationIssue[];
   /** References to offer. Without them, the field takes plain text only. */
   candidates?: ReferenceCandidate[];
+  /**
+   * Returns why a draft cannot be sent. The field then keeps the draft and
+   * shows the reason until the draft is valid or restored.
+   */
+  validate?(text: string): string | undefined;
   /** Called on blur (and Enter for one line) when the text changed. */
   onCommit(text: string): void;
 }
@@ -46,23 +55,43 @@ export function TextField({
   placeholder,
   issues,
   candidates,
+  validate,
   onCommit,
 }: TextFieldProps): ReactElement {
   const id = useId();
   const [draft, setDraft] = useState(value);
+  // Set when a draft was refused; the reason then follows the draft.
+  const [refused, setRefused] = useState(false);
   const shown = useRef(value);
   useEffect(() => {
     if (value !== shown.current) {
       shown.current = value;
       setDraft(value);
+      setRefused(false);
     }
   }, [value]);
 
   const commit = () => {
-    if (!readOnly && draft !== value) {
-      onCommit(draft);
+    if (readOnly || draft === value) return;
+    if (validate?.(draft) !== undefined) {
+      setRefused(true);
+      return;
     }
+    setRefused(false);
+    onCommit(draft);
   };
+  const reason = refused ? validate?.(draft) : undefined;
+  const fieldIssues: ValidationIssue[] | undefined =
+    reason === undefined
+      ? issues
+      : [
+          ...(issues ?? []),
+          {
+            severity: ValidationIssueSeverity.error,
+            source: ValidationIssueSource.build,
+            message: reason,
+          },
+        ];
   const common = {
     id,
     value: draft,
@@ -70,7 +99,7 @@ export function TextField({
     disabled: readOnly,
     'aria-label': ariaLabel,
     'aria-invalid':
-      issues?.some((issue) => issue.severity === 'error') || undefined,
+      fieldIssues?.some((issue) => issue.severity === 'error') || undefined,
     onBlur: commit,
     onKeyDown: (event: KeyboardEvent) => {
       if (event.nativeEvent.isComposing) return;
@@ -78,6 +107,7 @@ export function TextField({
         commit();
       } else if (event.key === 'Escape') {
         setDraft(value);
+        setRefused(false);
       }
     },
   };
@@ -111,7 +141,7 @@ export function TextField({
           onChange={(event) => setDraft(event.target.value)}
         />
       )}
-      <FieldIssues issues={issues} />
+      <FieldIssues issues={fieldIssues} />
     </div>
   );
 }

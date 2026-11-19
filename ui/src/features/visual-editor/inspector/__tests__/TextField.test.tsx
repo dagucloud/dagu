@@ -143,4 +143,34 @@ describe('TextField with candidates', () => {
     fireEvent.blur(input);
     expect(onCommit).toHaveBeenCalledWith('load');
   });
+
+  // The reason shows only after a refused commit, so typing a value
+  // character by character does not flash errors.
+  it('keeps a refused draft and shows why until it is valid', () => {
+    const validate = (text: string) =>
+      /^\d+$/.test(text) ? undefined : 'Must be an integer';
+    const { input, onCommit } = setup({ value: '1', validate });
+    fireEvent.change(input, { target: { value: 'x' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    fireEvent.blur(input);
+    expect(onCommit).not.toHaveBeenCalled();
+    expect(input).toHaveValue('x');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('alert')).toHaveTextContent('Must be an integer');
+    fireEvent.change(input, { target: { value: '2' } });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onCommit).toHaveBeenCalledWith('2');
+  });
+
+  it('drops the reason when Escape restores the value', () => {
+    const validate = () => 'Must be an integer';
+    const { input } = setup({ validate });
+    fireEvent.change(input, { target: { value: 'x' } });
+    fireEvent.blur(input);
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    fireEvent.keyDown(input, { key: 'Escape' });
+    expect(input).toHaveValue('fetch');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
 });
