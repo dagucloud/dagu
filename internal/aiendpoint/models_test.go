@@ -159,6 +159,18 @@ func TestModelsReadListDropsABadDisplayName(t *testing.T) {
 	assert.Equal(t, []aiendpoint.ModelInfo{{ID: "a", Efforts: []string{"low"}}}, list.Info)
 }
 
+func TestModelsReadListDropsBadCapabilities(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"a","display_name":"A","capabilities":[]},{"id":"b","capabilities":"x"},{"id":"c","capabilities":{"effort":[]}}]}`))
+	}))
+	defer server.Close()
+
+	list, err := newReader(t, time.Second).ReadList(context.Background(), customEndpoint(server, aiendpoint.ProtocolAnthropic, aiendpoint.AuthXAPIKey), modelsKey)
+	require.NoError(t, err, "bad capabilities never fail the read")
+	assert.Equal(t, []string{"a", "b", "c"}, list.Names)
+	assert.Equal(t, []aiendpoint.ModelInfo{{ID: "a", DisplayName: "A"}}, list.Info)
+}
+
 func TestModelsReadListOtherProtocolsHaveNoDetails(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-x","display_name":"GPT X","capabilities":{"effort":{"supported":true,"low":{"supported":true}}}}]}`))

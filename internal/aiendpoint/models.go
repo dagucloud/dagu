@@ -285,9 +285,7 @@ func parseModelsPage(body []byte) (modelsPage, error) {
 	var items []struct {
 		ID           json.RawMessage `json:"id"`
 		DisplayName  json.RawMessage `json:"display_name"`
-		Capabilities struct {
-			Effort json.RawMessage `json:"effort"`
-		} `json:"capabilities"`
+		Capabilities json.RawMessage `json:"capabilities"`
 	}
 	if err := json.Unmarshal(raw.Data, &items); err != nil {
 		return modelsPage{}, errors.New("the field data of the response is not a list of models")
@@ -301,13 +299,25 @@ func parseModelsPage(body []byte) (modelsPage, error) {
 		if json.Unmarshal(item.ID, &id) != nil {
 			continue
 		}
-		info := ModelInfo{ID: id, Efforts: parseEfforts(item.Capabilities.Effort)}
+		info := ModelInfo{ID: id, Efforts: parseEfforts(effortOf(item.Capabilities))}
 		if json.Unmarshal(item.DisplayName, &info.DisplayName) != nil || !validDisplayName(info.DisplayName) {
 			info.DisplayName = ""
 		}
 		page.models = append(page.models, info)
 	}
 	return page, nil
+}
+
+// effortOf returns the field effort of capabilities. It returns nothing when
+// capabilities is not an object.
+func effortOf(capabilities json.RawMessage) json.RawMessage {
+	var fields struct {
+		Effort json.RawMessage `json:"effort"`
+	}
+	if json.Unmarshal(capabilities, &fields) != nil {
+		return nil
+	}
+	return fields.Effort
 }
 
 // parseEfforts returns the levels of effort that capabilities.effort marks as
