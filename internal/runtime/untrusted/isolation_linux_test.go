@@ -257,9 +257,15 @@ func TestIsolatedStepsOneAtATime(t *testing.T) {
 	require.NoError(t, second.End(context.Background()))
 }
 
-// Two processes of one step can be prepared before either starts. The end of
-// the first one does not stop the second, which was prepared later.
-func TestIsolatedStepKeepsALaterProcess(t *testing.T) {
+// The end of a process of the step does not stop another process of the step
+// that runs, whichever of the two was prepared first. Both are prepared before
+// either starts, and the process that ends starts first.
+func TestIsolatedStepKeepsAnotherProcess(t *testing.T) {
+	t.Run("prepared first", func(t *testing.T) { testKeepsAnotherProcess(t, true) })
+	t.Run("prepared last", func(t *testing.T) { testKeepsAnotherProcess(t, false) })
+}
+
+func testKeepsAnotherProcess(t *testing.T, endingPreparedFirst bool) {
 	requireIsolation(t)
 	ctx := context.Background()
 	workDir := testWorkDir(t)
@@ -273,30 +279,33 @@ func TestIsolatedStepKeepsALaterProcess(t *testing.T) {
 		cmd.Env = []string{"PATH=/usr/bin:/bin"}
 		return cmd
 	}
-	first, second := command("/bin/true"), command("/bin/sleep", "1000")
-	firstGeneration, err := step.prepare(first)
-	require.NoError(t, err)
-	secondGeneration, err := step.prepare(second)
-	require.NoError(t, err)
+	ending, staying := command("/bin/true"), command("/bin/sleep", "1000")
+	if endingPreparedFirst {
+		require.NoError(t, step.prepare(ending))
+		require.NoError(t, step.prepare(staying))
+	} else {
+		require.NoError(t, step.prepare(staying))
+		require.NoError(t, step.prepare(ending))
+	}
+	start := func(cmd *exec.Cmd) *cmdutil.ManagedProcess {
+		process, err := cmdutil.StartManagedProcess(cmd)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = process.Release() })
+		step.iso.started(process.PID())
+		return process
+	}
+	endingProcess := start(ending)
+	stayingProcess := start(staying)
 
-	firstProcess, err := cmdutil.StartManagedProcess(first)
-	require.NoError(t, err)
-	defer func() { _ = firstProcess.Release() }()
-	step.iso.started(firstProcess.PID(), firstGeneration)
-	secondProcess, err := cmdutil.StartManagedProcess(second)
-	require.NoError(t, err)
-	defer func() { _ = secondProcess.Release() }()
-	step.iso.started(secondProcess.PID(), secondGeneration)
-
-	require.NoError(t, firstProcess.Wait())
+	require.NoError(t, endingProcess.Wait())
 	ended := make(chan struct{})
 	go func() {
-		_ = secondProcess.Wait()
+		_ = stayingProcess.Wait()
 		close(ended)
 	}()
 	select {
 	case <-ended:
-		t.Fatal("the end of the first process stopped the second one")
+		t.Fatal("the end of one process stopped the other one")
 	case <-time.After(time.Second):
 	}
 }
@@ -321,34 +330,59 @@ func testFailedStartKeepsTheCleanup(t *testing.T, failAfterExit bool) {
 
 	script := "sleep 1000 & sleep 1"
 	if failAfterExit {
-		script = "sleep 1000 & sleep 0.2"
+		script = "sleep 1000 &"
 	}
 	first := exec.Command("/bin/sh", "-c", script) //nolint:gosec
 	first.Dir = workDir
 	first.Env = []string{"PATH=/usr/bin:/bin"}
 	var stdout bytes.Buffer
 	first.Stdout = &stdout
+	failing := exec.Command(filepath.Join(workDir, "no-such-binary")) //nolint:gosec
+	failing.Dir = workDir
+
+	if failAfterExit {
+		// The failing start is prepared before the first process starts, so
+		// the first process ends while the other one is still starting. The
+		// start fails only after the watcher saw the end.
+		require.NoError(t, step.prepare(failing))
+		firstProcess, err := StartManagedProcess(stepCtx, first)
+		require.NoError(t, err)
+		defer func() { _ = firstProcess.Release() }()
+		waitEnded(t, firstProcess.PID())
+		time.Sleep(time.Second)
+		step.iso.abandon()
+		requireWaitReturns(t, firstProcess)
+		return
+	}
 	firstProcess, err := StartManagedProcess(stepCtx, first)
 	require.NoError(t, err)
 	defer func() { _ = firstProcess.Release() }()
+	_, err = StartManagedProcess(stepCtx, failing)
+	require.Error(t, err)
+	requireWaitReturns(t, firstProcess)
+}
 
-	failing := exec.Command(filepath.Join(workDir, "no-such-binary")) //nolint:gosec
-	failing.Dir = workDir
-	if failAfterExit {
-		// The start is prepared while the first process runs. The first
-		// process ends and its watcher sees the later generation, and only
-		// then does the start fail.
-		generation, err := step.prepare(failing)
-		require.NoError(t, err)
-		time.Sleep(time.Second)
-		step.iso.abandon(generation)
-	} else {
-		_, err = StartManagedProcess(stepCtx, failing)
-		require.Error(t, err)
-	}
+// waitEnded waits until the process pid has ended. Its parent has not reaped
+// it yet, so it stays a zombie.
+func waitEnded(t *testing.T, pid int) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+		if err != nil {
+			return false
+		}
+		// The state follows the command name, which is in parentheses.
+		i := bytes.LastIndexByte(data, ')')
+		return i >= 0 && i+2 < len(data) && data[i+2] == 'Z'
+	}, 10*time.Second, 10*time.Millisecond)
+}
 
+// requireWaitReturns fails when Wait of the process does not return soon,
+// as when a process it left still holds its pipe.
+func requireWaitReturns(t *testing.T, process *cmdutil.ManagedProcess) {
+	t.Helper()
 	waited := make(chan error, 1)
-	go func() { waited <- firstProcess.Wait() }()
+	go func() { waited <- process.Wait() }()
 	select {
 	case err := <-waited:
 		require.NoError(t, err)

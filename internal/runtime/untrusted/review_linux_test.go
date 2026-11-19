@@ -389,9 +389,9 @@ func TestReviewLinkChainLeavesWorkDir(t *testing.T) {
 
 // Property (Spec 092, "Process"): each process of the step runs. A step with
 // two processes (run with a list of commands, or a harness attempt after
-// another) starts the second process when the first ends. When the first
-// process leaves a child, the watcher of the first process loops in killUser
-// and also kills the second process.
+// another) starts the second process when the first ends. The first process
+// leaves a child, and the watcher that stops that child must not also stop
+// the second process.
 func TestReviewWatcherKillsNextProcess(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()

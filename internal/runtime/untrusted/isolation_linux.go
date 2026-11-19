@@ -112,17 +112,16 @@ type isolation struct {
 	watchers sync.WaitGroup
 	stopping atomic.Bool
 	ended    atomic.Bool
-	// startMu guards the generations of the processes of the step. The
-	// watcher of a process leaves the processes of the restricted user alone
-	// once a later process started, and waits while a later one is starting.
+	// startMu guards starting and running. The processes of the restricted
+	// user cannot be told apart by their root process, so a watcher stops them
+	// only while no other root process of the step runs or is starting.
 	startMu sync.Mutex
-	// lastGeneration is the generation that prepare gave last.
-	lastGeneration int64
-	// startedGeneration is the highest generation whose process started.
-	startedGeneration int64
-	// starting holds the generations that prepare gave and whose process has
+	// starting counts the processes that prepare accepted and that have
 	// neither started nor failed to start.
-	starting map[int64]struct{}
+	starting int
+	// running counts the root processes that a watcher follows and that have
+	// not ended.
+	running int
 	// files numbers the files of the attempt, so that two attempts of the step
 	// get two files.
 	files atomic.Int64
@@ -559,25 +558,25 @@ func (iso *isolation) writeOwnedFile(name string, data []byte) (string, error) {
 	return path, nil
 }
 
-// prepare applies the isolation to cmd. It returns the generation of the
-// process, which started takes once the process runs.
-func (iso *isolation) prepare(cmd *exec.Cmd, env []string) (int64, error) {
+// prepare applies the isolation to cmd. The process counts as starting until
+// started or abandon settles it.
+func (iso *isolation) prepare(cmd *exec.Cmd, env []string) error {
 	if iso.ended.Load() {
-		return 0, fmt.Errorf("untrusted step %q: the step ended", iso.step)
+		return fmt.Errorf("untrusted step %q: the step ended", iso.step)
 	}
 	if len(cmd.ExtraFiles) > 0 {
-		return 0, fmt.Errorf("untrusted step %q: the process cannot get extra files", iso.step)
+		return fmt.Errorf("untrusted step %q: the process cannot get extra files", iso.step)
 	}
 	dir := cmd.Dir
 	if dir != "" && !filepath.IsAbs(dir) {
 		abs, err := filepath.Abs(dir)
 		if err != nil {
-			return 0, stepError(iso.step, "resolve the working directory", dir, err)
+			return stepError(iso.step, "resolve the working directory", dir, err)
 		}
 		dir = abs
 	}
 	if _, ok := iso.relativeToWork(dir); !ok {
-		return 0, fmt.Errorf("untrusted step %q: the working directory %s is not in the work directory of the run", iso.step, cmd.Dir)
+		return fmt.Errorf("untrusted step %q: the working directory %s is not in the work directory of the run", iso.step, cmd.Dir)
 	}
 	env = setEnv(env, "HOME", iso.home)
 	env = setEnv(env, "TMPDIR", iso.home)
@@ -602,80 +601,81 @@ func (iso *isolation) prepare(cmd *exec.Cmd, env []string) (int64, error) {
 
 	iso.startMu.Lock()
 	defer iso.startMu.Unlock()
-	iso.lastGeneration++
-	if iso.starting == nil {
-		iso.starting = map[int64]struct{}{}
-	}
-	iso.starting[iso.lastGeneration] = struct{}{}
-	return iso.lastGeneration, nil
+	iso.starting++
+	return nil
 }
 
-// started watches the root process of the step, of the generation that
-// prepare gave it. When it ends, Dagu stops each process of the restricted
+// started watches the root process of the step. When it ends and no other
+// root process of the step runs, Dagu stops each process of the restricted
 // user, so that a process that it left cannot keep the pipes of the step open.
-// The watch stops when a later process of the step starts: it does not stop
-// that process.
-func (iso *isolation) started(pid int, generation int64) {
-	iso.startMu.Lock()
-	delete(iso.starting, generation)
-	iso.startedGeneration = max(iso.startedGeneration, generation)
-	iso.startMu.Unlock()
-	if pid <= 0 {
-		return
+// It does not stop the processes while another root process runs.
+func (iso *isolation) started(pid int) {
+	fd := -1
+	if pid > 0 {
+		// The process is not reaped yet: its caller has not called Wait.
+		if opened, err := unix.PidfdOpen(pid, 0); err == nil {
+			fd = opened
+		}
 	}
-	// The process is not reaped yet: its caller has not called Wait.
-	fd, err := unix.PidfdOpen(pid, 0)
-	if err != nil {
+	// One step moves the process from starting to running, so that no check
+	// in between sees neither.
+	iso.startMu.Lock()
+	iso.starting--
+	if fd >= 0 {
+		iso.running++
+	}
+	iso.startMu.Unlock()
+	if fd < 0 {
 		return
 	}
 	iso.watchers.Go(func() {
 		defer func() { _ = unix.Close(fd) }()
 		fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}} // #nosec G115 -- a file descriptor fits in int32.
-		for !iso.stopping.Load() {
+		ended := false
+		for !ended && !iso.stopping.Load() {
 			n, err := unix.Poll(fds, 200)
 			if err != nil && !errors.Is(err, unix.EINTR) {
-				return
+				break
 			}
-			if n > 0 {
-				iso.killLeftovers(generation)
-				return
-			}
+			ended = n > 0
+		}
+		iso.startMu.Lock()
+		iso.running--
+		iso.startMu.Unlock()
+		if ended {
+			iso.killLeftovers()
 		}
 	})
 }
 
-// abandon settles the generation of a process that failed to start, so that
-// the watcher of the process before it still stops what that process left.
-func (iso *isolation) abandon(generation int64) {
+// abandon settles a process that failed to start.
+func (iso *isolation) abandon() {
 	iso.startMu.Lock()
 	defer iso.startMu.Unlock()
-	delete(iso.starting, generation)
+	iso.starting--
 }
 
-// laterProcess reports whether a process of a later generation started, and
-// whether one is still starting.
-func (iso *isolation) laterProcess(generation int64) (started, starting bool) {
+// otherProcesses reports whether a root process of the step runs, and whether
+// one is starting.
+func (iso *isolation) otherProcesses() (running, starting bool) {
 	iso.startMu.Lock()
 	defer iso.startMu.Unlock()
-	for g := range iso.starting {
-		starting = starting || g > generation
-	}
-	return iso.startedGeneration > generation, starting
+	return iso.running > 0, iso.starting > 0
 }
 
-// killLeftovers stops the processes of the restricted user while no later
-// process of the step started. While a later process is starting, it waits to
-// see whether that process starts or fails. The check comes after each scan:
-// a process that the scan sees was prepared before the check.
-func (iso *isolation) killLeftovers(generation int64) {
+// killLeftovers stops the processes of the restricted user once no root
+// process of the step runs. It returns when one runs, whose watcher stops them
+// at its own end, and waits while one is starting. The check comes after each
+// scan: a root process that the scan sees was counted before the check.
+func (iso *isolation) killLeftovers() {
 	deadline := time.Now().Add(killTimeout)
 	for !iso.stopping.Load() && time.Now().Before(deadline) {
 		pids, err := userProcesses(iso.uid)
 		if err != nil || len(pids) == 0 {
 			return
 		}
-		started, starting := iso.laterProcess(generation)
-		if started {
+		running, starting := iso.otherProcesses()
+		if running {
 			return
 		}
 		if !starting {
