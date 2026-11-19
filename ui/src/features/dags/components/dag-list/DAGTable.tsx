@@ -35,7 +35,6 @@ import React, {
   useState,
 } from 'react';
 import { Link } from 'react-router-dom';
-import { DAGNameInputModal } from '@/components/DAGNameInputModal';
 import { components, ServiceDAGState, Status } from '../../../../api/v1/schema';
 import dayjs from '../../../../lib/dayjs';
 import { isServiceDAG } from '../../../../lib/dagSchedule';
@@ -80,6 +79,8 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '../../../../contexts/AppBarContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
+import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import { PeekLink } from '@/features/peek/PeekLink';
 import {
   PEEK_SHOWN_ROW,
@@ -100,6 +101,7 @@ import {
   withoutWorkspaceLabels,
 } from '../../../../lib/workspace';
 import { ViewSelector } from '@/features/views/ViewSelector';
+import { DAGBackfillChip } from '@/features/backfills/components/DAGBackfillChip';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -151,8 +153,7 @@ interface DAGCardProps {
   canDeleteDAGs: boolean;
   isDeleteSelected: boolean;
   onToggleDeleteSelection: (fileName: string) => void;
-  canRenameDAGs: boolean;
-  onRenameDAG: (dag: components['schemas']['DAGFile']) => void;
+  canEdit: boolean;
   onDeleteDAG: (dag: components['schemas']['DAGFile']) => void;
   canPin: boolean;
   isPinPending: boolean;
@@ -168,24 +169,30 @@ interface DAGCardProps {
   className?: string;
 }
 
-function RenameDAGButton({
-  dag,
-  onRename,
-}: {
-  dag: components['schemas']['DAGFile'];
-  onRename: (dag: components['schemas']['DAGFile']) => void;
-}) {
+/**
+ * Opens the workflow page with the YAML editor. It is a real link, so a
+ * middle click or a Ctrl click opens a new tab.
+ */
+function EditDAGButton({ dag }: { dag: components['schemas']['DAGFile'] }) {
+  const remoteNode = useRemoteNode();
   return (
     <I18nProps>
       <Button
-        type="button"
+        asChild
         variant="ghost"
         size="icon-sm"
-        aria-label={`Rename workflow ${dag.dag.name}`}
-        title="Rename workflow"
-        onClick={() => onRename(dag)}
+        aria-label={`Edit workflow ${dag.dag.name}`}
+        title="Edit workflow"
       >
-        <PencilLine className="h-4 w-4" />
+        <Link
+          to={buildDAGPageURL({
+            fileName: dag.fileName,
+            remoteNode,
+            yaml: true,
+          })}
+        >
+          <PencilLine className="h-4 w-4" />
+        </Link>
       </Button>
     </I18nProps>
   );
@@ -230,8 +237,7 @@ function DAGCard({
   canDeleteDAGs,
   isDeleteSelected,
   onToggleDeleteSelection,
-  canRenameDAGs,
-  onRenameDAG,
+  canEdit,
   onDeleteDAG,
   canPin,
   isPinPending,
@@ -344,6 +350,12 @@ function DAGCard({
         </div>
       )}
 
+      {dag.backfill && (
+        <div className="mb-1.5">
+          <DAGBackfillChip backfill={dag.backfill} />
+        </div>
+      )}
+
       {/* Actions row: LiveSwitch + DAGActions */}
       <div className="flex flex-wrap items-center justify-between gap-1 pt-1.5 border-t border-border/50 min-w-0">
         <div
@@ -376,9 +388,7 @@ function DAGCard({
             label={false}
             refresh={refreshFn}
           />
-          {canRenameDAGs && (
-            <RenameDAGButton dag={dag} onRename={onRenameDAG} />
-          )}
+          {canEdit && <EditDAGButton dag={dag} />}
           {canDeleteDAGs && (
             <DeleteDAGButton dag={dag} onDelete={onDeleteDAG} />
           )}
@@ -470,8 +480,6 @@ type Props = {
   canManageWorkflowViews: boolean;
   /** Whether the current user can delete workflows in this scope */
   canDeleteDAGs: boolean;
-  /** Whether the current user can rename workflows in this scope */
-  canRenameDAGs: boolean;
   /** Latest shared-view mutation error */
   workflowViewError?: string | null;
   onSelectWorkflowView: (viewId: string) => void;
@@ -487,7 +495,8 @@ type Props = {
   onSetPinnedWorkflowView: (viewId: string, pinned: boolean) => Promise<void>;
   onDeleteWorkflowView: (viewId: string) => Promise<void>;
   onDeleteDAGs: (fileNames: string[]) => Promise<DAGDeleteResult[]>;
-  onRenameDAG: (fileName: string, newFileName: string) => Promise<void>;
+  /** Whether the current user can edit a workflow */
+  canEditDAG: (dag: components['schemas']['DAGFile']) => boolean;
   /** Whether the current user can pin a workflow for everyone */
   canPinDAG: (dag: components['schemas']['DAGFile']) => boolean;
   /** Pins or unpins a workflow for all users */
@@ -531,8 +540,7 @@ declare module '@tanstack/react-table' {
     isDeleteSelected?: (fileName: string) => boolean;
     onToggleDeleteSelection?: (fileName: string) => void;
     onToggleAllDeleteSelection?: (checked: boolean) => void;
-    canRenameDAGs?: boolean;
-    onOpenRenameDAG?: (dag: components['schemas']['DAGFile']) => void;
+    canEditDAG?: (dag: components['schemas']['DAGFile']) => boolean;
     canDeleteDAGs?: boolean;
     onOpenDeleteDAG?: (dag: components['schemas']['DAGFile']) => void;
     canPinDAG?: (dag: components['schemas']['DAGFile']) => boolean;
@@ -757,6 +765,10 @@ const defaultColumns = [
                   })}
               </div>
             )}
+
+            {data.dag.backfill && (
+              <DAGBackfillChip backfill={data.dag.backfill} />
+            )}
           </div>
         );
       }
@@ -961,11 +973,8 @@ const defaultColumns = [
             label={false}
             refresh={table.options.meta?.refreshFn}
           />
-          {table.options.meta?.canRenameDAGs && (
-            <RenameDAGButton
-              dag={data.dag}
-              onRename={(dag) => table.options.meta?.onOpenRenameDAG?.(dag)}
-            />
+          {table.options.meta?.canEditDAG?.(data.dag) && (
+            <EditDAGButton dag={data.dag} />
           )}
           {table.options.meta?.canDeleteDAGs && (
             <DeleteDAGButton
@@ -1141,7 +1150,6 @@ function DAGTable({
   isWorkflowViewEdited,
   canManageWorkflowViews,
   canDeleteDAGs,
-  canRenameDAGs,
   workflowViewError,
   onSelectWorkflowView,
   onShowAllWorkflows,
@@ -1152,7 +1160,7 @@ function DAGTable({
   onSetPinnedWorkflowView,
   onDeleteWorkflowView,
   onDeleteDAGs,
-  onRenameDAG,
+  canEditDAG,
   canPinDAG,
   onSetDAGPinned,
   resultCount,
@@ -1202,11 +1210,6 @@ function DAGTable({
   const [deleteFailures, setDeleteFailures] = useState<Record<string, string>>(
     {}
   );
-  const [renameTarget, setRenameTarget] = useState<
-    components['schemas']['DAGFile'] | null
-  >(null);
-  const [isRenaming, setIsRenaming] = useState(false);
-  const [renameError, setRenameError] = useState<string | null>(null);
   const [pendingPins, setPendingPins] = useState<Set<string>>(() => new Set());
 
   const togglePin = useCallback(
@@ -1365,40 +1368,6 @@ function DAGTable({
     setDeleteTargets([dag]);
   }, []);
 
-  const openRenameDAG = useCallback((dag: components['schemas']['DAGFile']) => {
-    setRenameError(null);
-    setRenameTarget(dag);
-  }, []);
-
-  const closeRenameDAG = useCallback(() => {
-    if (isRenaming) {
-      return;
-    }
-    setRenameTarget(null);
-    setRenameError(null);
-  }, [isRenaming]);
-
-  const handleRenameSubmit = useCallback(
-    async (newFileName: string) => {
-      if (!renameTarget) {
-        return;
-      }
-      setIsRenaming(true);
-      setRenameError(null);
-      try {
-        await onRenameDAG(renameTarget.fileName, newFileName);
-        setRenameTarget(null);
-      } catch (error) {
-        setRenameError(
-          error instanceof Error ? error.message : 'Failed to rename workflow'
-        );
-      } finally {
-        setIsRenaming(false);
-      }
-    },
-    [onRenameDAG, renameTarget]
-  );
-
   useEffect(() => {
     const nameFilter = columnFilters.find((f) => f.id === 'Name');
 
@@ -1514,8 +1483,7 @@ function DAGTable({
       isDeleteSelected: (fileName) => deleteSelection.has(fileName),
       onToggleDeleteSelection: toggleDeleteSelection,
       onToggleAllDeleteSelection: toggleAllDeleteSelection,
-      canRenameDAGs,
-      onOpenRenameDAG: openRenameDAG,
+      canEditDAG,
       canDeleteDAGs,
       onOpenDeleteDAG: openDeleteDAG,
       canPinDAG,
@@ -2016,8 +1984,7 @@ function DAGTable({
                                 dagRow.dag.fileName
                               )}
                               onToggleDeleteSelection={toggleDeleteSelection}
-                              canRenameDAGs={canRenameDAGs}
-                              onRenameDAG={openRenameDAG}
+                              canEdit={canEditDAG(dagRow.dag)}
                               onDeleteDAG={openDeleteDAG}
                               canPin={canPinDAG(dagRow.dag)}
                               isPinPending={pendingPins.has(
@@ -2061,8 +2028,7 @@ function DAGTable({
                     canDeleteDAGs={canDeleteDAGs}
                     isDeleteSelected={deleteSelection.has(dagRow.dag.fileName)}
                     onToggleDeleteSelection={toggleDeleteSelection}
-                    canRenameDAGs={canRenameDAGs}
-                    onRenameDAG={openRenameDAG}
+                    canEdit={canEditDAG(dagRow.dag)}
                     onDeleteDAG={openDeleteDAG}
                     canPin={canPinDAG(dagRow.dag)}
                     isPinPending={pendingPins.has(dagRow.dag.fileName)}
@@ -2151,16 +2117,6 @@ function DAGTable({
           )}
         </div>
       </ConfirmDialog>
-
-      <DAGNameInputModal
-        isOpen={renameTarget !== null}
-        onClose={closeRenameDAG}
-        onSubmit={(newFileName) => void handleRenameSubmit(newFileName)}
-        mode="rename"
-        initialValue={renameTarget?.fileName ?? ''}
-        isLoading={isRenaming}
-        externalError={renameError}
-      />
     </div>
   );
 }

@@ -5,6 +5,7 @@ package dag
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -26,19 +27,33 @@ const (
 	suspendLockRetry                 = 25 * time.Millisecond
 )
 
+// suspendFlag is what a suspend flag holds: when the suspension began. A
+// flag written before flags held it is empty. A DAG is suspended while its
+// flag exists, whatever the flag holds.
+type suspendFlag struct {
+	Since time.Time `json:"since"`
+}
+
 func (store *Store) SetSuspended(ctx context.Context, id string, suspended bool) error {
 	return store.withSuspendFlagsLock(ctx, func() error {
 		defer store.invalidateIndex()
 		flag := fileName(id)
 		target := filepath.Join(store.flagsBaseDir, flag)
-		if suspended {
-			if err := fileutil.WriteFileAtomic(target, nil, flagPermission); err != nil {
-				return err
-			}
-		}
 		legacyDir, err := store.legacySuspendFlagsDir()
 		if err != nil {
 			return err
+		}
+		if suspended {
+			// A legacy flag about to be removed began the suspension.
+			since := time.Now()
+			if legacyDir != "" {
+				if info, err := fileutil.Stat(filepath.Join(legacyDir, flag)); err == nil {
+					since = info.ModTime()
+				}
+			}
+			if err := writeSuspendFlag(target, since); err != nil {
+				return err
+			}
 		}
 		if legacyDir != "" {
 			if err := removeSuspendFlag(filepath.Join(legacyDir, flag)); err != nil {
@@ -66,6 +81,47 @@ func (store *Store) IsSuspended(_ context.Context, id string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// SuspendedSince reports when the suspension of a DAG began, as its flag
+// holds it, or when an empty flag was written.
+func (store *Store) SuspendedSince(_ context.Context, id string) (time.Time, bool, error) {
+	for _, dir := range store.suspendFlagsDirs() {
+		path := filepath.Join(dir, fileName(id))
+		data, err := fileutil.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return time.Time{}, false, err
+		}
+		var flag suspendFlag
+		if json.Unmarshal(data, &flag) == nil && !flag.Since.IsZero() {
+			return flag.Since, true, nil
+		}
+		info, err := fileutil.Stat(path)
+		if err != nil {
+			return time.Time{}, false, err
+		}
+		return info.ModTime(), true, nil
+	}
+	return time.Time{}, false, nil
+}
+
+// writeSuspendFlag writes a flag that holds since, in one atomic write,
+// unless a flag is in place, whose time stays.
+func writeSuspendFlag(path string, since time.Time) error {
+	if _, err := fileutil.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return fileutil.WriteFileAtomic(path, suspendFlagData(since), flagPermission)
+}
+
+// suspendFlagData is the content of a flag of a suspension that began at
+// since.
+func suspendFlagData(since time.Time) []byte {
+	data, _ := json.Marshal(suspendFlag{Since: since.UTC()})
+	return data
 }
 
 // MigrateSuspensionState copies legacy suspension state into primary storage
@@ -113,7 +169,12 @@ func (store *Store) copyLegacySuspendFlags(ctx context.Context, legacyDir string
 		if !isSuspendFlagEntry(entry) {
 			continue
 		}
-		err := fileutil.WriteFileAtomicExclusive(filepath.Join(store.flagsBaseDir, entry.Name()), nil, flagPermission)
+		// The copy keeps when the legacy flag began the suspension.
+		since := time.Now()
+		if info, err := entry.Info(); err == nil {
+			since = info.ModTime()
+		}
+		err := fileutil.WriteFileAtomicExclusive(filepath.Join(store.flagsBaseDir, entry.Name()), suspendFlagData(since), flagPermission)
 		if err != nil && !errors.Is(err, os.ErrExist) {
 			return fmt.Errorf("copy suspend flag %s: %w", entry.Name(), err)
 		}

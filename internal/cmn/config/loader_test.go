@@ -59,6 +59,24 @@ dag_discovery:
 		assert.True(t, cfg.DAGDiscovery.Recursive)
 		assert.True(t, cfg.DAGDiscovery.Symlinks)
 	})
+
+	t.Run("SkipDirectories", func(t *testing.T) {
+		t.Run("YAML", func(t *testing.T) {
+			cfg := loadFromYAML(t, `
+dag_discovery:
+  recursive: true
+  skip_directories:
+    - jobs
+    - builds
+`)
+			assert.Equal(t, []string{"jobs", "builds"}, cfg.DAGDiscovery.SkipDirs)
+		})
+		t.Run("Environment", func(t *testing.T) {
+			t.Setenv("DAGU_DAG_DISCOVERY_SKIP_DIRECTORIES", "./jobs, builds/")
+			cfg := testLoad(t)
+			assert.Equal(t, []string{"jobs", "builds"}, cfg.DAGDiscovery.SkipDirs)
+		})
+	})
 }
 
 func preserveTZEnv(t *testing.T) {
@@ -3072,6 +3090,25 @@ check_updates: true
 	})
 }
 
+func TestLoad_AllowWebUpgrade(t *testing.T) {
+	t.Run("Default", func(t *testing.T) {
+		cfg := loadFromYAML(t, "# empty")
+		assert.False(t, cfg.Server.AllowWebUpgrade)
+	})
+
+	t.Run("Enabled", func(t *testing.T) {
+		cfg := loadFromYAML(t, "allow_web_upgrade: true\n")
+		assert.True(t, cfg.Server.AllowWebUpgrade)
+	})
+
+	t.Run("EnabledFromEnv", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{
+			"DAGU_ALLOW_WEB_UPGRADE": "true",
+		})
+		assert.True(t, cfg.Server.AllowWebUpgrade)
+	})
+}
+
 func TestLoad_Audit(t *testing.T) {
 	t.Run("AuditDefault", func(t *testing.T) {
 		cfg := loadFromYAML(t, "# empty")
@@ -3307,6 +3344,30 @@ func TestLoad_SignalHandling(t *testing.T) {
 	t.Run("DefaultDisabled", func(t *testing.T) {
 		cfg := testLoad(t)
 		assert.False(t, cfg.SignalHandling.EnablePropagation)
+		assert.Zero(t, cfg.SignalHandling.DrainTimeout)
+	})
+
+	t.Run("DrainTimeoutYAML", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+signal_handling:
+  drain_timeout: 5m
+`)
+		assert.Equal(t, 5*time.Minute, cfg.SignalHandling.DrainTimeout)
+	})
+
+	t.Run("DrainTimeoutEnvironment", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{
+			"DAGU_SIGNAL_DRAIN_TIMEOUT": "90s",
+		})
+		assert.Equal(t, 90*time.Second, cfg.SignalHandling.DrainTimeout)
+	})
+
+	t.Run("DrainTimeoutInvalid", func(t *testing.T) {
+		for _, value := range []string{"soon", "-1m"} {
+			cfg := loadFromYAML(t, "signal_handling:\n  drain_timeout: "+value+"\n")
+			assert.Zero(t, cfg.SignalHandling.DrainTimeout, value)
+			assert.Contains(t, cfg.Warnings, "Invalid signal_handling.drain_timeout value: "+value)
+		}
 	})
 
 	t.Run("YAML", func(t *testing.T) {

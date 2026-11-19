@@ -175,18 +175,24 @@ func TestBaseTemplateRendersUpdateStatus(t *testing.T) {
 
 	output := renderBaseTemplate(t, &funcsConfig{
 		UpdateChecker: stubUpdateChecker{status: UpdateStatus{
-			UpdateAvailable: true,
-			LatestVersion:   "v2.1.0",
-			UpgradeCommand:  "brew upgrade dagu",
-			RestartRequired: true,
-			RestartCommand:  `</script><script>alert("injected")</script>`,
+			UpdateAvailable:    true,
+			LatestVersion:      "v2.1.0",
+			UpgradeCommand:     "brew upgrade dagu",
+			InstallMethod:      "homebrew",
+			RestartRequired:    true,
+			RestartCommand:     `</script><script>alert("injected")</script>`,
+			RestartStopsRuns:   true,
+			RestartCanKeepRuns: true,
 		}},
 	})
 
 	assert.Contains(t, output, `updateAvailable: "true" === "true"`)
 	assert.Contains(t, output, `latestVersion: "v2.1.0"`)
 	assert.Contains(t, output, `upgradeCommand: "brew upgrade dagu"`)
+	assert.Contains(t, output, `installMethod: "homebrew"`)
 	assert.Contains(t, output, `restartRequired: "true" === "true"`)
+	assert.Contains(t, output, `restartStopsRuns: "true" === "true"`)
+	assert.Contains(t, output, `restartCanKeepRuns: "true" === "true"`)
 	assert.NotContains(t, output, `</script><script>alert`)
 }
 
@@ -199,6 +205,8 @@ func TestBaseTemplateRendersUpdateStatusWithoutChecker(t *testing.T) {
 	assert.Contains(t, output, `upgradeCommand: ""`)
 	assert.Contains(t, output, `restartRequired: "false" === "true"`)
 	assert.Contains(t, output, `restartCommand: ""`)
+	assert.Contains(t, output, `restartStopsRuns: "false" === "true"`)
+	assert.Contains(t, output, `restartCanKeepRuns: "false" === "true"`)
 }
 
 func TestDefaultFunctionsExposeLicenseGraceEndsAt(t *testing.T) {

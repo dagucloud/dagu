@@ -23,6 +23,7 @@ const REASON_LABELS: Record<string, string> = {
   self_reference: 'Step references its own output',
   unknown_context_field: 'Context field is not defined',
   unknown_const_name: 'Const is not declared',
+  unknown_date_name: 'Date is not declared',
   namespace_unavailable: 'Value is unavailable in this context',
   unknown_env_binding: 'Environment variable is supplied by a run',
 };
@@ -35,6 +36,7 @@ export const DEFECT_REASONS = new Set([
   'self_reference',
   'unknown_context_field',
   'unknown_const_name',
+  'unknown_date_name',
 ]);
 
 export { REASON_LABELS };

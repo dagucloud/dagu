@@ -164,6 +164,8 @@ func (c BrowserClientCertificate) Validate() error {
 type DAGDiscoveryConfig struct {
 	Recursive bool
 	Symlinks  bool
+	// SkipDirs names root-level directories recursive discovery omits.
+	SkipDirs []string
 }
 
 const DefaultWebhookMaxPayloadSize = 1 * 1024 * 1024
@@ -337,6 +339,7 @@ type Server struct {
 	APIBasePath       string
 	Headless          bool
 	CheckUpdates      bool
+	AllowWebUpgrade   bool
 	AccessLog         AccessLogMode // "all", "non-public", or "none" (default)
 	LatestStatusToday bool
 	TLS               *TLSConfig
@@ -792,6 +795,10 @@ type SignalHandlingConfig struct {
 	// a supervising process (server, scheduler, start-all) to the process
 	// groups of running DAG-run subprocesses it launched. Default: false.
 	EnablePropagation bool
+	// DrainTimeout is how long a process stopping on SIGINT or SIGTERM waits
+	// for the DAG runs it started to finish, starting no new ones, before it
+	// stops them or leaves them running. Default: 0, no wait.
+	DrainTimeout time.Duration
 }
 
 // Scheduler represents the scheduler configuration.

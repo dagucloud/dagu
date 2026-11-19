@@ -243,7 +243,7 @@ func (s *Store) Validate(_ context.Context) error {
 }
 
 func (s *Store) groupLock(groupName string) dirlock.DirLock {
-	baseDir := filepath.Join(s.root, groupName)
+	baseDir := s.groupDir(groupName)
 	if lock, ok := s.groupLocks.Load(baseDir); ok {
 		return lock.(dirlock.DirLock)
 	}
@@ -265,7 +265,41 @@ func procRecordName(meta proc.ProcMeta, t time.Time) string {
 }
 
 func (s *Store) filePath(groupName string, meta proc.ProcMeta, t time.Time) string {
-	return filepath.Join(s.root, groupName, meta.Name, procRecordName(meta, t)+procFileExt)
+	return filepath.Join(s.groupDir(groupName), dagDirName(meta.Name), procRecordName(meta, t)+procFileExt)
+}
+
+// dagDirName returns the name of a DAG's directory in a group. A DAG named
+// like the group lock's directory gets its leading dot escaped, so the two
+// never share a directory.
+func dagDirName(dagName string) string {
+	name := fileutil.EscapeName(dagName)
+	if dirlock.IsLockDirectoryName(name) {
+		return "%2E" + name[1:]
+	}
+	return name
+}
+
+// inDAGDir reports whether a proc file at path sits in the directory of
+// dagName: the escaped one, or the raw one that released versions used.
+func inDAGDir(path, dagName string) bool {
+	dir := filepath.Base(filepath.Dir(path))
+	return dir == dagDirName(dagName) || dir == dagName
+}
+
+// groupDir returns the directory of a process group.
+func (s *Store) groupDir(groupName string) string {
+	return filepath.Join(s.root, fileutil.EscapeName(groupName))
+}
+
+// groupDirs returns the directories that may hold a group's proc files.
+// Released versions named the directory after the raw queue name, nested at
+// each path separator, and a run they started may still heartbeat there.
+func (s *Store) groupDirs(groupName string) []string {
+	dir := s.groupDir(groupName)
+	if legacy, ok := fileutil.LegacyEntry(s.root, groupName); ok && filepath.Join(s.root, legacy) != dir {
+		return []string{dir, filepath.Join(s.root, legacy)}
+	}
+	return []string{dir}
 }
 
 func writeProcFile(path string, heartbeatUnix int64, meta proc.ProcMeta) error {
@@ -374,15 +408,25 @@ func removeEmptyProcDirs(dir string) {
 
 // ListEntries returns proc entries for a group.
 func (s *Store) ListEntries(_ context.Context, groupName string) ([]proc.ProcEntry, error) {
-	groupDir := filepath.Join(s.root, groupName)
-	if _, err := fileutil.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	files, err := procFilesInGroup(groupDir)
+	files, err := s.groupFiles(groupName)
 	if err != nil {
 		return nil, err
 	}
 	return s.entriesFromFiles(groupName, files)
+}
+
+// groupFiles returns the proc files of a group from each of its directories.
+func (s *Store) groupFiles(groupName string) ([]string, error) {
+	var files []string
+	for _, dir := range s.groupDirs(groupName) {
+		dirFiles, _, err := procFilesInGroup(dir)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, dirFiles...)
+	}
+	sort.Strings(files)
+	return files, nil
 }
 
 // ListAllEntries returns all proc entries under the store root.
@@ -400,12 +444,7 @@ func (s *Store) ListAllEntries(_ context.Context) ([]proc.ProcEntry, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		groupName := entry.Name()
-		files, err := procFilesInGroup(filepath.Join(s.root, groupName))
-		if err != nil {
-			return nil, err
-		}
-		groupEntries, err := s.entriesFromFiles(groupName, files)
+		groupEntries, err := s.entriesInGroupDir(filepath.Join(s.root, entry.Name()), fileutil.UnescapeName(entry.Name()))
 		if err != nil {
 			return nil, err
 		}
@@ -414,13 +453,31 @@ func (s *Store) ListAllEntries(_ context.Context) ([]proc.ProcEntry, error) {
 	return entries, nil
 }
 
+// entriesInGroupDir returns the entries of the group whose directory is dir,
+// and of the groups nested in it, where released versions kept a queue name
+// with a path separator.
+func (s *Store) entriesInGroupDir(dir, groupName string) ([]proc.ProcEntry, error) {
+	files, nested, err := procFilesInGroup(dir)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.entriesFromFiles(groupName, files)
+	if err != nil {
+		return nil, err
+	}
+	for _, nestedDir := range nested {
+		nestedEntries, err := s.entriesInGroupDir(nestedDir, groupName+"/"+filepath.Base(nestedDir))
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, nestedEntries...)
+	}
+	return entries, nil
+}
+
 // LatestHeartbeat returns the latest heartbeat for dagRun.
 func (s *Store) LatestHeartbeat(_ context.Context, groupName string, dagRun ir.DAGRunRef) (*proc.ProcHeartbeat, error) {
-	groupDir := filepath.Join(s.root, groupName)
-	if _, err := fileutil.Stat(groupDir); errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	files, err := procFilesInGroup(groupDir)
+	files, err := s.groupFiles(groupName)
 	if err != nil {
 		return nil, err
 	}
@@ -454,35 +511,44 @@ func (s *Store) LatestHeartbeat(_ context.Context, groupName string, dagRun ir.D
 	return latest, nil
 }
 
-func procFilesInGroup(groupDir string) ([]string, error) {
+// procFilesInGroup returns the proc files in a group directory, and the
+// directories in it that hold nested groups.
+func procFilesInGroup(groupDir string) (files, nested []string, err error) {
 	dagEntries, err := fileutil.ReadDir(groupDir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
+			return nil, nil, nil
 		}
-		return nil, err
+		return nil, nil, err
 	}
-	var files []string
 	for _, dagEntry := range dagEntries {
-		if !dagEntry.IsDir() || dagEntry.Name() == "" || dagEntry.Name()[0] == '.' {
+		if !dagEntry.IsDir() || dirlock.IsLockDirectoryName(dagEntry.Name()) {
 			continue
 		}
-		procEntries, err := fileutil.ReadDir(filepath.Join(groupDir, dagEntry.Name()))
+		dagDir := filepath.Join(groupDir, dagEntry.Name())
+		procEntries, err := fileutil.ReadDir(dagDir)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			return nil, err
+			return nil, nil, err
 		}
+		holdsGroups := false
 		for _, procEntry := range procEntries {
-			if procEntry.IsDir() || filepath.Ext(procEntry.Name()) != procFileExt {
+			if procEntry.IsDir() {
+				holdsGroups = holdsGroups || !dirlock.IsLockDirectoryName(procEntry.Name())
 				continue
 			}
-			files = append(files, filepath.Join(groupDir, dagEntry.Name(), procEntry.Name()))
+			if filepath.Ext(procEntry.Name()) == procFileExt {
+				files = append(files, filepath.Join(dagDir, procEntry.Name()))
+			}
+		}
+		if holdsGroups {
+			nested = append(nested, dagDir)
 		}
 	}
 	sort.Strings(files)
-	return files, nil
+	return files, nested, nil
 }
 
 func (s *Store) entriesFromFiles(groupName string, files []string) ([]proc.ProcEntry, error) {
@@ -509,7 +575,7 @@ func (s *Store) entriesFromFiles(groupName string, files []string) ([]proc.ProcE
 // A name that cannot be parsed is a possible match, because attributing such a
 // file needs its contents.
 func procFileMayBelongTo(path string, dagRun ir.DAGRunRef) bool {
-	if filepath.Base(filepath.Dir(path)) != dagRun.Name {
+	if !inDAGDir(path, dagRun.Name) {
 		return false
 	}
 	parsed, err := parseProcFileName(filepath.Base(path))
@@ -641,7 +707,7 @@ func procMetaFromData(path string, parsedName procFileName, payload []byte, hear
 		if parsedName.dagRunID != meta.DAGRunID || parsedName.attemptID != meta.AttemptID {
 			return proc.ProcMeta{}, fmt.Errorf("%w: proc filename/body mismatch for %s", errInvalidProcFile, path)
 		}
-		if filepath.Base(filepath.Dir(path)) != meta.Name {
+		if !inDAGDir(path, meta.Name) {
 			return proc.ProcMeta{}, fmt.Errorf("%w: proc path/body DAG name mismatch for %s", errInvalidProcFile, path)
 		}
 		return meta, nil

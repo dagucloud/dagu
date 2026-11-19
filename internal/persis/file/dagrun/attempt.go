@@ -6,6 +6,8 @@ package dagrun
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,11 +15,14 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/artifactpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -26,6 +31,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/artifact"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/statusfile"
 )
 
 // Error definitions for common issues
@@ -50,6 +56,15 @@ const OutputsFile = "outputs.json"
 
 // MessagesDir is the directory where per-step LLM messages are stored.
 const MessagesDir = "messages"
+
+// shortenedMessagesName matches the file name that stepMessagesName gives a
+// step name too long for a file name.
+var shortenedMessagesName = regexp.MustCompile(`(?i)%-[0-9a-f]{32}\.json$`)
+
+// maxStepMessagesNameBytes keeps a messages file name, plus the ".tmp.<n>"
+// suffix of the temporary file that an atomic write adds, within the 255
+// bytes that common file systems allow.
+const maxStepMessagesNameBytes = 240
 
 // CancelRequestedFlag is a special flag used to indicate that a cancel request has been made.
 const CancelRequestedFlag = "CANCEL_REQUESTED"
@@ -268,7 +283,7 @@ func (att *Attempt) Write(ctx context.Context, status ir.DAGRunStatus) error {
 			return fmt.Errorf("%w: reopen status file: %w", ErrWriteFailed, err)
 		}
 	}
-	if err := att.writer.reopenIfReplaced(); err != nil {
+	if err := att.writer.prepareAppend(); err != nil {
 		return fmt.Errorf("%w: reopen status file: %w", ErrWriteFailed, err)
 	}
 
@@ -512,47 +527,11 @@ func (att *Attempt) compactStatusLocked(ctx context.Context, last *ir.DAGRunStat
 // statusForCompactionLocked reads the current file and reports whether a
 // replacement would change its compacted contents.
 func (att *Attempt) statusForCompactionLocked(ctx context.Context) (*ir.DAGRunStatus, bool, error) {
-	f, err := openStatusFileWithRetry(att.file)
+	latest, err := readLatestStatus(ctx, att.file)
 	if err != nil {
-		return nil, false, fmt.Errorf("%w: %w", ErrReadFailed, err)
+		return nil, false, err
 	}
-	defer func() {
-		_ = f.Close()
-	}()
-
-	var (
-		offset          int64
-		result          *ir.DAGRunStatus
-		validLineCount  int
-		invalidLineSeen bool
-	)
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, false, fmt.Errorf("%w: %w", ErrReadFailed, err)
-		}
-		line, nextOffset, err := readLineFrom(f, offset)
-		if err == io.EOF {
-			if result == nil {
-				return nil, false, err
-			}
-			return result, invalidLineSeen || validLineCount > 1, nil
-		}
-		if err != nil {
-			return nil, false, fmt.Errorf("%w: %w", ErrReadFailed, err)
-		}
-
-		offset = nextOffset
-		if len(line) == 0 {
-			continue
-		}
-		status, err := ir.StatusFromJSON(string(line))
-		if err != nil {
-			invalidLineSeen = true
-			continue
-		}
-		result = status
-		validLineCount++
-	}
+	return latest.Status, !latest.OnlyRecord, nil
 }
 
 // safeRename safely replaces the target file with the source file,
@@ -615,41 +594,32 @@ func ParseStatusFile(file string) (*ir.DAGRunStatus, error) {
 }
 
 func parseStatusFileWithContext(ctx context.Context, file string) (*ir.DAGRunStatus, error) {
+	latest, err := readLatestStatus(ctx, file)
+	if err != nil {
+		return nil, err
+	}
+	return latest.Status, nil
+}
+
+// readLatestStatus reads the newest status in the file. It returns io.EOF when
+// the file holds none.
+func readLatestStatus(ctx context.Context, file string) (statusfile.Latest, error) {
 	f, err := openStatusFileWithRetry(file)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrReadFailed, err)
+		return statusfile.Latest{}, fmt.Errorf("%w: %w", ErrReadFailed, err)
 	}
 	defer func() {
 		_ = f.Close()
 	}()
 	info, err := f.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrReadFailed, err)
+		return statusfile.Latest{}, fmt.Errorf("%w: %w", ErrReadFailed, err)
 	}
-
-	// The file is append-only, so the latest status is its last valid line.
-	// Reading from the end decodes only that line, however many snapshots
-	// came before it.
-	var result *ir.DAGRunStatus
-	err = fileutil.ReadLinesBackward(ctx, f, info.Size(), func(line []byte, terminated bool) (bool, error) {
-		// A line without its newline is still being written.
-		if !terminated || len(line) == 0 {
-			return false, nil
-		}
-		status, err := ir.StatusFromJSON(string(line))
-		if err != nil {
-			return false, nil
-		}
-		result = status
-		return true, nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrReadFailed, err)
+	latest, err := statusfile.ReadLatest(ctx, f, info.Size())
+	if err != nil && !errors.Is(err, io.EOF) {
+		return statusfile.Latest{}, fmt.Errorf("%w: %w", ErrReadFailed, err)
 	}
-	if result == nil {
-		return nil, io.EOF
-	}
-	return result, nil
+	return latest, err
 }
 
 func openStatusFileWithRetry(path string) (*os.File, error) {
@@ -808,35 +778,6 @@ func (att *Attempt) dagRunDir() string {
 	return filepath.Dir(filepath.Dir(att.file))
 }
 
-// readLineFrom reads a line from the file starting at the specified offset.
-// It returns the line, the new offset, and any error encountered.
-// The buffer is used to reduce allocations.
-func readLineFrom(f *os.File, offset int64) ([]byte, int64, error) {
-	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return nil, offset, err
-	}
-
-	reader := bufio.NewReader(f)
-	var line []byte
-	var err error
-
-	// Read the line
-	line, err = reader.ReadBytes('\n')
-	if err != nil && err != io.EOF {
-		return nil, offset, err
-	}
-
-	// Calculate the new offset
-	newOffset := offset + int64(len(line))
-
-	// Trim the newline character if present
-	if len(line) > 0 && line[len(line)-1] == '\n' {
-		line = line[:len(line)-1]
-	}
-
-	return line, newOffset, err
-}
-
 // WriteOutputs writes the collected step outputs to outputs.json.
 // If outputs is nil or has no output entries, no file is created.
 func (att *Attempt) WriteOutputs(_ context.Context, outputs *ir.DAGRunOutputs) error {
@@ -900,7 +841,7 @@ func (att *Attempt) WriteStepMessages(_ context.Context, stepName string, messag
 		return fmt.Errorf("failed to create messages directory: %w", err)
 	}
 
-	file := filepath.Join(messagesDir, stepName+".json")
+	file := filepath.Join(messagesDir, stepMessagesName(stepName))
 	data, err := json.MarshalIndent(messages, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal messages: %w", err)
@@ -918,9 +859,22 @@ func (att *Attempt) WriteStepMessages(_ context.Context, stepName string, messag
 // Returns nil if no messages exist for the step.
 func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.LLMMessage, error) {
 	// Read from dag-run level (parent of attempt directory) for retry persistence
-	file := filepath.Join(att.dagRunDir(), MessagesDir, stepName+".json")
+	dir := filepath.Join(att.dagRunDir(), MessagesDir)
+	file := filepath.Join(dir, stepMessagesName(stepName))
 
 	data, err := fileutil.ReadFile(file)
+	if os.IsNotExist(err) {
+		// Earlier versions joined the raw step name to dir, which cleaned it,
+		// so a step such as ./fetch kept its messages in fetch.json. A raw
+		// name with a ".." segment or in the shortened form names another
+		// step's file.
+		rel, relErr := filepath.Rel(dir, filepath.Join(dir, stepName+".json"))
+		if relErr == nil && !slices.Contains(strings.Split(filepath.ToSlash(stepName), "/"), "..") && !shortenedMessagesName.MatchString(rel) {
+			if raw, ok := fileutil.LegacyEntry(dir, rel); ok {
+				data, err = fileutil.ReadFile(filepath.Join(dir, raw))
+			}
+		}
+	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -934,4 +888,22 @@ func (att *Attempt) ReadStepMessages(_ context.Context, stepName string) ([]ir.L
 	}
 
 	return messages, nil
+}
+
+// stepMessagesName returns the name of the file that holds a step's messages.
+// A name that escaping makes too long for a file name is cut short and ends in
+// "%-" and a hash of the step name. EscapeName writes every "%" as %XX, so no
+// other step's file name holds "%-".
+func stepMessagesName(stepName string) string {
+	name := fileutil.EscapeName(stepName + ".json")
+	if len(name) <= maxStepMessagesNameBytes {
+		return name
+	}
+	sum := sha256.Sum256([]byte(stepName))
+	suffix := "%-" + hex.EncodeToString(sum[:16]) + ".json"
+	cut := maxStepMessagesNameBytes - len(suffix)
+	for cut > 0 && !utf8.RuneStart(name[cut]) {
+		cut--
+	}
+	return name[:cut] + suffix
 }

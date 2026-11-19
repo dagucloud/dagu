@@ -97,6 +97,10 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 	}{
 		{name: "viewer lists DAGs", method: http.MethodGet, path: "/api/v1/dags", user: viewer, wantCall: true},
 		{name: "viewer reads a step log", method: http.MethodGet, path: "/api/v1/dag-runs/deploy/run-1/steps/build/log", user: viewer, wantCall: true},
+		{name: "viewer reads missed slots", method: http.MethodGet, path: "/api/v1/dags/deploy/missed-slots", user: viewer, wantCall: true},
+		{name: "viewer cannot dismiss missed slots", method: http.MethodPost, path: "/api/v1/dags/deploy/missed-slots/dismissal", user: viewer, permissions: writeAndRun},
+		{name: "operator dismisses missed slots", method: http.MethodPost, path: "/api/v1/dags/deploy/missed-slots/dismissal", user: operator, permissions: writeAndRun, wantCall: true},
+		{name: "dismissal needs run permission", method: http.MethodPost, path: "/api/v1/dags/deploy/missed-slots/dismissal", user: admin, permissions: writeOnly},
 		{name: "viewer cannot start a run", method: http.MethodPost, path: "/api/v1/dags/deploy/start", user: viewer, permissions: writeAndRun},
 		{name: "operator starts a run", method: http.MethodPost, path: "/api/v1/dags/deploy/start", user: operator, permissions: writeAndRun, wantCall: true},
 		{name: "run permission applies to admins", method: http.MethodPost, path: "/api/v1/dags/deploy/start", user: admin, permissions: writeOnly},

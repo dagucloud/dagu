@@ -1,0 +1,5 @@
+schedule: "0 2 * * *"
+dates:
+  hours: { each: 1h }
+steps:
+  - run: echo load

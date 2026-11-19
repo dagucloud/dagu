@@ -656,6 +656,7 @@ describe('RunChip navigation', () => {
     expect(useRunHistoryMock).toHaveBeenLastCalledWith({
       enabled: true,
       includeEphemeral: true,
+      includeBackfill: false,
       pollTestRuns: false,
     });
     expect(state.run.select).toHaveBeenCalledWith('r1');

@@ -1,0 +1,5 @@
+schedule: "0 2 * * *"
+dates:
+  day: { timezone: Mars/Olympus }
+steps:
+  - run: echo load

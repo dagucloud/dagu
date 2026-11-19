@@ -124,8 +124,12 @@ function RunLink({
 }): React.ReactElement {
   const target = { dag: name, run: run.dagRunId };
   if (direct) {
+    // The page opens on the Actions tab, where the run waits.
     return (
-      <Link to={peekPageURL(target, remoteNode)} className={className}>
+      <Link
+        to={peekPageURL({ ...target, dock: 'actions' }, remoteNode)}
+        className={className}
+      >
         {children}
       </Link>
     );

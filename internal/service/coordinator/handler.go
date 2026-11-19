@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"maps"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -56,6 +55,7 @@ type heartbeatInfo struct {
 	labels          map[string]string
 	stats           *coordinatorv1.WorkerStats
 	lastHeartbeatAt time.Time
+	version         string
 }
 
 // defaultStaleHeartbeatThreshold is the default duration after which a worker's heartbeat is considered stale.
@@ -1506,6 +1506,7 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 				Labels:          hb.labels,
 				LastHeartbeatAt: hb.lastHeartbeatAt.Unix(),
 				HealthStatus:    calculateHealthStatus(now.Sub(hb.lastHeartbeatAt)),
+				Version:         hb.version,
 			}
 			if hb.stats != nil {
 				workerInfo.TotalPollers = hb.stats.TotalPollers
@@ -1531,6 +1532,7 @@ func (h *Handler) GetWorkers(_ context.Context, _ *coordinatorv1.GetWorkersReque
 			Labels:          hb.Labels,
 			LastHeartbeatAt: hb.LastHeartbeatTime().Unix(),
 			HealthStatus:    calculateHealthStatus(now.Sub(hb.LastHeartbeatTime())),
+			Version:         hb.Version,
 		}
 
 		if hb.Stats != nil {
@@ -1574,6 +1576,7 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 		labels:          req.Labels,
 		stats:           req.Stats,
 		lastHeartbeatAt: receivedAt,
+		version:         req.Version,
 	}
 	h.mu.Unlock()
 
@@ -1585,6 +1588,7 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 			LastHeartbeatAt: receivedAt.UnixMilli(),
 			Host:            req.Host,
 			Machine:         convert.ProtoToMachineSample(req.Machine),
+			Version:         req.Version,
 		}); err != nil {
 			return nil, status.Error(codes.Internal, "failed to persist worker heartbeat: "+err.Error())
 		}
@@ -2230,6 +2234,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 		}
 		if bootstrapped {
 			h.transformLogPaths(dagRunStatus)
+			h.keepLegacyLogPaths(nil, dagRunStatus)
 			if err := h.transformArtifactPaths(ctx, bootstrappedAttempt, nil, dagRunStatus); err != nil {
 				return nil, status.Error(codes.Internal, "failed to resolve artifact path: "+err.Error())
 			}
@@ -2286,6 +2291,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	if err := h.transformArtifactPaths(ctx, latestAttempt, latestStatus, dagRunStatus); err != nil {
 		return nil, status.Error(codes.Internal, "failed to resolve artifact path: "+err.Error())
 	}
+	h.keepLegacyLogPaths(latestStatus, dagRunStatus)
 	if len(latestStatus.Labels) > 0 {
 		dagRunStatus.Labels = append([]string(nil), latestStatus.Labels...)
 	}
@@ -2567,75 +2573,112 @@ func (h *Handler) sameAttemptCancellationRequested(
 	return aborting
 }
 
-// transformLogPaths rewrites worker-local log paths to coordinator paths.
+// transformLogPaths rewrites worker-local log paths to coordinator paths, as
+// this version names them. keepLegacyLogPaths then corrects the paths of a
+// run in flight across an upgrade.
 func (h *Handler) transformLogPaths(status *ir.DAGRunStatus) {
 	if h.logDir == "" {
 		return
 	}
+	dagName, dagRunID, attemptID := logAttempt(status)
+	stdout := StreamTypeToExtension(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT)
+	stderr := StreamTypeToExtension(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR)
+	logNodes(status, func(node *ir.Node, name string) {
+		node.Stdout = attemptLogFile(h.logDir, dagName, dagRunID, attemptID, stepLogFile(name, stdout))
+		node.Stderr = attemptLogFile(h.logDir, dagName, dagRunID, attemptID, stepLogFile(name, stderr))
+	})
+	status.Log = attemptLogFile(h.logDir, dagName, dagRunID, attemptID, schedulerLogFile)
+}
 
-	dagName := status.Name
-	dagRunID := status.DAGRunID
-	attemptID := status.AttemptID
-
-	// For sub-DAGs, logs are stored under root DAG's directory
-	if status.Root.ID != "" && status.Root.ID != dagRunID {
-		dagName = status.Root.Name
-		dagRunID = status.Root.ID
+// keepLegacyLogPaths points the log paths of a run in flight across an
+// upgrade back at the files a released version named, which the log handler
+// goes on writing (see attemptLogPath). Only a path that latest, the status
+// stored before, does not hold already is checked, so a run this version
+// started reaches the file system on its first report only. A nil latest
+// checks every path.
+func (h *Handler) keepLegacyLogPaths(latest, status *ir.DAGRunStatus) {
+	if h.logDir == "" {
+		return
 	}
+	stored := map[string]*ir.Node{}
+	if latest != nil {
+		logNodes(latest, func(node *ir.Node, name string) { stored[name] = node })
+	}
+	dagName, dagRunID, attemptID := logAttempt(status)
+	names := logStepNames(status)
+	steps := func() []string { return names }
+	stdout := StreamTypeToExtension(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT)
+	stderr := StreamTypeToExtension(coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR)
+	logNodes(status, func(node *ir.Node, name string) {
+		prev := stored[name]
+		if prev == nil || prev.Stdout != node.Stdout {
+			node.Stdout = stepLogPath(h.logDir, dagName, dagRunID, attemptID, name, stdout, steps)
+		}
+		if prev == nil || prev.Stderr != node.Stderr {
+			node.Stderr = stepLogPath(h.logDir, dagName, dagRunID, attemptID, name, stderr, steps)
+		}
+	})
+	if latest == nil || latest.Log != status.Log {
+		status.Log = schedulerLogPath(h.logDir, dagName, dagRunID, attemptID)
+	}
+}
 
+// logAttempt returns the DAG, run, and attempt that name the coordinator
+// directory of a run's logs. A sub-DAG run keeps its logs under its root run.
+func logAttempt(status *ir.DAGRunStatus) (dagName, dagRunID, attemptID string) {
+	dagName, dagRunID, attemptID = status.Name, status.DAGRunID, status.AttemptID
+	if status.Root.ID != "" && status.Root.ID != dagRunID {
+		dagName, dagRunID = status.Root.Name, status.Root.ID
+	}
 	// Use dagRunID as attemptID if not set (matches log_handler.go logic)
 	if attemptID == "" {
 		attemptID = status.DAGRunID
 	}
+	return dagName, dagRunID, attemptID
+}
 
-	// Helper to compute coordinator log path
-	computePath := func(stepName string, streamType coordinatorv1.LogStreamType) string {
-		ext := StreamTypeToExtension(streamType)
-		filename := fmt.Sprintf("%s.%s", fileutil.SafeName(stepName), ext)
-		return filepath.Join(
-			h.logDir,
-			fileutil.SafeName(dagName),
-			fileutil.SafeName(dagRunID),
-			fileutil.SafeName(attemptID),
-			filename,
-		)
-	}
-
-	// Transform node log paths
-	transformNode := func(node *ir.Node, fallbackName string) {
+// logNodes calls fn with each node of a run and the name the coordinator
+// keeps its logs under.
+func logNodes(status *ir.DAGRunStatus, fn func(node *ir.Node, name string)) {
+	visit := func(node *ir.Node, fallbackName string) {
 		if node == nil {
 			return
 		}
 		// Use step name, or fallback for handler nodes with empty names
-		stepName := node.Step.Name
-		if stepName == "" {
-			stepName = fallbackName
+		name := node.Step.Name
+		if name == "" {
+			name = fallbackName
 		}
-		node.Stdout = computePath(stepName, coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT)
-		node.Stderr = computePath(stepName, coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR)
+		fn(node, name)
 	}
-
-	// Transform all regular nodes
 	for _, node := range status.Nodes {
-		transformNode(node, "step")
+		visit(node, "step")
 	}
+	visit(status.OnInit, "on_init")
+	visit(status.OnExit, "on_exit")
+	visit(status.OnSuccess, "on_success")
+	visit(status.OnFailure, "on_failure")
+	visit(status.OnAbort, "on_abort")
+	visit(status.OnWait, "on_wait")
+}
 
-	// Transform handler nodes with explicit fallback names
-	transformNode(status.OnInit, "on_init")
-	transformNode(status.OnExit, "on_exit")
-	transformNode(status.OnSuccess, "on_success")
-	transformNode(status.OnFailure, "on_failure")
-	transformNode(status.OnAbort, "on_abort")
-	transformNode(status.OnWait, "on_wait")
+// logStepNames returns the names the coordinator keeps the logs of a run's
+// steps under.
+func logStepNames(status *ir.DAGRunStatus) []string {
+	var names []string
+	logNodes(status, func(_ *ir.Node, name string) { names = append(names, name) })
+	return names
+}
 
-	// Transform scheduler log path
-	status.Log = filepath.Join(
-		h.logDir,
-		fileutil.SafeName(dagName),
-		fileutil.SafeName(dagRunID),
-		fileutil.SafeName(attemptID),
-		"scheduler.log",
-	)
+// runLogStepNames returns the names the coordinator keeps the logs of the
+// steps of a chunk's run under, or none when the run cannot be read.
+func (h *Handler) runLogStepNames(ctx context.Context, chunk *coordinatorv1.LogChunk) []string {
+	root := ir.DAGRunRef{Name: chunk.RootDagRunName, ID: chunk.RootDagRunId}
+	_, runStatus, err := h.resolveLatestAttempt(ctx, chunk.DagName, chunk.DagRunId, root)
+	if err != nil || runStatus == nil {
+		return nil
+	}
+	return logStepNames(runStatus)
 }
 
 // transformArtifactPaths rewrites worker-local artifact directories to coordinator paths.
@@ -2860,6 +2903,7 @@ func (h *Handler) StreamLogs(stream coordinatorv1.CoordinatorService_StreamLogsS
 
 	// Delegate to the log handler
 	logHandler := newLogHandler(h.logDir)
+	logHandler.stepNames = func(chunk *coordinatorv1.LogChunk) []string { return h.runLogStepNames(stream.Context(), chunk) }
 	if h.dagRunLeaseStore != nil {
 		logHandler.attemptValidator = h.validateAttempt
 	}

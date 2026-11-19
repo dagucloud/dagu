@@ -360,6 +360,13 @@ func secretReferenceDeclared(dag *ir.DAG, ref secretref.Ref) bool {
 			return true
 		}
 	}
+	// SSH credential refs are matched by ref alone; their names only label
+	// the field that uses them.
+	for _, declared := range dag.CredentialRefs {
+		if declared.Ref == ref.Ref {
+			return true
+		}
+	}
 	return false
 }
 

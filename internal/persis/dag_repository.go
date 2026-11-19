@@ -6,6 +6,7 @@ package persis
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -157,6 +158,12 @@ func (r *DAGRepository) SetSuspended(ctx context.Context, id string, suspended b
 
 func (r *DAGRepository) IsSuspended(ctx context.Context, id string) (bool, error) {
 	return r.store.IsSuspended(ctx, id)
+}
+
+// SuspendedSince reports when the suspension of a DAG began, or false when
+// the DAG is not suspended.
+func (r *DAGRepository) SuspendedSince(ctx context.Context, id string) (time.Time, bool, error) {
+	return r.store.SuspendedSince(ctx, id)
 }
 
 // MigrateSuspensionState makes legacy suspension state available in primary storage

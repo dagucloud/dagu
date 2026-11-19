@@ -7,6 +7,7 @@ import (
 	"archive/zip"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,27 +38,16 @@ func seedForeachRun(t *testing.T) foreachFixture {
 	logDir := t.TempDir()
 	stepLog := filepath.Join(logDir, "each.out")
 	require.NoError(t, os.WriteFile(stepLog, []byte(`{"summary":{}}`), 0o600))
-	stepDir := logpath.ForeachStepDir(stepLog, "each")
+	stepDir := logpath.ForeachStepDir(filepath.Dir(stepLog), "each", nil)
 
-	writeJSON := func(path string, v any) {
-		data, err := json.Marshal(v)
-		require.NoError(t, err)
-		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
-		require.NoError(t, os.WriteFile(path, data, 0o600))
-	}
-	writeFile := func(path, content string) {
-		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
-		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
-	}
-
-	writeJSON(filepath.Join(stepDir, logpath.ForeachItemsFile), ir.ForeachItems{Total: 4, Items: []ir.ForeachItemRef{
+	writeJSON(t, filepath.Join(stepDir, logpath.ForeachItemsFile), ir.ForeachItems{Total: 4, Items: []ir.ForeachItemRef{
 		{Index: 0, Key: "a"}, {Index: 1, Key: "b"}, {Index: 2, Key: "c"}, {Index: 3, Key: "d"},
 	}})
-	writeJSON(filepath.Join(stepDir, "3", logpath.ForeachItemStatusFile), ir.ForeachItemStatus{
+	writeJSON(t, filepath.Join(stepDir, "3", logpath.ForeachItemStatusFile), ir.ForeachItemStatus{
 		Index: 3, Key: "d", Status: ir.NodeRunning, StartedAt: "2026-10-07T00:00:00Z",
 		Steps: []ir.ForeachBodyStepStatus{{Name: "body", ID: "body", Status: ir.NodeRetrying, RetryCount: 1}},
 	})
-	writeJSON(filepath.Join(stepDir, "0", logpath.ForeachItemStatusFile), ir.ForeachItemStatus{
+	writeJSON(t, filepath.Join(stepDir, "0", logpath.ForeachItemStatusFile), ir.ForeachItemStatus{
 		Index: 0, Key: "a", Status: ir.NodeFailed, Error: "exit status 3",
 		StartedAt: "2026-10-07T00:00:00Z", FinishedAt: "2026-10-07T00:00:02Z",
 		Steps: []ir.ForeachBodyStepStatus{{
@@ -65,9 +55,9 @@ func seedForeachRun(t *testing.T) foreachFixture {
 			Stdout: "body.out", Stderr: "body.err",
 		}},
 	})
-	writeFile(filepath.Join(stepDir, "0", "body.out"), "line 1\nline 2\nline 3\n")
-	writeFile(filepath.Join(stepDir, "0", "body.err"), "real cause for a\n")
-	writeJSON(filepath.Join(stepDir, "1", logpath.ForeachItemStatusFile), ir.ForeachItemStatus{
+	writeFile(t, filepath.Join(stepDir, "0", "body.out"), "line 1\nline 2\nline 3\n")
+	writeFile(t, filepath.Join(stepDir, "0", "body.err"), "real cause for a\n")
+	writeJSON(t, filepath.Join(stepDir, "1", logpath.ForeachItemStatusFile), ir.ForeachItemStatus{
 		Index: 1, Key: "b", Status: ir.NodeSucceeded,
 		Steps: []ir.ForeachBodyStepStatus{
 			{
@@ -81,14 +71,14 @@ func seedForeachRun(t *testing.T) foreachFixture {
 			{Name: "inner", Status: ir.NodeSucceeded, Foreach: true, Stdout: "inner.out", Stderr: "inner.err"},
 		},
 	})
-	writeFile(filepath.Join(stepDir, "1", "body.out"), "item b\n")
+	writeFile(t, filepath.Join(stepDir, "1", "body.out"), "item b\n")
 	innerDir := filepath.Join(stepDir, "1", logpath.ForeachLogDirName, "inner")
-	writeJSON(filepath.Join(innerDir, logpath.ForeachItemsFile), ir.ForeachItems{Total: 1, Items: []ir.ForeachItemRef{{Index: 0, Key: "0"}}})
-	writeJSON(filepath.Join(innerDir, "0", logpath.ForeachItemStatusFile), ir.ForeachItemStatus{
+	writeJSON(t, filepath.Join(innerDir, logpath.ForeachItemsFile), ir.ForeachItems{Total: 1, Items: []ir.ForeachItemRef{{Index: 0, Key: "0"}}})
+	writeJSON(t, filepath.Join(innerDir, "0", logpath.ForeachItemStatusFile), ir.ForeachItemStatus{
 		Index: 0, Key: "0", Status: ir.NodeSucceeded,
 		Steps: []ir.ForeachBodyStepStatus{{Name: "deep", Status: ir.NodeSucceeded, Stdout: "deep.out"}},
 	})
-	writeFile(filepath.Join(innerDir, "0", "deep.out"), "deep output\n")
+	writeFile(t, filepath.Join(innerDir, "0", "deep.out"), "deep output\n")
 
 	dag := &ir.DAG{Name: "foreach-api", Steps: []ir.Step{{
 		Name:           "each",
@@ -119,6 +109,19 @@ func seedForeachRun(t *testing.T) foreachFixture {
 		require.NoError(t, attempt.Close(server.Context))
 	}
 	return foreachFixture{server: server, dagName: dag.Name, stepDir: stepDir}
+}
+
+func writeJSON(t *testing.T, path string, v any) {
+	t.Helper()
+	data, err := json.Marshal(v)
+	require.NoError(t, err)
+	writeFile(t, path, string(data))
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 }
 
 func (f foreachFixture) get(t *testing.T, path string, want int) *test.Response {
@@ -266,6 +269,45 @@ func TestForeachItems(t *testing.T) {
 		require.Contains(t, names, "001-each/foreach/0/body.err")
 		require.Contains(t, names, "001-each/foreach/1/foreach/inner/0/deep.out")
 	})
+}
+
+// The items of a nested foreach stay reachable through the URLs a client
+// builds when the body step's name holds characters a file name escapes.
+func TestForeachNestedItemsOfEscapedStep(t *testing.T) {
+	f := seedForeachRun(t)
+	const inner = "inner step.v2"
+	itemDir := filepath.Join(f.stepDir, "1")
+	writeJSON(t, filepath.Join(itemDir, logpath.ForeachItemStatusFile), ir.ForeachItemStatus{
+		Index: 1, Key: "b", Status: ir.NodeSucceeded,
+		Steps: []ir.ForeachBodyStepStatus{{Name: inner, Status: ir.NodeSucceeded, Foreach: true}},
+	})
+	// A run of this version marks the foreach directory it writes.
+	writeFile(t, filepath.Join(itemDir, logpath.ForeachLogDirName, logpath.ForeachKeysFile), "")
+	innerDir := logpath.ForeachStepDir(itemDir, inner, nil)
+	writeJSON(t, filepath.Join(innerDir, logpath.ForeachItemsFile), ir.ForeachItems{Total: 1, Items: []ir.ForeachItemRef{{Index: 0, Key: "0"}}})
+	writeJSON(t, filepath.Join(innerDir, "0", logpath.ForeachItemStatusFile), ir.ForeachItemStatus{
+		Index: 0, Key: "0", Status: ir.NodeSucceeded,
+		Steps: []ir.ForeachBodyStepStatus{{Name: "deep", Status: ir.NodeSucceeded, Stdout: "deep.out"}},
+	})
+	writeFile(t, filepath.Join(innerDir, "0", "deep.out"), "deep output\n")
+
+	var item api.ForeachItem
+	f.get(t, "/steps/each/foreach/1?remoteNode=local", http.StatusOK).Unmarshal(t, &item)
+	require.Len(t, item.Steps, 1)
+	require.NotNil(t, item.Steps[0].ForeachParent)
+
+	var list api.ForeachItemList
+	f.get(t, "/steps/each/foreach?remoteNode=local&parent="+url.QueryEscape(*item.Steps[0].ForeachParent), http.StatusOK).Unmarshal(t, &list)
+	require.Len(t, list.Items, 1)
+	nested := url.PathEscape(list.Items[0].Item)
+
+	var detail api.ForeachItem
+	f.get(t, "/steps/each/foreach/"+nested+"?remoteNode=local", http.StatusOK).Unmarshal(t, &detail)
+	require.Equal(t, "deep", detail.Steps[0].Name)
+
+	var log api.Log
+	f.get(t, "/steps/each/foreach/"+nested+"/steps/deep/log?remoteNode=local", http.StatusOK).Unmarshal(t, &log)
+	require.Equal(t, "deep output", log.Content)
 }
 
 func zipEntryNames(t *testing.T, body string) []string {

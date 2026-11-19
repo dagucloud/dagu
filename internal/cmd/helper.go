@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/rundates"
 	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -91,6 +92,21 @@ type runSlot struct {
 	// operatorChosen reports a slot named with --scheduled-at, not by the
 	// scheduler.
 	operatorChosen bool
+	// isDefault reports the default slot of a run that named none.
+	isDefault bool
+}
+
+// withDefaultSlot gives a run that names no slot the default slot, which a
+// DAG with dates gets so that its dates follow its schedule.
+func withDefaultSlot(ctx *Context, dag *ir.DAG, profile string, slot runSlot) runSlot {
+	if slot.scheduleTime != "" {
+		return slot
+	}
+	def, ok := rundates.DefaultSlot(dag, profile, ctx.Config.Core.Location, spec.NewCalendarSource(ctx.Config.Paths.CalendarsDir), time.Now())
+	if !ok {
+		return slot
+	}
+	return runSlot{scheduleTime: def.ScheduleTime, window: def.Window, isDefault: true}
 }
 
 // runSlotParams reads the slot a run is started for: --schedule-time, which
@@ -140,6 +156,62 @@ func runSlotParams(ctx *Context, dag *ir.DAG, profile string, allowFuture bool) 
 		window:         slot.Window,
 		operatorChosen: true,
 	}, nil
+}
+
+// slotDates resolves the dates of a run being created for slot. An error
+// refuses the run before it exists.
+func slotDates(ctx *Context, dag *ir.DAG, profile string, slot runSlot) ([]ir.DateValue, error) {
+	return rundates.Resolve(rundates.Request{
+		DAG:          dag,
+		Profile:      profile,
+		ScheduleTime: slot.scheduleTime,
+		Window:       slot.window,
+		CreatedAt:    time.Now(),
+		Location:     ctx.Config.Core.Location,
+		Calendars:    spec.NewCalendarSource(ctx.Config.Paths.CalendarsDir),
+	})
+}
+
+// reportRunDates tells, on stderr, the slot and dates a run was created
+// with, so a run for a past slot shows what it loads.
+func reportRunDates(ctx *Context, slot runSlot, dates []ir.DateValue) {
+	if len(dates) == 0 {
+		return
+	}
+	where := "no slot"
+	if slot.scheduleTime != "" {
+		where = "slot " + slot.scheduleTime
+		if at, err := stringutil.ParseTime(slot.scheduleTime); err == nil {
+			if zone, err := time.LoadLocation(slot.window.Timezone); err == nil {
+				where = "slot " + at.In(zone).Format(time.RFC3339)
+			}
+		}
+		if slot.isDefault {
+			where += " (default)"
+		}
+	}
+	_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "Dates for %s: %s\n", where, formatDates(dates))
+}
+
+// formatDates shows a run's dates on one line: name=date for an entry, and
+// name=first..last for a list.
+func formatDates(dates []ir.DateValue) string {
+	parts := make([]string, 0, len(dates))
+	for _, date := range dates {
+		value := date.Value
+		if date.List {
+			switch len(date.Values) {
+			case 0:
+				value = "[]"
+			case 1:
+				value = date.Values[0]
+			default:
+				value = date.Values[0] + ".." + date.Values[len(date.Values)-1]
+			}
+		}
+		parts = append(parts, date.Name+"="+value)
+	}
+	return strings.Join(parts, " ")
 }
 
 // boundStartSchedules returns a copy of the DAG's start schedules with their

@@ -29,28 +29,39 @@ type RunCounter interface {
 	CountAlive(ctx context.Context, groupName string) (int, error)
 }
 
+// Wait is why an open backfill makes no progress.
+type Wait struct {
+	Reason string
+	// RunID names the run that blocks the backfill, when one does.
+	RunID string
+}
+
 // WaitReason explains why an open backfill makes no progress: a run of one
-// of its slots waits for a person, or its next run waits in the queue. It
-// is empty when neither holds. Slot times are shown in loc.
-func WaitReason(ctx context.Context, report Report, q QueueView, loc *time.Location) (string, error) {
+// of its slots waits for a person, which it then names, or its next run
+// waits in the queue. It is zero when neither holds. Slot times are shown
+// in loc.
+func WaitReason(ctx context.Context, report Report, q QueueView, loc *time.Location) (Wait, error) {
 	if !report.Record.Open() {
-		return "", nil
+		return Wait{}, nil
 	}
 	nextRunID := ""
 	for _, slot := range report.Slots {
 		if slot.State == SlotStateWaiting {
-			return fmt.Sprintf("Blocked: the run of slot %s is waiting for a person", slot.At.In(loc).Format(slotTimeLayout)), nil
+			return Wait{
+				Reason: fmt.Sprintf("Blocked: the run of slot %s is waiting for a person", slot.At.In(loc).Format(slotTimeLayout)),
+				RunID:  slot.RunID,
+			}, nil
 		}
 		if slot.State == SlotStateQueued && nextRunID == "" {
 			nextRunID = slot.RunID
 		}
 	}
 	if nextRunID == "" {
-		return "", nil
+		return Wait{}, nil
 	}
 	items, err := q.Items.List(ctx, report.queue)
 	if err != nil {
-		return "", err
+		return Wait{}, err
 	}
 	ahead := -1
 	for i, item := range items {
@@ -61,22 +72,22 @@ func WaitReason(ctx context.Context, report Report, q QueueView, loc *time.Locat
 	}
 	if ahead < 0 {
 		// The run left the queue since the report was read.
-		return "", nil
+		return Wait{}, nil
 	}
 	running, err := q.Procs.CountAlive(ctx, report.queue)
 	if err != nil {
-		return "", err
+		return Wait{}, err
 	}
 	atLimit := running >= max(q.Limit(report.queue), 1)
 	switch {
 	case atLimit && ahead > 0:
-		return fmt.Sprintf("Waiting: queue at limit, %s ahead", countOf(ahead, "run")), nil
+		return Wait{Reason: fmt.Sprintf("Waiting: queue at limit, %s ahead", countOf(ahead, "run"))}, nil
 	case atLimit:
-		return "Waiting: queue at limit", nil
+		return Wait{Reason: "Waiting: queue at limit"}, nil
 	case ahead > 0:
-		return fmt.Sprintf("Waiting: %s ahead in the queue", countOf(ahead, "run")), nil
+		return Wait{Reason: fmt.Sprintf("Waiting: %s ahead in the queue", countOf(ahead, "run"))}, nil
 	default:
-		return "Waiting: next in the queue", nil
+		return Wait{Reason: "Waiting: next in the queue"}, nil
 	}
 }
 

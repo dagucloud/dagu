@@ -71,6 +71,21 @@ func WithScheduleWindow(window ScheduleWindow) StatusOption {
 	}
 }
 
+// WithDefaultSlot marks the run's slot as the default of a run started
+// without one.
+func WithDefaultSlot(isDefault bool) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.DefaultSlot = isDefault
+	}
+}
+
+// WithDates sets the run's dates.
+func WithDates(dates []DateValue) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.Dates = dates
+	}
+}
+
 // WithFinishedAt sets the completion time.
 func WithFinishedAt(finishedAt time.Time) StatusOption {
 	return func(status *DAGRunStatus) {
@@ -192,6 +207,15 @@ func WithRuntimeProfile(name, resolvedAt string, entries []RuntimeProfileEntry) 
 		status.ProfileName = name
 		status.ProfileResolvedAt = resolvedAt
 		status.ProfileEntries = append([]RuntimeProfileEntry(nil), entries...)
+	}
+}
+
+// WithDefinitionDigest sets the digest of the YAML the run ran.
+func WithDefinitionDigest(digest string) StatusOption {
+	return func(status *DAGRunStatus) {
+		if digest != "" {
+			status.DefinitionDigest = digest
+		}
 	}
 }
 

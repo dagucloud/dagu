@@ -27,6 +27,20 @@ func writeArtifactFile(t *testing.T) string {
 	return dir
 }
 
+func TestToScheduleParamOverrides(t *testing.T) {
+	t.Parallel()
+
+	schedule := toSchedule(ir.Schedule{
+		Expression: "0 5 * * *",
+		Params:     json.RawMessage(`{"mode":"y","count":5}`),
+	})
+
+	require.NotNil(t, schedule.ParamOverrides)
+	assert.Equal(t, map[string]string{"mode": "y", "count": "5"}, *schedule.ParamOverrides)
+	require.NotNil(t, schedule.ParamOverrideCount)
+	assert.Equal(t, 2, *schedule.ParamOverrideCount)
+}
+
 func TestToStepIncludesHarnessPrompt(t *testing.T) {
 	prompt := "Review the implementation.\nReport every finding.\n"
 	step := toStep(ir.Step{
@@ -402,6 +416,17 @@ func TestToDAGDetailsIncludesParamDefDescriptions(t *testing.T) {
 	require.Len(t, *details.ParamDefs, 1)
 	require.NotNil(t, (*details.ParamDefs)[0].Description)
 	assert.Equal(t, "Free-form operator notes", *(*details.ParamDefs)[0].Description)
+}
+
+func TestToDAGDetailsIncludesDateNames(t *testing.T) {
+	details := toDAGDetails(&ir.DAG{
+		Name:  "dated",
+		Dates: []ir.DateSpec{{Name: "run_date"}, {Name: "prev_day"}},
+	})
+	require.NotNil(t, details.DateNames)
+	assert.Equal(t, []string{"run_date", "prev_day"}, *details.DateNames)
+
+	assert.Nil(t, toDAGDetails(&ir.DAG{Name: "undated"}).DateNames)
 }
 
 func TestToDAGDetailsIncludesQueue(t *testing.T) {

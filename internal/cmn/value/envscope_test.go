@@ -918,3 +918,27 @@ func TestEnvScope_ToSliceWithoutOriginOrSources_KeepsShadowingPlainEntry(t *test
 
 	require.Equal(t, []string{"API_KEY=plain"}, got)
 }
+
+// Masked secrets reach maskers through AllSecrets but are never variables:
+// lookups, expansion, and exported environments do not see them.
+func TestEnvScope_WithMaskedSecrets(t *testing.T) {
+	t.Parallel()
+
+	scope := NewEnvScope(nil, false).
+		WithEntry("TOKEN", "token-value", EnvSourceSecret).
+		WithMaskedSecrets(map[string]string{"ssh.key": "key-value"}).
+		WithEntry("PLAIN", "plain-value", EnvSourceDAGEnv)
+
+	assert.Equal(t, map[string]string{
+		"TOKEN":   "token-value",
+		"ssh.key": "key-value",
+	}, scope.AllSecrets())
+
+	_, ok := scope.Get("ssh.key")
+	assert.False(t, ok)
+	assert.NotContains(t, scope.AllUserEnvs(), "ssh.key")
+	assert.ElementsMatch(t, []string{"TOKEN=token-value", "PLAIN=plain-value"}, scope.ToSlice())
+	assert.Equal(t, "${ssh.key}", scope.Expand("${ssh.key}"))
+
+	assert.Same(t, scope, scope.WithMaskedSecrets(nil))
+}

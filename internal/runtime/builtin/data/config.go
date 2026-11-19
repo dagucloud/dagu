@@ -23,6 +23,11 @@ type config struct {
 	Headers   *bool    `mapstructure:"headers"`
 	Delimiter string   `mapstructure:"delimiter"`
 	Columns   []string `mapstructure:"columns"`
+	// Where, Sort, and Limit are the conditions, order, and most rows of
+	// data.filter.
+	Where map[string]any `mapstructure:"where"`
+	Sort  any            `mapstructure:"sort"`
+	Limit int            `mapstructure:"limit"`
 
 	hasData bool
 }
@@ -70,6 +75,13 @@ func validateConfig(operation string, cfg config) error {
 		if !isSupportedFormat(cfg.To) {
 			return fmt.Errorf("%w: unsupported to format %q", errConfig, cfg.To)
 		}
+	case opFilter:
+		if strings.TrimSpace(cfg.To) != "" && !isSupportedFormat(cfg.To) {
+			return fmt.Errorf("%w: unsupported to format %q", errConfig, cfg.To)
+		}
+		if _, err := parseFilterSpec(cfg, true); err != nil {
+			return err
+		}
 	case opPick:
 		if strings.TrimSpace(cfg.Select) == "" {
 			return fmt.Errorf("%w: select is required", errConfig)
@@ -107,7 +119,10 @@ var configSchema = &jsonschema.Schema{
 		"to":         {Type: "string", Enum: []any{formatJSON, formatYAML, formatCSV, formatTSV, formatText}, Description: "Output format."},
 		"input":      {Type: "string", Description: "File path to read input from. Mutually exclusive with data."},
 		"data":       {Description: "Inline data to convert. Mutually exclusive with input."},
-		"select":     {Type: "string", Description: "jq-style path to select for action: data.pick."},
+		"select":     {Type: "string", Description: "jq-style path to select for action: data.pick, or the list of rows for action: data.filter."},
+		"where":      {Type: "object", Description: "data.filter: the condition each named field of a row must meet: min, max, from, to, within, is, any, or none."},
+		"sort":       {Types: []string{"string", "array"}, Description: "data.filter: the fields to order rows by, each with - before it to sort descending."},
+		"limit":      {Type: "integer", Minimum: new(0.0), Description: "data.filter: the most rows to keep after sorting; 0 keeps every row."},
 		"raw":        {Type: "boolean", Description: "Write selected scalar values without JSON/YAML encoding for action: data.pick."},
 		"has_header": {Type: "boolean", Description: "Whether CSV or TSV input has a header row. Defaults to true."},
 		"headers":    {Type: "boolean", Description: "Include a header row for CSV or TSV output. Defaults to true."},

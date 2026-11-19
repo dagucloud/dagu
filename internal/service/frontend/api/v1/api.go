@@ -120,6 +120,7 @@ type API struct {
 	schedulerStateStore  schedulerstate.Store
 	backfillStore        backfill.Store
 	schedulerPauseStore  schedulerstate.PauseStore
+	selfUpgrader         SelfUpgrader
 	dagMutationNotifier  func(fileName string)
 	wikiMutationNotifier func()
 	baseConfigProvider   dagsettings.BaseConfigProvider
@@ -128,6 +129,7 @@ type API struct {
 	workspaceDeprecation deprecation.Sources
 	serviceDAGFailures   failureStreaks
 	restartBackoffStore  schedulerstate.RestartBackoffStore
+	periodStore          schedulerstate.PeriodStore
 }
 
 type processRepository interface {
@@ -451,6 +453,13 @@ func WithSchedulerPauseStore(store schedulerstate.PauseStore) APIOption {
 func WithRestartBackoffStore(store schedulerstate.RestartBackoffStore) APIOption {
 	return func(a *API) {
 		a.restartBackoffStore = store
+	}
+}
+
+// WithPeriodStore sets the store of the periods in which slots could not run.
+func WithPeriodStore(store schedulerstate.PeriodStore) APIOption {
+	return func(a *API) {
+		a.periodStore = store
 	}
 }
 

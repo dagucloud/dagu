@@ -169,6 +169,10 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event, service
 		}
 	}
 
+	if snapshot.BackfillID != "" {
+		mux.WakeTopic(TopicTypeBackfill, snapshot.BackfillID)
+	}
+
 	mux.WakeTopicType(TopicTypeQueues)
 	mux.WakeTopicType(TopicTypeDAGsList)
 	if serviceDAGs == nil || serviceDAGRun {

@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/rundates"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
@@ -56,6 +57,45 @@ func (a *API) resolveRequestedSlot(dag *ir.DAG, profile string, value *api.Sched
 		window:       slot.Window,
 		warning:      slot.Warning,
 	}, nil
+}
+
+// runDates resolves the dates of a run created now for a slot.
+func (a *API) runDates(dag *ir.DAG, profile, scheduleTime string, window ir.ScheduleWindow) ([]ir.DateValue, error) {
+	if len(dag.Dates) == 0 {
+		return nil, nil
+	}
+	return rundates.Resolve(rundates.Request{
+		DAG:          dag,
+		Profile:      profile,
+		ScheduleTime: scheduleTime,
+		Window:       window,
+		CreatedAt:    time.Now(),
+		Location:     a.serverLocation(),
+		Calendars:    a.calendarSource(),
+	})
+}
+
+// checkDates refuses a run whose dates cannot resolve for slot, or for the
+// default slot when it names none, so that it is never created. The run
+// resolves them again when it is created.
+func (a *API) checkDates(dag *ir.DAG, profile string, slot *requestedSlot) error {
+	if len(dag.Dates) == 0 {
+		return nil
+	}
+	scheduleTime, window := slot.scheduleTimeOrEmpty(), slot.windowOrZero()
+	if slot == nil {
+		if def, ok := rundates.DefaultSlot(dag, profile, a.serverLocation(), a.calendarSource(), time.Now()); ok {
+			scheduleTime, window = def.ScheduleTime, def.Window
+		}
+	}
+	if _, err := a.runDates(dag, profile, scheduleTime, window); err != nil {
+		return &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    err.Error(),
+		}
+	}
+	return nil
 }
 
 // rescheduleSlot returns the slot of a run rescheduled from status: the one
@@ -131,4 +171,69 @@ func (s *requestedSlot) windowOrZero() ir.ScheduleWindow {
 		return ir.ScheduleWindow{}
 	}
 	return s.window
+}
+
+// PreviewDAGSlot resolves the slot a run would be started for, its window,
+// and the dates its run would get, without starting a run.
+func (a *API) PreviewDAGSlot(ctx context.Context, request api.PreviewDAGSlotRequestObject) (api.PreviewDAGSlotResponseObject, error) {
+	dag, _, err := a.backfillDAG(ctx, request.FileName, valueOf(request.Params.Profile))
+	if err != nil {
+		return nil, err
+	}
+	// The profile a start would use: the one named, else the DAG's default.
+	profile, err := a.runProfileForDAG(ctx, request.FileName, dagWorkspaceName(dag), request.Params.Profile)
+	if err != nil {
+		return nil, err
+	}
+	slot, err := a.resolveRequestedSlot(dag, profile, request.Params.ScheduledAt)
+	if err != nil {
+		return nil, err
+	}
+	preview := api.SlotPreview{Dates: []api.RunDateValue{}}
+	scheduleTime, window := slot.scheduleTimeOrEmpty(), slot.windowOrZero()
+	if slot != nil {
+		preview.Warning = stringOrNil(slot.warning)
+	} else if def, ok := rundates.DefaultSlot(dag, profile, a.serverLocation(), a.calendarSource(), time.Now()); ok {
+		scheduleTime, window = def.ScheduleTime, def.Window
+		preview.DefaultSlot = true
+	}
+	if scheduleTime != "" {
+		at, err := stringutil.ParseTime(scheduleTime)
+		if err != nil {
+			return nil, fmt.Errorf("parse slot %q: %w", scheduleTime, err)
+		}
+		preview.ScheduledAt = &at
+		preview.WindowStart = timeOrNil(window.Start)
+		preview.NextScheduledAt = timeOrNil(window.Next)
+		preview.Timezone = stringOrNil(window.Timezone)
+	}
+	dates, err := a.runDates(dag, profile, scheduleTime, window)
+	if err != nil {
+		return nil, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: err.Error()}
+	}
+	if converted := toAPIRunDates(dates); converted != nil {
+		preview.Dates = *converted
+	}
+	preview.Params = slotParamValues(dag.ParamDefs, dates)
+	return api.PreviewDAGSlot200JSONResponse(preview), nil
+}
+
+// slotParamValues returns the value each param whose eval is one date
+// reference takes from a slot's dates. Other evals run only when the run
+// starts.
+func slotParamValues(defs []ir.ParamDef, dates []ir.DateValue) *[]api.SlotParamValue {
+	var values []api.SlotParamValue
+	for _, def := range defs {
+		name, ok := def.DateName()
+		if !ok {
+			continue
+		}
+		if i := slices.IndexFunc(dates, func(date ir.DateValue) bool { return date.Name == name }); i >= 0 {
+			values = append(values, api.SlotParamValue{Name: def.Name, Value: dates[i].Text()})
+		}
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	return &values
 }

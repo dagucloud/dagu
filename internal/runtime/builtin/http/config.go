@@ -9,7 +9,8 @@ import (
 )
 
 var configSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"method":  {Type: "string", Description: "HTTP method for action: http.request"},
 		"url":     {Type: "string", Description: "Request URL for action: http.request"},
@@ -41,6 +42,18 @@ var configSchema = &jsonschema.Schema{
 		"output":          {Type: "string", Description: "File path to write the response body to. When set, the response body is written to this file instead of stdout."},
 		"json":            {Type: "boolean", Description: "Format output as JSON"},
 		"skip_tls_verify": {Type: "boolean", Description: "Skip TLS certificate verification"},
+		"status_exit_codes": {
+			Type: "object",
+			Description: "Map a non-2xx HTTP status code (e.g. \"404\") or class (e.g. \"5xx\") to the step exit code (0-255). " +
+				"An exact code wins over a class. A status mapped to 0 is a success; an unmapped one exits 1.",
+			// Keys are a status code (300-599) or a class (3xx-5xx).
+			PropertyNames: &jsonschema.Schema{Pattern: `^[3-5]([0-9]{2}|xx)$`},
+			AdditionalProperties: &jsonschema.Schema{
+				Type:    "integer",
+				Minimum: new(float64(0)),
+				Maximum: new(float64(255)),
+			},
+		},
 	},
 }
 

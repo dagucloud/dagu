@@ -6,8 +6,10 @@ package dagrun
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -131,6 +133,56 @@ func TestWriterErrorHandling(t *testing.T) {
 		require.NoError(t, json.Unmarshal(bytes.TrimRight(data, "\n"), &decoded))
 
 		assert.Equal(t, byte('\n'), data[len(data)-1])
+	})
+
+	// A file whose end cannot be read may end in a partial line, so the next
+	// status starts a line of its own.
+	t.Run("UnreadableFileEndsPartialLine", func(t *testing.T) {
+		if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+			t.Skip("needs a file that its owner can write but not read")
+		}
+		writerPath := filepath.Join(th.TmpDir, "unreadable.dat")
+		require.NoError(t, os.WriteFile(writerPath, []byte(`{"partial`), 0200))
+		writer := NewWriter(writerPath)
+		require.NoError(t, writer.Open())
+
+		dag := th.DAG("test_unreadable_partial_line")
+		dagRunID := uuid.Must(uuid.NewV7()).String()
+		require.NoError(t, writer.write(ir.NewStatusBuilder(dag.DAG).Create(dagRunID, ir.Running, 1, time.Now())))
+		require.NoError(t, writer.close())
+
+		require.NoError(t, os.Chmod(writerPath, 0600))
+		read, err := ParseStatusFile(writerPath)
+		require.NoError(t, err)
+		assert.Equal(t, dagRunID, read.DAGRunID)
+	})
+
+	// A status that cannot be encoded leaves the file as it was, and the
+	// writer keeps writing.
+	t.Run("UnencodableStatus", func(t *testing.T) {
+		writerPath := filepath.Join(th.TmpDir, "unencodable.dat")
+		writer := NewWriter(writerPath)
+		require.NoError(t, writer.Open())
+		defer func() { _ = writer.close() }()
+
+		dag := th.DAG("test_unencodable_status")
+		status := ir.NewStatusBuilder(dag.DAG).Create(uuid.Must(uuid.NewV7()).String(), ir.Running, 1, time.Now())
+		require.NoError(t, writer.write(status))
+		before, err := os.ReadFile(writerPath)
+		require.NoError(t, err)
+
+		bad := status
+		bad.AutoRetryBackoff = math.NaN()
+		require.Error(t, writer.write(bad))
+		after, err := os.ReadFile(writerPath)
+		require.NoError(t, err)
+		assert.Equal(t, before, after)
+
+		status.Status = ir.Succeeded
+		require.NoError(t, writer.write(status))
+		read, err := ParseStatusFile(writerPath)
+		require.NoError(t, err)
+		assert.Equal(t, ir.Succeeded, read.Status)
 	})
 
 	t.Run("StoresARepeatedOutputOnce", func(t *testing.T) {

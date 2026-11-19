@@ -73,6 +73,10 @@ describe('endpointToTopic', () => {
       ['/events/dags/example.yaml', 'dag:example.yaml'],
       ['/events/dags/example.yaml/dag-runs', 'daghistory:example.yaml'],
       [
+        '/events/dags/example.yaml/dag-runs?includeBackfill=true',
+        'daghistory:example.yaml?includeBackfill=true',
+      ],
+      [
         '/events/dag-runs?page=2&status=running',
         'dagruns:page=2&status=running',
       ],
@@ -95,6 +99,7 @@ describe('endpointToTopic', () => {
       ],
       ['/events/queues?status=active&page=3', 'queues:page=3&status=active'],
       ['/events/queues/default/items', 'queueitems:default'],
+      ['/events/backfills/bf123456', 'backfill:bf123456'],
       ['/events/service-dags?workspace=ops', 'servicedags:workspace=ops'],
       ['/events/wiki-tree?prefix=docs', 'wikitree:prefix=docs'],
       [

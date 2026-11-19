@@ -89,7 +89,7 @@ This command parses the DAG definition, resolves parameters, and initiates the D
 }
 
 // Command line flags for the start command
-var startFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, workerLabelFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFromFlag, outputFlag, recursiveOutputFlag}
+var startFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, workerLabelFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFromFlag, outputFlag, reuseFromFlag, recursiveOutputFlag}
 
 var fromRunIDFlag = commandLineFlag{
 	name:  "from-run-id",
@@ -111,6 +111,11 @@ var outputFromFlag = commandLineFlag{
 	name:          "output-from",
 	usage:         "Take the outputs of ONE skipped step from a finished dag-run, as <step>=<run-id>; repeatable; wins over --outputs-from for that step",
 	isStringArray: true,
+}
+
+var reuseFromFlag = commandLineFlag{
+	name:  "reuse-from",
+	usage: "Finished dag-run ID of this DAG whose unchanged steps the run reuses instead of running; the changed steps, the steps after them, and the steps sharing a browser with them run",
 }
 
 var outputFlag = commandLineFlag{
@@ -201,6 +206,9 @@ func runStart(ctx *Context, args []string) error {
 	}
 	if len(selection.steps) > 0 && (isSubDAGRun || rootRef != "" || workerID != "local") {
 		return fmt.Errorf("--only cannot be combined with --parent, --root, or --worker-id")
+	}
+	if selection.reuseFrom != "" && (isSubDAGRun || rootRef != "" || workerID != "local") {
+		return fmt.Errorf("--reuse-from cannot be combined with --parent, --root, or --worker-id")
 	}
 
 	var (
@@ -310,6 +318,16 @@ func runStart(ctx *Context, args []string) error {
 	if slot.scheduleTime == "" {
 		slot = historicSlot
 	}
+	// A sub-DAG run may continue a run that recorded its slot and dates, so
+	// the run settles its own when it starts.
+	var dates []ir.DateValue
+	if !isSubDAGRun {
+		slot = withDefaultSlot(ctx, dag, profileName, slot)
+		if dates, err = slotDates(ctx, dag, profileName, slot); err != nil {
+			return err
+		}
+		reportRunDates(ctx, slot, dates)
+	}
 
 	recursiveOutput, err := ctx.Command.Flags().GetBool("recursive-output")
 	if err != nil {
@@ -325,6 +343,8 @@ func runStart(ctx *Context, args []string) error {
 		parallelItem:    parallelItemFromEnv(dag.Env),
 		scheduleTime:    slot.scheduleTime,
 		scheduleWindow:  slot.window,
+		dates:           dates,
+		defaultSlot:     slot.isDefault,
 		profileName:     profileName,
 		definitionID:    dagDefinitionIDFromEnv(),
 		noReuse:         noReuse,
@@ -352,9 +372,10 @@ func runStart(ctx *Context, args []string) error {
 		}
 	}
 
-	if len(selection.steps) > 0 {
+	if len(selection.steps) > 0 || selection.reuseFrom != "" {
 		logger.Info(ctx, "Executing selected steps",
 			slog.Any("steps", selection.steps),
+			slog.String("reuse-from", selection.reuseFrom),
 			slog.String("params", params),
 		)
 		return runSelectedSteps(ctx, dag, dagRunID, params, opts, selection)
@@ -738,6 +759,8 @@ func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) er
 			DefaultExecMode:          ctx.Config.DefaultExecMode,
 			ScheduleTime:             opts.scheduleTime,
 			ScheduleWindow:           opts.scheduleWindow,
+			Dates:                    opts.dates,
+			DefaultSlot:              opts.defaultSlot,
 			ArtifactDir:              artifactDir,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
@@ -843,6 +866,9 @@ func dispatchToCoordinatorAndWait(ctx *Context, d *ir.DAG, dagRunID string, opts
 			executor.WithScheduleTime(opts.scheduleTime),
 			executor.WithScheduleWindow(opts.scheduleWindow),
 		)
+	}
+	if opts.dates != nil {
+		taskOpts = append(taskOpts, executor.WithDates(opts.dates))
 	}
 	if opts.profileName != "" {
 		taskOpts = append(taskOpts, executor.WithProfileName(opts.profileName))

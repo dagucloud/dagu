@@ -6,9 +6,11 @@ package backfill
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -18,6 +20,9 @@ type Request struct {
 	// From and To bound a range: dates, times without an offset, or
 	// RFC 3339 times. To defaults to now.
 	From, To string
+	// By names a dates entry. From and To are then dates of that entry
+	// rather than fire times.
+	By string
 	// Slots names slots to run instead of a range.
 	Slots []string
 	// Rerun defaults to none, MaxConcurrency to 1, and OnFailure to stop.
@@ -50,6 +55,8 @@ func (r Request) Resolve(dag *ir.DAG, sched SlotSchedule, maxSlots int, now time
 		return PlanRequest{}, Options{}, invalid("slots cannot be combined with from, to, or rerun")
 	case !named && r.From == "":
 		return PlanRequest{}, Options{}, invalid("give from, or name slots")
+	case named && r.By != "":
+		return PlanRequest{}, Options{}, invalid("by selects a range, so it cannot be combined with slots")
 	}
 	rerun := RerunNone
 	if r.Rerun != "" {
@@ -92,6 +99,11 @@ func (r Request) Resolve(dag *ir.DAG, sched SlotSchedule, maxSlots int, now time
 			}
 			req.Slots = append(req.Slots, slot.At)
 		}
+	} else if r.By != "" {
+		if err := req.resolveByDates(r); err != nil {
+			return PlanRequest{}, Options{}, err
+		}
+		options.By, options.FromDate, options.ToDate = r.By, req.FromDate.String(), dateOrEmpty(req.ToDate)
 	} else {
 		from, err := ir.ResolveRangeBound(r.From, sched.Schedules, sched.Profile, sched.Location, ir.RangeStart)
 		if err != nil {
@@ -110,12 +122,43 @@ func (r Request) Resolve(dag *ir.DAG, sched SlotSchedule, maxSlots int, now time
 	return req, options, nil
 }
 
+// resolveByDates reads a range of an entry's dates.
+func (req *PlanRequest) resolveByDates(r Request) error {
+	if !slices.ContainsFunc(req.DAG.Dates, func(spec ir.DateSpec) bool { return spec.Name == r.By }) {
+		return invalid("by: DAG %q has no date %q", req.DAG.Name, r.By)
+	}
+	req.By = r.By
+	from, err := ir.ParseCivilDate(r.From)
+	if err != nil {
+		return invalid("from: %s: by takes dates", err)
+	}
+	req.FromDate = from
+	if r.To != "" {
+		if req.ToDate, err = ir.ParseCivilDate(r.To); err != nil {
+			return invalid("to: %s: by takes dates", err)
+		}
+		if req.ToDate.Before(from) {
+			return invalid("to is before from")
+		}
+	}
+	return nil
+}
+
+func dateOrEmpty(d ir.CivilDate) string {
+	if d.IsZero() {
+		return ""
+	}
+	return d.String()
+}
+
 // WarningInput is what the warnings of a plan depend on beyond the plan.
 type WarningInput struct {
 	SchedulerRunning bool
 	Suspended        bool
 	DAG              *ir.DAG
 	Outlook          Outlook
+	// GivenParams names the params the backfill gives every run.
+	GivenParams []string
 }
 
 // Warnings lists what an operator should know before starting a plan.
@@ -126,6 +169,9 @@ func (p Plan) Warnings(in WarningInput) []string {
 	}
 	if in.Suspended {
 		warnings = append(warnings, "The DAG is suspended; its backfill runs still run.")
+	}
+	if in.DAG != nil && !ReadsSlot(in.DAG) {
+		warnings = append(warnings, "The DAG does not read the slot it runs for, so every run does the same work.")
 	}
 	if out := in.Outlook; out.MaxConcurrency > out.Concurrency {
 		warnings = append(warnings, fmt.Sprintf("The queue %s runs %d at once, so the backfill runs %d at a time.", out.QueueName, out.QueueLimit, out.Concurrency))
@@ -140,10 +186,31 @@ func (p Plan) Warnings(in WarningInput) []string {
 	if handlers := handlerNames(in.DAG); len(handlers) > 0 {
 		warnings = append(warnings, fmt.Sprintf("handler_on steps run once per slot: %s.", strings.Join(handlers, ", ")))
 	}
+	if p.DefinitionChanged {
+		warnings = append(warnings, "The DAG's definition changed since the backfill started: new runs run the current one, and active runs keep theirs.")
+	}
 	if p.OtherCadence > 0 {
 		warnings = append(warnings, fmt.Sprintf("%d slots run because the schedule's cadence changed since their runs.", p.OtherCadence))
 	}
+	if names := givenDateParams(in.DAG, in.GivenParams); len(names) > 0 {
+		warnings = append(warnings, fmt.Sprintf("The params give %s one value for every slot, in place of the dates its eval reads from each slot.", strings.Join(names, ", ")))
+	}
 	return warnings
+}
+
+// givenDateParams returns the given params whose eval reads the run's
+// dates: a value given to them holds for every slot.
+func givenDateParams(dag *ir.DAG, given []string) []string {
+	if dag == nil {
+		return nil
+	}
+	var names []string
+	for _, def := range dag.ParamDefs {
+		if slices.Contains(given, def.Name) && cmnvalue.HasReferenceToNamespace(def.Eval, "dates") {
+			names = append(names, def.Name)
+		}
+	}
+	return names
 }
 
 func handlerNames(dag *ir.DAG) []string {

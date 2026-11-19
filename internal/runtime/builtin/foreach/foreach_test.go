@@ -73,6 +73,30 @@ func TestSummarizeLeavesUnstartedItemsOutOfTheFailedCount(t *testing.T) {
 	assert.EqualError(t, allFailed.err, "all 1 item bodies failed; first error: exit status 1")
 }
 
+// The step's error keeps a masked read in a body, so it is neither retried
+// nor marked successful, but no other body error: a body's timeout is not the
+// step's own.
+func TestSummarizeKeepsOnlyAMaskedRead(t *testing.T) {
+	t.Parallel()
+
+	read := &cmnvalue.MaskedReadError{Step: "login", Output: "TOKEN"}
+	masked := summarize([]itemResult{{Status: ir.NodeFailed.String(), Error: read.Error(), err: read}}, nil)
+	assert.ErrorIs(t, masked.err, read)
+
+	// The masked read is kept whichever body failed first.
+	maskedLater := summarize([]itemResult{
+		{Status: ir.NodeFailed.String(), Error: "exit status 1"},
+		{Status: ir.NodeFailed.String(), Error: read.Error(), err: read},
+	}, nil)
+	assert.ErrorIs(t, maskedLater.err, read)
+	assert.EqualError(t, maskedLater.err, "all 2 item bodies failed; first error: exit status 1")
+
+	timedOut := summarize([]itemResult{{Status: ir.NodeFailed.String(), Error: "deadline", err: context.DeadlineExceeded}}, nil)
+	require.Error(t, timedOut.err)
+	assert.NotErrorIs(t, timedOut.err, context.DeadlineExceeded)
+	assert.EqualError(t, timedOut.err, "all 1 item bodies failed; first error: deadline")
+}
+
 // A run without a log directory keeps body logs in a scratch directory that
 // must not outlive the item: nothing records its path, so nothing else
 // could ever remove it.
@@ -216,6 +240,33 @@ func TestItemRecordKeepsBodyAgentSessions(t *testing.T) {
 	assert.Equal(t, ir.NodeFailed, refused.Status)
 	assert.Contains(t, refused.Error, "site refused *******")
 	require.NotNil(t, refused.AgentSession)
+}
+
+// A reader finds the items of a step of this version even when a step of an
+// earlier version could have shared its directory, as fetch data could with
+// fetch_data.
+func TestStepDirIsFoundBesideSimilarNames(t *testing.T) {
+	executorType := "test-foreach-found"
+	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
+		return &itemExecutor{report: func(string) {}}, nil
+	}, nil, registry.ExecutorCapabilities{})
+	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
+
+	logDir := t.TempDir()
+	e := &foreachExecutor{step: ir.Step{
+		Name: "fetch_data",
+		Foreach: &ir.ForeachConfig{
+			Items: []any{"a"},
+			Steps: []ir.Step{{Name: "body", ExecutorConfig: ir.ExecutorConfig{Type: executorType}}},
+		},
+	}}
+	e.SetStdout(io.Discard)
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{Name: "each"}, "run-1", "", runtime.WithDAGRunLogDir(logDir))
+	require.NoError(t, e.Run(ctx))
+
+	dir := logpath.ForeachStepDir(logDir, "fetch_data", []string{"fetch data", "fetch_data"})
+	require.NotEmpty(t, dir)
+	assert.FileExists(t, filepath.Join(dir, logpath.ForeachItemsFile))
 }
 
 // itemExecutor stands for a body step and reports the foreach item it runs

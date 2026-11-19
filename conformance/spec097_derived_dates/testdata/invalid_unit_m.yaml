@@ -1,0 +1,5 @@
+schedule: "0 2 * * *"
+dates:
+  last_month: -1m
+steps:
+  - run: echo load

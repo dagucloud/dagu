@@ -1,0 +1,5 @@
+schedule: "0 2 * * *"
+dates:
+  day: { format: "%Y%Q" }
+steps:
+  - run: echo load

@@ -200,6 +200,59 @@ jobs:
           }
           Invoke-WebRequest -Uri "http://127.0.0.1:18080/api/v1/health" -UseBasicParsing | Out-Null
 
+          # A run in progress keeps going while the service restarts. The
+          # service wrapper ends the whole process tree of Dagu, which the runs
+          # stay outside of, and they execute a copy of the binary, which
+          # leaves the installed one free to replace.
+          [xml]$serviceConfig = Get-Content "$installDir\dagu-service.xml"
+          $daguHome = ($serviceConfig.service.env | Where-Object { $_.name -eq "DAGU_HOME" }).value
+          $markerDir = "$env:RUNNER_TEMP\dagu-restart-run"
+          New-Item -ItemType Directory -Force -Path $markerDir | Out-Null
+          $dagFile = "$env:RUNNER_TEMP\restart-run.yaml"
+          Set-Content -Path $dagFile -Encoding ascii -Value @"
+          steps:
+            - id: work
+              run: |
+                Set-Content -Path '$markerDir\started' -Value ok
+                Start-Sleep -Seconds 30
+                Set-Content -Path '$markerDir\finished' -Value done
+              with:
+                shell: powershell
+          "@
+          $env:DAGU_HOME = $daguHome
+          & "$installDir\dagu.exe" enqueue $dagFile
+          if ($LASTEXITCODE -ne 0) {
+            throw "Enqueueing the restart run failed with exit code $LASTEXITCODE."
+          }
+          Remove-Item Env:\DAGU_HOME
+          $deadline = (Get-Date).AddSeconds(90)
+          while (-not (Test-Path "$markerDir\started")) {
+            if ((Get-Date) -gt $deadline) { throw "The restart run did not start." }
+            Start-Sleep -Seconds 1
+          }
+          $runBinaries = Join-Path $daguHome "data\run-binaries"
+          $fromCopy = @(Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -like "$runBinaries\dagu-*.exe" })
+          if ($fromCopy.Count -eq 0) {
+            throw "The run does not execute a copy of the Dagu binary in $runBinaries."
+          }
+          Restart-Service -Name Dagu
+          if ((Get-Service -Name Dagu).Status -ne "Running") {
+            throw "The Dagu service is not running after a restart."
+          }
+          $deadline = (Get-Date).AddSeconds(90)
+          while (-not (Test-Path "$markerDir\finished")) {
+            if ((Get-Date) -gt $deadline) { throw "The run did not outlive the service restart." }
+            Start-Sleep -Seconds 1
+          }
+          $deadline = (Get-Date).AddSeconds(30)
+          do {
+            $status = Get-ChildItem -Path (Join-Path $daguHome "data\dag-runs") -Recurse -Filter status.jsonl |
+              Get-Content -Tail 1 | ConvertFrom-Json
+            if ($status.status -eq 4) { break }
+            if ((Get-Date) -gt $deadline) { throw "The restarted run did not succeed: $($status | ConvertTo-Json -Compress)" }
+            Start-Sleep -Seconds 1
+          } while ($true)
+
           & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installerPath `
             -NoPrompt -Uninstall -ServiceOnly -InstallDir $installDir
           if ($LASTEXITCODE -ne 0) {
@@ -276,6 +329,8 @@ jobs:
       # /PORT and /COORDINATORPORT) to installer.ps1, which must leave a
       # running service behind; the uninstaller must take it away again.
       - name: Test Inno Setup installer service mode
+        # A step that hangs fails here, in time for the logs step to run.
+        timeout-minutes: 10
         shell: powershell
         run: |
           $installDir = "$env:ProgramFiles\Dagu"
@@ -323,6 +378,37 @@ jobs:
             }
             Invoke-WebRequest -Uri "http://127.0.0.1:$web/api/v1/health" -UseBasicParsing | Out-Null
           }
+
+          # A run in progress keeps going through the upgrades, which stop the
+          # service and replace the installed binary while the run executes
+          # its copy.
+          [xml]$innoConfig = Get-Content "$installDir\dagu-service.xml"
+          $innoHome = ($innoConfig.service.env | Where-Object { $_.name -eq "DAGU_HOME" }).value
+          $upgradeMarker = "$env:RUNNER_TEMP\dagu-upgrade-run"
+          New-Item -ItemType Directory -Force -Path $upgradeMarker | Out-Null
+          $upgradeDag = "$env:RUNNER_TEMP\upgrade-run.yaml"
+          Set-Content -Path $upgradeDag -Encoding ascii -Value @"
+          steps:
+            - id: work
+              run: |
+                Set-Content -Path '$upgradeMarker\pid' -Value `$PID
+                Start-Sleep -Seconds 600
+              with:
+                shell: powershell
+          "@
+          $env:DAGU_HOME = $innoHome
+          & "$installDir\dagu.exe" enqueue $upgradeDag
+          if ($LASTEXITCODE -ne 0) {
+            throw "Enqueueing the upgrade run failed with exit code $LASTEXITCODE."
+          }
+          Remove-Item Env:\DAGU_HOME
+          $deadline = (Get-Date).AddSeconds(90)
+          while (-not (Test-Path "$upgradeMarker\pid")) {
+            if ((Get-Date) -gt $deadline) { throw "The upgrade run did not start." }
+            Start-Sleep -Seconds 1
+          }
+          $stepPid = [int](Get-Content "$upgradeMarker\pid" -Raw).Trim()
+
           foreach ($case in @(
             @{ Flags = @("/PORT=18092"); Web = 18092; Coordinator = 18091 },
             @{ Flags = @("/COORDINATORPORT=18093"); Web = 18092; Coordinator = 18093 }
@@ -338,6 +424,9 @@ jobs:
             }
             Assert-ServicePorts $case.Web $case.Coordinator "an upgrade with $($case.Flags)"
           }
+          if (-not (Get-Process -Id $stepPid -ErrorAction SilentlyContinue)) {
+            throw "The run in progress did not outlive the upgrades."
+          }
 
           Start-Process -Wait -FilePath "$installDir\unins000.exe" -ArgumentList @(
             "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"
@@ -352,6 +441,11 @@ jobs:
           if (Get-Service -Name Dagu -ErrorAction SilentlyContinue) {
             throw "The uninstaller left the Dagu service registered."
           }
+          # An uninstall leaves a run in progress running, from its copy of the
+          # binary, so the run is ended here.
+          Get-CimInstance Win32_Process |
+            Where-Object { $_.ExecutablePath -like "$innoHome\data\run-binaries\*" -or $_.ProcessId -eq $stepPid } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
       - name: Test CMD installer
         shell: cmd
@@ -365,3 +459,20 @@ jobs:
           scripts\installer.cmd -NoPrompt -Uninstall -InstallDir "%RUNNER_TEMP%\dagu-cmd-install"
           if errorlevel 1 exit /b 1
           if exist "%RUNNER_TEMP%\dagu-cmd-install\dagu.exe" exit /b 1
+
+      # What the service and its runs wrote tells why a service test failed.
+      - name: Show Dagu service logs
+        if: failure()
+        shell: powershell
+        run: |
+          $daguHome = "$env:ProgramData\Dagu"
+          Get-ChildItem -Path "$daguHome\logs" -Filter *.log -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "::group::$($_.FullName)"
+            Get-Content $_.FullName -Tail 200
+            Write-Host "::endgroup::"
+          }
+          Get-ChildItem -Path "$daguHome\data\dag-runs" -Recurse -Filter status.jsonl -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "::group::$($_.FullName)"
+            Get-Content $_.FullName -Tail 1
+            Write-Host "::endgroup::"
+          }

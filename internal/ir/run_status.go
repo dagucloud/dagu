@@ -4,6 +4,8 @@
 package ir
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -228,6 +230,12 @@ type DAGRunStatus struct {
 	IntervalStart    string `json:"intervalStart,omitempty"`
 	NextScheduledAt  string `json:"nextScheduledAt,omitempty"`
 	ScheduleTimezone string `json:"scheduleTimezone,omitempty"`
+	// Dates are the run's dates, resolved from its DAG's dates block when
+	// the run was created.
+	Dates []DateValue `json:"dates,omitempty"`
+	// DefaultSlot reports that ScheduleTime is the default slot of a run
+	// started without one, rather than a slot it named or was fired for.
+	DefaultSlot bool `json:"defaultSlot,omitempty"`
 	// BackfillID names the backfill that started the run. Retries keep it.
 	BackfillID     string `json:"backfillId,omitempty"`
 	StartedAt      string `json:"startedAt,omitempty"`
@@ -241,6 +249,9 @@ type DAGRunStatus struct {
 	AutoRetryMaxInterval time.Duration `json:"autoRetryMaxInterval,omitempty"`
 	ProcGroup            string        `json:"procGroup,omitempty"`
 	DefinitionID         string        `json:"definitionId,omitempty"`
+	// DefinitionDigest identifies the YAML the run ran, as DefinitionDigest
+	// computes it.
+	DefinitionDigest string `json:"definitionDigest,omitempty"`
 	// SuspendFlagName is retained for histories written before DefinitionID was introduced.
 	SuspendFlagName    string                `json:"suspendFlagName,omitempty"`
 	Log                string                `json:"log,omitempty"`
@@ -597,4 +608,14 @@ func pendingStepRetryForNode(stepName string, node *Node) (PendingStepRetry, boo
 		StepName: stepName,
 		Interval: interval,
 	}, true
+}
+
+// DefinitionDigest identifies a DAG's YAML: two runs of the same YAML have
+// the same digest. It is empty for no YAML.
+func DefinitionDigest(yaml []byte) string {
+	if len(yaml) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256(yaml)
+	return hex.EncodeToString(sum[:8])
 }

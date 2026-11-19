@@ -27,6 +27,7 @@ func TestRedisConfig(t *testing.T) {
 	}{
 		{"validate", "command_mismatch.yaml", "command must be \"GET\" for this action"},
 		{"validate", "invalid_mode.yaml", "mode"},
+		{"validate", "unknown_field.yaml", `unexpected additional properties ["hosts"]; did you mean "host" instead of "hosts"?`},
 		{"start", "cluster_missing_fields.yaml", "cluster_addrs is required for cluster mode"},
 		{"start", "tls_cert_without_key.yaml", "both tls_cert and tls_key must be provided together"},
 	} {

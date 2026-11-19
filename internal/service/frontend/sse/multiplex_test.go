@@ -59,6 +59,24 @@ func TestParseTopicAcceptsSubDAGRunIdentifier(t *testing.T) {
 	assert.Equal(t, "subdagrun:billing/run-1/sub-1", parsed.Key)
 }
 
+// A DAG history topic may also list the backfill runs, and takes no other
+// parameter.
+func TestParseTopicDAGHistoryWithBackfill(t *testing.T) {
+	parsed, err := ParseTopic("daghistory:etl.yaml?includeBackfill=true")
+	require.NoError(t, err)
+	assert.Equal(t, "daghistory:etl.yaml?includeBackfill=true", parsed.Key)
+
+	for _, topic := range []string{
+		"daghistory:etl.yaml?limit=5",
+		"daghistory:etl.yaml?includeBackfill=true&limit=5",
+		"daghistory:..%2Fetl.yaml?includeBackfill=true",
+		"dag:etl.yaml?includeBackfill=true",
+	} {
+		_, err := ParseTopic(topic)
+		require.Error(t, err, topic)
+	}
+}
+
 func TestParseTopicRejectsDAGTraversalIdentifiers(t *testing.T) {
 	tests := []string{
 		"dag:../../tmp/secret.yaml",

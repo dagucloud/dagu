@@ -1,0 +1,25 @@
+name: run_dates
+working_dir: .
+schedule: "CRON_TZ=Asia/Tokyo 0 2 * * *"
+calendar: weekdays
+dates:
+  target_day: -1d
+  same_day: { shift: -1d }
+  target_compact: { from: target_day, format: date_compact }
+  last_open_day: -1bd
+  prev_month_end: [month_start, -1d]
+  month_last_open_day: [month_start, +1mo, -1d, bd_or_prev]
+  window_days: { each: 1d }
+env:
+  - TARGET: ${dates.target_day}
+steps:
+  - id: capture
+    run: |
+      printf 'target=%s\n' '${dates.target_day}' > dates.txt
+      printf 'same=%s\n' '${dates.same_day}' >> dates.txt
+      printf 'compact=%s\n' '${dates.target_compact}' >> dates.txt
+      printf 'open=%s\n' '${dates.last_open_day}' >> dates.txt
+      printf 'prev_month_end=%s\n' '${dates.prev_month_end}' >> dates.txt
+      printf 'month_last_open=%s\n' '${dates.month_last_open_day}' >> dates.txt
+      printf 'days=%s\n' '${dates.window_days}' >> dates.txt
+      printf 'env=%s\n' "$TARGET" >> dates.txt

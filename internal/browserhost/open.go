@@ -40,8 +40,9 @@ type slotHolder struct {
 // TakeSlot reserves a place for one more browser under browserDir, waiting
 // while limit browsers are open there. A limit below one sets no limit and
 // returns a nil Slot, whose methods do nothing. waiting runs once, when the
-// browser first has to wait.
-func TakeSlot(ctx context.Context, browserDir string, limit int, waiting func()) (*Slot, error) {
+// browser first has to wait. stop, if set, is asked each time the browser
+// has to wait, and the error it reports ends the wait.
+func TakeSlot(ctx context.Context, browserDir string, limit int, waiting func(), stop func() error) (*Slot, error) {
 	if limit < 1 {
 		return nil, nil
 	}
@@ -54,6 +55,11 @@ func TakeSlot(ctx context.Context, browserDir string, limit int, waiting func())
 		slot, err := trySlot(ctx, lock, dir, limit)
 		if slot != nil || err != nil {
 			return slot, err
+		}
+		if stop != nil {
+			if err := stop(); err != nil {
+				return nil, err
+			}
 		}
 		if waiting != nil {
 			waiting()

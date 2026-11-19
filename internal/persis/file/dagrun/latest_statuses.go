@@ -6,7 +6,6 @@ package dagrun
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -23,11 +22,9 @@ func (store *Store) LatestStatuses(ctx context.Context, query persis.DAGRunLates
 		return nil, err
 	}
 
-	labelFilters := make([]ir.LabelFilter, 0, len(query.Labels))
-	for _, label := range query.Labels {
-		if trimmed := strings.TrimSpace(label); trimmed != "" {
-			labelFilters = append(labelFilters, ir.ParseLabelFilter(trimmed))
-		}
+	labelFilters, err := ir.ParseLabelFilters(query.Labels)
+	if err != nil {
+		return nil, err
 	}
 
 	excluded := dagDirNames(query.ExcludeDAGNames)

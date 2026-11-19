@@ -50,7 +50,7 @@ type PlannedRun struct {
 }
 
 // DispatchFunc dispatches a catch-up or scheduled run for the given DAG.
-type DispatchFunc func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error
+type DispatchFunc func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time, params string) error
 
 // IsRunningFunc checks if a DAG has any active run.
 type IsRunningFunc func(ctx context.Context, dag *ir.DAG) (bool, error)
@@ -68,7 +68,7 @@ type StopFunc func(ctx context.Context, dag *ir.DAG) error
 type RestartFunc func(ctx context.Context, entry DAGEntry, scheduleTime time.Time) error
 
 // EnqueueFunc enqueues a catchup run for the given DAG.
-type EnqueueFunc func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error
+type EnqueueFunc func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time, params string) error
 
 // IsQueuedFunc checks if a DAG has any pending queued items.
 type IsQueuedFunc func(ctx context.Context, dag *ir.DAG) (bool, error)
@@ -124,6 +124,8 @@ type TickPlannerConfig struct {
 	// RecoveryWindow returns how far back startup replays slots missed while
 	// the lock passed from a failed scheduler, or 0 after a normal start.
 	RecoveryWindow func() time.Duration
+	// Periods records the time no scheduler ran. Nil records none.
+	Periods schedulerstate.PeriodStore
 }
 
 // TickPlanner is the unified scheduling decision module.
@@ -131,9 +133,11 @@ type TickPlannerConfig struct {
 // tracks progress via watermarks, and reacts to DAG lifecycle changes.
 //
 // Thread safety:
-//   - entries, buffers, and deletedGrace are protected by entryMu (accessed
-//     from drainEvents goroutine and cronLoop's Plan).
-//   - watermarkState is shared with the flusher goroutine and protected by mu.
+//   - entries, buffers, deletedGrace, pendingOutages, and outageWarnedAt are
+//     protected by entryMu (accessed from drainEvents goroutine and cronLoop's
+//     Plan).
+//   - watermarkState and the saved catch-up slots are shared with the flusher
+//     goroutine and protected by mu.
 //   - flushMu spans a flush's snapshot and save, so a later snapshot is never
 //     overwritten by an earlier one. Lock order: entryMu, flushMu, mu.
 //   - Plan() holds entryMu during I/O calls (IsSuspended, IsRunning,
@@ -150,7 +154,18 @@ type TickPlanner struct {
 	// watermark state (protected by mu)
 	mu             sync.RWMutex
 	watermarkState *schedulerstate.State
-	flushMu        sync.Mutex
+	// catchup holds the catch-up slots saved for a restart to replay, by
+	// DAG, catchupDirty whether Flush has yet to write them, catchupGen
+	// counts the changes to them, and catchupStored whether the record last
+	// written holds any.
+	catchup       map[string][]time.Time
+	catchupDirty  bool
+	catchupGen    uint64
+	catchupStored bool
+	// firstTick is the minute Init counted the first tick to run, until a
+	// tick is planned, resumed, or advanced (protected by mu).
+	firstTick time.Time
+	flushMu   sync.Mutex
 	// saved is the snapshot Flush last wrote. It is never modified.
 	saved atomic.Pointer[schedulerstate.State]
 
@@ -159,6 +174,12 @@ type TickPlanner struct {
 	entries      map[string]*plannerEntry
 	buffers      map[string]*ScheduleBuffer
 	deletedGrace map[string]time.Time
+	// pendingOutages are the outages whose periods failed to record, retried
+	// as each tick is planned.
+	pendingOutages []schedulerstate.Period
+	// outageWarnedAt is when the planner last warned that outages failed to
+	// record, or zero while they record.
+	outageWarnedAt time.Time
 
 	// lastPlanResult holds the runs from the most recent Plan() call.
 	// It is written by Plan() and read by Advance(). Both are called
@@ -241,7 +262,7 @@ func NewTickPlanner(cfg TickPlannerConfig) *TickPlanner {
 		cfg.RecoveryWindow = func() time.Duration { return 0 }
 	}
 	if cfg.Dispatch == nil {
-		cfg.Dispatch = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
+		cfg.Dispatch = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error {
 			return fmt.Errorf("dispatch not configured")
 		}
 	}
@@ -250,6 +271,7 @@ func NewTickPlanner(cfg TickPlannerConfig) *TickPlanner {
 		entries:      make(map[string]*plannerEntry),
 		buffers:      make(map[string]*ScheduleBuffer),
 		deletedGrace: make(map[string]time.Time),
+		catchup:      make(map[string][]time.Time),
 	}
 }
 
@@ -356,6 +378,15 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 	if state.DAGs == nil {
 		state.DAGs = make(map[string]schedulerstate.DAGWatermark)
 	}
+	catchup, err := tp.cfg.StateStore.LoadCatchup(ctx)
+	if err != nil {
+		logger.Error(ctx, "Failed to load saved catch-up slots", tag.Error(err))
+	}
+	if catchup == nil {
+		catchup = make(map[string][]time.Time)
+	}
+	catchupStored := len(catchup) > 0
+	catchupDirty := false
 
 	// Prune stale DAG entries that no longer exist on disk.
 	activeDags := make(map[string]struct{}, len(entries))
@@ -384,6 +415,15 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 		next, _ = reconcileStartScheduleState(next, active.start, dag.SkipIfSuccessful, observedAt)
 		next = reconcileNextRunState(next, active.start, observedAt, false)
 		state.DAGs[dag.Name] = next
+		// Slots queued under other schedules may not be fires of these.
+		if _, ok := catchup[dag.Name]; ok && next.StartScheduleFingerprint != current.StartScheduleFingerprint {
+			delete(catchup, dag.Name)
+			catchupDirty = true
+		}
+	}
+
+	for _, entry := range entries {
+		state.DAGs[entry.DAG.Name] = withFirstSeen(state.DAGs[entry.DAG.Name], observedAt)
 	}
 
 	if pruned > 0 {
@@ -394,6 +434,9 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 
 	tp.mu.Lock()
 	tp.watermarkState = state
+	tp.catchup = catchup
+	tp.catchupDirty = catchupDirty
+	tp.catchupStored = catchupStored
 	tp.mu.Unlock()
 
 	logger.Info(ctx, "Loaded scheduler watermark",
@@ -407,19 +450,86 @@ func (tp *TickPlanner) Init(ctx context.Context, entries []DAGEntry) error {
 		recovery = tp.cfg.RecoveryWindow()
 	}
 	// The first tick takes the current minute's slots, and recovery replays
-	// the slots inside its window.
-	missedBefore := tp.cfg.Clock().Truncate(time.Minute)
+	// the slots inside its window. Both count from one reading of the clock.
+	now := tp.cfg.Clock()
+	firstTick := now.Truncate(time.Minute)
+	tp.mu.Lock()
+	tp.firstTick = firstTick
+	tp.mu.Unlock()
+	missedBefore := firstTick
 	if recovery > 0 {
-		missedBefore = tp.cfg.Clock().Add(-recovery)
+		missedBefore = now.Add(-recovery)
 	}
+	tp.recordOutage(ctx, state.LastTick, missedBefore)
 	for _, entry := range entries {
 		if active, ok := activeByDAG[entry.DAG.Name]; ok {
 			tp.recordMissedSlot(ctx, entry, active, state.LastTick, missedBefore)
 		}
 	}
-	tp.initBuffers(ctx, entries, activeByDAG, recovery)
+	tp.initBuffers(ctx, entries, activeByDAG, recovery, now)
+	tp.mu.Lock()
+	tp.saveQueues()
+	tp.mu.Unlock()
 	tp.Flush(ctx)
 	return nil
+}
+
+// maxPendingOutages bounds the outages kept while their periods fail to record.
+const maxPendingOutages = 10
+
+// outageWarnInterval spaces the warnings while outages keep failing to record.
+const outageWarnInterval = 10 * time.Minute
+
+// recordOutage records the time from the last tick to to as a period in which
+// no scheduler ran, when a minute or more passed between them. A period that
+// fails to record is kept until a later tick records it, as the tick moves
+// the last tick past it: the newest maxPendingOutages, an outage that begins
+// where the last one kept ends joining it. Caller must hold entryMu.
+func (tp *TickPlanner) recordOutage(ctx context.Context, lastTick, to time.Time) {
+	if tp.cfg.Periods == nil || lastTick.IsZero() || !to.After(lastTick.Add(time.Minute)) {
+		return
+	}
+	if n := len(tp.pendingOutages); n > 0 && !lastTick.After(tp.pendingOutages[n-1].To) {
+		if to.After(tp.pendingOutages[n-1].To) {
+			tp.pendingOutages[n-1].To = to
+		}
+	} else {
+		tp.pendingOutages = append(tp.pendingOutages, schedulerstate.Period{From: lastTick, To: to})
+		tp.pendingOutages = tp.pendingOutages[max(0, len(tp.pendingOutages)-maxPendingOutages):]
+	}
+	tp.recordPendingOutages(ctx)
+}
+
+// recordPendingOutages records the periods of the outages kept, and keeps
+// those that fail again. It warns at the first failure and then at most once
+// per outageWarnInterval while they fail, and logs once when they record
+// again. Caller must hold entryMu.
+func (tp *TickPlanner) recordPendingOutages(ctx context.Context) {
+	if len(tp.pendingOutages) == 0 {
+		return
+	}
+	var failure error
+	tp.pendingOutages = slices.DeleteFunc(tp.pendingOutages, func(outage schedulerstate.Period) bool {
+		err := tp.cfg.Periods.AddDown(ctx, outage)
+		if err != nil {
+			failure = err
+		}
+		return err == nil
+	})
+	now := tp.cfg.Clock()
+	switch {
+	case failure == nil:
+		if !tp.outageWarnedAt.IsZero() {
+			logger.Info(ctx, "Recorded the time no scheduler ran after earlier failures")
+			tp.outageWarnedAt = time.Time{}
+		}
+	case tp.outageWarnedAt.IsZero() || now.Sub(tp.outageWarnedAt) >= outageWarnInterval:
+		logger.Warn(ctx, "Failed to record the time no scheduler ran; retrying on later ticks",
+			slog.Int("pending", len(tp.pendingOutages)),
+			tag.Error(failure),
+		)
+		tp.outageWarnedAt = now
+	}
 }
 
 // settlePlannedSlots settles each slot left planned, as when the scheduler
@@ -542,9 +652,9 @@ func includeUnstartedSlot(replayFrom time.Time, slot *schedulerstate.ScheduleSlo
 }
 
 // initBuffers creates per-DAG queues for DAGs with CatchupWindow > 0
-// and enqueues catch-up items. Requires QueuesEnabled; when disabled,
-// catchup buffers are not populated and a warning is logged per DAG.
-func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, activeByDAG map[string]activeDAGSchedules, recovery time.Duration) {
+// and enqueues the catch-up items due by now. Requires QueuesEnabled; when
+// disabled, catchup buffers are not populated and a warning is logged per DAG.
+func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, activeByDAG map[string]activeDAGSchedules, recovery time.Duration, now time.Time) {
 	if !tp.cfg.QueuesEnabled {
 		for _, entry := range entries {
 			dag := entry.DAG
@@ -564,9 +674,9 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, acti
 	lastTick := tp.watermarkState.LastTick
 	dagWatermarks := make(map[string]schedulerstate.DAGWatermark, len(tp.watermarkState.DAGs))
 	maps.Copy(dagWatermarks, tp.watermarkState.DAGs)
+	savedSlots := maps.Clone(tp.catchup)
 	tp.mu.RUnlock()
 
-	now := tp.cfg.Clock()
 	var totalMissed int
 
 	for _, entry := range entries {
@@ -594,6 +704,15 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, acti
 			replayTo = now.Truncate(time.Minute).Add(-time.Second)
 		}
 		missed := computeMissedScheduleIntervals(active.start, replayFrom.In(tp.cfg.Location), replayTo)
+		// The previous scheduler's ticks may have passed slots it queued. A
+		// slot by LastScheduledTime was settled, though a flush before the
+		// tick's Advance may have saved it still queued.
+		savedAfter := now.Add(-window)
+		if wm.LastScheduledTime.After(savedAfter) {
+			savedAfter = wm.LastScheduledTime
+		}
+		saved := savedCatchupIntervals(active.start, savedSlots[dag.Name], savedAfter, replayTo, tp.cfg.Location)
+		missed = mergeIntervals(saved, missed)
 
 		if len(missed) == 0 {
 			continue
@@ -648,7 +767,21 @@ func (tp *TickPlanner) initBuffers(ctx context.Context, entries []DAGEntry, acti
 // all guards (not running, not suspended, not finished, not skipped).
 // The caller just dispatches.
 func (tp *TickPlanner) Plan(ctx context.Context, now time.Time) []PlannedRun {
+	// A startup that ran past the minute Init counted on makes the first
+	// tick late, and the slots between came due while no tick ran. Resuming
+	// ends startup as this tick does.
+	tp.mu.Lock()
+	late := !tp.firstTick.IsZero() && now.Truncate(time.Minute).After(tp.firstTick)
+	if !late {
+		tp.firstTick = time.Time{}
+	}
+	tp.mu.Unlock()
+	if late {
+		tp.resume(ctx, now)
+	}
+
 	tp.entryMu.Lock()
+	tp.recordPendingOutages(ctx)
 	flushState := tp.pruneExpiredDeletedWatermarks(now)
 	snapshots := make([]plannerEntrySnapshot, 0, len(tp.entries))
 	for dagName, entry := range tp.entries {
@@ -966,8 +1099,10 @@ func (tp *TickPlanner) shouldRun(ctx context.Context, dag *ir.DAG, scheduledTime
 		return false, schedulerstate.SlotFailed
 	}
 
-	// Also check status-based running (belt and suspenders)
-	if latestStatus.Status == ir.Running {
+	// Also check status-based running (belt and suspenders). A backfill run
+	// is the latest run only of a DAG without another run, and it holds no
+	// live slot back.
+	if latestStatus.Status == ir.Running && latestStatus.BackfillID == "" {
 		return false, schedulerstate.SlotRunning
 	}
 
@@ -1209,10 +1344,15 @@ func (tp *TickPlanner) createPlannedRun(entry DAGEntry, schedule ir.Schedule, sc
 
 // Advance records that this tick was processed. Updates global and per-DAG watermarks.
 func (tp *TickPlanner) Advance(now time.Time) {
+	tp.entryMu.Lock()
+	defer tp.entryMu.Unlock()
 	tp.mu.Lock()
 	defer tp.mu.Unlock()
 
 	tp.watermarkState.LastTick = now
+	tp.firstTick = time.Time{}
+	// Saved with LastTick, so a restart replays the queued slots it passed.
+	tp.saveQueues()
 
 	for _, run := range tp.lastPlanResult {
 		if run.ScheduleType != ScheduleTypeStart {
@@ -1232,6 +1372,72 @@ func (tp *TickPlanner) Advance(now time.Time) {
 	tp.lastPlanResult = nil
 }
 
+// saveQueues updates the saved catch-up slots wherever a restart would not
+// replay a DAG's queue from them, so a restart replays the queued slots
+// though LastTick has passed them. Caller must hold entryMu and mu.
+func (tp *TickPlanner) saveQueues() {
+	for dagName := range tp.catchup {
+		if _, ok := tp.buffers[dagName]; !ok {
+			tp.saveQueue(dagName)
+		}
+	}
+	for dagName := range tp.buffers {
+		tp.saveQueue(dagName)
+	}
+}
+
+// saveQueue updates a DAG's saved catch-up slots when a restart would not
+// replay its queue from them. The saved slots of a queue that ran out are
+// dropped without a write, as a restart replays none of them, until the
+// last queue runs out: the record is then written once, empty. Caller must
+// hold entryMu and mu.
+func (tp *TickPlanner) saveQueue(dagName string) {
+	var queued []QueueItem
+	if buffer := tp.buffers[dagName]; buffer != nil {
+		queued = buffer.items
+	}
+	saved, ok := tp.catchup[dagName]
+	replayed := replaysQueue(saved, queued, tp.watermarkState.DAGs[dagName].LastScheduledTime)
+	if replayed && (len(queued) > 0 || !ok) {
+		return
+	}
+	tp.catchupGen++
+	if !replayed {
+		tp.catchupDirty = true
+	}
+	if len(queued) == 0 {
+		delete(tp.catchup, dagName)
+		if len(tp.catchup) == 0 && tp.catchupStored {
+			tp.catchupDirty = true
+		}
+		return
+	}
+	slots := make([]time.Time, len(queued))
+	for i, item := range queued {
+		slots[i] = item.ScheduledTime.UTC()
+	}
+	tp.catchup[dagName] = slots
+}
+
+// replaysQueue reports whether a restart from the saved slots replays the
+// queued ones, also after catch-up moves lastScheduled back to a queued
+// slot: the saved slots end with the queued ones, and any before them are
+// at or before lastScheduled.
+func replaysQueue(saved []time.Time, queued []QueueItem, lastScheduled time.Time) bool {
+	extra := len(saved) - len(queued)
+	if extra < 0 {
+		return false
+	}
+	for i, item := range queued {
+		if !saved[extra+i].Equal(item.ScheduledTime) {
+			return false
+		}
+	}
+	// saved is ascending, as every change to a queue keeps it sorted, so the
+	// newest extra slot bounds them all.
+	return extra == 0 || !saved[extra-1].After(lastScheduled)
+}
+
 func (tp *TickPlanner) dropSuspendedCatchupState(dagName string, dag *ir.DAG, now time.Time) {
 	if _, ok := tp.buffers[dagName]; ok {
 		delete(tp.buffers, dagName)
@@ -1241,6 +1447,32 @@ func (tp *TickPlanner) dropSuspendedCatchupState(dagName string, dag *ir.DAG, no
 	if dag != nil && dag.CatchupWindow > 0 {
 		tp.advanceDAGWatermark(dagName, now)
 	}
+}
+
+// markFirstSeen records now as when the planner first tracked a DAG, unless
+// it has. Caller must NOT hold tp.mu.
+func (tp *TickPlanner) markFirstSeen(dagName string, now time.Time) bool {
+	tp.mu.Lock()
+	defer tp.mu.Unlock()
+
+	current := tp.watermarkState.DAGs[dagName]
+	next := withFirstSeen(current, now)
+	if next.FirstSeen.Equal(current.FirstSeen) {
+		return false
+	}
+	tp.watermarkState.DAGs[dagName] = next
+	return true
+}
+
+// withFirstSeen returns the watermark with now as when the DAG was first
+// seen, unless it holds a time already.
+func withFirstSeen(watermark schedulerstate.DAGWatermark, now time.Time) schedulerstate.DAGWatermark {
+	if !watermark.FirstSeen.IsZero() {
+		return watermark
+	}
+	next := schedulerstate.CloneDAGWatermark(watermark)
+	next.FirstSeen = now.UTC()
+	return next
 }
 
 // advanceDAGWatermark updates the per-DAG watermark to the given time.
@@ -1304,8 +1536,29 @@ func (tp *TickPlanner) Flush(ctx context.Context) {
 	for dagName, dagState := range tp.watermarkState.DAGs {
 		snapshot.DAGs[dagName] = schedulerstate.CloneDAGWatermark(dagState)
 	}
+	saveCatchup, catchupGen := tp.catchupDirty, tp.catchupGen
+	var catchup map[string][]time.Time
+	if saveCatchup {
+		catchup = maps.Clone(tp.catchup)
+	}
 	tp.mu.RUnlock()
 
+	// The catch-up slots are saved first, so a saved LastTick never passes
+	// slots they lack. When they fail to save, the state is saved anyway:
+	// an older saved LastTick would replay slots that already ran.
+	if saveCatchup {
+		if err := tp.cfg.StateStore.SaveCatchup(ctx, catchup); err != nil {
+			logger.Warn(ctx, "Failed to save catch-up slots; retrying on the next flush", tag.Error(err))
+		} else {
+			// Slots changed since the snapshot are saved by the next flush.
+			tp.mu.Lock()
+			tp.catchupStored = len(catchup) > 0
+			if tp.catchupGen == catchupGen {
+				tp.catchupDirty = false
+			}
+			tp.mu.Unlock()
+		}
+	}
 	if err := tp.cfg.StateStore.Save(ctx, snapshot); err != nil {
 		logger.Error(ctx, "Failed to flush watermark state", tag.Error(err))
 		return
@@ -1461,8 +1714,9 @@ func (tp *TickPlanner) applyEvent(ctx context.Context, event DAGChangeEvent) eve
 		active, activeOK := tp.activeDAGSchedules(ctx, event.DAGEntry)
 		delete(tp.deletedGrace, dagName)
 		tp.entries[dagName] = &plannerEntry{DAGEntry: event.DAGEntry}
+		flushNow = tp.markFirstSeen(dagName, tp.cfg.Clock())
 		// Set watermark to now (new DAGs have no catchup)
-		flushNow = tp.advanceDAGWatermark(dagName, tp.cfg.Clock())
+		flushNow = tp.advanceDAGWatermark(dagName, tp.cfg.Clock()) || flushNow
 		if activeOK {
 			flushNow = tp.reconcileStartScheduleState(event.DAG, active) || flushNow
 			flushNow = tp.reconcileOneOffSchedules(event.DAG, active) || flushNow
@@ -1502,6 +1756,10 @@ func (tp *TickPlanner) applyEvent(ctx context.Context, event DAGChangeEvent) eve
 		// the re-added DAG can detect schedule edits before its next slot.
 		logger.Info(ctx, "Planner: DAG deleted", tag.DAG(dagName))
 	}
+	// The event may have rebuilt or dropped the DAG's catch-up queue.
+	tp.mu.Lock()
+	tp.saveQueue(event.DAG.Name)
+	tp.mu.Unlock()
 
 	// Checked even when this event changed nothing, since it can make
 	// earlier unsaved state matter, as when it enables catch-up.
@@ -1700,9 +1958,18 @@ func (tp *TickPlanner) reinsertCatchupItem(ctx context.Context, run PlannedRun) 
 func (tp *TickPlanner) resume(ctx context.Context, now time.Time) {
 	tp.entryMu.Lock()
 	defer tp.entryMu.Unlock()
-	tp.mu.RLock()
+	tp.mu.Lock()
 	lastTick := tp.watermarkState.LastTick
-	tp.mu.RUnlock()
+	// Before the first tick, Init has settled the slots up to the minute
+	// before the one it counted that tick on, by outage or replay.
+	if !tp.firstTick.IsZero() {
+		if settled := tp.firstTick.Add(-time.Minute); settled.After(lastTick) {
+			lastTick = settled
+		}
+	}
+	tp.firstTick = time.Time{}
+	tp.mu.Unlock()
+	tp.recordOutage(ctx, lastTick, now)
 	for name, entry := range tp.entries {
 		dag := entry.DAG
 		active, ok := tp.activeDAGSchedules(ctx, entry.DAGEntry)
@@ -1714,7 +1981,7 @@ func (tp *TickPlanner) resume(ctx context.Context, now time.Time) {
 			continue
 		}
 		tp.mu.RLock()
-		from := ComputeReplayFrom(dag.CatchupWindow, tp.watermarkState.LastTick,
+		from := ComputeReplayFrom(dag.CatchupWindow, lastTick,
 			tp.watermarkState.DAGs[name].LastScheduledTime, now)
 		tp.mu.RUnlock()
 		buffer := tp.buffers[name]
@@ -1788,14 +2055,20 @@ func (tp *TickPlanner) recomputeBuffer(ctx context.Context, entry DAGEntry, acti
 		// Keep compatible pending slots and execute the updated definition.
 		schedules := make(map[string]ir.Schedule, len(active.start))
 		for _, schedule := range active.start {
-			schedules[schedule.Fingerprint()] = schedule
+			fingerprint := schedule.Fingerprint()
+			if _, exists := schedules[fingerprint]; !exists {
+				schedules[fingerprint] = schedule
+			}
 		}
 		for _, item := range pending.items {
 			// A calendar edit keeps the fingerprint but can drop the slot's
 			// date, so the slot must still be a fire of the schedule.
 			if schedule, ok := schedules[item.Schedule.Fingerprint()]; ok && scheduleMatchesFireTime(schedule, item.ScheduledTime) {
 				item.DAGEntry = entry
-				item.Schedule = schedule
+				// Re-select the first active entry in case the order or overlap changed.
+				if candidate, ok := firstCronFiring(active.start, item.ScheduledTime); ok {
+					item.Schedule = candidate
+				}
 				q.items = append(q.items, item)
 				seen[item.ScheduledTime.UTC()] = true
 			}
@@ -1933,7 +2206,7 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 				}
 			}
 			enqueue := func() error {
-				err = tp.cfg.Enqueue(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime)
+				err = tp.cfg.Enqueue(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime, string(run.Schedule.Params))
 				// An enqueue error is handled below as for any dispatch.
 				return nil
 			}
@@ -1957,9 +2230,9 @@ func (tp *TickPlanner) DispatchRun(ctx context.Context, run PlannedRun) {
 				}
 			}
 		} else if tp.queuesRun(run.DAG) {
-			err = tp.cfg.Enqueue(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime)
+			err = tp.cfg.Enqueue(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime, string(run.Schedule.Params))
 		} else {
-			err = tp.cfg.Dispatch(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime)
+			err = tp.cfg.Dispatch(ctx, run.DAGEntry, run.RunID, run.TriggerType, run.ScheduledTime, string(run.Schedule.Params))
 		}
 	case ScheduleTypeStop:
 		err = tp.cfg.Stop(ctx, run.DAG)

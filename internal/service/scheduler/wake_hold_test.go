@@ -85,7 +85,7 @@ func wakeLoop(t *testing.T, limit time.Duration, pause *memPauseStore, minutes s
 		Schedule: []ir.Schedule{mustParseSchedule(t, minutes+" * * * *")}}
 	require.NoError(t, planner.Init(t.Context(), testDAGEntries(dag)))
 	runs := make(chan PlannedRun, 10)
-	record := func(_ context.Context, entry DAGEntry, id string, trigger ir.TriggerType, scheduled time.Time) error {
+	record := func(_ context.Context, entry DAGEntry, id string, trigger ir.TriggerType, scheduled time.Time, _ string) error {
 		runs <- PlannedRun{DAGEntry: entry, RunID: id, TriggerType: trigger, ScheduledTime: scheduled}
 		return nil
 	}

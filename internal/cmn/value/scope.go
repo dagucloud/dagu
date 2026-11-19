@@ -47,6 +47,9 @@ func (c BuiltinContext) Value(path string) (string, bool) {
 type StaticScope struct {
 	Consts Values
 	Params Values
+	// Dates holds the names the DAG's dates block declares. A non-nil empty
+	// map declares none, so any ${dates.NAME} names an unknown date.
+	Dates Values
 }
 
 // RuntimeScope contains actual values available during runtime resolution.
@@ -60,6 +63,11 @@ type RuntimeScope struct {
 	Inputs         Values
 	Outputs        Values
 	BuiltinContext BuiltinContext
+	// Dates holds a run's dates by name, as ${dates.NAME} inserts them.
+	Dates Values
+
+	// declaredDates holds the static scope's date names.
+	declaredDates Values
 }
 
 // ValuesFromStrings converts string variables into binding values.

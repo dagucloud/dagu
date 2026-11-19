@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {
+  RunBackfillFilter,
   RunDateMode,
   RunDatePreset,
   RunSpecificPeriod,
@@ -17,6 +18,8 @@ export type DAGRunsFilterSet = {
   searchText: string;
   dagRunId: string;
   status: string;
+  /** Runs by whether a backfill queued them. */
+  backfill: RunBackfillFilter;
   labels: string[];
   fromDate?: string;
   toDate?: string;
@@ -38,6 +41,7 @@ export function dagRunsFilterSetFromView(view: View): DAGRunsFilterSet {
     searchText: view.dagName ?? '',
     dagRunId: view.dagRunId ?? '',
     status: view.runStatus ?? 'all',
+    backfill: asBackfillFilter(view.backfill),
     labels: view.labels ?? [],
     fromDate: view.fromDate ?? undefined,
     toDate: view.toDate ?? undefined,
@@ -46,6 +50,14 @@ export function dagRunsFilterSetFromView(view: View): DAGRunsFilterSet {
     specificPeriod: asSpecificPeriod(view.specificPeriod),
     specificValue: view.specificValue ?? '',
   };
+}
+
+export function asBackfillFilter(
+  value: string | null | undefined
+): RunBackfillFilter {
+  return value === RunBackfillFilter.exclude || value === RunBackfillFilter.only
+    ? value
+    : RunBackfillFilter.all;
 }
 
 function asDateRangeMode(value: string | undefined): DAGRunsDateRangeMode {
@@ -86,6 +98,7 @@ export function buildRunViewSpec(
     dagName: filters.searchText,
     dagRunId: filters.dagRunId,
     runStatus: filters.status,
+    backfill: filters.backfill,
     dateMode: filters.dateRangeMode as RunDateMode,
     datePreset: filters.datePreset as RunDatePreset,
     specificPeriod: filters.specificPeriod as RunSpecificPeriod,

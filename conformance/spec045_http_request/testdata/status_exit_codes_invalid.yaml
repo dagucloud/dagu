@@ -1,0 +1,7 @@
+steps:
+  - action: http.request
+    with:
+      method: GET
+      url: http://127.0.0.1:1
+      status_exit_codes:
+        "999": 0

@@ -44,8 +44,12 @@ function makeConfig(): Config {
     updateAvailable: false,
     latestVersion: '',
     upgradeCommand: '',
+    installMethod: 'binary',
     restartRequired: false,
     restartCommand: '',
+    restartStopsRuns: false,
+    restartCanKeepRuns: false,
+    webUpgradeAvailable: false,
     permissions: { writeDags: true, runDags: true },
     license: {
       valid: true,

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"runtime/debug"
 	"slices"
@@ -175,6 +176,9 @@ type Config struct {
 
 // Run runs the plan of steps.
 func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUpdate) error {
+	// A run started by a step, such as a sub-DAG run in process, checks its
+	// own reads instead of the step's.
+	ctx = cmnvalue.UntrackMaskedReads(ctx)
 	if err := r.setup(ctx); err != nil {
 		return err
 	}
@@ -480,6 +484,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 				var err error
 				ctx, err = r.setupVariables(ctx, plan, n)
 				if err != nil {
+					err = preferMaskedRead(ctx, n, err)
 					r.setLastError(err)
 					n.MarkError(err)
 					n.SetStatus(ir.NodeFailed)
@@ -492,6 +497,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 				}
 				if !r.dry {
 					if err := validateBuildRuntimeRedirectAliases(ctx, plan, n); err != nil {
+						err = preferMaskedRead(ctx, n, err)
 						r.setLastError(err)
 						n.MarkError(err)
 						n.SetStatus(ir.NodeFailed)
@@ -500,6 +506,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 				}
 
 				if err := r.prepareNode(ctx, n); err != nil {
+					err = preferMaskedRead(ctx, n, err)
 					r.setLastError(err)
 					n.MarkError(err)
 					n.SetStatus(ir.NodeFailed)
@@ -650,6 +657,17 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 		return
 	}
 
+	// A precondition can decide on a value resolved before it, such as the
+	// step's env, working directory, or log paths, so a masked read there
+	// fails the step whatever the preconditions decide.
+	if err := maskedReadError(ctx, node); err != nil {
+		r.setLastError(err)
+		node.MarkError(err)
+		node.SetStatus(ir.NodeFailed)
+		reportPreparedNode()
+		return
+	}
+
 	// Check preconditions
 	logger.Debug(ctx, "Checking preconditions")
 	preconditionProgress := progressCh
@@ -663,8 +681,12 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 		return
 	}
 	if !met {
-		r.markBuildPrecondition(ctx, buildSession, node, ir.BuildReasonPreconditionNotMet,
-			"step precondition was not met", progressCh)
+		reason, detail := ir.BuildReasonPreconditionNotMet, "step precondition was not met"
+		if node.State().Status == ir.NodeFailed {
+			// A precondition that read a masked output failed the step.
+			reason, detail = ir.BuildReasonPreconditionError, ""
+		}
+		r.markBuildPrecondition(ctx, buildSession, node, reason, detail, progressCh)
 		return
 	}
 	if r.evaluateBuildNode(ctx, node, buildSession, reportPreparedNode) {
@@ -929,6 +951,17 @@ func (r *Runner) prepareNode(ctx context.Context, node *Node) error {
 
 func (r *Runner) runHumanTask(ctx context.Context, plan *Plan, node *Node, progressCh chan ProgressUpdate) {
 	ctx = r.setupNodeExecutionEnv(ctx, node)
+	// A precondition can decide on the task's env, so a masked read there
+	// fails a task that has preconditions whatever they decide.
+	if len(node.Step().Preconditions) > 0 {
+		if err := maskedReadError(ctx, node); err != nil {
+			r.setLastError(err)
+			node.MarkError(err)
+			node.SetStatus(ir.NodeFailed)
+			r.report(ctx, progressCh, node)
+			return
+		}
+	}
 	met, err := r.meetsPreconditions(ctx, node, progressCh)
 	if err != nil {
 		r.handlePreconditionError(plan, err)
@@ -1108,6 +1141,8 @@ func stepSupportsChatMessages(step ir.Step) bool {
 }
 
 func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (context.Context, error) {
+	// Each execution records the masked outputs its fields read.
+	ctx = cmnvalue.TrackMaskedReads(ctx)
 	env, err := NewPlanEnvForNodeWithError(ctx, node, plan)
 	if err != nil {
 		return ctx, err
@@ -1127,7 +1162,7 @@ func (r *Runner) setupVariables(ctx context.Context, plan *Plan, node *Node) (co
 			if stepID == "" {
 				stepID = predNode.Step().Name
 			}
-			env.Scope = env.Scope.WithStepOutputs(outputs, stepID)
+			env.Scope = env.Scope.WithStepOutputs(outputs, stepID, predNode.maskedVariables()...)
 		}
 	}
 
@@ -1291,7 +1326,7 @@ func (r *Runner) setupEnvironEventHandler(
 			if stepID == "" {
 				stepID = n.Step().Name
 			}
-			env.Scope = env.Scope.WithStepOutputs(outputs, stepID)
+			env.Scope = env.Scope.WithStepOutputs(outputs, stepID, n.maskedVariables()...)
 		}
 	}
 
@@ -1631,6 +1666,8 @@ func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, extraEnvs map[string]string) error {
 	defer node.Finish()
 
+	// A handler reports on the run, so it reads outputs stored masked as they
+	// are instead of failing on them.
 	ctx = logger.WithValues(ctx, tag.Step(node.Name()))
 	var err error
 	ctx, err = r.setupEnvironEventHandler(ctx, plan, node, extraEnvs)
@@ -1845,7 +1882,11 @@ func (r *Runner) GetMetrics() map[string]any {
 // shouldRetryNode handles the retry logic for a node based on exit codes and retry policy
 func (r *Runner) shouldRetryNode(ctx context.Context, node *Node, execErr error) (shouldRetry bool) {
 	exitCode := 1
-	if code, found := exitCodeFromError(execErr); found {
+	// The recorded exit code is the one continue_on.exit_code sees, so prefer
+	// it over one parsed from the error text.
+	if code := node.State().ExitCode; code != 0 {
+		exitCode = code
+	} else if code, found := exitCodeFromError(execErr); found {
 		exitCode = code
 		logger.Debug(ctx, "Resolved exit code from error",
 			tag.Error(execErr),
@@ -1993,9 +2034,65 @@ func (r *Runner) handlePreconditionError(plan *Plan, err error) {
 	}
 }
 
+// evalPreconditions evaluates the node's preconditions. A precondition
+// decides on what it reads, so a masked read fails the step whatever the
+// precondition decides; readErr reports it.
+func evalPreconditions(ctx context.Context, node *Node) (err, readErr error) {
+	ctx = cmnvalue.TrackMaskedReads(ctx)
+	// A precondition command does not run on a masked value.
+	cmnvalue.RejectMaskedReads(ctx)
+	err = node.evalPreconditions(ctx)
+	return err, maskedReadError(ctx, node)
+}
+
+// maskedReadError returns the error for an output restored masked that the
+// node read through ctx, or nil. The original value is gone, so the step
+// would run on starred text.
+func maskedReadError(ctx context.Context, node *Node) error {
+	return stepMaskedRead(ctx, node, cmnvalue.MaskedRead(ctx))
+}
+
+// preferMaskedRead returns the node's masked read in place of err, which the
+// starred value can cause, such as by failing to parse; otherwise err.
+func preferMaskedRead(ctx context.Context, node *Node, err error) error {
+	if readErr := maskedReadError(ctx, node); readErr != nil {
+		return readErr
+	}
+	return err
+}
+
+// stepMaskedRead returns the masked read err reports as the node's error, or
+// nil when err reports none.
+func stepMaskedRead(ctx context.Context, node *Node, err error) error {
+	read, ok := errors.AsType[*cmnvalue.MaskedReadError](err)
+	if !ok {
+		return nil
+	}
+	// A reference names the producing step by id; retry selects it by name.
+	named := *read
+	if rCtx, ok := LookupDAGContext(ctx); ok && rCtx.DAG != nil {
+		if i := slices.IndexFunc(rCtx.DAG.Steps, func(step ir.Step) bool { return step.ID == read.Step }); i >= 0 {
+			named.Step = rCtx.DAG.Steps[i].Name
+		}
+	}
+	return fmt.Errorf("step %q %w", node.Name(), &named)
+}
+
+func isMaskedRead(err error) bool {
+	_, ok := errors.AsType[*cmnvalue.MaskedReadError](err)
+	return ok
+}
+
 // checkPreconditions evaluates the preconditions for a node and updates its status accordingly.
 func (r *Runner) meetsPreconditions(ctx context.Context, node *Node, progressCh chan ProgressUpdate) (bool, error) {
-	err := node.evalPreconditions(ctx)
+	err, readErr := evalPreconditions(ctx, node)
+	if readErr != nil && !errors.Is(err, errConditionInterrupted) {
+		node.SetStatus(ir.NodeFailed)
+		node.MarkError(readErr)
+		r.setLastError(readErr)
+		r.report(ctx, progressCh, node)
+		return false, nil
+	}
 	if err != nil {
 		if errors.Is(err, ErrConditionNotMet) {
 			node.SetStatus(ir.NodeSkipped)
@@ -2067,6 +2164,10 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 	case r.isCanceled():
 		node.SetStatus(ir.NodeAborted)
 
+	case isMaskedRead(execErr):
+		// A masked read fails the same way on every attempt.
+		r.finalizeFailedNode(ctx, node, execErr)
+
 	case node.retryPolicy.Limit > node.GetRetryCount():
 		if r.shouldRetryNode(ctx, node, execErr) {
 			return true
@@ -2084,7 +2185,10 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 // succeeded when continueOn.markSuccess applies.
 func (r *Runner) finalizeFailedNode(ctx context.Context, node *Node, execErr error) {
 	node.SetStatus(ir.NodeFailed)
-	if node.ShouldMarkSuccess(ctx) {
+	// A step failed by a masked read did not run on the value, so it is not
+	// marked successful.
+	if node.ShouldMarkSuccess(ctx) && !isMaskedRead(execErr) {
+		node.SetError(execErr)
 		node.SetStatus(ir.NodeSucceeded)
 		return
 	}
@@ -2094,7 +2198,7 @@ func (r *Runner) finalizeFailedNode(ctx context.Context, node *Node, execErr err
 
 // shouldRepeatNode determines if a node should be repeated based on its repeat policy
 func (r *Runner) shouldRepeatNode(ctx context.Context, node *Node, execErr error) bool {
-	if r.isCanceled() || node.State().Status == ir.NodeAborted || errors.Is(execErr, context.DeadlineExceeded) {
+	if r.isCanceled() || node.State().Status == ir.NodeAborted || errors.Is(execErr, context.DeadlineExceeded) || isMaskedRead(execErr) {
 		return false
 	}
 
@@ -2102,11 +2206,16 @@ func (r *Runner) shouldRepeatNode(ctx context.Context, node *Node, execErr error
 
 	// Check the hard limit first - this overrides everything
 	if rp.Limit > 0 && node.State().DoneCount >= rp.Limit {
+		if rp.OnLimit == ir.RepeatOnLimitFail {
+			r.failRepeatLimit(ctx, node, rp, execErr)
+		}
 		return false
 	}
 
 	// Reload output variables into context before evaluating conditions
 	ctx = r.reloadNodeOutputs(ctx, node)
+	// The execution may have failed before it rejected masked reads.
+	cmnvalue.RejectMaskedReads(ctx)
 	shell := GetEnv(ctx).Shell(ctx)
 
 	var repeat bool
@@ -2138,8 +2247,11 @@ func (r *Runner) shouldRepeatNode(ctx context.Context, node *Node, execErr error
 		}
 		return false
 	}
+	if readErr := stepMaskedRead(ctx, node, err); readErr != nil {
+		err = readErr
+	}
 	node.MarkError(err)
-	if node.ShouldMarkSuccess(ctx) {
+	if node.ShouldMarkSuccess(ctx) && !isMaskedRead(err) {
 		node.SetStatus(ir.NodeSucceeded)
 		return false
 	}
@@ -2158,7 +2270,7 @@ func (r *Runner) reloadNodeOutputs(ctx context.Context, node *Node) context.Cont
 	if stepID == "" {
 		stepID = node.Step().Name
 	}
-	env.Scope = env.Scope.WithStepOutputs(outputs, stepID)
+	env.Scope = env.Scope.WithStepOutputs(outputs, stepID, node.maskedVariables()...)
 	return WithEnv(ctx, env)
 }
 
@@ -2196,6 +2308,43 @@ func (r *Runner) evalUntilCondition(ctx context.Context, shell []string, node *N
 	}
 	// Unconditional until: repeat until the step succeeds
 	return execErr != nil, nil
+}
+
+// failRepeatLimit resolves the outcome of an "until" loop that reached its
+// limit with on_limit: fail. A met condition leaves the step's last result
+// untouched; a not-met condition, an evaluation error, or the attempt's own
+// error all fail the step. An interrupted check is left to the abort or
+// timeout that owns the outcome.
+func (r *Runner) failRepeatLimit(ctx context.Context, node *Node, rp ir.RepeatPolicy, execErr error) {
+	// An exhausted "while" condition is a normal stop, not a failure.
+	if rp.RepeatMode != ir.RepeatModeUntil || rp.Condition == nil {
+		return
+	}
+	ctx = r.reloadNodeOutputs(ctx, node)
+	cmnvalue.RejectMaskedReads(ctx)
+	shell := GetEnv(ctx).Shell(ctx)
+	err := EvalCondition(ctx, shell, rp.Condition)
+	// Abort and timeout take precedence over the final condition result. A
+	// graceful stop does not cancel ctx, so the runner flag is checked too.
+	if r.isCanceled() || node.State().Status == ir.NodeAborted || ctx.Err() != nil {
+		return
+	}
+	switch {
+	case err == nil:
+		return // condition met on the final attempt
+	case errors.Is(err, ErrConditionNotMet):
+		err = fmt.Errorf("repeat limit %d reached; condition not met", rp.Limit)
+	}
+	if readErr := stepMaskedRead(ctx, node, err); readErr != nil {
+		err = readErr
+	}
+	if execErr != nil {
+		err = fmt.Errorf("%w: %w", err, execErr)
+	}
+	// Use the same failure path as a regular step failure so that
+	// continueOn.markSuccess still applies. An evaluation error is not a loop
+	// answer and must be reported instead of being swallowed.
+	r.finalizeFailedNode(ctx, node, err)
 }
 
 // setupRepeatEnv sets up the environment of the node's next repeat the same
@@ -2265,72 +2414,46 @@ func waitForExecution(ctx context.Context, duration time.Duration) bool {
 	}
 }
 
+// NewPlanEnv returns an env whose step map holds every node of plan. Its
+// working_dir does not resolve step references.
 func NewPlanEnv(ctx context.Context, step ir.Step, plan *Plan) Env {
 	env := NewEnv(ctx, step)
-	addInheritedStepMap(ctx, &env)
-	addPlanStepsToEnv(&env, plan)
+	maps.Copy(env.StepMap, planStepInfos(ctx, plan.Nodes()))
 	return env
 }
 
+// NewPlanEnvWithError is NewPlanEnv with strict working_dir resolution. It
+// backs lifecycle handlers, which have no step-output lookup scope (spec 009).
 func NewPlanEnvWithError(ctx context.Context, step ir.Step, plan *Plan) (Env, error) {
 	env, err := NewEnvWithError(ctx, step)
 	if err != nil {
 		return Env{}, err
 	}
-	addInheritedStepMap(ctx, &env)
-	addPlanStepsToEnv(&env, plan)
+	maps.Copy(env.StepMap, planStepInfos(ctx, plan.Nodes()))
 	return env, nil
 }
 
 func NewPlanEnvForNode(ctx context.Context, node *Node, plan *Plan) Env {
-	env := NewEnv(ctx, node.Step())
-	addInheritedStepMap(ctx, &env)
-	addPlanPredecessorStepsToEnv(&env, plan, node)
-	return env
+	return newEnvWithSteps(ctx, node.Step(), planStepInfos(ctx, planPredecessorNodes(plan, node)))
 }
 
 func NewPlanEnvForNodeWithError(ctx context.Context, node *Node, plan *Plan) (Env, error) {
-	env, err := NewEnvWithError(ctx, node.Step())
-	if err != nil {
-		return Env{}, err
-	}
-	addInheritedStepMap(ctx, &env)
-	addPlanPredecessorStepsToEnv(&env, plan, node)
-	return env, nil
+	return newEnvWithStepsStrict(ctx, node.Step(), planStepInfos(ctx, planPredecessorNodes(plan, node)))
 }
 
-func addInheritedStepMap(ctx context.Context, env *Env) {
-	if env == nil {
-		return
+// planStepInfos returns the inherited step references overlaid with the
+// entries of nodes.
+func planStepInfos(ctx context.Context, nodes []*Node) map[string]cmnvalue.StepInfo {
+	steps := make(map[string]cmnvalue.StepInfo)
+	if inherited, ok := LookupEnv(ctx); ok {
+		maps.Copy(steps, inherited.StepMap)
 	}
-	inherited, ok := LookupEnv(ctx)
-	if !ok || len(inherited.StepMap) == 0 {
-		return
-	}
-	if env.StepMap == nil {
-		env.StepMap = make(map[string]cmnvalue.StepInfo, len(inherited.StepMap))
-	}
-	for id, info := range inherited.StepMap {
-		if _, exists := env.StepMap[id]; !exists {
-			env.StepMap[id] = info
-		}
-	}
-}
-
-func addPlanStepsToEnv(env *Env, plan *Plan) {
-	for _, n := range plan.Nodes() {
+	for _, n := range nodes {
 		if n.Step().ID != "" {
-			env.StepMap[n.Step().ID] = n.StepInfo()
+			steps[n.Step().ID] = n.StepInfo()
 		}
 	}
-}
-
-func addPlanPredecessorStepsToEnv(env *Env, plan *Plan, node *Node) {
-	for _, n := range planPredecessorNodes(plan, node) {
-		if n.Step().ID != "" {
-			env.StepMap[n.Step().ID] = n.StepInfo()
-		}
-	}
+	return steps
 }
 
 func planPredecessorNodes(plan *Plan, node *Node) []*Node {

@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -192,7 +193,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 		}
 	}
 
-	selection, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId, request.Body.OutputsFromRuns, request.Body.Outputs, request.Body.OutputsSources, request.Body.Ephemeral)
+	selection, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId, request.Body.OutputsFromRuns, request.Body.Outputs, request.Body.OutputsSources, request.Body.Ephemeral, request.Body.ReuseFrom)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +268,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	}
 
 	var started *launcher.StartResult
-	if len(selection.steps) > 0 {
+	if len(selection.steps) > 0 || selection.reuseFrom != "" {
 		if err := a.startSelectedSteps(ctx, dag, selectedStepsStart{
 			selection:      selection,
 			params:         params,
@@ -697,7 +698,7 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 	if err != nil {
 		return nil, err
 	}
-	opts := buildDAGRunListOptions(dagRunListFilterInput{
+	opts, err := buildDAGRunListOptions(dagRunListFilterInput{
 		statuses: request.Params.Status,
 		fromDate: request.Params.FromDate,
 		toDate:   request.Params.ToDate,
@@ -707,13 +708,21 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 		limit:    request.Params.Limit,
 		cursor:   request.Params.Cursor,
 
+		backfillID:            request.Params.BackfillId,
+		backfill:              string(valueOf(request.Params.Backfill)),
 		excludeServiceDAGRuns: request.Params.ExcludeServiceDAGRuns != nil && *request.Params.ExcludeServiceDAGRuns,
 	})
+	if err != nil {
+		return nil, err
+	}
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err
 	}
 	opts.query.WorkspaceFilter = workspaceFilter
+	if err := a.scopeToBackfill(ctx, &opts.query); err != nil {
+		return nil, err
+	}
 	var dagName, dagRunID string
 	if request.Params.Name != nil {
 		dagName = *request.Params.Name
@@ -744,7 +753,7 @@ func (a *API) ListDAGRuns(ctx context.Context, request api.ListDAGRunsRequestObj
 }
 
 func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNameRequestObject) (api.ListDAGRunsByNameResponseObject, error) {
-	opts := buildDAGRunListOptions(dagRunListFilterInput{
+	opts, err := buildDAGRunListOptions(dagRunListFilterInput{
 		statuses:  request.Params.Status,
 		fromDate:  request.Params.FromDate,
 		toDate:    request.Params.ToDate,
@@ -753,6 +762,9 @@ func (a *API) ListDAGRunsByName(ctx context.Context, request api.ListDAGRunsByNa
 		cursor:    request.Params.Cursor,
 		exactName: &request.Name,
 	})
+	if err != nil {
+		return nil, err
+	}
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err
@@ -805,11 +817,16 @@ type dagRunListFilterInput struct {
 	labels    *string
 	limit     *int
 	cursor    *string
+	// backfillID keeps only the runs of a backfill.
+	backfillID *string
+	// backfill leaves out backfill runs ("exclude") or keeps only them
+	// ("only").
+	backfill string
 	// excludeServiceDAGRuns drops the runs of the service DAGs.
 	excludeServiceDAGRuns bool
 }
 
-func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
+func buildDAGRunListOptions(input dagRunListFilterInput) (dagRunListOptions, error) {
 	const (
 		defaultLimit = 100
 		maxLimit     = 500
@@ -835,8 +852,26 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 	if input.dagRunID != nil && *input.dagRunID != "" {
 		opts.query.DAGRunID = *input.dagRunID
 	}
-	if labels := parseCommaSeparatedLabels(input.labels); len(labels) > 0 {
+	labels, err := parseCommaSeparatedLabels(input.labels)
+	if err != nil {
+		return dagRunListOptions{}, err
+	}
+	if len(labels) > 0 {
 		opts.query.Labels = labels
+	}
+	opts.query.BackfillID = valueOf(input.backfillID)
+	switch api.ListDAGRunsParamsBackfill(input.backfill) {
+	case "":
+	case api.ListDAGRunsParamsBackfillExclude:
+		opts.query.ExcludeBackfill = true
+	case api.ListDAGRunsParamsBackfillOnly:
+		opts.query.OnlyBackfill = true
+	default:
+		return dagRunListOptions{}, &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    fmt.Sprintf("invalid backfill %q: use exclude or only", input.backfill),
+		}
 	}
 	if input.limit != nil {
 		limit = clampInt(*input.limit, 1, maxLimit)
@@ -846,7 +881,7 @@ func buildDAGRunListOptions(input dagRunListFilterInput) dagRunListOptions {
 	}
 	opts.excludeServiceDAGRuns = input.excludeServiceDAGRuns
 	opts.query.Limit = limit
-	return opts
+	return opts, nil
 }
 
 func (a *API) readDAGRunsPage(
@@ -881,9 +916,11 @@ func dagRunListBadRequest(err error) *Error {
 	}
 }
 
-func parseCommaSeparatedLabels(labelsParam *string) []string {
+// parseCommaSeparatedLabels splits a labels query parameter into its filter
+// terms. An invalid term is a bad request.
+func parseCommaSeparatedLabels(labelsParam *string) ([]string, error) {
 	if labelsParam == nil || *labelsParam == "" {
-		return nil
+		return nil, nil
 	}
 
 	parts := strings.Split(*labelsParam, ",")
@@ -898,7 +935,14 @@ func parseCommaSeparatedLabels(labelsParam *string) []string {
 			}
 		}
 	}
-	return labels
+	if _, err := ir.ParseLabelFilters(labels); err != nil {
+		return nil, &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    err.Error(),
+		}
+	}
+	return labels, nil
 }
 
 func queryLabelsParam(labelsParam, deprecatedTagsParam *string) (*string, error) {
@@ -2496,7 +2540,29 @@ func (a *API) toDAGRunDetailsWithSpecSource(ctx context.Context, attempt dagrun.
 	if sourceFileName != "" {
 		details.SourceFileName = ptrOf(sourceFileName)
 	}
+	details.BackfillSlot = a.backfillRunSlot(ctx, status)
 	return details
+}
+
+// backfillRunSlot tells which of its backfill's slots a backfill run ran,
+// or nil for another run or when the backfill's record cannot be read.
+func (a *API) backfillRunSlot(ctx context.Context, status ir.DAGRunStatus) *api.BackfillRunSlot {
+	if status.BackfillID == "" || a.backfillStore == nil {
+		return nil
+	}
+	at, err := stringutil.ParseTime(status.ScheduleTime)
+	if err != nil {
+		return nil
+	}
+	record, err := a.backfillStore.Get(ctx, status.BackfillID)
+	if err != nil {
+		return nil
+	}
+	position, ok := record.SlotPosition(at)
+	if !ok {
+		return nil
+	}
+	return &api.BackfillRunSlot{Index: position, Count: len(record.Slots)}
 }
 
 // GetDAGRunSpec returns the YAML spec used for a specific DAG-run.
@@ -3481,6 +3547,25 @@ func failedAutoRetryCancelStateChangedError(updatedStatus *ir.DAGRunStatus) *Err
 	}
 }
 
+func waitingStopError(err error) error {
+	switch {
+	case errors.Is(err, dagrun.ErrWaitingAbortNotRoot):
+		return &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    err.Error(),
+		}
+	case errors.Is(err, dagrun.ErrWaitingAbortStateChanged):
+		return &Error{
+			HTTPStatus: http.StatusConflict,
+			Code:       api.ErrorCodeConflict,
+			Message:    err.Error() + ". Refresh and try again.",
+		}
+	default:
+		return fmt.Errorf("error stopping waiting DAG-run: %w", err)
+	}
+}
+
 func (a *API) TerminateDAGRun(ctx context.Context, request api.TerminateDAGRunRequestObject) (api.TerminateDAGRunResponseObject, error) {
 	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
 		return nil, err
@@ -3509,7 +3594,8 @@ func (a *API) TerminateDAGRun(ctx context.Context, request api.TerminateDAGRunRe
 	}
 
 	terminateMode := "running_stop"
-	if savedStatus.Status == ir.Failed {
+	switch savedStatus.Status {
+	case ir.Failed:
 		if !dagrun.CanCancelFailedAutoRetryPendingRun(savedStatus) {
 			return nil, failedAutoRetryCancelError(savedStatus)
 		}
@@ -3520,7 +3606,18 @@ func (a *API) TerminateDAGRun(ctx context.Context, request api.TerminateDAGRunRe
 			return nil, err
 		}
 		terminateMode = "failed_auto_retry_cancel"
-	} else {
+	case ir.Waiting:
+		// A waiting run holds no process or worker, so it ends in the run
+		// store whether it ran locally or on a worker.
+		dag, err := attempt.ReadDAG(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("error reading DAG: %w", err)
+		}
+		if err := a.dagRunMgr.Stop(a.withEventContext(ctx), dag, request.DagRunId); err != nil {
+			return nil, waitingStopError(err)
+		}
+		terminateMode = "waiting_stop"
+	case ir.NotStarted, ir.Queued, ir.Running, ir.Succeeded, ir.PartiallySucceeded, ir.Aborted, ir.Rejected:
 		dag, err := attempt.ReadDAG(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("error reading DAG: %w", err)
@@ -4181,6 +4278,13 @@ func applyApproval(ctx context.Context, node *ir.Node, body *api.ApproveStepRequ
 			camelInputs[stringutil.ScreamingSnakeToCamel(k)] = v
 		}
 		node.ApprovalInputs = camelInputs
+		// An input replaces a masked output variable of the same name.
+		if node.MaskedOutputs != nil {
+			node.MaskedOutputs.Variables = slices.DeleteFunc(node.MaskedOutputs.Variables, func(name string) bool {
+				_, ok := (*body.Inputs)[name]
+				return ok
+			})
+		}
 	}
 }
 
@@ -5262,7 +5366,7 @@ func buildArtifactPreview(archiveDir, relPath string) (api.ArtifactPreviewRespon
 		return api.ArtifactPreviewResponse{}, err
 	}
 	mimeType := detectArtifactMimeType(absPath, sniffBytes)
-	kind := artifactPreviewKind(relPath, mimeType)
+	kind := artifactPreviewKind(relPath, mimeType, sniffBytes)
 	previewLimit := artifactPreviewLimit(kind)
 	tooLarge := previewLimit > 0 && info.Size() > previewLimit
 
@@ -5335,7 +5439,17 @@ func detectArtifactMimeType(path string, previewBytes []byte) string {
 	return http.DetectContentType(previewBytes)
 }
 
-func artifactPreviewKind(path, mimeType string) api.ArtifactPreviewKind {
+// Office files report a MIME type that mentions "xml", but their content is
+// binary: a zip package, or an OLE compound file once password-protected.
+var (
+	zipMagic = []byte("PK\x03\x04")
+	oleMagic = []byte("\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
+)
+
+func artifactPreviewKind(path, mimeType string, previewBytes []byte) api.ArtifactPreviewKind {
+	if bytes.HasPrefix(previewBytes, zipMagic) || bytes.HasPrefix(previewBytes, oleMagic) {
+		return api.ArtifactPreviewKindBinary
+	}
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".md", ".markdown", ".mdown", ".mkd":
 		return api.ArtifactPreviewKindMarkdown
@@ -5425,6 +5539,7 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		labels       *string
 		limit        *int
 		cursor       *string
+		backfillID   *string
 
 		excludeServiceDAGRuns bool
 	)
@@ -5486,6 +5601,9 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 	if rawCursor := params.Get("cursor"); rawCursor != "" {
 		cursor = &rawCursor
 	}
+	if rawBackfillID := params.Get("backfillId"); rawBackfillID != "" {
+		backfillID = &rawBackfillID
+	}
 	if rawExclude := params.Get(excludeServiceDAGRunsParam); rawExclude != "" {
 		parsed, convErr := strconv.ParseBool(rawExclude)
 		if convErr != nil {
@@ -5494,7 +5612,7 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		excludeServiceDAGRuns = parsed
 	}
 
-	opts := buildDAGRunListOptions(dagRunListFilterInput{
+	opts, err := buildDAGRunListOptions(dagRunListFilterInput{
 		statuses: statusValues,
 		fromDate: fromDate,
 		toDate:   toDate,
@@ -5504,8 +5622,13 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		limit:    limit,
 		cursor:   cursor,
 
+		backfillID:            backfillID,
+		backfill:              params.Get("backfill"),
 		excludeServiceDAGRuns: excludeServiceDAGRuns,
 	})
+	if err != nil {
+		return dagRunListOptions{}, err
+	}
 
 	workspaceParam := workspaceParamFromValues(params)
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, workspaceParam)
@@ -5513,6 +5636,9 @@ func (a *API) dagRunListOptionsFromQueryString(ctx context.Context, queryString 
 		return dagRunListOptions{}, err
 	}
 	opts.query.WorkspaceFilter = workspaceFilter
+	if err := a.scopeToBackfill(ctx, &opts.query); err != nil {
+		return dagRunListOptions{}, err
+	}
 
 	return opts, nil
 }

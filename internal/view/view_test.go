@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/view"
 )
 
@@ -73,6 +74,7 @@ func TestView_ValidateWorkflowRejectsInvalidFields(t *testing.T) {
 		{"workspace scope without workspace", func(v *view.View) { v.WorkspaceScope = view.WorkspaceScopeWorkspace }, view.ErrInvalidWorkspaceScope},
 		{"unknown sort field", func(v *view.View) { v.SortField = "created" }, view.ErrInvalidSortField},
 		{"unknown sort order", func(v *view.View) { v.SortOrder = "descending" }, view.ErrInvalidSortOrder},
+		{"invalid label filter", func(v *view.View) { v.Labels = []string{"env==prod"} }, ir.ErrInvalidLabelFilter},
 	}
 
 	for _, tt := range tests {
@@ -118,9 +120,11 @@ func TestView_ValidateRunRejectsInvalidFields(t *testing.T) {
 		{"all scope with workspace", func(v *view.View) { v.Workspace = "production" }, view.ErrInvalidWorkspaceScope},
 		{"workspace scope without workspace", func(v *view.View) { v.WorkspaceScope = view.WorkspaceScopeWorkspace }, view.ErrInvalidWorkspaceScope},
 		{"dagRunId too long", func(v *view.View) { v.DAGRunID = strings.Repeat("r", view.MaxDAGRunIDLength+1) }, view.ErrDAGRunIDTooLong},
+		{"invalid label filter", func(v *view.View) { v.Labels = []string{"critical", "!"} }, ir.ErrInvalidLabelFilter},
 		{"runStatus not a status", func(v *view.View) { v.RunStatus = "failed" }, view.ErrInvalidRunStatus},
 		{"runStatus out of range", func(v *view.View) { v.RunStatus = "9" }, view.ErrInvalidRunStatus},
 		{"runStatus too long", func(v *view.View) { v.RunStatus = strings.Repeat("s", view.MaxRunStatusLength+1) }, view.ErrRunStatusTooLong},
+		{"unknown backfill filter", func(v *view.View) { v.Backfill = "some" }, view.ErrInvalidBackfill},
 		{"specific value not a date", func(v *view.View) { v.DateMode = view.DateModeSpecific; v.SpecificValue = "not-a-date" }, view.ErrInvalidSpecificValue},
 		{"specific month value malformed", func(v *view.View) {
 			v.DateMode = view.DateModeSpecific
@@ -237,6 +241,7 @@ func TestView_NormalizeRunDefaults(t *testing.T) {
 
 	assert.Equal(t, view.WorkspaceScopeAll, v.WorkspaceScope)
 	assert.Equal(t, view.RunStatusAll, v.RunStatus)
+	assert.Equal(t, view.BackfillAll, v.Backfill)
 	assert.Equal(t, view.DateModePreset, v.DateMode)
 	assert.Equal(t, view.DatePresetToday, v.DatePreset)
 	assert.Equal(t, view.SpecificPeriodDate, v.SpecificPeriod)
@@ -387,6 +392,7 @@ func TestView_RunStorageRoundTrip(t *testing.T) {
 		Labels:         []string{"team=platform"},
 		DAGRunID:       "019df6cf-0127-7340-bd96-d51bc1453045",
 		RunStatus:      "5",
+		Backfill:       view.BackfillOnly,
 		DateMode:       view.DateModeSpecific,
 		DatePreset:     view.DatePresetToday,
 		SpecificPeriod: view.SpecificPeriodMonth,
@@ -400,6 +406,13 @@ func TestView_RunStorageRoundTrip(t *testing.T) {
 	}
 
 	assert.Equal(t, original, original.ToStorage().ToView())
+}
+
+// A run view stored before the backfill filter existed lists every run.
+func TestView_RunStoredWithoutBackfill(t *testing.T) {
+	stored := &view.ViewForStorage{ID: "run-id", Name: "Runs", Type: view.TypeRun}
+
+	assert.Equal(t, view.BackfillAll, stored.ToView().Backfill)
 }
 
 func TestView_ArtifactStorageRoundTrip(t *testing.T) {

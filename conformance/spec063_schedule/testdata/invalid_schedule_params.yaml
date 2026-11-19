@@ -1,0 +1,10 @@
+params:
+  - name: mode
+    type: string
+    default: manual
+    enum: [manual, y, z]
+schedule:
+  - expression: "0 5 * * *"
+    params: {mode: invalid}
+steps:
+  - run: echo "${params.mode}"

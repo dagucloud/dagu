@@ -1,0 +1,21 @@
+working_dir: .
+schedule: "CRON_TZ=Asia/Tokyo 0 2 * * *"
+steps:
+  - id: child
+    action: dag.run
+    with:
+      dag: window_child
+
+---
+
+name: window_child
+working_dir: .
+dates:
+  since: { from: interval_start, format: datetime }
+  day: -1d
+params:
+  - name: day
+    eval: "${dates.day}"
+steps:
+  - id: capture
+    run: printf 'since=%s day=%s param=%s\n' '${dates.since}' '${dates.day}' '${params.day}' > child-dates.txt

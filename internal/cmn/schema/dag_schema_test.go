@@ -425,6 +425,53 @@ steps:
 `,
 		},
 		{
+			name: "ActionMCPCall",
+			spec: `
+steps:
+  - action: mcp.call
+    with:
+      url: https://mcp.example.com/mcp
+      tool: scrape
+      arguments: {formats: [markdown]}
+      headers:
+        Authorization: Bearer ${TOKEN}
+      save_binary: true
+`,
+		},
+		{
+			name: "ActionMCPCallReferences",
+			spec: `
+steps:
+  - action: mcp.call
+    with:
+      url: ${MCP_URL}
+      tool: scrape
+      arguments: ${params.args}
+`,
+		},
+		{
+			name: "RejectActionMCPCallMissingTool",
+			spec: `
+steps:
+  - action: mcp.call
+    with:
+      url: https://mcp.example.com/mcp
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionMCPCallUnknownField",
+			spec: `
+steps:
+  - action: mcp.call
+    with:
+      url: https://mcp.example.com/mcp
+      tool: scrape
+      transport: stdio
+`,
+			wantErr: "did not validate",
+		},
+		{
 			name: "ActionDagRunParallel",
 			spec: `
 steps:
@@ -3085,6 +3132,13 @@ steps:
       prompt: hi
       model: [{provider: $fetch.stdout, name: m}]
 `, true},
+		// A plain $NAME is not a value reference, so it names an unknown
+		// provider in both the schema and the parser.
+		{"chat plain unbraced provider", `
+steps:
+  - action: chat.completion
+    with: {provider: $PROVIDER, model: gpt-5, prompt: hi}
+`, false},
 		{"SMTP OAuth missing tenant", `
 smtp:
   username: alerts@example.com
@@ -3136,6 +3190,147 @@ steps: [{run: "true"}]
 			}
 			require.Error(t, schemaErr, "schema")
 			require.Error(t, parserErr, "parser")
+		})
+	}
+}
+
+func TestDAGSchemaSSHCredentials(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr bool
+	}{
+		{
+			name: "DAGLevelSecretsAndBastion",
+			spec: `
+ssh:
+  user: deploy
+  host: app.example.com
+  timeout: 30s
+  key: {secret: ssh/deploy-key}
+  passphrase: {secret: ssh/deploy-passphrase}
+  bastion:
+    host: jump.example.com
+    user: ops
+    key: {file: /keys/jump}
+    password: {secret: ssh/jump-password}
+steps:
+  - run: hostname
+`,
+		},
+		{
+			name: "SSHRunCredentials",
+			spec: `
+steps:
+  - action: ssh.run
+    with:
+      command: hostname
+      host: app.example.com
+      key: ~/.ssh/id_ed25519
+      passphrase: literal
+      bastion: {host: jump.example.com, password: {secret: ssh/jump}}
+`,
+		},
+		{
+			name: "SFTPCredentials",
+			spec: `
+steps:
+  - action: sftp.download
+    with:
+      host: app.example.com
+      source: /srv/a
+      destination: ./a
+      password: {secret: ssh/password}
+      bastion: {host: jump.example.com, passphrase: {secret: ssh/jump-passphrase}}
+`,
+		},
+		{
+			name: "RejectBadRef",
+			spec: `
+steps:
+  - action: ssh.run
+    with: {command: hostname, host: app, key: {secret: Bad_Ref}}
+`,
+			wantErr: true,
+		},
+		{
+			name: "RejectUnknownField",
+			spec: `
+ssh:
+  user: deploy
+  host: app
+  password: {secrte: ssh/password}
+steps:
+  - run: hostname
+`,
+			wantErr: true,
+		},
+		{
+			name: "RejectSecretAndFile",
+			spec: `
+steps:
+  - action: sftp.upload
+    with: {host: app, source: a, destination: b, key: {secret: ssh/key, file: /k}}
+`,
+			wantErr: true,
+		},
+		{
+			name: "RejectFileForPassword",
+			spec: `
+steps:
+  - action: ssh.run
+    with: {command: hostname, host: app, password: {file: /pw}}
+`,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := resolved.Validate(mustParseYAMLDocument(t, tt.spec))
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestDAGSchemaNodeTargeting(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveDAGSchema(t)
+
+	tests := []struct {
+		name    string
+		spec    string
+		wantErr bool
+	}{
+		{name: "SelectorString", spec: "steps:\n  - run: \"true\"\n    nodes: web,env=prod\n"},
+		{name: "SelectorList", spec: "steps:\n  - run: \"true\"\n    nodes: [web, \"!canary\"]\n"},
+		{name: "Object", spec: "steps:\n  - action: dag.run\n    with: {dag: deploy-one}\n    nodes: {labels: web, max_concurrent: 2, keep_going: true}\n"},
+		{name: "NodeRequired", spec: "node: required\nsteps:\n  - run: \"true\"\n"},
+		{name: "RejectUnknownObjectField", spec: "steps:\n  - run: \"true\"\n    nodes: {labels: web, rank_by: name}\n", wantErr: true},
+		{name: "RejectMissingLabels", spec: "steps:\n  - run: \"true\"\n    nodes: {max_concurrent: 2}\n", wantErr: true},
+		{name: "RejectMaxConcurrentZero", spec: "steps:\n  - run: \"true\"\n    nodes: {labels: web, max_concurrent: 0}\n", wantErr: true},
+		{name: "RejectNodeValue", spec: "node: optional\nsteps:\n  - run: \"true\"\n", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := resolved.Validate(mustParseYAMLDocument(t, tt.spec))
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }

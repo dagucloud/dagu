@@ -18,7 +18,7 @@ func ReportValueReferenceNotices(dag *ir.DAG, sink cmnvalue.ValueReferenceNotice
 		return
 	}
 
-	staticScope := cmnvalue.StaticScope{Consts: cmnvalue.Values(dag.Consts), Params: dag.ParamDeclarations()}
+	staticScope := cmnvalue.StaticScope{Consts: cmnvalue.Values(dag.Consts), Params: dag.ParamDeclarations(), Dates: dag.DateNames()}
 	runtimeScope := cmnvalue.RuntimeScope{
 		Consts:         cmnvalue.Values(dag.Consts),
 		Params:         dag.ParamValues(),

@@ -1842,6 +1842,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 				TotalPollers: 10,
 				BusyPollers:  3,
 			},
+			Version: "2.27.0",
 		}
 
 		_, err := h.Heartbeat(ctx, req)
@@ -1858,6 +1859,7 @@ func TestHandler_Heartbeat(t *testing.T) {
 		require.Equal(t, int32(10), worker.TotalPollers)
 		require.Equal(t, int32(3), worker.BusyPollers)
 		require.Greater(t, worker.LastHeartbeatAt, int64(0))
+		require.Equal(t, "2.27.0", worker.Version)
 	})
 
 	t.Run("HeartbeatStoresHostAndMachine", func(t *testing.T) {
@@ -1877,12 +1879,18 @@ func TestHandler_Heartbeat(t *testing.T) {
 				CpuPercent: &cpu,
 				Memory:     &coordinatorv1.MachineUsage{UsedPercent: 60, UsedBytes: 6, TotalBytes: 10},
 			},
+			Version: "2.27.0",
 		})
 		require.NoError(t, err)
 
 		record, err := heartbeats.Get(ctx, "worker1")
 		require.NoError(t, err)
 		assert.Equal(t, "gpu-1", record.Host)
+		assert.Equal(t, "2.27.0", record.Version)
+		workers, err := h.GetWorkers(ctx, &coordinatorv1.GetWorkersRequest{})
+		require.NoError(t, err)
+		require.Len(t, workers.Workers, 1)
+		assert.Equal(t, "2.27.0", workers.Workers[0].Version)
 		assert.Equal(t, &dispatch.MachineSample{
 			CPUs:       4,
 			CPUPercent: &cpu,
@@ -6597,4 +6605,52 @@ func TestSameTimestamp(t *testing.T) {
 	assert.False(t, sameTimestamp("2026-05-19T01:02:03Z", "2026-05-19T01:02:04.000Z"))
 	assert.False(t, sameTimestamp("2026-05-19T01:02:03.123Z", "2026-05-19T01:02:03.456Z"))
 	assert.False(t, sameTimestamp("", "2026-05-19T01:02:03.000Z"))
+}
+
+// A run in flight across an upgrade keeps the logs that a released version
+// named by SafeName, for a step that alone had that name. Paths this version
+// stored stay as they are.
+func TestKeepLegacyLogPaths(t *testing.T) {
+	t.Parallel()
+
+	logDir := t.TempDir()
+	legacyDir := filepath.Join(logDir, "etl_daily", "run-1", "attempt-1")
+	newDir := filepath.Join(logDir, "etl%2Edaily", "run-1", "attempt-1")
+	require.NoError(t, os.MkdirAll(legacyDir, 0o750))
+	for _, file := range []string{"scheduler.log", "fetch_data.stdout.log", "a_b.stdout.log"} {
+		require.NoError(t, os.WriteFile(filepath.Join(legacyDir, file), nil, 0o600))
+	}
+	report := func() *ir.DAGRunStatus {
+		return &ir.DAGRunStatus{Name: "etl.daily", DAGRunID: "run-1", AttemptID: "attempt-1", Nodes: []*ir.Node{
+			{Step: ir.Step{Name: "fetch data"}}, {Step: ir.Step{Name: "a.b"}}, {Step: ir.Step{Name: "a b"}},
+		}}
+	}
+	h := NewHandler(HandlerConfig{LogDir: logDir})
+
+	// A released coordinator stored every path under SafeName.
+	released := report()
+	released.Log = filepath.Join(legacyDir, "scheduler.log")
+	for _, node := range released.Nodes {
+		node.Stdout = filepath.Join(legacyDir, "fetch_data.stdout.log")
+		node.Stderr = filepath.Join(legacyDir, "fetch_data.stderr.log")
+	}
+	released.Nodes[1].Stdout = filepath.Join(legacyDir, "a_b.stdout.log")
+	released.Nodes[2].Stdout = filepath.Join(legacyDir, "a_b.stdout.log")
+
+	status := report()
+	h.transformLogPaths(status)
+	h.keepLegacyLogPaths(released, status)
+	assert.Equal(t, filepath.Join(legacyDir, "scheduler.log"), status.Log)
+	assert.Equal(t, filepath.Join(legacyDir, "fetch_data.stdout.log"), status.Nodes[0].Stdout)
+	assert.Equal(t, filepath.Join(newDir, "fetch%20data.stderr.log"), status.Nodes[0].Stderr)
+	assert.Equal(t, filepath.Join(newDir, "a%2Eb.stdout.log"), status.Nodes[1].Stdout)
+	assert.Equal(t, filepath.Join(newDir, "a%20b.stdout.log"), status.Nodes[2].Stdout)
+
+	stored := report()
+	h.transformLogPaths(stored)
+	status = report()
+	h.transformLogPaths(status)
+	h.keepLegacyLogPaths(stored, status)
+	assert.Equal(t, filepath.Join(newDir, "scheduler.log"), status.Log)
+	assert.Equal(t, filepath.Join(newDir, "fetch%20data.stdout.log"), status.Nodes[0].Stdout)
 }

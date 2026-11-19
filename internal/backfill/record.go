@@ -40,7 +40,12 @@ type Options struct {
 	From  time.Time   `json:"from,omitzero"`
 	To    time.Time   `json:"to,omitzero"`
 	Slots []time.Time `json:"slots,omitempty"`
-	Rerun Rerun       `json:"rerun"`
+	// By names the dates entry a range selects by, and FromDate and ToDate
+	// are its dates in YYYY-MM-DD. ToDate is empty when it defaulted to now.
+	By       string `json:"by,omitempty"`
+	FromDate string `json:"fromDate,omitempty"`
+	ToDate   string `json:"toDate,omitempty"`
+	Rerun    Rerun  `json:"rerun"`
 	// MaxConcurrency bounds the runs of the backfill that are queued,
 	// running, or waiting at once.
 	MaxConcurrency int       `json:"maxConcurrency"`
@@ -53,6 +58,7 @@ type Options struct {
 func (o Options) Equal(other Options) bool {
 	return o.From.Equal(other.From) && o.To.Equal(other.To) &&
 		slices.EqualFunc(o.Slots, other.Slots, time.Time.Equal) &&
+		o.By == other.By && o.FromDate == other.FromDate && o.ToDate == other.ToDate &&
 		o.Rerun == other.Rerun && o.MaxConcurrency == other.MaxConcurrency &&
 		o.OnFailure == other.OnFailure && o.Params == other.Params && o.Profile == other.Profile
 }
@@ -115,6 +121,10 @@ const (
 	// ProgressCancelled records that the backfill was cancelled before the
 	// slot's run started.
 	ProgressCancelled ProgressKind = "cancelled"
+	// ProgressSucceeded records that the slot's run ended successfully.
+	ProgressSucceeded ProgressKind = "succeeded"
+	// ProgressFailed records that the slot's run ended without success.
+	ProgressFailed ProgressKind = "failed"
 )
 
 // Progress is one event of a backfill's slots.
@@ -123,8 +133,21 @@ type Progress struct {
 	Kind  ProgressKind `json:"kind"`
 	RunID string       `json:"runId,omitempty"`
 	// Generation is the resume the event belongs to.
-	Generation int       `json:"generation,omitempty"`
-	At         time.Time `json:"at"`
+	Generation int `json:"generation,omitempty"`
+	// At is when the event happened. For an outcome, it is when the run's
+	// status was read; for a retry, when the retry queued the slot.
+	At time.Time `json:"at"`
+	// Step and Error tell how a failed run failed: its first failed step
+	// and that step's error, or the run's own error when no step failed.
+	Step  string `json:"step,omitempty"`
+	Error string `json:"error,omitempty"`
+	// Digest identifies the definition an ended run ran.
+	Digest string `json:"digest,omitempty"`
+}
+
+// ended reports whether the event records how the slot's run ended.
+func (p Progress) ended() bool {
+	return p.Kind == ProgressSucceeded || p.Kind == ProgressFailed
 }
 
 // currentProgress returns the last event of each slot in the record's
@@ -137,9 +160,10 @@ func currentProgress(record *Record, events []Progress) map[time.Time]Progress {
 		}
 	}
 	for _, event := range events {
-		if event.Generation == record.Generation {
-			byslot[event.Slot.UTC()] = event
+		if event.Generation != record.Generation {
+			continue
 		}
+		byslot[event.Slot.UTC()] = event
 	}
 	return byslot
 }
@@ -158,6 +182,13 @@ func (r *Record) Open() bool {
 	return r.EndedAt.IsZero()
 }
 
+// SlotPosition returns the place of the slot at among the backfill's slots,
+// from 1, or false when the backfill has no such slot.
+func (r *Record) SlotPosition(at time.Time) (int, bool) {
+	i := slices.IndexFunc(r.Slots, func(slot RecordSlot) bool { return slot.At.Equal(at) })
+	return i + 1, i >= 0
+}
+
 // Store persists backfill records.
 type Store interface {
 	// Create stores a new record. It fails with ErrExists when the ID is
@@ -174,6 +205,11 @@ type Store interface {
 	// LockDAG holds a lock that serializes submits for a DAG across
 	// processes until unlock is called.
 	LockDAG(ctx context.Context, dagName string) (unlock func(), err error)
+	// LockRecord holds a lock on one backfill across processes until unlock
+	// is called. A retry that queues a slot again and the end of the
+	// backfill take it, so neither misses the other. Its holder takes no
+	// other lock.
+	LockRecord(ctx context.Context, id string) (unlock func(), err error)
 	// Append adds progress events to a backfill.
 	Append(ctx context.Context, id string, events ...Progress) error
 	// Progress returns a backfill's progress events in the order appended.
@@ -183,6 +219,20 @@ type Store interface {
 	// Update rewrites an existing record, as a resume does, and marks it
 	// open while it has not ended.
 	Update(ctx context.Context, record *Record) error
+	// Delete removes a backfill: its record, its progress, and its marks.
+	// A backfill without a record is no error. The caller holds the
+	// backfill's lock.
+	Delete(ctx context.Context, id string) error
+	// Summaries returns the summary of each open backfill and of each that
+	// ended failed and was not cleared, without reading their records.
+	// Create and Update keep the summary of an open backfill, and End
+	// keeps it for a backfill that failed only.
+	Summaries(ctx context.Context) ([]Summary, error)
+	// SaveSummary records how far an open backfill has come. A summary
+	// that did not change is not written.
+	SaveSummary(ctx context.Context, summary Summary) error
+	// ClearSummary removes a backfill's summary.
+	ClearSummary(ctx context.Context, id string) error
 }
 
 var (

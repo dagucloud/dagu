@@ -301,3 +301,24 @@ func TestParams_IsEmpty(t *testing.T) {
 		})
 	}
 }
+
+// A param whose eval is one date reference takes that date as its value.
+func TestParamDefDateName(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		eval string
+		want string
+	}{
+		{eval: "${dates.target_day}", want: "target_day"},
+		{eval: "/data/${dates.target_day}"},
+		{eval: "${dates.target_day}${dates.other}"},
+		{eval: "${params.day}"},
+		{eval: "`date`"},
+		{eval: ""},
+	} {
+		name, ok := ParamDef{Eval: tc.eval}.DateName()
+		assert.Equal(t, tc.want, name, tc.eval)
+		assert.Equal(t, tc.want != "", ok, tc.eval)
+	}
+}

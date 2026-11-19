@@ -80,6 +80,61 @@ describe('RunMetaLine', () => {
     expect(screen.getByTitle('Duration')).not.toHaveTextContent('3s');
   });
 
+  // A run of a DAG with dates tells the slot it ran for and the date it
+  // loads, marked when the slot was the default or the dates came from the
+  // clock.
+  it('tells the slot and the date the run loads', () => {
+    const { rerender } = render(
+      <RunMetaLine
+        dagRun={{
+          ...run,
+          scheduleTime: '2026-11-10T02:00:00Z',
+          dates: [{ name: 'target_day', value: '2026-11-09' }],
+          defaultSlot: true,
+        }}
+      />
+    );
+    expect(screen.getByTitle('Slot')).toHaveTextContent(/, loads 2026-11-09/);
+    expect(screen.getByTitle('Slot')).toHaveTextContent('the latest fire');
+
+    rerender(
+      <RunMetaLine
+        dagRun={{
+          ...run,
+          dates: [{ name: 'target_day', value: '2026-11-09' }],
+        }}
+      />
+    );
+    expect(screen.getByTitle('Slot')).toHaveTextContent(
+      'Loads 2026-11-09 · from the clock'
+    );
+
+    // A list is told by its first and last date.
+    rerender(
+      <RunMetaLine
+        dagRun={{
+          ...run,
+          scheduleTime: '2026-11-10T02:00:00Z',
+          dates: [
+            {
+              name: 'window_days',
+              list: true,
+              values: ['2026-11-06', '2026-11-07', '2026-11-08'],
+            },
+          ],
+        }}
+      />
+    );
+    expect(screen.getByTitle('Slot')).toHaveTextContent(
+      /, loads 2026-11-06\.\.2026-11-08$/
+    );
+
+    rerender(
+      <RunMetaLine dagRun={{ ...run, scheduleTime: '2026-11-10T02:00:00Z' }} />
+    );
+    expect(screen.queryByTitle('Slot')).toBeNull();
+  });
+
   it('describes how, where, and how long the run went', () => {
     render(<RunMetaLine dagRun={run} />);
 
@@ -89,6 +144,32 @@ describe('RunMetaLine', () => {
     expect(screen.getByTitle('Worker')).toHaveTextContent('worker-a');
     expect(screen.getByTitle('Profile')).toHaveTextContent('prod');
     expect(screen.getByText('region=eu')).toBeInTheDocument();
+  });
+
+  it('links the trigger of a backfill run to its backfill', () => {
+    render(
+      <MemoryRouter>
+        <RunMetaLine
+          dagRun={{
+            ...run,
+            triggerType: TriggerType.backfill,
+            triggerActor: undefined,
+            backfillId: 'bf123456',
+            backfillSlot: { index: 2, count: 28 },
+          }}
+        />
+      </MemoryRouter>
+    );
+
+    expect(
+      within(screen.getByTitle('Trigger')).getByRole('link', {
+        name: 'Backfill',
+      })
+    ).toHaveAttribute('href', '/backfills/bf123456');
+    // Beside the link, the run tells which of the backfill's slots it ran.
+    expect(screen.getByTitle('Trigger')).toHaveTextContent(
+      'Backfill · slot 2 of 28'
+    );
   });
 
   it('omits start and duration until a queued run starts', () => {

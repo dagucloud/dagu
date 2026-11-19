@@ -68,6 +68,9 @@ type itemResult struct {
 	Status  string            `json:"status"`
 	Outputs map[string]string `json:"outputs,omitempty"`
 	Error   string            `json:"error,omitempty"`
+	// err is the body run's error behind Error, so the step's error keeps
+	// what kind of failure it was.
+	err error
 }
 
 type aggregateOutput struct {
@@ -141,6 +144,7 @@ func (e *foreachExecutor) Run(ctx context.Context) error {
 func summarize(results []itemResult, dispatchErr error) runOutcome {
 	outcome := runOutcome{total: len(results)}
 	var first string
+	var read error
 	for _, result := range results {
 		// An item a cancellation kept from starting neither succeeded nor
 		// failed; the cancellation itself decides the outcome.
@@ -148,6 +152,9 @@ func summarize(results []itemResult, dispatchErr error) runOutcome {
 			continue
 		}
 		outcome.failed++
+		if found, ok := errors.AsType[*cmnvalue.MaskedReadError](result.err); ok && read == nil {
+			read = found
+		}
 		if first == "" {
 			first = result.Error
 			if first == "" {
@@ -161,10 +168,25 @@ func summarize(results []itemResult, dispatchErr error) runOutcome {
 		outcome.cancelled = errors.Is(dispatchErr, context.Canceled)
 		outcome.err = dispatchErr
 	case outcome.total > 0 && outcome.failed == outcome.total:
-		outcome.err = fmt.Errorf("all %d item bodies failed; first error: %s", outcome.total, first)
+		outcome.err = &bodiesError{
+			msg:  fmt.Sprintf("all %d item bodies failed; first error: %s", outcome.total, first),
+			read: read,
+		}
 	}
 	return outcome
 }
+
+// bodiesError reports that every item body failed. It wraps a masked read
+// in any body, which fails the step the same way on every attempt, but no
+// other body error: a body's timeout or cancellation is not the step's.
+type bodiesError struct {
+	msg  string
+	read error
+}
+
+func (e *bodiesError) Error() string { return e.msg }
+
+func (e *bodiesError) Unwrap() error { return e.read }
 
 // DetermineNodeStatus implements NodeStatusDeterminer: a run some item
 // bodies failed is partially succeeded, so the steps after the loop run
@@ -408,7 +430,7 @@ func (e *foreachExecutor) itemResult(ctx context.Context, plan *runtime.Plan, it
 		if runErr != nil {
 			message = runErr.Error()
 		}
-		return itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String(), Error: message}
+		return itemResult{Index: item.index, Key: item.key, Status: ir.NodeFailed.String(), Error: message, err: runErr}
 	}
 
 	outputs, err := e.collectOutputs(ctx, plan)
@@ -597,12 +619,14 @@ func (e *foreachExecutor) resolveStepDir(ctx context.Context) (string, func(), e
 	env := runtime.GetEnv(ctx)
 	if env.Scope != nil {
 		if stdout, ok := env.Scope.Get(runenv.EnvKeyDAGRunStepStdoutFile); ok && stdout != "" {
-			return logpath.ForeachStepDir(stdout, e.step.Name), keep, nil
+			// Each attempt logs to a new directory, so nothing was stored there
+			// under an earlier name.
+			return logpath.ForeachStepDir(filepath.Dir(stdout), e.step.Name, nil), keep, nil
 		}
 	}
 	rCtx := runtime.GetDAGContext(ctx)
 	if rCtx.DAGRunLogDir != "" {
-		return filepath.Join(rCtx.DAGRunLogDir, logpath.ForeachLogDirName, fileutil.SafeName(e.step.Name)), keep, nil
+		return logpath.ForeachStepDir(rCtx.DAGRunLogDir, e.step.Name, nil), keep, nil
 	}
 	dir, err := os.MkdirTemp("", scratchLogDirPrefix)
 	if err != nil {

@@ -63,32 +63,20 @@ func resolverWithoutNotices(env Env) cmnvalue.Resolver {
 
 // newResolver builds a resolver over the scopes reachable from env.
 func newResolver(env Env, opts ...cmnvalue.ResolverOption) cmnvalue.Resolver {
-	var consts cmnvalue.Values
-	var params cmnvalue.Values
-	var paramsJSON string
-	var paramDeclarations cmnvalue.Values
-	if env.DAG != nil {
-		consts = cmnvalue.Values(env.DAG.Consts)
-		params = env.DAG.ParamValues()
-		paramsJSON = env.DAG.ParamsJSON
-		paramDeclarations = env.DAG.ParamDeclarations()
-	}
+	dagScope := newDAGValueResolutionScope(env.DAG)
 	scope := cmnvalue.RuntimeScope{
-		Consts:         consts,
-		Params:         params,
-		ParamsJSON:     paramsJSON,
+		Consts:         dagScope.consts,
+		Params:         dagScope.params,
+		ParamsJSON:     dagScope.paramsJSON,
 		Env:            env.Scope,
 		Steps:          env.StepMap,
 		Foreach:        env.Foreach,
 		Inputs:         env.Inputs,
 		Outputs:        env.Outputs,
 		BuiltinContext: builtinContextFromEnv(env),
+		Dates:          env.Dates,
 	}
-	return cmnvalue.NewResolver(
-		cmnvalue.StaticScope{Consts: consts, Params: paramDeclarations},
-		scope,
-		opts...,
-	)
+	return cmnvalue.NewResolver(dagScope.staticScope(), scope, opts...)
 }
 
 // stepOutputNoticeLogger warns when a strict step-output reference survives value
@@ -250,6 +238,20 @@ func templateConfigEvalVariables(env Env) map[string]string {
 	}
 
 	return cloned
+}
+
+// templateConfigEvalEntries returns vars as step env entries. An entry that
+// holds an output restored masked keeps its mark, so a read of it counts.
+func templateConfigEvalEntries(scope *cmnvalue.EnvScope, vars map[string]string) []cmnvalue.EnvEntry {
+	entries := make([]cmnvalue.EnvEntry, 0, len(vars))
+	for name, value := range vars {
+		entry := cmnvalue.EnvEntry{Key: name, Value: value, Source: cmnvalue.EnvSourceStepEnv}
+		if prev, ok := scope.GetEntry(name); ok && prev.Masked && prev.Value == value {
+			entry.Masked, entry.Origin = true, prev.Origin
+		}
+		entries = append(entries, entry)
+	}
+	return entries
 }
 
 // isPositionalParamName reports whether a param name is a positional index rather

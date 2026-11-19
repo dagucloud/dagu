@@ -60,7 +60,7 @@ func NewDataRoot(baseDir, dagName string) DataRoot {
 // NewDataRootWithArtifactDir creates a new DataRoot with an explicit trusted artifact root.
 func NewDataRootWithArtifactDir(baseDir, dagName, artifactDir string) DataRoot {
 	root := DataRoot{baseDir: baseDir, artifactDir: artifactDir}
-	root.prefix = dagDirName(dagName)
+	root.prefix = existingDAGDirName(baseDir, dagName)
 	root.dagRunsDir = filepath.Join(baseDir, root.prefix, "dag-runs")
 	root.globPattern = filepath.Join(root.dagRunsDir, "*", "*", "*", DAGRunDirPrefix+"*")
 	root.DirLock = dirlock.New(root.dagRunsDir, &dirlock.LockOptions{
@@ -72,11 +72,7 @@ func NewDataRootWithArtifactDir(baseDir, dagName, artifactDir string) DataRoot {
 }
 
 func dagDirName(dagName string) string {
-	base := filepath.Base(dagName)
-	if fileutil.IsYAMLFile(dagName) {
-		base = strings.TrimSuffix(base, filepath.Ext(dagName))
-	}
-
+	base := dagDirBase(dagName)
 	name := fileutil.SafeName(base)
 	if name == base {
 		return name
@@ -85,12 +81,34 @@ func dagDirName(dagName string) string {
 	return name + "-" + hex.EncodeToString(hash[:])[:4]
 }
 
+// existingDAGDirName returns the directory in dir that holds a DAG's data.
+// Earlier versions kept a Windows device name such as con as written, which
+// Windows 11 stores, so a directory under that name is still used.
+func existingDAGDirName(dir, dagName string) string {
+	name := dagDirName(dagName)
+	if base := dagDirBase(dagName); fileutil.SafeNameEscapesDevice(base) {
+		return fileutil.ExistingName(dir, name, base)
+	}
+	return name
+}
+
+func dagDirBase(dagName string) string {
+	base := filepath.Base(dagName)
+	if fileutil.IsYAMLFile(dagName) {
+		base = strings.TrimSuffix(base, filepath.Ext(dagName))
+	}
+	return base
+}
+
 // dagDirNames returns the names of the directories that hold the runs of the
 // DAGs, so that a list can leave a DAG out without reading its runs.
 func dagDirNames(names []string) map[string]struct{} {
 	dirs := make(map[string]struct{}, len(names))
 	for _, name := range names {
 		dirs[dagDirName(name)] = struct{}{}
+		if base := dagDirBase(name); fileutil.SafeNameEscapesDevice(base) {
+			dirs[base] = struct{}{}
+		}
 	}
 	return dirs
 }
@@ -147,7 +165,7 @@ func (dr *DataRoot) FindByDAGRunID(ctx context.Context, dagRunID string) (*DAGRu
 }
 
 func findDAGRunInDay(ctx context.Context, dayPath, dagRunID, artifactDir string) (*DAGRun, error) {
-	entries, err := fileutil.ReadDir(dayPath)
+	entries, err := readDirUnsorted(dayPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -155,20 +173,38 @@ func findDAGRunInDay(ctx context.Context, dayPath, dagRunID, artifactDir string)
 		return nil, err
 	}
 
-	for _, entry := range slices.Backward(entries) {
+	// Matching names differ only in their creation time, a fixed-width
+	// timestamp, so the greatest name is the newest run with this ID.
+	var newest string
+	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if !entry.IsDir() {
+		if !entry.IsDir() || !isMatchingDAGRunDir(entry.Name(), dagRunID) {
 			continue
 		}
-		if !isMatchingDAGRunDir(entry.Name(), dagRunID) {
-			continue
-		}
-		return newDAGRun(filepath.Join(dayPath, entry.Name()), artifactDir)
+		newest = max(newest, entry.Name())
 	}
+	if newest == "" {
+		return nil, nil
+	}
+	return newDAGRun(filepath.Join(dayPath, newest), artifactDir)
+}
 
-	return nil, nil
+// readDirUnsorted lists a directory in the order the file system returns it,
+// so a scan that does not depend on order skips sorting a large day. A
+// transient Windows error falls back to fileutil.ReadDir, which retries it.
+func readDirUnsorted(dir string) ([]os.DirEntry, error) {
+	f, err := fileutil.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := f.ReadDir(-1)
+	_ = f.Close()
+	if fileutil.IsTransientFileError(err) {
+		return fileutil.ReadDir(dir)
+	}
+	return entries, err
 }
 
 func isMatchingDAGRunDir(dirName, dagRunID string) bool {
@@ -794,6 +830,7 @@ func summaryFromIndexEntry(ie dagrunindex.Entry) *DAGRunSummary {
 		DefinitionID:         ie.DefinitionID,
 		ArchiveDir:           ie.ArchiveDir,
 		BackfillID:           ie.BackfillID,
+		Dates:                ie.Dates,
 	}
 }
 

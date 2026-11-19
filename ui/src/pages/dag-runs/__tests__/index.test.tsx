@@ -14,6 +14,7 @@ import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  RunBackfillFilter,
   RunDateMode,
   RunDatePreset,
   RunSpecificPeriod,
@@ -295,6 +296,44 @@ describe('DAGRuns page', () => {
     const serviceDAGs = screen.getByRole('region', { name: 'Service DAGs' });
     expect(within(serviceDAGs).getByText('dag-0')).toBeInTheDocument();
     expect(within(serviceDAGs).getByText('dag-1')).toBeInTheDocument();
+  });
+
+  // A backfill links to its runs: the list asks for them from the backfill's
+  // start on, without the page's filters and views, until the scope is
+  // cleared.
+  it('lists the runs of a backfill that the URL names', async () => {
+    renderPage(vi.fn(), '/dag-runs?backfillId=bf123456');
+
+    expect(lastRunQuery()).toEqual({
+      remoteNode: 'local',
+      backfillId: 'bf123456',
+      limit: 100,
+      workspace: 'all',
+    });
+    expect(
+      screen.queryByPlaceholderText('Filter by workflow name...')
+    ).toBeNull();
+    expect(screen.getByRole('link', { name: 'bf123456' })).toHaveAttribute(
+      'href',
+      '/backfills/bf123456'
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show all runs' }));
+    await waitFor(() =>
+      expect(locationSearchParams().has('backfillId')).toBe(false)
+    );
+    expect(lastRunQuery()['backfillId']).toBeUndefined();
+  });
+
+  // A backfill page links to its runs on the backfill's node, whatever
+  // node the app bar selects.
+  it('lists the runs of a backfill on the node that the link names', () => {
+    renderPage(vi.fn(), '/dag-runs?backfillId=bf123456&remoteNode=edge');
+
+    expect(lastRunQuery()).toMatchObject({
+      remoteNode: 'edge',
+      backfillId: 'bf123456',
+    });
   });
 
   it('shows no service DAG section when no DAG is one', () => {
@@ -649,6 +688,41 @@ describe('DAGRuns page', () => {
     expect(
       screen.getByRole('button', { name: 'Run view: Nightly runs' })
     ).toBeVisible();
+  });
+
+  it('narrows the list to backfill runs or leaves them out', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    expect(lastRunQuery()['backfill']).toBeUndefined();
+
+    await user.click(screen.getByRole('combobox', { name: 'Backfill runs' }));
+    await user.click(
+      screen.getByRole('option', { name: 'Backfill runs only' })
+    );
+    await waitFor(() => expect(lastRunQuery()['backfill']).toBe('only'));
+    expect(locationSearchParams().get('backfill')).toBe('only');
+
+    await user.click(screen.getByRole('combobox', { name: 'Backfill runs' }));
+    await user.click(screen.getByRole('option', { name: 'All runs' }));
+    await waitFor(() => expect(lastRunQuery()['backfill']).toBeUndefined());
+    expect(locationSearchParams().has('backfill')).toBe(false);
+  });
+
+  it('applies the backfill filter of a run view', async () => {
+    sharedRunViewState.views.push(
+      makeRunView({
+        id: 'manual-view',
+        name: 'Manual runs',
+        backfill: RunBackfillFilter.exclude,
+      })
+    );
+
+    renderPage(vi.fn(), '/dag-runs?view=manual-view');
+
+    await waitFor(() => expect(lastRunQuery()['backfill']).toBe('exclude'));
+    expect(
+      screen.getByRole('combobox', { name: 'Backfill runs' })
+    ).toHaveTextContent('Without backfills');
   });
 
   it('gives explicit URL filters precedence over the requested run view', async () => {

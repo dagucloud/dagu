@@ -178,7 +178,11 @@ func (a *API) ListQueueItems(ctx context.Context, req api.ListQueueItemsRequestO
 	limit := normalizeQueueListLimit(req.Params.Limit)
 	cursor := valueOf(req.Params.Cursor)
 
-	items, nextCursor, err := a.listVisibleQueuedItems(ctx, req.Name, limit, cursor)
+	var backfill string
+	if req.Params.Backfill != nil {
+		backfill = string(*req.Params.Backfill)
+	}
+	items, nextCursor, err := a.listVisibleQueuedItems(ctx, req.Name, limit, cursor, backfill)
 	if err != nil {
 		if errors.Is(err, pagination.ErrInvalidCursor) {
 			return nil, &Error{
@@ -453,7 +457,10 @@ func (a *API) toQueueResource(_ context.Context, q *queueInfo) (api.Queue, error
 	return queue, nil
 }
 
-func (a *API) listVisibleQueuedItems(ctx context.Context, queueName string, limit int, cursor string) ([]api.DAGRunSummary, string, error) {
+// listVisibleQueuedItems lists a page of a queue's queued runs. With
+// backfill set to "exclude" or "only", it leaves out the runs a backfill
+// queued, or the others.
+func (a *API) listVisibleQueuedItems(ctx context.Context, queueName string, limit int, cursor, backfill string) ([]api.DAGRunSummary, string, error) {
 	if limit <= 0 || a.queueStore == nil {
 		return []api.DAGRunSummary{}, "", nil
 	}
@@ -497,6 +504,10 @@ func (a *API) listVisibleQueuedItems(ctx context.Context, queueName string, limi
 				continue
 			}
 			if summary.Status == api.StatusRunning {
+				continue
+			}
+			if (backfill == string(api.ListQueueItemsParamsBackfillExclude) && summary.BackfillId != nil) ||
+				(backfill == string(api.ListQueueItemsParamsBackfillOnly) && summary.BackfillId == nil) {
 				continue
 			}
 			items = append(items, summary)

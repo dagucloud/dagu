@@ -58,30 +58,57 @@ func TestStoreCreateGetList(t *testing.T) {
 	assert.Len(t, all, 3)
 }
 
-// Holders of a DAG's lock in different stores run one at a time.
-func TestStoreLockDAGSerializes(t *testing.T) {
+// Listing a DAG's backfills reads that DAG's records only: another DAG's
+// record that does not decode leaves the list intact.
+func TestStoreListReadsOneDAG(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	dir := t.TempDir()
-	var inside, overlaps atomic.Int32
+	store := filebackfill.New(dir)
+	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, store.Create(ctx, record("aaaaaaaa", "etl", now)))
+	require.NoError(t, store.Create(ctx, record("bbbbbbbb", "other", now)))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bbbbbbbb.json"), []byte("{"), 0o600))
 
-	var wg sync.WaitGroup
-	for range 4 {
-		wg.Go(func() {
-			unlock, err := filebackfill.New(dir).LockDAG(ctx, "etl")
-			if !assert.NoError(t, err) {
-				return
+	records, err := store.List(ctx, "etl")
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	assert.Equal(t, "aaaaaaaa", records[0].ID)
+	_, err = store.List(ctx, "")
+	assert.Error(t, err, "listing every DAG reads the record that does not decode")
+}
+
+// Holders of a DAG's lock, or of a backfill's lock, in different stores
+// run one at a time.
+func TestStoreLocksSerialize(t *testing.T) {
+	t.Parallel()
+	for name, lock := range map[string]func(*filebackfill.Store) (func(), error){
+		"dag":    func(s *filebackfill.Store) (func(), error) { return s.LockDAG(context.Background(), "etl") },
+		"record": func(s *filebackfill.Store) (func(), error) { return s.LockRecord(context.Background(), "aaaaaaaa") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			var inside, overlaps atomic.Int32
+			var wg sync.WaitGroup
+			for range 4 {
+				wg.Go(func() {
+					unlock, err := lock(filebackfill.New(dir))
+					if !assert.NoError(t, err) {
+						return
+					}
+					if inside.Add(1) > 1 {
+						overlaps.Add(1)
+					}
+					time.Sleep(10 * time.Millisecond)
+					inside.Add(-1)
+					unlock()
+				})
 			}
-			if inside.Add(1) > 1 {
-				overlaps.Add(1)
-			}
-			time.Sleep(10 * time.Millisecond)
-			inside.Add(-1)
-			unlock()
+			wg.Wait()
+			assert.Zero(t, overlaps.Load())
 		})
 	}
-	wg.Wait()
-	assert.Zero(t, overlaps.Load())
 }
 
 func TestStoreProgressAndEnd(t *testing.T) {
@@ -122,6 +149,41 @@ func TestStoreProgressAndEnd(t *testing.T) {
 	assert.Len(t, records, 1, "progress files are not records")
 }
 
+// A deleted backfill is gone with its progress, and is no error to delete
+// again.
+func TestStoreDelete(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := filebackfill.New(dir)
+	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, store.Create(ctx, record("aaaaaaaa", "etl", now)))
+	require.NoError(t, store.Create(ctx, record("bbbbbbbb", "etl", now)))
+	require.NoError(t, store.Append(ctx, "aaaaaaaa", backfill.Progress{Kind: backfill.ProgressEnqueued, RunID: "r1", At: now}))
+
+	require.NoError(t, store.Delete(ctx, "aaaaaaaa"))
+	_, err := store.Get(ctx, "aaaaaaaa")
+	require.ErrorIs(t, err, backfill.ErrNotFound)
+	events, err := store.Progress(ctx, "aaaaaaaa")
+	require.NoError(t, err)
+	assert.Empty(t, events)
+	for _, dag := range []string{"etl", ""} {
+		records, err := store.List(ctx, dag)
+		require.NoError(t, err)
+		require.Len(t, records, 1)
+		assert.Equal(t, "bbbbbbbb", records[0].ID)
+	}
+	open, err := store.Open(ctx)
+	require.NoError(t, err)
+	require.Len(t, open, 1)
+	require.NoError(t, store.Delete(ctx, "aaaaaaaa"))
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		assert.NotContains(t, entry.Name(), "aaaaaaaa")
+	}
+}
+
 // Progress appended after a crash cut the last event short is read back.
 func TestStoreAppendsAfterATornEvent(t *testing.T) {
 	t.Parallel()
@@ -138,4 +200,66 @@ func TestStoreAppendsAfterATornEvent(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, events, 1)
 	assert.Equal(t, backfill.ProgressSkipped, events[0].Kind)
+}
+
+// summaryOf returns the summary the store lists for id, if any.
+func summaryOf(t *testing.T, store *filebackfill.Store, id string) (backfill.Summary, bool) {
+	t.Helper()
+	summaries, err := store.Summaries(context.Background())
+	require.NoError(t, err)
+	for _, summary := range summaries {
+		if summary.ID == id {
+			return summary, true
+		}
+	}
+	return backfill.Summary{}, false
+}
+
+// An open backfill has a summary, and one that ended has it only when it
+// failed, with the counts last saved, until it is cleared.
+func TestStoreSummaries(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := filebackfill.New(t.TempDir())
+	now := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, store.Create(ctx, record("aaaaaaaa", "etl", now)))
+	require.NoError(t, store.Create(ctx, record("bbbbbbbb", "etl", now)))
+
+	summary, ok := summaryOf(t, store, "aaaaaaaa")
+	require.True(t, ok)
+	assert.Equal(t, backfill.Summary{ID: "aaaaaaaa", DAGName: "etl", Slots: 1, CreatedAt: now}, summary)
+
+	saved := backfill.Summary{ID: "aaaaaaaa", DAGName: "etl", Slots: 1, Done: 1, Failed: 1, CreatedAt: now}
+	require.NoError(t, store.SaveSummary(ctx, saved))
+	require.NoError(t, store.End(ctx, "aaaaaaaa", backfill.StatusFailed, now))
+	summary, ok = summaryOf(t, store, "aaaaaaaa")
+	require.True(t, ok)
+	saved.Status = backfill.StatusFailed
+	assert.Equal(t, saved, summary)
+
+	require.NoError(t, store.End(ctx, "bbbbbbbb", backfill.StatusSucceeded, now))
+	_, ok = summaryOf(t, store, "bbbbbbbb")
+	assert.False(t, ok, "a backfill that succeeded needs no mention")
+
+	// A resume opens the failed backfill again and counts its slots anew.
+	reopened, err := store.Get(ctx, "aaaaaaaa")
+	require.NoError(t, err)
+	reopened.Status, reopened.EndedAt = "", time.Time{}
+	require.NoError(t, store.Update(ctx, reopened))
+	summary, ok = summaryOf(t, store, "aaaaaaaa")
+	require.True(t, ok)
+	assert.Equal(t, backfill.Summary{ID: "aaaaaaaa", DAGName: "etl", Slots: 1, CreatedAt: now}, summary)
+
+	// A create that finds the ID taken leaves the summary of the backfill
+	// that has it.
+	require.NoError(t, store.SaveSummary(ctx, saved))
+	require.ErrorIs(t, store.Create(ctx, record("aaaaaaaa", "other", now)), backfill.ErrExists)
+	summary, ok = summaryOf(t, store, "aaaaaaaa")
+	require.True(t, ok)
+	assert.Equal(t, saved, summary)
+
+	require.NoError(t, store.ClearSummary(ctx, "aaaaaaaa"))
+	_, ok = summaryOf(t, store, "aaaaaaaa")
+	assert.False(t, ok)
+	require.ErrorIs(t, store.ClearSummary(ctx, "../etl"), backfill.ErrNotFound)
 }

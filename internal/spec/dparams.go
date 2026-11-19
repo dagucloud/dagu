@@ -39,9 +39,19 @@ type dagParamEntry struct {
 	Value    string
 	HasValue bool
 	Eval     string
+	// Deferred marks an eval that waits for the run's values.
+	Deferred bool
 }
 
 func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
+	// A map-form worker selector resolves as the DAG loads and routes the
+	// run, so it needs the params' values: a load that would defer every eval
+	// keeps evaluating when the selector reads a value.
+	if ctx.opts.Has(buildFlagDeferParamEval) && workerSelectorReadsValues(ctx, d) {
+		opts := ctx.opts
+		opts.Flags &^= buildFlagDeferParamEval
+		ctx = ctx.WithOpts(opts)
+	}
 	plan, err := buildDAGParamPlan(ctx, d)
 	if err != nil {
 		return nil, err
@@ -55,6 +65,7 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 	defaultEntries := cloneParamEntries(plan.entries)
 	defaultPairs := runtimePairsFromEntries(defaultEntries)
 	finalPairs := defaultPairs
+	var deferred []string
 
 	switch plan.kind {
 	case dagParamKindLegacy:
@@ -75,6 +86,7 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 				return nil, err
 			}
 			finalPairs = runtimePairsFromEntries(finalEntries)
+			deferred = deferredParamNames(finalEntries)
 
 			// Eval-backed inline params may depend on mutable state or perform command
 			// execution, so reuse the execution-time resolution instead of running
@@ -92,6 +104,7 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 		defaultPairs = runtimePairsFromEntries(defaultEntries)
 		if !resolveRuntimeParams {
 			finalPairs = defaultPairs
+			deferred = deferredParamNames(defaultEntries)
 		}
 
 	case dagParamKindExternalSchema:
@@ -139,12 +152,40 @@ func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 	}
 
 	return &paramsResult{
-		Params:        params,
-		DefaultParams: defaultParams,
-		ParamDefs:     cloneParamDefs(plan.paramDefs),
-		ParamSchema:   paramSchema,
-		ParamsJSON:    paramsJSON,
+		Params:         params,
+		DefaultParams:  defaultParams,
+		ParamDefs:      cloneParamDefs(plan.paramDefs),
+		ParamSchema:    paramSchema,
+		ParamsJSON:     paramsJSON,
+		DeferredParams: deferred,
 	}, nil
+}
+
+// workerSelectorReadsValues reports whether the map-form worker selector the
+// DAG resolves as it loads, its own or its base config's, reads any value.
+func workerSelectorReadsValues(ctx buildContext, d *dag) bool {
+	readsValues := func(selector map[string]string) bool {
+		for key, value := range selector {
+			if cmnvalue.HasAnyReference(key) || cmnvalue.HasAnyReference(value) {
+				return true
+			}
+		}
+		return false
+	}
+	if own, _, err := buildWorkerSelector(ctx, d); err == nil && readsValues(own) {
+		return true
+	}
+	return ctx.baseDAG != nil && readsValues(ctx.baseDAG.WorkerSelector)
+}
+
+func deferredParamNames(entries []dagParamEntry) []string {
+	var names []string
+	for i, entry := range entries {
+		if entry.Deferred {
+			names = append(names, paramScopeName(entry, i))
+		}
+	}
+	return names
 }
 
 func shouldResolveRuntimeParams(ctx buildContext) bool {

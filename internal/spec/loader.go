@@ -107,6 +107,25 @@ func WithoutEval() LoadOption {
 	}
 }
 
+// WithRunValues gives a param's eval the run's dates and context. Without
+// it, an eval that reads them waits for the run, and so does every eval
+// after it: see ir.DAG.DeferredParams.
+func WithRunValues(dates []ir.DateValue, runContext cmnvalue.BuiltinContext) LoadOption {
+	return func(o *buildOpts) {
+		o.Flags |= buildFlagRunValues
+		o.RunDates = ir.DateTexts(dates)
+		o.RunContext = runContext
+	}
+}
+
+// DeferParamEvals makes every param's eval wait for the run, as one that
+// reads the run's values does, so the load runs no eval command.
+func DeferParamEvals() LoadOption {
+	return func(o *buildOpts) {
+		o.Flags |= buildFlagDeferParamEval
+	}
+}
+
 // OnlyMetadata sets the flag to load only metadata.
 func OnlyMetadata() LoadOption {
 	return func(o *buildOpts) {
@@ -565,7 +584,7 @@ func loadDAGsFromData(ctx buildContext, data []byte, filePath string, base *base
 
 // decodeDocuments splits a YAML stream into non-empty manifest documents.
 func decodeDocuments(data []byte) ([]dagDocument, error) {
-	data = yamlutil.ClearEmptyDocumentSeparators(data)
+	data = yamlutil.ClearEmptyDocumentSeparators(yamlutil.TrimByteOrderMark(data))
 	file, err := parser.ParseBytes(data, 0)
 	if err != nil {
 		return nil, err
@@ -817,6 +836,10 @@ func mergeDefinitionMaps(base, override map[string]any) (map[string]any, error) 
 			merged[key] = mergeMailAccountMaps(baseMap, overrideMap)
 			continue
 		}
+		if key == "ssh" && ok && baseIsMap && overrideIsMap {
+			merged[key] = mergeSSHMaps(baseMap, overrideMap)
+			continue
+		}
 		if ok && baseIsMap && overrideIsMap {
 			mergedNested, err := mergeDefinitionMaps(baseMap, overrideMap)
 			if err != nil {
@@ -882,10 +905,14 @@ func buildDocumentContext(ctx buildContext, index int) buildContext {
 		return ctx
 	}
 
+	// The caller's params and the run's values belong to the first document,
+	// the DAG the run starts.
 	opts := ctx.opts
 	opts.Parameters = ""
 	opts.ParametersList = nil
-	opts.Flags &^= buildFlagValidateRuntimeParams
+	opts.Flags &^= buildFlagValidateRuntimeParams | buildFlagRunValues
+	opts.RunDates = nil
+	opts.RunContext = cmnvalue.BuiltinContext{}
 	return ctx.WithOpts(opts)
 }
 

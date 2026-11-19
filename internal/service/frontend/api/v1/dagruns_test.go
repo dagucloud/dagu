@@ -102,16 +102,37 @@ func waitForDAGRunStatus(
 
 	dag := &ir.DAG{Name: dagName}
 	var status *ir.DAGRunStatus
-	require.Eventually(t, func() bool {
+	var readErr error
+	if !assert.Eventually(t, func() bool {
 		current, err := server.DAGRunMgr.GetCurrentStatus(server.Context, dag, dagRunID)
 		if err != nil || current == nil {
+			readErr = err
 			return false
 		}
 		status = current
 		return predicate(current)
-	}, dagRunEventuallyTimeout(timeout), 200*time.Millisecond)
+	}, dagRunEventuallyTimeout(timeout), 200*time.Millisecond) {
+		t.Fatalf("run %s of %s did not reach the expected status: %s", dagRunID, dagName, describeRun(status, readErr))
+	}
 
 	return status
+}
+
+// describeRun tells where a run stopped, for a failed wait: its status, its
+// error, and the end of its log, or why no status could be read.
+func describeRun(status *ir.DAGRunStatus, readErr error) string {
+	if status == nil {
+		return fmt.Sprintf("no status (%v)", readErr)
+	}
+	text := fmt.Sprintf("status %s, error %q", status.Status, status.Error)
+	if data, err := os.ReadFile(status.Log); err == nil {
+		const tail = 4096
+		if len(data) > tail {
+			data = data[len(data)-tail:]
+		}
+		text += "\nlog:\n" + string(data)
+	}
+	return text
 }
 
 func waitForStoredDAGRunStatus(
@@ -2917,6 +2938,78 @@ steps:
 	require.Equal(t, 3, persisted.AutoRetryCount)
 }
 
+// A stopped human-task run ends aborted without running its remaining steps,
+// and its task can no longer be completed.
+func TestTerminateDAGRunStopsWaitingRun(t *testing.T) {
+	server := test.SetupServer(t)
+
+	dagSpec := `steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: "Confirm the release"
+  - id: publish
+    depends: review
+    run: echo publish`
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{
+		Name: "stop_waiting_dag",
+		Spec: &dagSpec,
+	}).ExpectStatus(http.StatusCreated).Send(t)
+
+	startResp := server.Client().Post("/api/v1/dags/stop_waiting_dag/start", api.ExecuteDAGJSONRequestBody{}).
+		ExpectStatus(http.StatusOK).Send(t)
+	var startBody api.ExecuteDAG200JSONResponse
+	startResp.Unmarshal(t, &startBody)
+	waitForStoredDAGRunStatus(t, server, "stop_waiting_dag", startBody.DagRunId, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.Status == ir.Waiting && hasNodeWithStatus(status, "review", ir.NodeWaiting)
+	})
+
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/stop_waiting_dag/%s/stop", startBody.DagRunId), nil,
+	).ExpectStatus(http.StatusOK).Send(t)
+
+	persisted := test.ReadRunStatus(server.Context, t, server.DAGRunRepository,
+		ir.NewDAGRunRef("stop_waiting_dag", startBody.DagRunId))
+	require.Equal(t, ir.Aborted, persisted.Status)
+	require.True(t, hasNodeWithStatus(persisted, "review", ir.NodeAborted))
+	require.True(t, hasNodeWithStatus(persisted, "publish", ir.NodeNotStarted))
+
+	server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/stop_waiting_dag/%s/human-tasks/review/complete", startBody.DagRunId),
+		map[string]any{},
+	).ExpectStatus(http.StatusConflict).Send(t)
+}
+
+// Only the root run ends a waiting checkpoint; a stopped child would leave its
+// parent waiting on a run that never continues.
+func TestTerminateDAGRunRejectsWaitingSubRun(t *testing.T) {
+	server := test.SetupServer(t)
+
+	dag := server.DAG(t, `
+name: stop_waiting_child_dag
+steps:
+  - name: approve
+    run: "echo approve"
+    approval:
+      prompt: "Approve"
+`)
+
+	ref := seedLatestDAGRunStatus(t, server, dag.DAG, "stop-waiting-child", ir.Waiting, seedDAGRunStatusOptions{
+		parentRef:    ir.NewDAGRunRef("parent_dag", "parent-run"),
+		nodeStatuses: map[string]ir.NodeStatus{"approve": ir.NodeWaiting},
+	})
+
+	resp := server.Client().Post(
+		fmt.Sprintf("/api/v1/dag-runs/%s/%s/stop", dag.Name, ref.ID),
+		nil,
+	).ExpectStatus(http.StatusBadRequest).Send(t)
+
+	var errBody api.Error
+	resp.Unmarshal(t, &errBody)
+	require.Contains(t, errBody.Message, "root dag-run")
+	require.Equal(t, ir.Waiting, test.ReadRunStatus(server.Context, t, server.DAGRunRepository, ref).Status)
+}
+
 func TestExecuteDAGSync(t *testing.T) {
 	server := test.SetupServer(t)
 
@@ -3409,6 +3502,15 @@ steps:
 	requireFilterEventually("nonexistent", nil, []string{"label_filter_prod", "label_filter_dev", "label_filter_test"})
 	requireFilterEventually("test", []string{"label_filter_test"}, []string{"label_filter_prod", "label_filter_dev"})
 	requireFilterEventually("CRITICAL", []string{"label_filter_prod", "label_filter_dev"}, []string{"label_filter_test"})
+	requireFilterEventually("critical,!dev", []string{"label_filter_prod"}, []string{"label_filter_dev", "label_filter_test"})
+
+	// A malformed term is rejected instead of silently matching nothing.
+	resp := server.Client().Get("/api/v1/dag-runs?labels=critical,env%3D%3Dprod").
+		ExpectStatus(http.StatusBadRequest).Send(t)
+	var errResp api.Error
+	resp.Unmarshal(t, &errResp)
+	require.Equal(t, api.ErrorCodeBadRequest, errResp.Code)
+	require.Contains(t, errResp.Message, `invalid label filter "env==prod"`)
 }
 
 func TestListDAGRunsFilterByPartialName(t *testing.T) {

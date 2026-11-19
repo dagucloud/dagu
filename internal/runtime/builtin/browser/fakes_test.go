@@ -28,7 +28,13 @@ import (
 // fakeLauncher hands out one shared fakeEngine so a test can observe a
 // session across launch, detach, and reattach.
 type fakeLauncher struct {
-	engine          *fakeEngine
+	engine *fakeEngine
+	// reattachErr, if set, is what reattaching reports, as for a browser
+	// that has gone.
+	reattachErr error
+	// onLaunch, if set, runs as a launch starts, for what the launch waits
+	// for; its error fails the launch.
+	onLaunch        func(launchOptions) error
 	mu              sync.Mutex
 	launches        []launchOptions
 	reattaches      []browserHandle
@@ -36,6 +42,11 @@ type fakeLauncher struct {
 }
 
 func (l *fakeLauncher) Launch(_ context.Context, opts launchOptions) (engine, error) {
+	if l.onLaunch != nil {
+		if err := l.onLaunch(opts); err != nil {
+			return nil, err
+		}
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.launches = append(l.launches, opts)
@@ -48,6 +59,9 @@ func (l *fakeLauncher) Reattach(_ context.Context, handle browserHandle, opts la
 	defer l.mu.Unlock()
 	l.reattaches = append(l.reattaches, handle)
 	l.reattachOptions = append(l.reattachOptions, opts)
+	if l.reattachErr != nil {
+		return nil, l.reattachErr
+	}
 	l.engine.attach(opts.Generate)
 	return l.engine, nil
 }
@@ -136,6 +150,16 @@ type fakeEngine struct {
 	// textReadsLoseContext is how many of the next page text reads lose
 	// their script context to a new document.
 	textReadsLoseContext int
+	// listPages are the texts of the pages of a list, of which the page
+	// shows listPage; every act and replay turns to the next one. On the
+	// last page the next button is gone, unless lastPageKeepsNext keeps it
+	// there doing nothing. An extract is sent the page text.
+	listPages         []string
+	listPage          int
+	lastPageKeepsNext bool
+	// listRefusal, if set, is what the browser shows while the list is on
+	// its second page, as a site refusing one request does.
+	listRefusal *pageOutcome
 	// snapshot is the page's accessibility tree; its URL is the page's.
 	snapshot pageSnapshot
 	// opener is the title of the page that opened the window operations
@@ -325,6 +349,10 @@ func (e *fakeEngine) Act(ctx context.Context, instruction string, variables map[
 	e.blocked, e.actBlocked = e.actBlocked, nil
 	e.keepWrites(e.actWrites)
 	e.actWrites = nil
+	if e.listPages != nil && !e.turnListPage() {
+		e.mu.Unlock()
+		return actOutcome{Message: "Failed to perform act: No action found"}, nil
+	}
 	generate, onAct, twoStep, fills := e.generate, e.onAct, e.twoStepAct, e.actFills
 	losesPage, pageLoss := e.actLosesPage > 0, cmp.Or(e.pageLoss, errFakeSessionLost)
 	if losesPage {
@@ -372,6 +400,9 @@ func (e *fakeEngine) Replay(_ context.Context, action recordedAction, _ map[stri
 	if slices.Contains(e.hidden, action.Selector) {
 		return false, nil
 	}
+	if e.listPages != nil {
+		return e.turnListPage(), nil
+	}
 	if target := cmp.Or(e.replayNavigatesTo, e.actNavigatesTo); target != "" {
 		e.load(target)
 	}
@@ -389,10 +420,16 @@ func (e *fakeEngine) DocumentID(context.Context) (string, error) {
 }
 
 func (e *fakeEngine) Extract(ctx context.Context, instruction string, schema json.RawMessage, _ time.Duration) (json.RawMessage, error) {
+	e.mu.Lock()
+	text := "Instruction: " + instruction
+	if e.listPages != nil {
+		text += "\nPage: " + e.pageText
+	}
+	e.mu.Unlock()
 	resp, err := e.generate(ctx, generateRequest{
 		SchemaName: "Extraction",
 		Schema:     schema,
-		Messages:   []generateMessage{{Role: "user", Text: "Instruction: " + instruction}},
+		Messages:   []generateMessage{{Role: "user", Text: text}},
 	})
 	if err != nil {
 		return nil, err
@@ -547,6 +584,31 @@ func (e *fakeEngine) Close(context.Context) error {
 	defer e.mu.Unlock()
 	e.closed = true
 	return nil
+}
+
+// showList shows the first page of a list of pages. The caller holds no
+// lock.
+func (e *fakeEngine) showList(pages ...string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.listPages, e.listPage, e.pageText = pages, 0, pages[0]
+}
+
+// turnListPage turns the list to its next page and reports whether the
+// next button was there to click. The caller holds e.mu.
+func (e *fakeEngine) turnListPage() bool {
+	if e.listPage == len(e.listPages)-1 {
+		return e.lastPageKeepsNext
+	}
+	e.listPage++
+	e.pageText = e.listPages[e.listPage]
+	if e.listRefusal != nil {
+		e.outcome = pageOutcome{}
+		if e.listPage == 1 {
+			e.outcome = *e.listRefusal
+		}
+	}
+	return true
 }
 
 func (e *fakeEngine) actInstructions() []string {

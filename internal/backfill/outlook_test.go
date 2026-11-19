@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -76,4 +77,56 @@ func TestPlanWarningsOfOutlook(t *testing.T) {
 		"Live runs may wait behind an executing backfill run.",
 	}, warnings(backfill.Outlook{MaxConcurrency: 1, Concurrency: 1, QueueName: "etl", QueueLimit: 1}))
 	assert.Empty(t, warnings(backfill.Outlook{MaxConcurrency: 1, Concurrency: 1, QueueName: "shared", QueueLimit: 2}))
+}
+
+// A param whose eval reads dates takes each slot's own date, unless the
+// backfill gives it a value, which then holds for every slot.
+func TestPlanWarnsOfParamsGivenOverDates(t *testing.T) {
+	t.Parallel()
+
+	dag := &ir.DAG{ParamDefs: []ir.ParamDef{
+		{Name: "day", Eval: "${dates.target_day}"},
+		{Name: "region", Eval: "`echo us`"},
+	}}
+	warnings := func(given ...string) []string {
+		return backfill.Plan{}.Warnings(backfill.WarningInput{SchedulerRunning: true, DAG: dag, GivenParams: given})
+	}
+
+	assert.Equal(t, []string{
+		"The params give day one value for every slot, in place of the dates its eval reads from each slot.",
+	}, warnings("day", "region"))
+	assert.Empty(t, warnings("region"))
+	assert.Empty(t, warnings())
+}
+
+func TestRecordSlotPosition(t *testing.T) {
+	t.Parallel()
+
+	first, second := time.Date(2025, 10, 1, 2, 0, 0, 0, time.UTC), time.Date(2025, 10, 2, 2, 0, 0, 0, time.UTC)
+	record := &backfill.Record{Slots: []backfill.RecordSlot{{At: first}, {At: second}}}
+
+	position, ok := record.SlotPosition(second.In(time.FixedZone("JST", 9*3600)))
+	assert.True(t, ok)
+	assert.Equal(t, 2, position)
+	_, ok = record.SlotPosition(second.Add(time.Hour))
+	assert.False(t, ok)
+}
+
+// The runs of a DAG that reads none of its slot do the same work, so a
+// backfill of it repeats one run.
+func TestPlanWarnsOfDAGThatIgnoresItsSlot(t *testing.T) {
+	t.Parallel()
+
+	ignores, err := spec.LoadYAML(t.Context(), []byte("name: sync\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./sync.sh\n"))
+	require.NoError(t, err)
+	reads, err := spec.LoadYAML(t.Context(), []byte("name: etl\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
+	require.NoError(t, err)
+	warnings := func(dag *ir.DAG) []string {
+		return backfill.Plan{}.Warnings(backfill.WarningInput{SchedulerRunning: true, DAG: dag})
+	}
+
+	assert.Equal(t, []string{
+		"The DAG does not read the slot it runs for, so every run does the same work.",
+	}, warnings(ignores))
+	assert.Empty(t, warnings(reads))
 }

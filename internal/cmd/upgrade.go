@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/upgrade"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 // Upgrade command flags
@@ -35,7 +37,10 @@ func Upgrade() *cobra.Command {
 			Long: `Upgrade the dagu binary to the latest version or a specified version.
 
 This command downloads the latest (or specified) release from GitHub, verifies
-the checksum, and replaces the current binary.
+the checksum, and replaces the current binary. When Dagu runs as the service
+the installer set up, it then offers to restart the service, and first to keep
+runs in progress running across the restart when the service would end them.
+With --yes, it prints the commands instead of asking.
 
 Examples:
   dagu upgrade                    # Upgrade to latest version
@@ -165,10 +170,54 @@ func runUpgrade(ctx *Context, _ []string) error {
 		if result.BackupPath != "" {
 			fmt.Printf("Backup created: %s\n", result.BackupPath)
 		}
-		fmt.Printf("\n%s", upgrade.FormatRestartHint(upgrade.RestartCommand()))
+		service := upgrade.DetectService()
+		if skipConfirm || service == nil || !term.IsTerminal(int(os.Stdin.Fd())) {
+			fmt.Printf("\n%s", upgrade.FormatRestartHint(service))
+		} else {
+			restartAfterUpgrade(ctx, service, confirm, upgrade.DetectService)
+		}
 	}
 
 	return nil
+}
+
+// restartAfterUpgrade offers to restart service so the new binary takes
+// effect. When the restart would end runs in progress, it first offers to
+// reconfigure the service so they keep running, then checks a successful
+// change with detect.
+func restartAfterUpgrade(
+	ctx context.Context,
+	service *upgrade.Service,
+	ask func(prompt string, defaultYes bool) bool,
+	detect func() *upgrade.Service,
+) {
+	if service.KeepRunsCommand != "" {
+		fmt.Printf("\nRestarting Dagu also ends runs in progress. This command keeps them running across restarts:\n  %s\n", service.KeepRunsCommand)
+		if ask("Run it now?", true) {
+			// A failed command may have written the drop-in without reloading
+			// systemd, so only a success is checked against the files.
+			if err := service.KeepRuns(ctx); err != nil {
+				fmt.Printf("Failed to update the service: %v\n", err)
+			} else if updated := detect(); updated != nil {
+				service = updated
+			}
+		}
+	}
+
+	fmt.Println()
+	prompt, defaultYes := "Restart Dagu now to use the new version?", true
+	if service.StopsRuns {
+		prompt, defaultYes = "Restart Dagu now? Runs in progress will end.", false
+	}
+	if !ask(prompt, defaultYes) {
+		fmt.Printf("Restart Dagu later to use the new version:\n  %s\n", service.RestartCommand)
+		return
+	}
+	if err := service.Restart(ctx); err != nil {
+		fmt.Printf("Failed to restart Dagu: %v\nRestart it to use the new version:\n  %s\n", err, service.RestartCommand)
+		return
+	}
+	fmt.Println("Restarted Dagu.")
 }
 
 // createProgressCallback returns a callback function for download progress display.
@@ -195,16 +244,31 @@ func createProgressCallback() func(downloaded, total int64) {
 	}
 }
 
-// confirmAction prompts the user for confirmation.
+// confirmAction prompts the user for confirmation, defaulting to no.
 func confirmAction(prompt string) bool {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Printf("%s [y/N]: ", prompt)
+	return confirm(prompt, false)
+}
 
-	response, err := reader.ReadString('\n')
+// confirm prompts the user for a yes or no answer. An empty answer picks
+// defaultYes; an unreadable one picks no.
+func confirm(prompt string, defaultYes bool) bool {
+	choices := "[y/N]"
+	if defaultYes {
+		choices = "[Y/n]"
+	}
+	fmt.Printf("%s %s: ", prompt, choices)
+
+	response, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil {
 		return false
 	}
 
-	response = strings.ToLower(strings.TrimSpace(response))
-	return response == "y" || response == "yes"
+	switch strings.ToLower(strings.TrimSpace(response)) {
+	case "":
+		return defaultYes
+	case "y", "yes":
+		return true
+	default:
+		return false
+	}
 }

@@ -50,6 +50,7 @@ const (
 	recordFileMode     = 0o600
 	recordDirMode      = 0o700
 	sessionLockSuffix  = ".lock"
+	sharedRecordPrefix = "share-"
 )
 
 // SessionRetention is how long a browser session's history is kept after
@@ -132,6 +133,14 @@ type Record struct {
 func RecordID(dagRunID, item, stepName string) string {
 	sum := sha256.Sum256([]byte(dagRunID + "\x00" + item + "\x00" + stepName))
 	return hex.EncodeToString(sum[:16])
+}
+
+// SharedRecordID returns the record identifier for the browser the steps of
+// a DAG run share under name. Its prefix keeps it apart from every
+// RecordID, which is hexadecimal alone.
+func SharedRecordID(dagRunID, name string) string {
+	sum := sha256.Sum256([]byte(dagRunID + "\x00" + name))
+	return sharedRecordPrefix + hex.EncodeToString(sum[:16])
 }
 
 // Store persists browser session records as private files.

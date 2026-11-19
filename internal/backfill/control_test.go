@@ -5,6 +5,7 @@ package backfill_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -112,6 +114,41 @@ func TestResumeRunsSlotsThatDidNotSucceed(t *testing.T) {
 	assert.NotEqual(t, f.queued[0], f.queued[1])
 }
 
+// A resume of a DAG edited since the backfill started says so, and marks the
+// slot whose run, still active, runs the earlier definition. The slots it
+// queues again run the current one.
+func TestResumeOfAnEditedDAG(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{MaxConcurrency: 2})
+	f.tick()
+	require.Len(t, f.queued, 2)
+	f.finish(f.queued[0], ir.Running)
+
+	edited, err := spec.LoadYAML(f.ctx, []byte("name: etl\nschedule: \"0 2 * * *\"\nsteps:\n  - run: echo edited\n"))
+	require.NoError(t, err)
+	var stopped []string
+	resumed, err := f.service.Resume(f.ctx, backfill.ResumeRequest{ID: record.ID, DAG: edited, Schedule: f.sched}, f.control(&stopped))
+	require.NoError(t, err)
+	assert.True(t, resumed.Plan.DefinitionChanged)
+	planJSON, err := json.Marshal(resumed.Plan)
+	require.NoError(t, err)
+	assert.Contains(t, string(planJSON), `"definitionChanged":true`)
+	assert.Contains(t, resumed.Plan.Warnings(backfill.WarningInput{SchedulerRunning: true}),
+		"The DAG's definition changed since the backfill started: new runs run the current one, and active runs keep theirs.")
+
+	f.tick()
+	f.finish(f.queued[2], ir.Succeeded)
+	// The tick records how the run ended, so the report reads its digest
+	// from the progress event rather than from the run.
+	f.tick()
+	report, err := backfill.Describe(f.ctx, f.store, f.dispatcher.ReadRun, f.record(record.ID))
+	require.NoError(t, err)
+	assert.True(t, report.Slots[0].OtherDefinition, "the active run runs the earlier definition")
+	assert.Equal(t, backfill.SlotStateSucceeded, report.Slots[1].State)
+	assert.False(t, report.Slots[1].OtherDefinition, "the slot queued again runs the current definition")
+}
+
 // Resume on an open backfill withdraws its queued runs and continues with the
 // new concurrency.
 func TestResumeAnOpenBackfill(t *testing.T) {
@@ -206,4 +243,71 @@ func TestCancelRecordsRunsWithdrawnBeforeAFailure(t *testing.T) {
 	require.ErrorContains(t, err, "queue unavailable")
 	assert.Equal(t, backfill.SlotStateCancelled, f.states(record.ID)[0])
 	assert.True(t, f.record(record.ID).Open(), "the cancel did not finish")
+}
+
+// A retry that opens the backfill while a resume plans it makes the resume's
+// plan stale: the resume writes nothing over the retry.
+func TestResumeYieldsToARetryThatOpensTheBackfill(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	runID := f.queued[0]
+	f.finish(runID, ir.Failed)
+	f.tick()
+	require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+
+	var stopped []string
+	history := f.service.History
+	f.service.History = historyHook{HistoryReader: history, before: func() { f.retry(runID) }}
+	req := backfill.ResumeRequest{ID: record.ID, DAG: f.dag, Schedule: f.sched}
+	_, err := f.service.Resume(f.ctx, req, f.control(&stopped))
+	f.service.History = history
+	require.ErrorIs(t, err, backfill.ErrStalePlan)
+	current := f.record(record.ID)
+	assert.True(t, current.Open(), "the retry opened the backfill")
+	assert.Zero(t, current.Generation, "the resume wrote nothing")
+	report, err := backfill.Describe(f.ctx, f.store, f.dispatcher.ReadRun, current)
+	require.NoError(t, err)
+	assert.Equal(t, backfill.SlotStateQueued, report.Slots[0].State, "the backfill follows the retry")
+}
+
+// historyHook runs before once, as the history is first read.
+type historyHook struct {
+	backfill.HistoryReader
+	before func()
+}
+
+func (h historyHook) SlotEvents(ctx context.Context, dag *ir.DAG, from, to time.Time) ([]persis.SlotEvent, error) {
+	if h.before != nil {
+		h.before()
+	}
+	return h.HistoryReader.SlotEvents(ctx, dag, from, to)
+}
+
+// A resume between a retry's queueing of the slot and the retry's start
+// carries the retried run instead of planning a new run for its slot.
+func TestResumeCarriesARunARetryIsAboutToStart(t *testing.T) {
+	t.Parallel()
+	f := newDispatchFixture(t)
+	record := f.submit(backfill.Options{})
+	f.tick()
+	runID := f.queued[0]
+	f.finish(runID, ir.Failed)
+	f.tick()
+	require.Equal(t, backfill.StatusFailed, f.record(record.ID).Status)
+
+	attempt, err := f.repository.FindAttempt(f.ctx, ir.NewDAGRunRef(f.dag.Name, runID))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(f.ctx)
+	require.NoError(t, err)
+	// The retry has queued the slot again and not yet made the run active.
+	require.NoError(t, backfill.FollowRetry(f.ctx, f.store, status, time.Now()))
+
+	var stopped []string
+	resumed, err := f.service.Resume(f.ctx, backfill.ResumeRequest{ID: record.ID, DAG: f.dag, Schedule: f.sched}, f.control(&stopped))
+	require.NoError(t, err)
+	require.NotNil(t, resumed.Record)
+	assert.Equal(t, runID, resumed.Record.Slots[0].RunID, "the resumed backfill follows the retried run")
+	assert.Equal(t, backfill.ActionSkipActive, actions(resumed.Plan)[0], "its slot gets no new run")
 }

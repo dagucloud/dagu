@@ -74,6 +74,25 @@ steps:
 	assert.Empty(t, result.ValueReferenceNotices)
 }
 
+// An alias in a map env resolves like any other alias, and keeps its place.
+func TestLoadYAMLWithResultResolvesMapEnvAliases(t *testing.T) {
+	t.Parallel()
+
+	result, err := spec.LoadYAMLWithResult(context.Background(), []byte(`
+working_dir: .
+env:
+  REGION: &region ap-northeast-1
+  BUCKET_REGION: *region
+  SERVICE: api
+steps:
+  - run: echo ok
+`))
+
+	require.NoError(t, err)
+	require.NotNil(t, result.DAG)
+	assert.Equal(t, []string{"REGION=ap-northeast-1", "BUCKET_REGION=ap-northeast-1", "SERVICE=api"}, result.DAG.Env)
+}
+
 func TestLoadYAMLWithResultReportsEnvNoticesWithEarlierEnvScope(t *testing.T) {
 	t.Parallel()
 

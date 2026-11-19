@@ -7,17 +7,22 @@ import (
 	"context"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const instructions = `Dagu exposes a compact MCP surface for DAG workflow operations.
 
 Use dagu_read for current state, Wiki pages, and trusted reference resources.
+Before writing or editing DAG YAML, read dagu_read target=reference name=authoring.
 Use dagu_change with mode=preview before mode=apply when editing DAG YAML, DAG default profiles, or Wiki pages.
 Use dagu_execute for start, enqueue, retry, and stop. retry and stop are actions inside dagu_execute.
 When a run waits for a person, dagu_execute action=approve, reject, or push_back decides the waiting step that dagu_read target=run lists.
 MCP Apps hosts can render run-related dagu_read and dagu_execute results in Dagu's interactive run inspector.
-To follow a run to completion, pass wait=true to dagu_execute, or read the returned dagu://runs/... resource, or subscribe to it to receive a resource update notification when the run reaches a terminal state or stops at a waiting checkpoint.`
+To follow a run to completion, pass wait=true to dagu_execute, or read the returned dagu://runs/... resource, or subscribe to it to receive a resource update notification when the run reaches a terminal state or stops at a waiting checkpoint.
+When Dagu misbehaves or its errors or references mislead, read dagu_read target=reference name=feedback before drafting an issue.`
+
+const issuesURL = "https://github.com/dagucloud/dagu/issues"
 
 type referenceResource struct {
 	topic       string
@@ -86,6 +91,7 @@ Authoring rules:
 - When you can run the dagu CLI on the Dagu host, build a browser step for a page you have not seen in a browser session instead of guessing its fields or addresses: dagu browser session open, then one do per operation with the outline it reports, then export, which writes the step with its acts recorded for its first run.
 - computer.extract and computer.run operate the desktop of a macOS or Windows worker's logged-in user session, using the DAG-level llm block or with.llm. computer.run takes with.do, a list where each item sets one of launch, act, extract, expect, wait, screenshot, or ask, plus optional when and timeout. Route computer DAGs to such workers with DAG-level worker_selector, or for one run with workerSelector on the start and enqueue API requests; other systems fail the step.
 - Computer steps use the provider's native computer-use tool for anthropic, openai, and gemini, and plain function tools with any vision model for other providers or with mode: generic. Pass secrets through with.variables as %name%; the model sees only the placeholder, which is typed as the value. with.visible lists variables that are not secret whose values the model may see, such as an item to choose from a list; an element it chooses by that value is recorded by the placeholder. Typed values can still appear in later screenshots. Extract schema properties become ${steps.step_id.outputs.name}. Successful acts are replayed from a per-host cache while the screens match (with.ai: on_miss, the default; every_run asks the model every run; never replays only, fails on a miss with the reason, and needs no llm when nothing in the step calls the model; a statement expect or when needs the model, so a step-level never refuses statements, while exact checks are allowed; a successful extract binds each scalar field (string, number, integer, boolean) to the element its value was read from, and a table field (an array of objects of scalars) to a grid, table, or list read by column header up to with.max_rows (default 10000; extract.max_rows for one extract), so under never it reads the bound elements with no model and fails only when a field's element or a column header is missing, and an extract under never whose schema lists a plain object or a free array is refused); a learned step travels across devices by pinning it into the step keyed by system (windows or macos): an act takes recorded (a list of click/double_click/right_click selectors, check/uncheck selectors that leave a checkbox in that state and click it only when it is not, type {into,text}, key chord, scroll {on,dy}, or wait) run ahead of the device's own recording, and an extract takes fields (each output a selector, or {container,columns} for a table) read with no model; expect and when also take exact checks that read the window's elements without a model on macOS and 64-bit Windows: {text} for text a visible element shows, {element: {role, name | id | near, in, nth, enabled}} for a selector that must match exactly one element, where enabled: false holds only while the element is grayed out, or {window} for the title in front, each with within; an exact expect keeps looking until within or the operation timeout, an exact when keeps looking for two seconds; a check on the step's data, {value, equals} or {value, not_equals}, compares a parameter or %name% variable as written, decided at once with no screen and no model, so a part only some runs need is an operation of its own with when on its value, such as when: {value: "${params.SECOND_CONTACT}", not_equals: ""} to fill a second contact only when one is given, or an act holding check and another holding uncheck, each with when: {value: "%same%", equals: "yes"} or "no", since pinned steps inside one act take no condition; a replay acts on the elements the model's actions landed on and matches the window by its application, not its title, so a moved window, another display, or a title that changes with the document's contents still replays, and with.find_within (default 10s; act.find_within for one act) bounds the wait for an element; with.input: direct (or act.input) has a replayed element act itself through its automation pattern instead of the pointer and keys (a click the model carried out through the element replays that way under either input), invoking a button, toggling a checkbox, selecting a list item, opening a combo box, or setting a field's value at once when the recording showed the typed text became the value, with the screen as the fallback for an element without the pattern; screen stays the default since an application that reacts to each key or the pointer alone sees nothing; with.handle lists screens that may come up at any point, such as a confirmation an application shows only sometimes: each {name, when: an exact check without within, recorded: pinned steps keyed by system} runs whenever the step looks at the screen (an element, a check, a table, a replayed screen, or the screenshot a model sees) or acts without an element, when its check holds in the front window, so a run that never meets the screen waits nothing for it, and a screen still there after 20 runs of its handler fails the step; a dialog that holds the window a replayed element is in (a macOS sheet or modal alert, or a Windows dialog that disables its owner) and that no with.handle handler clears stops the replay there: the step never raises its window over the dialog, so the element is a miss whose reason quotes the dialog's text, while a dialog of another application holds nothing and the window is raised as usual; a check that fails while a dialog is in front names it too; dagu computer check verifies the desktop and permissions. Steps wait until nobody has touched the desktop for with.idle (default 5s; 0 turns it off) before sending input. A replay by pixels compares only the application window the turn was recorded on and clicks relative to its corner, so a moved window or a change elsewhere on the screen still replays, while a window of another size is a miss. with.maximize (default true; act.maximize or extract.maximize for one operation) maximizes the window in front before an operation looks at the screen, filling the screen between the menu bar and the Dock on macOS; dialogs, windows of fixed size, and the windows of apps named in DAGU_DESKTOP_PROTECTED_APPS or with a title matching one in DAGU_DESKTOP_PROTECTED_TITLES are left as they are, and a step never operates a protected window.
+- mcp.call calls one named tool on a remote MCP server over Streamable HTTP, without an LLM. with takes url, tool, arguments (JSON object), headers (use ${SECRET} references for credentials, never the URL), include_raw, and save_binary. With output: NAME, later steps read ${NAME.content}, ${NAME.structured_content}, and ${NAME.is_error}; when a tool returns JSON as its only text item and no structured content, ${NAME.json.field} reads it. save_binary: true saves image, audio, and blob data to the run artifacts and gives each item a path relative to $DAG_RUN_ARTIFACTS_DIR instead of base64. The step fails on a tool error (is_error true), auth, protocol, transport, timeout, or canceled failure, and the message names the kind. It never retries on its own; set retry_policy explicitly.
 - mail.search and mail.organize read and organize a mailbox over IMAP, or through the Gmail API for a Google account signed in with OAuth. The mailbox field names an entry of the DAG-level or base-config mail_accounts map, keyed by email address; provider google or microsoft fills in the servers, and credentials are password or oauth (google_refresh or microsoft_refresh with a refresh token; microsoft_refresh accepts optional scopes). A provider google account with oauth uses the Gmail API instead, takes no imap, smtp, or username, and treats folders as Gmail labels; its grant needs https://www.googleapis.com/auth/gmail.modify or https://mail.google.com/, and the Google Cloud project of its client_id must have the Gmail API enabled. mail.send with mailbox sends through that account; add in_reply_to (a found email's id) to reply: to defaults to the email's reply address, subject to Re: and its subject, and the reply is threaded under the email.
 - mail.search publishes messages (oldest first; each has id, message_id, folder, from_name, from_address, to, cc, subject, date, unread, flagged, text, attachments), count, and truncated; do not declare outputs on the step. Searching never marks email read.
 - mail.organize takes emails as an ID, an email from mail.search, an {id, move_to} object, or a list, with mark (read, unread, flagged, unflagged) and/or move (folder, archive, trash). To process each email once, loop over messages with foreach and mark each email read inside the loop after its work, so a failed email stays unread for the next run.
@@ -182,7 +188,7 @@ Targets:
 - wiki_search searches accessible Wiki pages in stable path order. Continue with nextCursor while keeping search, workspace, and prefix unchanged.
 - workbook inspects an .xlsx file on the server: for each sheet its used range, detected data block, header row, headers, whether it is hidden, how many of its rows are hidden by a filter or by hand, column types, a profile of each column over up to 5000 rows (filled, blank, distinct, the values when a few repeat, min and max, and odd cells that do not read as the type, such as 未定 in a number column), row count, tables, and five typed sample rows; plus named ranges and the date system. The path is any file the server process can read and is recorded in the audit log. An optional password opens a protected workbook and is not recorded. Use the result to write xlsx.read with the right sheet, range, columns, and types.
 - runs lists DAG-runs.
-- run reads one DAG-run. With subRunId, it reads the child run under the identified root run. A finished run carries its step outputs under outputs (bounded; see outputsOmitted and outputsError), so read the run before digging through step logs for a result.
+- run reads one DAG-run. With subRunId, it reads the child run under the identified root run. A finished run carries its step outputs under outputs (bounded; see outputsOmitted and outputsError), so read the run before digging through step logs for a result. A run that failed before any step started carries the reason under error.
 - run_logs reads scheduler and step log metadata.
 - step_log reads stdout and stderr for one DAG-run step. With subRunId, it reads a child-run step. With item and bodyStepName, it reads one body step of a foreach item. Use the stream, tail, head, offset, and limit query parameters to bound the returned lines; without positioning parameters the last 1000 lines are returned.
 - foreach_items lists the items a foreach step expanded to, with total, counts per status, and one page of items sorted failed first. A run's step entry links here through foreachUri. Use status to keep one status, page and perPage to page, and parent to list the items of a nested foreach body step.
@@ -335,6 +341,37 @@ dagu_execute returns resource links for the DAG-run and logs when a run can be i
 Clients that support MCP resource subscriptions can subscribe to the dagu://runs/{name}/{dagRunId} resource. Dagu sends a resource update notification when the run reaches a terminal state: success, failed, aborted, partial success, or rejected. Dagu also notifies when the run stops at a waiting checkpoint, and keeps watching so the later terminal state is notified too.
 
 Clients without resource subscription support have two options: pass wait=true to dagu_execute to wait for the result inside the tool call, or poll dagu_read target=run with the same name and dagRunId.`,
+		},
+		{
+			topic:       "feedback",
+			uri:         "dagu://reference/feedback",
+			name:        "dagu_feedback_reference",
+			title:       "Reporting Dagu issues",
+			description: "How to draft a Dagu bug, UX gap, or reference gap report for the user to submit.",
+			text: `# Reporting Dagu issues
+
+Report an issue when Dagu itself misbehaves, a tool result or error message misleads, or a reference topic lacks a rule needed to finish the task. A DAG that fails because of its own commands or configuration is not a Dagu issue.
+
+This server runs Dagu version ` + config.Version + `.
+
+Before drafting:
+
+1. Rule out misuse. Reread the relevant reference topic and confirm the behavior with dagu_change mode=preview or dagu_read.
+2. Search existing issues at ` + issuesURL + `?q=is%3Aissue+<keywords>. When one matches, give the user that link instead of a new draft.
+
+Draft:
+
+- Title: one line naming the behavior, prefixed with bug:, feat:, or docs:.
+- Body sections: What happened, Expected, Reproduction (a minimal DAG and the exact tool call), Error (the exact text), and Environment (the Dagu version above and the MCP client).
+- End the body with the line: Drafted by an AI agent through Dagu MCP.
+- The repository is public. Replace secrets, tokens, hostnames, IP addresses, file paths, user names, DAG names, and log data with placeholders.
+
+Submit:
+
+- Show the user the full title and body and ask whether to report it. Do not report without the user's approval.
+- When the user approves, give them ` + issuesURL + `/new?title=<title>&body=<body> with both values URL-encoded. The user reviews and submits it on GitHub.
+- Keep the link under 8000 characters. Shorten the body before dropping the reproduction.
+- File the issue through another GitHub tool only when the user asks for that.`,
 		},
 	}
 }

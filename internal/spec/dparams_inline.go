@@ -162,6 +162,7 @@ func parseInlineParamDefinition(name string, raw map[string]any) (ir.ParamDef, d
 			return def, entry, fmt.Errorf("parameter %q eval must not be empty", name)
 		}
 		entry.Eval = expr
+		def.Eval = expr
 	}
 
 	if value, ok := raw["required"]; ok {

@@ -612,6 +612,7 @@ func (l *ConfigLoader) loadCoreConfig(cfg *Config, def Definition) error {
 	cfg.DAGDiscovery = DAGDiscoveryConfig{
 		Recursive: l.v.GetBool("dag_discovery.recursive"),
 		Symlinks:  l.v.GetBool("dag_discovery.symlinks"),
+		SkipDirs:  skipDirectories(l.v.Get("dag_discovery.skip_directories")),
 	}
 
 	if err := setTimezone(&cfg.Core); err != nil {
@@ -1421,6 +1422,7 @@ func (l *ConfigLoader) warnIfWeakValue(value string, weakList []string, msg stri
 func (l *ConfigLoader) loadServerDefaults(cfg *Config, def Definition) {
 	cfg.Server.BasePath = cleanServerBasePath(cfg.Server.BasePath)
 	cfg.Server.CheckUpdates = l.v.GetBool("check_updates")
+	cfg.Server.AllowWebUpgrade = l.v.GetBool("allow_web_upgrade")
 	cfg.Server.CORSAllowedOrigins = parseStringList(l.v.Get("cors_allowed_origins"))
 	cfg.Server.AllowedHosts = parseStringList(l.v.Get("allowed_hosts"))
 	if slices.Contains(cfg.Server.AllowedHosts, "*") {
@@ -2045,12 +2047,22 @@ func (l *ConfigLoader) loadExecutionModeConfig(cfg *Config, _ Definition) {
 // loadSignalHandlingConfig loads signal handling options. The legacy camelCase
 // spelling "signalHandling.enablePropagation" is still accepted when it comes
 // from admin.yaml, which bypasses the legacy key check for compatibility.
-func (l *ConfigLoader) loadSignalHandlingConfig(cfg *Config, _ Definition) {
+func (l *ConfigLoader) loadSignalHandlingConfig(cfg *Config, def Definition) {
 	if l.v.IsSet("signal_handling.enable_propagation") {
 		cfg.SignalHandling.EnablePropagation = l.v.GetBool("signal_handling.enable_propagation")
+	} else {
+		cfg.SignalHandling.EnablePropagation = l.v.GetBool("signalhandling.enablepropagation")
+	}
+
+	if def.SignalHandling == nil || def.SignalHandling.DrainTimeout == "" {
 		return
 	}
-	cfg.SignalHandling.EnablePropagation = l.v.GetBool("signalhandling.enablepropagation")
+	timeout, err := time.ParseDuration(def.SignalHandling.DrainTimeout)
+	if err != nil || timeout < 0 {
+		l.warnings = append(l.warnings, fmt.Sprintf("Invalid signal_handling.drain_timeout value: %s", def.SignalHandling.DrainTimeout))
+		return
+	}
+	cfg.SignalHandling.DrainTimeout = timeout
 }
 
 func (l *ConfigLoader) loadCacheConfig(cfg *Config, def Definition) {
@@ -2328,6 +2340,7 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("skip_examples", false)
 	l.v.SetDefault("dag_discovery.recursive", false)
 	l.v.SetDefault("dag_discovery.symlinks", false)
+	l.v.SetDefault("dag_discovery.skip_directories", []string{})
 	l.v.SetDefault("paths.dags_dir", paths.DAGsDir)
 	l.v.SetDefault("paths.data_dir", paths.DataDir)
 	l.v.SetDefault("paths.log_dir", paths.LogsDir)
@@ -2344,6 +2357,7 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("base_path", "")
 	l.v.SetDefault("api_base_path", "/api/v1")
 	l.v.SetDefault("check_updates", true)
+	l.v.SetDefault("allow_web_upgrade", false)
 	l.v.SetDefault("latest_status_today", false)
 	l.v.SetDefault("metrics", "private")
 	l.v.SetDefault("cache", "normal")
@@ -2436,6 +2450,7 @@ var envBindings = []envBinding{
 	{key: "debug", env: "DEBUG"},
 	{key: "headless", env: "HEADLESS"},
 	{key: "check_updates", env: "CHECK_UPDATES"},
+	{key: "allow_web_upgrade", env: "ALLOW_WEB_UPGRADE"},
 	{key: "cors_allowed_origins", env: "CORS_ALLOWED_ORIGINS"},
 	{key: "allowed_hosts", env: "ALLOWED_HOSTS"},
 	{key: "ip_access.allowed_ips", env: "IP_ACCESS_ALLOWED_IPS", requires: SectionServer},
@@ -2462,6 +2477,7 @@ var envBindings = []envBinding{
 	{key: "skip_examples", env: "SKIP_EXAMPLES"},
 	{key: "dag_discovery.recursive", env: "DAG_DISCOVERY_RECURSIVE"},
 	{key: "dag_discovery.symlinks", env: "DAG_DISCOVERY_SYMLINKS"},
+	{key: "dag_discovery.skip_directories", env: "DAG_DISCOVERY_SKIP_DIRECTORIES"},
 	{key: "env_passthrough", env: "ENV_PASSTHROUGH"},
 	{key: "env_passthrough_prefixes", env: "ENV_PASSTHROUGH_PREFIXES"},
 	{key: "opencode.executable", env: "OPENCODE_EXECUTABLE"},
@@ -2599,6 +2615,7 @@ var envBindings = []envBinding{
 
 	// Signal handling
 	{key: "signal_handling.enable_propagation", env: "SIGNAL_PROPAGATION"},
+	{key: "signal_handling.drain_timeout", env: "SIGNAL_DRAIN_TIMEOUT"},
 
 	// Queues
 	{key: "queues.enabled", env: "QUEUE_ENABLED"},
@@ -2831,4 +2848,14 @@ func getHomeDir() (string, error) {
 		return "", fmt.Errorf("could not determine home directory: %w", err)
 	}
 	return dir, nil
+}
+
+// skipDirectories reads dag_discovery.skip_directories as directory names,
+// so "./jobs" and "jobs/" name the jobs directory.
+func skipDirectories(input any) []string {
+	dirs := parseStringList(input)
+	for i, dir := range dirs {
+		dirs[i] = filepath.Clean(dir)
+	}
+	return dirs
 }

@@ -30,6 +30,7 @@ func TestEnqueueCatchupRun_PersistsQueuedCatchupMetadata(t *testing.T) {
 
 	th := test.Setup(t)
 	dag := th.DAG(t, `name: enqueue-catchup-dag
+params: {mode: default, region: north}
 steps:
   - name: step1
     run: echo enqueue
@@ -58,6 +59,7 @@ steps:
 		scheduleTime,
 		window,
 		"prod",
+		`{"mode":"z"}`,
 	)
 	require.NoError(t, err)
 
@@ -72,6 +74,7 @@ steps:
 	require.Equal(t, stringutil.FormatTime(scheduleTime), status.ScheduleTime)
 	require.Equal(t, window, status.ScheduleWindow())
 	require.Equal(t, "prod", status.ProfileName)
+	require.ElementsMatch(t, []string{"mode=z", "region=north"}, status.ParamsList)
 	require.NotEmpty(t, status.Log)
 	assert.Contains(t, status.Log, filepath.Join(th.Config.Paths.LogDir, dag.Name))
 
@@ -138,6 +141,7 @@ steps:
 				time.Now(),
 				ir.ScheduleWindow{},
 				"",
+				"",
 			)
 			require.NoError(t, err)
 
@@ -197,6 +201,7 @@ steps:
 		ir.TriggerTypeCatchUp,
 		scheduleTime,
 		ir.ScheduleWindow{},
+		"",
 		"",
 	)
 	require.NoError(t, err)
@@ -281,6 +286,7 @@ steps:
 			time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
 			ir.ScheduleWindow{},
 			"",
+			"",
 		)
 		require.NoError(t, err)
 
@@ -302,4 +308,53 @@ steps:
 	env := buildenv.ToMap(resolvedEnv.Env)
 	require.Equal(t, "from-workspace", env["GREETING"])
 	require.Equal(t, "only-in-workspace", env["OPS_ONLY"])
+}
+
+// A queued catch-up run evaluates its params when it starts, in its own
+// process: the scheduler runs no eval and records the params it was given.
+func TestEnqueueCatchupRun_LeavesParamEvalToTheRun(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	dag := th.DAG(t, `name: enqueue-catchup-eval
+params:
+  - name: mode
+    default: full
+  - name: stamp
+    eval: "${params.mode}-x"
+steps:
+  - name: step1
+    run: echo ${params.stamp}
+`)
+	metadataOnly, err := spec.Load(th.Context, dag.Location, spec.OnlyMetadata(), spec.WithoutEval(), spec.SkipSchemaValidation())
+	require.NoError(t, err)
+
+	const runID = "catchup-run-eval"
+	err = scheduler.EnqueueCatchupRun(
+		th.Context,
+		th.DAGRunRepository,
+		th.QueueStore,
+		th.Config.Paths.LogDir,
+		th.Config.Paths.ArtifactDir,
+		th.Config.Paths.BaseConfig,
+		"",
+		metadataOnly.FileName(),
+		metadataOnly,
+		runID,
+		ir.TriggerTypeCatchUp,
+		time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
+		ir.ScheduleWindow{},
+		"",
+		"",
+	)
+	require.NoError(t, err)
+
+	attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, runID))
+	require.NoError(t, err)
+	persisted, err := attempt.ReadDAG(th.Context)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"stamp"}, persisted.DeferredParams)
+	status, err := attempt.ReadStatus(th.Context)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"mode=full"}, status.ParamsList)
 }

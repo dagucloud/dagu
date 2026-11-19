@@ -256,7 +256,8 @@ var importConfigSchema = &jsonschema.Schema{
 
 // JSON Schema for SQL executor configurations
 var postgresConfigSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"dsn": {Type: "string", Description: "PostgreSQL connection string (DSN)"},
 		"params": {
@@ -282,7 +283,8 @@ var postgresConfigSchema = &jsonschema.Schema{
 }
 
 var sqliteConfigSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	Properties: map[string]*jsonschema.Schema{
 		"dsn": {Type: "string", Description: "SQLite connection string (file path or :memory:)"},
 		"params": {
@@ -292,17 +294,18 @@ var sqliteConfigSchema = &jsonschema.Schema{
 				{Type: "array"},
 			},
 		},
-		"timeout":       {Type: "integer", Description: "Query timeout in seconds"},
-		"transaction":   {Type: "boolean", Description: "Wrap execution in transaction"},
-		"file_lock":     {Type: "boolean", Description: "Use file locking for exclusive access"},
-		"shared_memory": {Type: "boolean", Description: "Enable shared cache for :memory: databases to share data across DAG steps"},
-		"output_format": {Type: "string", Enum: []any{"jsonl", "json", "csv"}, Description: "Output format"},
-		"headers":       {Type: "boolean", Description: "Include headers in CSV output"},
-		"null_string":   {Type: "string", Description: "String representation for NULL values"},
-		"max_rows":      {Type: "integer", Description: "Maximum rows to return"},
-		"streaming":     {Type: "boolean", Description: "Stream results to file"},
-		"output_file":   {Type: "string", Description: "File path for streaming output"},
-		"import":        importConfigSchema,
+		"timeout":         {Type: "integer", Description: "Query timeout in seconds"},
+		"transaction":     {Type: "boolean", Description: "Wrap execution in transaction"},
+		"isolation_level": {Type: "string", Enum: []any{"default", "read_committed", "repeatable_read", "serializable"}, Description: "Transaction isolation level"},
+		"file_lock":       {Type: "boolean", Description: "Use file locking for exclusive access"},
+		"shared_memory":   {Type: "boolean", Description: "Enable shared cache for :memory: databases to share data across DAG steps"},
+		"output_format":   {Type: "string", Enum: []any{"jsonl", "json", "csv"}, Description: "Output format"},
+		"headers":         {Type: "boolean", Description: "Include headers in CSV output"},
+		"null_string":     {Type: "string", Description: "String representation for NULL values"},
+		"max_rows":        {Type: "integer", Description: "Maximum rows to return"},
+		"streaming":       {Type: "boolean", Description: "Stream results to file"},
+		"output_file":     {Type: "string", Description: "File path for streaming output"},
+		"import":          importConfigSchema,
 	},
 	Required: []string{"dsn"},
 }

@@ -5,7 +5,12 @@ import { Layers, List, Search } from 'lucide-react';
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import dayjs from '@/lib/dayjs';
-import { Status, ViewSpecType } from '../../api/v1/schema';
+import {
+  PathsDagRunsGetParametersQueryBackfill,
+  RunBackfillFilter,
+  Status,
+  ViewSpecType,
+} from '../../api/v1/schema';
 import { AutocompleteInput } from '@/components/ui/autocomplete-input';
 import { Button } from '@/components/ui/button';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
@@ -30,12 +35,14 @@ import DAGRunTable from '../../features/dag-runs/components/dag-run-list/DAGRunT
 import { ServiceDAGStrip } from '../../features/service-dags/components/ServiceDAGStrip';
 import { usePaginatedDAGRuns } from '../../features/dag-runs/hooks/dagRunPagination';
 import {
+  asBackfillFilter,
   buildRunViewSpec,
   dagRunsFilterSetFromView,
   type DAGRunsFilterSet,
   type DAGRunsFilterView,
 } from '../../features/dag-runs/lib/runViews';
 import { ViewSelector } from '../../features/views/ViewSelector';
+import { BackfillRunsFilter } from '../../features/backfills/components/BackfillRunsFilter';
 import {
   viewMatchesScope,
   viewScopeForSelection,
@@ -57,6 +64,7 @@ import Title from '@/components/ui/title';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { LoadErrorState } from '@/components/PageStates';
+import { BackfillRunsScope } from '@/features/backfills/components/BackfillRunsScope';
 import { I18nProps } from '@/i18n/I18nProps';
 import { statusLabelText } from '@/lib/status-utils';
 
@@ -64,10 +72,21 @@ type DAGRunsFilters = DAGRunsFilterSet;
 
 const ALL_RUNS_VIEW_PARAM = 'all';
 
+/** The run list's backfill parameter for each backfill filter. */
+const BACKFILL_QUERY: Record<
+  RunBackfillFilter,
+  PathsDagRunsGetParametersQueryBackfill | undefined
+> = {
+  [RunBackfillFilter.all]: undefined,
+  [RunBackfillFilter.exclude]: PathsDagRunsGetParametersQueryBackfill.exclude,
+  [RunBackfillFilter.only]: PathsDagRunsGetParametersQueryBackfill.only,
+};
+
 const RUN_FILTER_QUERY_KEYS = [
   'name',
   'dagRunId',
   'status',
+  'backfill',
   'labels',
   'tags',
   'fromDate',
@@ -116,6 +135,7 @@ const areFiltersEqual = (a: DAGRunsFilters, b: DAGRunsFilters): boolean =>
   a.searchText === b.searchText &&
   a.dagRunId === b.dagRunId &&
   a.status === b.status &&
+  a.backfill === b.backfill &&
   areLabelsEqual(a.labels, b.labels) &&
   a.fromDate === b.fromDate &&
   a.toDate === b.toDate &&
@@ -282,6 +302,7 @@ function DAGRuns() {
       searchText: '',
       dagRunId: '',
       status: 'all',
+      backfill: RunBackfillFilter.all,
       labels: [],
       fromDate: getDefaultFromDate(),
       toDate: undefined,
@@ -297,6 +318,9 @@ function DAGRuns() {
   const [searchText, setSearchText] = React.useState(defaultFilters.searchText);
   const [dagRunId, setDagRunId] = React.useState(defaultFilters.dagRunId);
   const [status, setStatus] = React.useState<string>(defaultFilters.status);
+  const [backfillFilter, setBackfillFilter] = React.useState(
+    defaultFilters.backfill
+  );
   const [selectedLabels, setSelectedLabels] = React.useState<string[]>(
     defaultFilters.labels
   );
@@ -313,6 +337,7 @@ function DAGRuns() {
   );
   const [apiDagRunId, setApiDagRunId] = React.useState(defaultFilters.dagRunId);
   const [apiStatus, setApiStatus] = React.useState(defaultFilters.status);
+  const [apiBackfill, setApiBackfill] = React.useState(defaultFilters.backfill);
   const [apiLabels, setApiLabels] = React.useState<string[]>(
     defaultFilters.labels
   );
@@ -363,6 +388,7 @@ function DAGRuns() {
       searchText,
       dagRunId,
       status,
+      backfill: backfillFilter,
       labels: selectedLabels,
       fromDate,
       toDate,
@@ -375,6 +401,7 @@ function DAGRuns() {
       searchText,
       dagRunId,
       status,
+      backfillFilter,
       selectedLabels,
       fromDate,
       toDate,
@@ -540,6 +567,11 @@ function DAGRuns() {
       hasUrlFilters = true;
     }
 
+    if (params.has('backfill')) {
+      urlFilters.backfill = asBackfillFilter(params.get('backfill'));
+      hasUrlFilters = true;
+    }
+
     if (params.has('labels') || params.has('tags')) {
       const labelsParam = params.get('labels') ?? params.get('tags') ?? '';
       urlFilters.labels = labelsParam
@@ -659,6 +691,7 @@ function DAGRuns() {
     setSearchText(resolved.searchText);
     setDagRunId(resolved.dagRunId);
     setStatus(resolved.status);
+    setBackfillFilter(asBackfillFilter(resolved.backfill));
     setSelectedLabels(resolved.labels);
     setFromDate(resolved.fromDate);
     setToDate(resolved.toDate);
@@ -670,6 +703,7 @@ function DAGRuns() {
     setAPISearchText(resolved.searchText);
     setApiDagRunId(resolved.dagRunId);
     setApiStatus(resolved.status);
+    setApiBackfill(asBackfillFilter(resolved.backfill));
     setApiLabels(resolved.labels);
     setApiFromDate(resolved.fromDate);
     setApiToDate(resolved.toDate);
@@ -756,32 +790,72 @@ function DAGRuns() {
     }
   );
 
+  // A link from a backfill lists its runs, from the backfill's start on.
+  const backfillId = React.useMemo(
+    () => new URLSearchParams(location.search).get('backfillId') ?? '',
+    [location.search]
+  );
+  // The node of the backfill, as its page links to its runs.
+  const backfillNode = React.useMemo(
+    () =>
+      backfillId
+        ? (new URLSearchParams(location.search).get('remoteNode') ?? '')
+        : '',
+    [backfillId, location.search]
+  );
+  const clearBackfill = React.useCallback(() => {
+    const params = new URLSearchParams(location.search);
+    params.delete('backfillId');
+    const search = params.toString();
+    navigate(
+      { pathname: location.pathname, search: search ? `?${search}` : '' },
+      { replace: true }
+    );
+  }, [location.pathname, location.search, navigate]);
+
   // A service DAG restarts without end, so its runs would fill an unfiltered
   // list. A search by name, run ID, status or labels shows them.
   const hideServiceDAGRuns =
     !apiSearchText &&
     !apiDagRunId &&
     apiStatus === 'all' &&
-    apiLabels.length === 0;
+    apiLabels.length === 0 &&
+    !backfillId;
   const dagRunQuery = React.useMemo(
-    () => ({
-      remoteNode: appBarContext.selectedRemoteNode || 'local',
-      name: apiSearchText || undefined,
-      dagRunId: apiDagRunId || undefined,
-      status: apiStatus !== 'all' ? [parseInt(apiStatus)] : undefined,
-      labels: apiLabels.length > 0 ? apiLabels.join(',') : undefined,
-      fromDate: formatDateForApi(apiFromDate),
-      toDate: formatDateForApi(apiToDate),
-      limit: 100,
-      excludeServiceDAGRuns: hideServiceDAGRuns ? true : undefined,
-      ...workspaceQuery,
-    }),
+    () =>
+      // A backfill's runs are a list of their own: the filters and views of
+      // the page do not narrow them, and the server lists them from the
+      // backfill's start on.
+      backfillId
+        ? {
+            remoteNode:
+              backfillNode || appBarContext.selectedRemoteNode || 'local',
+            backfillId,
+            limit: 100,
+            ...workspaceQuery,
+          }
+        : {
+            remoteNode: appBarContext.selectedRemoteNode || 'local',
+            name: apiSearchText || undefined,
+            dagRunId: apiDagRunId || undefined,
+            status: apiStatus !== 'all' ? [parseInt(apiStatus)] : undefined,
+            backfill: BACKFILL_QUERY[apiBackfill],
+            labels: apiLabels.length > 0 ? apiLabels.join(',') : undefined,
+            fromDate: formatDateForApi(apiFromDate),
+            toDate: formatDateForApi(apiToDate),
+            limit: 100,
+            excludeServiceDAGRuns: hideServiceDAGRuns ? true : undefined,
+            ...workspaceQuery,
+          },
     [
+      backfillId,
+      backfillNode,
       hideServiceDAGRuns,
       apiDagRunId,
       apiFromDate,
       apiSearchText,
       apiStatus,
+      apiBackfill,
       apiLabels,
       apiToDate,
       appBarContext.selectedRemoteNode,
@@ -889,6 +963,7 @@ function DAGRuns() {
     setAPISearchText(searchText);
     setApiDagRunId(dagRunId);
     setApiStatus(statusToUse);
+    setApiBackfill(backfillFilter);
     setApiLabels(selectedLabels);
     setApiFromDate(fromDate);
     setApiToDate(toDate);
@@ -897,6 +972,7 @@ function DAGRuns() {
       name: searchOverrideKey(searchText),
       dagRunId: searchOverrideKey(dagRunId),
       status: statusToUse,
+      backfill: backfillParam(backfillFilter),
       labels: searchOverrideKey(selectedLabels.join(',')),
       fromDate,
       toDate,
@@ -911,6 +987,7 @@ function DAGRuns() {
     setSearchText(filters.searchText);
     setDagRunId(filters.dagRunId);
     setStatus(filters.status);
+    setBackfillFilter(asBackfillFilter(filters.backfill));
     setSelectedLabels(filters.labels);
     setFromDate(filters.fromDate);
     setToDate(filters.toDate);
@@ -921,6 +998,7 @@ function DAGRuns() {
     setAPISearchText(filters.searchText);
     setApiDagRunId(filters.dagRunId);
     setApiStatus(filters.status);
+    setApiBackfill(asBackfillFilter(filters.backfill));
     setApiLabels(filters.labels);
     setApiFromDate(filters.fromDate);
     setApiToDate(filters.toDate);
@@ -947,6 +1025,9 @@ function DAGRuns() {
       }
       if (filters.status && filters.status !== 'all') {
         params.set('status', filters.status);
+      }
+      if (filters.backfill && filters.backfill !== RunBackfillFilter.all) {
+        params.set('backfill', filters.backfill);
       }
       if (filters.labels.length > 0) {
         params.set('labels', filters.labels.join(','));
@@ -1137,6 +1218,19 @@ function DAGRuns() {
     }
   };
 
+  // A backfill filter left at all leaves the parameter out, unless a view
+  // is active, whose own value it overrides.
+  const backfillParam = (value: RunBackfillFilter): string | undefined =>
+    activeRunViewId !== null || value !== RunBackfillFilter.all
+      ? value
+      : undefined;
+
+  const updateBackfill = (value: RunBackfillFilter) => {
+    setBackfillFilter(value);
+    setApiBackfill(value);
+    updateSearchParams({ backfill: backfillParam(value) });
+  };
+
   const handleStatusChange = (value: string) => {
     setStatus(value);
     // Automatically trigger search when status changes
@@ -1283,24 +1377,26 @@ function DAGRuns() {
           <Title>
             <I18nText text={'Executions'} />
           </Title>
-          <ViewSelector
-            kind="run"
-            views={runViews}
-            activeViewId={activeRunViewId}
-            defaultViewId={defaultRunViewId}
-            isAllView={isAllRunsView}
-            isActiveViewEdited={isRunViewEdited}
-            canManageViews={canManageRunViews}
-            error={runViewError}
-            onSelectView={handleSelectRunView}
-            onShowAll={handleShowAllRuns}
-            onResetView={handleResetRunView}
-            onSaveView={handleSaveRunView}
-            onUpdateView={handleUpdateRunView}
-            onSetDefault={handleSetDefaultRunView}
-            onSetPinned={handleSetPinnedRunView}
-            onDeleteView={handleDeleteRunView}
-          />
+          {!backfillId && (
+            <ViewSelector
+              kind="run"
+              views={runViews}
+              activeViewId={activeRunViewId}
+              defaultViewId={defaultRunViewId}
+              isAllView={isAllRunsView}
+              isActiveViewEdited={isRunViewEdited}
+              canManageViews={canManageRunViews}
+              error={runViewError}
+              onSelectView={handleSelectRunView}
+              onShowAll={handleShowAllRuns}
+              onResetView={handleResetRunView}
+              onSaveView={handleSaveRunView}
+              onUpdateView={handleUpdateRunView}
+              onSetDefault={handleSetDefaultRunView}
+              onSetPinned={handleSetPinnedRunView}
+              onDeleteView={handleDeleteRunView}
+            />
+          )}
         </div>
         <I18nProps>
           <ToggleGroup aria-label="View mode" className="h-9 p-0.5">
@@ -1338,214 +1434,232 @@ function DAGRuns() {
         </I18nProps>
       </div>
       <div>
-        <div className="mb-4 space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <I18nProps>
-              <AutocompleteInput
-                placeholder="Filter by workflow name..."
-                value={searchText}
-                onValueChange={setSearchText}
-                onEnterPress={() => handleSearch()}
-                suggestions={dagNameSuggestions}
-                className="w-[200px]"
-              />
-            </I18nProps>
-            <I18nProps>
-              <AutocompleteInput
-                placeholder="Filter by Run ID..."
-                value={dagRunId}
-                onValueChange={setDagRunId}
-                onEnterPress={() => handleSearch()}
-                suggestions={dagRunIdSuggestions}
-                className="w-[180px]"
-              />
-            </I18nProps>
-            <Select value={status} onValueChange={handleStatusChange}>
+        {backfillId ? (
+          <BackfillRunsScope backfillId={backfillId} onClear={clearBackfill} />
+        ) : (
+          <div className="mb-4 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
               <I18nProps>
-                <SelectTrigger aria-label="Status" className="w-[150px]">
-                  <I18nProps>
-                    <SelectValue placeholder="Status">
-                      <StatusSelectDisplay status={status} />
-                    </SelectValue>
-                  </I18nProps>
-                </SelectTrigger>
+                <AutocompleteInput
+                  placeholder="Filter by workflow name..."
+                  value={searchText}
+                  onValueChange={setSearchText}
+                  onEnterPress={() => handleSearch()}
+                  suggestions={dagNameSuggestions}
+                  className="w-[200px]"
+                />
               </I18nProps>
-              <SelectContent>
-                <SelectItem value="all">
-                  <div className="inline-flex items-center rounded-full border bg-muted border-border text-foreground py-0.5 px-2 text-xs font-medium">
-                    <I18nText text={'All Statuses'} />
-                  </div>
-                </SelectItem>
-                {Object.entries(STATUS_CONFIG).map(([statusValue, label]) => (
-                  <SelectItem key={statusValue} value={statusValue}>
-                    <StatusChip
-                      status={Number(statusValue) as Status}
-                      size="sm"
-                    >
-                      {label}
-                    </StatusChip>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {/* Labels filter */}
-            <I18nProps>
-              <LabelCombobox
-                selectedLabels={selectedLabels}
-                onLabelsChange={updateLabels}
-                availableLabels={availableLabels}
-                placeholder="Filter by labels..."
-                className="h-9 min-w-[170px] max-w-[220px]"
-              />
-            </I18nProps>
-            <Button onClick={() => handleSearch()} className="px-4 font-medium">
-              <Search className="mr-1.5 h-4 w-4" />
-              <I18nText text={'Search'} />
-            </Button>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <I18nProps>
-              <ToggleGroup aria-label="Date range mode" className="h-9 p-0.5">
+              <I18nProps>
+                <AutocompleteInput
+                  placeholder="Filter by Run ID..."
+                  value={dagRunId}
+                  onValueChange={setDagRunId}
+                  onEnterPress={() => handleSearch()}
+                  suggestions={dagRunIdSuggestions}
+                  className="w-[180px]"
+                />
+              </I18nProps>
+              <Select value={status} onValueChange={handleStatusChange}>
                 <I18nProps>
-                  <ToggleButton
-                    value="preset"
-                    groupValue={dateRangeMode}
-                    onClick={() => handleDateRangeModeChange('preset')}
-                    position="first"
-                    aria-label="Quick select"
-                    className="h-8 px-3"
-                  >
-                    <I18nText text={'Quick'} />
-                  </ToggleButton>
-                </I18nProps>
-                <I18nProps>
-                  <ToggleButton
-                    value="specific"
-                    groupValue={dateRangeMode}
-                    onClick={() => handleDateRangeModeChange('specific')}
-                    position="middle"
-                    aria-label="Specific date/month/year"
-                    className="h-8 px-3"
-                  >
-                    <I18nText text={'Specific'} />
-                  </ToggleButton>
-                </I18nProps>
-                <I18nProps>
-                  <ToggleButton
-                    value="custom"
-                    groupValue={dateRangeMode}
-                    onClick={() => handleDateRangeModeChange('custom')}
-                    position="last"
-                    aria-label="Custom range"
-                    className="h-8 px-3"
-                  >
-                    <I18nText text={'Custom'} />
-                  </ToggleButton>
-                </I18nProps>
-              </ToggleGroup>
-            </I18nProps>
-            {dateRangeMode === 'preset' ? (
-              <Select value={datePreset} onValueChange={handleDatePresetChange}>
-                <I18nProps>
-                  <SelectTrigger aria-label="Date preset" className="w-[180px]">
+                  <SelectTrigger aria-label="Status" className="w-[150px]">
                     <I18nProps>
-                      <SelectValue placeholder="Select period" />
+                      <SelectValue placeholder="Status">
+                        <StatusSelectDisplay status={status} />
+                      </SelectValue>
                     </I18nProps>
                   </SelectTrigger>
                 </I18nProps>
                 <SelectContent>
-                  <SelectItem value="today">
-                    <I18nText text={'Today'} />
+                  <SelectItem value="all">
+                    <div className="inline-flex items-center rounded-full border bg-muted border-border text-foreground py-0.5 px-2 text-xs font-medium">
+                      <I18nText text={'All Statuses'} />
+                    </div>
                   </SelectItem>
-                  <SelectItem value="yesterday">
-                    <I18nText text={'Yesterday'} />
-                  </SelectItem>
-                  <SelectItem value="last7days">
-                    <I18nText text={'Last 7 days'} />
-                  </SelectItem>
-                  <SelectItem value="last30days">
-                    <I18nText text={'Last 30 days'} />
-                  </SelectItem>
-                  <SelectItem value="thisWeek">
-                    <I18nText text={'This week'} />
-                  </SelectItem>
-                  <SelectItem value="thisMonth">
-                    <I18nText text={'This month'} />
-                  </SelectItem>
+                  {Object.entries(STATUS_CONFIG).map(([statusValue, label]) => (
+                    <SelectItem key={statusValue} value={statusValue}>
+                      <StatusChip
+                        status={Number(statusValue) as Status}
+                        size="sm"
+                      >
+                        {label}
+                      </StatusChip>
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-            ) : dateRangeMode === 'specific' ? (
-              <>
+              <BackfillRunsFilter
+                value={backfillFilter}
+                onChange={updateBackfill}
+                className="w-[170px]"
+              />
+              {/* Labels filter */}
+              <I18nProps>
+                <LabelCombobox
+                  selectedLabels={selectedLabels}
+                  onLabelsChange={updateLabels}
+                  availableLabels={availableLabels}
+                  placeholder="Filter by labels..."
+                  className="h-9 min-w-[170px] max-w-[220px]"
+                />
+              </I18nProps>
+              <Button
+                onClick={() => handleSearch()}
+                className="px-4 font-medium"
+              >
+                <Search className="mr-1.5 h-4 w-4" />
+                <I18nText text={'Search'} />
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <I18nProps>
+                <ToggleGroup aria-label="Date range mode" className="h-9 p-0.5">
+                  <I18nProps>
+                    <ToggleButton
+                      value="preset"
+                      groupValue={dateRangeMode}
+                      onClick={() => handleDateRangeModeChange('preset')}
+                      position="first"
+                      aria-label="Quick select"
+                      className="h-8 px-3"
+                    >
+                      <I18nText text={'Quick'} />
+                    </ToggleButton>
+                  </I18nProps>
+                  <I18nProps>
+                    <ToggleButton
+                      value="specific"
+                      groupValue={dateRangeMode}
+                      onClick={() => handleDateRangeModeChange('specific')}
+                      position="middle"
+                      aria-label="Specific date/month/year"
+                      className="h-8 px-3"
+                    >
+                      <I18nText text={'Specific'} />
+                    </ToggleButton>
+                  </I18nProps>
+                  <I18nProps>
+                    <ToggleButton
+                      value="custom"
+                      groupValue={dateRangeMode}
+                      onClick={() => handleDateRangeModeChange('custom')}
+                      position="last"
+                      aria-label="Custom range"
+                      className="h-8 px-3"
+                    >
+                      <I18nText text={'Custom'} />
+                    </ToggleButton>
+                  </I18nProps>
+                </ToggleGroup>
+              </I18nProps>
+              {dateRangeMode === 'preset' ? (
                 <Select
-                  value={specificPeriod}
-                  onValueChange={(v) => {
-                    const newPeriod = v as 'date' | 'month' | 'year';
-                    setSpecificPeriod(newPeriod);
-                    let newValue: string;
-                    const parsedDate = dayjs(specificValue);
-
-                    if (newPeriod === 'date') {
-                      newValue = parsedDate.isValid()
-                        ? parsedDate.format('YYYY-MM-DD')
-                        : dayjs().format('YYYY-MM-DD');
-                    } else if (newPeriod === 'month') {
-                      newValue = parsedDate.isValid()
-                        ? parsedDate.format('YYYY-MM')
-                        : dayjs().format('YYYY-MM');
-                    } else {
-                      newValue = parsedDate.isValid()
-                        ? parsedDate.format('YYYY')
-                        : dayjs().format('YYYY');
-                    }
-
-                    setSpecificValue(newValue);
-                    handleSpecificPeriodChange(newValue, newPeriod);
-                  }}
+                  value={datePreset}
+                  onValueChange={handleDatePresetChange}
                 >
                   <I18nProps>
                     <SelectTrigger
-                      aria-label="Specific period"
-                      className="w-[120px]"
+                      aria-label="Date preset"
+                      className="w-[180px]"
                     >
-                      <SelectValue />
+                      <I18nProps>
+                        <SelectValue placeholder="Select period" />
+                      </I18nProps>
                     </SelectTrigger>
                   </I18nProps>
                   <SelectContent>
-                    <SelectItem value="date">
-                      <I18nText text={'Date'} />
+                    <SelectItem value="today">
+                      <I18nText text={'Today'} />
                     </SelectItem>
-                    <SelectItem value="month">
-                      <I18nText text={'Month'} />
+                    <SelectItem value="yesterday">
+                      <I18nText text={'Yesterday'} />
                     </SelectItem>
-                    <SelectItem value="year">
-                      <I18nText text={'Year'} />
+                    <SelectItem value="last7days">
+                      <I18nText text={'Last 7 days'} />
+                    </SelectItem>
+                    <SelectItem value="last30days">
+                      <I18nText text={'Last 30 days'} />
+                    </SelectItem>
+                    <SelectItem value="thisWeek">
+                      <I18nText text={'This week'} />
+                    </SelectItem>
+                    <SelectItem value="thisMonth">
+                      <I18nText text={'This month'} />
                     </SelectItem>
                   </SelectContent>
                 </Select>
-                <Input
-                  type={getInputTypeForPeriod(specificPeriod)}
-                  value={specificValue}
-                  onChange={(e) => handleSpecificPeriodChange(e.target.value)}
-                  placeholder={specificPeriod === 'year' ? 'YYYY' : undefined}
-                  min={specificPeriod === 'year' ? '2000' : undefined}
-                  max={specificPeriod === 'year' ? '2100' : undefined}
-                  className="h-9 w-[160px]"
+              ) : dateRangeMode === 'specific' ? (
+                <>
+                  <Select
+                    value={specificPeriod}
+                    onValueChange={(v) => {
+                      const newPeriod = v as 'date' | 'month' | 'year';
+                      setSpecificPeriod(newPeriod);
+                      let newValue: string;
+                      const parsedDate = dayjs(specificValue);
+
+                      if (newPeriod === 'date') {
+                        newValue = parsedDate.isValid()
+                          ? parsedDate.format('YYYY-MM-DD')
+                          : dayjs().format('YYYY-MM-DD');
+                      } else if (newPeriod === 'month') {
+                        newValue = parsedDate.isValid()
+                          ? parsedDate.format('YYYY-MM')
+                          : dayjs().format('YYYY-MM');
+                      } else {
+                        newValue = parsedDate.isValid()
+                          ? parsedDate.format('YYYY')
+                          : dayjs().format('YYYY');
+                      }
+
+                      setSpecificValue(newValue);
+                      handleSpecificPeriodChange(newValue, newPeriod);
+                    }}
+                  >
+                    <I18nProps>
+                      <SelectTrigger
+                        aria-label="Specific period"
+                        className="w-[120px]"
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                    </I18nProps>
+                    <SelectContent>
+                      <SelectItem value="date">
+                        <I18nText text={'Date'} />
+                      </SelectItem>
+                      <SelectItem value="month">
+                        <I18nText text={'Month'} />
+                      </SelectItem>
+                      <SelectItem value="year">
+                        <I18nText text={'Year'} />
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type={getInputTypeForPeriod(specificPeriod)}
+                    value={specificValue}
+                    onChange={(e) => handleSpecificPeriodChange(e.target.value)}
+                    placeholder={specificPeriod === 'year' ? 'YYYY' : undefined}
+                    min={specificPeriod === 'year' ? '2000' : undefined}
+                    max={specificPeriod === 'year' ? '2100' : undefined}
+                    className="h-9 w-[160px]"
+                  />
+                </>
+              ) : (
+                <DateRangePicker
+                  fromDate={fromDate}
+                  toDate={toDate}
+                  onFromDateChange={setFromDate}
+                  onToDateChange={setToDate}
+                  onEnterPress={() => handleSearch()}
+                  fromLabel={`From ${tzLabel}`}
+                  toLabel={`To ${tzLabel}`}
+                  className="w-full md:w-auto"
                 />
-              </>
-            ) : (
-              <DateRangePicker
-                fromDate={fromDate}
-                toDate={toDate}
-                onFromDateChange={setFromDate}
-                onToDateChange={setToDate}
-                onEnterPress={() => handleSearch()}
-                fromLabel={`From ${tzLabel}`}
-                toLabel={`To ${tzLabel}`}
-                className="w-full md:w-auto"
-              />
-            )}
+              )}
+            </div>
           </div>
-        </div>
+        )}
         <DAGRunBatchActions
           selectedRuns={selectedRuns}
           loadedCount={dagRuns.length}

@@ -18,7 +18,7 @@ import {
   opSetStepField,
   opSetStepId,
 } from './ops/fields';
-import { opSetSchedule } from './ops/schedule';
+import { opSetSchedule, opSetScheduleParam } from './ops/schedule';
 import {
   opAddDependency,
   opAddStep,
@@ -138,5 +138,7 @@ function applyStrict(
       return opConvertStepsToExplicitForm(text, op, options);
     case 'setSchedule':
       return opSetSchedule(text, op);
+    case 'setScheduleParam':
+      return opSetScheduleParam(text, op);
   }
 }

@@ -6,7 +6,6 @@ package dagrun
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/statusfile"
 )
 
 var (
@@ -26,10 +26,15 @@ var (
 type Writer struct {
 	target     string
 	buffer     *bufio.Writer
-	encoder    *json.Encoder
+	encoder    statusfile.Encoder
 	file       *os.File
 	mu         sync.Mutex
 	bufferSize int
+
+	// end is the size of the open file after this writer's last write, not
+	// counting what the buffer holds. A larger file means that another writer
+	// appended since.
+	end int64
 }
 
 // WriterOption defines functional options for configuring a Writer.
@@ -71,29 +76,78 @@ func (w *Writer) Open() error {
 
 	w.file = file
 	w.buffer = bufio.NewWriterSize(file, w.bufferSize)
-	w.encoder = json.NewEncoder(w.buffer)
-	w.encoder.SetEscapeHTML(false)
+	w.end = sizeOf(file)
+	// A change record must build on a line of the file it is appended to.
+	w.encoder.Reset()
+	w.endPartialLineLocked()
 	return nil
 }
 
-// reopenIfReplaced opens the target again when the path names another file
-// than the open one, as after another writer of the same file compacted it.
-// Appends to the replaced file would reach no reader. A path that cannot be
-// read keeps the open file.
-func (w *Writer) reopenIfReplaced() error {
+// sizeOf returns the size of the open file, or -1 when it cannot be read, so
+// that the next write checks how the file ends.
+func sizeOf(file *os.File) int64 {
+	info, err := file.Stat()
+	if err != nil {
+		return -1
+	}
+	return info.Size()
+}
+
+// endPartialLineLocked starts the next record on a line of its own when the
+// file ends in a partial line, as a write cut off by a crash or a full disk
+// leaves it. A record appended to that line would join it, and neither could
+// be read. The newline goes out with the next record.
+func (w *Writer) endPartialLineLocked() {
+	if endsMidLine(w.target) {
+		_ = w.buffer.WriteByte('\n')
+	}
+}
+
+// endsMidLine reports whether the file ends in a partial line. A file that
+// cannot be read is taken to, since an extra newline only adds an empty line,
+// which readers skip.
+func endsMidLine(path string) bool {
+	file, err := fileutil.Open(path)
+	if err != nil {
+		return true
+	}
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return true
+	}
+	if info.Size() == 0 {
+		return false
+	}
+	last := make([]byte, 1)
+	if _, err := file.ReadAt(last, info.Size()-1); err != nil {
+		return true
+	}
+	return last[0] != '\n'
+}
+
+// prepareAppend readies the open file for the next record. It opens the target
+// again when the path names another file than the open one, as after another
+// writer of the same file compacted it, or when the open file can no longer be
+// read, as an NFS handle goes stale when another host replaces the file.
+// Appends to such a file would reach no reader. A usable open file is kept
+// when the path cannot be read. When another writer appended to the open file,
+// it may have left a partial line, which the next record must not join.
+func (w *Writer) prepareAppend() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	if !w.isOpenLocked() {
 		return nil
 	}
+	open, openErr := w.file.Stat()
 	current, err := os.Stat(w.target)
-	if err != nil {
+	if openErr == nil && (err != nil || os.SameFile(open, current)) {
+		if open.Size() != w.end {
+			w.endPartialLineLocked()
+			w.end = open.Size()
+		}
 		return nil
-	}
-	open, err := w.file.Stat()
-	if err != nil || os.SameFile(open, current) {
-		return err
 	}
 	file, err := fileutil.OpenOrCreateFile(w.target)
 	if err != nil {
@@ -103,11 +157,13 @@ func (w *Writer) reopenIfReplaced() error {
 	_ = w.file.Close()
 	w.file = file
 	w.buffer.Reset(file)
+	w.end = sizeOf(file)
+	w.encoder.Reset()
+	w.endPartialLineLocked()
 	return nil
 }
 
-// Write serializes the status to JSON and appends it to the file.
-// It automatically flushes data to ensure durability.
+// Write appends a line that records the status to the file and syncs it.
 func (w *Writer) Write(ctx context.Context, st ir.DAGRunStatus) error {
 	if err := w.write(st); err != nil {
 		logger.Error(ctx, "Failed to write status", tag.Error(err))
@@ -126,11 +182,30 @@ func (w *Writer) write(st ir.DAGRunStatus) error {
 		return ErrWriterNotOpen
 	}
 
-	if err := w.encoder.Encode(ir.StoredStatus(st)); err != nil {
+	line, err := w.encoder.Encode(st)
+	if err != nil {
 		return fmt.Errorf("failed to encode status: %w", err)
 	}
+	written := w.buffer.Buffered() + len(line) + 1
+	if _, err := w.buffer.Write(append(line, '\n')); err != nil {
+		w.discardLocked()
+		return fmt.Errorf("failed to write status: %w", err)
+	}
+	if err := w.flushAndSyncLocked(); err != nil {
+		w.discardLocked()
+		return err
+	}
+	w.end += int64(written)
+	return nil
+}
 
-	return w.flushAndSyncLocked()
+// discardLocked closes the file after a failed write and drops what the write
+// left in the buffer. A buffer that failed to write keeps failing, so the file
+// must be opened again before the next write.
+func (w *Writer) discardLocked() {
+	_ = w.file.Close()
+	w.file = nil
+	w.buffer = nil
 }
 
 // Close flushes any buffered data and closes the underlying file.
@@ -165,7 +240,6 @@ func (w *Writer) close() error {
 
 	w.file = nil
 	w.buffer = nil
-	w.encoder = nil
 
 	if len(errs) > 0 {
 		return errors.Join(errs...)
@@ -174,7 +248,7 @@ func (w *Writer) close() error {
 	return nil
 }
 
-// flushAndSyncLocked flushes the buffered encoder output and syncs the file.
+// flushAndSyncLocked flushes the buffered output and syncs the file.
 func (w *Writer) flushAndSyncLocked() error {
 	var errs []error
 
@@ -200,7 +274,7 @@ func (w *Writer) IsOpen() bool {
 	return w.isOpenLocked()
 }
 
-// isOpenLocked reports whether the writer has an active file and encoder.
+// isOpenLocked reports whether the writer has an open file.
 func (w *Writer) isOpenLocked() bool {
-	return w.file != nil && w.buffer != nil && w.encoder != nil
+	return w.file != nil && w.buffer != nil
 }

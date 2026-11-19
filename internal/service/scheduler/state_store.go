@@ -5,6 +5,7 @@ package scheduler
 
 import (
 	"context"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 )
@@ -17,6 +18,18 @@ func (noopStateStore) Load(_ context.Context) (*schedulerstate.State, error) {
 	return &schedulerstate.State{DAGs: make(map[string]schedulerstate.DAGWatermark)}, nil
 }
 
+func (noopStateStore) LoadDAG(context.Context, string) (schedulerstate.DAGWatermark, error) {
+	return schedulerstate.DAGWatermark{}, nil
+}
+
 func (noopStateStore) Save(_ context.Context, _ *schedulerstate.State) error {
+	return nil
+}
+
+func (noopStateStore) LoadCatchup(context.Context) (map[string][]time.Time, error) {
+	return nil, nil
+}
+
+func (noopStateStore) SaveCatchup(context.Context, map[string][]time.Time) error {
 	return nil
 }

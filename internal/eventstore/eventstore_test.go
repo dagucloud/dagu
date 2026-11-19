@@ -98,6 +98,7 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 		ProcGroup:      "priority-high",
 		Status:         ir.Failed,
 		TriggerType:    ir.TriggerTypeWebhook,
+		BackfillID:     "bf123456",
 		Error:          "boom",
 		Log:            "/tmp/run.log",
 		QueuedAt:       "2026-04-01T09:00:00Z",
@@ -157,6 +158,7 @@ func TestNewDAGRunEventEmbedsDAGRunSnapshot(t *testing.T) {
 	assert.Equal(t, status.ProcGroup, restored.ProcGroup)
 	assert.Equal(t, status.Status, restored.Status)
 	assert.Equal(t, status.TriggerType, restored.TriggerType)
+	assert.Equal(t, status.BackfillID, restored.BackfillID, "notices and incidents leave backfill runs out by it")
 	assert.Equal(t, status.Error, restored.Error)
 	assert.Equal(t, status.Log, restored.Log)
 	assert.Equal(t, status.StartedAt, restored.StartedAt)

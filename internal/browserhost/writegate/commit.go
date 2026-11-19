@@ -19,10 +19,14 @@ import (
 )
 
 const (
-	commitDirName  = "writes"
-	commitFileExt  = ".json"
-	commitFileMode = 0o600
-	commitDirMode  = 0o700
+	commitDirName = "writes"
+	// commitStepsDirName holds the step files of a DAG. Files that released
+	// versions kept beside it, under names several DAGs or steps could share,
+	// are not read.
+	commitStepsDirName = "steps"
+	commitFileExt      = ".json"
+	commitFileMode     = 0o600
+	commitDirMode      = 0o700
 	// commitLockTimeout bounds the wait for another run to finish changing
 	// a DAG's commit points.
 	commitLockTimeout = 5 * time.Second
@@ -67,7 +71,12 @@ func NewCommitStore(browserDataDir string) *CommitStore {
 }
 
 func (s *CommitStore) path(dag, step string) string {
-	return filepath.Join(s.dir, fileutil.SafeName(dag), fileutil.SafeName(step)+commitFileExt)
+	return filepath.Join(s.stepsDir(dag), fileutil.SafeKey(step)+commitFileExt)
+}
+
+// stepsDir returns the directory of a DAG's commit points.
+func (s *CommitStore) stepsDir(dag string) string {
+	return filepath.Join(s.dir, fileutil.SafeKey(dag), commitStepsDirName)
 }
 
 // Load returns the commit points of a step; none when it has no file.
@@ -86,10 +95,10 @@ func (s *CommitStore) Load(dag, step string) ([]CommitPoint, error) {
 	return points, nil
 }
 
-// Steps returns the steps of a DAG that have commit points, in the
-// file-safe form they are kept under.
+// Steps returns the steps of a DAG that have commit points.
 func (s *CommitStore) Steps(dag string) ([]string, error) {
-	entries, err := os.ReadDir(filepath.Join(s.dir, fileutil.SafeName(dag)))
+	dir := s.stepsDir(dag)
+	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -99,7 +108,7 @@ func (s *CommitStore) Steps(dag string) ([]string, error) {
 	var steps []string
 	for _, entry := range entries {
 		if name, ok := strings.CutSuffix(entry.Name(), commitFileExt); ok && !entry.IsDir() {
-			steps = append(steps, name)
+			steps = append(steps, fileutil.SafeKeyName(dir, name))
 		}
 	}
 	slices.Sort(steps)
@@ -186,6 +195,9 @@ func (s *CommitStore) update(ctx context.Context, dag, step string, change func(
 	defer func() { _ = lock.Unlock() }()
 	points, err := s.Load(dag, step)
 	if err != nil {
+		return err
+	}
+	if err := fileutil.KeepSafeKeyName(dir, step); err != nil {
 		return err
 	}
 	return fileutil.WriteJSONAtomic(path, change(points), commitFileMode)

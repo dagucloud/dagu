@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/statusfile"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 	"github.com/stretchr/testify/assert"
@@ -187,6 +188,39 @@ func TestTryLoadForDay_PreservesRetryMetadata(t *testing.T) {
 	assert.Equal(t, 10*time.Minute, found.AutoRetryMaxInterval)
 	assert.Equal(t, "shared-queue", found.ProcGroup)
 	assert.Equal(t, "retry-dag", found.DefinitionID)
+}
+
+// A run's dates survive the index, so a list read from it has them.
+func TestTryLoadForDay_KeepsDates(t *testing.T) {
+	dayDir := t.TempDir()
+	runDir := filepath.Join(dayDir, "dag-run_20240115_120000Z_dated-run")
+	attemptDir := filepath.Join(runDir, "attempt_20240115_120000_001Z_abc123")
+	require.NoError(t, os.MkdirAll(attemptDir, 0750))
+	dates := []ir.DateValue{
+		{Name: "target_day", Value: "2024-01-14"},
+		{Name: "window_days", List: true, Values: []string{"2024-01-13", "2024-01-14"}},
+	}
+	data, err := json.Marshal(ir.DAGRunStatus{
+		Name: "dated-dag", DAGRunID: "dated-run", AttemptID: "abc123", Status: ir.Succeeded,
+		StartedAt: "2024-01-15T12:00:00Z", FinishedAt: "2024-01-15T12:01:00Z", Dates: dates,
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(attemptDir, "status.jsonl"), append(data, '\n'), 0600))
+	createDayDir(t, dayDir, 9, ir.Succeeded)
+
+	// The first load writes the index; the second reads it.
+	_, _, err = TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
+	require.NoError(t, err)
+	entries, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
+	require.NoError(t, err)
+	require.True(t, fromIndex)
+	for _, entry := range entries {
+		if entry.DagRunID == "dated-run" {
+			assert.Equal(t, dates, entry.Dates)
+			return
+		}
+	}
+	t.Fatal("the dated run is not in the index")
 }
 
 func TestTryLoadForDay_StaleIndex_NewRun(t *testing.T) {
@@ -463,6 +497,31 @@ func TestParseStatusFile_MultiLine(t *testing.T) {
 	require.NoError(t, err)
 	// Should return the last valid line (succeeded status).
 	assert.Equal(t, ir.Succeeded, status.Status)
+}
+
+// A status file that ends in change records reads as its newest status.
+func TestParseStatusFile_ChangeRecords(t *testing.T) {
+	statusPath := filepath.Join(t.TempDir(), "status.jsonl")
+	status := ir.DAGRunStatus{Name: "etl", Status: ir.Running}
+	for i := range 10 {
+		status.Nodes = append(status.Nodes, ir.NewNodeFromStep(ir.Step{Name: fmt.Sprintf("step%d", i)}))
+	}
+	var enc statusfile.Encoder
+	var content []byte
+	for _, st := range []ir.Status{ir.Running, ir.Succeeded} {
+		status.Status = st
+		status.Nodes[0].Status = ir.NodeSucceeded
+		line, err := enc.Encode(status)
+		require.NoError(t, err)
+		content = append(append(content, line...), '\n')
+	}
+	require.Contains(t, string(content), "\n~")
+	require.NoError(t, os.WriteFile(statusPath, content, 0600))
+
+	got, err := parseStatusFile(statusPath)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Succeeded, got.Status)
+	assert.Equal(t, ir.NodeSucceeded, got.Nodes[0].Status)
 }
 
 func TestParseStatusFile_EmptyFile(t *testing.T) {

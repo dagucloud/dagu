@@ -100,7 +100,7 @@ func (s *WorkDirStore) workDir(ref dagrun.WorkDirRef) string {
 }
 
 func (s *WorkDirStore) runTree(ref dagrun.WorkDirRef) string {
-	return filepath.Join(s.rootDir, dagDirName(ref.RootDAGRun.Name), workDirName(ref.RootDAGRun.ID))
+	return filepath.Join(s.rootDir, existingDAGDirName(s.rootDir, ref.RootDAGRun.Name), workDirName(ref.RootDAGRun.ID))
 }
 
 func (s *WorkDirStore) legacyWorkDir(ctx context.Context, ref dagrun.WorkDirRef) (string, error) {

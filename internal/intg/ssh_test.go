@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,6 +32,9 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/test"
 )
 
@@ -661,6 +665,161 @@ steps:
 		dag.AssertLatestStatus(t, ir.Failed)
 	})
 
+}
+
+// TestSSHCredentialsFromSecrets authenticates with keys, passphrases, and
+// passwords read from the secret registry instead of from disk.
+func TestSSHCredentialsFromSecrets(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+	requireLinuxContainerRuntime(t)
+
+	th := test.Setup(t)
+	dockerClient := requireDockerClient(t)
+	sshServer := startSSHServer(t, th, dockerClient)
+	defer stopSSHServer(t, dockerClient, sshServer)
+	waitForSSHReady(t, sshServer)
+
+	keyPEM, err := os.ReadFile(sshServer.keyPath)
+	require.NoError(t, err)
+	const passphrase = "open sesame"
+	newResolver := func() *countingSecretResolver {
+		return &countingSecretResolver{values: map[string]string{
+			"ssh/key":           string(keyPEM),
+			"ssh/encrypted-key": encryptSSHKey(t, keyPEM, passphrase),
+			"ssh/passphrase":    passphrase,
+			"ssh/password":      sshTestPass,
+		}}
+	}
+	run := func(t *testing.T, resolver *countingSecretResolver, dagConfig string) {
+		t.Helper()
+		th := test.Setup(t)
+		dag := th.DAG(t, dagConfig)
+		dag.Agent(test.WithAgentOptions(agent.Options{SecretReferenceResolver: resolver})).RunSuccess(t)
+		dag.AssertOutputs(t, map[string]any{"OUT": "authenticated"})
+	}
+
+	t.Run("DAGLevelKey", func(t *testing.T) {
+		resolver := newResolver()
+		run(t, resolver, fmt.Sprintf(`ssh:
+  host: 127.0.0.1
+  port: "%s"
+  user: %s
+  strict_host_key: false
+  key: {secret: ssh/key}
+steps:
+  - action: ssh.run
+    with:
+      command: echo authenticated
+    output: OUT
+`, sshServer.hostPort, sshTestUser))
+		require.Equal(t, 1, resolver.count("ssh/key"))
+	})
+
+	t.Run("StepLevelEncryptedKeyWithPassphrase", func(t *testing.T) {
+		run(t, newResolver(), fmt.Sprintf(`steps:
+  - action: ssh.run
+    with:
+      host: 127.0.0.1
+      port: "%s"
+      user: %s
+      strict_host_key: false
+      key: {secret: ssh/encrypted-key}
+      passphrase: {secret: ssh/passphrase}
+      command: echo authenticated
+    output: OUT
+`, sshServer.hostPort, sshTestUser))
+	})
+
+	t.Run("BastionKeyAndTargetPassword", func(t *testing.T) {
+		run(t, newResolver(), fmt.Sprintf(`ssh:
+  host: 127.0.0.1
+  port: "22"
+  user: %s
+  strict_host_key: false
+  password: {secret: ssh/password}
+  bastion:
+    host: 127.0.0.1
+    port: "%s"
+    user: %s
+    key: {secret: ssh/encrypted-key}
+    passphrase: {secret: ssh/passphrase}
+steps:
+  - action: ssh.run
+    with:
+      command: echo authenticated
+    output: OUT
+`, sshTestUser, sshServer.hostPort, sshTestUser))
+	})
+
+	// Each foreach item opens its own connection, and all of them read the
+	// one value resolved at run start.
+	t.Run("ForeachResolvesOnce", func(t *testing.T) {
+		resolver := newResolver()
+		th := test.Setup(t)
+		dag := th.DAG(t, fmt.Sprintf(`steps:
+  - id: each
+    foreach:
+      items: [a, b, c]
+      steps:
+        - id: remote
+          action: ssh.run
+          with:
+            host: 127.0.0.1
+            port: "%s"
+            user: %s
+            strict_host_key: false
+            key: {secret: ssh/key}
+            command: echo ${foreach.item}
+`, sshServer.hostPort, sshTestUser))
+		dag.Agent(test.WithAgentOptions(agent.Options{SecretReferenceResolver: resolver})).RunSuccess(t)
+		require.Equal(t, 1, resolver.count("ssh/key"))
+	})
+}
+
+// countingSecretResolver resolves registry refs from a map and counts the
+// lookups of each ref.
+type countingSecretResolver struct {
+	mu     sync.Mutex
+	values map[string]string
+	calls  map[string]int
+}
+
+func (r *countingSecretResolver) ResolveReference(_ context.Context, ref secretref.Ref) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.calls == nil {
+		r.calls = make(map[string]int)
+	}
+	r.calls[ref.Ref]++
+	value, ok := r.values[ref.Ref]
+	if !ok {
+		return "", secretpkg.ErrNotFound
+	}
+	return value, nil
+}
+
+func (r *countingSecretResolver) CheckReferenceAccessibility(context.Context, secretref.Ref) error {
+	return nil
+}
+
+func (r *countingSecretResolver) count(ref string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.calls[ref]
+}
+
+// encryptSSHKey returns the OpenSSH private key keyPEM protected by
+// passphrase.
+func encryptSSHKey(t *testing.T, keyPEM []byte, passphrase string) string {
+	t.Helper()
+
+	key, err := ssh.ParseRawPrivateKey(keyPEM)
+	require.NoError(t, err)
+	block, err := ssh.MarshalPrivateKeyWithPassphrase(key, "", []byte(passphrase))
+	require.NoError(t, err)
+	return string(pem.EncodeToMemory(block))
 }
 
 // startSSHServer creates and starts an SSH server container

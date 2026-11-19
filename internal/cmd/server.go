@@ -11,7 +11,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	goruntime "runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -25,6 +24,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/netutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
@@ -94,6 +94,7 @@ func newServer(ctx *Context, rs *resource.Service, stores frontend.Stores, opts 
 		BackfillStore:        ctx.Persistence.BackfillStore,
 		SchedulerPauseStore:  ctx.Persistence.SchedulerPauseStore,
 		RestartBackoffStore:  ctx.Persistence.RestartBackoffStore,
+		PeriodStore:          ctx.Persistence.PeriodStore,
 		Caches:               ctx.Caches,
 		LicenseManager:       ctx.LicenseManager,
 		ResourceService:      rs,
@@ -112,7 +113,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	defer stop()
 
 	// Create a signal-aware context for services
-	serviceCtx := ctx.WithContext(ctx.withSignalPropagation(signalCtx))
+	serviceCtx := ctx.WithContext(ctx.withRunRegistry(signalCtx))
 	openCodeHost := opencodehost.New(signalCtx, ctx.Config.OpenCode)
 	cleanupCancel, cleanupDone := startLocalAgentSessionCleanup(signalCtx, ctx.Persistence, openCodeHost)
 	startBrowserReaper(signalCtx, ctx.Config.Paths.DataDir, ctx.Persistence.DAGRunRepository)
@@ -212,7 +213,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	cloudReporter = startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService)
 	stopCloudAccess = startCloudAccess(serviceCtx, cloudAccess, server)
 
-	err = server.Serve(serviceCtx)
+	err = restartExit(server.Serve(serviceCtx))
 	stop() // Let a second SIGINT end deferred cleanup; SIGTERM stays absorbed.
 	if err != nil {
 		return fmt.Errorf("failed to start server: %w", withPortInUseHint(err, webPortInUseHint))
@@ -224,20 +225,10 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 // withPortInUseHint appends hint to err when err reports an address already
 // in use, and returns other errors unchanged.
 func withPortInUseHint(err error, hint string) error {
-	if !isAddrInUse(err) {
+	if !netutil.IsAddrInUse(err) {
 		return err
 	}
 	return fmt.Errorf("%w (%s)", err, hint)
-}
-
-// isAddrInUse reports whether err comes from binding an address already in
-// use. Windows reports WSAEADDRINUSE (10048), which syscall.EADDRINUSE does
-// not match there.
-func isAddrInUse(err error) bool {
-	if errors.Is(err, syscall.EADDRINUSE) {
-		return true
-	}
-	return goruntime.GOOS == "windows" && errors.Is(err, syscall.Errno(10048))
 }
 
 func startLocalAgentSessionCleanup(ctx context.Context, persistence Persistence, host *opencodehost.Host) (context.CancelFunc, <-chan struct{}) {

@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/statusfile"
 	indexv1 "github.com/dagucloud/dagu/v2/proto/index/v1"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -86,6 +88,7 @@ type Entry struct {
 	DefinitionID         string
 	BackfillID           string
 	ArchiveDir           string
+	Dates                []ir.DateValue
 	latestStatusSize     int64
 	latestStatusModTime  int64
 	runDirModTime        int64
@@ -251,6 +254,7 @@ func rebuildForDay(dayDir string, dagRunDirs []os.DirEntry, cached map[string]En
 			ProcGroup:            status.ProcGroup,
 			DefinitionID:         status.DAGDefinitionID(),
 			BackfillID:           status.BackfillID,
+			Dates:                status.Dates,
 			ArchiveDir:           status.ArchiveDir,
 			latestStatusSize:     statusInfo.Size(),
 			latestStatusModTime:  statusInfo.ModTime().UnixNano(),
@@ -601,6 +605,7 @@ func writeIndex(dayDir string, entries []Entry) error {
 			ProcGroup:            e.ProcGroup,
 			DefinitionId:         e.DefinitionID,
 			BackfillId:           e.BackfillID,
+			DatesJson:            encodeDates(e.Dates),
 			ArchiveDir:           e.ArchiveDir,
 		})
 	}
@@ -655,6 +660,7 @@ func protoToEntry(pe *indexv1.DAGRunIndexEntry) Entry {
 		ProcGroup:            pe.ProcGroup,
 		DefinitionID:         pe.DefinitionId,
 		BackfillID:           pe.BackfillId,
+		Dates:                decodeDates(pe.DatesJson),
 		ArchiveDir:           pe.ArchiveDir,
 		latestStatusSize:     pe.LatestStatusSize,
 		latestStatusModTime:  pe.LatestStatusModTime,
@@ -730,10 +736,7 @@ func parseTimeToUnix(s string) int64 {
 	return t.Unix()
 }
 
-// parseStatusFile reads the status file. This is a local wrapper to avoid
-// importing the parent dagrun package (which would create a circular dependency).
-// It finds the last valid JSON line, reading the file from its end.
-// Keep in sync with internal/dagrun/runstatus.go:StatusFromJSON if the format changes.
+// parseStatusFile returns the newest status in the status file.
 func parseStatusFile(filePath string) (*ir.DAGRunStatus, error) {
 	f, err := fileutil.Open(filePath)
 	if err != nil {
@@ -747,24 +750,38 @@ func parseStatusFile(filePath string) (*ir.DAGRunStatus, error) {
 		return nil, err
 	}
 
-	var result *ir.DAGRunStatus
-	err = fileutil.ReadLinesBackward(context.Background(), f, info.Size(), func(line []byte, _ bool) (bool, error) {
-		line = bytes.TrimSpace(line)
-		if len(line) == 0 {
-			return false, nil
-		}
-		status, err := ir.StatusFromJSON(string(line))
-		if err != nil {
-			return false, nil
-		}
-		result = status
-		return true, nil
-	})
+	latest, err := statusfile.ReadLatest(context.Background(), f, info.Size())
+	if errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("no valid status found in %s", filePath)
+	}
 	if err != nil {
 		return nil, err
 	}
-	if result == nil {
-		return nil, fmt.Errorf("no valid status found in %s", filePath)
+	return latest.Status, nil
+}
+
+// encodeDates writes a run's dates for the index, or nothing when it has
+// none.
+func encodeDates(dates []ir.DateValue) string {
+	if len(dates) == 0 {
+		return ""
 	}
-	return result, nil
+	data, err := json.Marshal(dates)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// decodeDates reads a run's dates from the index. An entry written before
+// the index kept dates has none, as its run recorded none.
+func decodeDates(data string) []ir.DateValue {
+	if data == "" {
+		return nil
+	}
+	var dates []ir.DateValue
+	if err := json.Unmarshal([]byte(data), &dates); err != nil {
+		return nil
+	}
+	return dates
 }

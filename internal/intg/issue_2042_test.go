@@ -34,7 +34,7 @@ func TestIssue2042_EditedSuspendedScheduleDispatchesWithSkipIfSuccessful(t *test
 	h := intgharness.New(t, th.Helper)
 
 	dispatchedAt := make(chan time.Time, 4)
-	dispatchStub := func(ctx context.Context, entry scheduler.DAGEntry, runID string, trigger ir.TriggerType, scheduleTime time.Time) error {
+	dispatchStub := func(ctx context.Context, entry scheduler.DAGEntry, runID string, trigger ir.TriggerType, scheduleTime time.Time, _ string) error {
 		dag := entry.DAG
 		attempt, err := th.DAGRunRepository.CreateAttempt(ctx, dag, scheduleTime, runID, persis.DAGRunCreateAttemptOptions{})
 		if err != nil {

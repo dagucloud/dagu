@@ -52,6 +52,19 @@ func TestScheduleDescriptors(t *testing.T) {
 	}
 }
 
+func TestScheduleParams(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	valid := dagu.Run("validate", "valid_schedule_params.yaml")
+	valid.ExpectExitCode(0)
+	valid.ExpectStderr("")
+
+	invalid := dagu.Run("validate", "invalid_schedule_params.yaml")
+	invalid.ExpectNonZeroExitCode()
+	invalid.ExpectStderrContains("schedule[0].params")
+}
+
 // Named time zones must resolve on a host without a time zone database, such
 // as Windows without Go installed. Pointing GOROOT at an empty directory
 // removes the fallback to the build machine's Go installation.

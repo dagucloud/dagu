@@ -20,6 +20,15 @@ func TestS3Config(t *testing.T) {
 		dagu.Run("validate", "configured.yaml").ExpectExitCode(0)
 	})
 
+	t.Run("rejects an unknown field", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("validate", "unknown_field.yaml")
+		result.ExpectNonZeroExitCode()
+		result.ExpectStderrContains(`unexpected additional properties ["buckets"]; did you mean "bucket" instead of "buckets"?`)
+	})
+
 	for _, tc := range []struct {
 		fixture string
 		message string

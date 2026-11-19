@@ -60,7 +60,7 @@ func TestCalendarUpdateDropsPendingHolidaySlots(t *testing.T) {
 	planner, _ := newTestTickPlanner(&mockStateStore{state: newMockState(base.Add(-2 * time.Minute))})
 	planner.cfg.Clock = func() time.Time { return now }
 	planner.cfg.Location = time.UTC
-	planner.cfg.Enqueue = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error { return nil }
+	planner.cfg.Enqueue = func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error { return nil }
 	dag := &ir.DAG{Name: "calendar", CatchupWindow: time.Hour, OverlapPolicy: ir.OverlapPolicyAll,
 		Schedule: []ir.Schedule{calendarSchedule(t, "* * * * *", everyDayCalendar())}}
 	require.NoError(t, planner.Init(t.Context(), testDAGEntries(dag)))

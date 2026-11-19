@@ -56,6 +56,7 @@ func newSiteAuth(t *testing.T, serverCA, clientCA *testCA, auth tls.ClientAuthTy
 	}
 	// Refused handshakes are what several tests expect.
 	site.Config.ErrorLog = log.New(io.Discard, "", 0)
+	closeGracefully(site)
 	site.StartTLS()
 	t.Cleanup(site.Close)
 	return site
@@ -146,6 +147,7 @@ func TestServeReportsRejectionAfterBrowserCloses(t *testing.T) {
 		},
 	}
 	site.Config.ErrorLog = log.New(io.Discard, "", 0)
+	closeGracefully(site)
 	site.StartTLS()
 	t.Cleanup(site.Close)
 	t.Cleanup(func() { releaseOnce.Do(func() { close(release) }) })

@@ -503,7 +503,17 @@ steps:
       destination: /remote/file.tar.gz
 ```
 
-Shared SSH fields: `user`, `host`, `port`, `key`, `password`, `timeout`, `strict_host_key`, `known_host_file`, `bastion`. `ssh.run` also accepts `shell` and `shell_args`.
+Shared SSH fields: `user`, `host`, `port`, `key`, `password`, `passphrase`, `timeout`, `strict_host_key`, `known_host_file`, `bastion`. `ssh.run` also accepts `shell` and `shell_args`.
+
+`key` is a path, `{file: <path>}`, or `{secret: <ref>}`. `password` and `passphrase` are a string or `{secret: <ref>}`. `bastion` takes the same three fields. A `secret` names a Dagu-managed registry secret, is literal (no `${...}`), resolves once at run start, and is masked but never exported to step environments. A passphrase unlocks an encrypted key, including a default `~/.ssh/id_*` key.
+
+```yaml
+ssh:
+  user: deploy
+  host: server.example.com
+  key: {secret: ssh/deploy-key}
+  passphrase: {secret: ssh/deploy-passphrase}
+```
 
 ## http.request
 
@@ -542,6 +552,68 @@ steps:
 Do not set the multipart `Content-Type` header manually. `body` cannot be combined with `form` or `files`.
 
 `with` fields: `method`, `url`, `timeout`, `headers`, `query`, `body`, `form`, `files`, `silent`, `debug`, `format`, `output`, `json`, `skip_tls_verify`.
+
+## mcp.call
+
+Call one tool on a remote MCP server over Streamable HTTP, without an LLM. Each run connects, sends one `tools/call`, and closes; only `retry_policy` re-runs it.
+
+```yaml
+secrets:
+  - name: MCP_TOKEN
+    provider: env
+    key: MCP_TOKEN
+
+steps:
+  - id: scrape
+    action: mcp.call
+    with:
+      url: https://mcp.example.com/mcp
+      tool: scrape
+      arguments:
+        url: https://example.com
+      headers:
+        Authorization: Bearer ${MCP_TOKEN}
+    timeout_sec: 60
+    output: PAGE
+
+  - id: use
+    depends: scrape
+    run: echo "${PAGE.structured_content.pages}"
+```
+
+stdout is `{"content": [...], "structured_content": ..., "json": ..., "is_error": false}`. Read it with `${PAGE.content}` and `${PAGE.structured_content.<field>}`. For a tool that returns JSON as its only text item and no structured content, `json` holds the parsed object or array, read with `${PAGE.json.<field>}`; otherwise it is `null`. A tool that reports `isError` fails the step. A failed call writes `{"error": {"kind": "...", "message": "..."}}`, where `kind` is `tool`, `auth`, `protocol`, `transport`, `timeout`, or `canceled`.
+
+Image, audio, and blob resource data is base64 in the output by default. With `save_binary: true`, each such item is saved to the run artifacts under `mcp/<step id>/`, and the item carries `path` (relative to `$DAG_RUN_ARTIFACTS_DIR`) instead of the data.
+
+Put credentials in `headers`, never in the URL. Values of headers and URL query parameters whose name contains `auth`, `key`, `token`, `secret`, `cookie`, or `password` are masked in the output. Redirects are not followed.
+
+`with` fields: `url`, `tool`, `arguments` (object, or a `${...}` reference to a JSON object), `headers`, `include_raw`, `save_binary`.
+
+## data.filter
+
+Keep the rows of a list that meet conditions on their fields, read as a page or a sheet writes them, then order and cut them. Use it for rows a `browser.run` or `computer.run` extract read, such as listings or orders, instead of code that parses each value.
+
+```yaml
+params:
+  - MAX_PRICE: 70000000
+steps:
+  - id: keep
+    action: data.filter
+    with:
+      from: json
+      data: ${steps.read.outputs.listings}   # rows an earlier browser.run step, read, extracted
+      where:
+        price: {max: "${params.MAX_PRICE}"}   # 4,280万円 reads as 42800000
+        access: {max: 5}                      # 京阪本線「天満橋」徒歩4分 reads as 4
+        built: {from: "1981-06"}              # 1983年5月 and 昭和58年5月 read as 1983-05
+        updated: {within: 7d}                 # 情報更新日：2026/11/12 reads as that day
+        address: {any: [北区, 中央区]}
+      sort: [built, -price]
+      limit: 20
+    output: KEPT
+```
+
+Each field of `where` takes one kind of condition. Numbers: `min`, `max`; a value reads as the first number in it, with 万 and 億 applied and commas and full-width digits read. Dates: `from`, `to` (a year, a month, or a day, inclusive), `within` (days back from today, as `7d` or `2w`); a value reads as the first date in it: `2026/11/12`, `2026-11-12`, `1983年5月`, a Japanese era date such as `昭和58年5月`, or a year. Text: `is`, `any` (contains one of), `none` (contains none of), compared with full-width letters and digits folded; a text given to `any` or `none` lists the words its commas separate, as `${params.AREAS}` holding `北区,中央区` does. A bound left empty sets no limit, so a parameter defaulting to `""` filters nothing until it is set. A row passes when every condition holds; a row whose value does not read as the condition's kind is left out and counted on stderr, with an example. `sort` orders by fields, `-` before one for descending, comparing each as its condition reads it, else as the kind most of its values read as; values that do not read as it come last. `select` picks the list from an object first. Output is the kept rows as JSON, or in `to`.
 
 ## jq.filter
 
@@ -1333,6 +1405,7 @@ steps:
 Browser behavior:
 
 - Before writing a browser step for a page you have not seen, work the page in a browser session (`dagu browser session`, see `references/cli.md`) with the same operations, looking at its outline after each, instead of guessing at its fields, buttons, or addresses. Export what worked: the step comes out with its acts recorded, so its first run replays them. With `browser.profile`, sign-in operations run only while the site asks for them, so guard them with `when: {selector: ...}` on the sign-in form.
+- Split a task of several stages (sign in, search, collect) into one browser step per stage, each with the same `browser.share: <name>` and `depends` on the stage before it, since the shared name only makes the steps take turns and orders nothing. The steps use one browser in turn: each starts on the page the step before left, signed in, session cookies included, and a step without `url` continues there. A failed stage reruns alone, and the others keep their replays. Give the steps the same `headless`, `executable`, `viewport`, `proxy`, `profile`, `client_certificates`, and `write_gate`. The browser closes when the run ends, also when the run waits for a person between the steps, so add `browser.profile` for a sign-in that should last across runs.
 - Each `do` item sets exactly one of `goto`, `act`, `upload`, `extract`, `expect`, `wait` (`selector` or `duration`), `screenshot`, or `ask`, plus optional `when` (skip unless it holds) and `timeout`.
 - An `act` performs one action: "Sign in with %user% and %password%" types into one field and stops. Write one act per field and one for the button. A dropdown that is not a native `<select>` takes two acts: one opens it, the next picks the option.
 - `upload: {files, into}` gives local files to a file input; an `act` cannot. `files` is a path or glob pattern relative to the step's working directory, a list of them, or an earlier step's output holding a JSON list of paths, of objects with a `path`, or of `mail.search` emails, whose attachments saved with `save_attachments: true` are uploaded. Each file is at most 50 MB. `into` names the file input, or the button or drop area that opens the file picker, in plain words; the model finds it once and later runs replay it like an act. Leave `into` out when the page has one file input; no model is asked then. The element gets the files directly when it is or holds one file input; otherwise Dagu clicks it and hands the files to the file picker it opens, which never shows; when none opens, the file input nearest it gets them. A file input that takes one file fails when given several. The model never sees the files. Follow an upload with an `expect` for what the site shows once it has the files, such as `{text: "Uploaded", within: 1m}`.
@@ -1341,6 +1414,7 @@ Browser behavior:
 - Model requests carry the instruction, the page's elements and visible text, and the extract schema; never variable values, typed field text, or screenshots. Declared secrets shown on the page are masked; plain variables are not.
 - "the model (...) answered that no element on the page matches the instruction" means the model chose no element. If the failure screenshot shows the element, the model answers that way for every request (for example `google/gemini-2.5-flash` via OpenRouter); switch models. Otherwise fix the instruction.
 - The top-level properties of each `extract` schema become `${steps.<id>.outputs.<name>}`. The same property in two extracts is a validation error.
+- A list whose pages a Next button turns is read in one `extract` with `pages: {next: "Click the Next page button"}`: it extracts each page, clicks `next`, and collects the items of the schema's top-level array properties from every page in order, ending where nothing is left to click, the page stops changing (`within`, default `10s`), or `max` pages (default 20). Never write a step or an operation per page. The click is recorded once and replayed on the later pages and runs. A list whose pages have addresses can instead be read by collecting the addresses and running one step per address with `foreach`.
 - An answer that breaks the `extract` schema gets one correction, then the next `with.model` entry is tried. When a page may have nothing to find, use a list the model can leave empty, or allow null with `type: [string, "null"]`; a required string has no way to say "nothing".
 - A field that should hold the address a link points to needs `format: uri`, as in `link: {type: string, format: uri}`, and a place in `required`. Without the format the model returns the link's element id, such as `0-11` or `[0-11]`, and the step still succeeds; without `required` some models leave the field out. `dagu validate` warns about a string field named like an address (`url`, `link`, `href`, `detail_url`, ...) that has no `format: uri`.
 - The `act` and `upload` operations of a step that succeeded are replayed on later runs on the same host without a model call; `extract` and model-judged conditions still call the model. A replay acts only on an element with the role and name it recorded, in the same row text when the page repeats it (such as a Delete button per row), and on a select offering the recorded option, or else asks the model again. A recording whose actions never use a variable the instruction names, as when the page already showed the value, replays only where that variable has the value it had then; another value asks the model, and fails under `never`. Unnamed elements are told apart by role only, so follow important acts with an `expect`: when a later operation fails on the page, the step's replays are dropped and the next run asks the model again.

@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/textsearch"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -87,7 +88,10 @@ func (r *DAGRepository) SearchCursor(ctx context.Context, opts DAGSearchOptions)
 	limit := max(opts.Limit, 1)
 	matchLimit := max(opts.MatchLimit, 1)
 	pattern := dagSearchPattern(opts.Query)
-	labelFilters := parseLabelFilters(opts.Labels)
+	labelFilters, err := ir.ParseLabelFilters(opts.Labels)
+	if err != nil {
+		return nil, catalog.Issues, err
+	}
 	issues := append([]string(nil), catalog.Issues...)
 	results := make([]DAGSearchResult, 0, limit)
 	var hasMore bool
@@ -166,11 +170,15 @@ func (r *DAGRepository) SearchMatches(ctx context.Context, id string, opts DAGMa
 		return nil, err
 	}
 	if len(opts.Labels) > 0 || opts.WorkspaceFilter != nil {
+		labelFilters, err := ir.ParseLabelFilters(opts.Labels)
+		if err != nil {
+			return nil, err
+		}
 		dag, err := r.store.GetMetadata(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		if !containsAllLabels(dag.Labels, parseLabelFilters(opts.Labels)) || !opts.WorkspaceFilter.MatchesLabels(dag.Labels) {
+		if !containsAllLabels(dag.Labels, labelFilters) || !opts.WorkspaceFilter.MatchesLabels(dag.Labels) {
 			return &pagination.CursorResult[*textsearch.Match]{Items: []*textsearch.Match{}}, nil
 		}
 	}

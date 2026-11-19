@@ -36,8 +36,12 @@
           updateAvailable: "{{ $update.UpdateAvailable }}" === "true",
           latestVersion: "{{ js $update.LatestVersion }}",
           upgradeCommand: "{{ js $update.UpgradeCommand }}",
+          installMethod: "{{ js $update.InstallMethod }}",
           restartRequired: "{{ $update.RestartRequired }}" === "true",
           restartCommand: "{{ js $update.RestartCommand }}",
+          restartStopsRuns: "{{ $update.RestartStopsRuns }}" === "true",
+          restartCanKeepRuns: "{{ $update.RestartCanKeepRuns }}" === "true",
+          webUpgradeAvailable: "{{ $update.WebUpgradeAvailable }}" === "true",
           license: {
             valid: "{{ licenseValid }}" === "true",
             plan: "{{ licensePlan }}",

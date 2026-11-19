@@ -74,6 +74,9 @@ type dag struct {
 	Schedule types.ScheduleValue `yaml:"schedule,omitempty"`
 	// Calendar is the calendar of start schedules that name none.
 	Calendar string `yaml:"calendar,omitempty"`
+	// Dates derives dates from the run's schedule slot. The loader passes
+	// the mapping as single-entry mappings in document order.
+	Dates any `yaml:"dates,omitempty"`
 	// SkipIfSuccessful is the flag to skip the DAG on schedule when it is
 	// executed manually before the schedule.
 	SkipIfSuccessful *bool `yaml:"skip_if_successful,omitempty"`
@@ -161,6 +164,9 @@ type dag struct {
 	// WorkerSelector specifies required worker labels for execution.
 	// Can be a map of label key-value pairs or the string "local" to force local execution.
 	WorkerSelector any `yaml:"worker_selector,omitempty"`
+	// Node set to "required" makes the DAG run only bound to one inventory
+	// node (RFC 013).
+	Node string `yaml:"node,omitempty"`
 	// Container is the container definition for the DAG.
 	// Can be a string (existing container name to exec into) or an object (container configuration).
 	Container any `yaml:"container,omitempty"`
@@ -389,10 +395,12 @@ type ssh struct {
 	Host string `yaml:"host,omitempty"`
 	// Port is the SSH port (can be string or number).
 	Port types.PortValue `yaml:"port,omitempty"`
-	// Key is the path to the SSH private key.
-	Key string `yaml:"key,omitempty"`
-	// Password is the SSH password.
-	Password string `yaml:"password,omitempty"`
+	// Key is a private key path, {file: <path>}, or {secret: <ref>}.
+	Key any `yaml:"key,omitempty"`
+	// Password is a string or {secret: <ref>}.
+	Password any `yaml:"password,omitempty"`
+	// Passphrase unlocks an encrypted key: a string or {secret: <ref>}.
+	Passphrase any `yaml:"passphrase,omitempty"`
 	// StrictHostKey enables strict host key checking. Defaults to true if not specified.
 	StrictHostKey *bool `yaml:"strict_host_key,omitempty"`
 	// KnownHostFile is the path to the known_hosts file. Defaults to ~/.ssh/known_hosts.
@@ -415,10 +423,12 @@ type bastion struct {
 	Port types.PortValue `yaml:"port,omitempty"`
 	// User is the bastion SSH user.
 	User string `yaml:"user,omitempty"`
-	// Key is the path to the SSH private key for the bastion.
-	Key string `yaml:"key,omitempty"`
-	// Password is the SSH password for the bastion.
-	Password string `yaml:"password,omitempty"`
+	// Key is a private key path, {file: <path>}, or {secret: <ref>}.
+	Key any `yaml:"key,omitempty"`
+	// Password is a string or {secret: <ref>}.
+	Password any `yaml:"password,omitempty"`
+	// Passphrase unlocks an encrypted key: a string or {secret: <ref>}.
+	Passphrase any `yaml:"passphrase,omitempty"`
 }
 
 // s3Config defines the default S3 configuration for the DAG.
@@ -564,12 +574,14 @@ var metadataParamsEnvStage = transformStage{
 	dagField("param_defs", buildParamDefs, func(out *ir.DAG, v []ir.ParamDef) { out.ParamDefs = v }),
 	dagField("param_schema", buildParamSchema, func(out *ir.DAG, v json.RawMessage) { out.ParamSchema = v }),
 	dagField("params_json", buildParamsJSON, func(out *ir.DAG, v string) { out.ParamsJSON = v }),
+	dagField("deferred_params", buildDeferredParams, func(out *ir.DAG, v []string) { out.DeferredParams = v }),
 	dagField("env", buildEnvs, func(out *ir.DAG, v []string) { out.Env = v }),
 }
 
 var metadataScheduleStage = transformStage{
 	dagField("schedule", buildSchedule, func(out *ir.DAG, v []ir.Schedule) { out.Schedule = v }),
 	dagField("calendar", buildCalendar, func(out *ir.DAG, v string) { out.Calendar = v }),
+	dagField("dates", buildDates, func(out *ir.DAG, v []ir.DateSpec) { out.Dates = v }),
 	dagField("watch", buildWatchConfig, func(out *ir.DAG, v *ir.WatchConfig) { out.Watch = v }),
 	dagField("stop_schedule", buildStopSchedule, func(out *ir.DAG, v []ir.Schedule) { out.StopSchedule = v }),
 	dagField("restart_schedule", buildRestartSchedule, func(out *ir.DAG, v []ir.Schedule) { out.RestartSchedule = v }),
@@ -627,6 +639,7 @@ var fullExecutionDefaultsStage = transformStage{
 	dagField("container", buildContainer, func(out *ir.DAG, v *ir.Container) { out.Container = v }),
 	dagField("registry_auths", buildRegistryAuths, func(out *ir.DAG, v map[string]*ir.AuthConfig) { out.RegistryAuths = v }),
 	dagField("ssh", buildSSH, func(out *ir.DAG, v *ir.SSHConfig) { out.SSH = v }),
+	dagField("node", buildNodeRequired, func(out *ir.DAG, v bool) { out.NodeRequired = v }),
 	dagField("s3", buildS3, func(out *ir.DAG, v *ir.S3Config) { out.S3 = v }),
 	dagField("mail_accounts", buildMailAccounts, func(out *ir.DAG, v ir.MailAccounts) { out.MailAccounts = v }),
 	dagField("llm", buildLLM, func(out *ir.DAG, v *ir.LLMConfig) { out.LLM = v }),
@@ -705,6 +718,9 @@ type dagBuildState struct {
 	ownEnv int
 	// calendarWarnings reports calendars whose holidays run out soon.
 	calendarWarnings []string
+	// datesWarnings reports dates that no run of the DAG on its own can
+	// resolve.
+	datesWarnings []string
 }
 
 func newDAGBuildState(ctx buildContext, spec *dag) *dagBuildState {
@@ -819,6 +835,44 @@ func (s *dagBuildState) bindScheduleCalendars() {
 			s.calendarWarnings = append(s.calendarWarnings, fmt.Sprintf(
 				"schedule %q never fires: no time it matches falls on a business day of calendar %q",
 				sched.Expression, sched.Calendar))
+		}
+	}
+}
+
+// validateScheduleParams checks literal overrides without evaluating dynamic
+// defaults. Run admission still validates the fully resolved inputs.
+func (s *dagBuildState) validateScheduleParams() {
+	if s.ctx.opts.Has(buildFlagBaseDefinition) || s.ctx.opts.Has(buildFlagSkipSchemaValidation) ||
+		!slices.ContainsFunc(s.result.Schedule, func(schedule ir.Schedule) bool { return len(schedule.Params) > 0 }) {
+		return
+	}
+	plan, err := buildDAGParamPlan(s.ctx, s.spec)
+	if err != nil {
+		return // The params transformer reports an invalid declaration.
+	}
+	plan.inheritedNames = inheritedParamNames(s.ctx.baseDAG, plan)
+	opts := s.ctx.opts
+	opts.Flags |= buildFlagNoEval
+	ctx := s.ctx.WithOpts(opts)
+	for i, schedule := range s.result.Schedule {
+		if len(schedule.Params) == 0 {
+			continue
+		}
+		input := string(schedule.Params)
+		switch plan.kind {
+		case dagParamKindLegacy:
+			if plan.schema == nil {
+				_, err = resolveLegacyRuntimePairs(plan.entries, plan.inheritedNames, input, nil)
+			} else {
+				_, err = resolveLegacyEntries(ctx, plan, input, nil, true)
+			}
+		case dagParamKindExternalSchema:
+			_, err = resolveExternalSchemaEntries(plan, input, nil)
+		case dagParamKindInlineSchema:
+			_, err = resolveInlineSchemaEntries(plan, input, nil)
+		}
+		if err != nil {
+			s.errs = append(s.errs, s.scheduleFieldError(i, "params", err))
 		}
 	}
 }
@@ -962,6 +1016,7 @@ func (s *dagBuildState) collectWarnings() {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, sched.Warnings...)
 	}
 	s.result.BuildWarnings = append(s.result.BuildWarnings, s.calendarWarnings...)
+	s.result.BuildWarnings = append(s.result.BuildWarnings, s.datesWarnings...)
 	if !s.ctx.opts.Has(buildFlagOnlyMetadata) {
 		s.result.BuildWarnings = append(s.result.BuildWarnings, harnessWorkingDirWarnings(s.result)...)
 		s.result.BuildWarnings = append(s.result.BuildWarnings, executorConfigWarnings(s.result)...)
@@ -1195,6 +1250,7 @@ func (s *dagBuildState) validateResult() {
 		if err := validateAgent(s.result); err != nil {
 			s.errs = append(s.errs, err)
 		}
+		s.errs = append(s.errs, validateNodeRequired(s.result)...)
 	}
 
 	if s.result.RestartPolicy.Enabled() && s.result.RestartWait < time.Second {
@@ -1254,9 +1310,12 @@ func (d *dag) build(ctx buildContext) (*ir.DAG, error) {
 	state.runFieldStages()
 	state.composeInheritedContext()
 	state.bindScheduleCalendars()
+	state.validateScheduleParams()
+	state.validateDates()
 	state.resolveWorkerSelector()
 	state.markEnvEvaluated()
 	state.buildActionGraph()
+	state.collectCredentialRefs()
 	state.collectWarnings()
 	state.validateResult()
 	state.capturePresolvedBuildEnv()
@@ -1276,6 +1335,7 @@ func composeBuildDAGContext(base, current *ir.DAG, currentSpec *dag) (*ir.DAG, e
 	if err := merge(effective, current); err != nil {
 		return nil, err
 	}
+	inheritSSHAuth(effective, base, current)
 	effective.Params = mergeInheritedParams(base.Params, current.Params)
 	applyHistoryRetentionOverride(effective, currentSpec.HistRetentionDays != nil, currentSpec.HistRetentionRuns != nil)
 	// Built-in defaults must not replace inherited values, while explicit
@@ -1596,7 +1656,8 @@ func buildArtifacts(_ buildContext, d *dag) (*ir.ArtifactsConfig, error) {
 	// explicitly.
 	usesScreenAction := dagUsesBuiltinAction(d, browserActionPrefix) || dagUsesBuiltinAction(d, computerActionPrefix)
 	autoEnable := dagReferencesRunArtifactsDir(d) || usesArtifactAction || usesArtifactOutput || usesScreenAction ||
-		dagSavesMailAttachments(d) || dagKeepsXlsxArtifact(d)
+		dagSetsActionFlag(d, "mail.search", "save_attachments") ||
+		dagSetsActionFlag(d, "mcp.call", "save_binary") || dagKeepsXlsxArtifact(d)
 
 	if usesArtifactAction && d.Artifacts != nil && d.Artifacts.Enabled != nil && !*d.Artifacts.Enabled {
 		return nil, ir.NewValidationError(
@@ -1659,19 +1720,19 @@ func dagUsesBuiltinAction(d *dag, prefix string) bool {
 	})
 }
 
-// dagSavesMailAttachments reports whether a mail.search step writes
-// save_attachments: true literally.
-func dagSavesMailAttachments(d *dag) bool {
-	return dagDeclaresAction(d, func(action string, with reflect.Value) bool {
-		if action != "mail.search" {
+// dagSetsActionFlag reports whether a step of the given action writes
+// with.<field>: true literally.
+func dagSetsActionFlag(d *dag, action, field string) bool {
+	return dagDeclaresAction(d, func(stepAction string, with reflect.Value) bool {
+		if stepAction != action {
 			return false
 		}
 		with, ok := derefForSearch(with)
 		if !ok || with.Kind() != reflect.Map {
 			return false
 		}
-		save, ok := derefForSearch(with.MapIndex(reflect.ValueOf("save_attachments")))
-		return ok && save.Kind() == reflect.Bool && save.Bool()
+		flag, ok := derefForSearch(with.MapIndex(reflect.ValueOf(field)))
+		return ok && flag.Kind() == reflect.Bool && flag.Bool()
 	})
 }
 
@@ -2281,6 +2342,8 @@ type paramsResult struct {
 	ParamDefs     []ir.ParamDef
 	ParamSchema   json.RawMessage
 	ParamsJSON    string // JSON representation of resolved params (original payload when provided as JSON)
+	// DeferredParams names the params whose eval waits for the run.
+	DeferredParams []string
 }
 
 func buildParams(ctx buildContext, d *dag) ([]string, error) {
@@ -2361,6 +2424,14 @@ func buildParamsJSON(ctx buildContext, d *dag) (string, error) {
 		return "", err
 	}
 	return result.ParamsJSON, nil
+}
+
+func buildDeferredParams(ctx buildContext, d *dag) ([]string, error) {
+	result, err := parseParamsInternal(ctx, d)
+	if err != nil {
+		return nil, err
+	}
+	return result.DeferredParams, nil
 }
 
 func buildParamSchema(ctx buildContext, d *dag) (json.RawMessage, error) {
@@ -3026,19 +3097,26 @@ func buildSSH(_ buildContext, d *dag) (*ir.SSHConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	auth, err := ir.ParseSSHAuth("ssh", d.SSH.Key, d.SSH.Password, d.SSH.Passphrase)
+	if err != nil {
+		return nil, err
+	}
+	bastion, err := buildBastionConfig(d.SSH.Bastion)
+	if err != nil {
+		return nil, err
+	}
 
 	return &ir.SSHConfig{
 		User:          d.SSH.User,
 		Host:          d.SSH.Host,
 		Port:          defaultPort(d.SSH.Port.String(), "22"),
-		Key:           d.SSH.Key,
-		Password:      d.SSH.Password,
+		SSHAuth:       auth,
 		StrictHostKey: d.SSH.StrictHostKey == nil || *d.SSH.StrictHostKey,
 		KnownHostFile: d.SSH.KnownHostFile,
 		Shell:         shell,
 		ShellArgs:     shellArgs,
 		Timeout:       d.SSH.Timeout,
-		Bastion:       buildBastionConfig(d.SSH.Bastion),
+		Bastion:       bastion,
 	}, nil
 }
 
@@ -3065,17 +3143,20 @@ func parseSSHShell(shellVal types.ShellValue) (string, []string, error) {
 }
 
 // buildBastionConfig builds bastion configuration from spec.
-func buildBastionConfig(bastion *bastion) *ir.BastionConfig {
+func buildBastionConfig(bastion *bastion) (*ir.BastionConfig, error) {
 	if bastion == nil {
-		return nil
+		return nil, nil
+	}
+	auth, err := ir.ParseSSHAuth("ssh.bastion", bastion.Key, bastion.Password, bastion.Passphrase)
+	if err != nil {
+		return nil, err
 	}
 	return &ir.BastionConfig{
-		Host:     bastion.Host,
-		Port:     defaultPort(bastion.Port.String(), "22"),
-		User:     bastion.User,
-		Key:      bastion.Key,
-		Password: bastion.Password,
-	}
+		Host:    bastion.Host,
+		Port:    defaultPort(bastion.Port.String(), "22"),
+		User:    bastion.User,
+		SSHAuth: auth,
+	}, nil
 }
 
 // defaultPort returns the port if non-empty, otherwise returns the default value.

@@ -4,6 +4,7 @@
 package convert
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"math"
@@ -53,6 +54,7 @@ func DispatchTaskToProto(task *dispatch.DispatchTask) (*coordinatorv1.Task, erro
 		IntervalStart:              formatWindowInstant(task.ScheduleWindow.Start),
 		NextScheduledAt:            formatWindowInstant(task.ScheduleWindow.Next),
 		ScheduleTimezone:           task.ScheduleWindow.Timezone,
+		DatesJson:                  datesJSON(task.Dates),
 		SourceFile:                 task.SourceFile,
 		WorkerSelector:             maps.Clone(task.WorkerSelector),
 		TargetWorkerId:             task.TargetWorkerID,
@@ -115,6 +117,7 @@ func ProtoToDispatchTask(task *coordinatorv1.Task) (*dispatch.DispatchTask, erro
 		Labels:                     task.Labels,
 		ScheduleTime:               task.ScheduleTime,
 		ScheduleWindow:             ScheduleWindowFromTask(task),
+		Dates:                      DatesFromTask(task),
 		SourceFile:                 task.SourceFile,
 		WorkerSelector:             maps.Clone(task.WorkerSelector),
 		TargetWorkerID:             task.TargetWorkerId,
@@ -278,6 +281,30 @@ func ScheduleWindowFromTask(task *coordinatorv1.Task) ir.ScheduleWindow {
 		Next:     parseWindowInstant(task.NextScheduledAt),
 		Timezone: task.ScheduleTimezone,
 	}
+}
+
+// DatesFromTask returns the run dates a task carries, or nil when it
+// carries none or they do not decode, so that the run resolves them.
+func DatesFromTask(task *coordinatorv1.Task) []ir.DateValue {
+	if task == nil || task.DatesJson == "" {
+		return nil
+	}
+	var dates []ir.DateValue
+	if err := json.Unmarshal([]byte(task.DatesJson), &dates); err != nil {
+		return nil
+	}
+	return dates
+}
+
+func datesJSON(dates []ir.DateValue) string {
+	if dates == nil {
+		return ""
+	}
+	data, err := json.Marshal(dates)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func formatWindowInstant(t time.Time) string {

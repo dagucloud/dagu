@@ -1,0 +1,15 @@
+name: param_eval_dates
+working_dir: .
+schedule: "CRON_TZ=UTC 0 2 * * *"
+dates:
+  target_day: -1d
+params:
+  - name: date
+    eval: "${dates.target_day}"
+  - name: run
+    eval: "${context.run.id}"
+env:
+  - DATE: ${params.date}
+steps:
+  - id: capture
+    run: printf 'param=%s env=%s date=%s run=%s\n' '${params.date}' "$DATE" '${dates.target_day}' '${params.run}' > param-dates.txt

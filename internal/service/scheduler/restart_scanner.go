@@ -387,7 +387,7 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 	runID := GenerateRestartRunID(dag.Name, status.DAGRunID, decision.previousEnd)
 	// Logged after the enqueue, so a DAG that cannot be queued adds one rate
 	// limited error to the log instead of a line at every scan.
-	if err := s.cfg.Enqueue(ctx, entry, runID, ir.TriggerTypeRestart, now); err != nil {
+	if err := s.cfg.Enqueue(ctx, entry, runID, ir.TriggerTypeRestart, now, ""); err != nil {
 		return err
 	}
 	logger.Info(ctx, "Restarting DAG",

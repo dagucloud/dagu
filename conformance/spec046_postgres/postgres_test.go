@@ -21,6 +21,7 @@ func TestPostgresConfig(t *testing.T) {
 		{"import.yaml", "validate", ""},
 		{"missing_query.yaml", "validate", "with.query"},
 		{"missing_import.yaml", "validate", "with.import"},
+		{"unknown_field.yaml", "validate", `unexpected additional properties ["output_formats"]; did you mean "output_format" instead of "output_formats"?`},
 		{"missing_dsn.yaml", "start", "dsn"},
 	} {
 		t.Run(tc.file, func(t *testing.T) {

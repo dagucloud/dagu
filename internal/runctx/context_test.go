@@ -6,6 +6,7 @@ package runctx_test
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -197,6 +198,65 @@ func TestNewContext_DAGWikiDir(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The Wiki directory of a DAG named after a Windows device holds files on
+// every system. Linux and macOS keep the directory that earlier versions used.
+func TestNewContext_DAGWikiDirDeviceName(t *testing.T) {
+	t.Parallel()
+
+	wikiDir := t.TempDir()
+	cfg := &config.Config{}
+	cfg.Paths.WikiDir = wikiDir
+	ctx := config.WithConfig(context.Background(), cfg)
+	dag := &ir.DAG{Name: "nul", Labels: ir.NewLabels([]string{"workspace=nul"})}
+	ctx = runctx.NewContext(ctx, dag, "run-1", "test.log")
+	dir := runctx.GetContext(ctx).UserEnvsMap()[runenv.EnvKeyDAGWikiDir]
+
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	file := filepath.Join(dir, "notes.md")
+	require.NoError(t, os.WriteFile(file, []byte("notes"), 0o600))
+	data, err := os.ReadFile(file)
+	require.NoError(t, err)
+	assert.Equal(t, "notes", string(data))
+
+	if runtime.GOOS != "windows" {
+		assert.Equal(t, filepath.Join(wikiDir, "nul", "nul"), dir)
+	}
+}
+
+// Windows drops a trailing dot from a directory name, so the Wiki directory
+// of etl. is never the one of etl.
+func TestNewContext_DAGWikiDirKeepsTrailingDotApart(t *testing.T) {
+	t.Parallel()
+
+	wikiDir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(wikiDir, "etl"), 0o750))
+	cfg := &config.Config{}
+	cfg.Paths.WikiDir = wikiDir
+	ctx := config.WithConfig(context.Background(), cfg)
+	ctx = runctx.NewContext(ctx, &ir.DAG{Name: "etl."}, "run-1", "test.log")
+
+	dir := runctx.GetContext(ctx).UserEnvsMap()[runenv.EnvKeyDAGWikiDir]
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "notes.md"), []byte("etl."), 0o600))
+	assert.NoFileExists(t, filepath.Join(wikiDir, "etl", "notes.md"))
+}
+
+// Earlier versions used the raw DAG name for the Wiki directory, which
+// Windows 11 accepts even for a device name such as con, so it is still used.
+func TestNewContext_DAGWikiDirKeepsRawName(t *testing.T) {
+	t.Parallel()
+
+	wikiDir := t.TempDir()
+	raw := filepath.Join(wikiDir, "con")
+	require.NoError(t, os.Mkdir(raw, 0o750))
+	cfg := &config.Config{}
+	cfg.Paths.WikiDir = wikiDir
+	ctx := config.WithConfig(context.Background(), cfg)
+	ctx = runctx.NewContext(ctx, &ir.DAG{Name: "con"}, "run-1", "test.log")
+
+	assert.Equal(t, raw, runctx.GetContext(ctx).UserEnvsMap()[runenv.EnvKeyDAGWikiDir])
 }
 
 func TestNewContext_DAGWikiDirRequiresConfig(t *testing.T) {

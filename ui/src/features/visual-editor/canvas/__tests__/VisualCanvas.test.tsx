@@ -1122,10 +1122,12 @@ describe('VisualCanvas', () => {
         sizes.width = 1000;
         const row = document.createElement('div');
         document.body.appendChild(row);
-        const view = (covered: number) => (
+        const view = (covered: number, hostCovers = false) => (
           <UserPreferencesProvider>
             <CanvasToolbarHostContext.Provider value={row}>
-              <CanvasOverlayInsetContext.Provider value={{ right: covered }}>
+              <CanvasOverlayInsetContext.Provider
+                value={{ right: covered, covered: hostCovers }}
+              >
                 <VisualCanvas
                   graph={graph}
                   direction="LR"
@@ -1154,6 +1156,12 @@ describe('VisualCanvas', () => {
         expect(
           within(row).getByRole('button', { name: 'Document' })
         ).toBeInTheDocument();
+
+        // A maximized column beside the canvas covers it with no right inset.
+        rerender(view(0, true));
+        expect(
+          within(row).queryByRole('button', { name: 'Zoom in' })
+        ).toBeNull();
 
         rerender(view(760));
         expect(

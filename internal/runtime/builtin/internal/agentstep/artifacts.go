@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 )
 
 const (
@@ -39,7 +40,7 @@ type ArtifactStore struct {
 // subdir/<step key> in the run artifacts directory root. An empty root
 // means storage is disabled.
 func NewArtifactStore(root, subdir, stepKey string) *ArtifactStore {
-	return &ArtifactStore{root: root, rel: path.Join(subdir, fileutil.SafeName(stepKey))}
+	return &ArtifactStore{root: root, rel: path.Join(subdir, fileutil.SafeKey(stepKey))}
 }
 
 // Enabled reports whether the DAG stores artifacts.
@@ -72,9 +73,15 @@ func (s *ArtifactStore) WriteScreenshot(label string, data []byte) (string, erro
 	if s.sequence == 0 {
 		s.sequence = lastScreenshotSequence(dir)
 	}
+	if strings.EqualFold(filepath.Ext(label), screenshotExt) {
+		label = label[:len(label)-len(screenshotExt)]
+	}
+	label = stringutil.TruncUTF8Bytes(label, fileutil.MaxSafeNameLength)
 	for {
 		s.sequence++
-		name := fmt.Sprintf("%02d-%s%s", s.sequence, fileutil.SafeName(label), screenshotExt)
+		// Windows reserves device names only as a whole stem, so the
+		// sequence prefix is normalized together with the label.
+		name := fileutil.NormalizeFilename(fmt.Sprintf("%02d-%s", s.sequence, label), "_") + screenshotExt
 		file, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, artifactFileMode) //nolint:gosec // name is built from a sanitized label
 		if errors.Is(err, fs.ErrExist) {
 			continue

@@ -148,6 +148,67 @@
       "$ref": "#/definitions/calendarName",
       "description": "Business calendar for the start schedules that name none: 'weekdays' or a calendar file in paths.calendars_dir. Entries opt out with calendar: none."
     },
+    "dates": {
+      "type": "object",
+      "description": "Dates derived from the run's schedule slot, read as ${dates.NAME}. An entry written as a string or a list is its shift, such as -1d or [-1d, month_start].",
+      "propertyNames": {
+        "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+        "not": {
+          "enum": ["scheduled_at", "interval_start", "interval_end", "next_scheduled_at"]
+        }
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "$ref": "#/definitions/dateShiftOperation"
+          },
+          {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/dateShiftOperation"
+            },
+            "description": "Shift operations applied left to right."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string",
+                "description": "The instant the date starts from: scheduled_at (default), interval_start, interval_end, next_scheduled_at, or the name of another entry."
+              },
+              "each": {
+                "type": "string",
+                "pattern": "^[0-9]+(min|h|d|w|mo|y|bd)$",
+                "description": "A step through the run's window, such as 1d or 1bd. The entry becomes a list from interval_start up to, but not including, interval_end."
+              },
+              "shift": {
+                "oneOf": [
+                  {
+                    "$ref": "#/definitions/dateShiftOperation"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/dateShiftOperation"
+                    }
+                  }
+                ],
+                "description": "One operation, or a list applied left to right."
+              },
+              "format": {
+                "type": "string",
+                "description": "date (default), date_compact, datetime, rfc3339, unix, or a strftime pattern such as %Y/%m/%d."
+              },
+              "timezone": {
+                "type": "string",
+                "description": "The zone used for shifting and formatting. Defaults to the zone of the entry it builds on, else context.run.timezone, else the server tz."
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
     "skip_if_successful": {
       "type": "boolean",
       "description": "When true, Dagu checks if this DAG has already succeeded since the last scheduled time. If it has, Dagu will skip the current scheduled run. This is useful for resource-intensive tasks or data processing jobs that shouldn't run twice. Note: Manual triggers always run regardless of this setting."
@@ -379,6 +440,11 @@
             },
             "interval_sec": { "type": "integer" },
             "limit": { "type": "integer", "minimum": 1 },
+            "on_limit": {
+              "type": "string",
+              "enum": ["fail", "succeed"],
+              "description": "Outcome of an exhausted until loop: fail marks the step failed, succeed (the default) keeps its last result"
+            },
             "backoff": {
               "oneOf": [
                 { "type": "boolean" },
@@ -850,6 +916,11 @@
       },
       "description": "Start a run for each file that arrives in a folder."
     },
+    "node": {
+      "type": "string",
+      "enum": ["required"],
+      "description": "Set to required to make the DAG run only bound to one inventory node: as the child of a dag.run step with nodes, or started with exactly one node. The node gives the SSH connection, so the DAG sets no ssh, container, or worker_selector, and no step of it has nodes."
+    },
     "worker_selector": {
       "oneOf": [
         {
@@ -961,6 +1032,10 @@
           "type": "string",
           "description": "Cron expression or descriptor (e.g. '@daily', '@every 30m') for a recurring schedule entry"
         },
+        "params": {
+          "type": "object",
+          "description": "Literal named parameter overrides for this scheduled run."
+        },
         "profile": {
           "type": "string",
           "minLength": 1,
@@ -989,6 +1064,11 @@
       "additionalProperties": false,
       "description": "Cron start schedule entry, optionally scoped to a runtime profile and to the business days of a calendar."
     },
+    "dateShiftOperation": {
+      "type": "string",
+      "pattern": "^([+-][0-9]+(min|h|d|w|mo|y|bd)|hour_start|day_start|week_start|month_start|year_start|bd_or_next|bd_or_prev)$",
+      "description": "+N or -N with min, h, d, w, mo, y, or bd; the start of an hour, day, week (Monday), month, or year; or bd_or_next and bd_or_prev, which move a date that is not a business day to the next or previous one."
+    },
     "calendarName": {
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]+$",
@@ -1006,6 +1086,10 @@
           "type": "string",
           "format": "date-time",
           "description": "RFC 3339 timestamp with explicit offset and minute precision for a one-off schedule entry"
+        },
+        "params": {
+          "type": "object",
+          "description": "Literal named parameter overrides for this scheduled run."
         },
         "profile": {
           "type": "string",
@@ -2037,6 +2121,11 @@
               "minimum": 1,
               "description": "Maximum number of times this step will be executed. Once reached, the step stops repeating regardless of other conditions."
             },
+            "on_limit": {
+              "type": "string",
+              "enum": ["fail", "succeed"],
+              "description": "Outcome of an exhausted until loop: fail marks the step failed, succeed (the default) keeps its last result. fail requires repeat: until, a condition, and a limit."
+            },
             "backoff": {
               "oneOf": [
                 {
@@ -2297,6 +2386,48 @@
             }
           },
           "description": "Inline item-body iteration. The body steps run once for each item and may publish collected outputs."
+        },
+        "nodes": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Node selector: label filter terms separated by commas, such as web,env=prod,!canary."
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 },
+              "description": "Node selector as a list of label filter terms."
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["labels"],
+              "properties": {
+                "labels": {
+                  "oneOf": [
+                    { "type": "string", "minLength": 1 },
+                    { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+                  ],
+                  "description": "Node selector: label filter terms, as a comma-separated string or a list."
+                },
+                "max_concurrent": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000,
+                  "default": 1,
+                  "description": "Nodes running at once. Defaults to 1, one node at a time."
+                },
+                "keep_going": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Start the remaining nodes after one fails. Defaults to false."
+                }
+              }
+            }
+          ],
+          "description": "Run the step once per inventory node the selector matches (RFC 013). Allowed on dag.run, whose child DAG must declare node: required, and on command steps (run, command, script, ssh.run, sftp.*)."
         },
         "worker_selector": {
           "type": "object",
@@ -2605,7 +2736,7 @@
           "then": {
             "required": ["with"],
             "properties": {
-              "with": { "$ref": "#/definitions/commandActionConfig" }
+              "with": { "$ref": "#/definitions/sshRunActionConfig" }
             }
           }
         },
@@ -2712,6 +2843,18 @@
             "required": ["with"],
             "properties": {
               "with": { "$ref": "#/definitions/dataConvertActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "data.filter" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/dataFilterActionConfig" }
             }
           }
         },
@@ -3006,6 +3149,18 @@
             "required": ["with"],
             "properties": {
               "with": { "$ref": "#/definitions/harnessRunActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "mcp.call" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/mcpCallActionConfig" }
             }
           }
         },
@@ -3756,6 +3911,94 @@
       },
       "description": "Container configuration object. Either 'exec' (to run in an existing container) or 'image' (to create a new container) must be specified, but not both."
     },
+    "sshKey": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Path to the private key file."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file"],
+          "properties": {
+            "file": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Path to the private key file."
+            }
+          }
+        },
+        { "$ref": "#/definitions/sshSecretCredential" }
+      ],
+      "description": "SSH private key: a file path, {file: <path>}, or {secret: <ref>}. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
+    },
+    "sshPassword": {
+      "oneOf": [
+        { "type": "string" },
+        { "$ref": "#/definitions/sshSecretCredential" }
+      ],
+      "description": "SSH password: a string or {secret: <ref>}. Used only when no key is set."
+    },
+    "sshPassphrase": {
+      "oneOf": [
+        { "type": "string" },
+        { "$ref": "#/definitions/sshSecretCredential" }
+      ],
+      "description": "Passphrase of an encrypted private key, including a default key: a string or {secret: <ref>}. Ignored when the key is not encrypted."
+    },
+    "sshSecretCredential": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["secret"],
+      "properties": {
+        "secret": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*(/[a-z0-9][a-z0-9-]*)*$",
+          "description": "Registry ref of a Dagu-managed secret, resolved once at run start in the DAG's workspace, then the global workspace. It is literal: ${...} is not resolved."
+        }
+      },
+      "description": "A credential read from the secret registry."
+    },
+    "sshBastionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Bastion host address."
+        },
+        "port": {
+          "oneOf": [{ "type": "string" }, { "type": "integer" }],
+          "description": "Bastion SSH port."
+        },
+        "user": {
+          "type": "string",
+          "description": "Bastion SSH username."
+        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" }
+      },
+      "description": "Bastion/jump host configuration."
+    },
+    "sshRunActionConfig": {
+      "type": "object",
+      "required": ["command"],
+      "additionalProperties": true,
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Command to run on the remote host."
+        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
+        "bastion": { "$ref": "#/definitions/sshBastionConfig" }
+      },
+      "description": "ssh.run configuration: the remote command and the SSH connection fields, which replace the DAG-level ssh."
+    },
     "sshConfig": {
       "type": "object",
       "additionalProperties": false,
@@ -3780,14 +4023,9 @@
           "default": "22",
           "description": "SSH port number. Defaults to 22."
         },
-        "key": {
-          "type": "string",
-          "description": "Path to the SSH private key file. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
-        },
-        "password": {
-          "type": "string",
-          "description": "SSH password for authentication (not recommended; prefer key-based auth)."
-        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
         "strict_host_key": {
           "type": "boolean",
           "default": true,
@@ -3813,7 +4051,12 @@
             }
           ],
           "description": "Shell for remote command execution. Commands are wrapped as: shell -c 'command'. Providing arguments (via string or array form) enables shell features like variable expansion, pipes, and command chaining on the remote server."
-        }
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Connection timeout such as '30s' or '1m'. Defaults to 30s."
+        },
+        "bastion": { "$ref": "#/definitions/sshBastionConfig" }
       },
       "required": ["user", "host"],
       "description": "SSH configuration for remote command execution. Can be specified at DAG level for reuse across steps, or at step level for specific overrides. Password authentication is supported but key-based auth is recommended."
@@ -4056,6 +4299,12 @@
           "type": "boolean",
           "description": "Skip TLS certificate verification. WARNING: Only use for testing with self-signed certificates."
         },
+        "status_exit_codes": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[3-5]([0-9]{2}|xx)$" },
+          "additionalProperties": { "type": "integer", "minimum": 0, "maximum": 255 },
+          "description": "Map a non-2xx HTTP status code (e.g. \"404\") or class (e.g. \"5xx\") to the step exit code (0-255). An exact code wins over a class. A status mapped to 0 is a success; an unmapped one exits 1."
+        },
         "output": {
           "type": "string",
           "minLength": 1,
@@ -4097,14 +4346,9 @@
           "default": "22",
           "description": "SSH port number. Defaults to 22."
         },
-        "key": {
-          "type": "string",
-          "description": "Path to SSH private key file. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
-        },
-        "password": {
-          "type": "string",
-          "description": "SSH password for authentication. Not recommended; prefer key-based authentication."
-        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
         "strict_host_key": {
           "type": "boolean",
           "default": true,
@@ -4156,14 +4400,9 @@
           "default": "22",
           "description": "SSH port number. Defaults to 22."
         },
-        "key": {
-          "type": "string",
-          "description": "Path to SSH private key file. If not specified, defaults are tried: ~/.ssh/id_rsa, ~/.ssh/id_ecdsa, ~/.ssh/id_ed25519, ~/.ssh/id_dsa."
-        },
-        "password": {
-          "type": "string",
-          "description": "SSH password for authentication. Not recommended; prefer key-based authentication."
-        },
+        "key": { "$ref": "#/definitions/sshKey" },
+        "password": { "$ref": "#/definitions/sshPassword" },
+        "passphrase": { "$ref": "#/definitions/sshPassphrase" },
         "strict_host_key": {
           "type": "boolean",
           "default": true,
@@ -4194,33 +4433,7 @@
           "minLength": 1,
           "description": "Destination path. For upload, this is a remote path; for download, this is a local path."
         },
-        "bastion": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "host": {
-              "type": "string",
-              "description": "Bastion host address."
-            },
-            "port": {
-              "oneOf": [{ "type": "string" }, { "type": "integer" }],
-              "description": "Bastion SSH port."
-            },
-            "user": {
-              "type": "string",
-              "description": "Bastion SSH username."
-            },
-            "key": {
-              "type": "string",
-              "description": "Path to bastion private key file."
-            },
-            "password": {
-              "type": "string",
-              "description": "Bastion SSH password."
-            }
-          },
-          "description": "Bastion/jump host configuration."
-        }
+        "bastion": { "$ref": "#/definitions/sshBastionConfig" }
       },
       "description": "SFTP executor configuration for file transfers over SSH."
     },
@@ -4757,24 +4970,6 @@
           "type": "string",
           "description": "PostgreSQL connection string. Format: postgres://user:pass@host:port/dbname?sslmode=disable"
         },
-        "max_open_conns": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 5,
-          "description": "Maximum number of open connections. Default: 5."
-        },
-        "max_idle_conns": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 2,
-          "description": "Maximum number of idle connections. Default: 2."
-        },
-        "conn_max_lifetime": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 300,
-          "description": "Maximum connection lifetime in seconds. 0 = no limit. Default: 300."
-        },
         "params": {
           "oneOf": [
             {
@@ -4858,18 +5053,6 @@
           "type": "string",
           "description": "SQLite connection string. Format: file:./path/to/db.sqlite or :memory: for in-memory database."
         },
-        "max_open_conns": {
-          "type": "integer",
-          "minimum": 1,
-          "default": 5,
-          "description": "Maximum number of open connections. Default: 5. Recommended: 1 for SQLite."
-        },
-        "max_idle_conns": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 2,
-          "description": "Maximum number of idle connections. Default: 2."
-        },
         "params": {
           "oneOf": [
             {
@@ -4895,9 +5078,23 @@
           "type": "boolean",
           "description": "Wrap execution in a transaction."
         },
+        "isolation_level": {
+          "type": "string",
+          "enum": [
+            "default",
+            "read_committed",
+            "repeatable_read",
+            "serializable"
+          ],
+          "description": "Transaction isolation level."
+        },
         "file_lock": {
           "type": "boolean",
           "description": "Use file locking for exclusive database access. Creates a .lock file."
+        },
+        "shared_memory": {
+          "type": "boolean",
+          "description": "Enable shared cache for :memory: databases to share data across DAG steps."
         },
         "output_format": {
           "type": "string",
@@ -7035,6 +7232,7 @@
         "ssh",
         "s3",
         "jq",
+        "mcp",
         "dag",
         "subworkflow",
         "parallel",
@@ -7090,6 +7288,7 @@
             "dag.run",
             "data.convert",
             "data.pick",
+            "data.filter",
             "decision.evaluate",
             "docker.run",
             "exec",
@@ -7115,6 +7314,7 @@
             "mail.organize",
             "mail.search",
             "mail.send",
+            "mcp.call",
             "noop",
             "outputs.write",
             "postgres.import",
@@ -7419,7 +7619,7 @@
           "type": "string",
           "minLength": 1,
           "pattern": "\\S",
-          "description": "Instructions shown to the operator completing the task."
+          "description": "Instructions shown to the operator completing the task. The web UI renders them as Markdown."
         },
         "form": {
           "$ref": "#/definitions/humanTaskFormSchema",
@@ -7588,6 +7788,44 @@
       },
       "description": "Labeled scalar choice for a human task form property."
     },
+    "mcpCallActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url", "tool"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Streamable HTTP MCP endpoint (http or https). Must not contain credentials."
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the MCP tool to call."
+        },
+        "arguments": {
+          "oneOf": [
+            { "type": "object" },
+            { "type": "string" }
+          ],
+          "description": "JSON arguments passed to the tool, or a whole-value reference such as ${params.args} that resolves to a JSON object."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "HTTP headers sent with every request, for example Authorization: Bearer ${SECRET}."
+        },
+        "include_raw": {
+          "type": "boolean",
+          "description": "Also emit the unmodified MCP tool result under raw."
+        },
+        "save_binary": {
+          "type": "boolean",
+          "description": "Save image, audio, and blob resource data as run artifacts and output each file's path instead of base64. Enables artifacts for the DAG."
+        }
+      },
+      "description": "Configuration for action: mcp.call."
+    },
     "jqFilterActionConfig": {
       "type": "object",
       "required": ["filter"],
@@ -7696,6 +7934,46 @@
         }
       },
       "description": "Configuration for action: data.convert."
+    },
+    "dataFilterActionConfig": {
+      "type": "object",
+      "required": ["from", "where"],
+      "oneOf": [{ "required": ["data"] }, { "required": ["input"] }],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "type": "string", "enum": ["json", "yaml", "csv", "tsv", "text"], "description": "Input format." },
+        "to": { "type": "string", "enum": ["json", "yaml", "csv", "tsv", "text"], "description": "Output format of the kept rows. Defaults to json." },
+        "data": { "description": "Inline data to read." },
+        "input": { "type": "string", "description": "File path to read input from." },
+        "select": { "type": "string", "minLength": 1, "description": "jq-style path to the list of rows within the input." },
+        "where": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "The condition each named field of a row must meet; a row passes when all hold. A field takes one kind: min and max read the value as a number (4,280万円 reads as 42800000, 徒歩4分 as 4); from, to, and within read it as a date (2026/11/12, 1983年5月, 昭和58年5月); is, any, and none compare text.",
+          "additionalProperties": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": false,
+            "properties": {
+              "min": { "type": ["number", "string"], "description": "Lowest number kept." },
+              "max": { "type": ["number", "string"], "description": "Highest number kept." },
+              "from": { "type": "string", "description": "Earliest date kept, as 1981, 1981-06, or 1981-06-01, inclusive." },
+              "to": { "type": "string", "description": "Latest date kept, inclusive to the end of the year, month, or day it names." },
+              "within": { "type": ["string", "integer"], "description": "Keeps dates no more than this many days before today, as 7d, 2w, or 7." },
+              "is": { "type": "string", "description": "Text the value must be." },
+              "any": { "type": ["string", "array"], "items": { "type": "string" }, "description": "Texts the value must contain one of." },
+              "none": { "type": ["string", "array"], "items": { "type": "string" }, "description": "Texts the value must contain none of." }
+            }
+          }
+        },
+        "sort": { "type": ["string", "array"], "items": { "type": "string" }, "description": "Fields to order the kept rows by, each with - before it to sort descending." },
+        "limit": { "type": "integer", "minimum": 0, "description": "Most rows to keep after sorting; 0 keeps every row." },
+        "has_header": { "type": "boolean", "description": "Whether CSV or TSV input has a header row. Defaults to true." },
+        "headers": { "type": "boolean", "description": "Include a header row for CSV or TSV output. Defaults to true." },
+        "delimiter": { "type": "string", "minLength": 1, "maxLength": 1, "description": "Single-character delimiter override for CSV or TSV input and output." },
+        "columns": { "type": "array", "items": { "type": "string" }, "description": "Column names for headerless CSV/TSV input or CSV/TSV output ordering." }
+      },
+      "description": "Configuration for action: data.filter."
     },
     "dataPickActionConfig": {
       "type": "object",
@@ -8075,6 +8353,11 @@
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
           "description": "Persistent profile name. Cookies and storage are kept across runs; runs sharing a profile wait for each other."
         },
+        "share": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "description": "Shared browser name. The steps of a run that give the same name use one browser in turn, each starting on the page the step before left, signed in as it left it; it closes when the run ends. They give the same headless, executable, viewport, proxy, profile, client_certificates, and write_gate."
+        },
         "write_gate": {
           "type": "string",
           "enum": ["off", "record", "ask", "rehearse"],
@@ -8264,7 +8547,32 @@
           "required": ["instruction", "schema"],
           "properties": {
             "instruction": { "type": "string", "minLength": 1 },
-            "schema": { "$ref": "#/definitions/extractSchema" }
+            "schema": { "$ref": "#/definitions/extractSchema" },
+            "pages": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["next"],
+              "properties": {
+                "next": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The act that turns to the next page, such as 'Click the Next page button'. It is recorded and replayed like an act."
+                },
+                "max": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 100,
+                  "default": 20,
+                  "description": "The most pages read, the first included."
+                },
+                "within": {
+                  "type": "string",
+                  "default": "10s",
+                  "description": "How long a page gets to change after next before the list counts as ended."
+                }
+              },
+              "description": "Read a list across the pages a button turns: the items of the schema's top-level array properties are collected from every page, in order. The list ends when next finds nothing to click, the page does not change, or a page gives the items the page before gave."
+            }
           },
           "description": "Extract structured data from the page into step outputs."
         },
@@ -8295,7 +8603,7 @@
         },
         "screenshot": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "pattern": "^[\\p{L}\\p{N}][\\p{L}\\p{M}\\p{N}._-]*$",
           "description": "Save a screenshot with this name as a run artifact."
         },
         "ask": {
@@ -8831,7 +9139,7 @@
         },
         "screenshot": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$",
+          "pattern": "^[\\p{L}\\p{N}][\\p{L}\\p{M}\\p{N}._-]*$",
           "description": "Save a screenshot with this name as a run artifact."
         },
         "outline": {

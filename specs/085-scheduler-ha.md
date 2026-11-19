@@ -34,6 +34,11 @@ reading logs, which instance is active and how long a failover takes.
   and stops being active once it has gone `T - I` without a renewal or finds
   the lock is no longer its own. A renewal that blocks on storage counts as
   no renewal.
+- An instance that acquires the lock renews it before acting as active. It
+  retries through renewal errors every `I`, and counts `T - I` from the start
+  of the renewal that succeeds. If the lock is no longer its own, or no
+  renewal succeeds within `T - I`, it exits with a non-zero status without
+  acting as active.
 - An instance past that limit dispatches nothing, even before it stops.
 - An instance that stops being active this way exits with a non-zero status,
   so a supervisor can restart it. `dagu start-all` exits too, rather than
@@ -73,7 +78,11 @@ reading logs, which instance is active and how long a failover takes.
 ### Missed slots
 
 - The first tick of a new active scheduler runs the slots of the current
-  minute.
+  minute. When startup runs past that minute, the first tick comes later, and
+  the slots between came due while no tick ran. The first tick recovers them
+  as a late tick does, as if a tick had run in the minute before: catch-up
+  replays them, and the time is recorded as a `down` period
+  ([Spec 086](086-backfill.md)).
 - A scheduler that takes over a stale lock also replays earlier slots of
   recurring schedules that fell between the failed scheduler's last tick and
   the takeover, as far back as `scheduler.failover_recovery_window`. A slot the
@@ -83,6 +92,12 @@ reading logs, which instance is active and how long a failover takes.
   disabled.
 - A scheduler that acquires a released lock replays only what the DAG's own
   `catchup_window` asks for.
+- Catch-up that a scheduler queued and had not run when it stopped is
+  replayed by the next one, within the window its startup replays, though the
+  stopped scheduler's ticks ran past those slots. That window is the DAG's
+  `catchup_window`, or `scheduler.failover_recovery_window` when a takeover's
+  is longer. Only queued slots are replayed, and none when the DAG's start
+  schedules changed while no scheduler ran.
 
 ### Observability
 

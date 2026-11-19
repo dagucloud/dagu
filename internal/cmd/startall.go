@@ -112,6 +112,12 @@ func runStartAll(ctx *Context, _ []string) error {
 		defer ctx.LicenseManager.Stop()
 	}
 
+	// The services read the executable they launch runs with when they are
+	// built, so this comes first.
+	if err := launchRunsOutsideService(ctx); err != nil {
+		logger.Warn(ctx, "Runs will stop with the Windows service", tag.Error(err))
+	}
+
 	// Create a context that will be cancelled on interrupt signal.
 	// This must be created BEFORE server initialization so auth provider init can be cancelled.
 	// SIGHUP and SIGQUIT end start-all as they end a standalone scheduler, so
@@ -120,7 +126,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	defer stop()
 
 	// Create a signal-aware context for services (used for auth init and all service operations)
-	serviceCtx := ctx.WithContext(ctx.withSignalPropagation(signalCtx))
+	serviceCtx := ctx.WithContext(ctx.withRunRegistry(signalCtx))
 	if _, err := persisfile.NewDAGSettingsStore(
 		serviceCtx.Config,
 		serviceCtx.backend.Collection(persis.CollectionDAGSettings),
@@ -299,7 +305,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	var received os.Signal
 	_ = errors.As(context.Cause(signalCtx), &received)
 	// Capture the signal before scheduler.Stop cancels its service context.
-	runsDone := launcher.PropagateSignal(serviceCtx, received)
+	runsDone := launcher.StopRuns(serviceCtx, received, serviceCtx.Config.SignalHandling.DrainTimeout)
 	stop() // Let a second SIGINT end graceful shutdown; SIGTERM stays absorbed.
 
 	// Stop all services gracefully
@@ -339,5 +345,5 @@ func runStartAll(ctx *Context, _ []string) error {
 		logger.Error(ctx, "Timeout waiting for services to stop")
 	}
 
-	return firstErr
+	return restartExit(firstErr)
 }

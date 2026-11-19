@@ -21,6 +21,7 @@ var legacyToSnakeCaseKey = map[string]string{
 	"apibaseurl":                       "api_base_url",
 	"publicurl":                        "public_url",
 	"checkupdates":                     "check_updates",
+	"allowwebupgrade":                  "allow_web_upgrade",
 	"defaultshell":                     "default_shell",
 	"logformat":                        "log_format",
 	"envpassthrough":                   "env_passthrough",
@@ -46,6 +47,7 @@ var legacyToSnakeCaseKey = map[string]string{
 	"gitsync":                          "git_sync",
 	"signalhandling":                   "signal_handling",
 	"signalhandling.enablepropagation": "signal_handling.enable_propagation",
+	"signalhandling.draintimeout":      "signal_handling.drain_timeout",
 
 	// TLS
 	"tls.certfile": "tls.cert_file",

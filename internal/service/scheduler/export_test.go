@@ -5,6 +5,7 @@ package scheduler
 
 import (
 	"context"
+	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 )
@@ -38,6 +39,10 @@ func NewWithHooksForTest(
 
 func (s *RetryScanner) ScanForTest(ctx context.Context) error {
 	return s.scan(ctx)
+}
+
+func UnlaunchableExecutableForTest(t *testing.T) string {
+	return unlaunchableExecutable(t)
 }
 
 func LocalLaunchFailedForTest(err error) bool {

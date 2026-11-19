@@ -233,7 +233,7 @@ func newRestartHarness(t *testing.T, dags ...*ir.DAG) *restartHarness {
 			}
 			return nil
 		},
-		Enqueue: func(_ context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, _ time.Time) error {
+		Enqueue: func(_ context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, _ time.Time, _ string) error {
 			if h.failWith != nil {
 				return h.failWith
 			}

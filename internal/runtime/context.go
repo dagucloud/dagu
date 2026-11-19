@@ -58,6 +58,8 @@ var (
 	WithScheduleTime = runctx.WithScheduleTime
 	// WithScheduleWindow sets the window the schedule slot owns.
 	WithScheduleWindow = runctx.WithScheduleWindow
+	// WithDates sets the run's dates.
+	WithDates = runctx.WithDates
 	// WithParams sets runtime parameters.
 	WithParams = runctx.WithParams
 	// WithParamsJSON replaces the DAG's params JSON in the environment steps
@@ -76,6 +78,8 @@ var (
 	WithDefaultSecrets = runctx.WithDefaultSecrets
 	// WithSecrets sets secret environment variables.
 	WithSecrets = runctx.WithSecrets
+	// WithMaskedSecrets sets secret values that are masked but not exported.
+	WithMaskedSecrets = runctx.WithMaskedSecrets
 	// WithLogEncoding sets the log file character encoding.
 	WithLogEncoding = runctx.WithLogEncoding
 	// WithLogWriterFactory sets the log writer factory for remote log streaming.

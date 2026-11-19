@@ -1,0 +1,7 @@
+schedule:
+  - expression: "CRON_TZ=UTC 0 2 * * *"
+    profile: night
+dates:
+  since: { from: interval_start }
+steps:
+  - run: echo load

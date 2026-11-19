@@ -10,12 +10,31 @@ import {
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RuntimeProfileStatus } from '@/api/v1/schema';
 import StartDAGModal from '../StartDAGModal';
 
 const renderedFormProps = vi.fn();
 const useIsAdminMock = vi.hoisted(() => vi.fn(() => true));
+
+const previewBlock = vi.hoisted(() => ({
+  reason: null as string | null,
+  params: {} as Record<string, string>,
+}));
+const previewProps = vi.hoisted(() => vi.fn());
+vi.mock('../SlotDatesPreview', () => ({
+  SlotDatesPreview: (props: {
+    profile?: string;
+    onBlocked: (reason: string | null) => void;
+    onParams: (values: Record<string, string>) => void;
+  }) => {
+    previewProps(props);
+    const { onBlocked, onParams } = props;
+    React.useEffect(() => onBlocked(previewBlock.reason), [onBlocked]);
+    React.useEffect(() => onParams(previewBlock.params), [onParams]);
+    return <div data-testid="slot-dates-preview" />;
+  },
+}));
 
 vi.mock('@/contexts/AuthContext', () => ({
   useIsAdmin: () => useIsAdminMock(),
@@ -77,6 +96,121 @@ beforeEach(() => {
 });
 
 describe('StartDAGModal', () => {
+  // The dialog previews the dates of a DAG that declares them, and holds the
+  // start while they cannot resolve.
+  describe('dates preview', () => {
+    const datedDag = { name: 'etl', dateNames: ['target_day'] } as never;
+    const renderModal = (
+      props: Partial<React.ComponentProps<typeof StartDAGModal>> = {}
+    ) =>
+      render(
+        <StartDAGModal
+          visible
+          fileName="etl"
+          dag={datedDag}
+          dismissModal={vi.fn()}
+          onSubmit={vi.fn()}
+          {...props}
+        />
+      );
+
+    afterEach(() => {
+      previewBlock.reason = null;
+      previewBlock.params = {};
+      previewProps.mockClear();
+    });
+
+    // A param whose eval is one date shows that date of the slot, as a
+    // placeholder: its eval still decides the value when the run starts.
+    it('shows the date a param takes from the slot', async () => {
+      previewBlock.params = { date: '2026-11-09' };
+      renderModal({
+        dag: {
+          name: 'etl',
+          dateNames: ['target_day'],
+          paramDefs: [{ name: 'date', type: 'string' }],
+          paramSchema: {
+            type: 'object',
+            properties: { date: { type: 'string' } },
+          },
+        } as never,
+      });
+
+      await waitFor(() =>
+        expect(renderedFormProps).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            uiSchema: expect.objectContaining({
+              date: expect.objectContaining({
+                'ui:placeholder': '2026-11-09',
+              }),
+            }),
+          })
+        )
+      );
+    });
+
+    it('previews the dates of a DAG without a schedule', () => {
+      renderModal();
+      expect(screen.getByTestId('slot-dates-preview')).toBeInTheDocument();
+    });
+
+    it('previews no dates for a DAG without them', () => {
+      renderModal({ dag: { name: 'etl' } as never });
+      expect(screen.queryByTestId('slot-dates-preview')).toBeNull();
+    });
+
+    it('holds the start while the dates cannot resolve', async () => {
+      previewBlock.reason = 'dates.since needs a schedule window';
+      const user = userEvent.setup();
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+      renderModal({ onSubmit });
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Enqueue' })).toBeDisabled()
+      );
+      await user.click(
+        screen.getByRole('textbox', { name: 'Run ID (optional)' })
+      );
+      await user.keyboard('{Enter}');
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+
+    it('releases the start once the DAG has no dates', async () => {
+      previewBlock.reason = 'dates.since needs a schedule window';
+      const { rerender } = renderModal();
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Enqueue' })).toBeDisabled()
+      );
+
+      rerender(
+        <StartDAGModal
+          visible
+          fileName="etl"
+          dag={{ name: 'etl' } as never}
+          dismissModal={vi.fn()}
+          onSubmit={vi.fn()}
+        />
+      );
+      expect(screen.getByRole('button', { name: 'Enqueue' })).toBeEnabled();
+    });
+
+    it('previews the profile the run would use', async () => {
+      const user = userEvent.setup();
+      renderModal({ defaultProfile: 'prod' });
+      expect(previewProps).toHaveBeenLastCalledWith(
+        expect.objectContaining({ profile: undefined })
+      );
+
+      await user.click(screen.getByRole('combobox', { name: /profile/i }));
+      await user.click(
+        await screen.findByRole('option', { name: 'No profile' })
+      );
+      expect(previewProps).toHaveBeenLastCalledWith(
+        expect.objectContaining({ profile: '' })
+      );
+    });
+  });
+
   it('groups run settings separately from DAG parameters', () => {
     render(
       <StartDAGModal
@@ -465,6 +599,107 @@ describe('StartDAGModal', () => {
     );
   });
 
+  // A computed param's default is only the fallback for an eval that fails,
+  // so the form leaves it unset and the eval computes it.
+  it('leaves a computed typed param unset', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={onSubmit}
+        dag={
+          {
+            name: 'typed-dag',
+            paramDefs: [
+              { name: 'region', type: 'string', default: 'us' },
+              {
+                name: 'stamp',
+                type: 'string',
+                default: 'fallback',
+                required: true,
+                computed: true,
+              },
+            ],
+          } as never
+        }
+      />
+    );
+
+    expect(screen.getByLabelText(/stamp/i)).toHaveAttribute(
+      'placeholder',
+      'Computed when the run starts'
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Enqueue' }));
+
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(
+        '[{"region":"us"}]',
+        undefined,
+        false
+      )
+    );
+  });
+
+  it('leaves a computed schema param unset', async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <StartDAGModal
+        visible={true}
+        dismissModal={vi.fn()}
+        onSubmit={onSubmit}
+        dag={
+          {
+            name: 'schema-dag',
+            paramSchema: {
+              type: 'object',
+              properties: {
+                region: { type: 'string', default: 'us' },
+                stamp: { type: 'string', default: 'fallback' },
+              },
+              required: ['stamp'],
+            },
+            paramDefs: [
+              { name: 'region', type: 'string', default: 'us' },
+              {
+                name: 'stamp',
+                type: 'string',
+                default: 'fallback',
+                computed: true,
+              },
+            ],
+            defaultParams: 'region="us" stamp="fallback"',
+          } as never
+        }
+      />
+    );
+
+    expect(renderedFormProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        formData: { region: 'us' },
+        schema: expect.objectContaining({
+          properties: {
+            region: { type: 'string', default: 'us' },
+            stamp: { type: 'string' },
+          },
+          required: [],
+        }),
+        uiSchema: expect.objectContaining({
+          stamp: expect.objectContaining({
+            'ui:placeholder': 'Computed when the run starts',
+          }),
+        }),
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Enqueue' }));
+
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith('{"region":"us"}', undefined, false)
+    );
+  });
+
   it('marks protected profiles unavailable for non-admin users', async () => {
     useIsAdminMock.mockReturnValue(false);
     const user = userEvent.setup();
@@ -629,9 +864,7 @@ describe('StartDAGModal', () => {
         />
       );
 
-      await user.click(
-        screen.getByRole('combobox', { name: /scheduled at/i })
-      );
+      await user.click(screen.getByRole('combobox', { name: /scheduled at/i }));
       await user.click(
         await screen.findByRole('option', {
           name: '2026-11-10 02:00 (Asia/Tokyo)',
@@ -665,10 +898,10 @@ describe('StartDAGModal', () => {
         />
       );
 
+      await user.click(screen.getByRole('combobox', { name: /scheduled at/i }));
       await user.click(
-        screen.getByRole('combobox', { name: /scheduled at/i })
+        await screen.findByRole('option', { name: 'Other time' })
       );
-      await user.click(await screen.findByRole('option', { name: 'Other time' }));
       await user.click(screen.getByRole('button', { name: 'Enqueue' }));
 
       expect(

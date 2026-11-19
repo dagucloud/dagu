@@ -9,9 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -282,6 +282,49 @@ func TestAttempt_Close(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// TestAttempt_WriteReopensUnusableFile checks that a write still persists
+// when the open file can no longer be used, as an NFS handle goes stale when
+// another host replaces the file. Closing the file under the writer stands
+// in for that.
+func TestAttempt_WriteReopensUnusableFile(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("WritePersists", func(t *testing.T) {
+		att := openAttemptForTest(t)
+		require.NoError(t, att.Write(ctx, statusWithPID(1)))
+		require.NoError(t, att.writer.file.Close())
+
+		require.NoError(t, att.Write(ctx, statusWithPID(2)))
+
+		status, err := att.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, ir.PID(2), status.PID)
+	})
+
+	t.Run("FailedReopenRetries", func(t *testing.T) {
+		att := openAttemptForTest(t)
+		require.NoError(t, att.Write(ctx, statusWithPID(1)))
+		require.NoError(t, att.writer.file.Close())
+		blockStatusFile(t, att.file)
+		require.ErrorIs(t, att.Write(ctx, statusWithPID(2)), ErrWriteFailed)
+
+		require.NoError(t, fileutil.Remove(att.file))
+		require.NoError(t, att.Write(ctx, statusWithPID(3)))
+
+		status, err := att.ReadStatus(ctx)
+		require.NoError(t, err)
+		assert.Equal(t, ir.PID(3), status.PID)
+	})
+}
+
+// blockStatusFile replaces the status file with a directory, so that opening
+// it for writing fails until the directory is removed.
+func blockStatusFile(t *testing.T, file string) {
+	t.Helper()
+	require.NoError(t, fileutil.Remove(file))
+	require.NoError(t, os.Mkdir(file, 0750))
+}
+
 func TestAttempt_HandleNonExistentFile(t *testing.T) {
 	dir := createTempDir(t)
 	file := filepath.Join(dir, "invalid.dat")
@@ -458,42 +501,194 @@ func TestAttempt_ReadStatusFromTheEnd(t *testing.T) {
 	})
 }
 
-func TestReadLineFrom(t *testing.T) {
-	dir := createTempDir(t)
-	file := filepath.Join(dir, "lines.txt")
+// TestAttempt_WriteAfterPartialLine checks that a status appended to a file
+// that ends in a partial line, as a write cut off by a crash or a full disk
+// leaves it, is read back, and that complete lines get no blank line.
+func TestAttempt_WriteAfterPartialLine(t *testing.T) {
+	ctx := context.Background()
+	line := func(t *testing.T, pid int) []byte {
+		t.Helper()
+		st := createTestStatus(ir.Running)
+		st.PID = ir.PID(pid)
+		data, err := json.Marshal(st)
+		require.NoError(t, err)
+		return append(data, '\n')
+	}
+	partial := func(t *testing.T, pid int) []byte {
+		t.Helper()
+		data := line(t, pid)
+		return data[:len(data)/2]
+	}
+	open := func(t *testing.T, data []byte) *Attempt {
+		t.Helper()
+		file := filepath.Join(createTempDir(t), "status.jsonl")
+		if data != nil {
+			require.NoError(t, os.WriteFile(file, data, 0600))
+		}
+		att, err := NewAttempt(file, nil)
+		require.NoError(t, err)
+		require.NoError(t, att.Open(ctx))
+		t.Cleanup(func() { _ = att.Close(ctx) })
+		return att
+	}
+	write := func(t *testing.T, att *Attempt, pid int) {
+		t.Helper()
+		st := createTestStatus(ir.Running)
+		st.PID = ir.PID(pid)
+		require.NoError(t, att.Write(ctx, st))
+	}
+	readPID := func(t *testing.T, att *Attempt) ir.PID {
+		t.Helper()
+		status, err := att.ReadStatus(ctx)
+		require.NoError(t, err)
+		return status.PID
+	}
 
-	// Create a test file with multiple lines
-	content := "line1\nline2\nline3\n"
-	err := os.WriteFile(file, []byte(content), 0600)
+	t.Run("Open", func(t *testing.T) {
+		att := open(t, append(line(t, 1), partial(t, 2)...))
+		write(t, att, 3)
+		assert.Equal(t, ir.PID(3), readPID(t, att))
+
+		require.NoError(t, att.Close(ctx))
+		assert.Equal(t, ir.PID(3), readPID(t, att), "compaction keeps it")
+	})
+
+	t.Run("ReopenAfterReplace", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows cannot replace a file that another handle holds open")
+		}
+		att := open(t, line(t, 1))
+		replacement := filepath.Join(filepath.Dir(att.file), "replacement")
+		require.NoError(t, os.WriteFile(replacement, append(line(t, 2), partial(t, 3)...), 0600))
+		require.NoError(t, os.Rename(replacement, att.file))
+
+		write(t, att, 4)
+		assert.Equal(t, ir.PID(4), readPID(t, att))
+	})
+
+	t.Run("CompleteLines", func(t *testing.T) {
+		for name, data := range map[string][]byte{"NewFile": nil, "EndsWithNewline": line(t, 1)} {
+			t.Run(name, func(t *testing.T) {
+				att := open(t, data)
+				write(t, att, 2)
+				require.NoError(t, att.writer.close())
+				require.NoError(t, att.writer.Open())
+				write(t, att, 3)
+
+				written, err := fileutil.ReadFile(att.file)
+				require.NoError(t, err)
+				assert.False(t, bytes.HasPrefix(written, []byte("\n")))
+				assert.NotContains(t, string(written), "\n\n")
+				assert.Equal(t, ir.PID(3), readPID(t, att))
+			})
+		}
+	})
+}
+
+// A running attempt writes change records, and each status it writes reads
+// back as written. Close leaves one full record.
+func TestAttempt_WritesChangeRecords(t *testing.T) {
+	ctx := context.Background()
+	att := openAttemptForTest(t)
+	st := wideStatus(20)
+	for i := range 40 {
+		node := st.Nodes[i%len(st.Nodes)]
+		node.Status = ir.NodeStatus(1 + i%4)
+		node.StartedAt = fmt.Sprintf("2026-11-15T00:00:%02dZ", i)
+		require.NoError(t, att.Write(ctx, st))
+		status, err := att.ReadStatus(ctx)
+		require.NoError(t, err)
+		require.Equal(t, readBack(t, st), status)
+	}
+	data, err := fileutil.ReadFile(att.file)
 	require.NoError(t, err)
+	require.Contains(t, string(data), "\n~")
 
-	f, err := os.Open(file)
+	require.NoError(t, att.Close(ctx))
+	data, err = fileutil.ReadFile(att.file)
 	require.NoError(t, err)
-	defer func() {
-		_ = f.Close()
-	}()
+	assert.Equal(t, 1, bytes.Count(data, []byte("\n")))
+	assert.Equal(t, byte('{'), data[0])
+	status, err := ParseStatusFile(att.file)
+	require.NoError(t, err)
+	assert.Equal(t, readBack(t, st), status)
+}
 
-	// Read first line
-	line1, offset, err := readLineFrom(f, 0)
-	assert.NoError(t, err)
-	assert.Equal(t, "line1", string(line1))
-	assert.Equal(t, int64(6), offset) // "line1\n" = 6 bytes
+// A record that another writer appends between two of the runner's, such as
+// an approval, does not break the runner's change records.
+func TestAttempt_ChangeRecordAfterOtherWriter(t *testing.T) {
+	ctx := context.Background()
+	att := openAttemptForTest(t)
+	st := wideStatus(20)
+	require.NoError(t, att.Write(ctx, st))
 
-	// Read second line
-	line2, offset, err := readLineFrom(f, offset)
-	assert.NoError(t, err)
-	assert.Equal(t, "line2", string(line2))
-	assert.Equal(t, int64(12), offset) // offset 6 + "line2\n" = 12 bytes
+	other := NewWriter(att.file)
+	require.NoError(t, other.Open())
+	approved := wideStatus(20)
+	approved.Nodes[0].ApprovedBy = "other"
+	require.NoError(t, other.Write(ctx, approved))
+	require.NoError(t, other.close())
 
-	// Read third line
-	line3, offset, err := readLineFrom(f, offset)
-	assert.NoError(t, err)
-	assert.Equal(t, "line3", string(line3))
-	assert.Equal(t, int64(18), offset) // offset 12 + "line3\n" = 18 bytes
+	st.Nodes[1].Status = ir.NodeRunning
+	require.NoError(t, att.Write(ctx, st))
+	require.Equal(t, byte('~'), lastLine(t, att.file)[0])
+	status, err := att.ReadStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, readBack(t, st), status)
+}
 
-	// Try to read beyond EOF
-	_, _, err = readLineFrom(f, offset)
-	assert.ErrorIs(t, err, io.EOF)
+// Another writer can leave a partial line while the runner holds the file
+// open, as its write cut off by a full disk does. The runner's next record
+// still starts a line of its own, so the run's later statuses and the status
+// that Close compacts are not lost.
+func TestAttempt_WriteAfterOtherWritersPartialLine(t *testing.T) {
+	ctx := context.Background()
+	att := openAttemptForTest(t)
+	st := wideStatus(20)
+	require.NoError(t, att.Write(ctx, st))
+	st.Nodes[0].Status = ir.NodeRunning
+	require.NoError(t, att.Write(ctx, st))
+
+	other, err := os.OpenFile(att.file, os.O_APPEND|os.O_WRONLY, 0)
+	require.NoError(t, err)
+	_, err = other.WriteString(`{"partial`)
+	require.NoError(t, err)
+	require.NoError(t, other.Close())
+
+	st.Nodes[1].Status = ir.NodeRunning
+	require.NoError(t, att.Write(ctx, st))
+	status, err := att.ReadStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, readBack(t, st), status)
+
+	require.NoError(t, att.Close(ctx))
+	status, err = ParseStatusFile(att.file)
+	require.NoError(t, err)
+	assert.Equal(t, readBack(t, st), status)
+}
+
+// Once another attempt replaces the file, as its compaction does, the line the
+// runner's next change record would build on is gone.
+func TestAttempt_WriteAfterReplacedFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot replace a file that another handle holds open")
+	}
+	ctx := context.Background()
+	att := openAttemptForTest(t)
+	st := wideStatus(20)
+	require.NoError(t, att.Write(ctx, st))
+	st.Nodes[0].Status = ir.NodeRunning
+	require.NoError(t, att.Write(ctx, st))
+
+	other, err := NewAttempt(att.file, nil)
+	require.NoError(t, err)
+	require.NoError(t, other.Compact(ctx))
+
+	st.Nodes[1].Status = ir.NodeRunning
+	require.NoError(t, att.Write(ctx, st))
+	status, err := att.ReadStatus(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, readBack(t, st), status)
 }
 
 func TestSafeRename(t *testing.T) {
@@ -598,6 +793,53 @@ func createTestDAG() *ir.DAG {
 		},
 		Params: []string{"--param1=value1", "--param2=value2"},
 	}
+}
+
+// openAttemptForTest opens an attempt on a new status file and closes it when
+// the test ends.
+func openAttemptForTest(t *testing.T) *Attempt {
+	t.Helper()
+	att, err := NewAttempt(filepath.Join(createTempDir(t), "status.jsonl"), nil)
+	require.NoError(t, err)
+	require.NoError(t, att.Open(context.Background()))
+	t.Cleanup(func() { _ = att.Close(context.Background()) })
+	return att
+}
+
+// statusWithPID returns a running status that the PID tells apart.
+func statusWithPID(pid int) ir.DAGRunStatus {
+	status := createTestStatus(ir.Running)
+	status.PID = ir.PID(pid)
+	return status
+}
+
+// wideStatus returns a running status with enough steps that a change to one
+// of them is written as a change record.
+func wideStatus(steps int) ir.DAGRunStatus {
+	st := createTestStatus(ir.Running)
+	for i := range steps {
+		st.Nodes = append(st.Nodes, ir.NewNodeFromStep(ir.Step{Name: fmt.Sprintf("wide%d", i)}))
+	}
+	return st
+}
+
+// readBack returns the status as reading its full record returns it.
+func readBack(t *testing.T, st ir.DAGRunStatus) *ir.DAGRunStatus {
+	t.Helper()
+	data, err := json.Marshal(ir.StoredStatus(st))
+	require.NoError(t, err)
+	var read ir.DAGRunStatus
+	require.NoError(t, json.Unmarshal(data, &read))
+	return &read
+}
+
+// lastLine returns the last line of the file.
+func lastLine(t *testing.T, file string) []byte {
+	t.Helper()
+	data, err := fileutil.ReadFile(file)
+	require.NoError(t, err)
+	lines := bytes.Split(bytes.TrimSuffix(data, []byte("\n")), []byte("\n"))
+	return lines[len(lines)-1]
 }
 
 // createTestStatus creates a sample status for testing using StatusFactory
@@ -1201,6 +1443,126 @@ func TestAttempt_WriteStepMessages(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, read2, 2)
 		assert.Equal(t, "question 2", read2[0].Content)
+	})
+
+	// Step names are free text, so each step keeps its own messages even when
+	// its name holds a character that a file name cannot.
+	t.Run("StepNamesFileNamesCannotHold", func(t *testing.T) {
+		th := setupTestRepository(t)
+		dag := th.DAG("test-unsafe-step-names")
+
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+
+		names := []string{"fetch/parse", "fetch", `fetch\parse`, "db:query", "why?", "nul"}
+		for _, name := range names {
+			require.NoError(t, att.WriteStepMessages(ctx, name, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: name}}))
+		}
+		for _, name := range names {
+			msgs, err := att.ReadStepMessages(ctx, name)
+			require.NoError(t, err)
+			require.Len(t, msgs, 1, name)
+			assert.Equal(t, name, msgs[0].Content)
+		}
+	})
+
+	// Earlier versions wrote a step's messages under its raw name: one with
+	// "%", a device name that Windows 11 accepts, or a "/" that still resolved
+	// inside the messages directory.
+	t.Run("ReadsMessagesUnderRawStepName", func(t *testing.T) {
+		for _, tc := range []struct{ step, file string }{
+			{step: "./fetch", file: "fetch.json"},
+			{step: "50%", file: "50%.json"},
+			{step: "con", file: "con.json"},
+		} {
+			th := setupTestRepository(t)
+			dag := th.DAG("test-raw-step-name")
+			att := th.CreateAttemptWithDAG(t, time.Now(), "run-1", ir.Running, dag.DAG)
+
+			data, err := json.Marshal([]ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "stored before"}})
+			require.NoError(t, err)
+			dir := filepath.Join(att.dagRunDir(), MessagesDir)
+			require.NoError(t, os.MkdirAll(dir, 0o750))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, tc.file), data, 0o600))
+
+			msgs, err := att.ReadStepMessages(ctx, tc.step)
+			require.NoError(t, err)
+			require.Len(t, msgs, 1, tc.step)
+			assert.Equal(t, "stored before", msgs[0].Content)
+		}
+	})
+
+	// A step never reads the messages of another step whose file its raw
+	// name resolves to, such as fetch/parse for ./fetch%2Fparse, or b for
+	// x/../b.
+	t.Run("DoesNotReadAnotherStepsMessages", func(t *testing.T) {
+		th := setupTestRepository(t)
+		dag := th.DAG("test-alias-step-name")
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+
+		require.NoError(t, att.WriteStepMessages(ctx, "fetch/parse", []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "parse"}}))
+		require.NoError(t, att.WriteStepMessages(ctx, "b", []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "b"}}))
+		for _, name := range []string{"./fetch%2Fparse", "x/../b"} {
+			msgs, err := att.ReadStepMessages(ctx, name)
+			require.NoError(t, err)
+			assert.Nil(t, msgs, name)
+		}
+	})
+
+	// Escaping can make a step name longer than a file name may be, so such a
+	// step still keeps its messages, and messages that earlier versions stored
+	// under its raw name are still read.
+	t.Run("LongEscapedStepName", func(t *testing.T) {
+		th := setupTestRepository(t)
+		dag := th.DAG("test-long-step-name")
+		att := th.CreateAttemptWithDAG(t, time.Now(), "run-1", ir.Running, dag.DAG)
+		written := strings.Repeat("%", 200)
+		stored := strings.Repeat("%", 100)
+
+		require.NoError(t, att.WriteStepMessages(ctx, written, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "written"}}))
+		msgs, err := att.ReadStepMessages(ctx, written)
+		require.NoError(t, err)
+		require.Len(t, msgs, 1)
+		assert.Equal(t, "written", msgs[0].Content)
+
+		data, err := json.Marshal([]ir.LLMMessage{{Role: ir.LLMRoleUser, Content: "stored before"}})
+		require.NoError(t, err)
+		dir := filepath.Join(att.dagRunDir(), MessagesDir)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, stored+".json"), data, 0o600))
+		msgs, err = att.ReadStepMessages(ctx, stored)
+		require.NoError(t, err)
+		require.Len(t, msgs, 1)
+		assert.Equal(t, "stored before", msgs[0].Content)
+	})
+
+	// A step whose name is the shortened file name of another, longer step
+	// keeps its own messages.
+	t.Run("ShortenedNameKeepsStepsApart", func(t *testing.T) {
+		th := setupTestRepository(t)
+		dag := th.DAG("test-shortened-step-name")
+		att, err := th.Repository.CreateAttempt(ctx, dag.DAG, time.Now(), "run-1", persis.DAGRunCreateAttemptOptions{})
+		require.NoError(t, err)
+
+		long := strings.Repeat("a", 241)
+		short := strings.TrimSuffix(stepMessagesName(long), ".json")
+		require.NoError(t, att.WriteStepMessages(ctx, long, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: long}}))
+		// A file system that ignores case finds the file under either case.
+		for _, name := range []string{short, strings.ToUpper(short)} {
+			msgs, err := att.ReadStepMessages(ctx, name)
+			require.NoError(t, err)
+			assert.Nil(t, msgs, "a step without messages reads none")
+		}
+
+		for _, name := range []string{long, short} {
+			require.NoError(t, att.WriteStepMessages(ctx, name, []ir.LLMMessage{{Role: ir.LLMRoleUser, Content: name}}))
+		}
+		for _, name := range []string{long, short} {
+			msgs, err := att.ReadStepMessages(ctx, name)
+			require.NoError(t, err)
+			require.Len(t, msgs, 1)
+			assert.Equal(t, name, msgs[0].Content)
+		}
 	})
 
 	t.Run("MessagesSharedAcrossRetryAttempts", func(t *testing.T) {

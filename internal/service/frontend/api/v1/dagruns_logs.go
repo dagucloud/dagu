@@ -59,6 +59,7 @@ func (r *stepLogArchiveResponse) writeTo(w http.ResponseWriter) error {
 
 func (r *stepLogArchiveResponse) writeArchive(w io.Writer) error {
 	archive := zip.NewWriter(w)
+	siblings := runStepNames(r.status)
 	for i, node := range r.status.NodesInRunOrder() {
 		if node == nil {
 			continue
@@ -93,7 +94,7 @@ func (r *stepLogArchiveResponse) writeArchive(w io.Writer) error {
 			}
 		}
 		if node.Step.ExecutorConfig.Type == ir.ExecutorTypeForeach {
-			if err := r.writeForeachDir(archive, directory, foreachStepDir(node)); err != nil {
+			if err := r.writeForeachDir(archive, directory, foreachStepDir(foreachStep{Node: node, siblings: siblings})); err != nil {
 				return err
 			}
 		}

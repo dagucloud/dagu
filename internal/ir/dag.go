@@ -4,11 +4,13 @@
 package ir
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -107,6 +109,9 @@ type DAG struct {
 	Schedule []Schedule `json:"schedule,omitempty"`
 	// Calendar is the calendar of start schedules that name none.
 	Calendar string `json:"calendar,omitempty"`
+	// Dates derives dates from the run's schedule slot, in declaration
+	// order.
+	Dates []DateSpec `json:"dates,omitempty"`
 	// StopSchedule contains the cron expressions for stopping the DAG.
 	StopSchedule []Schedule `json:"stopSchedule,omitempty"`
 	// RestartSchedule contains the cron expressions for restarting the DAG.
@@ -165,6 +170,11 @@ type DAG struct {
 	// Note: This field is evaluated at build time and may contain secrets.
 	// It is excluded from JSON serialization to prevent secret leakage.
 	ParamsJSON string `json:"-"`
+	// DeferredParams names the params whose eval waits for the run: an eval
+	// that reads the run's dates or context, every eval after it, or every
+	// eval of a DAG the scheduler queued. A load without the run's values
+	// leaves them unset, and so the env built with it may lack them.
+	DeferredParams []string `json:"deferredParams,omitempty"`
 	// Steps contains the list of steps in the DAG.
 	Steps []Step `json:"steps,omitempty"`
 	// HandlerOn contains the steps to be executed on different events.
@@ -213,6 +223,9 @@ type DAG struct {
 	Queue string `json:"queue,omitempty"`
 	// RetryPolicy controls automatic DAG-level retry behavior for failed runs.
 	RetryPolicy *DAGRetryPolicy `json:"retryPolicy,omitempty"`
+	// NodeRequired makes the DAG run only bound to one inventory node, as a
+	// child of a node step or started with exactly one node (RFC 013).
+	NodeRequired bool `json:"nodeRequired,omitempty"`
 	// WorkerSelector defines labels required for worker selection in distributed execution.
 	// If specified, the DAG will only run on workers with matching labels.
 	WorkerSelector map[string]string `json:"workerSelector,omitempty"`
@@ -279,6 +292,10 @@ type DAG struct {
 	Kubernetes KubernetesConfig `json:"-"`
 	// Secrets contains references to external secrets to be resolved at runtime.
 	Secrets []secretref.Ref `json:"secrets,omitempty"`
+	// CredentialRefs lists the registry refs that SSH connections read their
+	// credentials from, each named by field path. They resolve at run start
+	// and never become environment variables.
+	CredentialRefs []secretref.Ref `json:"credentialRefs,omitempty"`
 	// Tools declares external CLI tools that must be installed before the DAG runs.
 	Tools *ToolConfig `json:"tools,omitempty"`
 }
@@ -312,6 +329,22 @@ type ParamDef struct {
 	MinLength   *int     `json:"minLength,omitempty"`
 	MaxLength   *int     `json:"maxLength,omitempty"`
 	Pattern     *string  `json:"pattern,omitempty"`
+	// Eval computes the param when the caller gives no value. A fresh build
+	// sets it; it is not serialized.
+	Eval string `json:"-"`
+}
+
+// paramDateRef matches an eval that is one ${dates.NAME} reference.
+var paramDateRef = regexp.MustCompile(`^\$\{dates\.([A-Za-z][A-Za-z0-9_]*)\}$`)
+
+// DateName returns the date a param takes as its value: NAME when its eval
+// is one ${dates.NAME} reference.
+func (p ParamDef) DateName() (string, bool) {
+	match := paramDateRef.FindStringSubmatch(p.Eval)
+	if match == nil {
+		return "", false
+	}
+	return match[1], true
 }
 
 // WebhookConfig contains DAG-level webhook trigger behavior.
@@ -378,8 +411,8 @@ func (d *DAG) UnmarshalJSON(data []byte) error {
 // HasLabel checks if the DAG has a label matching the given filter.
 // Supports both simple labels ("production") and key-value filters ("env=prod").
 func (d *DAG) HasLabel(label string) bool {
-	filter := ParseLabelFilter(label)
-	return filter.MatchesLabels(d.Labels)
+	filter, err := ParseLabelFilter(label)
+	return err == nil && filter.MatchesLabels(d.Labels)
 }
 
 // HasTag checks if the DAG has a tag matching the given filter.
@@ -433,6 +466,9 @@ func (d *DAG) Clone() *DAG {
 	if d.Kubernetes != nil {
 		clone.Kubernetes = cloneKubernetesConfig(d.Kubernetes)
 	}
+	if d.SSH != nil {
+		clone.SSH = d.SSH.clone()
+	}
 	return &clone
 }
 
@@ -451,6 +487,10 @@ func (d *DAG) HasApprovalSteps() bool {
 // ErrWorkerSelectorApproval is returned when a worker selector is set on a DAG
 // with approval steps, which must run locally.
 var ErrWorkerSelectorApproval = errors.New("DAG with approval steps cannot be dispatched to workers")
+
+// errWorkerSelectorNodeRequired is returned when a worker selector is set on
+// a node: required DAG, whose bound node decides where it runs.
+var errWorkerSelectorNodeRequired = errors.New("a node: required DAG runs on its bound node and cannot be dispatched to workers")
 
 // ValidateWorkerSelector checks a selector given for one run: every key must
 // be a valid label key and every value a non-empty valid label value.
@@ -481,6 +521,9 @@ func (d *DAG) ApplyWorkerSelector(selector map[string]string) error {
 	}
 	if d.HasApprovalSteps() {
 		return NewValidationError("worker_selector", selector, ErrWorkerSelectorApproval)
+	}
+	if d.NodeRequired {
+		return NewValidationError("worker_selector", selector, errWorkerSelectorNodeRequired)
 	}
 	d.WorkerSelector = maps.Clone(selector)
 	d.ForceLocal = false
@@ -605,8 +648,9 @@ type ScheduleFire struct {
 
 // UpcomingFires returns up to limit start-schedule fire times after from,
 // earliest first. Schedules that fire at the same instant yield one fire,
-// attributed to the first of them. The result ignores scheduler state such
-// as suspension, pauses, and consumed one-off schedules.
+// attributed to a one-off if present, then to the first entry of that kind.
+// The result ignores scheduler state such as suspension, pauses, and consumed
+// one-off schedules.
 func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
 	if limit <= 0 || len(d.Schedule) == 0 {
 		return nil
@@ -620,7 +664,11 @@ func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
 	for len(fires) < limit {
 		earliest := -1
 		for i, cursor := range cursors {
-			if !cursor.at.IsZero() && (earliest < 0 || cursor.at.Before(cursors[earliest].at)) {
+			if cursor.at.IsZero() {
+				continue
+			}
+			if earliest < 0 || cursor.at.Before(cursors[earliest].at) ||
+				(cursor.at.Equal(cursors[earliest].at) && d.Schedule[i].IsOneOff() && !d.Schedule[earliest].IsOneOff()) {
 				earliest = i
 			}
 		}
@@ -738,6 +786,19 @@ func (d *DAG) ParamsMap() map[string]string {
 		}
 	}
 	return params
+}
+
+// DateNames returns the names the DAG's dates block declares, as a non-nil
+// map, so that a reference to any other name is known to be undeclared.
+func (d *DAG) DateNames() map[string]any {
+	names := make(map[string]any)
+	if d == nil {
+		return names
+	}
+	for _, spec := range d.Dates {
+		names[spec.Name] = ""
+	}
+	return names
 }
 
 // ParamDeclarations returns named parameters that can be referenced through ${params.name}.
@@ -868,10 +929,8 @@ type SSHConfig struct {
 	Host string `json:"host,omitempty"`
 	// Port is the SSH port. Default is "22".
 	Port string `json:"port,omitempty"`
-	// Key is the path to the SSH private key.
-	Key string `json:"key,omitempty"`
-	// Password is the SSH password.
-	Password string `json:"password,omitempty"`
+	// SSHAuth holds the key, password, and passphrase.
+	SSHAuth
 	// StrictHostKey enables strict host key checking. Defaults to true.
 	StrictHostKey bool `json:"strictHostKey,omitempty"`
 	// KnownHostFile is the path to the known_hosts file. Defaults to ~/.ssh/known_hosts.
@@ -895,10 +954,8 @@ type BastionConfig struct {
 	Port string `json:"port,omitempty"`
 	// User is the bastion SSH user.
 	User string `json:"user,omitempty"`
-	// Key is the path to the SSH private key for the bastion.
-	Key string `json:"key,omitempty"`
-	// Password is the SSH password for the bastion.
-	Password string `json:"password,omitempty"`
+	// SSHAuth holds the bastion's key, password, and passphrase.
+	SSHAuth
 }
 
 // S3Config contains the default S3 configuration for the DAG.
@@ -1048,6 +1105,8 @@ type Schedule struct {
 	// month, counted from the start when positive and from the end when
 	// negative.
 	BusinessDays []int `json:"business_days,omitempty"`
+	// Params is a JSON object of literal runtime parameter overrides.
+	Params json.RawMessage `json:"params,omitempty"`
 	// Parsed is the parsed cron schedule. A calendar schedule has none until
 	// its calendar is bound.
 	Parsed cron.Schedule `json:"-"`
@@ -1064,13 +1123,14 @@ func (s Schedule) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(struct {
-		Kind         ScheduleKind `json:"kind,omitempty"`
-		Expression   string       `json:"expression,omitempty"`
-		At           string       `json:"at,omitempty"`
-		Profile      string       `json:"profile,omitempty"`
-		Calendar     string       `json:"calendar,omitempty"`
-		BusinessDays []int        `json:"business_days,omitempty"`
-		Warnings     []string     `json:"warnings,omitempty"`
+		Kind         ScheduleKind    `json:"kind,omitempty"`
+		Expression   string          `json:"expression,omitempty"`
+		At           string          `json:"at,omitempty"`
+		Profile      string          `json:"profile,omitempty"`
+		Calendar     string          `json:"calendar,omitempty"`
+		BusinessDays []int           `json:"business_days,omitempty"`
+		Warnings     []string        `json:"warnings,omitempty"`
+		Params       json.RawMessage `json:"params,omitempty"`
 	}{
 		Kind:         normalized.Kind,
 		Expression:   normalized.Expression,
@@ -1079,6 +1139,7 @@ func (s Schedule) MarshalJSON() ([]byte, error) {
 		Calendar:     normalized.Calendar,
 		BusinessDays: normalized.BusinessDays,
 		Warnings:     normalized.Warnings,
+		Params:       normalized.Params,
 	})
 }
 
@@ -1086,7 +1147,9 @@ func (s Schedule) MarshalJSON() ([]byte, error) {
 // It also parses the cron expression to populate the Parsed field.
 func (s *Schedule) UnmarshalJSON(data []byte) error {
 	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&raw); err != nil {
 		return err
 	}
 	delete(raw, "warnings")
@@ -1096,7 +1159,7 @@ func (s *Schedule) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	schedule, err := parseScheduleMap(raw, ScheduleParseOptions{AllowAt: true, AllowCalendar: true})
+	schedule, err := parseScheduleMap(raw, ScheduleParseOptions{AllowAt: true, AllowCalendar: true, AllowParams: true})
 	if err != nil {
 		return err
 	}

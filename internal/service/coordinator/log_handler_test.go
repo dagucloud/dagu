@@ -160,6 +160,24 @@ func TestLogHandler_LogFilePath(t *testing.T) {
 		require.Equal(t, expected, path)
 	})
 
+	// Steps and DAGs whose names differ only in characters a file name cannot
+	// hold, such as a.b and a_b, keep their logs apart.
+	t.Run("SimilarNamesApart", func(t *testing.T) {
+		t.Parallel()
+
+		path := func(dag, step string) string {
+			return h.logFilePath(&coordinatorv1.LogChunk{
+				DagName:    dag,
+				DagRunId:   "run-123",
+				AttemptId:  "attempt-1",
+				StepName:   step,
+				StreamType: coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT,
+			})
+		}
+		require.NotEqual(t, path("dag", "a.b"), path("dag", "a_b"))
+		require.NotEqual(t, path("etl.daily", "step"), path("etl_daily", "step"))
+	})
+
 	t.Run("SafeNameSanitization", func(t *testing.T) {
 		t.Parallel()
 
@@ -176,6 +194,65 @@ func TestLogHandler_LogFilePath(t *testing.T) {
 		require.Contains(t, path, logDir)
 		require.NotContains(t, filepath.Base(path), "/")
 	})
+}
+
+// A step of a run in flight across an upgrade goes on writing the log that a
+// released version named by SafeName, unless another step of the run had the
+// same SafeName or the run's steps are unknown.
+func TestLogHandler_ContinuesLegacyLog(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		dag       string
+		legacyDAG string
+		steps     []string
+		continued bool
+	}{
+		{name: "Owned", dag: "etl.daily", legacyDAG: "etl_daily", steps: []string{"fetch data", "parse"}, continued: true},
+		{name: "Shared", dag: "etl-daily", legacyDAG: "etl-daily", steps: []string{"fetch data", "fetch_data"}},
+		{name: "StepsUnknown", dag: "etl-daily", legacyDAG: "etl-daily"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			logDir := t.TempDir()
+			legacy := filepath.Join(logDir, tc.legacyDAG, "run-1", "attempt-1", "fetch_data.stdout.log")
+			require.NoError(t, os.MkdirAll(filepath.Dir(legacy), 0o750))
+			require.NoError(t, os.WriteFile(legacy, []byte("hello "), 0o600))
+
+			chunk := &coordinatorv1.LogChunk{
+				DagName:    tc.dag,
+				DagRunId:   "run-1",
+				AttemptId:  "attempt-1",
+				StepName:   "fetch data",
+				StreamType: coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT,
+				Data:       []byte("world"),
+			}
+			chunk.SetByteOffset(6)
+			final := proto.Clone(chunk).(*coordinatorv1.LogChunk)
+			final.Data, final.IsFinal = nil, true
+			final.SetByteOffset(11)
+
+			h := newLogHandler(logDir)
+			h.stepNames = func(*coordinatorv1.LogChunk) []string { return tc.steps }
+			defer h.Close(context.Background())
+			err := h.handleStream(&mockStreamLogsServer{chunks: []*coordinatorv1.LogChunk{chunk, final}, ctx: context.Background()})
+
+			content, readErr := os.ReadFile(legacy)
+			require.NoError(t, readErr)
+			if tc.continued {
+				require.NoError(t, err)
+				assert.Equal(t, "hello world", string(content))
+			} else {
+				// The new file lacks the bytes before the offset, so the
+				// stream cannot resume there.
+				require.ErrorContains(t, err, "exceeds current file size")
+				assert.Equal(t, "hello ", string(content))
+				assert.NotEqual(t, legacy, h.logFilePath(chunk))
+			}
+		})
+	}
 }
 
 func TestLogHandler_GetOrCreateWriter(t *testing.T) {

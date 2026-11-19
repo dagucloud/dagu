@@ -34,6 +34,8 @@ type FrameLoadWatcher struct {
 	// each cross-origin frame is attached under.
 	pages   map[string]*watchedPage
 	parents map[string]string
+	// synced holds the replies Sync waits for, by request ID.
+	synced map[int64]chan struct{}
 }
 
 // watchedPage is an open page and what the watcher saw of its loads.
@@ -78,6 +80,7 @@ func WatchFrameLoads(ctx context.Context, cdpURL string) (*FrameLoadWatcher, err
 	w := &FrameLoadWatcher{
 		conn: conn, cancel: cancel, done: make(chan struct{}),
 		loading: map[string]map[string]bool{}, pages: map[string]*watchedPage{}, parents: map[string]string{},
+		synced: map[int64]chan struct{}{},
 	}
 	w.autoAttachID = w.lastID.Add(1)
 	acknowledged := make(chan error, 1)
@@ -138,6 +141,45 @@ func (w *FrameLoadWatcher) PageLoad(targetID string) PageLoad {
 	return PageLoad{Loading: w.pageLoading(page), Began: page.began, Ended: page.ended}
 }
 
+// errWatcherClosed reports a watcher that stopped reading the browser.
+var errWatcherClosed = errors.New("frame load watcher closed")
+
+// Sync returns once the watcher has taken in what the browser reported
+// before the call, such as a load that began before a page answered on
+// another connection. It fails when ctx ends or the watcher stops first.
+func (w *FrameLoadWatcher) Sync(ctx context.Context) error {
+	id := w.lastID.Add(1)
+	synced := make(chan struct{})
+	w.mu.Lock()
+	w.synced[id] = synced
+	w.mu.Unlock()
+	defer func() {
+		w.mu.Lock()
+		delete(w.synced, id)
+		w.mu.Unlock()
+	}()
+	// The browser answers after what it reported before on this connection,
+	// which the watcher reads in order. A write whose context ends closes
+	// the connection, so the write runs apart from the wait and ends with
+	// the connection at the latest.
+	failed := make(chan error, 1)
+	go func() {
+		if err := writeCommand(context.WithoutCancel(ctx), w.conn, id, "", "Browser.getVersion", map[string]any{}); err != nil {
+			failed <- err
+		}
+	}()
+	select {
+	case <-synced:
+		return nil
+	case err := <-failed:
+		return err
+	case <-w.done:
+		return errWatcherClosed
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // Close stops watching.
 func (w *FrameLoadWatcher) Close() error {
 	w.cancel()
@@ -164,6 +206,12 @@ func (w *FrameLoadWatcher) read(ctx context.Context, acknowledged chan<- error) 
 		switch message.Method {
 		case "":
 			if message.ID != w.autoAttachID {
+				w.mu.Lock()
+				if synced, ok := w.synced[message.ID]; ok {
+					close(synced)
+					delete(w.synced, message.ID)
+				}
+				w.mu.Unlock()
 				continue
 			}
 			var err error

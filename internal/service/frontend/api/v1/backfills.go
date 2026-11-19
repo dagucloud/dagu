@@ -17,9 +17,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
+	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
@@ -48,6 +52,7 @@ func (a *API) SubmitBackfill(ctx context.Context, request api.SubmitBackfillRequ
 	breq := backfill.Request{
 		From:           valueOf(body.From),
 		To:             valueOf(body.To),
+		By:             valueOf(body.By),
 		Rerun:          string(valueOf(body.Rerun)),
 		MaxConcurrency: valueOf(body.MaxConcurrency),
 		OnFailure:      string(valueOf(body.OnFailure)),
@@ -69,7 +74,7 @@ func (a *API) SubmitBackfill(ctx context.Context, request api.SubmitBackfillRequ
 		DryRun:   dryRun,
 		Revision: valueOf(body.Revision),
 	})
-	response, respErr := a.backfillSubmitResponse(ctx, store, dag, options.MaxConcurrency, result)
+	response, respErr := a.backfillSubmitResponse(ctx, store, dag, options.MaxConcurrency, options.Params, result)
 	if respErr != nil {
 		return nil, respErr
 	}
@@ -116,10 +121,137 @@ func (a *API) ListDAGSlots(ctx context.Context, request api.ListDAGSlotsRequestO
 				Status:      dagSlotStatus(state.Status),
 				RunId:       stringOrNil(state.RunID),
 				CoveredBy:   timeOrNil(state.CoveredAt),
+				Trigger:     toTriggerType(state.Trigger),
+				Dates:       toAPIRunDates(slotDates(dag, sched, state)),
 			})
 		}
 	}
 	return api.ListDAGSlots200JSONResponse{Slots: slots}, nil
+}
+
+// GetDAGMissedSlots returns the slots that came due while a DAG was
+// suspended, the scheduler paused, or no scheduler ran. It reads the ended
+// periods and the scheduler state only, never the DAG's slot or run history.
+func (a *API) GetDAGMissedSlots(ctx context.Context, request api.GetDAGMissedSlotsRequestObject) (api.GetDAGMissedSlotsResponseObject, error) {
+	dag, err := a.dagRepository.GetDetails(ctx, request.FileName, persis.DAGLoadOptions{AllowBuildErrors: true})
+	if err != nil {
+		return nil, &Error{
+			HTTPStatus: http.StatusNotFound,
+			Code:       api.ErrorCodeNotFound,
+			Message:    fmt.Sprintf("DAG %s not found", request.FileName),
+		}
+	}
+	if err := a.requireWorkspaceVisible(ctx, dagWorkspaceName(dag)); err != nil {
+		return nil, err
+	}
+	none := api.GetDAGMissedSlots200JSONResponse{}
+	if a.periodStore == nil || len(dag.BuildErrors) > 0 || !backfill.ReadsSlot(dag) {
+		return none, nil
+	}
+	// A dismissal covers every period that ended by then; only the periods
+	// that ended after it count.
+	periods, dismissal, err := a.periodStore.Ended(ctx, request.FileName)
+	periods = slices.DeleteFunc(periods, func(period schedulerstate.Period) bool { return !period.To.After(dismissal.At) })
+	if err != nil || len(periods) == 0 {
+		return none, err
+	}
+	var profile string
+	if slices.ContainsFunc(dag.Schedule, func(s ir.Schedule) bool { return s.Profile != "" }) {
+		if profile, err = a.defaultRunProfileName(ctx, request.FileName, dagWorkspaceName(dag)); err != nil {
+			return nil, err
+		}
+	}
+	schedules := slices.Clone(dag.Schedule)
+	spec.BindScheduleCalendars(schedules, a.calendarSource())
+	sched := backfill.SlotSchedule{Schedules: schedules, Profile: profile, Location: a.serverLocation()}
+	catchup := scheduler.CatchupAfterOutage(dag, a.config.Queues.Enabled)
+	missed := backfill.FindMissed(dag, sched, periods, catchup, a.dagFirstSeen(ctx, dag.Name), time.Now())
+	if missed.Slots == 0 {
+		return none, nil
+	}
+	reasons := make([]api.MissedSlotsReason, 0, len(missed.Reasons))
+	for _, reason := range missed.Reasons {
+		reasons = append(reasons, api.MissedSlotsReason(reason))
+	}
+	return api.GetDAGMissedSlots200JSONResponse{MissedSlots: &api.MissedSlots{
+		Slots: missed.Slots, First: missed.First, Last: missed.Last, Reasons: reasons, Until: missed.Until,
+	}}, nil
+}
+
+// DismissDAGMissedSlots hides a DAG's missed slots from every user until a
+// period that ends after the dismissal adds missed slots. A user who may
+// suspend the DAG may dismiss them; one who cannot see it gets not found.
+func (a *API) DismissDAGMissedSlots(ctx context.Context, request api.DismissDAGMissedSlotsRequestObject) (api.DismissDAGMissedSlotsResponseObject, error) {
+	dag, err := a.dagRepository.GetMetadata(ctx, request.FileName)
+	if err != nil {
+		return nil, &Error{
+			HTTPStatus: http.StatusNotFound,
+			Code:       api.ErrorCodeNotFound,
+			Message:    fmt.Sprintf("DAG %s not found", request.FileName),
+		}
+	}
+	if err := a.requireWorkspaceVisible(ctx, dagWorkspaceName(dag)); err != nil {
+		return nil, err
+	}
+	if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
+		return nil, err
+	}
+	if err := a.requireExecuteForWorkspace(ctx, dagWorkspaceName(dag)); err != nil {
+		return nil, err
+	}
+	if a.periodStore == nil {
+		return api.DismissDAGMissedSlots204Response{}, nil
+	}
+	dismissal := schedulerstate.Dismissal{At: time.Now().UTC(), By: triggerActorFromContext(ctx)}
+	if err := a.periodStore.Dismiss(ctx, request.FileName, dismissal); err != nil {
+		return nil, fmt.Errorf("error dismissing the missed slots of %s: %w", request.FileName, err)
+	}
+	a.logAudit(ctx, audit.CategoryDAG, "dag_missed_slots_dismiss", map[string]any{"dag_name": request.FileName})
+	return api.DismissDAGMissedSlots204Response{}, nil
+}
+
+// dagFirstSeen returns when the scheduler first tracked a DAG, from its
+// cached state, or zero when that is unknown.
+func (a *API) dagFirstSeen(ctx context.Context, dagName string) time.Time {
+	if a.schedulerStateStore == nil {
+		return time.Time{}
+	}
+	watermark, err := a.schedulerStateStore.LoadDAG(ctx, dagName)
+	if err != nil {
+		logger.Warn(ctx, "Failed to load scheduler state for missed slots", tag.Error(err))
+	}
+	return watermark.FirstSeen
+}
+
+// recordSuspension records the suspension of a DAG that is to resume as a
+// period in which its slots did not run. It runs before the resume clears the
+// suspension, so a resume never holds without its period; a resume retried
+// after the clear failed records the same period, extended to the retry.
+func (a *API) recordSuspension(ctx context.Context, fileName string) error {
+	if a.periodStore == nil {
+		return nil
+	}
+	since, suspended, err := a.dagRepository.SuspendedSince(ctx, fileName)
+	if err != nil {
+		return fmt.Errorf("error reading the suspension of %s: %w", fileName, err)
+	}
+	if !suspended {
+		return nil
+	}
+	if err := a.periodStore.AddSuspended(ctx, fileName, schedulerstate.Period{From: since, To: time.Now()}); err != nil {
+		return fmt.Errorf("error recording the suspension of %s: %w", fileName, err)
+	}
+	return nil
+}
+
+// slotDates returns the dates a slot's run recorded, or, for a slot without
+// a run, whose run is no longer in history, or whose run recorded none, the
+// dates the DAG would give it now.
+func slotDates(dag *ir.DAG, sched backfill.SlotSchedule, state backfill.Slot) []ir.DateValue {
+	if state.RunRecorded && len(state.Dates) > 0 {
+		return state.Dates
+	}
+	return backfill.SlotDates(dag, sched, state.At)
 }
 
 func (a *API) ListBackfills(ctx context.Context, request api.ListBackfillsRequestObject) (api.ListBackfillsResponseObject, error) {
@@ -147,9 +279,24 @@ func (a *API) ListBackfills(ctx context.Context, request api.ListBackfillsReques
 }
 
 func (a *API) GetBackfill(ctx context.Context, request api.GetBackfillRequestObject) (api.GetBackfillResponseObject, error) {
-	_, report, err := a.backfillReport(ctx, request.BackfillId)
+	item, err := a.backfillDetails(ctx, request.BackfillId)
 	if err != nil {
 		return nil, err
+	}
+	return api.GetBackfill200JSONResponse(item), nil
+}
+
+// GetBackfillData returns a backfill for SSE.
+// Identifier format: the backfill ID.
+func (a *API) GetBackfillData(ctx context.Context, id string) (any, error) {
+	return a.backfillDetails(ctx, id)
+}
+
+// backfillDetails reports one backfill with why it waits.
+func (a *API) backfillDetails(ctx context.Context, id string) (api.Backfill, error) {
+	_, report, err := a.backfillReport(ctx, id)
+	if err != nil {
+		return api.Backfill{}, err
 	}
 	item := toAPIBackfill(report, a.schedulerActive(ctx))
 	if a.queueStore != nil && a.procRepository != nil {
@@ -159,11 +306,12 @@ func (a *API) GetBackfill(ctx context.Context, request api.GetBackfillRequestObj
 			Limit: a.config.QueueLimit,
 		}, a.config.Core.Location)
 		if err != nil {
-			return nil, err
+			return api.Backfill{}, err
 		}
-		item.Waiting = stringOrNil(wait)
+		item.Waiting = stringOrNil(wait.Reason)
+		item.WaitingRunId = stringOrNil(wait.RunID)
 	}
-	return api.GetBackfill200JSONResponse(item), nil
+	return item, nil
 }
 
 // aliveRuns counts a queue's runs in progress on this server's processes.
@@ -194,7 +342,11 @@ func (a *API) ListBackfillSlots(ctx context.Context, request api.ListBackfillSlo
 	page := matching[offset:min(offset+limit, len(matching))]
 	slots := make([]api.BackfillSlot, 0, len(page))
 	for _, slot := range page {
-		slots = append(slots, api.BackfillSlot{Slot: slot.At, State: api.BackfillSlotState(slot.State), RunId: stringOrNil(slot.RunID)})
+		item := api.BackfillSlot{Slot: slot.At, State: api.BackfillSlotState(slot.State), RunId: stringOrNil(slot.RunID)}
+		if slot.OtherDefinition {
+			item.OtherDefinition = ptrOf(true)
+		}
+		slots = append(slots, item)
 	}
 	return api.ListBackfillSlots200JSONResponse{Slots: slots, Total: len(matching)}, nil
 }
@@ -266,7 +418,7 @@ func (a *API) ResumeBackfill(ctx context.Context, request api.ResumeBackfillRequ
 	if req.MaxConcurrency > 0 {
 		maxConcurrency = req.MaxConcurrency
 	}
-	response, respErr := a.backfillSubmitResponse(ctx, store, dag, maxConcurrency, result)
+	response, respErr := a.backfillSubmitResponse(ctx, store, dag, maxConcurrency, record.Options.Params, result)
 	if respErr != nil {
 		return nil, respErr
 	}
@@ -350,18 +502,20 @@ func (a *API) backfillReport(ctx context.Context, id string) (backfill.Store, ba
 }
 
 // backfillSubmitResponse reports a submit's plan, with how it would run at
-// maxConcurrency, and the backfill it created or found.
-func (a *API) backfillSubmitResponse(ctx context.Context, store backfill.Store, dag *ir.DAG, maxConcurrency int, result backfill.SubmitResult) (api.BackfillSubmitResponse, error) {
+// maxConcurrency with params, and the backfill it created or found.
+func (a *API) backfillSubmitResponse(ctx context.Context, store backfill.Store, dag *ir.DAG, maxConcurrency int, params string, result backfill.SubmitResult) (api.BackfillSubmitResponse, error) {
 	outlook, err := backfill.LoadOutlook(ctx, a.dagRunRepository, dag, maxConcurrency, a.config.QueueLimit(dag.ProcGroup()))
 	if err != nil {
 		return api.BackfillSubmitResponse{}, err
 	}
 	suspended, err := a.dagRepository.IsSuspended(ctx, dag.SuspendFlagName())
+	given, _ := spec.ParamNames(params)
 	warnings := result.Plan.Warnings(backfill.WarningInput{
 		SchedulerRunning: a.schedulerActive(ctx),
 		Suspended:        err == nil && suspended,
 		DAG:              dag,
 		Outlook:          outlook,
+		GivenParams:      given,
 	})
 	response := api.BackfillSubmitResponse{Plan: toAPIBackfillPlan(result.Plan, outlook, warnings)}
 	if result.Record != nil {
@@ -395,6 +549,32 @@ func (a *API) latestBackfill(ctx context.Context, fileName string) (*api.LatestB
 	}
 	item := toAPIBackfill(*report, a.schedulerActive(ctx))
 	return &item, nil
+}
+
+// scopeToBackfill narrows a list of a backfill's runs to its DAG and, unless
+// the list names a range, to the runs created since the backfill was
+// submitted. The list then reaches runs from before today without scanning
+// the history of every DAG. A backfill without a record keeps the list as
+// it is.
+func (a *API) scopeToBackfill(ctx context.Context, query *persis.DAGRunListOptions) error {
+	if query.BackfillID == "" || a.backfillStore == nil {
+		return nil
+	}
+	record, err := a.backfillStore.Get(ctx, query.BackfillID)
+	if errors.Is(err, backfill.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if query.Name == "" && query.ExactName == "" {
+		query.ExactName = record.DAGName
+	}
+	if query.From.IsZero() && query.To.IsZero() {
+		// A run is listed by its creation to the second.
+		query.From = persis.NewUTC(record.CreatedAt.Truncate(time.Second))
+	}
+	return nil
 }
 
 // backfillFileName returns the API name of the DAG file a backfill records
@@ -478,6 +658,7 @@ func toAPIBackfill(report backfill.Report, schedulerRunning bool) api.Backfill {
 	return api.Backfill{
 		Id:             record.ID,
 		Dag:            record.DAGName,
+		FileName:       stringOrNil(backfillFileName(record)),
 		Status:         status,
 		SubmittedAt:    record.CreatedAt,
 		EndedAt:        timeOrNil(record.EndedAt),
@@ -488,7 +669,34 @@ func toAPIBackfill(report backfill.Report, schedulerRunning bool) api.Backfill {
 		OnFailure:      api.BackfillOnFailure(record.Options.OnFailure),
 		SlotCount:      len(record.Slots),
 		Counts:         counts,
+		SecondsLeft:    secondsOrNil(report.Estimate),
+		Failures:       toAPIBackfillFailures(report.Failures),
 	}
+}
+
+// secondsOrNil is d in whole seconds, or nil when it is zero.
+func secondsOrNil(d time.Duration) *int {
+	if d <= 0 {
+		return nil
+	}
+	return new(int(d.Round(time.Second) / time.Second))
+}
+
+func toAPIBackfillFailures(failures []backfill.Failure) *[]api.BackfillFailure {
+	if len(failures) == 0 {
+		return nil
+	}
+	out := make([]api.BackfillFailure, len(failures))
+	for i, failure := range failures {
+		out[i] = api.BackfillFailure{
+			Step:  stringOrNil(failure.Step),
+			Error: stringOrNil(failure.Error),
+			Slots: failure.Slots,
+			Slot:  failure.At,
+			RunId: failure.RunID,
+		}
+	}
+	return &out
 }
 
 func toAPIBackfillPlan(plan backfill.Plan, outlook backfill.Outlook, warnings []string) api.BackfillPlan {
@@ -497,6 +705,9 @@ func toAPIBackfillPlan(plan backfill.Plan, outlook backfill.Outlook, warnings []
 		From:        timeOrNil(plan.From),
 		To:          timeOrNil(plan.To),
 		Clamped:     &plan.Clamped,
+		By:          stringOrNil(plan.By),
+		FromDate:    stringOrNil(dateText(plan.FromDate)),
+		ToDate:      stringOrNil(dateText(plan.ToDate)),
 		Rerun:       api.BackfillRerun(plan.Rerun),
 		Concurrency: outlook.Concurrency,
 		QueueLimit:  outlook.QueueLimit,
@@ -515,6 +726,9 @@ func toAPIBackfillPlan(plan backfill.Plan, outlook backfill.Outlook, warnings []
 	if plan.OtherCadence > 0 {
 		out.OtherCadence = &plan.OtherCadence
 	}
+	if plan.DefinitionChanged {
+		out.DefinitionChanged = ptrOf(true)
+	}
 	if len(warnings) > 0 {
 		out.Warnings = &warnings
 	}
@@ -526,9 +740,36 @@ func toAPIBackfillPlan(plan backfill.Plan, outlook backfill.Outlook, warnings []
 			Action:      api.BackfillPlanSlotAction(slot.Action),
 			RunId:       stringOrNil(slot.RunID),
 			CoveredBy:   timeOrNil(slot.CoveredAt),
+			Dates:       toAPIRunDates(slot.Dates),
 		})
 	}
 	return out
+}
+
+// toAPIRunDates converts a run's dates, or returns nil when there are none.
+func toAPIRunDates(dates []ir.DateValue) *[]api.RunDateValue {
+	if len(dates) == 0 {
+		return nil
+	}
+	out := make([]api.RunDateValue, 0, len(dates))
+	for _, date := range dates {
+		value := api.RunDateValue{Name: date.Name}
+		if date.List {
+			value.List = new(true)
+			value.Values = new(slices.Clone(date.Values))
+		} else {
+			value.Value = new(date.Value)
+		}
+		out = append(out, value)
+	}
+	return &out
+}
+
+func dateText(d ir.CivilDate) string {
+	if d.IsZero() {
+		return ""
+	}
+	return d.String()
 }
 
 func dagSlotStatus(status backfill.SlotStatus) api.DAGSlotStatus {

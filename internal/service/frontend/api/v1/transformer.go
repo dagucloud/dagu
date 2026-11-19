@@ -42,7 +42,28 @@ func toSchedule(s ir.Schedule) api.Schedule {
 	if len(s.BusinessDays) > 0 {
 		schedule.BusinessDays = ptrOf(append([]int(nil), s.BusinessDays...))
 	}
+	if len(s.Params) > 0 {
+		var overrides map[string]json.RawMessage
+		if err := json.Unmarshal(s.Params, &overrides); err == nil && len(overrides) > 0 {
+			schedule.ParamOverrideCount = ptrOf(len(overrides))
+			schedule.ParamOverrides = ptrOf(paramOverrideTexts(overrides))
+		}
+	}
 	return schedule
+}
+
+// paramOverrideTexts returns each override as text: a string as is, and any
+// other value as its JSON.
+func paramOverrideTexts(overrides map[string]json.RawMessage) map[string]string {
+	texts := make(map[string]string, len(overrides))
+	for name, raw := range overrides {
+		var text string
+		if err := json.Unmarshal(raw, &text); err != nil {
+			text = string(raw)
+		}
+		texts[name] = text
+	}
+	return texts
 }
 
 func workspaceResponseNameFromLabels(labels ir.Labels) *string {
@@ -408,6 +429,7 @@ func toDAGRunSummary(s ir.DAGRunStatus) api.DAGRunSummary {
 		Process:            toDAGRunProcess(s),
 		TriggerType:        toTriggerType(s.TriggerType),
 		TriggerActor:       ptrOf(s.TriggerActor),
+		BackfillId:         ptrOf(s.BackfillID),
 		Labels:             &s.Labels,
 		Tags:               &s.Labels,
 	}
@@ -504,6 +526,8 @@ func ToDAGRunDetails(s ir.DAGRunStatus) api.DAGRunDetails {
 		Ephemeral:              ephemeralFlag(s),
 		ReusedInputs:           toReusedInputs(s.ReusedInputs),
 		Log:                    s.Log,
+		Dates:                  toAPIRunDates(s.Dates),
+		DefaultSlot:            boolOrNil(s.DefaultSlot),
 		Name:                   s.Name,
 		Params:                 ptrOf(s.Params),
 		DagRunId:               s.DAGRunID,
@@ -529,6 +553,7 @@ func ToDAGRunDetails(s ir.DAGRunStatus) api.DAGRunDetails {
 		AttemptId:              ptrOf(s.AttemptID),
 		TriggerType:            toTriggerType(s.TriggerType),
 		TriggerActor:           ptrOf(s.TriggerActor),
+		BackfillId:             ptrOf(s.BackfillID),
 		Preconditions:          ptrOf(preconditions),
 		Nodes:                  nodes,
 		OnInit:                 ptrOf(toNode(s.OnInit)),
@@ -854,10 +879,20 @@ func toDAGDetails(dag *ir.DAG) *api.DAGDetails {
 		}
 	}
 
+	var dateNames *[]string
+	if len(dag.Dates) > 0 {
+		names := make([]string, len(dag.Dates))
+		for i, spec := range dag.Dates {
+			names[i] = spec.Name
+		}
+		dateNames = &names
+	}
+
 	return &api.DAGDetails{
 		Type:              agentDAGType(dag.Type),
 		Tasks:             declaredAgentTasks(dag),
 		Artifacts:         artifacts,
+		DateNames:         dateNames,
 		Name:              dag.Name,
 		Description:       ptrOf(dag.Description),
 		DefaultParams:     ptrOf(dag.DefaultParams),
@@ -1005,6 +1040,9 @@ func toParamDefs(defs []ir.ParamDef) []api.ParamDef {
 			if ok {
 				paramDef.Default = &value
 			}
+		}
+		if def.Eval != "" {
+			paramDef.Computed = ptrOf(true)
 		}
 		if def.Title != "" {
 			paramDef.Title = ptrOf(def.Title)
@@ -1194,4 +1232,13 @@ func authoredOutputDeclarations(declarations []ir.StepOutputDeclaration) []api.S
 		outputs = append(outputs, output)
 	}
 	return outputs
+}
+
+// boolOrNil returns a pointer to b, or nil when b is false, so a false flag
+// is left out of a response.
+func boolOrNil(b bool) *bool {
+	if !b {
+		return nil
+	}
+	return &b
 }

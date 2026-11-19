@@ -1,0 +1,6 @@
+steps:
+  - action: sftp.download
+    with:
+      source: /var/log/app.log
+      destination: app.log
+    nodes: web

@@ -931,8 +931,8 @@ func (s *Sessions) Do(ctx context.Context, req DoRequest) (DoResult, error) {
 
 // Describe reports what a session's page shows, without asking a model.
 func (s *Sessions) Describe(ctx context.Context, req DescribeRequest) (DescribeResult, error) {
-	if req.Screenshot != "" && !agentstep.FileNamePattern.MatchString(req.Screenshot) {
-		return DescribeResult{}, &SessionError{Code: CodeInvalidInput, Message: fmt.Sprintf("screenshot name %q must match %s", req.Screenshot, agentstep.FileNamePattern)}
+	if req.Screenshot != "" && !agentstep.ScreenshotNamePattern.MatchString(req.Screenshot) {
+		return DescribeResult{}, &SessionError{Code: CodeInvalidInput, Message: fmt.Sprintf("screenshot name %q must match %s", req.Screenshot, agentstep.ScreenshotNamePattern)}
 	}
 	if req.MaxChars < 0 {
 		return DescribeResult{}, &SessionError{Code: CodeInvalidInput, Message: "the outline size must not be negative"}

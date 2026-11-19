@@ -1516,6 +1516,54 @@ func TestBuildSSH(t *testing.T) {
 				ShellArgs:     []string{"-e", "-o", "pipefail"},
 			},
 		},
+		{
+			name: "CredentialsFromSecrets",
+			input: &ssh{
+				User:       "admin",
+				Host:       "server.example.com",
+				Key:        map[string]any{"secret": "ssh/deploy-key"},
+				Passphrase: map[string]any{"secret": "ssh/passphrase"},
+				Bastion: &bastion{
+					Host:     "jump.example.com",
+					Key:      map[string]any{"file": "/keys/jump"},
+					Password: map[string]any{"secret": "ssh/jump-password"},
+				},
+			},
+			expected: &ir.SSHConfig{
+				User: "admin",
+				Host: "server.example.com",
+				Port: "22",
+				SSHAuth: ir.SSHAuth{
+					KeySecret:        "ssh/deploy-key",
+					PassphraseSecret: "ssh/passphrase",
+				},
+				StrictHostKey: true,
+				Bastion: &ir.BastionConfig{
+					Host: "jump.example.com",
+					Port: "22",
+					SSHAuth: ir.SSHAuth{
+						Key:            "/keys/jump",
+						PasswordSecret: "ssh/jump-password",
+					},
+				},
+			},
+		},
+		{
+			name: "InvalidSecretRef",
+			input: &ssh{
+				Host: "server.example.com",
+				Key:  map[string]any{"secret": "ssh/${HOST}"},
+			},
+			expectErr: true,
+		},
+		{
+			name: "InvalidBastionCredential",
+			input: &ssh{
+				Host:    "server.example.com",
+				Bastion: &bastion{Host: "jump", Password: map[string]any{"file": "/pw"}},
+			},
+			expectErr: true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -71,6 +71,11 @@ type planJSON struct {
 		Slot      string `json:"slot"`
 		Action    string `json:"action"`
 		CoveredBy string `json:"coveredBy"`
+		Dates     []struct {
+			Name   string   `json:"name"`
+			Value  string   `json:"value"`
+			Values []string `json:"values"`
+		} `json:"dates"`
 	} `json:"slots"`
 }
 
@@ -193,6 +198,35 @@ func TestToIsClampedToNow(t *testing.T) {
 	}
 }
 
+// --by selects the slots whose entry falls in the range of dates, whatever
+// the entry's format, and the plan carries each slot's dates.
+func TestByDate(t *testing.T) {
+	t.Parallel()
+
+	for _, entry := range []string{"target_day", "target_unix"} {
+		plan := newProject(t).plan(t, "hourly_dates.yaml", "--by", entry, "--from", "2025-10-01", "--to", "2025-10-31")
+		if len(plan.Slots) != 744 {
+			t.Fatalf("--by %s selected %d slots, want 744", entry, len(plan.Slots))
+		}
+		first, last := plan.Slots[0], plan.Slots[len(plan.Slots)-1]
+		if first.Slot != "2025-10-02T00:00:00Z" || last.Slot != "2025-11-01T23:00:00Z" {
+			t.Fatalf("--by %s selected %s to %s", entry, first.Slot, last.Slot)
+		}
+		if len(first.Dates) == 0 || first.Dates[0].Name != "target_day" || first.Dates[0].Value != "2025-10-01" {
+			t.Fatalf("first slot dates = %+v", first.Dates)
+		}
+	}
+
+	// Monday's window on a weekday schedule holds the weekend.
+	plan := newProject(t).plan(t, "weekday_window.yaml", "--by", "window_days", "--from", "2025-11-08", "--to", "2025-11-08")
+	if len(plan.Slots) != 1 || plan.Slots[0].Slot != "2025-11-10T02:00:00Z" {
+		t.Fatalf("--by window_days selected %+v", plan.Slots)
+	}
+	if got := strings.Join(plan.Slots[0].Dates[0].Values, ","); got != "2025-11-07,2025-11-08,2025-11-09" {
+		t.Fatalf("window_days = %s", got)
+	}
+}
+
 // Submitting the same backfill while it is open starts nothing, and an
 // overlapping one leaves the open backfill's slots to it.
 func TestSubmitWhileOpen(t *testing.T) {
@@ -272,6 +306,43 @@ func TestSchedulerRunsBackfill(t *testing.T) {
 	if !strings.Contains(listed.Stdout(), submit.ID) {
 		t.Fatalf("backfill ls does not list %s:\n%s", submit.ID, listed.Stdout())
 	}
+}
+
+// A param whose eval reads a date takes each slot's own date (criterion 45),
+// and the plan warns when the backfill's params give it one value instead.
+func TestBackfillParamFollowsEachSlot(t *testing.T) {
+	t.Parallel()
+	p := newProject(t)
+
+	warned := p.run("backfill", "start", "--dry-run", "slot_param.yaml", "--from", "2025-10-01", "--to", "2025-10-02", "--params", "day=2025-01-01")
+	warned.ExpectExitCode(0)
+	if !strings.Contains(warned.Stdout(), "The params give day one value for every slot") {
+		t.Fatalf("the plan does not warn of the given day:\n%s", warned.Stdout())
+	}
+
+	env := append(slices.Clone(p.env), fmt.Sprintf("DAGU_SCHEDULER_PORT=%d", harness.FreePort(t)))
+	scheduler := p.StartWithEnv(env, "scheduler", "--dags="+p.ProjectPath("."))
+	t.Cleanup(func() {
+		scheduler.Stop()
+		if t.Failed() {
+			t.Logf("scheduler output:\n%s", scheduler.FailureOutput())
+		}
+	})
+	submitted := p.run("backfill", "start", "slot_param.yaml", "--from", "2025-10-01", "--to", "2025-10-02", "--yes", "--format", "json")
+	submitted.ExpectExitCode(0)
+	var submit struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(submitted.Stdout()), &submit); err != nil || submit.ID == "" {
+		t.Fatalf("decoding submit: %v\n%s", err, submitted.Stdout())
+	}
+	p.WithCommandTimeout(2 * harness.WaitTimeout(t))
+	watched := p.run("backfill", "status", submit.ID, "--watch", "--format", "json")
+	watched.ExpectExitCode(0)
+
+	// The slots of Oct 1 and Oct 2 load the day before each.
+	p.ExpectFileContent("day-2025-09-30.txt", "2025-09-30\n")
+	p.ExpectFileContent("day-2025-10-01.txt", "2025-10-01\n")
 }
 
 // Cancelling an open backfill cancels its slots, and resuming it runs them

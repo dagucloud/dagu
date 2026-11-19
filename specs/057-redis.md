@@ -38,8 +38,10 @@ writes nothing.
 
 ## Errors
 
-`dagu validate` rejects a conflicting `with.command` and an unrecognized
-`with.mode` with a nonzero exit code.
+`dagu validate` rejects a conflicting `with.command`, an unrecognized
+`with.mode`, and a `with` field the action does not define with a nonzero
+exit code. An unknown field's error names the field and, when a defined
+field is a likely misspelling of it, suggests that field.
 
 When the step starts, cluster mode without `with.cluster_addrs` fails with
 `cluster_addrs is required for cluster mode`. A client certificate without

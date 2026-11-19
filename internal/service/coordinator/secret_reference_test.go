@@ -18,6 +18,7 @@ import (
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	runtestutil "github.com/dagucloud/dagu/v2/internal/testutil"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
@@ -242,5 +243,97 @@ steps:
 		AttemptId:  attempt.ID(),
 	})
 	require.Error(t, err)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+}
+
+// A worker may resolve the refs a DAG's SSH connections use, and no others:
+// a password the connection never reads, because it uses a key, is denied.
+func TestResolveSecretReferenceForSSHCredentials(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	enc, err := crypto.NewEncryptor("test-key-for-secrets")
+	require.NoError(t, err)
+	secretStore, err := store.NewSecretStore(testutil.NewMemoryBackend().Collection("secrets"), enc)
+	require.NoError(t, err)
+	now := time.Now().UTC()
+	for ref, value := range map[string]string{
+		"ssh/deploy-key":      "key-value",
+		"ssh/unused-password": "password-value",
+	} {
+		sec, err := secretpkg.New(secretpkg.CreateInput{
+			Ref:          ref,
+			ProviderType: secretpkg.ProviderDaguManaged,
+			CreatedBy:    "test",
+		}, now)
+		require.NoError(t, err)
+		require.NoError(t, secretStore.Create(ctx, sec, &secretpkg.WriteValueInput{
+			Value:     value,
+			CreatedBy: "test",
+			CreatedAt: now,
+		}))
+	}
+
+	dag, err := spec.LoadYAML(ctx, []byte(`
+name: ssh-secret-dag
+ssh:
+  host: app.example.com
+  key: {secret: ssh/deploy-key}
+  password: {secret: ssh/unused-password}
+steps:
+  - run: "true"
+`))
+	require.NoError(t, err)
+
+	dagRunRepository := runtestutil.NewFileDAGRunRepository(filepath.Join(t.TempDir(), "dag-runs"), persis.DAGRunRepositoryOptions{LatestStatusToday: true})
+	attempt, err := dagRunRepository.CreateAttempt(ctx, dag, now, "run-1", persis.DAGRunCreateAttemptOptions{AttemptID: "attempt-1"})
+	require.NoError(t, err)
+	attemptKey := ir.GenerateAttemptKey(dag.Name, "run-1", dag.Name, "run-1", attempt.ID())
+	require.NoError(t, attempt.Open(ctx))
+	t.Cleanup(func() {
+		require.NoError(t, attempt.Close(context.Background()))
+	})
+	require.NoError(t, attempt.Write(ctx, ir.DAGRunStatus{
+		Name:       dag.Name,
+		DAGRunID:   "run-1",
+		AttemptID:  attempt.ID(),
+		AttemptKey: attemptKey,
+		Status:     ir.Running,
+	}))
+	leaseStore := store.NewDAGRunLeaseStore(testutil.NewMemoryBackend().Collection("leases"))
+	require.NoError(t, leaseStore.Upsert(ctx, dispatch.DAGRunLease{
+		AttemptKey:      attemptKey,
+		DAGRun:          ir.DAGRunRef{Name: dag.Name, ID: "run-1"},
+		Root:            ir.DAGRunRef{Name: dag.Name, ID: "run-1"},
+		AttemptID:       attempt.ID(),
+		WorkerID:        "worker-1",
+		ClaimedAt:       now.UnixMilli(),
+		LastHeartbeatAt: now.UnixMilli(),
+	}))
+	handler := coordinator.NewHandler(coordinator.HandlerConfig{
+		SecretStore:         secretStore,
+		DAGRunRepository:    dagRunRepository,
+		DAGRunLeaseStore:    leaseStore,
+		StaleLeaseThreshold: time.Minute,
+	})
+
+	resolve := func(name, ref string) (*coordinatorv1.ResolveSecretReferenceResponse, error) {
+		return handler.ResolveSecretReference(ctx, &coordinatorv1.ResolveSecretReferenceRequest{
+			Name:       name,
+			Ref:        ref,
+			WorkerId:   "worker-1",
+			AttemptKey: attemptKey,
+			AttemptId:  attempt.ID(),
+		})
+	}
+
+	resp, err := resolve("ssh.key", "ssh/deploy-key")
+	require.NoError(t, err)
+	assert.Equal(t, "key-value", resp.GetValue())
+
+	_, err = resolve("ssh.password", "ssh/unused-password")
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
+
+	_, err = resolve("ssh.key", "ssh/other-key")
 	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 }

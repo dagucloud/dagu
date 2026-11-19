@@ -18,11 +18,57 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file/slotindex"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	queuedomain "github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBackfillScheduleParams(t *testing.T) {
+	f := newQueueFixture(t)
+	dag, err := spec.LoadYAML(f.ctx, []byte(`
+name: scheduled-report
+params: {mode: default}
+schedule:
+  - expression: "0 5 * * *"
+    params: {mode: y}
+  - expression: "0 6 * * *"
+    params: {mode: z}
+  - expression: "0 5,6 * * *"
+    params: {mode: overlap}
+  - expression: "0 7 * * *"
+steps:
+  - run: echo report
+`))
+	require.NoError(t, err)
+
+	cfg := &config.Config{}
+	cfg.Paths.LogDir = t.TempDir()
+	s := &Scheduler{config: cfg, dagRunRepository: f.dagRunRepository, queueStore: f.queueStore}
+	target := backfill.Target{DAG: dag, Schedule: backfill.SlotSchedule{Schedules: dag.Schedule, Location: time.UTC}}
+	for _, tc := range []struct {
+		runID    string
+		hour     int
+		explicit string
+		want     string
+	}{
+		{runID: "first", hour: 5, want: "mode=y"},
+		{runID: "second", hour: 6, want: "mode=z"},
+		{runID: "explicit", hour: 6, explicit: "mode=manual", want: "mode=manual"},
+		{runID: "defaults", hour: 7, want: "mode=default"},
+	} {
+		record := &backfill.Record{DAGName: dag.Name, ID: "bf123456"}
+		record.Options.Params = tc.explicit
+		slot := backfill.RecordSlot{At: time.Date(2026, 11, 12, tc.hour, 0, 0, 0, time.UTC)}
+		require.NoError(t, s.enqueueBackfillRun(f.ctx, record, target, slot, tc.runID))
+		attempt, err := f.dagRunRepository.FindAttempt(f.ctx, ir.NewDAGRunRef(dag.Name, tc.runID))
+		require.NoError(t, err)
+		status, err := attempt.ReadStatus(f.ctx)
+		require.NoError(t, err)
+		require.Contains(t, status.ParamsList, tc.want)
+	}
+}
 
 // writeQueuedRun writes a queued run of the fixture's DAG, a backfill run
 // when backfillID is set.

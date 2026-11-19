@@ -71,6 +71,9 @@ type DAGDefinitionStore interface {
 	MigrateSuspensionState(ctx context.Context) error
 	SetSuspended(ctx context.Context, id string, suspended bool) error
 	IsSuspended(ctx context.Context, id string) (bool, error)
+	// SuspendedSince reports when the suspension of a DAG began, or false
+	// when the DAG is not suspended. Suspending a suspended DAG keeps it.
+	SuspendedSince(ctx context.Context, id string) (time.Time, bool, error)
 }
 
 // DAGLoadOptions controls how a DAG specification is built.

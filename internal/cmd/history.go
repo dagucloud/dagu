@@ -315,7 +315,11 @@ func buildLabelsFilter(ctx *Context) ([]string, error) {
 		return nil, nil
 	}
 
-	if labels := parseLabels(labelsStr); len(labels) > 0 {
+	labels := parseLabels(labelsStr)
+	if _, err := ir.ParseLabelFilters(labels); err != nil {
+		return nil, err
+	}
+	if len(labels) > 0 {
 		return labels, nil
 	}
 

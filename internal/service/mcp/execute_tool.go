@@ -189,10 +189,14 @@ func executeToolInputSchema() json.RawMessage {
 				"type": "string",
 				"description": "For backfill: last slot, inclusive. Defaults to now."
 			},
+			"by": {
+				"type": "string",
+				"description": "For backfill: a dates entry of the DAG. from and to are then dates (YYYY-MM-DD) of that entry, and the range holds the slots whose entry falls between them."
+			},
 			"slots": {
 				"type": "array",
 				"items": {"type": "string"},
-				"description": "For backfill: slots to run instead of a range. Excludes from, to, and rerun."
+				"description": "For backfill: slots to run instead of a range. Excludes from, to, by, and rerun."
 			},
 			"rerun": {
 				"type": "string",

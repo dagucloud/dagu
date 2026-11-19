@@ -494,6 +494,7 @@ type Task struct {
 	xxx_hidden_IntervalStart              string                 `protobuf:"bytes,43,opt,name=interval_start,json=intervalStart,proto3"`
 	xxx_hidden_NextScheduledAt            string                 `protobuf:"bytes,44,opt,name=next_scheduled_at,json=nextScheduledAt,proto3"`
 	xxx_hidden_ScheduleTimezone           string                 `protobuf:"bytes,45,opt,name=schedule_timezone,json=scheduleTimezone,proto3"`
+	xxx_hidden_DatesJson                  string                 `protobuf:"bytes,46,opt,name=dates_json,json=datesJson,proto3"`
 	XXX_raceDetectHookData                protoimpl.RaceDetectHookData
 	XXX_presence                          [2]uint32
 	unknownFields                         protoimpl.UnknownFields
@@ -836,6 +837,13 @@ func (x *Task) GetScheduleTimezone() string {
 	return ""
 }
 
+func (x *Task) GetDatesJson() string {
+	if x != nil {
+		return x.xxx_hidden_DatesJson
+	}
+	return ""
+}
+
 func (x *Task) SetOperation(v Operation) {
 	x.xxx_hidden_Operation = v
 }
@@ -986,7 +994,7 @@ func (x *Task) SetIncludeDownstream(v bool) {
 
 func (x *Task) SetBaseConfigWorkspace(v string) {
 	x.xxx_hidden_BaseConfigWorkspace = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[1]), 37, 44)
+	protoimpl.X.SetPresent(&(x.XXX_presence[1]), 37, 45)
 }
 
 func (x *Task) SetBypassPreconditions(v bool) {
@@ -1011,6 +1019,10 @@ func (x *Task) SetNextScheduledAt(v string) {
 
 func (x *Task) SetScheduleTimezone(v string) {
 	x.xxx_hidden_ScheduleTimezone = v
+}
+
+func (x *Task) SetDatesJson(v string) {
+	x.xxx_hidden_DatesJson = v
 }
 
 func (x *Task) HasPreviousStatus() bool {
@@ -1110,6 +1122,9 @@ type Task_builder struct {
 	IntervalStart    string
 	NextScheduledAt  string
 	ScheduleTimezone string
+	// The run's dates as JSON, resolved when the run was created. Empty when
+	// the run resolves them as it starts.
+	DatesJson string
 }
 
 func (b0 Task_builder) Build() *Task {
@@ -1154,7 +1169,7 @@ func (b0 Task_builder) Build() *Task {
 	x.xxx_hidden_TargetWorkerId = b.TargetWorkerId
 	x.xxx_hidden_IncludeDownstream = b.IncludeDownstream
 	if b.BaseConfigWorkspace != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[1]), 37, 44)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[1]), 37, 45)
 		x.xxx_hidden_BaseConfigWorkspace = b.BaseConfigWorkspace
 	}
 	x.xxx_hidden_BypassPreconditions = b.BypassPreconditions
@@ -1163,6 +1178,7 @@ func (b0 Task_builder) Build() *Task {
 	x.xxx_hidden_IntervalStart = b.IntervalStart
 	x.xxx_hidden_NextScheduledAt = b.NextScheduledAt
 	x.xxx_hidden_ScheduleTimezone = b.ScheduleTimezone
+	x.xxx_hidden_DatesJson = b.DatesJson
 	return m0
 }
 
@@ -1282,6 +1298,7 @@ type WorkerInfo struct {
 	xxx_hidden_RunningTasks    *[]*RunningTask        `protobuf:"bytes,7,rep,name=running_tasks,json=runningTasks,proto3"`
 	xxx_hidden_LastHeartbeatAt int64                  `protobuf:"varint,8,opt,name=last_heartbeat_at,json=lastHeartbeatAt,proto3"`
 	xxx_hidden_HealthStatus    WorkerHealthStatus     `protobuf:"varint,9,opt,name=health_status,json=healthStatus,proto3,enum=coordinator.v1.WorkerHealthStatus"`
+	xxx_hidden_Version         string                 `protobuf:"bytes,10,opt,name=version,proto3"`
 	unknownFields              protoimpl.UnknownFields
 	sizeCache                  protoimpl.SizeCache
 }
@@ -1376,6 +1393,13 @@ func (x *WorkerInfo) GetHealthStatus() WorkerHealthStatus {
 	return WorkerHealthStatus_WORKER_HEALTH_STATUS_UNSPECIFIED
 }
 
+func (x *WorkerInfo) GetVersion() string {
+	if x != nil {
+		return x.xxx_hidden_Version
+	}
+	return ""
+}
+
 func (x *WorkerInfo) SetWorkerId(v string) {
 	x.xxx_hidden_WorkerId = v
 }
@@ -1412,6 +1436,10 @@ func (x *WorkerInfo) SetHealthStatus(v WorkerHealthStatus) {
 	x.xxx_hidden_HealthStatus = v
 }
 
+func (x *WorkerInfo) SetVersion(v string) {
+	x.xxx_hidden_Version = v
+}
+
 type WorkerInfo_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -1425,6 +1453,7 @@ type WorkerInfo_builder struct {
 	RunningTasks    []*RunningTask
 	LastHeartbeatAt int64
 	HealthStatus    WorkerHealthStatus
+	Version         string
 }
 
 func (b0 WorkerInfo_builder) Build() *WorkerInfo {
@@ -1440,6 +1469,7 @@ func (b0 WorkerInfo_builder) Build() *WorkerInfo {
 	x.xxx_hidden_RunningTasks = &b.RunningTasks
 	x.xxx_hidden_LastHeartbeatAt = b.LastHeartbeatAt
 	x.xxx_hidden_HealthStatus = b.HealthStatus
+	x.xxx_hidden_Version = b.Version
 	return m0
 }
 
@@ -1451,6 +1481,7 @@ type HeartbeatRequest struct {
 	xxx_hidden_Stats    *WorkerStats           `protobuf:"bytes,3,opt,name=stats,proto3"`
 	xxx_hidden_Host     string                 `protobuf:"bytes,4,opt,name=host,proto3"`
 	xxx_hidden_Machine  *MachineSample         `protobuf:"bytes,5,opt,name=machine,proto3"`
+	xxx_hidden_Version  string                 `protobuf:"bytes,6,opt,name=version,proto3"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1515,6 +1546,13 @@ func (x *HeartbeatRequest) GetMachine() *MachineSample {
 	return nil
 }
 
+func (x *HeartbeatRequest) GetVersion() string {
+	if x != nil {
+		return x.xxx_hidden_Version
+	}
+	return ""
+}
+
 func (x *HeartbeatRequest) SetWorkerId(v string) {
 	x.xxx_hidden_WorkerId = v
 }
@@ -1533,6 +1571,10 @@ func (x *HeartbeatRequest) SetHost(v string) {
 
 func (x *HeartbeatRequest) SetMachine(v *MachineSample) {
 	x.xxx_hidden_Machine = v
+}
+
+func (x *HeartbeatRequest) SetVersion(v string) {
+	x.xxx_hidden_Version = v
 }
 
 func (x *HeartbeatRequest) HasStats() bool {
@@ -1565,6 +1607,7 @@ type HeartbeatRequest_builder struct {
 	Stats    *WorkerStats
 	Host     string
 	Machine  *MachineSample
+	Version  string
 }
 
 func (b0 HeartbeatRequest_builder) Build() *HeartbeatRequest {
@@ -1576,6 +1619,7 @@ func (b0 HeartbeatRequest_builder) Build() *HeartbeatRequest {
 	x.xxx_hidden_Stats = b.Stats
 	x.xxx_hidden_Host = b.Host
 	x.xxx_hidden_Machine = b.Machine
+	x.xxx_hidden_Version = b.Version
 	return m0
 }
 
@@ -6583,7 +6627,7 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\x0fDispatchRequest\x12(\n" +
 	"\x04task\x18\x01 \x01(\v2\x14.coordinator.v1.TaskR\x04task\x12>\n" +
 	"\x1badmission_reservation_token\x18\x02 \x01(\tR\x19admissionReservationToken\"\x12\n" +
-	"\x10DispatchResponse\"\xba\x0f\n" +
+	"\x10DispatchResponse\"\xd9\x0f\n" +
 	"\x04Task\x127\n" +
 	"\toperation\x18\x06 \x01(\x0e2\x19.coordinator.v1.OperationR\toperation\x12)\n" +
 	"\x11root_dag_run_name\x18\x01 \x01(\tR\x0erootDagRunName\x12%\n" +
@@ -6640,14 +6684,16 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\ftrigger_type\x18* \x01(\tR\vtriggerType\x12%\n" +
 	"\x0einterval_start\x18+ \x01(\tR\rintervalStart\x12*\n" +
 	"\x11next_scheduled_at\x18, \x01(\tR\x0fnextScheduledAt\x12+\n" +
-	"\x11schedule_timezone\x18- \x01(\tR\x10scheduleTimezone\x1aA\n" +
+	"\x11schedule_timezone\x18- \x01(\tR\x10scheduleTimezone\x12\x1d\n" +
+	"\n" +
+	"dates_json\x18. \x01(\tR\tdatesJson\x1aA\n" +
 	"\x13WorkerSelectorEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x18\n" +
 	"\x16_base_config_workspace\"\x13\n" +
 	"\x11GetWorkersRequest\"J\n" +
 	"\x12GetWorkersResponse\x124\n" +
-	"\aworkers\x18\x01 \x03(\v2\x1a.coordinator.v1.WorkerInfoR\aworkers\"\xe3\x03\n" +
+	"\aworkers\x18\x01 \x03(\v2\x1a.coordinator.v1.WorkerInfoR\aworkers\"\xfd\x03\n" +
 	"\n" +
 	"WorkerInfo\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12\x1b\n" +
@@ -6658,16 +6704,19 @@ const file_proto_coordinator_v1_coordinator_proto_rawDesc = "" +
 	"\fbusy_pollers\x18\x06 \x01(\x05R\vbusyPollers\x12@\n" +
 	"\rrunning_tasks\x18\a \x03(\v2\x1b.coordinator.v1.RunningTaskR\frunningTasks\x12*\n" +
 	"\x11last_heartbeat_at\x18\b \x01(\x03R\x0flastHeartbeatAt\x12G\n" +
-	"\rhealth_status\x18\t \x01(\x0e2\".coordinator.v1.WorkerHealthStatusR\fhealthStatus\x1a9\n" +
+	"\rhealth_status\x18\t \x01(\x0e2\".coordinator.v1.WorkerHealthStatusR\fhealthStatus\x12\x18\n" +
+	"\aversion\x18\n" +
+	" \x01(\tR\aversion\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb0\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xca\x02\n" +
 	"\x10HeartbeatRequest\x12\x1b\n" +
 	"\tworker_id\x18\x01 \x01(\tR\bworkerId\x12D\n" +
 	"\x06labels\x18\x02 \x03(\v2,.coordinator.v1.HeartbeatRequest.LabelsEntryR\x06labels\x121\n" +
 	"\x05stats\x18\x03 \x01(\v2\x1b.coordinator.v1.WorkerStatsR\x05stats\x12\x12\n" +
 	"\x04host\x18\x04 \x01(\tR\x04host\x127\n" +
-	"\amachine\x18\x05 \x01(\v2\x1d.coordinator.v1.MachineSampleR\amachine\x1a9\n" +
+	"\amachine\x18\x05 \x01(\v2\x1d.coordinator.v1.MachineSampleR\amachine\x12\x18\n" +
+	"\aversion\x18\x06 \x01(\tR\aversion\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x8c\x03\n" +

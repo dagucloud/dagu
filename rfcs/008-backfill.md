@@ -1,6 +1,6 @@
 # RFC 008: Backfill
 
-- **Status:** Proposed
+- **Status:** Implemented
 - **Date:** 2026-11-10
 - **Affected areas:** `service/scheduler`, `intake`, `queue`, `persis`
   (backfill store, slot index), `notification`, `service/frontend` (API, UI),
@@ -262,6 +262,7 @@ Start 28 runs? [y/N]
     deadline (RFC 009) that wait would miss. When a backfill run outlasts the
     cadence, how many live slots `overlap_policy: skip` drops.
   - The DAG is suspended, and its backfill runs will still run.
+  - The DAG does not read its slot, so every run does the same work.
   - The `handler_on` steps that will run once per slot, by name.
   - A `--params` value for a param that would otherwise follow the slot.
   - Slots with no record, and slots that run because the cadence changed.
@@ -358,11 +359,14 @@ submit ─▶ plan ─▶ backfill record ─▶ scheduler ─▶ enqueue slot r
   remaining slots marked `cancelled`.
 - **Notifications.** `mail_on` and notification routes do not fire per backfill
   run, except for `wait`, where a person must act. The backfill sends one
-  summary through the same channels when it ends, with the totals and the
-  failed slots grouped by error. `handler_on` steps still run, because Dagu
-  cannot tell a cleanup handler from an alert, and a skipped cleanup corrupts
-  state. The plan names the handlers that will run once per slot. The docs show
-  the opt-out for an alert handler: a precondition on
+  summary through the DAG's notification routes when it ends, with the totals
+  and the failed slots grouped by error. It sends none through `mail_on`:
+  that would need a process per ended backfill to resolve the DAG's SMTP
+  settings and secrets. A DAG that mails only through `mail_on` gets the
+  summary once it routes to an email channel. `handler_on` steps still run,
+  because Dagu cannot tell a cleanup handler from an alert, and a skipped
+  cleanup corrupts state. The plan names the handlers that will run once per
+  slot. The docs show the opt-out for an alert handler: a precondition on
   `${context.trigger.type}` with `expected: backfill` and `negate: true`.
 
 A backfill ends as `succeeded` when every selected slot succeeded or was
@@ -422,6 +426,11 @@ When a pause, a suspension, or an outage longer than `catchup_window` ends, the
 DAG shows **12 slots passed while this DAG was suspended: Backfill**, which
 opens the panel with that gap selected. Slots skipped because the DAG was busy
 raise no notice. Dismissing the notice hides that gap until another is missed.
+
+Only a DAG that reads its slot shows the notice: one that declares `dates`,
+refers to its run's slot, window, or dates, or calls a sub-DAG, which inherits
+the slot. The runs of any other DAG all do the same work, so backfilling it
+repeats one run.
 
 ### Watching a backfill
 
@@ -546,7 +555,8 @@ and queue pages filter by `backfill`.
 30. A submit with a stale plan revision starts nothing and returns the new
     plan.
 31. Lifting a suspension shows the slots that passed, and the panel opens with
-    them selected.
+    them selected, for a DAG that reads its slot; a DAG that does not shows
+    nothing.
 32. A slot skipped under `skip_if_successful` is listed as `skip: succeeded`.
 33. The page of a 10,000-slot backfill renders without loading every slot.
 34. `--by target_day --from 2026-10-01 --to 2026-10-31` on an hourly DAG with

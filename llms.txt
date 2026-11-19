@@ -17,6 +17,7 @@ Load only the reference file that matches the task.
 - Use `type: build` only for local regular-file pipelines whose unchanged transformations should be reused across runs.
 - Prefer `id` on every step. Omit `name` unless the display label must differ from the step ID.
 - Prefer `dagu schema ...` and `dagu validate ...` over guessing field names or shapes.
+- For requests against a running Dagu server (list, create, run, stop, schedule), follow `references/server-operations.md`: detect whether a server exists without asking, then prefer MCP, then REST, then a CLI remote context, and use the local CLI or file edits only as a stated last resort. With no server detected, work locally as usual. A local CLI pointed at the server's data directory is not a server request.
 - Prefer `action: template.render` when generating text files, prompts, or artifacts instead of assembling them with shell `echo` or heredocs.
 - Prefer `action: js.run` for transforming data between steps (parsing, filtering, reshaping, extracting with regular expressions, computing values) instead of `python -c`, Python or Node heredocs, or `awk`, `sed`, and `jq` pipelines in `run:`. It needs no interpreter on the host or worker, Dagu passes its script as written so `${...}` and `$` need no escaping, syntax errors fail validation before a run, and its returned value is clean stdout for `output:`. Pass data in with `with.input` or `with.input_file`. Keep `run:` for invoking CLIs and for work that needs the network, the filesystem, environment variables, or a library; `js.run` has none of these. A single jq path such as `.items[].id` is fine in `jq.filter`.
 - Prefer `file.*` actions for local file operations such as stat, read, write, copy, move, delete, mkdir, and list instead of shelling out to `cp`, `mv`, `rm`, or `mkdir`.
@@ -216,6 +217,7 @@ Load only the file you need:
 - `references/steptypes.md` when choosing an action or checking action-specific behavior such as `human.task`, `dag.run`, `parallel`, `git.worktree.*`, `jq.filter`, `js.run`, `file.*`, `xlsx.*`, `state.*`, `template.render`, `chat.completion`, `browser.*`, or `computer.*`
 - `references/dagu-action.md` when creating a reusable `dagu-action.yaml` package or checking action input/output schema behavior
 - `references/cli.md` when choosing or using Dagu CLI commands, including workflow inspection, execution, and cleanup operations, and browser sessions for building a browser step on a site you have not seen
+- `references/server-operations.md` when the task targets a running Dagu server: reading or changing DAGs, starting, stopping or retrying runs, or checking run status and logs through MCP, REST, or a remote context
 - `references/context.md` when using `${context.*}` metadata references or declared step `outputs:`
 - `references/build.md` when creating or troubleshooting a `type: build` file workflow, path references, reuse decisions, or `--no-reuse`
 - `references/file-dependencies.md` when a DAG needs scripts, configuration, or other files from its working directory
@@ -728,7 +730,17 @@ steps:
       destination: /remote/file.tar.gz
 ```
 
-Shared SSH fields: `user`, `host`, `port`, `key`, `password`, `timeout`, `strict_host_key`, `known_host_file`, `bastion`. `ssh.run` also accepts `shell` and `shell_args`.
+Shared SSH fields: `user`, `host`, `port`, `key`, `password`, `passphrase`, `timeout`, `strict_host_key`, `known_host_file`, `bastion`. `ssh.run` also accepts `shell` and `shell_args`.
+
+`key` is a path, `{file: <path>}`, or `{secret: <ref>}`. `password` and `passphrase` are a string or `{secret: <ref>}`. `bastion` takes the same three fields. A `secret` names a Dagu-managed registry secret, is literal (no `${...}`), resolves once at run start, and is masked but never exported to step environments. A passphrase unlocks an encrypted key, including a default `~/.ssh/id_*` key.
+
+```yaml
+ssh:
+  user: deploy
+  host: server.example.com
+  key: {secret: ssh/deploy-key}
+  passphrase: {secret: ssh/deploy-passphrase}
+```
 
 ## http.request
 
@@ -767,6 +779,68 @@ steps:
 Do not set the multipart `Content-Type` header manually. `body` cannot be combined with `form` or `files`.
 
 `with` fields: `method`, `url`, `timeout`, `headers`, `query`, `body`, `form`, `files`, `silent`, `debug`, `format`, `output`, `json`, `skip_tls_verify`.
+
+## mcp.call
+
+Call one tool on a remote MCP server over Streamable HTTP, without an LLM. Each run connects, sends one `tools/call`, and closes; only `retry_policy` re-runs it.
+
+```yaml
+secrets:
+  - name: MCP_TOKEN
+    provider: env
+    key: MCP_TOKEN
+
+steps:
+  - id: scrape
+    action: mcp.call
+    with:
+      url: https://mcp.example.com/mcp
+      tool: scrape
+      arguments:
+        url: https://example.com
+      headers:
+        Authorization: Bearer ${MCP_TOKEN}
+    timeout_sec: 60
+    output: PAGE
+
+  - id: use
+    depends: scrape
+    run: echo "${PAGE.structured_content.pages}"
+```
+
+stdout is `{"content": [...], "structured_content": ..., "json": ..., "is_error": false}`. Read it with `${PAGE.content}` and `${PAGE.structured_content.<field>}`. For a tool that returns JSON as its only text item and no structured content, `json` holds the parsed object or array, read with `${PAGE.json.<field>}`; otherwise it is `null`. A tool that reports `isError` fails the step. A failed call writes `{"error": {"kind": "...", "message": "..."}}`, where `kind` is `tool`, `auth`, `protocol`, `transport`, `timeout`, or `canceled`.
+
+Image, audio, and blob resource data is base64 in the output by default. With `save_binary: true`, each such item is saved to the run artifacts under `mcp/<step id>/`, and the item carries `path` (relative to `$DAG_RUN_ARTIFACTS_DIR`) instead of the data.
+
+Put credentials in `headers`, never in the URL. Values of headers and URL query parameters whose name contains `auth`, `key`, `token`, `secret`, `cookie`, or `password` are masked in the output. Redirects are not followed.
+
+`with` fields: `url`, `tool`, `arguments` (object, or a `${...}` reference to a JSON object), `headers`, `include_raw`, `save_binary`.
+
+## data.filter
+
+Keep the rows of a list that meet conditions on their fields, read as a page or a sheet writes them, then order and cut them. Use it for rows a `browser.run` or `computer.run` extract read, such as listings or orders, instead of code that parses each value.
+
+```yaml
+params:
+  - MAX_PRICE: 70000000
+steps:
+  - id: keep
+    action: data.filter
+    with:
+      from: json
+      data: ${steps.read.outputs.listings}   # rows an earlier browser.run step, read, extracted
+      where:
+        price: {max: "${params.MAX_PRICE}"}   # 4,280万円 reads as 42800000
+        access: {max: 5}                      # 京阪本線「天満橋」徒歩4分 reads as 4
+        built: {from: "1981-06"}              # 1983年5月 and 昭和58年5月 read as 1983-05
+        updated: {within: 7d}                 # 情報更新日：2026/11/12 reads as that day
+        address: {any: [北区, 中央区]}
+      sort: [built, -price]
+      limit: 20
+    output: KEPT
+```
+
+Each field of `where` takes one kind of condition. Numbers: `min`, `max`; a value reads as the first number in it, with 万 and 億 applied and commas and full-width digits read. Dates: `from`, `to` (a year, a month, or a day, inclusive), `within` (days back from today, as `7d` or `2w`); a value reads as the first date in it: `2026/11/12`, `2026-11-12`, `1983年5月`, a Japanese era date such as `昭和58年5月`, or a year. Text: `is`, `any` (contains one of), `none` (contains none of), compared with full-width letters and digits folded; a text given to `any` or `none` lists the words its commas separate, as `${params.AREAS}` holding `北区,中央区` does. A bound left empty sets no limit, so a parameter defaulting to `""` filters nothing until it is set. A row passes when every condition holds; a row whose value does not read as the condition's kind is left out and counted on stderr, with an example. `sort` orders by fields, `-` before one for descending, comparing each as its condition reads it, else as the kind most of its values read as; values that do not read as it come last. `select` picks the list from an object first. Output is the kept rows as JSON, or in `to`.
 
 ## jq.filter
 
@@ -1558,6 +1632,7 @@ steps:
 Browser behavior:
 
 - Before writing a browser step for a page you have not seen, work the page in a browser session (`dagu browser session`, see `references/cli.md`) with the same operations, looking at its outline after each, instead of guessing at its fields, buttons, or addresses. Export what worked: the step comes out with its acts recorded, so its first run replays them. With `browser.profile`, sign-in operations run only while the site asks for them, so guard them with `when: {selector: ...}` on the sign-in form.
+- Split a task of several stages (sign in, search, collect) into one browser step per stage, each with the same `browser.share: <name>` and `depends` on the stage before it, since the shared name only makes the steps take turns and orders nothing. The steps use one browser in turn: each starts on the page the step before left, signed in, session cookies included, and a step without `url` continues there. A failed stage reruns alone, and the others keep their replays. Give the steps the same `headless`, `executable`, `viewport`, `proxy`, `profile`, `client_certificates`, and `write_gate`. The browser closes when the run ends, also when the run waits for a person between the steps, so add `browser.profile` for a sign-in that should last across runs.
 - Each `do` item sets exactly one of `goto`, `act`, `upload`, `extract`, `expect`, `wait` (`selector` or `duration`), `screenshot`, or `ask`, plus optional `when` (skip unless it holds) and `timeout`.
 - An `act` performs one action: "Sign in with %user% and %password%" types into one field and stops. Write one act per field and one for the button. A dropdown that is not a native `<select>` takes two acts: one opens it, the next picks the option.
 - `upload: {files, into}` gives local files to a file input; an `act` cannot. `files` is a path or glob pattern relative to the step's working directory, a list of them, or an earlier step's output holding a JSON list of paths, of objects with a `path`, or of `mail.search` emails, whose attachments saved with `save_attachments: true` are uploaded. Each file is at most 50 MB. `into` names the file input, or the button or drop area that opens the file picker, in plain words; the model finds it once and later runs replay it like an act. Leave `into` out when the page has one file input; no model is asked then. The element gets the files directly when it is or holds one file input; otherwise Dagu clicks it and hands the files to the file picker it opens, which never shows; when none opens, the file input nearest it gets them. A file input that takes one file fails when given several. The model never sees the files. Follow an upload with an `expect` for what the site shows once it has the files, such as `{text: "Uploaded", within: 1m}`.
@@ -1566,6 +1641,7 @@ Browser behavior:
 - Model requests carry the instruction, the page's elements and visible text, and the extract schema; never variable values, typed field text, or screenshots. Declared secrets shown on the page are masked; plain variables are not.
 - "the model (...) answered that no element on the page matches the instruction" means the model chose no element. If the failure screenshot shows the element, the model answers that way for every request (for example `google/gemini-2.5-flash` via OpenRouter); switch models. Otherwise fix the instruction.
 - The top-level properties of each `extract` schema become `${steps.<id>.outputs.<name>}`. The same property in two extracts is a validation error.
+- A list whose pages a Next button turns is read in one `extract` with `pages: {next: "Click the Next page button"}`: it extracts each page, clicks `next`, and collects the items of the schema's top-level array properties from every page in order, ending where nothing is left to click, the page stops changing (`within`, default `10s`), or `max` pages (default 20). Never write a step or an operation per page. The click is recorded once and replayed on the later pages and runs. A list whose pages have addresses can instead be read by collecting the addresses and running one step per address with `foreach`.
 - An answer that breaks the `extract` schema gets one correction, then the next `with.model` entry is tried. When a page may have nothing to find, use a list the model can leave empty, or allow null with `type: [string, "null"]`; a required string has no way to say "nothing".
 - A field that should hold the address a link points to needs `format: uri`, as in `link: {type: string, format: uri}`, and a place in `required`. Without the format the model returns the link's element id, such as `0-11` or `[0-11]`, and the step still succeeds; without `required` some models leave the field out. `dagu validate` warns about a string field named like an address (`url`, `link`, `href`, `detail_url`, ...) that has no `format: uri`.
 - The `act` and `upload` operations of a step that succeeded are replayed on later runs on the same host without a model call; `extract` and model-judged conditions still call the model. A replay acts only on an element with the role and name it recorded, in the same row text when the page repeats it (such as a Delete button per row), and on a select offering the recorded option, or else asks the model again. A recording whose actions never use a variable the instruction names, as when the page already showed the value, replays only where that variable has the value it had then; another value asks the model, and fails under `never`. Unnamed elements are told apart by role only, so follow important acts with an `expect`: when a later operation fails on the page, the step's replays are dropped and the next run asks the model again.
@@ -1876,6 +1952,7 @@ Flags:
 - `--from-run-id` — Historic dag-run ID to use as the template for a new run
 - `--only` — Run only this step (name or ID) in a new run of the current definition; repeatable. Other steps are recorded as skipped. Not with `--from-run-id`
 - `--outputs-from` — Finished run of the same DAG whose work directory, and the outputs of the skipped steps that the `--only` steps depend on, feed the run (requires `--only`)
+- `--reuse-from` — Finished run of the same DAG whose unchanged steps this run reuses instead of running: a step whose definition, the DAG's other settings, the parameters, and the steps it depends on are as they were, and that succeeded there, carries its outputs; the changed steps, the steps after them, and the steps sharing a browser (`browser.share`) with them run. Use it while editing a DAG to rerun only what an edit changed. When nothing changed, or nothing can be reused, every step runs and nothing is carried. Not combinable with `--only` and its output flags
 - `--output-from` — Run that gives the outputs of ONE skipped step, as `<step>=<run-id>`; repeatable, takes precedence over `--outputs-from` for that step (requires `--only`). The run must be a finished run of the same DAG, and the step must have succeeded there
 - `--output` — Deprecated: use `--output-from`. Output of a step skipped by `--only`, as `<step>.<name>=<value>`; repeatable, takes precedence over `--outputs-from` and `--output-from` (requires `--only`)
 - `--labels` — Additional labels (comma-separated key=value or key-only)
@@ -1936,6 +2013,8 @@ Dequeue a DAG run from a queue (marks it as aborted): `dagu dequeue <queue-name>
 ### dagu stop
 
 Stop an active DAG run: `dagu stop <dag-name> [--run-id/-r <id>]`
+
+With `--run-id`, a root run waiting for an approval or a human task ends as aborted without running its remaining steps.
 
 ### dagu restart
 
@@ -2030,7 +2109,7 @@ Flags:
 - `--last` — Relative time period (e.g. `7d`, `24h`, `1w`). Cannot combine with `--from`/`--to`
 - `--status` — Filter by status: `running`, `succeeded`, `failed`, `aborted`, `queued`, `waiting`, `rejected`, `not_started`, `partially_succeeded`
 - `--run-id` — Filter by run ID (partial match supported)
-- `--labels` — Filter by labels (comma-separated key=value or key-only, AND logic)
+- `--labels` — Filter by labels, comma-separated with AND logic: `key`, `key=value`, globs with `*` and `?`, and `!` to negate any term (e.g., `env=prod,!canary`). An invalid term is an error
 - `--tags` — Deprecated alias for `--labels`
 - `--format/-f` — Output format: `table` (default), `json`, `csv`
 - `--limit/-l` — Max results (default 100, max 1000)
@@ -2206,6 +2285,8 @@ dagu config
 
 ## Server & Scheduling
 
+To operate a running server (MCP, REST, remote contexts), see `server-operations.md`.
+
 ### dagu start-all
 
 Start server + scheduler + optionally coordinator in one process. Coordinator enabled by default (disable with `DAGU_COORDINATOR_ENABLED=false`).
@@ -2280,6 +2361,7 @@ Use scoped references when Dagu should resolve a named value before execution.
 | Reference | Meaning |
 | --- | --- |
 | `${consts.NAME}` | Top-level `consts:` value |
+| `${dates.NAME}` | Top-level `dates:` entry, resolved from the run's schedule slot |
 | `${params.NAME}` | Runtime parameter value |
 | `${env.NAME}` | Value in Dagu's runtime environment scope for the current step |
 | `${steps.<step_id>.outputs.<name>}` | Declared value output, human-task form value, or committed build path output |
@@ -2317,6 +2399,35 @@ Rules:
 - Consts from a base config are inherited. A DAG-local const with the same name overrides the inherited value.
 
 Use `consts:` for fixed workflow configuration. Use `params:` for per-run user input. Use `env:` for values that should be available to the running process environment.
+
+## Top-Level `dates:`
+
+Use `dates:` for the dates a scheduled run loads, derived from its slot. Each run resolves them once when it is created, so a retry, a manual run for the slot (`dagu start --scheduled-at`), and the scheduler's run get the same values.
+
+```yaml
+schedule: "CRON_TZ=Asia/Tokyo 0 2 * * *"
+calendar: jp-banking
+dates:
+  target_day: -1d
+  target_compact: { from: target_day, format: date_compact }
+  month_start: [-1d, month_start]
+  last_open_day: -1bd
+  window_days: { each: 1d }
+steps:
+  - id: load
+    run: ./load.sh --date ${dates.target_day}
+```
+
+- An entry is a shift (`-1d`, `[-1d, month_start]`) or an object with `from`, `each`, `shift`, `format`, and `timezone`.
+- Shifts: `+N`/`-N` with `min`, `h`, `d`, `w`, `mo`, `y`, `bd`; `hour_start` to `year_start` (weeks start Monday); `bd_or_next`, `bd_or_prev`. `m` is rejected: write `min` or `mo`.
+- `from` is `scheduled_at` (default), `interval_start`, `interval_end`, `next_scheduled_at`, or another entry.
+- `each` lists the window from `interval_start` up to the slot as a JSON array, for `parallel: ${dates.window_days}`. A step under a day needs `format`.
+- Formats: `date` (default), `date_compact`, `datetime`, `rfc3339`, `unix`, or a strftime pattern.
+- Business days use the calendar of the schedule entry that owns the slot, else the DAG's `calendar`.
+- A run started without a slot, by hand, a webhook, or a watched file, gets the default slot: the latest fire at or before it was created. A monthly DAG started on the 15th loads what its run of the 1st loaded.
+- On a DAG with no schedule, `scheduled_at` is the minute the run was created, and a date that needs a window is refused, except in a sub-DAG of a run with a slot, which resolves from its parent's slot.
+- Dates are not environment variables. Pass one through `env:` when a script needs it.
+- A param can follow the slot with `eval: ${dates.target_day}`. It is evaluated when the run starts, so a caller's value overrides it (`dagu start etl -- date=2026-11-01`) without changing the date.
 
 ## Supported Context References
 
@@ -3034,3 +3145,76 @@ Kilo runs as `kilo run "<prompt>" --auto` by default for unattended execution.
 7. **Exit codes** — `0` means success. Provider process or container failures keep the provider's exit code when available; setup and internal errors use `1`; timeouts use `124`. Explicit ACP Stop uses the signal exit code (normally `143`, or `137` when forced).
 8. **Failure output** — Recent stderr is included in the error message on failure. When failed stdout exists, Dagu also includes a recent stdout tail and writes that tail to stderr.
 9. **Fallback behavior** — If the primary harness config fails and the context is still active, fallback entries are tried in order. Failed-attempt stdout is not emitted to step stdout; its recent tail may be written to stderr and included in failure diagnostics. Stderr from failed attempts remains visible in logs.
+
+---
+
+# Operating a Running Dagu Server
+
+Use this file when a request targets a running Dagu instance rather than local files: listing or changing DAGs, starting, stopping or retrying runs, or reading run status and logs.
+
+## Detect the target (once per session, without asking)
+
+Do not ask whether the user means a server or local files. Finish this detection before running any list, run or change command; never run a local-only command (`dagu ls`, `validate`, `dry`, `rm`) alongside it. A remote context or a healthy server found here means the answer must come from the server (routing order below), not from local files; local results are allowed only through a disclosed fallback: the no-key fallback in step 4 or the local-only fallback at the end of this file. Decide in this order:
+
+1. The user names a context, URL, or "local": use it. If they name a remote server without a context or URL, ask for it.
+2. Dagu MCP tools (`dagu_read`, `dagu_change`, `dagu_execute`) are already connected: use them.
+3. `dagu context list` shows a current remote context: use it. If `local` is current and exactly one remote context exists, use that; if several remote contexts could apply (for example staging and production), ask which.
+4. Probe `GET <url>/api/v1/health` on the first candidate that exists: a configured URL, else the address of a listening `dagu` process (`ss -ltnp` on Linux, `lsof -iTCP -sTCP:LISTEN -nP` on macOS, `netstat -ano` on Windows), else `localhost:8080`. The port is often not 8080. If it is healthy, use it, and send one read without credentials (`GET <url>/api/v1/dags`). Success means authentication is off and no key is needed. A 401 means the server needs a credential, not that it is unusable: `WWW-Authenticate: Bearer` asks for an API key, and `Basic` asks for a username and password instead; look for either as follows. Look for the key by the variable name the user or project instructions give; otherwise list environment variable names only (`awk 'BEGIN { for (k in ENVIRON) print k }'`, or `Get-ChildItem Env: | Select-Object -ExpandProperty Name` in PowerShell) and use one that is clearly meant for this server. Send a key only to a configured URL or a `dagu` process found by that listener check, and only over HTTPS or to a loopback address; for the `localhost:8080` guess or plain HTTP to another host, ask first. Connected MCP tools and a remote context hold their own credential and need no key from the environment. If several variables fit, ask. If none fits and no such tier is available, the server is present but unusable: for a read-only request fall back to the local CLI and files (for example `dagu ls`), and begin the answer with a hint that a server was found at `<url>` but no key was available, so these are local results, and how to query the server (name the key variable in project instructions, or `dagu context add`). For a change, ask first. Send an API key as a Bearer token, and a username and password with Basic auth. If it is not healthy, report the server as unavailable and ask before any local change; do not move on to another candidate. A failed probe of the `localhost:8080` guess alone means no server (step 5).
+5. No candidate exists: no server. Use the local CLI and file edits as usual, saying once that no server was found.
+
+Ask only if a server is detected and the request could equally mean local DAG files.
+
+## Routing order
+
+Once a server is detected, use the first tier that supports the operation and reaches the selected target; a tier pointing at a different server (for example connected MCP tools for production when staging was named) is not eligible. Fall back only when it is unavailable, unsupported, or its key is rejected for that whole surface (after a timed-out write, check the run list before retrying so it does not start twice), and say which tier was used when it affects the result.
+
+1. **MCP**, either already-connected Dagu tools or the server's `<server>/mcp` endpoint: tools `dagu_read`, `dagu_change`, `dagu_execute`.
+2. **REST API** (`<server>/api/v1`).
+3. **CLI remote context** (`dagu --context <name> ...`), only for commands that support it.
+4. **Local CLI or file edits**, last resort when a server was detected. These act on local files, not on the server.
+
+Setting `DAGU_HOME` or `DAGU_DAGS_DIR` only points a local CLI at the server's files. It is not a server request, and once a server is detected, a server-requested action must never silently become a local one.
+
+## Prerequisites (check once per session)
+
+- **Endpoint:** find the server's listen address from its configuration or process (listener check from step 4). Do not dump a process environment; it may hold secrets.
+- **Credential:** check by name only, never print the value. MCP and REST take `Authorization: Bearer <key>`, or a username and password when the server uses `auth.mode: basic`. API keys can be limited to surfaces, so a REST-only key can be rejected by MCP.
+- **Reachability:** MCP `initialize` then `tools/list`; REST `GET /api/v1/health` (no auth) and `GET /api/v1/dags`. Close any MCP session you open with `DELETE` and the session id.
+- **Remote context:** `dagu context list`. Creating one changes CLI state, so ask first. Use `dagu context add <name> --server <url>/api/v1` and let the CLI prompt for the key instead of passing it in argv. The prompt needs an interactive terminal; without one the command fails with `--api-key is required`, so ask the user to run it.
+- **Write permission:** a successful read does not prove writes are allowed, and `dagu_change` with `mode=preview` never writes. Write permission is known only when an apply succeeds; report an authorization error as is.
+- **No credential found:** follow the fallback in detection step 4. Never search files or shell history for keys.
+
+## Capability matrix
+
+| Operation | MCP | REST | CLI remote context |
+|---|---|---|---|
+| List or read DAGs | `dagu_read` (`dags`, `dag_spec`) | `GET /dags`, `GET /dags/{fileName}/spec` | not supported (`dagu ls` is local-only) |
+| Validate a spec | `dagu_change` `mode=preview` | `POST /dags/validate` | not supported (`dagu validate` is local-only) |
+| Create or update a DAG | `dagu_change` `upsert_dag`: preview, then apply | `POST /dags`, `PUT /dags/{fileName}/spec` | no |
+| Rename or delete a DAG (ask first) | `dagu_change` `rename_dag` / `delete_dag` | `POST /dags/{fileName}/rename`, `DELETE /dags/{fileName}` | no |
+| Start, enqueue, retry, stop | `dagu_execute` | DAG and DAG-run endpoints | `start`, `enqueue`, `retry`, `stop`, `restart`, `dequeue` |
+| Run status, history, logs | `dagu_read` (`runs`, `run`, `run_logs`) | `GET /dag-runs`, `GET /dag-runs/{name}/{id}` | `history`, `status` |
+| Approve, reject, push back a waiting step | `dagu_execute` | where supported | not supported |
+| Schedule | `schedule:` via `dagu_change` | edit the DAG spec | no separate command |
+
+The live MCP `tools/list` schema and the server's OpenAPI document are authoritative over this table. Commands that cannot run remotely fail with `only supports the local context`; do not retry them locally without saying so.
+
+## Practical notes
+
+- MCP is JSON-RPC over HTTP: `initialize`, `notifications/initialized`, then `tools/call`, sending the returned `Mcp-Session-Id` header on every later request and `Accept: application/json, text/event-stream`. Tool arguments are flat, for example `dagu_change` `{type, name, spec, mode}` and `dagu_execute` `{action, name, dagRunId}`, `dagu_read` `{target: "dags"}`; `mode` defaults to `preview`, so send `mode=apply` to write.
+- For create and update, preview, check `valid`, apply, then read the DAG back.
+- Report a run's `statusLabel` (such as `succeeded`), not the numeric `status`.
+- Pass the key to `curl` through a config file on stdin (`-K -`) so it stays out of argv and output.
+
+## Ask first
+
+Deleting DAGs, purging run history, editing the DAG directory by hand, or an unclear target. Otherwise proceed without asking which context to use.
+
+## Local-only fallback
+
+- `dagu ls`, `validate`, `dry` and `rm` are local-only. Use them for local inspection or an intentionally managed DAG directory.
+- If tiers 1-3 are unavailable, say so and state that the action will be local before taking it; ask first if it changes anything.
+- On a denial of a specific operation, report it and stop. Do not look for a more privileged key.
+- `dagu start <path>` proves only that a file can run, not that the server discovered it.
+- Before local CLI use against the server's data, match its paths and verify with `dagu config`.
+- To schedule a DAG by file, place it in the directory the running scheduler reads, which can differ from the CLI's: check the server's `--dags` flag, `DAGU_HOME`, `DAGU_DAGS_DIR` and `dag_discovery.symlinks` (`dagu schema config`), and confirm the DAG shows a next run on the server.

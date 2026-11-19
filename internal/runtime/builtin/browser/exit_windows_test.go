@@ -9,7 +9,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -212,6 +214,26 @@ func TestCloseBrowserEndsBrowserWithinItsContext(t *testing.T) {
 	require.NoError(t, tree.awaitExit(ctx))
 	assert.False(t, procutil.IsAlive(browser.Process.Pid), "the browser is ended")
 	assert.False(t, procutil.IsAlive(helperPID), "the helper is ended")
+}
+
+// A process still running when closing gives up is named with its program
+// and helper type, so the error tells which one outlived the browser.
+func TestBrowserProcessTreeNamesRunningProcesses(t *testing.T) {
+	t.Parallel()
+
+	browser, helperPID := startSleeperTree(t)
+	startedAt, ok := procutil.StartTime(browser.Process.Pid)
+	require.True(t, ok)
+	tree := recordBrowserProcessTree(browser.Process.Pid, startedAt)
+	require.NotNil(t, tree)
+	t.Cleanup(tree.release)
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	program := filepath.Base(executable)
+
+	described := tree.describeRunning()
+	assert.Contains(t, described, fmt.Sprintf("%d (%s)", browser.Process.Pid, program))
+	assert.Contains(t, described, fmt.Sprintf("%d (%s sleeper)", helperPID, program))
 }
 
 // profileHolders reports the processes whose command line names dir, and

@@ -48,6 +48,16 @@ func TestApplyWorkerSelector(t *testing.T) {
 		assert.Empty(t, dag.WorkerSelector)
 	})
 
+	t.Run("RefusesNodeRequired", func(t *testing.T) {
+		t.Parallel()
+		dag := &ir.DAG{NodeRequired: true}
+
+		err := dag.ApplyWorkerSelector(map[string]string{"zone": "b"})
+
+		require.ErrorContains(t, err, "a node: required DAG runs on its bound node")
+		assert.Empty(t, dag.WorkerSelector)
+	})
+
 	t.Run("RefusesInvalidLabels", func(t *testing.T) {
 		t.Parallel()
 		for name, selector := range map[string]map[string]string{

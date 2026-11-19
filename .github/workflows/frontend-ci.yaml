@@ -7,6 +7,8 @@ on:
     paths:
       - "ui/**"
       - ".github/workflows/frontend-ci.yaml"
+      # The visual editor tests read the DAG schema.
+      - "internal/cmn/schema/dag.schema.json"
       # The golden round-trip test of the UI reads these YAML corpora.
       - "examples/**"
       - "internal/**/*.y*ml"
@@ -23,6 +25,8 @@ on:
     paths:
       - "ui/**"
       - ".github/workflows/frontend-ci.yaml"
+      # The visual editor tests read the DAG schema.
+      - "internal/cmn/schema/dag.schema.json"
       # The golden round-trip test of the UI reads these YAML corpora.
       - "examples/**"
       - "internal/**/*.y*ml"
@@ -55,8 +59,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Changes outside ui/ start this workflow only through the YAML
-      # corpora, which only the golden round-trip test reads.
+      # Changes outside ui/ other than the DAG schema start this workflow
+      # only through the YAML corpora, which only the golden round-trip
+      # test reads.
       - name: Detect UI changes
         id: changes
         shell: bash
@@ -72,10 +77,13 @@ jobs:
           fi
 
           ui=true
+          # grep reads the whole list: with -q it would stop at the first
+          # match, and under pipefail the SIGPIPE of git diff would skip the
+          # tests of a large change.
           if [[ -n "${base_sha}" && "${base_sha}" != "0000000000000000000000000000000000000000" ]] \
             && git cat-file -e "${base_sha}^{commit}" 2>/dev/null \
             && ! git diff --name-only "${base_sha}" "${GITHUB_SHA}" \
-              | grep -qE '^(ui/|\.github/workflows/frontend-ci\.yaml$)'; then
+              | grep -E '^(ui/|internal/cmn/schema/dag\.schema\.json$|\.github/workflows/frontend-ci\.yaml$)' >/dev/null; then
             ui=false
           fi
           echo "ui=${ui}" >> "${GITHUB_OUTPUT}"

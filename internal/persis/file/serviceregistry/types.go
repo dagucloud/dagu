@@ -26,7 +26,7 @@ type instanceInfo struct {
 
 // instanceFilePath returns the file path for an instance
 func instanceFilePath(baseDir, serviceName, instanceID string) string {
-	return filepath.Join(baseDir, serviceName, fmt.Sprintf("%s.json", fileutil.SafeName(instanceID)))
+	return filepath.Join(baseDir, serviceName, fmt.Sprintf("%s.json", fileutil.SafeKey(instanceID)))
 }
 
 // writeInstanceFile writes instance information to a file atomically

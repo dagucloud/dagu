@@ -362,6 +362,57 @@ steps:
     expect(['aborted', 'failed']).toContain(stoppedRun.status);
   });
 
+  // A run that waits for a person ends from the UI without the person.
+  test('stops a waiting human-task run from the UI', async ({
+    page,
+    request,
+  }) => {
+    const stack = await loadStack();
+    const token = await loginViaAPI(
+      request,
+      stack.auth.adminUsername,
+      stack.auth.adminPassword
+    );
+
+    const dagName = uniqueName('e2e-stop-waiting');
+    const fileName = await writeLocalDAG(
+      dagName,
+      `
+name: ${dagName}
+steps:
+  - id: review
+    action: human.task
+    with:
+      prompt: Confirm the release
+  - id: publish
+    depends: review
+    run: echo published
+`
+    );
+
+    await waitForDAGAvailable(request, token, fileName);
+    const dagRunId = await startDAG(request, token, fileName);
+    await waitForRunStatus(request, token, dagName, dagRunId, ['waiting']);
+
+    await page.goto(`/dag-runs/${dagName}/${dagRunId}`);
+    await page
+      .getByTestId('ww-run-actions')
+      .getByRole('button', { name: 'Stop', exact: true })
+      .click();
+
+    const dialog = page.getByRole('dialog', { name: 'Stop this run?' });
+    await expect(
+      dialog.getByText(
+        'Waiting steps are canceled and the remaining steps do not run.'
+      )
+    ).toBeVisible();
+    await expect(dialog.getByRole('checkbox')).toHaveCount(0);
+    await dialog.getByRole('button', { name: 'Stop', exact: true }).click();
+
+    await expect(page.getByText('Run stopped')).toBeVisible();
+    await waitForRunStatus(request, token, dagName, dagRunId, ['aborted']);
+  });
+
   test('retries a failed DAG run from the UI', async ({ page, request }) => {
     const stack = await loadStack();
     const token = await loginViaAPI(

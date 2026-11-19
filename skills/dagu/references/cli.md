@@ -22,6 +22,7 @@ Flags:
 - `--from-run-id` — Historic dag-run ID to use as the template for a new run
 - `--only` — Run only this step (name or ID) in a new run of the current definition; repeatable. Other steps are recorded as skipped. Not with `--from-run-id`
 - `--outputs-from` — Finished run of the same DAG whose work directory, and the outputs of the skipped steps that the `--only` steps depend on, feed the run (requires `--only`)
+- `--reuse-from` — Finished run of the same DAG whose unchanged steps this run reuses instead of running: a step whose definition, the DAG's other settings, the parameters, and the steps it depends on are as they were, and that succeeded there, carries its outputs; the changed steps, the steps after them, and the steps sharing a browser (`browser.share`) with them run. Use it while editing a DAG to rerun only what an edit changed. When nothing changed, or nothing can be reused, every step runs and nothing is carried. Not combinable with `--only` and its output flags
 - `--output-from` — Run that gives the outputs of ONE skipped step, as `<step>=<run-id>`; repeatable, takes precedence over `--outputs-from` for that step (requires `--only`). The run must be a finished run of the same DAG, and the step must have succeeded there
 - `--output` — Deprecated: use `--output-from`. Output of a step skipped by `--only`, as `<step>.<name>=<value>`; repeatable, takes precedence over `--outputs-from` and `--output-from` (requires `--only`)
 - `--labels` — Additional labels (comma-separated key=value or key-only)
@@ -82,6 +83,8 @@ Dequeue a DAG run from a queue (marks it as aborted): `dagu dequeue <queue-name>
 ### dagu stop
 
 Stop an active DAG run: `dagu stop <dag-name> [--run-id/-r <id>]`
+
+With `--run-id`, a root run waiting for an approval or a human task ends as aborted without running its remaining steps.
 
 ### dagu restart
 
@@ -176,7 +179,7 @@ Flags:
 - `--last` — Relative time period (e.g. `7d`, `24h`, `1w`). Cannot combine with `--from`/`--to`
 - `--status` — Filter by status: `running`, `succeeded`, `failed`, `aborted`, `queued`, `waiting`, `rejected`, `not_started`, `partially_succeeded`
 - `--run-id` — Filter by run ID (partial match supported)
-- `--labels` — Filter by labels (comma-separated key=value or key-only, AND logic)
+- `--labels` — Filter by labels, comma-separated with AND logic: `key`, `key=value`, globs with `*` and `?`, and `!` to negate any term (e.g., `env=prod,!canary`). An invalid term is an error
 - `--tags` — Deprecated alias for `--labels`
 - `--format/-f` — Output format: `table` (default), `json`, `csv`
 - `--limit/-l` — Max results (default 100, max 1000)
@@ -351,6 +354,8 @@ dagu config
 ```
 
 ## Server & Scheduling
+
+To operate a running server (MCP, REST, remote contexts), see `server-operations.md`.
 
 ### dagu start-all
 

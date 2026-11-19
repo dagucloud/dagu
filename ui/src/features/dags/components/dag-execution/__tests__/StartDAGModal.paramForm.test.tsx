@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import StartDAGModal from '../StartDAGModal';
 
@@ -9,6 +10,18 @@ import StartDAGModal from '../StartDAGModal';
 // parameter layout is checked as the dialog shows it.
 vi.mock('@/contexts/AuthContext', () => ({
   useIsAdmin: () => true,
+}));
+
+// The slot gives the date param its value.
+vi.mock('../SlotDatesPreview', () => ({
+  SlotDatesPreview: ({
+    onParams,
+  }: {
+    onParams: (values: Record<string, string>) => void;
+  }) => {
+    React.useEffect(() => onParams({ date: '2026-11-09' }), [onParams]);
+    return null;
+  },
 }));
 
 function renderSchemaParams(
@@ -50,6 +63,33 @@ describe('StartDAGModal schema parameters', () => {
       description.compareDocumentPosition(input) &
         Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+  });
+
+  // A date field shows no placeholder, so the value the param takes from the
+  // slot is told beside it.
+  it('tells the value a date param takes from the slot', async () => {
+    render(
+      <StartDAGModal
+        visible={true}
+        fileName="etl"
+        dismissModal={vi.fn()}
+        onSubmit={vi.fn()}
+        dag={
+          {
+            name: 'etl',
+            dateNames: ['target_day'],
+            paramSchema: {
+              type: 'object',
+              properties: { date: { type: 'string', format: 'date' } },
+            },
+          } as never
+        }
+      />
+    );
+
+    expect(
+      await screen.findByText('Left empty, it takes 2026-11-09 from the slot.')
+    ).toBeInTheDocument();
   });
 
   it('names a radio group by its label', () => {

@@ -200,6 +200,36 @@ func TestDAGHistoryReturnsRecentStatusStoreErrors(t *testing.T) {
 	require.ErrorContains(t, err, "list recent DAG runs for daily")
 }
 
+// The DAG history feed lists the backfill runs only when its topic asks.
+func TestDAGHistoryDataIncludesBackfillOnRequest(t *testing.T) {
+	t.Parallel()
+
+	for identifier, exclude := range map[string]bool{
+		"daily.yaml":                      true,
+		"daily.yaml?includeBackfill=true": false,
+	} {
+		store := &recordingHistoryDAGRunStore{}
+		a := &API{
+			dagRepository:    persis.NewDAGRepository(historyDAGDefinitionStore{}, persis.DAGRepositoryOptions{}),
+			dagRunRepository: persis.NewDAGRunRepository(store, nil, persis.DAGRunRepositoryOptions{}),
+		}
+		_, err := a.GetDAGHistoryData(context.Background(), identifier)
+		require.NoError(t, err)
+		require.NotEmpty(t, store.queries, identifier)
+		assert.Equal(t, exclude, store.queries[0].ExcludeBackfill, identifier)
+	}
+}
+
+type recordingHistoryDAGRunStore struct {
+	testutil.DAGRunStoreStub
+	queries []persis.DAGRunStatusQuery
+}
+
+func (s *recordingHistoryDAGRunStore) QueryStatuses(_ context.Context, query persis.DAGRunStatusQuery) (persis.DAGRunStatusPage, error) {
+	s.queries = append(s.queries, query)
+	return persis.DAGRunStatusPage{}, nil
+}
+
 func TestStopAllDAGRunsProcessesBoundedPages(t *testing.T) {
 	t.Parallel()
 
@@ -1145,6 +1175,16 @@ func TestApprovalMutationsRecordAuthenticatedSubjectID(t *testing.T) {
 	applyRejection(ctx, rejected, status, nil)
 	assert.Equal(t, "reviewer", rejected.RejectedBy)
 	assert.Equal(t, "user-1", rejected.RejectedByID)
+}
+
+// An approval input replaces the output variable of the same name, so a
+// resumed step reads the input instead of failing on the masked value.
+func TestApprovalInputReplacesMaskedOutput(t *testing.T) {
+	t.Parallel()
+
+	node := &ir.Node{MaskedOutputs: &ir.MaskedOutputs{Variables: []string{"TOKEN", "REGION"}, Captured: true}}
+	applyApproval(context.Background(), node, &openapiv1.ApproveStepRequest{Inputs: ptrOf(map[string]string{"TOKEN": "real"})})
+	assert.Equal(t, &ir.MaskedOutputs{Variables: []string{"REGION"}, Captured: true}, node.MaskedOutputs)
 }
 
 func TestApplyInlineEnqueueLabels_ArrayLabels(t *testing.T) {

@@ -96,7 +96,7 @@ steps:
 	sc.SetClock(func() time.Time { return scheduledAt })
 
 	var dispatchCount atomic.Int32
-	sc.SetDispatchFunc(func(context.Context, scheduler.DAGEntry, string, ir.TriggerType, time.Time) error {
+	sc.SetDispatchFunc(func(context.Context, scheduler.DAGEntry, string, ir.TriggerType, time.Time, string) error {
 		dispatchCount.Add(1)
 		return nil
 	})

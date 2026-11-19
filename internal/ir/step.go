@@ -105,6 +105,8 @@ type Step struct {
 	Parallel *ParallelConfig `json:"parallel,omitempty"`
 	// Foreach contains the configuration for inline item-body iteration.
 	Foreach *ForeachConfig `json:"foreach,omitempty"`
+	// Nodes runs the step once per matched inventory node (RFC 013).
+	Nodes *NodeTargets `json:"nodes,omitempty"`
 	// Env contains environment variables for the step.
 	Env []string `json:"env,omitempty"`
 	// Params contains parameters/inputs for the step.
@@ -431,6 +433,17 @@ const (
 	RepeatModeUntil RepeatMode = "until"
 )
 
+// RepeatOnLimit is the type for the repeat-limit outcome.
+type RepeatOnLimit string
+
+const (
+	// RepeatOnLimitFail marks the step failed when an "until" loop exhausts
+	// its limit with the condition still unmet.
+	RepeatOnLimitFail RepeatOnLimit = "fail"
+	// RepeatOnLimitSucceed keeps the step's last result at the limit.
+	RepeatOnLimitSucceed RepeatOnLimit = "succeed"
+)
+
 // RepeatPolicy contains the repeat policy for a step.
 type RepeatPolicy struct {
 	// RepeatMode determines if and how the step should be repeated.
@@ -454,6 +467,10 @@ type RepeatPolicy struct {
 	Condition *Condition `json:"condition,omitempty"`
 	// ExitCode is the list of exit codes that should trigger a repeat.
 	ExitCode []int `json:"exitCode,omitempty"`
+	// OnLimit controls what happens when the repeat limit is reached with an
+	// "until" condition still unmet. Empty or "succeed" keeps the step's last
+	// result; "fail" marks the step failed.
+	OnLimit RepeatOnLimit `json:"onLimit,omitempty"`
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface for RepeatPolicy.
@@ -479,6 +496,7 @@ func (r *RepeatPolicy) UnmarshalJSON(data []byte) error {
 	r.Backoff = aux.Backoff
 	r.MaxInterval = aux.MaxInterval
 	r.MaxIntervalStr = aux.MaxIntervalStr
+	r.OnLimit = aux.OnLimit
 
 	// If RepeatMode is already set, we're done (new format)
 	if r.RepeatMode != "" {

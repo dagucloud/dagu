@@ -110,6 +110,10 @@ type step struct {
 	Parallel any `yaml:"parallel,omitempty"`
 	// Foreach specifies inline item-body iteration configuration.
 	Foreach any `yaml:"foreach,omitempty"`
+	// Nodes runs the step once per matched inventory node (RFC 013): a
+	// selector, a list of selector terms, or an object with labels,
+	// max_concurrent, and keep_going.
+	Nodes any `yaml:"nodes,omitempty"`
 	// WorkerSelector specifies required worker labels for execution.
 	WorkerSelector map[string]string `yaml:"worker_selector,omitempty"`
 	// Env specifies the environment variables for the step.
@@ -248,6 +252,7 @@ type repeatPolicy struct {
 	ExitCode       []int              `yaml:"exit_code,omitempty"`        // List of exit codes to consider for repeating the step
 	Backoff        types.BackoffValue `yaml:"backoff,omitempty"`          // Accepts bool or float
 	MaxIntervalSec types.IntOrDynamic `yaml:"max_interval_sec,omitempty"` // Maximum interval in seconds
+	OnLimit        string             `yaml:"on_limit,omitempty"`         // What happens when the limit is reached with the until condition unmet: "fail" or "succeed"
 }
 
 // retryPolicy defines the retry policy for a step.
@@ -457,6 +462,7 @@ var stepLogOutputStage = stepTransformStage{
 var stepExecutionPlacementStage = stepTransformStage{
 	stepField("mail_on_error", buildStepMailOnError, func(out *ir.Step, v bool) { out.MailOnError = v }),
 	stepField("worker_selector", buildStepWorkerSelector, func(out *ir.Step, v map[string]string) { out.WorkerSelector = v }),
+	stepField("nodes", buildStepNodes, func(out *ir.Step, v *ir.NodeTargets) { out.Nodes = v }),
 	stepField("working_dir", buildStepWorkingDir, func(out *ir.Step, v string) { out.Dir = v }),
 	stepShellField(),
 	stepField("timeout", buildStepTimeout, func(out *ir.Step, v time.Duration) { out.Timeout = v }),
@@ -587,6 +593,7 @@ var stepExecutionValidationStage = stepValidationStage{
 	{"container", validateContainer},
 	{"dag", validateSubDAG},
 	{"worker_selector", validateWorkerSelector},
+	{"nodes", validateNodeTargets},
 }
 
 var stepInteractionValidationStage = stepValidationStage{
@@ -1047,6 +1054,21 @@ func buildStepRepeatPolicy(_ stepBuildContext, s *step) (ir.RepeatPolicy, error)
 		}
 	}
 
+	// Validate on_limit before the mode gate so a typo cannot hide behind a
+	// repeat_policy block that has no resolvable repeat mode.
+	switch ir.RepeatOnLimit(rp.OnLimit) {
+	case "", ir.RepeatOnLimitSucceed:
+	case ir.RepeatOnLimitFail:
+		if mode != ir.RepeatModeUntil || rp.Condition == "" {
+			return ir.RepeatPolicy{}, fmt.Errorf("repeat_policy.on_limit: fail requires repeat: until with a condition")
+		}
+		if rp.Limit.Int() <= 0 && rp.Limit.Str() == "" {
+			return ir.RepeatPolicy{}, fmt.Errorf("repeat_policy.on_limit: fail requires a limit")
+		}
+	default:
+		return ir.RepeatPolicy{}, fmt.Errorf("repeat_policy.on_limit must be \"fail\" or \"succeed\", got %q", rp.OnLimit)
+	}
+
 	// No repeat if mode is not determined
 	if mode == "" {
 		return ir.RepeatPolicy{}, nil
@@ -1084,6 +1106,10 @@ func buildStepRepeatPolicy(_ stepBuildContext, s *step) (ir.RepeatPolicy, error)
 		result.MaxInterval = time.Second * time.Duration(maxIntervalSec)
 	}
 	result.MaxIntervalStr = rp.MaxIntervalSec.Str()
+
+	if ir.RepeatOnLimit(rp.OnLimit) == ir.RepeatOnLimitFail {
+		result.OnLimit = ir.RepeatOnLimitFail
+	}
 
 	return result, nil
 }
@@ -2157,11 +2183,14 @@ func buildStepExecutor(ctx stepBuildContext, s *step, result *ir.Step) error {
 		return nil
 	}
 
-	// Infer type from DAG-level configuration
+	// Infer type from DAG-level configuration. A step with nodes runs on each
+	// node, so the DAG-level transports, container and ssh, do not apply to
+	// it (RFC 013).
 	if result.ExecutorConfig.Type == "" && ctx.dag != nil {
-		if ctx.dag.Container != nil {
+		transport := s.Nodes == nil
+		if transport && ctx.dag.Container != nil {
 			result.ExecutorConfig.Type = "container"
-		} else if ctx.dag.SSH != nil {
+		} else if transport && ctx.dag.SSH != nil {
 			result.ExecutorConfig.Type = "ssh"
 		} else if ctx.dag.Redis != nil {
 			result.ExecutorConfig.Type = "redis"

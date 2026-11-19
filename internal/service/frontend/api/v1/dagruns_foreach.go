@@ -254,9 +254,9 @@ func foreachDataError(err error, notFound api.Error) error {
 	return err
 }
 
-func (a *API) foreachNodeByRef(ctx context.Context, ref ir.DAGRunRef, subRunID, stepName string) (*ir.Node, error) {
+func (a *API) foreachNodeByRef(ctx context.Context, ref ir.DAGRunRef, subRunID, stepName string) (foreachStep, error) {
 	var (
-		node     *ir.Node
+		node     foreachStep
 		notFound *api.Error
 		err      error
 	)
@@ -266,62 +266,80 @@ func (a *API) foreachNodeByRef(ctx context.Context, ref ir.DAGRunRef, subRunID, 
 		node, notFound, err = a.rootForeachNode(ctx, ref.Name, ref.ID, stepName)
 	}
 	if err != nil {
-		return nil, err
+		return foreachStep{}, err
 	}
 	if notFound != nil {
-		return nil, &Error{HTTPStatus: http.StatusNotFound, Code: notFound.Code, Message: notFound.Message}
+		return foreachStep{}, &Error{HTTPStatus: http.StatusNotFound, Code: notFound.Code, Message: notFound.Message}
 	}
 	return node, nil
 }
 
 // rootForeachNode resolves a step of a root run. A missing run or step
 // comes back as the 404 body to return, not as an error.
-func (a *API) rootForeachNode(ctx context.Context, name, dagRunID, stepName string) (*ir.Node, *api.Error, error) {
+func (a *API) rootForeachNode(ctx context.Context, name, dagRunID, stepName string) (foreachStep, *api.Error, error) {
 	dagStatus, err := a.dagRunMgr.GetSavedStatus(ctx, ir.NewDAGRunRef(name, dagRunID))
 	if err != nil {
-		return nil, &api.Error{
+		return foreachStep{}, &api.Error{
 			Code:    api.ErrorCodeNotFound,
 			Message: fmt.Sprintf("dag-run ID %s not found for DAG %s", dagRunID, name),
 		}, nil
 	}
 	if err := a.requireWorkspaceVisible(ctx, statusWorkspaceName(dagStatus)); err != nil {
-		return nil, nil, err
+		return foreachStep{}, nil, err
 	}
 	return foreachNode(dagStatus, stepName, name)
 }
 
-func (a *API) subForeachNode(ctx context.Context, name, dagRunID, subRunID, stepName string) (*ir.Node, *api.Error, error) {
+func (a *API) subForeachNode(ctx context.Context, name, dagRunID, subRunID, stepName string) (foreachStep, *api.Error, error) {
 	dagStatus, err := a.getReferencedDAGRunStatus(ctx, ir.NewDAGRunRef(name, dagRunID), subRunID, "")
 	if err != nil {
 		if isDAGRunLookupNotFound(err) {
-			return nil, &api.Error{
+			return foreachStep{}, &api.Error{
 				Code:    api.ErrorCodeNotFound,
 				Message: fmt.Sprintf("sub dag-run ID %s not found for DAG %s", subRunID, name),
 			}, nil
 		}
-		return nil, nil, err
+		return foreachStep{}, nil, err
 	}
 	if err := a.requireDAGRunStatusVisible(ctx, dagStatus); err != nil {
-		return nil, nil, err
+		return foreachStep{}, nil, err
 	}
 	return foreachNode(dagStatus, stepName, name)
 }
 
-func foreachNode(dagStatus *ir.DAGRunStatus, stepName, dagName string) (*ir.Node, *api.Error, error) {
+// foreachStep is a foreach step of a run, with the names of the run's steps,
+// whose log files share a directory.
+type foreachStep struct {
+	*ir.Node
+	siblings []string
+}
+
+// runStepNames returns the names of the steps of a run.
+func runStepNames(dagStatus *ir.DAGRunStatus) []string {
+	var names []string
+	for _, node := range dagStatus.NodesInRunOrder() {
+		if node != nil {
+			names = append(names, node.Step.Name)
+		}
+	}
+	return names
+}
+
+func foreachNode(dagStatus *ir.DAGRunStatus, stepName, dagName string) (foreachStep, *api.Error, error) {
 	node, err := dagStatus.NodeByName(stepName)
 	if err != nil {
-		return nil, &api.Error{
+		return foreachStep{}, &api.Error{
 			Code:    api.ErrorCodeNotFound,
 			Message: fmt.Sprintf("step %s not found in DAG %s", stepName, dagName),
 		}, nil
 	}
 	if node.Step.ExecutorConfig.Type != ir.ExecutorTypeForeach {
-		return nil, &api.Error{
+		return foreachStep{}, &api.Error{
 			Code:    api.ErrorCodeNotFound,
 			Message: fmt.Sprintf("step %s in DAG %s is not a foreach step", stepName, dagName),
 		}, nil
 	}
-	return node, nil, nil
+	return foreachStep{Node: node, siblings: runStepNames(dagStatus)}, nil, nil
 }
 
 func foreachItemNotFound(item api.ForeachItemPath, stepName string) api.Error {
@@ -343,15 +361,16 @@ func invalidForeachPath(err error) error {
 }
 
 // foreachStepDir is the directory holding the step's item records and body
-// logs. A step that never prepared a log file has none.
-func foreachStepDir(node *ir.Node) string {
+// logs. A step that never prepared a log file has none, as has a step whose
+// items an earlier version kept where another step's could be.
+func foreachStepDir(node foreachStep) string {
 	if node.Stdout == "" {
 		return ""
 	}
-	return logpath.ForeachStepDir(node.Stdout, node.Step.Name)
+	return logpath.ForeachStepDir(filepath.Dir(node.Stdout), node.Step.Name, node.siblings)
 }
 
-func (a *API) listForeachItems(node *ir.Node, query ForeachItemsQuery) (api.ForeachItemList, error) {
+func (a *API) listForeachItems(node foreachStep, query ForeachItemsQuery) (api.ForeachItemList, error) {
 	list := api.ForeachItemList{Items: []api.ForeachItemSummary{}}
 	stepDir := foreachStepDir(node)
 	if stepDir == "" {
@@ -467,8 +486,8 @@ func pageOfForeachItems(items []api.ForeachItemSummary, page, perPage int) []api
 	return items[start:min(start+perPage, len(items))]
 }
 
-func (a *API) readForeachItem(node *ir.Node, item string) (api.ForeachItem, error) {
-	_, record, err := a.foreachItemRecord(node, item)
+func (a *API) readForeachItem(node foreachStep, item string) (api.ForeachItem, error) {
+	itemDir, record, err := a.foreachItemRecord(node, item)
 	if err != nil {
 		return api.ForeachItem{}, err
 	}
@@ -489,7 +508,7 @@ func (a *API) readForeachItem(node *ir.Node, item string) (api.ForeachItem, erro
 		entry.AgentSession = toAgentSession(step.AgentSession)
 		entry.ModelUsage = toStepModelUsage(step.ModelUsage)
 		if step.Foreach {
-			entry.ForeachParent = ptrOf(logpath.ForeachNestedParent(item, step.Name))
+			entry.ForeachParent = ptrOf(logpath.ForeachNestedParent(itemDir, item, step.Name, bodyStepNames(record)))
 		}
 		steps = append(steps, entry)
 	}
@@ -506,9 +525,19 @@ func (a *API) readForeachItem(node *ir.Node, item string) (api.ForeachItem, erro
 	}, nil
 }
 
+// bodyStepNames returns the names of an item's body steps, whose log files
+// share the item's directory.
+func bodyStepNames(record ir.ForeachItemStatus) []string {
+	names := make([]string, 0, len(record.Steps))
+	for _, step := range record.Steps {
+		names = append(names, step.Name)
+	}
+	return names
+}
+
 // foreachItemRecord reads an item's record and returns the item directory
 // its body logs live in.
-func (a *API) foreachItemRecord(node *ir.Node, item string) (string, ir.ForeachItemStatus, error) {
+func (a *API) foreachItemRecord(node foreachStep, item string) (string, ir.ForeachItemStatus, error) {
 	var record ir.ForeachItemStatus
 	stepDir := foreachStepDir(node)
 	if stepDir == "" {
@@ -551,7 +580,7 @@ func foreachBodyLogPath(itemDir, name string) string {
 	return filepath.Join(itemDir, filepath.Base(name))
 }
 
-func (a *API) foreachBodyLogFile(node *ir.Node, item, bodyStepName string, stream *api.Stream) (string, error) {
+func (a *API) foreachBodyLogFile(node foreachStep, item, bodyStepName string, stream *api.Stream) (string, error) {
 	itemDir, record, err := a.foreachItemRecord(node, item)
 	if err != nil {
 		return "", err
@@ -570,7 +599,7 @@ func (a *API) foreachBodyLogFile(node *ir.Node, item, bodyStepName string, strea
 	return foreachBodyLogPath(itemDir, name), nil
 }
 
-func (a *API) readForeachStepLog(node *ir.Node, item, bodyStepName string, stream *api.Stream, options fileutil.LogReadOptions) (api.Log, error) {
+func (a *API) readForeachStepLog(node foreachStep, item, bodyStepName string, stream *api.Stream, options fileutil.LogReadOptions) (api.Log, error) {
 	logFile, err := a.foreachBodyLogFile(node, item, bodyStepName, stream)
 	if err != nil {
 		return api.Log{}, err
@@ -591,7 +620,7 @@ func (a *API) readForeachStepLog(node *ir.Node, item, bodyStepName string, strea
 	}, nil
 }
 
-func (a *API) openForeachStepLog(ctx context.Context, node *ir.Node, item, bodyStepName string, stream *api.Stream, prefix string) (*logFileResponse, error) {
+func (a *API) openForeachStepLog(ctx context.Context, node foreachStep, item, bodyStepName string, stream *api.Stream, prefix string) (*logFileResponse, error) {
 	logFile, err := a.foreachBodyLogFile(node, item, bodyStepName, stream)
 	if err != nil {
 		return nil, err

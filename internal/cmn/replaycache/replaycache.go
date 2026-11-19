@@ -20,6 +20,9 @@ import (
 const (
 	replayCacheDirName = "cache"
 	replayCacheFileExt = ".json"
+	// stepsDirName holds the step files of a DAG. Files that released versions
+	// kept beside it, under names several steps could share, are not read.
+	stepsDirName = "steps"
 )
 
 // Store locates the recorded operations that steps replay on later runs.
@@ -36,13 +39,13 @@ func New(dataDir string) *Store {
 
 // Path returns the file that holds the records of a step.
 func (c *Store) Path(dagName, stepKey string) string {
-	return filepath.Join(c.dagDir(dagName), fileutil.SafeName(stepKey)+replayCacheFileExt)
+	return filepath.Join(c.stepsDir(dagName), fileutil.SafeKey(stepKey)+replayCacheFileExt)
 }
 
-// Steps returns the sorted keys of the DAG's steps that have records. A step
-// name is returned in the file-safe form its records are stored under.
+// Steps returns the sorted keys of the DAG's steps that have records.
 func (c *Store) Steps(dagName string) ([]string, error) {
-	entries, err := os.ReadDir(c.dagDir(dagName))
+	dir := c.stepsDir(dagName)
+	entries, err := os.ReadDir(dir)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
@@ -55,7 +58,7 @@ func (c *Store) Steps(dagName string) ([]string, error) {
 		if entry.IsDir() || !ok {
 			continue
 		}
-		steps = append(steps, step)
+		steps = append(steps, fileutil.SafeKeyName(dir, step))
 	}
 	slices.Sort(steps)
 	return steps, nil
@@ -121,6 +124,10 @@ func (c *Store) Drop(ctx context.Context, dagName, stepKey string, drop func(ent
 	return removed, err
 }
 
+func (c *Store) stepsDir(dagName string) string {
+	return filepath.Join(c.dagDir(dagName), stepsDirName)
+}
+
 // dagDir keeps DAGs whose names differ only in characters SafeName replaces,
 // such as "etl.daily" and "etl_daily", in separate directories. The 128-bit
 // suffix keeps crafted names from sharing one.
@@ -129,6 +136,9 @@ func (c *Store) dagDir(dagName string) string {
 	if name != dagName {
 		sum := sha256.Sum256([]byte(dagName))
 		name += "-" + hex.EncodeToString(sum[:16])
+	}
+	if fileutil.SafeNameEscapesDevice(dagName) {
+		name = fileutil.ExistingName(c.dir, name, dagName)
 	}
 	return filepath.Join(c.dir, name)
 }

@@ -809,6 +809,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		DefaultExecMode:          h.config.DefaultExecMode,
 		ScheduleTime:             task.ScheduleTime,
 		ScheduleWindow:           convert.ScheduleWindowFromTask(task),
+		Dates:                    convert.DatesFromTask(task),
 		ArtifactDir:              env.artifactDir,
 		ArtifactFinalizer:        artifactUploader,
 		WorkspaceSeed:            run.workspaceSeed,

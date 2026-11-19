@@ -154,6 +154,7 @@ type activityQuery struct {
 	from            time.Time
 	to              time.Time
 	labels          []string
+	labelFilters    []ir.LabelFilter
 	workspaceFilter *workspace.WorkspaceFilter
 	cursor          string
 	// excludeServiceDAGRuns leaves out the runs of the service DAGs.
@@ -195,7 +196,15 @@ func (a *API) newActivityQuery(ctx context.Context, params activityParams, now t
 		query.to = now.Truncate(step).Add(step)
 		query.from = query.to.Add(-window)
 	}
-	query.labels = parseCommaSeparatedLabels(params.labels)
+	labels, err := parseCommaSeparatedLabels(params.labels)
+	if err != nil {
+		return activityQuery{}, err
+	}
+	labelFilters, err := ir.ParseLabelFilters(labels)
+	if err != nil {
+		return activityQuery{}, err
+	}
+	query.labels, query.labelFilters = labels, labelFilters
 	if params.cursor != nil {
 		query.cursor = *params.cursor
 	}
@@ -288,7 +297,7 @@ func (a *API) readDAGRunActivity(ctx context.Context, query activityQuery) (api.
 func (a *API) activityQueues(ctx context.Context, query activityQuery) []api.DAGRunActivityQueue {
 	queues := []api.DAGRunActivityQueue{}
 	scan := activityQueueScan
-	labelFilters := parseLabelFilters(query.labels)
+	labelFilters := query.labelFilters
 	scan.matches = func(summary api.DAGRunSummary) bool {
 		// A service DAG restarts all the time, so its queue would flip
 		// between a run and a wait. Its lane shows it instead.
@@ -474,7 +483,7 @@ func (a *API) activeRuns(ctx context.Context, query activityQuery, pageRuns, lat
 	if a.procRepository != nil {
 		alive, err := a.procRepository.ListAllAlive(ctx)
 		if err == nil {
-			labelFilters := parseLabelFilters(query.labels)
+			labelFilters := query.labelFilters
 			reads := 0
 		groups:
 			for _, group := range slices.Sorted(maps.Keys(alive)) {
@@ -525,16 +534,6 @@ func isActiveRunStatus(status ir.Status) bool {
 		return false
 	}
 	return false
-}
-
-func parseLabelFilters(labels []string) []ir.LabelFilter {
-	filters := make([]ir.LabelFilter, 0, len(labels))
-	for _, label := range labels {
-		if trimmed := strings.TrimSpace(label); trimmed != "" {
-			filters = append(filters, ir.ParseLabelFilter(trimmed))
-		}
-	}
-	return filters
 }
 
 // upcomingRuns returns the next scheduled runs of unsuspended DAGs.

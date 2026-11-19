@@ -69,6 +69,7 @@ func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Schedul
 			workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir),
 			filedag.WithChangeMarker(file.DAGChangeMarkerPath(ctx.Config), 0),
 			filedag.WatchCalendars(ctx.Config.Paths.CalendarsDir),
+			filedag.SkipDirectories(ctx.Config.DAGDiscovery.SkipDirs),
 		)
 	}
 	deps.DAGRepository = ctx.Persistence.DAGRepository
@@ -80,6 +81,7 @@ func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Schedul
 	deps.SchedulerStateStore = ctx.Persistence.SchedulerStateStore
 	deps.SchedulerPauseStore = ctx.Persistence.SchedulerPauseStore
 	deps.RestartBackoffStore = ctx.Persistence.RestartBackoffStore
+	deps.PeriodStore = ctx.Persistence.PeriodStore
 	deps.BackfillStore = ctx.Persistence.BackfillStore
 	deps.WatchStore = ctx.Persistence.WatchStateStore
 	deps.DAGRunLeaseStore = ctx.Persistence.DAGRunLeaseStore
@@ -144,7 +146,7 @@ func runScheduler(ctx *Context, _ []string) error {
 		slog.String("log-format", ctx.Config.Core.LogFormat),
 	)
 
-	ctx.Context = ctx.withSignalPropagation(ctx.Context)
+	ctx.Context = ctx.withRunRegistry(ctx.Context)
 	schedulerCtx := ctx.WithEventSource(eventstore.SourceServiceScheduler)
 	startBrowserReaper(schedulerCtx, ctx.Config.Paths.DataDir, ctx.Persistence.DAGRunRepository)
 	scheduler, err := newScheduler(schedulerCtx, deps)

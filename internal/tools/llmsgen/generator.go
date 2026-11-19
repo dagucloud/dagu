@@ -21,6 +21,7 @@ var sourceFiles = []string{
 	filepath.Join("references", "context.md"),
 	filepath.Join("references", "build.md"),
 	filepath.Join("references", "harnesses.md"),
+	filepath.Join("references", "server-operations.md"),
 }
 
 // Options configures llms.txt generation.

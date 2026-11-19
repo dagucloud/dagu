@@ -6,6 +6,8 @@ package agentstep_test
 import (
 	"bytes"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +65,39 @@ func TestArtifactStoreScreenshots(t *testing.T) {
 
 	_, err = agentstep.NewArtifactStore("", "computer", "post").WriteScreenshot("act", nil)
 	require.ErrorIs(t, err, agentstep.ErrNoArtifactStorage)
+}
+
+// Steps whose keys differ only in characters a file name cannot hold, such as
+// a.b and a_b, keep their artifacts in separate directories of a run.
+func TestArtifactStoreKeepsSimilarStepsApart(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	assert.NotEqual(t,
+		agentstep.NewArtifactStore(root, "computer", "a.b").Dir(),
+		agentstep.NewArtifactStore(root, "computer", "a_b").Dir())
+}
+
+func TestScreenshotNames(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ label, name string }{
+		{"prices.png", "01-prices.png"},
+		{"prices.PNG", "01-prices.png"},
+		{"請求書画面", "01-請求書画面.png"},
+		{strings.Repeat("画", 120), "01-" + strings.Repeat("画", 33) + ".png"},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			data := []byte("png")
+			got, err := agentstep.NewArtifactStore(root, "browser", "look").WriteScreenshot(tc.label, data)
+			require.NoError(t, err)
+			assert.Equal(t, "browser/look/"+tc.name, got)
+			stored, err := os.ReadFile(filepath.Join(root, "browser", "look", tc.name))
+			require.NoError(t, err)
+			assert.Equal(t, data, stored)
+		})
+	}
 }
 
 // Long event content is cut to the event size limit on a character

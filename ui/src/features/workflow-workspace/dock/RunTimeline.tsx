@@ -886,6 +886,9 @@ export interface RunTimelineViewProps {
   hasCachedTime?: boolean;
   showCached?: boolean;
   onShowCachedChange?(show: boolean): void;
+  /** Whether the history holds backfill runs; the toggle shows with its handler. */
+  showBackfill?: boolean;
+  onShowBackfillChange?(show: boolean): void;
   canStart?: boolean;
   onStart?(): void;
   /**
@@ -938,6 +941,8 @@ export function RunTimelineView({
   hasCachedTime = false,
   showCached = true,
   onShowCachedChange,
+  showBackfill = false,
+  onShowBackfillChange,
   canStart,
   onStart,
   hasTestRuns = false,
@@ -1372,6 +1377,8 @@ export function RunTimelineView({
       hasCachedTime={hasCachedTime}
       showCached={showCached}
       onShowCachedChange={onShowCachedChange}
+      showBackfill={showBackfill}
+      onShowBackfillChange={onShowBackfillChange}
       triggerTypes={triggerTypes}
       hiddenTypes={hiddenTypes}
       onHiddenTypesChange={onHiddenTypesChange}
@@ -1429,6 +1436,10 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
   );
   const inRange = settings.mode === 'range';
   const select = (id: string) => run.select(id, { replace: true });
+  // Only a workflow with a schedule has slots to backfill.
+  const backfillToggle = dagData.dag?.schedule?.length
+    ? actions.setShowBackfill
+    : undefined;
 
   if (compact) {
     // The bars have no room: the runs are a menu, under the controls that
@@ -1448,6 +1459,8 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
             hasCachedTime={visible.hasCachedTime}
             showCached={settings.showCached}
             onShowCachedChange={actions.setShowCached}
+            showBackfill={settings.showBackfill}
+            onShowBackfillChange={backfillToggle}
             triggerTypes={visible.triggerTypes}
             hiddenTypes={settings.hiddenTypes}
             onHiddenTypesChange={actions.setHiddenTypes}
@@ -1493,6 +1506,8 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
       hasCachedTime={visible.hasCachedTime}
       showCached={settings.showCached}
       onShowCachedChange={actions.setShowCached}
+      showBackfill={settings.showBackfill}
+      onShowBackfillChange={backfillToggle}
     />
   );
 }

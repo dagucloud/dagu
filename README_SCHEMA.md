@@ -212,6 +212,7 @@ Current builtin actions:
 | `mail.send` | Email sending | mail executor config |
 | `mail.search` | Email search over IMAP or the Gmail API | `mailbox` and search filters |
 | `mail.organize` | Email marking and moving | `mailbox`, `emails`, `mark` or `move` |
+| `mcp.call` | Remote MCP tool call over Streamable HTTP | `url`, `tool`, optional `arguments`, `headers`, `include_raw`, `save_binary` |
 | `xlsx.read` | Workbook reading | `path`, optional `password`, `sheet`, `range`, `header`, `columns`, `types`, `where` |
 | `xlsx.info`, `xlsx.list_sheets` | Workbook metadata | `path`, optional `password` |
 | `xlsx.write`, `xlsx.append` | Workbook writing | `path`, `rows` or `input` |

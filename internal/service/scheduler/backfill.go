@@ -109,10 +109,11 @@ func (s *Scheduler) newBackfillDispatcher(store backfill.Store) *backfill.Dispat
 			}
 			return attempt.ReadStatus(ctx)
 		},
-		Target:    s.backfillTarget,
-		Enqueue:   s.enqueueBackfillRun,
-		DAGExists: s.backfillDAGExists,
-		Now:       s.clock,
+		Target:      s.backfillTarget,
+		Enqueue:     s.enqueueBackfillRun,
+		DAGExists:   s.backfillDAGExists,
+		RetryWindow: s.config.Scheduler.RetryFailureWindow,
+		Now:         s.clock,
 	}
 }
 
@@ -199,6 +200,10 @@ func (s *Scheduler) enqueueBackfillRun(ctx context.Context, record *backfill.Rec
 	var params any
 	if record.Options.Params != "" {
 		params = record.Options.Params
+	} else if sched, ok := ir.FiringSchedule(
+		target.Schedule.Schedules, target.Schedule.Profile, target.Schedule.Location, slot.At,
+	); ok && len(sched.Params) > 0 {
+		params = string(sched.Params)
 	}
 	dag, err := rehydrateExecutionDAG(ctx, target.DAG, params, s.config.Paths.BaseConfig, workspace.BaseConfigDir(s.config.Paths.DAGsDir))
 	if err != nil {

@@ -67,7 +67,7 @@ describe('useRunHistory', () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
     expect(historyCalls()).toHaveLength(0);
-    expect(h.historySSE).toHaveBeenCalledWith(FILE_NAME, false, 'local');
+    expect(h.historySSE).toHaveBeenCalledWith(FILE_NAME, false, 'local', false);
     expect(view.result.current.value).toEqual({
       runs: [],
       gridData: [],
@@ -119,7 +119,12 @@ describe('useRunHistory', () => {
         },
       ],
     ]);
-    expect(h.historySSE).toHaveBeenLastCalledWith(FILE_NAME, true, 'local');
+    expect(h.historySSE).toHaveBeenLastCalledWith(
+      FILE_NAME,
+      true,
+      'local',
+      false
+    );
 
     h.historySSE.mockReturnValue({
       ...idleSSE,
@@ -130,6 +135,45 @@ describe('useRunHistory', () => {
     await waitFor(() =>
       expect(view.result.current.value.runs.map((r) => r.dagRunId)).toEqual([
         'run-2',
+      ])
+    );
+  });
+});
+
+// The history with the backfill runs follows a feed that lists them too, so a
+// change to a backfill run alone reaches it.
+describe('useRunHistory with the backfill runs', () => {
+  it('follows the feed that lists the backfill runs', async () => {
+    const view = renderWorkspace(() =>
+      useRunHistory({ enabled: true, includeBackfill: true })
+    );
+    await waitFor(() =>
+      expect(view.result.current?.value.runs).toHaveLength(2)
+    );
+    expect(historyCalls()[0]?.[1].params.query).toEqual({
+      remoteNode: 'local',
+      includeBackfill: true,
+    });
+    expect(h.historySSE).toHaveBeenLastCalledWith(
+      FILE_NAME,
+      true,
+      'local',
+      true
+    );
+
+    h.historySSE.mockReturnValue({
+      ...idleSSE,
+      isConnected: true,
+      data: {
+        dagRuns: [{ ...run('bf-run'), backfillId: 'bf123456' }, run('run-1')],
+        gridData: [],
+      },
+    });
+    view.rerender();
+    await waitFor(() =>
+      expect(view.result.current.value.runs.map((r) => r.dagRunId)).toEqual([
+        'bf-run',
+        'run-1',
       ])
     );
   });

@@ -49,6 +49,8 @@ export const CUSTOM_RANGE_KEY = 'dagu.workspace.runTimelineCustomRange';
 export const SHOW_CACHED_KEY = 'dagu.workspace.runTimelineCached';
 /** The trigger types that the timeline hides, as a JSON list. */
 export const HIDDEN_TYPES_KEY = 'dagu.workspace.runTimelineHiddenTypes';
+/** Whether the history holds the backfill runs: "1" or "0" (the default). */
+export const SHOW_BACKFILL_KEY = 'dagu.workspace.runTimelineBackfill';
 
 /** What the user chose for the runs of the timeline. */
 export interface RunViewSettings {
@@ -61,6 +63,11 @@ export interface RunViewSettings {
   showCached: boolean;
   /** The trigger types whose runs the timeline hides. */
   hiddenTypes: readonly TriggerType[];
+  /**
+   * Whether the history holds the backfill runs, which the server leaves out
+   * so that a long backfill does not push the live runs out.
+   */
+  showBackfill: boolean;
 }
 
 export interface RunViewActions {
@@ -71,6 +78,7 @@ export interface RunViewActions {
   setShowTests(show: boolean): void;
   setShowCached(show: boolean): void;
   setHiddenTypes(types: readonly TriggerType[]): void;
+  setShowBackfill(show: boolean): void;
 }
 
 const STORAGE_KEYS = [
@@ -80,6 +88,7 @@ const STORAGE_KEYS = [
   RUN_RANGE_KEY,
   SHOW_CACHED_KEY,
   HIDDEN_TYPES_KEY,
+  SHOW_BACKFILL_KEY,
 ] as const;
 
 const browserStorage = () => window.localStorage;
@@ -130,9 +139,10 @@ function snapshot(): RunViewSettings {
     count: parseStoredCount(raws[0]!),
     showTests: parseStoredShowTests(raws[1]!),
     mode: parseStoredMode(raws[2]!),
-    range: parseStoredCustomRange(raws[6]!) ?? parseStoredRange(raws[3]!),
+    range: parseStoredCustomRange(raws[7]!) ?? parseStoredRange(raws[3]!),
     showCached: parseStoredShowCached(raws[4]!),
     hiddenTypes: parseStoredHiddenTypes(raws[5]!),
+    showBackfill: raws[6] === '1',
   };
   return current;
 }
@@ -161,6 +171,9 @@ function update(patch: Partial<RunViewSettings>): void {
   if (patch.hiddenTypes !== undefined) {
     writeKey(HIDDEN_TYPES_KEY, JSON.stringify(patch.hiddenTypes));
   }
+  if (patch.showBackfill !== undefined) {
+    writeKey(SHOW_BACKFILL_KEY, patch.showBackfill ? '1' : '0');
+  }
   listeners.forEach((listener) => listener());
 }
 
@@ -171,6 +184,7 @@ const SERVER_SETTINGS: RunViewSettings = {
   showTests: true,
   showCached: true,
   hiddenTypes: [],
+  showBackfill: false,
 };
 
 const ACTIONS: RunViewActions = {
@@ -178,6 +192,7 @@ const ACTIONS: RunViewActions = {
   setRange: (range) => update({ mode: 'range', range }),
   setShowTests: (showTests) => update({ showTests }),
   setShowCached: (showCached) => update({ showCached }),
+  setShowBackfill: (showBackfill) => update({ showBackfill }),
   setHiddenTypes: (hiddenTypes) => update({ hiddenTypes }),
 };
 
@@ -282,12 +297,13 @@ export function useVisibleRuns({
   pollTestRuns?: boolean;
 }): VisibleRuns {
   const run = useWorkspaceRun();
+  const [settings] = useRunViewSettings();
   const history = useRunHistory({
     enabled,
     includeEphemeral: true,
+    includeBackfill: settings.showBackfill,
     pollTestRuns,
   });
-  const [settings] = useRunViewSettings();
   const preset = settings.range.preset;
   // A custom range has fixed ends, but a running run lasts until now.
   const rangeNow = useMinuteClock(enabled && settings.mode === 'range');
@@ -384,13 +400,14 @@ export interface HistoryRuns {
  */
 export function useHistoryRuns(): HistoryRuns {
   const run = useWorkspaceRun();
+  const [{ showTests, hiddenTypes, showBackfill }] = useRunViewSettings();
   const history = useRunHistory({
     enabled: true,
     includeEphemeral: true,
+    includeBackfill: showBackfill,
     pollTestRuns: true,
   });
-  const older = useOlderRuns(history.runs, history.nextCursor);
-  const [{ showTests, hiddenTypes }] = useRunViewSettings();
+  const older = useOlderRuns(history.runs, history.nextCursor, showBackfill);
   const runs = useMemo(() => {
     const seen = new Set<string>();
     return [...history.runs, ...older.runs]

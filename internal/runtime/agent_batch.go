@@ -51,7 +51,7 @@ func (r *Runner) runAgentActionBatch(
 		execution := &executions[i]
 		actionCtx, setupErr := r.setupVariables(ctx, plan, execution.node)
 		if setupErr != nil {
-			execution.node.MarkError(setupErr)
+			execution.node.MarkError(preferMaskedRead(actionCtx, execution.node, setupErr))
 			r.report(ctx, progressCh, execution.node)
 			continue
 		}

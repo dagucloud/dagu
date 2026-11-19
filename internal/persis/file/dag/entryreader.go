@@ -46,6 +46,7 @@ type entryReaderImpl struct {
 	dagSource              *dagFileSource
 	watcher                filenotify.FileWatcher
 	recursive              bool
+	skipDirs               []string
 	quit                   chan struct{}
 	closeOnce              sync.Once
 	events                 chan persis.DAGChangeEvent
@@ -78,6 +79,15 @@ func withResyncInterval(interval time.Duration) EntryReaderOption {
 func withSymlinkPollInterval(interval time.Duration) EntryReaderOption {
 	return func(er *entryReaderImpl) {
 		er.symlinkPollInterval = interval
+	}
+}
+
+// SkipDirectories makes recursive discovery omit the named directories
+// directly under the DAG directory, so their DAGs are neither scheduled nor
+// watched.
+func SkipDirectories(dirs []string) EntryReaderOption {
+	return func(er *entryReaderImpl) {
+		er.skipDirs = dirs
 	}
 }
 
@@ -558,7 +568,7 @@ func (er *entryReaderImpl) initRecursive(ctx context.Context) error {
 	er.watcher = er.newWatcher()
 
 	scannedAt := time.Now()
-	scan, err := Discover(er.targetDir, DiscoveryOptions{Recursive: true})
+	scan, err := Discover(er.targetDir, DiscoveryOptions{Recursive: true, SkipDirs: er.skipDirs})
 	if err != nil {
 		_ = er.watcher.Close()
 		return fmt.Errorf("failed to initialize recursive DAGs: %w", err)
@@ -589,7 +599,7 @@ func (er *entryReaderImpl) refreshRegistry(ctx context.Context) error {
 	// matches, and kept only once the refresh succeeds, so a failed one is
 	// retried by the next symlink poll.
 	symlinkTargets := er.observeSymlinkTargets()
-	scan, err := Discover(er.targetDir, DiscoveryOptions{Recursive: er.recursive})
+	scan, err := Discover(er.targetDir, DiscoveryOptions{Recursive: er.recursive, SkipDirs: er.skipDirs})
 	if err != nil {
 		return err
 	}

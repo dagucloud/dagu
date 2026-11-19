@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -969,7 +970,10 @@ func (a *API) ListDAGs(ctx context.Context, request api.ListDAGsRequestObject) (
 		return nil, err
 	}
 	pg := pagination.NewPaginator(valueOf(request.Params.Page), valueOf(request.Params.PerPage))
-	labels := parseCommaSeparatedLabels(labelsParam)
+	labels, err := parseCommaSeparatedLabels(labelsParam)
+	if err != nil {
+		return nil, err
+	}
 	workspaceFilter, err := a.workspaceFilterForParams(ctx, request.Params.Workspace)
 	if err != nil {
 		return nil, err
@@ -1173,7 +1177,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 		}
 	}
 
-	selection, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId, request.Body.OutputsFromRuns, request.Body.Outputs, request.Body.OutputsSources, request.Body.Ephemeral)
+	selection, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId, request.Body.OutputsFromRuns, request.Body.Outputs, request.Body.OutputsSources, request.Body.Ephemeral, request.Body.ReuseFrom)
 	if err != nil {
 		return nil, err
 	}
@@ -1236,8 +1240,11 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 	if err != nil {
 		return nil, err
 	}
+	if err := a.checkDates(dag, profileName, slot); err != nil {
+		return nil, err
+	}
 
-	if len(selection.steps) > 0 {
+	if len(selection.steps) > 0 || selection.reuseFrom != "" {
 		if err := a.startSelectedSteps(ctx, dag, selectedStepsStart{
 			selection:      selection,
 			params:         params,
@@ -1778,6 +1785,13 @@ func (a *API) dispatchStartToCoordinator(ctx context.Context, dag *ir.DAG, opts 
 			executor.WithScheduleWindow(opts.scheduleWindow),
 		)
 	}
+	dates, err := a.runDates(dag, opts.profileName, opts.scheduleTime, opts.scheduleWindow)
+	if err != nil {
+		return err
+	}
+	if dates != nil {
+		taskOpts = append(taskOpts, executor.WithDates(dates))
+	}
 	taskOpts = append(taskOpts, executor.WithTriggerType(opts.triggerType))
 	taskOpts = append(taskOpts, executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig), dag.BaseConfigWorkspace))
 	if dag.SourceFile != "" {
@@ -2043,6 +2057,9 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 	if err != nil {
 		return nil, err
 	}
+	if err := a.checkDates(dag, profileName, slot); err != nil {
+		return nil, err
+	}
 
 	if err := a.enqueueDAGRun(ctx, dag, enqueueRequest{
 		params:         valueOf(request.Body.Params),
@@ -2192,6 +2209,11 @@ func (a *API) UpdateDAGSuspensionState(ctx context.Context, request api.UpdateDA
 		return nil, err
 	}
 
+	if !request.Body.Suspend {
+		if err := a.recordSuspension(ctx, request.FileName); err != nil {
+			return nil, err
+		}
+	}
 	if err := a.dagRepository.SetSuspended(ctx, request.FileName, request.Body.Suspend); err != nil {
 		return nil, fmt.Errorf("error toggling suspend: %w", err)
 	}
@@ -2321,8 +2343,15 @@ func (a *API) GetDAGDetailsData(ctx context.Context, fileName string) (any, erro
 }
 
 // GetDAGHistoryData returns DAG execution history for SSE.
-// Identifier format: "fileName"
-func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, error) {
+// Identifier format: "fileName", or "fileName?includeBackfill=true" to list
+// the DAG's backfill runs too.
+func (a *API) GetDAGHistoryData(ctx context.Context, identifier string) (any, error) {
+	fileName, query, _ := strings.Cut(identifier, "?")
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return nil, fmt.Errorf("invalid DAG history query %q: %w", query, err)
+	}
+	includeBackfill := values.Get("includeBackfill") == "true"
 	return withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
 		endpoint: "/dags/{fileName}/dag-runs",
 		dagName:  fileName,
@@ -2336,11 +2365,11 @@ func (a *API) GetDAGHistoryData(ctx context.Context, fileName string) (any, erro
 		}
 
 		dagName := a.resolveDAGName(readCtx, fileName)
-		// The live feed mirrors the default page, which leaves out backfill
-		// runs.
+		// The live feed mirrors the first page, which leaves out backfill
+		// runs unless asked.
 		return a.buildDAGRunHistoryResponse(readCtx, dag, dagName, persis.RecentStatusesPageOptions{
 			Limit:           defaultHistoryLimit,
-			ExcludeBackfill: true,
+			ExcludeBackfill: !includeBackfill,
 		})
 	})
 }
@@ -2415,7 +2444,10 @@ func (a *API) buildDAGListOptions(ctx context.Context, queryString string) (pers
 	if labelErr != nil {
 		return persis.DAGListOptions{}, labelErr
 	}
-	labels := parseCommaSeparatedLabels(labelQueryParam)
+	labels, labelErr := parseCommaSeparatedLabels(labelQueryParam)
+	if labelErr != nil {
+		return persis.DAGListOptions{}, labelErr
+	}
 
 	pg := pagination.NewPaginator(page, perPage)
 	workspaceParam := workspaceParamFromValues(params)
@@ -2501,6 +2533,7 @@ func (a *API) listDAGsDataWithSearchPaths(ctx context.Context, listOpts persis.D
 		dagFiles = append(dagFiles, dagFile)
 	}
 
+	errList = a.attachBackfills(ctx, dagFiles, errList)
 	return api.ListDAGs200JSONResponse{
 		Dags:       dagFiles,
 		Errors:     errList,
@@ -2659,11 +2692,56 @@ func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGLi
 		dagFiles = append(dagFiles, dagFile)
 	}
 
+	errList = a.attachBackfills(ctx, dagFiles, errList)
 	return api.ListDAGs200JSONResponse{
 		Dags:       dagFiles,
 		Errors:     errList,
 		Pagination: toPagination(paged),
 	}, nil
+}
+
+// attachBackfills gives each listed DAG the summary of the backfill it
+// mentions: its newest open backfill, else its newest that ended failed and
+// still needs attention. It reads the backfill summaries once, whatever the
+// number of DAGs. A failed read is reported in errs.
+func (a *API) attachBackfills(ctx context.Context, files []api.DAGFile, errs []string) []string {
+	if a.backfillStore == nil || len(files) == 0 {
+		return errs
+	}
+	summaries, err := a.backfillStore.Summaries(ctx)
+	if err != nil {
+		return append(errs, fmt.Sprintf("read backfill summaries: %v", err))
+	}
+	byDAG := make(map[string]backfill.Summary, len(summaries))
+	for _, summary := range summaries {
+		current, ok := byDAG[summary.DAGName]
+		if !ok || mentionsBefore(summary, current) {
+			byDAG[summary.DAGName] = summary
+		}
+	}
+	for i := range files {
+		summary, ok := byDAG[files[i].Dag.Name]
+		if !ok {
+			continue
+		}
+		status := api.BackfillStatusRunning
+		if summary.Status == backfill.StatusFailed {
+			status = api.BackfillStatusFailed
+		}
+		files[i].Backfill = &api.DAGBackfillSummary{
+			Id: summary.ID, Status: status, Slots: summary.Slots, Done: summary.Done, Failed: summary.Failed,
+		}
+	}
+	return errs
+}
+
+// mentionsBefore reports whether a DAG's list mentions backfill a rather
+// than b: an open one before a failed one, then the newer.
+func mentionsBefore(a, b backfill.Summary) bool {
+	if (a.Status == "") != (b.Status == "") {
+		return a.Status == ""
+	}
+	return a.CreatedAt.After(b.CreatedAt)
 }
 
 // runStatusRank is the ascending order of the status sort: live runs first,
@@ -2782,9 +2860,27 @@ func (a *API) scheduleFires(dag *ir.DAG) *[]api.UpcomingRun {
 		if fire.ExtraBusinessDay {
 			run.ExtraBusinessDay = ptrOf(true)
 		}
+		run.Dates = a.fireDates(dag, fire, location)
 		runs = append(runs, run)
 	}
 	return &runs
+}
+
+// fireDates resolves the dates the run of a fire gets, or returns nil when
+// the DAG has no dates or they do not resolve.
+func (a *API) fireDates(dag *ir.DAG, fire ir.ScheduleFire, location *time.Location) *[]api.RunDateValue {
+	if len(dag.Dates) == 0 {
+		return nil
+	}
+	// The run of a profile's schedule is created with that profile, so its
+	// window and calendar come from that profile's schedules.
+	profile := dag.Schedule[fire.ScheduleIndex].Profile
+	window := ir.ScheduleWindowAt(dag.Schedule, profile, location, fire.Time)
+	dates, err := a.runDates(dag, profile, stringutil.FormatTime(fire.Time), window)
+	if err != nil {
+		return nil
+	}
+	return toAPIRunDates(dates)
 }
 
 // upcomingRunsHold reports why listed upcoming runs will not start: the

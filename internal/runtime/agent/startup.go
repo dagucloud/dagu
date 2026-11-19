@@ -19,6 +19,7 @@ type startupResolution struct {
 	env               runtimeenv.Result
 	envErr            error
 	secrets           []string
+	credentials       map[string]string
 	secretErr         error
 	profileValues     resolvedProfileValues
 	profileErr        error
@@ -68,6 +69,10 @@ func (a *Agent) resolveStartup(ctx context.Context) (startupResolution, error) {
 			return
 		}
 		result.secrets, result.secretErr = snapshot.resolveSecrets(ctx, result.profileValues)
+		if result.secretErr != nil || ctx.Err() != nil {
+			return
+		}
+		result.credentials, result.secretErr = snapshot.resolveCredentialRefs(ctx)
 	}()
 	select {
 	case result := <-resolved:

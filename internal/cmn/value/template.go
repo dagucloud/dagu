@@ -477,7 +477,7 @@ func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireV
 		}
 		return bindingMapValue("params", segments[1], scope.Params, requireValue)
 	case "env":
-		return bindingEnvValue(segments[1], scope.Env, requireValue)
+		return bindingEnvValue(ctx, segments[1], scope.Env, requireValue)
 	case "steps":
 		return bindingStepOutputValue(ctx, segments, scope.Steps, requireValue)
 	case "foreach":
@@ -486,6 +486,8 @@ func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireV
 		return bindingScopedPathValue("inputs", segments[1], scope.Inputs, requireValue)
 	case "outputs":
 		return bindingScopedPathValue("outputs", segments[1], scope.Outputs, requireValue)
+	case "dates":
+		return bindingDateValue(segments[1], scope.Dates, scope.declaredDates, requireValue)
 	case "context", "dag", "run", "attempt", "step", "trigger", "paths", "profile", "pushback":
 		return bindingBuiltinContextValue(path, scope.BuiltinContext, requireValue)
 	default:
@@ -506,6 +508,28 @@ func bindingScopedPathValue(namespace, name string, values Values, requireValue 
 	return nil, newNoticeReasonError(
 		ValueReferenceReasonNamespaceUnavailable,
 		fmt.Sprintf("%s.%s is unavailable in this context", namespace, name),
+	)
+}
+
+// bindingDateValue resolves dates.NAME to the run's value. Without one, a
+// name the DAG does not declare is a defect, and a declared one is only
+// unavailable outside a run.
+func bindingDateValue(name string, values, declared Values, requireValue bool) (any, error) {
+	if value, ok := values[name]; ok {
+		return value, nil
+	}
+	if !requireValue {
+		return nil, nil
+	}
+	if _, ok := declared[name]; !ok && (declared != nil || values != nil) {
+		return nil, newNoticeReasonError(
+			ValueReferenceReasonUnknownDateName,
+			fmt.Sprintf("unknown dates.%s binding", name),
+		)
+	}
+	return nil, newNoticeReasonError(
+		ValueReferenceReasonNamespaceUnavailable,
+		fmt.Sprintf("dates.%s is resolved when a run is created", name),
 	)
 }
 
@@ -675,12 +699,13 @@ func formatForeachItemValue(value any) any {
 	}
 }
 
-func bindingEnvValue(name string, scope *EnvScope, requireValue bool) (any, error) {
+func bindingEnvValue(ctx context.Context, name string, scope *EnvScope, requireValue bool) (any, error) {
 	if scope == nil && !requireValue {
 		return nil, nil
 	}
-	if value, ok := scope.Get(name); ok {
-		return value, nil
+	if entry, ok := scope.GetEntry(name); ok {
+		maskedReadsFrom(ctx).noteEntry(entry)
+		return entry.Value, nil
 	}
 	if !requireValue {
 		return nil, nil
@@ -721,7 +746,7 @@ func supportedStrictBinding(segments []string) bool {
 		// as the _row a workbook reader attaches to each row does, and use
 		// any script, as workbook headers do.
 		return len(segments) == 2 || validItemFieldSegment(segments[2])
-	case "inputs", "outputs":
+	case "inputs", "outputs", "dates":
 		return len(segments) == 2 && bindingNamePattern.MatchString(segments[1])
 	case "context":
 		if len(segments) != 3 {

@@ -290,6 +290,56 @@ func TestSchedulerStateLoadSeesAnotherWritersTick(t *testing.T) {
 	assert.Equal(t, state.LastTick, got.LastTick)
 }
 
+// A DAG's watermark is read from the cached state without copying the other
+// DAGs', and a write by another process is seen.
+func TestSchedulerStateLoadDAGReadsTheCache(t *testing.T) {
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("scheduler")
+	writer, reader := store.NewSchedulerStateStore(col), store.NewSchedulerStateStore(col)
+	seen := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	state := &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{}}
+	for i := range 2000 {
+		state.DAGs[fmt.Sprintf("dag-%d", i)] = schedulerstate.DAGWatermark{FirstSeen: seen, NextRun: &seen}
+	}
+	require.NoError(t, writer.Save(ctx, state))
+
+	got, err := reader.LoadDAG(ctx, "dag-7")
+	require.NoError(t, err)
+	assert.Equal(t, seen, got.FirstSeen)
+	allocs := testing.AllocsPerRun(10, func() {
+		_, err = reader.LoadDAG(ctx, "dag-7")
+	})
+	require.NoError(t, err)
+	assert.Less(t, allocs, 200.0, "a cached read copies no other DAG")
+
+	state.DAGs["dag-7"] = schedulerstate.DAGWatermark{FirstSeen: seen.Add(time.Hour)}
+	require.NoError(t, writer.Save(ctx, state))
+	got, err = reader.LoadDAG(ctx, "dag-7")
+	require.NoError(t, err)
+	assert.Equal(t, seen.Add(time.Hour), got.FirstSeen)
+}
+
+// A state written by another process while the store reads the record is
+// seen on the next read, not hidden behind the record read before it.
+func TestSchedulerStateSeesAWriteDuringARead(t *testing.T) {
+	ctx := t.Context()
+	inner := testutil.NewMemoryBackend().Collection("scheduler").(*testutil.MemoryCollection)
+	writer := store.NewSchedulerStateStore(inner)
+	require.NoError(t, writer.Save(ctx, &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{"etl": {}}}))
+	seen := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	col := &racingCollection{MemoryCollection: inner}
+	col.race = func() {
+		require.NoError(t, writer.Save(ctx, &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{"etl": {FirstSeen: seen}}}))
+	}
+	reader := store.NewSchedulerStateStore(col)
+
+	_, err := reader.LoadDAG(ctx, "etl")
+	require.NoError(t, err)
+	got, err := reader.LoadDAG(ctx, "etl")
+	require.NoError(t, err)
+	assert.Equal(t, seen, got.FirstSeen)
+}
+
 func TestSchedulerStateSaveSkipsSameCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	col := testutil.NewMemoryBackend().Collection("scheduler")
@@ -443,4 +493,95 @@ func TestSchedulerStateLoadCorruptDataFallsBackToEmpty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, lastTick, reloaded.LastTick)
 	assert.Empty(t, reloaded.DAGs)
+}
+
+// The records of the periods slots could not run, which share the scheduler
+// state's collection, are no part of the state it loads.
+func TestSchedulerStateLoadIgnoresPeriodRecords(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	col := testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState)
+	states := store.NewSchedulerStateStore(col)
+	saved := &schedulerstate.State{LastTick: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), DAGs: map[string]schedulerstate.DAGWatermark{}}
+	require.NoError(t, states.Save(ctx, saved))
+
+	periods := store.NewPeriodStore(col, nil)
+	period := schedulerstate.Period{From: time.Now().Add(-2 * time.Hour), To: time.Now().Add(-time.Hour)}
+	require.NoError(t, periods.AddDown(ctx, period))
+	require.NoError(t, periods.AddSuspended(ctx, "state", period))
+
+	loaded, err := store.NewSchedulerStateStore(col).Load(ctx)
+	require.NoError(t, err)
+	assert.True(t, saved.LastTick.Equal(loaded.LastTick))
+	assert.Empty(t, loaded.DAGs)
+}
+
+// readsCollection records the IDs of the records read from it.
+type readsCollection struct {
+	persis.Collection
+	mu   sync.Mutex
+	read map[string]bool
+}
+
+func (c *readsCollection) Get(ctx context.Context, id string) (*persis.Record, error) {
+	c.mu.Lock()
+	c.read[id] = true
+	c.mu.Unlock()
+	return c.Collection.Get(ctx, id)
+}
+
+// The catch-up slots have a record of their own beside the state, and
+// reading the state does not read them.
+func TestSchedulerStateCatchupRecord(t *testing.T) {
+	ctx := t.Context()
+	dir := filepath.Join(t.TempDir(), "scheduler")
+	col := &readsCollection{Collection: file.NewCollection(dir, file.WithIndentedJSON())}
+	s := store.NewSchedulerStateStore(col)
+	slots := map[string][]time.Time{"etl": {
+		time.Date(2026, 2, 7, 11, 0, 0, 0, time.UTC),
+		time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
+	}}
+	require.NoError(t, s.Save(ctx, &schedulerstate.State{DAGs: map[string]schedulerstate.DAGWatermark{"etl": {}}}))
+	require.NoError(t, s.SaveCatchup(ctx, slots))
+
+	raw, err := os.ReadFile(filepath.Join(dir, "catchup.json"))
+	require.NoError(t, err)
+	var record struct {
+		DAGs map[string][]time.Time `json:"dags"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &record))
+	assert.Equal(t, slots, record.DAGs)
+
+	col.read = map[string]bool{}
+	_, err = s.Load(ctx)
+	require.NoError(t, err)
+	_, err = s.LoadDAG(ctx, "etl")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"state": true, "checkpoint": true}, col.read)
+
+	got, err := store.NewSchedulerStateStore(col).LoadCatchup(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, slots, got)
+}
+
+// Catch-up slots that are missing or corrupt load as none.
+func TestSchedulerStateCatchupMissingOrCorrupt(t *testing.T) {
+	ctx := t.Context()
+	col := testutil.NewMemoryBackend().Collection("scheduler")
+	s := store.NewSchedulerStateStore(col)
+
+	got, err := s.LoadCatchup(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, got)
+
+	now := time.Now().UTC()
+	require.NoError(t, col.Put(ctx, &persis.Record{
+		ID:        "catchup",
+		Data:      []byte(`not valid json {{`),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}))
+	got, err = s.LoadCatchup(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, got)
 }

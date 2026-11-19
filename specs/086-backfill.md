@@ -95,18 +95,19 @@ A backfill reads each slot's state from its history:
 ### Starting a backfill
 
 ```sh
-dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flags]
+dagu backfill start <DAG> (--from <time> [--to <time>] [--by <dates entry>] | --slot <time>...) [flags]
 ```
 
 | Flag | Meaning | Default |
 | --- | --- | --- |
 | `--from` | First slot, inclusive. A date, a time without an offset, or an RFC 3339 time. | required without `--slot` |
 | `--to` | Last slot, inclusive. | now |
-| `--slot` | A slot to run. Repeatable. Excludes `--from`, `--to`, and `--rerun`. | none |
+| `--by` | An entry of the DAG's `dates` ([Spec 097](097-derived-dates.md)). `--from` and `--to` are then dates of that entry, not fire times. | none |
+| `--slot` | A slot to run. Repeatable. Excludes `--from`, `--to`, `--by`, and `--rerun`. | none |
 | `--rerun` | `none`, `failed`, or `all`. | `none` |
 | `--max-concurrency` | Runs of the backfill allowed at once. | `1` |
 | `--on-failure` | `stop` or `continue`. | `stop` |
-| `--params` | Params for every run. | the DAG's defaults |
+| `--params` | Params for every run. | the slot's schedule overrides and the DAG's defaults |
 | `--profile` | Runtime profile for every run. | the DAG's default |
 | `--dry-run` | Print the plan and start nothing. | off |
 | `--format` | Plan output: `text` or `json`. | `text` |
@@ -120,6 +121,12 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 - A `--to` at or after the current minute is clamped to just before it, and
   the plan says so. A `--from` later than now is rejected.
 - A `--slot` that is not a fire time, or that is later than now, is rejected.
+- With `--by`, `--from` and `--to` are dates (`YYYY-MM-DD`). A slot is in the
+  range when the calendar date of the entry's instant, in the entry's zone,
+  falls between them, whatever the entry's format. For a list entry, when any
+  of its values does. The entry is resolved as the slot's run resolves it. A
+  `--to` of today or later runs to now and is clamped, and a `--from` later
+  than today is rejected.
 - Each slot's action follows `--rerun`:
 
   | Slot state | `none` | `failed` | `all` | `--slot` |
@@ -133,10 +140,19 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 - The plan lists every slot with its window start and action, and the number
   of slots each `--rerun` value would run. The text plan shows the first and
   last three slots; `--format json` shows every slot.
+- For a DAG with `dates`, the plan gives each slot the dates its run gets.
+  The text plan adds a column and a `Loads <first> to <last> (<entry>)` line
+  for the `--by` entry, else the DAG's first, over the slots it runs.
 - Without `--yes`, the command prints the plan and asks before starting. With
   no terminal to ask on, or with `--format json`, it fails and names `--yes`.
 - A submit records the backfill, with the DAG's definition and each slot's
   window as they are at submit, and prints its 8-character ID.
+- Each open backfill also has a summary: its slot count and how many of its
+  slots ended and failed, which the dispatcher updates as runs end. A
+  backfill that ends failed keeps its summary until every slot it failed has
+  succeeded since, which the scheduler checks once a minute, or its DAG is
+  gone. Other ends remove it. A list of every DAG reads these summaries, not
+  the backfills' records or progress.
 - A submit with the same range and options as an open backfill of the DAG
   starts nothing and names that backfill. A submit that selects no slot
   creates no backfill.
@@ -149,11 +165,13 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
   duration of up to 20 of those runs, times the number of rounds the runs
   take at that concurrency.
 - The plan warns when no scheduler is running, when the DAG is suspended,
+  when the DAG does not read its slot, so every run does the same work,
   when the queue's limit lowers the concurrency, when the backfill can fill
   the queue so live runs may wait behind an executing backfill run (with the
   median duration when known), which `handler_on` steps will run once per
-  slot, and how many slots run because the schedule's cadence changed since
-  their runs.
+  slot, how many slots run because the schedule's cadence changed since
+  their runs, and which `--params` name a param whose `eval` reads the run's
+  dates, since the value given holds for every slot.
 
 ### Running a backfill
 
@@ -166,7 +184,10 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
   runs: they are neither started nor aborted, and start when the scheduler
   resumes. A suspended DAG's backfill runs still run.
 - These rules follow a backfill run's retries, by hand or by the DAG's retry
-  policy.
+  policy. A retry of a run of a backfill that ended `succeeded` or `failed`
+  opens the backfill again until the retry ends; the slots a stopped
+  backfill did not reach stay `not run`. A cancelled backfill stays
+  cancelled.
 - A backfill whose DAG is renamed or deleted ends `cancelled`, with the slots
   it had not queued cancelled. A rename of the file, or of the DAG inside
   it, counts as a rename.
@@ -188,8 +209,36 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 - `mail_on` and notification routes do not fire for a backfill run, except
   for a run waiting for a person. A backfill run neither opens nor resolves
   an incident. `handler_on` steps still run.
+- When a backfill ends succeeded or failed, the scheduler sends one summary
+  to the notification targets a run of its DAG with that outcome notifies:
+  its DAG's notification settings, else its workspace's routes. The summary
+  gives the slot counts, the time from submission to the end, up to 10
+  groups of failed slots by step and error with a link to each group's
+  first run, and a link to the backfill. Slack, Teams, Telegram, email, and
+  webhook targets receive it; a webhook gets `{"type": "backfill.ended",
+  "backfill": …, "message": …}`. Command targets and a cancelled backfill
+  send none. The DAG's own `mail_on` mail sends no summary.
 - Catchup skips a slot whose latest backfill run is active or succeeded.
   A manual run does not keep catchup off a slot.
+- Dagu records each period in which start-schedule slots cannot run once it
+  ends, and keeps the periods that ended in the last 30 days, at most 100
+  each for the scheduler's outages, the operator's pauses, and each DAG:
+  - `suspended`: from a DAG's suspension to its resume, for that DAG. The
+    suspend flag holds when the suspension began, and suspending again
+    keeps it. A resume through the API records the period before it clears
+    the flag, and fails, leaving the DAG suspended, when it cannot; a
+    retried resume records the period once;
+  - `paused`: from an operator's pause of the scheduler to its resume, for
+    every DAG, kept with the pause state and recorded in the same write as
+    the resume. Pausing again while paused keeps the time the pause began.
+    A wake hold records none, as the ticks it held run after it;
+  - `down`: when a scheduler starts, takes over, or ticks, more than a
+    minute after the last tick, from that tick to its own, or to where a
+    takeover's recovery window starts, for every DAG. A first tick that
+    comes after the minute the scheduler started in counts from the minute
+    before that one.
+  A DAG's own periods follow it when Dagu renames it and are removed when Dagu
+  deletes it.
 - A DAG's latest run is its newest run that is not a backfill run, wherever
   the latest run is shown or checked: the DAG list, the DAG's details,
   `dagu status`, and the scheduler. A DAG whose only runs are backfill runs
@@ -199,10 +248,71 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
   failed has not succeeded since. `GET /api/v1/dags/{fileName}` returns it
   as `latestBackfill`. `dagu status <DAG>` without `--run-id` prints it
   after the latest run, except in a remote context.
+- `GET /api/v1/dags` gives each DAG the backfill it mentions as `backfill`:
+  its newest open backfill, else its newest backfill that ended failed and
+  keeps its summary, with its slot count and how many slots ended and
+  failed. The list reads the summaries once per request, whatever the
+  number of DAGs.
+- A DAG reads its slot when it declares `dates`, refers in its definition
+  or base config to `${context.run.scheduled_at}`, `interval_start`,
+  `interval_end`, `next_scheduled_at`, or `${dates.*}`, or calls a sub-DAG,
+  which inherits the slot. A run reaches its slot only through these.
+- A DAG's missed slots are the fire times of its start schedules for its
+  active profile that came due strictly inside those periods, the newest
+  10,000 at most, whether or not a run filled them later. They are read from
+  the periods and the scheduler state only, never from the DAG's slot or run
+  history; the backfill planner decides which of them still need a run.
+  Left out: slots older than `slot_retention_days`; the slots of an outage
+  that the DAG's catch-up queues when a scheduler starts again or ticks
+  late, which with queues enabled are the newest slots within its
+  `catchup_window` before then, at most 1,000, or only the newest under
+  `overlap_policy: latest`; and the slots of the scheduler's outages and
+  pauses up to when the scheduler first tracked the DAG, which its
+  watermark keeps once as `firstSeen`, so a DAG created after an outage did
+  not miss it. A DAG the scheduler never tracked counts only its
+  suspensions. A queued slot that catch-up never runs is not counted
+  either: a restart queues again only the saved slots within the
+  `catchup_window` before it, and a pause or a suspension drops the queue.
+- `GET /api/v1/dags/{fileName}/missed-slots` returns the missed slots of a
+  DAG that reads its slot as `missedSlots`: their count, the `first` and
+  `last`, the `reasons` of the periods that hold them, and `until`, when the
+  newest such period ended. The runs of any other DAG all do the same work,
+  so it has none. The DAG's details and their live feed do not carry them.
+- The DAG's page reads them as it opens only, as no backfill changes them,
+  and then says `12 slots passed from 2026-11-01 09:00 to 2026-11-01 20:00
+  while this DAG was suspended` (or while the scheduler was paused or down,
+  or while this DAG could not run, for more than one reason), or `1 slot
+  passed at 2026-11-01 09:00 ...`. For a user who may run the DAG, it has a
+  Backfill action that opens the start panel on the first and last slot,
+  with its bounds editable, since the range may hold more slots than one
+  backfill may run. A backfill started there opens its page in place of
+  the panel's, so going back leads to the page the action was taken on.
+  Once it starts, the page dismisses the notice as Dismiss does; a
+  dismissal that fails then is logged in the browser and leaves the
+  backfill started. A backfill started anywhere else dismisses nothing.
+- A user who may suspend the DAG may dismiss the notice: the server allows
+  running DAGs, and the user has an operator role or above in the DAG's
+  workspace. Others see the notice without a Dismiss button, and the server
+  refuses their dismissal as it refuses their suspension; a user who cannot
+  see the DAG gets not found.
+  `POST /api/v1/dags/{fileName}/missed-slots/dismissal` records the server's
+  time and the user with the DAG's periods, and writes an audit entry. A
+  dismissal covers every period that ended by then, so the notice is hidden
+  for every user until a period that ends after the dismissal adds missed
+  slots; that notice counts only the periods that ended after the
+  dismissal. A suspension still running when the notice was dismissed ends
+  later, so it counts in full. A later dismissal replaces an earlier one. A
+  dismissal that fails leaves the notice and shows the error.
 - Each run is queued through the DAG's queue and counts against its limit.
-  It runs the definition pinned at submit, with the backfill's params and
-  profile, and has its slot's scheduled time and window. Its
+  It runs the definition pinned at submit, with the backfill's profile and
+  its explicit params or the first matching recurring schedule's overrides.
+  It has its slot's scheduled time and window. Its
   `context.trigger.type` is `backfill`.
+- Every run records a digest of the YAML it runs as `definitionDigest`.
+- Each run evaluates its params' `eval` when it starts, from its own slot's
+  dates, so a param with `eval: ${dates.target_day}` takes each slot's date.
+  A value given with `--params` replaces that `eval`, so the param holds that
+  value in every slot.
 - A backfill run's ID is `backfill-<backfill id>-<generation>-<slot>`, with
   the slot in UTC as `20060102T150405Z`. A scheduler that restarts finds the
   runs it queued before and queues none of them again.
@@ -212,8 +322,13 @@ dagu backfill start <DAG> (--from <time> [--to <time>] | --slot <time>...) [flag
 - A slot whose run did not succeed stops a backfill with `--on-failure stop`:
   no further slot is queued, active runs finish, and the slots not reached
   are not run. With `--on-failure continue`, the backfill goes on.
+- The DAG's retry policy applies to a backfill run first: a failed run with
+  retries left, within `scheduler.retry_failure_window`, holds its slot as
+  active until the retries succeed or run out.
 - A backfill ends `succeeded` when every slot's run succeeded or the slot was
   skipped, and `failed` otherwise.
+- A backfill that ended more than `slot_retention_days` ago is removed when
+  its DAG next gets a backfill.
 
 ### Listing and following backfills
 
@@ -235,6 +350,19 @@ dagu backfill status <backfill id> [--watch] [--format text|json]
   person`. Otherwise, the backfill's oldest queued run gives `Waiting: queue
   at limit, <n> runs ahead` when the queue runs its limit, `Waiting: <n> runs
   ahead in the queue`, or `Waiting: next in the queue`.
+- `status` gives about how long an open backfill's slots left take, from the
+  pace of the runs that ended since its slots were last planned:
+  `About 1h 40m left, at the pace of its runs so far`. The API gives it as
+  `secondsLeft`, and the run that blocks a backfill as `waitingRunId`.
+- `status` groups the failed slots by the step their runs failed at and the
+  first line of its error, the largest group first, each with its slot
+  count, its earliest slot, and that slot's run:
+  `Failed: 2 slots at step load: connection refused (first <slot>, run <id>)`.
+  The dispatcher records the step and error when it sees a run fail, so
+  reading them needs no run's status. The API gives them as `failures`.
+- `status` marks a slot whose run ran another definition than the one the
+  backfill runs now, as a run a resume of an edited DAG carries:
+  `running (older definition)`. The API gives it as `otherDefinition`.
 - `status --watch` prints a line each time the backfill's progress changes,
   then the status when the backfill ends. It exits 0 only when the backfill
   succeeded. With `--format json`, the progress lines go to stderr and stdout
@@ -259,19 +387,24 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
   concurrency, and a failure among them fails it. `--max-concurrency` and
   `--on-failure` replace the backfill's.
 - `resume` shows its plan and asks before resuming, as `start` does. A dry
-  run prints the plan the resume then runs. The backfill keeps its ID.
+  run prints the plan the resume then runs. The backfill keeps its ID. The
+  plan warns when the DAG's definition changed since the backfill started:
+  new runs run the current one, and active runs keep theirs.
 
 ### API
 
 | Endpoint | Purpose |
 | --- | --- |
 | `POST /api/v1/dags/{fileName}/backfills` | Plan and submit, with the options of `dagu backfill start`. `dryRun` returns the plan only. |
-| `GET /api/v1/dags/{fileName}/slots` | The slots of a range, each with its window start and state: `missing`, `succeeded`, `failed`, or `active`. |
+| `GET /api/v1/dags/{fileName}/slots` | The slots of a range, each with its window start and state: `missing`, `succeeded`, `failed`, or `active`; the trigger of the run its state comes from; and, for a DAG with `dates`, the dates its run gets. |
 | `GET /api/v1/backfills` | Backfills, oldest first, of every DAG or of `dag`. |
 | `GET /api/v1/backfills/{id}` | A backfill's status, the number of slots in each state, and `waiting`, the reason `status` gives. |
 | `GET /api/v1/backfills/{id}/slots` | A backfill's slots, `limit` at a time from `offset`, filtered by `state`. |
 | `POST /api/v1/backfills/{id}/cancel` | Cancel, with `stopRunning`. |
 | `POST /api/v1/backfills/{id}/resume` | Resume, with `maxConcurrency` and `onFailure`. `dryRun` returns the plan only. |
+| `GET /api/v1/dag-runs?backfillId={id}` | The runs of a backfill, from its submission on unless `fromDate` or `toDate` is set. Every run carries `backfillId`, which a retry keeps. |
+| `GET /api/v1/dag-runs?backfill=exclude` or `only` | The run list without backfill runs, or with only them. A saved run view keeps the choice as `backfill`: `all`, `exclude`, or `only`. |
+| `GET /api/v1/queues/{name}/items?backfill=exclude` or `only` | A queue's queued runs without backfill runs, or with only them. |
 
 - A plan carries the number of slots each `rerun` value would run and a
   `revision`. A submit or resume that sends a `revision` the plan no longer
@@ -280,12 +413,18 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
   recorded in the audit log.
 - A request with invalid times or options answers 400, an unknown DAG or
   backfill 404, and cancelling an ended backfill 409.
+- The event stream's `backfill` topic, identified by the backfill ID, sends
+  what `GET /api/v1/backfills/{id}` returns. A change to one of the
+  backfill's runs updates it within seconds, at most once every 2s; other
+  changes reach it within 30s.
+- A backfill run's details give `backfillSlot`: the place of its slot among
+  the backfill's slots, from 1, and how many slots the backfill has.
 
 ## Configuration
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `slot_retention_days` | `730` | Days a slot stays in the slot history. A positive integer. |
+| `slot_retention_days` | `730` | Days a slot stays in the slot history, and an ended backfill stays listed. A positive integer. |
 | `scheduler.backfill_max_slots` | `10000` | Most slots one backfill may cover. |
 
 ## Errors
@@ -294,7 +433,9 @@ dagu backfill resume <backfill id> [--max-concurrency <n>] [--on-failure <policy
   error naming `slot_retention_days`.
 - `dagu backfill start` exits with status 1 and starts nothing when:
   - neither `--from` nor `--slot` is given, or `--slot` is combined with
-    `--from`, `--to`, or `--rerun`;
+    `--from`, `--to`, `--by`, or `--rerun`;
+  - `--by` names no entry of the DAG's `dates`, or `--from` or `--to` is not
+    a date with `--by`, or `--to` is before `--from`;
   - `--from` or a `--slot` is later than now, or a `--slot` is not a fire time;
   - the range has more slots than `scheduler.backfill_max_slots`;
   - the DAG has no schedule;
@@ -323,11 +464,15 @@ asserts that the plan skips slots whose latest run succeeded or failed and
 counts the slots of each `--rerun` value; that a slot keeps the status of a
 run history retention removed; that a run removed with `dagu rm --history` no
 longer counts; that a scheduler run under an earlier schedule covers the
-nearest slot after the schedule moves; that `--to` is clamped to now; that the
+nearest slot after the schedule moves; that `--to` is clamped to now; that
+`--by` selects the slots whose entry falls in the range, whatever its format,
+including a list entry, and that the plan shows each slot's dates; that the
 rejections under Errors fail with status 1; and that submitting the same
 backfill while it is open starts nothing while an overlapping one leaves the
 open backfill's slots active. With a scheduler running, it asserts that a
 backfill's slots each end with a succeeded run of the backfill, that the
-backfill ends `succeeded`, and that `ls` lists it. It asserts that `cancel`
+backfill ends `succeeded`, and that `ls` lists it; that a param whose
+`eval` reads a date takes each slot's own date, and that the plan warns when
+`--params` gives it one value. It asserts that `cancel`
 cancels an open backfill's slots and fails on an ended one, and that
 `resume` makes the slots pending again.

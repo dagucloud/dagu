@@ -80,6 +80,7 @@ type Scheduler struct {
 	lockLost            atomic.Pointer[error]
 	fenceExit           func(error)
 	fenceExitAfter      time.Duration
+	drainTimeout        time.Duration // Wait for started runs before stopping them
 	fenceMu             sync.Mutex
 	fenceWatchdog       *time.Timer
 	startReturned       bool
@@ -107,9 +108,13 @@ type Scheduler struct {
 	wakeHold            wakeHold // The hold on the ticks after the host wakes (wake_hold.go)
 	eventCollector      func(context.Context)
 	notificationMonitor *chatbridge.NotificationMonitor
-	incidentMonitor     *chatbridge.NotificationMonitor
-	publicWebhooks      *publicwebhook.Service
-	folderWatcher       *folderWatcher // Starts runs for files arriving in watched folders
+	// backfillNotifier sends the summary of each backfill that ends.
+	backfillNotifier backfillNotifier
+	// backfillSummaries queues the ended backfills whose summary is sent.
+	backfillSummaries chan *backfill.Record
+	incidentMonitor   *chatbridge.NotificationMonitor
+	publicWebhooks    *publicwebhook.Service
+	folderWatcher     *folderWatcher // Starts runs for files arriving in watched folders
 }
 
 type schedulerHooks struct {
@@ -129,6 +134,8 @@ type Dependencies struct {
 	SchedulerStateStore schedulerstate.Store
 	SchedulerPauseStore schedulerstate.PauseStore
 	RestartBackoffStore schedulerstate.RestartBackoffStore
+	// PeriodStore records the time no scheduler ran. Nil records none.
+	PeriodStore schedulerstate.PeriodStore
 	// BackfillStore holds the backfills the scheduler runs. Nil runs none.
 	BackfillStore        backfill.Store
 	DAGRunLeaseStore     dispatch.DAGRunLeaseStore
@@ -195,9 +202,15 @@ func New(cfg *config.Config, deps Dependencies) (*Scheduler, error) {
 	}
 	scheduler.eventCollector = deps.EventCollector
 	scheduler.restartScanner.cfg.BackoffStore = deps.RestartBackoffStore
+	scheduler.planner.cfg.Periods = deps.PeriodStore
 	scheduler.backfills = scheduler.newBackfillDispatcher(deps.BackfillStore)
 	if scheduler.backfills != nil {
 		scheduler.planner.cfg.BackfillGuard = scheduler.guardCatchupSlot
+		if deps.NotificationStore != nil {
+			scheduler.backfillNotifier = newNotificationService(cfg, deps.NotificationStore, deps.DAGRepository, deps.DAGRunRepository)
+			scheduler.backfillSummaries = make(chan *backfill.Record, backfillSummaryQueueSize)
+			scheduler.backfills.Ended = scheduler.notifyBackfillEnded
+		}
 	}
 	if deps.EventService != nil {
 		scheduler.notificationMonitor = newNotificationMonitor(cfg, deps)
@@ -304,7 +317,7 @@ func newScheduler(
 	liveRun := liveRunChecker(dagRunRepository)
 	if queuesEnabled {
 		isQueued = liveQueuedChecker(queueStore, liveRun)
-		enqueueFunc = func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
+		enqueueFunc = func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time, params string) error {
 			dag := entry.DAG
 			profileName, err := dagExecutor.defaultProfileName(ctx, entry.DefinitionID, dag)
 			if err != nil {
@@ -324,7 +337,7 @@ func newScheduler(
 				triggerType,
 				scheduleTime,
 				ir.ScheduleWindowAt(dag.Schedule, profileName, timeLoc, scheduleTime),
-				profileName,
+				profileName, params,
 			)
 		}
 	}
@@ -349,11 +362,11 @@ func newScheduler(
 		IsSuspended:     isSuspended,
 		GetLatestStatus: drm.GetLatestStatus,
 		IsRunning:       isRunning,
-		Dispatch: func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time) error {
+		Dispatch: func(ctx context.Context, entry DAGEntry, runID string, triggerType ir.TriggerType, scheduleTime time.Time, params string) error {
 			return dagExecutor.HandleJob(
 				ctx, entry,
 				dispatch.DispatchOperationStart,
-				runID, triggerType, scheduleTime,
+				runID, triggerType, scheduleTime, params,
 			)
 		},
 		Stop: func(ctx context.Context, dag *ir.DAG) error {
@@ -437,6 +450,7 @@ func newScheduler(
 		quit:             make(chan any),
 		fenceExit:        exitOnLostLock,
 		fenceExitAfter:   defaultFenceExitAfter,
+		drainTimeout:     cfg.SignalHandling.DrainTimeout,
 		entryReader:      er,
 		dagRepository:    dagRepository,
 		dagRunRepository: dagRunRepository,
@@ -723,7 +737,7 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 		return fmt.Errorf("failed to acquire scheduler lock: %w", err)
 	}
 
-	// Catch signals before reporting the lock as held. A signal during the rest
+	// Catch signals as soon as the lock is acquired. A signal during the rest
 	// of startup waits here for the cron loop, which stops cleanly and releases
 	// the lock; without this it would kill the process and leave the lock to go
 	// stale.
@@ -731,6 +745,16 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 	if !s.disableSignals {
 		signal.Notify(sig, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 		defer signal.Stop(sig)
+	}
+
+	// A standby may have taken the lock over while acquiring it stalled, so
+	// renew it before acting as active.
+	lease, err := startLockLease(ctx, s.dirLock, s.config.Scheduler.LockStaleThreshold)
+	if err != nil {
+		if errors.Is(err, context.Canceled) && s.stopping() {
+			return nil
+		}
+		return fmt.Errorf("%w: %v", ErrLockLost, err)
 	}
 
 	s.lockHeld.Store(true)
@@ -742,7 +766,7 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 		return nil
 	}
 
-	s.lease = newLockLease(s.dirLock, s.config.Scheduler.LockStaleThreshold)
+	s.lease = lease
 
 	var wg sync.WaitGroup
 	wg.Go(func() {
@@ -809,6 +833,10 @@ func (s *Scheduler) Start(ctx context.Context) (err error) {
 
 	wg.Go(func() {
 		s.startBackfillDispatcher(ctx)
+	})
+
+	wg.Go(func() {
+		s.sendBackfillSummaries(ctx)
 	})
 
 	wg.Go(func() {
@@ -1052,12 +1080,13 @@ func (s *Scheduler) waitForTick(ctx context.Context, sig chan os.Signal, timer *
 		signal.Stop(sig)
 		var received os.Signal
 		_ = errors.As(context.Cause(ctx), &received)
-		<-launcher.PropagateSignal(ctx, received)
+		<-launcher.StopRuns(ctx, received, s.drainTimeout)
 		return false
 	case received := <-sig:
 		signalctx.AbsorbRepeatedTerminate(ctx)
 		signal.Stop(sig)
-		runsDone := launcher.PropagateSignal(ctx, received)
+		// Stop releases the lock, so a standby schedules while runs drain.
+		runsDone := launcher.StopRuns(ctx, received, s.drainTimeout)
 		s.Stop(ctx)
 		<-runsDone
 		return false

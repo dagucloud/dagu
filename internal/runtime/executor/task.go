@@ -157,6 +157,13 @@ func WithScheduleWindow(window ir.ScheduleWindow) TaskOption {
 	}
 }
 
+// WithDates sets the run's dates, resolved when it was created.
+func WithDates(dates []ir.DateValue) TaskOption {
+	return func(task *dispatch.DispatchTask) {
+		task.Dates = dates
+	}
+}
+
 // WithProfileName sets the runtime profile name for a dispatched task.
 func WithProfileName(profileName string) TaskOption {
 	return func(task *dispatch.DispatchTask) {

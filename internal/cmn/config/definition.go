@@ -15,6 +15,7 @@ type Definition struct {
 	APIBaseURL         string       `mapstructure:"api_base_url"` // Deprecated: use APIBasePath
 	Headless           *bool        `mapstructure:"headless"`
 	CheckUpdates       *bool        `mapstructure:"check_updates"`
+	AllowWebUpgrade    *bool        `mapstructure:"allow_web_upgrade"`
 	TLS                *TLSDef      `mapstructure:"tls"`
 	CORSAllowedOrigins []string     `mapstructure:"cors_allowed_origins"`
 	AllowedHosts       []string     `mapstructure:"allowed_hosts"`
@@ -142,8 +143,9 @@ type BrowserTrustedCADef struct {
 
 // DAGDiscoveryDef configures DAG definition discovery.
 type DAGDiscoveryDef struct {
-	Recursive *bool `mapstructure:"recursive"`
-	Symlinks  *bool `mapstructure:"symlinks"`
+	Recursive *bool    `mapstructure:"recursive"`
+	Symlinks  *bool    `mapstructure:"symlinks"`
+	SkipDirs  []string `mapstructure:"skip_directories"`
 }
 
 // -----------------------------------------------------------------------------
@@ -476,6 +478,8 @@ type SignalHandlingDef struct {
 	// EnablePropagation forwards shutdown signals received by a supervising
 	// process (server, scheduler, start-all) to running DAG-run subprocesses.
 	EnablePropagation *bool `mapstructure:"enable_propagation"`
+	// DrainTimeout is a duration string such as "5m". Default: 0.
+	DrainTimeout string `mapstructure:"drain_timeout"`
 }
 
 // QueueDef configures an individual queue.

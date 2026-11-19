@@ -827,3 +827,42 @@ func TestResolverProcessEnvironmentHidesDaguCredentials(t *testing.T) {
 		assert.Equal(t, want, got, raw)
 	}
 }
+
+// A run's dates resolve by name. Outside a run, a date the DAG declares is
+// only unavailable, while an undeclared one is a defect.
+func TestResolverDates(t *testing.T) {
+	t.Parallel()
+
+	declared := value.Values{"target_day": "", "window_days": ""}
+	ctx := context.Background()
+	field := value.WorkflowField("steps[0].run")
+
+	run := value.NewResolver(
+		value.StaticScope{Dates: declared},
+		value.RuntimeScope{Dates: value.Values{"target_day": "2026-11-09", "window_days": `["2026-11-09"]`}},
+	)
+	got, err := run.String(ctx, "load ${dates.target_day} ${dates.window_days}", field)
+	require.NoError(t, err)
+	assert.Equal(t, `load 2026-11-09 ["2026-11-09"]`, got)
+	ref, err := run.ResolveRef(ctx, "${dates.target_day}", field)
+	require.NoError(t, err)
+	assert.Equal(t, "2026-11-09", ref)
+
+	for _, tc := range []struct {
+		token string
+		class value.ValueReferenceNoticeClass
+	}{
+		{token: "${dates.target_day}", class: value.NoticeClassRuntimeOnly},
+		{token: "${dates.missing}", class: value.NoticeClassDefect},
+	} {
+		var collector value.ValueReferenceNoticeCollector
+		inspect := value.NewResolver(value.StaticScope{Dates: declared}, value.RuntimeScope{},
+			value.WithValueReferenceNotices(&collector))
+		got, err := inspect.String(ctx, tc.token, field)
+		require.NoError(t, err)
+		assert.Equal(t, tc.token, got)
+		notices := collector.Notices()
+		require.Len(t, notices, 1, tc.token)
+		assert.Equal(t, tc.class, notices[0].Class, tc.token)
+	}
+}

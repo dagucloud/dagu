@@ -25,6 +25,9 @@ import (
 type logHandler struct {
 	logDir           string
 	attemptValidator func(context.Context, attemptIdentity) error
+	// stepNames returns the names of the steps of a chunk's run, or none
+	// when the run cannot be read.
+	stepNames func(*coordinatorv1.LogChunk) []string
 
 	// Active writers: streamKey -> writer
 	writers   map[string]*streamLogWriter
@@ -267,23 +270,73 @@ func (h *logHandler) logFilePath(chunk *coordinatorv1.LogChunk) string {
 		attemptDir = dagRunID
 	}
 
-	ext := StreamTypeToExtension(chunk.StreamType)
-
 	// For scheduler logs, use just "scheduler.log" without stepName prefix
-	var filename string
 	if chunk.StreamType == coordinatorv1.LogStreamType_LOG_STREAM_TYPE_SCHEDULER {
-		filename = "scheduler.log"
-	} else {
-		filename = fmt.Sprintf("%s.%s", fileutil.SafeName(chunk.StepName), ext)
+		return schedulerLogPath(h.logDir, dagName, dagRunID, attemptDir)
 	}
+	steps := func() []string {
+		if h.stepNames == nil {
+			return nil
+		}
+		return h.stepNames(chunk)
+	}
+	return stepLogPath(h.logDir, dagName, dagRunID, attemptDir, chunk.StepName, StreamTypeToExtension(chunk.StreamType), steps)
+}
 
-	return filepath.Join(
-		h.logDir,
-		fileutil.SafeName(dagName),
-		fileutil.SafeName(dagRunID),
-		fileutil.SafeName(attemptDir),
-		filename,
-	)
+// schedulerLogFile names the scheduler's log in an attempt's directory.
+const schedulerLogFile = "scheduler.log"
+
+// stepLogPath returns the coordinator file of a step's log of an attempt.
+// steps returns the names of the run's steps (see attemptLogPath).
+func stepLogPath(logDir, dagName, dagRunID, attemptID, step, ext string, steps func() []string) string {
+	return attemptLogPath(logDir, dagName, dagRunID, attemptID, stepLogFile(step, ext), legacyName(step)+"."+ext, func() bool {
+		names := steps()
+		_, owned := fileutil.LegacySafeName(step, names)
+		return owned && len(names) > 0
+	})
+}
+
+// schedulerLogPath returns the coordinator file of the scheduler's log of an
+// attempt.
+func schedulerLogPath(logDir, dagName, dagRunID, attemptID string) string {
+	return attemptLogPath(logDir, dagName, dagRunID, attemptID, schedulerLogFile, schedulerLogFile, func() bool { return true })
+}
+
+// attemptLogPath returns the coordinator file named file in an attempt's
+// directory. Released versions named the directory, and the file as
+// legacyFile, by SafeName. A run in flight across an upgrade keeps writing to
+// such a file when it exists and the new one does not, if owned reports that
+// no other step of the run had the same SafeName. owned is called only then.
+func attemptLogPath(logDir, dagName, dagRunID, attemptID, file, legacyFile string, owned func() bool) string {
+	path := attemptLogFile(logDir, dagName, dagRunID, attemptID, file)
+	legacy := filepath.Join(legacyName(dagName), legacyName(dagRunID), legacyName(attemptID), legacyFile)
+	if filepath.Join(logDir, legacy) == path {
+		return path
+	}
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		return path
+	}
+	rel, ok := fileutil.LegacyEntry(logDir, legacy)
+	if !ok || !owned() {
+		return path
+	}
+	return filepath.Join(logDir, rel)
+}
+
+// attemptLogFile returns the coordinator file named file in the directory
+// this version gives an attempt's logs.
+func attemptLogFile(logDir, dagName, dagRunID, attemptID, file string) string {
+	return filepath.Join(logDir, fileutil.SafeKey(dagName), fileutil.SafeKey(dagRunID), fileutil.SafeKey(attemptID), file)
+}
+
+// stepLogFile names the file of a step's log with extension ext.
+func stepLogFile(step, ext string) string {
+	return fileutil.SafeKey(step) + "." + ext
+}
+
+func legacyName(name string) string {
+	legacy, _ := fileutil.LegacySafeName(name, nil)
+	return legacy
 }
 
 // StreamTypeToExtension returns the file extension for a given stream type.

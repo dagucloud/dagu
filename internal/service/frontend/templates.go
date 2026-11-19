@@ -127,10 +127,21 @@ type UpdateStatus struct {
 	LatestVersion   string
 	// UpgradeCommand updates this installation; empty when no single command applies.
 	UpgradeCommand string
+	// InstallMethod names how Dagu was installed, such as "binary" or "container".
+	InstallMethod string
 	// RestartRequired reports that a different binary was installed since the server started.
 	RestartRequired bool
 	// RestartCommand restarts the installer-managed service; empty when none is found.
 	RestartCommand string
+	// RestartStopsRuns reports that restarting the installer-managed service
+	// also ends runs in progress.
+	RestartStopsRuns bool
+	// RestartCanKeepRuns reports that the service can be reconfigured so a
+	// restart leaves runs in progress running.
+	RestartCanKeepRuns bool
+	// WebUpgradeAvailable reports that an administrator can install the
+	// available update from the web UI.
+	WebUpgradeAvailable bool
 }
 
 type funcsConfig struct {

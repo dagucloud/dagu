@@ -1,6 +1,6 @@
 # RFC 007: Schedule Window and Derived Dates
 
-- **Status:** Proposed
+- **Status:** Implemented
 - **Date:** 2026-11-10
 - **Affected areas:** `spec`, `ir`, `runtime` (run context), `intake`,
   `service/scheduler`, `service/frontend` (API, UI), `service/mcp`, `cmd`,
@@ -447,3 +447,5 @@ every way of starting one shows the slot, window, and dates:
 ## Open questions
 
 1. Should `week_start` be configurable, or follow the calendar?
+   Decided: neither. A week starts on Monday in every zone, as spec 097
+   states. A configurable or calendar-defined week start needs a spec change.

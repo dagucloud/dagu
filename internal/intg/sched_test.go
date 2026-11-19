@@ -57,7 +57,7 @@ steps:
 	var dispatchCount atomic.Int32
 	var dispatchMu sync.Mutex
 	var dispatchTimes []time.Time
-	schedulerInstance.SetDispatchFunc(func(_ context.Context, entry scheduler.DAGEntry, _ string, trigger ir.TriggerType, scheduled time.Time) error {
+	schedulerInstance.SetDispatchFunc(func(_ context.Context, entry scheduler.DAGEntry, _ string, trigger ir.TriggerType, scheduled time.Time, _ string) error {
 		dag := entry.DAG
 		if dag != nil && dag.Name == "cron-test" && trigger == ir.TriggerTypeScheduler {
 			dispatchMu.Lock()
@@ -159,7 +159,7 @@ func TestScheduleEditWhileSuspendedDoesNotSuppressNewSlot(t *testing.T) {
 		lastDispatchTime time.Time
 		lastDispatchType ir.TriggerType
 	)
-	sc.SetDispatchFunc(func(_ context.Context, entry scheduler.DAGEntry, _ string, trigger ir.TriggerType, scheduleTime time.Time) error {
+	sc.SetDispatchFunc(func(_ context.Context, entry scheduler.DAGEntry, _ string, trigger ir.TriggerType, scheduleTime time.Time, _ string) error {
 		dag := entry.DAG
 		if dag != nil && dag.Name == dagName {
 			dispatchCount.Add(1)
@@ -267,7 +267,7 @@ func TestSchedulerPauseSuppressesDispatchUntilResumed(t *testing.T) {
 	sc.SetClock(schedulerNow)
 
 	var dispatchCount atomic.Int32
-	sc.SetDispatchFunc(func(_ context.Context, entry scheduler.DAGEntry, _ string, _ ir.TriggerType, _ time.Time) error {
+	sc.SetDispatchFunc(func(_ context.Context, entry scheduler.DAGEntry, _ string, _ ir.TriggerType, _ time.Time, _ string) error {
 		if entry.DAG != nil && entry.DAG.Name == dagName {
 			dispatchCount.Add(1)
 		}

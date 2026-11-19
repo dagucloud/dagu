@@ -219,6 +219,30 @@ func HasReferenceToNamespace(raw string, namespaces ...string) bool {
 	return false
 }
 
+// HasReferenceToPath reports whether raw references one of the named values,
+// such as context.run.scheduled_at, by its path or a legacy alias.
+func HasReferenceToPath(raw string, paths ...string) bool {
+	for _, ref := range scanReferences(raw, true) {
+		if ref.Kind != referenceStrict && ref.Kind != referenceEval {
+			continue
+		}
+		path := strings.TrimRightFunc(ref.Expr, isPathTerminator)
+		if canonical, ok := legacyBuiltinContextAliases[path]; ok {
+			path = canonical
+		}
+		if slices.Contains(paths, path) {
+			return true
+		}
+	}
+	return false
+}
+
+// isPathTerminator reports whether r ends an unbraced reference's path,
+// such as a quote or a comma that follows it.
+func isPathTerminator(r rune) bool {
+	return r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r)
+}
+
 // plainReferenceName matches an unqualified environment name.
 var plainReferenceName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
@@ -262,7 +286,7 @@ func parseExactRef(token string) (reference, bool) {
 	}
 
 	switch ref.Namespace {
-	case "consts", "env", "steps", "foreach", "inputs", "outputs", "context":
+	case "consts", "env", "steps", "foreach", "inputs", "outputs", "context", "dates":
 		return ref, true
 	case "params":
 		// The aggregate ${params} form is JSON data, not a named value reference.

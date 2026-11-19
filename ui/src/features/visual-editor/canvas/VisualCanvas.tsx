@@ -320,11 +320,15 @@ function CanvasView({
   // The columns of the tool grid follow the width of the canvas.
   const canvasWidth = useFlowStore().size.width;
   // A panel over the canvas covers its right: the free part is what shows.
-  const { right: overlayRight, top: overlayTop = 0 } = useCanvasOverlayInset();
+  const {
+    right: overlayRight,
+    top: overlayTop = 0,
+    covered: hostCovers = false,
+  } = useCanvasOverlayInset();
   const freeWidth = canvasWidth - overlayRight;
   // A panel that covers the whole canvas, such as a maximized one, leaves
   // nothing for the canvas controls to act on.
-  const canvasCovered = canvasWidth > 0 && freeWidth <= 0;
+  const canvasCovered = hostCovers || (canvasWidth > 0 && freeWidth <= 0);
   // Cards without text: only their icon, so that a graph is denser.
   const [showDetails, setShowDetails] = useCanvasDetails();
   const compact = !showDetails;
@@ -1508,10 +1512,15 @@ function CanvasView({
                 createPortal(
                   <>
                     {/* The marker keeps the canvas from taking a click on a
-                        toolbar for a click on the pane. */}
+                        toolbar for a click on the pane. A compact row gives
+                        its room to the right group, with Save, first: the
+                        canvas controls scroll instead. */}
                     <div
                       data-flow-overlay=""
-                      className="flex min-w-0 shrink-0 items-center gap-2"
+                      className={cn(
+                        'flex min-w-0 items-center gap-2',
+                        compactBar ? 'overflow-x-auto' : 'shrink-0'
+                      )}
                     >
                       {toolbarStart}
                       <div
@@ -1525,6 +1534,7 @@ function CanvasView({
                       data-flow-overlay=""
                       className={cn(
                         'flex min-w-0 justify-end',
+                        compactBar && 'max-w-full shrink-0',
                         TOOLBAR_GROUP_CLASS
                       )}
                     >

@@ -26,6 +26,9 @@ type DAGWatermark struct {
 	// LastSlot is the latest start-schedule slot that came due, and what the
 	// scheduler did with it; nil before any slot came due.
 	LastSlot *ScheduleSlot `json:"lastSlot,omitempty"`
+	// FirstSeen is when the scheduler first tracked the DAG. It is set once
+	// and never changes.
+	FirstSeen time.Time `json:"firstSeen,omitzero"`
 }
 
 // ScheduleSlot is a start-schedule slot that came due, and what came of it.
@@ -90,7 +93,17 @@ type OneOffScheduleState struct {
 // must not retain or mutate the provided state.
 type Store interface {
 	Load(ctx context.Context) (*State, error)
+	// LoadDAG returns a copy of one DAG's watermark, zero when the state
+	// holds none, without copying the others.
+	LoadDAG(ctx context.Context, dag string) (DAGWatermark, error)
 	Save(ctx context.Context, state *State) error
+	// LoadCatchup returns the catch-up slots SaveCatchup last saved, by DAG
+	// name, and none when none were saved or the saved ones are corrupt.
+	// Load and LoadDAG do not read them.
+	LoadCatchup(ctx context.Context) (map[string][]time.Time, error)
+	// SaveCatchup replaces the saved catch-up slots. It must not retain or
+	// mutate slots.
+	SaveCatchup(ctx context.Context, slots map[string][]time.Time) error
 }
 
 // Clone returns a deep copy of state.
@@ -114,6 +127,7 @@ func CloneDAGWatermark(watermark DAGWatermark) DAGWatermark {
 		LastScheduledTime:        watermark.LastScheduledTime,
 		StartScheduleFingerprint: watermark.StartScheduleFingerprint,
 		SkipSuccessResetAt:       watermark.SkipSuccessResetAt,
+		FirstSeen:                watermark.FirstSeen,
 	}
 	if watermark.NextRun != nil {
 		nextRun := *watermark.NextRun

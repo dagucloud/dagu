@@ -6,6 +6,7 @@ package intg_test
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
@@ -100,6 +101,84 @@ func TestAPIStartStepsFromSpec(t *testing.T) {
 	require.Equal(t, ir.NodeSucceeded, status.Nodes[2].Status)
 }
 
+// A run that reuses an earlier one runs only the steps whose definition
+// changed, and the steps after them; the others carry their outputs. The
+// same definition again runs every step.
+func TestAPIRunReusesUnchangedSteps(t *testing.T) {
+	server := test.SetupServer(t)
+	dagName := "intg_reuse_unchanged"
+
+	first := "reuse-first"
+	server.Client().Post("/api/v1/dag-runs", api.ExecuteDAGRunFromSpecJSONRequestBody{
+		Spec:     startStepsSpec(dagName),
+		DagRunId: &first,
+	}).ExpectStatus(http.StatusOK).Send(t)
+	waitForEditRetryStoredStatus(t, server, dagName, first, ir.Succeeded)
+
+	// Only the last step changes, so the two before it are reused.
+	changed := strings.Replace(startStepsSpec(dagName), "  - name: notify\n", "  - name: notify\n    description: tells the team\n", 1)
+	second := "reuse-second"
+	server.Client().Post("/api/v1/dag-runs", api.ExecuteDAGRunFromSpecJSONRequestBody{
+		Spec:      changed,
+		DagRunId:  &second,
+		ReuseFrom: &first,
+	}).ExpectStatus(http.StatusOK).Send(t)
+	status := waitForEditRetryStoredStatus(t, server, dagName, second, ir.Succeeded)
+	require.Len(t, status.Nodes, 3)
+	require.Equal(t, ir.NodeSkipped, status.Nodes[0].Status)
+	require.Equal(t, ir.NodeSkipped, status.Nodes[1].Status)
+	require.Equal(t, ir.NodeSucceeded, status.Nodes[2].Status)
+	consumed, ok := status.Nodes[1].OutputVariables.Load("CONSUMED")
+	require.True(t, ok, "a reused step carries its outputs")
+	require.Equal(t, "CONSUMED=from-source", consumed)
+
+	// The run reused before is a source too, and the same definition again
+	// runs every step.
+	third := "reuse-third"
+	server.Client().Post("/api/v1/dag-runs", api.ExecuteDAGRunFromSpecJSONRequestBody{
+		Spec:      changed,
+		DagRunId:  &third,
+		ReuseFrom: &second,
+	}).ExpectStatus(http.StatusOK).Send(t)
+	status = waitForEditRetryStoredStatus(t, server, dagName, third, ir.Succeeded)
+	for _, node := range status.Nodes {
+		require.Equal(t, ir.NodeSucceeded, node.Status, "step %s", node.Step.Name)
+	}
+}
+
+// Runs given the same parameters reuse each other's steps; other
+// parameters run every step.
+func TestAPIRunReusesStepsOfTheSameParameters(t *testing.T) {
+	server := test.SetupServer(t)
+	dagName := "intg_reuse_params"
+	spec := "params:\n  - LIMIT: 10\n" + startStepsSpec(dagName)
+	limit := func(value string) *string {
+		params := `{"LIMIT":"` + value + `"}`
+		return &params
+	}
+
+	first := "params-first"
+	server.Client().Post("/api/v1/dag-runs", api.ExecuteDAGRunFromSpecJSONRequestBody{
+		Spec: spec, DagRunId: &first, Params: limit("20"),
+	}).ExpectStatus(http.StatusOK).Send(t)
+	waitForEditRetryStoredStatus(t, server, dagName, first, ir.Succeeded)
+
+	changed := strings.Replace(spec, "  - name: notify\n", "  - name: notify\n    description: tells the team\n", 1)
+	same := "params-same"
+	server.Client().Post("/api/v1/dag-runs", api.ExecuteDAGRunFromSpecJSONRequestBody{
+		Spec: changed, DagRunId: &same, Params: limit("20"), ReuseFrom: &first,
+	}).ExpectStatus(http.StatusOK).Send(t)
+	status := waitForEditRetryStoredStatus(t, server, dagName, same, ir.Succeeded)
+	require.Equal(t, ir.NodeSkipped, status.Nodes[0].Status, "the same parameters reuse the step")
+
+	other := "params-other"
+	server.Client().Post("/api/v1/dag-runs", api.ExecuteDAGRunFromSpecJSONRequestBody{
+		Spec: changed, DagRunId: &other, Params: limit("30"), ReuseFrom: &first,
+	}).ExpectStatus(http.StatusOK).Send(t)
+	status = waitForEditRetryStoredStatus(t, server, dagName, other, ir.Succeeded)
+	require.Equal(t, ir.NodeSucceeded, status.Nodes[0].Status, "other parameters run the step")
+}
+
 func TestAPIStartStepsRejects(t *testing.T) {
 	server := test.SetupServer(t)
 	dagName := "intg_start_steps_rejects"
@@ -118,6 +197,7 @@ func TestAPIStartStepsRejects(t *testing.T) {
 		{name: "OutputsWithoutSteps", body: api.ExecuteDAGJSONRequestBody{Outputs: &map[string]map[string]string{"build": {"RESULT": "x"}}}},
 		{name: "EmptySteps", body: api.ExecuteDAGJSONRequestBody{Steps: &[]string{}}},
 		{name: "UnknownStep", body: api.ExecuteDAGJSONRequestBody{Steps: &[]string{"missing"}}},
+		{name: "ReuseFromWithSteps", body: api.ExecuteDAGJSONRequestBody{ReuseFrom: &source, Steps: &[]string{"build"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

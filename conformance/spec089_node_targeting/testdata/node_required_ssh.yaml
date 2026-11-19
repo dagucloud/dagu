@@ -1,0 +1,6 @@
+node: required
+ssh:
+  host: example.com
+  user: deploy
+steps:
+  - run: "true"

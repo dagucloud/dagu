@@ -12,6 +12,11 @@ export interface CanvasOverlayInset {
    * toolbars, such as a line of notices. 0 or absent: none.
    */
   top?: number;
+  /**
+   * A host view covers the whole canvas, such as a maximized column beside
+   * it: the canvas controls have nothing to act on.
+   */
+  covered?: boolean;
 }
 
 const NONE: CanvasOverlayInset = { right: 0 };

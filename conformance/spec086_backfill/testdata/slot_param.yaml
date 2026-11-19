@@ -1,0 +1,9 @@
+working_dir: .
+schedule: "0 2 * * *"
+dates:
+  target_day: -1d
+params:
+  - name: day
+    eval: "${dates.target_day}"
+steps:
+  - run: printf '%s\n' '${params.day}' > 'day-${params.day}.txt'

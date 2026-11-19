@@ -185,14 +185,20 @@ describe('VisualEditor launchers', () => {
     fireEvent.change(within(panel).getByLabelText('New cron expression'), {
       target: { value: '30 6 * * *' },
     });
-    fireEvent.click(within(panel).getByRole('button', { name: 'Add' }));
+    fireEvent.click(
+      within(panel).getByRole('button', { name: 'Add schedule' })
+    );
     expect(state.text).toContain('- 0 * * * *');
     expect(state.text).toContain('- 30 6 * * *');
     expect(state.text).toContain(yamlArraySteps);
 
-    fireEvent.click(
-      within(panel).getByRole('button', { name: 'Remove schedule' })
-    );
+    within(panel)
+      .getAllByRole('button', { name: 'Remove schedule' })
+      .forEach(() =>
+        fireEvent.click(
+          within(panel).getAllByRole('button', { name: 'Remove schedule' })[0]!
+        )
+      );
     expect(state.text).toBe(yamlArraySteps);
   });
 

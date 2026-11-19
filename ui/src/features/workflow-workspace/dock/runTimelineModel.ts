@@ -360,6 +360,9 @@ export const TRIGGER_TYPES: readonly TriggerType[] = [
   TriggerType.subdag,
   TriggerType.retry,
   TriggerType.catchup,
+  TriggerType.backfill,
+  TriggerType.restart,
+  TriggerType.file,
   TriggerType.unknown,
 ];
 

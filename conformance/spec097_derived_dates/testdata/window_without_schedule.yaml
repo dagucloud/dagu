@@ -1,0 +1,6 @@
+working_dir: .
+dates:
+  since: { from: interval_start }
+steps:
+  - id: capture
+    run: printf 'since=%s\n' '${dates.since}' > since.txt

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -62,6 +63,12 @@ const (
 const (
 	defaultOperationTimeout = 2 * time.Minute
 	defaultAskTimeout       = time.Hour
+	// defaultMaxPages and maxPages bound the pages an extract reads,
+	// the first included.
+	defaultMaxPages = 20
+	maxPages        = 100
+	// defaultPageWait is how long a page gets to change after pages.next.
+	defaultPageWait = 10 * time.Second
 )
 
 func init() {
@@ -91,6 +98,9 @@ type browserOptions struct {
 	// dismiss, or fail, which dismisses it and fails the operation.
 	OnConfirm string `json:"on_confirm,omitempty"`
 	Profile   string `json:"profile,omitempty"`
+	// Share names a browser the steps of a run that give the same name
+	// use one after another, each starting on the page the one before left.
+	Share string `json:"share,omitempty"`
 	// ClientCertificates are presented to the hosts they name, before
 	// those configured for the host.
 	ClientCertificates []cmnconfig.BrowserClientCertificate `json:"client_certificates,omitempty"`
@@ -165,6 +175,46 @@ func (f uploadFiles) MarshalJSON() ([]byte, error) {
 type extractSpec struct {
 	Instruction string         `json:"instruction"`
 	Schema      map[string]any `json:"schema"`
+	// Pages reads a list across the pages a button turns.
+	Pages *pagesSpec `json:"pages,omitempty"`
+}
+
+// pagesSpec turns the pages of a list an extract reads.
+type pagesSpec struct {
+	// Next is the act that turns to the next page.
+	Next string `json:"next"`
+	// Max is the most pages read, the first included.
+	Max int `json:"max,omitempty"`
+	// Within is how long a page gets to change after Next.
+	Within string `json:"within,omitempty"`
+}
+
+func (p pagesSpec) limit() int {
+	if p.Max > 0 {
+		return p.Max
+	}
+	return defaultMaxPages
+}
+
+func (p pagesSpec) window() time.Duration {
+	if d, err := time.ParseDuration(p.Within); err == nil && d > 0 {
+		return d
+	}
+	return defaultPageWait
+}
+
+// arrayProperties returns the top-level properties of an extract schema
+// whose type is array, which a read across pages collects.
+func arrayProperties(schema map[string]any) []string {
+	properties, _ := schema["properties"].(map[string]any)
+	var names []string
+	for name, property := range properties {
+		if definition, ok := property.(map[string]any); ok && definition["type"] == "array" {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names
 }
 
 type waitSpec struct {
@@ -245,6 +295,9 @@ func (o operation) promptTexts() []string {
 		texts = append(texts, o.Upload.Into)
 	case o.Extract != nil:
 		texts = append(texts, o.Extract.Instruction)
+		if o.Extract.Pages != nil {
+			texts = append(texts, o.Extract.Pages.Next)
+		}
 	case o.Expect != nil && o.Expect.judged():
 		texts = append(texts, o.Expect.Statement)
 	case o.Ask != nil:
@@ -269,6 +322,21 @@ func (a askSpec) timeout() time.Duration {
 
 func (c config) headless() bool {
 	return c.Browser.Headless == nil || *c.Browser.Headless
+}
+
+// launchSettings returns the settings a browser takes when it starts,
+// which the steps sharing a browser give alike.
+func (c config) launchSettings() string {
+	data, _ := json.Marshal(struct {
+		Headless           bool                                 `json:"headless"`
+		Executable         string                               `json:"executable"`
+		Viewport           *viewport                            `json:"viewport"`
+		Proxy              string                               `json:"proxy"`
+		Profile            string                               `json:"profile"`
+		ClientCertificates []cmnconfig.BrowserClientCertificate `json:"client_certificates"`
+		WriteGate          string                               `json:"write_gate"`
+	}{c.headless(), c.Browser.Executable, c.Browser.Viewport, c.Browser.Proxy, c.Browser.Profile, c.Browser.ClientCertificates, c.Browser.WriteGate})
+	return string(data)
 }
 
 // choice returns the step's choice of how much AI decides. cache: false,
@@ -412,6 +480,9 @@ func (c config) validate() error {
 	if profile := c.Browser.Profile; profile != "" && !agentstep.FileNamePattern.MatchString(profile) {
 		return fmt.Errorf("browser: profile %q must match %s", profile, agentstep.FileNamePattern)
 	}
+	if share := c.Browser.Share; share != "" && !agentstep.FileNamePattern.MatchString(share) {
+		return fmt.Errorf("browser: share %q must match %s", share, agentstep.FileNamePattern)
+	}
 	if _, err := writegate.ParseMode(c.Browser.WriteGate); err != nil {
 		return fmt.Errorf("browser: write_gate: %w", err)
 	}
@@ -430,6 +501,13 @@ func (c config) validate() error {
 				_, isEarlierAsk := asks[name]
 				if !isVariable && !isEarlierAsk {
 					return fmt.Errorf("browser: do[%d]: act references %%%s%%, which is not in with.variables or an earlier ask", i, name)
+				}
+			}
+		}
+		if op.Extract != nil && op.Extract.Pages != nil {
+			for _, name := range agentstep.VariableReferences(op.Extract.Pages.Next) {
+				if _, isVariable := c.Variables[name]; !isVariable {
+					return fmt.Errorf("browser: do[%d]: extract.pages.next references %%%s%%, which is not in with.variables", i, name)
 				}
 			}
 		}
@@ -522,6 +600,20 @@ func (o operation) validate() error {
 		if o.Extract.Schema["type"] != "object" {
 			return errors.New(`extract schema must have type: object`)
 		}
+		if pages := o.Extract.Pages; pages != nil {
+			if strings.TrimSpace(pages.Next) == "" {
+				return errors.New("extract pages.next must not be empty")
+			}
+			if pages.Max != 0 && (pages.Max < 2 || pages.Max > maxPages) {
+				return fmt.Errorf("extract pages.max must be from 2 to %d", maxPages)
+			}
+			if err := agentstep.ValidateDuration("pages.within", pages.Within); err != nil {
+				return err
+			}
+			if len(arrayProperties(o.Extract.Schema)) == 0 {
+				return errors.New("extract pages collects the items of the schema's top-level array properties, and the schema lists none")
+			}
+		}
 	case o.Wait != nil:
 		if (o.Wait.Selector == "") == (o.Wait.Duration == "") {
 			return errors.New("wait must set exactly one of selector or duration")
@@ -530,8 +622,8 @@ func (o operation) validate() error {
 			return err
 		}
 	case o.Screenshot != "":
-		if !agentstep.FileNamePattern.MatchString(o.Screenshot) {
-			return fmt.Errorf("screenshot name %q must match %s", o.Screenshot, agentstep.FileNamePattern)
+		if !agentstep.ScreenshotNamePattern.MatchString(o.Screenshot) {
+			return fmt.Errorf("screenshot name %q must match %s", o.Screenshot, agentstep.ScreenshotNamePattern)
 		}
 	case o.Ask != nil:
 		if strings.TrimSpace(o.Ask.Prompt) == "" {
@@ -612,6 +704,16 @@ var operationSchema = &jsonschema.Schema{
 			Properties: map[string]*jsonschema.Schema{
 				"instruction": agentstep.NonEmptyString(),
 				"schema":      {Type: "object"},
+				"pages": {
+					Type:                 "object",
+					AdditionalProperties: agentstep.NoExtraProperties(),
+					Required:             []string{"next"},
+					Properties: map[string]*jsonschema.Schema{
+						"next":   agentstep.NonEmptyString(),
+						"max":    {Type: "integer", Minimum: new(2.0), Maximum: new(float64(maxPages))},
+						"within": agentstep.StringSchema(),
+					},
+				},
 			},
 		},
 		opExpect: conditionSchema(),
@@ -675,6 +777,7 @@ var configSchema = &jsonschema.Schema{
 				"screenshots":     {Type: "string", Enum: []any{screenshotsOnFailure, screenshotsFinal, screenshotsEach, screenshotsNever}},
 				"on_confirm":      {Type: "string", Enum: []any{onConfirmAccept, onConfirmDismiss, onConfirmFail}},
 				"profile":         agentstep.NonEmptyString(),
+				"share":           agentstep.NonEmptyString(),
 				"write_gate":      {Type: "string", Enum: []any{writegate.ModeOff, writegate.ModeRecord, writegate.ModeAsk, writegate.ModeRehearse}},
 				"client_certificates": {
 					Type: "array",

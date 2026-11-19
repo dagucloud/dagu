@@ -236,7 +236,8 @@ func containsIgnoreCase(slice []string, item string) bool {
 }
 
 var configSchema = &jsonschema.Schema{
-	Type: "object",
+	Type:                 "object",
+	AdditionalProperties: &jsonschema.Schema{Not: &jsonschema.Schema{}},
 	// Note: bucket is not required here because it can come from DAG-level s3 config.
 	// ValidateForOperation() checks for bucket at runtime after config merging.
 	Properties: map[string]*jsonschema.Schema{

@@ -1286,3 +1286,49 @@ func TestRunner_ClampDependentStarts(t *testing.T) {
 	assert.True(t, keptState.StartedAt.Equal(base.Add(-time.Hour)), "start %s", keptState.StartedAt)
 	assert.True(t, keptState.FinishedAt.Equal(base.Add(-59*time.Minute)), "finish %s", keptState.FinishedAt)
 }
+
+// An abort or timeout that interrupts the final condition evaluation owns the
+// outcome; on_limit: fail must not turn that interrupted check into a failed
+// step.
+func TestFailRepeatLimitInterruptedCheck(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	ctx = WithEnv(ctx, NewEnv(ctx, ir.Step{}))
+	cancel()
+
+	node := NewNode(ir.Step{Name: "poll"}, NodeState{Status: ir.NodeSucceeded})
+	rp := ir.RepeatPolicy{
+		RepeatMode: ir.RepeatModeUntil,
+		Limit:      2,
+		OnLimit:    ir.RepeatOnLimitFail,
+		Condition:  &ir.Condition{Condition: "not-a-number", Expected: "num:>=1"},
+	}
+
+	r := &Runner{}
+	r.failRepeatLimit(ctx, node, rp, nil)
+
+	require.NotNil(t, ctx.Err())
+	assert.Equal(t, ir.NodeSucceeded, node.State().Status,
+		"an interrupted check must be left to the abort/timeout outcome")
+}
+
+// A graceful `dagu stop` sets the runner's canceled flag without canceling
+// ctx. The final condition evaluation must then leave the outcome to the
+// stop, not mark the step as failed by on_limit: fail.
+func TestFailRepeatLimitGracefulStop(t *testing.T) {
+	ctx := WithEnv(context.Background(), NewEnv(context.Background(), ir.Step{}))
+
+	node := NewNode(ir.Step{Name: "poll"}, NodeState{Status: ir.NodeSucceeded})
+	rp := ir.RepeatPolicy{
+		RepeatMode: ir.RepeatModeUntil,
+		Limit:      2,
+		OnLimit:    ir.RepeatOnLimitFail,
+		Condition:  &ir.Condition{Condition: "0", Expected: "num:>=1"},
+	}
+
+	r := &Runner{canceled: 1}
+	r.failRepeatLimit(ctx, node, rp, nil)
+
+	require.Nil(t, ctx.Err())
+	assert.Equal(t, ir.NodeSucceeded, node.State().Status,
+		"a graceful stop must be left to the abort outcome")
+}

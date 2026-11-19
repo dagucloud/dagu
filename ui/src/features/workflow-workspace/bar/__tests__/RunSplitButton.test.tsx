@@ -90,6 +90,12 @@ vi.mock('@/features/dags/components/dag-execution/StartDAGModal', () => ({
     ) : null,
 }));
 
+vi.mock('@/features/backfills/components/StartBackfillDialog', () => ({
+  StartBackfillDialog: (p: { pickRange?: boolean }) => (
+    <div data-testid="backfill-dialog" data-pick-range={String(p.pickRange)} />
+  ),
+}));
+
 const FILE = 'etl.yaml';
 const dag = { name: 'etl' } as ApiDAGDetails;
 
@@ -121,6 +127,8 @@ interface Setup {
   editor?: { dirty: boolean; buffer: string } | null;
   cluster?: boolean;
   url?: string;
+  /** The DAG has a start schedule. */
+  scheduled?: boolean;
 }
 
 function EditorBinder({ dirty, buffer }: { dirty: boolean; buffer: string }) {
@@ -170,7 +178,11 @@ function setup({
   editor = null,
   cluster = false,
   url = `/dags/${FILE}`,
+  scheduled = false,
 }: Setup = {}) {
+  const shown = scheduled
+    ? ({ ...dag, schedule: [{ expression: '0 2 * * *' }] } as ApiDAGDetails)
+    : dag;
   const selected = details === undefined ? latest : details;
   const run = {
     selection: pinned ? { runId: pinned } : 'latest',
@@ -197,7 +209,7 @@ function setup({
   } as unknown as WorkspaceRunValue;
   const refresh = vi.fn(async () => undefined);
   const dagData = {
-    dag,
+    dag: shown,
     latestDAGRun: latest,
     localDags: [],
     suspended: false,
@@ -234,9 +246,9 @@ function setup({
   const page = (
     <Tree>
       {cluster && (
-        <RunActionsCluster fileName={FILE} dag={dag} workspaceName={null} />
+        <RunActionsCluster fileName={FILE} dag={shown} workspaceName={null} />
       )}
-      <RunSplitButton fileName={FILE} dag={dag} workspaceName={null} />
+      <RunSplitButton fileName={FILE} dag={shown} workspaceName={null} />
     </Tree>
   );
   const view = render(
@@ -388,6 +400,30 @@ describe('RunSplitButton', () => {
   // keeps only the choice that Start lacks: the unsaved draft. The caret keeps
   // its slot while there is no draft, so that Start does not move when the
   // draft becomes dirty; its menu says why the draft cannot run.
+  // A backfill runs past slots, so only a scheduled DAG offers one, and the
+  // panel lets the user pick the range.
+  it('offers a backfill of a scheduled DAG', async () => {
+    setup({ scheduled: true });
+
+    const menu = await openMenu();
+    await userEvent.click(
+      within(menu).getByRole('menuitem', { name: /Backfill/ })
+    );
+    expect(await screen.findByTestId('backfill-dialog')).toHaveAttribute(
+      'data-pick-range',
+      'true'
+    );
+  });
+
+  it('offers no backfill of a DAG without a schedule', async () => {
+    setup({ editor: { dirty: false, buffer: 'steps: []\n' } });
+
+    const menu = await openMenu();
+    expect(
+      within(menu).queryByRole('menuitem', { name: /Backfill/ })
+    ).toBeNull();
+  });
+
   it('says that a clean editor has no draft to run', async () => {
     setup({ editor: { dirty: false, buffer: 'steps: []\n' } });
 

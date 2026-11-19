@@ -7,12 +7,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -24,6 +26,7 @@ func TestDAGExecutor(t *testing.T) {
 	th := test.Setup(t, test.WithBuiltExecutable())
 
 	testDAG := th.DAG(t, `
+params: {mode: default}
 steps:
   - name: test-step
     run: echo "test"
@@ -53,9 +56,12 @@ steps:
 			"handle-job-test-123",
 			ir.TriggerTypeScheduler,
 			time.Time{},
+			`{"mode":"z"}`,
 		)
 
 		require.NoError(t, err)
+		status := test.ReadRunStatus(th.Context, t, th.DAGRunRepository, ir.NewDAGRunRef(dag.Name, "handle-job-test-123"))
+		require.Contains(t, status.ParamsList, "mode=z")
 	})
 
 	t.Run("ExecuteDAG_Distributed_DispatchesDirectly", func(t *testing.T) {
@@ -116,6 +122,7 @@ steps:
 			"handle-job-local-789",
 			ir.TriggerTypeScheduler,
 			time.Time{},
+			"",
 		)
 		require.NoError(t, err, "local execution with nil coordinator should succeed")
 	})
@@ -130,11 +137,44 @@ steps:
 			"handle-job-retry-999",
 			ir.TriggerTypeScheduler,
 			time.Time{},
+			"",
 		)
 
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to dispatch task")
 	})
+}
+
+func TestDAGExecutorLocalParams(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a shell executable to capture subprocess input")
+	}
+
+	dir := t.TempDir()
+	executable := filepath.Join(dir, "capture-input")
+	require.NoError(t, os.WriteFile(executable, []byte(`#!/bin/sh
+[ "$1" = start ] && [ "$2" = --params-stdin ] || exit 1
+cat > "$0.tmp"
+mv "$0.tmp" "$0.params"
+`), 0700))
+	path := filepath.Join(dir, "report.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("params: {mode: default}\nsteps:\n  - run: echo report\n"), 0600))
+	dag, err := spec.Load(t.Context(), path)
+	require.NoError(t, err)
+
+	cfg := &config.Config{}
+	cfg.Paths.Executable = executable
+	executor := scheduler.NewDAGExecutor(nil, launcher.NewSubCmdBuilder(cfg), config.ExecutionModeLocal, "")
+	const params = `{"mode":"y"}`
+	err = executor.HandleJob(t.Context(), scheduler.DAGEntry{DAG: dag},
+		dispatch.DispatchOperationStart, "scheduled-report", ir.TriggerTypeScheduler,
+		time.Date(2026, 11, 12, 5, 0, 0, 0, time.UTC), params)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile(executable + ".params")
+		return err == nil && string(data) == params
+	}, 5*time.Second, 20*time.Millisecond)
 }
 
 func TestDAGExecutorBaseConfig(t *testing.T) {

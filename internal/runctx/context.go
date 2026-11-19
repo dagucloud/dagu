@@ -43,7 +43,9 @@ type Context struct {
 	NextScheduledAt  string
 	ScheduleTimezone string
 	// ScheduleWindow is the same window, as child runs inherit it.
-	ScheduleWindow       ir.ScheduleWindow
+	ScheduleWindow ir.ScheduleWindow
+	// Dates are the run's dates, as ${dates.NAME} inserts them.
+	Dates                cmnvalue.Values
 	DAG                  *ir.DAG
 	DAGLoader            DAGLoader
 	BaseEnv              *config.BaseEnv
@@ -155,6 +157,7 @@ type contextOptions struct {
 	inheritedEnvs      []cmnvalue.EnvEntry
 	defaultSecretEnvs  []string
 	secretEnvs         []string
+	maskedSecrets      map[string]string
 	profileDefaults    []string
 	profileDefaultSec  []string
 	profileSelected    []string
@@ -256,6 +259,13 @@ func WithScheduleWindow(window ir.ScheduleWindow) ContextOption {
 	}
 }
 
+// WithDates sets the run's dates for value resolution.
+func WithDates(dates []ir.DateValue) ContextOption {
+	return func(o *contextOptions) {
+		o.Dates = ir.DateTexts(dates)
+	}
+}
+
 // contextInstant formats an instant as context values carry it: UTC
 // RFC 3339, or empty when unknown.
 func contextInstant(t time.Time) string {
@@ -322,6 +332,14 @@ func WithDefaultSecrets(secrets []string) ContextOption {
 func WithSecrets(secrets []string) ContextOption {
 	return func(o *contextOptions) {
 		o.secretEnvs = secrets
+	}
+}
+
+// WithMaskedSecrets sets secret values that are masked in output but are not
+// environment variables, keyed by a label that is not a variable name.
+func WithMaskedSecrets(values map[string]string) ContextOption {
+	return func(o *contextOptions) {
+		o.maskedSecrets = values
 	}
 }
 
@@ -461,7 +479,7 @@ func NewContext(
 	maps.Copy(baseForDAGEnv, managedEnvs)
 
 	runBuiltinContext := buildDAGRunBuiltinContext(dag, dagRunID, managedEnvs, options)
-	evaluatedDAGEnvs := evaluateDAGEnvRuntime(ctx, dag, params, baseForDAGEnv, runScoped, managedEnvs, runBuiltinContext)
+	evaluatedDAGEnvs := evaluateDAGEnvRuntime(ctx, dag, params, baseForDAGEnv, runScoped, managedEnvs, runBuiltinContext, options.Dates)
 
 	secretEnvs := stringutil.KeyValuesToMap(options.secretEnvs)
 
@@ -498,6 +516,7 @@ func NewContext(
 	if len(secretEnvs) > 0 {
 		scope = scope.WithEntries(secretEnvs, cmnvalue.EnvSourceSecret)
 	}
+	scope = scope.WithMaskedSecrets(options.maskedSecrets)
 
 	// Fields the caller cannot set through an option, because they are derived
 	// from the required arguments or from the environment layering above.
@@ -518,6 +537,7 @@ func evaluateDAGEnvRuntime(
 	runScoped map[string]string,
 	protected map[string]string,
 	runBuiltinContext cmnvalue.BuiltinContext,
+	dates cmnvalue.Values,
 ) map[string]string {
 	var envList []string
 	var params cmnvalue.Values
@@ -568,14 +588,14 @@ func evaluateDAGEnvRuntime(
 		var field cmnvalue.Field
 		if i >= span.Start && i < span.End {
 			resolver = cmnvalue.NewResolver(
-				cmnvalue.StaticScope{},
-				cmnvalue.RuntimeScope{Env: completionScope, BuiltinContext: runBuiltinContext},
+				cmnvalue.StaticScope{Dates: dag.DateNames()},
+				cmnvalue.RuntimeScope{Env: completionScope, BuiltinContext: runBuiltinContext, Dates: dates},
 			)
 			field = cmnvalue.DAGEnvCompletionField("env." + key)
 		} else {
 			resolver = cmnvalue.NewResolver(
-				cmnvalue.StaticScope{Params: paramDeclarations},
-				cmnvalue.RuntimeScope{Params: params, ParamsJSON: paramsJSON, Env: scope, BuiltinContext: runBuiltinContext},
+				cmnvalue.StaticScope{Params: paramDeclarations, Dates: dag.DateNames()},
+				cmnvalue.RuntimeScope{Params: params, ParamsJSON: paramsJSON, Env: scope, BuiltinContext: runBuiltinContext, Dates: dates},
 			)
 			field = cmnvalue.RuntimeDAGEnvField("env." + key)
 		}
@@ -592,6 +612,16 @@ func evaluateDAGEnvRuntime(
 	}
 
 	return result
+}
+
+// CreationContext returns the context values a run has when it is created,
+// which a param's eval may read: the DAG name, the run ID, and the slot and
+// its window.
+func CreationContext(dagName, dagRunID, scheduleTime string, window ir.ScheduleWindow) cmnvalue.BuiltinContext {
+	options := &contextOptions{}
+	WithScheduleTime(scheduleTime)(options)
+	WithScheduleWindow(window)(options)
+	return buildDAGRunBuiltinContext(&ir.DAG{Name: dagName}, dagRunID, nil, options)
 }
 
 func buildDAGRunBuiltinContext(

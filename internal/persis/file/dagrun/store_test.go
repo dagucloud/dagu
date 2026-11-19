@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -176,6 +177,63 @@ func TestStoreWritesCurrentDAGRunFileCompatibilityLayout(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, childStatus.DAGRunID, foundChildStatus.DAGRunID)
 	assert.Equal(t, childStatus.AttemptID, foundChildStatus.AttemptID)
+}
+
+// A DAG named after a Windows device stores and finds its runs on every
+// system. Linux and macOS keep the directory that earlier versions wrote, so
+// the runs stored there are still found.
+func TestStoreDeviceNamedDAG(t *testing.T) {
+	for _, name := range []string{"con", "nul"} {
+		t.Run(name, func(t *testing.T) {
+			th := setupTestRepository(t)
+			dag := th.DAG(name)
+			ts := time.Date(2026, 5, 27, 1, 2, 3, 0, time.UTC)
+			th.CreateAttemptWithDAG(t, ts, "device-run", ir.Succeeded, dag.DAG)
+
+			attempt, err := th.Repository.FindAttempt(th.Context, ir.NewDAGRunRef(name, "device-run"))
+			require.NoError(t, err)
+			status, err := attempt.ReadStatus(th.Context)
+			require.NoError(t, err)
+			assert.Equal(t, ir.Succeeded, status.Status)
+
+			if runtime.GOOS != "windows" {
+				assert.DirExists(t, filepath.Join(th.TmpDir, name, "dag-runs", "2026", "05", "27", "dag-run_20260527_010203Z_device-run"))
+			}
+		})
+	}
+}
+
+// Windows drops a trailing dot from a directory name, so etl. must not find
+// or join the runs of etl.
+func TestStoreKeepsTrailingDotDAGApart(t *testing.T) {
+	th := setupTestRepository(t)
+	ts := time.Date(2026, 5, 27, 1, 2, 3, 0, time.UTC)
+	th.CreateAttemptWithDAG(t, ts, "etl-run", ir.Succeeded, th.DAG("etl").DAG)
+
+	_, err := th.Repository.FindAttempt(th.Context, ir.NewDAGRunRef("etl.", "etl-run"))
+	require.Error(t, err)
+
+	th.CreateAttemptWithDAG(t, ts, "dot-run", ir.Succeeded, th.DAG("etl.").DAG)
+	_, err = th.Repository.FindAttempt(th.Context, ir.NewDAGRunRef("etl", "dot-run"))
+	require.Error(t, err)
+}
+
+// Windows 11 accepts a device name such as con as a directory, so earlier
+// versions stored a DAG's runs under its raw name. They are still found.
+func TestStoreFindsRunsUnderRawDeviceName(t *testing.T) {
+	th := setupTestRepository(t)
+	dag := th.DAG("con")
+	ts := time.Date(2026, 5, 27, 1, 2, 3, 0, time.UTC)
+	th.CreateAttemptWithDAG(t, ts, "raw-run", ir.Succeeded, dag.DAG)
+	if dir := dagDirName(dag.Name); dir != dag.Name {
+		require.NoError(t, fileutil.Rename(filepath.Join(th.TmpDir, dir), filepath.Join(th.TmpDir, dag.Name)))
+	}
+
+	attempt, err := th.Repository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, "raw-run"))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(th.Context)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Succeeded, status.Status)
 }
 
 func TestWorkDirStoreUsesSeparateRoot(t *testing.T) {
@@ -1210,7 +1268,7 @@ func TestResolveStatus_FastPath_LabelFilterReject(t *testing.T) {
 		},
 	}
 
-	labelFilters := []ir.LabelFilter{ir.ParseLabelFilter("env=prod")}
+	labelFilters := mustParseLabelFilters(t, "env=prod")
 	status := store.resolveStatus(ctx, dagRun, labelFilters, nil, nil, false)
 	assert.Nil(t, status)
 }
@@ -1233,12 +1291,12 @@ func TestResolveStatus_StandardPath(t *testing.T) {
 	require.NotEmpty(t, dagRuns)
 
 	// Standard path (no summary) with matching label filter.
-	labelFilters := []ir.LabelFilter{ir.ParseLabelFilter("env=prod")}
+	labelFilters := mustParseLabelFilters(t, "env=prod")
 	status := store.resolveStatus(ctx, dagRuns[0], labelFilters, nil, nil, false)
 	require.NotNil(t, status, "should resolve status via standard path with matching label")
 
 	// Standard path with non-matching label filter.
-	labelFilters = []ir.LabelFilter{ir.ParseLabelFilter("env=staging")}
+	labelFilters = mustParseLabelFilters(t, "env=staging")
 	status = store.resolveStatus(ctx, dagRuns[0], labelFilters, nil, nil, false)
 	assert.Nil(t, status, "should reject via standard path when label doesn't match")
 
@@ -1530,4 +1588,11 @@ func TestCreateAttemptLookupError(t *testing.T) {
 	// A later year is writable, so only the failed lookup can stop this.
 	_, err = repository.CreateAttempt(ctx, dag, ts.AddDate(1, 0, 0), "first", persis.DAGRunCreateAttemptOptions{})
 	require.ErrorContains(t, err, "failed to check for an existing dag-run")
+}
+
+func mustParseLabelFilters(t *testing.T, terms ...string) []ir.LabelFilter {
+	t.Helper()
+	filters, err := ir.ParseLabelFilters(terms)
+	require.NoError(t, err)
+	return filters
 }

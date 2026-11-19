@@ -250,10 +250,8 @@ func (p *Provider) buildRequestBody(req *llm.ChatRequest, stream bool) ([]byte, 
 		chatReq.MaxTokens = thinkingBudget + 4096
 	}
 
-	if req.Temperature != nil {
+	if samplingSupported(req) {
 		chatReq.Temperature = req.Temperature
-	}
-	if req.TopP != nil {
 		chatReq.TopP = req.TopP
 	}
 	if len(req.Stop) > 0 {
@@ -396,6 +394,16 @@ func inputSchema(parameters map[string]any) map[string]any {
 	}
 	schema["type"] = "object"
 	return schema
+}
+
+// samplingSupported reports whether a request may customize sampling.
+// The API rejects custom sampling while thinking is enabled, and on models that
+// do not accept it at all, so a request without thinking can still lose its
+// parameters. top_p is deliberately omitted alongside temperature, even where
+// the API allows a restricted range.
+func samplingSupported(req *llm.ChatRequest) bool {
+	thinking, _ := thinkingConfig(req.Thinking)
+	return thinking == nil && claudemodel.SamplingSupported(req.Model)
 }
 
 // forcedToolChoiceSupported reports whether a request may force tool use.

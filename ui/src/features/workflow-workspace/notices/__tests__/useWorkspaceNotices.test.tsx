@@ -24,7 +24,10 @@ import {
 import type { DockController } from '../../dock/DockContext';
 import { useWorkspaceNotices } from '../useWorkspaceNotices';
 
-vi.mock('@/contexts/AuthContext', () => ({ useIsAdmin: vi.fn() }));
+vi.mock('@/contexts/AuthContext', () => ({
+  useIsAdmin: vi.fn(),
+  useCanExecuteForWorkspace: () => true,
+}));
 
 const ws = vi.hoisted(() => ({ dock: null as unknown }));
 vi.mock('../../dock/DockContext', () => ({
@@ -39,6 +42,35 @@ const subRunList = vi.hoisted(() => ({
 vi.mock('../../data/useSubRuns', () => ({
   useSubRuns: () => ({ subRuns: subRunList.value, isLoading: false }),
 }));
+
+// The notice of the workflow's latest backfill, which its own tests cover.
+const backfillNotice = vi.hoisted(() => ({
+  value: null as null | {
+    id: string;
+    tone: 'info';
+    message: string;
+    priority: number;
+  },
+}));
+vi.mock('@/features/backfills/hooks/useBackfillNotice', () => ({
+  useBackfillNotice: () => backfillNotice.value,
+}));
+
+// The DAG's missed slots, as their own endpoint gives them.
+const missedSlots = vi.hoisted(() => ({ value: undefined as unknown }));
+vi.mock('@/hooks/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/api')>();
+  return {
+    ...actual,
+    useQuery: ((path: string, ...rest: unknown[]) =>
+      path === '/dags/{fileName}/missed-slots'
+        ? { data: { missedSlots: missedSlots.value } }
+        : (actual.useQuery as (...args: unknown[]) => unknown)(
+            path,
+            ...rest
+          )) as typeof actual.useQuery,
+  };
+});
 
 const useIsAdminMock = vi.mocked(useIsAdmin);
 
@@ -172,6 +204,8 @@ function find(notices: WorkspaceNotice[], id: string): WorkspaceNotice {
 }
 
 beforeEach(() => {
+  backfillNotice.value = null;
+  missedSlots.value = undefined;
   subRunList.value = [];
   localStorage.clear();
   useIsAdminMock.mockReturnValue(true);
@@ -429,7 +463,9 @@ describe('useWorkspaceNotices', () => {
 
     it('stays dismissed for the server once dismissed', () => {
       const { result } = renderNotices({ schedule: true });
-      act(() => find(result.current, 'monitoring-offer').dismiss?.());
+      act(() => {
+        find(result.current, 'monitoring-offer').dismiss?.();
+      });
       expect(ids(result.current)).not.toContain('monitoring-offer');
       expect(localStorage.getItem(OFFER_KEY)).toBe('dismissed');
     });
@@ -551,6 +587,12 @@ describe('useWorkspaceNotices', () => {
   });
 
   it('lists every notice with its priority, highest first', () => {
+    backfillNotice.value = {
+      id: 'backfill',
+      tone: 'info',
+      message: 'Backfill running: 1 of 3 slots done',
+      priority: 20,
+    };
     const { result } = renderNotices({
       schedule: true,
       details: { status: Status.Waiting, approvalResumePending: true },
@@ -572,11 +614,36 @@ describe('useWorkspaceNotices', () => {
       'agent-waiting',
       'actions-waiting',
       'newer-run-active',
+      'backfill',
       'monitoring-offer',
     ]);
     const priorities = result.current.map((n) => n.priority);
     expect([...priorities].sort((a, b) => b - a)).toEqual(priorities);
     expect(new Set(priorities).size).toBe(priorities.length);
+  });
+
+  // The missed slots come from their own endpoint, not the DAG's data, and
+  // their notice ranks between the backfill's and the monitoring offer.
+  it('lists the missed slots its endpoint gives', () => {
+    missedSlots.value = {
+      slots: 12,
+      first: '2026-11-01T09:00:00Z',
+      last: '2026-11-01T20:00:00Z',
+      reasons: ['suspended'],
+      until: '2026-11-01T20:30:00Z',
+    };
+    backfillNotice.value = {
+      id: 'backfill',
+      tone: 'info',
+      message: 'Backfill running: 1 of 3 slots done',
+      priority: 20,
+    };
+    const { result } = renderNotices({ schedule: true });
+    expect(ids(result.current)).toEqual([
+      'backfill',
+      'missed-slots',
+      'monitoring-offer',
+    ]);
   });
 
   it('keeps the same list while nothing changes', () => {

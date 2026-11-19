@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -498,6 +504,147 @@ describe('HumanTasksTab', () => {
   });
 });
 
+describe('HumanTasksTab prompt', () => {
+  it('renders the prompt as Markdown', () => {
+    const dagRun = humanTaskRun();
+    const task = dagRun.nodes[0]?.step.humanTask;
+    if (!task) throw new Error('expected a human task fixture');
+    task.prompt = 'Ship **v2** after:\n\n- the migration\n- the backfill';
+
+    render(<HumanTasksTab dagRun={dagRun} onChanged={vi.fn()} />);
+
+    expect(screen.getByText('v2').tagName).toBe('STRONG');
+    expect(
+      screen.getAllByRole('listitem').map((item) => item.textContent)
+    ).toEqual(['the migration', 'the backfill']);
+  });
+});
+
+describe('HumanTasksTab choice form', () => {
+  const decisionForm = {
+    type: 'object',
+    properties: {
+      decision: {
+        type: 'string',
+        title: 'Merge it?',
+        enum: ['Merge', 'Skip'],
+      },
+    },
+    required: ['decision'],
+  };
+
+  it('completes the task with the choice that was clicked', async () => {
+    const onChanged = vi.fn();
+    render(
+      <HumanTasksTab
+        dagRun={humanTaskRun(decisionForm)}
+        onChanged={onChanged}
+      />
+    );
+
+    const choices = screen.getByRole('group', { name: 'Merge it?' });
+    expect(
+      within(choices)
+        .getAllByRole('button')
+        .map((button) => button.textContent)
+    ).toEqual(['Merge', 'Skip']);
+    expect(screen.queryByRole('button', { name: 'Complete task' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/complete',
+        expect.objectContaining({ body: { decision: 'Skip' } })
+      )
+    );
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('labels oneOf choices with their titles and submits their values', async () => {
+    render(
+      <HumanTasksTab
+        dagRun={humanTaskRun({
+          type: 'object',
+          properties: {
+            replicas: {
+              type: 'integer',
+              oneOf: [
+                { const: 1, title: 'One replica' },
+                { const: 3, title: 'Three replicas' },
+              ],
+            },
+          },
+          required: ['replicas'],
+        })}
+        onChanged={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Three replicas' }));
+
+    await waitFor(() =>
+      expect(postMock).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/human-tasks/{stepId}/complete',
+        expect.objectContaining({ body: { replicas: 3 } })
+      )
+    );
+  });
+
+  it('offers push-back beside the choices', () => {
+    const dagRun = pushBackRun();
+    const task = dagRun.nodes[0]?.step.humanTask;
+    if (!task) throw new Error('expected a human task fixture');
+    task.form = decisionForm;
+
+    render(<HumanTasksTab dagRun={dagRun} onChanged={vi.fn()} />);
+
+    expect(
+      screen.getByRole('button', { name: 'Request changes' })
+    ).toBeVisible();
+    const choices = screen.getByRole('group', { name: 'Merge it?' });
+    expect(
+      within(choices)
+        .getAllByRole('button')
+        .map((button) => button.textContent)
+    ).toEqual(['Merge', 'Skip']);
+  });
+
+  it('disables the choices without workspace execute permission', () => {
+    vi.mocked(useCanExecuteForWorkspace).mockReturnValue(false);
+    render(
+      <HumanTasksTab dagRun={humanTaskRun(decisionForm)} onChanged={vi.fn()} />
+    );
+
+    expect(screen.getByRole('button', { name: 'Merge' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeDisabled();
+  });
+
+  // An optional choice can be left empty, and a second field needs the form,
+  // so neither completes on a single click.
+  it.each([
+    {
+      name: 'an optional choice',
+      form: { ...decisionForm, required: [] },
+    },
+    {
+      name: 'a choice beside another field',
+      form: {
+        ...decisionForm,
+        properties: {
+          ...decisionForm.properties,
+          note: { type: 'string', title: 'Note' },
+        },
+      },
+    },
+  ])('keeps the form for $name', ({ form }) => {
+    render(<HumanTasksTab dagRun={humanTaskRun(form)} onChanged={vi.fn()} />);
+
+    expect(screen.getByRole('radio', { name: 'Merge' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Complete task' })).toBeVisible();
+  });
+});
+
 describe('HumanTasksTab push-back', () => {
   it('offers push-back only when the task declares it', () => {
     render(<HumanTasksTab dagRun={humanTaskRun()} onChanged={vi.fn()} />);
@@ -693,31 +840,46 @@ function twoTaskRun(): components['schemas']['DAGRunDetails'] {
 }
 
 describe('HumanTasksTab output without a step filter', () => {
-  it('renders the resume alert and every waiting task as before', () => {
-    const { container } = render(
-      <HumanTasksTab dagRun={twoTaskRun()} onChanged={vi.fn()} />
-    );
-    expect(container.innerHTML).toBe(BASE_ALL);
+  it('renders the resume alert and every waiting task', () => {
+    render(<HumanTasksTab dagRun={twoTaskRun()} onChanged={vi.fn()} />);
+
+    expect(
+      screen.getByText(
+        'Task input is safely stored, but the DAG-run still needs to be queued for resume.'
+      )
+    ).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Retry queue' })).toBeEnabled();
+    expect(screen.getByText('Confirm the production release.')).toBeVisible();
+    expect(screen.getByText('Confirm the security review.')).toBeVisible();
+    expect(
+      screen.getAllByRole('button', { name: 'Complete task' })
+    ).toHaveLength(2);
   });
 
-  it('renders the running notice as before', () => {
-    const { container } = render(
+  it('renders the running notice', () => {
+    render(
       <HumanTasksTab
         dagRun={{ ...humanTaskRun(), status: Status.Running }}
         onChanged={vi.fn()}
       />
     );
-    expect(container.innerHTML).toBe(BASE_RUNNING);
+
+    expect(screen.getByText(runExecutingNotice)).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Complete task' })
+    ).toBeDisabled();
   });
 
-  it('renders the empty state as before', () => {
-    const { container } = render(
+  it('renders the empty state', () => {
+    render(
       <HumanTasksTab
         dagRun={{ ...humanTaskRun(), nodes: [] }}
         onChanged={vi.fn()}
       />
     );
-    expect(container.innerHTML).toBe(BASE_EMPTY);
+
+    expect(screen.getByText('No human tasks are waiting.')).toBeVisible();
+    expect(screen.queryByRole('button')).toBeNull();
   });
 });
 
@@ -797,10 +959,3 @@ describe('HumanTasksTab step filter', () => {
     expect(screen.getByText('No human tasks are waiting.')).toBeVisible();
   });
 });
-
-const BASE_ALL =
-  '<div class="space-y-4"><div role="alert" class="relative w-full rounded-md border p-4 [&amp;>svg~*]:pl-7 [&amp;>svg+div]:translate-y-[-3px] [&amp;>svg]:absolute [&amp;>svg]:left-4 [&amp;>svg]:top-4 bg-warning/10 border-warning/20 text-warning [&amp;>svg]:text-warning dark:bg-warning/15 dark:border-warning/30"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-triangle-alert h-4 w-4" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg><div class="text-sm [&amp;_p]:leading-relaxed flex flex-wrap items-center justify-between gap-3"><span>Task input is safely stored, but the DAG-run still needs to be queued for resume.</span><button data-slot="button" class="inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border font-medium outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 border-input bg-card text-foreground shadow-sm hover:border-border-strong hover:bg-muted h-8 px-3 text-xs" type="button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-refresh-ccw h-4 w-4" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"></path><path d="M16 16h5v5"></path></svg>Retry queue</button></div></div><div class="space-y-4 rounded-lg border border-border bg-surface p-4"><div class="space-y-1"><div class="flex items-center gap-2"><span class="text-sm font-semibold">Release review</span><span class="rounded bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground">Iteration 1</span></div><div class="whitespace-pre-wrap text-base">Confirm the production release.</div></div><div class="flex justify-end gap-2"><button data-slot="button" class="inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border text-sm font-medium outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 border-input bg-card text-foreground shadow-sm hover:border-border-strong hover:bg-muted h-9 px-4" type="button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-rotate-ccw h-4 w-4" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>Request changes</button><button data-slot="button" class="inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border text-sm font-medium outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 border-primary-fill bg-primary-fill text-primary-foreground shadow-sm hover:border-primary-fill-hover hover:bg-primary-fill-hover h-9 px-4" type="button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check h-4 w-4" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Complete task</button></div></div><div class="space-y-4 rounded-lg border border-border bg-surface p-4"><div class="space-y-1"><div class="flex items-center gap-2"><span class="text-sm font-semibold">Security sign-off</span></div><div class="whitespace-pre-wrap text-base">Confirm the security review.</div></div><div class="flex justify-end gap-2"><button data-slot="button" class="inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border text-sm font-medium outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 border-primary-fill bg-primary-fill text-primary-foreground shadow-sm hover:border-primary-fill-hover hover:bg-primary-fill-hover h-9 px-4" type="button"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check h-4 w-4" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Complete task</button></div></div></div>';
-const BASE_RUNNING =
-  '<div class="space-y-4"><div role="alert" class="relative w-full rounded-md border p-4 [&amp;>svg~*]:pl-7 [&amp;>svg+div]:translate-y-[-3px] [&amp;>svg]:absolute [&amp;>svg]:left-4 [&amp;>svg]:top-4 bg-info/10 border-info/20 text-info [&amp;>svg]:text-info dark:bg-info/15 dark:border-info/30"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info h-4 w-4" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg><div class="text-sm [&amp;_p]:leading-relaxed">This DAG-run is queued or running. Open tasks become editable once it is waiting.</div></div><div class="space-y-4 rounded-lg border border-border bg-surface p-4"><div class="space-y-1"><div class="flex items-center gap-2"><span class="text-sm font-semibold">Release review</span></div><div class="whitespace-pre-wrap text-base">Confirm the production release.</div></div><div class="flex justify-end gap-2"><button data-slot="button" class="inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-md border text-sm font-medium outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&amp;_svg]:pointer-events-none [&amp;_svg]:size-4 [&amp;_svg]:shrink-0 border-primary-fill bg-primary-fill text-primary-foreground shadow-sm hover:border-primary-fill-hover hover:bg-primary-fill-hover h-9 px-4" type="button" disabled=""><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check h-4 w-4" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Complete task</button></div></div></div>';
-const BASE_EMPTY =
-  '<div class="py-8 text-center text-sm text-muted-foreground">No human tasks are waiting.</div>';

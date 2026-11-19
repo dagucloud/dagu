@@ -20,6 +20,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -101,6 +102,12 @@ const (
 	// serviceDAGsMaxInterval bounds how stale the list gets when nothing wakes
 	// it, such as an operator stop that no run event reports yet.
 	serviceDAGsMaxInterval = 30 * time.Second
+	// backfillMinInterval is the shortest gap between two refetches of one
+	// backfill, which read its record and progress.
+	backfillMinInterval = 2 * time.Second
+	// backfillMaxInterval bounds how stale a backfill gets when no run event
+	// wakes it, such as when the scheduler ends it or queues no run yet.
+	backfillMaxInterval = 30 * time.Second
 )
 
 var wikiSSETopicTypes = [...]sse.TopicType{
@@ -156,6 +163,7 @@ type Server struct {
 	licenseManager       *license.Manager
 	remoteNodeResolver   *remotenode.Resolver
 	upgradeStore         upgrade.CacheStore
+	restartRequested     <-chan struct{} // Closes once an upgrade needs a restart
 	routeRegistrars      []RouteRegistrar
 	workspaceDeprecation deprecation.Sources
 
@@ -341,6 +349,7 @@ type ServerConfig struct {
 	BackfillStore        backfill.Store
 	SchedulerPauseStore  schedulerstate.PauseStore
 	RestartBackoffStore  schedulerstate.RestartBackoffStore
+	PeriodStore          schedulerstate.PeriodStore
 	Caches               []fileutil.CacheMetrics
 	LicenseManager       *license.Manager
 	ResourceService      *resource.Service
@@ -387,6 +396,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	opts = append(opts, WithAPIOption(apiv1.WithBackfillStore(setup.BackfillStore)))
 	opts = append(opts, WithAPIOption(apiv1.WithSchedulerPauseStore(setup.SchedulerPauseStore)))
 	opts = append(opts, WithAPIOption(apiv1.WithRestartBackoffStore(setup.RestartBackoffStore)))
+	opts = append(opts, WithAPIOption(apiv1.WithPeriodStore(setup.PeriodStore)))
 
 	remoteNodes := make([]string, 0, len(cfg.Server.RemoteNodes))
 	for _, n := range cfg.Server.RemoteNodes {
@@ -634,7 +644,13 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	}
 
 	upgradeStore := stores.Upgrade
-	updateInfoChecker := newUpdateChecker(ctx, upgradeStore)
+	restartRequested := make(chan struct{})
+	var restartOnce sync.Once
+	upgrader := newSelfUpgrader(ctx, cfg, upgradeStore, func() {
+		restartOnce.Do(func() { close(restartRequested) })
+	})
+	apiOpts = append(apiOpts, apiv1.WithSelfUpgrader(upgrader))
+	updateInfoChecker := newUpdateChecker(ctx, upgradeStore, upgrader.available)
 
 	workspaceDeprecation := workspaceDeprecationSources(cfg, dr, stores, authSvc)
 	apiOpts = append(apiOpts, apiv1.WithWorkspaceDeprecation(workspaceDeprecation))
@@ -661,6 +677,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		dagRunRepository:     dagRunRepository,
 		remoteNodeResolver:   remoteNodeResolver,
 		upgradeStore:         upgradeStore,
+		restartRequested:     restartRequested,
 		workspaceDeprecation: workspaceDeprecation,
 		funcsConfig: funcsConfig{
 			NavbarColor:           cfg.UI.NavbarColor,
@@ -769,37 +786,46 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 // updateChecker implements UpdateChecker from the upgrade cache store and the
 // binary the server started from.
 type updateChecker struct {
-	store          upgrade.CacheStore // nil when update checks are disabled
-	binary         *upgrade.RunningBinary
-	upgradeCommand string
-	restartCommand string
+	store         upgrade.CacheStore // nil when update checks are disabled
+	binary        *upgrade.RunningBinary
+	installMethod upgrade.InstallMethod
+	webUpgrade    bool // An administrator can upgrade from the web UI
 }
 
-func newUpdateChecker(ctx context.Context, store upgrade.CacheStore) *updateChecker {
+func newUpdateChecker(ctx context.Context, store upgrade.CacheStore, webUpgrade bool) *updateChecker {
 	binary, err := upgrade.CaptureRunningBinary()
 	if err != nil {
 		logger.Debug(ctx, "Cannot detect replacement of the running binary", tag.Error(err))
 	}
 	return &updateChecker{
-		store:          store,
-		binary:         binary,
-		upgradeCommand: upgrade.DetectInstallMethod().UpgradeCommand(),
-		restartCommand: upgrade.RestartCommand(),
+		store:         store,
+		binary:        binary,
+		installMethod: upgrade.DetectInstallMethod(),
+		webUpgrade:    webUpgrade,
 	}
 }
 
 func (u *updateChecker) UpdateStatus() UpdateStatus {
 	status := UpdateStatus{
-		UpgradeCommand:  u.upgradeCommand,
+		UpgradeCommand:  u.installMethod.UpgradeCommand(),
+		InstallMethod:   u.installMethod.String(),
 		RestartRequired: u.binary != nil && u.binary.Replaced(),
-		RestartCommand:  u.restartCommand,
 	}
-	if u.store == nil {
-		return status
+	if u.store != nil {
+		if cache := upgrade.GetCachedUpdateInfo(u.store); cache != nil {
+			status.UpdateAvailable = cache.UpdateAvailable
+			status.LatestVersion = cache.LatestVersion
+		}
 	}
-	if cache := upgrade.GetCachedUpdateInfo(u.store); cache != nil {
-		status.UpdateAvailable = cache.UpdateAvailable
-		status.LatestVersion = cache.LatestVersion
+	status.WebUpgradeAvailable = u.webUpgrade && status.UpdateAvailable && !status.RestartRequired
+	// The service is read only once a restart is due or offered, so the
+	// notice reflects changes made to it since, such as keeping runs.
+	if status.RestartRequired || status.WebUpgradeAvailable {
+		if service := upgrade.DetectService(); service != nil {
+			status.RestartCommand = service.RestartCommand
+			status.RestartStopsRuns = service.StopsRuns
+			status.RestartCanKeepRuns = service.KeepRunsCommand != ""
+		}
 	}
 	return status
 }
@@ -1208,9 +1234,22 @@ func (srv *Server) startPeriodicUpdateCheck(ctx context.Context) {
 
 func (srv *Server) runAutomaticUpdateCheck(ctx context.Context) {
 	retryCtx := backoff.WithRetryFailureLogLevel(ctx, slog.LevelDebug)
-	if _, err := upgrade.CheckAndUpdateCache(retryCtx, srv.upgradeStore, config.Version); err != nil {
+	result, err := upgrade.CheckAndUpdateCache(retryCtx, srv.upgradeStore, config.Version)
+	if err != nil {
 		logger.Debug(ctx, "Automatic update check failed", tag.Error(err))
+		return
 	}
+	if result == nil || !result.UpdateAvailable {
+		return
+	}
+	attrs := []slog.Attr{
+		tag.Version(config.Version),
+		slog.String("latest-version", result.LatestVersion),
+	}
+	if command := upgrade.DetectInstallMethod().UpgradeCommand(); command != "" {
+		attrs = append(attrs, tag.Command(command))
+	}
+	logger.Info(ctx, "Update available", attrs...)
 }
 
 func (srv *Server) configureAPIPath(_ context.Context) string {
@@ -1589,6 +1628,8 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 	// of every service DAG, so bursts of run events are merged into one refetch.
 	registrar.SetMinInterval(sse.TopicTypeServiceDAGs, serviceDAGsMinInterval)
 	registrar.SetMaxInterval(sse.TopicTypeServiceDAGs, serviceDAGsMaxInterval)
+	registrar.RegisterFetcher(sse.TopicTypeBackfill, srv.apiV1.GetBackfillData)
+	registrar.SetMinInterval(sse.TopicTypeBackfill, backfillMinInterval)
 	for _, topicType := range []sse.TopicType{sse.TopicTypeWikiPage, sse.TopicTypeLegacyDoc} {
 		registrar.RegisterFetcher(topicType, srv.apiV1.GetWikiPageContentData)
 	}
@@ -1616,9 +1657,11 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 			sse.TopicTypeDAGRuns,
 			sse.TopicTypeDAGRunActivity,
 			sse.TopicTypeQueues,
+			sse.TopicTypeBackfill,
 		} {
 			registrar.SetRefreshMode(topicType, sse.TopicRefreshModeOnDemand)
 		}
+		registrar.SetMaxInterval(sse.TopicTypeBackfill, backfillMaxInterval)
 		if appStreamAvailable {
 			registrar.SetRefreshMode(sse.TopicTypeDAGsList, sse.TopicRefreshModeOnDemand)
 			registrar.SetPublishOnWake(sse.TopicTypeDAGsList, true)
@@ -1867,6 +1910,8 @@ func (srv *Server) setupGracefulShutdown(ctx context.Context, serveErr <-chan er
 		case <-ctx.Done():
 			logger.Info(ctx, "Context done, shutting down server")
 		case failure = <-serveErr:
+		case <-srv.restartRequested:
+			failure = ErrRestartRequested
 		}
 	} else {
 		quit := make(chan os.Signal, 1)
@@ -1879,6 +1924,8 @@ func (srv *Server) setupGracefulShutdown(ctx context.Context, serveErr <-chan er
 			received = sig
 			logger.Info(ctx, "Received shutdown signal", slog.String("signal", sig.String()))
 		case failure = <-serveErr:
+		case <-srv.restartRequested:
+			failure = ErrRestartRequested
 		}
 		signal.Stop(quit)
 	}
@@ -1886,7 +1933,7 @@ func (srv *Server) setupGracefulShutdown(ctx context.Context, serveErr <-chan er
 	if received == nil {
 		_ = errors.As(context.Cause(ctx), &received)
 	}
-	runsDone := launcher.PropagateSignal(ctx, received)
+	runsDone := launcher.StopRuns(ctx, received, srv.config.SignalHandling.DrainTimeout)
 
 	shutdownCtx, cancel := newGracefulShutdownContext(ctx)
 	defer cancel()

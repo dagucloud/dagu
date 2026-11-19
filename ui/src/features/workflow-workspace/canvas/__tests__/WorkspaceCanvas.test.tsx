@@ -63,6 +63,7 @@ const host = vi.hoisted(() => ({
   handle: null as unknown,
   /** The overlay inset that the stand-in reads. */
   insetRight: 0,
+  insetCovered: false,
   /** The ndv state of each DAGSpec render, in order. */
   ndvStates: [] as (string | null | undefined)[],
   /** Whether the dock was open at each DAGSpec render, in order. */
@@ -80,7 +81,9 @@ vi.mock(
         typeof import('@/features/dags/components/dag-editor/DAGSpec')
       >();
     function StandIn(props: SpecProps) {
-      host.insetRight = useCanvasOverlayInset().right;
+      const inset = useCanvasOverlayInset();
+      host.insetRight = inset.right;
+      host.insetCovered = inset.covered ?? false;
       useImperativeHandle(
         host.handle ? props.editorHandleRef : undefined,
         () => host.handle as WorkspaceEditorHandle,
@@ -961,6 +964,71 @@ describe('WorkspaceCanvas', () => {
 
       fireEvent.click(within(column()).getByRole('button', { name: 'YAML' }));
       expect(column()).toHaveAttribute('data-tab', 'yaml');
+    });
+
+    // #3697: a long YAML needs the room of the graph and of Activity.
+    it('maximizes over the graph and Activity until Restore', () => {
+      const yieldToView = vi.fn();
+      ws.dock = { ...dock, yieldToView };
+      localStorage.setItem(RIGHT_COLUMN_KEY, 'yaml');
+      renderCanvas();
+      const graph = screen.getByTestId('ww-canvas-graph');
+      fireEvent.click(
+        within(column()).getByRole('button', { name: 'Maximize panel' })
+      );
+      expect(column()).toHaveAttribute('data-maximized', 'true');
+      expect(graph).toHaveAttribute('inert');
+      expect(host.insetCovered).toBe(true);
+      expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
+
+      fireEvent.click(
+        within(column()).getByRole('button', { name: 'Restore panel' })
+      );
+      expect(column()).not.toHaveAttribute('data-maximized');
+      expect(graph).not.toHaveAttribute('inert');
+      expect(host.insetCovered).toBe(false);
+      expect(yieldToView).toHaveBeenLastCalledWith(false);
+    });
+
+    // A step clicked on the collapsed rail opens a temporary tab only: the
+    // column stays maximized until that tab ends, here under the step view.
+    it('maximizes a temporary tab of the collapsed column', () => {
+      localStorage.setItem(RIGHT_COLUMN_KEY, 'none');
+      renderCanvas();
+      const graph = screen.getByTestId('ww-canvas-graph');
+      act(() => {
+        props().onSelectedStepNameChange?.('extract');
+        props().onStepClick?.('extract', AT);
+      });
+      fireEvent.click(
+        within(column()).getByRole('button', { name: 'Maximize panel' })
+      );
+      expect(column()).toHaveAttribute('data-tab', 'step');
+      expect(column()).toHaveAttribute('data-maximized', 'true');
+      expect(graph).toHaveAttribute('inert');
+
+      act(() => props().ndv?.onStateChange('expanded'));
+      act(() => props().ndv?.onStateChange(null));
+      expect(column()).toHaveAttribute('data-tab', 'collapsed');
+      expect(column()).not.toHaveAttribute('data-maximized');
+      expect(graph).not.toHaveAttribute('inert');
+    });
+
+    it('opens beside the graph again after a collapse', () => {
+      localStorage.setItem(RIGHT_COLUMN_KEY, 'yaml');
+      renderCanvas();
+      fireEvent.click(
+        within(column()).getByRole('button', { name: 'Maximize panel' })
+      );
+      fireEvent.click(
+        within(column()).getByRole('button', { name: 'Collapse' })
+      );
+      fireEvent.click(within(column()).getByRole('button', { name: 'YAML' }));
+      expect(column()).toHaveAttribute('data-tab', 'yaml');
+      expect(column()).not.toHaveAttribute('data-maximized');
+      expect(screen.getByTestId('ww-canvas-graph')).not.toHaveAttribute(
+        'inert'
+      );
     });
   });
 

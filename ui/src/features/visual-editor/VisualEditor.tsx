@@ -1420,9 +1420,19 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     if (closing === 'webhook' && launcherHost) launcherHost.guard(done);
     else done();
   };
-  const setSchedule = (expressions: string[]) => {
+  const setSchedule = (expressions: string[], removedIndex?: number) => {
     if (!canEdit) return;
-    afterEdit(session.apply({ kind: 'setSchedule', expressions }));
+    afterEdit(
+      session.apply({ kind: 'setSchedule', expressions, removedIndex })
+    );
+  };
+  const setScheduleParam = (
+    index: number,
+    name: string,
+    value: string | null
+  ) => {
+    if (!canEdit) return;
+    afterEdit(session.apply({ kind: 'setScheduleParam', index, name, value }));
   };
   const toggleYaml = (open?: boolean) => {
     if (!onYamlVisibleChange) return;
@@ -1981,7 +1991,22 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
               upcomingRuns={details?.upcomingRuns}
               upcomingRunsHold={details?.upcomingRunsHold}
               schedules={details?.schedule}
+              paramDefaults={details?.paramDefs?.flatMap((def) =>
+                def.name
+                  ? [
+                      {
+                        name: def.name,
+                        default:
+                          def.default === undefined
+                            ? undefined
+                            : String(def.default),
+                        computed: def.computed,
+                      },
+                    ]
+                  : []
+              )}
               onChange={setSchedule}
+              onParamChange={setScheduleParam}
               onClose={closeLauncher}
             />
           )}

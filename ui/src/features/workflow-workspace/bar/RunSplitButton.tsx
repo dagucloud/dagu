@@ -1,9 +1,17 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { AlertTriangle, ChevronDown, FilePen, Play, Save } from 'lucide-react';
+import {
+  AlertTriangle,
+  ChevronDown,
+  FilePen,
+  History,
+  Play,
+  Save,
+} from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import {
@@ -12,7 +20,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useUnsavedChanges } from '@/contexts/UnsavedChangesContext';
+import { daysBack } from '@/features/backfills/components/BackfillRangePicker';
+import { StartBackfillDialog } from '@/features/backfills/components/StartBackfillDialog';
+import { backfillPath } from '@/features/backfills/lib/backfillLinks';
 import DAGActions from '@/features/dags/components/common/DAGActions';
 import { useEditorRunActions } from '@/features/visual-editor/run/useEditorRunActions';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -96,6 +108,9 @@ function SplitButton({
   const dirty = state?.dirty ?? false;
   const { hasUnsavedChanges } = useUnsavedChanges();
   const { canSaveAndStart, requestSaveAndStart } = useRunStart();
+  const navigate = useNavigate();
+  const remoteNode = useRemoteNode();
+  const [backfilling, setBackfilling] = useState(false);
   // The buffer is read when the draft runs, not on every render.
   const [spec, setSpec] = useState('');
   const actions = useEditorRunActions({
@@ -126,7 +141,10 @@ function SplitButton({
   // only for a draft.
   const canRunDraft = canExecute && (dirty || canRunDags);
   const canSaveAndRun = canSaveAndStart && hasUnsavedChanges;
-  const hasMenu = canRunDraft || canSaveAndRun;
+  // A backfill runs the saved definition's past slots, so it needs a
+  // schedule and the right to run.
+  const canBackfill = canRunDags && (dag.schedule?.length ?? 0) > 0;
+  const hasMenu = canRunDraft || canSaveAndRun || canBackfill;
   if (!canRunDags && !hasMenu) return null;
 
   return (
@@ -220,8 +238,37 @@ function SplitButton({
                 </span>
               </DropdownMenuItem>
             )}
+            {canBackfill && (
+              <DropdownMenuItem
+                onSelect={() => setBackfilling(true)}
+                className="gap-2"
+              >
+                <History aria-hidden="true" className="size-4 shrink-0" />
+                <span className="flex min-w-0 flex-col">
+                  {ts('Backfill')}
+                  <span className="text-xs text-muted-foreground">
+                    {ts('Run past slots of the schedule')}
+                  </span>
+                </span>
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
+      )}
+      {backfilling && (
+        <StartBackfillDialog
+          fileName={fileName}
+          remoteNode={remoteNode}
+          target={daysBack(7)}
+          pickRange
+          open
+          onOpenChange={(open) => {
+            if (!open) setBackfilling(false);
+          }}
+          onStarted={(backfill) =>
+            navigate(backfillPath(backfill.id, remoteNode))
+          }
+        />
       )}
     </div>
   );

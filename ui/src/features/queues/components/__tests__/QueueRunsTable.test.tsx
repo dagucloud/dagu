@@ -59,9 +59,7 @@ describe('QueueRunsTable', () => {
       />
     );
 
-    expect(
-      screen.getByText('Cannot start')
-    ).toBeInTheDocument();
+    expect(screen.getByText('Cannot start')).toBeInTheDocument();
     expect(
       screen.getByText(
         'The DAG-run cannot start because the queue active-run concurrency limit has been reached.'
@@ -114,7 +112,9 @@ describe('QueueRunsTable', () => {
 
     expect(screen.getByText('Concurrency not ready')).toBeInTheDocument();
     expect(
-      screen.getByText('The queue active-run concurrency limit has been reached.')
+      screen.getByText(
+        'The queue active-run concurrency limit has been reached.'
+      )
     ).toBeInTheDocument();
     expect(screen.getByText(/Checked May 19, 01:03:03/)).toBeInTheDocument();
     expect(screen.queryByText('Worker not ready')).not.toBeInTheDocument();
@@ -185,7 +185,8 @@ describe('QueueRunsTable', () => {
           type: 'Runnable',
           status: DAGRunConditionStatus.Unknown,
           reason: 'AssignmentUnavailable',
-          message: 'Dagu cannot determine whether worker assignment can proceed.',
+          message:
+            'Dagu cannot determine whether worker assignment can proceed.',
           checkedAt: '2026-05-19T01:03:03Z',
         },
       ],
@@ -199,7 +200,40 @@ describe('QueueRunsTable', () => {
       />
     );
 
-    expect(screen.getByText('Worker assignment unavailable')).toBeInTheDocument();
+    expect(
+      screen.getByText('Worker assignment unavailable')
+    ).toBeInTheDocument();
     expect(screen.queryByText('Startup not observed')).not.toBeInTheDocument();
+  });
+
+  // A queued backfill run is marked, so it stands apart from live runs.
+  it('marks a backfill run', () => {
+    const run = (
+      dagRunId: string,
+      backfillId?: string
+    ): components['schemas']['DAGRunSummary'] => ({
+      dagRunId,
+      name: 'etl',
+      status: Status.Queued,
+      statusLabel: StatusLabel.queued,
+      startedAt: '-',
+      finishedAt: '-',
+      artifactsAvailable: false,
+      autoRetryCount: 0,
+      queuedAt: '2026-05-19T01:00:00Z',
+      backfillId,
+    });
+
+    render(
+      <QueueRunsTable
+        items={[run('backfill-run', 'bf123456'), run('live-run')]}
+        onDAGRunClick={vi.fn()}
+        showQueuedAt
+      />
+    );
+
+    const marks = screen.getAllByText('Backfill');
+    expect(marks).toHaveLength(1);
+    expect(marks[0]).toHaveAttribute('title', 'Backfill bf123456');
   });
 });

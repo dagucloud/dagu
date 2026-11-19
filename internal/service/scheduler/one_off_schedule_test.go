@@ -213,7 +213,7 @@ func TestTickPlanner_DispatchRun_ExistingOneOffAttemptConsumesState(t *testing.T
 	store := &mockStateStore{}
 	tp := NewTickPlanner(TickPlannerConfig{
 		StateStore: store,
-		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
+		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error {
 			t.Fatal("dispatch should not be called when the run already exists")
 			return nil
 		},
@@ -261,7 +261,7 @@ func TestTickPlanner_DispatchRun_LegacyOneOffAttemptConsumesState(t *testing.T) 
 	var checkedRunIDs []string
 	tp := NewTickPlanner(TickPlannerConfig{
 		StateStore: store,
-		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
+		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error {
 			t.Fatal("dispatch should not be called when the legacy run already exists")
 			return nil
 		},
@@ -303,7 +303,7 @@ func TestTickPlanner_DispatchRun_OneOffFailureLeavesPendingState(t *testing.T) {
 	store := &mockStateStore{}
 	tp := NewTickPlanner(TickPlannerConfig{
 		StateStore: store,
-		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
+		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error {
 			return assert.AnError
 		},
 		RunExists: func(context.Context, *ir.DAG, string) (bool, error) {
@@ -381,7 +381,7 @@ func TestTickPlanner_DispatchRun_OneOffRequiresRunExists(t *testing.T) {
 	dispatched := false
 	tp := NewTickPlanner(TickPlannerConfig{
 		StateStore: store,
-		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time) error {
+		Dispatch: func(context.Context, DAGEntry, string, ir.TriggerType, time.Time, string) error {
 			dispatched = true
 			return nil
 		},

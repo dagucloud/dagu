@@ -33,7 +33,7 @@ type ScheduleValue struct {
 }
 
 // startScheduleOptions accepts the schedule forms only start schedules take.
-var startScheduleOptions = ir.ScheduleParseOptions{AllowAt: true, AllowCalendar: true}
+var startScheduleOptions = ir.ScheduleParseOptions{AllowAt: true, AllowCalendar: true, AllowParams: true}
 
 // UnmarshalYAML implements BytesUnmarshaler for goccy/go-yaml.
 func (s *ScheduleValue) UnmarshalYAML(data []byte) error {

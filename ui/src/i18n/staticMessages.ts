@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { Locale } from '@/contexts/UserPreference';
+import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
 
 const baseEnglish = {
@@ -285,6 +286,9 @@ const baseEnglish = {
   'All artifacts': 'All artifacts',
   'All runs': 'All runs',
   'All Statuses': 'All Statuses',
+  'Without backfills': 'Without backfills',
+  'Backfill runs only': 'Backfill runs only',
+  'Backfill runs': 'Backfill runs',
   'All workflows': 'All workflows',
   'All workflows are displayed.': 'All workflows are displayed.',
   'All workspaces': 'All workspaces',
@@ -672,6 +676,7 @@ const baseEnglish = {
   'Edit secret ref': 'Edit secret ref',
   'Edit user': 'Edit user',
   'Edit view': 'Edit view',
+  'Edit workflow': 'Edit workflow',
   Edited: 'Edited',
   'Effective Inherited Routes': 'Effective Inherited Routes',
   'Effective order is workflow, workspace, then Global.':
@@ -1128,6 +1133,8 @@ const baseEnglish = {
   'Cancel auto-retry?': 'Cancel auto-retry?',
   'Stop all running instances?': 'Stop all running instances?',
   'Running steps are canceled.': 'Running steps are canceled.',
+  'Waiting steps are canceled and the remaining steps do not run.':
+    'Waiting steps are canceled and the remaining steps do not run.',
   'The failed run will not be retried automatically.':
     'The failed run will not be retried automatically.',
   'Running steps in every instance of this workflow are canceled.':
@@ -1185,6 +1192,14 @@ const baseEnglish = {
     'No Wiki pages reference this DAG yet.',
   'No Wiki pages yet.': 'No Wiki pages yet.',
   'No workers connected': 'No workers connected',
+  'Version not reported': 'Version not reported',
+  'older than the server': 'older than the server',
+  'newer than the server': 'newer than the server',
+  '{count} worker runs an older Dagu version than the server.':
+    '{count} worker runs an older Dagu version than the server.',
+  '{count} workers run an older Dagu version than the server.':
+    '{count} workers run an older Dagu version than the server.',
+  '{count} on an older version': '{count} on an older version',
   'No workspaces available': 'No workspaces available',
   'Node.js': 'Node.js',
   None: 'None',
@@ -1487,6 +1502,29 @@ const baseEnglish = {
   'Known after run': 'Known after run',
   'Step outputs': 'Step outputs',
   Constants: 'Constants',
+  Dates: 'Dates',
+  'The dates of this slot cannot be resolved.':
+    'The dates of this slot cannot be resolved.',
+  'Dates of this run': 'Dates of this run',
+  'Slot {time}, the latest fire': 'Slot {time}, the latest fire',
+  'window from {time}': 'window from {time}',
+  'Left empty, it takes {value} from the slot.':
+    'Left empty, it takes {value} from the slot.',
+  'Computed when the run starts': 'Computed when the run starts',
+  '{slot}, loads {date}': '{slot}, loads {date}',
+  'Loads {date}': 'Loads {date}',
+  'loads {date}': 'loads {date}',
+  'slot {index} of {count}': 'slot {index} of {count}',
+  'about {left} left': 'about {left} left',
+  Failures: 'Failures',
+  '{count} slot': '{count} slot',
+  '{count} slots': '{count} slots',
+  'No error recorded': 'No error recorded',
+  'Run of {time}': 'Run of {time}',
+  'Backfill {id}': 'Backfill {id}',
+  Slot: 'Slot',
+  'the latest fire': 'the latest fire',
+  'from the clock': 'from the clock',
   'Environment variables': 'Environment variables',
   Secrets: 'Secrets',
   'Run context': 'Run context',
@@ -2133,7 +2171,7 @@ const baseEnglish = {
     'View license status and activate a Dagu license or trial key.',
   'View mode': 'View mode',
   'View raw': 'View raw',
-  'View release': 'View release',
+  'Upgrade guide': 'Upgrade guide',
   'View run →': 'View run →',
   'View scheduler log': 'View scheduler log',
   'View stderr': 'View stderr',
@@ -2361,6 +2399,7 @@ const baseEnglish = {
   Conflict: 'Conflict',
   conflict: 'conflict',
   'Const is not declared': 'Const is not declared',
+  'Date is not declared': 'Date is not declared',
   Developer: 'Developer',
   developer: 'developer',
   disabled: 'disabled',
@@ -2448,8 +2487,8 @@ const baseEnglish = {
   Untracked: 'Untracked',
   'Context field is not defined': 'Context field is not defined',
   'Update “{name}”': 'Update “{name}”',
-  'Update available: v{current} → {latest} {releaseLink} · Run {command} to update':
-    'Update available: v{current} → {latest} {releaseLink} · Run {command} to update',
+  'Update available: v{current} → {latest} {guideLink} · Run {command} to update':
+    'Update available: v{current} → {latest} {guideLink} · Run {command} to update',
   'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.':
     'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.',
   'Value is unavailable in this context':
@@ -2623,6 +2662,7 @@ const baseEnglish = {
   'The DAG run may have already changed state. Refresh and try again.':
     'The DAG run may have already changed state. Refresh and try again.',
   'Stop signal sent': 'Stop signal sent',
+  'Run stopped': 'Run stopped',
   'Restore dialog': 'Restore dialog',
   'Maximize dialog': 'Maximize dialog',
   'Approved by': 'Approved by',
@@ -3105,12 +3145,35 @@ const baseEnglish = {
   'Config key': 'Config key',
   'API key': 'API key',
   'Wiki directory': 'Wiki directory',
-  'Update available: v{current} → {latest} {releaseLink}':
-    'Update available: v{current} → {latest} {releaseLink}',
+  'Update available: v{current} → {latest} {guideLink}':
+    'Update available: v{current} → {latest} {guideLink}',
+  'Update available: v{current} → {latest} {guideLink} · Update the container image to {latest}':
+    'Update available: v{current} → {latest} {guideLink} · Update the container image to {latest}',
+  'Update available: v{current} → {latest} {guideLink} · {updateNow}':
+    'Update available: v{current} → {latest} {guideLink} · {updateNow}',
+  'Update now': 'Update now',
+  'The update did not start: {error}': 'The update did not start: {error}',
+  'Update Dagu': 'Update Dagu',
+  'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. The restart also ends runs in progress.':
+    'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. The restart also ends runs in progress.',
+  'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. Runs in progress keep running.':
+    'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. Runs in progress keep running.',
+  'Update failed: {error}': 'Update failed: {error}',
+  'Dagu has not come back yet. Check the Dagu service on the server.':
+    'Dagu has not come back yet. Check the Dagu service on the server.',
+  'Restarting Dagu…': 'Restarting Dagu…',
+  'Installing {version}…': 'Installing {version}…',
+  'Downloading {version}… {percent}%': 'Downloading {version}… {percent}%',
+  'Downloading {version}…': 'Downloading {version}…',
   'A new Dagu binary is installed. Run {command} to restart and use it.':
     'A new Dagu binary is installed. Run {command} to restart and use it.',
   'A new Dagu binary is installed. Restart Dagu to use it.':
     'A new Dagu binary is installed. Restart Dagu to use it.',
+  'The restart also ends runs in progress.':
+    'The restart also ends runs in progress.',
+  'The restart also ends runs in progress. {keepRunsLink}':
+    'The restart also ends runs in progress. {keepRunsLink}',
+  'Keep them running': 'Keep them running',
   'Upcoming runs': 'Upcoming runs',
   'last business day of the month': 'last business day of the month',
   "business day {n} from the month's end":
@@ -3199,10 +3262,11 @@ const baseEnglish = {
   "Couldn't check": "Couldn't check",
   'Service DAG': 'Service DAG',
   'Service DAGs': 'Service DAGs',
-  'DAGs that Dagu restarts when their run ends.': 'DAGs that Dagu restarts when their run ends.',
-  'Pending': 'Pending',
-  'Restarting': 'Restarting',
-  'Failing': 'Failing',
+  'DAGs that Dagu restarts when their run ends.':
+    'DAGs that Dagu restarts when their run ends.',
+  Pending: 'Pending',
+  Restarting: 'Restarting',
+  Failing: 'Failing',
   'Up for {duration}': 'Up for {duration}',
   'Restarting…': 'Restarting…',
   'Restart in {duration}': 'Restart in {duration}',
@@ -3215,7 +3279,8 @@ const baseEnglish = {
   'Stopped by an operator': 'Stopped by an operator',
   'No new run': 'No new run',
   'Waiting for a run': 'Waiting for a run',
-  'Restarts {seconds}s after a run ends': 'Restarts {seconds}s after a run ends',
+  'Restarts {seconds}s after a run ends':
+    'Restarts {seconds}s after a run ends',
   'Show runs of {name}': 'Show runs of {name}',
   'Hide runs of {name}': 'Hide runs of {name}',
   'Last {count} runs': 'Last {count} runs',
@@ -3223,13 +3288,21 @@ const baseEnglish = {
   'No run in the last {days} days': 'No run in the last {days} days',
   'Last run failed': 'Last run failed',
   '{count} failures in a row': '{count} failures in a row',
+  'Multi-line or file': 'Multi-line or file',
+  'Value source': 'Value source',
+  '{name} loaded ({size} bytes)': '{name} loaded ({size} bytes)',
+  'Failed to read the selected file': 'Failed to read the selected file',
 } as const;
 
 type BaseStaticMessage = keyof typeof baseEnglish;
 
 // Base entries are listed last: an existing translation always wins over a
 // workspace module entry with the same key.
-const english = { ...workspaceMessages.en, ...baseEnglish } as const;
+const english = {
+  ...workspaceMessages.en,
+  ...backfillMessages.en,
+  ...baseEnglish,
+} as const;
 
 export type StaticMessage = keyof typeof english;
 
@@ -3507,6 +3580,9 @@ const baseChinese = {
   'All artifacts': '所有产物',
   'All runs': '所有运行',
   'All Statuses': '全部状态',
+  'Without backfills': '不含回填',
+  'Backfill runs only': '仅回填运行',
+  'Backfill runs': '回填运行',
   'All workflows': '所有工作流',
   'All workflows are displayed.': '已显示全部工作流',
   'All workspaces': '全部工作区',
@@ -3887,6 +3963,7 @@ const baseChinese = {
   'Edit secret ref': '编辑密钥引用',
   'Edit user': '编辑用户',
   'Edit view': '编辑视图',
+  'Edit workflow': '编辑工作流',
   Edited: '已编辑',
   'Effective Inherited Routes': '生效的继承路由',
   'Effective order is workflow, workspace, then Global.':
@@ -4326,6 +4403,8 @@ const baseChinese = {
   'Cancel auto-retry?': '取消自动重试？',
   'Stop all running instances?': '停止所有运行中的实例？',
   'Running steps are canceled.': '正在运行的步骤将被取消。',
+  'Waiting steps are canceled and the remaining steps do not run.':
+    '等待中的步骤将被取消，其余步骤不会运行。',
   'The failed run will not be retried automatically.':
     '失败的运行将不会自动重试。',
   'Running steps in every instance of this workflow are canceled.':
@@ -4380,6 +4459,14 @@ const baseChinese = {
   'No Wiki pages reference this DAG yet.': '还没有 Wiki 页面引用此 DAG。',
   'No Wiki pages yet.': '还没有百科页面',
   'No workers connected': '暂无连接的 Worker',
+  'Version not reported': '未报告版本',
+  'older than the server': '比服务器旧',
+  'newer than the server': '比服务器新',
+  '{count} worker runs an older Dagu version than the server.':
+    '{count} 个 Worker 运行的 Dagu 版本比服务器旧。',
+  '{count} workers run an older Dagu version than the server.':
+    '{count} 个 Worker 运行的 Dagu 版本比服务器旧。',
+  '{count} on an older version': '{count} 个版本较旧',
   'No workspaces available': '无可用工作区',
   'Node.js': 'Node.js',
   None: '无',
@@ -4682,6 +4769,27 @@ const baseChinese = {
   'Known after run': '运行后可知',
   'Step outputs': '步骤输出',
   Constants: '常量',
+  Dates: '日期',
+  'The dates of this slot cannot be resolved.': '无法解析此时段的日期。',
+  'Dates of this run': '此运行的日期',
+  'Slot {time}, the latest fire': '时段 {time}（最近一次触发）',
+  'window from {time}': '窗口起于 {time}',
+  'Left empty, it takes {value} from the slot.': '留空时取时段的值 {value}。',
+  'Computed when the run starts': '运行开始时计算',
+  '{slot}, loads {date}': '{slot}，载入 {date}',
+  'Loads {date}': '载入 {date}',
+  'loads {date}': '载入 {date}',
+  'slot {index} of {count}': '第 {index} / {count} 个时段',
+  'about {left} left': '约剩 {left}',
+  Failures: '失败',
+  '{count} slot': '{count} 个时段',
+  '{count} slots': '{count} 个时段',
+  'No error recorded': '未记录错误',
+  'Run of {time}': '{time} 的运行',
+  'Backfill {id}': '回填 {id}',
+  Slot: '时段',
+  'the latest fire': '最近一次触发',
+  'from the clock': '取自当前时间',
   'Environment variables': '环境变量',
   Secrets: '密钥',
   'Run context': '运行上下文',
@@ -5308,7 +5416,7 @@ const baseChinese = {
     '查看许可证状态并激活 Dagu 许可证或试用密钥。',
   'View mode': '查看模式',
   'View raw': '查看原始数据',
-  'View release': '查看发布',
+  'Upgrade guide': '升级指南',
   'View run →': '查看运行 →',
   'View scheduler log': '查看调度器日志',
   'View stderr': '查看 stderr',
@@ -5531,6 +5639,7 @@ const baseChinese = {
   Conflict: '冲突',
   conflict: '冲突',
   'Const is not declared': '常量未声明',
+  'Date is not declared': '日期未声明',
   Developer: '开发者',
   developer: '开发者',
   disabled: '禁用',
@@ -5614,8 +5723,8 @@ const baseChinese = {
   Untracked: '未跟踪',
   'Context field is not defined': '上下文字段未定义',
   'Update “{name}”': '更新“{name}”',
-  'Update available: v{current} → {latest} {releaseLink} · Run {command} to update':
-    '有可用更新：v{current} → {latest} {releaseLink} · 运行 {command} 进行更新',
+  'Update available: v{current} → {latest} {guideLink} · Run {command} to update':
+    '有可用更新：v{current} → {latest} {guideLink} · 运行 {command} 进行更新',
   'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.':
     '用户管理功能（创建、编辑、删除）需要{licenseLink}。所有管理员均可重置密码。',
   'Value is unavailable in this context': '该值在此上下文中不可用',
@@ -5785,6 +5894,7 @@ const baseChinese = {
   'The DAG run may have already changed state. Refresh and try again.':
     'DAG 运行状态可能已更改。请刷新后重试。',
   'Stop signal sent': '已发送停止信号',
+  'Run stopped': '运行已停止',
   'Restore dialog': '恢复对话框',
   'Maximize dialog': '最大化对话框',
   'Approved by': '审批人',
@@ -6250,12 +6360,34 @@ const baseChinese = {
   'Config key': '配置键',
   'API key': 'API 密钥',
   'Wiki directory': '百科目录',
-  'Update available: v{current} → {latest} {releaseLink}':
-    '有可用更新：v{current} → {latest} {releaseLink}',
+  'Update available: v{current} → {latest} {guideLink}':
+    '有可用更新：v{current} → {latest} {guideLink}',
+  'Update available: v{current} → {latest} {guideLink} · Update the container image to {latest}':
+    '有可用更新：v{current} → {latest} {guideLink} · 将容器镜像更新为 {latest}',
+  'Update available: v{current} → {latest} {guideLink} · {updateNow}':
+    '有可用更新：v{current} → {latest} {guideLink} · {updateNow}',
+  'Update now': '立即更新',
+  'The update did not start: {error}': '更新未能开始：{error}',
+  'Update Dagu': '更新 Dagu',
+  'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. The restart also ends runs in progress.':
+    'Dagu 将下载 {latest}，校验其校验和，替换二进制文件并重启。重启也会结束正在进行的运行。',
+  'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. Runs in progress keep running.':
+    'Dagu 将下载 {latest}，校验其校验和，替换二进制文件并重启。正在进行的运行会继续。',
+  'Update failed: {error}': '更新失败：{error}',
+  'Dagu has not come back yet. Check the Dagu service on the server.':
+    'Dagu 尚未恢复。请检查服务器上的 Dagu 服务。',
+  'Restarting Dagu…': '正在重启 Dagu…',
+  'Installing {version}…': '正在安装 {version}…',
+  'Downloading {version}… {percent}%': '正在下载 {version}… {percent}%',
+  'Downloading {version}…': '正在下载 {version}…',
   'A new Dagu binary is installed. Run {command} to restart and use it.':
     '已安装新的 Dagu 二进制文件。运行 {command} 重启后即可使用。',
   'A new Dagu binary is installed. Restart Dagu to use it.':
     '已安装新的 Dagu 二进制文件。重启 Dagu 后即可使用。',
+  'The restart also ends runs in progress.': '重启也会结束正在进行的运行。',
+  'The restart also ends runs in progress. {keepRunsLink}':
+    '重启也会结束正在进行的运行。{keepRunsLink}',
+  'Keep them running': '如何保持运行',
   'Upcoming runs': '即将进行的运行',
   'last business day of the month': '当月最后一个工作日',
   "business day {n} from the month's end": '当月倒数第 {n} 个工作日',
@@ -6340,17 +6472,19 @@ const baseChinese = {
   "Couldn't check": '无法检查',
   'Service DAG': '服务 DAG',
   'Service DAGs': '服务 DAG',
-  'DAGs that Dagu restarts when their run ends.': '运行结束后由 Dagu 重新启动的 DAG。',
-  'Pending': '等待中',
-  'Restarting': '重启中',
-  'Failing': '持续失败',
+  'DAGs that Dagu restarts when their run ends.':
+    '运行结束后由 Dagu 重新启动的 DAG。',
+  Pending: '等待中',
+  Restarting: '重启中',
+  Failing: '持续失败',
   'Up for {duration}': '已运行 {duration}',
   'Restarting…': '正在重启…',
   'Restart in {duration}': '{duration}后重启',
   'Next restart unknown': '下次重启时间未知',
   'Only service DAGs are running.': '只有服务 DAG 在运行。',
   'Restart on hold: the scheduler is paused': '重启已暂停：调度器已暂停',
-  'Restart on hold: no scheduler is running': '重启已暂停：没有正在运行的调度器',
+  'Restart on hold: no scheduler is running':
+    '重启已暂停：没有正在运行的调度器',
   'Stopped by an operator': '已被操作员停止',
   'No new run': '不再启动新的运行',
   'Waiting for a run': '等待运行',
@@ -6362,6 +6496,10 @@ const baseChinese = {
   'No run in the last {days} days': '最近 {days} 天没有运行',
   'Last run failed': '上次运行失败',
   '{count} failures in a row': '连续 {count} 次失败',
+  'Multi-line or file': '多行或文件',
+  'Value source': '值来源',
+  '{name} loaded ({size} bytes)': '已加载 {name}（{size} 字节）',
+  'Failed to read the selected file': '无法读取所选文件',
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const baseJapanese = {
@@ -6648,6 +6786,9 @@ const baseJapanese = {
   'All artifacts': 'すべての成果物',
   'All runs': 'すべての実行',
   'All Statuses': 'すべてのステータス',
+  'Without backfills': 'バックフィルを除く',
+  'Backfill runs only': 'バックフィルの実行のみ',
+  'Backfill runs': 'バックフィルの実行',
   'All workflows': 'すべてのワークフロー',
   'All workflows are displayed.': 'すべてのワークフローが表示されています。',
   'All workspaces': 'すべてのワークスペース',
@@ -7039,6 +7180,7 @@ const baseJapanese = {
   'Edit secret ref': 'シークレット参照を編集',
   'Edit user': 'ユーザーを編集',
   'Edit view': 'ビューを編集',
+  'Edit workflow': 'ワークフローを編集',
   Edited: '編集済み',
   'Effective Inherited Routes': '有効な継承ルート',
   'Effective order is workflow, workspace, then Global.':
@@ -7504,6 +7646,8 @@ const baseJapanese = {
   'Cancel auto-retry?': '自動再試行をキャンセルしますか？',
   'Stop all running instances?': '実行中のすべてのインスタンスを停止しますか？',
   'Running steps are canceled.': '実行中のステップはキャンセルされます。',
+  'Waiting steps are canceled and the remaining steps do not run.':
+    '待機中のステップはキャンセルされ、残りのステップは実行されません。',
   'The failed run will not be retried automatically.':
     '失敗した実行は自動で再試行されません。',
   'Running steps in every instance of this workflow are canceled.':
@@ -7561,6 +7705,14 @@ const baseJapanese = {
     'まだこの DAG を参照する Wiki ページはありません。',
   'No Wiki pages yet.': 'まだ Wiki ページはありません。',
   'No workers connected': 'ワーカーが接続されていません',
+  'Version not reported': 'バージョン未報告',
+  'older than the server': 'サーバーより古い',
+  'newer than the server': 'サーバーより新しい',
+  '{count} worker runs an older Dagu version than the server.':
+    '{count} 台のワーカーがサーバーより古い Dagu を実行しています。',
+  '{count} workers run an older Dagu version than the server.':
+    '{count} 台のワーカーがサーバーより古い Dagu を実行しています。',
+  '{count} on an older version': '{count} 台が旧バージョン',
   'No workspaces available': '利用可能なワークスペースがありません',
   'Node.js': 'Node.js',
   None: 'なし',
@@ -7866,6 +8018,29 @@ const baseJapanese = {
   'Known after run': '実行後に判明',
   'Step outputs': 'ステップ出力',
   Constants: '定数',
+  Dates: '日付',
+  'The dates of this slot cannot be resolved.':
+    'このスロットの日付を解決できません。',
+  'Dates of this run': 'この実行の日付',
+  'Slot {time}, the latest fire': 'スロット {time}（直近の実行時刻）',
+  'window from {time}': 'ウィンドウの開始 {time}',
+  'Left empty, it takes {value} from the slot.':
+    '空欄のときはスロットから {value} を取ります。',
+  'Computed when the run starts': '実行開始時に計算',
+  '{slot}, loads {date}': '{slot}、{date} を読み込む',
+  'Loads {date}': '{date} を読み込む',
+  'loads {date}': '{date} を読み込む',
+  'slot {index} of {count}': 'スロット {index} / {count}',
+  'about {left} left': '残り約 {left}',
+  Failures: '失敗',
+  '{count} slot': '{count} スロット',
+  '{count} slots': '{count} スロット',
+  'No error recorded': 'エラーの記録なし',
+  'Run of {time}': '{time} の実行',
+  'Backfill {id}': 'バックフィル {id}',
+  Slot: 'スロット',
+  'the latest fire': '直近の実行時刻',
+  'from the clock': '現在時刻から',
   'Environment variables': '環境変数',
   Secrets: 'シークレット',
   'Run context': '実行コンテキスト',
@@ -8519,7 +8694,7 @@ const baseJapanese = {
     'ライセンスのステータスを表示し、Dagu ライセンスまたはトライアルキーを有効化します。',
   'View mode': '表示モード',
   'View raw': '生データを表示',
-  'View release': 'リリースを表示',
+  'Upgrade guide': 'アップグレードガイド',
   'View run →': '実行を表示 →',
   'View scheduler log': 'スケジューラログを表示',
   'View stderr': 'stderr を表示',
@@ -8748,6 +8923,7 @@ const baseJapanese = {
   Conflict: '競合',
   conflict: '競合',
   'Const is not declared': '定数が宣言されていません',
+  'Date is not declared': '日付が宣言されていません',
   Developer: '開発者',
   developer: '開発者',
   disabled: '無効',
@@ -8835,8 +9011,8 @@ const baseJapanese = {
   Untracked: '未追跡',
   'Context field is not defined': 'コンテキストフィールドが定義されていません',
   'Update “{name}”': '「{name}」を更新',
-  'Update available: v{current} → {latest} {releaseLink} · Run {command} to update':
-    '更新があります：v{current} → {latest} {releaseLink} · {command} を実行して更新',
+  'Update available: v{current} → {latest} {guideLink} · Run {command} to update':
+    '更新があります：v{current} → {latest} {guideLink} · {command} を実行して更新',
   'User management features (create, edit, delete) require a {licenseLink}. Password reset is available for all admins.':
     'ユーザー管理機能（作成・編集・削除）には{licenseLink}が必要です。すべての管理者がパスワードをリセットできます。',
   'Value is unavailable in this context':
@@ -9013,6 +9189,7 @@ const baseJapanese = {
   'The DAG run may have already changed state. Refresh and try again.':
     'DAG 実行の状態がすでに変更されている可能性があります。更新して再試行してください。',
   'Stop signal sent': '停止シグナルを送信しました',
+  'Run stopped': '実行を停止しました',
   'Restore dialog': 'ダイアログを元のサイズに戻す',
   'Maximize dialog': 'ダイアログを最大化',
   'Approved by': '承認者',
@@ -9499,12 +9676,36 @@ const baseJapanese = {
   'Config key': '設定キー',
   'API key': 'API キー',
   'Wiki directory': 'Wiki ディレクトリ',
-  'Update available: v{current} → {latest} {releaseLink}':
-    '更新があります：v{current} → {latest} {releaseLink}',
+  'Update available: v{current} → {latest} {guideLink}':
+    '更新があります：v{current} → {latest} {guideLink}',
+  'Update available: v{current} → {latest} {guideLink} · Update the container image to {latest}':
+    '更新があります：v{current} → {latest} {guideLink} · コンテナイメージを {latest} に更新',
+  'Update available: v{current} → {latest} {guideLink} · {updateNow}':
+    '更新があります：v{current} → {latest} {guideLink} · {updateNow}',
+  'Update now': '今すぐ更新',
+  'The update did not start: {error}': '更新を開始できませんでした：{error}',
+  'Update Dagu': 'Dagu を更新',
+  'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. The restart also ends runs in progress.':
+    'Dagu は {latest} をダウンロードし、チェックサムを検証してバイナリを置き換え、再起動します。再起動すると、進行中の実行も終了します。',
+  'Dagu downloads {latest}, verifies its checksum, replaces its binary, and restarts. Runs in progress keep running.':
+    'Dagu は {latest} をダウンロードし、チェックサムを検証してバイナリを置き換え、再起動します。進行中の実行はそのまま続きます。',
+  'Update failed: {error}': '更新に失敗しました：{error}',
+  'Dagu has not come back yet. Check the Dagu service on the server.':
+    'Dagu がまだ戻っていません。サーバー上の Dagu サービスを確認してください。',
+  'Restarting Dagu…': 'Dagu を再起動しています…',
+  'Installing {version}…': '{version} をインストールしています…',
+  'Downloading {version}… {percent}%':
+    '{version} をダウンロードしています… {percent}%',
+  'Downloading {version}…': '{version} をダウンロードしています…',
   'A new Dagu binary is installed. Run {command} to restart and use it.':
     '新しい Dagu バイナリがインストールされました。{command} を実行して再起動すると使用できます。',
   'A new Dagu binary is installed. Restart Dagu to use it.':
     '新しい Dagu バイナリがインストールされました。Dagu を再起動すると使用できます。',
+  'The restart also ends runs in progress.':
+    '再起動すると、進行中の実行も終了します。',
+  'The restart also ends runs in progress. {keepRunsLink}':
+    '再起動すると、進行中の実行も終了します。{keepRunsLink}',
+  'Keep them running': '実行を続ける方法',
   'Upcoming runs': '今後の実行',
   'last business day of the month': '月末営業日',
   "business day {n} from the month's end": '月末から {n} 番目の営業日',
@@ -9592,10 +9793,11 @@ const baseJapanese = {
   "Couldn't check": '確認できませんでした',
   'Service DAG': 'サービス DAG',
   'Service DAGs': 'サービス DAG',
-  'DAGs that Dagu restarts when their run ends.': '実行が終わると Dagu が再起動する DAG。',
-  'Pending': '待機中',
-  'Restarting': '再起動中',
-  'Failing': '失敗中',
+  'DAGs that Dagu restarts when their run ends.':
+    '実行が終わると Dagu が再起動する DAG。',
+  Pending: '待機中',
+  Restarting: '再起動中',
+  Failing: '失敗中',
   'Up for {duration}': '{duration} 稼働中',
   'Restarting…': '再起動しています…',
   'Restart in {duration}': '{duration}後に再起動',
@@ -9616,15 +9818,21 @@ const baseJapanese = {
   'No run in the last {days} days': '過去 {days} 日間の実行なし',
   'Last run failed': '前回の実行が失敗',
   '{count} failures in a row': '{count} 回連続で失敗',
+  'Multi-line or file': '複数行またはファイル',
+  'Value source': '値の入力方法',
+  '{name} loaded ({size} bytes)': '{name} を読み込みました（{size} バイト）',
+  'Failed to read the selected file': '選択したファイルを読み込めませんでした',
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const chinese = {
   ...workspaceMessages['zh-CN'],
+  ...backfillMessages['zh-CN'],
   ...baseChinese,
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
   ...workspaceMessages.ja,
+  ...backfillMessages.ja,
   ...baseJapanese,
 } as const satisfies Record<StaticMessage, string>;
 

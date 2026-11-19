@@ -56,6 +56,8 @@ type testRun struct {
 	// browser.write_gate and browser.write_policy.
 	hostWriteGate   string
 	hostWritePolicy string
+	// maxOpen is the host config's browser.max_open.
+	maxOpen int
 	// base is the context executions run under, in place of the test's,
 	// for a test that cancels one.
 	base context.Context
@@ -103,11 +105,17 @@ type stepExecution struct {
 
 func (r *testRun) execute(withJSON string, session *ir.AgentSession) *stepExecution {
 	r.t.Helper()
+	return r.executeStep("shop", withJSON, session)
+}
+
+// executeStep runs the browser step named name.
+func (r *testRun) executeStep(name, withJSON string, session *ir.AgentSession) *stepExecution {
+	r.t.Helper()
 	var with map[string]any
 	require.NoError(r.t, json.Unmarshal([]byte(withJSON), &with))
 	step := ir.Step{
-		ID:             "shop",
-		Name:           "shop",
+		ID:             name,
+		Name:           name,
 		ExecutorConfig: ir.ExecutorConfig{Type: executorType, Config: with},
 		LLM:            &ir.LLMConfig{Provider: "openai", Model: "test-model"},
 	}
@@ -138,7 +146,7 @@ func (r *testRun) context() context.Context {
 		Paths: cmnconfig.PathsConfig{DataDir: r.dataDir},
 		Browser: cmnconfig.BrowserConfig{
 			NoSandbox: r.noSandbox, ClientCertificates: r.hostCertificates, TrustedCAs: r.hostTrustedCAs, GuardClientCertificates: r.hostGuard,
-			WriteGate: r.hostWriteGate, WritePolicy: r.hostWritePolicy,
+			WriteGate: r.hostWriteGate, WritePolicy: r.hostWritePolicy, MaxOpen: r.maxOpen,
 		},
 	})
 	return runtime.WithEnv(ctx, runtime.Env{

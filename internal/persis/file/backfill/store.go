@@ -7,7 +7,11 @@
 //	├── <backfill id>.json             one record per backfill
 //	├── <backfill id>.progress.jsonl   its slots' progress, appended
 //	├── <backfill id>.open             present while the backfill is open
-//	└── .locks/<hex DAG name>/         the submit lock of a DAG
+//	├── .dags/<hex DAG name>/<id>      names each backfill of a DAG
+//	├── .summaries/<id>.json           how far an open or failed backfill came
+//	└── .locks/
+//	    ├── <hex DAG name>/            the submit lock of a DAG
+//	    └── record-<backfill id>/      the lock of one backfill
 package backfill
 
 import (
@@ -31,9 +35,14 @@ const (
 	recordSuffix   = ".json"
 	progressSuffix = ".progress.jsonl"
 	openSuffix     = ".open"
+	dagsDirName    = ".dags"
+	summariesDir   = ".summaries"
 	locksDirName   = ".locks"
-	dirPermissions = 0o750
-	filePerms      = 0o600
+	// recordLockPrefix keeps the lock of a backfill apart from the hex
+	// names of the DAG locks.
+	recordLockPrefix = "record-"
+	dirPermissions   = 0o750
+	filePerms        = 0o600
 	// lockStaleThreshold frees the lock of a process that died holding it.
 	lockStaleThreshold = 30 * time.Second
 	lockRetryInterval  = 50 * time.Millisecond
@@ -69,12 +78,19 @@ func (s *Store) Create(_ context.Context, record *backfill.Record) error {
 	if err := os.MkdirAll(s.dir, dirPermissions); err != nil {
 		return fmt.Errorf("backfill store: create %s: %w", s.dir, err)
 	}
-	// The marker comes first: one left by a crash names no record and is
-	// passed over, while a record without its marker would never run.
+	// The markers come first: one left by a crash names no record and is
+	// passed over, while a record without its markers would never run or be
+	// listed with its DAG.
 	if record.Open() {
 		if err := fileutil.WriteFileAtomic(s.openPath(record.ID), nil, filePerms); err != nil {
 			return fmt.Errorf("backfill store: mark %s open: %w", record.ID, err)
 		}
+	}
+	if err := os.MkdirAll(s.dagDir(record.DAGName), dirPermissions); err != nil {
+		return fmt.Errorf("backfill store: create %s: %w", s.dagDir(record.DAGName), err)
+	}
+	if err := fileutil.WriteFileAtomic(filepath.Join(s.dagDir(record.DAGName), record.ID), nil, filePerms); err != nil {
+		return fmt.Errorf("backfill store: list %s with its DAG: %w", record.ID, err)
 	}
 	err = fileutil.WriteFileAtomicExclusive(s.recordPath(record.ID), data, filePerms)
 	if errors.Is(err, os.ErrExist) {
@@ -82,6 +98,11 @@ func (s *Store) Create(_ context.Context, record *backfill.Record) error {
 	}
 	if err != nil {
 		return fmt.Errorf("backfill store: write %s: %w", record.ID, err)
+	}
+	// The summary follows the record, so a taken ID leaves the summary of
+	// the backfill that has it. The dispatcher writes a missing one.
+	if record.Open() {
+		return s.writeSummary(openSummary(record))
 	}
 	return nil
 }
@@ -94,21 +115,16 @@ func (s *Store) Get(_ context.Context, id string) (*backfill.Record, error) {
 	return s.read(s.recordPath(id))
 }
 
-// List reads the records of a DAG, or of every DAG, oldest first.
+// List reads the records of a DAG, or of every DAG, oldest first. The
+// records of one DAG are read without reading those of the others.
 func (s *Store) List(_ context.Context, dagName string) ([]*backfill.Record, error) {
-	entries, err := os.ReadDir(s.dir)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
+	paths, err := s.recordPaths(dagName)
 	if err != nil {
-		return nil, fmt.Errorf("backfill store: read %s: %w", s.dir, err)
+		return nil, err
 	}
 	var records []*backfill.Record
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), recordSuffix) || strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		record, err := s.read(filepath.Join(s.dir, entry.Name()))
+	for _, path := range paths {
+		record, err := s.read(path)
 		if errors.Is(err, backfill.ErrNotFound) {
 			continue
 		}
@@ -149,7 +165,18 @@ func (s *Store) Open(_ context.Context) ([]*backfill.Record, error) {
 
 // LockDAG holds the submit lock of a DAG.
 func (s *Store) LockDAG(ctx context.Context, dagName string) (func(), error) {
-	dir := filepath.Join(s.dir, locksDirName, hex.EncodeToString([]byte(dagName)))
+	return s.lock(ctx, filepath.Join(s.dir, locksDirName, hex.EncodeToString([]byte(dagName))), dagName)
+}
+
+// LockRecord holds the lock of one backfill.
+func (s *Store) LockRecord(ctx context.Context, id string) (func(), error) {
+	if id == "" || strings.ContainsAny(id, `/\.`) {
+		return nil, backfill.ErrNotFound
+	}
+	return s.lock(ctx, filepath.Join(s.dir, locksDirName, recordLockPrefix+id), id)
+}
+
+func (s *Store) lock(ctx context.Context, dir, name string) (func(), error) {
 	if err := os.MkdirAll(dir, dirPermissions); err != nil {
 		return nil, fmt.Errorf("backfill store: create %s: %w", dir, err)
 	}
@@ -158,7 +185,7 @@ func (s *Store) LockDAG(ctx context.Context, dagName string) (func(), error) {
 		RetryInterval:  lockRetryInterval,
 	})
 	if err := lock.Lock(ctx); err != nil {
-		return nil, fmt.Errorf("backfill store: lock %s: %w", dagName, err)
+		return nil, fmt.Errorf("backfill store: lock %s: %w", name, err)
 	}
 	return func() { _ = lock.Unlock() }, nil
 }
@@ -218,6 +245,11 @@ func (s *Store) End(ctx context.Context, id string, status backfill.Status, at t
 	if err != nil {
 		return fmt.Errorf("backfill store: encode %s: %w", id, err)
 	}
+	// The summary ends first: while the record is still open, the next
+	// tick ends it again.
+	if err := s.endSummary(ctx, record); err != nil {
+		return err
+	}
 	if err := fileutil.WriteFileAtomic(s.recordPath(id), data, filePerms); err != nil {
 		return fmt.Errorf("backfill store: write %s: %w", id, err)
 	}
@@ -225,6 +257,22 @@ func (s *Store) End(ctx context.Context, id string, status backfill.Status, at t
 		return fmt.Errorf("backfill store: clear the open mark of %s: %w", id, err)
 	}
 	return nil
+}
+
+// endSummary keeps the summary of a backfill that ended failed, with the
+// counts its dispatcher saved last, and removes that of any other end.
+func (s *Store) endSummary(ctx context.Context, record *backfill.Record) error {
+	if record.Status != backfill.StatusFailed {
+		return s.ClearSummary(ctx, record.ID)
+	}
+	summary, err := s.readSummary(record.ID)
+	if errors.Is(err, os.ErrNotExist) {
+		summary = openSummary(record)
+	} else if err != nil {
+		return err
+	}
+	summary.Status = backfill.StatusFailed
+	return s.writeSummary(summary)
 }
 
 // Update rewrites a record and restores its open marker while it is open.
@@ -244,7 +292,157 @@ func (s *Store) Update(ctx context.Context, record *backfill.Record) error {
 	if err := fileutil.WriteFileAtomic(s.recordPath(record.ID), data, filePerms); err != nil {
 		return fmt.Errorf("backfill store: write %s: %w", record.ID, err)
 	}
+	// The dispatcher counts the slots of a reopened backfill again. The
+	// summary follows the record, so a failed write leaves the summary of
+	// the record as it was; the dispatcher writes a missing one.
+	if record.Open() {
+		return s.writeSummary(openSummary(record))
+	}
 	return nil
+}
+
+// Summaries reads the summary of each open backfill and of each failed
+// one not cleared.
+func (s *Store) Summaries(_ context.Context) ([]backfill.Summary, error) {
+	entries, err := os.ReadDir(filepath.Join(s.dir, summariesDir))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("backfill store: list summaries: %w", err)
+	}
+	var summaries []backfill.Summary
+	for _, entry := range entries {
+		id, ok := strings.CutSuffix(entry.Name(), recordSuffix)
+		if entry.IsDir() || !ok {
+			continue
+		}
+		summary, err := s.readSummary(id)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, summary)
+	}
+	return summaries, nil
+}
+
+// SaveSummary writes the summary of an open backfill when it changed.
+func (s *Store) SaveSummary(_ context.Context, summary backfill.Summary) error {
+	current, err := s.readSummary(summary.ID)
+	if err == nil && current == summary {
+		return nil
+	}
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return s.writeSummary(summary)
+}
+
+// ClearSummary removes a backfill's summary.
+func (s *Store) ClearSummary(_ context.Context, id string) error {
+	if id == "" || strings.ContainsAny(id, `/\.`) {
+		return backfill.ErrNotFound
+	}
+	if err := os.Remove(s.summaryPath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("backfill store: clear the summary of %s: %w", id, err)
+	}
+	return nil
+}
+
+// openSummary is the summary of an open backfill before its slots are
+// counted.
+func openSummary(record *backfill.Record) backfill.Summary {
+	return backfill.Summary{ID: record.ID, DAGName: record.DAGName, Slots: len(record.Slots), CreatedAt: record.CreatedAt}
+}
+
+func (s *Store) readSummary(id string) (backfill.Summary, error) {
+	data, err := os.ReadFile(s.summaryPath(id)) //nolint:gosec // path is built from the store's own layout
+	if err != nil {
+		return backfill.Summary{}, err
+	}
+	var summary backfill.Summary
+	if err := json.Unmarshal(data, &summary); err != nil {
+		return backfill.Summary{}, fmt.Errorf("backfill store: decode the summary of %s: %w", id, err)
+	}
+	return summary, nil
+}
+
+func (s *Store) writeSummary(summary backfill.Summary) error {
+	data, err := json.Marshal(summary)
+	if err != nil {
+		return fmt.Errorf("backfill store: encode the summary of %s: %w", summary.ID, err)
+	}
+	if err := os.MkdirAll(filepath.Join(s.dir, summariesDir), dirPermissions); err != nil {
+		return fmt.Errorf("backfill store: create %s: %w", summariesDir, err)
+	}
+	if err := fileutil.WriteFileAtomic(s.summaryPath(summary.ID), data, filePerms); err != nil {
+		return fmt.Errorf("backfill store: write the summary of %s: %w", summary.ID, err)
+	}
+	return nil
+}
+
+func (s *Store) summaryPath(id string) string {
+	return filepath.Join(s.dir, summariesDir, id+recordSuffix)
+}
+
+// Delete removes a backfill. The record goes first: a crash after it leaves
+// marks and progress that name no record, which every read passes over. The
+// backfill's lock directory stays, since the caller holds it and a process
+// waiting on it fails if it goes.
+func (s *Store) Delete(ctx context.Context, id string) error {
+	record, err := s.Get(ctx, id)
+	if errors.Is(err, backfill.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	paths := []string{
+		s.recordPath(id),
+		s.progressPath(id),
+		s.openPath(id),
+		s.summaryPath(id),
+		filepath.Join(s.dagDir(record.DAGName), id),
+	}
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("backfill store: delete %s: %w", id, err)
+		}
+	}
+	return nil
+}
+
+// recordPaths returns the paths of the records of a DAG, or of every DAG
+// when dagName is empty.
+func (s *Store) recordPaths(dagName string) ([]string, error) {
+	dir, suffix := s.dir, recordSuffix
+	if dagName != "" {
+		dir, suffix = s.dagDir(dagName), ""
+	}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("backfill store: read %s: %w", dir, err)
+	}
+	var paths []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || strings.HasPrefix(name, ".") || !strings.HasSuffix(name, suffix) {
+			continue
+		}
+		paths = append(paths, s.recordPath(strings.TrimSuffix(name, suffix)))
+	}
+	return paths, nil
+}
+
+// dagDir holds a marker per backfill of a DAG.
+func (s *Store) dagDir(dagName string) string {
+	return filepath.Join(s.dir, dagsDirName, hex.EncodeToString([]byte(dagName)))
 }
 
 func (s *Store) openPath(id string) string {
