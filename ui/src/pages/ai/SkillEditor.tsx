@@ -24,6 +24,7 @@ import {
 import { Link, useNavigate } from 'react-router-dom';
 import { SkillIssueSeverity } from '@/api/v1/schema';
 import {
+  InlineLoadError,
   LoadErrorState,
   NotFoundState,
   PageLoading,
@@ -811,9 +812,14 @@ export function SkillEditor({
                 file={activeFile}
               />
             ) : readFailure ? (
-              <p role="alert" className="p-4 text-sm text-destructive">
-                {readFailure}
-              </p>
+              <div className="p-4">
+                <InlineLoadError
+                  error={{ message: readFailure }}
+                  onRetry={() =>
+                    setFileProblems((previous) => without(previous, active))
+                  }
+                />
+              </div>
             ) : loadingText ? (
               <PageLoading />
             ) : mode === 'preview' && isMarkdown ? (

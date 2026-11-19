@@ -221,6 +221,22 @@ describe('SkillEditor', () => {
     expect(mocks.readSkillFileText).toHaveBeenCalledTimes(2);
   });
 
+  it('reads a file again after a failed read', async () => {
+    load(VALID, [file('SKILL.md'), file('references/a.md')]);
+    mocks.readSkillFileText
+      .mockRejectedValueOnce(new Error('The server is busy.'))
+      .mockResolvedValueOnce('saved\n');
+    renderEditor();
+
+    fireEvent.click(screen.getByRole('button', { name: /a\.md/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The server is busy.'
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+
+    await waitFor(() => expect(editorText()).toBe('saved\n'));
+  });
+
   // A skill can come from anyone: the preview loads no image, runs no block
   // and opens a linked file of the skill in the editor.
   it('previews Markdown without loading or running anything', async () => {
