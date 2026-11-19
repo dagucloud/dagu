@@ -31,6 +31,7 @@ import (
 	"github.com/go-chi/httplog/v2"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/dagucloud/dagu/v2/internal/aiendpoint"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/backfill"
@@ -164,6 +165,7 @@ type Server struct {
 	remoteNodeResolver   *remotenode.Resolver
 	upgradeStore         upgrade.CacheStore
 	restartRequested     <-chan struct{} // Closes once an upgrade needs a restart
+	aiEndpoints          *aiendpoint.Service
 	routeRegistrars      []RouteRegistrar
 	workspaceDeprecation deprecation.Sources
 
@@ -599,6 +601,12 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 	if stores.Profile != nil {
 		apiOpts = append(apiOpts, apiv1.WithProfileStore(stores.Profile))
 	}
+	if stores.AIEndpoint != nil {
+		apiOpts = append(apiOpts, apiv1.WithAIEndpointService(stores.AIEndpoint))
+	}
+	if stores.AIMCPServer != nil {
+		apiOpts = append(apiOpts, apiv1.WithAIMCPServerService(stores.AIMCPServer))
+	}
 
 	if stores.DAGSettings != nil {
 		apiOpts = append(apiOpts, apiv1.WithDAGSettingsStore(stores.DAGSettings))
@@ -678,6 +686,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		remoteNodeResolver:   remoteNodeResolver,
 		upgradeStore:         upgradeStore,
 		restartRequested:     restartRequested,
+		aiEndpoints:          stores.AIEndpoint,
 		workspaceDeprecation: workspaceDeprecation,
 		funcsConfig: funcsConfig{
 			NavbarColor:           cfg.UI.NavbarColor,
@@ -1067,6 +1076,7 @@ func (srv *Server) Serve(ctx context.Context) error {
 	metrics.StartUptime(ctx)
 	logger.Info(ctx, "Server is starting", tag.Addr(srv.listener.Addr().String()), tag.URL(webURL))
 	srv.startPeriodicUpdateCheck(ctx)
+	srv.startAIModelsRefresh(ctx)
 	srv.startEphemeralRunCleanup(ctx)
 
 	serveErr := make(chan error, 1)
@@ -1230,6 +1240,22 @@ func (srv *Server) startPeriodicUpdateCheck(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// startAIModelsRefresh starts the refresh of the models lists of the AI endpoints
+// (Spec 093, "Refresh and reload") in the background. The server is the only
+// process that reads the lists. The loop ends with ctx and never delays the start.
+// The value 0 of ai.models_refresh_hours stops it.
+func (srv *Server) startAIModelsRefresh(ctx context.Context) {
+	hours := srv.config.AI.ModelsRefreshHours
+	if hours <= 0 || srv.aiEndpoints == nil || !srv.aiEndpoints.ModelsEnabled() {
+		return
+	}
+	refresher := &aiendpoint.Refresher{
+		Service: srv.aiEndpoints,
+		Period:  time.Duration(hours) * time.Hour,
+	}
+	go refresher.Run(ctx)
 }
 
 func (srv *Server) runAutomaticUpdateCheck(ctx context.Context) {

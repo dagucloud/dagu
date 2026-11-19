@@ -140,7 +140,8 @@ describe('step stalk', () => {
       'border-[1.5px]',
       'border-muted-foreground',
       'bg-card',
-      'hover:bg-primary'
+      'hover:border-primary',
+      'hover:text-primary'
     );
   });
 
