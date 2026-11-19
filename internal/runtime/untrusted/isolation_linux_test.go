@@ -628,6 +628,31 @@ func TestRestoreFollowsLinksPastMissingEntries(t *testing.T) {
 	assert.ErrorIs(t, err, fs.ErrNotExist, "the restore removes the link")
 }
 
+// A run can name its work directory through a link, such as alias -> real. A
+// link whose target reaches a git folder through that alias still points into
+// the git folder: the restore follows the alias to the real path, which is the
+// path of the git folders, and removes the link. It needs no root.
+func TestRestoreFollowsTheAliasOfTheWorkDirectory(t *testing.T) {
+	t.Parallel()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	real := filepath.Join(base, "real")
+	require.NoError(t, os.MkdirAll(filepath.Join(real, "repo", ".git"), 0o750))
+	alias := filepath.Join(base, "alias")
+	require.NoError(t, os.Symlink(real, alias))
+	iso := selfIsolation(t, alias)
+	require.NoError(t, iso.handoff())
+
+	link := filepath.Join(real, "config")
+	require.NoError(t, os.Symlink(filepath.Join(alias, "repo", ".git", "config"), link))
+
+	err = iso.restore(true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "made the link "+link)
+	_, err = os.Lstat(link)
+	assert.ErrorIs(t, err, fs.ErrNotExist, "the restore removes the link")
+}
+
 // git follows a link at objects and refs, so a folder with HEAD, refs and a
 // link objects is a git folder. The work directory itself can become one. The
 // restore finds both and removes HEAD. It needs no root.
