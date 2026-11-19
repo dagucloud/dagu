@@ -4651,8 +4651,8 @@ func TestBuildDAGLevelLLMInheritance(t *testing.T) {
 llm:
   provider: openai
   model: gpt-4o
-  tools:
-    - helper-dag
+  dags:
+    - name: helper-dag
   web_search:
     enabled: true
     max_uses: 3
@@ -4667,7 +4667,8 @@ steps:
 		require.NoError(t, err)
 
 		require.NotNil(t, dag.LLM)
-		assert.Equal(t, []string{"helper-dag"}, dag.LLM.Tools)
+		require.Len(t, dag.LLM.ToolEntries, 1)
+		assert.Equal(t, "helper-dag", dag.LLM.ToolEntries[0].DAG)
 		require.NotNil(t, dag.LLM.WebSearch)
 		assert.True(t, dag.LLM.WebSearch.Enabled)
 		require.NotNil(t, dag.LLM.WebSearch.MaxUses)
@@ -4675,7 +4676,8 @@ steps:
 
 		require.Len(t, dag.Steps, 1)
 		require.NotNil(t, dag.Steps[0].LLM)
-		assert.Equal(t, []string{"helper-dag"}, dag.Steps[0].LLM.Tools)
+		require.Len(t, dag.Steps[0].LLM.ToolEntries, 1)
+		assert.Equal(t, "helper-dag", dag.Steps[0].LLM.ToolEntries[0].DAG)
 		require.NotNil(t, dag.Steps[0].LLM.WebSearch)
 		assert.True(t, dag.Steps[0].LLM.WebSearch.Enabled)
 		require.NotNil(t, dag.Steps[0].LLM.WebSearch.MaxUses)

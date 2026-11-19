@@ -1,0 +1,9 @@
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      api_key_name: KEY
+      prompt: Say hello.

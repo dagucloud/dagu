@@ -3,6 +3,7 @@
 
 import type { JSONSchema } from '@/lib/schema-utils';
 import type { JSONSchema as MonacoJSONSchema } from 'monaco-yaml';
+import { forMonacoYaml } from './monacoSchema';
 
 export type SchemaRegistration = {
   fileMatch: string;
@@ -82,7 +83,7 @@ export function buildSchemaRegistration(
     uri: schema ? documentSchemaUri : defaultSchemaUrl,
     schema: schema
       ? ({
-          ...schema,
+          ...forMonacoYaml(schema),
           $id: documentSchemaUri,
         } as MonacoJSONSchema)
       : undefined,

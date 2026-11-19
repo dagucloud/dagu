@@ -23,8 +23,8 @@ export const MAX_ZOOM = 2;
 
 /**
  * The zoom levels, as fractions: 5, 10, 25, 50, 75, 100, 125, 150, 200, 300
- * and 400 %. A zoom command moves one step on this ladder. A fit takes the
- * zoom that shows the content, and the next command goes to a step.
+ * and 400 %. A zoom command moves one step on this ladder, and a fit lands
+ * on a step, so that the zoom is always a round percentage.
  */
 export const ZOOM_LADDER: readonly number[] = [
   0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4,
@@ -50,6 +50,21 @@ export function zoomSteps({
     (step) => step >= min - ZOOM_EPSILON && step <= max + ZOOM_EPSILON
   );
   return steps.length > 0 ? steps : [clamp(1, min, max)];
+}
+
+/**
+ * The largest step that is not above `zoom`. A zoom under the smallest step
+ * gives the smallest step.
+ */
+export function floorZoom(zoom: number, limits?: ZoomLimits): number {
+  const steps = zoomSteps(limits);
+  let floor = steps[0]!;
+  for (const step of steps) {
+    if (step <= zoom + ZOOM_EPSILON) {
+      floor = step;
+    }
+  }
+  return floor;
 }
 
 /** The step nearest to `zoom`; between two steps, the larger one. */
@@ -206,10 +221,8 @@ const TOP_MARGIN = 24;
 const READABLE_FLOOR_RATIO = 0.7;
 
 /**
- * The viewport that shows all of `bounds` in a `size` area, at the largest
- * zoom that fits the content. The zoom buttons step through `ZOOM_LADDER`
- * from there; a fit does not round down to a step, which could halve the
- * size of the content.
+ * The viewport that shows all of `bounds` in a `size` area. The zoom is a
+ * step of `ZOOM_LADDER`: the largest one that fits the content.
  */
 export function fitViewport(
   bounds: Rect,
@@ -245,6 +258,7 @@ export function fitViewport(
   };
   const zoomX = axisZoom(bounds.width, area.width);
   const zoomY = axisZoom(bounds.height, area.height);
+  const limits = { min: minZoom, max: maxZoom };
   const zoom = clamp(Math.min(zoomX, zoomY), minZoom, maxZoom);
   const floor =
     readableZoom === undefined
@@ -259,14 +273,17 @@ export function fitViewport(
       readableFrom === 'left' ? zoomY : zoomX,
       readableMax
     );
-    const readable = clamp(
-      overview
-        ? readableZoom
-        : cross >= readableZoom
-          ? cross
-          : Math.max(cross, floor),
-      minZoom,
-      maxZoom
+    const readable = floorZoom(
+      clamp(
+        overview
+          ? readableZoom
+          : cross >= readableZoom
+            ? cross
+            : Math.max(cross, floor),
+        minZoom,
+        maxZoom
+      ),
+      limits
     );
     if (readableFrom === 'left') {
       const wide = bounds.height * readable > area.height;
@@ -281,19 +298,40 @@ export function fitViewport(
     // A content wider than the area starts at its left edge, so that no
     // branch is cut on the start side.
     const wide = bounds.width * readable > area.width;
+    // A content that fits in height is centred, as in a fit of all of it.
+    const tall = bounds.height * readable > area.height;
     return {
       zoom: readable,
       x: wide
         ? left + TOP_MARGIN - bounds.x * readable
         : centreX - (bounds.x + bounds.width / 2) * readable,
-      y: (inset?.top ?? TOP_MARGIN) - bounds.y * readable,
+      y: tall
+        ? (inset?.top ?? TOP_MARGIN) - bounds.y * readable
+        : centreY - (bounds.y + bounds.height / 2) * readable,
     };
   }
+  // The largest step that shows all the content, never under the first step.
+  const step = floorZoom(zoom, limits);
   return {
-    zoom,
-    x: centreX - (bounds.x + bounds.width / 2) * zoom,
-    y: centreY - (bounds.y + bounds.height / 2) * zoom,
+    zoom: step,
+    x: centreX - (bounds.x + bounds.width / 2) * step,
+    y: centreY - (bounds.y + bounds.height / 2) * step,
   };
+}
+
+/**
+ * The fit of `bounds` in a `size` area, when it has the zoom of `current`;
+ * null when the fit would change the zoom. A view that panned for a panel
+ * uses it to go back to its place when the panel leaves.
+ */
+export function fitAtZoom(
+  bounds: Rect,
+  size: { width: number; height: number },
+  options: FitOptions,
+  current: Viewport
+): Viewport | null {
+  const fit = fitViewport(bounds, size, options);
+  return Math.abs(fit.zoom - current.zoom) < ZOOM_EPSILON ? fit : null;
 }
 
 /**

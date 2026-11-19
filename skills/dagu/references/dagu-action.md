@@ -1,5 +1,15 @@
 # Remote Action Packages
 
+**Contents**
+
+- [Package Layout](#package-layout)
+- [Manifest Example](#manifest-example)
+- [Action DAG](#action-dag)
+- [Tools](#tools)
+- [Returning Outputs](#returning-outputs)
+- [Caller Example](#caller-example)
+- [References And Workers](#references-and-workers)
+
 Use this reference when creating a reusable package-style action with `dagu-action.yaml`.
 
 Remote actions are different from DAG-local `actions:` templates:

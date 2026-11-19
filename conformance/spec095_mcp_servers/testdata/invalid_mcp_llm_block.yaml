@@ -1,0 +1,10 @@
+llm:
+  provider: local
+  model: claude-test
+  base_url: http://localhost:1
+  tools:
+    mcp:
+      - name: docs
+        allow: [search]
+steps:
+  - run: echo hi

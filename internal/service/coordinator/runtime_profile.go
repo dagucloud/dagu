@@ -174,6 +174,9 @@ func (h *Handler) authorizeRuntimeProfile(ctx context.Context, req *coordinatorv
 	if lease.WorkerID != req.GetWorkerId() || lease.AttemptID != req.GetAttemptId() {
 		return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
 	}
+	if err := h.checkLeasePool(ctx, lease.WorkerPool); err != nil {
+		return err
+	}
 	if !lease.IsFresh(time.Now().UTC(), h.staleLeaseThreshold) {
 		return status.Error(codes.PermissionDenied, runtimeProfileAccessDenied)
 	}

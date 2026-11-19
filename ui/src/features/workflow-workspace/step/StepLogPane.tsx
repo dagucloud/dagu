@@ -138,6 +138,7 @@ export function StepLogPane({ target, holder, node }: StepLogPaneProps) {
             bodyStepName={foreach.bodyStep}
             foreach={{ stepName: target.step, item: foreach.item }}
             stream={stream}
+            pageView={false}
           />
         ) : (
           <StepLog
@@ -147,6 +148,7 @@ export function StepLogPane({ target, holder, node }: StepLogPaneProps) {
             dagRun={holder}
             stream={stream}
             node={node}
+            pageView={false}
             toolbarExtra={
               <LogPageLink
                 to={stepLogPageURL({

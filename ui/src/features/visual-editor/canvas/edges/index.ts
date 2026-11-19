@@ -6,6 +6,7 @@ import type { EdgeProps } from '../engine';
 import type { CanvasFlowEdge } from '../types';
 import { DependencyEdge } from './DependencyEdge';
 import { LockedEdge } from './LockedEdge';
+import { ToolSatelliteEdge } from './ToolSatelliteEdge';
 
 /** Edge components of the canvas, keyed by `CanvasEdgeType`. */
 export const edgeTypes = {
@@ -14,4 +15,5 @@ export const edgeTypes = {
   inferred: LockedEdge,
   order: LockedEdge,
   agent: LockedEdge,
+  toolsat: ToolSatelliteEdge,
 } satisfies Record<string, ComponentType<EdgeProps<CanvasFlowEdge>>>;

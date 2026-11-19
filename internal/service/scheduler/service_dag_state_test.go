@@ -38,6 +38,17 @@ func TestDescribeServiceDAG(t *testing.T) {
 		{name: "RunningWhileSuspended", latest: run(ir.Running), suspended: true, want: ServiceDAGStateRunning},
 		{name: "WaitingApproval", latest: run(ir.Waiting), want: ServiceDAGStateWaiting},
 		{name: "Queued", latest: run(ir.Queued), want: ServiceDAGStatePending},
+		{
+			name:   "QueuedRestart",
+			latest: &ir.DAGRunStatus{DAGRunID: "run-1", Status: ir.Queued, TriggerType: ir.TriggerTypeRestart},
+			want:   ServiceDAGStateRestarting,
+		},
+		{
+			name:      "QueuedRestartSuspended",
+			latest:    &ir.DAGRunStatus{DAGRunID: "run-1", Status: ir.Queued, TriggerType: ir.TriggerTypeRestart},
+			suspended: true,
+			want:      ServiceDAGStateSuspended,
+		},
 		{name: "Succeeded", latest: run(ir.Succeeded), want: ServiceDAGStateRestarting},
 		{name: "PartiallySucceeded", latest: run(ir.PartiallySucceeded), want: ServiceDAGStateRestarting},
 		{name: "Failed", latest: run(ir.Failed), want: ServiceDAGStateFailing},
