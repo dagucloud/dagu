@@ -467,46 +467,57 @@ func TestRotateKeyReportsAFailedRestore(t *testing.T) {
 	assert.NotContains(t, err.Error(), keyTwo)
 }
 
-// interruptedUpdates is an endpoint store whose Update fails after meanwhile ran.
-type interruptedUpdates struct {
+// overlappedUpdates is an endpoint store that runs meanwhile before its Update,
+// as another server that rotates the key between the key write and the record
+// update. A non-nil err fails the Update.
+type overlappedUpdates struct {
 	aiendpoint.Store
 	meanwhile func()
+	err       error
 }
 
-func (s interruptedUpdates) Update(context.Context, aiendpoint.Scope, string, func(*aiendpoint.Endpoint) error) (*aiendpoint.Endpoint, error) {
+func (s overlappedUpdates) Update(ctx context.Context, scope aiendpoint.Scope, name string, change func(*aiendpoint.Endpoint) error) (*aiendpoint.Endpoint, error) {
 	s.meanwhile()
-	return nil, errors.New("disk full")
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.Store.Update(ctx, scope, name, change)
 }
 
-// Two servers rotate the key at once. The second publishes its key between the
-// key write and the failed record update of the first. The first leaves that
-// key in place, so the key still matches the fingerprint of the endpoint.
-func TestRotateKeyThatFailsKeepsAKeyRotatedMeanwhile(t *testing.T) {
+// Two servers rotate the key at once, and the second publishes its key between
+// the key write and the record update of the first. The first fails, whether
+// its record update fails or not, and leaves the key of the second in place
+// with its fingerprint.
+func TestRotateKeyKeepsAKeyRotatedMeanwhile(t *testing.T) {
 	const keyThree = "sk-ant-api03-third-0123456789abcdef"
-	ctx := context.Background()
-	stores := newSharedStores(t)
-	svc, err := aiendpoint.NewService(stores.endpoints, stores.secrets)
-	require.NoError(t, err)
-	created, err := svc.Create(ctx, globalInput("cle1", keyOne, []string{"*"}, []string{"*"}))
-	require.NoError(t, err)
+	for name, updateErr := range map[string]error{"failed update": errors.New("disk full"), "good update": nil} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			stores := newSharedStores(t)
+			svc, err := aiendpoint.NewService(stores.endpoints, stores.secrets)
+			require.NoError(t, err)
+			created, err := svc.Create(ctx, globalInput("cle1", keyOne, []string{"*"}, []string{"*"}))
+			require.NoError(t, err)
 
-	other, err := aiendpoint.NewService(stores.endpoints, stores.secrets)
-	require.NoError(t, err)
-	failing, err := aiendpoint.NewService(interruptedUpdates{Store: stores.endpoints, meanwhile: func() {
-		_, err := other.RotateKey(ctx, created.Scope, "cle1", keyThree, "admin2")
-		require.NoError(t, err)
-	}}, stores.secrets)
-	require.NoError(t, err)
-	_, err = failing.RotateKey(ctx, created.Scope, "cle1", keyTwo, "admin")
-	require.Error(t, err)
+			other, err := aiendpoint.NewService(stores.endpoints, stores.secrets)
+			require.NoError(t, err)
+			overlapped, err := aiendpoint.NewService(overlappedUpdates{Store: stores.endpoints, err: updateErr, meanwhile: func() {
+				_, err := other.RotateKey(ctx, created.Scope, "cle1", keyThree, "admin2")
+				require.NoError(t, err)
+			}}, stores.secrets)
+			require.NoError(t, err)
+			_, err = overlapped.RotateKey(ctx, created.Scope, "cle1", keyTwo, "admin")
+			require.Error(t, err)
 
-	ep, err := stores.endpoints.Get(ctx, created.Scope, "cle1")
-	require.NoError(t, err)
-	_, fingerprint := aiendpoint.KeyDisplay(keyThree)
-	assert.Equal(t, fingerprint, ep.KeyFingerprint)
-	key, err := svc.ReadKey(ctx, *ep)
-	require.NoError(t, err)
-	assert.Equal(t, keyThree, key)
+			ep, err := stores.endpoints.Get(ctx, created.Scope, "cle1")
+			require.NoError(t, err)
+			_, fingerprint := aiendpoint.KeyDisplay(keyThree)
+			assert.Equal(t, fingerprint, ep.KeyFingerprint)
+			key, err := svc.ReadKey(ctx, *ep)
+			require.NoError(t, err)
+			assert.Equal(t, keyThree, key)
+		})
+	}
 }
 
 // deletingUpdates is an endpoint store whose Update finds that another server

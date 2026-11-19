@@ -203,7 +203,8 @@ func (s *Service) Update(ctx context.Context, scope Scope, name string, in Updat
 
 // RotateKey sets the key of an endpoint. The old value stays in the secret store
 // as an encrypted old version. A rotation that fails leaves the old key in use,
-// so the key always matches the fingerprint of the endpoint.
+// and a rotation that another one overtakes fails, so the key matches the
+// fingerprint of the endpoint.
 func (s *Service) RotateKey(ctx context.Context, scope Scope, name, key, actor string) (*Endpoint, error) {
 	if err := ValidateKey(key); err != nil {
 		return nil, err
@@ -226,6 +227,16 @@ func (s *Service) RotateKey(ctx context.Context, scope Scope, name, key, actor s
 	}
 	prefix, fingerprint := KeyDisplay(key)
 	saved, err := s.store.Update(ctx, scope, name, func(ep *Endpoint) error {
+		// Another rotation, on this server or another, may have written its key
+		// since. The fingerprint of this key would then name a key that the
+		// secret no longer holds.
+		current, _, err := s.secrets.ReadValue(ctx, secretID)
+		if err != nil {
+			return err
+		}
+		if current != key {
+			return fmt.Errorf("another rotation changed the key of AI endpoint %q meanwhile", name)
+		}
 		ep.SecretID = secretID
 		ep.KeyPrefix, ep.KeyFingerprint = prefix, fingerprint
 		ep.KeyUpdatedAt = now
