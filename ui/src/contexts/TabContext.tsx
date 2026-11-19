@@ -61,7 +61,9 @@ function readStoredTabState(storageKey: string): StoredTabState | null {
         return {
           tabs: parsed.tabs,
           activeTabId:
-            typeof parsed.activeTabId === 'string' ? parsed.activeTabId : null,
+            typeof parsed.activeTabId === 'string'
+              ? parsed.activeTabId
+              : null,
         };
       }
     }
