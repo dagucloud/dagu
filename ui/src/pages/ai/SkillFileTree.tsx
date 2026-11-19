@@ -92,7 +92,10 @@ export function SkillFileTree({
               aria-hidden
             />
             <Folder className="size-3.5 shrink-0" aria-hidden />
-            <span className="min-w-0 flex-1 truncate font-mono">
+            <span
+              title={`${node.path}/`}
+              className="min-w-0 flex-1 truncate font-mono"
+            >
               {node.name}/
             </span>
             <span className="shrink-0 tabular-nums">{node.count}</span>
@@ -120,7 +123,9 @@ export function SkillFileTree({
           )}
         >
           <FileIcon file={node.file} />
-          <span className="min-w-0 flex-1 truncate font-mono">{node.name}</span>
+          <span title={node.path} className="min-w-0 flex-1 truncate font-mono">
+            {node.name}
+          </span>
           {dirtyPaths.has(node.path) && (
             <span
               role="img"

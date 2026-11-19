@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SkillFile } from '@/features/skills/skillIssues';
@@ -297,6 +303,22 @@ describe('SkillEditor', () => {
     await waitFor(() => expect(editorText()).toBe('saved\n'));
     expect(screen.getByLabelText('Markdown editor')).not.toHaveAttribute(
       'readonly'
+    );
+  });
+
+  // The tree and the label of the open file truncate a long name.
+  it('shows the full path of a file on hover', async () => {
+    const path = 'references/deep/a-long-name-that-the-tree-truncates.md';
+    load(VALID, [file('SKILL.md'), file(path)]);
+    mocks.readSkillFileText.mockResolvedValue('saved\n');
+    renderEditor();
+
+    const tree = within(screen.getByTestId('skill-files'));
+    expect(tree.getByTitle('references/deep/')).toBeInTheDocument();
+    fireEvent.click(tree.getByTitle(path));
+    expect(screen.getByTestId('skill-active-file')).toHaveAttribute(
+      'title',
+      path
     );
   });
 

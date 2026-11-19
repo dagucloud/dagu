@@ -758,6 +758,7 @@ export function SkillEditor({
           <div className="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1">
             <span
               data-testid="skill-active-file"
+              title={active}
               className="min-w-0 truncate font-mono text-xs font-medium"
             >
               {active}
