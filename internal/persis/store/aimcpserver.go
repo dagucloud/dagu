@@ -40,10 +40,7 @@ func aiMCPServerRecordID(scope aiendpoint.Scope, name string) (string, error) {
 	if err := aiendpoint.ValidateMCPName(name); err != nil {
 		return "", err
 	}
-	if scope.IsGlobal() {
-		return "global/" + name, nil
-	}
-	return "workspaces/" + scope.Workspace + "/" + name, nil
+	return aiScopedRecordID(scope, name)
 }
 
 func (s *AIMCPServerStore) Create(ctx context.Context, server *aiendpoint.MCPServer) error {

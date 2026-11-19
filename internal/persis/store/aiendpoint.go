@@ -40,6 +40,16 @@ func aiEndpointRecordID(scope aiendpoint.Scope, name string) (string, error) {
 	if err := aiendpoint.ValidateName(name); err != nil {
 		return "", err
 	}
+	return aiScopedRecordID(scope, name)
+}
+
+// aiScopedRecordID builds the record ID of a named entry of the AI page. The
+// workspace name is checked so that a name such as "../global" cannot reach
+// the record of another scope.
+func aiScopedRecordID(scope aiendpoint.Scope, name string) (string, error) {
+	if err := scope.Validate(); err != nil {
+		return "", err
+	}
 	if scope.IsGlobal() {
 		return "global/" + name, nil
 	}

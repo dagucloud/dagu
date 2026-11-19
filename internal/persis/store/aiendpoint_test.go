@@ -166,4 +166,14 @@ func TestAIEndpointStoreRejectsInvalidNames(t *testing.T) {
 	require.ErrorIs(t, s.Create(ctx, aiEndpoint(aiendpoint.GlobalScope(), "../x")), aiendpoint.ErrInvalid)
 	_, err := s.Get(ctx, aiendpoint.GlobalScope(), "a/b")
 	require.ErrorIs(t, err, aiendpoint.ErrInvalid)
+
+	// A workspace name with a slash cannot reach the record of another scope.
+	require.NoError(t, s.Create(ctx, aiEndpoint(aiendpoint.GlobalScope(), "cle1")))
+	escape := aiendpoint.WorkspaceScope("../global")
+	require.ErrorIs(t, s.Create(ctx, aiEndpoint(escape, "cle1")), aiendpoint.ErrInvalid)
+	_, err = s.Get(ctx, escape, "cle1")
+	require.ErrorIs(t, err, aiendpoint.ErrInvalid)
+	require.ErrorIs(t, s.Delete(ctx, escape, "cle1"), aiendpoint.ErrInvalid)
+	_, err = s.Get(ctx, aiendpoint.GlobalScope(), "cle1")
+	require.NoError(t, err)
 }

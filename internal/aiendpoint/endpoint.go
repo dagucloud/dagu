@@ -94,6 +94,18 @@ func (s Scope) SecretWorkspace() string {
 	return secret.NormalizeWorkspace(s.Workspace)
 }
 
+// Validate checks the workspace name of a workspace scope. The global scope is
+// always valid.
+func (s Scope) Validate() error {
+	if s.IsGlobal() {
+		return nil
+	}
+	if err := workspace.ValidateName(s.Workspace); err != nil {
+		return fmt.Errorf("%w: scope %q: %v", ErrInvalid, s.String(), err)
+	}
+	return nil
+}
+
 // ParseScope reads the form "global" or "workspace:<name>".
 func ParseScope(raw string) (Scope, error) {
 	if raw == "global" {

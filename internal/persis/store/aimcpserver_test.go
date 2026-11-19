@@ -105,4 +105,9 @@ func TestAIMCPServerStoreRejectsInvalidNames(t *testing.T) {
 	require.ErrorIs(t, s.Create(ctx, aiMCPServer(aiendpoint.GlobalScope(), "../x")), aiendpoint.ErrInvalid)
 	_, err := s.Get(ctx, aiendpoint.GlobalScope(), "a/b")
 	require.ErrorIs(t, err, aiendpoint.ErrInvalid)
+
+	// A workspace name with a slash cannot reach the record of another scope.
+	escape := aiendpoint.WorkspaceScope("../global")
+	require.ErrorIs(t, s.Create(ctx, aiMCPServer(escape, "docs")), aiendpoint.ErrInvalid)
+	require.ErrorIs(t, s.Delete(ctx, escape, "docs"), aiendpoint.ErrInvalid)
 }
