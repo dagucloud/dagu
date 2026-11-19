@@ -432,6 +432,7 @@ func (s *MCPService) writeCredentials(ctx context.Context, server *MCPServer, to
 			workspace:   server.Scope.SecretWorkspace(),
 			ref:         MCPSecretRef(server.Name, header),
 			description: fmt.Sprintf("Credential %s of the MCP server %s", header, server.Name),
+			reuseOrphan: true,
 		}, old[header], value, actor, now)
 		if err != nil {
 			return Credential{}, err

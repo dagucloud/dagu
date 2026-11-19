@@ -137,7 +137,7 @@ func (s *Service) completeCreate(ctx context.Context, ep *Endpoint, key, actor s
 	if key == "" {
 		return ep.Clone(), nil
 	}
-	secretID, err := s.writeKey(ctx, ep, "", key, actor, now)
+	secretID, err := s.writeKey(ctx, ep, "", key, actor, now, true)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +204,8 @@ func (s *Service) Update(ctx context.Context, scope Scope, name string, in Updat
 // RotateKey sets the key of an endpoint. The old value stays in the secret store
 // as an encrypted old version. A rotation that fails leaves the old key in use,
 // and a rotation that another one overtakes fails, so the key matches the
-// fingerprint of the endpoint.
+// fingerprint of the endpoint. A rotation of an endpoint that another server
+// deletes and makes again meanwhile fails and leaves the new endpoint as it is.
 func (s *Service) RotateKey(ctx context.Context, scope Scope, name, key, actor string) (*Endpoint, error) {
 	if err := ValidateKey(key); err != nil {
 		return nil, err
@@ -221,12 +222,18 @@ func (s *Service) RotateKey(ctx context.Context, scope Scope, name, key, actor s
 		return nil, err
 	}
 	now := time.Now().UTC()
-	secretID, err := s.writeKey(ctx, ep, ep.SecretID, key, actor, now)
+	secretID, err := s.writeKey(ctx, ep, ep.SecretID, key, actor, now, false)
 	if err != nil {
 		return nil, err
 	}
 	prefix, fingerprint := KeyDisplay(key)
+	createdAt := ep.CreatedAt
 	saved, err := s.store.Update(ctx, scope, name, func(ep *Endpoint) error {
+		// Another server may have deleted the endpoint and made the name again.
+		// The key of this rotation is not for that endpoint.
+		if !ep.CreatedAt.Equal(createdAt) {
+			return ErrNotFound
+		}
 		// Another rotation, on this server or another, may have written its key
 		// since. The fingerprint of this key would then name a key that the
 		// secret no longer holds.
@@ -408,13 +415,14 @@ func (s *Service) Choices(ctx context.Context, dagName, workspace string) ([]End
 }
 
 // writeKey stores a new version of the key and returns the ID of the secret. An
-// empty secretID means that the endpoint has no secret yet. A secret of the same
-// ref, with no endpoint, is the rest of a failed delete: the call reuses it.
-func (s *Service) writeKey(ctx context.Context, ep *Endpoint, secretID, key, actor string, now time.Time) (string, error) {
+// empty secretID means that the endpoint has no secret yet. A create sets
+// create: it reuses a secret of the same ref, the rest of a failed delete.
+func (s *Service) writeKey(ctx context.Context, ep *Endpoint, secretID, key, actor string, now time.Time, create bool) (string, error) {
 	return writeManagedSecret(ctx, s.secrets, managedSecret{
 		workspace:   ep.Scope.SecretWorkspace(),
 		ref:         SecretRef(ep.Name),
 		description: fmt.Sprintf("Key of the AI endpoint %s", ep.Name),
+		reuseOrphan: create,
 	}, secretID, key, actor, now)
 }
 
@@ -423,13 +431,18 @@ type managedSecret struct {
 	workspace   string
 	ref         string
 	description string
+	// reuseOrphan lets the write take a secret of the ref that the record does
+	// not know, the rest of a failed delete. A key rotation leaves it unset.
+	reuseOrphan bool
 }
 
 // writeManagedSecret stores a new version of a value and returns the ID of the
 // secret. An empty secretID means that no secret exists yet. A secret of the same
-// ref that the record does not know is the rest of a failed delete: the call
-// reuses it. A secret of the record that no longer exists, because an
-// administrator deleted it through the secret routes, is made again.
+// ref that the record does not know is reused when target.reuseOrphan is set.
+// Otherwise the call fails, since that secret can belong to an entry that
+// another server made again under the name. A secret of the record that no
+// longer exists, because an administrator deleted it through the secret routes,
+// is made again.
 func writeManagedSecret(ctx context.Context, secrets secret.Store, target managedSecret, secretID, value, actor string, now time.Time) (string, error) {
 	input := secret.WriteValueInput{Value: value, CreatedBy: actor, CreatedAt: now}
 	if secretID != "" {
@@ -458,6 +471,9 @@ func writeManagedSecret(ctx context.Context, secrets secret.Store, target manage
 		}
 		if !errors.Is(err, secret.ErrAlreadyExists) {
 			return "", err
+		}
+		if !target.reuseOrphan {
+			return "", fmt.Errorf("another secret holds the ref %q", target.ref)
 		}
 		old, getErr := secrets.GetByRef(ctx, target.workspace, target.ref)
 		if getErr != nil {

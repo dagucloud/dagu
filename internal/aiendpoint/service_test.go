@@ -458,6 +458,43 @@ func TestDeleteLeavesAReplacement(t *testing.T) {
 	requireKey(t, other, keyTwo)
 }
 
+// Another server deletes the endpoint and makes the name again between the
+// read and the key write of a rotation. The rotation fails and leaves the new
+// endpoint with its own key, or with none.
+func TestRotateKeyLeavesAReplacement(t *testing.T) {
+	const keyThree = "sk-ant-api03-third-0123456789abcdef"
+	local := func(key string) aiendpoint.CreateInput {
+		in := globalInput("cle1", key, []string{"*"}, []string{"*"})
+		in.Preset, in.Protocol = "ollama", aiendpoint.ProtocolOpenAI
+		return in
+	}
+	for name, tc := range map[string]struct {
+		old, replacement aiendpoint.CreateInput
+		want             string
+	}{
+		"old key, new key":    {globalInput("cle1", keyOne, []string{"*"}, []string{"*"}), globalInput("cle1", keyTwo, []string{"*"}, []string{"*"}), keyTwo},
+		"no old key, new key": {local(""), local(keyTwo), keyTwo},
+		"old key, no new key": {local(keyOne), local(""), ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			stores := newSharedStores(t)
+			other, err := aiendpoint.NewService(stores.endpoints, stores.secrets)
+			require.NoError(t, err)
+			created, err := other.Create(ctx, tc.old)
+			require.NoError(t, err)
+
+			svc, err := aiendpoint.NewService(&replacingGets{Store: stores.endpoints, replace: func() {
+				replaceEndpoint(t, other, created, tc.replacement)
+			}}, stores.secrets)
+			require.NoError(t, err)
+			_, err = svc.RotateKey(ctx, created.Scope, "cle1", keyThree, "admin")
+			require.Error(t, err)
+			requireKey(t, other, tc.want)
+		})
+	}
+}
+
 // An administrator can delete the secret of a key through the secret routes. A
 // later rotation makes the secret again, so the endpoint can be repaired.
 func TestRotateKeyMakesADeletedSecretAgain(t *testing.T) {
