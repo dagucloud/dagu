@@ -190,7 +190,9 @@ func (c *grpcRelayClient) Relay(ctx context.Context, step aigateway.StepRef, tar
 			open.Headers = append(open.Headers, &coordinatorv1.RelayHeader{Name: name, Value: value})
 		}
 	}
-	if err := send(&coordinatorv1.RelayClientMessage{Kind: &coordinatorv1.RelayClientMessage_Open{Open: open}}); err != nil {
+	// A coordinator with no relay ends the stream at once. The send then returns
+	// io.EOF, and the receive below reads the status that tells why.
+	if err := send(&coordinatorv1.RelayClientMessage{Kind: &coordinatorv1.RelayClientMessage_Open{Open: open}}); err != nil && !errors.Is(err, io.EOF) {
 		return aigateway.Fail(aigateway.ReasonRelayUnavailable, "the relay cannot send to the coordinator: %s", err.Error())
 	}
 
@@ -278,7 +280,9 @@ func (c *grpcRelayClient) Relay(ctx context.Context, step aigateway.StepRef, tar
 }
 
 // uploadBody sends the request body in chunks of at most 65536 bytes, then the
-// end of the body. A body of more than max bytes gives request_too_large.
+// end of the body. A body of more than max bytes gives request_too_large. It
+// stops with no error when the coordinator has ended the stream: the receive
+// loop reads the answer of the coordinator.
 func uploadBody(body io.Reader, max int64, send func(*coordinatorv1.RelayClientMessage) error) error {
 	buf := make([]byte, aigateway.ChunkBytes)
 	var total int64
@@ -297,16 +301,25 @@ func uploadBody(body io.Reader, max int64, send func(*coordinatorv1.RelayClientM
 			}
 			data := append([]byte(nil), buf[:n]...)
 			if err := send(&coordinatorv1.RelayClientMessage{Kind: &coordinatorv1.RelayClientMessage_Body{Body: &coordinatorv1.RelayBody{Data: data}}}); err != nil {
-				return err
+				return ignoreStreamEnd(err)
 			}
 		}
 		if readErr == io.EOF {
-			return send(&coordinatorv1.RelayClientMessage{Kind: &coordinatorv1.RelayClientMessage_Body{Body: &coordinatorv1.RelayBody{End: true}}})
+			return ignoreStreamEnd(send(&coordinatorv1.RelayClientMessage{Kind: &coordinatorv1.RelayClientMessage_Body{Body: &coordinatorv1.RelayBody{End: true}}}))
 		}
 		if readErr != nil {
 			return readErr
 		}
 	}
+}
+
+// ignoreStreamEnd drops io.EOF, which a send returns once the coordinator has
+// ended the stream.
+func ignoreStreamEnd(err error) error {
+	if errors.Is(err, io.EOF) {
+		return nil
+	}
+	return err
 }
 
 func uploadFailure(err error) *aigateway.Failure {

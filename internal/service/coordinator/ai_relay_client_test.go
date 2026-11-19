@@ -7,8 +7,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/aiendpoint"
@@ -18,6 +20,7 @@ import (
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -357,6 +360,43 @@ func TestAIRelayClientResponseMessageTooLarge(t *testing.T) {
 	requireRelayFailure(t, err, aigateway.ReasonResponseTooLarge, "too large")
 }
 
+// A send returns io.EOF when the coordinator has already ended the stream (see
+// grpc.ClientStream.SendMsg). The call then reads the answer of the coordinator
+// instead of reporting the failed send, before the open message and during the
+// upload of the body.
+func TestAIRelayClientReadsTheAnswerOfAnEndedStream(t *testing.T) {
+	t.Parallel()
+
+	t.Run("before the open", func(t *testing.T) {
+		t.Parallel()
+
+		stream := &endedStream{answers: make(chan *coordinatorv1.RelayServerMessage), status: status.Error(codes.Unimplemented, "unknown method")}
+		close(stream.answers)
+		client := coordinator.NewAIRelayClientOver(streamOpener{stream: stream}, serviceregistry.HostInfo{}, testRelayRun)
+		err := client.Relay(t.Context(), testRelayStep, aigateway.EndpointTarget("team"), jsonRequest(2), bytes.NewReader([]byte("{}")), &responseRecorder{})
+		requireRelayFailure(t, err, aigateway.ReasonRelayUnavailable, "update the coordinator")
+	})
+
+	t.Run("during the upload", func(t *testing.T) {
+		t.Parallel()
+
+		synctest.Test(t, func(t *testing.T) {
+			stream := &endedStream{sends: 1, answers: make(chan *coordinatorv1.RelayServerMessage, 2)}
+			stream.answers <- acceptedMessage(1024)
+			client := coordinator.NewAIRelayClientOver(streamOpener{stream: stream}, serviceregistry.HostInfo{}, testRelayRun)
+			result := make(chan error, 1)
+			go func() {
+				result <- client.Relay(t.Context(), testRelayStep, aigateway.EndpointTarget("team"), jsonRequest(2), bytes.NewReader([]byte("{}")), &responseRecorder{})
+			}()
+			// The upload has met the end of the stream. The answer of the
+			// coordinator comes after it.
+			synctest.Wait()
+			stream.answers <- errorMessage(aigateway.ReasonEndpointUnavailable, "the provider is down")
+			requireRelayFailure(t, <-result, aigateway.ReasonEndpointUnavailable, "the provider is down")
+		})
+	})
+}
+
 // relayCoordinator answers the calls of the relay with the functions of a test.
 // A nil function leaves the call unimplemented, as on a coordinator with no relay.
 type relayCoordinator struct {
@@ -524,4 +564,51 @@ func (r *responseRecorder) Head(_ context.Context, status int, header http.Heade
 func (r *responseRecorder) Write(_ context.Context, chunk []byte) error {
 	r.body.Write(chunk)
 	return nil
+}
+
+// streamOpener opens the same relay stream for each call.
+type streamOpener struct {
+	stream *endedStream
+}
+
+func (o streamOpener) CheckAIEndpointTo(context.Context, serviceregistry.HostInfo, *coordinatorv1.CheckAIEndpointRequest) (*coordinatorv1.CheckAIEndpointResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "unknown method")
+}
+
+func (o streamOpener) RelayAIRequestTo(ctx context.Context, _ serviceregistry.HostInfo) (coordinatorv1.CoordinatorService_RelayAIRequestClient, error) {
+	o.stream.ctx = ctx
+	return o.stream, nil
+}
+
+// endedStream is a relay stream that the coordinator ends after the first sends
+// sends: each later send returns io.EOF, as gRPC does. Recv gives the answers of
+// the coordinator, then its status once answers is closed, and ends with the
+// context of the stream.
+type endedStream struct {
+	grpc.ClientStream
+
+	ctx     context.Context
+	sends   int
+	answers chan *coordinatorv1.RelayServerMessage
+	status  error
+}
+
+func (s *endedStream) Send(*coordinatorv1.RelayClientMessage) error {
+	if s.sends == 0 {
+		return io.EOF
+	}
+	s.sends--
+	return nil
+}
+
+func (s *endedStream) Recv() (*coordinatorv1.RelayServerMessage, error) {
+	select {
+	case <-s.ctx.Done():
+		return nil, status.FromContextError(s.ctx.Err()).Err()
+	case msg, ok := <-s.answers:
+		if !ok {
+			return nil, s.status
+		}
+		return msg, nil
+	}
 }
