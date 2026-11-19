@@ -4,9 +4,14 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ScheduleKind } from '@/api/v1/schema';
+import {
+  ParamDefType,
+  ScheduleKind,
+  ValidationIssueSeverity,
+  ValidationIssueSource,
+} from '@/api/v1/schema';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
-import type { ScheduleView } from '../../doc';
+import { readSchedule, type ScheduleView } from '../../doc';
 import { CronLauncherPanel } from '../LauncherPanel';
 
 // UTC+14 without daylight saving: unlikely to be the zone of the test host.
@@ -16,14 +21,30 @@ vi.mock('@/contexts/ConfigContext', () => ({
   useConfig: () => ({ tz: SCHEDULER_TZ }),
 }));
 
+/** A schedule of plain cron entries, as readSchedule reads it. */
+function cronSchedule(
+  expressions: string[],
+  params: Array<Record<string, string>> = []
+): ScheduleView {
+  return {
+    present: true,
+    expressions,
+    others: 0,
+    entries: expressions.map((expression, index) => ({
+      expressionIndex: index,
+      schedule: { kind: ScheduleKind.cron, expression },
+      params: params[index] ?? {},
+    })),
+  };
+}
+
 function renderPanel(
   expressions: string[],
   onChange: (expressions: string[]) => void = () => undefined
 ) {
-  const schedule: ScheduleView = { present: true, expressions, others: 0 };
   render(
     <CronLauncherPanel
-      schedule={schedule}
+      schedule={cronSchedule(expressions)}
       editable
       onChange={onChange}
       onClose={() => undefined}
@@ -36,7 +57,7 @@ function StatefulPanel({ initial }: { initial: string[] }): ReactElement {
   const [expressions, setExpressions] = useState(initial);
   return (
     <CronLauncherPanel
-      schedule={{ present: true, expressions, others: 0 }}
+      schedule={cronSchedule(expressions)}
       editable
       onChange={setExpressions}
       onClose={() => undefined}
@@ -57,6 +78,20 @@ describe('CronLauncherPanel', () => {
     fireEvent.blur(second);
     expect(onChange).not.toHaveBeenCalled();
     expect(second).toHaveValue('@daily');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'This expression is already in the schedule.'
+    );
+  });
+
+  it('refuses to add an expression that is already listed', () => {
+    renderPanel(['@daily']);
+    fireEvent.change(screen.getByLabelText('New cron expression'), {
+      target: { value: '@daily' },
+    });
+    expect(screen.getByRole('button', { name: 'Add schedule' })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'This expression is already in the schedule.'
+    );
   });
 
   // Enter of an input method confirms its text, not the expression.
@@ -86,7 +121,7 @@ describe('CronLauncherPanel', () => {
   it('lists the server runs and previews only the expression being typed', () => {
     render(
       <CronLauncherPanel
-        schedule={{ present: true, expressions: ['0 9 * * *'], others: 0 }}
+        schedule={cronSchedule(['0 9 * * *'])}
         editable
         upcomingRuns={[
           { time: '2027-01-04T09:00:00Z', scheduleIndex: 0, timezone: 'UTC' },
@@ -204,7 +239,7 @@ describe('CronLauncherPanel', () => {
   it('leaves an expression unchanged until the form is edited', () => {
     const onChange = vi.fn();
     renderPanel(['CRON_TZ=Asia/Tokyo 0 9 * * *', '0 9 * * MON-FRI'], onChange);
-    const rows = within(screen.getByLabelText('Cron expressions')).getAllByRole(
+    const rows = within(screen.getByLabelText('Schedules')).getAllByRole(
       'listitem'
     );
     const custom = within(rows[0]!);
@@ -236,7 +271,7 @@ describe('CronLauncherPanel', () => {
   // for the next one.
   it('keeps the form of a row open across its edits', () => {
     render(<StatefulPanel initial={['0 9 * * *']} />);
-    const row = within(screen.getByLabelText('Cron expressions'));
+    const row = within(screen.getByLabelText('Schedules'));
     fireEvent.click(row.getByRole('button', { name: 'Edit with the form' }));
     fireEvent.change(row.getByLabelText('Time of day'), {
       target: { value: '10:15' },
@@ -254,7 +289,7 @@ describe('CronLauncherPanel', () => {
   // The open form belongs to its expression, not to its place in the list.
   it('does not open the form of the row that follows a removed row', () => {
     render(<StatefulPanel initial={['0 9 * * *', '0 18 * * *']} />);
-    const list = within(screen.getByLabelText('Cron expressions'));
+    const list = within(screen.getByLabelText('Schedules'));
     fireEvent.click(
       list.getAllByRole('button', { name: 'Edit with the form' })[0]!
     );
@@ -269,7 +304,14 @@ describe('CronLauncherPanel', () => {
 });
 
 describe('CronLauncherPanel parameter overrides', () => {
-  const defaults = [{ name: 'mode', default: 'manual' }];
+  const defaults = [
+    {
+      name: 'mode',
+      type: ParamDefType.string,
+      required: false,
+      default: 'manual',
+    },
+  ];
 
   function renderParams(
     params: Array<Record<string, string>>,
@@ -279,9 +321,9 @@ describe('CronLauncherPanel parameter overrides', () => {
     const onChange = vi.fn();
     render(
       <CronLauncherPanel
-        schedule={{ present: true, expressions, others: 0, params }}
+        schedule={cronSchedule(expressions, params)}
         editable
-        paramDefaults={defaults}
+        paramDefs={defaults}
         onChange={onChange}
         onParamChange={onParamChange}
         onClose={() => undefined}
@@ -355,15 +397,16 @@ describe('CronLauncherPanel parameter overrides', () => {
   it('shows a computed param as computed, not its fallback', () => {
     render(
       <CronLauncherPanel
-        schedule={{
-          present: true,
-          expressions: ['0 5 * * *'],
-          others: 0,
-          params: [{}],
-        }}
+        schedule={cronSchedule(['0 5 * * *'])}
         editable
-        paramDefaults={[
-          { name: 'date', default: '1970-01-01', computed: true },
+        paramDefs={[
+          {
+            name: 'date',
+            type: ParamDefType.string,
+            required: false,
+            default: '1970-01-01',
+            computed: true,
+          },
         ]}
         onChange={() => undefined}
         onClose={() => undefined}
@@ -380,6 +423,9 @@ describe('CronLauncherPanel parameter overrides', () => {
   it('shows and resets an override of an undeclared name', () => {
     const { onParamChange } = renderParams([{ mode: 'y', region: 'eu' }]);
     expect(screen.getByLabelText('region')).toHaveValue('eu');
+    expect(
+      screen.getByText('Not a parameter of this workflow')
+    ).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole('button', { name: 'Use workflow default for region' })
     );
@@ -406,14 +452,9 @@ describe('CronLauncherPanel parameter overrides', () => {
       const [expressions, setExpressions] = useState<string[]>([]);
       return (
         <CronLauncherPanel
-          schedule={{
-            present: true,
-            expressions,
-            others: 0,
-            params: expressions.map(() => ({})),
-          }}
+          schedule={cronSchedule(expressions)}
           editable
-          paramDefaults={defaults}
+          paramDefs={defaults}
           onChange={setExpressions}
           onClose={() => undefined}
         />
@@ -434,12 +475,192 @@ describe('CronLauncherPanel parameter overrides', () => {
   it('shows no fields for a workflow without parameters', () => {
     render(
       <CronLauncherPanel
-        schedule={{ present: true, expressions: ['0 5 * * *'], others: 0 }}
+        schedule={cronSchedule(['0 5 * * *'])}
         editable
         onChange={() => undefined}
         onClose={() => undefined}
       />
     );
     expect(screen.queryByRole('group', { name: 'Parameters' })).toBeNull();
+  });
+});
+
+describe('CronLauncherPanel typed overrides', () => {
+  function renderTyped(
+    paramDefs: Parameters<typeof CronLauncherPanel>[0]['paramDefs'],
+    params: Record<string, string> = {}
+  ) {
+    const onParamChange = vi.fn();
+    render(
+      <CronLauncherPanel
+        schedule={cronSchedule(['0 5 * * *'], [params])}
+        editable
+        paramDefs={paramDefs}
+        onChange={() => undefined}
+        onParamChange={onParamChange}
+        onClose={() => undefined}
+      />
+    );
+    return onParamChange;
+  }
+
+  // A list of values leaves no room for a typo, and its first option takes
+  // the workflow default again.
+  it('picks an allowed value or the default from a select', () => {
+    const onParamChange = renderTyped([
+      {
+        name: 'mode',
+        type: ParamDefType.string,
+        required: false,
+        enum: ['y', 'z'],
+        default: 'y',
+      },
+    ]);
+    const select = screen.getByLabelText('mode');
+    expect(select).toHaveDisplayValue('Default (y)');
+    fireEvent.change(select, { target: { value: 'z' } });
+    expect(onParamChange).toHaveBeenLastCalledWith(0, 'mode', 'z');
+    const fallback = screen.getByRole('option', { name: 'Default (y)' });
+    fireEvent.change(select, {
+      target: { value: (fallback as HTMLOptionElement).value },
+    });
+    expect(onParamChange).toHaveBeenLastCalledWith(0, 'mode', null);
+  });
+
+  it('writes a boolean override as a boolean', () => {
+    const onParamChange = renderTyped([
+      {
+        name: 'dry_run',
+        type: ParamDefType.boolean,
+        required: false,
+        default: false,
+      },
+    ]);
+    const select = screen.getByLabelText('dry_run');
+    expect(select).toHaveDisplayValue('Default (false)');
+    fireEvent.change(select, { target: { value: 'true' } });
+    expect(onParamChange).toHaveBeenCalledWith(0, 'dry_run', true);
+  });
+
+  it('marks an override outside the allowed values', () => {
+    renderTyped(
+      [
+        {
+          name: 'mode',
+          type: ParamDefType.string,
+          required: false,
+          enum: ['y', 'z'],
+        },
+      ],
+      { mode: 'prd' }
+    );
+    expect(screen.getByLabelText('mode')).toHaveDisplayValue('prd');
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Must be one of the allowed values'
+    );
+  });
+
+  it('refuses an integer override that is not one', () => {
+    const onParamChange = renderTyped([
+      {
+        name: 'count',
+        type: ParamDefType.integer,
+        required: false,
+        minimum: 1,
+      },
+    ]);
+    const field = screen.getByLabelText('count');
+    fireEvent.change(field, { target: { value: 'x' } });
+    fireEvent.blur(field);
+    expect(onParamChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Must be an integer');
+    fireEvent.change(field, { target: { value: '3' } });
+    fireEvent.blur(field);
+    expect(onParamChange).toHaveBeenCalledExactlyOnceWith(0, 'count', 3);
+  });
+
+  // A variable is resolved when the run starts, so only the server checks it.
+  it('sends a variable to a typed param unchecked', () => {
+    const onParamChange = renderTyped([
+      { name: 'count', type: ParamDefType.integer, required: false },
+    ]);
+    const field = screen.getByLabelText('count');
+    fireEvent.change(field, { target: { value: '${COUNT}' } });
+    fireEvent.blur(field);
+    expect(onParamChange).toHaveBeenCalledWith(0, 'count', '${COUNT}');
+  });
+});
+
+describe('CronLauncherPanel entries that are not plain cron', () => {
+  const text = `schedule:
+  - "0 6 * * *"
+  - at: 2030-01-01T00:00:00Z
+  - expression: "0 5 * * *"
+    calendar: jp
+    profile: prod
+    params:
+      mode: b
+`;
+
+  it('lists each entry with its overrides and edits them by entry', () => {
+    const onParamChange = vi.fn();
+    render(
+      <CronLauncherPanel
+        schedule={readSchedule(text)}
+        editable
+        paramDefs={[
+          {
+            name: 'mode',
+            type: ParamDefType.string,
+            required: false,
+            default: 'manual',
+          },
+        ]}
+        onChange={() => undefined}
+        onParamChange={onParamChange}
+        onClose={() => undefined}
+      />
+    );
+    const rows = within(screen.getByLabelText('Schedules')).getAllByRole(
+      'listitem'
+    );
+    expect(rows).toHaveLength(3);
+    expect(rows[1]).toHaveTextContent('at 2030-01-01T00:00:00Z');
+    expect(rows[2]).toHaveTextContent('0 5 * * * · jp (prod)');
+    expect(within(rows[2]!).getByLabelText('mode')).toHaveValue('b');
+
+    const field = within(rows[1]!).getByLabelText('mode');
+    fireEvent.change(field, { target: { value: 'a' } });
+    fireEvent.blur(field);
+    expect(onParamChange).toHaveBeenCalledWith(1, 'mode', 'a');
+    expect(
+      screen.queryByText(/other schedule entries stay in the YAML/)
+    ).toBeNull();
+  });
+
+  it('shows a server issue of the overrides on its entry', () => {
+    render(
+      <CronLauncherPanel
+        schedule={readSchedule(text)}
+        editable
+        issues={[
+          {
+            severity: ValidationIssueSeverity.error,
+            source: ValidationIssueSource.build,
+            message: 'invalid value for mode',
+            fieldPath: 'schedule[2].params',
+          },
+        ]}
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+    const rows = within(screen.getByLabelText('Schedules')).getAllByRole(
+      'listitem'
+    );
+    expect(within(rows[2]!).getByRole('alert')).toHaveTextContent(
+      'invalid value for mode'
+    );
+    expect(within(rows[0]!).queryByRole('alert')).toBeNull();
   });
 });

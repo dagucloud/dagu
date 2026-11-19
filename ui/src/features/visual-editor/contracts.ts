@@ -139,12 +139,12 @@ export type DagEditOp =
   | { kind: 'convertStepsToExplicitForm' }
   /** Sets the start expressions of `schedule`; the other entries stay. */
   | { kind: 'setSchedule'; expressions: string[]; removedIndex?: number }
-  /** Sets (value) or clears (null) a parameter override of the index-th start expression. */
+  /** Sets (value) or clears (null) a parameter override of the index-th start entry. */
   | {
       kind: 'setScheduleParam';
       index: number;
       name: string;
-      value: string | null;
+      value: string | number | boolean | null;
     };
 
 export interface StepNameMap {

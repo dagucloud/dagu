@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Plus, RotateCcw, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useState, type ReactElement, type ReactNode } from 'react';
 import type { components, UpcomingRunsHold } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
@@ -15,14 +15,22 @@ import {
 } from '@/features/dags/components/step-details/PanelShell';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
-import type { ScheduleView } from '../doc';
-import { TextField } from '../inspector/TextField';
+import { getScheduleSummary } from '@/lib/dagSchedule';
+import type { ValidationIssue } from '../contracts';
+import {
+  scheduleParamIssueIndex,
+  type ScheduleEntryView,
+  type ScheduleView,
+} from '../doc';
+import { FieldIssues } from '../inspector/FieldIssues';
 import { LAUNCHER_ICONS, LAUNCHER_LABELS } from './LauncherNode';
 import type { LauncherId } from './model';
 import { nextRuns, SCHEDULE_PRESETS } from './nextRuns';
+import { ParamOverrideFields, type OverrideValue } from './ParamOverrideFields';
 import { ScheduleBuilder, ScheduleSummary } from './ScheduleBuilder';
 import { UpcomingRuns } from './UpcomingRuns';
 
+type ParamDef = components['schemas']['ParamDef'];
 type Schedule = components['schemas']['Schedule'];
 type UpcomingRun = components['schemas']['UpcomingRun'];
 
@@ -135,102 +143,28 @@ function NextRunsPreview({ expression }: { expression: string }): ReactElement {
   );
 }
 
-/** A named parameter of the workflow and its default, for the schedule fields. */
-export interface ParamDefault {
-  name: string;
-  default?: string;
-  /** The value comes from an eval when the run starts; `default` is its fallback. */
-  computed?: boolean;
-}
-
-/** Placeholder of an override set to the empty string, which a blank field hides. */
-const EMPTY_OVERRIDE = '""';
-
-/**
- * One field per workflow parameter, and one per override of a name the
- * workflow does not declare. The workflow default shows as the muted
- * placeholder; a value sent on blur or Enter is an override of this schedule,
- * and the reset button clears it. An emptied field has no override.
- */
-function ParamOverrideFields({
-  defaults,
-  values,
-  editable,
-  onChange,
-}: {
-  defaults: readonly ParamDefault[];
-  values: Record<string, string>;
+/** Schedule rows that the panel lists, with the server issues of each. */
+interface RowContext {
   editable: boolean;
-  onChange(name: string, value: string | null): void;
-}): ReactElement | null {
-  const { ts } = useI18n();
-  const overrides = new Map(Object.entries(values));
-  const declared = new Set(defaults.map((param) => param.name));
-  const fields: readonly ParamDefault[] = [
-    ...defaults,
-    ...[...overrides.keys()]
-      .filter((name) => !declared.has(name))
-      .map((name) => ({ name })),
-  ];
-  if (fields.length === 0) return null;
-  const placeholderOf = (param: ParamDefault): string => {
-    if (overrides.get(param.name) === '') return EMPTY_OVERRIDE;
-    if (param.computed) return ts('Computed when the run starts');
-    return param.default ?? '';
-  };
-  return (
-    <div className="space-y-1" role="group" aria-label={ts('Parameters')}>
-      {fields.map((param) => {
-        const overridden = overrides.has(param.name);
-        return (
-          <div key={param.name} className="flex items-end gap-2">
-            <div className="min-w-0 flex-1">
-              <TextField
-                label={param.name}
-                value={overrides.get(param.name) ?? ''}
-                placeholder={placeholderOf(param)}
-                readOnly={!editable}
-                onCommit={(text) =>
-                  onChange(param.name, text === '' ? null : text)
-                }
-              />
-            </div>
-            {editable && (
-              <span className="flex h-7 w-16 shrink-0 items-center">
-                {overridden && (
-                  <IconButton
-                    size="sm"
-                    icon={RotateCcw}
-                    label={ts('Use workflow default for {name}', {
-                      name: param.name,
-                    })}
-                    onClick={() => onChange(param.name, null)}
-                  />
-                )}
-              </span>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
+  paramDefs: readonly ParamDef[];
+  /** Issues of the row's overrides, from the server. */
+  issues: ValidationIssue[];
+  onParamChange(name: string, value: OverrideValue | null): void;
 }
+
+/** The message shown when an expression is refused as already listed. */
+const DUPLICATE_EXPRESSION = 'This expression is already in the schedule.';
 
 function ExpressionRow({
   expression,
-  editable,
-  paramDefaults,
-  paramValues,
+  params,
   serverPreview,
   onCommit,
-  onParamChange,
   onRemove,
-}: {
+  ...row
+}: RowContext & {
   expression: string;
-  editable: boolean;
-  paramDefaults: readonly ParamDefault[];
-  paramValues: Record<string, string>;
-  onParamChange(name: string, value: string | null): void;
+  params: Record<string, string>;
   /** The panel lists the server's runs, so the row previews only drafts. */
   serverPreview: boolean;
   /** False when the panel refuses the expression: the draft goes back. */
@@ -238,8 +172,10 @@ function ExpressionRow({
   onRemove(): void;
 }): ReactElement {
   const { ts } = useI18n();
+  const { editable } = row;
   const [draft, setDraft] = useState(expression);
   const [formOpen, setFormOpen] = useState(false);
+  const [duplicate, setDuplicate] = useState(false);
   // The row stays mounted when its expression changes, so that an edit in
   // the form keeps the form open. A new expression replaces the draft.
   const [shown, setShown] = useState(expression);
@@ -251,7 +187,9 @@ function ExpressionRow({
   const commit = () => {
     const next = draft.trim();
     if (next === expression) return;
-    if (next === '' || !onCommit(next)) setDraft(expression);
+    const refused = next !== '' && !onCommit(next);
+    setDuplicate(refused);
+    if (next === '' || refused) setDraft(expression);
   };
   return (
     <li className="space-y-1">
@@ -262,7 +200,10 @@ function ExpressionRow({
           readOnly={!editable}
           aria-label={ts('Cron expression')}
           spellCheck={false}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setDuplicate(false);
+          }}
           onBlur={commit}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return;
@@ -293,30 +234,79 @@ function ExpressionRow({
           />
         )}
       </div>
+      {duplicate && (
+        <p role="alert" className="text-xs text-destructive">
+          {ts(DUPLICATE_EXPRESSION)}
+        </p>
+      )}
       {editable && formOpen && (
         <ScheduleBuilder
           expression={draft}
           onChange={(next) => {
-            if (next === expression || onCommit(next)) setDraft(next);
+            const accepted = next === expression || onCommit(next);
+            setDuplicate(!accepted);
+            if (accepted) setDraft(next);
           }}
         />
       )}
       <ScheduleSummary expression={draft} />
-      <ParamOverrideFields
-        defaults={paramDefaults}
-        values={paramValues}
-        editable={editable}
-        onChange={onParamChange}
-      />
+      <RowParams params={params} {...row} />
       {previewed && <NextRunsPreview expression={draft.trim()} />}
     </li>
   );
 }
 
 /**
- * The schedule of the workflow, as a list of cron expressions. An edit is
- * one change of the YAML text. The server's next runs, when given, cover
- * every start entry; without them each expression is previewed in the
+ * An entry that the panel does not edit as cron, such as a one-off or an
+ * entry with a calendar or a profile. Its overrides stay editable.
+ */
+function EntryRow({
+  entry,
+  ...row
+}: RowContext & { entry: ScheduleEntryView }): ReactElement {
+  const { ts } = useI18n();
+  return (
+    <li className="space-y-1">
+      <p className="break-all rounded-md border bg-muted px-2 py-1 font-mono text-sm text-foreground">
+        {getScheduleSummary(entry.schedule)}
+      </p>
+      <p className="text-xs text-muted-foreground">
+        {ts(
+          entry.params === null
+            ? 'Edit this entry and its parameters in the YAML.'
+            : 'Edit the timing of this entry in the YAML.'
+        )}
+      </p>
+      {entry.params !== null && <RowParams params={entry.params} {...row} />}
+    </li>
+  );
+}
+
+function RowParams({
+  params,
+  editable,
+  paramDefs,
+  issues,
+  onParamChange,
+}: RowContext & { params: Record<string, string> }): ReactElement {
+  return (
+    <>
+      <ParamOverrideFields
+        defs={paramDefs}
+        values={params}
+        editable={editable}
+        onChange={onParamChange}
+      />
+      <FieldIssues issues={issues} />
+    </>
+  );
+}
+
+/**
+ * The start schedule of the workflow. Plain cron entries are edited here;
+ * other entries, such as one-offs, show with their parameter overrides. An
+ * edit is one change of the YAML text. The server's next runs, when given,
+ * cover every start entry; without them each expression is previewed in the
  * browser.
  */
 export function CronLauncherPanel({
@@ -325,7 +315,8 @@ export function CronLauncherPanel({
   upcomingRuns,
   upcomingRunsHold,
   schedules = [],
-  paramDefaults = [],
+  paramDefs = [],
+  issues = [],
   onChange,
   onParamChange,
   onClose,
@@ -338,12 +329,18 @@ export function CronLauncherPanel({
   upcomingRunsHold?: UpcomingRunsHold;
   /** The server's start schedules, which upcomingRuns index. */
   schedules?: Schedule[];
-  /** Named parameters of the workflow, whose defaults each schedule inherits. */
-  paramDefaults?: readonly ParamDefault[];
+  /** Parameters of the workflow, whose defaults each schedule inherits. */
+  paramDefs?: readonly ParamDef[];
+  /** Issues of the validated workflow; those of schedule overrides show on their rows. */
+  issues?: ValidationIssue[];
   /** The new list of start expressions; the other entries stay. */
   onChange(expressions: string[], removedIndex?: number): void;
-  /** Sets (value) or clears (null) a parameter override of an expression. */
-  onParamChange?(index: number, name: string, value: string | null): void;
+  /** Sets (value) or clears (null) a parameter override of a start entry. */
+  onParamChange?(
+    entryIndex: number,
+    name: string,
+    value: OverrideValue | null
+  ): void;
   onClose(): void;
 }): ReactElement {
   const { ts } = useI18n();
@@ -353,48 +350,70 @@ export function CronLauncherPanel({
   // remounts the rows and their state does not pass to another expression.
   const [removals, setRemovals] = useState(0);
   const { expressions } = schedule;
+  const addedDuplicate = expressions.includes(added.trim());
   const add = (expression: string) => {
     const next = expression.trim();
     if (next === '' || expressions.includes(next)) return;
     onChange([...expressions, next]);
     setAdded('');
   };
+  const issuesOf = (entryIndex: number) =>
+    issues.filter(
+      (issue) =>
+        issue.fieldPath !== undefined &&
+        scheduleParamIssueIndex(issue.fieldPath) === entryIndex
+    );
   return (
     <Shell id="cron" onClose={onClose}>
       <p className="text-sm text-muted-foreground">
-        {ts('The workflow starts on each of these cron expressions.')}
+        {ts('The workflow starts on each of these schedules.')}
       </p>
-      {expressions.length === 0 ? (
+      {schedule.entries.length === 0 ? (
         <p className="text-sm italic text-muted-foreground">
           {ts('No schedule defined')}
         </p>
       ) : (
-        <ul className="space-y-3" aria-label={ts('Cron expressions')}>
-          {expressions.map((expression, index) => (
-            <ExpressionRow
-              key={`${removals}-${index}`}
-              expression={expression}
-              editable={editable}
-              paramDefaults={paramDefaults}
-              paramValues={schedule.params?.[index] ?? {}}
-              onParamChange={(name, value) =>
-                onParamChange?.(index, name, value)
-              }
-              serverPreview={upcomingRuns !== undefined}
-              onCommit={(next) => {
-                if (expressions.includes(next)) return false;
-                onChange(expressions.map((e, i) => (i === index ? next : e)));
-                return true;
-              }}
-              onRemove={() => {
-                setRemovals((count) => count + 1);
-                onChange(
-                  expressions.filter((_, i) => i !== index),
-                  index
-                );
-              }}
-            />
-          ))}
+        <ul className="space-y-3" aria-label={ts('Schedules')}>
+          {schedule.entries.map((entry, entryIndex) => {
+            const row: RowContext = {
+              editable,
+              paramDefs,
+              issues: issuesOf(entryIndex),
+              onParamChange: (name, value) =>
+                onParamChange?.(entryIndex, name, value),
+            };
+            const index = entry.expressionIndex;
+            if (index === undefined) {
+              return (
+                <EntryRow
+                  key={`${removals}-${entryIndex}`}
+                  entry={entry}
+                  {...row}
+                />
+              );
+            }
+            return (
+              <ExpressionRow
+                key={`${removals}-${entryIndex}`}
+                expression={expressions[index] ?? ''}
+                params={entry.params ?? {}}
+                serverPreview={upcomingRuns !== undefined}
+                onCommit={(next) => {
+                  if (expressions.includes(next)) return false;
+                  onChange(expressions.map((e, i) => (i === index ? next : e)));
+                  return true;
+                }}
+                onRemove={() => {
+                  setRemovals((count) => count + 1);
+                  onChange(
+                    expressions.filter((_, i) => i !== index),
+                    index
+                  );
+                }}
+                {...row}
+              />
+            );
+          })}
         </ul>
       )}
       {upcomingRuns && schedule.present && (
@@ -403,14 +422,6 @@ export function CronLauncherPanel({
           hold={upcomingRunsHold}
           schedules={schedules}
         />
-      )}
-      {schedule.others > 0 && (
-        <p className="text-xs text-muted-foreground">
-          {ts(
-            '{count} other schedule entries stay in the YAML. Edit them there.',
-            { count: schedule.others }
-          )}
-        </p>
       )}
       {editable && (
         <section className="space-y-2" aria-label={ts('Add an expression')}>
@@ -422,6 +433,7 @@ export function CronLauncherPanel({
               spellCheck={false}
               placeholder="0 * * * *"
               aria-label={ts('New cron expression')}
+              aria-invalid={addedDuplicate || undefined}
               onChange={(event) => setAdded(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
@@ -433,10 +445,15 @@ export function CronLauncherPanel({
             <IconButton
               icon={Plus}
               label={ts('Add schedule')}
-              disabled={added.trim() === ''}
+              disabled={added.trim() === '' || addedDuplicate}
               onClick={() => add(added)}
             />
           </div>
+          {addedDuplicate && (
+            <p role="alert" className="text-xs text-destructive">
+              {ts(DUPLICATE_EXPRESSION)}
+            </p>
+          )}
           {added.trim() !== '' && (
             <>
               <ScheduleSummary expression={added} />

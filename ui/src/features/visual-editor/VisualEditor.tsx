@@ -1429,7 +1429,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   const setScheduleParam = (
     index: number,
     name: string,
-    value: string | null
+    value: string | number | boolean | null
   ) => {
     if (!canEdit) return;
     afterEdit(session.apply({ kind: 'setScheduleParam', index, name, value }));
@@ -1991,20 +1991,8 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
               upcomingRuns={details?.upcomingRuns}
               upcomingRunsHold={details?.upcomingRunsHold}
               schedules={details?.schedule}
-              paramDefaults={details?.paramDefs?.flatMap((def) =>
-                def.name
-                  ? [
-                      {
-                        name: def.name,
-                        default:
-                          def.default === undefined
-                            ? undefined
-                            : String(def.default),
-                        computed: def.computed,
-                      },
-                    ]
-                  : []
-              )}
+              paramDefs={details?.paramDefs}
+              issues={validation?.issues}
               onChange={setSchedule}
               onParamChange={setScheduleParam}
               onClose={closeLauncher}
