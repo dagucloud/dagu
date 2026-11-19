@@ -40,13 +40,29 @@ function scalarText(value: ParamScalar): string {
   return typeof value === 'string' ? value : String(value);
 }
 
-/** A decimal number, which reads the same in YAML and in the backend. */
-const DECIMAL = /^-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/;
+/**
+ * The significant digits of a decimal number and the position of its point,
+ * or undefined for text that is not a decimal number. Two spellings of one
+ * value, such as 1.50 and 1.5, give the same result.
+ */
+function decimalValue(text: string): string | undefined {
+  const match = /^(-?)(\d+\.?\d*|\.\d+)(?:[eE]([-+]?\d+))?$/.exec(text);
+  if (!match) return undefined;
+  const [whole = '', fraction = ''] = (match[2] ?? '').split('.');
+  const all = whole + fraction;
+  const significant = all.replace(/^0+/, '');
+  const digits = significant.replace(/0+$/, '');
+  if (digits === '') return '0';
+  const point =
+    whole.length + Number(match[3] ?? 0) - (all.length - significant.length);
+  return `${match[1]}${digits}e${point}`;
+}
 
 /**
  * The value an override takes in the YAML: a number or boolean for a param
- * of that type, and the text otherwise. An integer beyond the precision of a
- * JavaScript number stays text, so that no digit is lost.
+ * of that type, and the text otherwise. A number is written only when it
+ * keeps the value of the text, so that no digit is lost; a spelling that
+ * is not decimal, such as 0x10, stays text for the backend to read.
  */
 function typedValue(def: ParamDef | undefined, text: string): OverrideValue {
   if (!def || DYNAMIC_VALUE.test(text)) return text;
@@ -55,11 +71,10 @@ function typedValue(def: ParamDef | undefined, text: string): OverrideValue {
     case ParamDefType.number: {
       const trimmed = text.trim();
       const number = Number(trimmed);
-      const representable =
-        def.type === ParamDefType.number
-          ? Number.isFinite(number)
-          : Number.isSafeInteger(number);
-      return DECIMAL.test(trimmed) && representable ? number : text;
+      const value = decimalValue(trimmed);
+      return value !== undefined && value === decimalValue(String(number))
+        ? number
+        : text;
     }
     case ParamDefType.boolean:
       if (text === 'true') return true;

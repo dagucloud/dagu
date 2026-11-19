@@ -609,11 +609,14 @@ describe('CronLauncherPanel typed overrides', () => {
   });
 
   // A number is written as one whatever its spelling, unless it would lose
-  // digits or is not decimal, which the backend would read otherwise.
+  // digits, or is not decimal, which the backend would read otherwise.
   it.each([
     [ParamDefType.number, '1.50', 1.5],
     [ParamDefType.number, '1e3', 1000],
     [ParamDefType.number, '0x10', '0x10'],
+    [ParamDefType.number, '0.1', 0.1],
+    [ParamDefType.number, '9007199254740993', '9007199254740993'],
+    [ParamDefType.number, '1e400', '1e400'],
     [ParamDefType.integer, '01', 1],
     [ParamDefType.integer, '9007199254740993', '9007199254740993'],
   ])('writes the %s override %s as %j', (type, text, want) => {
