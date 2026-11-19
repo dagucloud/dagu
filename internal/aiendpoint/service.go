@@ -73,7 +73,8 @@ type UpdateInput struct {
 	Actor       string
 }
 
-// Create validates and saves a new endpoint with its key.
+// Create validates and saves a new endpoint with its key. A create that fails
+// leaves no endpoint.
 func (s *Service) Create(ctx context.Context, in CreateInput) (*Endpoint, error) {
 	now := time.Now().UTC()
 	ep := &Endpoint{
@@ -110,35 +111,50 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (*Endpoint, error)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, err := s.store.Get(ctx, ep.Scope, ep.Name); err == nil {
-		return nil, ErrAlreadyExists
-	} else if !errors.Is(err, ErrNotFound) {
+	// The record claims the name before the key is written. The store makes the
+	// claim atomic across the servers of one data directory, so a create that
+	// loses the name never writes to the secret of the endpoint that won.
+	if err := s.store.Create(ctx, ep); err != nil {
 		return nil, err
 	}
+	saved, err := s.completeCreate(ctx, ep, in.Key, in.Actor, now)
+	if err != nil {
+		_ = s.store.Delete(context.WithoutCancel(ctx), ep.Scope, ep.Name)
+		return nil, err
+	}
+	return saved, nil
+}
 
+// completeCreate prepares a claimed endpoint: it removes an old models list of
+// the name and saves the key. On an error, it deletes the secret it wrote.
+func (s *Service) completeCreate(ctx context.Context, ep *Endpoint, key, actor string, now time.Time) (*Endpoint, error) {
 	if s.models != nil {
 		// A list that a failed delete left must not show for the new endpoint.
 		if err := s.models.store.Delete(ctx, ep.Scope, ep.Name); err != nil {
 			return nil, err
 		}
 	}
-
-	if in.Key != "" {
-		secretID, err := s.writeKey(ctx, ep, "", in.Key, in.Actor, now)
-		if err != nil {
-			return nil, err
-		}
-		ep.SecretID = secretID
-		ep.KeyPrefix, ep.KeyFingerprint = KeyDisplay(in.Key)
-		ep.KeyUpdatedAt = now
+	if key == "" {
+		return ep.Clone(), nil
 	}
-	if err := s.store.Create(ctx, ep); err != nil {
-		if ep.SecretID != "" {
-			_ = s.secrets.Delete(context.WithoutCancel(ctx), ep.SecretID)
-		}
+	secretID, err := s.writeKey(ctx, ep, "", key, actor, now)
+	if err != nil {
 		return nil, err
 	}
-	return ep.Clone(), nil
+	prefix, fingerprint := KeyDisplay(key)
+	saved, err := s.store.Update(ctx, ep.Scope, ep.Name, func(cur *Endpoint) error {
+		cur.SecretID = secretID
+		cur.KeyPrefix, cur.KeyFingerprint = prefix, fingerprint
+		cur.KeyUpdatedAt = now
+		return nil
+	})
+	if err != nil {
+		// The ref of the secret is the name that this create holds, so no other
+		// record uses it.
+		_ = s.secrets.Delete(context.WithoutCancel(ctx), secretID)
+		return nil, err
+	}
+	return saved, nil
 }
 
 // Get returns the endpoint of a scope, or ErrNotFound.

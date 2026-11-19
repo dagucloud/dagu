@@ -62,7 +62,8 @@ type MCPUpdateInput struct {
 	Actor string
 }
 
-// Create validates and saves a new entry with its credentials.
+// Create validates and saves a new entry with its credentials. A create that
+// fails leaves no entry.
 func (s *MCPService) Create(ctx context.Context, in MCPCreateInput) (*MCPServer, error) {
 	now := time.Now().UTC()
 	server := &MCPServer{
@@ -86,19 +87,37 @@ func (s *MCPService) Create(ctx context.Context, in MCPCreateInput) (*MCPServer,
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, err := s.store.Get(ctx, server.Scope, server.Name); err == nil {
-		return nil, ErrAlreadyExists
-	} else if !errors.Is(err, ErrNotFound) {
-		return nil, err
-	}
-	if err := s.writeCredentials(ctx, server, in.Credentials.Token, headers, in.Actor, now); err != nil {
-		return nil, err
-	}
+	// The record claims the name before the credentials are written, as in
+	// Service.Create.
 	if err := s.store.Create(ctx, server); err != nil {
+		return nil, err
+	}
+	saved, err := s.completeCreate(ctx, server, in.Credentials.Token, headers, in.Actor, now)
+	if err != nil {
+		_ = s.store.Delete(context.WithoutCancel(ctx), server.Scope, server.Name)
+		return nil, err
+	}
+	return saved, nil
+}
+
+// completeCreate saves the credentials of a claimed entry. On an error after
+// the writes, it deletes the secrets it wrote.
+func (s *MCPService) completeCreate(ctx context.Context, server *MCPServer, token string, headers map[string]string, actor string, now time.Time) (*MCPServer, error) {
+	if token == "" && len(headers) == 0 {
+		return server.Clone(), nil
+	}
+	if err := s.writeCredentials(ctx, server, token, headers, actor, now); err != nil {
+		return nil, err
+	}
+	saved, err := s.store.Update(ctx, server.Scope, server.Name, func(cur *MCPServer) error {
+		cur.Token, cur.Headers = server.Token, server.Headers
+		return nil
+	})
+	if err != nil {
 		s.deleteSecrets(ctx, slices.Collect(maps.Values(credentialIDs(server))))
 		return nil, err
 	}
-	return server.Clone(), nil
+	return saved, nil
 }
 
 // Get returns the entry of a scope, or ErrNotFound.
