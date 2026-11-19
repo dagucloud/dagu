@@ -1,0 +1,22 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+  - PATCH_ID: p-42
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: ${FAKE_CLAUDE_SCENARIO}
+steps:
+  - id: review
+    action: agent.run
+    stderr: review.err
+    continue_on:
+      exit_code: [75]
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: "Say hello."
+  - id: after
+    depends: review
+    run: echo continued
+    stdout: after.out

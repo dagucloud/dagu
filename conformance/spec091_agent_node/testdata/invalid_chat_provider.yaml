@@ -1,0 +1,11 @@
+working_dir: .
+env:
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: ${FAKE_CLAUDE_SCENARIO}
+steps:
+  - id: review
+    action: agent.run
+    with:
+      provider: anthropic
+      model: claude-sonnet-5
+      prompt: "Say hello."

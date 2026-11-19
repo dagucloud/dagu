@@ -16,7 +16,9 @@ import { Plus } from 'lucide-react';
 import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
 import type { ReferenceCandidate, ReferenceInputProps } from '../contracts';
+import { highlightPrompt } from './promptHighlight';
 import { ReferencePicker, type ReferencePickerHandle } from './ReferencePicker';
+import { filterSuggestions } from './suggestions';
 import {
   findOpenReference,
   findReferenceTokens,
@@ -31,7 +33,7 @@ const PICKER_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Enter', 'Escape']);
 // The overlay copies these classes, so the chips line up with the field text.
 const BOX_CLASS = 'border px-2 pr-8 text-xs';
 const SINGLE_CLASS = 'h-7 py-0 leading-[26px]';
-const MULTI_CLASS = 'min-h-16 py-1 leading-5';
+const MULTI_CLASS = 'py-1 leading-5';
 
 function chipClass(kind: ReferenceTokenKind): string {
   switch (kind) {
@@ -44,22 +46,34 @@ function chipClass(kind: ReferenceTokenKind): string {
   }
 }
 
+// The text colour of a reference in a field that is being edited.
+function tokenClass(kind: ReferenceTokenKind): string {
+  return kind === 'unsupported' ? 'text-warning' : 'text-info';
+}
+
 /** Text field that inserts references, from a picker or from typing "${". The value is a plain string. */
 export function ReferenceInput({
   value,
   onChange,
   candidates,
   multiline,
+  rows = 3,
+  resizable = false,
   placeholder,
   disabled,
   id,
   'aria-label': ariaLabel,
+  suggestions,
+  suggestionsLabel,
+  highlight = false,
   'aria-invalid': ariaInvalid,
   onBlur,
   onKeyDown,
 }: ReferenceInputProps): ReactElement {
   const { ts } = useI18n();
-  const listboxId = `${useId()}-references`;
+  const baseId = useId();
+  const listboxId = `${baseId}-references`;
+  const suggestionsId = `${baseId}-suggestions`;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<FieldElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -84,6 +98,26 @@ export function ReferenceInput({
   const loneDollar =
     openReference !== null && value[openReference.from + 1] !== '{';
 
+  // Plain-text suggestions. The text of the field stays free: nothing checks it
+  // against the list, and a value that the list lacks is valid.
+  const [suggestionActive, setSuggestionActive] = useState(-1);
+  const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
+  const shownSuggestions = useMemo(
+    () => filterSuggestions(suggestions, value),
+    [suggestions, value]
+  );
+  const suggestionsOpen =
+    !disabled &&
+    focused &&
+    !pickerOpen &&
+    !suggestionsDismissed &&
+    shownSuggestions.length > 0;
+  const suggestionId = (index: number) => `${suggestionsId}-${index}`;
+
+  useEffect(() => {
+    setSuggestionActive(-1);
+  }, [value]);
+
   useEffect(() => {
     if (openReference === null && dismissedFrom !== null)
       setDismissedFrom(null);
@@ -103,8 +137,47 @@ export function ReferenceInput({
     setCaret(pending.caret);
   });
 
+  // The chips copy the text of the field: follow its scroll position.
+  const followScroll = () => {
+    const overlay = overlayRef.current;
+    if (overlay && fieldRef.current) {
+      overlay.scrollTop = fieldRef.current.scrollTop;
+    }
+  };
+  useLayoutEffect(followScroll);
+
   const tokens = useMemo(() => findReferenceTokens(value), [value]);
   const showChips = !focused && !buttonOpen && tokens.length > 0;
+  // A text with a light highlight (references, Markdown marks) shows through
+  // the layer, also while it is edited: the field then draws no text itself.
+  const layered = highlight && multiline === true;
+  const showOverlay = layered || showChips;
+  const segments = useMemo(
+    () => (layered ? highlightPrompt(value) : null),
+    [layered, value]
+  );
+
+  // The layer has the width of the text area of the field: a scroll bar of the
+  // field takes some of it, so the layer takes the same width as padding.
+  const [gutter, setGutter] = useState(0);
+  const measureRef = useRef<() => void>(() => undefined);
+  measureRef.current = () => {
+    const el = fieldRef.current;
+    if (!layered || !el) return;
+    const bar = Math.max(
+      0,
+      el.offsetWidth - el.clientWidth - 2 * el.clientLeft
+    );
+    setGutter((last) => (last === bar ? last : bar));
+  };
+  useLayoutEffect(() => measureRef.current());
+  useEffect(() => {
+    const el = fieldRef.current;
+    if (!layered || !el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => measureRef.current());
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [layered]);
 
   const syncCaret = (el: FieldElement) =>
     setCaret(el.selectionStart ?? el.value.length);
@@ -152,6 +225,11 @@ export function ReferenceInput({
     setButtonOpen(false);
   };
 
+  const pickSuggestion = (name: string) => {
+    apply({ text: name, caret: name.length });
+    setSuggestionsDismissed(true);
+  };
+
   const closeButtonPicker = () => {
     setButtonOpen(false);
     fieldRef.current?.focus();
@@ -181,24 +259,39 @@ export function ReferenceInput({
     // A text field, not a combobox: aria-expanded and aria-haspopup do not
     // apply to it. The open list is announced through aria-controls.
     'aria-autocomplete': 'list' as const,
-    'aria-controls': inlineOpen ? listboxId : undefined,
-    'aria-activedescendant': inlineOpen ? activeId : undefined,
+    'aria-controls': inlineOpen
+      ? listboxId
+      : suggestionsOpen
+        ? suggestionsId
+        : undefined,
+    'aria-activedescendant': inlineOpen
+      ? activeId
+      : suggestionsOpen && suggestionActive >= 0
+        ? suggestionId(suggestionActive)
+        : undefined,
     className: cn(
       'block w-full min-w-0 rounded-md border-input bg-card text-foreground shadow-sm transition-colors',
       'placeholder:text-muted-foreground',
       'focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20',
       'disabled:cursor-not-allowed disabled:bg-muted disabled:opacity-50',
       BOX_CLASS,
-      multiline ? cn(MULTI_CLASS, 'resize-none') : SINGLE_CLASS,
-      showChips && 'text-transparent'
+      multiline
+        ? cn(MULTI_CLASS, resizable ? 'resize-y' : 'resize-none')
+        : SINGLE_CLASS,
+      showOverlay && 'text-transparent',
+      // The field draws the selection under the text of the layer.
+      layered && 'selection:bg-primary/20'
     ),
+    style: layered ? { caretColor: 'var(--foreground)' } : undefined,
     onChange: (e: { target: FieldElement }) => {
       pendingRef.current = null;
+      setSuggestionsDismissed(false);
       syncCaret(e.target);
       onChange(e.target.value);
     },
     onFocus: (e: { currentTarget: FieldElement }) => {
       setFocused(true);
+      setSuggestionsDismissed(false);
       // The button picker gives the keys back to the field.
       setButtonOpen(false);
       syncCaret(e.currentTarget);
@@ -213,6 +306,29 @@ export function ReferenceInput({
     onKeyUp: (e: { currentTarget: FieldElement }) => syncCaret(e.currentTarget),
     onClick: (e: { currentTarget: FieldElement }) => syncCaret(e.currentTarget),
     onKeyDown: (e: KeyboardEvent<FieldElement>) => {
+      if (suggestionsOpen) {
+        const count = shownSuggestions.length;
+        const picked = shownSuggestions[suggestionActive];
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          const step = e.key === 'ArrowDown' ? 1 : -1;
+          setSuggestionActive(
+            suggestionActive < 0
+              ? step === 1
+                ? 0
+                : count - 1
+              : (suggestionActive + step + count) % count
+          );
+        } else if (e.key === 'Enter' && picked !== undefined) {
+          pickSuggestion(picked);
+        } else if (e.key === 'Escape') {
+          setSuggestionsDismissed(true);
+        } else {
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       const forPicker =
         inlineOpen && !e.nativeEvent.isComposing && PICKER_KEYS.has(e.key);
       if (forPicker && pickerRef.current?.handleKey(e.key)) {
@@ -225,7 +341,41 @@ export function ReferenceInput({
   };
 
   const overlay: ReactNode[] = [];
-  if (showChips) {
+  if (segments) {
+    segments.forEach((segment, index) => {
+      if (segment.kind === 'mark') {
+        overlay.push(
+          <span key={index} className="text-muted-foreground">
+            {segment.text}
+          </span>
+        );
+      } else if (segment.kind === 'ref' && segment.token) {
+        overlay.push(
+          showChips ? (
+            <span
+              key={index}
+              data-reference-chip={segment.token.kind}
+              className={chipClass(segment.token.kind)}
+            >
+              {segment.text}
+            </span>
+          ) : (
+            <span
+              key={index}
+              data-reference-token={segment.token.kind}
+              className={tokenClass(segment.token.kind)}
+            >
+              {segment.text}
+            </span>
+          )
+        );
+      } else {
+        overlay.push(segment.text);
+      }
+    });
+    // A last line break needs a character after it to take a line.
+    overlay.push('\u200b');
+  } else if (showChips) {
     let pos = 0;
     tokens.forEach((token, index) => {
       if (token.from > pos) overlay.push(value.slice(pos, token.from));
@@ -260,7 +410,7 @@ export function ReferenceInput({
           ref={(el) => {
             fieldRef.current = el;
           }}
-          rows={3}
+          rows={rows}
         />
       ) : (
         <input
@@ -271,7 +421,7 @@ export function ReferenceInput({
           type="text"
         />
       )}
-      {showChips ? (
+      {showOverlay ? (
         <div
           ref={(el) => {
             overlayRef.current = el;
@@ -286,6 +436,11 @@ export function ReferenceInput({
               : cn(SINGLE_CLASS, 'whitespace-pre'),
             disabled && 'opacity-50'
           )}
+          style={
+            layered && gutter > 0
+              ? { paddingRight: `calc(2rem + ${gutter}px)` }
+              : undefined
+          }
         >
           {overlay}
         </div>
@@ -301,6 +456,38 @@ export function ReferenceInput({
       >
         <Plus className="h-3.5 w-3.5" aria-hidden="true" />
       </button>
+      {suggestionsOpen ? (
+        <div
+          className="absolute left-0 top-full z-50 mt-1 w-full min-w-64 overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+          // Keep the focus in the field: a click on a name must not blur it.
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <div
+            id={suggestionsId}
+            role="listbox"
+            aria-label={suggestionsLabel}
+            className="max-h-60 overflow-y-auto py-1"
+          >
+            {shownSuggestions.map((name, index) => (
+              <div
+                key={name}
+                id={suggestionId(index)}
+                role="option"
+                aria-selected={index === suggestionActive}
+                onClick={() => pickSuggestion(name)}
+                onMouseMove={() => setSuggestionActive(index)}
+                className={cn(
+                  'cursor-pointer truncate px-2 py-1 font-mono text-xs',
+                  index === suggestionActive &&
+                    'bg-accent text-accent-foreground'
+                )}
+              >
+                {name}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {pickerOpen ? (
         <ReferencePicker
           key={buttonOpen ? 'button' : 'inline'}

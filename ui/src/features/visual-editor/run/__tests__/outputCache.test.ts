@@ -22,6 +22,7 @@ function entry(p: Partial<CacheEntry> = {}): CacheEntry {
     runId: 'r1',
     capturedAt: 1000,
     stepHash: 'h',
+    params: '',
     ...p,
   };
 }
@@ -114,6 +115,7 @@ describe('removeEntry and sameEntry', () => {
     expect(sameEntry(entry(), entry({ capturedAt: 9 }))).toBe(true);
     expect(sameEntry(entry(), entry({ values: { out: 'w' } }))).toBe(false);
     expect(sameEntry(entry(), entry({ stepHash: 'g' }))).toBe(false);
+    expect(sameEntry(entry(), entry({ params: 'ENV=prod' }))).toBe(false);
     expect(sameEntry(undefined, entry())).toBe(false);
   });
 });
@@ -139,6 +141,15 @@ describe('parseEntries', () => {
       },
     });
     expect(Object.keys(parseEntries(raw))).toEqual(['c']);
+  });
+
+  // An entry of an earlier version has no parameters: it cannot tell for
+  // which parameters its values are fresh.
+  it('drops an entry that has no parameters', () => {
+    const old: Partial<CacheEntry> = entry();
+    delete old.params;
+    const raw = JSON.stringify({ v: 1, entries: { a: old, b: entry() } });
+    expect(Object.keys(parseEntries(raw))).toEqual(['b']);
   });
 
   it('gives nothing for a text that is not valid or has another version', () => {

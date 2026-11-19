@@ -1,0 +1,6 @@
+description: A normal DAG for the general worker. It prints the host name of the worker.
+worker_selector:
+  role: general
+steps:
+  - id: hostname
+    run: hostname

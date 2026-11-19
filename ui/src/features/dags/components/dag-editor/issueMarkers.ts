@@ -22,6 +22,11 @@ const SEVERITY = { error: 8, warning: 4, notice: 2 } as const;
 /** Owner of the markers of the issues, for the editor and its code actions. */
 export const ISSUE_MARKER_OWNER = 'dagu-server';
 
+// The length of a line of the text (1-based), without a carriage return.
+function lineLength(text: string, line: number): number {
+  return (text.split('\n')[line - 1] ?? '').replace(/\r$/, '').length;
+}
+
 /**
  * Editor markers for server validation results. Each structured issue goes
  * on the text range that `locateIssue` finds: its line, its field or its
@@ -49,11 +54,16 @@ export function buildIssueMarkers(
       }
       continue;
     }
+    // A range of several lines (a step, a block scalar) would draw a squiggle
+    // under each of its lines, text included: the marker takes the first line.
+    const multiline = range.endLine > range.startLine;
     markers.push({
       startLineNumber: range.startLine,
       startColumn: range.startColumn,
-      endLineNumber: range.endLine,
-      endColumn: Math.max(range.endColumn, range.startColumn + 1),
+      endLineNumber: multiline ? range.startLine : range.endLine,
+      endColumn: multiline
+        ? Math.max(lineLength(text, range.startLine) + 1, range.startColumn + 1)
+        : Math.max(range.endColumn, range.startColumn + 1),
       message: issueMarkerMessage(issue.message),
       severity: SEVERITY[issue.severity],
     });

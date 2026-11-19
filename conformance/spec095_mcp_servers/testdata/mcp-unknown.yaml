@@ -1,0 +1,14 @@
+description: An agent step that names a MCP server that does not exist.
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Look in the docs.
+      tools:
+        mcp:
+          - name: ghost
+            allow: [search]

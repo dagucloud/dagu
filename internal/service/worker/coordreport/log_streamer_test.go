@@ -151,6 +151,7 @@ func TestToProtoStreamType(t *testing.T) {
 	}{
 		{"stdout", runctx.StreamTypeStdout, coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDOUT},
 		{"stderr", runctx.StreamTypeStderr, coordinatorv1.LogStreamType_LOG_STREAM_TYPE_STDERR},
+		{"agent stream", runctx.StreamTypeAgentStream, coordinatorv1.LogStreamType_LOG_STREAM_TYPE_AGENT_STREAM},
 		{"unknown", 999, coordinatorv1.LogStreamType_LOG_STREAM_TYPE_UNSPECIFIED},
 	}
 	for _, tt := range tests {
@@ -1596,6 +1597,58 @@ func TestLogStreamer_StdoutAndStderr(t *testing.T) {
 	}
 	assert.True(t, hasStdout)
 	assert.True(t, hasStderr)
+}
+
+// The raw stream of a CLI agent goes to the coordinator as its own stream type,
+// with the identity of the attempt that the other logs carry. It stays out of
+// the scheduler log, which mirrors stdout and stderr only.
+func TestLogStreamer_AgentStream(t *testing.T) {
+	t.Parallel()
+
+	mockStream := &mockStreamLogsClient{}
+	client := &logStreamerMockClient{
+		streamLogsFunc: func(_ context.Context) (coordinatorv1.CoordinatorService_StreamLogsClient, error) {
+			return mockStream, nil
+		},
+	}
+	streamer := coordreport.NewLogStreamer(client, "worker-1", "run-1", "dag-1", "attempt-1", ir.DAGRunRef{})
+	streamer.SetClaimKey("claim-1")
+
+	localFile, err := os.CreateTemp(t.TempDir(), "scheduler-*.log")
+	require.NoError(t, err)
+	defer func() { _ = localFile.Close() }()
+	scheduler := streamer.NewSchedulerLogWriter(context.Background(), localFile)
+
+	const events = "{\"type\":\"system\"}\n{\"type\":\"result\"}\n"
+	agent := streamer.NewStepWriter(context.Background(), "review", runctx.StreamTypeAgentStream)
+	_, err = agent.Write([]byte(events))
+	require.NoError(t, err)
+	require.NoError(t, agent.Close())
+	require.NoError(t, scheduler.Close())
+
+	chunks := mockStream.getSentChunks()
+	require.NotEmpty(t, chunks)
+	var final *coordinatorv1.LogChunk
+	for _, chunk := range chunks {
+		if chunk.StreamType != coordinatorv1.LogStreamType_LOG_STREAM_TYPE_AGENT_STREAM {
+			continue
+		}
+		assert.Equal(t, "review", chunk.StepName)
+		assert.Equal(t, "worker-1", chunk.WorkerId)
+		assert.Equal(t, "run-1", chunk.DagRunId)
+		assert.Equal(t, "attempt-1", chunk.AttemptId)
+		assert.Equal(t, "claim-1", chunk.AttemptKey)
+		if chunk.IsFinal {
+			final = chunk
+		}
+	}
+	require.NotNil(t, final, "the stream ends with a final marker")
+	assert.Equal(t, uint64(len(events)), final.GetByteOffset())
+	assert.Equal(t, events, replayPositionedLog(chunks, coordinatorv1.LogStreamType_LOG_STREAM_TYPE_AGENT_STREAM))
+
+	logData, err := os.ReadFile(localFile.Name())
+	require.NoError(t, err)
+	assert.NotContains(t, string(logData), "system", "the agent stream is not mirrored to the scheduler log")
 }
 
 func TestLogStreamer_StepOutputMirrorsToSchedulerLog(t *testing.T) {

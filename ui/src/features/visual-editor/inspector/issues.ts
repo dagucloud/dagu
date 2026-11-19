@@ -2,6 +2,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { StepKey, StepView, ValidationIssue } from '../contracts';
+import {
+  AGENT_NEEDS_ENDPOINT_MESSAGE,
+  AGENT_NEEDS_PROVIDER_MESSAGE,
+  missingEndpointName,
+  RESTART_WAIT_MISSING_MESSAGE,
+  RESTART_WITH_RETRY_MESSAGE,
+  RESTART_WITH_SCHEDULE_MESSAGE,
+  SECRETS_UNTRUSTED_MESSAGE,
+} from '../doc/issueMessages';
 import type { StepIssues } from './types';
 
 /**
@@ -70,6 +79,26 @@ export function refineIssue(
   issue: ValidationIssue,
   translate: IssueTranslate
 ): ValidationIssue {
+  if (
+    issue.message === SECRETS_UNTRUSTED_MESSAGE ||
+    issue.message === AGENT_NEEDS_ENDPOINT_MESSAGE ||
+    issue.message === AGENT_NEEDS_PROVIDER_MESSAGE ||
+    issue.message === RESTART_WITH_SCHEDULE_MESSAGE ||
+    issue.message === RESTART_WITH_RETRY_MESSAGE ||
+    issue.message === RESTART_WAIT_MISSING_MESSAGE
+  ) {
+    return { ...issue, message: translate(issue.message) };
+  }
+  const missing = missingEndpointName(issue.message);
+  if (missing !== undefined) {
+    return {
+      ...issue,
+      message: translate(
+        'endpoint "{name}" does not exist; add it on the AI page or choose another',
+        { name: missing }
+      ),
+    };
+  }
   const required = requiredFieldOf(issue);
   if (!required) return issue;
   return {

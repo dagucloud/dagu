@@ -121,7 +121,7 @@ func (a *API) dispatchSeededRun(ctx context.Context, dag *ir.DAG, status *ir.DAG
 		return err
 	}
 	opts := []executor.TaskOption{
-		executor.WithWorkerSelector(dag.WorkerSelector),
+		executor.WithWorkerSelector(dag.DispatchWorkerSelector()),
 		executor.WithPreviousStatus(status),
 		executor.WithBaseConfig(executor.ResolveBaseConfig(dag.BaseConfigData, a.config.Paths.BaseConfig), dag.BaseConfigWorkspace),
 	}

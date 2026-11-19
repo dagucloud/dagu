@@ -174,6 +174,32 @@ steps:
     }
   });
 
+  it('changes the steps when a later document changes', () => {
+    const multi = (command: string) =>
+      `steps:
+  - name: child
+    call: transform
+  - name: use
+    depends: [child]
+    run: echo "\${steps.child.outputs.x}"
+---
+name: transform
+steps:
+  - name: t
+    run: ${command}
+`;
+    const before = stepHashes(multi('echo a'));
+    const after = stepHashes(multi('echo b'));
+    expect([...before.keys()]).toEqual(['child', 'use']);
+    expect(after.get('child')).not.toBe(before.get('child'));
+    expect(after.get('use')).not.toBe(before.get('use'));
+  });
+
+  it('gives no hash when a later document cannot be read', () => {
+    const text = 'steps:\n  - name: a\n    run: x\n---\nsteps: [';
+    expect(stepHashes(text).size).toBe(0);
+  });
+
   it('gives no hash for a text that cannot be read', () => {
     expect(stepHashes('steps: [').size).toBe(0);
   });

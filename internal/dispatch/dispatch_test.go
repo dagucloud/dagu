@@ -55,6 +55,27 @@ func TestShouldDispatchToCoordinator(t *testing.T) {
 			defaultMode:    config.ExecutionModeLocal,
 			want:           false,
 		},
+		{
+			name:           "needs a CLI provider, dispatch",
+			dag:            agentDAG(),
+			hasCoordinator: true,
+			defaultMode:    config.ExecutionModeLocal,
+			want:           true,
+		},
+		{
+			name:           "needs a CLI provider, ForceLocal does not keep it local",
+			dag:            func() *ir.DAG { d := agentDAG(); d.ForceLocal = true; return d }(),
+			hasCoordinator: true,
+			defaultMode:    config.ExecutionModeLocal,
+			want:           true,
+		},
+		{
+			name:           "needs a CLI provider, no coordinator, local",
+			dag:            agentDAG(),
+			hasCoordinator: false,
+			defaultMode:    config.ExecutionModeDistributed,
+			want:           false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -63,4 +84,9 @@ func TestShouldDispatchToCoordinator(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+// agentDAG returns a DAG with one agent.run step of the engine cli.
+func agentDAG() *ir.DAG {
+	return &ir.DAG{Steps: []ir.Step{{Name: "code", ID: "code", Agent: &ir.AgentRun{Provider: "claude"}}}}
 }

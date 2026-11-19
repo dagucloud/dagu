@@ -1,0 +1,19 @@
+# A DAG with no agent.run step keeps the old default: a step is untrusted only
+# with untrusted: true. Each step prints one line: <step>:trusted or <step>:untrusted.
+secrets:
+  - name: GIT_TOKEN
+    provider: env
+    key: SPEC092_GIT_TOKEN
+steps:
+  - id: by_run
+    run: if env | grep -q '^DAGU_SPEC092_MARKER='; then printf 'by_run:%s\n' trusted; else printf 'by_run:%s\n' untrusted; fi
+
+  - id: marked
+    depends: [by_run]
+    untrusted: true
+    run: if env | grep -q '^DAGU_SPEC092_MARKER='; then printf 'marked:%s\n' trusted; else printf 'marked:%s\n' untrusted; fi
+
+  - id: opted_out
+    depends: [marked]
+    untrusted: false
+    run: if env | grep -q '^DAGU_SPEC092_MARKER='; then printf 'opted_out:%s\n' trusted; else printf 'opted_out:%s\n' untrusted; fi

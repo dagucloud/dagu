@@ -1,0 +1,84 @@
+description: >-
+  The endpoint path of Spec 094. The step code names the endpoint demo-upstream and the
+  named MCP server vault. The agent worker holds no model key: the CLI calls a relay on the
+  loopback, and the coordinator adds the key of the endpoint. The coordinator also adds the
+  token of the MCP server. Demo: the CLI is a fake claude, the model API is a fake, and the
+  MCP server is a fake that needs a bearer token.
+type: graph
+params:
+  - name: CUSTOMER_ID
+    type: string
+    description: The customer of the ticket. The DAG fixes it, so the agent cannot change it.
+    default: c-42
+# The fake CLI reads its scenario from this variable.
+env:
+  - FAKE_CLAUDE_SCENARIO: endpoint
+steps:
+  - id: code
+    working_dir: .
+    action: agent.run
+    timeout_sec: 300
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        verdict: { type: string, enum: [done, blocked] }
+        summary: { type: string }
+        # The timing of the streamed model call, in milliseconds after the request.
+        stream:
+          type: object
+          additionalProperties: false
+          properties:
+            events: { type: integer }
+            first_ms: { type: integer }
+            last_ms: { type: integer }
+            text_ok: { type: boolean }
+          required: [events, first_ms, last_ms, text_ok]
+        # What the agent knows about its key. The hash is that of the relay secret.
+        environment:
+          type: object
+          additionalProperties: false
+          properties:
+            api_key_sha256_prefix: { type: string }
+            base_url_is_loopback: { type: boolean }
+            oauth_token_in_environment: { type: boolean }
+          required: [api_key_sha256_prefix, base_url_is_loopback, oauth_token_in_environment]
+        skills: { type: array, items: { type: string } }
+        # The answer of each tool, as the agent got it.
+        tools:
+          type: object
+          additionalProperties: false
+          properties:
+            vault_lookup: { type: string }
+            vault_admin: { type: string }
+            lookup_ticket: { type: string }
+          required: [vault_lookup, vault_admin, lookup_ticket]
+      required: [verdict, summary, stream, environment, skills, tools]
+    with:
+      # The endpoint holds the address and the key of the model API. The AI page of the
+      # server lists it. The DAG needs a place in its list "allow.dags".
+      endpoint:
+        name: demo-upstream
+        model: claude-demo
+      provider: claude
+      prompt: |
+        Call the tool vault_lookup of the server vault with the key build.
+        Call the tool lookup-ticket. Then read your skills and give the result.
+      skills: [project-rules, commit-message]
+      max_tool_iterations: 20
+      max_tool_calls: 10
+      # The tool bridge serves this DAG. CUSTOMER_ID is fixed by the DAG.
+      dags:
+        - name: lookup-ticket
+          params:
+            CUSTOMER_ID: ${CUSTOMER_ID}
+            QUESTION:
+              from_ai:
+                description: A question about the ticket of the customer
+      tools:
+        # A named MCP server. The entry has no URL and no token. The CLI connects to the
+        # relay, and the coordinator adds the token of the entry "vault". The DAG allows
+        # one tool of the server.
+        mcp:
+          - name: vault
+            allow: [vault_lookup]

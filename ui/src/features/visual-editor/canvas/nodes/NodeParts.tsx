@@ -23,6 +23,7 @@ import { Badge } from '@/components/ui/badge';
 import { IconButton } from '@/components/ui/icon-button';
 import { RepeatBadge } from '@/components/ui/repeat-badge';
 import { RetryCount } from '@/components/ui/retry-count';
+import { StatusDot } from '@/components/ui/status-dot';
 import { useI18n } from '@/i18n/I18nProvider';
 import { ELAPSED_SLOT, useStepElapsed } from '@/hooks/useStepElapsed';
 import { formatStepSpan } from '@/lib/formatStepSpan';
@@ -31,6 +32,9 @@ import { nodeStatusText, statusLabelText } from '@/lib/status-utils';
 import { cn } from '@/lib/utils';
 import type { CanvasDirection, CanvasNode, StepKey } from '../../contracts';
 import { plainIssueMessage } from '../../inspector/issues';
+import { TrustedBadge, UntrustedBadge } from '../../agentRun/UntrustedBadge';
+import { agentFactLines, hiddenFactCount } from '../agentCard';
+import { ConditionMarks } from './ConditionMarks';
 import { InputMark } from '../../references/InputMark';
 import { reusedDurationMs } from '../../run/inputProvenance';
 import { CountBadge } from '../CountBadge';
@@ -42,10 +46,11 @@ import { statusCardClass } from '../statusStyle';
 import {
   COMPACT_CAPTION_HEIGHT,
   COMPACT_CAPTION_WIDTH,
-  COMPACT_NODE_SIZE,
+  cardSize,
   compactBox,
   compactCardOffset,
 } from '../layout';
+import type { CanvasNodeWithRoutes } from '../types';
 import { canvasShortcut } from '../useCanvasKeymap';
 import { useToolbarPlacement } from './toolbarPlacement';
 
@@ -64,11 +69,11 @@ export const HANDLE_CLASS =
   '!h-2 !w-2 !rounded-full !border !border-border !bg-muted-foreground';
 
 /**
- * Outline of a node card. In the light theme it is slightly thicker and
- * darker; the dark theme keeps its 1 px outline.
+ * Outline of a node card, in the node line token (3:1 on the canvas in both
+ * themes). In the light theme it is slightly thicker; the dark theme keeps its
+ * 1 px outline.
  */
-export const CARD_OUTLINE =
-  'border-[1.5px] border-muted-foreground/60 dark:border dark:border-muted-foreground/40';
+export const CARD_OUTLINE = 'border-[1.5px] border-node-line dark:border';
 
 /**
  * The light of the cursor of the YAML, and the same light while a host
@@ -192,13 +197,15 @@ export function failureTitle(run: CanvasNode['run']): string | undefined {
   return run.error?.trim() || undefined;
 }
 
-/** Icon tile of a node. */
+/** Icon tile of a node; the large one is the rounded tile of the card of a chat step. */
 export function NodeIcon({
   node,
   small = false,
+  large = false,
 }: {
   node: Pick<CanvasNode, 'kind' | 'action'>;
   small?: boolean;
+  large?: boolean;
 }) {
   const Icon = actionIcon(node);
   return (
@@ -206,11 +213,15 @@ export function NodeIcon({
       className={cn(
         // The glyph is a thin stroke on a tinted card: it takes the full
         // foreground colour to stay legible in both themes.
-        'flex shrink-0 items-center justify-center rounded bg-muted text-foreground',
-        small ? 'h-6 w-6' : 'h-8 w-8'
+        'flex shrink-0 items-center justify-center bg-muted text-foreground',
+        large ? 'h-12 w-12 rounded-xl' : 'rounded',
+        !large && (small ? 'h-6 w-6' : 'h-8 w-8')
       )}
     >
-      <Icon className={small ? 'h-3.5 w-3.5' : 'h-4 w-4'} aria-hidden="true" />
+      <Icon
+        className={large ? 'h-6 w-6' : small ? 'h-3.5 w-3.5' : 'h-4 w-4'}
+        aria-hidden="true"
+      />
     </span>
   );
 }
@@ -290,6 +301,65 @@ export function IssueBadges({
 function hostStatusLabel(run: NonNullable<CanvasNode['run']>) {
   const label = run.statusLabel;
   return label && statusLabelText(label) === label ? label : undefined;
+}
+
+/**
+ * Status dot of the run of a node. Its name is the translated status, or the
+ * text of the host. A step that waits for an approval or an input also gets a
+ * Waiting badge.
+ */
+export function RunDot({
+  run,
+  reuseOutline,
+  dotOnly = false,
+}: Pick<CanvasNode, 'run' | 'reuseOutline'> & {
+  /** No Waiting badge: a compact card has no room for it. */
+  dotOnly?: boolean;
+}) {
+  const { ts } = useI18n();
+  if (!run) {
+    return null;
+  }
+  // Only a step that an executed step depends on is a step that the source
+  // run could not give: a step after it is skipped and shows a plain dot.
+  const reuse: 'success' | 'failed' | undefined = run.reused
+    ? 'success'
+    : reuseOutline === 'failure' && run.reuseFailed
+      ? 'failed'
+      : undefined;
+  const sourceRunId = run.reused?.runId ?? run.reuseFailed?.runId ?? '';
+  const waitingLabel = ts('Waiting');
+  return (
+    <>
+      <span
+        data-testid="ve-canvas-node-status"
+        data-status={run.status}
+        className="inline-flex shrink-0"
+      >
+        {/* A step that the run reused has the hatched dot of the Activity
+            list: green when its source run gave the outputs, red when not. */}
+        <StatusDot
+          kind="step"
+          status={run.status}
+          label={run.reused ? ts('Reused') : hostStatusLabel(run)}
+          reused={reuse}
+          reusedFrom={reuse ? shortRunId(sourceRunId) : undefined}
+        />
+      </span>
+      {!dotOnly && run.status === NodeStatus.Waiting && (
+        <Badge
+          variant="warning"
+          size="sm"
+          role="img"
+          aria-label={waitingLabel}
+          title={waitingLabel}
+          data-testid="ve-canvas-node-waiting"
+        >
+          {waitingLabel}
+        </Badge>
+      )}
+    </>
+  );
 }
 
 /**
@@ -470,6 +540,52 @@ export function ReusedMarker({
 }
 
 /**
+ * The mark of the effective trust of a step: untrusted, or trusted although
+ * the DAG has an agent step. The tooltip tells where the value comes from.
+ * Nothing for a step that the agent rule leaves alone.
+ */
+export function TrustMark({
+  node,
+  compact = true,
+}: {
+  node: Pick<CanvasNode, 'untrusted' | 'trust'>;
+  compact?: boolean;
+}): ReactElement | null {
+  if (node.untrusted) {
+    return <UntrustedBadge compact={compact} source={node.trust} />;
+  }
+  return node.trust ? (
+    <TrustedBadge compact={compact} source={node.trust} />
+  ) : null;
+}
+
+/**
+ * The counter of a compact agent card: how many of its keys (retry policy,
+ * timeout, secrets, output schema) the tile has no room to draw. The tooltip
+ * lists them. Nothing when there is none.
+ */
+function HiddenFacts({
+  node,
+}: {
+  node: Pick<CanvasNodeWithRoutes, 'agent'>;
+}): ReactElement | null {
+  const { ts } = useI18n();
+  const count = hiddenFactCount(node);
+  if (count === 0) return null;
+  const title = agentFactLines(ts, node, false).join('\n');
+  return (
+    <span
+      data-testid="ve-node-facts"
+      className="absolute right-1 top-1/2 flex -translate-y-1/2"
+    >
+      <Badge size="sm" role="img" title={title} aria-label={title}>
+        +{count}
+      </Badge>
+    </span>
+  );
+}
+
+/**
  * Icon, label and subtitle of a node, with run state. The issue badges sit
  * on the top right corner of the card. A failed step shows the first line of
  * its error in place of the subtitle.
@@ -477,23 +593,35 @@ export function ReusedMarker({
 export function NodeHeader({
   node,
   className,
+  large = false,
 }: {
   node: CanvasNode;
   className?: string;
+  /** The card of a chat step: a larger tile and title. */
+  large?: boolean;
 }) {
   const failure = failureTitle(node.run)?.split('\n')[0];
   return (
-    <div className={cn('flex min-w-0 items-center gap-2 px-2.5', className)}>
+    <div
+      className={cn(
+        'flex min-w-0 items-center',
+        large ? 'gap-3 px-4' : 'gap-2 px-2.5',
+        className
+      )}
+    >
       <IssueBadges
         corner
         issues={node.issues}
         issueMessages={node.issueMessages}
       />
-      <NodeIcon node={node} />
+      <NodeIcon node={node} large={large} />
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex min-w-0 items-center gap-1.5">
           <span
-            className="min-w-0 flex-1 truncate text-sm font-medium"
+            className={cn(
+              'min-w-0 flex-1 truncate font-medium',
+              large ? 'text-base font-semibold' : 'text-sm'
+            )}
             title={node.label}
           >
             {node.label}
@@ -526,7 +654,9 @@ export function NodeHeader({
               </span>
             )
           )}
+          <ConditionMarks node={node} />
           <RepeatMarker node={node} />
+          <TrustMark node={node} />
           <RunMeta run={node.run} />
         </div>
       </div>
@@ -575,13 +705,16 @@ function isSkipped(
 export function NodeCompactBody({
   node,
   className,
+  large = false,
 }: {
   node: CanvasNode;
   className?: string;
+  /** The card of a chat step: a larger tile. */
+  large?: boolean;
 }) {
   return (
     <div className={cn('flex min-w-0 items-center justify-center', className)}>
-      <NodeIcon node={node} />
+      <NodeIcon node={node} large={large} />
       <RunStatus run={node.run} reuseOutline={node.reuseOutline} noBadge />
       {node.repeat && (
         <span className="absolute bottom-0.5 right-0.5 flex">
@@ -593,6 +726,17 @@ export function NodeCompactBody({
           <ReusedMarker node={node} />
         </span>
       )}
+      {(node.untrusted || node.trust) && (
+        <span className="absolute bottom-0.5 left-1/2 flex -translate-x-1/2">
+          <TrustMark node={node} />
+        </span>
+      )}
+      {(node.continueOn || node.preconditions) && (
+        <span className="absolute right-1 top-1 flex gap-0.5">
+          <ConditionMarks node={node} />
+        </span>
+      )}
+      <HiddenFacts node={node as CanvasNodeWithRoutes} />
       <IssueBadges
         corner
         issues={node.issues}
@@ -614,13 +758,17 @@ export function CompactFrame({
   direction,
   label,
   children,
+  chat = false,
 }: {
   direction: CanvasDirection;
   label: string;
   children: ReactNode;
+  /** The card is the larger card of a chat step. */
+  chat?: boolean;
 }) {
-  const box = compactBox(direction);
-  const { top } = compactCardOffset(direction);
+  const card = cardSize({ key: '', ...(chat ? { chat } : {}) }, true);
+  const box = compactBox(direction, card);
+  const { top } = compactCardOffset(direction, card);
   return (
     <div
       data-testid="ve-canvas-compact-frame"
@@ -636,7 +784,7 @@ export function CompactFrame({
         className="absolute truncate rounded-sm bg-background/80 px-1 text-center text-xs leading-5 text-foreground"
         style={{
           left: (box.width - COMPACT_CAPTION_WIDTH) / 2,
-          top: top + COMPACT_NODE_SIZE,
+          top: top + card.height,
           width: COMPACT_CAPTION_WIDTH,
           height: COMPACT_CAPTION_HEIGHT,
         }}
@@ -648,8 +796,12 @@ export function CompactFrame({
 }
 
 /** Place of a compact card in its frame. */
-export function compactCardPlace(direction: CanvasDirection): CSSProperties {
-  return { ...compactCardOffset(direction) };
+export function compactCardPlace(
+  direction: CanvasDirection,
+  chat = false
+): CSSProperties {
+  const card = cardSize({ key: '', ...(chat ? { chat } : {}) }, true);
+  return { ...compactCardOffset(direction, card) };
 }
 
 /** The Copy button swaps its icon for a Check for this long after a click. */

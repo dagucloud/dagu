@@ -19,6 +19,17 @@ describe('buildEditorOptions', () => {
     expect(options.renderFinalNewline).toBe('on');
   });
 
+  // A prompt is long text, and French text has no-break spaces before the
+  // colon and the question mark: a long line wraps and strings are not marked.
+  it('wraps long lines and leaves the characters of strings unmarked', () => {
+    const options = buildEditorOptions({ readOnly: false, lineNumbers: true });
+    expect(options).toMatchObject({ wordWrap: 'on', wrappingIndent: 'same' });
+    expect(options.unicodeHighlight).toMatchObject({
+      includeStrings: false,
+      includeComments: false,
+    });
+  });
+
   it('follows the read-only and line number settings', () => {
     const options = buildEditorOptions({ readOnly: true, lineNumbers: false });
     expect(options).toMatchObject({
