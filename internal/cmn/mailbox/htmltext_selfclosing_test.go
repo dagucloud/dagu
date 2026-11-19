@@ -16,8 +16,29 @@ import (
 func TestHTMLToTextSelfClosingRawTextTag(t *testing.T) {
 	t.Parallel()
 
-	got := htmlToText(strings.NewReader("<head><style/></head><body>Hello</body>"))
-	assert.Contains(t, got, "Hello")
-	assert.NotContains(t, got, "<body>")
-	assert.NotContains(t, got, "</head>")
+	for _, tc := range []struct {
+		name string
+		html string
+		want string
+	}{
+		{"in head", "<head><style/></head><body>Hello</body>", "Hello"},
+		{"outside head", "<style/>Hello<body>World</body>", "World"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := htmlToText(strings.NewReader(tc.html))
+			assert.Contains(t, got, tc.want)
+			assert.NotContains(t, got, "<body>")
+			assert.NotContains(t, got, "</head>")
+		})
+	}
+}
+
+// An end tag that never had a matching start tag must not close the skip
+// opened by an ancestor (e.g. <head>), which would expose its hidden text.
+func TestHTMLToTextUnmatchedEndTagDoesNotCloseOuterSkip(t *testing.T) {
+	t.Parallel()
+
+	got := htmlToText(strings.NewReader("<head><title/></title>hidden</head><body>visible</body>"))
+	assert.NotContains(t, got, "hidden")
+	assert.Contains(t, got, "visible")
 }
