@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { AlertTriangle, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { useState, type ReactElement, type ReactNode } from 'react';
 import type { components, UpcomingRunsHold } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,10 @@ import {
 } from '@/features/dags/components/step-details/PanelShell';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
-import { getScheduleSummary } from '@/lib/dagSchedule';
+import {
+  describeScheduleCoincidence,
+  getScheduleSummary,
+} from '@/lib/dagSchedule';
 import type { ValidationIssue } from '../contracts';
 import {
   scheduleParamIssueIndex,
@@ -32,6 +35,7 @@ import { UpcomingRuns } from './UpcomingRuns';
 
 type ParamDef = components['schemas']['ParamDef'];
 type Schedule = components['schemas']['Schedule'];
+type ScheduleCoincidence = components['schemas']['ScheduleCoincidence'];
 type UpcomingRun = components['schemas']['UpcomingRun'];
 
 function Shell({
@@ -149,6 +153,8 @@ interface RowContext {
   paramDefs: readonly ParamDef[];
   /** Issues of the row's overrides, from the server. */
   issues: ValidationIssue[];
+  /** Why the entry starts no run at a time it shares with another one. */
+  coincidence?: string;
   onParamChange(name: string, value: OverrideValue | null): void;
 }
 
@@ -250,6 +256,7 @@ function ExpressionRow({
         />
       )}
       <ScheduleSummary expression={draft} />
+      <CoincidenceWarning text={row.coincidence} />
       <RowParams params={params} {...row} />
       {previewed && <NextRunsPreview expression={draft.trim()} />}
     </li>
@@ -277,8 +284,19 @@ function EntryRow({
             : 'Edit the timing of this entry in the YAML.'
         )}
       </p>
+      <CoincidenceWarning text={row.coincidence} />
       {entry.params !== null && <RowParams params={entry.params} {...row} />}
     </li>
+  );
+}
+
+function CoincidenceWarning({ text }: { text?: string }): ReactElement | null {
+  if (!text) return null;
+  return (
+    <p className="flex items-start gap-1 text-xs text-warning">
+      <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+      <span>{text}</span>
+    </p>
   );
 }
 
@@ -317,6 +335,7 @@ export function CronLauncherPanel({
   schedules = [],
   paramDefs = [],
   issues = [],
+  coincidences,
   onChange,
   onParamChange,
   onClose,
@@ -333,6 +352,8 @@ export function CronLauncherPanel({
   paramDefs?: readonly ParamDef[];
   /** Issues of the validated workflow; those of schedule overrides show on their rows. */
   issues?: ValidationIssue[];
+  /** Start schedules that another one starts in place of, indexing schedules. */
+  coincidences?: ScheduleCoincidence[];
   /** The new list of start expressions; the other entries stay. */
   onChange(expressions: string[], removedIndex?: number): void;
   /** Sets (value) or clears (null) a parameter override of a start entry. */
@@ -343,7 +364,8 @@ export function CronLauncherPanel({
   ): void;
   onClose(): void;
 }): ReactElement {
-  const { ts } = useI18n();
+  const { ts, locale } = useI18n();
+  const dayjsLocale = locale === 'zh-CN' ? 'zh-cn' : locale;
   const [added, setAdded] = useState('');
   // A row keeps its position as key so that it stays mounted across its
   // own edits. A removal moves the rows after it to other positions, so it
@@ -357,6 +379,25 @@ export function CronLauncherPanel({
     onChange([...expressions, next]);
     setAdded('');
   };
+  // The server's schedules may lag behind the text being edited: they
+  // describe the rows only when they list the same entries.
+  const aligned =
+    schedules.length === schedule.entries.length &&
+    schedule.entries.every(
+      (entry, index) =>
+        entry.expressionIndex === undefined ||
+        schedules[index]?.expression?.trim() === entry.schedule.expression
+    );
+  const coincidenceOf = (entryIndex: number) =>
+    aligned
+      ? describeScheduleCoincidence(
+          entryIndex,
+          coincidences,
+          schedules,
+          ts,
+          dayjsLocale
+        )
+      : undefined;
   const issuesOf = (entryIndex: number) =>
     issues.filter(
       (issue) =>
@@ -379,6 +420,7 @@ export function CronLauncherPanel({
               editable,
               paramDefs,
               issues: issuesOf(entryIndex),
+              coincidence: coincidenceOf(entryIndex),
               onParamChange: (name, value) =>
                 onParamChange?.(entryIndex, name, value),
             };

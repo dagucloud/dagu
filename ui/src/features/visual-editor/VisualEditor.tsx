@@ -1993,6 +1993,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
               schedules={details?.schedule}
               paramDefs={details?.paramDefs}
               issues={validation?.issues}
+              coincidences={details?.scheduleCoincidences}
               onChange={setSchedule}
               onParamChange={setScheduleParam}
               onClose={closeLauncher}

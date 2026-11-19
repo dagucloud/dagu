@@ -664,3 +664,62 @@ describe('CronLauncherPanel entries that are not plain cron', () => {
     expect(within(rows[0]!).queryByRole('alert')).toBeNull();
   });
 });
+
+describe('CronLauncherPanel coinciding schedules', () => {
+  const coincidences = [
+    {
+      scheduleIndex: 1,
+      startedScheduleIndex: 0,
+      time: '2026-11-23T05:00:00+09:00',
+      timezone: 'Asia/Tokyo',
+    },
+  ];
+  const warning =
+    'Does not start at Mon 2026-11-23 05:00 Asia/Tokyo: 0 * * * * · mode: x is due then and starts instead.';
+
+  function renderCoinciding(
+    schedules: Parameters<typeof CronLauncherPanel>[0]['schedules']
+  ) {
+    render(
+      <CronLauncherPanel
+        schedule={cronSchedule(
+          ['0 * * * *', '0 5 * * *'],
+          [{ mode: 'x' }, { mode: 'y' }]
+        )}
+        editable
+        schedules={schedules}
+        coincidences={coincidences}
+        onChange={() => undefined}
+        onClose={() => undefined}
+      />
+    );
+    return within(screen.getByLabelText('Schedules')).getAllByRole('listitem');
+  }
+
+  it('warns on the schedule that another one starts in place of', () => {
+    const rows = renderCoinciding([
+      {
+        expression: '0 * * * *',
+        kind: ScheduleKind.cron,
+        paramOverrides: { mode: 'x' },
+      },
+      {
+        expression: '0 5 * * *',
+        kind: ScheduleKind.cron,
+        paramOverrides: { mode: 'y' },
+      },
+    ]);
+    expect(rows[1]).toHaveTextContent(warning);
+    expect(rows[0]).not.toHaveTextContent('Does not start');
+  });
+
+  // A validation of an older text numbers other entries: its warning would
+  // land on the wrong row.
+  it('shows no warning while the server lists other entries', () => {
+    const rows = renderCoinciding([
+      { expression: '0 * * * *', kind: ScheduleKind.cron },
+      { expression: '0 6 * * *', kind: ScheduleKind.cron },
+    ]);
+    expect(rows[1]).not.toHaveTextContent('Does not start');
+  });
+});
