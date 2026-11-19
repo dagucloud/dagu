@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/aiendpoint"
+	"github.com/dagucloud/dagu/v2/internal/aigateway"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
@@ -67,6 +69,27 @@ func NewStores(ctx context.Context, cfg *config.Config, backend persis.Backend) 
 	return stores, nil
 }
 
+// enableAIModels gives the AI endpoint service its models lists (Spec 093, "The
+// models list"). The reader calls the providers through the same client as the
+// gateway: the proxy of ai.upstream.proxy_url only, TLS verification on, and no
+// redirect. The timeout is ai.models_timeout_sec.
+func enableAIModels(ctx context.Context, cfg *config.Config, backend persis.Backend, service *aiendpoint.Service) {
+	if service == nil {
+		return
+	}
+	client, err := aigateway.NewUpstreamClient(aigateway.LimitsFromConfig(cfg.AI.Relay), cfg.AI.Upstream.ProxyURL)
+	if err != nil {
+		logger.Warn(ctx, "Failed to create the client of the AI models lists", tag.Error(err))
+		return
+	}
+	reader, err := aiendpoint.NewModelsReader(client, time.Duration(cfg.AI.ModelsTimeoutSec)*time.Second)
+	if err != nil {
+		logger.Warn(ctx, "Failed to create the reader of the AI models lists", tag.Error(err))
+		return
+	}
+	persisfile.EnableAIEndpointModels(ctx, service, backend.Collection(persis.CollectionAIEndpointModels), reader)
+}
+
 func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend, stores *frontend.Stores) error {
 	// Base config edits change every DAG definition, so they signal the
 	// scheduler on other hosts the same way DAG edits do.
@@ -107,6 +130,9 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 	}
 
 	stores.Secret = persisfile.NewSecretStore(ctx, cfg, backend.Collection(persis.CollectionSecrets))
+	stores.AIEndpoint = persisfile.NewAIEndpointService(ctx, backend.Collection(persis.CollectionAIEndpoints), stores.Secret)
+	enableAIModels(ctx, cfg, backend, stores.AIEndpoint)
+	stores.AIMCPServer = persisfile.NewAIMCPServerService(ctx, backend.Collection(persis.CollectionAIMCPServers), stores.Secret)
 
 	wikiStore, err := newWikiStore(cfg)
 	if err != nil {

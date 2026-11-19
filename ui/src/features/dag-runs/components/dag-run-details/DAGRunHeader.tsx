@@ -13,7 +13,11 @@ import StatusIcon from '@/components/ui/status-icon';
 import AutoRetryBadge from '../common/AutoRetryBadge';
 import { DAGRunActions } from '../common';
 import { RunMetaLine } from '../common/RunMetaLine';
-import { buildDAGPageURL, buildDAGRunPageURL } from '../../lib/dagRunUrls';
+import {
+  buildDAGPageURL,
+  buildDAGRunPageURL,
+  rootRunFileName,
+} from '../../lib/dagRunUrls';
 import { runStatusText } from '@/lib/status-utils';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -53,15 +57,19 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
   const copyLinkLabel = ts(
     linkCopied ? 'Link copied' : 'Copy link to this run'
   );
+  // A root run has its own file; a sub-run has it only through the root run.
+  const rootFileName = isSubRun
+    ? rootRunFileName(rootDAGRun)
+    : dagRun.sourceFileName;
   const copyRunLink = () => {
     const basePrefix = config.basePath === '/' ? '' : (config.basePath ?? '');
     const runPath = buildDAGRunPageURL({
       rootDAGRunName: dagRun.rootDAGRunName,
       rootDAGRunId: dagRun.rootDAGRunId,
-      fileName: isSubRun ? undefined : dagRun.sourceFileName,
-      subDAGRunId: isSubRun ? dagRun.dagRunId : undefined,
+      fileName: rootFileName,
       remoteNode,
       workspace,
+      subDAGRunId: isSubRun ? dagRun.dagRunId : undefined,
     });
     void copyLink(`${window.location.origin}${basePrefix}${runPath}`);
   };
@@ -72,6 +80,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
       buildDAGRunPageURL({
         rootDAGRunName: dagRun.rootDAGRunName,
         rootDAGRunId: dagRun.rootDAGRunId,
+        fileName: rootFileName,
         remoteNode,
         workspace,
       })
@@ -85,6 +94,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
         buildDAGRunPageURL({
           rootDAGRunName: dagRun.rootDAGRunName,
           rootDAGRunId: dagRun.rootDAGRunId,
+          fileName: rootFileName,
           remoteNode,
           workspace,
           subDAGRunId: dagRun.parentDAGRunId,
@@ -158,6 +168,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
               href={buildDAGRunPageURL({
                 rootDAGRunName: dagRun.rootDAGRunName,
                 rootDAGRunId: dagRun.rootDAGRunId,
+                fileName: rootFileName,
                 remoteNode,
                 workspace,
               })}
@@ -184,6 +195,7 @@ const DAGRunHeader: React.FC<DAGRunHeaderProps> = ({
                 href={buildDAGRunPageURL({
                   rootDAGRunName: dagRun.rootDAGRunName,
                   rootDAGRunId: dagRun.rootDAGRunId,
+                  fileName: rootFileName,
                   remoteNode,
                   workspace,
                   subDAGRunId: dagRun.parentDAGRunId,

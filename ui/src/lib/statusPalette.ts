@@ -124,3 +124,30 @@ export function statusClasses(
 ): ToneClasses {
   return TONE_CLASSES[statusTone(status)];
 }
+
+/**
+ * The colour of each tone in each theme, for a drawing that cannot read a CSS
+ * variable, such as an exported image or a Mermaid graph. Each one equals the
+ * --graph-* token of the same theme.
+ */
+export const GRAPH_TONE_COLORS: Record<
+  'light' | 'dark',
+  Record<StatusTone, string>
+> = {
+  light: {
+    success: '#178a44',
+    error: '#c8382f',
+    running: '#5d4fe0',
+    warning: '#9a5d0b',
+    aborted: '#a8208a',
+    neutral: '#80808b',
+  },
+  dark: {
+    success: '#22c55e',
+    error: '#ef5350',
+    running: '#a89ff8',
+    warning: '#d9a03c',
+    aborted: '#e57ac8',
+    neutral: '#8a8d99',
+  },
+};
