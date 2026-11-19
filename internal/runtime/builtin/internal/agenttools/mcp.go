@@ -5,6 +5,7 @@ package agenttools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -78,7 +79,8 @@ func withMCPSession(
 
 	parsed, err := url.Parse(endpoint)
 	if err != nil {
-		return fmt.Errorf("connect to MCP server %s: %w", redactEndpoint(endpoint), err)
+		// The parse error quotes the whole URL.
+		return errors.New("connect to MCP server: the URL is not valid")
 	}
 	httpClient := &http.Client{Transport: headerTransport{base: http.DefaultTransport, origin: originOf(parsed), headers: headers}}
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "dagu", Version: "v2"}, nil)
@@ -89,11 +91,38 @@ func withMCPSession(
 		MaxRetries:           -1,
 	}, nil)
 	if err != nil {
-		return fmt.Errorf("connect to MCP server %s: %w", redactEndpoint(endpoint), err)
+		return fmt.Errorf("connect to MCP server %s: %w", redactEndpoint(endpoint), redactURLError(err))
 	}
 	defer func() { _ = session.Close() }()
-	return fn(ctx, session)
+	return redactURLError(fn(ctx, session))
 }
+
+// redactURLError hides the user info and the query of the URL that a *url.Error
+// in err names. Each error that wraps it already holds its text, so the message
+// is rebuilt with the redacted URL.
+func redactURLError(err error) error {
+	urlErr, ok := errors.AsType[*url.Error](err)
+	if !ok {
+		return err
+	}
+	redacted := *urlErr
+	redacted.URL = redactEndpoint(urlErr.URL)
+	return &redactedError{
+		message: strings.ReplaceAll(err.Error(), urlErr.Error(), redacted.Error()),
+		err:     &redacted,
+	}
+}
+
+// redactedError is an error whose message no longer holds a secret of a URL. It
+// unwraps to the redacted *url.Error, so the cause stays reachable.
+type redactedError struct {
+	message string
+	err     error
+}
+
+func (e *redactedError) Error() string { return e.message }
+
+func (e *redactedError) Unwrap() error { return e.err }
 
 // listMCPTools returns every tool that the server lists.
 func listMCPTools(

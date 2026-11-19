@@ -4,8 +4,12 @@
 package agenttools
 
 import (
+	"context"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,4 +41,26 @@ func TestHeaderTransportKeepsTheCredentialsOnTheOrigin(t *testing.T) {
 	assert.Equal(t, "Bearer t0ken", rec.seen["https://MCP.example.com/mcp"])
 	assert.Empty(t, rec.seen["https://other.example.com/steal"])
 	assert.Empty(t, rec.seen["http://mcp.example.com/mcp"], "a change of scheme is another origin")
+}
+
+// The URL of an MCP entry can hold a key in its query. No error of a failed
+// connection repeats it, also in the error that the HTTP client wraps.
+func TestMCPErrorsHideTheURLSecrets(t *testing.T) {
+	t.Parallel()
+	const secret = "s3cr3t-key"
+	server := httptest.NewServer(http.NotFoundHandler())
+	closedURL := server.URL
+	server.Close()
+
+	_, err := listMCPTools(context.Background(), closedURL+"/mcp?api_key="+secret, nil)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), secret)
+	assert.Contains(t, err.Error(), strings.TrimPrefix(closedURL, "http://")+"/mcp")
+	urlErr, ok := errors.AsType[*url.Error](err)
+	require.True(t, ok, "the cause stays reachable: %v", err)
+	assert.NotContains(t, urlErr.URL, secret)
+
+	_, err = listMCPTools(context.Background(), "https://user:"+secret+"%zz@mcp.example.com/mcp", nil)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), secret)
 }
