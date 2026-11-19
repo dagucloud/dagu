@@ -14,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
 	"github.com/dagucloud/dagu/v2/internal/cmn/hostpattern"
+	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
 )
@@ -508,14 +509,14 @@ func (o *operator) extract(ctx context.Context, index int, spec extractSpec, tim
 	}
 	// Later pages are compared with this one, so it is tidied as they are.
 	tidy(values)
-	settled, _ := json.Marshal(values)
+	settled, _ := jsonutil.MarshalUnescaped(values)
 	detail := string(settled)
 	if spec.Pages != nil {
 		pages, err := o.readPages(ctx, index, spec, schema, values, timeout)
 		if err != nil {
 			return opResult{}, o.onPage(ctx, err)
 		}
-		settled, _ = json.Marshal(values)
+		settled, _ = jsonutil.MarshalUnescaped(values)
 		detail = fmt.Sprintf("%d pages: %s", pages, settled)
 	}
 	// Only the fields a schema lists are published, matching the output

@@ -271,6 +271,20 @@ func TestExtractFoundNothingWarnsAndCapturesPage(t *testing.T) {
 	}
 }
 
+// The extract's detail shows the answer's text as read, without escaping
+// &, < or >.
+func TestExtractDetailKeepsCharacters(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(map[string]string{"The search link": `{"link":"https://shop.example.com/search?q=a&page=2"}`}))
+	execution := run.execute(`{"url": "https://shop.example.com/cart", "do": [
+		{"extract": {"instruction": "The search link", "schema": {"type": "object", "properties": {"link": {"type": "string", "format": "uri"}}}}}
+	]}`, nil)
+	require.NoError(t, execution.err)
+
+	assert.Contains(t, execution.stderr.String(), "q=a&page=2")
+}
+
 // An extract answered with null rather than an object fails. A paged
 // extract would otherwise add later pages' items to a nil map.
 func TestExtractRejectsNullAnswer(t *testing.T) {
