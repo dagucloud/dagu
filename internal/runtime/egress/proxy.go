@@ -138,6 +138,7 @@ func New(opts Options) (*Proxy, error) {
 		DisableCompression:    true,
 		MaxIdleConns:          16,
 		IdleConnTimeout:       30 * time.Second,
+		TLSHandshakeTimeout:   connectTimeout,
 		ResponseHeaderTimeout: 5 * time.Minute,
 	}
 	p.reverse = &httputil.ReverseProxy{
