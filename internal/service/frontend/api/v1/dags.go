@@ -2844,7 +2844,7 @@ func (a *API) scheduleFires(dag *ir.DAG) (*[]api.UpcomingRun, *[]api.ScheduleCoi
 		limit = coincidenceScanLimit
 	}
 	fires := dag.UpcomingFires(time.Now().In(location), limit)
-	coincidences := scheduleCoincidences(fires)
+	coincidences := scheduleCoincidences(dag.Schedule, fires, location)
 	fires = fires[:min(len(fires), upcomingRunsLimit)]
 	runs := make([]api.UpcomingRun, 0, len(fires))
 	for _, fire := range fires {
@@ -2876,22 +2876,28 @@ func (a *API) scheduleFires(dag *ir.DAG) (*[]api.UpcomingRun, *[]api.ScheduleCoi
 	return &runs, coincidences
 }
 
-// scheduleCoincidences reports each schedule that coincides with another one
-// at its first such fire, or nil when none does.
-func scheduleCoincidences(fires []ir.ScheduleFire) *[]api.ScheduleCoincidence {
+// scheduleCoincidences reports each schedule that another one starts in
+// place of, at its first such fire in the zone of the started schedule, or
+// nil when none does. location is the zone that unzoned schedules use.
+func scheduleCoincidences(schedules []ir.Schedule, fires []ir.ScheduleFire, location *time.Location) *[]api.ScheduleCoincidence {
 	var coincidences []api.ScheduleCoincidence
 	reported := make(map[int]bool)
 	for _, fire := range fires {
-		for _, index := range fire.Coinciding {
-			if reported[index] {
+		for _, coincidence := range fire.Coinciding {
+			if reported[coincidence.Index] {
 				continue
 			}
-			reported[index] = true
+			reported[coincidence.Index] = true
+			zone := schedules[coincidence.StartedIndex].Location()
+			if zone == nil {
+				zone = location
+			}
+			at := fire.Time.In(zone)
 			coincidences = append(coincidences, api.ScheduleCoincidence{
-				ScheduleIndex:        index,
-				StartedScheduleIndex: fire.ScheduleIndex,
-				Time:                 fire.Time,
-				Timezone:             fireZoneLabel(fire.Time),
+				ScheduleIndex:        coincidence.Index,
+				StartedScheduleIndex: coincidence.StartedIndex,
+				Time:                 at,
+				Timezone:             fireZoneLabel(at),
 			})
 		}
 	}

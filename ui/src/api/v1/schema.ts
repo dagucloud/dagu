@@ -6527,7 +6527,7 @@ export interface components {
         ScheduleCoincidence: {
             /** @description Position in the DAG's schedule list of the entry that starts no run */
             scheduleIndex: number;
-            /** @description Position in the DAG's schedule list of the entry that starts the run instead */
+            /** @description Position in the DAG's schedule list of the entry that starts the run instead. When it has a runtime profile and the other entry has none, it starts instead only while that profile is active. */
             startedScheduleIndex: number;
             /**
              * Format: date-time

@@ -16680,7 +16680,7 @@ components:
           description: "Position in the DAG's schedule list of the entry that starts no run"
         startedScheduleIndex:
           type: integer
-          description: "Position in the DAG's schedule list of the entry that starts the run instead"
+          description: "Position in the DAG's schedule list of the entry that starts the run instead. When it has a runtime profile and the other entry has none, it starts instead only while that profile is active."
         time:
           type: string
           format: date-time
