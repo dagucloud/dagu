@@ -51,6 +51,10 @@ defines it.
 The skills directory is the directory `skills` that Dagu finds next to a DAG file, as
 [Spec 090](090-agent-tools.md) defines. The API uses `skills` in the DAGs directory.
 
+DAG discovery never enters the directory `skills` at the root of the DAGs directory, also when it
+is recursive. A YAML file of a skill is never a DAG. A directory `skills` deeper in the tree is an
+ordinary directory for discovery.
+
 A refused skill is a skill that breaks one rule of an error in this spec. Dagu never loads a
 refused skill. The API and the UI list it with the state ERROR.
 
