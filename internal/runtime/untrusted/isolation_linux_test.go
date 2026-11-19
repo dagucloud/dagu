@@ -200,15 +200,23 @@ func TestIsolatedStepPlace(t *testing.T) {
 
 // A file with more than one link, such as one of a package store, fails the
 // step: a change of owner would also give its path outside the work directory.
+// The failed Begin gives back what it handed over and removes nothing, since
+// no process of the restricted user ran.
 func TestIsolatedStepHardLink(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()
 	workDir := testWorkDir(t)
+	src := filepath.Join(workDir, "repo", "src")
 	outside := filepath.Join(workDir, "..", filepath.Base(workDir)+"-store")
 	require.NoError(t, os.WriteFile(outside, []byte("store\n"), 0o644))
 	t.Cleanup(func() { _ = os.Remove(outside) })
-	linked := filepath.Join(workDir, "repo", "src", "linked.txt")
+	// The handoff walks in name order: the link to outside goes first.
+	tool := filepath.Join(src, "a-tool")
+	require.NoError(t, os.Symlink(outside, tool))
+	linked := filepath.Join(src, "z-linked.txt")
 	require.NoError(t, os.Link(outside, linked))
+	// The group of the restricted user does not make the file its own.
+	require.NoError(t, os.Chown(linked, -1, testGID))
 
 	step, err := Begin(ctx, testRequest(t, workDir, workDir))
 	if err == nil {
@@ -218,8 +226,11 @@ func TestIsolatedStepHardLink(t *testing.T) {
 	assert.Contains(t, err.Error(), "the file has more than one link")
 	assert.Contains(t, err.Error(), linked)
 	assert.Equal(t, os.Geteuid(), ownerUID(t, outside), "the other path keeps its owner")
-	assert.FileExists(t, linked)
-	assert.Equal(t, os.Geteuid(), ownerUID(t, filepath.Join(workDir, "repo", "src", "main.txt")), "a failed Begin gives nothing")
+	for _, path := range []string{tool, linked, filepath.Join(src, "main.txt")} {
+		_, err := os.Lstat(path)
+		require.NoError(t, err, "a failed Begin removes nothing")
+		assert.Equal(t, os.Geteuid(), ownerUID(t, path), path)
+	}
 }
 
 // Untrusted steps run one at a time. The second step waits with a line in its

@@ -307,13 +307,19 @@ func (iso *isolation) restore(verifyGit bool) error {
 			if e.uid() != int(iso.uid) && e.gid() != int(iso.gid) {
 				return false, nil
 			}
-			if e.isLink() {
+			// After a failed handoff, every entry is the worker's and the restore
+			// removes none. The handoff stops before a file with more than one
+			// link, so such a file was never given: only its group matched.
+			if !verifyGit && e.isRegular() && e.st.Nlink > 1 {
+				return false, nil
+			}
+			if verifyGit && e.isLink() {
 				if target, bad := iso.badLink(e); bad {
 					fail(iso.removeEntry(e, "the restricted user made the link %s to "+target))
 					return true, nil
 				}
 			}
-			if e.isRegular() && e.st.Nlink > 1 {
+			if verifyGit && e.isRegular() && e.st.Nlink > 1 {
 				fail(iso.removeEntry(e, "the restricted user made the file %s with more than one link"))
 				return true, nil
 			}
