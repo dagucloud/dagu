@@ -301,6 +301,42 @@ func TestIsolatedStepKeepsALaterProcess(t *testing.T) {
 	}
 }
 
+// A process that fails to start does not keep the watcher of the process
+// before it from stopping what that process left: the leftover holds the
+// stdout pipe, so Wait returns only once the watcher stops it.
+func TestIsolatedStepFailedStartKeepsTheCleanup(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := Begin(ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = step.End(ctx) })
+	stepCtx := WithStep(ctx, step)
+
+	first := exec.Command("/bin/sh", "-c", "sleep 1000 & sleep 1") //nolint:gosec
+	first.Dir = workDir
+	first.Env = []string{"PATH=/usr/bin:/bin"}
+	var stdout bytes.Buffer
+	first.Stdout = &stdout
+	firstProcess, err := StartManagedProcess(stepCtx, first)
+	require.NoError(t, err)
+	defer func() { _ = firstProcess.Release() }()
+
+	failing := exec.Command(filepath.Join(workDir, "no-such-binary")) //nolint:gosec
+	failing.Dir = workDir
+	_, err = StartManagedProcess(stepCtx, failing)
+	require.Error(t, err)
+
+	waited := make(chan error, 1)
+	go func() { waited <- firstProcess.Wait() }()
+	select {
+	case err := <-waited:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the process left by the first one kept its pipe open")
+	}
+}
+
 // The config of the tool bridge belongs to the restricted user with the mode
 // 0400, and a shared folder is readable and not writable.
 func TestIsolatedStepFiles(t *testing.T) {

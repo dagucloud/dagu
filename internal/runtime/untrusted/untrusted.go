@@ -222,6 +222,9 @@ func StartManagedProcess(ctx context.Context, cmd *exec.Cmd) (*cmdutil.ManagedPr
 	}
 	process, err := cmdutil.StartManagedProcess(cmd)
 	if err != nil {
+		if step.iso != nil {
+			step.iso.abandon(generation)
+		}
 		return nil, err
 	}
 	if step.iso != nil {

@@ -113,7 +113,8 @@ type isolation struct {
 	stopping atomic.Bool
 	ended    atomic.Bool
 	// generation counts the processes of the step. The watcher of a process
-	// stops when a later process of the step starts.
+	// stops when a later process of the step is prepared, unless that process
+	// fails to start.
 	generation atomic.Int64
 	// files numbers the files of the attempt, so that two attempts of the step
 	// get two files.
@@ -622,6 +623,13 @@ func (iso *isolation) started(pid int, generation int64) {
 			}
 		}
 	})
+}
+
+// abandon gives back the generation of a process that failed to start, so
+// that the watcher of the process before it still stops what that process
+// left. A process prepared after it keeps its own generation.
+func (iso *isolation) abandon(generation int64) {
+	iso.generation.CompareAndSwap(generation, generation-1)
 }
 
 // killLeftovers stops the processes of the restricted user while no next

@@ -30,6 +30,8 @@ func (*isolation) end(context.Context) error { return nil }
 
 func (*isolation) started(int, int64) {}
 
+func (*isolation) abandon(int64) {}
+
 func (*isolation) prepare(*exec.Cmd, []string) (int64, error) { return 0, errNeedsLinux }
 
 func (*isolation) writeOwnedFile(string, []byte) (string, error) { return "", errNeedsLinux }
