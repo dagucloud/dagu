@@ -234,6 +234,16 @@ func walk(dir string) (entries []entry, issues []Issue, newest time.Time, err er
 	add := func(rule, file, format string, args ...any) {
 		issues = append(issues, Issue{Severity: SeverityError, Rule: rule, File: file, Message: fmt.Sprintf(format, args...)})
 	}
+	checkLinks := func(path string, info fs.FileInfo) error {
+		n, err := linkCount(filepath.Join(dir, filepath.FromSlash(path)), info)
+		if err != nil {
+			return err
+		}
+		if n > 1 {
+			add(RuleHardlink, path, "a hard link is not allowed; the file has %d links", n)
+		}
+		return nil
+	}
 	count := 0
 	var visit func(rel string) error
 	visit = func(rel string) error {
@@ -282,8 +292,8 @@ func walk(dir string) (entries []entry, issues []Issue, newest time.Time, err er
 						entries = append(entries, entry{rel: path, kind: kindSpecial, mtime: info.ModTime().UnixNano(), mode: mode})
 						continue
 					}
-					if linkCount(info) > 1 {
-						add(RuleHardlink, path, "a hard link is not allowed; the file has %d links", linkCount(info))
+					if err := checkLinks(path, info); err != nil {
+						return err
 					}
 					entries = append(entries, entry{rel: path, kind: kindFile, size: info.Size(), mtime: info.ModTime().UnixNano(), mode: mode.Perm()})
 					continue
@@ -318,8 +328,8 @@ func walk(dir string) (entries []entry, issues []Issue, newest time.Time, err er
 				if strings.HasPrefix(name, ".") && name != KeepFileName {
 					add(RuleHiddenFile, path, "the hidden file %q is not allowed; only .gitkeep is allowed", name)
 				}
-				if linkCount(info) > 1 {
-					add(RuleHardlink, path, "a hard link is not allowed; the file has %d links", linkCount(info))
+				if err := checkLinks(path, info); err != nil {
+					return err
 				}
 				entries = append(entries, entry{rel: path, kind: kindFile, size: info.Size(), mtime: info.ModTime().UnixNano(), mode: mode.Perm()})
 			default:

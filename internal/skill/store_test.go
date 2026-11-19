@@ -13,7 +13,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -132,9 +131,6 @@ func TestReadSeesALayoutChange(t *testing.T) {
 			require.NoError(t, os.Mkdir(filepath.Join(dir, "references", ".cache"), 0o755))
 		}},
 		{name: "hard link from outside", rule: skill.RuleHardlink, change: func(t *testing.T, dir string) {
-			if runtime.GOOS == "windows" {
-				t.Skip("the link count of a file is not read on Windows")
-			}
 			require.NoError(t, os.Link(filepath.Join(dir, "SKILL.md"), filepath.Join(t.TempDir(), "outside.md")))
 		}},
 	}

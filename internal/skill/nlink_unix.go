@@ -11,9 +11,9 @@ import (
 )
 
 // linkCount returns the number of hard links of a regular file.
-func linkCount(info fs.FileInfo) uint64 {
+func linkCount(_ string, info fs.FileInfo) (uint64, error) {
 	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		return uint64(st.Nlink) //nolint:unconvert // The type of Nlink depends on the platform.
+		return uint64(st.Nlink), nil //nolint:unconvert // The type of Nlink depends on the platform.
 	}
-	return 1
+	return 1, nil
 }

@@ -322,9 +322,6 @@ func TestFolderRules(t *testing.T) {
 
 	t.Run("hard link", func(t *testing.T) {
 		t.Parallel()
-		if runtime.GOOS == "windows" {
-			t.Skip("the link count of a file is not read on Windows")
-		}
 		dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good, "references/a.md": "x"})
 		require.NoError(t, os.Link(filepath.Join(dir, "references", "a.md"), filepath.Join(dir, "references", "b.md")))
 		s, err := skill.Read(dir)
@@ -335,9 +332,6 @@ func TestFolderRules(t *testing.T) {
 
 	t.Run("hard link of SKILL.md", func(t *testing.T) {
 		t.Parallel()
-		if runtime.GOOS == "windows" {
-			t.Skip("the link count of a file is not read on Windows")
-		}
 		dir := writeSkill(t, "demo", map[string]string{"SKILL.md": good})
 		require.NoError(t, os.Link(filepath.Join(dir, "SKILL.md"), filepath.Join(t.TempDir(), "outside.md")))
 		s, err := skill.Read(dir)
