@@ -232,21 +232,43 @@ func TestRunPublishesExtractedOutputs(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-final.png"), "a successful step keeps no screenshot by default")
 }
 
-// An extract that reads nothing but empty values completes as found nothing, with
-// a warning and a screenshot of the page it read.
+// An extract whose published values are all empty completes as found
+// nothing, with a warning and a screenshot of the page it read. Fields the
+// schema does not list are not published, so they do not count as found.
 func TestExtractFoundNothingWarnsAndCapturesPage(t *testing.T) {
 	t.Parallel()
 
-	run := newTestRun(t, pageModel(map[string]string{"The order number": `{"order":""}`}))
-	execution := run.execute(`{"url": "https://shop.example.com/cart", "do": [
-		{"extract": {"instruction": "The order number", "schema": {"type": "object", "required": ["order"], "properties": {"order": {"type": "string"}}}}}
-	]}`, nil)
-	require.NoError(t, execution.err)
+	tests := map[string]struct {
+		answer string
+		order  string
+		want   map[string]any
+	}{
+		"empty values": {
+			answer: `{"order":""}`,
+			order:  `{"type": "string"}`,
+			want:   map[string]any{"order": ""},
+		},
+		"unlisted fields": {
+			answer: `{"order":null,"note":"no orders yet"}`,
+			order:  `{"type": ["string", "null"]}`,
+			want:   map[string]any{"order": nil},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			run := newTestRun(t, pageModel(map[string]string{"The order number": tt.answer}))
+			execution := run.execute(`{"url": "https://shop.example.com/cart", "do": [
+				{"extract": {"instruction": "The order number", "schema": {"type": "object", "required": ["order"], "properties": {"order": `+tt.order+`}}}}
+			]}`, nil)
+			require.NoError(t, execution.err)
 
-	assert.Equal(t, map[string]any{"order": ""}, extracted(execution.exec))
-	assert.Contains(t, execution.stderr.String(), "extract found nothing on https://shop.example.com/cart")
-	assert.Equal(t, []string{"goto:completed", "extract:completed"}, eventNames(execution.exec.GetAgentSession()))
-	assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-found-nothing.png"))
+			assert.Equal(t, tt.want, extracted(execution.exec))
+			assert.Contains(t, execution.stderr.String(), "extract found nothing on https://shop.example.com/cart")
+			assert.Equal(t, []string{"goto:completed", "extract:completed"}, eventNames(execution.exec.GetAgentSession()))
+			assert.FileExists(t, filepath.Join(run.artifacts, "browser", "shop", "01-found-nothing.png"))
+		})
+	}
 }
 
 func TestWhenSkipsOperation(t *testing.T) {

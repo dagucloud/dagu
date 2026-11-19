@@ -504,7 +504,7 @@ func (o *operator) extract(ctx context.Context, index int, spec extractSpec, tim
 		return opResult{}, fmt.Errorf("extract returned a non-object value: %w", err)
 	}
 	// Later pages are compared with this one, so it is tidied as they are.
-	found := settleAnswer(values)
+	tidy(values)
 	settled, _ := json.Marshal(values)
 	detail := string(settled)
 	if spec.Pages != nil {
@@ -512,17 +512,8 @@ func (o *operator) extract(ctx context.Context, index int, spec extractSpec, tim
 		if err != nil {
 			return opResult{}, o.onPage(ctx, err)
 		}
-		found = !blank(values)
 		settled, _ = json.Marshal(values)
 		detail = fmt.Sprintf("%d pages: %s", pages, settled)
-	}
-	if !found {
-		detail = "found nothing: " + detail
-		where := ""
-		if pageURL, err := o.eng.CurrentURL(ctx); err == nil {
-			where = " on " + pageURL
-		}
-		o.warn(index, fmt.Sprintf("extract found nothing%s: every value the model read was null or empty", where))
 	}
 	// Only the fields a schema lists are published, matching the output
 	// names known when the DAG loads.
@@ -533,6 +524,15 @@ func (o *operator) extract(ctx context.Context, index int, spec extractSpec, tim
 			continue
 		}
 		published[name] = value
+	}
+	found := !blank(published)
+	if !found {
+		detail = "found nothing: " + detail
+		where := ""
+		if pageURL, err := o.eng.CurrentURL(ctx); err == nil {
+			where = " on " + pageURL
+		}
+		o.warn(index, fmt.Sprintf("extract found nothing%s: every value the model read was null or empty", where))
 	}
 	return opResult{
 		Report: agentstep.Report{

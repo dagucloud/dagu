@@ -13,7 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSettleAnswer(t *testing.T) {
+// An answer's blank rows are dropped, and an answer left with only blank
+// values holds nothing.
+func TestTidyAnswer(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]struct {
@@ -54,7 +56,8 @@ func TestSettleAnswer(t *testing.T) {
 			t.Parallel()
 			var values map[string]any
 			require.NoError(t, json.Unmarshal([]byte(tt.answer), &values))
-			assert.Equal(t, tt.found, settleAnswer(values))
+			tidy(values)
+			assert.Equal(t, tt.found, !blank(values))
 			got, _ := json.Marshal(values)
 			assert.JSONEq(t, tt.want, string(got))
 		})

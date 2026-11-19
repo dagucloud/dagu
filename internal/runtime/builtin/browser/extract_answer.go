@@ -25,16 +25,8 @@ type answerMismatch struct{ message string }
 
 func (e answerMismatch) Error() string { return e.message }
 
-// settleAnswer drops the blank rows of the lists in values, as a model
-// writes "nothing here", and reports whether the answer still holds
-// anything.
-func settleAnswer(values map[string]any) bool {
-	tidy(values)
-	return !blank(values)
-}
-
 // tidy drops, in place, the list items in value that are objects with only
-// blank fields, and returns value. Other items keep their place, since the
+// blank fields, as a model writes "nothing here", and returns value. Other items keep their place, since the
 // position of a plain value in a list can carry meaning.
 func tidy(value any) any {
 	switch v := value.(type) {
