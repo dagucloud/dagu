@@ -751,10 +751,9 @@ type Coordinator struct {
 	Advertise  string // Registry address (auto-detected if empty)
 	Port       int
 	HealthPort int // HTTP health check port (default: 8091, 0 disables)
-	// WorkerWaitTimeout is how long a dispatch waits for a matching worker to
-	// take it before the run fails. A dispatch with no healthy matching worker
-	// waits as a queued run. Default: 2m; 0 refuses such a dispatch at once,
-	// and a dispatch that a healthy worker matched then waits 90 seconds.
+	// WorkerWaitTimeout is how long a dispatch with no healthy matching worker
+	// is held for one to register before the run fails. Default: 2m; 0 refuses
+	// such a dispatch at once.
 	WorkerWaitTimeout time.Duration
 	// WorkerPools binds the labels of a worker to the identity of its client
 	// certificate (Spec 092). It is empty when the file has no
