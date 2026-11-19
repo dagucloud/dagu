@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
 // parseExitCodeFromError attempts to extract an exit code from an error string.
@@ -54,6 +56,12 @@ func parseExitCodeFromError(errStr string) (int, bool) {
 func exitCodeFromError(execErr error) (int, bool) {
 	if execErr == nil {
 		return 0, false
+	}
+
+	// The failed attempt of an agent.run step carries the exit code of its kind,
+	// also when the cause is the exit status of the CLI process.
+	if agentErr, ok := executor.AsAgentError(execErr); ok {
+		return agentErr.ExitCode(), true
 	}
 
 	if exitErr, ok := errors.AsType[*exec.ExitError](execErr); ok {

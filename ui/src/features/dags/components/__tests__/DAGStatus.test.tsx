@@ -848,7 +848,8 @@ describe('DAGStatus', () => {
 
   describe('summary', () => {
     function renderSummary(
-      selectedRun: components['schemas']['DAGRunDetails']
+      selectedRun: components['schemas']['DAGRunDetails'],
+      pageFileName = 'example'
     ) {
       return render(
         <MemoryRouter>
@@ -857,10 +858,10 @@ describe('DAGStatus', () => {
               value={{
                 refresh: vi.fn(),
                 name: selectedRun.name,
-                fileName: 'example.yaml',
+                fileName: pageFileName,
               }}
             >
-              <DAGStatus dagRun={selectedRun} fileName="example.yaml" summary />
+              <DAGStatus dagRun={selectedRun} fileName={pageFileName} summary />
             </DAGContext.Provider>
           </AppBarContext.Provider>
         </MemoryRouter>
@@ -879,9 +880,21 @@ describe('DAGStatus', () => {
       expect(
         screen.queryByRole('link', { name: /Open run/ })
       ).not.toBeInTheDocument();
-      expect(
-        screen.queryByText(/are on the run page/)
-      ).not.toBeInTheDocument();
+      expect(screen.queryByText(/are on the run page/)).not.toBeInTheDocument();
+    });
+
+    // The name of a DAG can differ from the name of its file. The latest run
+    // of the workflow page has no sourceFileName: the page gives the file,
+    // and the link keeps the DAG name of the run.
+    it('links a waiting agent to the file of the page when the DAG name differs', () => {
+      const run = agentSessionRun();
+      run.nodes![1]!.agentSession!.state = AgentSessionState.waiting;
+      renderSummary(run, 'example-v2');
+
+      expect(screen.getByRole('link', { name: /Open run/ })).toHaveAttribute(
+        'href',
+        `/dags/example-v2?remoteNode=local&run=${run.dagRunId}&dagRunName=example`
+      );
     });
 
     // The conversation of a waiting agent needs the full view of the run.

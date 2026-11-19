@@ -1,0 +1,12 @@
+# The configuration of the agent worker of the test of one agent run. The
+# certificate has the identity agent-claude, which is in the pool agent-claude.
+peer:
+  insecure: false
+  cert_file: tls/agent-claude.crt
+  key_file: tls/agent-claude.key
+  client_ca_file: tls/dagu-ca.crt
+# The restricted user of the untrusted steps (Spec 092, "The restricted user").
+untrusted:
+  uid: 10001
+  gid: 10001
+env_passthrough_prefixes: [SPEC092_]

@@ -1,0 +1,35 @@
+working_dir: .
+env:
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: ${FAKE_CLAUDE_SCENARIO}
+steps:
+  - id: review
+    action: agent.run
+    stdout: review.out
+    stderr: review.err
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Help the customer.
+      max_tool_calls: 2
+      dags:
+        - name: lookup
+  - id: show
+    depends: review
+    # The outputs of an untrusted step reach the command through env (Spec 092).
+    env:
+      - CALLS: ${steps.review.outputs.tool_calls}
+    run: printf 'calls=%s\n' "$CALLS"
+    stdout: show.out
+---
+name: lookup
+description: Look up a customer
+params: [CUSTOMER_ID]
+env:
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+steps:
+  - command: echo "$CUSTOMER_ID" >> "$FAKE_CLAUDE_DIR/lookup.calls"
+  - command: echo "customer=$CUSTOMER_ID"
+    output: INFO
