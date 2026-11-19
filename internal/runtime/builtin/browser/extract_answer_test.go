@@ -14,12 +14,6 @@ import (
 func TestSettleAnswer(t *testing.T) {
 	t.Parallel()
 
-	schema := map[string]any{"type": "object", "properties": map[string]any{
-		"title": map[string]any{"type": "string"},
-		"rows": map[string]any{"type": "array", "items": map[string]any{
-			"type": "object", "properties": map[string]any{"name": map[string]any{"type": "string"}, "price": map[string]any{"type": "number"}},
-		}},
-	}}
 	tests := map[string]struct {
 		answer string
 		found  bool
@@ -43,13 +37,22 @@ func TestSettleAnswer(t *testing.T) {
 			found:  true,
 			want:   `{"rows": [{"name": "", "price": 0}]}`,
 		},
+		"plain values keep their place": {
+			answer: `{"tags": ["a", "", "b"]}`,
+			found:  true,
+			want:   `{"tags": ["a", "", "b"]}`,
+		},
+		"a list of blank values": {
+			answer: `{"tags": ["", " "]}`,
+			want:   `{"tags": ["", " "]}`,
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			var values map[string]any
 			require.NoError(t, json.Unmarshal([]byte(tt.answer), &values))
-			assert.Equal(t, tt.found, settleAnswer(schema, values))
+			assert.Equal(t, tt.found, settleAnswer(values))
 			got, _ := json.Marshal(values)
 			assert.JSONEq(t, tt.want, string(got))
 		})

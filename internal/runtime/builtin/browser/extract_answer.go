@@ -19,31 +19,32 @@ type answerMismatch struct{ message string }
 
 func (e answerMismatch) Error() string { return e.message }
 
-// settleAnswer drops the list items in values whose values are all empty,
-// as a model writes "nothing here", and reports whether the answer still
-// holds anything.
-func settleAnswer(schema, values map[string]any) bool {
-	return !blank(tidy(schema, values))
+// settleAnswer drops the blank rows of the lists in values, as a model
+// writes "nothing here", and reports whether the answer still holds
+// anything.
+func settleAnswer(values map[string]any) bool {
+	tidy(values)
+	return !blank(values)
 }
 
-// tidy drops the blank items of the lists in value, in place, and returns
-// value.
-func tidy(schema map[string]any, value any) any {
+// tidy drops, in place, the list items in value that are objects with only
+// blank fields, and returns value. Other items keep their place, since the
+// position of a plain value in a list can carry meaning.
+func tidy(value any) any {
 	switch v := value.(type) {
 	case map[string]any:
-		properties, _ := schema["properties"].(map[string]any)
 		for name, field := range v {
-			definition, _ := properties[name].(map[string]any)
-			v[name] = tidy(definition, field)
+			v[name] = tidy(field)
 		}
 		return v
 	case []any:
-		items, _ := schema["items"].(map[string]any)
 		kept := make([]any, 0, len(v))
 		for _, item := range v {
-			if item = tidy(items, item); !blank(item) {
-				kept = append(kept, item)
+			item = tidy(item)
+			if _, row := item.(map[string]any); row && blank(item) {
+				continue
 			}
+			kept = append(kept, item)
 		}
 		return kept
 	}
@@ -51,7 +52,7 @@ func tidy(schema map[string]any, value any) any {
 }
 
 // blank reports whether value holds nothing: null, an empty or blank
-// string, or a list or object of blank values.
+// string, or a list or object holding only blank values.
 func blank(value any) bool {
 	switch v := value.(type) {
 	case nil:
@@ -59,7 +60,12 @@ func blank(value any) bool {
 	case string:
 		return strings.TrimSpace(v) == ""
 	case []any:
-		return len(v) == 0
+		for _, item := range v {
+			if !blank(item) {
+				return false
+			}
+		}
+		return true
 	case map[string]any:
 		for _, field := range v {
 			if !blank(field) {

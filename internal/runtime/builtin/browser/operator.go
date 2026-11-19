@@ -504,7 +504,7 @@ func (o *operator) extract(ctx context.Context, index int, spec extractSpec, tim
 		return opResult{}, fmt.Errorf("extract returned a non-object value: %w", err)
 	}
 	// Later pages are compared with this one, so it is tidied as they are.
-	found := settleAnswer(spec.Schema, values)
+	found := settleAnswer(values)
 	settled, _ := json.Marshal(values)
 	detail := string(settled)
 	if spec.Pages != nil {
@@ -599,8 +599,8 @@ func (o *operator) readPages(ctx context.Context, index int, spec extractSpec, s
 		if err := json.Unmarshal(data, &page); err != nil {
 			return read, fmt.Errorf("extract returned a non-object value: %w", err)
 		}
-		// A page whose items are all blank holds none of the list.
-		tidy(spec.Schema, page)
+		// Tidied as the first page was, so the pages compare alike.
+		tidy(page)
 		items := pageItems(page, arrays)
 		if reflect.DeepEqual(items, last) {
 			return read, nil
