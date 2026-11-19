@@ -177,6 +177,10 @@ func (l *ConfigLoader) loadWorkerPoolsConfig(cfg *Config) error {
 	}
 	cfg.Coordinator.WorkerPools = pools
 	cfg.Coordinator.Dispatchers = dispatchers
+	if len(pools) > 0 {
+		l.warnings = append(l.warnings, workerPoolsKey+" and "+dispatchersKey+
+			" are not enforced yet: a worker with any valid certificate can still register any labels")
+	}
 	return nil
 }
 

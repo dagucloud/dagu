@@ -4,13 +4,15 @@
 package config
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// The pools of the example of Spec 092 load as typed values, in order.
+// The pools of the example of Spec 092 load as typed values, in order. Nothing
+// enforces them yet, so the start warns that they have no effect.
 func TestWorkerPoolsLoad(t *testing.T) {
 	cfg := loadFromYAML(t, `
 coordinator:
@@ -30,10 +32,12 @@ coordinator:
 		{Name: "general", Identities: []string{"general-worker", "general-worker-2"}, Labels: map[string]string{"zone": "*"}},
 	}, cfg.Coordinator.WorkerPools)
 	assert.Equal(t, []string{"server", "scheduler"}, cfg.Coordinator.Dispatchers)
+	assert.Contains(t, strings.Join(cfg.Warnings, "\n"), "coordinator.worker_pools and coordinator.dispatchers are not enforced yet")
 
-	plain := loadFromYAML(t, "coordinator:\n  port: 50055\n").Coordinator
-	assert.Empty(t, plain.WorkerPools)
-	assert.Empty(t, plain.Dispatchers)
+	plain := loadFromYAML(t, "coordinator:\n  port: 50055\n")
+	assert.Empty(t, plain.Coordinator.WorkerPools)
+	assert.Empty(t, plain.Coordinator.Dispatchers)
+	assert.NotContains(t, strings.Join(plain.Warnings, "\n"), "coordinator.worker_pools")
 }
 
 // coordinator.dispatchers is required with pools and invalid without them. An
