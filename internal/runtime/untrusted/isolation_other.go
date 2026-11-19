@@ -28,9 +28,9 @@ func isolate(_ context.Context, req Request, _ *Step) (*Step, error) {
 
 func (*isolation) end(context.Context) error { return nil }
 
-func (*isolation) started(int) {}
+func (*isolation) started(int, int64) {}
 
-func (*isolation) prepare(*exec.Cmd, []string) error { return errNeedsLinux }
+func (*isolation) prepare(*exec.Cmd, []string) (int64, error) { return 0, errNeedsLinux }
 
 func (*isolation) writeOwnedFile(string, []byte) (string, error) { return "", errNeedsLinux }
 

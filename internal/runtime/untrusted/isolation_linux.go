@@ -113,7 +113,7 @@ type isolation struct {
 	stopping atomic.Bool
 	ended    atomic.Bool
 	// generation counts the processes of the step. The watcher of a process
-	// stops when the next process of the step starts.
+	// stops when a later process of the step starts.
 	generation atomic.Int64
 	// files numbers the files of the attempt, so that two attempts of the step
 	// get two files.
@@ -551,24 +551,25 @@ func (iso *isolation) writeOwnedFile(name string, data []byte) (string, error) {
 	return path, nil
 }
 
-// prepare applies the isolation to cmd.
-func (iso *isolation) prepare(cmd *exec.Cmd, env []string) error {
+// prepare applies the isolation to cmd. It returns the generation of the
+// process, which started takes once the process runs.
+func (iso *isolation) prepare(cmd *exec.Cmd, env []string) (int64, error) {
 	if iso.ended.Load() {
-		return fmt.Errorf("untrusted step %q: the step ended", iso.step)
+		return 0, fmt.Errorf("untrusted step %q: the step ended", iso.step)
 	}
 	if len(cmd.ExtraFiles) > 0 {
-		return fmt.Errorf("untrusted step %q: the process cannot get extra files", iso.step)
+		return 0, fmt.Errorf("untrusted step %q: the process cannot get extra files", iso.step)
 	}
 	dir := cmd.Dir
 	if dir != "" && !filepath.IsAbs(dir) {
 		abs, err := filepath.Abs(dir)
 		if err != nil {
-			return stepError(iso.step, "resolve the working directory", dir, err)
+			return 0, stepError(iso.step, "resolve the working directory", dir, err)
 		}
 		dir = abs
 	}
 	if _, ok := iso.relativeToWork(dir); !ok {
-		return fmt.Errorf("untrusted step %q: the working directory %s is not in the work directory of the run", iso.step, cmd.Dir)
+		return 0, fmt.Errorf("untrusted step %q: the working directory %s is not in the work directory of the run", iso.step, cmd.Dir)
 	}
 	env = setEnv(env, "HOME", iso.home)
 	env = setEnv(env, "TMPDIR", iso.home)
@@ -590,19 +591,18 @@ func (iso *isolation) prepare(cmd *exec.Cmd, env []string) error {
 	cmd.SysProcAttr.Setctty = false
 	cmd.SysProcAttr.Noctty = false
 	cmd.SysProcAttr.Pgid = 0
-	iso.generation.Add(1)
-	return nil
+	return iso.generation.Add(1), nil
 }
 
-// started watches the root process of the step. When it ends, Dagu stops each
-// process of the restricted user, so that a process that it left cannot keep
-// the pipes of the step open. The watch stops when the next process of the
-// step starts: it does not stop that process.
-func (iso *isolation) started(pid int) {
+// started watches the root process of the step, of the generation that
+// prepare gave it. When it ends, Dagu stops each process of the restricted
+// user, so that a process that it left cannot keep the pipes of the step open.
+// The watch stops when a later process of the step starts: it does not stop
+// that process.
+func (iso *isolation) started(pid int, generation int64) {
 	if pid <= 0 {
 		return
 	}
-	generation := iso.generation.Load()
 	// The process is not reaped yet: its caller has not called Wait.
 	fd, err := unix.PidfdOpen(pid, 0)
 	if err != nil {

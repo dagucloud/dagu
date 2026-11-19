@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -254,6 +255,50 @@ func TestIsolatedStepsOneAtATime(t *testing.T) {
 	second, err := Begin(context.Background(), testRequest(t, workDir, workDir))
 	require.NoError(t, err)
 	require.NoError(t, second.End(context.Background()))
+}
+
+// Two processes of one step can be prepared before either starts. The end of
+// the first one does not stop the second, which was prepared later.
+func TestIsolatedStepKeepsALaterProcess(t *testing.T) {
+	requireIsolation(t)
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	step, err := Begin(ctx, testRequest(t, workDir, workDir))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = step.End(ctx) })
+
+	command := func(args ...string) *exec.Cmd {
+		cmd := exec.Command(args[0], args[1:]...) //nolint:gosec
+		cmd.Dir = workDir
+		cmd.Env = []string{"PATH=/usr/bin:/bin"}
+		return cmd
+	}
+	first, second := command("/bin/true"), command("/bin/sleep", "1000")
+	firstGeneration, err := step.prepare(first)
+	require.NoError(t, err)
+	secondGeneration, err := step.prepare(second)
+	require.NoError(t, err)
+
+	firstProcess, err := cmdutil.StartManagedProcess(first)
+	require.NoError(t, err)
+	defer func() { _ = firstProcess.Release() }()
+	step.iso.started(firstProcess.PID(), firstGeneration)
+	secondProcess, err := cmdutil.StartManagedProcess(second)
+	require.NoError(t, err)
+	defer func() { _ = secondProcess.Release() }()
+	step.iso.started(secondProcess.PID(), secondGeneration)
+
+	require.NoError(t, firstProcess.Wait())
+	ended := make(chan struct{})
+	go func() {
+		_ = secondProcess.Wait()
+		close(ended)
+	}()
+	select {
+	case <-ended:
+		t.Fatal("the end of the first process stopped the second one")
+	case <-time.After(time.Second):
+	}
 }
 
 // The config of the tool bridge belongs to the restricted user with the mode

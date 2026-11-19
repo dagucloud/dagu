@@ -216,7 +216,8 @@ func StartManagedProcess(ctx context.Context, cmd *exec.Cmd) (*cmdutil.ManagedPr
 		}
 		return cmdutil.StartManagedProcess(cmd)
 	}
-	if err := step.prepare(cmd); err != nil {
+	generation, err := step.prepare(cmd)
+	if err != nil {
 		return nil, err
 	}
 	process, err := cmdutil.StartManagedProcess(cmd)
@@ -224,17 +225,18 @@ func StartManagedProcess(ctx context.Context, cmd *exec.Cmd) (*cmdutil.ManagedPr
 		return nil, err
 	}
 	if step.iso != nil {
-		step.iso.started(process.PID())
+		step.iso.started(process.PID(), generation)
 	}
 	return process, nil
 }
 
-// prepare applies the rules of the step to cmd before it starts.
-func (s *Step) prepare(cmd *exec.Cmd) error {
+// prepare applies the rules of the step to cmd before it starts. With
+// isolation, it returns the generation of the process.
+func (s *Step) prepare(cmd *exec.Cmd) (int64, error) {
 	env := FilterEnv(cmd.Env)
 	if s.iso == nil {
 		cmd.Env = env
-		return nil
+		return 0, nil
 	}
 	return s.iso.prepare(cmd, env)
 }
