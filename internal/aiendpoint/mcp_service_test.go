@@ -99,10 +99,12 @@ func TestMCPCreateStoresTheCredentialsAsManagedSecrets(t *testing.T) {
 	data, err := json.Marshal(server)
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), tokenOne)
+	assert.NotContains(t, string(data), headerVal)
 	secretPage, err := f.backend.Collection("secrets").List(ctx, persis.ListQuery{})
 	require.NoError(t, err)
 	for _, rec := range secretPage.Records {
 		assert.NotContains(t, string(rec.Data), tokenOne, "the secret store encrypts the value")
+		assert.NotContains(t, string(rec.Data), headerVal, "the secret store encrypts the value")
 	}
 }
 
