@@ -125,11 +125,11 @@ int main(int argc, char **argv) {
 `
 
 // Property (Spec 092, "End"): Dagu stops each process of the restricted user,
-// and waits until no process of that user is left. killUser skips each process
-// whose status is Z, and reads only the entries of the list of /proc. A process
-// whose main thread exits keeps its other threads: its leader is a zombie, and
-// its threads are not in the list. End returns nil and the thread of the agent
-// keeps running, so it watches the later steps.
+// and waits until no process of that user is left. The attack: a process whose
+// main thread exits keeps its other threads. Its leader is a zombie and its
+// threads are not in the list of /proc, so a scan that skips Z processes or
+// reads only that list misses them, and the thread of the agent keeps running
+// to watch the later steps.
 func TestReviewZombieLeaderSurvivesEnd(t *testing.T) {
 	requireIsolation(t)
 	gcc, err := exec.LookPath("gcc")
@@ -163,15 +163,6 @@ func TestReviewZombieLeaderSurvivesEnd(t *testing.T) {
 	second, _ := os.ReadFile(marker)
 	t.Logf("count of the thread of the agent after End: %q, 1 s later: %q", strings.TrimSpace(string(first)), strings.TrimSpace(string(second)))
 	assert.Equal(t, string(first), string(second), "a thread of the restricted user runs after End")
-
-	// The fix candidate: kill(-1, SIGKILL) as the restricted user reaches the
-	// thread group of a zombie leader.
-	killAllAs(t)
-	time.Sleep(300 * time.Millisecond)
-	third, _ := os.ReadFile(marker)
-	time.Sleep(300 * time.Millisecond)
-	fourth, _ := os.ReadFile(marker)
-	t.Logf("after kill(-1) as the restricted user: %q, 300 ms later: %q", strings.TrimSpace(string(third)), strings.TrimSpace(string(fourth)))
 }
 
 // Property (Spec 092, "End"): Dagu stops each process of the restricted user,
@@ -218,11 +209,12 @@ func TestReviewForkHopIsKilled(t *testing.T) {
 	assert.Zero(t, escaped, "a process of the restricted user is alive after a successful End")
 }
 
-// Property (Spec 092, threat ".git"): the restricted user cannot write .git. A
-// trusted step that runs at the same time as the untrusted step (another
-// branch of a graph) writes in the work directory as root. The agent replaces
-// a folder that it owns with a link to .git/hooks, so the trusted write makes a
-// hook. The restore does not check the content of a .git that it knows.
+// Property (Spec 092, threat ".git"): the restricted user cannot write .git.
+// The attack: a trusted step that runs at the same time as the untrusted step
+// (another branch of a graph) writes in the work directory as root. The agent
+// replaces a folder that it owns with a link to .git/hooks, so the trusted
+// write lands in .git. The restore finds the change, removes the link and
+// stops the run.
 func TestReviewConcurrentTrustedWriteReachesGit(t *testing.T) {
 	requireIsolation(t)
 	resetPoison(t)
@@ -244,11 +236,11 @@ func TestReviewConcurrentTrustedWriteReachesGit(t *testing.T) {
 }
 
 // Property (Spec 092, threat ".git"): the agent cannot make a later trusted step
-// run its code through git. A folder with HEAD, objects and refs is a bare
-// repository for git, and git finds it before the .git of a parent folder. The
-// restore checks only entries named .git, and gives the folder to the worker,
-// so the check of the owner of git (safe.directory) passes. A trusted git
-// command in a folder below it runs core.fsmonitor as root.
+// run its code through git. The attack: a folder with HEAD, objects and refs is
+// a bare repository for git, and git finds it before the .git of a parent
+// folder. Once the folder belongs to the worker again, the owner check of git
+// (safe.directory) passes, and a trusted git command in a folder below it runs
+// core.fsmonitor as root. The restore treats such a folder as a new git folder.
 func TestReviewBareRepositoryRunsAsRoot(t *testing.T) {
 	requireIsolation(t)
 	gitBin, err := exec.LookPath("git")
@@ -295,9 +287,9 @@ func TestReviewBareRepositoryRunsAsRoot(t *testing.T) {
 }
 
 // Property (Spec 092, threat ".git"): each .git entry and its content stay with
-// the worker. A .git file (git worktree, --separate-git-dir) names a git
-// folder that has another name; the handoff gives that folder to the agent, and
-// the restore accepts the hook that the agent writes in it.
+// the worker. The attack: a .git file (git worktree, --separate-git-dir) names
+// a git folder that has another name, and the agent writes a hook in that
+// folder for a later trusted git commit.
 func TestReviewGitFileTargetIsNotProtected(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()
@@ -322,10 +314,11 @@ func TestReviewGitFileTargetIsNotProtected(t *testing.T) {
 }
 
 // Property (Spec 092, threat model): the restricted user cannot read the files
-// of the worker. During the step, fs.protected_symlinks stops root at a link of
-// the agent in a folder with the mode 1777. The restore gives the link to the
-// worker, so a later trusted step that reads the file of the agent as data
-// reads the file of the worker, for example its key.
+// of the worker. The attack: during the step, fs.protected_symlinks stops root
+// at a link of the agent in a folder with the mode 1777. If the restore gave
+// the link to the worker, a later trusted step that reads the file of the
+// agent as data would read the file of the worker, for example its key. The
+// restore removes the link and fails the step.
 func TestReviewSymlinkReadAsRootAfterRestore(t *testing.T) {
 	requireIsolation(t)
 	ctx := context.Background()
