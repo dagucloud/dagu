@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
@@ -45,9 +44,6 @@ type SkillSet struct {
 type skillBinding struct {
 	skills map[string]ir.SkillEntry
 	names  []string
-	// mu guards loaded: the tool calls of one turn can run together.
-	mu     sync.Mutex
-	loaded map[string]bool
 }
 
 // NewSkillSet returns the set of the skills of a step. It is nil when the step
@@ -78,7 +74,7 @@ func (b *catalogBuilder) addSkills(skills []ir.SkillEntry) error {
 	}
 	b.registry.skills = set
 
-	binding := &skillBinding{skills: make(map[string]ir.SkillEntry, len(skills)), loaded: map[string]bool{}}
+	binding := &skillBinding{skills: make(map[string]ir.SkillEntry, len(skills))}
 	choices := make([]any, 0, len(skills))
 	hasFiles := false
 	for _, entry := range skills {
@@ -201,22 +197,29 @@ func (e *ToolExecutor) executeSkillToolCall(tc llmpkg.ToolCall, info *toolInfo) 
 		result.Content, result.Error = readSkillFile(entry, args.Path)
 		return result
 	}
-	result.Content = binding.load(entry)
+	result.Content = e.loadSkill(entry)
 	return result
 }
 
-// load returns the result of load_skill: the body in the tags of the Agent
-// Skills client guide, then the list of the files that read_skill_file serves.
-// A second call for the same skill returns a short note: the body is already in
-// the conversation.
-func (b *skillBinding) load(entry ir.SkillEntry) string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if b.loaded[entry.Name] {
+// loadSkill returns the result of load_skill. A second call for the same skill
+// in the conversation of the executor returns a short note: the body is
+// already in the conversation.
+func (e *ToolExecutor) loadSkill(entry ir.SkillEntry) string {
+	e.skillsMu.Lock()
+	defer e.skillsMu.Unlock()
+	if e.loadedSkills[entry.Name] {
 		return fmt.Sprintf("The skill %q is already loaded. Its instructions are earlier in this conversation.", entry.Name)
 	}
-	b.loaded[entry.Name] = true
+	if e.loadedSkills == nil {
+		e.loadedSkills = make(map[string]bool)
+	}
+	e.loadedSkills[entry.Name] = true
+	return skillContent(entry)
+}
 
+// skillContent returns the body of a skill in the tags of the Agent Skills
+// client guide, then the list of the files that read_skill_file serves.
+func skillContent(entry ir.SkillEntry) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "<skill_content name=%q>\n%s", entry.Name, strings.TrimRight(entry.Body, "\n"))
 	files := readableFiles(entry)

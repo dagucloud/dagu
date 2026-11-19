@@ -51,9 +51,17 @@ type ToolExecutor struct {
 	// resultMaxBytes limits one tool result sent to the model. Zero means no
 	// limit.
 	resultMaxBytes int
+
+	// skillsMu guards loadedSkills: the tool calls of one turn can run
+	// together.
+	skillsMu sync.Mutex
+	// loadedSkills holds the skills whose body load_skill already returned.
+	loadedSkills map[string]bool
 }
 
-// NewToolExecutor creates a new ToolExecutor with the given registry.
+// NewToolExecutor creates a new ToolExecutor with the given registry. An
+// executor serves one conversation: it remembers the skills that load_skill
+// returned in it.
 func NewToolExecutor(registry *ToolRegistry, workDir string) *ToolExecutor {
 	return &ToolExecutor{
 		registry:      registry,

@@ -127,3 +127,19 @@ func TestExecutor_LoadSkillResultIsTruncated(t *testing.T) {
 	assert.LessOrEqual(t, len(results[0].Result.Content), 100)
 	assert.Contains(t, results[0].Result.Content, "[truncated:")
 }
+
+// Each attempt of a step starts a new conversation with a new executor, as a
+// fallback model does. A skill that one attempt loaded comes whole to the
+// next one.
+func TestExecutor_LoadSkillAgainInANewExecutor(t *testing.T) {
+	t.Parallel()
+
+	registry, err := BuildToolRegistry(catalogContext(t, nil), &ir.LLMConfig{Skills: []ir.SkillEntry{skillEntry("refund", "Refund in 30 days.")}})
+	require.NoError(t, err)
+
+	first := callSkillTool(t, NewToolExecutor(registry, ""), "load_skill", `{"name":"refund"}`)
+	assert.Contains(t, first.Content, "Refund in 30 days.")
+
+	next := callSkillTool(t, NewToolExecutor(registry, ""), "load_skill", `{"name":"refund"}`)
+	assert.Contains(t, next.Content, "Refund in 30 days.")
+}
