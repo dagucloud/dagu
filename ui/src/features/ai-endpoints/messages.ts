@@ -143,6 +143,7 @@ export default defineMessages({
     'Search the models': 'Search the models',
     '{shown} of {count} models': '{shown} of {count} models',
     'No model matches.': 'No model matches.',
+    Models: 'Models',
     'This endpoint has no model list. Type the name of the model.':
       'This endpoint has no model list. Type the name of the model.',
     'Reload the list on the AI page': 'Reload the list on the AI page',
@@ -317,6 +318,7 @@ export default defineMessages({
     'Search the models': '搜索模型',
     '{shown} of {count} models': '{count} 个模型中的 {shown} 个',
     'No model matches.': '没有匹配的模型。',
+    Models: '模型',
     'This endpoint has no model list. Type the name of the model.':
       '此端点没有模型列表。请输入模型名称。',
     'Reload the list on the AI page': '在 AI 页面重新加载列表',
@@ -502,6 +504,7 @@ export default defineMessages({
     'Search the models': 'モデルを検索',
     '{shown} of {count} models': 'モデル {count} 件中 {shown} 件',
     'No model matches.': '一致するモデルはありません。',
+    Models: 'モデル',
     'This endpoint has no model list. Type the name of the model.':
       'このエンドポイントにモデル一覧はありません。モデル名を入力してください。',
     'Reload the list on the AI page': 'AI ページで一覧を再読み込み',
