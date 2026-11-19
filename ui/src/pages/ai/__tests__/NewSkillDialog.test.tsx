@@ -33,6 +33,17 @@ describe('NewSkillDialog', () => {
     await waitFor(() => expect(onCreate).toHaveBeenCalledWith('new'));
   });
 
+  // A cancel cannot stop the write: the skill would appear after it.
+  it('keeps Cancel disabled while the skill is created', async () => {
+    renderDialog(vi.fn(() => new Promise<null>(() => {})));
+    type('new');
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    );
+  });
+
   it('refuses a name that breaks the rule or exists', () => {
     renderDialog();
     type('Données');

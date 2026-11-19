@@ -101,7 +101,12 @@ export function NewSkillDialog({
             )}
           </div>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={onClose}>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={busy}
+              onClick={onClose}
+            >
               {ts('Cancel')}
             </Button>
             <Button type="submit" variant="primary" disabled={!canCreate}>
