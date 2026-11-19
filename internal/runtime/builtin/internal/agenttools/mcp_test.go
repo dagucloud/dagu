@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -84,4 +85,40 @@ func TestMCPErrorsHideTheURLSecrets(t *testing.T) {
 	_, err = listMCPTools(context.Background(), "https://user:"+secret+"%zz@mcp.example.com/mcp", nil)
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), secret)
+}
+
+// The text of a reply is its text content. A server SHOULD repeat structured
+// content as text. When a reply has no text, its structured content becomes the
+// text, so the result of the tool is not lost.
+func TestMCPResultText(t *testing.T) {
+	t.Parallel()
+	structured := map[string]any{"n": 1}
+	for _, tc := range []struct {
+		name   string
+		result *mcpsdk.CallToolResult
+		want   string
+	}{
+		{
+			name:   "text only",
+			result: &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "a"}, &mcpsdk.TextContent{Text: "b"}}},
+			want:   "a\nb",
+		},
+		{
+			name:   "text and structured",
+			result: &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: `{"n": 1}`}}, StructuredContent: structured},
+			want:   `{"n": 1}`,
+		},
+		{
+			name:   "structured only",
+			result: &mcpsdk.CallToolResult{StructuredContent: structured},
+			want:   `{"n":1}`,
+		},
+		{
+			name:   "image and structured",
+			result: &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.ImageContent{MIMEType: "image/png"}}, StructuredContent: structured},
+			want:   "[non-text content omitted]\n" + `{"n":1}`,
+		},
+	} {
+		assert.Equal(t, tc.want, mcpResultText(tc.result), tc.name)
+	}
 }

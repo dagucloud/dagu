@@ -5,6 +5,7 @@ package agenttools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -173,15 +174,23 @@ func (b *mcpBinding) call(ctx context.Context, args map[string]any) (string, boo
 }
 
 // mcpResultText joins the text content of a reply with a line end. Content of
-// another kind is replaced by a short note.
+// another kind is replaced by a short note. A reply with no text content ends
+// with its structured content as JSON, so the result of the tool is not lost.
 func mcpResultText(result *mcpsdk.CallToolResult) string {
-	parts := make([]string, 0, len(result.Content))
+	parts := make([]string, 0, len(result.Content)+1)
+	hasText := false
 	for _, content := range result.Content {
 		if text, ok := content.(*mcpsdk.TextContent); ok {
 			parts = append(parts, text.Text)
+			hasText = true
 			continue
 		}
 		parts = append(parts, "[non-text content omitted]")
+	}
+	if !hasText && result.StructuredContent != nil {
+		if data, err := json.Marshal(result.StructuredContent); err == nil {
+			parts = append(parts, string(data))
+		}
 	}
 	return strings.Join(parts, "\n")
 }
