@@ -420,10 +420,12 @@ func checkQuota(current *Skill, rel string, size int64) error {
 	return nil
 }
 
-// DeleteFile deletes one entry of a skill folder, then the folders that become
-// empty inside references/, assets/ and scripts/. The entry can be a file that
-// breaks the layout: the owner removes it to repair the skill. It returns the
-// skill after the delete. SKILL.md cannot be deleted alone: delete the skill.
+// DeleteFile deletes one file of a skill folder, or one entry that breaks the
+// layout, then the folders that become empty inside references/, assets/ and
+// scripts/. The owner removes an entry that breaks the layout to repair the
+// skill. A folder that the layout allows cannot be deleted: delete its files.
+// SKILL.md cannot be deleted alone: delete the skill. It returns the skill
+// after the delete.
 func (s *Store) DeleteFile(ctx context.Context, name, rel string, pre Precondition) (*Skill, error) {
 	rel, err := CheckExistingPath(rel)
 	if err != nil {
@@ -463,7 +465,9 @@ func (s *Store) DeleteFile(ctx context.Context, name, rel string, pre Preconditi
 			return err
 		}
 		if info.IsDir() {
-			// A directory that the layout does not allow, or a whole folder.
+			if layoutAllowsDir(rel) {
+				return &InvalidError{Issues: []Issue{pathIssue(rel, "a folder of the layout cannot be deleted; delete its files")}}
+			}
 			err = root.RemoveAll(rel)
 		} else {
 			err = root.Remove(rel)
@@ -488,6 +492,21 @@ func (s *Store) DeleteFile(ctx context.Context, name, rel string, pre Preconditi
 		return err
 	})
 	return result, err
+}
+
+// layoutAllowsDir reports whether rel is a folder that the layout allows: a top
+// folder of the layout, or a folder below it that is not hidden.
+func layoutAllowsDir(rel string) bool {
+	top, rest, _ := strings.Cut(rel, "/")
+	if top != DirReferences && top != DirAssets && top != DirScripts {
+		return false
+	}
+	for p := range strings.SplitSeq(rest, "/") {
+		if strings.HasPrefix(p, ".") {
+			return false
+		}
+	}
+	return true
 }
 
 // DeleteSkill deletes the whole folder of a skill, with every file.

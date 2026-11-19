@@ -214,6 +214,43 @@ func TestDeleteOfANestedFileRemovesTheEmptyFolders(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr))
 }
 
+// A delete removes one file, or an entry that breaks the layout. A folder that
+// the layout allows stays with its files (Spec 096, "The API").
+func TestDeleteFileRefusesALayoutFolder(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newStore(t)
+	created := create(t, s, "demo")
+	cur, err := s.WriteFile(ctx, "demo", "references/deep/a.md", []byte("a"), skill.Precondition{IfMatch: created.Hash})
+	require.NoError(t, err)
+	for _, rel := range []string{"references", "references/deep"} {
+		_, err := s.DeleteFile(ctx, "demo", rel, skill.Precondition{IfMatch: cur.Hash})
+		var invalid *skill.InvalidError
+		require.ErrorAs(t, err, &invalid, rel)
+		_, statErr := os.Stat(filepath.Join(s.Dir("demo"), "references", "deep", "a.md"))
+		require.NoError(t, statErr, rel)
+	}
+
+	// A folder that breaks the layout goes with its content.
+	for _, rel := range []string{"docs/x.md", "references/.cache/y"} {
+		full := filepath.Join(s.Dir("demo"), filepath.FromSlash(rel))
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+		require.NoError(t, os.WriteFile(full, []byte("x"), 0o644))
+	}
+	for _, rel := range []string{"docs", "references/.cache"} {
+		broken, err := s.Read("demo")
+		require.NoError(t, err)
+		_, err = s.DeleteFile(ctx, "demo", rel, skill.Precondition{IfMatch: broken.Hash})
+		require.NoError(t, err, rel)
+		_, statErr := os.Stat(filepath.Join(s.Dir("demo"), filepath.FromSlash(rel)))
+		require.True(t, os.IsNotExist(statErr), rel)
+	}
+	after, err := s.Read("demo")
+	require.NoError(t, err)
+	require.True(t, after.Valid(), "%v", after.Issues)
+	require.Equal(t, cur.Hash, after.Hash)
+}
+
 func TestWritePreconditions(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
