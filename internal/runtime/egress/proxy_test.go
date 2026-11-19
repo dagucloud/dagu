@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/runtime/egress"
@@ -220,62 +221,99 @@ func TestConnectToAListedDestination(t *testing.T) {
 	assert.Equal(t, []string{net.JoinHostPort(host, port)}, dials.seen(), "only the listed destination was dialed")
 }
 
+// pipeListener is a net.Listener of in-memory connections. Their reads and writes
+// block without I/O, so a synctest bubble can move its clock past them.
+type pipeListener struct {
+	conns  chan net.Conn
+	closed chan struct{}
+	once   sync.Once
+}
+
+func newPipeListener() *pipeListener {
+	return &pipeListener{conns: make(chan net.Conn), closed: make(chan struct{})}
+}
+
+func (l *pipeListener) Accept() (net.Conn, error) {
+	select {
+	case conn := <-l.conns:
+		return conn, nil
+	case <-l.closed:
+		return nil, net.ErrClosed
+	}
+}
+
+func (l *pipeListener) Close() error {
+	l.once.Do(func() { close(l.closed) })
+	return nil
+}
+
+func (l *pipeListener) Addr() net.Addr { return pipeAddr{} }
+
+// dial opens a connection to the listener.
+func (l *pipeListener) dial() net.Conn {
+	client, server := net.Pipe()
+	l.conns <- server
+	return client
+}
+
+type pipeAddr struct{}
+
+func (pipeAddr) Network() string { return "pipe" }
+func (pipeAddr) String() string  { return "pipe" }
+
 // A tunnel in which no byte moves ends, so a client that opens tunnels and sends
 // nothing cannot hold the descriptors of the proxy for ever. A tunnel in use
-// stays.
+// stays. The test runs in a synctest bubble on in-memory connections: the clock
+// moves only when every goroutine waits, so a slow scheduler cannot make the
+// tunnel in use look idle.
 func TestIdleTunnelEnds(t *testing.T) {
 	t.Parallel()
-
-	echo, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = echo.Close() })
-	go func() {
-		for {
-			conn, err := echo.Accept()
-			if err != nil {
-				return
-			}
+	synctest.Test(t, func(t *testing.T) {
+		const idle = 300 * time.Millisecond
+		const destination = "192.0.2.10:7"
+		rules, err := egress.ParseRules([]string{destination})
+		require.NoError(t, err)
+		echo := func(context.Context, string, string) (net.Conn, error) {
+			conn, peer := net.Pipe()
 			go func() {
-				defer func() { _ = conn.Close() }()
-				_, _ = io.Copy(conn, conn)
+				defer func() { _ = peer.Close() }()
+				_, _ = io.Copy(peer, peer)
 			}()
+			return conn, nil
 		}
-	}()
-	host, port, _ := net.SplitHostPort(echo.Addr().String())
-	rules, err := egress.ParseRules([]string{host + ":" + port})
-	require.NoError(t, err)
-	proxy, err := egress.New(egress.Options{Rules: rules})
-	require.NoError(t, err)
-	proxy.SetTunnelIdleForTest(300 * time.Millisecond)
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	go func() { _ = proxy.Serve(listener) }()
-	t.Cleanup(func() { _ = listener.Close() })
+		proxy, err := egress.New(egress.Options{Rules: rules, Dial: echo})
+		require.NoError(t, err)
+		proxy.SetTunnelIdleForTest(idle)
+		listener := newPipeListener()
+		go func() { _ = proxy.Serve(listener) }()
+		t.Cleanup(func() { _ = listener.Close() })
 
-	conn, err := net.Dial("tcp", listener.Addr().String())
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
-	_, err = fmt.Fprintf(conn, "CONNECT %s:%s HTTP/1.1\r\nHost: %s:%s\r\n\r\n", host, port, host, port)
-	require.NoError(t, err)
-	reader := bufio.NewReader(conn)
-	status, err := reader.ReadString('\n')
-	require.NoError(t, err)
-	require.Equal(t, "HTTP/1.1 200 Connection Established", strings.TrimSpace(status))
-	_, err = reader.ReadString('\n')
-	require.NoError(t, err)
-	// Traffic keeps the tunnel open past the idle time.
-	for range 4 {
-		_, err = io.WriteString(conn, "ping\n")
+		conn := listener.dial()
+		t.Cleanup(func() { _ = conn.Close() })
+		_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", destination, destination)
 		require.NoError(t, err)
-		line, err := reader.ReadString('\n')
+		reader := bufio.NewReader(conn)
+		status, err := reader.ReadString('\n')
 		require.NoError(t, err)
-		require.Equal(t, "ping\n", line)
-		time.Sleep(100 * time.Millisecond)
-	}
-	// Then nothing moves, and the proxy closes the tunnel.
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
-	_, err = reader.ReadString('\n')
-	require.ErrorIs(t, err, io.EOF)
+		require.Equal(t, "HTTP/1.1 200 Connection Established", strings.TrimSpace(status))
+		_, err = reader.ReadString('\n')
+		require.NoError(t, err)
+		// Traffic every half idle time keeps the tunnel open for twice the idle time.
+		for range 4 {
+			time.Sleep(idle / 2)
+			_, err = io.WriteString(conn, "ping\n")
+			require.NoError(t, err)
+			line, err := reader.ReadString('\n')
+			require.NoError(t, err)
+			require.Equal(t, "ping\n", line)
+		}
+		// Then nothing moves, and the proxy closes the tunnel after the idle time.
+		quiet := time.Now()
+		require.NoError(t, conn.SetReadDeadline(quiet.Add(10*idle)))
+		_, err = reader.ReadString('\n')
+		require.ErrorIs(t, err, io.EOF)
+		assert.GreaterOrEqual(t, time.Since(quiet), idle)
+	})
 }
 
 // A wildcard rule covers the subdomains. The proxy checks the name that the client
