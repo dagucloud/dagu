@@ -244,16 +244,20 @@ func validateURLParts(field, raw string, allowHTTP, allowQuery bool) error {
 		return fmt.Errorf("%w: %s must not have user information", ErrInvalid, field)
 	}
 	if !allowQuery && (u.RawQuery != "" || u.ForceQuery) {
-		return fmt.Errorf("%w: %s %q must not have a query", ErrInvalid, field, raw)
+		return fmt.Errorf("%w: %s %q must not have a query", ErrInvalid, field, redactURL(raw))
 	}
 	if u.Fragment != "" || strings.Contains(raw, "#") {
-		return fmt.Errorf("%w: %s %q must not have a fragment", ErrInvalid, field, raw)
+		return fmt.Errorf("%w: %s %q must not have a fragment", ErrInvalid, field, redactURL(raw))
 	}
 	return nil
 }
 
-// redactURL hides the user information of a URL for an error message.
+// redactURL gives the form of a URL for an error message. It drops the query
+// and the fragment and hides the password, since each can hold a credential.
 func redactURL(raw string) string {
+	if i := strings.IndexAny(raw, "?#"); i >= 0 {
+		raw = raw[:i]
+	}
 	if u, err := url.Parse(raw); err == nil && u.User != nil {
 		return u.Redacted()
 	}

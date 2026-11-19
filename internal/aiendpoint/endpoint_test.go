@@ -4,6 +4,7 @@
 package aiendpoint_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"strings"
@@ -101,6 +102,39 @@ func TestParseScope(t *testing.T) {
 		_, err := aiendpoint.ParseScope(raw)
 		require.ErrorIs(t, err, aiendpoint.ErrInvalid, raw)
 	}
+}
+
+// An error about a URL does not repeat its query or its fragment, where a
+// pasted URL can hold a key.
+func TestURLErrorsHideQueryAndFragment(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	stores := newSharedStores(t)
+	endpoints, err := aiendpoint.NewService(stores.endpoints, stores.secrets)
+	require.NoError(t, err)
+	servers, err := aiendpoint.NewMCPService(stores.servers, stores.secrets)
+	require.NoError(t, err)
+
+	const leak = "sk-leak-0123456789"
+	for _, raw := range []string{
+		"https://api.example.com/v1?key=" + leak,
+		"https://api.example.com/v1#" + leak,
+		"ftp://api.example.com/v1?key=" + leak,
+		"http://api.example.com/v1?key=" + leak,
+		"api.example.com/v1?key=" + leak,
+	} {
+		in := raceEndpointInput(raceKeyWinner)
+		in.BaseURL = raw
+		_, err := endpoints.Create(ctx, in)
+		require.ErrorIs(t, err, aiendpoint.ErrInvalid, raw)
+		assert.NotContains(t, err.Error(), leak, raw)
+	}
+
+	in := raceMCPInput(raceKeyWinner)
+	in.URL = "ftp://docs.example.com/mcp?token=" + leak
+	_, err = servers.Create(ctx, in)
+	require.ErrorIs(t, err, aiendpoint.ErrInvalid)
+	assert.NotContains(t, err.Error(), leak)
 }
 
 func TestLookupPreset(t *testing.T) {

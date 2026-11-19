@@ -23,15 +23,15 @@ const (
 	raceKeyLoser  = "sk-ant-api03-loser-ZYXWVUTSRQPONMLKJ"
 )
 
-// raceStores are the stores of one data directory. Two services on them act as
+// sharedStores are the stores of one data directory. Two services on them act as
 // two servers that share the directory.
-type raceStores struct {
+type sharedStores struct {
 	secrets   *store.SecretStore
 	endpoints *store.AIEndpointStore
 	servers   *store.AIMCPServerStore
 }
 
-func newRaceStores(t *testing.T) raceStores {
+func newSharedStores(t *testing.T) sharedStores {
 	t.Helper()
 	enc, err := crypto.NewEncryptor("test-key")
 	require.NoError(t, err)
@@ -42,7 +42,7 @@ func newRaceStores(t *testing.T) raceStores {
 	require.NoError(t, err)
 	servers, err := store.NewAIMCPServerStore(backend.Collection("ai_mcp_servers"))
 	require.NoError(t, err)
-	return raceStores{secrets: secrets, endpoints: endpoints, servers: servers}
+	return sharedStores{secrets: secrets, endpoints: endpoints, servers: servers}
 }
 
 func raceEndpointInput(key string) aiendpoint.CreateInput {
@@ -108,7 +108,7 @@ func (refusingSecrets) Create(context.Context, *secret.Secret, *secret.WriteValu
 // create that loses the name leaves the key of the winner as it was.
 func TestEndpointCreateRaceKeepsTheKeyOfTheWinner(t *testing.T) {
 	ctx := context.Background()
-	stores := newRaceStores(t)
+	stores := newSharedStores(t)
 	winner, err := aiendpoint.NewService(stores.endpoints, stores.secrets)
 	require.NoError(t, err)
 	interleaved := &interleavedEndpointStore{Store: stores.endpoints}
@@ -134,7 +134,7 @@ func TestEndpointCreateRaceKeepsTheKeyOfTheWinner(t *testing.T) {
 // A create whose key cannot be saved leaves no endpoint, so the name stays free.
 func TestEndpointCreateThatFailsFreesTheName(t *testing.T) {
 	ctx := context.Background()
-	stores := newRaceStores(t)
+	stores := newSharedStores(t)
 	broken, err := aiendpoint.NewService(stores.endpoints, refusingSecrets{stores.secrets})
 	require.NoError(t, err)
 
@@ -152,7 +152,7 @@ func TestEndpointCreateThatFailsFreesTheName(t *testing.T) {
 // The MCP server entries follow the same rule as the endpoints.
 func TestMCPCreateRaceKeepsTheCredentialsOfTheWinner(t *testing.T) {
 	ctx := context.Background()
-	stores := newRaceStores(t)
+	stores := newSharedStores(t)
 	winner, err := aiendpoint.NewMCPService(stores.servers, stores.secrets)
 	require.NoError(t, err)
 	interleaved := &interleavedMCPStore{MCPStore: stores.servers}
@@ -176,7 +176,7 @@ func TestMCPCreateRaceKeepsTheCredentialsOfTheWinner(t *testing.T) {
 // A MCP create whose credentials cannot be saved leaves no entry.
 func TestMCPCreateThatFailsFreesTheName(t *testing.T) {
 	ctx := context.Background()
-	stores := newRaceStores(t)
+	stores := newSharedStores(t)
 	broken, err := aiendpoint.NewMCPService(stores.servers, refusingSecrets{stores.secrets})
 	require.NoError(t, err)
 
