@@ -22,7 +22,7 @@ type Props = {
   ago?: boolean;
   /**
    * With `compact`, the timestamp is ahead: a lapse of 5 s or more reads
-   * "in 3m", and rounds as `ago` does.
+   * "in 3m", and rounds as `ago` does. Once it passes, it reads "now".
    */
   until?: boolean;
   /**
@@ -91,9 +91,10 @@ export function RelativeTime({
   // The text that reads the clock: the component renders only when it changes.
   const text = useClock(isValid ? 1000 : null, (nowMs) => {
     if (!parsed || !isValid) return '';
+    const diff = dayjs(nowMs).diff(parsed, 'second');
     return compact
       ? formatCompact(
-          dayjs(nowMs).diff(parsed, 'second'),
+          until ? Math.min(diff, 0) : diff,
           now,
           ago || until ? Math.round : Math.floor,
           units

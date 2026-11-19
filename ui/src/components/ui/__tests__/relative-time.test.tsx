@@ -73,6 +73,18 @@ describe('RelativeTime', () => {
     expect(screen.getByText('Now')).toBeInTheDocument();
   });
 
+  // A countdown left mounted past its deadline must not read as a future time.
+  it('reads "Now" once a countdown passes its timestamp', () => {
+    const { rerender } = render(
+      <RelativeTime timestamp={secondsAgo(-3)} compact until />
+    );
+    act(() => vi.advanceTimersByTime(10_000));
+    expect(screen.getByText('Now')).toBeInTheDocument();
+
+    rerender(<RelativeTime timestamp={secondsAgo(30 * 60)} compact until />);
+    expect(screen.getByText('Now')).toBeInTheDocument();
+  });
+
   // "in 9s" keeps the width of "in 99s", so the text next to it never moves.
   it('keeps the width of the words around a stable countdown', () => {
     render(<RelativeTime timestamp={secondsAgo(-9)} compact until stable />);
