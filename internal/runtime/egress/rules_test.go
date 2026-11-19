@@ -45,6 +45,32 @@ func TestRulesAllow(t *testing.T) {
 	}
 }
 
+// An IPv6 address is in brackets when the rule has a port. Each spelling of an
+// address matches the same rule.
+func TestRulesAllowIPv6(t *testing.T) {
+	t.Parallel()
+
+	rules, err := egress.ParseRules([]string{"[2001:DB8::1]:8443", "::1", "[fd00::2]"})
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		host string
+		port int
+		want bool
+	}{
+		{"2001:db8::1", 8443, true},
+		{"2001:0db8:0:0:0:0:0:1", 8443, true},
+		{"2001:db8::1", 443, false},
+		{"2001:db8::2", 8443, false},
+		{"::1", 1, true},
+		{"0:0:0:0:0:0:0:1", 65535, true},
+		{"fd00::2", 443, true},
+		{"fd00::3", 443, false},
+	} {
+		assert.Equal(t, tc.want, rules.Allows(tc.host, tc.port), "[%s]:%d", tc.host, tc.port)
+	}
+}
+
 // The check never resolves a name, so a name that resolves to a listed address is
 // not listed.
 func TestRulesDoNotResolveNames(t *testing.T) {
@@ -63,6 +89,8 @@ func TestParseRuleRejectsWhatIsNotADestination(t *testing.T) {
 		"", ":443", "api.example.com:", "api.example.com:0", "api.example.com:65536", "api.example.com:-1",
 		"api.example.com:0443", "api.example.com:https", "https://api.example.com", "api.example.com/path",
 		"api example.com", "*.", "*.*.example.com", "..example.com", "a..b", "*.10.0.0.1", "user@example.com",
+		"api.example.com\n", "api.example.com\r\n", "api.\x00example.com", "api.example.com\u00a0",
+		"[::1", "[::1]:", "[::1]443", "[10.0.0.1]:443", "[api.example.com]:443", "2001:db8::zz", "*.::1",
 	} {
 		_, err := egress.ParseRule(text)
 		assert.Error(t, err, "%q", text)

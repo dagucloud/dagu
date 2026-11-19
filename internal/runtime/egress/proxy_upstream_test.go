@@ -459,6 +459,7 @@ func TestNewChecksTheUpstreamAgainstTheRules(t *testing.T) {
 		{"other host", []string{"other.example.com:443"}, "https://api.example.com", false},
 		{"other port", []string{"api.example.com:8443"}, "https://api.example.com", false},
 		{"http default port", []string{"api.example.com:443"}, "http://api.example.com", false},
+		{"IPv6 address", []string{"[2001:db8::1]:8443"}, "https://[2001:0db8::1]:8443", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
