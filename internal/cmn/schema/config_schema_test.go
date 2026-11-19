@@ -569,6 +569,26 @@ func TestConfigSchemaRepoCopyMatchesEmbeddedSchema(t *testing.T) {
 	require.Equal(t, string(ConfigSchemaJSON), string(repoSchemaJSON))
 }
 
+// The block untrusted needs uid and gid together, as the loader does.
+func TestConfigSchemaUntrusted(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveConfigSchema(t)
+	for _, spec := range []string{
+		"untrusted:\n  isolation: \"off\"\n",
+		"untrusted:\n  uid: 10001\n  gid: 10001\n",
+	} {
+		require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, spec)), spec)
+	}
+	for _, spec := range []string{
+		"untrusted:\n  uid: 10001\n",
+		"untrusted:\n  gid: 10001\n",
+		"untrusted:\n  user: agent\n",
+	} {
+		require.Error(t, resolved.Validate(mustParseYAMLDocument(t, spec)), spec)
+	}
+}
+
 func mustResolveConfigSchema(t *testing.T) *jsonschema.Resolved {
 	t.Helper()
 
