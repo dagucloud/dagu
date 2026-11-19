@@ -162,8 +162,10 @@ func CheckPath(rel string) (string, error) {
 		return "", &InvalidError{Issues: []Issue{{Severity: SeverityError, Rule: RuleRootEntry, File: rel,
 			Message: "a file must be SKILL.md or lie under references/, assets/ or scripts/"}}}
 	}
-	for _, p := range parts[1:] {
-		if strings.HasPrefix(p, ".") && (p != KeepFileName || p != parts[len(parts)-1]) {
+	last := len(parts) - 1
+	for i, p := range parts[1:] {
+		// .gitkeep is allowed as the file at the end of the path, never as a folder.
+		if strings.HasPrefix(p, ".") && (p != KeepFileName || i+1 != last) {
 			return "", &InvalidError{Issues: []Issue{{Severity: SeverityError, Rule: RuleHiddenFile, File: rel,
 				Message: "a hidden file is not allowed; only .gitkeep is allowed"}}}
 		}
