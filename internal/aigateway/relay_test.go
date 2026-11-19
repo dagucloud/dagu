@@ -306,6 +306,35 @@ func TestRelay_FailureBecomesAnErrorResponse(t *testing.T) {
 	assert.Contains(t, log.String(), "ai relay: refuse POST /v1/messages: endpoint_forbidden")
 }
 
+// bodyTimeoutClient fails the call once the first byte of the body came, while
+// the rest of the body is still read in the background, as the gateway and the
+// coordinator client do when the body stops moving.
+type bodyTimeoutClient struct{ fakeClient }
+
+func (c *bodyTimeoutClient) Relay(_ context.Context, _ aigateway.StepRef, _ aigateway.Target, _ aigateway.HTTPRequest, body io.Reader, _ aigateway.ResponseSink) error {
+	first := make(chan struct{})
+	go func() {
+		_, _ = body.Read(make([]byte, 1))
+		close(first)
+		_, _ = io.Copy(io.Discard, body)
+	}()
+	<-first
+	return aigateway.Fail(aigateway.ReasonUpstreamTimeout, "the request body moved no byte for 1m0s")
+}
+
+// A client that stops in the middle of its body still gets the failure: the
+// relay answers without waiting for the rest of the body.
+func TestRelay_FailureReachesAClientThatStopsItsBody(t *testing.T) {
+	t.Parallel()
+	relay := startRelay(t, &bodyTimeoutClient{}, nil)
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(relay.URL(), "http://"))
+
+	status, body := raw(t, relay, "POST /v1/messages HTTP/1.1\r\nHost: 127.0.0.1:"+port+"\r\nX-Api-Key: "+relay.Secret()+
+		"\r\nContent-Length: 10\r\n\r\n{")
+	assert.Equal(t, aigateway.ReasonUpstreamTimeout.Status(), status)
+	assert.Contains(t, body, "upstream_timeout")
+}
+
 // Any local process can connect to the port of the relay. A request with no
 // secret, or with a path that holds a new line, does not change the reason of the
 // attempt and adds no line to the step log.

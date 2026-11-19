@@ -237,18 +237,15 @@ func (c *grpcRelayClient) Relay(ctx context.Context, step aigateway.StepRef, tar
 	}
 
 	// The body goes up while the loop below reads the answer. An error of the
-	// upload ends the call.
+	// upload ends the call. The call does not wait for the upload: a read of the
+	// body can block until the client sends more, and a send after the deferred
+	// cancelStream fails.
 	var uploadErr atomic.Pointer[error]
-	var uploadDone sync.WaitGroup
-	uploadDone.Go(func() {
+	go func() {
 		if err := uploadBody(body, maxRequest, send); err != nil {
 			uploadErr.Store(&err)
 			cancelStream()
 		}
-	})
-	defer func() {
-		cancelStream()
-		uploadDone.Wait()
 	}()
 
 	for {

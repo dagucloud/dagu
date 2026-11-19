@@ -360,6 +360,45 @@ func TestAIRelayClientResponseMessageTooLarge(t *testing.T) {
 	requireRelayFailure(t, err, aigateway.ReasonResponseTooLarge, "too large")
 }
 
+// A client that stops in the middle of its body still gets the answer of the
+// coordinator: the call does not wait for a read of the body that only the
+// client can end.
+func TestAIRelayClientAnswersWhileTheBodyStalls(t *testing.T) {
+	t.Parallel()
+
+	client := newRelayClients(t, &relayCoordinator{
+		relay: func(stream coordinatorv1.CoordinatorService_RelayAIRequestServer) error {
+			if _, err := stream.Recv(); err != nil {
+				return err
+			}
+			if err := stream.Send(acceptedMessage(1024)); err != nil {
+				return err
+			}
+			return stream.Send(errorMessage(aigateway.ReasonUpstreamTimeout, "no byte came for 1m0s"))
+		},
+	})["any coordinator"]
+	release := make(chan struct{})
+	defer close(release)
+	result := make(chan error, 1)
+	go func() {
+		result <- client.Relay(t.Context(), testRelayStep, aigateway.EndpointTarget("team"), jsonRequest(-1), stalledBody(release), &responseRecorder{})
+	}()
+	select {
+	case err := <-result:
+		requireRelayFailure(t, err, aigateway.ReasonUpstreamTimeout, "no byte came for 1m0s")
+	case <-time.After(10 * time.Second):
+		t.Fatal("the call waits for a body that does not move")
+	}
+}
+
+// stalledBody is a body whose read blocks until release is closed.
+type stalledBody chan struct{}
+
+func (b stalledBody) Read([]byte) (int, error) {
+	<-b
+	return 0, io.EOF
+}
+
 // A send returns io.EOF when the coordinator has already ended the stream (see
 // grpc.ClientStream.SendMsg). The call then reads the answer of the coordinator
 // instead of reporting the failed send, before the open message and during the

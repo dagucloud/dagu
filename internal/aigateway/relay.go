@@ -208,7 +208,12 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	sink := &httpSink{w: w, rc: http.NewResponseController(w)}
+	rc := http.NewResponseController(w)
+	// The body goes up while the response can come down. By default the server
+	// reads the rest of the body before it writes a response, so a failure of a
+	// call whose client stopped sending its body would never reach the client.
+	_ = rc.EnableFullDuplex()
+	sink := &httpSink{w: w, rc: rc}
 	err := r.opts.Client.Relay(req.Context(), r.opts.Step, target, head, req.Body, sink)
 	if err == nil {
 		return

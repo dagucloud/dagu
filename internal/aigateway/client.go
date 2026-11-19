@@ -73,7 +73,8 @@ type Client interface {
 	// request (Spec 094, "Start checks").
 	Check(ctx context.Context, step StepRef, target Target, provider string) (CheckResult, error)
 	// Relay carries one request. It reads the body, calls the sink for the response,
-	// and returns when the response ends or the context ends.
+	// and returns when the response ends or the context ends. A read of the body
+	// can go on after it returns, until the body ends.
 	Relay(ctx context.Context, step StepRef, target Target, req HTTPRequest, body io.Reader, sink ResponseSink) error
 }
 
