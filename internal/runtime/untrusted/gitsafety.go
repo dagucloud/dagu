@@ -34,12 +34,17 @@ func GitSafetyEntries(lookup func(string) (string, bool)) map[string]string {
 			count = n
 		}
 	}
+	// Git applies the last entry of a key.
+	applied := false
 	for i := range count {
 		key, _ := lookup("GIT_CONFIG_KEY_" + strconv.Itoa(i))
-		value, _ := lookup("GIT_CONFIG_VALUE_" + strconv.Itoa(i))
-		if strings.EqualFold(strings.TrimSpace(key), gitSafetyKey) && strings.EqualFold(strings.TrimSpace(value), gitSafetyValue) {
-			return nil
+		if strings.EqualFold(strings.TrimSpace(key), gitSafetyKey) {
+			value, _ := lookup("GIT_CONFIG_VALUE_" + strconv.Itoa(i))
+			applied = strings.EqualFold(strings.TrimSpace(value), gitSafetyValue)
 		}
+	}
+	if applied {
+		return nil
 	}
 	index := strconv.Itoa(count)
 	return map[string]string{
