@@ -88,6 +88,12 @@ It must not be treated as product behavior until implementation catches up.
 | [086: Backfill](086-backfill.md) | Partially implemented |
 | [087: Label Filters](087-label-filters.md) | Implemented |
 | [089: Node Targeting](089-node-targeting.md) | Partially implemented |
+| [091: Agent Node](091-agent-node.md) | Partially implemented |
+| [092: Agent Workers](092-agent-workers.md) | Not implemented |
+| [093: AI Endpoints](093-ai-endpoints.md) | Implemented |
+| [094: AI Gateway](094-ai-gateway.md) | Implemented |
+| [095: MCP Servers](095-mcp-servers.md) | Implemented |
+| [096: Skills](096-skills.md) | Implemented |
 | [097: Derived Dates](097-derived-dates.md) | Partially implemented |
 | [098: MCP Call Action](098-mcp-call.md) | Implemented |
 

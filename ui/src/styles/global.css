@@ -74,6 +74,14 @@
   --color-info: var(--info);
   --color-info-muted: var(--info-muted);
 
+  /* Line of a graph node and of its dashed outlines: 3:1 on the canvas. */
+  --color-node-line: var(--node-line);
+
+  /* Kinds of tools of a chat step or an agent step */
+  --color-tool-dag: var(--tool-dag);
+  --color-tool-mcp: var(--tool-mcp);
+  --color-tool-builtin: var(--tool-builtin);
+
   /* Font Family */
   --font-sans:
     'Hanken Grotesk Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI',
@@ -138,6 +146,7 @@
     --success-foreground: #ffffff;
     --success-muted: color-mix(in srgb, var(--success) 10%, transparent);
     --warning: #9a5d0b;
+    /* White on the amber: 5.3:1. The dark text had 3.3:1. */
     --warning-foreground: #ffffff;
     --warning-muted: color-mix(in srgb, var(--warning) 10%, transparent);
     --info: #5d4fe0;
@@ -150,17 +159,23 @@
     --status-running: #5d4fe0;
     --status-neutral: #80808b;
     --status-warning: #9a5d0b;
-    --status-aborted: #9333ea;
+    /* Magenta, away from the violet of a running step. */
+    --status-aborted: #a8208a;
 
-    /* The status colours of the graph lines and tints, the same in both
-       themes: a line reads by its hue, where text needs the contrast of the
-       --status-* tokens. */
-    --graph-success: #22c55e;
-    --graph-error: #ef5350;
-    --graph-running: #7c6ef4;
-    --graph-warning: #d9a03c;
-    --graph-aborted: #c084fc;
-    --graph-neutral: #8a8d99;
+    --node-line: #85858f;
+    /* One colour for each kind of tool. Each clears 4.5:1 on a card. */
+    --tool-dag: #5d4fe0;
+    --tool-mcp: #0f766e;
+    --tool-builtin: #be185d;
+
+    /* The status colours of the graph lines and tints. Each one equals the
+       --status-* token of the same theme and the palette of the export. */
+    --graph-success: #178a44;
+    --graph-error: #c8382f;
+    --graph-running: #5d4fe0;
+    --graph-warning: #9a5d0b;
+    --graph-aborted: #a8208a;
+    --graph-neutral: #80808b;
 
     --border: #e7e7ec;
     --border-strong: #d3d3db;
@@ -242,7 +257,19 @@
     --status-running: #a89ff8;
     --status-neutral: #8a8d99;
     --status-warning: #d9a03c;
-    --status-aborted: #c084fc;
+    --status-aborted: #e57ac8;
+
+    --graph-success: #22c55e;
+    --graph-error: #ef5350;
+    --graph-running: #a89ff8;
+    --graph-warning: #d9a03c;
+    --graph-aborted: #e57ac8;
+    --graph-neutral: #8a8d99;
+
+    --node-line: #66666f;
+    --tool-dag: #a89ff8;
+    --tool-mcp: #2dd4bf;
+    --tool-builtin: #f472b6;
 
     --border: #24242a;
     --border-strong: #32323a;
@@ -648,6 +675,17 @@ select:focus-visible {
   }
   100% {
     background-position: -200% 0;
+  }
+}
+
+/* The Step details frame grows from the docked panel to the whole zone. The
+   frame lays out at its final size at once, so the content never reflows. */
+@keyframes ndv-grow {
+  from {
+    clip-path: inset(0 0 0 max(0px, calc(100% - var(--ndv-from, 0px))));
+  }
+  to {
+    clip-path: inset(0);
   }
 }
 

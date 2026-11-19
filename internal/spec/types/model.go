@@ -22,6 +22,8 @@ import (
 //	    top_p: 0.9
 //	    base_url: https://api.example.com
 //	    api_key_name: OPENAI_API_KEY
+//	  - name: claude-sonnet-4-6
+//	    endpoint: cle1
 type ModelValue struct {
 	raw     any          // Original value for error reporting
 	isSet   bool         // Whether the field was set in YAML
@@ -31,13 +33,14 @@ type ModelValue struct {
 
 // ModelEntry represents a single model in the model array for fallback support.
 type ModelEntry struct {
-	Provider      string   // Required: LLM provider
+	Provider      string   // LLM provider. The loader requires it unless the model has an endpoint.
 	Name          string   // Required: Model name
 	Temperature   *float64 // Optional: Override temperature (0.0-2.0)
 	MaxTokens     *int     // Optional: Override max tokens (>=1)
 	TopP          *float64 // Optional: Override top-p (0.0-1.0)
 	BaseURL       string   // Optional: Custom API endpoint
 	APIKeyName    string   // Optional: API key env var name
+	Endpoint      string   // Optional: name of an AI endpoint (Spec 094)
 	ProviderOrder []string // Optional: OpenRouter upstream providers to try first
 }
 
@@ -88,12 +91,15 @@ func (m *ModelValue) UnmarshalYAML(data []byte) error {
 func parseModelEntry(m map[string]any, index int) (ModelEntry, error) {
 	entry := ModelEntry{}
 
-	// Required: provider
-	provider, ok := m["provider"].(string)
-	if !ok || provider == "" {
-		return entry, fmt.Errorf("model[%d].provider: required", index)
+	// Optional here: the entry needs a provider or an endpoint. The loader checks
+	// this, so that the error names the path of the entry.
+	if raw, ok := m["provider"]; ok && raw != nil {
+		provider, ok := raw.(string)
+		if !ok {
+			return entry, fmt.Errorf("model[%d].provider: must be a string", index)
+		}
+		entry.Provider = provider
 	}
-	entry.Provider = provider
 
 	// Required: name
 	name, ok := m["name"].(string)
@@ -146,6 +152,15 @@ func parseModelEntry(m map[string]any, index int) (ModelEntry, error) {
 	// Optional: api_key_name
 	if apiKeyName, ok := m["api_key_name"].(string); ok {
 		entry.APIKeyName = apiKeyName
+	}
+
+	// Optional: endpoint. The loader checks the form of the name.
+	if raw, ok := m["endpoint"]; ok {
+		endpoint, ok := raw.(string)
+		if !ok || endpoint == "" {
+			return entry, fmt.Errorf("model[%d].endpoint: must be a non-empty string", index)
+		}
+		entry.Endpoint = endpoint
 	}
 
 	// Optional: provider_order
