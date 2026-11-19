@@ -54,6 +54,15 @@ func (d *dialRecord) dial(ctx context.Context, network, address string) (net.Con
 	return dialer.DialContext(ctx, network, address)
 }
 
+// noRoute records the address and fails the dial, as for an address that no
+// route reaches.
+func (d *dialRecord) noRoute(_ context.Context, _, address string) (net.Conn, error) {
+	d.mu.Lock()
+	d.addrs = append(d.addrs, address)
+	d.mu.Unlock()
+	return nil, errors.New("no route")
+}
+
 func (d *dialRecord) seen() []string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -336,13 +345,7 @@ func TestWildcardRefusesSpecialAddresses(t *testing.T) {
 		resolver.answers[name(addr)] = []netip.Addr{netip.MustParseAddr(addr)}
 	}
 	dials := &dialRecord{}
-	noRoute := func(_ context.Context, _, address string) (net.Conn, error) {
-		dials.mu.Lock()
-		dials.addrs = append(dials.addrs, address)
-		dials.mu.Unlock()
-		return nil, errors.New("no route")
-	}
-	client := proxyClient(t, startProxy(t, []string{"*.wild.example.test"}, resolver, noRoute))
+	client := proxyClient(t, startProxy(t, []string{"*.wild.example.test"}, resolver, dials.noRoute))
 	get := func(target string) int {
 		resp, err := client.Get(target)
 		require.NoError(t, err)
@@ -359,6 +362,28 @@ func TestWildcardRefusesSpecialAddresses(t *testing.T) {
 		want = append(want, net.JoinHostPort(addr, "80"))
 	}
 	assert.Equal(t, want, dials.seen(), "only the public addresses are dialed")
+}
+
+// A wildcard whose text ends like an address, such as *.0.0.1, matches IP
+// literals. An address that only such a rule allows reaches the network of the
+// proxy no more than a name does: it must be public.
+func TestWildcardRefusesPrivateAddressLiterals(t *testing.T) {
+	t.Parallel()
+
+	dials := &dialRecord{}
+	resolver := &fakeResolver{answers: map[string][]netip.Addr{}}
+	client := proxyClient(t, startProxy(t, []string{"*.0.0.1", "*.8.8"}, resolver, dials.noRoute))
+	get := func(target string) int {
+		resp, err := client.Get(target)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	assert.Equal(t, http.StatusForbidden, get("http://127.0.0.1/"))
+	assert.Equal(t, http.StatusForbidden, get("http://10.0.0.1/"))
+	assert.Equal(t, http.StatusBadGateway, get("http://8.8.8.8/"), "a public address is dialed")
+	assert.Equal(t, []string{"8.8.8.8:80"}, dials.seen(), "only the public address is dialed")
 }
 
 // A kept connection on which no next request comes ends, so a client cannot

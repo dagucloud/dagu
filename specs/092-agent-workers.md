@@ -774,8 +774,8 @@ and to the CI.
 
 `dagu egress-proxy serve` forwards the requests of a client to the destinations of `--allow` and
 refuses the others with the status 403. A name that only a wildcard entry allows, such as
-`*.github.io`, gets public addresses only. An entry that names the host or the address reaches any
-address. A special-purpose address, such as `198.18.0.1`, is not public, and a NAT64 or 6to4
+`*.github.io`, gets public addresses only, and so does an address that only a wildcard such as
+`*.0.0.1` matches. An entry that names the host or the address reaches any address. A special-purpose address, such as `198.18.0.1`, is not public, and a NAT64 or 6to4
 address is public only when the IPv4 address in it is. A `CONNECT` tunnel in which no byte moves
 for 10 minutes ends. A kept connection with no request for 2 minutes ends.
 
