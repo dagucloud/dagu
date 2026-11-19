@@ -178,14 +178,16 @@ func TestAIErrors(t *testing.T) {
 	}
 }
 
-// The proxy URL is an http or https URL with no user information. An empty value
-// means a direct call. The error never shows the user information.
+// The proxy URL is an http or https URL with no user information and a port, if
+// any, from 1 to 65535. An empty value means a direct call. The error never
+// shows the user information.
 func TestAIProxyURL(t *testing.T) {
 	for _, ok := range []string{"http://proxy.example.com", "https://proxy.example.com:3128", "http://10.0.0.1:8080/", `""`} {
 		cfg := loadFromYAML(t, aiYAML("upstream.proxy_url", ok))
 		assert.Equal(t, strings.Trim(ok, `"`), cfg.AI.Upstream.ProxyURL)
 	}
-	for _, bad := range []string{"ftp://proxy.example.com", "proxy.example.com:3128", "http://", "socks5://proxy.example.com"} {
+	for _, bad := range []string{"ftp://proxy.example.com", "proxy.example.com:3128", "http://", "socks5://proxy.example.com",
+		"http://proxy.example.com:0", "http://proxy.example.com:65536"} {
 		err := loadAIError(t, aiYAML("upstream.proxy_url", `"`+bad+`"`))
 		require.Error(t, err, bad)
 		assert.Contains(t, err.Error(), `key "ai.upstream.proxy_url"`, bad)

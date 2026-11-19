@@ -290,6 +290,11 @@ func checkAIProxyURL(text string) error {
 	if u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return fmt.Errorf("the URL is not an http or https URL")
 	}
+	if port := u.Port(); port != "" {
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+			return fmt.Errorf("the URL has a port outside 1 to 65535")
+		}
+	}
 	return nil
 }
 
