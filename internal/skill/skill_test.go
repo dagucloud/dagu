@@ -164,6 +164,33 @@ func TestReadOfAMissingFolder(t *testing.T) {
 	require.ErrorIs(t, err, skill.ErrNotFound)
 }
 
+// A folder above the total limit is refused, and its read keeps at most the
+// limit of text in memory. The text files it does not keep still read from
+// disk with their recorded hash.
+func TestReadBoundsTheTextItKeeps(t *testing.T) {
+	t.Parallel()
+	files := map[string]string{"SKILL.md": strings.Replace(good, "name: demo", "name: big", 1)}
+	for i := range 5 {
+		files[fmt.Sprintf("references/r%d.md", i)] = strings.Repeat("a", skill.MaxFileBytes)
+	}
+	s, err := skill.Read(writeSkill(t, "big", files))
+	require.NoError(t, err)
+	require.Contains(t, ruleSet(s.Errors()), skill.RuleTotalTooLarge)
+
+	kept := 0
+	for _, f := range s.Files {
+		require.True(t, f.Text, f.Path)
+		if data, ok := s.Text(f.Path); ok {
+			kept += len(data)
+			continue
+		}
+		data, err := s.ReadVerified(f.Path)
+		require.NoError(t, err, f.Path)
+		require.Len(t, data, int(f.Size), f.Path)
+	}
+	require.LessOrEqual(t, kept, skill.MaxTotalBytes)
+}
+
 // The folder rules: the layout, links, hidden files, depth, text and limits.
 func TestFolderRules(t *testing.T) {
 	t.Parallel()

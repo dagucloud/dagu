@@ -42,6 +42,9 @@ const cacheRacyWindow = 2 * time.Second
 
 const maxCacheEntries = 128
 
+// maxCacheBytes bounds the text that the cache keeps for all folders.
+const maxCacheBytes = 64 << 20
+
 // tempNamePattern matches the name of the temporary file that an atomic write
 // creates next to its target. A reader ignores it.
 var tempNamePattern = regexp.MustCompile(`\.tmp\.[0-9]+$`)
@@ -66,11 +69,13 @@ type entry struct {
 var cache = struct {
 	mu      sync.Mutex
 	entries map[string]cacheEntry
+	bytes   int64
 }{entries: map[string]cacheEntry{}}
 
 type cacheEntry struct {
 	signature string
 	skill     *Skill
+	bytes     int64
 }
 
 // Read reads the skill folder dir. The name of the skill is the name of the
@@ -170,15 +175,25 @@ func store(dir, signature string, newest time.Time, s *Skill) {
 	if time.Since(newest) < cacheRacyWindow {
 		return
 	}
+	var size int64
+	for _, data := range s.text {
+		size += int64(len(data))
+	}
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
-	if len(cache.entries) >= maxCacheEntries {
-		for k := range cache.entries {
-			delete(cache.entries, k)
+	if old, ok := cache.entries[dir]; ok {
+		cache.bytes -= old.bytes
+		delete(cache.entries, dir)
+	}
+	for k, e := range cache.entries {
+		if len(cache.entries) < maxCacheEntries && cache.bytes+size <= maxCacheBytes {
 			break
 		}
+		cache.bytes -= e.bytes
+		delete(cache.entries, k)
 	}
-	cache.entries[dir] = cacheEntry{signature: signature, skill: s}
+	cache.entries[dir] = cacheEntry{signature: signature, skill: s, bytes: size}
+	cache.bytes += size
 }
 
 func emptyHash() string { return hashLines(nil) }
@@ -329,7 +344,7 @@ func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, err
 	s := &Skill{Name: name, Dir: dir, text: map[string][]byte{}}
 	s.Issues = append(s.Issues, folderIssues...)
 
-	var total int64
+	var total, kept int64
 	lines := make([]hashLine, 0, len(entries))
 	for _, e := range entries {
 		if e.kind != kindFile {
@@ -347,7 +362,7 @@ func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, err
 			file.SHA256 = hex.EncodeToString(sum[:])
 			file.Text = false
 		case file.Text:
-			data, err := os.ReadFile(full) //nolint:gosec // The path comes from the walk of the skill folder.
+			data, err := readAtMost(full, e.size)
 			if err != nil {
 				return nil, err
 			}
@@ -358,8 +373,11 @@ func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, err
 				s.Issues = append(s.Issues, Issue{Severity: SeverityError, Rule: RuleNotUTF8, File: e.rel,
 					Message: "the file is not valid UTF-8 text; SKILL.md, references/ and scripts/ hold text only"})
 				file.Text = false
-			} else {
+			} else if kept+file.Size <= MaxTotalBytes {
+				// A folder above the total limit leaves the rest of its text on disk,
+				// so one read never holds more than the limit.
 				s.text[e.rel] = data
+				kept += file.Size
 			}
 		default:
 			sum, n, err := hashFile(full)
@@ -415,6 +433,18 @@ func build(dir, name string, entries []entry, folderIssues []Issue) (*Skill, err
 	return s, nil
 }
 
+// readAtMost reads at most size+1 bytes of a file of the skill, so a file that
+// grows after the walk cannot fill the memory. The caller sees the extra byte
+// as a change of the file.
+func readAtMost(path string, size int64) ([]byte, error) {
+	f, err := os.Open(path) //nolint:gosec // The path comes from the walk of the skill folder.
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(io.LimitReader(f, size+1))
+}
+
 func hashFile(path string) (string, int64, error) {
 	f, err := os.Open(path) //nolint:gosec // The path comes from the walk of the skill folder.
 	if err != nil {
@@ -429,8 +459,9 @@ func hashFile(path string) (string, int64, error) {
 	return hex.EncodeToString(h.Sum(nil)), n, nil
 }
 
-// ReadVerified returns the content of one file of the skill, read from disk.
-// It fails when the content no longer has the size and the SHA-256 that the
+// ReadVerified returns the content of one file of the skill. A text file that
+// the read kept comes from the read. Any other file is read from disk, and the
+// call fails when its content no longer has the size and the SHA-256 that the
 // read recorded: the skill has changed since.
 func (s *Skill) ReadVerified(rel string) ([]byte, error) {
 	file, ok := s.File(rel)
@@ -443,7 +474,7 @@ func (s *Skill) ReadVerified(rel string) ([]byte, error) {
 	if file.Size > MaxFileBytes {
 		return nil, fmt.Errorf("skill %q: file %q is above the size limit", s.Name, rel)
 	}
-	data, err := os.ReadFile(filepath.Join(s.Dir, filepath.FromSlash(rel))) //nolint:gosec // rel is a path of the recorded list of files.
+	data, err := readAtMost(filepath.Join(s.Dir, filepath.FromSlash(rel)), file.Size)
 	if err != nil {
 		return nil, fmt.Errorf("skill %q: %w", s.Name, err)
 	}
