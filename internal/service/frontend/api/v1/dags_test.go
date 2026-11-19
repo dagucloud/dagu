@@ -423,6 +423,55 @@ steps:
 	require.Equal(t, api.UpcomingRunsHoldSuspended, *saved.Dag.UpcomingRunsHold)
 }
 
+// The DAG starts one run per time, so the daily schedule never starts while
+// the hourly one is listed first. The search reaches past the ten listed
+// runs, so the result does not depend on the time of day of the request.
+func TestDAGScheduleCoincidences(t *testing.T) {
+	server := test.SetupServer(t)
+	validate := func(t *testing.T, definition string) *api.DAGDetails {
+		t.Helper()
+		name := "coincidences"
+		response := server.Client().Post("/api/v1/dags/validate", api.ValidateDAGSpecJSONRequestBody{
+			Name: &name, Spec: definition,
+		}).ExpectStatus(http.StatusOK).Send(t)
+		var validation api.ValidateDAGSpec200JSONResponse
+		response.Unmarshal(t, &validation)
+		require.True(t, validation.Valid, validation.Errors)
+		require.NotNil(t, validation.Dag)
+		return validation.Dag
+	}
+
+	dag := validate(t, `params:
+  mode: manual
+schedule:
+  - expression: "0 * * * *"
+    params:
+      mode: x
+  - expression: "0 5 * * *"
+    params:
+      mode: y
+steps:
+  - run: echo hello
+`)
+	require.NotNil(t, dag.UpcomingRuns)
+	require.Len(t, *dag.UpcomingRuns, 10)
+	require.NotNil(t, dag.ScheduleCoincidences)
+	require.Len(t, *dag.ScheduleCoincidences, 1)
+	coincidence := (*dag.ScheduleCoincidences)[0]
+	require.Equal(t, 1, coincidence.ScheduleIndex)
+	require.Equal(t, 0, coincidence.StartedScheduleIndex)
+	require.Equal(t, 5, coincidence.Time.In(server.Config.Core.Location).Hour())
+	require.Equal(t, server.Config.Core.Location.String(), coincidence.Timezone)
+
+	dag = validate(t, `schedule:
+  - "0 * * * *"
+  - "30 5 * * *"
+steps:
+  - run: echo hello
+`)
+	require.Nil(t, dag.ScheduleCoincidences)
+}
+
 // A calendar's holidays show in the preview as skipped dates, and the
 // calendar list names the calendars the editor can complete.
 func TestDAGSpecCalendars(t *testing.T) {

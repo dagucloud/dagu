@@ -263,9 +263,32 @@ func TestUpcomingFires(t *testing.T) {
 
 		assert.Equal(t, []ir.ScheduleFire{
 			{Time: time.Date(2027, 1, 1, 1, 0, 0, 0, time.UTC), ScheduleIndex: 0},
-			{Time: time.Date(2027, 1, 1, 2, 0, 0, 0, time.UTC), ScheduleIndex: 0},
+			{Time: time.Date(2027, 1, 1, 2, 0, 0, 0, time.UTC), ScheduleIndex: 0, Coinciding: []int{1}},
 			{Time: time.Date(2027, 1, 1, 3, 0, 0, 0, time.UTC), ScheduleIndex: 0},
 		}, fires)
+	})
+
+	// Only one profile is active at a time, so schedules of two profiles
+	// never compete; a schedule without a profile competes with both.
+	t.Run("coinciding schedules of other profiles do not compete", func(t *testing.T) {
+		t.Parallel()
+
+		withProfile := func(expr, profile string) ir.Schedule {
+			schedule := newCron(t, expr)
+			schedule.Profile = profile
+			return schedule
+		}
+		dag := &ir.DAG{Schedule: []ir.Schedule{
+			withProfile("0 5 * * *", "prod"),
+			withProfile("0 5 * * *", "staging"),
+			newCron(t, "0 5 * * *"),
+		}}
+
+		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 1)
+
+		require.Len(t, fires, 1)
+		assert.Equal(t, 0, fires[0].ScheduleIndex)
+		assert.Equal(t, []int{2}, fires[0].Coinciding)
 	})
 
 	t.Run("a one-off takes precedence over a recurring fire", func(t *testing.T) {

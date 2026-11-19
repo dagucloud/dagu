@@ -644,11 +644,15 @@ type ScheduleFire struct {
 	// ExtraBusinessDay reports whether the fire falls on a business day only
 	// because its calendar lists it as one.
 	ExtraBusinessDay bool
+	// Coinciding lists the other schedules due at the same instant that can
+	// be active together with the firing one. They start no run then.
+	Coinciding []int
 }
 
 // UpcomingFires returns up to limit start-schedule fire times after from,
 // earliest first. Schedules that fire at the same instant yield one fire,
-// attributed to a one-off if present, then to the first entry of that kind.
+// attributed to a one-off if present, then to the first entry of that kind;
+// the others that can be active with it are listed in Coinciding.
 // The result ignores scheduler state such as suspension, pauses, and consumed
 // one-off schedules.
 func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
@@ -695,11 +699,20 @@ func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
 				continue
 			}
 			fire.SkippedHolidays = appendHolidays(fire.SkippedHolidays, cursor.skipped)
+			if i != earliest && cursor.at.Equal(at) && profilesOverlap(sched.Profile, d.Schedule[i].Profile) {
+				fire.Coinciding = append(fire.Coinciding, i)
+			}
 			cursors[i] = nextFireCursor(d.Schedule[i], after)
 		}
 		fires = append(fires, fire)
 	}
 	return fires
+}
+
+// profilesOverlap reports whether schedules of the two profiles can be active
+// at once: a schedule without a profile is active under every profile.
+func profilesOverlap(a, b string) bool {
+	return a == "" || b == "" || a == b
 }
 
 // fireCursor is a schedule's next fire and the holidays skipped to reach it.

@@ -56,6 +56,9 @@ const (
 	defaultHistoryLimit = 30
 	// upcomingRunsLimit caps the fire times listed in DAG details.
 	upcomingRunsLimit = 10
+	// coincidenceScanLimit caps the fire times searched for schedules due at
+	// the same time. It covers about 41 days of an hourly schedule.
+	coincidenceScanLimit = 1000
 )
 
 // resolveDAGName returns the DAG name from metadata, or falls back to fileName if metadata lookup fails.
@@ -163,7 +166,7 @@ func (a *API) ValidateDAGSpecData(ctx context.Context, name, source string) (*ap
 
 	details := toDAGDetails(dag)
 	if details != nil {
-		details.UpcomingRuns = a.scheduleFires(dag)
+		details.UpcomingRuns, details.ScheduleCoincidences = a.scheduleFires(dag)
 		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, name, details.UpcomingRuns)
 	}
 
@@ -349,7 +352,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 			}
 		}
 		details.NextRun = a.projectNextRun(ctx, projectionDAG)
-		details.UpcomingRuns = a.scheduleFires(dag)
+		details.UpcomingRuns, details.ScheduleCoincidences = a.scheduleFires(dag)
 		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, request.FileName, details.UpcomingRuns)
 	}
 
@@ -659,7 +662,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 	details := toDAGDetails(dag)
 	if details != nil {
 		details.NextRun = a.projectNextRun(ctx, dag)
-		details.UpcomingRuns = a.scheduleFires(dag)
+		details.UpcomingRuns, details.ScheduleCoincidences = a.scheduleFires(dag)
 		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, fileName, details.UpcomingRuns)
 		details.RecentFires = a.recentFires(ctx, fileName, dag)
 	}
@@ -2825,17 +2828,24 @@ func (a *API) projectNextRun(ctx context.Context, dag *ir.DAG) *time.Time {
 }
 
 // scheduleFires lists the next fire times of a DAG's start schedules, each
-// labeled with the zone its schedule is evaluated in.
-func (a *API) scheduleFires(dag *ir.DAG) *[]api.UpcomingRun {
+// labeled with the zone its schedule is evaluated in, and the schedules that
+// are due at the same time as another one.
+func (a *API) scheduleFires(dag *ir.DAG) (*[]api.UpcomingRun, *[]api.ScheduleCoincidence) {
 	if dag == nil || len(dag.Schedule) == 0 {
-		return nil
+		return nil, nil
 	}
 	location := time.Local
 	if a.config != nil && a.config.Core.Location != nil {
 		location = a.config.Core.Location
 	}
 
-	fires := dag.UpcomingFires(time.Now().In(location), upcomingRunsLimit)
+	limit := upcomingRunsLimit
+	if len(dag.Schedule) > 1 {
+		limit = coincidenceScanLimit
+	}
+	fires := dag.UpcomingFires(time.Now().In(location), limit)
+	coincidences := scheduleCoincidences(fires)
+	fires = fires[:min(len(fires), upcomingRunsLimit)]
 	runs := make([]api.UpcomingRun, 0, len(fires))
 	for _, fire := range fires {
 		run := api.UpcomingRun{
@@ -2863,7 +2873,32 @@ func (a *API) scheduleFires(dag *ir.DAG) *[]api.UpcomingRun {
 		run.Dates = a.fireDates(dag, fire, location)
 		runs = append(runs, run)
 	}
-	return &runs
+	return &runs, coincidences
+}
+
+// scheduleCoincidences reports each schedule that coincides with another one
+// at its first such fire, or nil when none does.
+func scheduleCoincidences(fires []ir.ScheduleFire) *[]api.ScheduleCoincidence {
+	var coincidences []api.ScheduleCoincidence
+	reported := make(map[int]bool)
+	for _, fire := range fires {
+		for _, index := range fire.Coinciding {
+			if reported[index] {
+				continue
+			}
+			reported[index] = true
+			coincidences = append(coincidences, api.ScheduleCoincidence{
+				ScheduleIndex:        index,
+				StartedScheduleIndex: fire.ScheduleIndex,
+				Time:                 fire.Time,
+				Timezone:             fireZoneLabel(fire.Time),
+			})
+		}
+	}
+	if len(coincidences) == 0 {
+		return nil
+	}
+	return &coincidences
 }
 
 // fireDates resolves the dates the run of a fire gets, or returns nil when

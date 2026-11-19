@@ -16671,6 +16671,29 @@ components:
         - scheduleIndex
         - timezone
 
+    ScheduleCoincidence:
+      type: object
+      description: "A start schedule due at the same time as another one. The DAG starts one run per time, so this schedule starts none then."
+      properties:
+        scheduleIndex:
+          type: integer
+          description: "Position in the DAG's schedule list of the entry that starts no run"
+        startedScheduleIndex:
+          type: integer
+          description: "Position in the DAG's schedule list of the entry that starts the run instead"
+        time:
+          type: string
+          format: date-time
+          description: "First upcoming time both are due, with the offset of the zone the started schedule is evaluated in"
+        timezone:
+          type: string
+          description: "Name of the zone the started schedule is evaluated in"
+      required:
+        - scheduleIndex
+        - startedScheduleIndex
+        - time
+        - timezone
+
     Status:
       type: integer
       enum: [0, 1, 2, 3, 4, 5, 6, 7, 8]
@@ -16974,6 +16997,11 @@ components:
             $ref: "#/components/schemas/UpcomingRun"
         upcomingRunsHold:
           $ref: "#/components/schemas/UpcomingRunsHold"
+        scheduleCoincidences:
+          type: array
+          description: "Start schedules that are due at the same time as another one within the upcoming fires, one entry per schedule at its first such time. Runtime profiles that cannot be active together do not count."
+          items:
+            $ref: "#/components/schemas/ScheduleCoincidence"
         dateNames:
           type: array
           description: "Names the DAG declares in its dates block, in order. Absent when it declares none."
