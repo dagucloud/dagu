@@ -409,6 +409,9 @@ func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 	s := newStore(t)
 	cur := create(t, s, "demo")
 	big := strings.Repeat("0123456789abcdef\n", 4000)
+	// The file exists before the reads start, so every complete version has it.
+	cur, err := s.WriteFile(ctx, "demo", "references/big.md", []byte(big), skill.Precondition{IfMatch: cur.Hash})
+	require.NoError(t, err)
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup
@@ -441,10 +444,9 @@ func TestReaderNeverSeesAHalfWrittenFile(t *testing.T) {
 			t.Fatalf("a reader saw an invalid skill: %v", sk.Issues)
 		}
 		data, ok := sk.Text("references/big.md")
-		if ok {
-			require.True(t, len(data) == len(big) || len(data) == 0 || true)
-			require.Equal(t, skill.HashFiles(sk.Files), sk.Hash)
-		}
+		require.True(t, ok, "a complete version has references/big.md")
+		require.Len(t, data, len(big))
+		require.Equal(t, skill.HashFiles(sk.Files), sk.Hash)
 	}
 	close(stop)
 	wg.Wait()
