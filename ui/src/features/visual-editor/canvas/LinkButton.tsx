@@ -6,17 +6,14 @@ import type { ComponentPropsWithoutRef, ReactElement } from 'react';
 import { cn } from '@/lib/utils';
 
 const BASE_CLASS =
-  'pointer-events-auto flex h-6 w-6 items-center justify-center rounded-full border-[1.5px] border-muted-foreground bg-card text-muted-foreground shadow-sm transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
-
-// A button on a link takes the pointer from the canvas: no drag, no pan.
-const FIXED_CLASS = 'nodrag nopan';
+  'nodrag nopan pointer-events-auto flex h-6 w-6 items-center justify-center rounded-full border-[1.5px] border-muted-foreground bg-card text-muted-foreground shadow-sm transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
 /**
  * The hover of an add button: the accent on the border and the icon, over a
  * soft tint of the card colour. The tint is opaque, so the link behind the
  * button does not show through it.
  */
-export const ADD_HOVER_CLASS =
+const ADD_HOVER_CLASS =
   'hover:border-primary hover:bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))] hover:text-primary';
 
 const KIND_CLASS = {
@@ -43,11 +40,6 @@ export interface LinkButtonProps
    * inferred dependency again; 'remove' is the trash of a link.
    */
   kind: keyof typeof KIND_CLASS;
-  /**
-   * True when the button is the whole body of a node: a drag that starts on
-   * it moves the node, and a click that ends a drag is dropped.
-   */
-  movable?: boolean;
 }
 
 /**
@@ -60,7 +52,6 @@ export interface LinkButtonProps
  */
 export function LinkButton({
   kind,
-  movable = false,
   className,
   ...props
 }: LinkButtonProps): ReactElement {
@@ -69,12 +60,7 @@ export function LinkButton({
     <button
       type="button"
       {...props}
-      className={cn(
-        !movable && FIXED_CLASS,
-        BASE_CLASS,
-        KIND_CLASS[kind],
-        className
-      )}
+      className={cn(BASE_CLASS, KIND_CLASS[kind], className)}
     >
       {/* The icon of router.route has its stem down: a quarter turn makes it point right. */}
       <Icon
