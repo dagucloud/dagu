@@ -23,8 +23,8 @@ import (
 )
 
 // The isolation tests need the user ID 0, the six capabilities and the flag
-// no-new-privileges. Run them in a root container, for example with
-// NNP=1 gowt.sh <worktree> 'go test ./internal/runtime/untrusted/...'.
+// no-new-privileges, as in a root container started with
+// --security-opt no-new-privileges. CI runs them in the job Test compatibility.
 const testUID, testGID = 64011, 64011
 
 func requireIsolation(t *testing.T) {
@@ -339,4 +339,130 @@ func TestRestoreThatCannotRemoveAnEntryAbortsTheRun(t *testing.T) {
 	}
 	err := iso.restore(true)
 	require.ErrorIs(t, err, ErrRunAborted)
+}
+
+// selfIsolation returns an isolation whose restricted user is the user of the
+// test, so that the handoff and the restore run without root.
+func selfIsolation(t *testing.T, work string) *isolation {
+	t.Helper()
+	real, err := filepath.EvalSymlinks(work)
+	require.NoError(t, err)
+	return &isolation{
+		step: "s", workDir: real, lexicalWork: work,
+		uid: uint32(os.Getuid()), gid: uint32(os.Getgid()), // #nosec G115 -- IDs fit in uint32.
+		workerUID: os.Geteuid(), workerGID: os.Getegid(),
+		protected: map[string]protectedDir{}, passDirs: map[string]protectedDir{},
+		gitEntries: map[string]bool{}, gitDirs: map[string]bool{},
+		gitSnapshot: map[string]fileSig{}, seenGit: map[string]bool{}, gitModes: map[string]uint32{},
+	}
+}
+
+func permOf(t *testing.T, path string) fs.FileMode {
+	t.Helper()
+	info, err := os.Lstat(path)
+	require.NoError(t, err)
+	return info.Mode().Perm()
+}
+
+// A chain of links can leave the work directory while the text of each target
+// stays in it: l1 -> ., l2 -> <work>/l1/.., l3 -> l2/.., up to the root, then
+// out -> lN/<outside>. The restore follows the links as the kernel does, so a
+// later trusted write through out cannot reach the folder outside. It needs no
+// root.
+func TestRestoreFollowsLinkChains(t *testing.T) {
+	t.Parallel()
+	iso := selfIsolation(t, t.TempDir())
+	work := iso.workDir
+	outside, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, iso.handoff())
+
+	require.NoError(t, os.Symlink(".", filepath.Join(work, "l1")))
+	// Not filepath.Join, which would clean the text to the work directory.
+	require.NoError(t, os.Symlink(work+"/l1/..", filepath.Join(work, "l2")))
+	last := "l2"
+	for i := 3; i <= strings.Count(work, "/")+1; i++ {
+		name := "l" + strconv.Itoa(i)
+		require.NoError(t, os.Symlink(last+"/..", filepath.Join(work, name)))
+		last = name
+	}
+	out := filepath.Join(work, "out")
+	require.NoError(t, os.Symlink(last+outside, out))
+	reached, err := filepath.EvalSymlinks(out)
+	require.NoError(t, err)
+	require.Equal(t, outside, reached, "the chain leaves the work directory")
+
+	var bad bool
+	require.NoError(t, walkFD(work, func(e *fsEntry) (bool, error) {
+		if e.name == "out" {
+			_, bad = iso.badLink(e)
+		}
+		return false, nil
+	}))
+	assert.True(t, bad, "the link out leads outside the work directory")
+
+	err = iso.restore(true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "made the link "+filepath.Join(work, "l2"))
+	_ = os.WriteFile(filepath.Join(out, "x"), []byte("x"), 0o600)
+	assert.NoFileExists(t, filepath.Join(outside, "x"), "a trusted write through out stays in the work directory")
+}
+
+// git follows a link at objects and refs, so a folder with HEAD, refs and a
+// link objects is a git folder. The work directory itself can become one. The
+// restore finds both and removes HEAD. It needs no root.
+func TestRestoreFindsNewGitFolders(t *testing.T) {
+	t.Parallel()
+	for name, folder := range map[string]func(work string) string{
+		"link objects":   func(work string) string { return filepath.Join(work, "services") },
+		"work directory": func(work string) string { return work },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			iso := selfIsolation(t, t.TempDir())
+			dir := folder(iso.workDir)
+			require.NoError(t, os.MkdirAll(dir, 0o750))
+			require.NoError(t, iso.handoff())
+
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o600))
+			require.NoError(t, os.Mkdir(filepath.Join(dir, "refs"), 0o750))
+			require.NoError(t, os.Symlink("refs", filepath.Join(dir, "objects")))
+
+			err := iso.restore(true)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "made the git folder "+dir+";")
+			assert.NoFileExists(t, filepath.Join(dir, "HEAD"))
+		})
+	}
+}
+
+// A git folder stays with the worker during the step, readable by the
+// restricted user, and gets its modes back at the end. A work directory that is
+// a git folder stays with the worker as a whole. It needs no root.
+func TestRestoreGivesGitModesBack(t *testing.T) {
+	t.Parallel()
+	for name, folder := range map[string]func(work string) string{
+		"entry .git":     func(work string) string { return filepath.Join(work, "repo", ".git") },
+		"work directory": func(work string) string { return work },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			iso := selfIsolation(t, t.TempDir())
+			dir := folder(iso.workDir)
+			for _, sub := range []string{"objects", "refs"} {
+				require.NoError(t, os.MkdirAll(filepath.Join(dir, sub), 0o700))
+			}
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o600))
+			config := filepath.Join(dir, "config")
+			require.NoError(t, os.WriteFile(config, []byte("[core]\n"), 0o600))
+
+			require.NoError(t, iso.handoff())
+			assert.True(t, iso.gitDirs[dir])
+			assert.Equal(t, fs.FileMode(0o604), permOf(t, config), "the restricted user reads the config")
+			require.NoError(t, iso.restore(true))
+			require.NoError(t, iso.checkGitRemoved())
+			assert.Equal(t, fs.FileMode(0o600), permOf(t, config))
+			assert.Equal(t, fs.FileMode(0o700), permOf(t, filepath.Join(dir, "objects")))
+		})
+	}
 }

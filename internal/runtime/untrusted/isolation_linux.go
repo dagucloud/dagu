@@ -101,6 +101,9 @@ type isolation struct {
 	// after the handoff; seenGit marks the entries that the restore saw.
 	gitSnapshot map[string]fileSig
 	seenGit     map[string]bool
+	// gitModes holds the mode of each git entry whose mode the handoff
+	// changed, for the restore.
+	gitModes map[string]uint32
 	// hostLock is the lock file of the restricted user on the host.
 	hostLock *os.File
 	// handedOff is true once the walk of the handoff started.
@@ -155,6 +158,7 @@ func beginIsolation(ctx context.Context, req Request) (iso *isolation, err error
 		gitDirs:     make(map[string]bool),
 		gitSnapshot: make(map[string]fileSig),
 		seenGit:     make(map[string]bool),
+		gitModes:    make(map[string]uint32),
 		hostLock:    hostLock,
 	}
 	defer func() {

@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,19 +20,25 @@ import (
 // Spec 092, "Files". The handoff gives the work directory to the restricted
 // user, except the folders that git opens as a repository (the git folders)
 // and the entries named .git. These stay with the worker, readable and not
-// writable by the restricted user. The work directory and each folder on the
-// way to a git folder or to a .git keep the owner of the worker with the mode
-// 1777, so that the restricted user cannot rename or replace them.
+// writable by the restricted user, until the restore gives them their modes
+// back. The work directory and each folder on the way to a git folder or to a
+// .git keep the owner of the worker with the mode 1777, so that the restricted
+// user cannot rename or replace them.
 //
 // The restore gives the work directory back to the worker. It fails the step
 // for what an agent could leave for a later trusted step:
 //
-//   - a new .git, or a new folder that git opens as a repository: Dagu removes
-//     the .git, or the files HEAD, commondir and gitdir of the folder;
+//   - a new .git, or a new folder that git opens as a repository, the work
+//     directory included: Dagu removes the .git, or the files HEAD, commondir
+//     and gitdir of the folder;
 //   - a change in a git folder: the run stops, because Dagu cannot undo it;
 //   - a link of the restricted user to a path outside the work directory or
-//     into a git folder, and a file of the restricted user with more than one
-//     link: Dagu removes it.
+//     into a git folder, by the text of its target or by the path that the
+//     kernel reaches through it, and a file of the restricted user with more
+//     than one link: Dagu removes it.
+//
+// Each removal fails the step. So a step that succeeds kept each link as the
+// restore checked it.
 
 // protectedDir is a folder whose mode the isolation changed. The descriptor
 // keeps the folder for the restore of its mode.
@@ -44,12 +51,13 @@ type protectedDir struct {
 var gitMarkers = []string{"HEAD", "commondir", "gitdir"}
 
 // isGitFolder reports whether git opens the folder fd as a repository: it has
-// HEAD, objects and refs, or a file commondir or gitdir.
+// HEAD, objects and refs, or a file commondir or gitdir. git follows a link
+// at objects and refs, so an entry of any type counts there.
 func isGitFolder(fd int) bool {
 	if hasChild(fd, "commondir", 0) || hasChild(fd, "gitdir", unix.S_IFREG) {
 		return true
 	}
-	return hasChild(fd, "HEAD", 0) && hasChild(fd, "objects", unix.S_IFDIR) && hasChild(fd, "refs", unix.S_IFDIR)
+	return hasChild(fd, "HEAD", 0) && hasChild(fd, "objects", 0) && hasChild(fd, "refs", 0)
 }
 
 // insideWork reports whether path is the work directory or a path below it.
@@ -122,6 +130,11 @@ func (iso *isolation) discoverGit() error {
 	}
 	return walkFD(iso.workDir, func(e *fsEntry) (bool, error) {
 		if e.path == iso.workDir {
+			// A work directory that git opens as a repository stays with the
+			// worker as a whole.
+			if isGitFolder(e.fd) {
+				return true, addDir(e.path, e.path)
+			}
 			return false, nil
 		}
 		if e.name == ".git" {
@@ -232,6 +245,7 @@ func (iso *isolation) protectGitEntry(e *fsEntry) error {
 			perm |= 0o001
 		}
 		if perm != e.perm() {
+			iso.gitModes[e.path] = e.perm()
 			if err := chmodFD(e, perm); err != nil {
 				return stepError(iso.step, "change the mode of", e.path, err)
 			}
@@ -263,6 +277,7 @@ func (iso *isolation) restore(verifyGit bool) error {
 		walkErr := walkFD(iso.workDir, func(e *fsEntry) (bool, error) {
 			switch {
 			case !verifyGit && (iso.gitDirs[e.path] || iso.gitEntries[e.path] || e.name == ".git"):
+				iso.restoreGitModes(e, fail)
 				return true, nil
 			case iso.gitDirs[e.path]:
 				iso.checkGitTree(e, fail)
@@ -274,7 +289,8 @@ func (iso *isolation) restore(verifyGit bool) error {
 				fail(iso.removeEntry(e, "the restricted user made the entry %s"))
 				return true, nil
 			}
-			if verifyGit && e.isDir() && e.path != iso.workDir && isGitFolder(e.fd) {
+			// A work directory that was a git folder at the handoff is in gitDirs.
+			if verifyGit && e.isDir() && isGitFolder(e.fd) {
 				for _, marker := range gitMarkers {
 					if err := removeAt(e.fd, e.path, marker); err != nil {
 						fail(fmt.Errorf("%w: %w", ErrRunAborted, stepError(iso.step, "remove", filepath.Join(e.path, marker), err)))
@@ -317,7 +333,10 @@ func (iso *isolation) restore(verifyGit bool) error {
 }
 
 // badLink reports whether the link of the restricted user points outside the
-// work directory or into a git folder. It returns the target.
+// work directory or into a git folder. It checks the text of the target and
+// the path that the kernel reaches through the link: a chain of links can
+// leave the work directory while the text of each target stays in it. It
+// returns the target.
 func (iso *isolation) badLink(e *fsEntry) (string, bool) {
 	buf := make([]byte, unix.PathMax)
 	n, err := unix.Readlinkat(e.fd, "", buf)
@@ -325,15 +344,69 @@ func (iso *isolation) badLink(e *fsEntry) (string, bool) {
 		return "(unreadable)", true
 	}
 	target := string(buf[:n])
-	resolved := target
-	if !filepath.IsAbs(resolved) {
-		resolved = filepath.Join(filepath.Dir(e.path), resolved)
+	lexical := target
+	if !filepath.IsAbs(lexical) {
+		lexical = filepath.Join(filepath.Dir(e.path), lexical)
 	}
-	resolved = filepath.Clean(resolved)
-	if !iso.insideWork(resolved) || iso.insideGit(resolved) {
+	resolved, err := resolveLinks(e.path)
+	if err != nil {
 		return target, true
 	}
+	for _, path := range []string{filepath.Clean(lexical), resolved} {
+		if !iso.insideWork(path) || iso.insideGit(path) {
+			return target, true
+		}
+	}
 	return target, false
+}
+
+// maxLinks is the number of links that Linux follows in one lookup.
+const maxLinks = 40
+
+// resolveLinks returns the path that the kernel reaches through the absolute
+// path, as filepath.EvalSymlinks does. From the first entry that does not
+// exist, the rest of the path is joined as text: a folder made there later
+// leads there. No process of the restricted user runs during the restore, so
+// the links cannot change under it.
+func resolveLinks(path string) (string, error) {
+	resolved := "/"
+	rest := path
+	for links := 0; ; {
+		var part string
+		part, rest, _ = strings.Cut(strings.TrimLeft(rest, "/"), "/")
+		switch part {
+		case "":
+			return resolved, nil
+		case ".":
+			continue
+		case "..":
+			resolved = filepath.Dir(resolved)
+			continue
+		}
+		next := filepath.Join(resolved, part)
+		info, err := os.Lstat(next)
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, unix.ENOTDIR) {
+			return filepath.Join(next, rest), nil
+		}
+		if err != nil {
+			return "", err
+		}
+		if info.Mode()&fs.ModeSymlink == 0 {
+			resolved = next
+			continue
+		}
+		if links++; links > maxLinks {
+			return "", &fs.PathError{Op: "resolve", Path: path, Err: unix.ELOOP}
+		}
+		target, err := os.Readlink(next)
+		if err != nil {
+			return "", err
+		}
+		if filepath.IsAbs(target) {
+			resolved = "/"
+		}
+		rest = target + "/" + rest
+	}
 }
 
 // removeEntry removes the entry and returns the error of the step. format has
@@ -362,6 +435,34 @@ func (iso *isolation) checkGitEntry(e *fsEntry, fail func(error)) {
 	if after := sigOf(&e.st); after != before {
 		fail(fmt.Errorf("untrusted step %q: the git entry %s changed: %s: %w",
 			iso.step, e.path, describeSig(before, after), ErrRunAborted))
+		return
+	}
+	iso.restoreGitMode(e, fail)
+}
+
+// restoreGitMode gives a git entry the mode that it had before the handoff.
+func (iso *isolation) restoreGitMode(e *fsEntry, fail func(error)) {
+	mode, changed := iso.gitModes[e.path]
+	if !changed {
+		return
+	}
+	if err := chmodFD(e, mode); err != nil {
+		fail(stepError(iso.step, "change the mode of", e.path, err))
+	}
+}
+
+// restoreGitModes gives each entry of the tree at root the mode that it had
+// before the handoff, without a check of the entries.
+func (iso *isolation) restoreGitModes(root *fsEntry, fail func(error)) {
+	if len(iso.gitModes) == 0 {
+		return
+	}
+	err := walkEntry(root, func(e *fsEntry) (bool, error) {
+		iso.restoreGitMode(e, fail)
+		return false, nil
+	})
+	if err != nil {
+		fail(stepError(iso.step, "read the git folder", root.path, err))
 	}
 }
 
