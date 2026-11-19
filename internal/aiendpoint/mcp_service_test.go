@@ -283,11 +283,18 @@ func TestMCPSetCredentialsReplacesTheWholeSet(t *testing.T) {
 	require.ErrorIs(t, err, aiendpoint.ErrNotFound)
 }
 
-// failingDeletes is a secret store whose Delete fails.
-type failingDeletes struct{ secret.Store }
+// failingDeletes is a secret store whose first fail calls of Delete fail.
+type failingDeletes struct {
+	secret.Store
+	fail int
+}
 
-func (failingDeletes) Delete(context.Context, string) error {
-	return errors.New("disk full")
+func (s *failingDeletes) Delete(ctx context.Context, id string) error {
+	if s.fail > 0 {
+		s.fail--
+		return errors.New("disk full")
+	}
+	return s.Store.Delete(ctx, id)
 }
 
 // A replacement whose old secret cannot be deleted still succeeds, and a
@@ -304,7 +311,7 @@ func TestMCPSetCredentialsWarnsOfAnOldSecretThatStays(t *testing.T) {
 	var logs bytes.Buffer
 	ctx := logger.WithLogger(context.Background(), logger.NewLogger(
 		logger.WithFormat("text"), logger.WithWriter(&logs), logger.WithQuiet()))
-	failing, err := aiendpoint.NewMCPService(stores.servers, failingDeletes{stores.secrets})
+	failing, err := aiendpoint.NewMCPService(stores.servers, &failingDeletes{Store: stores.secrets, fail: 1})
 	require.NoError(t, err)
 	saved, err := failing.SetCredentials(ctx, aiendpoint.GlobalScope(), "docs", aiendpoint.MCPCredentialsInput{
 		Headers: map[string]string{"X-Api-Key": tokenTwo},
@@ -414,6 +421,31 @@ func TestMCPUpdateAndDelete(t *testing.T) {
 	_, err = f.secrets.GetByRef(ctx, "", "ai/mcp/docs/authorization")
 	require.ErrorIs(t, err, secret.ErrNotFound, "the delete removes the credentials")
 	require.ErrorIs(t, f.svc.Delete(ctx, aiendpoint.GlobalScope(), "docs"), aiendpoint.ErrNotFound)
+}
+
+// A delete whose credentials cannot all be deleted keeps the entry, so a
+// second delete can finish it.
+func TestMCPDeleteThatFailsCanBeRetried(t *testing.T) {
+	ctx := context.Background()
+	stores := newSharedStores(t)
+	failing, err := aiendpoint.NewMCPService(stores.servers, &failingDeletes{Store: stores.secrets, fail: 1})
+	require.NoError(t, err)
+	in := mcpInput("docs", "", []string{"*"}, []string{"*"})
+	in.Credentials.Headers = map[string]string{"X-Api-Key": tokenOne, "X-Team": headerVal}
+	_, err = failing.Create(ctx, in)
+	require.NoError(t, err)
+
+	require.Error(t, failing.Delete(ctx, aiendpoint.GlobalScope(), "docs"))
+	_, err = failing.Get(ctx, aiendpoint.GlobalScope(), "docs")
+	require.NoError(t, err)
+
+	require.NoError(t, failing.Delete(ctx, aiendpoint.GlobalScope(), "docs"))
+	_, err = failing.Get(ctx, aiendpoint.GlobalScope(), "docs")
+	require.ErrorIs(t, err, aiendpoint.ErrNotFound)
+	for _, header := range []string{"x-api-key", "x-team"} {
+		_, err = stores.secrets.GetByRef(ctx, "", "ai/mcp/docs/"+header)
+		require.ErrorIs(t, err, secret.ErrNotFound, header)
+	}
 }
 
 func TestMCPResolveAppliesTheScopeAndUseRules(t *testing.T) {

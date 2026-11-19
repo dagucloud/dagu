@@ -296,8 +296,10 @@ func (s *Service) undoKey(ctx context.Context, ep *Endpoint, secretID, key, prev
 	return cause
 }
 
-// Delete removes an endpoint, then its key, then its models list. A models list
-// that stays is not an error: a later Create of the name deletes it.
+// Delete removes the key of an endpoint, then the endpoint, then its models
+// list. A delete whose key cannot be removed keeps the endpoint, so it can be
+// deleted again. A models list that stays is not an error: a later Create of the
+// name deletes it.
 func (s *Service) Delete(ctx context.Context, scope Scope, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -305,6 +307,14 @@ func (s *Service) Delete(ctx context.Context, scope Scope, name string) error {
 	ep, err := s.store.Get(ctx, scope, name)
 	if err != nil {
 		return err
+	}
+	// The record goes after the key, so a failure or a canceled request never
+	// leaves a key that no record names.
+	ctx = context.WithoutCancel(ctx)
+	if ep.SecretID != "" {
+		if err := s.secrets.Delete(ctx, ep.SecretID); err != nil && !errors.Is(err, secret.ErrNotFound) {
+			return fmt.Errorf("AI endpoint %q was not deleted: its key could not be deleted: %w", name, err)
+		}
 	}
 	if err := s.store.Delete(ctx, scope, name); err != nil {
 		return err
@@ -314,12 +324,6 @@ func (s *Service) Delete(ctx context.Context, scope Scope, name string) error {
 			logger.Warn(ctx, "AI models list of a deleted endpoint was not deleted",
 				slog.String("endpoint", name), slog.String("scope", scope.String()), slog.String("error", err.Error()))
 		}
-	}
-	if ep.SecretID == "" {
-		return nil
-	}
-	if err := s.secrets.Delete(ctx, ep.SecretID); err != nil && !errors.Is(err, secret.ErrNotFound) {
-		return fmt.Errorf("AI endpoint %q was deleted but its key was not: %w", name, err)
 	}
 	return nil
 }

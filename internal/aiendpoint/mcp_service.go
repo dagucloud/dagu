@@ -209,7 +209,8 @@ func (s *MCPService) SetCredentials(ctx context.Context, scope Scope, name strin
 	return saved, nil
 }
 
-// Delete removes an entry and its credentials.
+// Delete removes the credentials of an entry, then the entry. A delete whose
+// credentials cannot all be removed keeps the entry, so it can be deleted again.
 func (s *MCPService) Delete(ctx context.Context, scope Scope, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -218,9 +219,9 @@ func (s *MCPService) Delete(ctx context.Context, scope Scope, name string) error
 	if err != nil {
 		return err
 	}
-	if err := s.store.Delete(ctx, scope, name); err != nil {
-		return err
-	}
+	// The record goes after the credentials, so a failure or a canceled request
+	// never leaves a secret that no record names.
+	ctx = context.WithoutCancel(ctx)
 	var failed []string
 	for _, id := range credentialIDs(server) {
 		if err := s.secrets.Delete(ctx, id); err != nil && !errors.Is(err, secret.ErrNotFound) {
@@ -228,9 +229,9 @@ func (s *MCPService) Delete(ctx context.Context, scope Scope, name string) error
 		}
 	}
 	if len(failed) > 0 {
-		return fmt.Errorf("MCP server %q was deleted but %d of its credentials were not", name, len(failed))
+		return fmt.Errorf("MCP server %q was not deleted: %d of its credentials could not be deleted", name, len(failed))
 	}
-	return nil
+	return s.store.Delete(ctx, scope, name)
 }
 
 // ResolveMCPServer finds the entry that a step names, for a DAG, and checks the use

@@ -380,6 +380,27 @@ func TestDeleteRemovesTheKeyWhenTheModelsListStays(t *testing.T) {
 	require.ErrorIs(t, err, secret.ErrNotFound)
 }
 
+// A delete whose key cannot be deleted keeps the endpoint, so a second delete
+// can finish it.
+func TestDeleteThatFailsCanBeRetried(t *testing.T) {
+	ctx := context.Background()
+	stores := newSharedStores(t)
+	failing, err := aiendpoint.NewService(stores.endpoints, &failingDeletes{Store: stores.secrets, fail: 1})
+	require.NoError(t, err)
+	created, err := failing.Create(ctx, globalInput("cle1", keyOne, []string{"*"}, []string{"*"}))
+	require.NoError(t, err)
+
+	require.Error(t, failing.Delete(ctx, created.Scope, "cle1"))
+	_, err = failing.Get(ctx, created.Scope, "cle1")
+	require.NoError(t, err)
+
+	require.NoError(t, failing.Delete(ctx, created.Scope, "cle1"))
+	_, err = failing.Get(ctx, created.Scope, "cle1")
+	require.ErrorIs(t, err, aiendpoint.ErrNotFound)
+	_, err = stores.secrets.GetByID(ctx, created.SecretID)
+	require.ErrorIs(t, err, secret.ErrNotFound)
+}
+
 // An administrator can delete the secret of a key through the secret routes. A
 // later rotation makes the secret again, so the endpoint can be repaired.
 func TestRotateKeyMakesADeletedSecretAgain(t *testing.T) {
