@@ -467,6 +467,44 @@ func TestRotateKeyReportsAFailedRestore(t *testing.T) {
 	assert.NotContains(t, err.Error(), keyTwo)
 }
 
+// deletingUpdates is an endpoint store whose Update finds that another server
+// deleted the endpoint and its key.
+type deletingUpdates struct {
+	aiendpoint.Store
+	secrets secret.Store
+}
+
+func (s deletingUpdates) Update(ctx context.Context, scope aiendpoint.Scope, name string, _ func(*aiendpoint.Endpoint) error) (*aiendpoint.Endpoint, error) {
+	ep, err := s.Get(ctx, scope, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.Delete(ctx, scope, name); err != nil {
+		return nil, err
+	}
+	if err := s.secrets.Delete(ctx, ep.SecretID); err != nil {
+		return nil, err
+	}
+	return nil, aiendpoint.ErrNotFound
+}
+
+// A rotation of an endpoint that another server deletes meanwhile reports the
+// missing endpoint. No key is left to put back, so it asks for no rotation.
+func TestRotateKeyOfADeletedEndpoint(t *testing.T) {
+	ctx := context.Background()
+	stores := newSharedStores(t)
+	svc, err := aiendpoint.NewService(stores.endpoints, stores.secrets)
+	require.NoError(t, err)
+	created, err := svc.Create(ctx, globalInput("cle1", keyOne, []string{"*"}, []string{"*"}))
+	require.NoError(t, err)
+
+	deleting, err := aiendpoint.NewService(deletingUpdates{Store: stores.endpoints, secrets: stores.secrets}, stores.secrets)
+	require.NoError(t, err)
+	_, err = deleting.RotateKey(ctx, created.Scope, "cle1", keyTwo, "admin")
+	require.ErrorIs(t, err, aiendpoint.ErrNotFound)
+	assert.NotContains(t, err.Error(), "rotate its key again")
+}
+
 func TestResolveEndpointUseRule(t *testing.T) {
 	ctx := context.Background()
 	f := newFixture(t)

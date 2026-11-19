@@ -255,9 +255,9 @@ func (s *Service) currentKey(ctx context.Context, secretID string) (string, erro
 // undoKey reverts the key write of a rotation whose record update failed with
 // cause, and returns the error to report. The secret of the record gets its old
 // key back as a new version. A secret that the rotation made, which the record
-// does not name, is deleted. When the old key cannot be put back, the endpoint
-// can use the new key under the old fingerprint, and the error says to rotate
-// again.
+// does not name, is deleted. When the old key cannot be put back into a secret
+// that still exists, the endpoint can use the new key under the old fingerprint,
+// and the error says to rotate again.
 func (s *Service) undoKey(ctx context.Context, ep *Endpoint, secretID, previous, actor string, now time.Time, cause error) error {
 	ctx = context.WithoutCancel(ctx)
 	if secretID != ep.SecretID {
@@ -268,7 +268,7 @@ func (s *Service) undoKey(ctx context.Context, ep *Endpoint, secretID, previous,
 		return cause
 	}
 	input := secret.WriteValueInput{Value: previous, CreatedBy: actor, CreatedAt: now}
-	if _, err := s.secrets.WriteValue(ctx, secretID, input); err != nil {
+	if _, err := s.secrets.WriteValue(ctx, secretID, input); err != nil && !errors.Is(err, secret.ErrNotFound) {
 		return fmt.Errorf("%w; the old key of AI endpoint %q could not be put back, so rotate its key again", cause, ep.Name)
 	}
 	return cause
