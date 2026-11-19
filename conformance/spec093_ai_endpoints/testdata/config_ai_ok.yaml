@@ -1,0 +1,15 @@
+ai:
+  models_refresh_hours: 12
+  models_timeout_sec: 10
+  upstream:
+    proxy_url: "http://proxy.example.com:3128"
+  relay:
+    max_request_bytes: 2048
+    max_response_bytes: 4096
+    max_header_bytes: 2048
+    max_streams_per_run: 2
+    max_streams: 4
+    connect_timeout_sec: 3
+    response_header_timeout_sec: 20
+    idle_timeout_sec: 30
+    total_timeout_sec: 60

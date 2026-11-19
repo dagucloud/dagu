@@ -1,0 +1,7 @@
+description: A sub-DAG that needs another CLI provider. It is another run, on another agent worker.
+steps:
+  - id: review
+    action: agent.run
+    with:
+      provider: codex
+      prompt: Review the change.

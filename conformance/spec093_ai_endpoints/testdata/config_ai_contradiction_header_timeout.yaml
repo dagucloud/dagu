@@ -1,0 +1,5 @@
+ai:
+  relay:
+    response_header_timeout_sec: 100
+    idle_timeout_sec: 10
+    total_timeout_sec: 60
