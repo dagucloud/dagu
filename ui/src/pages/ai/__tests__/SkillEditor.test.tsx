@@ -173,6 +173,54 @@ describe('SkillEditor', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled();
   });
 
+  // The text that the editor saved belongs to the deleted file. A file
+  // uploaded later at the same path is read again.
+  it('reads a file uploaded at the path of a deleted file', async () => {
+    const before = [file('SKILL.md'), file('references/a.md')];
+    load(VALID, before);
+    mocks.readSkillFileText
+      .mockResolvedValueOnce('saved\n')
+      .mockResolvedValueOnce('uploaded\n');
+    mocks.writeSkillFile
+      .mockResolvedValueOnce(written(before, 'h2'))
+      .mockResolvedValueOnce(
+        written(
+          [file('SKILL.md'), { ...file('references/a.md'), sha256: 'new' }],
+          'h4'
+        )
+      );
+    mocks.removeSkillFile.mockResolvedValue(written([file('SKILL.md')], 'h3'));
+    renderEditor();
+
+    fireEvent.click(screen.getByRole('button', { name: /a\.md/ }));
+    await waitFor(() => expect(editorText()).toBe('saved\n'));
+    fireEvent.change(await editor(), { target: { value: 'edited\n' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete the file' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('skill-active-file')).toHaveTextContent(
+        'SKILL.md'
+      )
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Upload a file' }));
+    fireEvent.change(screen.getByLabelText('File'), {
+      target: { files: [new File(['uploaded\n'], 'a.md')] },
+    });
+    fireEvent.change(screen.getByLabelText('Path in the skill'), {
+      target: { value: 'references/a.md' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }));
+
+    await waitFor(() => expect(editorText()).toBe('uploaded\n'));
+    expect(mocks.readSkillFileText).toHaveBeenCalledTimes(2);
+  });
+
   // A skill can come from anyone: the preview loads no image, runs no block
   // and opens a linked file of the skill in the editor.
   it('previews Markdown without loading or running anything', async () => {

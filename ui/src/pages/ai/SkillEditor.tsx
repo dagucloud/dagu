@@ -382,6 +382,13 @@ export function SkillEditor({
     setDeleteError(outcome.message);
   };
 
+  // The file at the path is gone or new: its saved text is unknown.
+  const forget = (path: string) => {
+    setWritten((previous) => without(previous, path));
+    setFetched((previous) => without(previous, path));
+    setFileProblems((previous) => without(previous, path));
+  };
+
   const removeActiveFile = async () => {
     const path = active;
     setBusy(true);
@@ -395,6 +402,7 @@ export function SkillEditor({
     );
     if (outcome.ok) {
       settle(outcome);
+      forget(path);
       setDrafts((previous) => without(previous, path));
       setActive(SKILL_FILE);
       setConfirming(null);
@@ -422,6 +430,7 @@ export function SkillEditor({
     setBusy(false);
     if (outcome.ok) {
       settle(outcome);
+      forget(path);
       if (!file) setWritten((previous) => ({ ...previous, [path]: '' }));
       setActive(path);
       setDialog(null);
