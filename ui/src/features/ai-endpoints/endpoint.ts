@@ -203,7 +203,8 @@ export function validateForm(form: EndpointForm, ctx: FormContext): Problems {
     if (!NAME_PATTERN.test(form.name)) problems.name = 'name-pattern';
     else if (ctx.taken.includes(form.name)) problems.name = 'name-exists';
   }
-  if (form.description.length > MAX_DESCRIPTION) {
+  // The server counts characters, not UTF-16 code units, of the trimmed text.
+  if ([...form.description.trim()].length > MAX_DESCRIPTION) {
     problems.description = 'description-long';
   }
   const allowHttp = isLocalPreset(ctx.preset) || isCustomPreset(form.preset);

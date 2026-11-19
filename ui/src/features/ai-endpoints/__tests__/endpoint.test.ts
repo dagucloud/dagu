@@ -128,6 +128,26 @@ describe('name and url rules', () => {
     ).toEqual({});
   });
 
+  it('counts the description in characters, as the server does', () => {
+    const form = {
+      ...formForPreset(anthropic, anthropic.protocols[0]!.protocol),
+      name: 'cle2',
+      allowDags: ['*'],
+      allowWorkspaces: ['*'],
+    };
+    const ctx = { creating: true, preset: anthropic, taken: [] };
+    // Each emoji is one character and two UTF-16 code units. The form sends
+    // the description trimmed.
+    const full = '\u{1F600}'.repeat(200);
+    expect(validateForm({ ...form, description: full }, ctx)).toEqual({});
+    expect(validateForm({ ...form, description: ` ${full} ` }, ctx)).toEqual(
+      {}
+    );
+    expect(
+      validateForm({ ...form, description: `${full}\u{1F600}` }, ctx)
+    ).toEqual({ description: 'description-long' });
+  });
+
   it('checks the key without keeping it', () => {
     expect(keyProblem('', true)).toBe('key-required');
     expect(keyProblem('', false)).toBeNull();
