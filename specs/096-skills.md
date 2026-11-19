@@ -2,10 +2,16 @@
 
 ## Status
 
-Implemented.
+Not implemented.
 
-The API, the loader, `chat.completion`, `agent.run`, the ZIP download and the editor of the UI follow
-this spec. Items that are not built are in [Open items](#open-items).
+The package `internal/skill` (the format, the folder rules, the hash, the cache, the writes with
+their preconditions and the ZIP file), the skill routes of the API and the skip of `skills/` in DAG
+discovery exist. The loader, `dagu validate`, `chat.completion`, `agent.run`, the bundle of a
+dispatch and the editor of the UI do not use skills yet. The binary-level tests of
+[Conformance](#conformance) are not in this repository yet.
+
+Specs 090 and 091, which this spec cites, are not in this repository yet. [Open items](#open-items)
+lists what this spec leaves for later.
 
 ## Scope
 

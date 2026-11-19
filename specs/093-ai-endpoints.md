@@ -7,13 +7,13 @@ Not implemented.
 The stores, the services and the routes of the endpoints and of the MCP server entries, the models
 lists and the block `ai` of the configuration exist. No page or step uses them yet.
 
-Specs 090, 091 and 096, which this spec cites, are not in this repository yet.
+Specs 090 and 091, which this spec cites, are not in this repository yet.
 
 This spec is the companion of [Spec 059: Chat Completion](059-chat-completion.md), Spec 090: Agent
 Tools, Spec 091: Agent Node, [Spec 092: Agent Workers](092-agent-workers.md), [Spec 094: AI
-Gateway](094-ai-gateway.md), [Spec 095: MCP Servers](095-mcp-servers.md) and Spec 096: Skills. It
-also uses [Spec 069: Secrets Providers](069-secrets-providers.md) and [Spec 070: Runtime
-Profiles](070-runtime-profiles.md).
+Gateway](094-ai-gateway.md), [Spec 095: MCP Servers](095-mcp-servers.md) and [Spec 096:
+Skills](096-skills.md). It also uses [Spec 069: Secrets Providers](069-secrets-providers.md) and
+[Spec 070: Runtime Profiles](070-runtime-profiles.md).
 
 Spec 094 defines the gateway that uses the endpoints of this spec. Spec 095 defines the MCP servers
 with credentials.

@@ -9,12 +9,12 @@ client and the messages of the coordinator stream exist as Go packages. The coor
 calls of the stream with `Unimplemented`, and no step or worker uses the gateway yet. The server
 reads the models lists of Spec 093 through the upstream client of the gateway.
 
-Specs 090, 091 and 096, which this spec cites, are not in this repository yet.
+Specs 090 and 091, which this spec cites, are not in this repository yet.
 
 This spec is the companion of [Spec 059: Chat Completion](059-chat-completion.md), Spec 090: Agent
 Tools, Spec 091: Agent Node, [Spec 092: Agent Workers](092-agent-workers.md), [Spec 093: AI
-Endpoints](093-ai-endpoints.md), [Spec 095: MCP Servers](095-mcp-servers.md) and Spec 096: Skills.
-It also uses [Spec 067: Harness Executor (CLI and ACP)](067-harness.md).
+Endpoints](093-ai-endpoints.md), [Spec 095: MCP Servers](095-mcp-servers.md) and [Spec 096:
+Skills](096-skills.md). It also uses [Spec 067: Harness Executor (CLI and ACP)](067-harness.md).
 
 Spec 093 defines the endpoints that the gateway uses. Spec 095 defines the MCP servers that the same
 relay serves.

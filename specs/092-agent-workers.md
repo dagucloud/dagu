@@ -7,7 +7,7 @@ Not implemented.
 The blocks `untrusted`, `coordinator.worker_pools` and `coordinator.dispatchers` are parsed and
 checked at start. Nothing enforces them yet.
 
-Specs 090, 091 and 096, which this spec cites, are not in this repository yet.
+Specs 090 and 091, which this spec cites, are not in this repository yet.
 
 This spec is the companion of Spec 091: Agent Node and Spec 090: Agent
 Tools. Spec 090 defines the tools that an `agent.run` step selects. Spec 091
