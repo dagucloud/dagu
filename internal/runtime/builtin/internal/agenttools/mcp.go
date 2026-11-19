@@ -82,7 +82,12 @@ func withMCPSession(
 		// The parse error quotes the whole URL.
 		return errors.New("connect to MCP server: the URL is not valid")
 	}
-	httpClient := &http.Client{Transport: headerTransport{base: http.DefaultTransport, origin: originOf(parsed), headers: headers}}
+	httpClient := &http.Client{
+		Transport: headerTransport{base: http.DefaultTransport, origin: originOf(parsed), headers: headers},
+		// A followed redirect would replay the body, with the arguments of a call,
+		// to a server that the author did not name.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "dagu", Version: "v2"}, nil)
 	session, err := client.Connect(ctx, &mcpsdk.StreamableClientTransport{
 		Endpoint:             endpoint,

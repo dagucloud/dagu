@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -41,6 +42,26 @@ func TestHeaderTransportKeepsTheCredentialsOnTheOrigin(t *testing.T) {
 	assert.Equal(t, "Bearer t0ken", rec.seen["https://MCP.example.com/mcp"])
 	assert.Empty(t, rec.seen["https://other.example.com/steal"])
 	assert.Empty(t, rec.seen["http://mcp.example.com/mcp"], "a change of scheme is another origin")
+}
+
+// A server can answer with a redirect. The client follows none, so the body of a
+// request, with the arguments of a call, never goes to another server.
+func TestMCPClientFollowsNoRedirect(t *testing.T) {
+	t.Parallel()
+	var reached atomic.Int32
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reached.Add(1)
+		http.NotFound(w, r)
+	}))
+	defer other.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+"/mcp", http.StatusTemporaryRedirect)
+	}))
+	defer origin.Close()
+
+	_, err := listMCPTools(context.Background(), origin.URL+"/mcp", nil)
+	require.Error(t, err)
+	assert.Zero(t, reached.Load(), "the redirect target gets no request")
 }
 
 // The URL of an MCP entry can hold a key in its query. No error of a failed
