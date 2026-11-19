@@ -26,8 +26,9 @@ type answerMismatch struct{ message string }
 func (e answerMismatch) Error() string { return e.message }
 
 // tidy drops, in place, the list items in value that are objects with only
-// blank fields, as a model writes "nothing here", and returns value. Other items keep their place, since the
-// position of a plain value in a list can carry meaning.
+// blank fields, as a model writes "nothing here", and returns value. Other
+// items keep their place, since the position of a plain value in a list can
+// carry meaning.
 func tidy(value any) any {
 	switch v := value.(type) {
 	case map[string]any:
