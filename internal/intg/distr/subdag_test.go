@@ -332,6 +332,9 @@ steps:
 		withWorkerMaxActiveRuns(1),
 		withStaleThresholds(testStaleHeartbeatThreshold, testStaleLeaseThreshold),
 		withZombieDetectionInterval(testZombieDetectorInterval),
+		// A direct dispatch fails at its deadline (Spec 092): the deadline is longer
+		// than the wait of this test, so that the child keeps waiting for the busy worker.
+		withWorkerWaitTimeout(time.Minute),
 	)
 
 	agent := f.dagWrapper.Agent()

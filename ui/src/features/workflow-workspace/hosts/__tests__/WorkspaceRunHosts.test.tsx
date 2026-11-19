@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useContext, type ReactNode } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { SWRConfig } from 'swr';
@@ -239,6 +239,12 @@ beforeEach(() => {
         rootDAGRunName: 'demo',
         rootDAGRunId: 'run-2',
       }),
+      // A child run of run-2: the sub-run read answers with it.
+      'c-1': run('c-1', [node('build')], Status.Failed, {
+        name: 'child-dag',
+        rootDAGRunName: 'demo',
+        rootDAGRunId: 'run-2',
+      }),
       'run-3': run('run-3', [node('a')], Status.Success, {
         name: 'nested',
         rootDAGRunName: 'parent-dag',
@@ -304,6 +310,41 @@ describe('WorkspaceRunHosts', () => {
     );
     expect(crumbs()).toEqual(['demo', 'child-dag']);
     expect(h.navigate).not.toHaveBeenCalled();
+  });
+
+  // A link to a sub-run (notification, incident, copied link) carries ?subRun.
+  it('opens the sub-run of ?subRun on the stack with its step, then clears the link', async () => {
+    renderHosts(null, `/dags/${FILE_NAME}?run=run-2&subRun=c-1&step=build`);
+
+    const content = await screen.findByTestId('child-content');
+    expect(content).toHaveAttribute('data-run', 'c-1');
+    // ?step belongs to the sub-run.
+    expect(content).toHaveAttribute('data-step', 'build');
+    // The label is the name of the sub-run, read from the server.
+    expect(crumbs()).toEqual(['demo', 'child-dag']);
+    expect(lastBoundedTarget()).toMatchObject({
+      dagRunId: 'c-1',
+      parentName: 'demo',
+      parentDAGRunId: 'run-2',
+    });
+    // The link is used once: the URL is the run again.
+    expect(h.navigate).toHaveBeenCalledWith(
+      `/dags/${FILE_NAME}?run=run-2`,
+      expect.objectContaining({ replace: true })
+    );
+  });
+
+  it('opens no stack for a sub-run that the run does not have', async () => {
+    renderHosts(null, `/dags/${FILE_NAME}?run=run-2&subRun=gone&step=build`);
+
+    expect(await screen.findByText('run-2')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(h.GET).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}',
+        expect.anything()
+      )
+    );
+    expect(screen.queryByTestId('child-content')).not.toBeInTheDocument();
   });
 
   it('takes the root of a nested run from its root fields', async () => {

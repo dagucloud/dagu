@@ -53,6 +53,19 @@ type capturedOutputContract struct {
 // capturedOutputs describes the names published by the mechanism that wins at
 // run time, mirroring the precedence in Node.captureOutput.
 func capturedOutputs(step *ir.Step) capturedOutputContract {
+	contract := capturedOutputsOf(step)
+	if step.Agent != nil {
+		// An agent.run step also publishes the normalized calls of the agent.
+		contract.declarations = append(contract.declarations, ir.StepOutputDeclaration{
+			Name:   ir.AgentToolCallsOutput,
+			Type:   ir.StepDeclaredOutputTypeJSON,
+			Source: ir.StepDeclaredOutputSourceCapture,
+		})
+	}
+	return contract
+}
+
+func capturedOutputsOf(step *ir.Step) capturedOutputContract {
 	switch {
 	case step.HasStdoutOutputs():
 		names, ok := stdoutOutputNames(step.StdoutOutputs)

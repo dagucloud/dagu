@@ -143,6 +143,22 @@ func TestWorkerHeartbeatDeleteStale(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestWorkerHeartbeatDelete(t *testing.T) {
+	ctx := context.Background()
+	s := newWorkerHeartbeatStore(t)
+	require.NoError(t, s.Upsert(ctx, newRecord("gone-worker")))
+	require.NoError(t, s.Upsert(ctx, newRecord("other-worker")))
+
+	require.NoError(t, s.Delete(ctx, "gone-worker"))
+	_, err := s.Get(ctx, "gone-worker")
+	assert.ErrorIs(t, err, dispatch.ErrWorkerHeartbeatNotFound)
+	_, err = s.Get(ctx, "other-worker")
+	assert.NoError(t, err)
+
+	require.NoError(t, s.Delete(ctx, "gone-worker"), "a worker with no record is not an error")
+	require.Error(t, s.Delete(ctx, ""))
+}
+
 func TestDeleteStale_RefreshDuringCleanup(t *testing.T) {
 	ctx := context.Background()
 	s := newWorkerHeartbeatStore(t)

@@ -1,0 +1,12 @@
+# A workflow that an HTTP call starts. Create its webhook in the workflow page
+# (Webhook tab); the Active column of the list switches the webhook on and off.
+description: Receive an order from a webhook and record it.
+type: chain
+params:
+  - ORDER_ID: unknown
+steps:
+  - name: receive
+    run: echo "order ${ORDER_ID} received"
+    output: RECEIVED
+  - name: record
+    run: echo "recorded ${RECEIVED}"
