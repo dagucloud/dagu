@@ -41,14 +41,19 @@ vi.mock('@/features/dags/components/visualization', () => ({
   DAGGraph: ({
     dagRun,
     onClickStep,
+    onSelectStep,
   }: {
     dagRun: components['schemas']['DAGRunDetails'];
     onClickStep: (id: string) => void;
+    onSelectStep: (id: string) => void;
   }) => (
     <div>
       Visualization for {dagRun.dagRunId}
       <button type="button" onClick={() => onClickStep('node_62_75_69_6c_64')}>
         Open graph step
+      </button>
+      <button type="button" onClick={() => onSelectStep('node_62_75_69_6c_64')}>
+        Open graph sub-run
       </button>
     </div>
   ),
@@ -225,6 +230,31 @@ describe('RunProgressModal', () => {
 
     expect(screen.getByLabelText('Location')).toHaveTextContent(
       '/dags/example-v2?remoteNode=edge&run=run-1&dagRunName=example'
+    );
+  });
+
+  // The sub-run opens on the file of its root run. The step of the root run
+  // that called it is not a step of the sub-run, so the link names no step.
+  it('opens a graph sub-run on the root file without the calling step', () => {
+    vi.mocked(useBoundedDAGRunDetails).mockReturnValue({
+      data: {
+        ...dagRun,
+        sourceFileName: 'example-v2',
+        nodes: [{ ...dagRun.nodes![0]!, subRuns: [{ dagRunId: 'child-1' }] }],
+      },
+      error: null,
+      isLoading: false,
+      isValidating: false,
+      refresh: vi.fn(),
+    });
+
+    renderModal();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Visualization' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open graph sub-run' }));
+
+    expect(screen.getByLabelText('Location')).toHaveTextContent(
+      /^\/dags\/example-v2\?remoteNode=edge&run=run-1&dagRunName=example&subRun=child-1$/
     );
   });
 });
