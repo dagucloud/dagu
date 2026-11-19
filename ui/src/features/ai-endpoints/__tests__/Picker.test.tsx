@@ -76,6 +76,25 @@ describe('Picker', () => {
     expect(onSelect).toHaveBeenCalledWith('claude-haiku-5');
   });
 
+  it('names the list after the trigger', () => {
+    const { trigger } = renderPicker();
+    fireEvent.click(trigger);
+    expect(screen.getByRole('listbox', { name: 'Model' })).toHaveFocus();
+  });
+
+  it('names the list after the label element of the trigger', () => {
+    render(
+      <>
+        <label htmlFor="effort">Effort</label>
+        <Picker id="effort" items={MODELS} value="" onSelect={vi.fn()}>
+          None
+        </Picker>
+      </>
+    );
+    fireEvent.click(screen.getByRole('combobox', { name: 'Effort' }));
+    expect(screen.getByRole('listbox', { name: 'Effort' })).toBeInTheDocument();
+  });
+
   it('moves to the item that starts with the typed letters', () => {
     const { onSelect, trigger } = renderPicker();
     fireEvent.click(trigger);

@@ -123,6 +123,7 @@ function matches(item: PickerItem, query: string): boolean {
 function PickerList({
   anchor,
   popoverId,
+  labelledBy,
   items,
   value,
   searchLabel,
@@ -133,6 +134,8 @@ function PickerList({
 }: {
   anchor: HTMLElement;
   popoverId: string;
+  /** The id of the element that names the list: the trigger. */
+  labelledBy: string;
   items: readonly PickerItem[];
   value: string;
   searchLabel: string;
@@ -357,6 +360,7 @@ function PickerList({
         ref={listRef}
         id={`${popoverId}-list`}
         role="listbox"
+        aria-labelledby={labelledBy}
         tabIndex={-1}
         aria-activedescendant={search ? undefined : current}
         className="min-h-0 flex-1 overflow-y-auto p-1 outline-none"
@@ -438,7 +442,10 @@ export function Picker({
   marker,
 }: {
   id?: string | undefined;
-  /** The accessible name of the trigger, when no label element points to it. */
+  /**
+   * The accessible name of the trigger and of its list, when no label element
+   * points to the trigger.
+   */
   label?: string | undefined;
   items: readonly PickerItem[];
   /** The value of the current item. */
@@ -462,6 +469,7 @@ export function Picker({
 }): ReactElement {
   const { ts } = useI18n();
   const popoverId = useId();
+  const triggerId = id ?? `${popoverId}-trigger`;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [up, setUp] = useState(false);
@@ -474,7 +482,7 @@ export function Picker({
     <>
       <button
         ref={triggerRef}
-        id={id}
+        id={triggerId}
         type="button"
         role="combobox"
         aria-haspopup="listbox"
@@ -507,6 +515,7 @@ export function Picker({
         <PickerList
           anchor={triggerRef.current}
           popoverId={popoverId}
+          labelledBy={triggerId}
           items={items}
           value={value}
           searchLabel={searchLabel ?? ts('Search the models')}
