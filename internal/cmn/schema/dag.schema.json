@@ -7178,7 +7178,7 @@
       "properties": {
         "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "not": { "const": "dagu" }, "description": "Label of the server. The tools of the server get the names <name>_<tool>. The name dagu is reserved for the tool bridge." },
         "url": { "type": "string", "minLength": 1, "description": "Streamable HTTP endpoint of the MCP server (http or https). May reference upstream values." },
-        "headers": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Headers sent to the server, for example Authorization. The agent can read them in the MCP config of the attempt: use a named entry for a credential." },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Headers sent to the server, for example Authorization." },
         "allow": { "type": "array", "minItems": 1, "items": { "type": "string" }, "description": "Tools of the server that join the catalog." }
       },
       "description": "An inline MCP server, with its URL. The connection, the listing and each call have a fixed limit of 30 seconds."

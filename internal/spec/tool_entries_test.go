@@ -193,6 +193,7 @@ func TestToolEntryMCP(t *testing.T) {
 	assert.Equal(t, "https://mcp.example.com/mcp", entry.MCP.URL)
 	assert.Equal(t, map[string]string{"Authorization": "Bearer abc"}, entry.MCP.Headers)
 	assert.Equal(t, []string{"search", "read"}, entry.MCP.Allow)
+	assert.False(t, entry.IsNamedMCP(), "an entry with url needs no relay")
 }
 
 func TestToolEntryMCPAcceptsAValueReferenceURL(t *testing.T) {
@@ -340,9 +341,6 @@ func TestToolsetsFolderIsNotRead(t *testing.T) {
 	assert.Contains(t, err.Error(), `unknown key "toolsets" in the tool map`)
 }
 
-// An mcp entry with no url names a MCP server entry of the AI page (Spec 095).
-// The loader keeps the name and the key allow, and no URL. The inline form with
-// url does not change.
 // The llm block of a DAG cannot name a MCP server entry: no relay serves it.
 func TestToolEntryMCPNamedFormIsRefusedInTheLLMBlock(t *testing.T) {
 	t.Parallel()

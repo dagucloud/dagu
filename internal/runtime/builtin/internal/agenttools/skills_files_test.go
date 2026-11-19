@@ -14,9 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-//go:fix inline
-func strPtr(s string) *string { return new(s) }
-
 // withFiles is a skill with a reference, a script, an asset and SKILL.md.
 func withFiles() ir.SkillEntry {
 	e := skillEntry("guide", "Read the references.")
