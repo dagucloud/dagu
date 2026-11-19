@@ -22,11 +22,18 @@ func TestReferenceResolver_RefusesReservedRefs(t *testing.T) {
 	ctx := context.Background()
 	store := newMemoryStoreForTest()
 	now := time.Date(2026, 5, 14, 1, 2, 3, 0, time.UTC)
-	reserved := []string{"ai/endpoint/anthropic", "ai/mcp/search/authorization", "ai/other"}
-	for _, ref := range reserved {
+	// The payments resolver finds ai/endpoint/local in its own scope and the
+	// other refs through the global fallback.
+	reserved := []struct{ workspace, ref string }{
+		{GlobalWorkspace, "ai/endpoint/anthropic"},
+		{GlobalWorkspace, "ai/mcp/search/authorization"},
+		{GlobalWorkspace, "ai/other"},
+		{"payments", "ai/endpoint/local"},
+	}
+	for _, stored := range reserved {
 		sec, err := New(CreateInput{
-			Workspace:    GlobalWorkspace,
-			Ref:          ref,
+			Workspace:    stored.workspace,
+			Ref:          stored.ref,
 			ProviderType: ProviderDaguManaged,
 			CreatedBy:    "admin",
 		}, now)
@@ -40,7 +47,8 @@ func TestReferenceResolver_RefusesReservedRefs(t *testing.T) {
 
 	for _, workspace := range []string{"", "payments"} {
 		resolver := NewReferenceResolver(store, workspace)
-		for _, ref := range reserved {
+		for _, stored := range reserved {
+			ref := stored.ref
 			r := secretref.Ref{Name: "K", Ref: ref}
 
 			value, err := resolver.ResolveReference(ctx, r)
