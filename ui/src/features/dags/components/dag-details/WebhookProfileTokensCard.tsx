@@ -44,8 +44,6 @@ interface WebhookProfileTokensCardProps {
   activeProfileNames: string[];
   onWebhookChange: (webhook: WebhookDetails) => void;
   onTokenCreated: (token: string) => void;
-  /** Called with true when the card hands over a token to show once. */
-  onSecretVisibleChange?: (visible: boolean) => void;
 }
 
 function WebhookProfileTokensCard({
@@ -56,7 +54,6 @@ function WebhookProfileTokensCard({
   activeProfileNames,
   onWebhookChange,
   onTokenCreated,
-  onSecretVisibleChange,
 }: WebhookProfileTokensCardProps) {
   const client = useClient();
   const [name, setName] = useState('');
@@ -90,7 +87,6 @@ function WebhookProfileTokensCard({
       setName('');
       setProfile('');
       onWebhookChange(data.webhook);
-      onSecretVisibleChange?.(true);
       onTokenCreated(data.token);
     } catch (error) {
       setError(
