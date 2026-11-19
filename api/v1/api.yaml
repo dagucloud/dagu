@@ -16680,7 +16680,7 @@ components:
           description: "Position in the DAG's schedule list of the entry that starts no run"
         precedingScheduleIndex:
           type: integer
-          description: "Position in the DAG's schedule list of an entry due at the same time that takes precedence over this one. When it has a runtime profile and this entry has none, it takes precedence only while that profile is active. It may itself give way to another entry."
+          description: "Position in the DAG's schedule list of the entry that starts the run of that time"
         time:
           type: string
           format: date-time
@@ -16999,7 +16999,7 @@ components:
           $ref: "#/components/schemas/UpcomingRunsHold"
         scheduleCoincidences:
           type: array
-          description: "Start schedules that are due at the same time as another one within the upcoming fires, one entry per schedule at its first such time. Runtime profiles that cannot be active together do not count."
+          description: "Start schedules that are due at the same time as another one within the upcoming fires, one entry per schedule at its first such time. Only schedules active under the DAG's default runtime profile count."
           items:
             $ref: "#/components/schemas/ScheduleCoincidence"
         dateNames:

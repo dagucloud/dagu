@@ -644,30 +644,28 @@ type ScheduleFire struct {
 	// ExtraBusinessDay reports whether the fire falls on a business day only
 	// because its calendar lists it as one.
 	ExtraBusinessDay bool
-	// Coinciding lists the schedules due at the same instant that start no
-	// run then.
+	// Coinciding lists the schedules active under the runtime profile in
+	// effect that are due at the same instant and start no run then.
 	Coinciding []Coincidence
 }
 
-// Coincidence is a start schedule that starts no run at an instant because a
-// schedule preferred to it is due then too and can be active with it.
+// Coincidence is a start schedule that starts no run at an instant because an
+// active schedule preferred to it is due then too.
 type Coincidence struct {
 	// Index is the position in DAG.Schedule of the schedule that starts no run.
 	Index int
-	// PrecedingIndex is the position of a schedule that takes precedence over
-	// it at the instant. It is one active whenever Index is, if one is due.
-	// Otherwise it has a runtime profile, and takes precedence only under
-	// that profile. It may itself give way to another schedule.
+	// PrecedingIndex is the position of the schedule that starts the run of
+	// the instant.
 	PrecedingIndex int
 }
 
 // UpcomingFires returns up to limit start-schedule fire times after from,
 // earliest first. Schedules that fire at the same instant yield one fire,
 // attributed to a one-off if present, then to the first entry of that kind.
-// The schedules that the scheduler would not start then are in Coinciding.
-// The result ignores scheduler state such as suspension, pauses, and consumed
-// one-off schedules.
-func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
+// Coinciding lists the schedules the scheduler would not start then while
+// profile is the runtime profile in effect. The result ignores scheduler
+// state such as suspension, pauses, and consumed one-off schedules.
+func (d *DAG) UpcomingFires(from time.Time, limit int, profile string) []ScheduleFire {
 	if limit <= 0 || len(d.Schedule) == 0 {
 		return nil
 	}
@@ -715,41 +713,29 @@ func (d *DAG) UpcomingFires(from time.Time, limit int) []ScheduleFire {
 			due = append(due, i)
 			cursors[i] = nextFireCursor(d.Schedule[i], after)
 		}
-		fire.Coinciding = d.coincidences(due)
+		fire.Coinciding = d.coincidences(due, profile)
 		fires = append(fires, fire)
 	}
 	return fires
 }
 
-// coincidences returns the schedules of due, all due at one instant, that a
-// preferred schedule takes precedence over under some runtime profile. Only
-// one profile is active at a time, and a schedule without a profile is active
-// under every profile.
-func (d *DAG) coincidences(due []int) []Coincidence {
+// coincidences returns the schedules of due, all due at one instant, that are
+// active under profile and start no run, because an active schedule preferred
+// to them starts it. A schedule without a profile is active under every one.
+func (d *DAG) coincidences(due []int, profile string) []Coincidence {
+	active := func(i int) bool {
+		return d.Schedule[i].Profile == "" || d.Schedule[i].Profile == profile
+	}
+	starting := -1
+	for _, i := range due {
+		if active(i) && (starting < 0 || d.takesInstantBefore(i, starting)) {
+			starting = i
+		}
+	}
 	var result []Coincidence
 	for _, j := range due {
-		always, sometimes := -1, -1
-		for _, i := range due {
-			if i == j || !d.takesInstantBefore(i, j) {
-				continue
-			}
-			switch profile := d.Schedule[i].Profile; {
-			case profile == "" || profile == d.Schedule[j].Profile:
-				if always < 0 || d.takesInstantBefore(i, always) {
-					always = i
-				}
-			case d.Schedule[j].Profile == "":
-				if sometimes < 0 || d.takesInstantBefore(i, sometimes) {
-					sometimes = i
-				}
-			}
-		}
-		preceding := always
-		if preceding < 0 {
-			preceding = sometimes
-		}
-		if preceding >= 0 {
-			result = append(result, Coincidence{Index: j, PrecedingIndex: preceding})
+		if j != starting && active(j) {
+			result = append(result, Coincidence{Index: j, PrecedingIndex: starting})
 		}
 	}
 	return result

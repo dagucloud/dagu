@@ -220,7 +220,7 @@ func runCalendarFires(ctx *Context, args []string) error {
 			return formatDates(dates)
 		}
 	}
-	return renderCalendarFires(ctx.Command.OutOrStdout(), dag, dag.UpcomingFires(from, count), datesOf)
+	return renderCalendarFires(ctx.Command.OutOrStdout(), dag, dag.UpcomingFires(from, count, ""), datesOf)
 }
 
 // renderCalendarFires lists fires with their schedule and note, and, when

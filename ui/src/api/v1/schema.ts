@@ -6527,7 +6527,7 @@ export interface components {
         ScheduleCoincidence: {
             /** @description Position in the DAG's schedule list of the entry that starts no run */
             scheduleIndex: number;
-            /** @description Position in the DAG's schedule list of an entry due at the same time that takes precedence over this one. When it has a runtime profile and this entry has none, it takes precedence only while that profile is active. It may itself give way to another entry. */
+            /** @description Position in the DAG's schedule list of the entry that starts the run of that time */
             precedingScheduleIndex: number;
             /**
              * Format: date-time
@@ -6725,7 +6725,7 @@ export interface components {
             /** @description Next fire times of the start schedules, earliest first. Derived from the definition alone: suspension, scheduler pauses, and runtime profiles do not filter it. */
             upcomingRuns?: components["schemas"]["UpcomingRun"][];
             upcomingRunsHold?: components["schemas"]["UpcomingRunsHold"];
-            /** @description Start schedules that are due at the same time as another one within the upcoming fires, one entry per schedule at its first such time. Runtime profiles that cannot be active together do not count. */
+            /** @description Start schedules that are due at the same time as another one within the upcoming fires, one entry per schedule at its first such time. Only schedules active under the DAG's default runtime profile count. */
             scheduleCoincidences?: components["schemas"]["ScheduleCoincidence"][];
             /** @description Names the DAG declares in its dates block, in order. Absent when it declares none. */
             dateNames?: string[];

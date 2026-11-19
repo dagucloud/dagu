@@ -238,7 +238,7 @@ func TestUpcomingFires(t *testing.T) {
 		}}
 
 		from := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
-		fires := dag.UpcomingFires(from, 4)
+		fires := dag.UpcomingFires(from, 4, "")
 
 		assert.Equal(t, []ir.ScheduleFire{
 			{Time: time.Date(2027, 1, 1, 9, 0, 0, 0, time.UTC), ScheduleIndex: 0},
@@ -259,7 +259,7 @@ func TestUpcomingFires(t *testing.T) {
 		}}
 
 		from := time.Date(2027, 1, 1, 0, 30, 0, 0, time.UTC)
-		fires := dag.UpcomingFires(from, 3)
+		fires := dag.UpcomingFires(from, 3, "")
 
 		assert.Equal(t, []ir.ScheduleFire{
 			{Time: time.Date(2027, 1, 1, 1, 0, 0, 0, time.UTC), ScheduleIndex: 0},
@@ -268,11 +268,10 @@ func TestUpcomingFires(t *testing.T) {
 		}, fires)
 	})
 
-	// Only one profile is active at a time, so schedules of two profiles
-	// never compete, while two of one profile do. A schedule without a
-	// profile is active under every profile; one that is always active with
-	// a losing schedule is named as the one that takes precedence.
-	t.Run("coinciding schedules compete within each profile", func(t *testing.T) {
+	// A schedule of another profile is inactive, so it neither starts the
+	// run nor loses it. A schedule without a profile is active under every
+	// profile.
+	t.Run("coinciding schedules compete under the active profile", func(t *testing.T) {
 		t.Parallel()
 
 		withProfile := func(profile string) ir.Schedule {
@@ -283,13 +282,13 @@ func TestUpcomingFires(t *testing.T) {
 		for _, tc := range []struct {
 			name     string
 			profiles []string
+			active   string
 			want     []ir.Coincidence
 		}{
-			{"two profiles", []string{"prod", "staging"}, nil},
-			{"two of one profile", []string{"prod", "staging", "staging"}, []ir.Coincidence{{Index: 2, PrecedingIndex: 1}}},
-			{"a profile before none", []string{"prod", "staging", ""}, []ir.Coincidence{{Index: 2, PrecedingIndex: 0}}},
-			{"none before a profile", []string{"", "prod"}, []ir.Coincidence{{Index: 1, PrecedingIndex: 0}}},
-			{"always active preferred", []string{"prod", "", ""}, []ir.Coincidence{{Index: 1, PrecedingIndex: 0}, {Index: 2, PrecedingIndex: 1}}},
+			{"no profile active", []string{"prod", "", ""}, "", []ir.Coincidence{{Index: 2, PrecedingIndex: 1}}},
+			{"the profile active", []string{"prod", "", ""}, "prod", []ir.Coincidence{{Index: 1, PrecedingIndex: 0}, {Index: 2, PrecedingIndex: 0}}},
+			{"another profile active", []string{"prod", "staging"}, "staging", nil},
+			{"two of the active profile", []string{"prod", "staging", "staging"}, "staging", []ir.Coincidence{{Index: 2, PrecedingIndex: 1}}},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
@@ -299,10 +298,9 @@ func TestUpcomingFires(t *testing.T) {
 					dag.Schedule = append(dag.Schedule, withProfile(profile))
 				}
 
-				fires := dag.UpcomingFires(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 1)
+				fires := dag.UpcomingFires(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 1, tc.active)
 
 				require.Len(t, fires, 1)
-				assert.Equal(t, 0, fires[0].ScheduleIndex)
 				assert.Equal(t, tc.want, fires[0].Coinciding)
 			})
 		}
@@ -315,7 +313,7 @@ func TestUpcomingFires(t *testing.T) {
 		require.NoError(t, err)
 		dag := &ir.DAG{Schedule: []ir.Schedule{newCron(t, "0 6 * * *"), oneOff}}
 
-		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 5, 0, 0, 0, time.UTC), 1)
+		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 5, 0, 0, 0, time.UTC), 1, "")
 
 		require.Len(t, fires, 1)
 		assert.Equal(t, []ir.Coincidence{{Index: 0, PrecedingIndex: 1}}, fires[0].Coinciding)
@@ -328,7 +326,7 @@ func TestUpcomingFires(t *testing.T) {
 		require.NoError(t, err)
 		dag := &ir.DAG{Schedule: []ir.Schedule{newCron(t, "0 6 * * *"), oneOff}}
 		from := time.Date(2027, 1, 1, 5, 0, 0, 0, time.UTC)
-		fires := dag.UpcomingFires(from, 2)
+		fires := dag.UpcomingFires(from, 2, "")
 		require.Len(t, fires, 2)
 		assert.Equal(t, 1, fires[0].ScheduleIndex)
 		assert.Equal(t, 0, fires[1].ScheduleIndex)
@@ -341,7 +339,7 @@ func TestUpcomingFires(t *testing.T) {
 		require.NoError(t, err)
 		dag := &ir.DAG{Schedule: []ir.Schedule{newCron(t, "CRON_TZ=Asia/Tokyo 0 9 * * *")}}
 
-		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 1)
+		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 1, "")
 
 		require.Len(t, fires, 1)
 		assert.Equal(t, tokyo, fires[0].Time.Location())
@@ -355,7 +353,7 @@ func TestUpcomingFires(t *testing.T) {
 		require.NoError(t, err)
 		dag := &ir.DAG{Schedule: []ir.Schedule{oneOff}}
 
-		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 1)
+		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 1, "")
 
 		require.Len(t, fires, 1)
 		assert.Equal(t, time.UTC, fires[0].Time.Location())
@@ -371,7 +369,7 @@ func TestUpcomingFires(t *testing.T) {
 		require.NoError(t, err)
 		dag := &ir.DAG{Schedule: []ir.Schedule{oneOff, newCron(t, "0 1 * * *")}}
 
-		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 2)
+		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 2, "")
 
 		assert.Equal(t, []time.Time{
 			time.Date(2027, 1, 1, 1, 0, 0, 0, time.UTC),
@@ -386,10 +384,10 @@ func TestUpcomingFires(t *testing.T) {
 		require.NoError(t, err)
 		dag := &ir.DAG{Schedule: []ir.Schedule{oneOff}}
 
-		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 5)
+		fires := dag.UpcomingFires(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), 5, "")
 
 		assert.Len(t, fires, 1)
-		assert.Empty(t, dag.UpcomingFires(time.Date(2027, 1, 2, 0, 0, 0, 0, time.UTC), 5))
+		assert.Empty(t, dag.UpcomingFires(time.Date(2027, 1, 2, 0, 0, 0, 0, time.UTC), 5, ""))
 	})
 }
 

@@ -166,7 +166,7 @@ func (a *API) ValidateDAGSpecData(ctx context.Context, name, source string) (*ap
 
 	details := toDAGDetails(dag)
 	if details != nil {
-		details.UpcomingRuns, details.ScheduleCoincidences = a.scheduleFires(dag)
+		details.UpcomingRuns, details.ScheduleCoincidences = a.scheduleFires(ctx, name, dag)
 		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, name, details.UpcomingRuns)
 	}
 
@@ -352,7 +352,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 			}
 		}
 		details.NextRun = a.projectNextRun(ctx, projectionDAG)
-		details.UpcomingRuns, details.ScheduleCoincidences = a.scheduleFires(dag)
+		details.UpcomingRuns, details.ScheduleCoincidences = a.scheduleFires(ctx, request.FileName, dag)
 		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, request.FileName, details.UpcomingRuns)
 	}
 
@@ -662,7 +662,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 	details := toDAGDetails(dag)
 	if details != nil {
 		details.NextRun = a.projectNextRun(ctx, dag)
-		details.UpcomingRuns, details.ScheduleCoincidences = a.scheduleFires(dag)
+		details.UpcomingRuns, details.ScheduleCoincidences = a.scheduleFires(ctx, fileName, dag)
 		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, fileName, details.UpcomingRuns)
 		details.RecentFires = a.recentFires(ctx, fileName, dag)
 	}
@@ -2829,8 +2829,9 @@ func (a *API) projectNextRun(ctx context.Context, dag *ir.DAG) *time.Time {
 
 // scheduleFires lists the next fire times of a DAG's start schedules, each
 // labeled with the zone its schedule is evaluated in, and the schedules that
-// are due at the same time as another one.
-func (a *API) scheduleFires(dag *ir.DAG) (*[]api.UpcomingRun, *[]api.ScheduleCoincidence) {
+// another one due at the same time keeps from starting under the DAG's
+// default runtime profile. dagName names the stored DAG whose profile applies.
+func (a *API) scheduleFires(ctx context.Context, dagName string, dag *ir.DAG) (*[]api.UpcomingRun, *[]api.ScheduleCoincidence) {
 	if dag == nil || len(dag.Schedule) == 0 {
 		return nil, nil
 	}
@@ -2839,12 +2840,26 @@ func (a *API) scheduleFires(dag *ir.DAG) (*[]api.UpcomingRun, *[]api.ScheduleCoi
 		location = a.config.Core.Location
 	}
 
+	scan := len(dag.Schedule) > 1
+	var profile string
+	if scan && slices.ContainsFunc(dag.Schedule, func(schedule ir.Schedule) bool { return schedule.Profile != "" }) {
+		var err error
+		profile, err = a.defaultRunProfileName(ctx, dagName, dagWorkspaceName(dag))
+		if err != nil {
+			// The scheduler starts no run of a DAG whose profile does not resolve.
+			logger.Debug(ctx, "Failed to resolve the default profile of a DAG", slog.String("dag", dagName), tag.Error(err))
+			scan = false
+		}
+	}
 	limit := upcomingRunsLimit
-	if len(dag.Schedule) > 1 {
+	if scan {
 		limit = coincidenceScanLimit
 	}
-	fires := dag.UpcomingFires(time.Now().In(location), limit)
-	coincidences := scheduleCoincidences(dag.Schedule, fires, location)
+	fires := dag.UpcomingFires(time.Now().In(location), limit, profile)
+	var coincidences *[]api.ScheduleCoincidence
+	if scan {
+		coincidences = scheduleCoincidences(dag.Schedule, fires, location)
+	}
 	fires = fires[:min(len(fires), upcomingRunsLimit)]
 	runs := make([]api.UpcomingRun, 0, len(fires))
 	for _, fire := range fires {
