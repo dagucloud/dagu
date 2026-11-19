@@ -523,7 +523,8 @@ func TestSkillsTwoInstancesRaceOnOneDirectory(t *testing.T) {
 	}
 }
 
-// A viewer reads skills but cannot change them.
+// A viewer reads skills but cannot change them. Each change is a request that
+// a developer could make, with the current hash, so only the role refuses it.
 func TestSkillsWriteNeedsDeveloper(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
@@ -531,23 +532,45 @@ func TestSkillsWriteNeedsDeveloper(t *testing.T) {
 		helper.DAGRepository, helper.DAGRunRepository, helper.QueueStore, helper.ProcRepository,
 		helper.DAGRunMgr, helper.Config, nil, helper.ServiceRegistry, nil, nil,
 	)
-	viewer := auth.WithUser(context.Background(), &auth.User{
-		ID: "cloud:v", Role: auth.RoleViewer, AuthProvider: auth.AuthProviderCloud,
+	asRole := func(role auth.Role) context.Context {
+		return auth.WithUser(context.Background(), &auth.User{
+			ID: "cloud:" + string(role), Role: role, AuthProvider: auth.AuthProviderCloud,
+		})
+	}
+	viewer, developer := asRole(auth.RoleViewer), asRole(auth.RoleDeveloper)
+	none := "*"
+	created, err := apiImpl.UpdateSkill(developer, api.UpdateSkillRequestObject{
+		Name: "refund-policy", Params: api.UpdateSkillParams{IfNoneMatch: &none},
+		Body: &api.UpdateSkillJSONRequestBody{Content: validSkill},
 	})
-	h := strings.Repeat("0", 64)
-
-	_, err := apiImpl.ListSkills(viewer, api.ListSkillsRequestObject{})
 	require.NoError(t, err)
-	_, err = apiImpl.DownloadSkills(viewer, api.DownloadSkillsRequestObject{Body: &api.DownloadSkillsJSONRequestBody{Names: []string{"x"}}})
-	require.Error(t, err, "the download needs a skill that exists, and no role")
-	_, err = apiImpl.UpdateSkill(viewer, api.UpdateSkillRequestObject{
-		Name: "refund-policy", Body: &api.UpdateSkillJSONRequestBody{Content: validSkill},
+	h := created.(api.UpdateSkill200JSONResponse).Hash
+	written, err := apiImpl.PutSkillFile(developer, api.PutSkillFileRequestObject{
+		Name: "refund-policy", Params: api.PutSkillFileParams{Path: "references/a.md", IfMatch: &h}, Body: strings.NewReader("x"),
 	})
-	require.Error(t, err)
+	require.NoError(t, err)
+	h = written.(api.PutSkillFile200JSONResponse).Hash
+
+	_, err = apiImpl.ListSkills(viewer, api.ListSkillsRequestObject{})
+	require.NoError(t, err)
+	_, err = apiImpl.DownloadSkills(viewer, api.DownloadSkillsRequestObject{Body: &api.DownloadSkillsJSONRequestBody{Names: []string{"refund-policy"}}})
+	require.NoError(t, err)
+
+	_, err = apiImpl.UpdateSkill(viewer, api.UpdateSkillRequestObject{
+		Name: "refund-policy", Params: api.UpdateSkillParams{IfMatch: &h},
+		Body: &api.UpdateSkillJSONRequestBody{Content: validSkill + "More.\n"},
+	})
+	requireAPIErrorStatus(t, err, http.StatusForbidden)
 	_, err = apiImpl.DeleteSkill(viewer, api.DeleteSkillRequestObject{Name: "refund-policy", Params: api.DeleteSkillParams{IfMatch: &h}})
-	require.Error(t, err)
-	_, err = apiImpl.PutSkillFile(viewer, api.PutSkillFileRequestObject{Name: "refund-policy", Params: api.PutSkillFileParams{Path: "references/a.md", IfMatch: &h}, Body: strings.NewReader("x")})
-	require.Error(t, err)
+	requireAPIErrorStatus(t, err, http.StatusForbidden)
+	_, err = apiImpl.PutSkillFile(viewer, api.PutSkillFileRequestObject{
+		Name: "refund-policy", Params: api.PutSkillFileParams{Path: "references/b.md", IfMatch: &h}, Body: strings.NewReader("x"),
+	})
+	requireAPIErrorStatus(t, err, http.StatusForbidden)
 	_, err = apiImpl.DeleteSkillFile(viewer, api.DeleteSkillFileRequestObject{Name: "refund-policy", Params: api.DeleteSkillFileParams{Path: "references/a.md", IfMatch: &h}})
-	require.Error(t, err)
+	requireAPIErrorStatus(t, err, http.StatusForbidden)
+
+	got, err := apiImpl.GetSkill(viewer, api.GetSkillRequestObject{Name: "refund-policy"})
+	require.NoError(t, err)
+	require.Equal(t, h, got.(api.GetSkill200JSONResponse).Hash, "the refused changes left the skill as it was")
 }
