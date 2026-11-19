@@ -198,18 +198,27 @@ func TestRelay_RefusesPathMethodAndQuery(t *testing.T) {
 // raw sends the bytes to the relay on a TCP connection and reads the answer.
 func raw(t *testing.T, relay *aigateway.Relay, request string) (int, string) {
 	t.Helper()
+	conn, resp := send(t, relay, request)
+	defer func() { _ = conn.Close() }()
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(body)
+}
+
+// send writes a raw request to the relay and reads the head of the response.
+// The connection stays open until the test ends.
+func send(t *testing.T, relay *aigateway.Relay, request string) (net.Conn, *http.Response) {
+	t.Helper()
 	addr := strings.TrimPrefix(relay.URL(), "http://")
 	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
 	require.NoError(t, err)
-	defer func() { _ = conn.Close() }()
+	t.Cleanup(func() { _ = conn.Close() })
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 	_, err = io.WriteString(conn, request)
 	require.NoError(t, err)
 	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
 	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	body, _ := io.ReadAll(resp.Body)
-	return resp.StatusCode, string(body)
+	return conn, resp
 }
 
 func TestRelay_RefusesHostAndRequestForm(t *testing.T) {
@@ -309,11 +318,20 @@ func TestRelay_FailureBecomesAnErrorResponse(t *testing.T) {
 // bodyTimeoutClient fails the call once the first byte of the body came, while
 // the rest of the body is still read in the background, as the gateway and the
 // coordinator client do when the body stops moving.
-type bodyTimeoutClient struct{ fakeClient }
+type bodyTimeoutClient struct {
+	fakeClient
+	// released is closed when the background read of the body ends.
+	released chan struct{}
+}
+
+func newBodyTimeoutClient() *bodyTimeoutClient {
+	return &bodyTimeoutClient{released: make(chan struct{})}
+}
 
 func (c *bodyTimeoutClient) Relay(_ context.Context, _ aigateway.StepRef, _ aigateway.Target, _ aigateway.HTTPRequest, body io.Reader, _ aigateway.ResponseSink) error {
 	first := make(chan struct{})
 	go func() {
+		defer close(c.released)
 		_, _ = body.Read(make([]byte, 1))
 		close(first)
 		_, _ = io.Copy(io.Discard, body)
@@ -322,17 +340,40 @@ func (c *bodyTimeoutClient) Relay(_ context.Context, _ aigateway.StepRef, _ aiga
 	return aigateway.Fail(aigateway.ReasonUpstreamTimeout, "the request body moved no byte for 1m0s")
 }
 
+// stalledBody is a request that announces 10 bytes of body and sends 1.
+func stalledBody(relay *aigateway.Relay) string {
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(relay.URL(), "http://"))
+	return "POST /v1/messages HTTP/1.1\r\nHost: 127.0.0.1:" + port + "\r\nX-Api-Key: " + relay.Secret() +
+		"\r\nContent-Length: 10\r\n\r\n{"
+}
+
 // A client that stops in the middle of its body still gets the failure: the
 // relay answers without waiting for the rest of the body.
 func TestRelay_FailureReachesAClientThatStopsItsBody(t *testing.T) {
 	t.Parallel()
-	relay := startRelay(t, &bodyTimeoutClient{}, nil)
-	_, port, _ := net.SplitHostPort(strings.TrimPrefix(relay.URL(), "http://"))
+	relay := startRelay(t, newBodyTimeoutClient(), nil)
 
-	status, body := raw(t, relay, "POST /v1/messages HTTP/1.1\r\nHost: 127.0.0.1:"+port+"\r\nX-Api-Key: "+relay.Secret()+
-		"\r\nContent-Length: 10\r\n\r\n{")
+	status, body := raw(t, relay, stalledBody(relay))
 	assert.Equal(t, aigateway.ReasonUpstreamTimeout.Status(), status)
 	assert.Contains(t, body, "upstream_timeout")
+}
+
+// The failure also ends the read of the body that the call left behind, so a
+// client that keeps its connection open and sends nothing more holds no reader
+// and no connection.
+func TestRelay_FailureEndsTheBodyRead(t *testing.T) {
+	t.Parallel()
+	client := newBodyTimeoutClient()
+	relay := startRelay(t, client, nil)
+
+	_, resp := send(t, relay, stalledBody(relay))
+	_ = resp.Body.Close()
+	assert.Equal(t, aigateway.ReasonUpstreamTimeout.Status(), resp.StatusCode)
+	select {
+	case <-client.released:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the read of the body still waits for the client")
+	}
 }
 
 // Any local process can connect to the port of the relay. A request with no
