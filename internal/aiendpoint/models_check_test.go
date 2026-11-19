@@ -6,6 +6,7 @@ package aiendpoint_test
 import (
 	"context"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -54,6 +55,40 @@ func TestCheckModelRefreshThenFound(t *testing.T) {
 	stored, err := f.svc.ModelsOf(context.Background(), &ep)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"m-1", "m-2", "m-3"}, stored.Names, "the refresh keeps the new list")
+}
+
+// A check that misses while the on-demand refresh of another check runs waits
+// for that refresh, and finds the model in the list it saved.
+func TestCheckModelWaitsForTheRefreshInFlight(t *testing.T) {
+	f, ep := newCheckFixture(t)
+	ctx := context.Background()
+	f.provider.set(http.StatusOK, `{"data":[{"id":"m-1"},{"id":"m-2"},{"id":"m-3"}]}`)
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	releaseRead := sync.OnceFunc(func() { close(release) })
+	defer releaseRead()
+	f.provider.mu.Lock()
+	f.provider.hook = func() {
+		close(entered)
+		<-release
+	}
+	f.provider.mu.Unlock()
+
+	first := make(chan error, 1)
+	go func() { first <- f.svc.CheckModel(ctx, ep, "", "m-3") }()
+	<-entered
+	second := make(chan error, 1)
+	go func() { second <- f.svc.CheckModel(ctx, ep, "", "m-3") }()
+	select {
+	case err := <-second:
+		t.Fatalf("the second check answered before the refresh ended: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	releaseRead()
+	require.NoError(t, <-first)
+	require.NoError(t, <-second)
+	assert.EqualValues(t, 1, f.provider.calls.Load(), "the second check reads no list of its own")
 }
 
 func TestCheckModelRefreshThenStillMissingNamesTheNewDate(t *testing.T) {
