@@ -235,7 +235,15 @@ export function SkillEditor({
 
   const skillText = drafts[SKILL_FILE] ?? savedText(SKILL_FILE) ?? '';
   const parsed = useMemo(() => readSkillForm(skillText), [skillText]);
-  const formWhole = wholeFile || !parsed.ok || parsed.form.unknown.length > 0;
+  const formCannotEdit = !parsed.ok || parsed.form.unknown.length > 0;
+  const formWhole = wholeFile || formCannotEdit;
+  // A text that the form cannot edit opens as the whole file, and stays so
+  // when an edit makes it valid: the editor never swaps to the body while
+  // the user types. The toggle then goes back to the body.
+  const loaded = data !== undefined;
+  useEffect(() => {
+    if (loaded && formCannotEdit) setWholeFile(true);
+  }, [loaded, formCannotEdit]);
 
   const { setDirty, guard, confirmDialog } = useSettingsLeaveGuard();
   useEffect(() => {

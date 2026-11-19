@@ -94,6 +94,24 @@ beforeEach(() => {
 });
 
 describe('SkillEditor', () => {
+  // A front matter with a key that the form cannot edit opens as the whole
+  // file. Fixing it must not swap the editor to the body under the cursor.
+  it('keeps the whole file while an edit makes the front matter valid', async () => {
+    load(
+      `---\nname: triage\nmodel: x\ndescription: ${DESCRIPTION}\n---\nBody\n`
+    );
+    renderEditor();
+    expect((await editor()).value).toContain('model: x');
+
+    fireEvent.change(await editor(), { target: { value: VALID } });
+    expect((await editor()).value).toBe(VALID);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Edit the front matter' })
+    );
+    expect((await editor()).value).toBe('Body\n');
+  });
+
   // The server refuses a SKILL.md with an empty body, so the draft must not
   // read as valid.
   it('shows the errors that a save of the draft would get', async () => {
