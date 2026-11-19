@@ -106,7 +106,9 @@ func (s *MCPService) completeCreate(ctx context.Context, server *MCPServer, toke
 	if token == "" && len(headers) == 0 {
 		return server.Clone(), nil
 	}
-	if err := s.writeCredentials(ctx, server, token, headers, actor, now); err != nil {
+	written, err := s.writeCredentials(ctx, server, token, headers, actor, now)
+	if err != nil {
+		s.deleteSecrets(ctx, secretIDs(written))
 		return nil, err
 	}
 	saved, err := s.store.Update(ctx, server.Scope, server.Name, func(cur *MCPServer) error {
@@ -114,7 +116,7 @@ func (s *MCPService) completeCreate(ctx context.Context, server *MCPServer, toke
 		return nil
 	})
 	if err != nil {
-		s.deleteSecrets(ctx, slices.Collect(maps.Values(credentialIDs(server))))
+		s.deleteSecrets(ctx, secretIDs(written))
 		return nil, err
 	}
 	return saved, nil
@@ -153,7 +155,9 @@ func (s *MCPService) Update(ctx context.Context, scope Scope, name string, in MC
 
 // SetCredentials replaces the whole set of credentials of an entry. The old values
 // stay in the secret store as encrypted old versions. A credential that the new
-// set does not have is deleted with its secret.
+// set does not have is deleted with its secret. A replacement that fails puts the
+// old values back, so the entry keeps its whole old set rather than a mix of
+// both sets.
 func (s *MCPService) SetCredentials(ctx context.Context, scope Scope, name string, in MCPCredentialsInput, actor string) (*MCPServer, error) {
 	headers, err := checkCredentials(in)
 	if err != nil {
@@ -166,8 +170,15 @@ func (s *MCPService) SetCredentials(ctx context.Context, scope Scope, name strin
 	if err != nil {
 		return nil, err
 	}
+	before := credentialIDs(server)
+	previous, err := s.currentValues(ctx, before, in.Token, headers)
+	if err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
-	if err := s.writeCredentials(ctx, server, in.Token, headers, actor, now); err != nil {
+	written, err := s.writeCredentials(ctx, server, in.Token, headers, actor, now)
+	if err != nil {
+		s.undoWrites(ctx, before, previous, written, actor, now)
 		return nil, err
 	}
 	var old map[string]string
@@ -178,6 +189,7 @@ func (s *MCPService) SetCredentials(ctx context.Context, scope Scope, name strin
 		return nil
 	})
 	if err != nil {
+		s.undoWrites(ctx, before, previous, written, actor, now)
 		return nil, err
 	}
 	// A secret that the new set no longer uses has no record.
@@ -340,11 +352,62 @@ func credentialIDs(server *MCPServer) map[string]string {
 	return ids
 }
 
+// currentValues reads the values that a new set overwrites: the value of each
+// credential of the set that the entry already has, by header. A secret that no
+// longer exists has no value to keep.
+func (s *MCPService) currentValues(ctx context.Context, ids map[string]string, token string, headers map[string]string) (map[string]string, error) {
+	names := slices.Collect(maps.Keys(headers))
+	if token != "" {
+		names = append(names, MCPTokenHeader)
+	}
+	values := map[string]string{}
+	for _, header := range names {
+		id, ok := ids[header]
+		if !ok {
+			continue
+		}
+		value, _, err := s.secrets.ReadValue(ctx, id)
+		switch {
+		case errors.Is(err, secret.ErrNotFound):
+			continue
+		case err != nil:
+			return nil, err
+		}
+		values[header] = value
+	}
+	return values, nil
+}
+
+// undoWrites reverts the writes of a replacement that failed. A secret that the
+// entry already had gets its old value back as a new version. A secret that the
+// replacement made, which no record uses, is deleted.
+func (s *MCPService) undoWrites(ctx context.Context, before, previous map[string]string, written []Credential, actor string, now time.Time) {
+	ctx = context.WithoutCancel(ctx)
+	for _, c := range written {
+		value, ok := previous[c.Header]
+		if !ok || c.SecretID != before[c.Header] {
+			_ = s.secrets.Delete(ctx, c.SecretID)
+			continue
+		}
+		_, _ = s.secrets.WriteValue(ctx, c.SecretID, secret.WriteValueInput{Value: value, CreatedBy: actor, CreatedAt: now})
+	}
+}
+
+// secretIDs returns the IDs of the secrets of the credentials.
+func secretIDs(credentials []Credential) []string {
+	ids := make([]string, 0, len(credentials))
+	for _, c := range credentials {
+		ids = append(ids, c.SecretID)
+	}
+	return ids
+}
+
 // writeCredentials writes each value of the new set as a version of a managed
 // secret, and puts the credentials of the set in the entry. It reuses the secret
 // of a credential that the entry already has. The record of the entry is not
-// saved here.
-func (s *MCPService) writeCredentials(ctx context.Context, server *MCPServer, token string, headers map[string]string, actor string, now time.Time) error {
+// saved here. It returns the credentials it wrote, also those written before an
+// error, so the caller can revert them.
+func (s *MCPService) writeCredentials(ctx context.Context, server *MCPServer, token string, headers map[string]string, actor string, now time.Time) ([]Credential, error) {
 	old := credentialIDs(server)
 	write := func(header, value string) (Credential, error) {
 		id, err := writeManagedSecret(ctx, s.secrets, managedSecret{
@@ -359,12 +422,16 @@ func (s *MCPService) writeCredentials(ctx context.Context, server *MCPServer, to
 		return Credential{Header: header, SecretID: id, Prefix: prefix, Fingerprint: fingerprint, UpdatedAt: now}, nil
 	}
 
-	var newToken *Credential
+	var (
+		written  []Credential
+		newToken *Credential
+	)
 	if token != "" {
 		credential, err := write(MCPTokenHeader, token)
 		if err != nil {
-			return err
+			return written, err
 		}
+		written = append(written, credential)
 		newToken = &credential
 	}
 	names := slices.Sorted(maps.Keys(headers))
@@ -372,13 +439,14 @@ func (s *MCPService) writeCredentials(ctx context.Context, server *MCPServer, to
 	for _, name := range names {
 		credential, err := write(name, headers[name])
 		if err != nil {
-			return err
+			return written, err
 		}
+		written = append(written, credential)
 		newHeaders = append(newHeaders, credential)
 	}
 	server.Token = newToken
 	server.Headers = newHeaders
-	return nil
+	return written, nil
 }
 
 // deleteSecrets removes secrets that no record uses. A failure leaves a secret

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -277,6 +278,51 @@ func TestMCPSetCredentialsReplacesTheWholeSet(t *testing.T) {
 
 	_, err = f.svc.SetCredentials(ctx, aiendpoint.GlobalScope(), "nope", aiendpoint.MCPCredentialsInput{Token: tokenOne}, "admin")
 	require.ErrorIs(t, err, aiendpoint.ErrNotFound)
+}
+
+// failingWrites is a secret store whose WriteValue fails once, at the call
+// number fail.
+type failingWrites struct {
+	secret.Store
+	calls, fail int
+}
+
+func (s *failingWrites) WriteValue(ctx context.Context, id string, in secret.WriteValueInput) (*secret.Secret, error) {
+	s.calls++
+	if s.calls == s.fail {
+		return nil, errors.New("disk full")
+	}
+	return s.Store.WriteValue(ctx, id, in)
+}
+
+// A rotation that fails after it wrote part of the new set leaves the whole old
+// set readable, and no secret of the new set behind.
+func TestMCPSetCredentialsThatFailsKeepsTheOldSet(t *testing.T) {
+	ctx := context.Background()
+	stores := newSharedStores(t)
+	svc, err := aiendpoint.NewMCPService(stores.servers, stores.secrets)
+	require.NoError(t, err)
+	in := mcpInput("docs", "", []string{"*"}, []string{"*"})
+	in.Credentials.Headers = map[string]string{"X-Api-Key": tokenOne, "X-Team": headerVal}
+	_, err = svc.Create(ctx, in)
+	require.NoError(t, err)
+
+	// The writes run in header order: x-api-key, then x-extra, which is new, then
+	// x-team, whose write fails.
+	failing, err := aiendpoint.NewMCPService(stores.servers, &failingWrites{Store: stores.secrets, fail: 2})
+	require.NoError(t, err)
+	_, err = failing.SetCredentials(ctx, aiendpoint.GlobalScope(), "docs", aiendpoint.MCPCredentialsInput{
+		Headers: map[string]string{"X-Api-Key": tokenTwo, "X-Extra": "extra-value-0123456789", "X-Team": "team-value-0123456789"},
+	}, "admin")
+	require.Error(t, err)
+
+	server, err := svc.ResolveMCPServer(ctx, "docs", "d", "")
+	require.NoError(t, err)
+	creds, err := svc.ReadCredentials(ctx, server)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"x-api-key": tokenOne, "x-team": headerVal}, creds.Headers)
+	_, err = stores.secrets.GetByRef(ctx, "", "ai/mcp/docs/x-extra")
+	require.ErrorIs(t, err, secret.ErrNotFound, "the secret that the failed rotation made is gone")
 }
 
 func TestMCPUpdateAndDelete(t *testing.T) {
