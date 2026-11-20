@@ -1,0 +1,140 @@
+# Hardened deployment of a Dagu agent worker with Docker Compose (Spec 092, "Deployment").
+#
+# Services:
+#   dagu-coordinator  UI, scheduler and coordinator in one process (dagu start-all)
+#   general-worker    a normal worker. It never takes an agent run.
+#   agent-worker      a worker with --agent. It takes one run, then exits. Docker restarts it.
+#   egress-proxy      the only way out of the agent worker. It has no model route:
+#                     an agent.run step names an AI endpoint (Spec 094), and the coordinator
+#                     adds the key of the endpoint.
+#
+# The agent worker is on an internal network. It reaches only the coordinator and the proxy.
+#
+# Before you start:
+#   1. Make the certificates in ./certs (see README.md).
+#   2. Build the images:  docker compose build
+#   3. Start:             docker compose up -d
+#   4. Make an AI endpoint with the REST API (see README.md). Each agent.run step names one.
+#
+# No cluster or Docker test of this file ran in the repository tests. It follows the
+# security table of Spec 092.
+
+name: dagu-agent-worker
+
+# The security settings of an agent worker. The worker starts as root because the
+# change to the restricted user needs CAP_SETUID. It keeps six capabilities and no more.
+x-agent-security: &agent-security
+  user: "0:0"
+  cap_drop: [ALL]
+  cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID, KILL]
+  security_opt: ["no-new-privileges:true"]
+  read_only: true
+  init: true
+  # Docker mounts a tmpfs with noexec. The tests of a run are scripts in the work
+  # directory, so these two mounts need exec.
+  tmpfs:
+    - /tmp:mode=1777,exec
+    # The restricted user must reach the work directory under this folder.
+    - /var/lib/dagu:mode=0755,exec
+
+services:
+  dagu-coordinator:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: dagu-agent-worker-control:local
+    command: ["dagu", "start-all", "--config", "/etc/dagu/config.yaml"]
+    environment:
+      # The image drops to this user. Make the coordinator key readable by it (see README.md).
+      PUID: "1000"
+      PGID: "1000"
+    volumes:
+      - ./config/coordinator.yaml:/etc/dagu/config.yaml:ro
+      - ./certs/coordinator:/etc/dagu/tls:ro
+      - dagu-data:/var/lib/dagu
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks:
+      internal:
+        aliases: [dagu-coordinator]
+      outer:
+    restart: unless-stopped
+
+  general-worker:
+    image: dagu-agent-worker:local
+    build:
+      context: ../..
+      dockerfile: deploy/agent-worker/Dockerfile
+    # The image entrypoint has --agent. A general worker has no such option.
+    entrypoint: ["/usr/local/bin/dagu", "worker", "--config", "/etc/dagu/config.yaml"]
+    user: "0:0"
+    cap_drop: [ALL]
+    # DAC_OVERRIDE lets root read the key, which has the mode 0400 and the owner of the host user.
+    cap_add: [DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    init: true
+    tmpfs:
+      - /tmp:mode=1777,exec
+      - /var/lib/dagu:mode=0755,exec
+    volumes:
+      - ./config/general-worker.yaml:/etc/dagu/config.yaml:ro
+      - ./certs/general-worker:/etc/dagu/tls:ro
+    networks: [internal]
+    restart: unless-stopped
+
+  agent-worker:
+    <<: *agent-security
+    image: dagu-agent-worker:local
+    environment:
+      # Dagu replaces the address and the key with those of the relay for each attempt.
+      # The proxy has no model route, so these two values reach no model API.
+      ANTHROPIC_BASE_URL: http://egress-proxy:8081
+      ANTHROPIC_API_KEY: placeholder
+      HTTP_PROXY: http://egress-proxy:8081
+      HTTPS_PROXY: http://egress-proxy:8081
+      # git uses libcurl. libcurl reads only the lower case name http_proxy.
+      http_proxy: http://egress-proxy:8081
+      https_proxy: http://egress-proxy:8081
+      # Claude Code sends the requests for ANTHROPIC_BASE_URL and for the tool bridge
+      # (127.0.0.1) through HTTP_PROXY when NO_PROXY does not name them, and the proxy
+      # refuses them.
+      NO_PROXY: dagu-coordinator,egress-proxy,127.0.0.1,localhost
+      no_proxy: dagu-coordinator,egress-proxy,127.0.0.1,localhost
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      DISABLE_TELEMETRY: "1"
+      DISABLE_AUTOUPDATER: "1"
+      DISABLE_ERROR_REPORTING: "1"
+    volumes:
+      - ./config/agent-worker.yaml:/etc/dagu/config.yaml:ro
+      - ./certs/agent-claude:/etc/dagu/tls:ro
+    # Only the internal network: no route to the outside.
+    networks: [internal]
+    # The worker takes one run and exits. This policy starts a new worker with a new file system.
+    restart: always
+
+  egress-proxy:
+    image: dagu-agent-worker:local
+    entrypoint:
+      - /usr/local/bin/dagu
+      - egress-proxy
+      - serve
+      - --listen=0.0.0.0:8081
+      # Edit this list. Each destination is host:port.
+      - --allow=git.example.com:443
+    user: "65534:65534"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    networks: [internal, outer]
+    restart: unless-stopped
+
+networks:
+  # No route to the outside. Only the coordinator, the workers and the proxy are here.
+  internal:
+    internal: true
+  # The proxy and the published port of the UI.
+  outer:
+
+volumes:
+  dagu-data:

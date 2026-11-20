@@ -1,0 +1,12 @@
+description: A chat step with an endpoint and no streaming.
+working_dir: .
+steps:
+  - id: ask
+    action: chat.completion
+    stdout: result.out
+    with:
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      stream: false
+      prompt: Say hello.

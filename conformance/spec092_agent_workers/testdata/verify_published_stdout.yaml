@@ -1,0 +1,9 @@
+# The step publishes a value of 200 bytes with stdout.outputs. The limit is 64 bytes.
+max_output_size: 64
+working_dir: .
+steps:
+  - id: publish
+    run: head -c 200 /dev/zero | tr '\0' 'a'
+    stdout:
+      outputs:
+        field: big
