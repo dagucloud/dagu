@@ -1,0 +1,6 @@
+[
+  {
+    "name": "tokyo PRODUCTION",
+    "nodes": [{ "name": "tokyo-web03", "host": "10.0.1.13", "labels": ["web"] }]
+  }
+]

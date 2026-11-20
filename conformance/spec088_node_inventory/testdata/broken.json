@@ -1,0 +1,11 @@
+[
+  {
+    "name": "Nagoya",
+    "nodes": [
+      { "name": "tokyo-web01", "host": "10.2.0.11" },
+      { "name": "nagoya-web01", "host": "not a host" },
+      { "name": "nagoya-web02", "host": "10.2.0.12", "password": "hunter2" },
+      { "name": "nagoya-db01", "host": "10.2.0.13", "bastion": "nagoya-web03" }
+    ]
+  }
+]

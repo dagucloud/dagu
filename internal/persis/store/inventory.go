@@ -358,6 +358,8 @@ func planImport(all []storedInventory, invs []inventory.Inventory, replace bool)
 		plan     importPlan
 		errs     []error
 		replaced = make([]bool, len(all))
+		// accepted lists the imported inventories that the plan stores.
+		accepted = make([]inventory.Inventory, 0, len(invs))
 	)
 	for _, inv := range invs {
 		if inv.ID != "" {
@@ -366,23 +368,31 @@ func planImport(all []storedInventory, invs []inventory.Inventory, replace bool)
 		i := slices.IndexFunc(all, func(e storedInventory) bool { return strings.EqualFold(e.stored.Name, inv.Name) })
 		switch {
 		case i < 0:
+			accepted = append(accepted, inv)
 			plan.steps = append(plan.steps, importStep{inv: inv})
 		case !replace:
 			errs = append(errs, &inventory.Error{Inventory: inv.Name, Field: "name", Err: inventory.ErrExists})
+			// The stored copy stays, so the refused inventory is checked on its
+			// own: its broken rules are listed, and its nodes do not clash
+			// with the copy it would replace.
+			if _, err := inventory.Resolve([]inventory.Inventory{inv}); err != nil {
+				errs = append(errs, err)
+			}
 		default:
 			replaced[i] = true
+			accepted = append(accepted, inv)
 			plan.steps = append(plan.steps, importStep{inv: inv, current: &all[i]})
 		}
 	}
 	// Imported inventories go last, so a clash is reported on them and names
 	// the stored inventory that keeps the name.
-	set := make([]inventory.Inventory, 0, len(all)+len(invs))
+	set := make([]inventory.Inventory, 0, len(all)+len(accepted))
 	for i, e := range all {
 		if !replaced[i] {
 			set = append(set, e.stored.Inventory)
 		}
 	}
-	set = append(set, invs...)
+	set = append(set, accepted...)
 	if _, err := inventory.Resolve(set); err != nil {
 		errs = append(errs, err)
 	}
