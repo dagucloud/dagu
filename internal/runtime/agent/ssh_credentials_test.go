@@ -127,25 +127,33 @@ steps:
 	}
 }
 
-// Until node steps run on their nodes, a run that uses node targeting fails
-// before any step, rather than running remote commands on the Dagu host.
+// Node targeting that is not built yet fails before any step, rather than
+// running commands meant for a node on the Dagu host.
 func TestAgent_NodeTargetingFailsBeforeAnyStep(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
 		name    string
 		yaml    string
+		opts    agent.Options
 		wantErr string
 	}{
 		{
-			name:    "NodesStep",
-			yaml:    "steps:\n  - id: local\n    run: echo started\n  - id: clean\n    run: rm -rf /tmp/app-cache\n    nodes: web\n",
-			wantErr: `step "clean" sets nodes, and running a step on inventory nodes is not available yet`,
+			name:    "NodeRequiredUnbound",
+			yaml:    "node: required\nsteps:\n  - id: local\n    action: noop\n",
+			wantErr: "declares node: required, so it runs only bound to a node",
 		},
 		{
-			name:    "NodeRequired",
-			yaml:    "node: required\nsteps:\n  - id: local\n    run: echo started\n",
-			wantErr: "declares node: required, and running a DAG bound to a node is not available yet",
+			name:    "BoundCommand",
+			yaml:    "node: required\nsteps:\n  - id: drain\n    action: noop\n  - id: restart\n    run: systemctl restart app\n",
+			opts:    agent.Options{BoundNode: "web01"},
+			wantErr: `step "restart" runs commands, and running commands on inventory node "web01" is not available yet`,
+		},
+		{
+			name:    "NodesStepOnWorker",
+			yaml:    "steps:\n  - id: local\n    action: noop\n  - id: clean\n    run: rm -rf /tmp/app-cache\n    nodes: web\n",
+			opts:    agent.Options{WorkerID: "worker-1"},
+			wantErr: `step "clean" sets nodes, and running a step on inventory nodes from a worker is not available yet`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -153,7 +161,7 @@ func TestAgent_NodeTargetingFailsBeforeAnyStep(t *testing.T) {
 
 			th := test.Setup(t)
 			dag := th.DAG(t, tc.yaml)
-			dagAgent := dag.Agent()
+			dagAgent := dag.Agent(test.WithAgentOptions(tc.opts))
 			dagAgent.RunCheckErr(t, tc.wantErr)
 			for _, node := range dagAgent.Status(th.Context).Nodes {
 				require.Equal(t, ir.NodeNotStarted, node.Status, "step %q ran", node.Step.Name)
@@ -168,12 +176,29 @@ func TestAgent_NodeTargetingDryRunReportsRefusal(t *testing.T) {
 	t.Parallel()
 
 	th := test.Setup(t)
-	dag := th.DAG(t, "steps:\n  - id: clean\n    run: rm -rf /tmp/app-cache\n    nodes: web\n")
-	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{Dry: true}))
+	dag := th.DAG(t, "node: required\nsteps:\n  - id: restart\n    run: systemctl restart app\n")
+	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{Dry: true, BoundNode: "web01"}))
 	dagAgent.RunSuccess(t)
 
 	require.Contains(t, dagAgent.DryRunChecks(), runtime.DryRunCheck{
 		Field:   "nodes",
-		Message: `step "clean" sets nodes, and running a step on inventory nodes is not available yet`,
+		Message: `step "restart" runs commands, and running commands on inventory node "web01" is not available yet`,
 	})
+}
+
+// A retry keeps the node its run was bound to, so a node: required run can be
+// retried.
+func TestAgent_RetryKeepsBoundNode(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	dag := th.DAG(t, "node: required\nsteps:\n  - id: check\n    action: noop\n")
+	first := dag.Agent(test.WithAgentOptions(agent.Options{BoundNode: "web01"}))
+	first.RunSuccess(t)
+	status := first.Status(th.Context)
+	require.Equal(t, "web01", status.BoundNode)
+
+	retry := dag.Agent(test.WithAgentOptions(agent.Options{RetryTarget: &status}))
+	retry.RunSuccess(t)
+	require.Equal(t, "web01", retry.Status(th.Context).BoundNode)
 }

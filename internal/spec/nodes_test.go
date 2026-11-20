@@ -179,3 +179,28 @@ func TestNodeRequired(t *testing.T) {
 		})
 	}
 }
+
+// Until RFC 003 ships, inventories belong to the installation's one project,
+// so a DAG in a workspace cannot target nodes.
+func TestNodesInWorkspace(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{"NodesStep", "labels: [workspace=ops]\nsteps:\n  - id: clean\n    run: \"true\"\n    nodes: web\n", "steps.clean.nodes': a DAG in a workspace cannot target nodes"},
+		{"NodeRequired", "labels: [workspace=ops]\nnode: required\nsteps:\n  - run: \"true\"\n", "field 'node': a DAG in a workspace cannot target nodes"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := spec.LoadYAML(context.Background(), []byte(tc.yaml))
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+
+	_, err := spec.LoadYAML(context.Background(), []byte("labels: [team=ops]\nsteps:\n  - id: clean\n    run: \"true\"\n    nodes: web\n"))
+	require.NoError(t, err)
+}
