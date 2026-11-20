@@ -1,0 +1,188 @@
+description: >-
+  Claude develops, a script judges, the code pushes to a branch. One DAG, one run.
+  Demo: the CLI is a fake claude and the model API is a fake. The fake CLI calls two DAG
+  tools through the tool bridge of Dagu, and the MCP tool dagu_read of the
+  Dagu server, and reads the skills project-rules and commit-message (with its file
+  references/format.md). The DAG agent-dev-isolation tries the hostile actions.
+type: graph
+params:
+  - name: TASK
+    type: string
+    default: Fix the failing test of the calculator.
+  - name: REPO
+    type: string
+    default: http://git-server:8080/app.git
+  - name: BRANCH
+    type: string
+    default: agent/fix-calculator
+  - name: CUSTOMER_ID
+    type: string
+    description: The customer of the ticket. The DAG fixes it, so the agent cannot change it.
+    default: c-42
+# The fake CLI reads its scenario from this variable.
+env:
+  - FAKE_CLAUDE_SCENARIO: demo
+secrets:
+  - name: GIT_TOKEN
+    ref: git-token
+steps:
+  - id: clone
+    action: git.checkout
+    secrets: [GIT_TOKEN]
+    with: { repository: "${REPO}", path: repo, token: "${GIT_TOKEN}" }
+
+  - id: code
+    depends: [clone]
+    working_dir: repo
+    action: agent.run
+    timeout_sec: 1800
+    retry_policy: { limit: 12, interval_sec: 300, exit_code: [75] }
+    stdout: ${DAG_RUN_WORK_DIR}/code.out
+    repeat_policy:
+      repeat: until
+      condition: tail -n 1 "${DAG_RUN_WORK_DIR}/code.out" | grep -q '"verdict":"done"'
+      limit: 2
+    preconditions:
+      - condition: "${TASK}"
+        expected: "re:.+"
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        verdict: { type: string, enum: [done, blocked] }
+        summary: { type: string }
+        changed_files: { type: array, items: { type: string } }
+        # The result of each tool call of the agent, as the agent got it.
+        tools:
+          type: object
+          additionalProperties: false
+          properties:
+            lookup_ticket: { type: string }
+            ops_notify: { type: string }
+            docs_dagu_read: { type: string }
+          required: [lookup_ticket, ops_notify, docs_dagu_read]
+      required: [verdict, summary, changed_files, tools]
+    with:
+      prompt: |
+        ${TASK}
+        Run ./scripts/test.sh and fix the code until it passes.
+      system: |-
+        Write small, tested changes.
+
+        Never edit the files of the CI.
+      endpoint:
+        name: demo-upstream
+        model: claude-demo
+      provider: claude
+      # The folders skills/project-rules and skills/commit-message next to the demo (the skills
+      # folder of the DAGs directory on the server). Dagu mounts each folder as it is for the
+      # attempt, and the agent reads SKILL.md with its tool Skill and references/format.md of
+      # commit-message with its tool Read. The folders are read-only for the restricted user.
+      skills: [project-rules, commit-message]
+      max_tool_iterations: 40
+      max_tool_calls: 20
+      # The tool bridge serves these two tools. CUSTOMER_ID is fixed: the agent does not
+      # see it, and Dagu drops a value that the agent gives. QUESTION comes from the agent.
+      # The DAG ops_notify takes one input, text, which the agent gives.
+      dags:
+        - name: lookup-ticket
+          params:
+            CUSTOMER_ID: ${CUSTOMER_ID}
+            QUESTION:
+              from_ai:
+                description: A question about the ticket of the customer
+        - name: ops_notify
+          params:
+            text:
+              from_ai:
+                description: A one-line note to post on the ops channel
+      tools:
+        # The MCP endpoint of the Dagu server. The CLI connects to it directly, and gets only
+        # the tool dagu_read.
+        mcp:
+          - name: docs
+            url: http://dagu-coordinator:8080/mcp
+            allow: [dagu_read]
+        builtin:
+          read: true
+          write: true
+          edit: true
+          search: true
+          shell:
+            allow: ["./scripts/test.sh", "git diff *", "git status *", "git log *"]
+            deny: ["git push *", "git remote *"]
+
+  - id: gate
+    depends: [code]
+    # In a DAG that has an agent.run step, a step with run is untrusted by default.
+    # The steps gate, evidence and check_paths run no file of the repository: they are trusted.
+    untrusted: false
+    description: A check of the record of the agent. The record is agent data, not a gate.
+    # A value of the agent goes into the script as a variable, never as text of the script.
+    env:
+      - TOOL_CALLS: ${steps.code.outputs.tool_calls}
+    run: printf '%s' "$TOOL_CALLS" | jq -e 'index("shell") != null'
+    preconditions:
+      - condition: ${steps.code.outputs.verdict}
+        expected: done
+
+  # Untrusted by default: it runs the tests of the repository as the restricted user.
+  - id: verify
+    depends: [gate]
+    working_dir: repo
+    run: ./scripts/test.sh
+
+  # This trusted step fails when the agent left a process, a hook or a changed git
+  # configuration behind.
+  - id: evidence
+    depends: [verify]
+    untrusted: false
+    working_dir: repo
+    description: Record what the agent left behind.
+    run: |
+      echo "== processes of the restricted user (user ID 10001)"
+      if pgrep -u 10001 -a; then echo "a process of the restricted user is left" >&2; exit 1; fi
+      echo "none"
+      echo "== files in .git/hooks that are not samples"
+      if ls .git/hooks | grep -v '\.sample$'; then echo "the agent changed .git/hooks" >&2; exit 1; fi
+      echo "none"
+      echo "== core.fsmonitor in the git configuration"
+      if git config --get core.fsmonitor; then echo "the agent changed the git configuration" >&2; exit 1; fi
+      echo "none"
+      echo "== git status --porcelain"
+      git status --porcelain
+
+  - id: check_paths
+    depends: [evidence]
+    untrusted: false
+    working_dir: repo
+    run: |
+      if git status --porcelain | cut -c4- | grep -q '^\.github/'; then
+        echo "the agent changed .github/" >&2; exit 1
+      fi
+
+  - id: message
+    depends: [check_paths]
+    action: chat.completion
+    with:
+      provider: local
+      model: mock
+      base_url: http://172.17.0.1:8099/v1
+      stream: false
+      prompt: "Write a one-line commit message for: ${TASK}. Summary: ${steps.code.outputs.summary}"
+    output: COMMIT_MSG
+
+  - id: push
+    depends: [message]
+    working_dir: repo
+    # The step needs the token. It runs no file of the repository: untrusted: false.
+    untrusted: false
+    secrets: [GIT_TOKEN]
+    # The message comes from a model that read the text of the agent: a variable, not script text.
+    env:
+      - MESSAGE: ${COMMIT_MSG}
+    run: |
+      git checkout -b "${BRANCH}"
+      git add -A
+      git -c user.name=dagu -c user.email=dagu@localhost commit -m "$MESSAGE"
+      git -c credential.helper='!f() { echo username=git; echo "password=$GIT_TOKEN"; }; f' push origin "${BRANCH}"

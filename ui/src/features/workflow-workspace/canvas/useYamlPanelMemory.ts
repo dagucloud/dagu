@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useRef, useState } from 'react';
-import { LAPTOP_QUERY, matchesQuery } from '@/lib/breakpoints';
 import { writeLocalStorage } from '@/lib/local-storage-migration';
 import type { RightPanelId } from '@/contexts/RightPanelContext';
 import type { WorkspaceUrlState } from '../state/workspaceUrl';
@@ -11,18 +10,12 @@ import type { WorkspaceUrlState } from '../state/workspaceUrl';
 export const YAML_PANEL_OPEN_KEY = 'dagu.workspace.yamlPanelOpen';
 
 /**
- * True when the YAML panel was open when the user left the last workflow. A
- * laptop opens it until the user closes it, unless the Workflow panel was
- * the choice.
+ * True when the YAML panel was open when the user left the last workflow. With
+ * no choice stored, the panel is closed.
  */
 export function yamlPanelWasOpen(): boolean {
   try {
-    const stored = window.localStorage.getItem(YAML_PANEL_OPEN_KEY);
-    if (stored !== null) return stored === 'true';
-    return (
-      matchesQuery(LAPTOP_QUERY, false) &&
-      window.localStorage.getItem(WORKFLOW_PANEL_OPEN_KEY) !== 'true'
-    );
+    return window.localStorage.getItem(YAML_PANEL_OPEN_KEY) === 'true';
   } catch {
     // Storage can be unavailable in privacy-restricted browser contexts.
     return false;

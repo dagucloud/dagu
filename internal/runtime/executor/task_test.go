@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -65,6 +66,93 @@ func TestPrepareDAGWorkspace(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, updatedSeed)
 	assert.NotEqual(t, seed.Descriptor.Digest, updatedSeed.Descriptor.Digest)
+}
+
+// A worker has no DAGs directory. The bundle of a dispatch carries the skills
+// that the DAG uses, so that the worker loads the same DAG. A local run does not
+// make a snapshot for them.
+func TestPrepareDAGWorkspaceFileCarriesSideFiles(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills", "code-style"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills", "tests"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "skills", "tests", "SKILL.md"),
+		[]byte("---\nname: tests\ndescription: Test rules\n---\nRun the tests.\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "skills", "code-style", "SKILL.md"),
+		[]byte("---\nname: code-style\ndescription: Style rules\n---\nKeep functions small.\n"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills", "code-style", "references"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills", "code-style", "assets"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "skills", "code-style", "references", "naming.md"), []byte("# Naming\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "skills", "code-style", "assets", "logo.bin"), []byte{0, 1, 2, 255}, 0o644))
+	dagFile := filepath.Join(root, "dev.yaml")
+	require.NoError(t, os.WriteFile(dagFile, []byte(
+		"steps:\n  - id: code\n    action: agent.run\n    with:\n      provider: claude\n      endpoint:\n        name: test-endpoint\n        model: claude-test\n      system: Write small changes.\n      prompt: Fix the test.\n      skills: [code-style, tests]\n"), 0o644))
+
+	dag, err := spec.Load(context.Background(), dagFile)
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		filepath.Join(root, "skills", "code-style", "SKILL.md"),
+		filepath.Join(root, "skills", "code-style", "assets", "logo.bin"),
+		filepath.Join(root, "skills", "code-style", "references", "naming.md"),
+		filepath.Join(root, "skills", "tests", "SKILL.md"),
+	}, dag.SideFiles)
+	assert.True(t, executor.HasDispatchFiles(dag))
+	assert.False(t, executor.HasDAGFileDependencies(dag))
+
+	seed, err := executor.PrepareDAGWorkspace(context.Background(), dag)
+	require.NoError(t, err)
+	assert.Nil(t, seed, "a local run makes no snapshot for side files")
+
+	desc, archivePath, err := executor.PrepareDAGWorkspaceFile(context.Background(), dag, t.TempDir())
+	require.NoError(t, err)
+	require.NotNil(t, desc)
+	archive, err := os.ReadFile(archivePath)
+	require.NoError(t, err)
+	dest := filepath.Join(t.TempDir(), "workspace")
+	require.NoError(t, workspacebundle.Extract(archive, dest, *desc, workspacebundle.DefaultLimits()))
+	assert.FileExists(t, filepath.Join(dest, "skills", "code-style", "SKILL.md"))
+	assert.FileExists(t, filepath.Join(dest, "skills", "tests", "SKILL.md"))
+	assert.FileExists(t, filepath.Join(dest, "skills", "code-style", "references", "naming.md"))
+	assert.FileExists(t, filepath.Join(dest, "skills", "code-style", "assets", "logo.bin"))
+
+	// The worker loads the DAG from the bundle with no DAGs directory.
+	remote, err := spec.Load(context.Background(), filepath.Join(dest, desc.DAGPath))
+	require.NoError(t, err)
+	require.NotNil(t, remote.Steps[0].Agent)
+	assert.Equal(t, "claude", remote.Steps[0].Agent.Provider)
+	require.NotNil(t, remote.Steps[0].Agent.CLI)
+	require.Len(t, remote.Steps[0].Agent.CLI.Skills, 2)
+	assert.Equal(t, "code-style", remote.Steps[0].Agent.CLI.Skills[0].Name)
+	// The worker gets the version of the dispatch: the hash is the same, and the
+	// skill is read from the bundle.
+	local := dag.Steps[0].Agent.CLI.Skills[0]
+	assert.Equal(t, local.Hash, remote.Steps[0].Agent.CLI.Skills[0].Hash)
+	assert.Equal(t, filepath.Join(dest, "skills", "code-style"), remote.Steps[0].Agent.CLI.Skills[0].Dir)
+	assert.Equal(t, local.Files, remote.Steps[0].Agent.CLI.Skills[0].Files)
+}
+
+// A skill that changes between the read of the DAG and the bundle stops the
+// dispatch. The worker never gets a mix of two versions.
+func TestPrepareDAGWorkspaceFileRefusesASkillThatChanged(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	folder := filepath.Join(root, "skills", "tests")
+	require.NoError(t, os.MkdirAll(filepath.Join(folder, "references"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(folder, "SKILL.md"),
+		[]byte("---\nname: tests\ndescription: Test rules and how to run them\n---\nRun the tests.\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(folder, "references", "a.md"), []byte("one"), 0o644))
+	dagFile := filepath.Join(root, "dev.yaml")
+	require.NoError(t, os.WriteFile(dagFile, []byte(
+		"steps:\n  - id: code\n    action: agent.run\n    with:\n      provider: claude\n      endpoint:\n        name: test-endpoint\n        model: claude-test\n      prompt: Fix the test.\n      skills: [tests]\n"), 0o644))
+	dag, err := spec.Load(context.Background(), dagFile)
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(folder, "references", "a.md"), []byte("two"), 0o644))
+	_, _, err = executor.PrepareDAGWorkspaceFile(context.Background(), dag, t.TempDir())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `skill "tests" changed`)
 }
 
 func TestPrepareDAGWorkspaceUsesDAGWorkingDirectory(t *testing.T) {

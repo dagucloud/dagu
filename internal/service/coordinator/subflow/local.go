@@ -59,6 +59,9 @@ type Local struct {
 	dagRunLogDir             string
 	dagRunArtifactDir        string
 	installer                dagutools.Installer
+	// localAgentRuns lets a child that needs a CLI provider run in this
+	// process: the process has no coordinator (Spec 092, development mode).
+	localAgentRuns bool
 
 	mu     sync.Mutex
 	active map[string]*rtagent.Agent
@@ -69,6 +72,14 @@ var _ executor.Enqueuer = (*Local)(nil)
 
 // LocalOption configures Local.
 type LocalOption func(*Local)
+
+// WithLocalAgentRunsAllowed marks a process with no coordinator: a child that
+// needs a CLI provider runs in this process (Spec 092, "Dispatch").
+func WithLocalAgentRunsAllowed() LocalOption {
+	return func(r *Local) {
+		r.localAgentRuns = true
+	}
+}
 
 // WithLocalToolInstaller sets the installer used to make child DAG tools available.
 func WithLocalToolInstaller(installer dagutools.Installer) LocalOption {
@@ -215,10 +226,18 @@ func (r *Local) ShouldRun(_ context.Context, req executor.SubWorkflowRequest) bo
 	if req.RunID == "" || req.RootDAGRun.Zero() {
 		return false
 	}
+	selector := req.WorkerSelector
+	if len(ir.SelectorAgentProviders(selector)) > 0 {
+		if !r.localAgentRuns {
+			// A child that needs a CLI provider runs on an agent worker.
+			return false
+		}
+		selector = ir.WithoutAgentLabels(selector)
+	}
 	if req.DAG.ForceLocal {
 		return true
 	}
-	return len(req.WorkerSelector) == 0
+	return len(selector) == 0
 }
 
 // Run executes a child workflow in the current process.
