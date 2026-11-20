@@ -409,6 +409,19 @@ func expandDAGWorkingDirStrict(ctx context.Context, workingDir string, rCtx Cont
 	return wd, nil
 }
 
+// ResolveDAGWorkingDir resolves a DAG-level working directory for the run
+// context in ctx: value references and environment variables first, then ~.
+func ResolveDAGWorkingDir(ctx context.Context, dag *ir.DAG) (string, error) {
+	if dag == nil || dag.WorkingDir == "" {
+		return "", nil
+	}
+	rCtx := GetDAGContext(ctx)
+	if rCtx.DAG == nil {
+		rCtx.DAG = dag
+	}
+	return expandDAGWorkingDirStrict(ctx, dag.WorkingDir, rCtx)
+}
+
 func expandDAGWorkingDirEnvOnly(workingDir string, scope *cmnvalue.EnvScope) string {
 	if scope != nil {
 		return scope.ExpandPath(workingDir)
