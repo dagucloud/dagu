@@ -5,9 +5,11 @@ package wait
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -305,13 +307,26 @@ func (e *executorImpl) waitHTTP(ctx context.Context) error {
 	})
 }
 
-// requestError drops the URL that *url.Error adds, since its query string
-// may carry a token.
-func requestError(err error) error {
-	if urlErr, ok := errors.AsType[*url.Error](err); ok {
-		return urlErr.Err
+// requestError describes a failed request without text that may carry a
+// token. *url.Error adds the full URL, and net/http quotes text from the
+// server in some errors (a Location header it can't parse, a malformed status
+// line). So only errors whose text holds at most a host and port are printed.
+func requestError(err error) string {
+	if opErr, ok := errors.AsType[*net.OpError](err); ok {
+		return opErr.Error()
 	}
-	return err
+	if tlsErr, ok := errors.AsType[*tls.CertificateVerificationError](err); ok {
+		return tlsErr.Error()
+	}
+	if urlErr, ok := errors.AsType[*url.Error](err); ok && urlErr.Timeout() {
+		return urlErr.Err.Error()
+	}
+	for _, known := range []error{io.EOF, io.ErrUnexpectedEOF, http.ErrSchemeMismatch} {
+		if errors.Is(err, known) {
+			return known.Error()
+		}
+	}
+	return "details left out, they may quote the server's response"
 }
 
 // logPollResult writes msg to stderr when it differs from the previous

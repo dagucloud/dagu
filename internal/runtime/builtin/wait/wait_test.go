@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -135,14 +137,10 @@ func TestHTTPStatusMismatchLoggedToStderr(t *testing.T) {
 	require.Equal(t, "wait: http GET got status 503, want 204\n", stderr.String())
 }
 
-// The URL is left out of the message because its query string may carry a
-// token.
-func TestHTTPRequestErrorLoggedToStderr(t *testing.T) {
-	t.Parallel()
-
-	server := httptest.NewServer(http.NotFoundHandler())
-	url := server.URL + "/ready?token=secret"
-	server.Close()
+// runHTTPUntilDeadline polls url every 1ms until a 50ms context ends and
+// returns what the step wrote to stderr.
+func runHTTPUntilDeadline(t *testing.T, url string) string {
+	t.Helper()
 
 	var stderr bytes.Buffer
 	exec, err := newExecutor(context.Background(), ir.Step{
@@ -162,10 +160,65 @@ func TestHTTPRequestErrorLoggedToStderr(t *testing.T) {
 	defer cancel()
 
 	require.ErrorIs(t, exec.Run(ctx), context.DeadlineExceeded)
-	require.Equal(t, 1, strings.Count(stderr.String(), "\n"), stderr.String())
-	require.Contains(t, stderr.String(), "wait: http GET request failed: ")
-	require.Contains(t, stderr.String(), "connection refused")
-	require.NotContains(t, stderr.String(), "secret")
+	return stderr.String()
+}
+
+// A TLS server the client doesn't trust fails the same way, and fast, on
+// every OS. The URL is left out of the message because its query string may
+// carry a token.
+func TestHTTPRequestErrorLoggedToStderr(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewUnstartedServer(http.NotFoundHandler())
+	server.Config.ErrorLog = log.New(io.Discard, "", 0)
+	server.StartTLS()
+	defer server.Close()
+
+	stderr := runHTTPUntilDeadline(t, server.URL+"/ready?token=secret")
+	require.Equal(t, 1, strings.Count(stderr, "\n"), stderr)
+	require.Contains(t, stderr, "wait: http GET request failed: tls: failed to verify certificate: ")
+	require.NotContains(t, stderr, "secret")
+}
+
+// net/http quotes text from the server in these errors, and that text may
+// carry a token, so the error text is replaced.
+func TestHTTPServerTextLeftOutOfStderr(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name    string
+		handler http.HandlerFunc
+	}{
+		{
+			name: "malformedRedirect",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Location", "/ready%zz?token=secret")
+				w.WriteHeader(http.StatusFound)
+			},
+		},
+		{
+			name: "malformedStatusLine",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				conn, buf, err := http.NewResponseController(w).Hijack()
+				if err != nil {
+					return
+				}
+				defer func() { _ = conn.Close() }()
+				_, _ = buf.WriteString("HTTP/1.1 token=secret\r\n\r\n")
+				_ = buf.Flush()
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(tt.handler)
+			defer server.Close()
+
+			stderr := runHTTPUntilDeadline(t, server.URL+"/ready")
+			require.Equal(t, "wait: http GET request failed: details left out, they may quote the server's response\n", stderr)
+		})
+	}
 }
 
 func TestValidateStepDefersReferenceFields(t *testing.T) {
