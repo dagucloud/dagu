@@ -5,10 +5,13 @@ package wait
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -276,8 +279,10 @@ func (e *executorImpl) waitFile(ctx context.Context) error {
 
 func (e *executorImpl) waitHTTP(ctx context.Context) error {
 	client := &http.Client{Timeout: e.cfg.requestTimeout}
+	method := strings.ToUpper(e.cfg.Method)
+	var last string
 	return poll(ctx, e.cfg.pollInterval, func() (bool, error) {
-		req, err := http.NewRequestWithContext(ctx, strings.ToUpper(e.cfg.Method), e.cfg.URL, strings.NewReader(e.cfg.Body))
+		req, err := http.NewRequestWithContext(ctx, method, e.cfg.URL, strings.NewReader(e.cfg.Body))
 		if err != nil {
 			return false, err
 		}
@@ -287,12 +292,53 @@ func (e *executorImpl) waitHTTP(ctx context.Context) error {
 
 		resp, err := client.Do(req)
 		if err != nil {
+			if ctx.Err() == nil {
+				e.logPollResult(&last, fmt.Sprintf("wait: http %s request failed: %v", method, requestError(err)))
+			}
 			return false, nil
 		}
 		defer func() { _ = resp.Body.Close() }()
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return resp.StatusCode == e.cfg.expectedStatus, nil
+		if resp.StatusCode != e.cfg.expectedStatus {
+			e.logPollResult(&last, fmt.Sprintf("wait: http %s got status %d, want %d", method, resp.StatusCode, e.cfg.expectedStatus))
+			return false, nil
+		}
+		return true, nil
 	})
+}
+
+// requestError describes a failed request without text that may carry a
+// token. *url.Error adds the full URL, and net/http quotes text from the
+// server in some errors (a Location header it can't parse, a malformed status
+// line). So only errors whose text holds at most a host and port are printed.
+func requestError(err error) string {
+	if opErr, ok := errors.AsType[*net.OpError](err); ok {
+		return opErr.Error()
+	}
+	if tlsErr, ok := errors.AsType[*tls.CertificateVerificationError](err); ok {
+		return tlsErr.Error()
+	}
+	if urlErr, ok := errors.AsType[*url.Error](err); ok && urlErr.Timeout() {
+		return urlErr.Err.Error()
+	}
+	for _, known := range []error{io.EOF, io.ErrUnexpectedEOF, http.ErrSchemeMismatch} {
+		if errors.Is(err, known) {
+			return known.Error()
+		}
+	}
+	return "details left out, they may quote the server's response"
+}
+
+// logPollResult writes msg to stderr when it differs from the previous
+// poll's, so a short poll_interval does not repeat the same line.
+func (e *executorImpl) logPollResult(last *string, msg string) {
+	if msg == *last {
+		return
+	}
+	*last = msg
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	_, _ = fmt.Fprintln(e.stderr, msg)
 }
 
 func (e *executorImpl) resolvePath(path string) string {
