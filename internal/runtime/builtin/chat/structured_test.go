@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agenttools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,8 +45,8 @@ func TestValidateStep(t *testing.T) {
 		llm     *ir.LLMConfig
 		wantErr string
 	}{
-		{name: "NoSchema", llm: &ir.LLMConfig{Tools: []string{"respond"}}},
-		{name: "Valid", schema: classifySchema(), llm: &ir.LLMConfig{Tools: []string{"lookup"}}},
+		{name: "NoSchema", llm: &ir.LLMConfig{ToolEntries: []ir.ToolEntry{dagEntry("respond")}}},
+		{name: "Valid", schema: classifySchema(), llm: &ir.LLMConfig{ToolEntries: []ir.ToolEntry{dagEntry("lookup")}}},
 		{
 			name:    "MissingType",
 			schema:  withSchema(func(s map[string]any) { delete(s, "type") }),
@@ -75,8 +76,20 @@ func TestValidateStep(t *testing.T) {
 		{
 			name:    "RespondTool",
 			schema:  classifySchema(),
-			llm:     &ir.LLMConfig{Tools: []string{"lookup", "respond"}},
+			llm:     &ir.LLMConfig{ToolEntries: []ir.ToolEntry{dagEntry("lookup"), dagEntry("respond")}},
 			wantErr: "reserved",
+		},
+		{
+			name: "LoadSkillTool",
+			llm: &ir.LLMConfig{
+				ToolEntries: []ir.ToolEntry{dagEntry("load_skill")},
+				Skills:      []ir.SkillEntry{{Name: "tone", Description: "d", Body: "b"}},
+			},
+			wantErr: "reserved for the tool that loads a skill",
+		},
+		{
+			name: "LoadSkillToolWithoutSkill",
+			llm:  &ir.LLMConfig{ToolEntries: []ir.ToolEntry{dagEntry("load_skill")}},
 		},
 	}
 	for _, tt := range tests {
@@ -106,16 +119,17 @@ func TestNewChatExecutorValidatesOutputSchema(t *testing.T) {
 	assert.Contains(t, err.Error(), "at least one property")
 }
 
-// A tool DAG whose name is respond is found only once the DAG loads.
-func TestNewChatExecutorRejectsRespondToolDAG(t *testing.T) {
+// The tool name comes from the name of the entry. The executor of a handler step
+// applies the same check as the load.
+func TestNewChatExecutorRejectsRespondToolName(t *testing.T) {
 	t.Parallel()
 
 	ctx := chatRuntimeContext(t, nil)
 	rCtx := runtime.GetDAGContext(ctx)
-	rCtx.DAG.LocalDAGs = map[string]*ir.DAG{"answer-tool": {Name: "respond"}}
+	rCtx.DAG.LocalDAGs = map[string]*ir.DAG{"respond": {Name: "respond"}}
 
 	step := ir.Step{
-		LLM: &ir.LLMConfig{Provider: "openai", Model: "gpt-4o", Tools: []string{"answer-tool"}},
+		LLM: &ir.LLMConfig{Provider: "openai", Model: "gpt-4o", ToolEntries: []ir.ToolEntry{dagEntry("respond")}},
 	}
 	_, err := newChatExecutor(ctx, step)
 	require.NoError(t, err, "the name is free without output_schema")
@@ -124,6 +138,11 @@ func TestNewChatExecutorRejectsRespondToolDAG(t *testing.T) {
 	_, err = newChatExecutor(ctx, step)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reserved")
+}
+
+// dagEntry returns the entry of the category dags that the loader builds.
+func dagEntry(name string) ir.ToolEntry {
+	return ir.ToolEntry{Kind: ir.ToolEntryDAG, Name: name, DAG: name}
 }
 
 // scriptedProvider answers chat requests with scripted responses in order and
@@ -347,11 +366,8 @@ func TestStructuredOutputFallback(t *testing.T) {
 }
 
 // toolRegistry offers one tool that the tests never run.
-func toolRegistry() *ToolRegistry {
-	return &ToolRegistry{
-		tools:    map[string]*toolInfo{"lookup": {Name: "lookup", Description: "Look up a note"}},
-		dagNames: map[string]string{"lookup": "lookup"},
-	}
+func toolRegistry() *agenttools.ToolRegistry {
+	return agenttools.NewRegistryOfNames(map[string]string{"lookup": "Look up a note"})
 }
 
 // Tools are offered next to respond. A turn that calls respond ends the

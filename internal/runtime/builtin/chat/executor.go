@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/aigateway"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
@@ -28,6 +29,7 @@ import (
 	_ "github.com/dagucloud/dagu/v2/internal/llm/allproviders"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agenttools"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -36,9 +38,15 @@ var _ executor.ChatMessageHandler = (*Executor)(nil)
 var _ executor.PushBackAware = (*Executor)(nil)
 var _ executor.SubRunProvider = (*Executor)(nil)
 var _ executor.ToolDefinitionProvider = (*Executor)(nil)
+var _ executor.SkillDefinitionProvider = (*Executor)(nil)
 
 // providerFactory builds a provider for one resolved model configuration.
 type providerFactory func(ctx context.Context, cfg *ir.LLMConfig) (llmpkg.Provider, error)
+
+// relayProviderFactory builds the provider of a model that uses an AI endpoint:
+// the provider type of the endpoint, the address of the relay and the secret of
+// the relay.
+type relayProviderFactory func(providerType llmpkg.ProviderType, baseURL, secret string) (llmpkg.Provider, error)
 
 // retryingChatProvider turns an empty final answer into a retryable error for
 // the logical request helper. Tool-call turns are valid even when their text
@@ -78,6 +86,8 @@ type Executor struct {
 	stderr            io.Writer
 	step              ir.Step
 	newProvider       providerFactory
+	newRelayProvider  relayProviderFactory
+	routes            map[string]endpointRoute
 	providerType      llmpkg.ProviderType
 	apiKeyEnvVar      string
 	messages          []ir.LLMMessage
@@ -89,9 +99,13 @@ type Executor struct {
 	// conversation, named when a provider refuses the request's length.
 	filesChars int
 
+	// mcpRelay is the relay of the named MCP servers of the step. It lives for the
+	// step, and Close ends it.
+	mcpRelay *aigateway.Relay
+
 	// Tool calling support
-	toolRegistry *ToolRegistry
-	toolExecutor *ToolExecutor
+	toolRegistry *agenttools.ToolRegistry
+	toolExecutor *agenttools.ToolExecutor
 
 	// Collected sub-runs from tool executions for UI drill-down
 	collectedSubRuns []ir.SubDAGRun
@@ -104,13 +118,20 @@ type Executor struct {
 	answer *answerSchema
 }
 
+// newToolExecutor makes the executor of the tool calls of an attempt.
+func (e *Executor) newToolExecutor(ctx context.Context, workDir string, cfg *ir.LLMConfig) *agenttools.ToolExecutor {
+	executor := agenttools.NewToolExecutor(e.toolRegistry, workDir)
+	executor.SetResultLimit(agenttools.ToolResultMaxBytes(ctx, cfg))
+	return executor
+}
+
 // newChatExecutor creates a new chat executor from a step configuration.
 func newChatExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if step.LLM == nil {
 		return nil, fmt.Errorf("llm configuration is required for chat step")
 	}
 	// Handler steps skip load-time step validation.
-	if err := validateOutputSchema(step); err != nil {
+	if err := validateStep(step); err != nil {
 		return nil, err
 	}
 
@@ -125,9 +146,10 @@ func newChatExecutor(ctx context.Context, step ir.Step) (executor.Executor, erro
 
 	// Parse provider type. A provider carrying a value reference only has a final
 	// value once the step runs, so leave it unparsed here and let
-	// createProviderForModel reject an unsupported value after resolution.
+	// createProviderForModel reject an unsupported value after resolution. A model
+	// with an endpoint has no provider: the endpoint gives the type.
 	var providerType llmpkg.ProviderType
-	if !cmnvalue.HasValueReference(primaryProvider) {
+	if models[0].Endpoint == "" && !cmnvalue.HasValueReference(primaryProvider) {
 		var err error
 		providerType, err = llmpkg.ParseProviderType(primaryProvider)
 		if err != nil {
@@ -172,17 +194,33 @@ func newChatExecutor(ctx context.Context, step ir.Step) (executor.Executor, erro
 		providerType: providerType,
 		apiKeyEnvVar: apiKeyEnvVar,
 		messages:     messages,
+
+		newRelayProvider: runtime.NewRelayProvider,
 	}
 
 	// Initialize tool registry if tools are configured
-	if cfg.HasTools() {
-		registry, err := NewToolRegistry(ctx, cfg.Tools)
+	if cfg.HasTools() || cfg.HasSkills() {
+		var buildOpts agenttools.BuildOptions
+		if step.AIMCPServers() != nil {
+			// A named MCP server is reached through the relay of the gateway. The relay
+			// lives until the step ends.
+			relay, err := startMCPRelay(ctx, step, e.stderr)
+			if err != nil {
+				return nil, err
+			}
+			e.mcpRelay = relay
+			buildOpts.MCPRelay = &agenttools.MCPRelay{URL: relay.URL(), Secret: relay.Secret()}
+		}
+		registry, err := agenttools.BuildToolRegistryWith(ctx, cfg, buildOpts)
 		if err != nil {
+			_ = e.Close()
 			return nil, fmt.Errorf("failed to initialize tool registry: %w", err)
 		}
 		e.toolRegistry = registry
-		// A tool's name comes from its DAG, which is known only once loaded.
-		if _, ok := registry.GetDAGByToolName(agentstep.RespondToolName); ok && step.HasOutputSchema() {
+		// A tool's name comes from its DAG or its server, known only once the
+		// catalog is built.
+		if registry.HasTool(agentstep.RespondToolName) && step.HasOutputSchema() {
+			_ = e.Close()
 			return nil, reservedToolError()
 		}
 	}
@@ -190,12 +228,22 @@ func newChatExecutor(ctx context.Context, step ir.Step) (executor.Executor, erro
 	if step.HasOutputSchema() {
 		answer, err := newAnswerSchema(step.OutputSchema)
 		if err != nil {
+			_ = e.Close()
 			return nil, err
 		}
 		e.answer = answer
 	}
 
 	return e, nil
+}
+
+// Close ends the relay of the named MCP servers of the step. It can run more than
+// once.
+func (e *Executor) Close() error {
+	if e.mcpRelay == nil {
+		return nil
+	}
+	return e.mcpRelay.Close()
 }
 
 // SetStdout sets the stdout writer.
@@ -236,6 +284,12 @@ func (e *Executor) SetPushBackContext(inputs map[string]string, iteration int) {
 // This implements the SubRunProvider interface for UI drill-down functionality.
 func (e *Executor) GetSubRuns() []ir.SubDAGRun {
 	return e.collectedSubRuns
+}
+
+// GetSkillDefinitions returns the skills that the effective catalog offered to
+// the LLM or left out. This implements the SkillDefinitionProvider interface.
+func (e *Executor) GetSkillDefinitions() []ir.SkillDefinition {
+	return e.toolRegistry.SkillSet().Definitions()
 }
 
 // GetToolDefinitions returns the tool definitions that were available to the LLM.
@@ -427,6 +481,12 @@ func (e *Executor) Run(ctx context.Context) error {
 		return err
 	}
 
+	// Spec 094, "Start checks": the step fails before the first request.
+	e.routes, err = e.checkEndpoints(ctx, models)
+	if err != nil {
+		return err
+	}
+
 	// If only one model, use simple path (no fallback)
 	if len(models) == 1 {
 		return e.nameFilesText(e.runWithModel(ctx, models[0], allMessages))
@@ -441,6 +501,7 @@ func (e *Executor) Run(ctx context.Context) error {
 
 		logger.Info(ctx, "Attempting LLM request",
 			slog.String("provider", model.Provider),
+			slog.String("endpoint", model.Endpoint),
 			slog.String("model", model.Name),
 			slog.Int("attemptIndex", i))
 
@@ -452,6 +513,7 @@ func (e *Executor) Run(ctx context.Context) error {
 		lastErr = err
 		logger.Warn(ctx, "LLM request failed",
 			slog.String("provider", model.Provider),
+			slog.String("endpoint", model.Endpoint),
 			slog.String("model", model.Name),
 			tag.Error(err))
 
@@ -484,12 +546,29 @@ func (e *Executor) runWithModel(ctx context.Context, model ir.ModelEntry, allMes
 		effectiveCfg.Stream = new(false)
 	}
 
+	// A model with an endpoint calls the relay of this attempt, and the relay
+	// ends with the attempt.
+	if model.Endpoint != "" {
+		route := e.routes[model.Endpoint]
+		provider, relay, err := e.startRelay(ctx, model.Endpoint, route)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = relay.Close() }()
+		effectiveCfg.Provider = string(route.chatType)
+		return withRefusal(e.runModel(ctx, provider, allMessages, effectiveCfg), model.Endpoint, relay)
+	}
+
 	// Create provider for this model
 	provider, err := e.createProviderForModel(ctx, model, effectiveCfg)
 	if err != nil {
 		return err
 	}
+	return e.runModel(ctx, provider, allMessages, effectiveCfg)
+}
 
+// runModel runs the request of one model with its provider.
+func (e *Executor) runModel(ctx context.Context, provider llmpkg.Provider, allMessages []ir.LLMMessage, effectiveCfg *ir.LLMConfig) error {
 	// A structured answer is never streamed.
 	if e.answer != nil {
 		return e.runStructuredForModel(ctx, provider, allMessages, effectiveCfg)
@@ -520,7 +599,7 @@ func (e *Executor) runSimpleForModel(ctx context.Context, provider llmpkg.Provid
 
 	req := &llmpkg.ChatRequest{
 		Model:       cfg.Model,
-		Messages:    toLLMMessages(maskedForProvider),
+		Messages:    e.toolRegistry.SkillSet().Apply(toLLMMessages(maskedForProvider)),
 		Temperature: cfg.Temperature,
 		MaxTokens:   cfg.MaxTokens,
 		TopP:        cfg.TopP,
@@ -582,13 +661,13 @@ func (e *Executor) runWithToolsForModel(ctx context.Context, provider llmpkg.Pro
 	workDir := runtime.GetEnv(ctx).WorkingDir
 
 	// Initialize tool executor for running DAGs
-	e.toolExecutor = NewToolExecutor(e.toolRegistry, workDir)
+	e.toolExecutor = e.newToolExecutor(ctx, workDir, cfg)
 
 	// Get tools in LLM format
 	tools := e.toolRegistry.ToLLMTools()
 
 	// Store tool definitions for UI visibility
-	e.savedToolDefinitions = toolDefinitions(tools)
+	e.savedToolDefinitions = e.toolRegistry.ToolDefinitions()
 
 	logger.Info(ctx, "Starting tool-enabled chat execution",
 		slog.Int("tool_count", len(tools)),
@@ -641,7 +720,7 @@ func (e *Executor) executeToolStep(
 
 	req := &llmpkg.ChatRequest{
 		Model:       cfg.Model,
-		Messages:    conv.request(ctx),
+		Messages:    e.toolRegistry.SkillSet().Apply(conv.request(ctx)),
 		Temperature: cfg.Temperature,
 		MaxTokens:   cfg.MaxTokens,
 		TopP:        cfg.TopP,

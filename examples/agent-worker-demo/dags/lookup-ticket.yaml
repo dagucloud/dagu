@@ -1,0 +1,19 @@
+description: Look up the open ticket of a customer and answer a question about it
+params:
+  - name: CUSTOMER_ID
+    type: string
+    description: Customer ID
+    required: true
+  - name: QUESTION
+    type: string
+    description: The question about the ticket
+    required: true
+steps:
+  - id: lookup
+    # The values come through env, so a value of the agent never becomes shell code.
+    env:
+      - CUSTOMER: ${CUSTOMER_ID}
+      - ASKED: ${QUESTION}
+    run: |
+      python3 -c 'import json, os; print(json.dumps({"customer": os.environ["CUSTOMER"], "question": os.environ["ASKED"], "plan": "gold", "open_tickets": 2}, sort_keys=True))'
+    output: TICKET

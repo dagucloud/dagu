@@ -1,0 +1,12 @@
+description: A chat step on an endpoint whose models list cannot be read, for the model check of Spec 093.
+working_dir: .
+steps:
+  - id: ask
+    action: chat.completion
+    stdout: result.out
+    with:
+      endpoint:
+        name: test-endpoint-2
+        model: any-model-at-all
+      stream: false
+      prompt: Say hello.

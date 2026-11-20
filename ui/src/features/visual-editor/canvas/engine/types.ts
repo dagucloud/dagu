@@ -26,6 +26,11 @@ export interface FlowNode<
   height: number;
   data: D;
   selected?: boolean;
+  /**
+   * The box does not take the pointer, so that the nodes under it stay
+   * reachable. Its content opts in with `pointer-events-auto`.
+   */
+  passThrough?: boolean;
 }
 
 export interface FlowEdge<

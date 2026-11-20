@@ -182,6 +182,10 @@ func (m *mockWorkerHeartbeatStore) DeleteStale(context.Context, time.Time) (int,
 	panic("unimplemented")
 }
 
+func (m *mockWorkerHeartbeatStore) Delete(context.Context, string) error {
+	panic("unimplemented")
+}
+
 // Tests
 
 func TestNewCollector(t *testing.T) {

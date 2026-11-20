@@ -1,0 +1,82 @@
+# The egress proxy, in its own pod (Spec 092, "Network"). A proxy in the pod of the
+# worker would not limit the worker, because a pod has one network namespace.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: egress-proxy
+  namespace: dagu-agent
+  labels:
+    app.kubernetes.io/name: egress-proxy
+    app.kubernetes.io/part-of: dagu
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: egress-proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: egress-proxy
+        app.kubernetes.io/part-of: dagu
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: egress-proxy
+          # The same image as the agent worker. Only the dagu binary runs.
+          image: registry.example.com/dagu-agent-worker:CHANGE-ME
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/local/bin/dagu", "egress-proxy", "serve"]
+          args:
+            - --listen=0.0.0.0:8081
+            # Edit this list. Each destination is host:port.
+            - --allow=git.example.com:443
+          ports:
+            - name: proxy
+              containerPort: 8081
+          readinessProbe:
+            tcpSocket:
+              port: proxy
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: proxy
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            privileged: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: egress-proxy
+  namespace: dagu-agent
+  labels:
+    app.kubernetes.io/name: egress-proxy
+    app.kubernetes.io/part-of: dagu
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: egress-proxy
+  ports:
+    - name: proxy
+      port: 8081
+      targetPort: proxy

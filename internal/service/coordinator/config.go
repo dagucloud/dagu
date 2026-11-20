@@ -22,7 +22,7 @@ type Config struct {
 	SkipTLSVerify bool   // Skip server certificate verification
 
 	// Timeouts
-	DialTimeout      time.Duration // Connection timeout (default: 10s)
+	DialTimeout      time.Duration // Connection and health check timeout of one coordinator (default: 10s)
 	RequestTimeout   time.Duration // Per-request timeout (default: 5m)
 	HeartbeatTimeout time.Duration // Worker heartbeat timeout (default: 10s)
 
