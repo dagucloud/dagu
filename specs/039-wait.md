@@ -92,6 +92,11 @@ refused, timeout, and similar) counts as a non-matching poll rather than an
 error and is retried on the next interval. The step succeeds once a
 response's status code equals `with.status` (default `200`).
 
+A poll that does not match writes one line to the step's stderr: the
+request error, or the status code received and the one expected. The line
+is written only when it differs from the previous poll's, so repeated
+identical results are logged once. The line does not include the URL.
+
 Config-schema validation for `with.url` (and `with.status`) accepts a value
 that holds a `${...}` or `$VAR` reference anywhere in it, such as
 `${BASE_URL}/health`, and leaves its strict check to run time, once the

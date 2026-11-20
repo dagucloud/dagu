@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -98,6 +99,73 @@ func TestExecutorRunWaitsForHTTPStatus(t *testing.T) {
 
 	require.NoError(t, exec.Run(context.Background()))
 	require.GreaterOrEqual(t, calls.Load(), int32(3))
+}
+
+// Repeated identical results are logged once, so a short poll_interval does
+// not flood the step log.
+func TestHTTPStatusMismatchLoggedToStderr(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) < 4 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	var stderr bytes.Buffer
+	exec, err := newExecutor(context.Background(), ir.Step{
+		Commands: []ir.CommandEntry{{Command: opHTTP}},
+		ExecutorConfig: ir.ExecutorConfig{
+			Type: "wait",
+			Config: map[string]any{
+				"url":           server.URL,
+				"status":        http.StatusNoContent,
+				"poll_interval": "1ms",
+			},
+		},
+	})
+	require.NoError(t, err)
+	exec.SetStderr(&stderr)
+
+	require.NoError(t, exec.Run(context.Background()))
+	require.Equal(t, "wait: http GET got status 503, want 204\n", stderr.String())
+}
+
+// The URL is left out of the message because its query string may carry a
+// token.
+func TestHTTPRequestErrorLoggedToStderr(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.NotFoundHandler())
+	url := server.URL + "/ready?token=secret"
+	server.Close()
+
+	var stderr bytes.Buffer
+	exec, err := newExecutor(context.Background(), ir.Step{
+		Commands: []ir.CommandEntry{{Command: opHTTP}},
+		ExecutorConfig: ir.ExecutorConfig{
+			Type: "wait",
+			Config: map[string]any{
+				"url":           url,
+				"poll_interval": "1ms",
+			},
+		},
+	})
+	require.NoError(t, err)
+	exec.SetStderr(&stderr)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	require.ErrorIs(t, exec.Run(ctx), context.DeadlineExceeded)
+	require.Equal(t, 1, strings.Count(stderr.String(), "\n"), stderr.String())
+	require.Contains(t, stderr.String(), "wait: http GET request failed: ")
+	require.Contains(t, stderr.String(), "connection refused")
+	require.NotContains(t, stderr.String(), "secret")
 }
 
 func TestValidateStepDefersReferenceFields(t *testing.T) {
