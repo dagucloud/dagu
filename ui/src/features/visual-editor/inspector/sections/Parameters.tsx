@@ -17,7 +17,11 @@ import {
 import { schemaFormTemplates } from '@/features/dags/components/dag-execution/schemaFormTemplates';
 import { I18nText } from '@/i18n/I18nText';
 import { cn } from '@/lib/utils';
-import type { EditorCustomActionHint, JSONSchema } from '../../contracts';
+import type {
+  EditorCustomActionHint,
+  JSONSchema,
+  ValidationIssue,
+} from '../../contracts';
 import { FieldIssues } from '../FieldIssues';
 import { diffFormData, sameValue, toFieldOps } from '../formDiff';
 import { issuesUnder } from '../issues';
@@ -27,6 +31,7 @@ import {
   issuesToErrorSchema,
   splitWithValue,
 } from '../paramsForm';
+import { CHAT_ACTION, TOOL_WITH_KEYS } from '../../tools/model';
 import type { SectionProps } from '../types';
 import {
   buildUiSchema,
@@ -64,6 +69,20 @@ const NO_DEFAULTS = {
  */
 export const FORM_CONTROLS =
   '[&_input:not([type=checkbox]):not([type=radio])]:h-7 [&_[data-slot=select-trigger]]:h-7 [&_textarea]:min-h-7 [&_[id$=__description]]:mb-2';
+
+/** The form schema without the properties that the Tools section owns. */
+export function withoutToolKeys(schema: JSONSchema): JSONSchema {
+  const owned: readonly string[] = TOOL_WITH_KEYS;
+  return {
+    ...schema,
+    properties: Object.fromEntries(
+      Object.entries(schema.properties ?? {}).filter(
+        ([name]) => !owned.includes(name)
+      )
+    ),
+    required: (schema.required ?? []).filter((name) => !owned.includes(name)),
+  };
+}
 
 /** Field path of a form value in the step: `with.url`, `with.items[0]`. */
 export function withFieldPath(path: (string | number)[]): string {
@@ -108,7 +127,18 @@ const formTemplates = {
   FieldTemplate: PathFieldTemplate,
 };
 
-function OtherKeys({ entries }: { entries: [string, unknown][] }) {
+/**
+ * Read-only list of the keys of `with` that the form does not edit. With
+ * `fieldIssues`, the issues of a key show under it: a key that the step
+ * cannot run keeps its place, and the text of the validation says why.
+ */
+export function OtherKeys({
+  entries,
+  fieldIssues,
+}: {
+  entries: [string, unknown][];
+  fieldIssues?: Record<string, ValidationIssue[]>;
+}) {
   if (entries.length === 0) {
     return null;
   }
@@ -119,11 +149,16 @@ function OtherKeys({ entries }: { entries: [string, unknown][] }) {
       </div>
       <ul className="space-y-0.5 text-xs">
         {entries.map(([key, value]) => (
-          <li key={key} className="flex gap-1">
-            <span className="font-mono text-foreground">{key}</span>
-            <span className="truncate text-muted-foreground">
-              {JSON.stringify(value)}
-            </span>
+          <li key={key}>
+            <div className="flex gap-1">
+              <span className="font-mono text-foreground">{key}</span>
+              <span className="truncate text-muted-foreground">
+                {JSON.stringify(value)}
+              </span>
+            </div>
+            {fieldIssues && (
+              <FieldIssues issues={issuesUnder(fieldIssues, `with.${key}`)} />
+            )}
           </li>
         ))}
       </ul>
@@ -164,8 +199,10 @@ export function ParametersSection({
       return null;
     }
     const base = large ? reduceToEssentialFields(fullSchema) : fullSchema;
-    return formSchemaOf(base, isRouter ? ['value'] : undefined);
-  }, [fullSchema, large, isRouter]);
+    const form = formSchemaOf(base, isRouter ? ['value'] : undefined);
+    // The Tools section edits the tools of a chat step: one editor for them.
+    return action === CHAT_ACTION ? withoutToolKeys(form) : form;
+  }, [fullSchema, large, isRouter, action]);
 
   const known = useMemo(
     () => Object.keys(fullSchema?.properties ?? {}),
@@ -320,7 +357,7 @@ export function ParametersSection({
           <FieldIssues issues={issuesUnder(fieldIssues, 'with.routes')} />
         </div>
       )}
-      <OtherKeys entries={other} />
+      <OtherKeys entries={other} fieldIssues={fieldIssues} />
     </div>
   );
 }

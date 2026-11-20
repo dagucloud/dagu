@@ -1,0 +1,10 @@
+# The general worker of the tests of a chat step on a worker. The certificate has the
+# identity general-worker, which is in the pool general.
+peer:
+  insecure: false
+  cert_file: tls/general-worker.crt
+  key_file: tls/general-worker.key
+  client_ca_file: tls/dagu-ca.crt
+worker:
+  labels:
+    zone: eu

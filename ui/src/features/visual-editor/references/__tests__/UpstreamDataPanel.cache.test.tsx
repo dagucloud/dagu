@@ -132,6 +132,7 @@ function entry(p: Partial<CacheEntry> = {}): CacheEntry {
     runId: 'run-0abcdef12',
     capturedAt: Date.parse('2026-10-01T00:00:00Z'),
     stepHash: 'h',
+    params: '',
     ...p,
   };
 }

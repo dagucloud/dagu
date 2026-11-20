@@ -7,6 +7,7 @@
 // bar is a bucket.
 
 import type { components } from '@/api/v1/schema';
+import { presetById, type PresetId } from '../rangePresets';
 
 type SampleBucket = components['schemas']['SampleBucket'];
 
@@ -36,24 +37,14 @@ export function pointsForWindow(widthPx: number, spanMs: number): number {
   return days > base ? Math.min(POINTS_MAX, days) : base;
 }
 
-const MINUTE_MS = 60_000;
-const HOUR_MS = 60 * MINUTE_MS;
+const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
 
-/** The presets of the window, shortest first. */
-export const RANGE_PRESETS = [
-  { id: '1h', ms: HOUR_MS, label: '1h' },
-  { id: '24h', ms: DAY_MS, label: '24h' },
-  { id: '7d', ms: 7 * DAY_MS, label: '7d' },
-  { id: '30d', ms: 30 * DAY_MS, label: '30d' },
-  { id: '1y', ms: 365 * DAY_MS, label: '1y' },
-  { id: '3y', ms: 3 * 365 * DAY_MS, label: '3y' },
-] as const;
-
-export type RangePresetId = (typeof RANGE_PRESETS)[number]['id'] | 'all';
+/** A preset of the shared list, or 'all' (since the start of the run). */
+export type RangePresetId = PresetId | 'all';
 
 /** The presets whose window ends now and that the page polls while the run is active. */
-export const POLLED_PRESETS: readonly RangePresetId[] = ['1h', '24h'];
+export const POLLED_PRESETS: readonly RangePresetId[] = ['1h', '6h', '24h'];
 
 /** The shortest and the longest window that a zoom reaches. */
 export const MIN_SPAN_MS = 10_000;
@@ -85,7 +76,7 @@ export function presetView(
         : now - HOUR_MS;
     return { from: Math.min(from, now - HOUR_MS), to: now, preset: 'all' };
   }
-  const preset = RANGE_PRESETS.find((p) => p.id === id)!;
+  const preset = presetById(id)!;
   return { from: now - preset.ms, to: now, preset: id };
 }
 
@@ -186,7 +177,7 @@ const BAR_GAP_PX = 1;
  * axis, with a gap of one pixel when it is 3 px or wider. Its height is the
  * p95 latency against the greatest p95 of the set; the failed part is the
  * share of the failures of the bucket, at least BAR_MIN_PX. A bucket that is
- * wholly outside the window has no bar. The count of bars is the count of
+ * wholly outside the window has no bar, and neither has a bucket with no sample. The count of bars is the count of
  * buckets, whatever the count of samples.
  */
 export function barModel(input: BarModelInput): BarModel {
@@ -203,6 +194,8 @@ export function barModel(input: BarModelInput): BarModel {
       : BAR_MIN_PX;
   const bars: Bar[] = [];
   for (const bucket of buckets) {
+    // A bucket with up time only has no latency to draw.
+    if (bucket.count <= 0) continue;
     const time = Date.parse(bucket.time);
     if (!Number.isFinite(time)) continue;
     const left = ((time - from) / span) * width;

@@ -1,0 +1,4 @@
+untrusted:
+  isolation: off
+  uid: 10001
+  gid: 10001

@@ -16,6 +16,7 @@ import { useStepSubRunsOpener } from '../step/useStepRunActions';
 import { useDockCommands } from './DockContext';
 import { RunStepList } from './RunStepList';
 import { stepReuse } from './stepReuse';
+import { useIsServiceDag } from '../data/useServiceDag';
 import { useDockStep } from './useDockStep';
 
 /**
@@ -112,6 +113,7 @@ export function RunStepPicker({
   const { ts } = useI18n();
   const run = useWorkspaceRun();
   const selected = useDockStep();
+  const service = useIsServiceDag();
   const details = run.details;
   const reuses = useMemo(
     () => (details ? stepReuse(details) : null),
@@ -120,7 +122,7 @@ export function RunStepPicker({
   if (!run.hasRun || !details) return null;
   const node = selected === null ? undefined : runNode(run, selected);
   const reuse = selected === null ? undefined : reuses?.get(selected);
-  const healthy = runDisplayStatus(details).healthy;
+  const healthy = runDisplayStatus(details, { service }).healthy;
   // The dots are decorative: the button says the status once, after the name.
   // A step of the URL that the run does not have has no status of its own.
   const status = node

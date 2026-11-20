@@ -17,6 +17,8 @@ const h = vi.hoisted(() => ({
   spec: undefined as string | undefined,
   /** The definition of the run, when it differs from `spec` (the saved file). */
   runSpec: undefined as string | undefined,
+  /** The run details answer. */
+  runLoaded: true,
   /** The saved definition answers. */
   saved: true,
   /** The parameters of the run, and the defaults of the workflow. */
@@ -36,14 +38,16 @@ vi.mock('@/hooks/api', () => ({
     }
     const steps = h.stepNames.map((name) => ({ name }));
     if (path === '/dag-runs/{name}/{dagRunId}') {
-      return {
-        data: {
-          dagRunDetails: {
-            params: h.runParams,
-            nodes: steps.map((step) => ({ step })),
-          },
-        },
-      };
+      return h.runLoaded
+        ? {
+            data: {
+              dagRunDetails: {
+                params: h.runParams,
+                nodes: steps.map((step) => ({ step })),
+              },
+            },
+          }
+        : { data: undefined };
     }
     if (path === '/dags/{fileName}') {
       return {
@@ -102,6 +106,7 @@ beforeEach(() => {
   forgetCaptures(SCOPE, 'fetch');
   h.spec = SPEC;
   h.runSpec = undefined;
+  h.runLoaded = true;
   h.saved = true;
   h.runParams = '';
   h.defaultParams = '';
@@ -171,6 +176,27 @@ describe('useCaptureStepOutputs', () => {
   it('makes no request for the definition when there is nothing to keep', () => {
     capture({ data: outputs({ status: NodeStatus.Failed }) });
     expect(h.paths).toEqual([]);
+    expect(outputCache.entries(SCOPE)).toEqual({});
+  });
+
+  // The server keeps the parameters of a run outside its definition: a run
+  // with ENV=prod and one with the default give the same step hash.
+  it('stores the parameters of the run with the entry', () => {
+    // A run is kept only with the defaults of the workflow.
+    h.runParams = 'ENV=prod';
+    h.defaultParams = 'ENV=prod';
+    capture({ data: outputs() });
+    expect(outputCache.entries(SCOPE)['fetch']?.params).toBe('ENV=prod');
+  });
+
+  it('stores empty parameters for a run that has none', () => {
+    capture({ data: outputs() });
+    expect(outputCache.entries(SCOPE)['fetch']?.params).toBe('');
+  });
+
+  it('waits for the details of the run', () => {
+    h.runLoaded = false;
+    capture({ data: outputs() });
     expect(outputCache.entries(SCOPE)).toEqual({});
   });
 

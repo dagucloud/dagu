@@ -31,7 +31,7 @@ import {
   fallbackDockTab,
 } from './dockTabs';
 import { stepDockTabs } from './tabs/stepScope';
-import { LAPTOP_QUERY, matchesQuery, WIDE_QUERY } from '@/lib/breakpoints';
+import { matchesQuery, WIDE_QUERY } from '@/lib/breakpoints';
 
 export interface DockController {
   open: boolean;
@@ -135,14 +135,12 @@ export function clampDockHeight(value: number): number {
 
 /**
  * The open state that the user left. It is a choice for a wide window: on a
- * phone the panel is a view of its own, which opens only when asked for. A
- * laptop opens it until the user closes it.
+ * phone the panel is a view of its own, which opens only when asked for. With
+ * no choice stored, the panel is closed.
  */
 export function storedDockOpen(): boolean {
   if (!matchesQuery(WIDE_QUERY, true)) return false;
-  const stored = readStored(DOCK_OPEN_KEY);
-  if (stored !== null) return stored === 'true';
-  return matchesQuery(LAPTOP_QUERY, false);
+  return readStored(DOCK_OPEN_KEY) === 'true';
 }
 
 function readStored(key: string): string | null {

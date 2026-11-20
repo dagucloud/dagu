@@ -1,0 +1,14 @@
+description: An agent step whose model is a reference, for the model check of Spec 093.
+working_dir: .
+env:
+  - AITEST_DIR: ${AITEST_DIR}
+  - MODEL: ${MODEL}
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: ${MODEL}
+      prompt: Fix the failing test.

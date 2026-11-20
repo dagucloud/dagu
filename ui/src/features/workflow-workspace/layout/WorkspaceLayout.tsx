@@ -1,7 +1,12 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import {
+  useLayoutEffect,
+  useRef,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { cn } from '@/lib/utils';
 import { useDock } from '../dock/DockContext';
 
@@ -15,6 +20,14 @@ export const ROOT_CLASS = 'flex h-full min-h-0 w-full min-w-0 flex-col';
  */
 export const DOCK_YIELDS_CLASS =
   '[&>[data-testid=ww-dock]]:shrink [&>[data-testid=ww-dock][data-state=open]]:min-h-8';
+
+/**
+ * Height of the Activity tab that a collapsed dock lays over the foot of the
+ * main zone (LogsDock: `h-8`). The zone tells it to the canvas as
+ * `--canvas-inset-bottom`, so that the overview of the canvas stays above the
+ * tab and is never covered by it.
+ */
+export const DOCK_TAB_HEIGHT = '2rem';
 
 /** The zone of the canvas. No minimap below md. */
 export const MAIN_ZONE_CLASS =
@@ -86,6 +99,10 @@ export interface WorkspaceLayoutProps {
 export function WorkspaceLayout({ bar, main, dock }: WorkspaceLayoutProps) {
   const { maximized, open: dockOpen } = useDock();
   const { rootRef, zoneRef } = useZoneTop();
+  // A collapsed dock has no bar: only its tab shows, over the foot of the zone.
+  const zoneStyle = {
+    '--canvas-inset-bottom': dockOpen ? '0px' : DOCK_TAB_HEIGHT,
+  } as CSSProperties;
   return (
     <div
       ref={rootRef}
@@ -96,6 +113,7 @@ export function WorkspaceLayout({ bar, main, dock }: WorkspaceLayoutProps) {
       <div
         ref={zoneRef}
         data-testid="ww-zone-main"
+        style={zoneStyle}
         className={cn(
           MAIN_ZONE_CLASS,
           !maximized && MAIN_ZONE_FLOOR_CLASS,

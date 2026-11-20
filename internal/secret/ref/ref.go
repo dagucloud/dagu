@@ -4,6 +4,18 @@
 // Package ref defines references to external secrets.
 package ref
 
+import "strings"
+
+// ReservedPrefix starts every registry ref that the AI feature owns: the key of an
+// endpoint ("ai/endpoint/<name>") and the credentials of an MCP server entry
+// ("ai/mcp/<name>/<header>"). No DAG can name such a ref.
+const ReservedPrefix = "ai/"
+
+// IsReserved reports whether a registry ref is under the prefix that the AI feature owns.
+func IsReserved(ref string) bool {
+	return strings.HasPrefix(ref, ReservedPrefix)
+}
+
 // Ref identifies a secret that is resolved at DAG execution time.
 type Ref struct {
 	// Name is the environment variable name to set.

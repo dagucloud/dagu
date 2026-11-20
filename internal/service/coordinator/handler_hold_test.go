@@ -17,6 +17,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 )
 
@@ -35,14 +37,14 @@ type holdFixture struct {
 	dispatches dispatch.DispatchTaskStore
 }
 
-func newHoldFixture(t *testing.T, wait time.Duration) *holdFixture {
+func newHoldFixture(t *testing.T, wait time.Duration, storeOpts ...store.DispatchTaskStoreOption) *holdFixture {
 	t.Helper()
 	registerCommandExecutorCapsForCoordinatorTest()
 	baseDir := t.TempDir()
 	f := &holdFixture{
 		runs:       newMockDAGRunStore(),
 		heartbeats: newTestWorkerHeartbeatStore(baseDir),
-		dispatches: newTestDispatchTaskStore(baseDir),
+		dispatches: store.NewDispatchTaskStore(file.NewCollection(baseDir), storeOpts...),
 	}
 	f.heartbeat(t, "worker-gpu", map[string]string{"type": "gpu"})
 	f.h = NewHandler(HandlerConfig{
@@ -305,6 +307,124 @@ func TestDispatchHoldDisabledRefuses(t *testing.T) {
 	assert.Nil(t, f.runs.attempts["run-refused"], "nothing is created when refused")
 }
 
+// A worker that exited still counts as healthy until its heartbeat is stale, so
+// the dispatch is not held. The task must still wait for a worker: it outlives
+// the reservation of the store, and the next matching worker takes it.
+func TestDispatchWaitsForNextWorker(t *testing.T) {
+	f := newHoldFixture(t, holdWait, store.WithDispatchReservationTTL(100*time.Millisecond))
+	ctx := t.Context()
+	f.heartbeat(t, "worker-gone", map[string]string{"type": "cpu"})
+
+	_, err := f.h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: cpuTask("run-next")})
+	require.NoError(t, err)
+	assert.Equal(t, ir.NotStarted, f.status(t, "run-next").Status)
+
+	// Past the reservation of the store.
+	time.Sleep(300 * time.Millisecond)
+
+	f.heartbeat(t, "worker-next", map[string]string{"type": "cpu"})
+	pollCtx, cancel := context.WithTimeout(ctx, coordinatorTestTimeout(2*time.Second))
+	defer cancel()
+	polled, err := f.h.Poll(pollCtx, &coordinatorv1.PollRequest{
+		WorkerId: "worker-next", PollerId: "p1", Labels: map[string]string{"type": "cpu"},
+	})
+	require.NoError(t, err, "the next matching worker takes the task")
+	require.NotNil(t, polled.Task)
+	assert.Equal(t, "run-next", polled.Task.DagRunId)
+}
+
+// A dispatch that a healthy worker matched has a deadline too. When no worker
+// takes the task in time, the run fails with an error: it does not stay not
+// started with no task behind it.
+func TestDispatchDeadlineFailsUnclaimedRun(t *testing.T) {
+	f := newHoldFixture(t, holdWait)
+	ctx := t.Context()
+	f.heartbeat(t, "worker-gone", map[string]string{"type": "cpu"})
+
+	_, err := f.h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: cpuTask("run-unclaimed")})
+	require.NoError(t, err)
+	assert.Equal(t, ir.NotStarted, f.status(t, "run-unclaimed").Status)
+
+	ExpireHeldDispatchesForTest(f.h, time.Now())
+	assert.Equal(t, ir.NotStarted, f.status(t, "run-unclaimed").Status, "too early: the task still waits")
+
+	ExpireHeldDispatchesForTest(f.h, time.Now().Add(2*holdWait))
+	runStatus := f.status(t, "run-unclaimed")
+	assert.Equal(t, ir.Failed, runStatus.Status)
+	assert.Equal(t, "no worker took the run within 1m0s: the selector is {type: cpu}", runStatus.Error)
+	assert.NotEmpty(t, runStatus.FinishedAt)
+
+	f.heartbeat(t, "worker-cpu", map[string]string{"type": "cpu"})
+	f.pollNone(t, "worker-cpu", map[string]string{"type": "cpu"})
+}
+
+// With coordinator.worker_wait_timeout 0, a dispatch with no healthy matching
+// worker is refused. A dispatch that a healthy worker matched waits one lease
+// period for a worker to take it, then the run fails.
+func TestDispatchDeadlineWithoutWorkerWait(t *testing.T) {
+	f := newHoldFixture(t, 0)
+	ctx := t.Context()
+	f.heartbeat(t, "worker-gone", map[string]string{"type": "cpu"})
+
+	_, err := f.h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: cpuTask("run-lease")})
+	require.NoError(t, err)
+
+	ExpireHeldDispatchesForTest(f.h, time.Now().Add(defaultStaleLeaseThreshold/2))
+	assert.Equal(t, ir.NotStarted, f.status(t, "run-lease").Status)
+
+	ExpireHeldDispatchesForTest(f.h, time.Now().Add(2*defaultStaleLeaseThreshold))
+	runStatus := f.status(t, "run-lease")
+	assert.Equal(t, ir.Failed, runStatus.Status)
+	assert.Equal(t, "no worker took the run within 1m30s: the selector is {type: cpu}", runStatus.Error)
+}
+
+// A worker that stops says so in its last heartbeat. The coordinator removes
+// the worker at once, so a dispatch right after the exit waits for the next
+// worker instead of counting on the worker that is gone.
+func TestOfflineHeartbeatRemovesWorker(t *testing.T) {
+	f := newHoldFixture(t, holdWait)
+	ctx := t.Context()
+	cpu := map[string]string{"type": "cpu"}
+
+	_, err := f.h.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{WorkerId: "worker-cpu", Labels: cpu})
+	require.NoError(t, err)
+	_, err = f.h.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{WorkerId: "worker-cpu", Labels: cpu, Offline: true})
+	require.NoError(t, err)
+
+	workers, err := f.h.GetWorkers(ctx, &coordinatorv1.GetWorkersRequest{})
+	require.NoError(t, err)
+	for _, worker := range workers.Workers {
+		assert.NotEqual(t, "worker-cpu", worker.WorkerId, "the coordinator lists no worker that is gone")
+	}
+
+	_, err = f.h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: cpuTask("run-after-exit")})
+	require.NoError(t, err)
+	runStatus := f.status(t, "run-after-exit")
+	assert.Equal(t, ir.Queued, runStatus.Status, "the run waits for the next worker")
+	workerReady, ok := conditionOf(runStatus.Conditions, ir.DAGRunConditionWorkerReady)
+	require.True(t, ok)
+	assert.Equal(t, ir.DAGRunReasonNoMatchingWorker, workerReady.Reason)
+}
+
+// The coordinator without a shared heartbeat store removes the worker from its
+// own list too.
+func TestOfflineHeartbeatRemovesWorkerWithoutStore(t *testing.T) {
+	h := NewHandler(HandlerConfig{})
+	ctx := t.Context()
+
+	_, err := h.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{WorkerId: "worker-cpu"})
+	require.NoError(t, err)
+	healthy, err := h.listHealthyWorkers(ctx)
+	require.NoError(t, err)
+	require.Len(t, healthy, 1)
+
+	_, err = h.Heartbeat(ctx, &coordinatorv1.HeartbeatRequest{WorkerId: "worker-cpu", Offline: true})
+	require.NoError(t, err)
+	healthy, err = h.listHealthyWorkers(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, healthy)
+}
+
 // Cancelling a held run aborts it and drops the task.
 func TestRequestCancelAbortsHeldDispatch(t *testing.T) {
 	f := newHoldFixture(t, time.Hour)
@@ -389,11 +509,21 @@ func TestDropOrphanedDispatchesChecksRun(t *testing.T) {
 			f := newHoldFixture(t, 0)
 			ctx := t.Context()
 
-			task := cpuTask("run-" + tt.name)
-			task.WorkerSelector = map[string]string{"type": "gpu"}
-			_, err := f.h.Dispatch(ctx, &coordinatorv1.DispatchRequest{Task: task})
+			// The task of a queued run, as the scheduler dispatches it, has no
+			// deadline. A direct dispatch has one: the reaper of held tasks
+			// covers it, and the store lists it as held.
+			runID := "run-" + tt.name
+			f.runs.addAttempt(ir.DAGRunRef{Name: "routed", ID: runID}, &ir.DAGRunStatus{
+				Name: "routed", DAGRunID: runID, AttemptID: "queued-attempt", Status: ir.Queued,
+			})
+			require.NoError(t, f.dispatches.Enqueue(ctx, &dispatch.DispatchTask{
+				DAGRunID: runID, Target: "routed", AttemptID: "queued-attempt", AttemptKey: "key-" + runID,
+				WorkerSelector: map[string]string{"type": "gpu"},
+			}))
+			listed, err := f.dispatches.ListStalePending(ctx, time.Now().Add(time.Hour))
 			require.NoError(t, err)
-			tt.moveOn(t, f, task.DagRunId)
+			require.Len(t, listed, 1, "the task waits before the run moves on")
+			tt.moveOn(t, f, runID)
 
 			DropOrphanedDispatchesForTest(f.h, time.Now().Add(time.Hour))
 

@@ -1,0 +1,14 @@
+{
+  "refuse": [
+    { "name": "no_secret", "authorization": null },
+    { "name": "wrong_secret", "authorization": "Bearer not-the-secret" },
+    { "name": "no_scheme", "authorization": "not-the-secret" }
+  ],
+  "calls": [
+    { "tool": "lookup", "arguments": { "CUSTOMER_ID": "c-9" } },
+    { "tool": "refund", "arguments": { "AMOUNT": "12" } },
+    { "tool": "refund", "arguments": { "AMOUNT": "12", "CUSTOMER_ID": "someone-else" } },
+    { "tool": "invoice", "arguments": { "CUSTOMER_ID": "c-3" } },
+    { "tool": "nothing", "arguments": {} }
+  ]
+}

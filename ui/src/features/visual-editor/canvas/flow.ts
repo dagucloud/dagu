@@ -18,8 +18,10 @@ import { isGhostKey, type GhostPlan } from './ghost';
 import { edgeTintStatus } from './statusStyle';
 import { canInsertOnEdge, connectionToOp, edgeLockReason } from './gestures';
 import { nodeSize } from './layout';
+import { isToolSatelliteEdge } from './toolSatellites';
 import {
   routeHandleId,
+  slotHandleId,
   type CanvasNodeWithRoutes,
   SOURCE_HANDLE,
   TARGET_HANDLE,
@@ -36,6 +38,19 @@ export function flowNodeType(node: CanvasNode): CanvasNodeType {
   }
   if (isLauncherKey(node.key)) {
     return 'launcher';
+  }
+  const sub = node as CanvasNodeWithRoutes;
+  if (sub.slotCard) {
+    return sub.slotCard.slot === 'dags' ? 'dagcard' : 'slotcard';
+  }
+  if (sub.promptCard) {
+    return 'promptsat';
+  }
+  if (sub.modelSat) {
+    return 'modelsat';
+  }
+  if (sub.addSat) {
+    return 'addsat';
   }
   if (node.kind === 'agent') {
     return 'agent';
@@ -101,7 +116,13 @@ export function toFlowNodes(
   direction: CanvasDirection = 'TB'
 ): StepFlowNode[] {
   const needle = toolFilter.trim().toLowerCase();
-  const sources = new Set(graph.edges.map((edge) => edge.source));
+  // The links to the tool satellites do not make a step a source: a chat step
+  // with tools and no step after it still offers the "+" stalk.
+  const sources = new Set(
+    graph.edges
+      .filter((edge) => !isToolSatelliteEdge(edge))
+      .map((edge) => edge.source)
+  );
   return graph.nodes.map((node) => ({
     id: node.key,
     type: flowNodeType(node),
@@ -116,6 +137,8 @@ export function toFlowNodes(
       ...stalksOf(graph, node, sources),
     },
     selected: node.key === selected,
+    // The box of a chat step covers its sub-nodes: only its card takes the pointer.
+    ...((node as CanvasNodeWithRoutes).subRow ? { passThrough: true } : {}),
   }));
 }
 
@@ -158,6 +181,30 @@ export function toFlowEdges(
       },
       selected: edge.id === opts.selectedEdgeId,
     }));
+}
+
+/**
+ * Flow edges from the connectors of the slots of the chat steps to their
+ * sub-nodes: plain, not editable. The label of the edge is its slot.
+ */
+export function toolSatelliteFlowEdges(graph: CanvasGraph): CanvasFlowEdge[] {
+  return graph.edges.filter(isToolSatelliteEdge).map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    type: 'toolsat',
+    sourceHandle:
+      edge.label === 'prompt' ||
+      edge.label === 'model' ||
+      edge.label === 'tools' ||
+      edge.label === 'dags' ||
+      edge.label === 'skills'
+        ? slotHandleId(edge.label)
+        : SOURCE_HANDLE,
+    targetHandle: TARGET_HANDLE,
+    data: { edge, lockReason: null, insertable: false },
+    selected: false,
+  }));
 }
 
 /**

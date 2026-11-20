@@ -6,6 +6,7 @@ import {
   backgroundDots,
   boundsOf,
   clampPanToContent,
+  fitAtZoom,
   fitViewport,
   curveSegments,
   getCurvePath,
@@ -38,8 +39,9 @@ describe('fitViewport', () => {
     const view = fitViewport({ x: 0, y: 0, width: 400, height: 100 }, size, {
       padding: 0.25,
     });
-    // 400 * 1.5 = 600 wide in 1000 px, 100 * 1.5 = 150 high in 500 px.
-    expect(view.zoom).toBeCloseTo(1000 / 600, 5);
+    // 400 * 1.5 = 600 wide in 1000 px, 100 * 1.5 = 150 high in 500 px: the
+    // fit is 1.67, and the largest step of the ladder under it is 150 %.
+    expect(view.zoom).toBe(1.5);
     expect(view.x + 200 * view.zoom).toBeCloseTo(500);
     expect(view.y + 50 * view.zoom).toBeCloseTo(250);
   });
@@ -58,6 +60,28 @@ describe('fitViewport', () => {
       { minZoom: 0.1 }
     );
     expect(view.zoom).toBe(0.1);
+  });
+});
+
+// The fit that a panel that leaves gives back, only when the zoom holds.
+describe('fitAtZoom', () => {
+  const bounds = { x: 0, y: 0, width: 400, height: 100 };
+
+  it('gives the fit when it has the zoom of the view', () => {
+    const wide = { width: 1000, height: 500 };
+    const fit = fitViewport(bounds, wide, { padding: 0.25 });
+    const view = { zoom: fit.zoom, x: -300, y: 0 };
+    expect(fitAtZoom(bounds, wide, { padding: 0.25 }, view)).toEqual(fit);
+  });
+
+  it('gives null when the fit would change the zoom', () => {
+    const narrow = { width: 500, height: 500 };
+    const wide = { width: 1000, height: 500 };
+    const view = fitViewport(bounds, narrow, { padding: 0.25 });
+    expect(fitViewport(bounds, wide, { padding: 0.25 }).zoom).not.toBe(
+      view.zoom
+    );
+    expect(fitAtZoom(bounds, wide, { padding: 0.25 }, view)).toBeNull();
   });
 });
 

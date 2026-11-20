@@ -1,0 +1,27 @@
+# The command of the condition never succeeds. The limit stops the step after two executions.
+working_dir: .
+env:
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: sequence
+  - FAKE_CLAUDE_DONE_AT: "99"
+steps:
+  - id: code
+    action: agent.run
+    stdout: code.out
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        verdict: { type: string, enum: [done, blocked] }
+      required: [verdict]
+    repeat_policy:
+      repeat: until
+      condition: test -f "${FAKE_CLAUDE_DIR}/done"
+      interval_sec: 0
+      limit: 2
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Say done.
