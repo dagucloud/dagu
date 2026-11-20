@@ -241,6 +241,14 @@ type DAG struct {
 	BuildErrors []error `json:"-"`
 	// BuildWarnings contains non-fatal warnings detected while building the DAG.
 	BuildWarnings []string `json:"-"`
+	// SideFiles holds the absolute paths of the files of the skills that the
+	// loader read for this file. A dispatch sends them to the worker with the
+	// definition.
+	SideFiles []string `json:"-"`
+	// SkillRefs lists the version of each skill that the loader read for this
+	// file. A dispatch checks that the folders did not change before it sends
+	// the bundle.
+	SkillRefs []SkillRef `json:"-"`
 	// LocalDAGs contains DAGs defined in the same file, keyed by DAG name
 	LocalDAGs map[string]*DAG `json:"localDAGs,omitempty"`
 	// YamlData contains the raw YAML data of the DAG.
@@ -296,6 +304,9 @@ type DAG struct {
 	// credentials from, each named by field path. They resolve at run start
 	// and never become environment variables.
 	CredentialRefs []secretref.Ref `json:"credentialRefs,omitempty"`
+	// SecretStepScope is true when a step is untrusted or has the key secrets.
+	// A step then gets only the secrets that its list names (Spec 092).
+	SecretStepScope bool `json:"secretStepScope,omitempty"`
 	// Tools declares external CLI tools that must be installed before the DAG runs.
 	Tools *ToolConfig `json:"tools,omitempty"`
 }
@@ -493,10 +504,15 @@ var ErrWorkerSelectorApproval = errors.New("DAG with approval steps cannot be di
 var errWorkerSelectorNodeRequired = errors.New("a node: required DAG runs on its bound node and cannot be dispatched to workers")
 
 // ValidateWorkerSelector checks a selector given for one run: every key must
-// be a valid label key and every value a non-empty valid label value.
+// be a valid label key and every value a non-empty valid label value. The keys
+// that start with agent. belong to Dagu: it sets them from the steps (Spec 092).
 func ValidateWorkerSelector(selector map[string]string) error {
 	var errs []error
 	for _, key := range slices.Sorted(maps.Keys(selector)) {
+		if err := CheckReservedSelectorKey(key); err != nil {
+			errs = append(errs, err)
+			continue
+		}
 		value := selector[key]
 		if strings.TrimSpace(value) == "" {
 			errs = append(errs, fmt.Errorf("worker selector %q: value cannot be empty", key))

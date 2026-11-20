@@ -1,0 +1,7 @@
+{
+  "calls": [
+    { "tool": "lookup-ticket", "arguments": { "QUESTION": "Where is my refund?" } },
+    { "tool": "ops_notify", "arguments": { "text": "ticket of c-42 checked" } }
+  ],
+  "extra_tool_use": ["mcp__docs__search", "Read"]
+}

@@ -2667,6 +2667,12 @@ func mustFallback(t *testing.T, value any) []map[string]any {
 
 func newHarnessTestContext(t *testing.T, dag *ir.DAG, step ir.Step, envs ...string) context.Context {
 	t.Helper()
+	return newHarnessTestContextWith(t, dag, step, nil, envs...)
+}
+
+// newHarnessTestContextWith adds context options, such as a log writer factory.
+func newHarnessTestContextWith(t *testing.T, dag *ir.DAG, step ir.Step, opts []runtime.ContextOption, envs ...string) context.Context {
+	t.Helper()
 
 	if dag == nil {
 		dag = &ir.DAG{Name: "harness-test", WorkingDir: t.TempDir()}
@@ -2678,6 +2684,6 @@ func newHarnessTestContext(t *testing.T, dag *ir.DAG, step ir.Step, envs ...stri
 		dag.WorkingDir = t.TempDir()
 	}
 
-	ctx := runtime.NewContext(context.Background(), dag, "run-1", "", runtime.WithEnvVars(envs...))
+	ctx := runtime.NewContext(context.Background(), dag, "run-1", "", append([]runtime.ContextOption{runtime.WithEnvVars(envs...)}, opts...)...)
 	return runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
 }

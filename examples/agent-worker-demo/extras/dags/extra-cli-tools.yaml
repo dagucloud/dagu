@@ -1,0 +1,48 @@
+description: >-
+  Real test 3. Claude Code on the agent worker with two DAG tools (one with a fixed param and
+  one param from_ai) through the tool bridge of Dagu, and the MCP tool dagu_read of the
+  Dagu server. Two skills are mounted for the attempt.
+steps:
+  - id: code
+    action: agent.run
+    timeout_sec: 300
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        plan: { type: string }
+        open_tickets: { type: integer }
+        dag_count: { type: integer }
+      required: [plan, open_tickets, dag_count]
+    with:
+      endpoint:
+        name: claude-sub
+        model: claude-haiku-4-5
+      provider: claude
+      prompt: |
+        Do these three actions, then give the result.
+        1. Call the tool lookup-ticket with the question "What is the plan of the customer?".
+        2. Call the tool ops_notify with a one-line note about that ticket.
+        3. Call the tool dagu_read of the server docs with the target "dags". Count the DAGs.
+        The skills project-rules and commit-message are mounted: read project-rules when you need a style rule.
+      max_tool_iterations: 10
+      max_tool_calls: 10
+      dags:
+        - name: lookup-ticket
+          params:
+            # Fixed: the agent does not see it.
+            CUSTOMER_ID: c-42
+            QUESTION:
+              from_ai:
+                description: A question about the ticket of the customer
+        - name: ops_notify
+          params:
+            text:
+              from_ai:
+                description: A one-line note to post on the ops channel
+      tools:
+        mcp:
+          - name: docs
+            url: http://dagu-coordinator:8080/mcp
+            allow: [dagu_read]
+      skills: [project-rules, commit-message]

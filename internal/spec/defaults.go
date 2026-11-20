@@ -33,6 +33,11 @@ func decodeDefaults(raw any) (*defaults, error) {
 	if raw == nil {
 		return nil, nil
 	}
+	if rawMap, ok := raw.(map[string]any); ok {
+		if err := rejectStepTrustKeys("defaults", rawMap, "defaults", "set it on each step"); err != nil {
+			return nil, err
+		}
+	}
 	if err := validateDefaultMaxConcurrent(raw); err != nil {
 		return nil, err
 	}
