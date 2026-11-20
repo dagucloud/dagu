@@ -24,10 +24,11 @@ type agent struct {
 	srv   *httptest.Server
 	sends atomic.Int32
 	gets  atomic.Int32
-	// drop closes the connection on SendMessage instead of answering.
-	drop bool
+	// drop closes the connection on SendMessage instead of answering. Tests
+	// set drop and message after the server starts, so both are atomic.
+	drop atomic.Bool
 	// message makes SendMessage answer with a Message instead of a Task.
-	message bool
+	message atomic.Bool
 }
 
 // newAgent serves an A2A 1.0 JSON-RPC agent over TLS that requires the bearer
@@ -69,13 +70,13 @@ func (a *agent) serve(w http.ResponseWriter, r *http.Request) {
 	switch req.Method {
 	case "SendMessage":
 		a.sends.Add(1)
-		if a.drop {
+		if a.drop.Load() {
 			conn, _, _ := w.(http.Hijacker).Hijack()
 			_ = conn.Close()
 			return
 		}
 		result = map[string]any{"task": task("task-1", "WORKING", "")}
-		if a.message {
+		if a.message.Load() {
 			result = map[string]any{"message": map[string]any{"messageId": "m-1", "role": "ROLE_AGENT",
 				"parts": []map[string]any{{"text": "it's done; $(true) via " + token}}}}
 		}
@@ -121,7 +122,7 @@ func TestA2ATask(t *testing.T) {
 func TestA2AMessage(t *testing.T) {
 	t.Parallel()
 	a, env := newAgent(t)
-	a.message = true
+	a.message.Store(true)
 
 	dagu := harness.NewRunner(t)
 	result := dagu.RunWithEnv(env, "start", "message.yaml")
@@ -139,7 +140,7 @@ func TestA2AMessage(t *testing.T) {
 func TestA2ADroppedResponse(t *testing.T) {
 	t.Parallel()
 	a, env := newAgent(t)
-	a.drop = true
+	a.drop.Store(true)
 
 	dagu := harness.NewRunner(t)
 	result := dagu.RunWithEnv(env, "start", "message.yaml")
