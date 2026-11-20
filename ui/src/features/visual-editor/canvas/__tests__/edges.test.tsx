@@ -724,7 +724,7 @@ describe('LockedEdge', () => {
         'border-muted-foreground',
         'bg-card',
         'hover:border-primary',
-        'hover:bg-primary',
+        'hover:text-primary',
       ]) {
         expect(plus).toHaveClass(name);
         expect(restore).toHaveClass(name);

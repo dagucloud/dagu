@@ -1,0 +1,33 @@
+# Dagu configuration of the control plane: UI, scheduler and coordinator in one process
+# (dagu start-all). Spec 092, "Worker pools".
+host: 0.0.0.0
+port: 8080
+
+coordinator:
+  enabled: true
+  host: 0.0.0.0
+  port: 50055
+  # The workers dial this name. It must be in the SAN of the coordinator certificate.
+  advertise: dagu-coordinator
+  # The certificate of a worker sets the labels that it can announce.
+  worker_pools:
+    - name: agent-claude
+      identities: [agent-claude]
+      labels:
+        agent.provider.claude: "true"
+    - name: general
+      identities: [general-worker]
+      labels:
+        zone: "*"
+  # The UI and the scheduler of start-all use the certificate of the coordinator to
+  # dispatch runs. A worker makes the other calls only for its own runs.
+  dispatchers: [dagu-coordinator]
+
+# Mutual TLS. The coordinator checks the certificate of each client with the CA.
+# start-all also dials its own coordinator with the same certificate.
+peer:
+  insecure: false
+  skip_tls_verify: false
+  cert_file: /etc/dagu/tls/dagu-coordinator.crt
+  key_file: /etc/dagu/tls/dagu-coordinator.key
+  client_ca_file: /etc/dagu/tls/ca.crt

@@ -10,13 +10,16 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"strings"
 	"syscall"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/secret"
@@ -27,6 +30,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/keepalive"
 )
 
 // grpcMaxMsgSize is the maximum message size for gRPC calls.
@@ -169,13 +173,34 @@ func newCoordinator(
 		tag.Port(cfg.Coordinator.Port),
 		slog.String("instance-id", instanceID),
 	)
+	logAIConfig(ctx)
+	// Worker pools bind the labels of a worker to its client certificate
+	// (Spec 092). They need mutual TLS, so the check comes before the listener.
+	workerPools, err := coordinator.NewWorkerPools(cfg.Coordinator.WorkerPools, cfg.Coordinator.Dispatchers, cfg.Core.Peer)
+	if err != nil {
+		return nil, nil, err
+	}
+	if workerPools.Enabled() {
+		logger.Info(ctx, "Coordinator worker pools", slog.Any("pools", workerPoolSummaries(workerPools)), slog.Any("dispatchers", workerPools.Dispatchers()))
+		if hasAgentPool(workerPools) && cfg.Coordinator.WorkerWaitTimeout <= 0 {
+			// An agent worker takes one run and restarts. While it restarts, a start
+			// with coordinator.worker_wait_timeout 0 is refused at once (Spec 092).
+			logger.Warn(ctx, "Coordinator has an agent worker pool and coordinator.worker_wait_timeout is 0: "+
+				"a run that needs an agent worker is refused while the agent worker restarts; set coordinator.worker_wait_timeout")
+		}
+	}
+
 	// Create gRPC server options
 	var serverOpts []grpc.ServerOption
 
 	serverOpts = append(serverOpts,
 		grpc.MaxRecvMsgSize(grpcMaxMsgSize),
 		grpc.MaxSendMsgSize(grpcMaxMsgSize),
+		// A relay stream can stay open for a long time. The pings find a connection
+		// whose peer is gone, so its streams end and their slots go back.
+		grpc.KeepaliveParams(keepalive.ServerParameters{Time: coordinatorKeepaliveTime, Timeout: coordinatorKeepaliveTimeout}),
 	)
+	serverOpts = append(serverOpts, workerPools.ServerOptions()...)
 
 	// Configure TLS using global peer config
 	if cfg.Core.Peer.CertFile != "" && cfg.Core.Peer.KeyFile != "" {
@@ -208,6 +233,14 @@ func newCoordinator(
 		return nil, nil, fmt.Errorf("failed to create listener on %s: %w", addr, err)
 	}
 
+	// The gateway serves the relay of the workers (Spec 094). It reads the
+	// endpoints and their keys, and calls the providers with the limits of the
+	// block ai.
+	aiGateway, err := newAIGateway(ctx, secretStore)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// Create the handler with DAG-run status persistence and streamed log storage.
 	handler := coordinator.NewHandler(coordinator.HandlerConfig{
 		DAGRunRepository:          persistence.DAGRunRepository,
@@ -224,6 +257,8 @@ func newCoordinator(
 		SecretStore:               secretStore,
 		ProfileStore:              profileStore,
 		AgentSessionCleanupQueue:  persistence.AgentSessionCleanupQueue,
+		WorkerPools:               workerPools,
+		AIGateway:                 aiGateway,
 		WorkerWaitTimeout:         cfg.Coordinator.WorkerWaitTimeout,
 		EventService:              ctx.event,
 		EventSourceInstance:       ctx.EventSourceInstance,
@@ -231,6 +266,37 @@ func newCoordinator(
 
 	// Create and return service with advertise address for service registry
 	return coordinator.NewService(grpcServer, handler, listener, healthServer, httpHealthServer, persistence.ServiceRegistry, cfg, instanceID, advertiseAddr), handler, nil
+}
+
+const (
+	// coordinatorKeepaliveTime is the idle time of a connection after which the
+	// coordinator pings the peer.
+	coordinatorKeepaliveTime = time.Minute
+	// coordinatorKeepaliveTimeout is the time that the peer has to answer a ping
+	// before the coordinator closes the connection.
+	coordinatorKeepaliveTimeout = 20 * time.Second
+)
+
+// hasAgentPool reports whether a pool of the coordinator serves a CLI provider.
+func hasAgentPool(pools *coordinator.WorkerPools) bool {
+	for _, pool := range pools.Pools() {
+		for key := range pool.Labels {
+			if strings.HasPrefix(key, ir.AgentProviderLabelPrefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// workerPoolSummaries renders each pool as name, identities and labels, for the
+// start log.
+func workerPoolSummaries(pools *coordinator.WorkerPools) []string {
+	var out []string
+	for _, pool := range pools.Pools() {
+		out = append(out, fmt.Sprintf("%s identities=%v labels=%s", pool.Name, pool.Identities, ir.FormatQuotedWorkerSelector(pool.Labels)))
+	}
+	return out
 }
 
 // loadCoordinatorTLSCredentials loads TLS credentials for the coordinator server.
