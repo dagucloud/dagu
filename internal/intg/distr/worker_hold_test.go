@@ -4,6 +4,7 @@
 package distr_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -70,6 +71,62 @@ steps:
 
 	f.workers = append(f.workers, f.setupWorker("worker-b", map[string]string{"zone": "b"}, ""))
 
+	status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
+	f.assertWorkerID(status, "worker-b")
+}
+
+// A worker that stops tells the coordinator before it exits. A dispatch right
+// after the exit is held for the next matching worker, which runs it.
+func TestDispatch_HoldsAfterWorkerStops(t *testing.T) {
+	t.Parallel()
+
+	f := newTestFixture(t, `
+worker_selector:
+  zone: b
+steps:
+  - name: echo
+    run: echo held
+`, withWorkerCount(0), withWorkerWaitTimeout(5*time.Minute))
+	f.workers = append(f.workers, f.setupWorker("worker-a", map[string]string{"zone": "a"}, ""))
+	gone := f.setupWorker("worker-b1", map[string]string{"zone": "b"}, "")
+	stopCtx, cancel := context.WithTimeout(f.coord.Context, distrTestTimeout(10*time.Second))
+	defer cancel()
+	require.NoError(t, gone.Stop(stopCtx))
+
+	_, err := f.dispatchDirect()
+	require.NoError(t, err)
+	f.waitForNoMatchingWorker()
+
+	f.workers = append(f.workers, f.setupWorker("worker-b2", map[string]string{"zone": "b"}, ""))
+	status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
+	f.assertWorkerID(status, "worker-b2")
+}
+
+// A worker that exits without a word still counts as healthy until its
+// heartbeat is stale, so the dispatch is not held. The task waits for a worker
+// all the same: the next matching worker takes it, also after the reservation
+// of the dispatch store.
+func TestDispatch_NextWorkerTakesRunOfGoneWorker(t *testing.T) {
+	t.Parallel()
+
+	const lease = 3 * time.Second
+	f := newTestFixture(t, `
+worker_selector:
+  zone: b
+steps:
+  - name: echo
+    run: echo next
+`, withWorkerCount(0), withWorkerWaitTimeout(5*time.Minute), withStaleThresholds(time.Minute, lease))
+	require.NoError(t, f.coord.WorkerHeartbeatStore.Upsert(f.coord.Context, dispatch.WorkerHeartbeatRecord{
+		WorkerID: "worker-gone", Labels: map[string]string{"zone": "b"}, LastHeartbeatAt: time.Now().UnixMilli(),
+	}))
+
+	_, err := f.dispatchDirect()
+	require.NoError(t, err)
+	// The reservation of the dispatch store is the lease threshold.
+	time.Sleep(lease + time.Second)
+
+	f.workers = append(f.workers, f.setupWorker("worker-b", map[string]string{"zone": "b"}, ""))
 	status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
 	f.assertWorkerID(status, "worker-b")
 }

@@ -1,0 +1,5 @@
+defaults:
+  untrusted: true
+steps:
+  - id: verify
+    run: ./scripts/test.sh

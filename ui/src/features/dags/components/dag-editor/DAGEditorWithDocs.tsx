@@ -164,7 +164,7 @@ function DAGEditorWithDocs({
   // The bars of the text, while the editor loads and until it first shows.
   const skeleton = (
     <div className="relative h-full">
-      <EditorSkeleton text={value} lenses={stepLenses?.steps} />
+      <EditorSkeleton text={value} lenses={stepLenses?.steps(value)} />
     </div>
   );
 

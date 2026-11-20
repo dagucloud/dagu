@@ -1,0 +1,12 @@
+steps:
+  - id: review
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: hi
+      tools:
+        mcp:
+          - { url: 'http://127.0.0.1:1/mcp', allow: [search] }

@@ -7,7 +7,9 @@ import { cn } from '@/lib/utils';
 import { useCanvasAffordances } from '../affordances';
 import { useCanvasActions } from '../context';
 import { Handle, Position, type NodeProps } from '../engine';
+import { cardSize, chatPlan } from '../layout';
 import { LinkButton } from '../LinkButton';
+import { agentFactLines } from '../agentCard';
 import { SOURCE_HANDLE, TARGET_HANDLE, type StepFlowNode } from '../types';
 import {
   CARD_OUTLINE,
@@ -25,6 +27,9 @@ import {
   reusedOutline,
   reuseTitle,
 } from './NodeParts';
+import { AgentCardBody } from './AgentCardBody';
+import { LoopArcs } from './LoopArcs';
+import { SubRowFrame, chatAnchors, chatStalk } from './SubRowFrame';
 
 /**
  * A short line and a "+" button beyond a source handle. `at` is the point of
@@ -78,8 +83,9 @@ export function AddStalk({
 
 /**
  * Dense card of one step: 240 x 64 px, or a 56 px square with only the icon
- * and the name under it when the canvas is compact. The layout depends on
- * this size.
+ * and the name under it when the canvas is compact. The card of a chat step
+ * is larger (see `CHAT_NODE_WIDTH`), with a bigger tile and title. The layout
+ * depends on these sizes.
  */
 function StepNodeComponent({
   data,
@@ -92,6 +98,13 @@ function StepNodeComponent({
   const affordances = useCanvasAffordances();
   const connectable = isConnectable && editable;
   const lr = direction === 'LR';
+  // A chat step has the larger card: it carries the connectors of its slots.
+  const chat = !!node.chat;
+  const size = cardSize(node, compact);
+  // A chat step has a row of sub-nodes under it: its box is taller than its
+  // card, and the handles and the stalk are on the box.
+  const plan = node.subRow ? chatPlan(node, compact, direction) : null;
+  const anchors = plan ? chatAnchors(plan, direction, compact) : null;
 
   // A sub-DAG has the two bars of a subroutine, and a fan-out of sub-DAGs is
   // a stack of cards: the shapes of the Graph view.
@@ -105,21 +118,33 @@ function StepNodeComponent({
       position={handlePosition(direction, 'target')}
       isConnectable={connectable}
       className={HANDLE_CLASS}
+      {...(anchors ? { style: anchors.target } : {})}
     />
   );
+  // The exit of a chat step that has no step after it is not drawn: its "+"
+  // stalk is drawn in its place.
+  const loose = !!plan && !!data.isSink;
   const sourceHandle = (
     <Handle
       id={SOURCE_HANDLE}
       type="source"
       position={handlePosition(direction, 'source')}
       isConnectable={connectable}
-      className={HANDLE_CLASS}
+      className={cn(HANDLE_CLASS, loose && '!pointer-events-none !opacity-0')}
+      {...(anchors ? { style: anchors.source } : {})}
     />
   );
+  const planStalk = plan ? chatStalk(plan, compact, direction) : null;
   const stalk = affordances && data.isSink && (
     <AddStalk
-      side={lr ? Position.Right : Position.Bottom}
-      at={lr ? { left: '100%', top: '50%' } : { left: '50%', top: '100%' }}
+      side={planStalk ? planStalk.side : lr ? Position.Right : Position.Bottom}
+      at={
+        planStalk
+          ? planStalk.at
+          : lr
+            ? { left: '100%', top: '50%' }
+            : { left: '50%', top: '100%' }
+      }
       label={ts('Add a step')}
       onAdd={() => affordances.openPalette({ mode: 'child', source: node.key })}
     />
@@ -127,7 +152,11 @@ function StepNodeComponent({
 
   const reuseNote = reuseTitle(node, ts);
   const cardTitle =
-    [compact ? compactTitle(node, ts) : failureTitle(node.run), reuseNote]
+    [
+      compact ? compactTitle(node, ts) : failureTitle(node.run),
+      ...agentFactLines(ts, node, !compact),
+      reuseNote,
+    ]
       .filter(Boolean)
       .join('\n') || undefined;
 
@@ -140,11 +169,16 @@ function StepNodeComponent({
       title={cardTitle}
       role={compact ? 'group' : undefined}
       aria-label={compact ? node.label : undefined}
-      style={compact ? compactCardPlace(direction) : undefined}
+      style={{
+        ...(compact ? compactCardPlace(direction, chat) : undefined),
+        ...(chat ? { width: size.width, height: size.height } : undefined),
+      }}
       className={cn(
         'group flex rounded-md bg-card text-card-foreground',
         CARD_OUTLINE,
-        compact ? 'absolute h-14 w-14' : 'relative h-16 w-60',
+        compact
+          ? cn('absolute', !chat && 'h-14 w-14')
+          : cn('relative', !chat && 'h-16 w-60'),
         cardStateClass(node, selected, data.highlighted),
         reusedOutline(node)
       )}
@@ -176,7 +210,7 @@ function StepNodeComponent({
       {node.reuseOutline && (
         <ReusedOutline tone={node.reuseOutline} selected={selected} />
       )}
-      {!compact && targetHandle}
+      {!compact && !plan && targetHandle}
       <NodeToolbar
         step={node.key}
         label={node.label}
@@ -185,22 +219,49 @@ function StepNodeComponent({
         centred={compact}
       />
       {compact ? (
-        <NodeCompactBody node={node} className="h-full flex-1" />
+        <NodeCompactBody node={node} className="h-full flex-1" large={chat} />
+      ) : node.agent ? (
+        <AgentCardBody node={node} />
       ) : (
         <NodeHeader
           node={node}
+          large={chat}
           className={cn('h-full flex-1', subDag && 'px-4')}
         />
       )}
-      {!compact && sourceHandle}
-      {!compact && stalk}
+      {!compact && !plan && sourceHandle}
+      {!compact && !plan && stalk}
+      {/* The arcs sit where the step starts: on the upper edge in a vertical graph, on the left side in a horizontal one. */}
+      <LoopArcs node={node} placement={lr ? 'side' : 'top'} compact={compact} />
     </div>
   );
+  if (plan) {
+    return (
+      <SubRowFrame
+        plan={plan}
+        anchors={
+          <>
+            {targetHandle}
+            {sourceHandle}
+            {stalk}
+          </>
+        }
+      >
+        {compact ? (
+          <CompactFrame direction={direction} label={node.label} chat={chat}>
+            {card}
+          </CompactFrame>
+        ) : (
+          card
+        )}
+      </SubRowFrame>
+    );
+  }
   if (!compact) {
     return card;
   }
   return (
-    <CompactFrame direction={direction} label={node.label}>
+    <CompactFrame direction={direction} label={node.label} chat={chat}>
       {targetHandle}
       {card}
       {sourceHandle}

@@ -87,12 +87,49 @@ func TestModelValue_UnmarshalYAML(t *testing.T) {
 			errContains: "must be string or array",
 		},
 		{
-			name: "MissingProvider",
+			// The loader checks the provider, because the entry can name an endpoint instead.
+			name: "MissingProviderIsLeftToTheLoader",
 			input: `
 - name: gpt-4o
 `,
+			wantIsArray: true,
+			wantLen:     1,
+		},
+		{
+			name: "EntryWithEndpoint",
+			input: `
+- name: claude-sonnet-4-6
+  endpoint: cle1
+`,
+			wantIsArray: true,
+			wantLen:     1,
+		},
+		{
+			name: "EndpointNotAString",
+			input: `
+- name: claude-sonnet-4-6
+  endpoint: 3
+`,
 			wantErr:     true,
-			errContains: "provider: required",
+			errContains: "model[0].endpoint: must be a non-empty string",
+		},
+		{
+			name: "EmptyEndpoint",
+			input: `
+- name: claude-sonnet-4-6
+  endpoint: ""
+`,
+			wantErr:     true,
+			errContains: "model[0].endpoint: must be a non-empty string",
+		},
+		{
+			name: "ProviderNotAString",
+			input: `
+- name: gpt-4o
+  provider: 3
+`,
+			wantErr:     true,
+			errContains: "model[0].provider: must be a string",
 		},
 		{
 			name: "MissingName",

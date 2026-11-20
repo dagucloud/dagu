@@ -403,10 +403,10 @@ function pairEnd(pair: Pair, text: string): number {
  * Maps the step keys of the model to the step names of the server.
  *
  * When the counts agree, `steps[i]` is `details.steps[i]` (the server numbers
- * steps like the index), unless the step has another explicit name: `details`
- * can be older than the text. A handler is `details.handlerOn.<event>`.
- * Otherwise a step is matched by its explicit name, then by its id. Without
- * `details`, the explicit name is the name. Unmatched keys stay absent.
+ * steps like the index) and a handler is `details.handlerOn.<event>`, unless
+ * the explicit name or the id of the step disagrees: the details can be
+ * stale. Otherwise a step is matched by its explicit name, then by its id.
+ * Without `details`, the explicit name is the name. Unmatched keys stay absent.
  */
 export function resolveStepNames(
   model: DagDocModel,
@@ -416,15 +416,18 @@ export function resolveStepNames(
   const serverSteps = details?.steps ?? [];
   const sameCount = serverSteps.length === model.steps.length;
   model.steps.forEach((step, i) => {
-    const positional = sameCount ? serverSteps[i]?.name : undefined;
+    // The server trims names and ids, and ignores an empty one.
+    const own = step.explicitName?.trim() || undefined;
+    const id = step.id?.trim() || undefined;
+    const server = sameCount ? serverSteps[i] : undefined;
     const name =
       details === undefined
         ? step.explicitName
-        : positional !== undefined &&
-            (step.explicitName === undefined ||
-              step.explicitName === positional)
-          ? positional
-          : matchByNameOrId(serverSteps, step.explicitName, step.id);
+        : server &&
+            (own === undefined || own === server.name) &&
+            (id === undefined || id === server.id)
+          ? server.name
+          : matchByNameOrId(serverSteps, own, id);
     if (name !== undefined) byKey[step.key] = name;
   });
   const handlerOn = details?.handlerOn as

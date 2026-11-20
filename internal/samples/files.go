@@ -534,27 +534,42 @@ func scanRaw(f fileInfo, fn func(ms, us int64, exit int) bool) error {
 }
 
 // newestRaw returns the time of the newest sample of the raw tier, in
-// milliseconds.
-func (s *store) newestRaw() (int64, bool) {
+// milliseconds, and its duration, in microseconds.
+func (s *store) newestRaw() (ms, us int64, ok bool) {
 	for _, file := range slices.Backward(s.list(TierRaw)) {
 		f, err := os.Open(file.path) //nolint:gosec
 		if err != nil {
 			continue
 		}
-		var ms int64
-		found := false
 		if st, err := f.Stat(); err == nil {
 			_ = scanLinesBackward(f, st.Size(), func(_ int64, line []byte) bool {
-				if off, _, _, ok := parseRaw(line); ok {
-					ms, found = file.start*1000+off, true
+				if off, d, _, parsed := parseRaw(line); parsed {
+					ms, us, ok = file.start*1000+off, d, true
 					return false
 				}
 				return true
 			})
 		}
 		_ = f.Close()
-		if found {
-			return ms, true
+		if ok {
+			return ms, us, true
+		}
+	}
+	return 0, 0, false
+}
+
+// newestEnd returns the end of the newest sample, in milliseconds. Once the raw
+// tier holds no sample, it is the end of the newest aggregate bucket of the
+// finest tier that has one.
+func (s *store) newestEnd() (int64, bool) {
+	if ms, us, ok := s.newestRaw(); ok {
+		return ms + us/1000, true
+	}
+	for _, t := range allTiers[1:] {
+		for _, f := range slices.Backward(s.list(t)) {
+			if last, err := s.lastOf(f.path); err == nil && last != minInt {
+				return (last + tierSec(t)) * 1000, true
+			}
 		}
 	}
 	return 0, false

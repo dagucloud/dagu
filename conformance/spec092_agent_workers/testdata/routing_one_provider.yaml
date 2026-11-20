@@ -1,0 +1,17 @@
+description: One CLI provider. The steps of the sub-DAG do not count for the parent.
+worker_selector:
+  zone: eu
+steps:
+  - id: code
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Fix the test.
+  - id: review
+    depends: [code]
+    action: dag.run
+    with:
+      dag: routing_child

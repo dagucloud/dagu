@@ -116,9 +116,9 @@ func TestStoreIgnoresUnwritableMarker(t *testing.T) {
 	root := t.TempDir()
 	dagsDir := filepath.Join(root, "dags")
 	require.NoError(t, os.MkdirAll(dagsDir, 0750))
-	// A regular file where the index directory should be makes every marker write fail.
-	indexDir := filepath.Join(root, "not-a-directory")
-	require.NoError(t, os.WriteFile(indexDir, []byte("x"), 0600))
+	// A directory where the marker file should be makes every marker write fail.
+	indexDir := filepath.Join(root, "index")
+	require.NoError(t, os.MkdirAll(ChangeMarkerPath(indexDir, dagsDir), 0750))
 	store := NewStore(dagsDir, WithSkipExamples(true), WithIndexDir(indexDir))
 
 	require.NoError(t, store.Create(ctx, "a", []byte(markerTestDAG)))
