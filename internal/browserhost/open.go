@@ -17,7 +17,9 @@ import (
 )
 
 const (
-	openDirName = "open"
+	// OpenDirName is the directory under a browser data directory where an
+	// instance that names no slots directory counts its open browsers.
+	OpenDirName = "open"
 	// openPollInterval is how often a browser waiting for a slot looks
 	// again.
 	openPollInterval = time.Second
@@ -37,16 +39,16 @@ type slotHolder struct {
 	StartedAt int64 `json:"startedAt,omitempty"`
 }
 
-// TakeSlot reserves a place for one more browser under browserDir, waiting
-// while limit browsers are open there. A limit below one sets no limit and
-// returns a nil Slot, whose methods do nothing. waiting runs once, when the
-// browser first has to wait. stop, if set, is asked each time the browser
-// has to wait, and the error it reports ends the wait.
-func TakeSlot(ctx context.Context, browserDir string, limit int, waiting func(), stop func() error) (*Slot, error) {
+// TakeSlot reserves a place for one more browser in the slots directory dir,
+// waiting while limit browsers are open there; every process counting in dir
+// shares the limit. A limit below one sets no limit and returns a nil Slot,
+// whose methods do nothing. waiting runs once, when the browser first has to
+// wait. stop, if set, is asked each time the browser has to wait, and the
+// error it reports ends the wait.
+func TakeSlot(ctx context.Context, dir string, limit int, waiting func(), stop func() error) (*Slot, error) {
 	if limit < 1 {
 		return nil, nil
 	}
-	dir := filepath.Join(browserDir, openDirName)
 	if err := os.MkdirAll(dir, recordDirMode); err != nil {
 		return nil, fmt.Errorf("create open browser slots: %w", err)
 	}

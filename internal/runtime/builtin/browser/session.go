@@ -413,6 +413,7 @@ func (s *Sessions) Open(ctx context.Context, opts SessionOptions) (OpenResult, e
 		Warn:               func(message string) { warnings = append(warnings, message) },
 		BrowserDir:         browserDir,
 		MaxOpen:            cmnconfig.GetConfig(ctx).Browser.MaxOpen,
+		SlotsDir:           cmnconfig.GetConfig(ctx).Browser.SlotsDir,
 	}
 	if opts.Viewport != nil {
 		launch.Viewport = &viewport{Width: opts.Viewport.Width, Height: opts.Viewport.Height}

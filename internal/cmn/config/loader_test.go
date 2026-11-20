@@ -253,6 +253,7 @@ func TestLoad_Env(t *testing.T) {
 			BaseEnv:                cfg.Core.BaseEnv,     // Dynamic, copy from actual
 		},
 		OpenCode: OpenCodeConfig{Executable: "opencode", EnvPassthrough: []string{}},
+		Browser:  BrowserConfig{SlotsDir: userBrowserSlotsDir(t)},
 		Server: Server{
 			Host:         "test.example.com",
 			Port:         9876,
@@ -821,6 +822,34 @@ func TestLoad_BrowserMaxOpen(t *testing.T) {
 	require.ErrorContains(t, testLoadWithError(t), "browser.max_open must not be negative")
 }
 
+// Browsers count toward browser.max_open in the user's cache directory,
+// which instances with data directories of their own share, unless the
+// config file or the environment names another directory.
+func TestLoad_BrowserSlotsDir(t *testing.T) {
+	shared := userBrowserSlotsDir(t)
+	first, second := testLoad(t), testLoad(t)
+	require.NotEqual(t, first.Paths.DataDir, second.Paths.DataDir)
+	require.Equal(t, shared, first.Browser.SlotsDir)
+	require.Equal(t, shared, second.Browser.SlotsDir)
+
+	dir := t.TempDir()
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("browser:\n  slots_dir: '"+dir+"'\n"), 0o600))
+	require.Equal(t, dir, testLoad(t, WithConfigFile(configFile)).Browser.SlotsDir)
+
+	t.Setenv("DAGU_BROWSER_SLOTS_DIR", dir)
+	require.Equal(t, dir, testLoad(t).Browser.SlotsDir)
+}
+
+// userBrowserSlotsDir is where browsers count toward browser.max_open by
+// default: in the user's cache directory.
+func userBrowserSlotsDir(t *testing.T) string {
+	t.Helper()
+	cache, err := os.UserCacheDir()
+	require.NoError(t, err)
+	return filepath.Join(cache, "dagu", "browser-slots")
+}
+
 // The write gate floor and policy come from the config file or the
 // environment.
 func TestLoad_BrowserWriteGate(t *testing.T) {
@@ -1051,6 +1080,7 @@ scheduler:
 			BaseEnv: cfg.Core.BaseEnv, // Dynamic, copy from actual
 		},
 		OpenCode: OpenCodeConfig{Executable: "opencode", EnvPassthrough: []string{}},
+		Browser:  BrowserConfig{SlotsDir: userBrowserSlotsDir(t)},
 		Server: Server{
 			Host:              "0.0.0.0",
 			Port:              9090,

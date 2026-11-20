@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/browserhost"
 	"github.com/dagucloud/dagu/v2/internal/browserhost/certproxy"
 	"github.com/dagucloud/dagu/v2/internal/browserhost/writegate"
 )
@@ -170,15 +172,26 @@ type launchOptions struct {
 	// BrowserDir keeps what launches learn about browser executables; empty
 	// keeps nothing, so every headless launch learns it again.
 	BrowserDir string
-	// MaxOpen is the most browsers open at once under BrowserDir; a launch
-	// waits while that many are. Zero sets no limit.
+	// MaxOpen is the most browsers open at once among those counted in
+	// SlotsDir; a launch waits while that many are. Zero sets no limit.
 	MaxOpen int
+	// SlotsDir is where open browsers are counted toward MaxOpen, shared by
+	// every process counting there. Empty counts them under BrowserDir.
+	SlotsDir string
 	// Waiting reports, once, that the launch waits for another browser to
 	// close.
 	Waiting func()
 	// StopWaiting, if set, is asked each time the launch looks again for a
 	// place, and the error it reports ends the wait.
 	StopWaiting func() error
+}
+
+// slotsDir is where the launch counts open browsers toward MaxOpen.
+func (o launchOptions) slotsDir() string {
+	if o.SlotsDir != "" {
+		return o.SlotsDir
+	}
+	return filepath.Join(o.BrowserDir, browserhost.OpenDirName)
 }
 
 // browserHandle locates a running browser.
