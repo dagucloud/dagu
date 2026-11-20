@@ -34,3 +34,10 @@ func TestStripANSI(t *testing.T) {
 		})
 	}
 }
+
+func TestStripANSIRawC1Bytes(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "red", stringutil.StripANSI("\x9b31mred\x9b0m"))
+	assert.Equal(t, "link", stringutil.StripANSI("\x9d8;;https://example.com\x07link\x9d8;;\x07"))
+}

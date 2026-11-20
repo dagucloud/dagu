@@ -3,7 +3,10 @@
 
 package stringutil
 
-import "regexp"
+import (
+	"bytes"
+	"regexp"
+)
 
 // ansiEscapePattern matches ANSI escape sequences: OSC sequences such as
 // hyperlinks, ended by BEL, ESC \ or C1 ST, and CSI sequences such as colors.
@@ -16,5 +19,10 @@ var ansiEscapePattern = regexp.MustCompile(
 // StripANSI returns s with ANSI escape sequences, such as colors and
 // terminal hyperlinks, removed.
 func StripANSI(s string) string {
-	return ansiEscapePattern.ReplaceAllString(s, "")
+	// Go's regexp treats raw C1 bytes as RuneError, so normalise the single
+	// byte forms to their UTF-8 rune encodings before matching.
+	b := bytes.ReplaceAll([]byte(s), []byte{0x9b}, []byte("\u009b"))
+	b = bytes.ReplaceAll(b, []byte{0x9c}, []byte("\u009c"))
+	b = bytes.ReplaceAll(b, []byte{0x9d}, []byte("\u009d"))
+	return ansiEscapePattern.ReplaceAllString(string(b), "")
 }
