@@ -30,7 +30,10 @@ interface RunLike {
  */
 export interface RunDisplayStatus {
   status: Status;
-  /** A run that is meant to run for ever and has no failed step. */
+  /**
+   * A run of a service DAG that is meant to run for ever and has no failed
+   * step.
+   */
   healthy: boolean;
   text: string;
   tone: StatusTone;
@@ -67,37 +70,49 @@ function normal(status: Status): RunDisplayStatus {
   };
 }
 
+/** What the caller knows about the workflow of a run. */
+export interface RunDisplayContext {
+  /** True when the workflow is a service DAG (restart_policy). */
+  service: boolean;
+}
+
 /**
  * The one place that decides the status of a run for display. A run whose
- * status is Running is "Healthy" when a continuous step runs (or waits for
- * its next iteration) and no node has failed. A failed node, a stopped
- * continuous step or any other status shows the normal status, so that a
- * failure stays visible.
+ * status is Running is "Healthy" when its workflow is a service DAG and no
+ * node has failed. When the run has a continuous step, that step must run (or
+ * wait for its next iteration). A failed node, a stopped continuous step, a
+ * workflow that is not a service DAG or any other status shows the normal
+ * status, so that a failure stays visible.
  */
-export function runDisplayStatus(run: RunLike): RunDisplayStatus {
-  if (run.status !== Status.Running) return normal(run.status);
+export function runDisplayStatus(
+  run: RunLike,
+  { service }: RunDisplayContext
+): RunDisplayStatus {
+  if (!service || run.status !== Status.Running) return normal(run.status);
   const nodes = run.nodes ?? [];
   const failed = nodes.some(
     (n) => n.status === NodeStatus.Failed || n.status === NodeStatus.Rejected
   );
   if (failed) return normal(run.status);
   // A continuous step that repeats has the status Running between two runs.
-  const continuous = nodes.some(
-    (n) => n.status === NodeStatus.Running && isContinuousStep(n.step)
-  );
-  return continuous ? { status: run.status, ...HEALTHY } : normal(run.status);
+  const continuous = nodes.filter((n) => isContinuousStep(n.step));
+  const running =
+    continuous.length === 0 ||
+    continuous.some((n) => n.status === NodeStatus.Running);
+  return running ? { status: run.status, ...HEALTHY } : normal(run.status);
 }
 
 /**
  * The display status of a run that is known only by its summary (a list row,
  * a bar of the history): without nodes, the definition decides, through
- * hasContinuousStep. A failed node cannot show here; the run page shows it.
+ * `service` and hasContinuousStep. A failed node cannot show here; the run
+ * page shows it.
  */
 export function summaryDisplayStatus(
   status: Status,
-  continuous: boolean
+  { service, continuous }: RunDisplayContext & { continuous: boolean }
 ): RunDisplayStatus {
-  return status === Status.Running && continuous
+  return status === Status.Running && service && continuous
     ? { status, ...HEALTHY }
     : normal(status);
 }

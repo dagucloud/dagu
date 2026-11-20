@@ -29,7 +29,10 @@ import { cn, toMermaidNodeId } from '../../../lib/utils';
 import { useScrollFade } from '@/hooks/useScrollFade';
 import BorderedBox from '@/components/ui/bordered-box';
 import { DAGRunOutputs } from '../../dag-runs/components/dag-run-details';
-import { buildDAGRunPageURL } from '../../dag-runs/lib/dagRunUrls';
+import {
+  buildDAGRunPageURL,
+  rootRunFileName,
+} from '../../dag-runs/lib/dagRunUrls';
 import { DAGContext } from '../contexts/DAGContext';
 import { getEventHandlers } from '../lib/getEventHandlers';
 import { updateDAGRunNodeStatus } from '../lib/nodeStatus';
@@ -115,10 +118,12 @@ function isSubDAGRun(dagRun: components['schemas']['DAGRunDetails']): boolean {
  */
 function RunSummaryBar({
   dagRun,
+  fileName,
   remoteNode,
   waitingAgentCount,
 }: {
   dagRun: components['schemas']['DAGRunDetails'];
+  fileName: string;
   remoteNode: string;
   waitingAgentCount: number;
 }) {
@@ -129,6 +134,7 @@ function RunSummaryBar({
   const runURL = buildDAGRunPageURL({
     rootDAGRunName: subRun ? dagRun.rootDAGRunName : dagRun.name,
     rootDAGRunId: subRun ? dagRun.rootDAGRunId : dagRun.dagRunId,
+    fileName: rootRunFileName(dagRun, fileName),
     subDAGRunId: subRun ? dagRun.dagRunId : undefined,
     remoteNode,
   });
@@ -467,6 +473,7 @@ function DAGStatus({
         const url = buildDAGRunPageURL({
           rootDAGRunName: displayDAGRun.rootDAGRunName || displayDAGRun.name,
           rootDAGRunId: displayDAGRun.rootDAGRunId || displayDAGRun.dagRunId,
+          fileName: rootRunFileName(displayDAGRun, fileName),
           subDAGRunId: subDAGRun.dagRunId,
           remoteNode,
         });
@@ -478,7 +485,7 @@ function DAGStatus({
         }
       }
     },
-    [displayDAGRun, navigate, remoteNode]
+    [displayDAGRun, fileName, navigate, remoteNode]
   );
 
   const openAgentChildRun = React.useCallback(
@@ -818,6 +825,7 @@ function DAGStatus({
         {summary && (
           <RunSummaryBar
             dagRun={displayDAGRun}
+            fileName={fileName}
             remoteNode={remoteNode}
             waitingAgentCount={waitingAgentCount}
           />

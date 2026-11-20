@@ -1,0 +1,9 @@
+steps:
+  - id: code
+    action: agent.run
+    with:
+      endpoint:
+        name: abbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+        model: claude-test
+      provider: claude
+      prompt: "Say hello."

@@ -7,8 +7,10 @@ import { cn } from '@/lib/utils';
 import { Pin } from 'lucide-react';
 
 type Props = {
-  /** Workflow name used in the accessible label. */
+  /** Name of the workflow or group, used in the accessible label. */
   name: string;
+  /** What the button pins: a workflow (default) or a whole group. */
+  subject?: 'workflow' | 'group';
   pinned: boolean;
   /** Whether the user may pin; otherwise a pinned workflow shows a marker. */
   canToggle: boolean;
@@ -22,6 +24,7 @@ type Props = {
 /** Pin button for a workflow, filled while the workflow is pinned. */
 function PinToggle({
   name,
+  subject = 'workflow',
   pinned,
   canToggle,
   pending = false,
@@ -52,9 +55,20 @@ function PinToggle({
       type="button"
       variant="ghost"
       size="icon-sm"
-      aria-label={ts('Pin workflow {name}', { name })}
+      aria-label={ts(
+        subject === 'group' ? 'Pin group {name}' : 'Pin workflow {name}',
+        { name }
+      )}
       aria-pressed={pinned}
-      title={ts(pinned ? 'Unpin workflow' : 'Pin workflow')}
+      title={ts(
+        subject === 'group'
+          ? pinned
+            ? 'Unpin group'
+            : 'Pin group'
+          : pinned
+            ? 'Unpin workflow'
+            : 'Pin workflow'
+      )}
       disabled={pending}
       className={cn(
         pinned ? 'text-primary' : 'text-muted-foreground',

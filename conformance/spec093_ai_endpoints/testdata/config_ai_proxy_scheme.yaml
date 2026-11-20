@@ -1,0 +1,3 @@
+ai:
+  upstream:
+    proxy_url: "socks5://proxy.example.com:1080"

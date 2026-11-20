@@ -1,0 +1,29 @@
+# The step repeats until the last line of its stdout file has the verdict done.
+# The condition is a command, so it can read the file. The fake claude gives the verdict
+# done at its third call.
+working_dir: .
+env:
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: sequence
+  - FAKE_CLAUDE_DONE_AT: "3"
+steps:
+  - id: code
+    action: agent.run
+    stdout: code.out
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        verdict: { type: string, enum: [done, blocked] }
+      required: [verdict]
+    repeat_policy:
+      repeat: until
+      condition: tail -n 1 code.out | grep -q '"verdict":"done"'
+      interval_sec: 0
+      limit: 5
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Say done.

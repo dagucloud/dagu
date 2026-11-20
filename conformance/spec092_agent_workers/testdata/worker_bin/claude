@@ -1,0 +1,27 @@
+#!/bin/sh
+# A fake claude CLI for the conformance tests of Spec 092, "The agent worker".
+# It prints the stream-json lines of one successful attempt. When Dagu mounts
+# skills, it reads each SKILL.md and each file of references/ under the folder of
+# --add-dir, tries to write in the folder, and tells the results in the text of the result.
+dir=""
+previous=""
+for arg in "$@"; do
+  if [ "$previous" = "--add-dir" ]; then dir="$arg"; fi
+  previous="$arg"
+done
+text="done"
+if [ -n "$dir" ]; then
+  names=""
+  refs=""
+  for skill in "$dir"/.claude/skills/*/SKILL.md; do
+    name=$(basename "$(dirname "$skill")")
+    if grep -q "^name: $name\$" "$skill"; then names="$names $name"; fi
+    for ref in "$(dirname "$skill")"/references/*; do
+      if [ -f "$ref" ] && grep -q . "$ref"; then refs="$refs $name/references/$(basename "$ref")"; fi
+    done
+  done
+  if (echo x > "$dir/evil") 2>/dev/null; then write="allowed"; else write="denied"; fi
+  text="done skills:${names} refs:${refs} write:$write"
+fi
+echo '{"type":"system","subtype":"init","model":"sonnet","mcp_servers":[]}'
+echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"'"$text"'"}'

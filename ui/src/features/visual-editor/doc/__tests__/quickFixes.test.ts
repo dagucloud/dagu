@@ -7,7 +7,12 @@ import {
   ValidationIssueSource,
 } from '@/api/v1/schema';
 import type { ValidationIssue } from '../../contracts';
-import { NO_ID_MESSAGE, OUTPUTS_ID_MESSAGE } from '../issueMessages';
+import {
+  mustBeMessage,
+  mustBeValue,
+  NO_ID_MESSAGE,
+  OUTPUTS_ID_MESSAGE,
+} from '../issueMessages';
 import { locateIssue } from '../issues';
 import { parseDagDoc, resolveStepNames } from '../parse';
 import { applyTextEdits } from '../patch';
@@ -373,5 +378,176 @@ describe('planQuickFixesInRange', () => {
     expect(planQuickFixesInRange(model, only, model.steps[0]!.range).size).toBe(
       1
     );
+  });
+});
+
+describe('mustBeMessage and mustBeValue', () => {
+  it.each([
+    [true, 'with.read must be true.'],
+    [false, 'with.read must be false.'],
+    [null, 'with.read must be null.'],
+    [3, 'with.read must be 3.'],
+    [-1.5, 'with.read must be -1.5.'],
+    ['auto', 'with.read must be "auto".'],
+    ['a "b"', 'with.read must be "a \\"b\\"".'],
+  ])('writes %j and reads it back', (value, message) => {
+    expect(mustBeMessage('with.read', value)).toBe(message);
+    expect(mustBeValue(message)).toEqual({ value });
+  });
+
+  it.each([
+    'with.read must be equal to constant.',
+    'read must be true; omit the key to leave the tool out',
+    '[2:5] read must be true.',
+    'The step must be true.',
+    'with.read must be [1].',
+    'with.read must be true',
+    'with.read must be yes.',
+  ])('reads no value in %j', (message) => {
+    expect(mustBeValue(message)).toBeUndefined();
+  });
+});
+
+describe('planQuickFixes: a field with one allowed value', () => {
+  const text = [
+    'steps:',
+    '  - name: code',
+    '    action: agent.run',
+    '    with:',
+    '      provider: claude',
+    '      mode: fast # kept',
+    '      tools:',
+    '        builtin:',
+    '          read: false  # keep it off',
+    '          write: "yes"',
+    '          edit: True',
+    '          search: true',
+    '',
+  ].join('\n');
+  const model = parseDagDoc(text);
+
+  /** The issue that the client checks give for a field of the `with`. */
+  function valueIssue(
+    field: string,
+    value: unknown,
+    severity: ValidationIssue['severity'] = ValidationIssueSeverity.error
+  ): ValidationIssue {
+    return {
+      severity,
+      source: ValidationIssueSource.build,
+      message: mustBeMessage(`with.${field}`, value),
+      stepPath: 'steps[0]',
+      fieldPath: `steps[0].with.${field}`,
+    };
+  }
+
+  const read = valueIssue('tools.builtin.read', true);
+  const write = valueIssue('tools.builtin.write', true);
+
+  it('replaces the value and nothing else of the line', () => {
+    const [fix] = [...planQuickFixes(model, [read]).values()];
+    expect(fix?.message).toBe('Replace with {value}');
+    expect(fix?.params).toEqual({ value: 'true' });
+    expect(applyTextEdits(text, fix!.edits)).toBe(
+      text.replace('read: false  # keep it off', 'read: true  # keep it off')
+    );
+  });
+
+  it('replaces a quoted value with the plain one', () => {
+    const [fix] = [...planQuickFixes(model, [write]).values()];
+    expect(applyTextEdits(text, fix!.edits)).toBe(
+      text.replace('write: "yes"', 'write: true')
+    );
+  });
+
+  it('writes a string that needs quotes with quotes', () => {
+    const mode = valueIssue('mode', 'fast: 1');
+    const [fix] = [...planQuickFixes(model, [mode]).values()];
+    expect(fix?.params).toEqual({ value: '"fast: 1"' });
+    expect(applyTextEdits(text, fix!.edits)).toBe(
+      text.replace('mode: fast # kept', 'mode: "fast: 1" # kept')
+    );
+    const plain = valueIssue('mode', 'slow');
+    const [other] = [...planQuickFixes(model, [plain]).values()];
+    expect(other?.params).toEqual({ value: 'slow' });
+  });
+
+  it('gives all the fixes of the file to the wand, in one edit', () => {
+    const plan = planQuickFixes(model, [read, write]);
+    expect(plan.size).toBe(2);
+    expect(applyTextEdits(text, mergeQuickFixes(plan.values()))).toBe(
+      text
+        .replace('read: false', 'read: true')
+        .replace('write: "yes"', 'write: true')
+    );
+  });
+
+  it('serves two issues of one field with one fix', () => {
+    const again = { ...read, severity: ValidationIssueSeverity.warning };
+    const plan = planQuickFixes(model, [read, again]);
+    expect(plan.size).toBe(2);
+    expect(new Set(plan.values()).size).toBe(1);
+    expect(mergeQuickFixes(plan.values())).toHaveLength(1);
+  });
+
+  it('gives no fix when the field has the value already', () => {
+    // True is a boolean in YAML 1.2: the value is right.
+    const edit = valueIssue('tools.builtin.edit', true);
+    expect(planQuickFixes(model, [edit]).size).toBe(0);
+  });
+
+  it('gives no fix for a notice, for a field that is not there or is not a scalar', () => {
+    const notice = valueIssue(
+      'tools.builtin.read',
+      true,
+      ValidationIssueSeverity.notice
+    );
+    const missing = valueIssue('tools.builtin.shell', true);
+    const wrongType = valueIssue('tools.builtin', true);
+    const noPath = { ...read, fieldPath: undefined };
+    expect(
+      planQuickFixes(model, [notice, missing, wrongType, noPath]).size
+    ).toBe(0);
+  });
+
+  it('gives no fix for the message of the server', () => {
+    const server = {
+      ...read,
+      message: 'read must be true; omit the key to leave the tool out',
+    };
+    expect(planQuickFixes(model, [server]).size).toBe(0);
+  });
+
+  it('plans it next to the fix of a step without an id', () => {
+    const noId = issueOf('steps[0]');
+    const plan = planQuickFixes(model, [read, noId]);
+    expect(plan.size).toBe(2);
+    expect(plan.get(read)?.message).toBe('Replace with {value}');
+    expect(plan.get(noId)?.message).toBe('Add id: {id}');
+    const next = applyTextEdits(text, mergeQuickFixes(plan.values()));
+    expect(next).toContain('  - name: code\n    id: code\n');
+    expect(next).toContain('read: true  # keep it off');
+  });
+
+  it('gives the fix to the marker of the issue, as the lightbulb asks for it', () => {
+    const names = resolveStepNames(model);
+    const range = locateIssue(model, read, names)!;
+    const fix = quickFixesForMarker(
+      model,
+      [read, write],
+      {
+        message: read.message,
+        startLineNumber: range.startLine,
+        startColumn: range.startColumn,
+      },
+      names
+    );
+    expect(fix).toEqual(planQuickFixes(model, [read, write]).get(read));
+    expect(range.startLine).toBe(9);
+  });
+
+  it('keeps the fix of a step inside its range', () => {
+    const inside = planQuickFixesInRange(model, [read], model.steps[0]!.range);
+    expect(inside.size).toBe(1);
   });
 });

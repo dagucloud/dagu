@@ -1,0 +1,11 @@
+# The block has a closed schema: an unknown key stops Dagu at start.
+peer:
+  cert_file: tls/coordinator.crt
+  key_file: tls/coordinator.key
+  client_ca_file: tls/dagu-ca.crt
+coordinator:
+  worker_pools:
+    - name: general
+      identities: [general-worker]
+      label:
+        zone: "*"

@@ -286,6 +286,7 @@ function entry(p: Partial<CacheEntry> = {}): CacheEntry {
     runId: 'r1',
     capturedAt: 1000,
     stepHash: 'h-a',
+    params: '',
     ...p,
   };
 }
@@ -307,12 +308,41 @@ describe('coverFromCache', () => {
       hasSource: true,
       entries: { a: entry() },
       hashes,
+      defaultParams: undefined,
       check: ok,
     });
     expect(cover.cached).toEqual(['a']);
     expect(cover.stale).toEqual(['b']);
     expect(Object.keys(cover.runs)).toEqual(['a']);
     expect(cover.capturedAt).toBe(1000);
+  });
+
+  // The step run sends no parameters: it uses the defaults of the workflow.
+  // An entry of a run with other parameters holds other values.
+  it('does not cover a step whose entry was read from a run with other parameters', () => {
+    const base = {
+      previous,
+      stale: [],
+      missing: [],
+      hasSource: false,
+      hashes,
+      defaultParams: undefined,
+      check: ok,
+    };
+    // The run holds `ENV=dev`, the server sends the default as `ENV="dev"`.
+    const dev = { a: entry({ params: 'ENV=dev' }) };
+    const prod = { a: entry({ params: 'ENV=prod' }) };
+    const defaults = 'ENV="dev"';
+    expect(
+      coverFromCache({ ...base, entries: dev, defaultParams: defaults }).cached
+    ).toEqual(['a']);
+    expect(
+      coverFromCache({ ...base, entries: prod, defaultParams: defaults }).cached
+    ).toEqual([]);
+    expect(
+      coverFromCache({ ...base, entries: prod, defaultParams: undefined })
+        .cached
+    ).toEqual([]);
   });
 
   // Every cached value is sent with the run that it was read from.
@@ -327,6 +357,7 @@ describe('coverFromCache', () => {
         b: entry({ stepHash: 'h-b', runId: 'run-b', capturedAt: 2000 }),
       },
       hashes,
+      defaultParams: undefined,
       check: ok,
     });
     expect(cover.runs).toEqual({
@@ -343,6 +374,7 @@ describe('coverFromCache', () => {
       hasSource: true,
       entries: { a: entry(), b: entry({ stepHash: 'h-b' }) },
       hashes,
+      defaultParams: undefined,
       check: ok,
     });
     expect(cover.cached).toEqual(['b']);
@@ -358,6 +390,7 @@ describe('coverFromCache', () => {
       hasSource: true,
       entries: { a: entry({ stepHash: 'old' }) },
       hashes,
+      defaultParams: undefined,
       check: ok,
     });
     expect(cover.cached).toEqual([]);
@@ -376,6 +409,7 @@ describe('coverFromCache', () => {
       hasSource: true,
       entries: { a: entry(), b: entry({ stepHash: 'h-b', runId: 'r2' }) },
       hashes,
+      defaultParams: undefined,
       check: (_step, e) => (e.runId === 'r2' ? 'gone' : 'ok'),
     });
     expect(cover.cached).toEqual(['a']);
@@ -392,6 +426,7 @@ describe('coverFromCache', () => {
       hasSource: false,
       entries: { a: entry() },
       hashes,
+      defaultParams: undefined,
       check: () => 'checking',
     });
     expect(cover.checking).toBe(true);
@@ -406,6 +441,7 @@ describe('coverFromCache', () => {
       hasSource: false,
       entries: { a: entry(), b: entry() },
       hashes: null,
+      defaultParams: undefined,
       check: ok,
     });
     expect(cover.cached).toEqual([]);
@@ -420,6 +456,7 @@ describe('coverFromCache', () => {
       hasSource: false,
       entries: { a: entry() },
       hashes,
+      defaultParams: undefined,
       check: ok,
     });
     expect(cover.cached).toEqual(['a']);
@@ -434,6 +471,7 @@ describe('coverFromCache', () => {
       hasSource: false,
       entries: {},
       hashes,
+      defaultParams: undefined,
       check: ok,
     });
     expect(cover.missing).toEqual([]);
@@ -450,6 +488,7 @@ describe('coverFromCache', () => {
         b: entry({ stepHash: 'h-b', capturedAt: 2000 }),
       },
       hashes,
+      defaultParams: undefined,
       check: ok,
     });
     expect(cover.capturedAt).toBe(2000);
@@ -478,13 +517,33 @@ describe('defaultChoice with the cache', () => {
 });
 
 describe('paramsDiffer', () => {
+  // The run gives `params` unquoted, the workflow gives `defaultParams` quoted.
+  it('reads the quoted defaults of the server', () => {
+    expect(paramsDiffer('ENV=dev', 'ENV="dev"')).toBe(false);
+    expect(paramsDiffer('ENV=prod', 'ENV="dev"')).toBe(true);
+    expect(paramsDiffer('A=1 B=x', 'A="1" B="x"')).toBe(false);
+  });
+
+  it('reads values with spaces, quotes, equal signs and no name', () => {
+    expect(paramsDiffer('MSG=hello world', 'MSG="hello world"')).toBe(false);
+    expect(paramsDiffer('MSG=say "hi"', 'MSG="say \\"hi\\""')).toBe(false);
+    expect(paramsDiffer('URL=a=b', 'URL="a=b"')).toBe(false);
+    expect(paramsDiffer('P=C:\\tmp', 'P="C:\\\\tmp"')).toBe(false);
+    expect(paramsDiffer('one two', '"one" "two"')).toBe(false);
+    expect(paramsDiffer('X=', 'X=""')).toBe(false);
+    // Spaces inside a value are part of the value.
+    expect(paramsDiffer('ENV=hello  world', 'ENV="hello world"')).toBe(true);
+    expect(paramsDiffer('ENV=a\nb', 'ENV="a b"')).toBe(true);
+    expect(paramsDiffer('X=1', 'X=""')).toBe(true);
+  });
+
   it('is true for other parameters', () => {
     expect(paramsDiffer('A=2', 'A=1')).toBe(true);
     expect(paramsDiffer('A=1', undefined)).toBe(true);
   });
 
-  it('ignores spacing and treats no parameters as equal', () => {
-    expect(paramsDiffer(' A=1   B=2 ', 'A=1 B=2')).toBe(false);
+  it('ignores the ends of the text and treats no parameters as equal', () => {
+    expect(paramsDiffer(' A=1 B=2 ', 'A=1 B=2')).toBe(false);
     expect(paramsDiffer(undefined, '')).toBe(false);
   });
 

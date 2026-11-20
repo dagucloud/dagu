@@ -1,0 +1,7 @@
+steps:
+  - id: review
+    action: agent.run
+    with:
+      provider: claude
+      endpoint: test-endpoint
+      prompt: "Say hello."

@@ -1,0 +1,8 @@
+# Check the free disk space.
+group: maintenance
+description: Check the free disk space.
+schedule: "*/30 * * * *"
+type: chain
+steps:
+  - name: run
+    run: echo "disk-check"

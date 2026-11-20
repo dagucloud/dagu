@@ -212,6 +212,30 @@ describe('NodeStatusTableRow', () => {
     }
   });
 
+  // The name of a DAG can differ from the name of its file.
+  it('links the step log to the source file of the run', () => {
+    const node = {
+      ...timedNode,
+      stdout: '/tmp/build.out',
+    } as components['schemas']['Node'];
+    const { container, unmount } = renderRow(node, 'desktop', {
+      dagRun: { ...dagRun, sourceFileName: 'example-v2' },
+    });
+    expect(container.querySelector('a[href^="/dags/"]')).toHaveAttribute(
+      'href',
+      expect.stringMatching(/^\/dags\/example-v2\/log\?/)
+    );
+    unmount();
+
+    const fallback = renderRow(node, 'desktop');
+    expect(
+      fallback.container.querySelector('a[href^="/dags/"]')
+    ).toHaveAttribute(
+      'href',
+      expect.stringMatching(/^\/dags\/example\.yaml\/log\?/)
+    );
+  });
+
   it('shows log step messages in the status table without opening step logs', () => {
     const node = {
       step: {

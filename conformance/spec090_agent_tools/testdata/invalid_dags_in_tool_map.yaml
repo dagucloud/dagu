@@ -1,0 +1,21 @@
+working_dir: .
+env:
+  - LLM_BASE_URL: ${LLM_BASE_URL}
+steps:
+  - action: chat.completion
+    stdout: result.out
+    with:
+      prompt: help the customer
+      provider: local
+      model: test-model
+      base_url: $LLM_BASE_URL
+      tools:
+        dags:
+          - name: lookup
+---
+name: lookup
+description: Look up a customer
+params: [CUSTOMER_ID]
+steps:
+  - command: echo "customer=$CUSTOMER_ID"
+    output: INFO
