@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -137,12 +138,37 @@ func TestHTTPStatusMismatchLoggedToStderr(t *testing.T) {
 	require.Equal(t, "wait: http GET got status 503, want 204\n", stderr.String())
 }
 
-// runHTTPUntilDeadline polls url every 1ms until a 50ms context ends and
-// returns what the step wrote to stderr.
-func runHTTPUntilDeadline(t *testing.T, url string) string {
+// lineBuffer is a stderr that the test can read while the step still writes
+// to it. first is closed on the first write.
+type lineBuffer struct {
+	mu    sync.Mutex
+	buf   bytes.Buffer
+	once  sync.Once
+	first chan struct{}
+}
+
+func (b *lineBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.once.Do(func() { close(b.first) })
+	return b.buf.Write(p)
+}
+
+func (b *lineBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// runHTTPUntilLogged polls url every 1ms until the step writes its first
+// stderr line, keeps polling 20ms more so a repeated line would show up, then
+// cancels the step and returns what it wrote. It waits for the line instead
+// of using a fixed deadline, because the first poll can be slow on a busy CI
+// runner with -race.
+func runHTTPUntilLogged(t *testing.T, url string) string {
 	t.Helper()
 
-	var stderr bytes.Buffer
+	stderr := &lineBuffer{first: make(chan struct{})}
 	exec, err := newExecutor(context.Background(), ir.Step{
 		Commands: []ir.CommandEntry{{Command: opHTTP}},
 		ExecutorConfig: ir.ExecutorConfig{
@@ -154,12 +180,20 @@ func runHTTPUntilDeadline(t *testing.T, url string) string {
 		},
 	})
 	require.NoError(t, err)
-	exec.SetStderr(&stderr)
+	exec.SetStderr(stderr)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- exec.Run(ctx) }()
 
-	require.ErrorIs(t, exec.Run(ctx), context.DeadlineExceeded)
+	select {
+	case <-stderr.first:
+		time.Sleep(20 * time.Millisecond)
+	case <-time.After(10 * time.Second):
+	}
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
 	return stderr.String()
 }
 
@@ -174,7 +208,7 @@ func TestHTTPRequestErrorLoggedToStderr(t *testing.T) {
 	server.StartTLS()
 	defer server.Close()
 
-	stderr := runHTTPUntilDeadline(t, server.URL+"/ready?token=secret")
+	stderr := runHTTPUntilLogged(t, server.URL+"/ready?token=secret")
 	require.Equal(t, 1, strings.Count(stderr, "\n"), stderr)
 	require.Contains(t, stderr, "wait: http GET request failed: tls: failed to verify certificate: ")
 	require.NotContains(t, stderr, "secret")
@@ -215,7 +249,7 @@ func TestHTTPServerTextLeftOutOfStderr(t *testing.T) {
 			server := httptest.NewServer(tt.handler)
 			defer server.Close()
 
-			stderr := runHTTPUntilDeadline(t, server.URL+"/ready")
+			stderr := runHTTPUntilLogged(t, server.URL+"/ready")
 			require.Equal(t, "wait: http GET request failed: details left out, they may quote the server's response\n", stderr)
 		})
 	}
