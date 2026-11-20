@@ -980,6 +980,7 @@ func (r *run) launchOptions(ctx context.Context, recordID string) (launchOptions
 		Warn:               func(message string) { r.warn(-1, message) },
 		BrowserDir:         r.browser,
 		MaxOpen:            cmnconfig.GetConfig(ctx).Browser.MaxOpen,
+		SlotsDir:           cmnconfig.GetConfig(ctx).Browser.SlotsDir,
 		Waiting:            func() { r.timeline.Lifecycle(agentstep.StatusRunning, "Waiting for another browser to close") },
 		// A browser of another step of the run may start meanwhile and be
 		// shared, keeping its place until the run ends.
