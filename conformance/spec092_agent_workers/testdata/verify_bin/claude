@@ -1,0 +1,69 @@
+#!/bin/sh
+# A fake claude CLI for the verification tests of Spec 092 ("Verified points").
+# It is a trimmed copy of conformance/spec091_agent_node/testdata/bin/claude.
+# It counts its calls in $FAKE_CLAUDE_DIR/count and prints canned stream-json lines.
+# The scenario ok always gives the verdict accept.
+# The scenario sequence gives the verdict blocked until the call number
+# $FAKE_CLAUDE_DONE_AT, and the verdict done from this call on. From this call on it
+# also creates the file $FAKE_CLAUDE_DIR/done.
+# The scenario big gives a verdict of 200 bytes.
+# The scenarios loop, loop_stuck, loop_fast and loop_crash play the rounds of the verify loop
+# (loop_rounds.yaml). The prompt is the argument after -p. A prompt that names a
+# file verify_<n>.log is a round after a failed verify. The fake appends one line to
+# $FAKE_CLAUDE_DIR/rounds: "<call> first", or "<call> read <log file>".
+#   loop        round 1 fixes one.txt. A later round reads the log, finds the line
+#               "need: <file> must say fixed", and fixes that file.
+#   loop_stuck  as loop, but a later round does not fix anything.
+#   loop_fast   round 1 fixes one.txt and two.txt.
+#   loop_crash  as loop, but a later round ends with the exit code 2 and no result.
+dir="${FAKE_CLAUDE_DIR:?FAKE_CLAUDE_DIR is required}"
+scenario="${FAKE_CLAUDE_SCENARIO:-ok}"
+
+n=$(($(cat "$dir/count" 2>/dev/null || echo 0) + 1))
+echo "$n" > "$dir/count"
+
+init='{"type":"system","subtype":"init","model":"sonnet","mcp_servers":[]}'
+usage='"modelUsage":{"sonnet":{"inputTokens":120,"outputTokens":30,"cacheReadInputTokens":7,"cacheCreationInputTokens":3,"costUSD":9.99}},"total_cost_usd":9.99'
+
+case "$scenario" in
+  ok)
+    verdict=accept
+    ;;
+  sequence)
+    verdict=blocked
+    if [ "$n" -ge "${FAKE_CLAUDE_DONE_AT:?FAKE_CLAUDE_DONE_AT is required}" ]; then
+      verdict=done
+      : > "$dir/done"
+    fi
+    ;;
+  big)
+    # A verdict of 200 bytes.
+    verdict=$(head -c 200 /dev/zero | tr '\0' 'a')
+    ;;
+  loop | loop_stuck | loop_fast | loop_crash)
+    verdict=done
+    prompt=$2
+    log=$(printf '%s' "$prompt" | tr ' \n' '\n\n' | grep 'verify_[0-9]*\.log$' | tail -n 1)
+    if [ -n "$log" ]; then
+      echo "$n read $log" >> "$dir/rounds"
+      if [ "$scenario" = loop_crash ]; then
+        echo "$init"
+        exit 2
+      fi
+      if [ "$scenario" != loop_stuck ]; then
+        need=$(sed -n 's/^need: \(.*\) must say fixed$/\1/p' "$log" | head -n 1)
+        [ -n "$need" ] && echo fixed > "$need"
+      fi
+    else
+      echo "$n first" >> "$dir/rounds"
+      echo fixed > one.txt
+      [ "$scenario" = loop_fast ] && echo fixed > two.txt
+    fi
+    ;;
+  *)
+    echo "unknown scenario $scenario" >&2
+    exit 64
+    ;;
+esac
+echo "$init"
+echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"call '"$n"'","structured_output":{"verdict":"'"$verdict"'"},'"$usage"'}'

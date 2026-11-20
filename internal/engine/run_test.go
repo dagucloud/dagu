@@ -15,9 +15,9 @@ func TestApplyRunOverridesMergesLabels(t *testing.T) {
 		Labels: ir.NewLabels([]string{"env=prod"}),
 	}
 
-	applyRunOverrides(dag, RunOptions{
+	require.NoError(t, applyRunOverrides(dag, RunOptions{
 		Labels: []string{"env=prod", "team=platform"},
-	})
+	}))
 
 	require.Equal(t, []string{"env=prod", "team=platform"}, dag.Labels.Strings())
 }

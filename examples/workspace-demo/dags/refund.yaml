@@ -1,0 +1,14 @@
+description: Refund an amount to a customer
+params:
+  - name: CUSTOMER_ID
+    type: string
+    description: Customer id
+    required: true
+  - name: AMOUNT
+    type: number
+    description: Amount to refund, in euros
+    required: true
+steps:
+  - id: refund
+    run: echo "refunded $AMOUNT EUR to $CUSTOMER_ID"
+    output: RESULT

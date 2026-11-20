@@ -1,0 +1,13 @@
+# Dagu configuration of a general worker. It runs no agent run.
+peer:
+  insecure: false
+  skip_tls_verify: false
+  cert_file: /etc/dagu/tls/general-worker.crt
+  key_file: /etc/dagu/tls/general-worker.key
+  client_ca_file: /etc/dagu/tls/ca.crt
+
+worker:
+  coordinators: [dagu-coordinator:50055]
+  # The pool "general" allows the label zone with any value.
+  labels:
+    zone: main

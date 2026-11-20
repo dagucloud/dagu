@@ -1,0 +1,13 @@
+steps:
+  - id: review
+    action: agent.run
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: hi
+      tools:
+        mcp:
+          - { name: docs, url: 'http://127.0.0.1:1/mcp', allow: [a] }
+          - { name: docs, url: 'http://127.0.0.1:2/mcp', allow: [b] }

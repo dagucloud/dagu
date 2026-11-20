@@ -52,6 +52,7 @@ var (
 	ErrInvalidWorkspace    = errors.New("invalid secret workspace")
 	ErrNoValue             = errors.New("secret has no value")
 	ErrNotFound            = errors.New("secret not found")
+	ErrReservedRef         = errors.New("secret ref is reserved for the AI feature")
 	ErrUnsupportedProvider = errors.New("secret provider is not supported for registry resolution")
 )
 
