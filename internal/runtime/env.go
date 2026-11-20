@@ -102,7 +102,7 @@ func NewEnv(ctx context.Context, step ir.Step) Env {
 // newEnvWithSteps is NewEnv with working_dir resolved against the outputs of
 // steps, which also seed the env's StepMap.
 func newEnvWithSteps(ctx context.Context, step ir.Step, steps map[string]cmnvalue.StepInfo) Env {
-	rCtx := GetDAGContext(ctx)
+	rCtx := stepDAGContext(ctx, step)
 	workingDir := resolveWorkingDir(ctx, step, rCtx, steps)
 	return newEnv(ctx, step, rCtx, workingDir, steps)
 }
@@ -114,7 +114,7 @@ func NewEnvWithError(ctx context.Context, step ir.Step) (Env, error) {
 
 // newEnvWithStepsStrict is newEnvWithSteps with strict working_dir resolution.
 func newEnvWithStepsStrict(ctx context.Context, step ir.Step, steps map[string]cmnvalue.StepInfo) (Env, error) {
-	rCtx := GetDAGContext(ctx)
+	rCtx := stepDAGContext(ctx, step)
 	workingDir, err := resolveWorkingDirStrict(ctx, step, rCtx, steps)
 	if err != nil {
 		return Env{}, err

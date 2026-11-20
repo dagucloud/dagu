@@ -1,0 +1,27 @@
+steps:
+  # Untrusted: the agent controls each value of its outputs, as it controls the
+  # stream that gives tool_calls.
+  - id: code
+    untrusted: true
+    run: |
+      rm -f /tmp/review-inject-env-ran 2>/dev/null
+      echo "summary=x'; id -u > /tmp/review-inject-env-ran; echo '" > "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: summary
+
+  # Trusted: the value of the agent reaches the shell through env, as data.
+  - id: gate
+    depends: [code]
+    env:
+      - SUMMARY: ${steps.code.outputs.summary}
+    run: printf '%s\n' "$SUMMARY" > /dev/null
+
+  - id: report
+    depends: [gate]
+    run: |
+      if [ -f /tmp/review-inject-env-ran ]; then
+        echo "injected-as=$(cat /tmp/review-inject-env-ran)"
+        rm -f /tmp/review-inject-env-ran
+      else
+        echo "injected-as=none"
+      fi

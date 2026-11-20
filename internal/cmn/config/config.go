@@ -24,6 +24,9 @@ type Config struct {
 	Core            Core
 	OpenCode        OpenCodeConfig
 	Browser         BrowserConfig
+	Untrusted       UntrustedConfig
+	AgentTools      AgentToolsConfig
+	AI              AIConfig
 	Server          Server
 	EventStore      EventStoreConfig
 	Webhooks        WebhooksConfig
@@ -752,15 +755,27 @@ type Coordinator struct {
 	// is held for one to register before the run fails. Default: 2m; 0 refuses
 	// such a dispatch at once.
 	WorkerWaitTimeout time.Duration
+	// WorkerPools binds the labels of a worker to the identity of its client
+	// certificate (Spec 092). It is empty when the file has no
+	// coordinator.worker_pools.
+	WorkerPools []WorkerPool
+	// Dispatchers lists the certificate identities that make the calls that
+	// are not calls of a worker, such as a dispatch (Spec 092). The key is
+	// required with WorkerPools and invalid without them.
+	Dispatchers []string
 }
 
 // Worker represents the worker configuration.
 type Worker struct {
-	ID            string            // Default: hostname@PID
-	MaxActiveRuns int               // Default: 100
-	Labels        map[string]string // Capability matching labels
-	Coordinators  []string          // Static discovery addresses (host:port)
-	HealthPort    int               // HTTP health check port (default: 8092, 0 disables)
+	ID            string // Default: hostname@PID
+	MaxActiveRuns int    // Default: 100
+	// MaxActiveRunsSource tells where worker.max_active_runs came from: "file",
+	// "env:<variable>", or empty for the default. The flag is known only to the
+	// command.
+	MaxActiveRunsSource string
+	Labels              map[string]string // Capability matching labels
+	Coordinators        []string          // Static discovery addresses (host:port)
+	HealthPort          int               // HTTP health check port (default: 8092, 0 disables)
 	// ShutdownTimeout bounds how long a stopping worker drains running DAG
 	// runs before it cancels them. Default: 60s; 0 waits without a bound.
 	ShutdownTimeout time.Duration

@@ -1,0 +1,55 @@
+working_dir: .
+env:
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: ${FAKE_CLAUDE_SCENARIO}
+  - CUSTOMER: c-42
+steps:
+  - id: review
+    action: agent.run
+    stdout: review.out
+    stderr: review.err
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Help the customer c-42.
+      dags:
+        - name: lookup
+        - name: refund
+          params:
+            CUSTOMER_ID: ${CUSTOMER}
+            AMOUNT:
+              from_ai:
+                description: Amount to refund, in euros
+        - name: invoice
+      tools:
+        builtin: { read: true }
+  - id: show
+    depends: review
+    # The outputs of an untrusted step reach the command through env (Spec 092).
+    env:
+      - CALLS: ${steps.review.outputs.tool_calls}
+    run: printf 'calls=%s\n' "$CALLS"
+    stdout: show.out
+---
+name: lookup
+description: Look up a customer
+params: [CUSTOMER_ID]
+steps:
+  - command: echo "customer=$CUSTOMER_ID"
+    output: INFO
+---
+name: refund
+description: Refund a customer
+params: [CUSTOMER_ID, AMOUNT]
+steps:
+  - command: echo "refund $AMOUNT to $CUSTOMER_ID"
+    output: RESULT
+---
+name: invoice
+description: Create an invoice
+params: [CUSTOMER_ID]
+steps:
+  - command: echo "invoice for $CUSTOMER_ID"
+    output: RESULT

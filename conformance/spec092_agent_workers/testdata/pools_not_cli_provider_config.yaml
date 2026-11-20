@@ -1,0 +1,13 @@
+# The label agent.provider.<P> of an agent pool names a CLI provider. The
+# provider gemini is a chat provider for agent.run, so no agent worker serves it.
+peer:
+  cert_file: tls/coordinator.crt
+  key_file: tls/coordinator.key
+  client_ca_file: tls/dagu-ca.crt
+coordinator:
+  worker_pools:
+    - name: agent-gemini
+      identities: [agent-gemini]
+      labels:
+        agent.provider.gemini: "true"
+  dispatchers: [server]

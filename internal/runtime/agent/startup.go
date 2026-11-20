@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/runtimeenv"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 )
 
 type startupResolution struct {
@@ -20,6 +21,7 @@ type startupResolution struct {
 	envErr            error
 	secrets           []string
 	credentials       map[string]string
+	deferredSecrets   []secretref.Ref
 	secretErr         error
 	profileValues     resolvedProfileValues
 	profileErr        error
@@ -68,7 +70,7 @@ func (a *Agent) resolveStartup(ctx context.Context) (startupResolution, error) {
 		if result.profileErr != nil || ctx.Err() != nil {
 			return
 		}
-		result.secrets, result.secretErr = snapshot.resolveSecrets(ctx, result.profileValues)
+		result.secrets, result.deferredSecrets, result.secretErr = snapshot.resolveSecrets(ctx, result.profileValues)
 		if result.secretErr != nil || ctx.Err() != nil {
 			return
 		}

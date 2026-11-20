@@ -1,0 +1,6 @@
+description: A run that needs no provider never goes to an agent worker.
+worker_selector:
+  zone: eu
+steps:
+  - id: mark
+    run: printf '%s\n' "$SPEC092_WORKER_MARKER" > "$SPEC092_PLAIN_RUN_FILE"
