@@ -288,7 +288,7 @@ func TestV2ListingFailureAssumesChildren(t *testing.T) {
 	defer server.Close()
 	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
 
-	family, err := client.family(t.Context(), "ses_root")
+	family, err := client.family(t.Context(), "ses_root", true)
 
 	require.NoError(t, err)
 	require.True(t, family.idle())
@@ -315,7 +315,7 @@ func TestV2UnreadableSessionUnknown(t *testing.T) {
 	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
 
 	for range 2 {
-		family, err := client.family(t.Context(), "ses_root")
+		family, err := client.family(t.Context(), "ses_root", true)
 		require.NoError(t, err)
 		require.Empty(t, family.descendants)
 		require.Equal(t, []string{"ses_other"}, family.unknown)
@@ -342,7 +342,7 @@ func TestV2ConfirmedUnrelated(t *testing.T) {
 	defer server.Close()
 	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
 
-	family, err := client.family(t.Context(), "ses_root")
+	family, err := client.family(t.Context(), "ses_root", true)
 
 	require.NoError(t, err)
 	require.True(t, family.idle())
@@ -371,7 +371,7 @@ func TestV2DepthAndCycleUnknown(t *testing.T) {
 			defer server.Close()
 			client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
 
-			family, err := client.family(t.Context(), "ses_root")
+			family, err := client.family(t.Context(), "ses_root", true)
 
 			require.NoError(t, err)
 			require.Equal(t, []string{"ses_0"}, family.unknown)
@@ -442,7 +442,7 @@ func TestV2ParentCache(t *testing.T) {
 	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
 
 	for range 3 {
-		family, err := client.family(t.Context(), "ses_root")
+		family, err := client.family(t.Context(), "ses_root", true)
 		require.NoError(t, err)
 		require.Equal(t, []string{"ses_child"}, family.descendants)
 	}
@@ -468,7 +468,7 @@ func TestV1FamilyNoWalk(t *testing.T) {
 	defer server.Close()
 	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "1.14.0"}, directory: "/workspace", http: server.Client()}
 
-	family, err := client.family(t.Context(), "ses_root")
+	family, err := client.family(t.Context(), "ses_root", true)
 
 	require.NoError(t, err)
 	require.True(t, family.idle())
@@ -496,8 +496,9 @@ func jobHost(t *testing.T, version string, jobs http.HandlerFunc) (*openCodeClie
 	return &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: version}, directory: "/workspace", http: server.Client()}, &requests
 }
 
-// A running background job keeps an otherwise idle family busy; a finished
-// one does not. Only the root's own family is asked about.
+// A running background job keeps an otherwise idle owned family busy; a
+// finished one does not. Only the root's own family is asked about. Waiting on
+// a user's session does not wait on its jobs.
 func TestV2RunningJobBlocksIdle(t *testing.T) {
 	var running atomic.Bool
 	running.Store(true)
@@ -513,19 +514,15 @@ func TestV2RunningJobBlocksIdle(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[]}`))
 	})
 
-	family, err := client.family(t.Context(), "ses_root")
+	family, err := client.family(t.Context(), "ses_root", true)
 	require.NoError(t, err)
 	require.False(t, family.idle())
-
-	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
-	defer cancel()
-	require.ErrorIs(t, client.awaitIdle(ctx, "ses_root"), context.DeadlineExceeded)
+	require.NoError(t, client.awaitIdle(t.Context(), "ses_root"))
 
 	running.Store(false)
-	family, err = client.family(t.Context(), "ses_root")
+	family, err = client.family(t.Context(), "ses_root", true)
 	require.NoError(t, err)
 	require.True(t, family.idle())
-	require.NoError(t, client.awaitIdle(t.Context(), "ses_root"))
 }
 
 // A host without the job endpoint has no jobs; a failing one may have some.
@@ -535,7 +532,7 @@ func TestV2JobListingErrors(t *testing.T) {
 			http.Error(w, "no", status)
 		})
 
-		family, err := client.family(t.Context(), "ses_root")
+		family, err := client.family(t.Context(), "ses_root", true)
 
 		require.NoError(t, err)
 		require.Equal(t, busy, len(family.jobs) > 0, status)
@@ -543,8 +540,8 @@ func TestV2JobListingErrors(t *testing.T) {
 	}
 }
 
-// An interrupt stops the shell jobs of a session Dagu owns; waiting on a
-// user's session leaves them running.
+// An interrupt stops the shell jobs of a session Dagu owns; a user's session
+// neither waits on nor stops them.
 func TestV2InterruptStopsJobs(t *testing.T) {
 	for _, owned := range []bool{true, false} {
 		var stopped atomic.Bool
@@ -584,7 +581,7 @@ func TestV2InterruptStopsJobs(t *testing.T) {
 		cancel()
 		server.Close()
 		require.Equal(t, owned, stopped.Load())
-		require.Equal(t, owned, err == nil, "a user's job is waited on, not stopped")
+		require.NoError(t, err)
 	}
 }
 
@@ -638,7 +635,7 @@ func TestV1NoJobRequest(t *testing.T) {
 	defer server.Close()
 	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "1.14.0"}, directory: "/workspace", http: server.Client()}
 
-	family, err := client.family(t.Context(), "ses_root")
+	family, err := client.family(t.Context(), "ses_root", true)
 
 	require.NoError(t, err)
 	require.True(t, family.idle())

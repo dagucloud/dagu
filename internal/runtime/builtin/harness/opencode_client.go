@@ -332,7 +332,7 @@ type openCodeFamily struct {
 	// hasChildren is set only when the whole family is idle.
 	hasChildren bool
 	// jobs are the running background jobs of the root and its descendants.
-	// They are read only when the sessions are otherwise idle.
+	// They are read only withJobs, when the sessions are otherwise idle.
 	jobs []openCodeJob
 }
 
@@ -343,7 +343,9 @@ func (f openCodeFamily) idle() bool {
 // family reads the status of a root session and its descendants. Sessions are
 // related by parent linkage only, so unrelated sessions on a shared host are
 // ignored. Parent chains are read only for active sessions other than the root.
-func (c *openCodeClient) family(ctx context.Context, rootID string) (openCodeFamily, error) {
+// Running background jobs are read only withJobs: a user's session may keep
+// jobs running that are not Dagu's to wait on.
+func (c *openCodeClient) family(ctx context.Context, rootID string, withJobs bool) (openCodeFamily, error) {
 	active, err := c.activeSessions(ctx)
 	if err != nil {
 		return openCodeFamily{}, err
@@ -371,7 +373,7 @@ func (c *openCodeClient) family(ctx context.Context, rootID string) (openCodeFam
 			family.unknown = append(family.unknown, id)
 		}
 	}
-	if family.idle() {
+	if withJobs && family.idle() {
 		if family.jobs, err = c.runningJobs(ctx, rootID); err != nil {
 			return openCodeFamily{}, err
 		}
@@ -614,7 +616,7 @@ func (c *openCodeClient) settle(ctx context.Context, sessionID string, owned boo
 	var lastErr error
 	settling, rootIdle := false, false
 	for {
-		family, err := c.family(ctx, sessionID)
+		family, err := c.family(ctx, sessionID, owned)
 		switch {
 		case err == nil && family.idle() && (!family.hasChildren || settling):
 			return nil

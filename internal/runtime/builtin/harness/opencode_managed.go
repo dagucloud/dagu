@@ -34,6 +34,10 @@ const (
 	// managedCleanupTimeout bounds each wait for an interrupted or discarded
 	// session to settle.
 	managedCleanupTimeout = 10 * time.Second
+	// managedJobGracePeriod bounds how long the background jobs of a session
+	// Dagu owns may keep running after its sessions are idle; they are then
+	// stopped so they do not outlive the step.
+	managedJobGracePeriod = 10 * time.Second
 )
 
 func (e *harnessExecutor) runManagedOpenCode(
@@ -138,6 +142,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 	e.mu.Lock()
 	promptSent := e.agentSession.PromptSent
 	promptMessageID := e.agentSession.PromptMessageID
+	owned := e.agentSession.SessionOwned
 	e.mu.Unlock()
 	if promptSent && promptMessageID == "" {
 		messages, refreshErr := e.refreshManagedMessages(ctx, client, sessionID)
@@ -182,6 +187,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 	defer ticker.Stop()
 	startedAt := time.Now()
 	seenBusy, settling := false, false
+	var jobsSince time.Time
 	statusFailures := 0
 
 	for {
@@ -241,7 +247,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 			if waiting {
 				return e.finishManagedWaiting("OpenCode needs input")
 			}
-			family, err := client.family(ctx, sessionID)
+			family, err := client.family(ctx, sessionID, owned)
 			if err != nil {
 				if ctx.Err() != nil {
 					return e.finishManagedCancelled(ctx, client, sessionID)
@@ -261,8 +267,22 @@ func (e *harnessExecutor) runManagedOpenCode(
 			}
 			statusFailures = 0
 			status := family.status
-			if status == "idle" && (len(family.descendants)+len(family.unknown) > 0 || len(family.jobs) > 0) {
+			if status == "idle" && len(family.descendants)+len(family.unknown) > 0 {
 				status = "busy"
+			}
+			if status == "idle" && len(family.jobs) > 0 {
+				if jobsSince.IsZero() {
+					jobsSince = time.Now()
+				}
+				if time.Since(jobsSince) < managedJobGracePeriod {
+					status = "busy"
+				} else {
+					// Stopping is best effort; a job that keeps running does
+					// not hold the step past the grace period.
+					client.stopJobs(ctx, family.jobs)
+				}
+			} else {
+				jobsSince = time.Time{}
 			}
 			seenBusy = seenBusy || status == "busy" || status == "retry"
 			if status == "idle" && (seenBusy || time.Since(startedAt) >= time.Second) {
@@ -742,7 +762,7 @@ func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *op
 			if abortErr := client.abort(cleanupCtx, sessionID); abortErr != nil {
 				err = errors.Join(err, abortErr)
 			}
-			if family, familyErr := client.family(cleanupCtx, sessionID); familyErr == nil {
+			if family, familyErr := client.family(cleanupCtx, sessionID, false); familyErr == nil {
 				for _, id := range family.descendants {
 					_ = client.abort(cleanupCtx, id)
 				}

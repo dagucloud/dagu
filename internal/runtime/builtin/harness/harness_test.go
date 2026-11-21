@@ -1002,6 +1002,9 @@ type managedTestHost struct {
 	parents map[string]string
 	// v2 serves the v2 API routes.
 	v2 bool
+	// shellJob is the shell ID of a background job that runs until it is
+	// stopped; empty means no job.
+	shellJob string
 }
 
 func newManagedTestHost(t *testing.T, configure func(*managedTestHost)) *managedTestHost {
@@ -1136,6 +1139,22 @@ func (h *managedTestHost) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(statuses)
+	case r.Method == http.MethodGet && r.URL.Path == "/experimental/job":
+		h.mu.Lock()
+		job := h.shellJob
+		h.mu.Unlock()
+		jobs := []map[string]string{}
+		if job != "" {
+			jobs = append(jobs, map[string]string{"kind": "shell", "shellID": job})
+		}
+		_ = json.NewEncoder(w).Encode(jobs)
+	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/shell/"):
+		h.mu.Lock()
+		if h.shellJob == strings.TrimPrefix(r.URL.Path, "/shell/") {
+			h.shellJob = ""
+		}
+		h.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.NotFound(w, r)
 	}
@@ -2765,12 +2784,12 @@ func TestOpenCodeFamilySelectsByParent(t *testing.T) {
 	host := subagentHost(t, func(h *managedTestHost) { h.busy["session-grandchild"] = true })
 	client := &openCodeClient{host: host.config, http: newOpenCodeHTTPClient(time.Second)}
 
-	family, err := client.family(t.Context(), "session-1")
+	family, err := client.family(t.Context(), "session-1", true)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"session-grandchild"}, family.descendants)
 	assert.False(t, family.idle())
-	other, err := client.family(t.Context(), "session-unrelated")
+	other, err := client.family(t.Context(), "session-unrelated", true)
 	require.NoError(t, err)
 	assert.True(t, other.idle(), "an unrelated session's family ignores the other active sessions")
 }
@@ -2863,6 +2882,28 @@ func TestInterruptRootSparesDescendants(t *testing.T) {
 			}
 			require.ErrorIs(t, err, context.DeadlineExceeded)
 			assert.NotContains(t, host.requestLog(), "POST /session/session-child/abort")
+		})
+	}
+}
+
+// A background job left running by a session Dagu owns is stopped once its
+// grace period ends; a user's session is not held by its jobs.
+func TestManagedOpenCodeLeftoverJob(t *testing.T) {
+	t.Parallel()
+
+	for _, owned := range []bool{true, false} {
+		t.Run(fmt.Sprintf("owned=%v", owned), func(t *testing.T) {
+			t.Parallel()
+			host := subagentHost(t, func(h *managedTestHost) { h.shellJob = "sh_1" })
+			exec := resumedSubagentExecutor(t)
+			exec.agentSession.SessionOwned = owned
+
+			stdout, err := exec.runManagedOpenCode(runtime.WithEnv(t.Context(), runtime.Env{}), providerConfig{flags: map[string]any{}}, host.config)
+
+			require.NoError(t, err)
+			require.NoError(t, cleanupStdoutSpool(stdout))
+			assert.Equal(t, ir.AgentSessionSucceeded, exec.GetAgentSession().State)
+			assert.Equal(t, owned, slices.Contains(host.requestLog(), "DELETE /shell/sh_1"))
 		})
 	}
 }
