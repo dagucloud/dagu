@@ -2867,6 +2867,28 @@ func TestInterruptRootSparesDescendants(t *testing.T) {
 	}
 }
 
+// A user's root that turns busy again during cleanup runs a turn that is not
+// Dagu's, such as new user input or an earlier subagent's report.
+func TestInterruptRootSparesLaterTurn(t *testing.T) {
+	t.Parallel()
+
+	host := subagentHost(t, func(h *managedTestHost) { h.busy["session-child"] = true })
+	client := &openCodeClient{host: host.config, http: newOpenCodeHTTPClient(time.Second)}
+	ctx, cancel := context.WithTimeout(t.Context(), 800*time.Millisecond)
+	defer cancel()
+	go func() {
+		for host.count("GET /session/status") < 2 && ctx.Err() == nil {
+			time.Sleep(10 * time.Millisecond)
+		}
+		host.setBusy("session-1", true)
+	}()
+
+	err := client.interruptRootAndAwaitIdle(ctx, "session-1")
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Equal(t, 1, host.count("POST /session/session-1/abort"), "a later turn of the root was interrupted")
+}
+
 func TestSettleDiscardedSessionWaitsForSubagent(t *testing.T) {
 	t.Parallel()
 

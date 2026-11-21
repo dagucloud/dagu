@@ -578,18 +578,19 @@ func (c *openCodeClient) interruptAndAwaitIdle(ctx context.Context, sessionID st
 	return c.interruptAndSettle(ctx, sessionID, true)
 }
 
-// interruptRootAndAwaitIdle interrupts only the session itself and waits for
-// its descendants, which may belong to earlier turns of a user's session.
+// interruptRootAndAwaitIdle interrupts only the active turn of a user's
+// session and waits for the rest of its family, which may run turns that are
+// not Dagu's.
 func (c *openCodeClient) interruptRootAndAwaitIdle(ctx context.Context, sessionID string) error {
 	return c.interruptAndSettle(ctx, sessionID, false)
 }
 
-func (c *openCodeClient) interruptAndSettle(ctx context.Context, sessionID string, descendants bool) error {
+func (c *openCodeClient) interruptAndSettle(ctx context.Context, sessionID string, owned bool) error {
 	abortErr := c.abort(ctx, sessionID)
 	if errors.Is(abortErr, errManagedSessionUnavailable) {
 		return nil
 	}
-	if err := c.settle(ctx, sessionID, true, descendants); err != nil {
+	if err := c.settle(ctx, sessionID, owned); err != nil {
 		return errors.Join(abortErr, err)
 	}
 	// A failed interrupt request is moot once the family is idle.
@@ -599,15 +600,15 @@ func (c *openCodeClient) interruptAndSettle(ctx context.Context, sessionID strin
 // awaitIdle waits until the host reports no active execution for the session
 // or its descendants. Settlement is scoped to this host's process.
 func (c *openCodeClient) awaitIdle(ctx context.Context, sessionID string) error {
-	return c.settle(ctx, sessionID, false, false)
+	return c.settle(ctx, sessionID, false)
 }
 
 // settle waits for the session's family to stay idle for one more poll when
 // the session has children, because a child's report can start another turn of
-// the session. With interrupt, an active root is interrupted again; with
-// descendants, so are the active descendants. Sessions of unknown membership
-// are never interrupted.
-func (c *openCodeClient) settle(ctx context.Context, sessionID string, interrupt, descendants bool) error {
+// the session. In a session Dagu owns, active descendants and shell jobs are
+// stopped, and so is a root that turns active again. Sessions of unknown
+// membership are never interrupted.
+func (c *openCodeClient) settle(ctx context.Context, sessionID string, owned bool) error {
 	ticker := time.NewTicker(managedIdlePollInterval)
 	defer ticker.Stop()
 	var lastErr error
@@ -632,18 +633,16 @@ func (c *openCodeClient) settle(ctx context.Context, sessionID string, interrupt
 					}
 				}
 			}
-			if interrupt {
-				if descendants {
-					for _, id := range family.descendants {
-						_ = c.abort(ctx, id)
-					}
-					jobs := family.jobs
-					if len(family.unknown) > 0 && len(jobs) == 0 {
-						// Unresolved ancestry skips the idle job read.
-						jobs, _ = c.runningJobs(ctx, sessionID)
-					}
-					c.stopJobs(ctx, jobs)
+			if owned {
+				for _, id := range family.descendants {
+					_ = c.abort(ctx, id)
 				}
+				jobs := family.jobs
+				if len(family.unknown) > 0 && len(jobs) == 0 {
+					// Unresolved ancestry skips the idle job read.
+					jobs, _ = c.runningJobs(ctx, sessionID)
+				}
+				c.stopJobs(ctx, jobs)
 				// A child's report can start a new turn of an interrupted root.
 				if rootIdle && family.status != "idle" {
 					_ = c.abort(ctx, sessionID)
