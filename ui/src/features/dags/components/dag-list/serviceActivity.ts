@@ -3,7 +3,7 @@
 
 import type { components } from '@/api/v1/schema';
 import type { StatusTone } from '@/lib/statusPalette';
-import { ACTIVITY_WINDOW_SECONDS } from './activityBars';
+import { ACTIVITY_WINDOW_SECONDS } from './activityBarsModel';
 
 type Bucket = components['schemas']['SampleBucket'];
 

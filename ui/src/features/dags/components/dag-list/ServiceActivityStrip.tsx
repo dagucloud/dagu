@@ -22,7 +22,7 @@ import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import { formatCompactCount, formatExactCount } from '@/lib/formatCompactCount';
 import { toneClasses } from '@/lib/statusPalette';
 import { cn } from '@/lib/utils';
-import { ACTIVITY_HEIGHT_PX, ACTIVITY_WIDTH_PX } from './activityBars';
+import { ACTIVITY_HEIGHT_PX, ACTIVITY_WIDTH_PX } from './activityBarsModel';
 import {
   serviceActivity,
   type ServiceActivity,

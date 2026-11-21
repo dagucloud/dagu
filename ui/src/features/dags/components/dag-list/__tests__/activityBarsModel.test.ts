@@ -11,7 +11,7 @@ import {
   ACTIVITY_WIDTH_PX,
   activityBars,
   type ActivityRun,
-} from '../activityBars';
+} from '../activityBarsModel';
 
 const NOW = Date.parse('2026-10-29T12:00:00Z');
 const HOUR = 3_600_000;
@@ -32,7 +32,7 @@ function run(
   };
 }
 
-describe('activityBars', () => {
+describe('activityBarsModel', () => {
   it('places a run in the slot of its start in the window', () => {
     const [oldest, middle, newest] = activityBars(
       [run('a', 24 * HOUR, 1000), run('b', 12 * HOUR, 1000), run('c', 0, 1000)],

@@ -25,7 +25,7 @@ import {
   DAGTable,
   type DAGDeleteResult,
 } from '../../features/dags/components/dag-list';
-import { ACTIVITY_WINDOW_SECONDS } from '../../features/dags/components/dag-list/activityBars';
+import { ACTIVITY_WINDOW_SECONDS } from '../../features/dags/components/dag-list/activityBarsModel';
 import { useHideBreadcrumb } from '@/contexts/LayoutChromeContext';
 import DAGListHeader from '../../features/dags/components/dag-list/DAGListHeader';
 import {

@@ -18,7 +18,7 @@ import {
   ACTIVITY_WIDTH_PX,
   activityBars,
   type ActivityBar,
-} from './activityBars';
+} from './activityBarsModel';
 
 type Activity = components['schemas']['DAGListActivity'];
 
