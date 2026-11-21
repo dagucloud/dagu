@@ -40,7 +40,7 @@ import {
 
 type Node = components['schemas']['Node'];
 
-/** The width of the chart where the host has no layout (a test, a hidden tab). */
+/** The width of the panel where the host has no layout (a test, a hidden tab). */
 const DEFAULT_WIDTH_PX = 640;
 const DEFAULT_PRESET: RangePresetId = '24h';
 /** The padding of the panel, left and right. */
@@ -108,10 +108,9 @@ export function ContinuousPanel({
   } | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
-  const measured = useElementWidth(rootRef);
-  const width = measured ?? DEFAULT_WIDTH_PX;
-
-  const chartWidth = width - PANEL_PAD_PX;
+  // The measure is the content box; the default is the whole panel.
+  const chartWidth =
+    useElementWidth(rootRef) ?? DEFAULT_WIDTH_PX - PANEL_PAD_PX;
   const points = pointsForWindow(chartWidth - AXIS_PX, asked.to - asked.from);
   const availability = useStepAvailability(target, active);
   const samples = useStepSamples(
