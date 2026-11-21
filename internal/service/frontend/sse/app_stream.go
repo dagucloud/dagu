@@ -940,17 +940,15 @@ func (s *AppStreamService) handleSchedulerStateEvent(_, relPath string, op fsnot
 }
 
 func (s *AppStreamService) handleQueueEvent(_, relPath string, op fsnotify.Op) {
-	parts := strings.Split(filepath.ToSlash(relPath), "/")
-	if len(parts) == 0 {
-		return
-	}
 	base := filepath.Base(relPath)
 	if !strings.HasPrefix(base, "item_") || filepath.Ext(base) != ".json" {
 		return
 	}
+	// The queue's directory holds its name escaped as a record ID segment.
+	queueName, _, _ := strings.Cut(persisfile.RecordIDFromPath(relPath), "/")
 	s.coalescer.Enqueue(AppEvent{
 		Type:      AppEventTypeQueue,
-		QueueName: parts[0],
+		QueueName: queueName,
 		Reason:    fileEventReason(op),
 	})
 }

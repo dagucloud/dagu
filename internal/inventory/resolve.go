@@ -232,12 +232,9 @@ func (r *resolver) labels(inv, node, field string, raw []string) ir.Labels {
 func (r *resolver) node(inv Inventory, n Node, local map[string]Node, defaults resolvedConnection, defaultLabels ir.Labels) ResolvedNode {
 	fail := func(field string, err error) { r.fail(inv.Name, n.Name, field, err) }
 
-	switch {
-	case !nodeNamePattern.MatchString(n.Name):
-		fail("name", fmt.Errorf("%q must match %s", n.Name, nodeNamePattern))
-	case len(n.Name) > maxNodeNameLength:
-		fail("name", fmt.Errorf("is longer than %d characters", maxNodeNameLength))
-	default:
+	if err := nodeNameError(n.Name); err != nil {
+		fail("name", err)
+	} else {
 		// Names are compared without case, since trusted host keys are stored
 		// by node name and some file systems ignore case.
 		folded := strings.ToLower(n.Name)
@@ -297,6 +294,17 @@ func (r *resolver) node(inv Inventory, n Node, local map[string]Node, defaults r
 		Description:   n.Description,
 		Disabled:      n.Disabled,
 	}
+}
+
+// nodeNameError reports why name cannot name a node.
+func nodeNameError(name string) error {
+	switch {
+	case !nodeNamePattern.MatchString(name):
+		return fmt.Errorf("%q must match %s", name, nodeNamePattern)
+	case len(name) > maxNodeNameLength:
+		return fmt.Errorf("is longer than %d characters", maxNodeNameLength)
+	}
+	return nil
 }
 
 // bastionError reports why bastion cannot be a hop in its inventory, given

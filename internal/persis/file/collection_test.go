@@ -65,6 +65,7 @@ func TestFileBackendPreservesCollectionLayout(t *testing.T) {
 		{persis.CollectionDAGSettings, filepath.Join(dataDir, "dag-settings"), true},
 		{persis.CollectionDAGState, paths.DAGStateDir, false},
 		{persis.CollectionDispatchTasks, distributedDir, false},
+		{persis.CollectionHostKeys, filepath.Join(dataDir, "host-keys"), true},
 		{persis.CollectionIncidents, filepath.Join(dataDir, "incidents"), true},
 		{persis.CollectionInventories, filepath.Join(dataDir, "inventories"), true},
 		{persis.CollectionLicense, filepath.Join(dataDir, "license"), true},
