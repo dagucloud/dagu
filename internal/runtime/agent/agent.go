@@ -2553,7 +2553,10 @@ func (a *Agent) evaluateRegistryAuths(ctx context.Context) error {
 	return nil
 }
 
-// evaluateWorkingDir evaluates the working directory with environment variables.
+// evaluateWorkingDir resolves the DAG-level working directory. It goes through
+// the same value resolution the runtime applies to a step working directory, so
+// declared params resolve here too. The caller creates the directory, and a
+// reference this cannot resolve must not become a directory name.
 // The result is stored in evaluatedWorkingDir to avoid mutating the original DAG.
 func (a *Agent) evaluateWorkingDir(ctx context.Context) error {
 	// If working_dir was not explicitly set and we have a per-run work dir,
@@ -2567,16 +2570,19 @@ func (a *Agent) evaluateWorkingDir(ctx context.Context) error {
 		return nil
 	}
 
-	// Use runtime context's EnvScope for consistent variable expansion
 	rCtx := runtime.GetDAGContext(ctx)
-	if rCtx.EnvScope != nil {
-		a.evaluatedWorkingDir = rCtx.EnvScope.ExpandPath(a.dag.WorkingDir)
-	} else {
-		// Fallback to OS expansion if no scope available
-		a.evaluatedWorkingDir = os.ExpandEnv(a.dag.WorkingDir)
+	if rCtx.EnvScope != nil || rCtx.DAG != nil {
+		dir, err := runtime.ResolveDAGWorkingDir(ctx, a.dag, rCtx)
+		if err != nil {
+			return err
+		}
+		a.evaluatedWorkingDir = dir
+		return nil
 	}
 
-	// Resolve ~ prefix after variable expansion
+	// No run context to resolve against (an embedded caller): fall back to
+	// environment expansion alone.
+	a.evaluatedWorkingDir = os.ExpandEnv(a.dag.WorkingDir)
 	if strings.HasPrefix(a.evaluatedWorkingDir, "~") {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {

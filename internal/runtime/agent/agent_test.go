@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1405,6 +1406,40 @@ steps:
 		// Verify the DAG ran successfully
 		dagRunStatus := dagAgent.Status(th.Context)
 		require.Equal(t, ir.Succeeded.String(), dagRunStatus.Status.String())
+	})
+
+	t.Run("WorkingDirWithParam", func(t *testing.T) {
+		th := test.Setup(t)
+		target := filepath.Join(t.TempDir(), "checkout")
+		launchDir := t.TempDir()
+		t.Chdir(launchDir)
+
+		// A DAG-level working_dir that reads a declared param has to resolve
+		// before start-up creates the directory. Expansion used to see only
+		// environment variables here, so the literal reference became a
+		// directory name next to the launch directory.
+		yamlContent := fmt.Sprintf(`working_dir: ${params.workspace}
+params:
+  - name: workspace
+    type: string
+    default: %q
+steps:
+  - name: check-pwd
+    run: %s > pwd.txt
+`, target, pwdCommand())
+		dag := th.DAG(t, yamlContent)
+		dagAgent := dag.Agent()
+		dagAgent.RunSuccess(t)
+
+		_, err := os.Stat(filepath.Join(launchDir, "${params.workspace}"))
+		require.True(t, os.IsNotExist(err), "a literal reference must not become a directory: %v", err)
+		info, err := os.Stat(target)
+		require.NoError(t, err, "the param value must name the working directory")
+		require.True(t, info.IsDir())
+
+		pwdOut, err := os.ReadFile(filepath.Join(target, "pwd.txt"))
+		require.NoError(t, err, "the step must run in the resolved directory")
+		require.Equal(t, target, strings.TrimSpace(string(pwdOut)))
 	})
 }
 
