@@ -350,7 +350,7 @@ func writeFile(path string, buf []byte) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	return fileutil.Rename(tmp, path)
 }
 
 const tmpSuffix = ".tmp"

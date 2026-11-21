@@ -230,7 +230,7 @@ func (u *upState) prune(now int64) error {
 				continue
 			}
 			u.st.forget(f.path)
-			if err := os.Remove(f.path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			if err := fileutil.Remove(f.path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 				return err
 			}
 		}
