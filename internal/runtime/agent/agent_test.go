@@ -1406,6 +1406,31 @@ steps:
 		dagRunStatus := dagAgent.Status(th.Context)
 		require.Equal(t, ir.Succeeded.String(), dagRunStatus.Status.String())
 	})
+
+	t.Run("WorkingDirWithParamReference", func(t *testing.T) {
+		th := test.Setup(t)
+		workDir := t.TempDir()
+		launchDir := t.TempDir()
+		origWD, err := os.Getwd()
+		require.NoError(t, err)
+		require.NoError(t, os.Chdir(launchDir))
+		t.Cleanup(func() {
+			_ = os.Chdir(origWD)
+		})
+
+		dag := th.DAG(t, `working_dir: ${params.workspace}
+params:
+  workspace: `+workDir+`
+steps:
+  - name: check-pwd
+    run: `+pwdCommand()+`
+`)
+		dagAgent := dag.Agent()
+		dagAgent.RunSuccess(t)
+
+		// The run must not create a directory named after the reference.
+		require.NoDirExists(t, filepath.Join(launchDir, "${params.workspace}"))
+	})
 }
 
 func TestAgent_DryRun(t *testing.T) {

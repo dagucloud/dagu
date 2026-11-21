@@ -2563,27 +2563,11 @@ func (a *Agent) evaluateWorkingDir(ctx context.Context) error {
 		return nil
 	}
 
-	if a.dag.WorkingDir == "" {
-		return nil
+	wd, err := runtime.ResolveDAGWorkingDir(ctx, a.dag)
+	if err != nil {
+		return fmt.Errorf("failed to evaluate working directory: %w", err)
 	}
-
-	// Use runtime context's EnvScope for consistent variable expansion
-	rCtx := runtime.GetDAGContext(ctx)
-	if rCtx.EnvScope != nil {
-		a.evaluatedWorkingDir = rCtx.EnvScope.ExpandPath(a.dag.WorkingDir)
-	} else {
-		// Fallback to OS expansion if no scope available
-		a.evaluatedWorkingDir = os.ExpandEnv(a.dag.WorkingDir)
-	}
-
-	// Resolve ~ prefix after variable expansion
-	if strings.HasPrefix(a.evaluatedWorkingDir, "~") {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("failed to resolve home directory: %w", err)
-		}
-		a.evaluatedWorkingDir = filepath.Join(homeDir, a.evaluatedWorkingDir[1:])
-	}
+	a.evaluatedWorkingDir = wd
 
 	return nil
 }
