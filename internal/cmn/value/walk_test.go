@@ -589,3 +589,35 @@ func TestStringFields_MapNilValues(t *testing.T) {
 	assert.Nil(t, got["ptr"])
 	assert.Nil(t, got["iface"])
 }
+
+// Named string types must keep their type; assigning a plain string back to
+// such a field, pointer, slice element, or map value panics.
+func TestStringFields_NamedStringTypes(t *testing.T) {
+	t.Setenv("NAMED_VAR", "expanded")
+
+	type mode string
+
+	type config struct {
+		Mode  mode
+		Ptr   *mode
+		Modes []mode
+		ByKey map[string]mode
+	}
+
+	ptr := mode("$NAMED_VAR")
+	input := config{
+		Mode:  "$NAMED_VAR",
+		Ptr:   &ptr,
+		Modes: []mode{"$NAMED_VAR"},
+		ByKey: map[string]mode{"key": "$NAMED_VAR"},
+	}
+
+	got, err := stringFields(context.Background(), input, withOSExpansion())
+	require.NoError(t, err)
+
+	assert.Equal(t, mode("expanded"), got.Mode)
+	require.NotNil(t, got.Ptr)
+	assert.Equal(t, mode("expanded"), *got.Ptr)
+	assert.Equal(t, []mode{"expanded"}, got.Modes)
+	assert.Equal(t, map[string]mode{"key": "expanded"}, got.ByKey)
+}
