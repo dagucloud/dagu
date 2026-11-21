@@ -566,6 +566,22 @@ export async function startRunNow(dialog: Locator): Promise<void> {
   await dialog.getByRole('button', { name: 'Start', exact: true }).click();
 }
 
+/**
+ * Opens the Start dialog of the workflow page. While Stop, Retry or Dequeue
+ * has the slot of Start, Start is in the menu of the run options.
+ */
+export async function openStartDialog(page: Page): Promise<void> {
+  const split = page.getByTestId('ww-run-split');
+  await expect(split).toBeVisible({ timeout: 30_000 });
+  const start = split.locator('[data-ww-action="start"]');
+  if (await start.isVisible()) {
+    await start.click();
+    return;
+  }
+  await split.getByRole('button', { name: 'More run options' }).click();
+  await page.getByRole('menuitem', { name: 'Start', exact: true }).click();
+}
+
 export async function enqueueRunFromUI(
   page: Page,
   fileName: string
@@ -578,7 +594,7 @@ export async function enqueueRunFromUI(
         .includes(`/api/v1/dags/${encodeURIComponent(fileName)}/enqueue`)
   );
 
-  await page.getByRole('button', { name: 'Start' }).first().click();
+  await openStartDialog(page);
 
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();

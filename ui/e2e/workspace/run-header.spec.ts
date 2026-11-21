@@ -49,6 +49,7 @@ steps:
 // count in place of the progress. A stopped run does not start again.
 const CONTINUOUS_SERVICE = `
 restart_policy: unless-stopped
+restart_wait_sec: 5
 steps:
   - name: heartbeat
     run: echo beat
