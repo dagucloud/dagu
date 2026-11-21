@@ -1,14 +1,18 @@
 # Delegates a task to a remote A2A agent without an LLM and waits for the
 # result. The agent may answer with a Message (done at once) or with a Task
 # that is polled until it ends. Credentials come from a Dagu secret and are
-# sent only to the agent_url origin.
+# sent only to the agent_url origin. Fix agent_url in the DAG rather than
+# taking it from params: whoever can start a run could otherwise point it at
+# their own server and receive the credential.
 #
 # a2a.send never retries: if its response is lost, the agent may already be
 # working. Do not add retry_policy to it unless duplicate work is acceptable.
 # To resume a Task in a new run, see a2a-recover.yaml.
 
-params:
+env:
   - A2A_URL: https://agents.example.invalid/diagnostics
+
+params:
   - PROMPT: Diagnose TICKET-123
 
 secrets:
