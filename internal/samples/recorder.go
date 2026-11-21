@@ -155,6 +155,11 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 	if r.opts.WriteEach || len(r.buf) >= rawFlushBytes {
 		err = r.writeRaw()
 	}
+	// The raw line of a run longer than the raw retention leaves with the hour
+	// of its start, so the end of the newest sample has its own file.
+	if r.opts.WriteEach && err == nil {
+		err = r.st.writeEnd(r.lastEnd)
+	}
 	if r.up != nil {
 		err = errors.Join(err, r.up.add(ms, ms+us/1000, s.ActiveGap.Milliseconds(), r.now().UnixMilli()))
 	}

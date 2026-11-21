@@ -24,6 +24,7 @@ import (
 const (
 	fileExt        = ".jsonl"
 	eventsFileName = "events.jsonl"
+	endFileName    = "end"
 	maxLine        = 1 << 20
 )
 
@@ -114,6 +115,8 @@ func (s *store) path(t Tier, start int64) string {
 }
 
 func (s *store) eventsPath() string { return filepath.Join(s.dir, eventsFileName) }
+
+func (s *store) endPath() string { return filepath.Join(s.dir, endFileName) }
 
 // list returns the files of a tier, the oldest first. A missing directory
 // gives an empty list.
@@ -558,12 +561,18 @@ func (s *store) newestRaw() (ms, us int64, ok bool) {
 	return 0, 0, false
 }
 
-// newestEnd returns the end of the newest sample, in milliseconds. Once the raw
-// tier holds no sample, it is the end of the newest aggregate bucket of the
-// finest tier that has one.
+// newestEnd returns the end of the newest sample, in milliseconds. A store
+// written with Options.WriteEach keeps it in the file "end". Without that file,
+// once the raw tier holds no sample, it is the end of the newest aggregate
+// bucket of the finest tier that has one.
 func (s *store) newestEnd() (int64, bool) {
+	end, hasEnd := s.readEnd()
 	if ms, us, ok := s.newestRaw(); ok {
-		return ms + us/1000, true
+		// A crash between the raw line and the file "end" leaves the raw line newer.
+		return max(ms+us/1000, end), true
+	}
+	if hasEnd {
+		return end, true
 	}
 	for _, t := range allTiers[1:] {
 		for _, f := range slices.Backward(s.list(t)) {
@@ -573,6 +582,26 @@ func (s *store) newestEnd() (int64, bool) {
 		}
 	}
 	return 0, false
+}
+
+// writeEnd replaces the file "end" with the end of the newest sample, in
+// milliseconds.
+func (s *store) writeEnd(ms int64) error {
+	return writeFile(s.endPath(), strconv.AppendInt(nil, ms, 10))
+}
+
+// readEnd reads the file "end". A missing file, or one that a crash cut,
+// gives false.
+func (s *store) readEnd() (int64, bool) {
+	b, err := os.ReadFile(s.endPath()) //nolint:gosec
+	if err != nil {
+		return 0, false
+	}
+	end, err := strconv.ParseInt(string(bytes.TrimSpace(b)), 10, 64)
+	if err != nil || end <= 0 {
+		return 0, false
+	}
+	return end, true
 }
 
 // scanLinesBackward calls fn for the lines of a file before the offset end,

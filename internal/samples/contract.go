@@ -207,7 +207,8 @@ type Options struct {
 	// history sets it.
 	NoLifecycleEvents bool
 	// WriteEach writes the raw line of each sample when Record returns, so
-	// that a reader sees it at once. A run history sets it.
+	// that a reader sees it at once, and keeps the end of the newest sample
+	// for NewestEnd. A run history sets it.
 	WriteEach bool
 	// Uptime records the time in which a run was active, split over the
 	// buckets that it covers. A run history sets it.
@@ -218,7 +219,8 @@ type Options struct {
 }
 
 // NewestEnd returns the end (time plus duration) of the newest sample of the
-// store in dir. Once the raw tier no longer holds that sample, it returns the
+// store in dir. It is exact for a store written with Options.WriteEach. For
+// another store, once the raw tier no longer holds that sample, it returns the
 // end of the newest aggregate bucket. It reports false for a store with no
 // sample.
 func NewestEnd(dir string) (time.Time, bool, error) {

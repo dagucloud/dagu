@@ -15,6 +15,7 @@
 //	hour/YYYYMM.jsonl        one aggregate for each hour, one file for each month
 //	day/YYYY.jsonl           one aggregate for each day, one file for each year
 //	events.jsonl             the events; no expiry, unless Options.MaxEventBytes is set
+//	end                      the end of the newest sample, with Options.WriteEach
 //
 // All times are UTC. A file holds only whole buckets of the next tier, so a
 // tier can drop a whole file when the next tier holds the aggregates of it.
@@ -84,7 +85,9 @@
 //
 // WriteEach writes the raw line of a sample before Record returns. A Reader
 // sees the sample at once, because it builds the open minute from the raw tier.
-// The fsync points do not change.
+// The fsync points of the raw tier do not change. The file "end" keeps the end
+// of the newest sample, because a run that lasts longer than the raw retention
+// leaves the raw tier with the hour of its start.
 //
 // Sample.RunID goes into the failed and recovered events that the sample causes.
 // The raw line does not keep it.
@@ -93,7 +96,8 @@
 // sample starts more than GapAfter after the end of the previous sample. The
 // event time is that end. The event has the time with no sample and the run ID
 // of the new sample. OpenRecorder restores the end of the previous sample from
-// the newest raw line, or from the newest aggregate when the raw tier is empty.
+// the file "end" and the newest raw line, or from the newest aggregate when
+// neither holds it.
 //
 // MaxEventBytes above zero bounds the events file. When an append makes the file
 // larger, the recorder replaces it with a file that keeps the newest events, at
@@ -124,9 +128,9 @@
 // recorded. The gap is from the end of the newest interval to the start of the
 // sample. The stored buckets hold the result, so a reader needs no tolerance.
 //
-// NewestEnd gives the end of the newest sample of a store. It reads the raw
-// tier. When the raw tier holds no sample, it reads the finest aggregate tier
-// that has a bucket.
+// NewestEnd gives the end of the newest sample of a store. It reads the file
+// "end" and the raw tier. When neither holds the sample, it reads the finest
+// aggregate tier that has a bucket.
 //
 // # Reader
 //

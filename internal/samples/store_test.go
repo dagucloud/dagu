@@ -848,8 +848,16 @@ func TestNewestEnd(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, at.Add(2*time.Second), end)
 
-	// Without the raw tier, the end of the minute bucket of the sample.
+	// A run history keeps the end without the raw tier.
 	require.NoError(t, os.RemoveAll(filepath.Join(dir, "raw")))
+	end, ok, err = NewestEnd(dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, at.Add(2*time.Second), end)
+
+	// A store with no file "end" and no raw tier gives the end of the minute
+	// bucket of the sample.
+	require.NoError(t, os.Remove(filepath.Join(dir, endFileName)))
 	end, ok, err = NewestEnd(dir)
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -861,6 +869,42 @@ func TestNewestEnd(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, t0.Add(time.Hour), end)
+}
+
+// A run longer than the retention of the raw tier keeps its end over restarts:
+// the repair of a reopen removes its raw line, and the next run still finds the
+// end of it.
+func TestNewestEndLongRun(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	o := upOpts(clk)
+	r := openWith(t, dir, o)
+	recordRun(t, r, clk, t0, 72*time.Hour)
+	require.NoError(t, r.Close(ctx))
+	for range 2 {
+		clk.t = clk.t.Add(time.Minute)
+		r = openWith(t, dir, o)
+		require.NoError(t, r.Close(ctx))
+	}
+	end, ok, err := NewestEnd(dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, t0.Add(72*time.Hour), end)
+
+	// The next run starts 5 s after the end: no gap event, and the restart
+	// counts as active time.
+	r = openWith(t, dir, o)
+	start := t0.Add(72*time.Hour + 5*time.Second)
+	clk.t = start.Add(time.Hour)
+	require.NoError(t, r.Record(ctx, Sample{
+		Time: start, Duration: time.Hour, GapAfter: 65 * time.Second, ActiveGap: 15 * time.Second,
+	}))
+	require.NoError(t, r.Close(ctx))
+	require.NotContains(t, kinds(allEvents(t, dir)), EventGap)
+	ratio, ok := uptimeAt(t, dir, clk.t, 24*time.Hour).Ratio()
+	require.True(t, ok)
+	require.Equal(t, 1.0, ratio)
 }
 
 func BenchmarkRecord(b *testing.B) {
