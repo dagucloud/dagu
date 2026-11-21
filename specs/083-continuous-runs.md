@@ -10,6 +10,8 @@ Covered: which steps are continuous, the samples and events of a step run by
 the local runner, the tiers and their retention, the three API queries and
 their errors, the status writes and the compaction of the status file, and the
 bounded step log. `conformance/spec083_continuous_runs` checks this behavior.
+The UI tests in `ui/src/lib/__tests__/runDisplayStatus.test.ts` check the
+Healthy status of a run.
 
 Not covered yet: runs that a distributed worker executes, the status writes of
 a continuous sub-DAG step, a retry of a run (it starts a new store), and the
@@ -33,8 +35,6 @@ This spec does not define:
   [Spec 075: Repeat Policy](075-repeat-policy.md).
 - any change to a step that repeats with a `limit`
 - alerts and notifications on a failed sample
-- the run history of a service DAG. See
-  [Spec 099: Service Run History](099-service-run-history.md).
 
 ## Goal
 
@@ -152,10 +152,6 @@ availability.
 The windows are the last 24 hours, 7 days, 30 days and 365 days. The server
 computes them from the finest tier that covers each part of the window.
 
-A continuous step has one figure for each window. The response of a step has no
-`uptime`. [Spec 099](099-service-run-history.md) adds the uptime for the run
-history of a service DAG.
-
 ### Status Record
 
 - The status record of a run stays the single source of truth for the state of
@@ -262,9 +258,11 @@ The page of a run shows a continuous step with:
 The chart draws at most the `points` buckets of the response. It never draws
 one element for each sample.
 
-A run that has a continuous step keeps its normal status in every view, for
-example Running. A run reads Healthy only when its DAG is a service DAG
-(Spec 099). A cron DAG or a manual DAG with a continuous step reads Running.
+A run whose status is Running reads Healthy while a continuous step runs or
+waits for its next iteration and no node has failed or been rejected. This
+holds for every DAG, whatever its schedule. A failed node, a stopped
+continuous step or any other run status shows the normal status, so a
+failure stays visible.
 
 ## Constraints
 
@@ -317,5 +315,7 @@ fixtures in `conformance/spec083_continuous_runs/testdata` give both.
 - The three queries return the documented fields, and the response of
   `samples` has at most `points` buckets for a window of three years.
 - A request for a step that is not continuous gets `404`.
-- A running run with a continuous step reads Running for a cron DAG, and Healthy for a service DAG.
+- A running run with a running continuous step and no failed node reads
+  Healthy. A failed node, a stopped continuous step or a run that is not
+  Running shows the normal status.
 - The compact count rounds down, and the tooltip gives the whole count.
