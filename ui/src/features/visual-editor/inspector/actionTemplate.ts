@@ -101,6 +101,11 @@ const STARTER: Record<string, Record<string, unknown>> = {
     questions: { ok: { type: 'noul', instructions: 'Is it fine?' } },
   },
   exec: { command: 'echo', args: ['TODO'] },
+  'a2a.get_task': {
+    agent_url: 'https://agent.example.com',
+    task_id: 'TODO',
+  },
+  'a2a.send': { agent_url: 'https://agent.example.com', message: 'TODO' },
   'file.copy': { source: 'a.txt', destination: 'b.txt' },
   'file.delete': { path: 'file.txt' },
   'file.list': { path: '.' },

@@ -3154,6 +3154,30 @@
         },
         {
           "if": {
+            "properties": { "action": { "const": "a2a.send" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/a2aSendActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "action": { "const": "a2a.get_task" } },
+            "required": ["action"]
+          },
+          "then": {
+            "required": ["with"],
+            "properties": {
+              "with": { "$ref": "#/definitions/a2aGetTaskActionConfig" }
+            }
+          }
+        },
+        {
+          "if": {
             "properties": { "action": { "const": "mcp.call" } },
             "required": ["action"]
           },
@@ -7233,6 +7257,7 @@
         "s3",
         "jq",
         "mcp",
+        "a2a",
         "dag",
         "subworkflow",
         "parallel",
@@ -7271,6 +7296,8 @@
         {
           "type": "string",
           "enum": [
+            "a2a.get_task",
+            "a2a.send",
             "archive.create",
             "archive.extract",
             "archive.list",
@@ -7787,6 +7814,83 @@
         }
       },
       "description": "Labeled scalar choice for a human task form property."
+    },
+    "a2aSendActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent_url", "message"],
+      "properties": {
+        "agent_url": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(https://[^?#@/]*(/[^?#]*)?|[^?#]*\\$\\{[^?#]*)$",
+          "description": "HTTPS URL of the agent. Its Agent Card is read from /.well-known/agent-card.json below it. Must not contain credentials, a query string, or a fragment."
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Text of the user message to send."
+        },
+        "headers": {
+          "type": "object",
+          "propertyNames": {
+            "not": { "pattern": "^([cC][oO][nN][tT][eE][nN][tT]-[tT][yY][pP][eE]|[aA][cC][cC][eE][pP][tT]|[aA]2[aA]-[vV][eE][rR][sS][iI][oO][nN]|[hH][oO][sS][tT]|[cC][oO][nN][tT][eE][nN][tT]-[lL][eE][nN][gG][tT][hH]|[iI][dD][eE][mM][pP][oO][tT][eE][nN][cC][yY]-[kK][eE][yY]|[xX]-[iI][dD][eE][mM][pP][oO][tT][eE][nN][cC][yY]-[kK][eE][yY])$" }
+          },
+          "additionalProperties": { "type": "string" },
+          "description": "HTTP headers for Agent Card and JSON-RPC requests to the agent_url origin only, for example Authorization: Bearer ${SECRET}. Content-Type, Accept, A2A-Version, Host, Content-Length, Idempotency-Key, and X-Idempotency-Key are reserved and rejected."
+        },
+        "tenant": {
+          "type": "string",
+          "description": "Tenant to route to. Defaults to the tenant of the selected Agent Card interface."
+        },
+        "context_id": {
+          "type": "string",
+          "description": "Context to continue."
+        },
+        "return_immediately": {
+          "type": "boolean",
+          "description": "Request nonblocking execution. Defaults to true."
+        }
+      },
+      "description": "Configuration for action: a2a.send."
+    },
+    "a2aGetTaskActionConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent_url", "task_id"],
+      "properties": {
+        "agent_url": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(https://[^?#@/]*(/[^?#]*)?|[^?#]*\\$\\{[^?#]*)$",
+          "description": "HTTPS URL of the agent. Its Agent Card is read from /.well-known/agent-card.json below it. Must not contain credentials, a query string, or a fragment."
+        },
+        "task_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "ID of the task to read, for example ${SEND.task_id}."
+        },
+        "headers": {
+          "type": "object",
+          "propertyNames": {
+            "not": { "pattern": "^([cC][oO][nN][tT][eE][nN][tT]-[tT][yY][pP][eE]|[aA][cC][cC][eE][pP][tT]|[aA]2[aA]-[vV][eE][rR][sS][iI][oO][nN]|[hH][oO][sS][tT]|[cC][oO][nN][tT][eE][nN][tT]-[lL][eE][nN][gG][tT][hH]|[iI][dD][eE][mM][pP][oO][tT][eE][nN][cC][yY]-[kK][eE][yY]|[xX]-[iI][dD][eE][mM][pP][oO][tT][eE][nN][cC][yY]-[kK][eE][yY])$" }
+          },
+          "additionalProperties": { "type": "string" },
+          "description": "HTTP headers for Agent Card and JSON-RPC requests to the agent_url origin only, for example Authorization: Bearer ${SECRET}. Content-Type, Accept, A2A-Version, Host, Content-Length, Idempotency-Key, and X-Idempotency-Key are reserved and rejected."
+        },
+        "tenant": {
+          "type": "string",
+          "description": "Tenant to route to. Defaults to the tenant of the selected Agent Card interface."
+        },
+        "history_length": {
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            { "type": "string" }
+          ],
+          "description": "Number of most recent history messages to return, or a whole-value reference resolving to an integer."
+        }
+      },
+      "description": "Configuration for action: a2a.get_task."
     },
     "mcpCallActionConfig": {
       "type": "object",

@@ -1,0 +1,49 @@
+# Resumes a remote A2A task in a new run, for example after Dagu restarted
+# between a2a.send and the polling step. Pass the values that a2a.send
+# reported: task_id and, if the agent is multi-tenant, tenant. agent_url is
+# fixed in the DAG, as in a2a-delegate.yaml, so a run cannot send the
+# credential elsewhere. This DAG sends nothing, so it cannot duplicate remote
+# work. Credentials are resolved from Dagu secrets again; they are not stored
+# with the task.
+#
+#   dagu start a2a-recover.yaml -- TASK_ID=task-123
+
+env:
+  - A2A_URL: https://agents.example.invalid/diagnostics
+
+params:
+  - TASK_ID: task-123
+  - TENANT: ""
+
+secrets:
+  - name: A2A_TOKEN
+    provider: env
+    key: A2A_TOKEN
+
+steps:
+  - id: wait_for_task
+    action: a2a.get_task
+    with:
+      agent_url: ${A2A_URL}
+      task_id: ${TASK_ID}
+      tenant: ${TENANT}
+      history_length: 0
+      headers:
+        Authorization: Bearer ${A2A_TOKEN}
+    timeout_sec: 30
+    output: TASK
+    repeat_policy:
+      repeat: until
+      condition: ${TASK.state}
+      expected: "re:^(completed|failed|canceled|rejected|input-required|auth-required)$"
+      interval_sec: 10
+      limit: 360
+      on_limit: fail
+    continue_on:
+      failed: true
+
+  - id: verify
+    depends: wait_for_task
+    env:
+      - STATE: ${TASK.state}
+    run: test "$STATE" = completed

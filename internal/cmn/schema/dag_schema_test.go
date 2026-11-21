@@ -472,6 +472,123 @@ steps:
 			wantErr: "did not validate",
 		},
 		{
+			name: "ActionA2ASendReferences",
+			spec: `
+steps:
+  - action: a2a.send
+    with:
+      agent_url: ${A2A_URL}
+      message: "Diagnose ${params.PROMPT}"
+      headers:
+        Authorization: Bearer ${A2A_TOKEN}
+      return_immediately: true
+`,
+		},
+		{
+			name: "ActionA2AGetTask",
+			spec: `
+steps:
+  - action: a2a.get_task
+    with:
+      agent_url: https://agents.example.com/diag
+      task_id: ${SEND.task_id}
+      history_length: 5
+`,
+		},
+		{
+			name: "RejectActionA2ASendUnknownField",
+			spec: `
+steps:
+  - action: a2a.send
+    with:
+      agent_url: https://agents.example.com/diag
+      message: hi
+      task_id: t1
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionA2AGetTaskUnknownField",
+			spec: `
+steps:
+  - action: a2a.get_task
+    with:
+      agent_url: https://agents.example.com/diag
+      task_id: t1
+      message: hi
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionA2AQueryInURL",
+			spec: `
+steps:
+  - action: a2a.get_task
+    with:
+      agent_url: https://agents.example.com/diag?api_key=abc
+      task_id: t1
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionA2AHTTPURL",
+			spec: `
+steps:
+  - action: a2a.get_task
+    with:
+      agent_url: http://agents.example.com/diag
+      task_id: t1
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionA2AUserinfoURL",
+			spec: `
+steps:
+  - action: a2a.send
+    with:
+      agent_url: https://user:pw@agents.example.com/diag
+      message: hi
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionA2AIdempotencyHeader",
+			spec: `
+steps:
+  - action: a2a.send
+    with:
+      agent_url: https://agents.example.com/diag
+      message: hi
+      headers:
+        X-Idempotency-Key: k1
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionA2AReservedHeader",
+			spec: `
+steps:
+  - action: a2a.send
+    with:
+      agent_url: https://agents.example.com/diag
+      message: hi
+      headers:
+        content-type: text/plain
+`,
+			wantErr: "did not validate",
+		},
+		{
+			name: "RejectActionA2AGetTaskMissingTask",
+			spec: `
+steps:
+  - action: a2a.get_task
+    with:
+      agent_url: https://agents.example.com/diag
+`,
+			wantErr: "did not validate",
+		},
+		{
 			name: "ActionDagRunParallel",
 			spec: `
 steps:

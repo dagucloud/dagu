@@ -1721,3 +1721,51 @@ func TestStepSchemaV2_ActionMCPCallRejectsBadConfig(t *testing.T) {
 		assert.Error(t, err, name)
 	}
 }
+
+func TestStepSchemaV2_ActionA2A(t *testing.T) {
+	t.Parallel()
+
+	dag, err := LoadYAML(context.Background(), []byte(`
+params:
+  - PROMPT: hi
+steps:
+  - id: send
+    action: a2a.send
+    with:
+      agent_url: ${A2A_URL}
+      message: "Diagnose ${params.PROMPT}"
+      headers:
+        Authorization: Bearer ${A2A_TOKEN}
+    output: SEND
+  - id: poll
+    depends: send
+    action: a2a.get_task
+    with:
+      agent_url: https://agents.example.com/diag
+      task_id: ${SEND.task_id}
+`))
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 2)
+	assert.Equal(t, "a2a", dag.Steps[0].ExecutorConfig.Type)
+	assert.Equal(t, "send", dag.Steps[0].Commands[0].Command)
+	assert.Equal(t, "get_task", dag.Steps[1].Commands[0].Command)
+	assert.Equal(t, "${SEND.task_id}", dag.Steps[1].ExecutorConfig.Config["task_id"])
+}
+
+func TestStepSchemaV2_ActionA2ARejectsBadConfig(t *testing.T) {
+	t.Parallel()
+
+	for name, step := range map[string]string{
+		"missing message": "action: a2a.send\n    with:\n      agent_url: https://x.example/a",
+		"http url":        "action: a2a.send\n    with:\n      agent_url: http://x.example/a\n      message: m",
+		"userinfo":        "action: a2a.send\n    with:\n      agent_url: https://u:p@x.example/a\n      message: m",
+		"unknown key":     "action: a2a.get_task\n    with:\n      agent_url: https://x.example/a\n      task_id: t\n      message: m",
+		"missing task":    "action: a2a.get_task\n    with:\n      agent_url: https://x.example/a",
+		"query":           "action: a2a.get_task\n    with:\n      agent_url: https://x.example/a?k=v\n      task_id: t",
+		"idempotency":     "action: a2a.send\n    with:\n      agent_url: https://x.example/a\n      message: m\n      headers:\n        Idempotency-Key: k",
+		"reserved header": "action: a2a.send\n    with:\n      agent_url: https://x.example/a\n      message: m\n      headers:\n        Accept: x",
+	} {
+		_, err := LoadYAML(context.Background(), []byte("steps:\n  - "+step+"\n"))
+		assert.Error(t, err, name)
+	}
+}

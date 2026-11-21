@@ -1,0 +1,43 @@
+working_dir: .
+env:
+  - A2A_URL: ${A2A_URL}
+secrets:
+  - name: A2A_TOKEN
+    provider: env
+    key: A2A_TOKEN
+params:
+  - PROMPT: Diagnose it
+steps:
+  - id: send
+    action: a2a.send
+    with:
+      agent_url: ${A2A_URL}
+      message: "${params.PROMPT}"
+      headers:
+        Authorization: Bearer ${A2A_TOKEN}
+        X-Region: us
+    stdout: send.out
+    output: SEND
+  - id: poll
+    depends: send
+    action: a2a.get_task
+    with:
+      agent_url: ${A2A_URL}
+      task_id: ${SEND.task_id}
+      headers:
+        Authorization: Bearer ${A2A_TOKEN}
+    stdout: poll.out
+    output: TASK
+    repeat_policy:
+      repeat: until
+      condition: ${TASK.state}
+      expected: completed
+      interval_sec: 1
+      limit: 10
+  - id: use
+    depends: poll
+    env:
+      - TEXT: ${TASK.artifacts[0].parts[0].text}
+    run: |
+      printf '%s|%s\n' "${SEND.kind}" "$TEXT"
+    stdout: use.out

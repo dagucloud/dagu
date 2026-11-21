@@ -1,0 +1,7 @@
+steps:
+  - action: a2a.send
+    with:
+      agent_url: https://agents.example.invalid/a
+      message: hi
+      headers:
+        Content-Type: text/plain
