@@ -971,6 +971,22 @@ func TestRestartScannerHistory(t *testing.T) {
 		assert.Equal(t, 1, h.logged("Run history is not recorded"), "one log in 30 s")
 	})
 
+	// A failed read of the recent runs leaves the status unobserved, so the
+	// next scan records the run.
+	t.Run("RecentReadErrorObservesLater", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		h.endRun(ir.Failed, time.Minute)
+		h.recentErr = errors.New("disk failure")
+		h.scan()
+		assert.Empty(t, store.samples, "nothing is recorded from a failed read")
+		h.recentErr = nil
+		h.recent = []ir.DAGRunStatus{h.latest}
+		h.scan()
+		assert.Len(t, store.samples, 1, "the next scan records the run")
+	})
+
 	// An unchanged latest status costs no more than the scan did before.
 	t.Run("NoExtraReads", func(t *testing.T) {
 		t.Parallel()
