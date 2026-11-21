@@ -604,6 +604,17 @@ func pwdCommand() string {
 	return test.ForOS("pwd", "(Get-Location).Path")
 }
 
+// pwdToFileCommand writes the working directory to name without depending on
+// the shell's default redirection encoding: Windows PowerShell 5.1 writes ">"
+// output as UTF-16LE with a BOM, which a reader expecting UTF-8 turns into
+// interleaved NUL bytes.
+func pwdToFileCommand(name string) string {
+	return test.ForOS(
+		fmt.Sprintf("pwd > %s", test.PosixQuote(name)),
+		fmt.Sprintf("$pwdUtf8 = [System.Text.UTF8Encoding]::new($false); [System.IO.File]::WriteAllText(%s, (Get-Location).Path, $pwdUtf8)", test.PowerShellQuote(name)),
+	)
+}
+
 type statusContextObserver struct {
 	mu                          sync.Mutex
 	runningStatusWritesObserved chan struct{}
@@ -1425,8 +1436,8 @@ params:
     default: %q
 steps:
   - name: check-pwd
-    run: %s > pwd.txt
-`, target, pwdCommand())
+    run: %s
+`, target, pwdToFileCommand("pwd.txt"))
 		dag := th.DAG(t, yamlContent)
 		dagAgent := dag.Agent()
 		dagAgent.RunSuccess(t)
