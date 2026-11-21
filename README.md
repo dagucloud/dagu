@@ -630,6 +630,7 @@ Dagu includes built-in actions that run within the Dagu process or on the select
 | `sftp.upload` / `sftp.download` | File transfer over SFTP |
 | `http.request` | HTTP requests with headers, auth, and request bodies |
 | `mcp.call` | Call a tool on a remote MCP server over Streamable HTTP |
+| `a2a.send` / `a2a.get_task` | Delegate a task to a remote A2A agent and read its state and artifacts |
 | `chat.completion` | Run an LLM chat completion step |
 | `harness.run` | Run external coding-agent CLIs such as Claude Code, Codex, Gemini CLI, Cursor, and DeepSeek Harness, or [managed OpenCode sessions](./skills/dagu/references/harnesses.md#managed-opencode-sessions) |
 | `browser.extract` / `browser.run` | Automate websites in a local Chrome with natural-language actions, structured extraction, and human input |

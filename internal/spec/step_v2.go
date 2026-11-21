@@ -45,6 +45,8 @@ const (
 )
 
 var builtinActionNormalizers = map[string]actionNormalizer{
+	"a2a.get_task":        operationAction("a2a", "get_task"),
+	"a2a.send":            operationAction("a2a", "send"),
 	"artifact.list":       operationAction("artifact", "list"),
 	"artifact.read":       operationAction("artifact", "read"),
 	"artifact.write":      operationAction("artifact", "write"),

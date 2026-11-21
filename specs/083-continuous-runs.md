@@ -10,6 +10,8 @@ Covered: which steps are continuous, the samples and events of a step run by
 the local runner, the tiers and their retention, the three API queries and
 their errors, the status writes and the compaction of the status file, and the
 bounded step log. `conformance/spec083_continuous_runs` checks this behavior.
+The UI tests in `ui/src/lib/__tests__/runDisplayStatus.test.ts` check the
+Healthy status of a run.
 
 Not covered yet: runs that a distributed worker executes, the status writes of
 a continuous sub-DAG step, a retry of a run (it starts a new store), and the

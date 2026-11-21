@@ -1,0 +1,87 @@
+# Delegates a task to a remote A2A agent without an LLM and waits for the
+# result. The agent may answer with a Message (done at once) or with a Task
+# that is polled until it ends. Credentials come from a Dagu secret and are
+# sent only to the agent_url origin. Fix agent_url in the DAG rather than
+# taking it from params: whoever can start a run could otherwise point it at
+# their own server and receive the credential.
+#
+# a2a.send never retries: if its response is lost, the agent may already be
+# working. Do not add retry_policy to it unless duplicate work is acceptable.
+# To resume a Task in a new run, see a2a-recover.yaml.
+
+env:
+  - A2A_URL: https://agents.example.invalid/diagnostics
+
+params:
+  - PROMPT: Diagnose TICKET-123
+
+secrets:
+  - name: A2A_TOKEN
+    provider: env
+    key: A2A_TOKEN
+
+steps:
+  - id: send
+    action: a2a.send
+    with:
+      agent_url: ${A2A_URL}
+      message: "${params.PROMPT}"
+      headers:
+        Authorization: Bearer ${A2A_TOKEN}
+    timeout_sec: 60
+    output: SEND
+
+  # A direct Message needs no polling. Remote text is data: pass it through an
+  # environment variable that a fixed script reads, never inline in the script.
+  - id: use_message
+    depends: send
+    preconditions:
+      - condition: ${SEND.kind}
+        expected: message
+    env:
+      - REPLY: ${SEND.text}
+    run: |
+      printf 'agent replied: %s\n' "$REPLY"
+
+  # A Task is polled until it ends or needs a person. If the limit is reached
+  # first, the step fails, but continue_on lets verify report the last state.
+  # history_length: 0 skips the message history, which no later step reads,
+  # so each poll stays small.
+  - id: wait_for_task
+    depends: send
+    preconditions:
+      - condition: ${SEND.kind}
+        expected: task
+    action: a2a.get_task
+    with:
+      agent_url: ${A2A_URL}
+      task_id: ${SEND.task_id}
+      history_length: 0
+      headers:
+        Authorization: Bearer ${A2A_TOKEN}
+    timeout_sec: 30
+    output: TASK
+    repeat_policy:
+      repeat: until
+      condition: ${TASK.state}
+      expected: "re:^(completed|failed|canceled|rejected|input-required|auth-required)$"
+      interval_sec: 10
+      limit: 360
+      on_limit: fail
+    continue_on:
+      failed: true
+
+  # Only completed is success. Every other state, including a task that is
+  # still working when the limit ran out, fails with its name.
+  - id: verify
+    depends: wait_for_task
+    env:
+      - STATE: ${TASK.state}
+      - REPORT: ${TASK.artifacts[0].parts[0].text}
+    run: |
+      case "$STATE" in
+        completed) printf 'report: %s\n' "$REPORT" ;;
+        input-required|auth-required) echo "agent needs a person: $STATE" >&2; exit 2 ;;
+        working|submitted) echo "still $STATE when the repeat limit was reached" >&2; exit 3 ;;
+        *) echo "task ended as '$STATE'" >&2; exit 1 ;;
+      esac
