@@ -101,7 +101,8 @@
 //
 // MaxEventBytes above zero bounds the events file. When an append makes the file
 // larger, the recorder replaces it with a file that keeps the newest events, at
-// most half of the bound. The write goes to a temporary file, then a rename.
+// most half of the bound. The bound is 4 KiB at least, so that the half holds
+// the longest event. The write goes to a temporary file, then a rename.
 // The first line of the new file is a header, for example {"b":12345}. It gives
 // the count of bytes that the file dropped before its first event.
 //

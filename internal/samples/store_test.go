@@ -769,7 +769,7 @@ func TestEventsBound(t *testing.T) {
 func TestCursorOverCompaction(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	o := Options{Now: clk.now, NoLifecycleEvents: true, MaxEventBytes: 3000}
+	o := Options{Now: clk.now, NoLifecycleEvents: true, MaxEventBytes: minEventBytes}
 	ctx := context.Background()
 	rd := OpenReader(dir)
 	r := openWith(t, dir, o)
@@ -780,7 +780,9 @@ func TestCursorOverCompaction(t *testing.T) {
 	var cursors []issued
 	for i := range 400 {
 		feed(t, r, clk, t0.Add(time.Duration(i)*time.Second), 1, time.Second, func(int) (time.Duration, int, string) { return time.Second, i % 2, "x" })
-		if p, err := rd.Events(ctx, EventQuery{Limit: 3}); err == nil && p.NextCursor != "" {
+		p, err := rd.Events(ctx, EventQuery{Limit: 3})
+		require.NoError(t, err)
+		if p.NextCursor != "" {
 			cursors = append(cursors, issued{p.NextCursor, p.Events[len(p.Events)-1].Time})
 		}
 		for _, c := range cursors {
@@ -797,14 +799,14 @@ func TestCursorOverCompaction(t *testing.T) {
 	}
 	st, err := os.Stat(filepath.Join(dir, eventsFileName))
 	require.NoError(t, err)
-	require.Less(t, st.Size(), int64(3000))
+	require.Less(t, st.Size(), int64(minEventBytes))
 }
 
 // An outage that opens after a compaction goes on over a restart.
 func TestOutageAfterCompaction(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	o := Options{Now: clk.now, NoLifecycleEvents: true, WriteEach: true, MaxEventBytes: 3000}
+	o := Options{Now: clk.now, NoLifecycleEvents: true, WriteEach: true, MaxEventBytes: minEventBytes}
 	ctx := context.Background()
 	fail := func(int) (time.Duration, int, string) { return time.Second, 1, "x" }
 	r := openWith(t, dir, o)
@@ -828,10 +830,22 @@ func TestOutageAfterCompaction(t *testing.T) {
 	require.EqualValues(t, 4, e.FailedCount)
 }
 
+// A bound too small to keep an event is rejected; zero sets no bound.
+func TestEventsBoundMinimum(t *testing.T) {
+	ctx := context.Background()
+	_, err := OpenRecorder(ctx, t.TempDir(), Options{MaxEventBytes: minEventBytes - 1})
+	require.Error(t, err)
+	for _, bound := range []int64{0, minEventBytes} {
+		r, err := OpenRecorder(ctx, t.TempDir(), Options{MaxEventBytes: bound})
+		require.NoError(t, err)
+		require.NoError(t, r.Close(ctx))
+	}
+}
+
 // A compaction that fails does not lose the sample whose event was appended,
 // and the next sample compacts the file.
 func TestRecordAfterFailedCompaction(t *testing.T) {
-	const bound = 4 << 10
+	const bound = minEventBytes
 	ctx := context.Background()
 	dir := t.TempDir()
 	var fill []byte

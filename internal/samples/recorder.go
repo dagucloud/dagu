@@ -49,6 +49,9 @@ func openRecorder(ctx context.Context, dir string, opts Options) (*recorder, err
 	if now == nil {
 		now = time.Now
 	}
+	if opts.MaxEventBytes > 0 && opts.MaxEventBytes < minEventBytes {
+		return nil, errf("MaxEventBytes %d is under the minimum of %d", opts.MaxEventBytes, minEventBytes)
+	}
 	r := &recorder{st: newStore(dir), now: now, opts: opts}
 	// The repair can remove the raw file of the newest sample, so the end of the
 	// sample is read before it.

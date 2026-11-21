@@ -214,7 +214,8 @@ type Options struct {
 	// buckets that it covers. A run history sets it.
 	Uptime bool
 	// MaxEventBytes bounds the size of the events file. Above it, the recorder
-	// drops the oldest events. Zero sets no bound.
+	// drops the oldest events. Zero sets no bound. OpenRecorder rejects a bound
+	// under 4 KiB.
 	MaxEventBytes int64
 }
 
