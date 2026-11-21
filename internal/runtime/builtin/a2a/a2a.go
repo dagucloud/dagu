@@ -103,7 +103,7 @@ func (c *caller) Run(ctx context.Context) error {
 	}
 
 	b := c.cfg.base()
-	redact := newRedactor(b.Headers, b.AgentURL)
+	redact := newRedactor(b.Headers)
 	out, cerr := c.call(ctx, redact)
 	if cerr == nil {
 		body, err := redact.marshal(out)

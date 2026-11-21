@@ -8,23 +8,16 @@ import (
 	"cmp"
 	"encoding/json"
 	"io"
-	"net/url"
 	"slices"
 	"strings"
 )
 
-// minPlainHeaderLen is the shortest value of a header without a credential
-// name that is still masked. Shorter values such as "1" or "us" would rewrite
-// ordinary data, so they are left alone; name a header after a credential
-// word to mask it at any length.
-const minPlainHeaderLen = 4
-
-// redactor masks the value of every header with at least minPlainHeaderLen
-// characters and of every credential-named header or query parameter at any
-// length, the credential part of scheme-prefixed header values such as
-// "Bearer <token>", and the JSON-escaped form of each. Longest secrets go
-// first so a short one cannot split a longer one. Masking is by value:
-// object keys are never masked.
+// redactor masks the values of credential-named headers at any length, the
+// credential part of scheme-prefixed values such as "Bearer <token>", and the
+// JSON-escaped form of each. Other header values are left alone so ordinary
+// data never rewrites agent output. Longest secrets go first so a short one
+// cannot split a longer one. Masking is by value: object keys are never
+// masked.
 type redactor []string
 
 var credentialNameWords = []string{"auth", "cookie", "key", "token", "secret", "password"}
@@ -36,33 +29,17 @@ func isCredentialName(name string) bool {
 	})
 }
 
-func newRedactor(headers map[string]string, rawURL string) redactor {
+func newRedactor(headers map[string]string) redactor {
 	var secrets []string
 	for k, v := range headers {
-		named := isCredentialName(k)
-		if v == "" || (!named && len(v) < minPlainHeaderLen) {
+		if v == "" || !isCredentialName(k) {
 			continue
 		}
 		secrets = append(secrets, v)
 		if _, rest, ok := strings.Cut(v, " "); ok {
 			// The scheme separator may be several spaces; the token is what follows.
-			if rest = strings.TrimSpace(rest); rest != "" && (named || len(rest) >= minPlainHeaderLen) {
+			if rest = strings.TrimSpace(rest); rest != "" {
 				secrets = append(secrets, rest)
-			}
-		}
-	}
-	if u, err := url.Parse(rawURL); err == nil {
-		for pair := range strings.SplitSeq(u.RawQuery, "&") {
-			name, raw, _ := strings.Cut(pair, "=")
-			if decoded, err := url.QueryUnescape(name); err == nil {
-				name = decoded
-			}
-			if raw == "" || !isCredentialName(name) {
-				continue
-			}
-			secrets = append(secrets, raw)
-			if decoded, err := url.QueryUnescape(raw); err == nil && decoded != raw {
-				secrets = append(secrets, decoded)
 			}
 		}
 	}

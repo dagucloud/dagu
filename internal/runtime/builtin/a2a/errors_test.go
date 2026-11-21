@@ -252,14 +252,14 @@ func TestCredentialMasking(t *testing.T) {
 	out, err := run(context.Background(), t, f, opGetTask, obj{"task_id": "t", "headers": headers})
 
 	require.NoError(t, err)
-	for _, secret := range []string{token, "xy", `"pw"d`, "cust-v4lue"} {
+	for _, secret := range []string{token, "xy", `"pw"d`} {
 		assert.NotContains(t, out, secret)
 	}
 	got := decodeOut(t, out)
 	md := got["metadata"].(obj)
 	assert.Equal(t, float64(42), md["count"])
-	assert.Equal(t, "us", md["region"], "values shorter than the minimum of a plain header are not masked")
-	assert.Equal(t, "***", md["custom"], "any header value is masked, whatever its name")
+	assert.Equal(t, "us", md["region"], "headers without a credential name are not masked")
+	assert.Equal(t, "cust-v4lue", md["custom"], "headers without a credential name are not masked, whatever their length")
 	assert.Equal(t, "*** and *** and tok", got["artifacts"].([]any)[0].(obj)["parts"].([]any)[0].(obj)["text"].(string)[4:])
 }
 
