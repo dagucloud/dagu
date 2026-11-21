@@ -151,6 +151,9 @@ func (u *upState) add(a, b, tolerance, now int64) error {
 		if ret := retentionSec(t) * 1000; ret > 0 {
 			lo = max(lo, now-ret)
 		}
+		if lo >= b {
+			continue // the whole interval is older than the retention of the tier
+		}
 		for s := floorTo(lo, w); s < b; s += w {
 			if err := u.put(t, s/1000, min(b, s+w)-max(lo, s)); err != nil {
 				return err

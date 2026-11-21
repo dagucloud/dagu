@@ -294,6 +294,26 @@ func TestUptimeRetention(t *testing.T) {
 	require.InDelta(t, 1.0, ratio, 0.001)
 }
 
+// A run that ended before the retention of the minute tier takes no up time
+// from that tier; the hour and the day tiers count it.
+func TestUptimeOldRun(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, upOpts(clk))
+	recordRun(t, r, clk, t0, 30*time.Second)
+	require.NoError(t, r.Close(ctx))
+
+	// A week later, the scheduler records a run that ended back then.
+	clk.t = t0.Add(7*24*time.Hour + 45*time.Second)
+	r = openWith(t, dir, upOpts(clk))
+	require.NoError(t, r.Record(ctx, Sample{Time: t0.Add(35 * time.Second), Duration: 5 * time.Second}))
+	require.NoError(t, r.Close(ctx))
+	require.Equal(t, 30*time.Second, upBucketOf(t, dir, TierMinute, t0))
+	require.Equal(t, 35*time.Second, upBucketOf(t, dir, TierHour, t0))
+	require.Equal(t, 35*time.Second, upBucketOf(t, dir, TierDay, t0))
+}
+
 // A history that has no up time gives no uptime, not 0 %. A run history that
 // gets the feature later counts from its first interval.
 func TestUptimeUnknown(t *testing.T) {
