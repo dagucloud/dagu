@@ -203,6 +203,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('ContinuousPanel', () => {
@@ -269,6 +270,18 @@ describe('ContinuousPanel', () => {
     const call = h.samples[0]!;
     expect(call.points).toBe(Math.floor((640 - 24 - 44) / 4));
     expect(call.window).toEqual({ preset: '24h', startedAt: STARTED_MS });
+  });
+
+  // The measure is the content box, already without the padding of the panel.
+  it('fills the measured width of the panel', () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(900);
+    h.responses = {
+      [AVAIL]: availability,
+      [SAMPLES]: samples(5),
+      [EVENTS]: events,
+    };
+    renderPanel();
+    expect(lastSamples().points).toBe(Math.floor((900 - 44) / 4));
   });
 
   it('shows a bar tooltip with the bucket numbers on hover', () => {

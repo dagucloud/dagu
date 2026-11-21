@@ -3,9 +3,19 @@
 
 import { useLayoutEffect, useState, type RefObject } from 'react';
 
+/** The width of the content box: the same value as a ResizeObserver reports. */
+function contentWidth(element: HTMLElement): number {
+  const style = getComputedStyle(element);
+  return (
+    element.clientWidth -
+    (parseFloat(style.paddingLeft) || 0) -
+    (parseFloat(style.paddingRight) || 0)
+  );
+}
+
 /**
- * The width of the element, current while it resizes. null before the first
- * measure and where the element has no layout (jsdom).
+ * The width of the content box of the element, current while it resizes.
+ * null before the first measure and where the element has no layout (jsdom).
  */
 export function useElementWidth(
   ref: RefObject<HTMLElement | null>
@@ -17,14 +27,13 @@ export function useElementWidth(
       setWidth(null);
       return;
     }
-    // The border box, on the first measure and on each resize alike.
-    const read = () => {
-      const next = element.getBoundingClientRect().width;
-      setWidth(next > 0 ? next : null);
-    };
-    read();
+    const read = (next: number) => setWidth(next > 0 ? next : null);
+    read(contentWidth(element));
     if (typeof ResizeObserver !== 'function') return;
-    const observer = new ResizeObserver(read);
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[entries.length - 1];
+      read(entry ? entry.contentRect.width : contentWidth(element));
+    });
     observer.observe(element);
     return () => observer.disconnect();
   }, [ref]);
