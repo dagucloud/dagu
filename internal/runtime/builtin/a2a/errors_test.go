@@ -357,6 +357,63 @@ func TestSecretInCardDiagnostic(t *testing.T) {
 	assert.Contains(t, err.Error(), "no JSONRPC interface")
 }
 
+// Agent text copied into an error, such as a whole malformed result, is cut
+// so the stored step status stays small, while the note that a send's
+// outcome is unknown is kept.
+func TestAgentTextInErrorBounded(t *testing.T) {
+	t.Parallel()
+	long := strings.Repeat("x", 1<<20)
+	for name, tc := range map[string]struct {
+		setup func(*fixture)
+		op    string
+		with  obj
+		kind  string
+		note  string
+	}{
+		"malformed send result": {
+			// Shaped like an A2A 0.3 result; the SDK copies such a result into its error.
+			setup: func(f *fixture) {
+				f.send = func(obj) any {
+					return obj{"kind": "task", "id": "t-1", "artifacts": []obj{{"parts": []obj{textPart(long)}}}}
+				}
+			},
+			op: opSend, with: sendWith(nil), kind: kindProtocol, note: "Outcome unknown",
+		},
+		"remote error": {
+			setup: func(f *fixture) {
+				f.rpc = func(w http.ResponseWriter, _ *http.Request, _ string, _ obj) bool {
+					replyErr(w, "1", -32000, long)
+					return true
+				}
+			},
+			op: opGetTask, with: obj{"task_id": "t", "headers": authHeaders()}, kind: kindRemote,
+		},
+		"card diagnostic": {
+			setup: func(f *fixture) {
+				f.card = func(string) any {
+					return obj{"supportedInterfaces": []obj{{"url": "https://x.example/r", "protocolBinding": long, "protocolVersion": "1.0"}}}
+				}
+			},
+			op: opSend, with: sendWith(nil), kind: kindDiscovery,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := newFixture(t)
+			tc.setup(f)
+
+			out, err := run(context.Background(), t, f, tc.op, tc.with)
+
+			require.Error(t, err)
+			assert.Less(t, len(err.Error()), 4<<10)
+			assert.Less(t, len(out), 4<<10)
+			body := errBody(t, out)
+			assert.Equal(t, tc.kind, body["kind"])
+			assert.Contains(t, body["message"], tc.note)
+		})
+	}
+}
+
 // A token separated from its scheme by several spaces is masked when echoed alone.
 func TestBearerWithExtraSpaces(t *testing.T) {
 	t.Parallel()

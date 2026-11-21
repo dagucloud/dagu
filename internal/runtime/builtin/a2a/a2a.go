@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
 	"github.com/a2aproject/a2a-go/v2/a2aclient/agentcard"
@@ -267,10 +268,11 @@ func classify(ctx context.Context, err error, obs *observer, redact redactor, se
 	}
 	var cerr *callError
 	if errors.As(err, &cerr) {
+		cerr.message = clip(redact.apply(cerr.message))
 		return cerr
 	}
 	status, netErr := obs.snapshot()
-	msg := redact.apply(err.Error())
+	msg := clip(redact.apply(err.Error()))
 	var statusErr *statusError
 	var remote *a2a.Error
 	var notOK *agentcard.ErrStatusNotOK
@@ -310,6 +312,23 @@ func classify(ctx context.Context, err error, obs *observer, redact redactor, se
 		cerr.message += "." + unknownOutcome
 	}
 	return cerr
+}
+
+// maxDetailBytes bounds the agent text an error carries. The SDK can copy a
+// whole response into its error, and the error is stored in the run status.
+const maxDetailBytes = 1 << 10
+
+// clip cuts s to maxDetailBytes on a rune boundary. Secrets are masked
+// before the cut, so the cut never leaves part of one visible.
+func clip(s string) string {
+	if len(s) <= maxDetailBytes {
+		return s
+	}
+	cut := maxDetailBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "... (truncated)"
 }
 
 func init() {
