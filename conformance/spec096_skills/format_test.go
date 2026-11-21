@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -74,6 +75,9 @@ func TestValidateAndStartRefuseEachBadSkill(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			if runtime.GOOS == "windows" && strings.Contains(tc.name, "backslash") {
+				t.Skip("a Windows file name cannot hold a backslash: the fixture would write a folder")
+			}
 			p := newProject(t)
 			p.skill("bad", tc.files)
 			dag := p.chatDAG("use_bad.yaml", "bad")

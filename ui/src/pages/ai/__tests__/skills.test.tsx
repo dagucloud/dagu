@@ -839,7 +839,7 @@ describe('new skill', () => {
       screen.getAllByRole('link', { name: 'New skill' })[0]!
     );
 
-    expect(where()).toBe('/ai/skills/new');
+    expect(where()).toBe('/ai/skills/.new');
     const dialog = await screen.findByRole('dialog');
     const create = within(dialog).getByRole('button', { name: 'Create' });
     const name = within(dialog).getByRole('textbox', { name: 'Skill name' });
@@ -864,8 +864,9 @@ describe('new skill', () => {
     expect(create).toBeDisabled();
 
     await userEvent.clear(name);
+    // The dialog lives at .new, so new is a free name.
     await userEvent.type(name, 'new');
-    expect(within(dialog).getByText(/is reserved/)).toBeVisible();
+    expect(create).toBeEnabled();
 
     await userEvent.clear(name);
     await userEvent.type(name, 'sales{Enter}');
@@ -885,7 +886,7 @@ describe('new skill', () => {
 
   it('shows the message of a refused create and keeps the dialog', async () => {
     mocks.client.PUT.mockResolvedValue(failure(500, { message: 'disk full' }));
-    renderAt('/ai/skills/new');
+    renderAt('/ai/skills/.new');
 
     await userEvent.type(
       await screen.findByRole('textbox', { name: 'Skill name' }),
@@ -893,11 +894,11 @@ describe('new skill', () => {
     );
 
     expect(await screen.findByText('disk full')).toBeVisible();
-    expect(where()).toBe('/ai/skills/new');
+    expect(where()).toBe('/ai/skills/.new');
   });
 
   it('closes the dialog and goes back to the list', async () => {
-    renderAt('/ai/skills/new');
+    renderAt('/ai/skills/.new');
 
     await userEvent.click(
       within(await screen.findByRole('dialog')).getByRole('button', {

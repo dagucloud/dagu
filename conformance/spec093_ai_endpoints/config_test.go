@@ -32,7 +32,7 @@ func TestAIConfigIsClosedAndStrict(t *testing.T) {
 		{"config_ai_above_range.yaml", []string{`key "ai.relay.max_header_bytes"`, "an integer from 1024 to 1048576", "got 1048577"}},
 		{"config_ai_duplicate_key.yaml", []string{"max_streams"}},
 		{"config_ai_proxy_scheme.yaml", []string{`key "ai.upstream.proxy_url"`, "an http or https URL with no user information", "socks5://proxy.example.com:1080"}},
-		{"config_ai_proxy_user.yaml", []string{`key "ai.upstream.proxy_url"`, "user:xxxxx@proxy.example.com"}},
+		{"config_ai_proxy_user.yaml", []string{`key "ai.upstream.proxy_url"`, "http://xxxxx@proxy.example.com"}},
 		{"config_ai_contradiction_streams.yaml", []string{
 			`keys "ai.relay.max_streams_per_run" and "ai.relay.max_streams" contradict each other`,
 			`"ai.relay.max_streams_per_run" is 10`, `"ai.relay.max_streams", which is 9`}},

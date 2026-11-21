@@ -79,11 +79,13 @@ describe('getBreadcrumbItems', () => {
       'Skills',
       'triage-2',
     ]);
-    expect(labels('/ai/skills/new')).toEqual([
+    expect(labels('/ai/skills/.new')).toEqual([
       'Home',
       'AI',
       'Skills',
       'New skill',
     ]);
+    // new is a valid skill name, so only .new opens the new skill dialog.
+    expect(labels('/ai/skills/new')).toEqual(['Home', 'AI', 'Skills', 'new']);
   });
 });
