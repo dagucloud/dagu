@@ -13,12 +13,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -241,6 +243,607 @@ func TestRealV2Run(t *testing.T) {
 	require.ErrorIs(t, err, errManagedSessionUnavailable)
 }
 
+// A root with child sessions stays settling for one more poll, because a
+// child's report can start another turn of the root.
+func TestV2ChildrenSettle(t *testing.T) {
+	var polls, listed atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/session/active":
+			polls.Add(1)
+			_, _ = w.Write([]byte(`{"data":{"ses_other":{"type":"running"}}}`))
+		case "/api/session/ses_other":
+			_, _ = w.Write([]byte(`{"data":{"id":"ses_other","location":{"directory":"/workspace"}}}`))
+		case "/api/session":
+			listed.Add(1)
+			require.Equal(t, "ses_root", r.URL.Query().Get("parentID"))
+			_, _ = w.Write([]byte(`{"data":[{"id":"ses_child","parentID":"ses_root"}]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+
+	require.NoError(t, client.awaitIdle(t.Context(), "ses_root"))
+
+	require.EqualValues(t, 2, polls.Load())
+	require.EqualValues(t, 2, listed.Load())
+}
+
+// A failed child listing is not an empty listing: the root may have children.
+func TestV2ListingFailureAssumesChildren(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/session/active":
+			_, _ = w.Write([]byte(`{"data":{}}`))
+		case "/api/session":
+			http.Error(w, "boom", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+
+	family, err := client.family(t.Context(), "ses_root", true)
+
+	require.NoError(t, err)
+	require.True(t, family.idle())
+	require.True(t, family.hasChildren)
+}
+
+// An active session whose ancestry cannot be read has unknown membership: it
+// blocks idle and is retried on every poll.
+func TestV2UnreadableSessionUnknown(t *testing.T) {
+	var gets atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/session/active":
+			_, _ = w.Write([]byte(`{"data":{"ses_other":{"type":"running"}}}`))
+		case "/api/session/ses_other":
+			gets.Add(1)
+			http.Error(w, "boom", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+
+	for range 2 {
+		family, err := client.family(t.Context(), "ses_root", true)
+		require.NoError(t, err)
+		require.Empty(t, family.descendants)
+		require.Equal(t, []string{"ses_other"}, family.unknown)
+		require.False(t, family.idle())
+	}
+
+	require.EqualValues(t, 2, gets.Load())
+}
+
+// A session confirmed unrelated (root-less or missing) is ignored.
+func TestV2ConfirmedUnrelated(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/session/active":
+			_, _ = w.Write([]byte(`{"data":{"ses_a":{"type":"running"},"ses_b":{"type":"running"}}}`))
+		case "/api/session/ses_a":
+			_, _ = w.Write([]byte(`{"data":{"id":"ses_a"}}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"_tag":"SessionNotFoundError"}`))
+		}
+	}))
+	defer server.Close()
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+
+	family, err := client.family(t.Context(), "ses_root", true)
+
+	require.NoError(t, err)
+	require.True(t, family.idle())
+}
+
+// Exhausting the depth bound or meeting a cycle leaves membership unknown.
+func TestV2DepthAndCycleUnknown(t *testing.T) {
+	for name, parents := range map[string]func(int) string{
+		"depth": func(i int) string { return fmt.Sprintf("ses_%d", i+1) },
+		"cycle": func(i int) string { return fmt.Sprintf("ses_%d", (i+1)%2) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/api/session/active" {
+					_, _ = w.Write([]byte(`{"data":{"ses_0":{"type":"running"}}}`))
+					return
+				}
+				var i int
+				if _, err := fmt.Sscanf(r.URL.Path, "/api/session/ses_%d", &i); err != nil {
+					http.NotFound(w, r)
+					return
+				}
+				_, _ = fmt.Fprintf(w, `{"data":{"id":"ses_%d","parentID":%q}}`, i, parents(i))
+			}))
+			defer server.Close()
+			client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+
+			family, err := client.family(t.Context(), "ses_root", true)
+
+			require.NoError(t, err)
+			require.Equal(t, []string{"ses_0"}, family.unknown)
+			require.False(t, family.idle())
+		})
+	}
+}
+
+// Settlement waits while an active session is unreadable and finishes once
+// it can be read.
+func TestV2SettleUnreadable(t *testing.T) {
+	var gets atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/session/active":
+			_, _ = w.Write([]byte(`{"data":{"ses_other":{"type":"running"}}}`))
+		case "/api/session/ses_other":
+			if gets.Add(1) < 3 {
+				http.Error(w, "boom", http.StatusInternalServerError)
+				return
+			}
+			_, _ = w.Write([]byte(`{"data":{"id":"ses_other"}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+
+	require.NoError(t, client.awaitIdle(t.Context(), "ses_root"))
+	require.GreaterOrEqual(t, gets.Load(), int32(3))
+
+	always := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/session/active" {
+			_, _ = w.Write([]byte(`{"data":{"ses_other":{"type":"running"}}}`))
+			return
+		}
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer always.Close()
+	blocked := &openCodeClient{host: opencodehost.Config{URL: always.URL, Version: "2.3.2"}, directory: "/workspace", http: always.Client()}
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+
+	err := blocked.awaitIdle(ctx, "ses_root")
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "ses_other")
+}
+
+// Parent links are cached, so repeated polls do not re-read a session.
+func TestV2ParentCache(t *testing.T) {
+	var gets atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/session/active":
+			_, _ = w.Write([]byte(`{"data":{"ses_child":{"type":"running"}}}`))
+		case "/api/session/ses_child":
+			gets.Add(1)
+			_, _ = w.Write([]byte(`{"data":{"id":"ses_child","parentID":"ses_root","location":{"directory":"/workspace"}}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+
+	for range 3 {
+		family, err := client.family(t.Context(), "ses_root", true)
+		require.NoError(t, err)
+		require.Equal(t, []string{"ses_child"}, family.descendants)
+	}
+
+	require.EqualValues(t, 1, gets.Load())
+}
+
+// v1 has no background children, so no other session is inspected.
+func TestV1FamilyNoWalk(t *testing.T) {
+	var gets atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/session/status"):
+			_, _ = w.Write([]byte(`{"ses_other":{"type":"busy"}}`))
+		case strings.HasPrefix(r.URL.Path, "/session/"):
+			gets.Add(1)
+			_, _ = w.Write([]byte(`{"id":"ses_other"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "1.14.0"}, directory: "/workspace", http: server.Client()}
+
+	family, err := client.family(t.Context(), "ses_root", true)
+
+	require.NoError(t, err)
+	require.True(t, family.idle())
+	require.Zero(t, gets.Load())
+}
+
+// jobHost serves an idle v2 family whose job listing is the given handler.
+func jobHost(t *testing.T, version string, jobs http.HandlerFunc) (*openCodeClient, *atomic.Int32) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/session/active":
+			_, _ = w.Write([]byte(`{"data":{}}`))
+		case "/api/session":
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		case "/api/experimental/job", "/experimental/job":
+			requests.Add(1)
+			jobs(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: version}, directory: "/workspace", http: server.Client()}, &requests
+}
+
+// A running background job keeps an otherwise idle owned family busy; a
+// finished one does not. Only the root's own family is asked about. Waiting on
+// a user's session does not wait on its jobs.
+func TestV2RunningJobBlocksIdle(t *testing.T) {
+	var running atomic.Bool
+	running.Store(true)
+	client, _ := jobHost(t, "2.3.2", func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		require.Equal(t, "ses_root", query.Get("sessionID"))
+		require.Equal(t, "true", query.Get("descendants"))
+		require.Equal(t, "running", query.Get("status"))
+		if running.Load() {
+			_, _ = w.Write([]byte(`{"data":[{"kind":"shell","id":"job_1","status":"running"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	})
+
+	family, err := client.family(t.Context(), "ses_root", true)
+	require.NoError(t, err)
+	require.False(t, family.idle())
+	require.NoError(t, client.awaitIdle(t.Context(), "ses_root"))
+
+	running.Store(false)
+	family, err = client.family(t.Context(), "ses_root", true)
+	require.NoError(t, err)
+	require.True(t, family.idle())
+}
+
+// A host without the job endpoint has no jobs; a failing one may have some.
+func TestV2JobListingErrors(t *testing.T) {
+	for status, busy := range map[int]bool{http.StatusNotFound: false, http.StatusBadRequest: false, http.StatusInternalServerError: true} {
+		client, requests := jobHost(t, "2.3.2", func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "no", status)
+		})
+
+		family, err := client.family(t.Context(), "ses_root", true)
+
+		require.NoError(t, err)
+		require.Equal(t, busy, len(family.jobs) > 0, status)
+		require.EqualValues(t, 1, requests.Load())
+	}
+}
+
+// An interrupt stops the shell jobs of a session Dagu owns; a user's session
+// neither waits on nor stops them.
+func TestV2InterruptStopsJobs(t *testing.T) {
+	for _, owned := range []bool{true, false} {
+		var stopped atomic.Bool
+		var client *openCodeClient
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch {
+			case r.URL.Path == "/api/session/active":
+				_, _ = w.Write([]byte(`{"data":{}}`))
+			case r.URL.Path == "/api/session":
+				_, _ = w.Write([]byte(`{"data":[]}`))
+			case r.URL.Path == "/api/session/ses_root/interrupt":
+				_, _ = w.Write([]byte(`{"interrupted":true}`))
+			case r.URL.Path == "/api/shell/sh_1" && r.Method == http.MethodDelete:
+				stopped.Store(true)
+				w.WriteHeader(http.StatusNoContent)
+			case r.URL.Path == "/api/experimental/job":
+				if stopped.Load() {
+					_, _ = w.Write([]byte(`{"data":[]}`))
+					return
+				}
+				_, _ = w.Write([]byte(`{"data":[{"kind":"shell","id":"job_1","shellID":"sh_1","status":"running"}]}`))
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		client = &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+
+		var err error
+		if owned {
+			err = client.interruptAndAwaitIdle(ctx, "ses_root")
+		} else {
+			err = client.interruptRootAndAwaitIdle(ctx, "ses_root")
+		}
+
+		cancel()
+		server.Close()
+		require.Equal(t, owned, stopped.Load())
+		require.NoError(t, err)
+	}
+}
+
+// An owned root's shell jobs are stopped even while another active session's
+// ancestry is unresolved, which still blocks settlement.
+func TestV2InterruptStopsJobsUnresolved(t *testing.T) {
+	for _, owned := range []bool{true, false} {
+		var stopped atomic.Bool
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			switch {
+			case r.URL.Path == "/api/session/active":
+				_, _ = w.Write([]byte(`{"data":{"ses_other":{"type":"running"}}}`))
+			case r.URL.Path == "/api/session/ses_other":
+				http.Error(w, "boom", http.StatusInternalServerError)
+			case r.URL.Path == "/api/session/ses_root/interrupt":
+				_, _ = w.Write([]byte(`{"interrupted":true}`))
+			case r.URL.Path == "/api/shell/sh_1" && r.Method == http.MethodDelete:
+				stopped.Store(true)
+				w.WriteHeader(http.StatusNoContent)
+			case r.URL.Path == "/api/experimental/job":
+				_, _ = w.Write([]byte(`{"data":[{"kind":"shell","id":"job_1","shellID":"sh_1","status":"running"}]}`))
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+		ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+
+		var err error
+		if owned {
+			err = client.interruptAndAwaitIdle(ctx, "ses_root")
+		} else {
+			err = client.interruptRootAndAwaitIdle(ctx, "ses_root")
+		}
+
+		cancel()
+		server.Close()
+		require.Equal(t, owned, stopped.Load())
+		require.Error(t, err, "unresolved ancestry blocks settlement")
+	}
+}
+
+// v1 has no background jobs, so none are requested.
+func TestV1NoJobRequest(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "1.14.0"}, directory: "/workspace", http: server.Client()}
+
+	family, err := client.family(t.Context(), "ses_root", true)
+
+	require.NoError(t, err)
+	require.True(t, family.idle())
+	require.EqualValues(t, 1, requests.Load(), "only the status request")
+}
+
+// subagentProvider scripts an OpenAI-compatible provider: a parent that
+// spawns a background child, a child that runs a slow shell command, and a
+// later parent turn woken by the child's report.
+func subagentProvider(t *testing.T) *httptest.Server {
+	chunk := func(w http.ResponseWriter, delta map[string]any, finish string) {
+		data, err := json.Marshal(map[string]any{"id": "x", "object": "chat.completion.chunk", "created": 1, "model": "test", "choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": nilIfEmpty(finish)}}})
+		require.NoError(t, err)
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+	}
+	call := func(w http.ResponseWriter, name string, args map[string]any) {
+		arguments, err := json.Marshal(args)
+		require.NoError(t, err)
+		chunk(w, map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{"index": 0, "id": "call_1", "type": "function", "function": map[string]any{"name": name, "arguments": string(arguments)}}}}, "")
+		chunk(w, map[string]any{}, "tool_calls")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}
+	say := func(w http.ResponseWriter, text string) {
+		chunk(w, map[string]any{"role": "assistant", "content": text}, "")
+		chunk(w, map[string]any{}, "stop")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		var request struct {
+			Tools    []json.RawMessage `json:"tools"`
+			Messages []json.RawMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		last := string(request.Messages[len(request.Messages)-1])
+		all := fmt.Sprint(request.Messages)
+		switch {
+		case len(request.Tools) == 0:
+			say(w, "title")
+		case strings.Contains(all, "BGROOT") && strings.Contains(all, `"role":"tool"`):
+			say(w, "BG_DONE")
+		case strings.Contains(all, "BGROOT"):
+			call(w, "shell", map[string]any{"command": "touch bg.started; sleep 3; echo done > bg.done", "description": "bg work", "background": true})
+		case strings.Contains(last, `"role":"tool"`) && strings.Contains(last, "ses_"):
+			say(w, "PARENT_LAUNCHED")
+		case strings.Contains(last, `"role":"tool"`):
+			say(w, "CHILD_DONE")
+		case !strings.Contains(all, "SPAWN") && strings.Contains(all, "CHILD_ASK"):
+			call(w, "question", map[string]any{"questions": []any{map[string]any{"question": "Choose a branch", "header": "Branch", "options": []any{map[string]any{"label": "Stable", "description": "Use stable"}}}}})
+		case !strings.Contains(all, "SPAWN"):
+			call(w, "shell", map[string]any{"command": "touch bg.started; sleep 3; echo done > bg.done", "description": "slow work"})
+		case strings.Contains(last, "<subagent"):
+			say(w, "PARENT_FOLLOWUP")
+		default:
+			prompt := "CHILD_WORK"
+			if strings.Contains(all, "ASKCHILD") {
+				prompt = "CHILD_ASK"
+			}
+			call(w, "subagent", map[string]any{"agent": "general", "description": "slow work", "prompt": prompt})
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func nilIfEmpty(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+// realSubagentHost starts the real OpenCode 2.3 host against the subagent
+// provider, or skips the test without one.
+func realSubagentHost(t *testing.T, permissions []any) (string, opencodehost.Config) {
+	binary := os.Getenv("DAGU_TEST_OPENCODE_V2_EXECUTABLE")
+	if binary == "" {
+		t.Skip("DAGU_TEST_OPENCODE_V2_EXECUTABLE is not set")
+	}
+	root := t.TempDir()
+	for _, key := range []string{"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"} {
+		t.Setenv(key, "")
+		require.NoError(t, os.Unsetenv(key))
+	}
+	initialized, err := exec.CommandContext(t.Context(), "git", "-C", root, "init").CombinedOutput()
+	require.NoError(t, err, "%s", initialized)
+	provider := subagentProvider(t)
+	for _, key := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "OPENCODE_CONFIG_DIR"} {
+		t.Setenv(key, filepath.Join(root, key))
+	}
+	t.Setenv("OPENCODE_CONFIG_PROJECT_DISABLE", "1")
+	t.Setenv("OPENCODE_DISABLE_CLAUDE_CODE", "1")
+	t.Setenv("OPENCODE_DISABLE_MODELS_FETCH", "1")
+	settings := map[string]any{"model": "dagutest/test", "providers": map[string]any{"dagutest": map[string]any{"package": "@ai-sdk/openai-compatible", "settings": map[string]any{"baseURL": provider.URL + "/v1", "apiKey": "local-test"}, "models": map[string]any{"test": map[string]any{"name": "test"}}}}}
+	if permissions != nil {
+		settings["permissions"] = permissions
+	}
+	content, err := json.Marshal(settings)
+	require.NoError(t, err)
+	t.Setenv("OPENCODE_CONFIG_CONTENT", string(content))
+	host := opencodehost.New(t.Context(), config.OpenCodeConfig{Executable: binary})
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		require.NoError(t, host.Close(ctx))
+	})
+	hostConfig, err := host.Ensure()
+	require.NoError(t, err)
+	if hostConfig.Version == "2.1.4" {
+		t.Skip("background subagents need OpenCode 2.3 or newer")
+	}
+	return root, hostConfig
+}
+
+// OpenCode 2.3 subagents run in the background and report back to the parent
+// later. A managed step settles only after they do, and a cancelled step
+// leaves none of them running.
+func TestRealV2Subagent(t *testing.T) {
+	root, hostConfig := realSubagentHost(t, nil)
+	cfg := providerConfig{flags: map[string]any{"model": "dagutest/test"}}
+	ctx, cancel := context.WithTimeout(runtime.WithEnv(t.Context(), runtime.Env{}), 90*time.Second)
+	defer cancel()
+	done, started := filepath.Join(root, "bg.done"), filepath.Join(root, "bg.started")
+
+	executor := &harnessExecutor{prompt: "SPAWN", workDir: root}
+	stdout, err := executor.runManagedOpenCode(ctx, cfg, hostConfig)
+	require.NoError(t, err)
+	output, err := io.ReadAll(stdout)
+	require.NoError(t, err)
+	require.NoError(t, cleanupStdoutSpool(stdout))
+	require.FileExists(t, done, "the step succeeded before its subagent finished")
+	require.Equal(t, ir.AgentSessionSucceeded, executor.GetAgentSession().State)
+	require.Contains(t, string(output), "PARENT_FOLLOWUP", "the parent's later turn must be collected")
+
+	require.NoError(t, fileutil.Remove(done))
+	require.NoError(t, fileutil.Remove(started))
+	cancelCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	watched := make(chan struct{})
+	go func() {
+		defer close(watched)
+		for cancelCtx.Err() == nil {
+			if _, err := os.Stat(started); err == nil {
+				cancelRun()
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}()
+	defer func() { cancelRun(); <-watched }()
+	cancelled := &harnessExecutor{prompt: "SPAWN", workDir: root}
+	_, err = cancelled.runManagedOpenCode(cancelCtx, cfg, hostConfig)
+	require.ErrorIs(t, err, context.Canceled)
+	session := cancelled.GetAgentSession()
+	require.Equal(t, ir.AgentSessionAborted, session.State)
+	require.Equal(t, "aborted", session.Events[len(session.Events)-1].Status, session.LastError)
+	client := &openCodeClient{host: hostConfig, directory: root, http: newOpenCodeHTTPClient(3 * time.Second)}
+	active, err := client.activeSessions(ctx)
+	require.NoError(t, err)
+	require.Empty(t, active, "no session may run after the step is cancelled")
+	require.Never(t, func() bool { _, err := os.Stat(done); return err == nil }, 4*time.Second, 200*time.Millisecond, "the cancelled step's subagent kept running")
+}
+
+// A background shell job outlives its session's turn. A managed step settles
+// only once it finishes, and a cancelled step leaves none running.
+func TestRealV2BackgroundJob(t *testing.T) {
+	root, hostConfig := realSubagentHost(t, nil)
+	cfg := providerConfig{flags: map[string]any{"model": "dagutest/test"}}
+	ctx, cancel := context.WithTimeout(runtime.WithEnv(t.Context(), runtime.Env{}), 90*time.Second)
+	defer cancel()
+	done, started := filepath.Join(root, "bg.done"), filepath.Join(root, "bg.started")
+
+	executor := &harnessExecutor{prompt: "BGROOT", workDir: root}
+	stdout, err := executor.runManagedOpenCode(ctx, cfg, hostConfig)
+	require.NoError(t, err)
+	require.NoError(t, cleanupStdoutSpool(stdout))
+	require.FileExists(t, done, "the step succeeded before its background job finished")
+
+	require.NoError(t, fileutil.Remove(done))
+	require.NoError(t, fileutil.Remove(started))
+	cancelCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	watched := make(chan struct{})
+	go func() {
+		defer close(watched)
+		for cancelCtx.Err() == nil {
+			if _, err := os.Stat(started); err == nil {
+				time.Sleep(500 * time.Millisecond)
+				cancelRun()
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}()
+	defer func() { cancelRun(); <-watched }()
+	cancelled := &harnessExecutor{prompt: "BGROOT", workDir: root}
+	_, err = cancelled.runManagedOpenCode(cancelCtx, cfg, hostConfig)
+	require.ErrorIs(t, err, context.Canceled)
+	client := &openCodeClient{host: hostConfig, directory: root, http: newOpenCodeHTTPClient(3 * time.Second)}
+	jobs, err := client.runningJobs(ctx, cancelled.GetAgentSession().SessionID)
+	require.NoError(t, err)
+	require.Empty(t, jobs, "a background job runs after the step is cancelled")
+	require.Never(t, func() bool { _, err := os.Stat(done); return err == nil }, 4*time.Second, 200*time.Millisecond, "the cancelled step's job kept running")
+}
+
 func TestV2Messages(t *testing.T) {
 	var messages []openCodeV2Message
 	require.NoError(t, json.Unmarshal([]byte(`[
@@ -337,16 +940,16 @@ func TestV2Interactions(t *testing.T) {
 	require.Len(t, permissions, 1)
 	require.Equal(t, "bash", permissions[0].Permission)
 	require.Equal(t, []string{"git *"}, permissions[0].Always)
-	require.NoError(t, client.replyPermission(t.Context(), "per_test", "once"))
+	require.NoError(t, client.replyPermission(t.Context(), "", "per_test", "once"))
 	require.Equal(t, map[string]any{"decision": "once"}, permission)
 	questions, err := client.questions(t.Context())
 	require.NoError(t, err)
 	require.Len(t, questions, 1)
 	require.Len(t, questions[0].Questions, 3)
 	require.True(t, questions[0].Questions[2].Multiple)
-	require.NoError(t, client.replyQuestion(t.Context(), "form_test", [][]string{{"Stable"}, {"3"}, {"Alpha"}}))
+	require.NoError(t, client.replyQuestion(t.Context(), "", "form_test", [][]string{{"Stable"}, {"3"}, {"Alpha"}}))
 	require.Equal(t, map[string]any{"answer": map[string]any{"choice": "stable", "count": float64(3), "many": []any{"a"}}}, answer)
-	require.NoError(t, client.rejectQuestion(t.Context(), "form_test"))
+	require.NoError(t, client.rejectQuestion(t.Context(), "", "form_test"))
 	require.True(t, rejected)
 }
 
@@ -599,6 +1202,8 @@ func TestV2InterruptAwaitsIdle(t *testing.T) {
 				return
 			}
 			_, _ = w.Write([]byte(`{"data":{}}`))
+		case "/api/session":
+			_, _ = w.Write([]byte(`{"data":[]}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -668,4 +1273,129 @@ func TestV2CommandCancellation(t *testing.T) {
 	require.Empty(t, e.agentSession.PromptMessageID)
 	require.True(t, submitted.Load())
 	require.True(t, interrupted.Load(), "accepted command must be interrupted even after caller cancellation")
+}
+
+func childRequestServer(t *testing.T, parents map[string]string, replies *[]string) *httptest.Server {
+	const form = `{"id":"form_c","sessionID":"ses_child","fields":[{"key":"k","type":"string","title":"T"}]}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/api/permission/request":
+			_, _ = io.WriteString(w, `{"data":[{"id":"per_c","sessionID":"ses_child","action":"bash","resources":["ls"]}]}`)
+		case strings.HasPrefix(r.URL.Path, "/api/session/ses_") && r.Method == http.MethodGet && strings.Count(r.URL.Path, "/") == 3:
+			id := strings.TrimPrefix(r.URL.Path, "/api/session/")
+			parent, ok := parents[id]
+			if !ok {
+				http.Error(w, "boom", http.StatusInternalServerError)
+				return
+			}
+			_, _ = io.WriteString(w, `{"data":{"id":"`+id+`","parentID":"`+parent+`","location":{"directory":"/workspace"}}}`)
+		case r.URL.Path == "/api/form":
+			_, _ = io.WriteString(w, `{"data":[`+form+`]}`)
+		case r.URL.Path == "/api/session/ses_child/form/form_c" && r.Method == http.MethodGet:
+			_, _ = io.WriteString(w, `{"data":`+form+`}`)
+		case r.Method == http.MethodPost || r.Method == http.MethodDelete:
+			*replies = append(*replies, r.Method+" "+r.URL.Path)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			_, _ = io.WriteString(w, `{"data":[]}`)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+// A request from a descendant of the root puts the step in waiting; requests
+// from unrelated or unresolvable sessions are ignored.
+func TestV2ChildRequest(t *testing.T) {
+	ctx := runtime.WithEnv(t.Context(), runtime.Env{})
+	for name, parents := range map[string]map[string]string{
+		"child":     {"ses_child": "ses_root"},
+		"unrelated": {"ses_child": ""},
+		"unknown":   {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := childRequestServer(t, parents, new([]string))
+			client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", http: server.Client()}
+			executor := &harnessExecutor{agentSession: &ir.AgentSession{SessionID: "ses_root"}}
+			waiting, err := executor.reconcileManagedSession(ctx, client, "ses_root")
+			require.NoError(t, err)
+			require.Equal(t, name == "child", waiting)
+			if name == "child" {
+				require.Len(t, executor.agentSession.Interactions, 1)
+				require.Equal(t, "ses_child", executor.agentSession.Interactions[0].SessionID)
+			} else {
+				require.Empty(t, executor.agentSession.Interactions)
+			}
+		})
+	}
+}
+
+// Recorded answers are delivered to the session that owns the request.
+func TestV2ChildReply(t *testing.T) {
+	var replies []string
+	server := childRequestServer(t, map[string]string{}, &replies)
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "2.3.2"}, directory: "/workspace", sessionID: "ses_root", http: server.Client()}
+	executor := &harnessExecutor{agentSession: &ir.AgentSession{SessionID: "ses_root", Interactions: []ir.AgentInteraction{
+		{ID: "per_c", SessionID: "ses_child", Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionAnswered, Decision: "once"},
+		{ID: "form_c", SessionID: "ses_child", Kind: ir.AgentInteractionQuestion, Status: ir.AgentInteractionAnswered, Answers: [][]string{{"v"}}},
+		{ID: "form_r", SessionID: "ses_child", Kind: ir.AgentInteractionQuestion, Status: ir.AgentInteractionRejected},
+	}}}
+	_, err := executor.applyManagedInteractionResponses(runtime.WithEnv(t.Context(), runtime.Env{}), client, "ses_root")
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"POST /api/session/ses_child/permission/per_c/reply",
+		"POST /api/session/ses_child/form/form_c/reply",
+		"DELETE /api/session/ses_child/form/form_r",
+	}, replies)
+}
+
+// OpenCode v1 has no background children, so another session's request is ignored.
+func TestV1OtherSessionRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/permission" {
+			_, _ = io.WriteString(w, `[{"id":"per_c","sessionID":"ses_child","permission":"bash"}]`)
+			return
+		}
+		_, _ = io.WriteString(w, `[]`)
+	}))
+	defer server.Close()
+	client := &openCodeClient{host: opencodehost.Config{URL: server.URL, Version: "1.14.0"}, http: server.Client()}
+	executor := &harnessExecutor{agentSession: &ir.AgentSession{SessionID: "ses_root"}}
+	waiting, err := executor.reconcileManagedSession(runtime.WithEnv(t.Context(), runtime.Env{}), client, "ses_root")
+	require.NoError(t, err)
+	require.False(t, waiting)
+}
+
+// A subagent's permission and form requests put the step in waiting, and the
+// recorded answers reach the subagent's own session when the step resumes.
+func TestRealV2ChildRequest(t *testing.T) {
+	root, hostConfig := realSubagentHost(t, []any{map[string]any{"action": "question", "resource": "*", "effect": "ask"}})
+	cfg := providerConfig{flags: map[string]any{"model": "dagutest/test"}}
+	ctx, cancel := context.WithTimeout(runtime.WithEnv(t.Context(), runtime.Env{}), 120*time.Second)
+	defer cancel()
+	executor := &harnessExecutor{prompt: "SPAWN ASKCHILD", workDir: root}
+	for _, answer := range []func(*ir.AgentInteraction){
+		func(i *ir.AgentInteraction) { i.Status, i.Decision = ir.AgentInteractionAnswered, "once" },
+		func(i *ir.AgentInteraction) {
+			i.Status, i.Answers = ir.AgentInteractionAnswered, [][]string{{"Stable"}}
+		},
+	} {
+		stdout, err := executor.runManagedOpenCode(ctx, cfg, hostConfig)
+		require.NoError(t, err)
+		require.NoError(t, cleanupStdoutSpool(stdout))
+		session := executor.GetAgentSession()
+		require.Equal(t, ir.AgentSessionWaiting, session.State, session.LastError)
+		last := &executor.agentSession.Interactions[len(session.Interactions)-1]
+		require.NotEmpty(t, last.SessionID)
+		require.NotEqual(t, session.SessionID, last.SessionID, "the request belongs to the subagent")
+		answer(last)
+	}
+	stdout, err := executor.runManagedOpenCode(ctx, cfg, hostConfig)
+	require.NoError(t, err)
+	output, err := io.ReadAll(stdout)
+	require.NoError(t, err)
+	require.NoError(t, cleanupStdoutSpool(stdout))
+	require.Equal(t, ir.AgentSessionSucceeded, executor.GetAgentSession().State, executor.GetAgentSession().LastError)
+	require.Contains(t, string(output), "PARENT_FOLLOWUP")
 }

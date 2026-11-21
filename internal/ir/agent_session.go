@@ -60,7 +60,9 @@ type AgentQuestionOption struct {
 
 // AgentInteraction records an agent request and its durable response.
 type AgentInteraction struct {
-	ID                      string                 `json:"id"`
+	ID string `json:"id"`
+	// SessionID is the provider session that owns the request; empty means the root session.
+	SessionID               string                 `json:"sessionId,omitempty"`
 	Kind                    AgentInteractionKind   `json:"kind"`
 	Status                  AgentInteractionStatus `json:"status"`
 	Permission              string                 `json:"permission,omitempty"`

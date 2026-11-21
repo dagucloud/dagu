@@ -34,6 +34,10 @@ const (
 	// managedCleanupTimeout bounds each wait for an interrupted or discarded
 	// session to settle.
 	managedCleanupTimeout = 10 * time.Second
+	// managedJobGracePeriod bounds how long the background jobs of a session
+	// Dagu owns may keep running after its sessions are idle; they are then
+	// stopped so they do not outlive the step.
+	managedJobGracePeriod = 10 * time.Second
 )
 
 func (e *harnessExecutor) runManagedOpenCode(
@@ -138,6 +142,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 	e.mu.Lock()
 	promptSent := e.agentSession.PromptSent
 	promptMessageID := e.agentSession.PromptMessageID
+	owned := e.agentSession.SessionOwned
 	e.mu.Unlock()
 	if promptSent && promptMessageID == "" {
 		messages, refreshErr := e.refreshManagedMessages(ctx, client, sessionID)
@@ -181,7 +186,8 @@ func (e *harnessExecutor) runManagedOpenCode(
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	startedAt := time.Now()
-	seenBusy := false
+	seenBusy, settling := false, false
+	var jobsSince time.Time
 	statusFailures := 0
 
 	for {
@@ -241,7 +247,7 @@ func (e *harnessExecutor) runManagedOpenCode(
 			if waiting {
 				return e.finishManagedWaiting("OpenCode needs input")
 			}
-			status, err := client.sessionStatus(ctx, sessionID)
+			family, err := client.family(ctx, sessionID, owned)
 			if err != nil {
 				if ctx.Err() != nil {
 					return e.finishManagedCancelled(ctx, client, sessionID)
@@ -260,10 +266,35 @@ func (e *harnessExecutor) runManagedOpenCode(
 				continue
 			}
 			statusFailures = 0
+			status := family.status
+			if status == "idle" && len(family.descendants)+len(family.unknown) > 0 {
+				status = "busy"
+			}
+			if status == "idle" && len(family.jobs) > 0 {
+				if jobsSince.IsZero() {
+					jobsSince = time.Now()
+				}
+				if time.Since(jobsSince) < managedJobGracePeriod {
+					status = "busy"
+				} else {
+					// Stopping is best effort; a job that keeps running does
+					// not hold the step past the grace period.
+					client.stopJobs(ctx, family.jobs)
+				}
+			} else {
+				jobsSince = time.Time{}
+			}
 			seenBusy = seenBusy || status == "busy" || status == "retry"
 			if status == "idle" && (seenBusy || time.Since(startedAt) >= time.Second) {
+				// A child's report can start another turn of the session, so the
+				// session must stay idle for one more tick before it is settled.
+				if family.hasChildren && !settling {
+					settling = true
+					continue
+				}
 				return e.finishManagedSuccess(ctx, client, sessionID)
 			}
+			settling = false
 		}
 	}
 }
@@ -459,12 +490,12 @@ func (e *harnessExecutor) applyManagedInteractionResponses(ctx context.Context, 
 				e.recordManagedPermissionGrant(interaction)
 				reply = "once"
 			}
-			err = client.replyPermission(ctx, interaction.ID, reply)
+			err = client.replyPermission(ctx, interaction.SessionID, interaction.ID, reply)
 		case ir.AgentInteractionQuestion:
 			if interaction.Status == ir.AgentInteractionRejected {
-				err = client.rejectQuestion(ctx, interaction.ID)
+				err = client.rejectQuestion(ctx, interaction.SessionID, interaction.ID)
 			} else {
-				err = client.replyQuestion(ctx, interaction.ID, interaction.Answers)
+				err = client.replyQuestion(ctx, interaction.SessionID, interaction.ID, interaction.Answers)
 			}
 		}
 		if err != nil {
@@ -494,7 +525,15 @@ func (e *harnessExecutor) handleManagedEvent(ctx context.Context, client *openCo
 					SessionID string `json:"sessionID"`
 				} `json:"form"`
 			}
-			if json.Unmarshal(event.Data, &data) == nil && (data.SessionID == sessionID || data.Form.SessionID == sessionID) {
+			if json.Unmarshal(event.Data, &data) == nil {
+				owner := data.SessionID
+				if owner == "" {
+					owner = data.Form.SessionID
+				}
+				owned, ownErr := client.ownsRequest(ctx, sessionID, owner)
+				if ownErr != nil || !owned {
+					return false, false, ownErr
+				}
 				waiting, err = e.reconcileManagedSession(ctx, client, sessionID)
 				return waiting, false, err
 			}
@@ -548,7 +587,11 @@ func (e *harnessExecutor) reconcileManagedSession(ctx context.Context, client *o
 		}
 	} else {
 		for _, request := range permissions {
-			if request.SessionID == sessionID {
+			owned, ownErr := client.ownsRequest(ctx, sessionID, request.SessionID)
+			if ownErr != nil {
+				return false, ownErr
+			}
+			if owned {
 				autoApproved, replyErr := e.replyFromManagedGrant(ctx, client, request)
 				if replyErr != nil {
 					return false, replyErr
@@ -568,7 +611,11 @@ func (e *harnessExecutor) reconcileManagedSession(ctx context.Context, client *o
 		}
 	} else {
 		for _, request := range questions {
-			if request.SessionID == sessionID {
+			owned, ownErr := client.ownsRequest(ctx, sessionID, request.SessionID)
+			if ownErr != nil {
+				return false, ownErr
+			}
+			if owned {
 				e.addManagedQuestion(request)
 				return true, nil
 			}
@@ -715,6 +762,11 @@ func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *op
 			if abortErr := client.abort(cleanupCtx, sessionID); abortErr != nil {
 				err = errors.Join(err, abortErr)
 			}
+			if family, familyErr := client.family(cleanupCtx, sessionID, false); familyErr == nil {
+				for _, id := range family.descendants {
+					_ = client.abort(cleanupCtx, id)
+				}
+			}
 		}
 	case owned:
 		err = client.interruptAndAwaitIdle(cleanupCtx, sessionID)
@@ -726,7 +778,7 @@ func (e *harnessExecutor) finishManagedCancelled(ctx context.Context, client *op
 
 // settleUserSession stops Dagu's turn in a session the user supplied. While
 // Dagu's prompt is the session's latest input the active turn is Dagu's and
-// is interrupted; newer input belongs to the user, whose turn is waited on.
+// is interrupted, but not its subagents, which may belong to earlier turns; newer input belongs to the user, whose turn is waited on.
 func settleUserSession(ctx context.Context, client *openCodeClient, sessionID, promptID string) error {
 	messages, err := client.messages(ctx, sessionID)
 	if errors.Is(err, errManagedSessionUnavailable) {
@@ -736,7 +788,7 @@ func settleUserSession(ctx context.Context, client *openCodeClient, sessionID, p
 		return err
 	}
 	if promptID != "" && latestOpenCodeUserMessageID(messages) == promptID {
-		return client.interruptAndAwaitIdle(ctx, sessionID)
+		return client.interruptRootAndAwaitIdle(ctx, sessionID)
 	}
 	return client.awaitIdle(ctx, sessionID)
 }
@@ -1052,7 +1104,7 @@ func number(value any) float64 {
 
 func (e *harnessExecutor) addManagedPermission(request openCodePermissionRequest) {
 	interaction := ir.AgentInteraction{
-		ID: request.ID, Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending,
+		ID: request.ID, SessionID: request.SessionID, Kind: ir.AgentInteractionPermission, Status: ir.AgentInteractionPending,
 		Permission: request.Permission, Patterns: request.Patterns, AllowForSessionPatterns: request.Always,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}
@@ -1085,7 +1137,7 @@ func (e *harnessExecutor) replyFromManagedGrant(ctx context.Context, client *ope
 		if grant.Permission != request.Permission || !permissionPatternsCovered(grant.Patterns, request.Patterns) {
 			continue
 		}
-		if err := client.replyPermission(ctx, request.ID, "once"); err != nil {
+		if err := client.replyPermission(ctx, request.SessionID, request.ID, "once"); err != nil {
 			return false, err
 		}
 		e.mu.Lock()
@@ -1135,7 +1187,7 @@ func openCodeWildcardMatch(pattern, target string) bool {
 
 func (e *harnessExecutor) addManagedQuestion(request openCodeQuestionRequest) {
 	interaction := ir.AgentInteraction{
-		ID: request.ID, Kind: ir.AgentInteractionQuestion, Status: ir.AgentInteractionPending,
+		ID: request.ID, SessionID: request.SessionID, Kind: ir.AgentInteractionQuestion, Status: ir.AgentInteractionPending,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	for _, question := range request.Questions {
