@@ -821,6 +821,9 @@ Put credentials in `headers`, never in the URL. Values of headers and URL query 
 Delegate a task to a remote A2A 1.0 agent over JSON-RPC and HTTPS without an LLM. `a2a.send` reads the Agent Card from `/.well-known/agent-card.json` below `agent_url`, sends one nonblocking `SendMessage` to the card's JSON-RPC 1.0 interface, and returns a Task or a direct Message. `a2a.get_task` reads one Task by ID. The remote agent owns the task; Dagu only submits and reads.
 
 ```yaml
+env:
+  - A2A_URL: https://agents.example.com/diag
+
 params:
   - ISSUE_ID: TICKET-123
 
@@ -873,9 +876,9 @@ steps:
 
 `with` fields: `agent_url`, `headers`, `tenant`; `a2a.send` also `message`, `context_id`, `return_immediately` (default true); `a2a.get_task` also `task_id`, `history_length`. When polling, set `history_length: 0` unless a later step reads `history`; without it the agent may return the whole history on every poll. Unknown fields fail validation. `agent_url` must be an absolute https URL without user info, a query string, or a fragment. `Content-Type`, `Accept`, `A2A-Version`, `Host`, `Content-Length`, `Idempotency-Key`, and `X-Idempotency-Key` cannot be set in `headers`.
 
-Credentials: `headers` go to the Agent Card request and to the JSON-RPC endpoint only when it is on the `agent_url` origin (scheme, host, and effective port). With headers set, a card that advertises another origin is refused, and redirects are never followed. Values of headers whose name contains `auth`, `key`, `token`, `secret`, `cookie`, or `password` are masked in the output and errors; values of other headers and object keys are not masked.
+Credentials: `headers` go to the Agent Card request and to the JSON-RPC endpoint only when it is on the `agent_url` origin (scheme, host, and effective port). With headers set, a card that advertises another origin is refused, and redirects are never followed. Set `agent_url` in the DAG, such as in `env`, not from `params`; otherwise whoever starts a run chooses where the credentials go. Values of headers whose name contains `auth`, `key`, `token`, `secret`, `cookie`, or `password` are masked in the output and errors; values of other headers and object keys are not masked.
 
-`a2a.send` never retries. If the response is lost after the request was sent, the step fails with `Outcome unknown`: the agent may have accepted the message, and a `retry_policy`, a rerun, or a `repeat_policy` on `a2a.send` (which submits on each iteration) can duplicate the remote work. Put `repeat_policy` only on `a2a.get_task`. The error output carries `message_id` to find the task on the agent. To resume a task in a new run, for example after Dagu restarted, start a DAG at `a2a.get_task` with the saved `agent_url`, `task_id`, and `tenant`; it sends nothing and resolves credentials from secrets again.
+`a2a.send` never retries. If the response is lost after the request was sent, the step fails with `Outcome unknown`: the agent may have accepted the message, and a `retry_policy`, a rerun, or a `repeat_policy` on `a2a.send` (which submits on each iteration) can duplicate the remote work. Put `repeat_policy` only on `a2a.get_task`. The error output carries `message_id` to find the task on the agent. To resume a task in a new run, for example after Dagu restarted, start a DAG at `a2a.get_task` with the same `agent_url`, set in that DAG, and the saved `task_id` and `tenant`; it sends nothing and resolves credentials from secrets again.
 
 A failed call writes `{"error": {"kind": "...", "message": "..."}}`, where `kind` is `discovery`, `auth`, `not_found`, `remote`, `protocol`, `transport`, `timeout`, `canceled`, or `output_limit`. A result larger than `max_output_size` (1MB by default) fails with `output_limit` when the step sets `output`; raise `max_output_size` or send `history_length`. `a2a.get_task` with `output` stops reading a response over twice `max_output_size`. Without `timeout_sec`, discovery and the call share the DAG timeout when one is set, otherwise a 60 second default deadline. Pass remote text to scripts through `env`, never inline in `run`. See `examples/a2a-delegate.yaml` and `examples/a2a-recover.yaml`.
 
