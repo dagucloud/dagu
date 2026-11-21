@@ -11,7 +11,8 @@ import (
 	"time"
 )
 
-var reDays = regexp.MustCompile(`(\d+)d`)
+// Match every digit and dot before "d" so ParseFloat validates the whole number.
+var reDays = regexp.MustCompile(`([\d.]+)d`)
 
 // ParseDuration extends time.ParseDuration with support for "d" (days = 24h).
 // Rejects empty strings and zero/negative durations.
@@ -22,12 +23,12 @@ func ParseDuration(s string) (time.Duration, error) {
 	}
 	var convErr error
 	s = reDays.ReplaceAllStringFunc(s, func(v string) string {
-		n, err := strconv.Atoi(strings.TrimSuffix(v, "d"))
+		n, err := strconv.ParseFloat(strings.TrimSuffix(v, "d"), 64)
 		if err != nil {
 			convErr = fmt.Errorf("invalid day value in %q: %w", v, err)
 			return v
 		}
-		return strconv.Itoa(n*24) + "h"
+		return strconv.FormatFloat(n*24, 'f', -1, 64) + "h"
 	})
 	if convErr != nil {
 		return 0, convErr
