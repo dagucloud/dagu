@@ -23,7 +23,8 @@ export type ToolSubRuns = Record<string, Record<string, SubRunRef[]>>;
  * step, with the id of each child run.
  */
 export function buildToolSubRuns(details?: DAGRunDetails | null): ToolSubRuns {
-  const runs: ToolSubRuns = {};
+  // No prototype: a step or a tool DAG can be named `constructor`.
+  const runs: ToolSubRuns = Object.create(null);
   for (const node of details?.nodes ?? []) {
     const step = node.step?.name;
     if (!step) continue;
@@ -33,7 +34,7 @@ export function buildToolSubRuns(details?: DAGRunDetails | null): ToolSubRuns {
       ...(node.subRuns ?? []),
     ]) {
       if (!sub.dagName) continue;
-      const own = (runs[step] ??= {});
+      const own = (runs[step] ??= Object.create(null));
       (own[sub.dagName] ??= []).push({
         dagRunId: sub.dagRunId,
         ...(sub.params ? { params: sub.params } : {}),
@@ -51,11 +52,13 @@ export function buildToolSubRuns(details?: DAGRunDetails | null): ToolSubRuns {
 export function buildToolCalls(
   details?: DAGRunDetails | null
 ): Record<string, Record<string, number>> {
-  const calls: Record<string, Record<string, number>> = {};
+  const calls: Record<string, Record<string, number>> = Object.create(null);
   for (const [step, byDag] of Object.entries(buildToolSubRuns(details))) {
-    calls[step] = Object.fromEntries(
-      Object.entries(byDag).map(([dag, list]) => [dag, list.length])
-    );
+    const counts: Record<string, number> = Object.create(null);
+    for (const [dag, list] of Object.entries(byDag)) {
+      counts[dag] = list.length;
+    }
+    calls[step] = counts;
   }
   return calls;
 }

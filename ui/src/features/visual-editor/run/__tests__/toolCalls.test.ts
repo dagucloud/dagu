@@ -40,6 +40,24 @@ describe('buildToolSubRuns', () => {
     expect(buildToolSubRuns(null)).toEqual({});
     expect(buildToolSubRuns(undefined)).toEqual({});
   });
+
+  // Step and DAG names are user-defined and can match Object.prototype keys.
+  it('keeps a step and a tool DAG named constructor', () => {
+    const details = {
+      nodes: [
+        {
+          step: { name: 'constructor' },
+          subRuns: [{ dagRunId: 'r1', dagName: 'constructor' }],
+        },
+      ],
+    } as unknown as DAGRunDetails;
+    expect(buildToolSubRuns(details)).toEqual({
+      constructor: { constructor: [{ dagRunId: 'r1' }] },
+    });
+    expect(buildToolCalls(details)).toEqual({
+      constructor: { constructor: 1 },
+    });
+  });
 });
 
 describe('buildToolCalls', () => {
