@@ -338,16 +338,16 @@ func (d *dagHistory) mark(key runKey) {
 }
 
 // runEnd returns the end of a run. A run with no end time takes the time of
-// its creation, its start, or else now.
+// its start, which is nearer its end, or of its creation, or else now.
 func (h *ServiceHistory) runEnd(run *ir.DAGRunStatus) time.Time {
 	if t := parseHistoryTime(run.FinishedAt); !t.IsZero() {
 		return t
 	}
-	if run.CreatedAt > 0 {
-		return time.UnixMilli(run.CreatedAt).UTC()
-	}
 	if t := parseHistoryTime(run.StartedAt); !t.IsZero() {
 		return t
+	}
+	if run.CreatedAt > 0 {
+		return time.UnixMilli(run.CreatedAt).UTC()
 	}
 	return h.cfg.Clock().UTC().Truncate(time.Millisecond)
 }

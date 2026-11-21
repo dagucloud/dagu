@@ -464,10 +464,13 @@ func (s *RestartScanner) statusToFollow(ctx context.Context, dag *ir.DAG) (ir.DA
 	if s.cfg.RecentRuns != nil && ended && (ok || observe) {
 		recent, err = s.cfg.RecentRuns(ctx, dag)
 	}
-	if observe {
-		// A history error is logged by History and never stops the DAG.
-		_ = s.cfg.History.Observe(ctx, dag, append([]ir.DAGRunStatus{latest}, recent...)...)
-		s.observed[dag.Name] = runStatusKeyOf(&latest)
+	// A status counts as observed only once History has taken it: a failed
+	// read or record is tried again at the next scan. A history error is
+	// logged by History and never stops the DAG.
+	if observe && err == nil {
+		if s.cfg.History.Observe(ctx, dag, append([]ir.DAGRunStatus{latest}, recent...)...) == nil {
+			s.observed[dag.Name] = runStatusKeyOf(&latest)
+		}
 	}
 	if err != nil {
 		return ir.DAGRunStatus{}, err
