@@ -8,14 +8,21 @@ import { cn } from '@/lib/utils';
 const BASE_CLASS =
   'nodrag nopan pointer-events-auto flex h-6 w-6 items-center justify-center rounded-full border-[1.5px] border-muted-foreground bg-card text-muted-foreground shadow-sm transition-opacity focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 
+/**
+ * The hover of an add button: the accent on the border and the icon, over a
+ * soft tint of the card colour. The tint is opaque, so the link behind the
+ * button does not show through it.
+ */
+const ADD_HOVER_CLASS =
+  'hover:border-primary hover:bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))] hover:text-primary';
+
 const KIND_CLASS = {
-  add: 'hover:border-primary hover:bg-primary hover:text-primary-foreground',
-  parallel:
-    'hover:border-primary hover:bg-primary hover:text-primary-foreground',
-  restore:
-    'hover:border-primary hover:bg-primary hover:text-primary-foreground',
+  add: ADD_HOVER_CLASS,
+  parallel: ADD_HOVER_CLASS,
+  restore: ADD_HOVER_CLASS,
+  // The trash takes the error colour, with the same soft tint.
   remove:
-    'hover:border-destructive hover:bg-destructive hover:text-destructive-foreground',
+    'hover:border-destructive hover:bg-[color-mix(in_srgb,var(--destructive)_12%,var(--card))] hover:text-destructive',
 } as const;
 
 const ICONS = {
