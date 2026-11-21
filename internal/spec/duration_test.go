@@ -25,6 +25,7 @@ func TestParseDuration(t *testing.T) {
 		{name: "days only", input: "7d", want: 7 * 24 * time.Hour},
 		{name: "fractional day", input: "1.5d", want: 36 * time.Hour},
 		{name: "fractional day with other units", input: "1.5d30m", want: 36*time.Hour + 30*time.Minute},
+		{name: "leading decimal day", input: ".5d", want: 12 * time.Hour},
 		{name: "malformed fractional day rejected", input: "1.5.5d", wantErr: true},
 		{name: "zero rejected", input: "0h", wantErr: true},
 		{name: "negative rejected", input: "-1h", wantErr: true},

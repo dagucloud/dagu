@@ -11,9 +11,8 @@ import (
 	"time"
 )
 
-// Match the whole numeric token so malformed values such as "1.5.5d" fail
-// ParseFloat instead of letting the regex pick off a valid trailing "5.5d".
-var reDays = regexp.MustCompile(`(\d+(?:\.\d+)*)d`)
+// Match every digit and dot before "d" so ParseFloat validates the whole number.
+var reDays = regexp.MustCompile(`([\d.]+)d`)
 
 // ParseDuration extends time.ParseDuration with support for "d" (days = 24h).
 // Rejects empty strings and zero/negative durations.
