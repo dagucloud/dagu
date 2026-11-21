@@ -390,6 +390,31 @@ func TestAvailabilityUptime(t *testing.T) {
 	}
 }
 
+// Each window of the availability has the uptime that Uptime gives for the
+// same span, over a history that spans the three tiers.
+func TestAvailabilityMatchesUptime(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, upOpts(clk))
+	const day = 24 * time.Hour
+	at := t0
+	for _, run := range []struct{ up, gap time.Duration }{
+		{20 * day, 2 * day}, {10 * day, 30 * time.Hour}, {5 * day, 7 * time.Hour}, {20 * time.Hour, 0},
+	} {
+		recordRun(t, r, clk, at, run.up)
+		at = at.Add(run.up + run.gap)
+	}
+	require.NoError(t, r.Close(context.Background()))
+	now := at.Add(90 * time.Minute)
+	av, err := OpenReaderWith(dir, Options{Now: func() time.Time { return now }}).Availability(context.Background(), now)
+	require.NoError(t, err)
+	for _, w := range av.Windows {
+		want := uptimeAt(t, dir, now, windowSpans[w.Window])
+		require.Positive(t, want.Up, w.Window)
+		require.Equal(t, want, w.Uptime, w.Window)
+	}
+}
+
 // A window in the past counts the up time between its two ends, on the
 // buckets of the tier. The reader does not count beyond its own time.
 func TestUptimePastWindow(t *testing.T) {

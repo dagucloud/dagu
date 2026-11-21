@@ -319,6 +319,14 @@ type count struct{ n, f uint64 }
 
 func (c *count) add(o count) { c.n += o.n; c.f += o.f }
 
+// windowSpans is the length of each availability window.
+var windowSpans = map[Window]time.Duration{
+	Window24h:  24 * time.Hour,
+	Window7d:   7 * 24 * time.Hour,
+	Window30d:  30 * 24 * time.Hour,
+	Window365d: 365 * 24 * time.Hour,
+}
+
 func (r *reader) Availability(ctx context.Context, nowT time.Time) (Availability, error) {
 	v := r.view(ctx)
 	now := nowT.Unix()
@@ -394,10 +402,16 @@ func (r *reader) Availability(ctx context.Context, nowT time.Time) (Availability
 		stat(Window30d, rawC, m, h30),
 		stat(Window365d, rawC, m, h, d),
 	}}
-	for i, w := range []time.Duration{24 * time.Hour, 7 * 24 * time.Hour, 30 * 24 * time.Hour, 365 * 24 * time.Hour} {
-		if av.Windows[i].Uptime, err = r.uptime(ctx, nowT.Add(-w), nowT, nowT); err != nil {
-			return av, err
-		}
+	wins := make([]upWindow, len(av.Windows))
+	for i, w := range av.Windows {
+		wins[i] = upWindow{nowT.Add(-windowSpans[w.Window]), nowT}
+	}
+	ups, err := r.uptimes(ctx, wins, nowT)
+	if err != nil {
+		return av, err
+	}
+	for i := range av.Windows {
+		av.Windows[i].Uptime = ups[i]
 	}
 	streak, last, err := v.streak()
 	if err != nil {

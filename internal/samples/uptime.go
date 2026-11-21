@@ -349,19 +349,25 @@ func scanUp(path string, lo, hi int64, fn func(sec, ms int64)) error {
 
 type upLine struct{ sec, ms int64 }
 
+// eachUp calls fn for the buckets of a tier with lo <= t < hi, in time order.
+func (s *store) eachUp(ctx context.Context, t Tier, lo, hi int64, fn func(sec, ms int64)) error {
+	for _, f := range s.listRange(t, lo, hi) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := scanUp(f.path, lo, hi, fn); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // upBuckets returns the up time of the buckets of a tier with lo <= t < hi, in
 // time order.
 func (s *store) upBuckets(ctx context.Context, t Tier, lo, hi int64) ([]upLine, error) {
 	var out []upLine
-	for _, f := range s.listRange(t, lo, hi) {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		if err := scanUp(f.path, lo, hi, func(sec, ms int64) { out = append(out, upLine{sec, ms}) }); err != nil {
-			return nil, err
-		}
-	}
-	return out, nil
+	err := s.eachUp(ctx, t, lo, hi, func(sec, ms int64) { out = append(out, upLine{sec, ms}) })
+	return out, err
 }
 
 // addUp adds up time to the bucket that starts at t. A bucket that has no
@@ -407,73 +413,97 @@ func (s Series) WithActive(start, last time.Time) Series {
 	return s
 }
 
-// upRange returns the up time of the buckets of a tier with lo <= t < hi, in
-// milliseconds.
-func (s *store) upRange(ctx context.Context, t Tier, lo, hi int64) (int64, error) {
-	var sum int64
-	for _, f := range s.listRange(t, lo, hi) {
-		if err := ctx.Err(); err != nil {
-			return 0, err
-		}
-		if err := scanUp(f.path, lo, hi, func(_, ms int64) { sum += ms }); err != nil {
-			return 0, err
-		}
-	}
-	return sum, nil
-}
-
 // Uptime returns the uptime of the window from `from` to `to`. Each part of the
 // window comes from the finest tier that holds it, and the boundaries are on
 // the buckets of that tier, so the window starts and ends on a bucket. The end
 // is not after the time of the reader.
 func (r *reader) Uptime(ctx context.Context, from, to time.Time) (Uptime, error) {
-	return r.uptime(ctx, from, to, r.now())
+	ups, err := r.uptimes(ctx, []upWindow{{from, to}}, r.now())
+	return ups[0], err
 }
 
-func (r *reader) uptime(ctx context.Context, from, to, now time.Time) (Uptime, error) {
-	up := newStore(filepath.Join(r.st.dir, upDirName))
+// upWindow is the window of an uptime query.
+type upWindow struct{ from, to time.Time }
+
+// upPart is the part of a window that one tier gives, in unix seconds.
+type upPart struct {
+	tier   Tier
+	lo, hi int64
+}
+
+// upParts splits the window [lo, hi) over the tiers at the time now: each part
+// comes from the finest tier that holds it, on the buckets of that tier. The
+// window ends at now at the latest.
+func upParts(lo, hi, now int64) []upPart {
 	const day = int64(24 * 3600)
-	n, lo := now.Unix(), from.Unix()
-	hi := min(to.Unix(), n)
-	h1 := ceilTo(n-7*day, 3600)
-	h0 := ceilTo(n-30*day, day)
-	parts := []struct {
-		tier   Tier
-		lo, hi int64
-	}{
+	hi = min(hi, now)
+	h1 := ceilTo(now-7*day, 3600)
+	h0 := ceilTo(now-30*day, day)
+	parts := []upPart{
 		{TierDay, ceilTo(lo, day), min(floorTo(hi, day), h0)},
 		{TierHour, ceilTo(max(lo, h0), 3600), min(floorTo(hi, 3600), h1)},
 		{TierMinute, ceilTo(max(lo, h1), 60), floorTo(hi, 60)},
 	}
-	parts = slices.DeleteFunc(parts, func(p struct {
-		tier   Tier
-		lo, hi int64
-	}) bool {
-		return p.lo >= p.hi
-	})
-	u := Uptime{Start: from.UTC(), To: from.UTC()}
+	return slices.DeleteFunc(parts, func(p upPart) bool { return p.lo >= p.hi })
+}
+
+// uptimes returns the uptime of each window. The windows share one read of the
+// newest end, of "up/since" and of each tier.
+func (r *reader) uptimes(ctx context.Context, wins []upWindow, now time.Time) ([]Uptime, error) {
+	var last time.Time
 	if end, ok := r.st.newestEnd(); ok {
-		u.Last = time.UnixMilli(end).UTC()
+		last = time.UnixMilli(end).UTC()
 	}
-	if len(parts) == 0 {
-		return u, nil
-	}
-	u.Start = time.Unix(parts[0].lo, 0).UTC()
-	u.To = time.Unix(parts[len(parts)-1].hi, 0).UTC()
-	if since, err := readSince(up.dir); err != nil {
-		return u, err
-	} else if since > 0 {
-		u.Since = time.UnixMilli(since).UTC()
-	}
-	if u.Since.IsZero() {
-		return u, nil
-	}
-	for _, p := range parts {
-		ms, err := up.upRange(ctx, p.tier, p.lo, p.hi)
-		if err != nil {
-			return u, err
+	out := make([]Uptime, len(wins))
+	parts := make([][]upPart, len(wins))
+	anyPart := false
+	for i, w := range wins {
+		out[i] = Uptime{Start: w.from.UTC(), To: w.from.UTC(), Last: last}
+		ps := upParts(w.from.Unix(), w.to.Unix(), now.Unix())
+		if len(ps) == 0 {
+			continue
 		}
-		u.Up += time.Duration(ms) * time.Millisecond
+		parts[i], anyPart = ps, true
+		out[i].Start = time.Unix(ps[0].lo, 0).UTC()
+		out[i].To = time.Unix(ps[len(ps)-1].hi, 0).UTC()
 	}
-	return u, nil
+	if !anyPart {
+		return out, nil
+	}
+	up := newStore(filepath.Join(r.st.dir, upDirName))
+	since, err := readSince(up.dir)
+	if err != nil || since == 0 {
+		return out, err
+	}
+	for i := range out {
+		if parts[i] != nil {
+			out[i].Since = time.UnixMilli(since).UTC()
+		}
+	}
+	for _, t := range upTiers {
+		lo, hi := int64(noLimit), int64(minInt)
+		for _, ps := range parts {
+			for _, p := range ps {
+				if p.tier == t {
+					lo, hi = min(lo, p.lo), max(hi, p.hi)
+				}
+			}
+		}
+		if lo >= hi {
+			continue
+		}
+		err := up.eachUp(ctx, t, lo, hi, func(sec, ms int64) {
+			for i, ps := range parts {
+				for _, p := range ps {
+					if p.tier == t && sec >= p.lo && sec < p.hi {
+						out[i].Up += time.Duration(ms) * time.Millisecond
+					}
+				}
+			}
+		})
+		if err != nil {
+			return out, err
+		}
+	}
+	return out, nil
 }
