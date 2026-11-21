@@ -732,10 +732,9 @@ describe('RunChip navigation', () => {
   it('disables Newer run on the latest run and Older run on the first', async () => {
     history.runs = [runDetails('r3')];
     renderChip();
-    // Older waits for the history. Newer is disabled at once, as Latest run
-    // is: the latest run has no newer run until the history shows a test run.
+    // Both wait for the history: a newer test run can exist.
     const newer = screen.getByRole('button', { name: 'Newer run' });
-    expect(newer).toBeDisabled();
+    expect(newer).toBeEnabled();
     const older = screen.getByRole('button', { name: 'Older run' });
     expect(older).toBeEnabled();
     await userEvent.click(older);

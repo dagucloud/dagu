@@ -45,6 +45,18 @@ steps:
       interval_sec: 1
 `;
 
+// The continuous step of a service DAG: only a service DAG shows the repeat
+// count in place of the progress. A stopped run does not start again.
+const CONTINUOUS_SERVICE = `
+restart_policy: unless-stopped
+steps:
+  - name: heartbeat
+    run: echo beat
+    repeat_policy:
+      repeat: while
+      interval_sec: 1
+`;
+
 // The continuous step runs while another step fails.
 const CONTINUOUS_FAILING = `
 steps:
@@ -510,8 +522,8 @@ test.describe('workspace run header', () => {
     });
     await sameAsReference('running run with progress');
 
-    // A run that never ends, with its repeat count.
-    const good = await createDAG(request, token, created, CONTINUOUS);
+    // A run of a service DAG that never ends, with its repeat count.
+    const good = await createDAG(request, token, created, CONTINUOUS_SERVICE);
     const goodRun = await startDAG(request, token, good.fileName);
     stopped.push({ dagName: good.dagName, runId: goodRun });
     await openWorkflow(page, gotoWorkspace, good.fileName);

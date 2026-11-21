@@ -111,11 +111,9 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
 
   const olderDisabled = historyReady ? olderId === null : !run.hasRun;
   // The latest run can have a newer test run in the timeline: the history
-  // decides, as it does for the older run. Until the history is read, the
-  // latest run of the workflow has no newer run, as Latest run shows.
-  const newerDisabled = historyReady
-    ? newerId === null
-    : !run.hasRun || (run.isLatest && !isEphemeralRun(details));
+  // decides, as it does for the older run. The first click reads it, so the
+  // arrow stays on until then.
+  const newerDisabled = historyReady ? newerId === null : !run.hasRun;
 
   const failedNode = run.failedStep
     ? run.nodeByStep.get(run.failedStep)

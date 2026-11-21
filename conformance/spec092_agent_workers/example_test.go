@@ -26,7 +26,9 @@ func TestCompleteExampleMatchesSpec(t *testing.T) {
 
 	doc, err := os.ReadFile("../../specs/092-agent-workers.md")
 	require.NoError(t, err)
-	_, afterHeading, found := strings.Cut(string(doc), "### Complete DAG\n")
+	// A Windows checkout can end the lines with CRLF.
+	text := strings.ReplaceAll(string(doc), "\r\n", "\n")
+	_, afterHeading, found := strings.Cut(text, "### Complete DAG\n")
 	require.True(t, found, "the spec has no section Complete DAG")
 	_, afterFence, found := strings.Cut(afterHeading, "```yaml\n")
 	require.True(t, found, "the section has no YAML block")
@@ -35,5 +37,5 @@ func TestCompleteExampleMatchesSpec(t *testing.T) {
 
 	fixture, err := os.ReadFile("testdata/dev-with-agent.yaml")
 	require.NoError(t, err)
-	assert.Equal(t, strings.TrimRight(string(fixture), "\n"), block)
+	assert.Equal(t, strings.TrimRight(strings.ReplaceAll(string(fixture), "\r\n", "\n"), "\n"), block)
 }
