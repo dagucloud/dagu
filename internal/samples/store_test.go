@@ -551,6 +551,9 @@ func openWith(t *testing.T, dir string, o Options) Recorder {
 	t.Helper()
 	r, err := OpenRecorder(context.Background(), dir, o)
 	require.NoError(t, err)
+	// An open file of the recorder blocks the removal of the temporary
+	// directory on Windows. Close is idempotent, so a test may still close it.
+	t.Cleanup(func() { _ = r.Close(context.Background()) })
 	return r
 }
 

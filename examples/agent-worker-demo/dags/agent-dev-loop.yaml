@@ -193,7 +193,7 @@ steps:
     untrusted: false
     working_dir: repo
     run: |
-      if git status --porcelain | cut -c4- | grep -Eq '^(scripts/|test_|\.github/)'; then
+      if [ -n "$(git status --porcelain -- scripts/ 'test_*' .github/)" ]; then
         echo "the agent changed a test, a script or the CI" >&2; exit 1
       fi
 
