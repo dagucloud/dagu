@@ -424,17 +424,6 @@ func parseDelimited(s, delimiter string) []string {
 }
 
 // parseQuotedStrings handles strings with quoted values like "item one" "item two"
-// isSpaceByte reports whether c is an ASCII whitespace byte. UTF-8
-// continuation bytes may coincide with Unicode whitespace code points when
-// interpreted as runes, so splitting on unicode.IsSpace(rune(b)) corrupts them.
-func isSpaceByte(c byte) bool {
-	switch c {
-	case ' ', '\t', '\n', '\v', '\f', '\r':
-		return true
-	}
-	return false
-}
-
 func parseQuotedStrings(s string) []string {
 	var result []string
 	var current strings.Builder
@@ -442,9 +431,9 @@ func parseQuotedStrings(s string) []string {
 	i := 0
 
 	for i < len(s) {
-		c := s[i]
+		r := rune(s[i])
 
-		if c == '"' {
+		if r == '"' {
 			if inQuotes {
 				// End of quoted string
 				result = append(result, current.String())
@@ -456,11 +445,11 @@ func parseQuotedStrings(s string) []string {
 			}
 		} else if inQuotes {
 			// Inside quotes, collect everything
-			current.WriteByte(c)
-		} else if !isSpaceByte(c) {
+			current.WriteRune(r)
+		} else if !unicode.IsSpace(r) {
 			// Outside quotes, collect non-space characters as unquoted value
-			for i < len(s) && !isSpaceByte(s[i]) && s[i] != '"' {
-				current.WriteByte(s[i])
+			for i < len(s) && !unicode.IsSpace(rune(s[i])) && rune(s[i]) != '"' {
+				current.WriteRune(rune(s[i]))
 				i++
 			}
 			if current.Len() > 0 {
