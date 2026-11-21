@@ -41,6 +41,8 @@ steps:
 
   # A Task is polled until it ends or needs a person. If the limit is reached
   # first, the step fails, but continue_on lets verify report the last state.
+  # history_length: 0 skips the message history, which no later step reads,
+  # so each poll stays small.
   - id: wait_for_task
     depends: send
     preconditions:
@@ -50,6 +52,7 @@ steps:
     with:
       agent_url: ${A2A_URL}
       task_id: ${SEND.task_id}
+      history_length: 0
       headers:
         Authorization: Bearer ${A2A_TOKEN}
     timeout_sec: 30

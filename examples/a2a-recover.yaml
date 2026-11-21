@@ -23,6 +23,7 @@ steps:
       agent_url: ${A2A_URL}
       task_id: ${TASK_ID}
       tenant: ${TENANT}
+      history_length: 0
       headers:
         Authorization: Bearer ${A2A_TOKEN}
     timeout_sec: 30
