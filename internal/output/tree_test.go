@@ -1572,3 +1572,14 @@ func TestWrapTextMultibyteBoundary(t *testing.T) {
 	}
 	assert.Equal(t, word, strings.Join(lines, ""))
 }
+
+func TestSubRunFailedTreatsPartiallySucceededAsSuccess(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, statusIsSuccess(ir.PartiallySucceeded))
+	assert.False(t, subRunFailed(ir.PartiallySucceeded),
+		"a partially successful sub-run succeeded, so it must not be ordered with failures")
+	assert.True(t, subRunFailed(ir.Failed))
+}
+
+func statusIsSuccess(s ir.Status) bool { return s.IsSuccess() }

@@ -694,7 +694,7 @@ func (r *Renderer) chooseSubRunsToExpand(statuses []*ir.DAGRunStatus) []bool {
 // subRunFailed reports whether a sub-run ended with a failure worth showing
 // first.
 func subRunFailed(status ir.Status) bool {
-	return status == ir.Failed || status == ir.Aborted || status == ir.Rejected || status == ir.PartiallySucceeded
+	return status == ir.Failed || status == ir.Aborted || status == ir.Rejected
 }
 
 // subRunStatusSuffix returns the "(name: status)" suffix of a resolved
