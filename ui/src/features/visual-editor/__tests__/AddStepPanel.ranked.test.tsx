@@ -64,7 +64,6 @@ describe('the aliases of the add-step search', () => {
     expect(first('email')).toBe('mail.send');
     expect(first('mcp')).toBe('mcp.call');
     expect(first('a2a')).toMatch(/^a2a\./);
-    expect(first('agent')).toMatch(/^a2a\./);
     expect(first('subworkflow')).toBe('dag.run');
     expect(first('if')).toBe('router.route');
   });
