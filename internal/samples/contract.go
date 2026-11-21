@@ -17,7 +17,7 @@ var ErrNotImplemented = errors.New("samples: not implemented")
 var ErrInvalidCursor = errors.New("samples: invalid cursor")
 
 // Sample is the record of one execution of a continuous step, or of one run
-// of a service DAG (specs/099-service-run-history.md).
+// of a service DAG (specs/100-service-run-history.md).
 type Sample struct {
 	// Time is the start of the execution, in UTC. It has millisecond precision.
 	Time time.Time

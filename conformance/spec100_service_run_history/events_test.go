@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package spec099_service_run_history_test
+package spec100_service_run_history_test
 
 import (
 	"os"

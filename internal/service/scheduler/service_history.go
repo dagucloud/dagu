@@ -17,7 +17,7 @@ import (
 )
 
 // The scheduler records one sample for each service run that ends
-// (specs/099-service-run-history.md). A store error never stops a DAG: the
+// (specs/100-service-run-history.md). A store error never stops a DAG: the
 // scheduler logs it and starts the next run as usual.
 
 const (

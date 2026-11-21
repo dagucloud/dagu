@@ -1,10 +1,10 @@
-# Spec 099: Service Run History
+# Spec 100: Service Run History
 
 ## Status
 
 Implemented.
 
-`conformance/spec099_service_run_history` checks the behavior of this spec with a local scheduler.
+`conformance/spec100_service_run_history` checks the behavior of this spec with a local scheduler.
 A run that a distributed worker executes has no conformance test. The scheduler records its sample
 from the status that the coordinator writes, as for a local run.
 
@@ -554,7 +554,7 @@ The activity of a service DAG in the DAG list, with a window of 24 hours:
 }
 ```
 
-The fixtures in `conformance/spec099_service_run_history/testdata` give a service DAG that always
+The fixtures in `conformance/spec100_service_run_history/testdata` give a service DAG that always
 succeeds, and a service DAG whose runs fail when a file exists.
 
 ## Test Scenarios
@@ -592,7 +592,7 @@ succeeds, and a service DAG whose runs fail when a file exists.
 
 ## Conformance
 
-`conformance/spec099_service_run_history/` checks the samples, the events, the import and the
+`conformance/spec100_service_run_history/` checks the samples, the events, the import and the
 retention. It also checks the gap after a stop of the scheduler, and the three queries and their
 errors. It checks `upMs` in the buckets, and the live part of the run in progress. It checks a window of three years and the activity of a service DAG in the DAG list. Each
 test starts a scheduler and a server with static fixtures.

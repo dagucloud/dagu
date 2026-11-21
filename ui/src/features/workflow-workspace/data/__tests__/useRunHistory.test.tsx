@@ -473,7 +473,7 @@ describe('useRunHistory with the test runs', () => {
 });
 
 // A service DAG runs often and each run sends an event: its runs are read at
-// most once in SERVICE_READ_GAP_MS (spec 099).
+// most once in SERVICE_READ_GAP_MS (spec 100).
 describe('useRunHistory of a service DAG', () => {
   beforeEach(() => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

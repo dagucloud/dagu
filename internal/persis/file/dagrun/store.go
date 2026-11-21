@@ -103,7 +103,7 @@ func (store *Store) dataRoot(dagName string) DataRoot {
 const runHistoryDirName = "run-history"
 
 // RunHistoryDir returns the directory of the run history of a DAG
-// (specs/099-service-run-history.md).
+// (specs/100-service-run-history.md).
 func (store *Store) RunHistoryDir(dagName string) string {
 	return filepath.Join(store.baseDir, dagDirName(dagName), runHistoryDirName)
 }

@@ -17,7 +17,7 @@ import (
 )
 
 // The handlers of the run history of a service DAG. See
-// specs/099-service-run-history.md.
+// specs/100-service-run-history.md.
 
 // hasRunHistory reports whether dir holds a run history.
 func hasRunHistory(dir string) bool {

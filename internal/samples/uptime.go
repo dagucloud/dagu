@@ -18,7 +18,7 @@ import (
 // The uptime of a run history is the time in which a run was active. A run
 // that lasts hours covers many buckets, so a sample cannot keep it: the
 // recorder splits the interval of each run over the buckets that it covers.
-// See specs/099-service-run-history.md.
+// See specs/100-service-run-history.md.
 //
 // The up time is in its own store, in the directory "up" of the run history:
 //

@@ -112,7 +112,7 @@ func (r *DAGRunRepository) RecentStatuses(ctx context.Context, name string, limi
 }
 
 // RunHistoryLocator is implemented by a DAG-run store that keeps the run
-// history of a DAG (specs/099-service-run-history.md) in a directory.
+// history of a DAG (specs/100-service-run-history.md) in a directory.
 type RunHistoryLocator interface {
 	// RunHistoryDir returns the directory of the run history of a DAG. The
 	// retention of the runs of the DAG never removes it.

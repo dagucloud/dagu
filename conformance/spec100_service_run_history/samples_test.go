@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package spec099_service_run_history_test
+package spec100_service_run_history_test
 
 import (
 	"fmt"
@@ -34,7 +34,7 @@ func TestOneSampleForEachRun(t *testing.T) {
 }
 
 // recorded returns the buckets that hold samples. A bucket with active time
-// and no sample is in the series with a count of 0 (spec 099).
+// and no sample is in the series with a count of 0 (spec 100).
 func recorded(series api.SampleSeries) []api.SampleBucket {
 	var out []api.SampleBucket
 	for _, b := range series.Buckets {

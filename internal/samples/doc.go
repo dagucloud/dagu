@@ -4,7 +4,7 @@
 // Package samples records the executions of a continuous step (a step that
 // repeats without a limit) or the runs of a service DAG as samples, rolls them
 // up in tiers, and answers the queries of the API. See
-// specs/083-continuous-runs.md and specs/099-service-run-history.md.
+// specs/083-continuous-runs.md and specs/100-service-run-history.md.
 //
 // # Layout
 //

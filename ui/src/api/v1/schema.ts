@@ -655,7 +655,7 @@ export interface paths {
         };
         /**
          * Retrieve the run history of a service DAG, in buckets
-         * @description Returns the runs of a service DAG as buckets of one tier (1 second, 1 minute, 1 hour or 24 hours), also for runs that the retention removed. The server picks the tier as for the samples of a continuous step. The response has at most `points` buckets and does not depend on the count of runs. See specs/099-service-run-history.md.
+         * @description Returns the runs of a service DAG as buckets of one tier (1 second, 1 minute, 1 hour or 24 hours), also for runs that the retention removed. The server picks the tier as for the samples of a continuous step. The response has at most `points` buckets and does not depend on the count of runs. See specs/100-service-run-history.md.
          */
         get: operations["getDAGRunHistorySamples"];
         put?: never;
@@ -7623,7 +7623,7 @@ export interface components {
             runs: components["schemas"]["DAGListActivityRun"][];
             /** @description True when the DAG has more runs in the window than runs lists */
             truncated: boolean;
-            /** @description For a service DAG: width of the tier of the buckets (spec 099) */
+            /** @description For a service DAG: width of the tier of the buckets (spec 100) */
             resolutionSeconds?: number;
             /** @description For a service DAG: the buckets of its run history in the window, at most 60, in time order. A bucket with no run and no active time is not listed. runs is then empty. */
             buckets?: components["schemas"]["SampleBucket"][];

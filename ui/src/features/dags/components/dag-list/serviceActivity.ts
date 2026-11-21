@@ -7,7 +7,7 @@ import { ACTIVITY_WINDOW_SECONDS } from './activityBarsModel';
 
 type Bucket = components['schemas']['SampleBucket'];
 
-/** The most cells that the strip of a service DAG draws (spec 099). */
+/** The most cells that the strip of a service DAG draws (spec 100). */
 export const SERVICE_MAX_CELLS = 60;
 /**
  * The share of failed runs from which a cell reads as an error. A cell with

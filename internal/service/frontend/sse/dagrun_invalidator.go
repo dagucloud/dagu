@@ -21,7 +21,7 @@ import (
 const defaultDAGRunInvalidationPollInterval = time.Second
 
 // serviceWakeWindow is the shortest time between two wakes of a topic that the
-// runs of service DAGs cause. See specs/099-service-run-history.md.
+// runs of service DAGs cause. See specs/100-service-run-history.md.
 const serviceWakeWindow = 10 * time.Second
 
 // wakeLimiter lets one wake of each key pass in each window. A wake inside the

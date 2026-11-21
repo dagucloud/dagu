@@ -42,7 +42,7 @@ export function useServiceState(fileName: string): ServiceDAGState | undefined {
 
 /**
  * A service DAG starts a run each second at the most, and each run sends an
- * event. Its runs are read at most once in this time (spec 099).
+ * event. Its runs are read at most once in this time (spec 100).
  */
 export const SERVICE_READ_GAP_MS = 10_000;
 

@@ -36,7 +36,7 @@ This spec does not define:
 - any change to a step that repeats with a `limit`
 - alerts and notifications on a failed sample
 - the run history of a service DAG. See
-  [Spec 099: Service Run History](099-service-run-history.md).
+  [Spec 100: Service Run History](100-service-run-history.md).
 
 ## Goal
 
@@ -155,7 +155,7 @@ The windows are the last 24 hours, 7 days, 30 days and 365 days. The server
 computes them from the finest tier that covers each part of the window.
 
 A continuous step has one figure for each window. The response of a step has no
-`uptime`. [Spec 099](099-service-run-history.md) adds the uptime for the run
+`uptime`. [Spec 100](100-service-run-history.md) adds the uptime for the run
 history of a service DAG.
 
 ### Status Record
@@ -266,7 +266,7 @@ one element for each sample.
 
 A run that has a continuous step keeps its normal status in every view, for
 example Running. A run reads Healthy only when its DAG is a service DAG
-(Spec 099). A cron DAG or a manual DAG with a continuous step reads Running.
+(Spec 100). A cron DAG or a manual DAG with a continuous step reads Running.
 
 ## Constraints
 

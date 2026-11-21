@@ -1057,7 +1057,7 @@ describe('DAGRuns page', () => {
 });
 
 // The runs of a service DAG leave the list: one row for each service DAG
-// takes their place (spec 099), over the window of the filters. A filter on
+// takes their place (spec 100), over the window of the filters. A filter on
 // the name, the run ID, the status or the labels shows the runs as they are.
 describe('DAGRuns page service DAGs', () => {
   const svc = { name: 'svc', fileName: 'svc.yaml' };
