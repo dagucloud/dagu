@@ -91,6 +91,7 @@ It must not be treated as product behavior until implementation catches up.
 | [097: Derived Dates](097-derived-dates.md) | Partially implemented |
 | [098: MCP Call Action](098-mcp-call.md) | Implemented |
 | [099: A2A Actions](099-a2a.md) | Implemented |
+| [100: Service Run History](100-service-run-history.md) | Partially implemented |
 
 **Writing guidelines:**
 
