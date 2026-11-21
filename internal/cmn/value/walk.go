@@ -26,7 +26,10 @@ func walkValue(ctx context.Context, v reflect.Value, transform stringTransform) 
 		if err != nil {
 			return v, err
 		}
-		return reflect.ValueOf(s), nil
+		// Preserve the original string type (e.g., custom types like Mode string)
+		result := reflect.New(v.Type()).Elem()
+		result.SetString(s)
+		return result, nil
 
 	case reflect.Pointer:
 		if v.IsNil() {

@@ -17,3 +17,10 @@ func TestCalculateBackoffInterval_NegativeAttemptCountClampsToZero(t *testing.T)
 	got := CalculateBackoffInterval(interval, 2.0, 0, -3)
 	require.Equal(t, interval, got)
 }
+
+func TestCalculateBackoffIntervalOverflowRespectsMax(t *testing.T) {
+	t.Parallel()
+
+	got := CalculateBackoffInterval(time.Second, 2.0, 10*time.Second, 64)
+	require.Equal(t, 10*time.Second, got)
+}
