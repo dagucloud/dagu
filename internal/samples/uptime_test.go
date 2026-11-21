@@ -415,6 +415,24 @@ func TestAvailabilityMatchesUptime(t *testing.T) {
 	}
 }
 
+// A reader sees the new up time of a bucket that a later run rewrites, after
+// it read the file once. The rewrite keeps the size of the file.
+func TestUptimeSeesRewrite(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	now := t0.Add(5 * time.Minute)
+	r := openWith(t, dir, upOpts(clk))
+	recordRun(t, r, clk, t0, 20*time.Second)
+	require.NoError(t, r.Close(ctx))
+	require.Equal(t, 20*time.Second, uptimeAt(t, dir, now, 24*time.Hour).Up)
+
+	r = openWith(t, dir, upOpts(clk))
+	recordRun(t, r, clk, t0.Add(30*time.Second), 20*time.Second)
+	require.NoError(t, r.Close(ctx))
+	require.Equal(t, 40*time.Second, uptimeAt(t, dir, now, 24*time.Hour).Up)
+}
+
 // A window in the past counts the up time between its two ends, on the
 // buckets of the tier. The reader does not count beyond its own time.
 func TestUptimePastWindow(t *testing.T) {

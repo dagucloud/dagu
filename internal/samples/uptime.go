@@ -13,6 +13,8 @@ import (
 	"slices"
 	"strconv"
 	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
 // The uptime of a run history is the time in which a run was active. A run
@@ -293,6 +295,8 @@ func (s *store) putUp(t Tier, sec, ms int64) error {
 	if err := writeFile(path, buf); err != nil {
 		return err
 	}
+	// A replacement within one modification time tick can keep the size.
+	upLines.Invalidate(path)
 	s.lastT[path] = times[len(times)-1]
 	return nil
 }
@@ -349,14 +353,47 @@ func scanUp(path string, lo, hi int64, fn func(sec, ms int64)) error {
 
 type upLine struct{ sec, ms int64 }
 
+// upLineCacheSize bounds the cached up files; the lines of a minute file take
+// about 23 KB.
+const upLineCacheSize = 128
+
+// upLines keeps the lines of up files across queries, because the availability
+// reads a week of minute files that rarely change.
+var upLines = fileutil.NewCache[[]upLine]("samples_up_lines", upLineCacheSize, aggCountTTL)
+
+// readUpLines returns the lines of an up file, in time order. A file is read
+// again when its size or modification time changes, when the store replaces
+// it, and at the latest after aggCountTTL.
+func readUpLines(path string) ([]upLine, error) {
+	lines, err := upLines.LoadLatest(path, func() ([]upLine, error) {
+		var out []upLine
+		err := scanUp(path, minInt, noLimit, func(sec, ms int64) { out = append(out, upLine{sec, ms}) })
+		return out, err
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		upLines.Invalidate(path)
+		return nil, nil
+	}
+	return lines, err
+}
+
 // eachUp calls fn for the buckets of a tier with lo <= t < hi, in time order.
 func (s *store) eachUp(ctx context.Context, t Tier, lo, hi int64, fn func(sec, ms int64)) error {
 	for _, f := range s.listRange(t, lo, hi) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := scanUp(f.path, lo, hi, fn); err != nil {
+		lines, err := readUpLines(f.path)
+		if err != nil {
 			return err
+		}
+		for _, l := range lines {
+			if l.sec >= hi {
+				break
+			}
+			if l.sec >= lo {
+				fn(l.sec, l.ms)
+			}
 		}
 	}
 	return nil
