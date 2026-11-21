@@ -121,7 +121,7 @@ func TestAIRelayMCP_RelaysWithTheRealToken(t *testing.T) {
 	assert.Equal(t, body, seen[0].body)
 
 	// The audit line names the target and the tool. It has no token.
-	records := f.audit.all()
+	records := f.audit.wait(t, 1)
 	require.Len(t, records, 1)
 	assert.Equal(t, "mcp", records[0].TargetKind)
 	assert.Equal(t, "docs", records[0].Name)

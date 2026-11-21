@@ -96,7 +96,7 @@ func TestAIRelay_ChatStepOverGRPC(t *testing.T) {
 	assert.Equal(t, relayRealKey, headers[0].Get("X-Api-Key"), "the provider gets the real key")
 	assert.NotEmpty(t, headers[0].Get("Anthropic-Version"))
 	assert.NotContains(t, stdout.String(), relayRealKey)
-	records := f.audit.all()
+	records := f.audit.wait(t, 1)
 	require.Len(t, records, 1)
 	assert.Equal(t, "messages", records[0].Route)
 	assert.Equal(t, "code", records[0].StepName)

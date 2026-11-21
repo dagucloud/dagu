@@ -92,6 +92,14 @@ func (a *auditSink) all() []aigateway.AuditRecord {
 	return append([]aigateway.AuditRecord(nil), a.records...)
 }
 
+// wait returns the records once there are n. The coordinator writes the line
+// when its handler returns, which can be after the client has the response.
+func (a *auditSink) wait(t *testing.T, n int) []aigateway.AuditRecord {
+	t.Helper()
+	require.Eventually(t, func() bool { return len(a.all()) >= n }, 5*time.Second, 10*time.Millisecond)
+	return a.all()
+}
+
 type relayOptions struct {
 	handler      http.HandlerFunc
 	limits       func(*aigateway.Limits)
@@ -456,7 +464,7 @@ func TestAIRelay_CheckAndRelayWithTheRealKey(t *testing.T) {
 	assert.Equal(t, relayRealKey, headers[0].Get("X-Api-Key"), "the provider gets the real key")
 	assert.NotContains(t, strings.Join(headers[0].Values("X-Api-Key"), ","), "placeholder")
 
-	records := f.audit.all()
+	records := f.audit.wait(t, 1)
 	require.Len(t, records, 1)
 	assert.Equal(t, "messages", records[0].Route)
 	assert.Equal(t, "worker-1", records[0].WorkerID)
@@ -1014,7 +1022,7 @@ func TestAIRelay_IdentityRefusalHasAnAuditLine(t *testing.T) {
 	other := f.relayClient("worker-cert", "worker-2", f.attemptK, f.attemptI)
 	failure := asFailure(t, other.Relay(context.Background(), relayStep, aigateway.EndpointTarget("cle1"), postMessages("{}"), strings.NewReader("{}"), newMemSink()))
 	require.Equal(t, aigateway.ReasonEndpointForbidden, failure.Reason)
-	records := f.audit.all()
+	records := f.audit.wait(t, 1)
 	require.Len(t, records, 1)
 	assert.Empty(t, records[0].RunID, "a refusal of the identity has no run ID")
 	assert.Equal(t, "worker-2", records[0].WorkerID)
