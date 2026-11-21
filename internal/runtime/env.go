@@ -347,15 +347,27 @@ func dagWorkingDir(ctx context.Context, dag *ir.DAG, rCtx Context) string {
 
 func dagWorkingDirStrict(ctx context.Context, dag *ir.DAG, rCtx Context) (string, error) {
 	if dag != nil && dag.WorkingDirExplicit && dag.WorkingDir != "" {
-		return expandDAGWorkingDirStrict(ctx, dag.WorkingDir, rCtx)
+		return expandDAGWorkingDirStrict(ctx, dag, dag.WorkingDir, rCtx)
 	}
 	if workDir := dagRunWorkDir(rCtx); workDir != "" {
 		return workDir, nil
 	}
 	if dag != nil && dag.WorkingDir != "" {
-		return expandDAGWorkingDirStrict(ctx, dag.WorkingDir, rCtx)
+		return expandDAGWorkingDirStrict(ctx, dag, dag.WorkingDir, rCtx)
 	}
 	return "", nil
+}
+
+// ResolveDAGWorkingDir resolves a DAG-level working_dir with the value
+// resolution the runtime applies before a step runs: declared params, consts,
+// the environment scope and a leading ~. Unlike expandDAGWorkingDir it reports
+// an error instead of falling back to the raw value, so a caller that is about
+// to create the directory never acts on a reference it could not resolve.
+func ResolveDAGWorkingDir(ctx context.Context, dag *ir.DAG, rCtx Context) (string, error) {
+	if dag == nil || dag.WorkingDir == "" {
+		return "", nil
+	}
+	return expandDAGWorkingDirStrict(ctx, dag, dag.WorkingDir, rCtx)
 }
 
 func dagRunWorkDir(rCtx Context) string {
@@ -393,8 +405,11 @@ func expandDAGWorkingDir(ctx context.Context, workingDir string, rCtx Context) s
 	return wd
 }
 
-func expandDAGWorkingDirStrict(ctx context.Context, workingDir string, rCtx Context) (string, error) {
-	wd, err := expandRuntimeValue(ctx, workingDir, rCtx, rCtx.DAG, rCtx.EnvScope, ir.Step{}, cmnvalue.DAGWorkingDirField("working_dir"), nil)
+// The DAG that owns workingDir is passed explicitly: the run context may not
+// carry one yet when the agent resolves the directory at start-up, and a nil
+// DAG would silently drop every declared param from the resolution.
+func expandDAGWorkingDirStrict(ctx context.Context, dag *ir.DAG, workingDir string, rCtx Context) (string, error) {
+	wd, err := expandRuntimeValue(ctx, workingDir, rCtx, dag, rCtx.EnvScope, ir.Step{}, cmnvalue.DAGWorkingDirField("working_dir"), nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to evaluate working directory %q: %w", workingDir, err)
 	}
