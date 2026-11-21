@@ -115,6 +115,7 @@ type OpenCodeDef struct {
 type BrowserDef struct {
 	Sandbox                 *bool                         `mapstructure:"sandbox"`
 	MaxOpen                 *int                          `mapstructure:"max_open"`
+	SlotsDir                string                        `mapstructure:"slots_dir"`
 	ClientCertificates      []BrowserClientCertificateDef `mapstructure:"client_certificates"`
 	TrustedCAs              []BrowserTrustedCADef         `mapstructure:"trusted_cas"`
 	GuardClientCertificates *bool                         `mapstructure:"guard_client_certificates"`

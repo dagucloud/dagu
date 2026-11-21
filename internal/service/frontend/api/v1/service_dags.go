@@ -304,7 +304,7 @@ func toServiceDAGRun(status ir.DAGRunStatus) *api.ServiceDAGRun {
 
 // runEnded reports whether a run with the status has ended.
 func runEnded(status ir.Status) bool {
-	return !status.IsActive() && status != ir.NotStarted
+	return status.IsTerminal()
 }
 
 // parseRunTime reads a time that a run status stores, in any format that the

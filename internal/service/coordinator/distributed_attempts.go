@@ -70,7 +70,7 @@ func (o *attemptOwnership) statusDecision(
 	if !sameAttemptStatus(latest, incoming) {
 		return false, remoteAttemptRejectedSuperseded
 	}
-	if !isTerminalRunStatus(latest.Status) {
+	if !latest.Status.IsTerminal() {
 		return true, ""
 	}
 	claimKey := opts.ClaimKey
@@ -585,12 +585,8 @@ func (o *attemptOwnership) indexedRunMatchesStatus(
 	return true
 }
 
-func isTerminalRunStatus(status ir.Status) bool {
-	return status != ir.NotStarted && !status.IsActive()
-}
-
 func isCancellableTerminalRunStatus(status ir.Status) bool {
-	return isTerminalRunStatus(status) && !status.IsSuccess()
+	return status.IsTerminal() && !status.IsSuccess()
 }
 
 func sameAttemptStatus(current, incoming *ir.DAGRunStatus) bool {

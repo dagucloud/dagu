@@ -245,6 +245,12 @@ the limit waits for one to close, within the step's timeout, and the step
 reports that it is waiting. A browser counts until its process exits. `0`, the
 default, sets no limit, and a DAG cannot change it.
 
+Browsers are counted in `browser.slots_dir`, or the environment variable
+`DAGU_BROWSER_SLOTS_DIR`, which defaults to `dagu/browser-slots` in the user's
+cache directory. Every Dagu process counting in the same directory shares the
+limit, so Dagu instances on one host with data directories of their own still
+keep one, each against its own `browser.max_open`.
+
 ### Client certificates
 
 `client_certificates` lists TLS client certificates and the hosts each is

@@ -71,6 +71,11 @@ type BrowserConfig struct {
 	// browser steps and browser sessions; a browser past it waits for one
 	// to close. Zero sets no limit.
 	MaxOpen int
+	// SlotsDir is where the browsers open on this host are counted toward
+	// MaxOpen. Every Dagu process counting in the same directory shares
+	// the limit, whatever its data directory. Empty counts them under the
+	// data directory, for this Dagu instance alone.
+	SlotsDir string
 	// ClientCertificates are presented by every browser started on this
 	// host, after the certificates a step names itself.
 	ClientCertificates []BrowserClientCertificate

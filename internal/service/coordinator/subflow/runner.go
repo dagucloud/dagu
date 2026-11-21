@@ -538,7 +538,7 @@ func (r *Runner) waitForCancellation(
 		}
 		lastStatus = status
 
-		if status != nil && !status.Status.IsActive() && status.Status != ir.NotStarted {
+		if status != nil && status.Status.IsTerminal() {
 			return status, nil
 		}
 

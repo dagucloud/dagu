@@ -584,11 +584,15 @@ func (l *ConfigLoader) loadCoreConfig(cfg *Config, def Definition) error {
 	cfg.Browser = BrowserConfig{
 		NoSandbox:   !l.v.GetBool("browser.sandbox"),
 		MaxOpen:     l.v.GetInt("browser.max_open"),
+		SlotsDir:    fileutil.ResolvePathOrBlank(strings.TrimSpace(l.v.GetString("browser.slots_dir"))),
 		WriteGate:   strings.TrimSpace(l.v.GetString("browser.write_gate")),
 		WritePolicy: strings.TrimSpace(l.v.GetString("browser.write_policy")),
 	}
 	if cfg.Browser.MaxOpen < 0 {
 		return fmt.Errorf("browser.max_open must not be negative, got %d", cfg.Browser.MaxOpen)
+	}
+	if cfg.Browser.SlotsDir == "" {
+		cfg.Browser.SlotsDir = defaultBrowserSlotsDir()
 	}
 	if mode := cfg.Browser.WriteGate; mode != "" && !slices.Contains(BrowserWriteGateModes, mode) {
 		return fmt.Errorf("browser.write_gate must be one of %s, got %q", strings.Join(BrowserWriteGateModes, ", "), mode)
@@ -2484,6 +2488,7 @@ var envBindings = []envBinding{
 	{key: "opencode.env_passthrough", env: "OPENCODE_ENV_PASSTHROUGH"},
 	{key: "browser.sandbox", env: "BROWSER_SANDBOX"},
 	{key: "browser.max_open", env: "BROWSER_MAX_OPEN"},
+	{key: "browser.slots_dir", env: "BROWSER_SLOTS_DIR"},
 	{key: "browser.guard_client_certificates", env: "BROWSER_GUARD_CLIENT_CERTIFICATES"},
 	{key: "browser.write_gate", env: "BROWSER_WRITE_GATE"},
 	{key: "browser.write_policy", env: "BROWSER_WRITE_POLICY", isPath: true},
@@ -2840,6 +2845,19 @@ func cleanServerBasePath(s string) string {
 		return ""
 	}
 	return cleanPath
+}
+
+// defaultBrowserSlotsDir is where browsers count toward browser.max_open
+// unless browser.slots_dir says otherwise: the user's cache directory, which
+// every Dagu process the user runs on the host shares, so instances with data
+// directories of their own still keep one limit. It is empty when the user
+// has no cache directory.
+func defaultBrowserSlotsDir() string {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(cache, AppSlug, "browser-slots")
 }
 
 func getHomeDir() (string, error) {

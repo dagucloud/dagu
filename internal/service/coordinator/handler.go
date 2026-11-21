@@ -762,7 +762,7 @@ func (h *Handler) releaseAdmissionToken(ctx context.Context, token string) {
 
 func (h *Handler) finalizeAdmissionForStatus(ctx context.Context, status *ir.DAGRunStatus, attemptID string) {
 	if h.dispatchAdmissionStore == nil || status == nil ||
-		(status.Status != ir.Waiting && !isTerminalRunStatus(status.Status)) {
+		(status.Status != ir.Waiting && !status.Status.IsTerminal()) {
 		return
 	}
 	attemptKey := dispatch.AttemptKeyForStatus(status, attemptID)
@@ -2265,7 +2265,7 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	}
 
 	ownership := h.attemptOwnership()
-	if leaseMissing && latestStatus.Status != ir.NotStarted && !isTerminalRunStatus(latestStatus.Status) {
+	if leaseMissing && latestStatus.Status != ir.NotStarted && !latestStatus.Status.IsTerminal() {
 		logRejectedRemoteStatusUpdate(ctx, req.WorkerId, dagRunStatus, latestStatus, remoteAttemptRejectedLeaseInactive)
 		return &coordinatorv1.ReportStatusResponse{Accepted: false, Error: remoteAttemptRejectedLeaseInactive}, nil
 	}
@@ -2448,7 +2448,7 @@ func (h *Handler) closeCachedInactiveAttempt(
 	if status == nil || attempt == nil {
 		return
 	}
-	if status.Status != ir.Waiting && !isTerminalRunStatus(status.Status) {
+	if status.Status != ir.Waiting && !status.Status.IsTerminal() {
 		return
 	}
 	h.closeCachedAttemptForRun(ctx, context.WithoutCancel(ctx), status.DAGRunID, attempt.ID())
@@ -2492,7 +2492,7 @@ func (h *Handler) bootstrapMissingSubAttempt(
 		}
 		return nil, false, fmt.Errorf("read root status: %w", err)
 	}
-	if rootStatus == nil || isTerminalRunStatus(rootStatus.Status) {
+	if rootStatus == nil || rootStatus.Status.IsTerminal() {
 		return nil, false, nil
 	}
 
@@ -3293,7 +3293,7 @@ func (h *Handler) reconcileLease(ctx context.Context, lease dispatch.DAGRunLease
 	if reconciledStatus == nil {
 		return
 	}
-	if reconciledStatus.AttemptID != attemptID || (!reconciledStatus.Status.IsActive() && reconciledStatus.Status != ir.NotStarted) {
+	if reconciledStatus.AttemptID != attemptID || reconciledStatus.Status.IsTerminal() {
 		ownership.deleteTracking(ctx, context.WithoutCancel(ctx), lease.DAGRun, lease.AttemptKey,
 			"Failed to delete superseded distributed lease after reconciliation",
 			"Failed to delete superseded active distributed run after reconciliation",
@@ -3380,7 +3380,7 @@ func (h *Handler) reconcileRemoteStatuses(ctx context.Context, now time.Time) {
 		if reconciledStatus == nil {
 			continue
 		}
-		if reconciledStatus.AttemptID != leaseState.attemptID || (!reconciledStatus.Status.IsActive() && reconciledStatus.Status != ir.NotStarted) {
+		if reconciledStatus.AttemptID != leaseState.attemptID || reconciledStatus.Status.IsTerminal() {
 			ownership.deleteTracking(ctx, context.WithoutCancel(ctx), status.DAGRun(), leaseState.attemptKey,
 				"Failed to delete superseded orphaned distributed lease after reconciliation",
 				"Failed to delete superseded orphaned active distributed run after reconciliation",
@@ -3484,7 +3484,7 @@ func (h *Handler) reconcileActiveRuns(ctx context.Context, now time.Time) {
 		if reconciledStatus == nil {
 			continue
 		}
-		if reconciledStatus.AttemptID != record.AttemptID || (!reconciledStatus.Status.IsActive() && reconciledStatus.Status != ir.NotStarted) {
+		if reconciledStatus.AttemptID != record.AttemptID || reconciledStatus.Status.IsTerminal() {
 			ownership.deleteTracking(ctx, context.WithoutCancel(ctx), record.DAGRun, record.AttemptKey,
 				"Failed to delete superseded indexed distributed lease after reconciliation",
 				"Failed to delete superseded indexed active distributed run after reconciliation",
@@ -3671,7 +3671,7 @@ func (h *Handler) failCurrentRemoteAttempt(
 		)
 		return
 	}
-	if status.AttemptID != attemptID || (!status.Status.IsActive() && status.Status != ir.NotStarted) {
+	if status.AttemptID != attemptID || status.Status.IsTerminal() {
 		h.attemptOwnership().deleteTracking(ctx, storeCtx, dagRun, attemptKey,
 			"Failed to delete superseded distributed lease",
 			"Failed to delete superseded active distributed run",
@@ -3770,7 +3770,7 @@ func (h *Handler) markRunFailed(ctx context.Context, dagName, dagRunID, reason s
 		return
 	}
 
-	if !dagRunStatus.Status.IsActive() && dagRunStatus.Status != ir.NotStarted {
+	if dagRunStatus.Status.IsTerminal() {
 		return
 	}
 

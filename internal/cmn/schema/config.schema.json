@@ -1228,6 +1228,10 @@
           "description": "The most browsers open at once on this host, counting browser steps and browser sessions. A browser past it waits for one to close. 0 sets no limit.",
           "default": 0
         },
+        "slots_dir": {
+          "type": "string",
+          "description": "Where browsers are counted toward max_open. Every Dagu process counting in the same directory shares the limit, whatever its data directory. Defaults to dagu/browser-slots in the user's cache directory, which every Dagu process the user runs on the host shares."
+        },
         "guard_client_certificates": {
           "type": "boolean",
           "description": "Send a browser's other HTTPS requests through the certificate proxy too, so the browser never asks the operating system for a client certificate; a site that asks for one gets none and the step says so. Defaults to on whenever the browser presents client certificates."
