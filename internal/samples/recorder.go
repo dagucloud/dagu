@@ -21,10 +21,15 @@ type recorder struct {
 	st     *store
 	now    func() time.Time
 	closed bool
+	opts   Options
 
 	trk        tracker
 	lastEvent  int64 // ms of the last event written
 	lastSample int64 // ms of the newest sample
+	lastEnd    int64 // ms of the end of the newest sample
+	hasEnd     bool
+
+	up *upState // nil unless Options.Uptime is set
 
 	// The minute that is open.
 	hasMinute bool
@@ -43,13 +48,26 @@ func openRecorder(ctx context.Context, dir string, opts Options) (*recorder, err
 	if now == nil {
 		now = time.Now
 	}
-	r := &recorder{st: newStore(dir), now: now}
+	r := &recorder{st: newStore(dir), now: now, opts: opts}
+	// The repair can remove the raw file of the newest sample, so the end of the
+	// sample is read before it.
+	r.lastEnd, r.hasEnd = r.st.newestEnd()
 	if err := r.st.repair(now().Unix()); err != nil {
 		return nil, err
 	}
+	if opts.Uptime {
+		up, err := openUp(dir, r.lastEnd)
+		if err != nil {
+			return nil, err
+		}
+		if err := up.prune(now().Unix()); err != nil {
+			return nil, err
+		}
+		r.up = up
+	}
 	// The newest stored sample bounds the time of the next one, and its minute
 	// opens again: a crash wrote no aggregate of it.
-	if ms, ok := r.st.newestRaw(); ok {
+	if ms, _, ok := r.st.newestRaw(); ok {
 		r.lastSample = ms
 		if err := r.beginMinute(floorTo(ms/1000, 60)); err != nil {
 			return nil, err
@@ -60,8 +78,10 @@ func openRecorder(ctx context.Context, dir string, opts Options) (*recorder, err
 		return nil, err
 	}
 	r.trk, r.lastEvent = trk, last
-	if err := r.writeEvent(Event{Time: now().UTC(), Kind: EventStarted}); err != nil {
-		return nil, err
+	if !opts.NoLifecycleEvents {
+		if err := r.writeEvent(Event{Time: now().UTC(), Kind: EventStarted}); err != nil {
+			return nil, err
+		}
 	}
 	return r, nil
 }
@@ -70,7 +90,13 @@ func (r *recorder) writeEvent(e Event) error {
 	// The file stays in time order, for the cursor and for the scan of a window.
 	e.Time = time.UnixMilli(max(e.Time.UnixMilli(), r.lastEvent)).UTC()
 	r.lastEvent = e.Time.UnixMilli()
-	return r.st.appendEvent(e)
+	if err := r.st.appendEvent(e); err != nil {
+		return err
+	}
+	if r.opts.MaxEventBytes > 0 {
+		return r.st.compactEvents(r.opts.MaxEventBytes)
+	}
+	return nil
 }
 
 func (s *store) appendEvent(e Event) error {
@@ -108,7 +134,16 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 	if s.ExitCode == 0 {
 		msg = ""
 	}
+	// A gap is not in an outage, and it comes before the events of the sample.
+	if gap := time.Duration(ms-r.lastEnd) * time.Millisecond; s.GapAfter > 0 && r.hasEnd && !r.trk.inOutage && gap > s.GapAfter {
+		e := Event{Time: time.UnixMilli(r.lastEnd).UTC(), Kind: EventGap, Gap: gap, RunID: s.RunID}
+		if err := r.writeEvent(e); err != nil {
+			return err
+		}
+	}
+	r.lastEnd, r.hasEnd = ms+us/1000, true
 	if e, ok := r.trk.observe(ms, s.ExitCode, msg); ok {
+		e.RunID = s.RunID
 		if err := r.writeEvent(e); err != nil {
 			return err
 		}
@@ -116,10 +151,14 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 	hourStart, _ := fileSpan(TierRaw, r.minute)
 	r.buf = appendRaw(r.buf, ms-hourStart*1000, us, s.ExitCode, msg, &r.bufMsg)
 	r.acc.add(us, s.ExitCode != 0)
-	if len(r.buf) >= rawFlushBytes {
-		return r.writeRaw()
+	var err error
+	if r.opts.WriteEach || len(r.buf) >= rawFlushBytes {
+		err = r.writeRaw()
 	}
-	return nil
+	if r.up != nil {
+		err = errors.Join(err, r.up.add(ms, ms+us/1000, s.ActiveGap.Milliseconds(), r.now().UnixMilli()))
+	}
+	return err
 }
 
 // beginMinute opens the minute of the newest stored sample. The samples that
@@ -180,6 +219,11 @@ func (r *recorder) closeMinute(next int64) error {
 		}
 	}
 	if floorTo(next, 3600) != floorTo(r.minute, 3600) {
+		if r.up != nil {
+			if err := r.up.prune(r.now().Unix()); err != nil {
+				return err
+			}
+		}
 		return r.st.prune(r.now().Unix())
 	}
 	return nil
@@ -201,6 +245,11 @@ func (r *recorder) flush() error {
 	if err := r.writeRaw(); err != nil {
 		return err
 	}
+	if r.up != nil {
+		if err := r.up.flush(); err != nil {
+			return err
+		}
+	}
 	return r.st.syncAll()
 }
 
@@ -212,6 +261,9 @@ func (r *recorder) Close(_ context.Context) error {
 	}
 	r.closed = true
 	err := r.finish()
+	if r.up != nil {
+		err = errors.Join(err, r.up.close())
+	}
 	return errors.Join(err, r.st.closeAll())
 }
 
@@ -234,6 +286,9 @@ func (r *recorder) finish() error {
 				return err
 			}
 		}
+	}
+	if r.opts.NoLifecycleEvents {
+		return r.st.syncAll()
 	}
 	// The stop is not before the samples it ends, so that the next start counts
 	// no failed sample of them twice.
