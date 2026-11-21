@@ -828,6 +828,43 @@ func TestOutageAfterCompaction(t *testing.T) {
 	require.EqualValues(t, 4, e.FailedCount)
 }
 
+// A compaction that fails does not lose the sample whose event was appended,
+// and the next sample compacts the file.
+func TestRecordAfterFailedCompaction(t *testing.T) {
+	const bound = 4 << 10
+	ctx := context.Background()
+	dir := t.TempDir()
+	var fill []byte
+	for i := range 200 {
+		fill = append(fill, Event{Time: t0.Add(time.Duration(i) * time.Second), Kind: EventGap, Gap: time.Second}.encode()...)
+	}
+	require.Greater(t, len(fill), bound)
+	events := filepath.Join(dir, eventsFileName)
+	require.NoError(t, os.WriteFile(events, fill, 0o600))
+	// A directory at the temporary path makes the compaction fail.
+	require.NoError(t, os.Mkdir(events+tmpSuffix, 0o750))
+
+	clk := &clock{t: t0.Add(time.Hour)}
+	o := Options{Now: clk.now, NoLifecycleEvents: true, WriteEach: true, MaxEventBytes: bound}
+	r := openWith(t, dir, o)
+	failed := Sample{Time: clk.t, Duration: time.Second, ExitCode: 1, Message: "x"}
+	require.Error(t, r.Record(ctx, failed))
+	end, ok, err := NewestEnd(dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, failed.Time.Add(time.Second), end, "the sample is stored")
+
+	require.NoError(t, os.Remove(events+tmpSuffix))
+	clk.t = clk.t.Add(time.Minute)
+	require.NoError(t, r.Record(ctx, Sample{Time: clk.t, Duration: time.Second}))
+	require.NoError(t, r.Close(ctx))
+	st, err := os.Stat(events)
+	require.NoError(t, err)
+	require.LessOrEqual(t, st.Size(), int64(bound))
+	require.Equal(t, []EventKind{EventRecovered, EventFailed}, kinds(allEvents(t, dir))[:2])
+	require.NotContains(t, kinds(allEvents(t, dir))[2:], EventFailed)
+}
+
 func TestNewestEnd(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "store")
 	_, ok, err := NewestEnd(dir)

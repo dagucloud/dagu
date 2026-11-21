@@ -28,6 +28,7 @@ type recorder struct {
 	lastSample int64 // ms of the newest sample
 	lastEnd    int64 // ms of the end of the newest sample
 	hasEnd     bool
+	compactDue bool // an event was appended since the last compaction
 
 	up *upState // nil unless Options.Uptime is set
 
@@ -82,6 +83,9 @@ func openRecorder(ctx context.Context, dir string, opts Options) (*recorder, err
 		if err := r.writeEvent(Event{Time: now().UTC(), Kind: EventStarted}); err != nil {
 			return nil, err
 		}
+		if err := r.boundEvents(); err != nil {
+			return nil, err
+		}
 	}
 	return r, nil
 }
@@ -93,9 +97,21 @@ func (r *recorder) writeEvent(e Event) error {
 	if err := r.st.appendEvent(e); err != nil {
 		return err
 	}
-	if r.opts.MaxEventBytes > 0 {
-		return r.st.compactEvents(r.opts.MaxEventBytes)
+	r.compactDue = r.opts.MaxEventBytes > 0
+	return nil
+}
+
+// boundEvents compacts the events file after an append, once the file passes
+// Options.MaxEventBytes. Record calls it after it stored the sample, so that a
+// failed compaction loses no sample; the next Record tries it again.
+func (r *recorder) boundEvents() error {
+	if !r.compactDue {
+		return nil
 	}
+	if err := r.st.compactEvents(r.opts.MaxEventBytes); err != nil {
+		return err
+	}
+	r.compactDue = false
 	return nil
 }
 
@@ -163,7 +179,7 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 	if r.up != nil {
 		err = errors.Join(err, r.up.add(ms, ms+us/1000, s.ActiveGap.Milliseconds(), r.now().UnixMilli()))
 	}
-	return err
+	return errors.Join(err, r.boundEvents())
 }
 
 // beginMinute opens the minute of the newest stored sample. The samples that
@@ -293,7 +309,7 @@ func (r *recorder) finish() error {
 		}
 	}
 	if r.opts.NoLifecycleEvents {
-		return r.st.syncAll()
+		return errors.Join(r.boundEvents(), r.st.syncAll())
 	}
 	// The stop is not before the samples it ends, so that the next start counts
 	// no failed sample of them twice.
@@ -304,7 +320,7 @@ func (r *recorder) finish() error {
 	if err := r.writeEvent(stopped); err != nil {
 		return err
 	}
-	return r.st.syncAll()
+	return errors.Join(r.boundEvents(), r.st.syncAll())
 }
 
 // OpenRecorder opens the store of a step for writing, and builds the roll-ups
