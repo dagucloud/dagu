@@ -148,6 +148,30 @@ func TestOutputLimit(t *testing.T) {
 	assert.Contains(t, out, big)
 }
 
+// A task body far over the capture limit is refused while it is read, before
+// it is decoded; without output: the same task is read in full.
+func TestOutputLimitCapsBody(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	big := strings.Repeat("x", 2<<20+10)
+	f.task = func(id string) (obj, bool) {
+		return taskJSON(id, "COMPLETED", obj{"artifacts": []obj{{"artifactId": "a", "parts": []obj{textPart(big)}}}}), true
+	}
+	with := obj{"task_id": "t", "headers": authHeaders()}
+
+	out, err := run(context.Background(), t, f, opGetTask, with, func(s *ir.Step) { s.Output = "TASK" })
+
+	require.Error(t, err)
+	body := decodeOut(t, out)["error"].(obj)
+	assert.Equal(t, kindOutputLimit, body["kind"])
+	assert.Contains(t, body["message"], "response is over")
+	assert.Contains(t, body["message"], "history_length")
+
+	out, err = run(context.Background(), t, f, opGetTask, with)
+	require.NoError(t, err)
+	assert.Contains(t, out, big)
+}
+
 // An integer beyond 2^53 reaches the output digit for digit.
 func TestLargeIntegersSurvive(t *testing.T) {
 	t.Parallel()

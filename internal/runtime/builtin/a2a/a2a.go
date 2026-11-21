@@ -30,6 +30,9 @@ const unknownOutcome = " Outcome unknown: the agent may have accepted the messag
 // no timeout_sec.
 const defaultDeadline = 60 * time.Second
 
+// outputLimitHint tells how to fit a result into captured step output.
+const outputLimitHint = "raise max_output_size, drop output:, or send history_length to shorten the task history"
+
 var _ executor.Executor = (*caller)(nil)
 
 type caller struct {
@@ -112,7 +115,7 @@ func (c *caller) Run(ctx context.Context) error {
 		}
 		if limit := outputLimit(ctx); c.capture && int64(len(body)) > limit {
 			cerr = &callError{kind: kindOutputLimit, message: fmt.Sprintf(
-				"result is %d bytes, over the %d byte limit for captured step output; raise max_output_size, drop output:, or send history_length to shorten the task history", len(body), limit)}
+				"result is %d bytes, over the %d byte limit for captured step output; %s", len(body), limit, outputLimitHint)}
 			if id, note := acceptedNote(out); id != "" {
 				cerr.messageID = id
 				cerr.message += note
@@ -168,9 +171,21 @@ func outputLimit(ctx context.Context) int64 {
 	return limit
 }
 
+// responseLimit caps the JSON-RPC response body. A captured a2a.get_task
+// result over max_output_size fails anyway, so its body is refused at twice
+// that size, leaving room for whitespace and fields the output drops.
+// a2a.send keeps the ceiling so an oversized result still names its task.
+func (c *caller) responseLimit(ctx context.Context) int64 {
+	if !c.capture || c.cfg.op != opGetTask {
+		return maxResponseBytes
+	}
+	return min(2*outputLimit(ctx), maxResponseBytes)
+}
+
 func (c *caller) call(ctx context.Context, redact redactor) (map[string]any, *callError) {
 	cardObs := &observer{}
-	sess, err := connect(ctx, c.base, c.cfg.base(), cardObs)
+	limit := c.responseLimit(ctx)
+	sess, err := connect(ctx, c.base, c.cfg.base(), cardObs, limit)
 	if err != nil {
 		cerr := classify(ctx, err, cardObs, redact, false)
 		var refused *statusError
@@ -181,6 +196,10 @@ func (c *caller) call(ctx context.Context, redact redactor) (map[string]any, *ca
 	}
 	if c.cfg.op == opGetTask {
 		out, err := c.getTask(ctx, sess)
+		if _, netErr := sess.obs.snapshot(); err != nil && c.capture && errors.Is(netErr, errBodyTooLarge) {
+			return nil, &callError{kind: kindOutputLimit, message: fmt.Sprintf(
+				"response is over %d bytes, too large for the %d byte limit for captured step output; %s", limit, outputLimit(ctx), outputLimitHint)}
+		}
 		return out, classify(ctx, err, sess.obs, redact, false)
 	}
 	return c.send(ctx, sess, redact)

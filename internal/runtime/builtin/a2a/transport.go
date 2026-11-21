@@ -14,11 +14,11 @@ import (
 	"sync"
 )
 
-// maxResponseBytes bounds every response body, since the SDK decodes bodies
-// without a limit.
+// maxResponseBytes is the ceiling for every response body, since the SDK
+// decodes bodies without a limit.
 const maxResponseBytes = 32 << 20
 
-var errBodyTooLarge = fmt.Errorf("response body exceeds %d bytes", maxResponseBytes)
+var errBodyTooLarge = errors.New("response body is over the size limit")
 
 // statusError reports a response that is refused instead of followed: a
 // redirect, or a rejection of the credentials.
@@ -82,6 +82,8 @@ type guard struct {
 	origin  string
 	headers map[string]string
 	obs     *observer
+	// limit is the largest response body read, in bytes.
+	limit int64
 }
 
 // originOf returns scheme://host:port with the default port made explicit,
@@ -123,7 +125,7 @@ func (g *guard) RoundTrip(req *http.Request) (*http.Response, error) {
 		_ = resp.Body.Close()
 		return nil, &statusError{code: resp.StatusCode}
 	}
-	resp.Body = &limitBody{ReadCloser: resp.Body, left: maxResponseBytes, obs: g.obs}
+	resp.Body = &limitBody{ReadCloser: resp.Body, left: g.limit, obs: g.obs}
 	return resp, nil
 }
 

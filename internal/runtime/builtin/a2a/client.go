@@ -93,15 +93,16 @@ type session struct {
 	obs *observer
 }
 
-// connect reads the Agent Card and opens the JSON-RPC transport. Credentials
-// go to the agent_url origin only: a card that advertises another origin is
-// refused when credentials are configured.
-func connect(ctx context.Context, base http.RoundTripper, c common, cardObs *observer) (*session, error) {
+// connect reads the Agent Card and opens the JSON-RPC transport, whose
+// response bodies are capped at rpcLimit bytes. Credentials go to the
+// agent_url origin only: a card that advertises another origin is refused
+// when credentials are configured.
+func connect(ctx context.Context, base http.RoundTripper, c common, cardObs *observer, rpcLimit int64) (*session, error) {
 	agent, err := url.Parse(c.AgentURL)
 	if err != nil {
 		return nil, &callError{kind: kindDiscovery, message: "invalid agent_url"}
 	}
-	g := &guard{base: base, origin: originOf(agent), headers: c.Headers, obs: cardObs}
+	g := &guard{base: base, origin: originOf(agent), headers: c.Headers, obs: cardObs, limit: maxResponseBytes}
 	cu, err := cardURL(c.AgentURL)
 	if err != nil {
 		return nil, &callError{kind: kindDiscovery, message: "invalid agent_url"}
@@ -121,7 +122,7 @@ func connect(ctx context.Context, base http.RoundTripper, c common, cardObs *obs
 			"card advertises JSON-RPC endpoint on another origin (%s); credentials are never sent there. Use an agent_url on that origin or remove with.headers", originOf(rpc))}
 	}
 	rpcObs := &observer{}
-	rpcGuard := &guard{base: base, origin: g.origin, headers: c.Headers, obs: rpcObs}
+	rpcGuard := &guard{base: base, origin: g.origin, headers: c.Headers, obs: rpcObs, limit: rpcLimit}
 	return &session{
 		obs:       rpcObs,
 		transport: a2aclient.NewJSONRPCTransport(ep.url, rpcGuard.client()),

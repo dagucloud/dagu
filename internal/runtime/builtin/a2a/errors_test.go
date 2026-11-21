@@ -317,7 +317,7 @@ func TestObserversAreSeparate(t *testing.T) {
 	assert.Contains(t, body["message"], "HTTP 502")
 
 	var card observer
-	sess, err := connect(context.Background(), f.srv.Client().Transport, common{AgentURL: f.url(), Headers: map[string]string{"Authorization": "Bearer " + token}}, &card)
+	sess, err := connect(context.Background(), f.srv.Client().Transport, common{AgentURL: f.url(), Headers: map[string]string{"Authorization": "Bearer " + token}}, &card, maxResponseBytes)
 	require.NoError(t, err)
 	before, _ := sess.obs.snapshot()
 	assert.Zero(t, before, "card status must not leak into the RPC observer")
