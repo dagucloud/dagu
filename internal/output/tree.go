@@ -692,9 +692,9 @@ func (r *Renderer) chooseSubRunsToExpand(statuses []*ir.DAGRunStatus) []bool {
 }
 
 // subRunFailed reports whether a sub-run ended with a failure worth showing
-// first.
+// first. A partially succeeded run counts, since some of its steps failed.
 func subRunFailed(status ir.Status) bool {
-	return status == ir.Failed || status == ir.Aborted || status == ir.Rejected
+	return status == ir.Failed || status == ir.Aborted || status == ir.Rejected || status == ir.PartiallySucceeded
 }
 
 // subRunStatusSuffix returns the "(name: status)" suffix of a resolved
