@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { NodeStatus } from '@/api/v1/schema';
+import { GRAPH_TONE_COLORS } from '@/lib/statusPalette';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   CanvasEdge,
@@ -174,28 +175,98 @@ describe('buildExportSvg', () => {
     expect(rects[0]?.hasAttribute('stroke-dasharray')).toBe(false);
   });
 
-  it('colors the border and dot of a step by its run status', () => {
-    const cases: [NodeStatus, string][] = [
-      [NodeStatus.Success, '#22c55e'],
-      [NodeStatus.Failed, '#ef5350'],
-      [NodeStatus.Running, '#7c6ef4'],
-      [NodeStatus.Waiting, '#d9a03c'],
-      [NodeStatus.Aborted, '#c084fc'],
-      [NodeStatus.NotStarted, '#8a8d99'],
-    ];
-    for (const [status, color] of cases) {
-      const graph = graphOf([node('a', { run: run(status) })]);
-      const g = nodeEl(parse(buildExportSvg(graph, ONE, 'LR').svg), 'a');
-      expect(g.querySelector('rect')?.getAttribute('stroke')).toBe(color);
-      expect(g.querySelector('circle')?.getAttribute('fill')).toBe(color);
-    }
-    const dark = graphOf([node('a', { run: run(NodeStatus.Success) })]);
-    const g = nodeEl(
-      parse(buildExportSvg(dark, ONE, 'LR', { dark: true }).svg),
-      'a'
+  // The arcs of the loops hang out of the sides of the card: the margin must hold them.
+  it('draws the arcs on the left side of a horizontal graph, with their labels', () => {
+    const looping = node('a', {
+      retry: { limit: 12 },
+      repeat: { mode: 'while', limit: 8 },
+    } as Partial<CanvasNode>);
+    const doc = parse(buildExportSvg(graphOf([looping]), ONE, 'LR').svg);
+    const g = nodeEl(doc, 'a');
+    const arcs = [...g.querySelectorAll('[data-loop]')];
+    expect(arcs.map((arc) => arc.getAttribute('data-loop'))).toEqual([
+      'retry',
+      'repeat',
+    ]);
+    // Both sit on the left side, mirrored: the retry low, the repeat high and dashed.
+    expect(arcs[0]?.getAttribute('transform')).toBe(
+      'translate(0 36.4) scale(-1.4 1.4)'
     );
-    expect(g.querySelector('rect')?.getAttribute('stroke')).toBe('#22c55e');
+    expect(arcs[1]?.getAttribute('transform')).toBe(
+      'translate(0 8) scale(-1.4 1.4)'
+    );
+    expect(
+      arcs[0]?.querySelector('path')?.hasAttribute('stroke-dasharray')
+    ).toBe(false);
+    expect(
+      arcs[1]?.querySelector('path')?.hasAttribute('stroke-dasharray')
+    ).toBe(true);
+    expect([...g.querySelectorAll('text')].map((t) => t.textContent)).toEqual(
+      expect.arrayContaining(['×12', '×8'])
+    );
+    // The colours are literal, as in the rest of the file.
+    expect(g.outerHTML).not.toMatch(/var\(--/);
   });
+
+  it('draws the arcs on the upper edge of a vertical graph', () => {
+    const looping = node('a', {
+      retry: { limit: 12 },
+      repeat: { mode: 'while', limit: 8 },
+    } as Partial<CanvasNode>);
+    const doc = parse(buildExportSvg(graphOf([looping]), ONE, 'TB').svg);
+    const arcs = [...nodeEl(doc, 'a').querySelectorAll('[data-loop]')];
+    // The retry at the right corner, the repeat at the left one: both above the card.
+    expect(arcs[0]?.getAttribute('transform')).toBe(
+      'translate(195.6 0) scale(1.4 -1.4)'
+    );
+    expect(arcs[1]?.getAttribute('transform')).toBe(
+      'translate(22 0) scale(1.4 -1.4)'
+    );
+  });
+
+  it('grows the margin for the arcs of a loop, on the side that they hang out of', () => {
+    const plainBox = buildExportSvg(graphOf([node('a')]), ONE, 'LR');
+    const looping = buildExportSvg(
+      graphOf([
+        node('a', {
+          retry: { limit: 3 },
+          repeat: { mode: 'until' },
+        } as Partial<CanvasNode>),
+      ]),
+      ONE,
+      'LR'
+    );
+    expect(looping.width).toBe(plainBox.width + 42);
+    expect(looping.height).toBe(plainBox.height);
+    expect(looping.svg).toContain('translate(66 24)');
+  });
+
+  // The image has the status colours of the canvas in the same theme.
+  it.each([
+    [false, GRAPH_TONE_COLORS.light],
+    [true, GRAPH_TONE_COLORS.dark],
+  ])(
+    'colors the border and dot of a step by its run status (dark: %s)',
+    (dark, colors) => {
+      const cases: [NodeStatus, string][] = [
+        [NodeStatus.Success, colors.success],
+        [NodeStatus.Failed, colors.error],
+        [NodeStatus.Running, colors.running],
+        [NodeStatus.Waiting, colors.warning],
+        [NodeStatus.Aborted, colors.aborted],
+        [NodeStatus.NotStarted, colors.neutral],
+      ];
+      for (const [status, color] of cases) {
+        const graph = graphOf([node('a', { run: run(status) })]);
+        const g = nodeEl(
+          parse(buildExportSvg(graph, ONE, 'LR', { dark }).svg),
+          'a'
+        );
+        expect(g.querySelector('rect')?.getAttribute('stroke')).toBe(color);
+        expect(g.querySelector('circle')?.getAttribute('fill')).toBe(color);
+      }
+    }
+  );
 
   it('draws a sub-DAG with two vertical bars', () => {
     const graph = graphOf([node('a', { kind: 'call', subDag: 'child' })]);

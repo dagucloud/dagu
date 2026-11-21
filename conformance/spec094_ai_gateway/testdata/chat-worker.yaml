@@ -1,0 +1,11 @@
+description: A chat step with an endpoint that runs on a general worker.
+worker_selector:
+  zone: eu
+steps:
+  - id: ask
+    action: chat.completion
+    with:
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Say hello.

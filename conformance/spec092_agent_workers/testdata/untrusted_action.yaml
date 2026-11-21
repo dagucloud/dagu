@@ -1,0 +1,6 @@
+steps:
+  - id: note
+    untrusted: true
+    action: log.write
+    with:
+      message: hello

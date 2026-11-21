@@ -21,6 +21,11 @@ type Props = {
    */
   ago?: boolean;
   /**
+   * With `compact`, the timestamp is ahead: a lapse of 5 s or more reads
+   * "in 3m", and rounds as `ago` does. Once it passes, it reads "now".
+   */
+  until?: boolean;
+  /**
    * With `compact`, keeps the width of the widest text of the unit that shows
    * now ("99m ago"), so that a text that ticks moves nothing next to it.
    */
@@ -73,6 +78,7 @@ export function RelativeTime({
   fallback = '-',
   compact = false,
   ago = false,
+  until = false,
   stable = false,
   absolute,
   className,
@@ -85,11 +91,12 @@ export function RelativeTime({
   // The text that reads the clock: the component renders only when it changes.
   const text = useClock(isValid ? 1000 : null, (nowMs) => {
     if (!parsed || !isValid) return '';
+    const diff = dayjs(nowMs).diff(parsed, 'second');
     return compact
       ? formatCompact(
-          dayjs(nowMs).diff(parsed, 'second'),
+          until ? Math.min(diff, 0) : diff,
           now,
-          ago ? Math.round : Math.floor,
+          ago || until ? Math.round : Math.floor,
           units
         )
       : longForm(
@@ -104,18 +111,15 @@ export function RelativeTime({
   }
 
   const lapse = compact ? text : undefined;
-  const label = lapse
-    ? ago && lapse !== now
-      ? ts('{time} ago', { time: lapse })
-      : lapse
-    : text;
+  // The words around a compact lapse: "in 3m" or "3m ago".
+  const affixed = (time: string) =>
+    until ? ts('in {time}', { time }) : ago ? ts('{time} ago', { time }) : time;
+  const label = lapse && lapse !== now ? affixed(lapse) : text;
 
-  // The widest text of the same unit has two digits: "99m", "99m ago".
+  // The widest text of the same unit has two digits: "99m", "in 99m".
   const widest =
     stable && lapse && lapse !== now
-      ? ago
-        ? ts('{time} ago', { time: lapse.replace(/\d+/, '99') })
-        : lapse.replace(/\d+/, '99')
+      ? affixed(lapse.replace(/\d+/, '99'))
       : null;
 
   return (

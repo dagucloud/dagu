@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import { IconButton } from '@/components/ui/icon-button';
+import { cn } from '@/lib/utils';
 
 /** The placement that every right-side panel shares. */
 export const PANEL_DOCK_GEOMETRY =
@@ -107,27 +108,23 @@ export const PANEL_CAP_VIEWPORT = 1100;
 export const PANEL_CAP_RATIO = 0.45;
 /** A capped panel keeps this width, so that its form stays usable. */
 export const PANEL_CAP_FLOOR = 360;
+/** On a wide viewport the graph beside a panel keeps this width at least. */
+export const PANEL_GRAPH_FLOOR = 360;
 
 /** The narrowest width that the resize handle gives a panel. */
 export const PANEL_MIN_WIDTH = 420;
 /**
- * The width of its zone that a resized panel leaves uncovered, so that the
- * canvas and the resize handle stay in reach. The rest of the zone is the
- * panel's to take, however wide the screen.
- */
-const PANEL_ZONE_MARGIN = 240;
-
-/**
  * The widest that the resize handle makes a panel in a zone of `room` px:
- * all of the zone but PANEL_ZONE_MARGIN. Given a viewport below
- * PANEL_CAP_VIEWPORT, it is the cap of a panel beside the page instead
- * (see panelWidth). A modal panel gives no viewport.
+ * the zone less PANEL_GRAPH_FLOOR, which the graph keeps, and never under
+ * PANEL_CAP_FLOOR. Given a viewport below PANEL_CAP_VIEWPORT, it is the cap
+ * of a panel beside the page instead (see panelWidth). A modal panel gives
+ * no viewport.
  */
 export function panelMaxWidthIn(room: number, viewport?: number): number {
   if (viewport !== undefined && viewport < PANEL_CAP_VIEWPORT) {
     return Math.round(Math.max(PANEL_CAP_RATIO * room, PANEL_CAP_FLOOR));
   }
-  return Math.max(PANEL_MIN_WIDTH, Math.round(room) - PANEL_ZONE_MARGIN);
+  return Math.max(PANEL_CAP_FLOOR, Math.round(room) - PANEL_GRAPH_FLOOR);
 }
 
 /** A width that the resize handle allows, with the bounds of panelMaxWidthIn. */
@@ -141,33 +138,33 @@ export function clampPanelWidth(
   return Math.round(Math.min(Math.max(width, min), max));
 }
 
-/** The cap of panelMaxWidthIn in CSS, against the containing block. */
-const ZONE_CAP = `max(100% - ${PANEL_ZONE_MARGIN}px, ${PANEL_MIN_WIDTH}px)`;
-
 function currentViewport(): number {
   return typeof window === 'undefined' ? Infinity : window.innerWidth;
 }
 
+/** The CSS cap of a panel: its share of the zone, with a floor. */
+function capWidth(viewport: number): string {
+  return viewport >= PANEL_CAP_VIEWPORT
+    ? `max(100% - ${PANEL_GRAPH_FLOOR}px, ${PANEL_CAP_FLOOR}px)`
+    : `max(${PANEL_CAP_RATIO * 100}%, ${PANEL_CAP_FLOOR}px)`;
+}
+
 /**
- * The CSS width of a panel: the stored width, never wider than the window
- * nor than panelMaxWidthIn its zone (the nearest positioned ancestor).
- * Below PANEL_CAP_VIEWPORT it is capped at PANEL_CAP_RATIO of the zone
- * instead, with PANEL_CAP_FLOOR as its minimum.
+ * The CSS width of a panel: the stored width, never wider than the window.
+ * Below PANEL_CAP_VIEWPORT it is also capped at PANEL_CAP_RATIO of the zone
+ * (the nearest positioned ancestor), with PANEL_CAP_FLOOR as its minimum.
+ * From PANEL_CAP_VIEWPORT the zone keeps PANEL_GRAPH_FLOOR for the graph.
  */
 export function panelWidth(
   width: number,
   viewport = currentViewport()
 ): string {
-  if (viewport >= PANEL_CAP_VIEWPORT) {
-    return `min(100vw, ${width}px, ${ZONE_CAP})`;
-  }
-  return `min(100vw, ${width}px, max(${PANEL_CAP_RATIO * 100}%, ${PANEL_CAP_FLOOR}px))`;
+  return `min(100vw, ${width}px, ${capWidth(viewport)})`;
 }
 
-/** The max-width of a panel that sets its own width, as panelWidth caps it. */
+/** The max-width of a panel that sets its own width. */
 export function panelMaxWidth(viewport = currentViewport()): string {
-  if (viewport >= PANEL_CAP_VIEWPORT) return ZONE_CAP;
-  return `max(${PANEL_CAP_RATIO * 100}%, ${PANEL_CAP_FLOOR}px)`;
+  return capWidth(viewport);
 }
 
 /**
@@ -202,16 +199,19 @@ export function PanelHeader({
   subtitle,
   closeLabel,
   onClose,
+  className,
   children,
 }: {
   title?: ReactNode;
   subtitle?: ReactNode;
   closeLabel: string;
   onClose(): void;
+  /** Extra classes for the bar. */
+  className?: string;
   children?: ReactNode;
 }): ReactElement {
   return (
-    <header data-panel-header className={PANEL_HEADER_CLASS}>
+    <header data-panel-header className={cn(PANEL_HEADER_CLASS, className)}>
       {children ?? (
         <div className="min-w-0 flex-1 leading-tight">
           <h2 className="truncate text-base font-semibold text-foreground">

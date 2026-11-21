@@ -10,14 +10,18 @@ import {
 } from 'react';
 import { useClock } from '@/hooks/useClock';
 import { useI18n } from '@/i18n/I18nProvider';
+import { isServiceDAG } from '@/lib/dagSchedule';
 import { isContinuousStep } from '@/lib/runDisplayStatus';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
+import { runHistorySource } from '../continuous/sampleSource';
+import { SamplesPanel } from '../continuous/SamplesPanel';
 import { useHistoryRuns } from '../data/useVisibleRuns';
 import { useDockCommands } from '../dock/DockContext';
 import { dockTabId } from '../dock/DockTabStrip';
 import { useDockHidden } from '../dock/FreezeWhenHidden';
 import { RunTabEmpty } from '../dock/tabs/runTabBodies';
 import type { DockTabBodyProps } from '../dock/tabs/types';
+import { presetsFor } from '../rangePresets';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
 import { StepHistory } from './StepHistory';
 import { HISTORY_LIMIT } from '../dock/runTimelineModel';
@@ -36,14 +40,28 @@ import {
  * selected run (useHistoryRuns). A pick pushes ?run, so that Back returns to
  * the run before, and keeps the step.
  */
+const SERVICE_PRESETS = presetsFor('service');
+
 const HISTORY_KEYS: Partial<Record<string, 'older' | 'newer'>> = {
   ArrowLeft: 'older',
   ArrowRight: 'newer',
 };
 
-export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
+export function HistoryBody({
+  run,
+  fileName,
+  dag,
+  step,
+  selectTab,
+}: DockTabBodyProps) {
   const { ts } = useI18n();
   const history = useHistoryRuns();
+  // The run history of a service DAG always shows above its runs.
+  const serviceSource = useMemo(
+    () => (isServiceDAG(dag) ? runHistorySource(fileName) : null),
+    [dag, fileName]
+  );
+
   const runs = useMemo(
     () => withLiveRun(history.runs, run.details),
     [history.runs, run.details]
@@ -184,7 +202,7 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
     );
   }
   if (grid) {
-    return (
+    const stepsGrid = (
       <StepsGrid
         grid={grid}
         runs={runs}
@@ -195,6 +213,21 @@ export function HistoryBody({ run, dag, step, selectTab }: DockTabBodyProps) {
         onSpotlight={spotlight}
         older={history.older}
       />
+    );
+    if (!serviceSource) return stepsGrid;
+    return (
+      // The tab scrolls: the history first, then the runs, whatever the
+      // height of the panel.
+      <div className="h-full min-h-0 overflow-y-auto">
+        <SamplesPanel
+          source={serviceSource}
+          active={!hidden}
+          presets={SERVICE_PRESETS}
+          testId="ww-history-service"
+          className="space-y-2 border-b border-border p-3"
+        />
+        <div className="h-full min-h-40">{stepsGrid}</div>
+      </div>
     );
   }
   if (!entries || step === undefined) return null;

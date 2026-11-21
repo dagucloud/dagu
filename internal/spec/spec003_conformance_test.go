@@ -132,8 +132,8 @@ steps:
           api_key_name: OPENAI_API_KEY
       system: system ${params.environment}
       base_url: https://fallback-${params.environment}.example/v1
-      tools:
-        - literal_tool
+      dags:
+        - name: literal_tool
       messages:
         - role: user
           content: hello ${params.environment}
@@ -216,7 +216,7 @@ steps:
 	assertSpec003FieldAbsent(t, resolved, "steps[0].outputs[0].name")
 	assertSpec003FieldAbsent(t, resolved, "steps[0].outputs[0].type")
 	assertSpec003FieldAbsent(t, resolved, "steps[5].llm.model[0].api_key_name")
-	assertSpec003FieldAbsent(t, resolved, "steps[5].llm.tools[0]")
+	assertSpec003FieldAbsent(t, resolved, "steps[5].llm.dags[0]")
 }
 
 func TestSpec003ConformanceConstsResolveBeforeLiteralParamDefaults(t *testing.T) {

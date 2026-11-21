@@ -18,19 +18,55 @@ import (
 	llmpkg "github.com/dagucloud/dagu/v2/internal/llm"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agenttools"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
 const (
 	fieldOutputSchema = "output_schema"
 	fieldWebSearch    = "llm.web_search"
+	fieldDAGs         = "llm.dags"
 	fieldTools        = "llm.tools"
 )
 
 // validateStep checks the chat settings that the generic step checks leave
 // out.
 func validateStep(step ir.Step) error {
-	return validateOutputSchema(step)
+	if err := validateOutputSchema(step); err != nil {
+		return err
+	}
+	return validateToolNames(step)
+}
+
+// validateToolNames checks that no tool of the map takes the name of a tool
+// that Dagu adds: respond for an output_schema, and load_skill and read_skill_file for a skill.
+func validateToolNames(step ir.Step) error {
+	cfg := step.LLM
+	if cfg == nil {
+		return nil
+	}
+	counts := make(map[string]int)
+	for _, entry := range cfg.ToolEntries {
+		category := entry.Category()
+		path := agenttools.EntryPath(entry, fieldDAGs, fieldTools, counts[category]) + ".name"
+		counts[category]++
+		if entry.Kind != ir.ToolEntryDAG {
+			continue
+		}
+		name := entry.ToolName()
+		if name == agentstep.RespondToolName && step.HasOutputSchema() {
+			return ir.NewValidationError(path, entry.Name, reservedToolError())
+		}
+		if name == agenttools.LoadSkillToolName && cfg.HasSkills() {
+			return ir.NewValidationError(path, entry.Name,
+				fmt.Errorf("the tool name %q is reserved for the tool that loads a skill", name))
+		}
+		if name == agenttools.ReadSkillFileToolName && cfg.HasSkills() {
+			return ir.NewValidationError(path, entry.Name,
+				fmt.Errorf("the tool name %q is reserved for the tool that reads a file of a skill", name))
+		}
+	}
+	return nil
 }
 
 // validateOutputSchema checks that the model can answer a step's
@@ -61,9 +97,6 @@ func validateOutputSchema(step ir.Step) error {
 		if cfg.WebSearch != nil && cfg.WebSearch.Enabled {
 			return ir.NewValidationError(fieldWebSearch, nil,
 				errors.New("web search cannot be combined with output_schema"))
-		}
-		if slices.Contains(cfg.Tools, agentstep.RespondToolName) {
-			return ir.NewValidationError(fieldTools, agentstep.RespondToolName, reservedToolError())
 		}
 	}
 	return nil
@@ -181,11 +214,13 @@ func (a *answerSchema) accept(resp *llmpkg.ChatResponse) ([]byte, error) {
 // model.
 func (e *Executor) runStructuredForModel(ctx context.Context, provider llmpkg.Provider, allMessages []ir.LLMMessage, cfg *ir.LLMConfig) error {
 	tools := []llmpkg.Tool{e.answer.tool}
+	definitions := toolDefinitions(tools)
 	if e.toolRegistry.HasTools() {
-		e.toolExecutor = NewToolExecutor(e.toolRegistry, runtime.GetEnv(ctx).WorkingDir)
+		e.toolExecutor = e.newToolExecutor(ctx, runtime.GetEnv(ctx).WorkingDir, cfg)
 		tools = append(e.toolRegistry.ToLLMTools(), tools...)
+		definitions = append(e.toolRegistry.ToolDefinitions(), definitions...)
 	}
-	e.savedToolDefinitions = toolDefinitions(tools)
+	e.savedToolDefinitions = definitions
 
 	conv := newConversation(allMessages)
 	corrected := false
@@ -193,7 +228,7 @@ func (e *Executor) runStructuredForModel(ctx context.Context, provider llmpkg.Pr
 	for range maxIterations {
 		req := &llmpkg.ChatRequest{
 			Model:       cfg.Model,
-			Messages:    withInstruction(conv.request(ctx)),
+			Messages:    withInstruction(e.toolRegistry.SkillSet().Apply(conv.request(ctx))),
 			Temperature: cfg.Temperature,
 			MaxTokens:   cfg.MaxTokens,
 			TopP:        cfg.TopP,

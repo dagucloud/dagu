@@ -1,0 +1,7 @@
+steps:
+  - id: review
+    action: agent.run
+    with:
+      provider: codex
+      prompt: hi
+      system: be brief

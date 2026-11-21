@@ -3,6 +3,9 @@
 
 import type { Locale } from '@/contexts/UserPreference';
 import { backfillMessages } from '@/features/backfills/messages';
+import aiEndpointMessages from '@/features/ai-endpoints/messages';
+import mcpMessages from '@/features/ai-endpoints/mcpMessages';
+import skillMessages from '@/features/skills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
 
 const baseEnglish = {
@@ -1603,6 +1606,7 @@ const baseEnglish = {
   'This step name is not valid.': 'This step name is not valid.',
   'This dependency makes a cycle.': 'This dependency makes a cycle.',
   'The step YAML is not valid.': 'The step YAML is not valid.',
+  'A handler cannot be duplicated.': 'A handler cannot be duplicated.',
   Undo: 'Undo',
   Redo: 'Redo',
   'Undo (Ctrl+Z)': 'Undo (Ctrl+Z)',
@@ -1646,6 +1650,8 @@ const baseEnglish = {
     'A newer version was saved. Review it before you save again.',
   'Unsaved draft': 'Unsaved draft',
   'Restore unsaved draft from {time}?': 'Restore unsaved draft from {time}?',
+  'The file changed after the draft from {time}. Restoring it can overwrite the newer version.':
+    'The file changed after the draft from {time}. Restoring it can overwrite the newer version.',
   Restore: 'Restore',
   // visual-editor:P2 end
   'Reload artifacts': 'Reload artifacts',
@@ -1686,8 +1692,6 @@ const baseEnglish = {
   'Reset zoom': 'Reset zoom',
   'Resetting...': 'Resetting...',
   'Resize step details': 'Resize step details',
-  'Maximize panel': 'Maximize panel',
-  'Restore panel': 'Restore panel',
   'Resize sub-run view': 'Resize sub-run view',
   'Resize workflow view': 'Resize workflow view',
   'Cmd/Ctrl+Click for new tab': 'Cmd/Ctrl+Click for new tab',
@@ -2248,6 +2252,8 @@ const baseEnglish = {
     'Resume the restarts of "{name}"? The scheduler starts a run when one is due.',
   'Suspend the restarts of "{name}"? A running run keeps running.':
     'Suspend the restarts of "{name}"? A running run keeps running.',
+  'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.':
+    'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.',
   'Are you sure you want to {action} the webhook for "{name}"?':
     'Are you sure you want to {action} the webhook for "{name}"?',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -2646,6 +2652,7 @@ const baseEnglish = {
   'Show description': 'Show description',
   'Last run': 'Last run',
   '{time} ago': '{time} ago',
+  'in {time}': 'in {time}',
   'Open run {dagRunId}': 'Open run {dagRunId}',
   'Copy link to this run': 'Copy link to this run',
   'Show in workflow': 'Show in workflow',
@@ -2971,6 +2978,14 @@ const baseEnglish = {
     'All clear. No failing workflows or runs waiting for input.',
   'Running {elapsed}, usually {usual}': 'Running {elapsed}, usually {usual}',
   'No runs in the last 24 hours': 'No runs in the last 24 hours',
+  'Runs in the last {window}: {count}, failed {failures}, success rate {availability}':
+    'Runs in the last {window}: {count}, failed {failures}, success rate {availability}',
+  'Runs in the last {window}: {count}, failed {failures}, success rate {availability}, uptime {uptime}':
+    'Runs in the last {window}: {count}, failed {failures}, success rate {availability}, uptime {uptime}',
+  'Uptime {value}': 'Uptime {value}',
+  'Success rate {value}': 'Success rate {value}',
+  'Runs {count} · Failed {failures}': 'Runs {count} · Failed {failures}',
+  Up: 'Up',
   'No runs in this range': 'No runs in this range',
   'Activity is not available from this node':
     'Activity is not available from this node',
@@ -3301,6 +3316,9 @@ type BaseStaticMessage = keyof typeof baseEnglish;
 const english = {
   ...workspaceMessages.en,
   ...backfillMessages.en,
+  ...aiEndpointMessages.en,
+  ...mcpMessages.en,
+  ...skillMessages.en,
   ...baseEnglish,
 } as const;
 
@@ -4866,6 +4884,7 @@ const baseChinese = {
   'This step name is not valid.': '此步骤名称无效。',
   'This dependency makes a cycle.': '此依赖关系会形成循环。',
   'The step YAML is not valid.': '步骤 YAML 无效。',
+  'A handler cannot be duplicated.': '无法复制处理器。',
   Undo: '撤销',
   Redo: '重做',
   'Undo (Ctrl+Z)': '撤销 (Ctrl+Z)',
@@ -4909,6 +4928,8 @@ const baseChinese = {
     '已保存了更新的版本。请先查看它，再重新保存。',
   'Unsaved draft': '未保存的草稿',
   'Restore unsaved draft from {time}?': '要恢复 {time} 的未保存草稿吗？',
+  'The file changed after the draft from {time}. Restoring it can overwrite the newer version.':
+    '文件在 {time} 的草稿之后已更改。恢复该草稿可能会覆盖较新的版本。',
   Restore: '恢复',
   // visual-editor:P2 end
   'Reload artifacts': '重新加载工件',
@@ -4949,8 +4970,6 @@ const baseChinese = {
   'Reset zoom': '重置缩放',
   'Resetting...': '正在重置...',
   'Resize step details': '调整步骤详情大小',
-  'Maximize panel': '最大化面板',
-  'Restore panel': '还原面板',
   'Resize sub-run view': '调整子运行视图大小',
   'Resize workflow view': '调整工作流视图大小',
   'Cmd/Ctrl+Click for new tab': 'Cmd/Ctrl+点击在新标签页打开',
@@ -5490,6 +5509,8 @@ const baseChinese = {
     '恢复“{name}”的重启吗？调度器会在需要时启动运行。',
   'Suspend the restarts of "{name}"? A running run keeps running.':
     '暂停“{name}”的重启吗？正在进行的运行会继续运行。',
+  'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.':
+    '停止此运行。它将在 {seconds} 秒后重启。暂停重启即可永久停止。',
   'Are you sure you want to {action} the webhook for "{name}"?':
     '确定要{action}“{name}”的 Webhook 吗？',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -5878,6 +5899,7 @@ const baseChinese = {
   'Show description': '显示说明',
   'Last run': '最近一次运行',
   '{time} ago': '{time}前',
+  'in {time}': '{time}后',
   'Open run {dagRunId}': '打开运行 {dagRunId}',
   'Copy link to this run': '复制此次运行的链接',
   'Show in workflow': '在工作流中显示',
@@ -6192,6 +6214,14 @@ const baseChinese = {
     '一切正常。没有失败的工作流，也没有等待输入的运行。',
   'Running {elapsed}, usually {usual}': '已运行 {elapsed}，通常 {usual}',
   'No runs in the last 24 hours': '过去 24 小时内没有运行',
+  'Runs in the last {window}: {count}, failed {failures}, success rate {availability}':
+    '过去 {window}内的运行：{count}，失败 {failures}，成功率 {availability}',
+  'Runs in the last {window}: {count}, failed {failures}, success rate {availability}, uptime {uptime}':
+    '过去 {window}内的运行：{count}，失败 {failures}，成功率 {availability}，在线率 {uptime}',
+  'Uptime {value}': '在线率 {value}',
+  'Success rate {value}': '成功率 {value}',
+  'Runs {count} · Failed {failures}': '运行 {count} · 失败 {failures}',
+  Up: '在线',
   'No runs in this range': '此范围内没有运行',
   'Activity is not available from this node': '无法从此节点获取活动',
   'The node may run an older Dagu version. Its runs are still listed on the Executions page.':
@@ -8119,6 +8149,7 @@ const baseJapanese = {
   'This step name is not valid.': 'このステップ名は無効です。',
   'This dependency makes a cycle.': 'この依存関係は循環になります。',
   'The step YAML is not valid.': 'ステップの YAML が無効です。',
+  'A handler cannot be duplicated.': 'ハンドラーは複製できません。',
   Undo: '元に戻す',
   Redo: 'やり直す',
   'Undo (Ctrl+Z)': '元に戻す (Ctrl+Z)',
@@ -8163,6 +8194,8 @@ const baseJapanese = {
   'Unsaved draft': '未保存の下書き',
   'Restore unsaved draft from {time}?':
     '{time} の未保存の下書きを復元しますか？',
+  'The file changed after the draft from {time}. Restoring it can overwrite the newer version.':
+    '{time} の下書きの後にファイルが変更されました。復元すると新しいバージョンを上書きする可能性があります。',
   Restore: '復元',
   // visual-editor:P2 end
   'Reload artifacts': '成果物を再読み込み',
@@ -8204,8 +8237,6 @@ const baseJapanese = {
   'Reset zoom': 'ズームをリセット',
   'Resetting...': 'リセット中...',
   'Resize step details': 'ステップ詳細のサイズを変更',
-  'Maximize panel': 'パネルを最大化',
-  'Restore panel': 'パネルを元のサイズに戻す',
   'Resize sub-run view': 'サブ実行ビューのサイズを変更',
   'Resize workflow view': 'ワークフロービューのサイズを変更',
   'Cmd/Ctrl+Click for new tab': 'Cmd/Ctrl+クリックで新しいタブを開く',
@@ -8771,6 +8802,8 @@ const baseJapanese = {
     '「{name}」の再起動を再開しますか？実行が必要になると、スケジューラーが実行を開始します。',
   'Suspend the restarts of "{name}"? A running run keeps running.':
     '「{name}」の再起動を一時停止しますか？実行中の実行はそのまま続行されます。',
+  'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.':
+    'この実行を停止します。{seconds} 秒後に再起動します。再起動を一時停止すると完全に停止します。',
   'Are you sure you want to {action} the webhook for "{name}"?':
     '「{name}」の Webhook を{action}にしますか？',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -9173,6 +9206,7 @@ const baseJapanese = {
   'Show description': '説明を表示',
   'Last run': '直近の実行',
   '{time} ago': '{time}前',
+  'in {time}': '{time}後',
   'Open run {dagRunId}': '実行 {dagRunId} を開く',
   'Copy link to this run': 'この実行へのリンクをコピー',
   'Show in workflow': 'ワークフローで表示',
@@ -9500,6 +9534,14 @@ const baseJapanese = {
     '問題はありません。失敗しているワークフローも入力待ちの実行もありません。',
   'Running {elapsed}, usually {usual}': '{elapsed} 実行中（通常は {usual}）',
   'No runs in the last 24 hours': '過去 24 時間に実行はありません',
+  'Runs in the last {window}: {count}, failed {failures}, success rate {availability}':
+    '過去 {window}の実行：{count}、失敗 {failures}、成功率 {availability}',
+  'Runs in the last {window}: {count}, failed {failures}, success rate {availability}, uptime {uptime}':
+    '過去 {window}の実行：{count}、失敗 {failures}、成功率 {availability}、稼働時間率 {uptime}',
+  'Uptime {value}': '稼働時間率 {value}',
+  'Success rate {value}': '成功率 {value}',
+  'Runs {count} · Failed {failures}': '実行 {count} · 失敗 {failures}',
+  Up: '稼働中',
   'No runs in this range': 'この範囲に実行はありません',
   'Activity is not available from this node':
     'このノードからアクティビティを取得できません',
@@ -9827,12 +9869,18 @@ const baseJapanese = {
 const chinese = {
   ...workspaceMessages['zh-CN'],
   ...backfillMessages['zh-CN'],
+  ...aiEndpointMessages['zh-CN'],
+  ...mcpMessages['zh-CN'],
+  ...skillMessages['zh-CN'],
   ...baseChinese,
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
   ...workspaceMessages.ja,
   ...backfillMessages.ja,
+  ...aiEndpointMessages.ja,
+  ...mcpMessages.ja,
+  ...skillMessages.ja,
   ...baseJapanese,
 } as const satisfies Record<StaticMessage, string>;
 

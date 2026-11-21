@@ -1,0 +1,21 @@
+type: graph
+secrets:
+  - name: GIT_TOKEN
+    provider: env
+    key: REVIEW_GIT_TOKEN
+steps:
+  # Trusted: a push with the token in the URL, as in
+  # git push "https://x-access-token:${GIT_TOKEN}@github.com/org/app.git".
+  # The child sh stands for git, so the test needs no network.
+  - id: push
+    secrets: [GIT_TOKEN]
+    run: sh -c 'sleep 4' git-push "https://x-access-token:${GIT_TOKEN}@git.example/app.git"
+
+  # Untrusted, at the same time: the agent reads the arguments of each process.
+  - id: agent
+    untrusted: true
+    run: |
+      sleep 1
+      printf 'uid='; id -u
+      for f in /proc/[0-9]*/cmdline; do tr '\0' ' ' < "$f" 2>/dev/null; echo; done > "$HOME/all"
+      grep -o 'review-token-[a-z0-9]*' "$HOME/all" | head -1 | rev | sed 's/^/stolen-reversed=/'

@@ -11,8 +11,6 @@ import {
   ChevronLeft,
   ChevronRight,
   FileCode,
-  Maximize2,
-  Minimize2,
   Play,
   Wand2,
   X,
@@ -41,6 +39,11 @@ import {
   useDrawerWidth,
 } from '@/features/dags/components/step-details/StepSideDrawer';
 import { actionIcon } from '@/features/visual-editor/canvas/icons';
+import {
+  PanelRowTitle,
+  ROW_PANEL_HEADER_CLASS,
+  usePanelInToolbarRow,
+} from '@/features/visual-editor/canvas/toolbarHost';
 import type { QuickFix } from '@/features/visual-editor/doc/quickFixes';
 import { buildRunOverlay } from '@/features/visual-editor/run/runOverlay';
 import { stepNeighbours } from './stepOrder';
@@ -334,9 +337,14 @@ export function NodeDetailsFrame({
   // tab for the file, over the zone and the column for a step. One container
   // keeps its editor, with the undo history, when it changes place. Over the
   // tab it claims no right-panel slot.
+  const inRow = usePanelInToolbarRow();
   const column = usePanelColumn();
   const layer = column?.layer ?? null;
   const inColumn = !!layer && !!column?.yaml && state !== 'expanded';
+  // The row of the toolbars has the Close button of the docked file, and its
+  // title unless the bar has a note; an open frame only, as the zone keeps a
+  // slot free for the button.
+  const rowTitle = inRow && fileScope && open && !inColumn;
   const columnBox = useBoxIn(inColumn ? column.yaml : null, layer);
   useRightPanelClaim('ndv', open && !inColumn, onClose, onRestore);
   const sectionRef = React.useRef<HTMLElement>(null);
@@ -386,10 +394,6 @@ export function NodeDetailsFrame({
   const expanded = state === 'expanded' && layout !== 'sheet';
   // A frame in the column fills its tab: no edge, width or resize of a panel.
   const docked = layout !== 'sheet' && !expanded && !inColumn;
-  // A maximized panel takes the whole width of its zone until it is
-  // restored; the stored width stays for the next restore.
-  const [maximized, setMaximized] = React.useState(false);
-  const fillsZone = docked && maximized;
 
   // The element that had focus when the frame opened, such as the canvas
   // node or the dock row, gets it back when the frame closes. The work is
@@ -462,6 +466,9 @@ export function NodeDetailsFrame({
     }
   };
 
+  // The extent of the docked panel that the expanded frame grows from.
+  const dockCap = panelMaxWidth(viewport);
+  const dockedExtent = `min(${width}px, ${dockCap})`;
   const shows = {
     input:
       hasStep &&
@@ -579,7 +586,8 @@ export function NodeDetailsFrame({
         data-placement={
           inColumn ? 'column' : inZone || layer ? 'zone' : 'window'
         }
-        data-panel-shell={docked ? 'right' : undefined}
+        // A closed frame is hidden: it is no panel that the zone measures.
+        data-panel-shell={docked && open ? 'right' : undefined}
         className={cn(
           'flex flex-col border-border bg-card outline-none',
           layer && 'pointer-events-auto',
@@ -590,24 +598,42 @@ export function NodeDetailsFrame({
           // else the window with a small margin, over the sidebar and the bar.
           expanded &&
             (inZone || layer ? 'inset-0' : 'inset-3 rounded-lg border'),
+          // From the docked YAML panel the frame grows to the zone.
+          expanded &&
+            (inZone || layer) &&
+            'animate-[ndv-grow_180ms_ease-out] motion-reduce:animate-none',
           // A host can start the docked frame below its own bar.
           docked && panelDockGeometry(inZone ? 'zone' : 'window')
         )}
         style={
           inColumn
             ? (columnBox ?? { width: 0, height: 0 })
-            : fillsZone
-              ? { width: '100%' }
-              : docked
-                ? { width: `${width}px`, maxWidth: panelMaxWidth(viewport) }
+            : docked
+              ? { width: `${width}px`, maxWidth: panelMaxWidth(viewport) }
+              : expanded && (inZone || layer)
+                ? ({ '--ndv-from': dockedExtent } as React.CSSProperties)
                 : undefined
         }
       >
         {/* The docked frame takes a new width from its left edge. */}
-        {docked && !fillsZone && <PanelResizeHandle shown={open} />}
+        {docked && <PanelResizeHandle shown={open} />}
+        {rowTitle && (
+          <PanelRowTitle
+            title={headerNote ? undefined : ts('YAML')}
+            closeLabel={ts('Close')}
+            onClose={onClose}
+          />
+        )}
         <header
           data-panel-header
-          className={cn(PANEL_HEADER_CLASS, '@container')}
+          className={cn(
+            PANEL_HEADER_CLASS,
+            '@container',
+            // The YAML toggle and the tools of the row take its place from
+            // md. A note (the lock of a read-only text, a run) keeps it, but
+            // the row has the title and the Close button.
+            inRow && fileScope && !headerNote && ROW_PANEL_HEADER_CLASS
+          )}
         >
           <div className="flex h-12 min-w-0 flex-1 items-center gap-2">
             {/* The title side gives way first: the buttons, Close included,
@@ -652,13 +678,6 @@ export function NodeDetailsFrame({
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
               {fileScope && !formMode && yamlTools}
-              {docked && (
-                <IconButton
-                  label={ts(maximized ? 'Restore panel' : 'Maximize panel')}
-                  icon={maximized ? Minimize2 : Maximize2}
-                  onClick={() => setMaximized((value) => !value)}
-                />
-              )}
               {!fileScope && (
                 <>
                   <IconButton
@@ -700,7 +719,12 @@ export function NodeDetailsFrame({
                   </Button>
                 )}
               {!inColumn && (
-                <IconButton label={ts('Close')} icon={X} onClick={onClose} />
+                <IconButton
+                  label={ts('Close')}
+                  icon={X}
+                  className={rowTitle ? 'md:hidden' : undefined}
+                  onClick={onClose}
+                />
               )}
             </div>
           </div>

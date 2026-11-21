@@ -212,6 +212,28 @@ describe('NodeStatusTableRow', () => {
     }
   });
 
+  // A sub-run opens on the workflow page of its root run. The file of the
+  // root run names that page, as the DAG name can differ from it.
+  it('opens a sub-run on the file of its root run', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const node = {
+      ...timedNode,
+      step: { name: 'build', call: 'child' },
+      subRuns: [{ dagRunId: 'child-1' }],
+    } as components['schemas']['Node'];
+    renderRow(node, 'desktop', {
+      dagRun: { ...dagRun, sourceFileName: 'example-v2' },
+    });
+
+    fireEvent.click(screen.getByText(/View Sub DAG Run:/), { metaKey: true });
+
+    expect(open).toHaveBeenCalledWith(
+      '/dags/example-v2?remoteNode=local&run=run-1&dagRunName=example&subRun=child-1',
+      '_blank'
+    );
+    open.mockRestore();
+  });
+
   it('shows log step messages in the status table without opening step logs', () => {
     const node = {
       step: {

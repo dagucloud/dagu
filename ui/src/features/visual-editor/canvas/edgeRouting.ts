@@ -78,6 +78,7 @@ function firstHit(
 ): { index: number; box: Obstacle } | null {
   for (let index = 0; index < segments.length; index++) {
     const segment = segments[index]!;
+    const reach = bounds(segment);
     const near = obstacles.filter((box) =>
       overlaps(
         {
@@ -86,7 +87,7 @@ function firstHit(
           width: box.width + 2 * margin,
           height: box.height + 2 * margin,
         },
-        bounds(segment)
+        reach
       )
     );
     if (near.length === 0) {

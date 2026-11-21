@@ -1,0 +1,11 @@
+description: A chat step with an endpoint.
+working_dir: .
+steps:
+  - id: ask
+    action: chat.completion
+    stdout: result.out
+    with:
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Say hello.

@@ -54,7 +54,7 @@ func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		return nil, fmt.Errorf("decision: API key environment variable %q is not set", keyName)
 	}
 	secrets := []string{keyName + "=" + key}
-	for name, secret := range scope.AllSecrets() {
+	for name, secret := range runtime.SecretsForMasking(ctx) {
 		secrets = append(secrets, name+"="+secret)
 	}
 	limit := int64(ir.DefaultMaxOutputSize)

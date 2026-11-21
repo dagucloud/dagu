@@ -433,6 +433,18 @@ steps:
 `);
   });
 
+  // A copy of a handler would be a root step that runs on every run.
+  it('refuses to duplicate a handler', () => {
+    const doc = parseDagDoc(yamlHandlers);
+    expect(duplicateStepsOp(doc, ['handler_on.failure'])).toMatchObject({
+      ok: false,
+      code: 'handlerStep',
+    });
+    expect(
+      duplicateStepsOp(doc, ['steps[0]', 'handler_on.failure'])
+    ).toMatchObject({ ok: false, code: 'handlerStep' });
+  });
+
   // The server trims names and ids: "task " and "task" are one step.
   it('renames a copy whose name or id differs by outer spaces only', () => {
     const text = 'steps:\n  - name: "task "\n    id: " job"\n    run: x\n';
@@ -443,13 +455,6 @@ steps:
     expect(result.text).toBe(
       `${text}  - name: "task_2"\n    id: "job_2"\n    run: x\n`
     );
-  });
-
-  it('refuses a handler', () => {
-    // A copy of a handler would run as a step on every run.
-    expect(
-      duplicateStepsOp(parseDagDoc(yamlHandlers), ['handler_on.failure'])
-    ).toMatchObject({ ok: false, code: 'noop' });
   });
 
   it('refuses no step, an unknown step and broken YAML', () => {

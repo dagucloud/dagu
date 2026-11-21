@@ -6,6 +6,7 @@ import {
 } from '@/components/ui/dialog';
 import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
 import { useResolvedTheme } from '@/contexts/UserPreference';
+import { GRAPH_TONE_COLORS, type StatusTone } from '@/lib/statusPalette';
 import { cn, toMermaidNodeId } from '@/lib/utils';
 import {
   ArrowDownUp,
@@ -89,18 +90,28 @@ type Props = {
   selectedStepName?: string;
 };
 
-const GRAPH_STATUS_STROKES = {
-  none: '#8a8d99',
-  running: '#7c6ef4',
-  retrying: '#d9a03c',
-  done: '#22c55e',
-  error: '#ef5350',
-  cancel: '#c084fc',
-  skipped: '#8a8d99',
-  partial: '#d9a03c',
-  waiting: '#d9a03c',
-  rejected: '#ef5350',
-} as const;
+// The tone of each status class, so a node has the colour of the canvas.
+const GRAPH_STATUS_TONES: Record<string, StatusTone> = {
+  none: 'neutral',
+  running: 'running',
+  retrying: 'warning',
+  done: 'success',
+  error: 'error',
+  cancel: 'aborted',
+  skipped: 'neutral',
+  partial: 'warning',
+  waiting: 'warning',
+  rejected: 'error',
+};
+
+/** The stroke of each status class in the theme. */
+function graphStatusStrokes(isDarkMode: boolean): [string, string][] {
+  const colors = GRAPH_TONE_COLORS[isDarkMode ? 'dark' : 'light'];
+  return Object.entries(GRAPH_STATUS_TONES).map(([className, tone]) => [
+    className,
+    colors[tone],
+  ]);
+}
 
 // Statuses that keep the plain card fill instead of a tint.
 const GRAPH_UNTINTED_CLASSES = new Set(['none', 'skipped']);
@@ -150,8 +161,11 @@ function markSelectedNode(container: HTMLElement, nodeId?: string): void {
   });
 }
 
-function applyRenderedGraphStyles(container: HTMLDivElement): void {
-  Object.entries(GRAPH_STATUS_STROKES).forEach(([className, stroke]) => {
+function applyRenderedGraphStyles(
+  container: HTMLDivElement,
+  isDarkMode: boolean
+): void {
+  graphStatusStrokes(isDarkMode).forEach(([className, stroke]) => {
     container
       .querySelectorAll<SVGGElement>(`g.node.${className}`)
       .forEach((nodeElement) => {
@@ -210,10 +224,13 @@ function Graph({
     : undefined;
   const selectedNodeIdRef = React.useRef(selectedNodeId);
   selectedNodeIdRef.current = selectedNodeId;
-  const applyGraphStyles = React.useCallback((container: HTMLDivElement) => {
-    applyRenderedGraphStyles(container);
-    markSelectedNode(container, selectedNodeIdRef.current);
-  }, []);
+  const applyGraphStyles = React.useCallback(
+    (container: HTMLDivElement) => {
+      applyRenderedGraphStyles(container, isDarkMode);
+      markSelectedNode(container, selectedNodeIdRef.current);
+    },
+    [isDarkMode]
+  );
   React.useEffect(() => {
     if (containerRef.current) {
       markSelectedNode(containerRef.current, selectedNodeId);
@@ -439,7 +456,7 @@ function Graph({
 
     // Status shows in the border and a light tint of the same color, so a
     // node stays readable in both themes.
-    Object.entries(GRAPH_STATUS_STROKES).forEach(([className, stroke]) => {
+    graphStatusStrokes(isDarkMode).forEach(([className, stroke]) => {
       const fill = GRAPH_UNTINTED_CLASSES.has(className)
         ? nodeFill
         : mixHexColors(stroke, nodeFill, GRAPH_STATUS_TINT);

@@ -1,0 +1,21 @@
+# The typed result of the agent has a field of 200 bytes. The limit is 64 bytes.
+max_output_size: 64
+working_dir: .
+env:
+  - FAKE_CLAUDE_DIR: ${FAKE_CLAUDE_DIR}
+  - FAKE_CLAUDE_SCENARIO: big
+steps:
+  - id: code
+    action: agent.run
+    output_schema:
+      type: object
+      additionalProperties: false
+      properties:
+        verdict: { type: string }
+      required: [verdict]
+    with:
+      provider: claude
+      endpoint:
+        name: test-endpoint
+        model: claude-test
+      prompt: Say done.

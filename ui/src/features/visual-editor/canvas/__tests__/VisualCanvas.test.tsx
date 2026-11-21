@@ -20,6 +20,7 @@ import { CanvasToolbarHostContext } from '../toolbarHost';
 import { buildCanvasGraph } from '../graph';
 import { CANVAS_DETAILS_KEY } from '../useCanvasDetails';
 import { agentColumns } from '../layout';
+import { AUTO_FIT_SETTLE_MS } from '../useAutoFit';
 import { neighbourStep } from '../neighbours';
 import type { CanvasKeyHandlers } from '../useCanvasKeymap';
 import { EDGE_HOVER_SETTLE_MS } from '../engine/edgeParts';
@@ -208,6 +209,22 @@ describe('VisualCanvas', () => {
       kind: 'openInspector',
       step: 'steps[0]',
     });
+  });
+
+  // The ring of the selected step shows the focus: no second ring around
+  // the whole canvas, even after Tab.
+  it('draws the focus ring of the canvas only without a selected step', () => {
+    const focusWithTab = () => {
+      const region = screen.getByTestId('ve-canvas');
+      fireEvent.keyDown(document, { key: 'Tab' });
+      act(() => region.focus());
+      return region;
+    };
+    const none = renderCanvas();
+    expect(focusWithTab()).toHaveClass('ring-2');
+    none.unmount();
+    renderCanvas({ selected: 'steps[1]' });
+    expect(focusWithTab()).not.toHaveClass('ring-2');
   });
 
   it('never emits an edit on its own', () => {
@@ -1198,6 +1215,85 @@ describe('VisualCanvas', () => {
         );
       });
 
+      // A panel that opens, changes or closes never changes the zoom, once
+      // the canvas has been shown for a while.
+      describe('with a panel that comes and goes', () => {
+        const withPanel = (right: number) => (
+          <UserPreferencesProvider>
+            <CanvasOverlayInsetContext.Provider value={{ right }}>
+              <VisualCanvas
+                graph={graph}
+                direction="TB"
+                selected={null}
+                frozen={false}
+                readOnly={false}
+                catalog={catalogSample}
+                onSelect={vi.fn()}
+                onEdit={vi.fn()}
+                onCommand={vi.fn()}
+              />
+            </CanvasOverlayInsetContext.Provider>
+          </UserPreferencesProvider>
+        );
+        // The zoom that a fit gives with this panel from the start.
+        function fittedZoom(right: number) {
+          const first = render(withPanel(right));
+          const { zoom } = viewport();
+          first.unmount();
+          return zoom;
+        }
+
+        beforeEach(() => {
+          vi.useFakeTimers();
+          // The fit is 125 % with no panel, 100 % beside 500 px of panel and
+          // 50 % beside 700 px of it.
+          sizes.width = 1000;
+          sizes.height = 900;
+        });
+        afterEach(() => vi.useRealTimers());
+
+        it('keeps the zoom when a panel opens and closes', () => {
+          const { rerender } = render(withPanel(0));
+          const { zoom } = viewport();
+          act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1));
+          rerender(withPanel(700));
+          expect(viewport().zoom).toBe(zoom);
+          rerender(withPanel(0));
+          expect(viewport().zoom).toBe(zoom);
+        });
+
+        it('keeps the zoom when a panel gives its place to a wider one', () => {
+          const { rerender } = render(withPanel(0));
+          const { zoom } = viewport();
+          act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1));
+          rerender(withPanel(700));
+          rerender(withPanel(500));
+          expect(viewport().zoom).toBe(zoom);
+          rerender(withPanel(700));
+          rerender(withPanel(300));
+          expect(viewport().zoom).toBe(zoom);
+        });
+
+        // The first fit, with the panel open, is the zoom of the page.
+        it('keeps the zoom of the first fit when the panel closes', () => {
+          const first = fittedZoom(700);
+          expect(first).toBeLessThan(fittedZoom(0));
+          const { rerender } = render(withPanel(700));
+          act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1));
+          rerender(withPanel(0));
+          expect(viewport().zoom).toBe(first);
+        });
+
+        it('gives the graph its place back when the zoom holds', () => {
+          const { rerender } = render(withPanel(0));
+          const before = viewport();
+          act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1));
+          rerender(withPanel(700));
+          rerender(withPanel(0));
+          expect(viewport()).toEqual(before);
+        });
+      });
+
       // The fit keeps its content clear of the panel.
       it('fits the graph in the part that the panel leaves free', () => {
         sizes.width = 1000;
@@ -1485,6 +1581,78 @@ describe('VisualCanvas', () => {
         inFreeArea('steps[8]');
       });
 
+      // A panel that shrinks the canvas moves the graph only if it must: a
+      // graph that stays in the free area keeps its place and its zoom.
+      it('keeps the graph in place when a panel leaves it in view', () => {
+        vi.useFakeTimers();
+        sizes.width = 1000;
+        sizes.height = 600;
+        renderWithView({ direction: 'TB' });
+        resize(1000, 600);
+        const before = viewport();
+        const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
+        const right = Math.max(...rects.map((r) => r.right));
+        // The panel leaves the whole graph in view.
+        resize(Math.ceil(right) + 24, 600);
+        act(() => {
+          vi.advanceTimersByTime(300);
+        });
+        expect(viewport()).toEqual(before);
+      });
+
+      it('pans the graph, and keeps its zoom, when a panel would cover it', () => {
+        vi.useFakeTimers();
+        sizes.width = 1000;
+        sizes.height = 600;
+        renderWithView({ direction: 'TB' });
+        resize(1000, 600);
+        const before = viewport();
+        const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
+        const width =
+          Math.max(...rects.map((r) => r.right)) -
+          Math.min(...rects.map((r) => r.left));
+        // The canvas keeps room for the graph, but not at its place.
+        const shrunk = Math.round(width + 60);
+        resize(shrunk, 600);
+        act(() => {
+          vi.advanceTimersByTime(300);
+        });
+        const after = viewport();
+        expect(after.zoom).toBe(before.zoom);
+        expect(after.y).toBe(before.y);
+        const moved = graph.nodes.map((n) => nodeScreenRect(n.key));
+        expect(Math.max(...moved.map((r) => r.right))).toBeLessThanOrEqual(
+          shrunk - 24
+        );
+        expect(Math.min(...moved.map((r) => r.left))).toBeGreaterThanOrEqual(
+          24
+        );
+      });
+
+      // A graph that no longer fits in width keeps its zoom: only the pan
+      // moves it, and its start side stays in view.
+      it('keeps the zoom, and the start side, when a panel leaves too little width', () => {
+        vi.useFakeTimers();
+        sizes.width = 1000;
+        sizes.height = 600;
+        renderWithView({ direction: 'TB' });
+        resize(1000, 600);
+        const before = viewport();
+        const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
+        const width =
+          Math.max(...rects.map((r) => r.right)) -
+          Math.min(...rects.map((r) => r.left));
+        resize(Math.round(width * 0.7 + 48), 600);
+        act(() => {
+          vi.advanceTimersByTime(300);
+        });
+        expect(viewport().zoom).toBe(before.zoom);
+        const moved = graph.nodes.map((n) => nodeScreenRect(n.key));
+        expect(Math.min(...moved.map((r) => r.left))).toBeGreaterThanOrEqual(
+          24 - 0.5
+        );
+      });
+
       // A reveal asked while the canvas is hidden waits for the size.
       it('applies a reveal that came before the canvas had a size', () => {
         sizes.width = 0;
@@ -1604,8 +1772,8 @@ describe('VisualCanvas launchers', () => {
       'data-status',
       'active'
     );
-    // Not set up: dashed.
-    expect(screen.getByTestId('ve-launcher-cron')).toHaveAttribute(
+    // Neither Cron nor Always on is set up: one dashed placeholder.
+    expect(screen.getByTestId('ve-launcher-schedule')).toHaveAttribute(
       'data-status',
       'dashed'
     );
@@ -1613,6 +1781,8 @@ describe('VisualCanvas launchers', () => {
       'data-status',
       'active'
     );
+    expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
+    expect(screen.queryByTestId('ve-launcher-always')).toBeNull();
     for (const node of graph.nodes) {
       expect(nodeCard(node.key)).toBeInTheDocument();
     }
@@ -1642,9 +1812,9 @@ describe('VisualCanvas launchers', () => {
     const onLauncher = vi.fn();
     const { props } = renderCanvas({ launchers, onLauncher });
     fireEvent.click(
-      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+      within(screen.getByTestId('ve-launcher-schedule')).getByRole('button')
     );
-    expect(onLauncher).toHaveBeenCalledWith('cron');
+    expect(onLauncher).toHaveBeenCalledWith('schedule');
     expect(props.onSelect).not.toHaveBeenCalled();
   });
 
@@ -1652,6 +1822,172 @@ describe('VisualCanvas launchers', () => {
     const { props } = renderCanvas({ launchers, onLauncher: vi.fn() });
     fireEvent.doubleClick(screen.getByTestId('ve-launcher-manual'));
     expect(props.onCommand).not.toHaveBeenCalled();
+  });
+
+  // Always on stands for `restart_policy` and takes the place of Cron: the
+  // two exclude each other (spec 080).
+  describe('Always on', () => {
+    const withPolicy = (
+      restartPolicy: 'no' | 'always' | 'unless-stopped',
+      restartWaitSec: number | null = null,
+      restartRetentionRuns: number | null = null
+    ) =>
+      launcherStates({
+        scheduleCount: 0,
+        restartPolicy,
+        restartWaitSec,
+        restartRetentionRuns,
+        webhookCount: 0,
+        webhooksAvailable: true,
+      });
+    const button = (id: string) =>
+      within(screen.getByTestId(`ve-launcher-${id}`)).getByRole('button');
+    const summary = () => screen.queryByTestId('ve-launcher-summary');
+
+    // The slot of Cron and Always on has one placeholder: the name of both
+    // choices, and no second line.
+    it('draws one dashed placeholder for both choices without a policy', () => {
+      renderCanvas({ launchers: withPolicy('no') });
+      expect(screen.getByTestId('ve-launcher-schedule')).toHaveAttribute(
+        'data-status',
+        'dashed'
+      );
+      expect(button('schedule')).toHaveAttribute(
+        'aria-label',
+        'Cron or Always on: Not set up. Choose a cron schedule or Always on.'
+      );
+      expect(button('schedule')).toHaveTextContent(/^Cron or Always on$/);
+      expect(summary()).toBeNull();
+      expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
+      expect(screen.queryByTestId('ve-launcher-always')).toBeNull();
+    });
+
+    it('draws a solid card in place of Cron, with the policy and its numbers', () => {
+      renderCanvas({ launchers: withPolicy('always', 5, 20) });
+      expect(screen.getByTestId('ve-launcher-always')).toHaveAttribute(
+        'data-status',
+        'active'
+      );
+      expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
+      expect(summary()).toHaveTextContent('5 s · 20 runs');
+      // One line, cut with an ellipsis when it is longer than the card.
+      expect(summary()).toHaveClass('truncate');
+      // As wide as the other launchers: LAUNCHER_WIDTH, 176 px.
+      expect(button('always')).toHaveClass('w-44');
+      expect(button('always')).toHaveTextContent(/^Always on5 s · 20 runs$/);
+      expect(button('always')).toHaveAttribute(
+        'title',
+        'Always on: Restarts after each run, wait 5 s, keeps 20 runs'
+      );
+    });
+
+    it('marks the default runs kept in the tooltip only', () => {
+      renderCanvas({ launchers: withPolicy('always', 5) });
+      expect(summary()).toHaveTextContent('5 s · 100 runs');
+      expect(button('always')).toHaveAttribute(
+        'aria-label',
+        'Always on: Restarts after each run, wait 5 s, keeps 100 runs (default)'
+      );
+    });
+
+    // The line is short, to fit the card: it has the wait, not the runs kept.
+    it('tells Unless stopped, and leaves out a missing wait', () => {
+      renderCanvas({ launchers: withPolicy('unless-stopped') });
+      expect(summary()).toHaveTextContent(/^unless stopped$/);
+      expect(button('always')).toHaveAttribute(
+        'aria-label',
+        'Always on: Restarts unless stopped, keeps 100 runs (default)'
+      );
+    });
+
+    it('tells Unless stopped with its wait', () => {
+      renderCanvas({ launchers: withPolicy('unless-stopped', 5, 20) });
+      expect(summary()).toHaveTextContent(/^unless stopped · 5 s$/);
+    });
+
+    it('uses the singular for one run kept', () => {
+      renderCanvas({ launchers: withPolicy('always', 5, 1) });
+      expect(summary()).toHaveTextContent('5 s · 1 run');
+    });
+
+    it('opens the Always on panel on click', () => {
+      const onLauncher = vi.fn();
+      renderCanvas({ launchers: withPolicy('always', 5), onLauncher });
+      fireEvent.click(button('always'));
+      expect(onLauncher).toHaveBeenCalledWith('always');
+    });
+
+    it('keeps the name and the state in the simplified view, with no second line', () => {
+      window.localStorage.setItem(CANVAS_DETAILS_KEY, '0');
+      try {
+        renderCanvas({ launchers: withPolicy('always', 5, 20) });
+        expect(button('always')).toHaveTextContent('');
+        expect(summary()).toBeNull();
+        expect(button('always')).toHaveAttribute(
+          'aria-label',
+          'Always on: Restarts after each run, wait 5 s, keeps 20 runs'
+        );
+      } finally {
+        window.localStorage.removeItem(CANVAS_DETAILS_KEY);
+      }
+    });
+  });
+
+  // The icon of a solid Always on card turns while the workflow is alive.
+  describe('Always on animation', () => {
+    const states = (restartPolicy: 'no' | 'always') =>
+      launcherStates({
+        scheduleCount: 0,
+        restartPolicy,
+        restartWaitSec: 5,
+        webhookCount: 0,
+        webhooksAvailable: true,
+      });
+    const icon = (id: string) =>
+      within(screen.getByTestId(`ve-launcher-${id}`))
+        .getByRole('button')
+        .querySelector('svg:not([data-testid])')!;
+
+    it('turns slowly, and stops with reduced motion, while alive', () => {
+      renderCanvas({ launchers: states('always'), launcherAlive: true });
+      expect(screen.getByTestId('ve-launcher-always')).toHaveAttribute(
+        'data-alive',
+        'true'
+      );
+      expect(icon('always')).toHaveClass(
+        'animate-[spin_3s_linear_infinite]',
+        'motion-reduce:animate-none',
+        'motion-reduce:text-primary'
+      );
+    });
+
+    it('is still when the workflow is not alive', () => {
+      renderCanvas({ launchers: states('always'), launcherAlive: false });
+      expect(screen.getByTestId('ve-launcher-always')).not.toHaveAttribute(
+        'data-alive'
+      );
+      expect(icon('always').getAttribute('class')).not.toContain('animate-');
+    });
+
+    it('never turns on the placeholder, Manual and Webhook', () => {
+      renderCanvas({ launchers: states('no'), launcherAlive: true });
+      for (const id of ['schedule', 'manual', 'webhook']) {
+        expect(screen.getByTestId(`ve-launcher-${id}`)).not.toHaveAttribute(
+          'data-alive'
+        );
+        expect(icon(id).getAttribute('class')).not.toContain('animate-');
+      }
+    });
+
+    it('turns the tile icon in the simplified view', () => {
+      window.localStorage.setItem(CANVAS_DETAILS_KEY, '0');
+      try {
+        renderCanvas({ launchers: states('always'), launcherAlive: true });
+        expect(icon('always')).toHaveClass('animate-[spin_3s_linear_infinite]');
+      } finally {
+        window.localStorage.removeItem(CANVAS_DETAILS_KEY);
+      }
+    });
   });
 
   // The owner asked to see how many cron expressions are set up.
@@ -1687,10 +2023,10 @@ describe('VisualCanvas launchers', () => {
       );
     });
 
-    it('hides the badge when there is no schedule', () => {
+    it('draws no badge on the placeholder when there is no schedule', () => {
       renderCanvas({ launchers: withSchedules(0) });
       expect(screen.queryByTestId('ve-launcher-count')).toBeNull();
-      expect(cronButton()).toHaveAttribute('aria-label', 'Cron: Not set up');
+      expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
     });
 
     it('keeps the badge in the simplified view', () => {
@@ -1707,7 +2043,8 @@ describe('VisualCanvas launchers', () => {
       }
     });
 
-    // The owner asked for the name alone: no second line.
+    // The owner asked for the name alone: no second line, except on a solid
+    // Always on card.
     it('shows only the name on Cron, Manual and Webhook, without a subtitle', () => {
       renderCanvas({ launchers: withSchedules(2) });
       const button = (id: string) =>
@@ -1718,15 +2055,15 @@ describe('VisualCanvas launchers', () => {
       expect(button('cron')).toHaveTextContent(/^Cron2$/);
       for (const id of ['manual', 'cron', 'webhook']) {
         expect(button(id)).not.toHaveTextContent(
-          /Always on|Not set up|Scheduled|Enabled/
+          /Available|Not set up|Scheduled|Enabled/
         );
       }
       // The state stays in the accessible name and the tooltip.
       expect(button('manual')).toHaveAttribute(
         'aria-label',
-        'Manual: Always on'
+        'Manual: Available'
       );
-      expect(button('manual')).toHaveAttribute('title', 'Manual: Always on');
+      expect(button('manual')).toHaveAttribute('title', 'Manual: Available');
       expect(button('webhook')).toHaveAttribute(
         'aria-label',
         'Webhook: Not set up'
@@ -1763,7 +2100,7 @@ describe('VisualCanvas launchers', () => {
   // is focused or open, with the same dashes for the border and the edges.
   describe('dashes of a launcher that is not set up', () => {
     const outline = () =>
-      within(screen.getByTestId('ve-launcher-cron')).getByTestId(
+      within(screen.getByTestId('ve-launcher-schedule')).getByTestId(
         've-launcher-outline'
       );
     const rect = () => outline().querySelector('rect')!;
@@ -1787,12 +2124,12 @@ describe('VisualCanvas launchers', () => {
     });
 
     it('keeps the dashes of the border and of the edges when the node is open', () => {
-      renderCanvas({ launchers, activeLauncher: 'cron' });
+      renderCanvas({ launchers, activeLauncher: 'schedule' });
       expect(rect().getAttribute('stroke-dasharray')).toBe('6 4');
       expect(rect().getAttribute('class')).toContain('stroke-primary');
       // No solid ring over the dashes.
       expect(
-        within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+        within(screen.getByTestId('ve-launcher-schedule')).getByRole('button')
       ).not.toHaveClass('ring-2');
       const lit = screen
         .getAllByTestId('ve-launcher-edge')
@@ -1816,9 +2153,9 @@ describe('VisualCanvas launchers', () => {
       expect(rect().getAttribute('class')).toContain(
         'group-focus-visible:stroke-primary'
       );
-      const button = within(screen.getByTestId('ve-launcher-cron')).getByRole(
-        'button'
-      );
+      const button = within(
+        screen.getByTestId('ve-launcher-schedule')
+      ).getByRole('button');
       expect(button).toHaveClass('group');
       expect(button.className).not.toContain('focus-visible:ring');
     });
@@ -1955,5 +2292,253 @@ describe('VisualCanvas ghost step', () => {
       ghost: { target: { mode: 'after' }, look },
     });
     expect(screen.queryByTestId('ve-canvas-ghost')).toBeNull();
+  });
+});
+
+describe('VisualCanvas chat step sub-nodes', () => {
+  const chatGraph = () => {
+    const model = makeModel([
+      makeStep({
+        key: 'steps[0]',
+        explicitName: 'triage',
+        kind: 'action',
+        action: 'chat.completion',
+        value: {
+          action: 'chat.completion',
+          with: {
+            provider: 'openai',
+            model: 'gpt-4o',
+            dags: [{ name: 'lookup' }],
+          },
+        },
+      }),
+    ]);
+    return buildCanvasGraph({
+      model,
+      names: makeNames(model),
+      issues: { byStep: {}, dag: [] },
+    });
+  };
+
+  const bareChatGraph = () => {
+    const model = makeModel([
+      makeStep({
+        key: 'steps[0]',
+        explicitName: 'triage',
+        kind: 'action',
+        action: 'chat.completion',
+        value: {
+          action: 'chat.completion',
+          with: { provider: 'openai', model: 'gpt-4o' },
+        },
+      }),
+    ]);
+    return buildCanvasGraph({
+      model,
+      names: makeNames(model),
+      issues: { byStep: {}, dag: [] },
+    });
+  };
+
+  it('always shows the four slots, the model, the DAGs card and the "+" of the Skills and Tools slots, with no toggle', () => {
+    renderCanvas({ graph: chatGraph(), direction: 'TB' });
+    expect(screen.getByTestId('ve-canvas-slot-model')).toHaveTextContent(
+      'Model'
+    );
+    expect(screen.getByTestId('ve-canvas-slot-tools')).toHaveTextContent(
+      'Tools'
+    );
+    expect(screen.getByTestId('ve-canvas-slot-dags')).toHaveTextContent('DAGs');
+    expect(screen.getByTestId('ve-canvas-slot-skills')).toHaveTextContent(
+      'Skills'
+    );
+    // The Model node of an edit view is a card: its Model field holds the name.
+    expect(
+      within(nodeCard('toolsat:steps[0]:model')).getByRole('textbox', {
+        name: 'Model',
+      })
+    ).toHaveValue('gpt-4o');
+    // The DAG tool is on the DAGs card; the Tools slot has no MCP server or built-in tool.
+    expect(nodeCard('toolsat:steps[0]:dags')).toHaveTextContent('lookup');
+    expect(nodeCard('toolsat:steps[0]:add-tools')).toHaveAttribute(
+      'data-shape',
+      'add'
+    );
+    // No skill: the slot is a small round "+", not a card.
+    const skills = nodeCard('toolsat:steps[0]:add-skills');
+    expect(skills).toHaveAttribute('data-shape', 'add');
+    expect(skills).toHaveAttribute('data-slot', 'skills');
+    expect(skills).not.toHaveTextContent('No skills');
+    expect(screen.queryByTestId('ve-canvas-tools-badge')).toBeNull();
+  });
+
+  it('shows a small round "+" for the Tools, the Skills and the DAGs of a step with none, and opens their docks', () => {
+    const { props } = renderCanvas({ graph: bareChatGraph(), direction: 'TB' });
+    for (const slot of ['tools', 'skills', 'dags']) {
+      const node = nodeCard(`toolsat:steps[0]:add-${slot}`);
+      expect(node).toHaveAttribute('data-shape', 'add');
+      expect(node).toHaveAttribute('data-slot', slot);
+    }
+    expect(screen.queryByText('No tools')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a tool' }));
+    expect(props.onCommand).toHaveBeenLastCalledWith({
+      kind: 'openSlotDock',
+      step: 'steps[0]',
+      slot: 'tools',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add a skill' }));
+    expect(props.onCommand).toHaveBeenLastCalledWith({
+      kind: 'openSlotDock',
+      step: 'steps[0]',
+      slot: 'skills',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add a DAG' }));
+    expect(props.onCommand).toHaveBeenLastCalledWith({
+      kind: 'openSlotDock',
+      step: 'steps[0]',
+      slot: 'dags',
+    });
+  });
+
+  it('labels the slots on the sides of the step top to bottom, and above and under it left to right', () => {
+    const tb = renderCanvas({ graph: chatGraph(), direction: 'TB' });
+    expect(screen.getByTestId('ve-canvas-slot-model')).toHaveAttribute(
+      'data-side',
+      'left'
+    );
+    for (const slot of ['skills', 'tools', 'dags']) {
+      expect(screen.getByTestId(`ve-canvas-slot-${slot}`)).toHaveAttribute(
+        'data-side',
+        'right'
+      );
+    }
+    tb.unmount();
+    renderCanvas({ graph: chatGraph(), direction: 'LR' });
+    // Left to right, the Model is above the step, and the Skills and the Tools under it.
+    expect(screen.getByTestId('ve-canvas-slot-model')).toHaveAttribute(
+      'data-side',
+      'top'
+    );
+    for (const slot of ['skills', 'tools', 'dags']) {
+      expect(screen.getByTestId(`ve-canvas-slot-${slot}`)).toHaveAttribute(
+        'data-side',
+        'bottom'
+      );
+    }
+  });
+
+  it('selects the tool of a row, and opens the docks from the add rows', () => {
+    const { props } = renderCanvas({ graph: chatGraph(), direction: 'TB' });
+    fireEvent.click(screen.getByRole('button', { name: 'lookup' }));
+    expect(props.onCommand).toHaveBeenCalledWith({
+      kind: 'openTool',
+      tool: { step: 'steps[0]', category: 'dags', index: 0 },
+    });
+    // The tool is the selection: the click does not select the step again.
+    expect(props.onSelect).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Add a tool' }));
+    expect(props.onCommand).toHaveBeenCalledWith({
+      kind: 'openSlotDock',
+      step: 'steps[0]',
+      slot: 'tools',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add a skill' }));
+    expect(props.onCommand).toHaveBeenCalledWith({
+      kind: 'openSlotDock',
+      step: 'steps[0]',
+      slot: 'skills',
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add a DAG' }));
+    expect(props.onCommand).toHaveBeenCalledWith({
+      kind: 'openSlotDock',
+      step: 'steps[0]',
+      slot: 'dags',
+    });
+  });
+
+  it('selects the step from a card, and marks the card as selected while its step is', () => {
+    const { props } = renderCanvas({
+      graph: chatGraph(),
+      direction: 'TB',
+      selected: 'steps[0]',
+    });
+    const card = () => screen.getByRole('group', { name: 'DAGs' });
+    expect(card()).not.toHaveAttribute('data-selected');
+    fireEvent.click(nodeCard('toolsat:steps[0]:dags'));
+    expect(props.onSelect).toHaveBeenCalledWith('steps[0]');
+    expect(card()).toHaveAttribute('data-selected', 'true');
+    expect(screen.getByRole('group', { name: 'Model' })).not.toHaveAttribute(
+      'data-selected'
+    );
+  });
+
+  it('lights the row of the selected tool', () => {
+    renderCanvas({
+      graph: chatGraph(),
+      direction: 'TB',
+      selected: 'steps[0]',
+      selectedTool: { step: 'steps[0]', category: 'dags', index: 0 },
+    });
+    expect(screen.getByRole('button', { name: 'lookup' })).toHaveAttribute(
+      'data-selected',
+      'true'
+    );
+  });
+
+  // The pickers of the Model card edit the model: a double click opens nothing.
+  it('opens no form from a double click on the Model card', () => {
+    const { props } = renderCanvas({ graph: chatGraph(), direction: 'TB' });
+    fireEvent.doubleClick(nodeCard('toolsat:steps[0]:model'));
+    expect(props.onCommand).not.toHaveBeenCalled();
+  });
+
+  // The header of the card and its body outside a row open the dock of the
+  // whole list. A row keeps its own panel, and the add row stays an add row.
+  it('opens the dock of the Tools list from a double click on the DAGs card', () => {
+    const { props } = renderCanvas({ graph: chatGraph(), direction: 'TB' });
+    const card = nodeCard('toolsat:steps[0]:dags');
+    fireEvent.doubleClick(within(card).getByText('DAGs'));
+    expect(props.onCommand).toHaveBeenCalledTimes(1);
+    // The DAG tools are in the list of the Tools: the card asks for its slot.
+    expect(props.onCommand).toHaveBeenLastCalledWith({
+      kind: 'openSlotPanel',
+      step: 'steps[0]',
+      slot: 'dags',
+    });
+    fireEvent.doubleClick(card);
+    expect(props.onCommand).toHaveBeenLastCalledWith({
+      kind: 'openSlotPanel',
+      step: 'steps[0]',
+      slot: 'dags',
+    });
+    // Enter on the focused card opens it too.
+    fireEvent.keyDown(card, { key: 'Enter' });
+    expect(props.onCommand).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps the panel of a tool on a double click on its row, and opens no form', () => {
+    const { props } = renderCanvas({ graph: chatGraph(), direction: 'TB' });
+    const row = screen.getByRole('button', { name: 'lookup' });
+    fireEvent.click(row);
+    fireEvent.doubleClick(row);
+    expect(props.onCommand).toHaveBeenCalledTimes(1);
+    expect(props.onCommand).toHaveBeenCalledWith({
+      kind: 'openTool',
+      tool: { step: 'steps[0]', category: 'dags', index: 0 },
+    });
+  });
+
+  it('opens no form from a double click on the add row', () => {
+    const { props } = renderCanvas({ graph: chatGraph(), direction: 'TB' });
+    fireEvent.doubleClick(screen.getByRole('button', { name: 'Add a tool' }));
+    fireEvent.doubleClick(screen.getByRole('button', { name: 'Add a DAG' }));
+    expect(props.onCommand).not.toHaveBeenCalled();
+  });
+
+  it('has no "+" for a tool on a read-only canvas', () => {
+    renderCanvas({ graph: chatGraph(), direction: 'TB', readOnly: true });
+    expect(screen.queryByRole('button', { name: 'Add a tool' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add a DAG' })).toBeNull();
+    expect(nodeCard('toolsat:steps[0]:model')).toBeInTheDocument();
   });
 });

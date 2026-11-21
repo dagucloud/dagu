@@ -1,0 +1,6 @@
+restart_policy: always
+restart_wait_sec: 1
+hist_retention_runs: 1
+steps:
+  - id: check
+    run: "true"

@@ -15,8 +15,30 @@ import type {
   ValidationIssue,
 } from '../contracts';
 import { NodeStatus } from '@/api/v1/schema';
+import {
+  AGENT_RUN_ACTION,
+  dagHasAgentRun,
+  trustOf,
+  writtenTrust,
+  readAgentProvider,
+} from '../agentRun/agentRun';
 import { previousOfExecuted } from '../run/upstreamSteps';
+import { CHAT_ACTION } from '../tools/model';
+import { readBuiltinTools, readStepTools } from '../tools/parse';
+import {
+  AGENT_CHIPS_WIDTH,
+  chipRows,
+  readAgentFacts,
+  readRetry,
+} from './agentCard';
 import { readAgentHeader } from './agentHeader';
+import {
+  carriesCondition,
+  edgeCondition,
+  readContinueOn,
+  readPreconditions,
+} from './conditions';
+import { readAgentRunInfo, readChatInfo } from './chatModel';
 import {
   AGENT_NODE_KEY,
   type AgentTaskView,
@@ -153,7 +175,8 @@ function invalidLabel(step: StepView): string {
 function buildNode(
   step: StepView,
   lane: 'main' | 'handler',
-  input: CanvasGraphInput
+  input: CanvasGraphInput,
+  agentDag: boolean
 ): CanvasNodeWithRoutes {
   const { names, issues, overlay } = input;
   const serverName = own(names.byKey, step.key);
@@ -200,6 +223,22 @@ function buildNode(
   if (step.action !== undefined) {
     node.action = step.action;
   }
+  // An agent step names its provider.
+  const agentRun = step.action === AGENT_RUN_ACTION;
+  if (agentRun) {
+    node.subtitle = [step.action, readAgentProvider(step.value)]
+      .filter(Boolean)
+      .join(' \u00b7 ');
+  }
+  const trust = trustOf(step, agentDag);
+  // Only the key `untrusted` of the YAML shows a mark: a trust that comes
+  // from the default shows none.
+  const written = writtenTrust(step);
+  if (written) {
+    node.trust = written;
+    if (written === 'marked') node.untrusted = true;
+  }
+
   if (step.broken !== undefined) {
     node.subtitle = 'YAML error';
   }
@@ -211,11 +250,48 @@ function buildNode(
   if ('parallel' in step.value) {
     node.parallel = true;
   }
+  if (lane === 'main' && step.action === CHAT_ACTION) {
+    const tools = readStepTools(step.value);
+    if (tools.entries.length > 0) {
+      node.tools = tools;
+    }
+    node.chat = readChatInfo(step.value);
+  }
+  // An agent step is drawn as a chat step: its model, its tools (the DAG,
+  // action and MCP tools, and its built-in tools) and its skills are sub-nodes.
+  if (lane === 'main' && agentRun) {
+    const { entries } = readStepTools(step.value);
+    const builtin = readBuiltinTools(step.value);
+    if (entries.length > 0 || builtin.length > 0) {
+      node.tools = { entries, builtin };
+    }
+    node.chat = readAgentRunInfo(step.value);
+  }
+  const continueOn = readContinueOn(step.value.continue_on);
+  if (continueOn) {
+    node.continueOn = continueOn;
+  }
+  const preconditions = readPreconditions(step.value);
+  if (preconditions.length > 0) {
+    node.preconditions = preconditions.map((pre) => pre.text);
+  }
   const repeat = readRepeatPolicy(
     step.value.repeat_policy ?? step.value.repeatPolicy
   );
   if (repeat) {
     node.repeat = repeat;
+  }
+  // The card draws the loop of the retry as an arc.
+  const retry = readRetry(step.value.retry_policy ?? step.value.retryPolicy);
+  if (retry) {
+    node.retry = retry;
+  }
+  if (lane === 'main' && agentRun) {
+    node.agent = {
+      ...readAgentFacts(step.value, trust.source),
+      chipRows: 0,
+    };
+    node.agent.chipRows = chipRows(node, AGENT_CHIPS_WIDTH);
   }
   if (isRouter(step)) {
     const value = routeValue(step);
@@ -304,6 +380,37 @@ function inferredEdges(
     }
   }
   return edges;
+}
+
+/**
+ * Puts the condition of a precondition on the link that it reads: the link
+ * from a step to a step whose preconditions test the result of the first one.
+ * A verify loop shows this way: the link from `verify_1` to `code_2` reads
+ * "if verify_1 failed". Changes the edges in place.
+ */
+function markConditionalEdges(
+  model: DagDocModel,
+  names: StepNameMap,
+  nodes: CanvasNodeWithRoutes[],
+  edges: CanvasEdgeWithRef[]
+): void {
+  const steps = new Map(model.steps.map((step) => [step.key, step]));
+  const labels = new Map(nodes.map((node) => [node.key, node.label]));
+  for (const edge of edges) {
+    if (!carriesCondition(edge)) continue;
+    const target = steps.get(edge.target);
+    const source = steps.get(edge.source);
+    if (!target || !source) continue;
+    const pre = readPreconditions(target.value);
+    if (pre.length === 0) continue;
+    const refs = [
+      source.explicitName,
+      source.id,
+      own(names.byKey, source.key),
+    ].filter((ref): ref is string => typeof ref === 'string' && ref !== '');
+    const condition = edgeCondition(pre, refs, labels.get(edge.source) ?? '');
+    if (condition) edge.condition = condition;
+  }
 }
 
 /**
@@ -482,9 +589,12 @@ function markReuseOutlines(
 export function buildCanvasGraph(input: CanvasGraphInput): CanvasGraph {
   const { model, names } = input;
   const resolve = buildStepResolver(model, names);
+  const agentDag = dagHasAgentRun(model);
   const nodes: CanvasNodeWithRoutes[] = [
-    ...model.steps.map((step) => buildNode(step, 'main', input)),
-    ...model.handlers.map((step) => buildNode(step, 'handler', input)),
+    ...model.steps.map((step) => buildNode(step, 'main', input, agentDag)),
+    ...model.handlers.map((step) =>
+      buildNode(step, 'handler', input, agentDag)
+    ),
   ];
   const editableEdges = model.dagType !== 'chain' && model.dagType !== 'agent';
   const edges = dependsEdges(model, resolve);
@@ -494,6 +604,7 @@ export function buildCanvasGraph(input: CanvasGraphInput): CanvasGraph {
     edges.push(...orderEdges(model));
   }
   edges.push(...routeEdges(nodes, resolve));
+  markConditionalEdges(model, names, nodes, edges);
   if (model.dagType === 'agent') {
     // The steps are the actions of the agent: each hangs from its node, and
     // draws as a tool card.

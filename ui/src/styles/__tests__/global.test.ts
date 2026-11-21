@@ -7,6 +7,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import postcss, { type Root, type Rule } from 'postcss';
 import { describe, expect, it } from 'vitest';
+import { EXPORT_STATUS_COLORS } from '@/features/visual-editor/canvas/exportCanvas';
 
 const semanticUtilities = [
   ['bg-error/10', 'background-color', '--status-error'],
@@ -26,6 +27,8 @@ const semanticUtilities = [
   ['text-text-secondary', 'color', '--text-secondary'],
   ['bg-sidebar-active', 'background-color', '--sidebar-active'],
   ['bg-sidebar-primary', 'background-color', '--sidebar-primary'],
+  ['border-node-line', 'border-color', '--node-line'],
+  ['stroke-node-line', 'stroke', '--node-line'],
 ] as const;
 
 function selector(utility: string): string {
@@ -141,6 +144,118 @@ describe('global styles', () => {
           colors.get(`${fill}-foreground`)!
         );
         expect(ratio, fill).toBeGreaterThanOrEqual(MIN_TEXT_CONTRAST);
+      }
+    }
+  );
+});
+
+// The tokens that the graph canvas, its nodes and its chips use. Each one has
+// a value in both themes, so that no meaning falls back to a literal colour.
+const graphTokens = [
+  '--background',
+  '--card',
+  '--border',
+  '--node-line',
+  '--muted',
+  '--muted-foreground',
+  '--primary',
+  '--destructive',
+  '--success',
+  '--warning',
+  '--warning-foreground',
+  '--status-success',
+  '--status-error',
+  '--status-running',
+  '--status-warning',
+  '--status-aborted',
+  '--status-neutral',
+] as const;
+
+async function themeTokens(selector: string): Promise<Map<string, string>> {
+  const source = await readFile(resolve('src/styles/global.css'), 'utf8');
+  const root = postcss.parse(source);
+  const tokens = new Map<string, string>();
+  root.walkRules((rule) => {
+    if (rule.selector !== selector) return;
+    rule.walkDecls(/^--/, (declaration) => {
+      tokens.set(declaration.prop, declaration.value.trim());
+    });
+  });
+  return tokens;
+}
+
+describe('graph colour tokens', () => {
+  it.each([':root', '.dark'])('defines every token in %s', async (selector) => {
+    const tokens = await themeTokens(selector);
+    for (const name of graphTokens) {
+      expect(tokens.has(name), `${name} in ${selector}`).toBe(true);
+    }
+  });
+
+  // The node line is a UI boundary: 3:1 on the canvas. The text of a warning
+  // count badge is 4.5:1 on the warning colour.
+  it.each([':root', '.dark'])(
+    'keeps the contrast of the graph in %s',
+    async (selector) => {
+      const tokens = await themeTokens(selector);
+      const value = (name: string) => tokens.get(name)!;
+      expect(
+        contrast(value('--node-line'), value('--background'))
+      ).toBeGreaterThanOrEqual(3);
+      expect(
+        contrast(value('--node-line'), value('--card'))
+      ).toBeGreaterThanOrEqual(3);
+      for (const status of [
+        '--status-success',
+        '--status-error',
+        '--status-running',
+        '--status-warning',
+        '--status-aborted',
+      ]) {
+        expect(
+          contrast(value(status), value('--card')),
+          `${status} on the card`
+        ).toBeGreaterThanOrEqual(3);
+      }
+      if (selector === ':root') {
+        expect(
+          contrast(value('--warning-foreground'), value('--warning'))
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  );
+
+  // A running step is violet and an aborted step is not: the two never share a hue.
+  it('keeps the aborted colour apart from the running colour', async () => {
+    for (const selector of [':root', '.dark']) {
+      const tokens = await themeTokens(selector);
+      expect(tokens.get('--status-aborted')).not.toBe(
+        tokens.get('--status-running')
+      );
+    }
+  });
+
+  // One palette on screen and in the export: each --graph-* token equals the
+  // --status-* token of its theme, and the literals of the export equal both.
+  it.each([
+    [':root', 'light'],
+    ['.dark', 'dark'],
+  ] as const)(
+    'keeps the graph palette in step in %s',
+    async (selector, mode) => {
+      const tokens = await themeTokens(selector);
+      const exported = EXPORT_STATUS_COLORS[mode];
+      const rows = [
+        ['success', exported.success],
+        ['error', exported.failed],
+        ['running', exported.running],
+        ['warning', exported.warning],
+        ['aborted', exported.aborted],
+        ['neutral', exported.neutral],
+      ] as const;
+      for (const [tone, color] of rows) {
+        expect(tokens.get(`--graph-${tone}`), `--graph-${tone}`).toBe(color);
+        expect(tokens.get(`--status-${tone}`), `--status-${tone}`).toBe(color);
       }
     }
   );

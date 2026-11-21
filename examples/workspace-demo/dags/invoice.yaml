@@ -1,0 +1,10 @@
+description: Create an invoice for a customer
+params:
+  - name: CUSTOMER_ID
+    type: string
+    description: Customer id
+    required: true
+steps:
+  - id: invoice
+    run: echo "invoice created for $CUSTOMER_ID"
+    output: RESULT
