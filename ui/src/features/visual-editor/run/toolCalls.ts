@@ -13,8 +13,8 @@ export interface SubRunRef {
 }
 
 /**
- * The sub-runs of each tool DAG of each step, in the order of the run. The
- * keys are the server step name and the DAG name of the sub-run.
+ * The sub-runs of each tool DAG of each step, oldest first. The keys are the
+ * server step name and the DAG name of the sub-run.
  */
 export type ToolSubRuns = Record<string, Record<string, SubRunRef[]>>;
 
@@ -27,9 +27,10 @@ export function buildToolSubRuns(details?: DAGRunDetails | null): ToolSubRuns {
   for (const node of details?.nodes ?? []) {
     const step = node.step?.name;
     if (!step) continue;
+    // Earlier iterations of a repeated step come before the latest one.
     for (const sub of [
-      ...(node.subRuns ?? []),
       ...(node.subRunsRepeated ?? []),
+      ...(node.subRuns ?? []),
     ]) {
       if (!sub.dagName) continue;
       const own = (runs[step] ??= {});

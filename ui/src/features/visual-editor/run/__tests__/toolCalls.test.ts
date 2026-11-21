@@ -8,7 +8,8 @@ import { buildToolCalls, buildToolSubRuns } from '../toolCalls';
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 
 // A run of a step that called its tool DAGs: each call is a sub-run with the
-// name of the tool DAG, as the chat and agent steps record it.
+// name of the tool DAG, as the chat and agent steps record it. A repeated step
+// keeps its earlier iterations in subRunsRepeated and the latest in subRuns.
 const DETAILS = {
   nodes: [
     { step: { name: 'fetch' }, subRuns: [] },
@@ -29,7 +30,7 @@ describe('buildToolSubRuns', () => {
   it('lists the sub-runs of each tool DAG of a step, in the order of the run', () => {
     expect(buildToolSubRuns(DETAILS)).toEqual({
       triage: {
-        lookup: [{ dagRunId: 'r1', params: '{"id":"1"}' }, { dagRunId: 'r3' }],
+        lookup: [{ dagRunId: 'r3' }, { dagRunId: 'r1', params: '{"id":"1"}' }],
         refund: [{ dagRunId: 'r2' }],
       },
     });
