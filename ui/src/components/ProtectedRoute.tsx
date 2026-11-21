@@ -8,10 +8,7 @@ type ProtectedRouteProps = {
   requiredRole?: UserRole;
 };
 
-export function ProtectedRoute({
-  children,
-  requiredRole,
-}: ProtectedRouteProps) {
+export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
   const config = useConfig();
   const { isAuthenticated, isLoading, setupRequired, user } = useAuth();
   const location = useLocation();
