@@ -2027,6 +2027,39 @@ steps:
 	require.Contains(t, outputs["response"], "*******", "masked placeholder expected")
 }
 
+// A relative file secret is searched in the DAG working_dir first, including
+// when working_dir is written with a value reference such as ${params.*}.
+func TestAgent_FileSecretWorkingDirParamReference(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture uses POSIX shell commands")
+	}
+	th := test.Setup(t)
+
+	checkoutDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(checkoutDir, "token.txt"), []byte("from-checkout"), 0o600))
+
+	launchDir := t.TempDir()
+	origWD, err := os.Getwd()
+	require.NoError(t, err)
+	require.NoError(t, os.Chdir(launchDir))
+	t.Cleanup(func() {
+		_ = os.Chdir(origWD)
+	})
+
+	dag := th.DAG(t, `working_dir: ${params.workspace}
+params:
+  workspace: `+checkoutDir+`
+secrets:
+  - name: TOKEN
+    provider: file
+    key: token.txt
+steps:
+  - name: check
+    run: test "$TOKEN" = from-checkout
+`)
+	dag.Agent().RunSuccess(t)
+}
+
 // A later step of the same run reads a published output with the secret
 // intact, while stored run status keeps only the mask.
 func TestAgent_StepOutputSecretMasking(t *testing.T) {
