@@ -4,6 +4,7 @@
 package ir
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -23,4 +24,12 @@ func TestCalculateBackoffIntervalOverflowRespectsMax(t *testing.T) {
 
 	got := CalculateBackoffInterval(time.Second, 2.0, 10*time.Second, 64)
 	require.Equal(t, 10*time.Second, got)
+}
+
+func TestCalculateBackoffIntervalSaturatesAtInt64Boundary(t *testing.T) {
+	t.Parallel()
+
+	// float64(math.MaxInt64) rounds to 2^63, so >= must be used to saturate.
+	got := CalculateBackoffInterval(time.Nanosecond, 2.0, 0, 63)
+	require.Equal(t, time.Duration(math.MaxInt64), got)
 }

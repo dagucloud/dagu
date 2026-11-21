@@ -224,8 +224,10 @@ func applyStepSlice(value string, spec stepSliceSpec) string {
 	}
 
 	end := len(runes)
-	if spec.hasLength {
-		end = min(spec.start+spec.length, len(runes))
+	if spec.hasLength && spec.length < len(runes)-spec.start {
+		// Compare against the remaining length: start+length can overflow
+		// for a user-supplied huge length and wrap to a negative bound.
+		end = spec.start + spec.length
 	}
 
 	return string(runes[spec.start:end])

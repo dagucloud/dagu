@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 const ACRONYMS: Record<string, string> = {
+  a2a: 'A2A',
   api: 'API',
   csv: 'CSV',
   http: 'HTTP',

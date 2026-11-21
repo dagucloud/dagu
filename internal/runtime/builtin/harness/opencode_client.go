@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
@@ -27,7 +28,12 @@ type openCodeClient struct {
 	directory string
 	sessionID string
 	http      *http.Client
+
+	mu      sync.Mutex
+	parents map[string]string
 }
+
+const maxParentCache = 256
 
 // openCodeTransport is shared by OpenCode clients and kept apart from
 // http.DefaultTransport: closing the default transport's idle connections,
@@ -47,6 +53,7 @@ func newOpenCodeHTTPClient(timeout time.Duration) *http.Client {
 
 type openCodeSession struct {
 	ID        string `json:"id"`
+	ParentID  string `json:"parentID"`
 	Directory string `json:"directory"`
 	Location  struct {
 		Directory string `json:"directory"`
@@ -267,7 +274,7 @@ func (c *openCodeClient) commandAsync(ctx context.Context, sessionID, messageID,
 	errs := make(chan error, 1)
 	go func() {
 		defer close(errs)
-		commandClient := *c
+		commandClient := openCodeClient{host: c.host, directory: c.directory, sessionID: c.sessionID}
 		commandClient.http = &http.Client{Transport: c.http.Transport}
 		errs <- commandClient.json(ctx, http.MethodPost, "/session/"+url.PathEscape(sessionID)+"/command", body, nil)
 	}()
@@ -283,21 +290,222 @@ func (c *openCodeClient) messages(ctx context.Context, sessionID string) ([]open
 	return messages, err
 }
 
-func (c *openCodeClient) sessionStatus(ctx context.Context, sessionID string) (string, error) {
+func (c *openCodeClient) activeSessions(ctx context.Context) (map[string]string, error) {
 	var statuses map[string]struct {
 		Type string `json:"type"`
 	}
 	if err := c.json(ctx, http.MethodGet, "/session/status", nil, &statuses); err != nil {
+		return nil, err
+	}
+	active := make(map[string]string, len(statuses))
+	for id, status := range statuses {
+		active[id] = status.Type
+		if c.host.IsV2() && status.Type == "running" {
+			active[id] = "busy"
+		}
+	}
+	return active, nil
+}
+
+func (c *openCodeClient) sessionStatus(ctx context.Context, sessionID string) (string, error) {
+	active, err := c.activeSessions(ctx)
+	if err != nil {
 		return "", err
 	}
-	status, ok := statuses[sessionID]
-	if !ok {
-		return "idle", nil
+	if status, ok := active[sessionID]; ok {
+		return status, nil
 	}
-	if c.host.IsV2() && status.Type == "running" {
-		return "busy", nil
+	return "idle", nil
+}
+
+// maxSessionDepth bounds the walk from a session up to its root.
+const maxSessionDepth = 16
+
+// openCodeFamily is a root session together with the sessions descended from it.
+type openCodeFamily struct {
+	// status is the root's own status.
+	status string
+	// descendants are the active sessions descended from the root.
+	descendants []string
+	// unknown are active sessions whose ancestry could not be established.
+	unknown []string
+	// hasChildren is set only when the whole family is idle.
+	hasChildren bool
+	// jobs are the running background jobs of the root and its descendants.
+	// They are read only withJobs, when the sessions are otherwise idle.
+	jobs []openCodeJob
+}
+
+func (f openCodeFamily) idle() bool {
+	return f.status == "idle" && len(f.descendants) == 0 && len(f.unknown) == 0 && len(f.jobs) == 0
+}
+
+// family reads the status of a root session and its descendants. Sessions are
+// related by parent linkage only, so unrelated sessions on a shared host are
+// ignored. Parent chains are read only for active sessions other than the root.
+// Running background jobs are read only withJobs: a user's session may keep
+// jobs running that are not Dagu's to wait on.
+func (c *openCodeClient) family(ctx context.Context, rootID string, withJobs bool) (openCodeFamily, error) {
+	active, err := c.activeSessions(ctx)
+	if err != nil {
+		return openCodeFamily{}, err
 	}
-	return status.Type, nil
+	family := openCodeFamily{status: "idle"}
+	if status, ok := active[rootID]; ok {
+		family.status = status
+	}
+	if !c.host.IsV2() {
+		// v1 has no background children.
+		return family, nil
+	}
+	for id := range active {
+		if id == rootID {
+			continue
+		}
+		membership, err := c.descendsFrom(ctx, id, rootID)
+		if err != nil {
+			return openCodeFamily{}, err
+		}
+		switch membership {
+		case memberYes:
+			family.descendants = append(family.descendants, id)
+		case memberUnknown:
+			family.unknown = append(family.unknown, id)
+		}
+	}
+	if withJobs && family.idle() {
+		if family.jobs, err = c.runningJobs(ctx, rootID); err != nil {
+			return openCodeFamily{}, err
+		}
+	}
+	if family.idle() {
+		family.hasChildren, err = c.hasChildren(ctx, rootID)
+	}
+	return family, err
+}
+
+// openCodeJob is a background job. Only a shell job has a shell to stop.
+type openCodeJob struct {
+	Kind    string `json:"kind"`
+	ShellID string `json:"shellID"`
+}
+
+// runningJobs lists the running background jobs of the session and its
+// descendants, which /session/active does not show. A host without the
+// endpoint has none; a failed listing may hide some, so it yields a
+// placeholder job for this tick.
+func (c *openCodeClient) runningJobs(ctx context.Context, sessionID string) ([]openCodeJob, error) {
+	if !c.host.IsV2() {
+		return nil, nil
+	}
+	unknown := []openCodeJob{{Kind: "unknown"}}
+	resp, err := c.request(ctx, http.MethodGet, "/experimental/job?descendants=true&status=running&sessionID="+url.QueryEscape(sessionID), nil)
+	if err != nil {
+		if isManagedUnavailable(err) {
+			return nil, err
+		}
+		return unknown, nil
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusBadRequest:
+		return nil, nil
+	case resp.StatusCode < 200 || resp.StatusCode >= 300:
+		return unknown, nil
+	}
+	var body struct {
+		Data []openCodeJob `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return unknown, nil
+	}
+	return body.Data, nil
+}
+
+// stopJobs terminates the shells of background jobs; failures are retried on
+// the next settle tick.
+func (c *openCodeClient) stopJobs(ctx context.Context, jobs []openCodeJob) {
+	for _, job := range jobs {
+		if job.ShellID != "" {
+			_ = c.json(ctx, http.MethodDelete, "/shell/"+url.PathEscape(job.ShellID), nil, nil)
+		}
+	}
+}
+
+type membership int
+
+const (
+	memberNo membership = iota
+	memberYes
+	memberUnknown
+)
+
+// descendsFrom walks the parent chain of a session. A chain that ends without
+// the root, or hits a missing session, is unrelated. A read error, a cycle, or
+// exhausting maxSessionDepth leaves membership unknown, to be retried on the
+// next poll; only a lost host or a cancelled context is an error.
+func (c *openCodeClient) descendsFrom(ctx context.Context, sessionID, rootID string) (membership, error) {
+	seen := map[string]bool{}
+	for range maxSessionDepth {
+		if seen[sessionID] {
+			return memberUnknown, nil
+		}
+		seen[sessionID] = true
+		parent, err := c.parentOf(ctx, sessionID)
+		switch {
+		case errors.Is(err, errManagedHostUnavailable) || ctx.Err() != nil:
+			return memberNo, errors.Join(err, ctx.Err())
+		case errors.Is(err, errManagedSessionUnavailable):
+			return memberNo, nil
+		case err != nil:
+			return memberUnknown, nil
+		case parent == "":
+			return memberNo, nil
+		case parent == rootID:
+			return memberYes, nil
+		}
+		sessionID = parent
+	}
+	return memberUnknown, nil
+}
+
+// parentOf returns a session's parent ID. Parent links never change, so they
+// are cached; the cache is cleared when it grows past its cap.
+func (c *openCodeClient) parentOf(ctx context.Context, sessionID string) (string, error) {
+	c.mu.Lock()
+	parent, ok := c.parents[sessionID]
+	c.mu.Unlock()
+	if ok {
+		return parent, nil
+	}
+	session, err := c.getSession(ctx, sessionID)
+	if err != nil {
+		return "", err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.parents == nil || len(c.parents) >= maxParentCache {
+		c.parents = map[string]string{}
+	}
+	c.parents[sessionID] = session.ParentID
+	return session.ParentID, nil
+}
+
+// hasChildren reports whether the session spawned child sessions, whose reports
+// can still start another turn of it. Only OpenCode v2 spawns background children.
+func (c *openCodeClient) hasChildren(ctx context.Context, sessionID string) (bool, error) {
+	if !c.host.IsV2() {
+		return false, nil
+	}
+	var children []openCodeSession
+	if err := c.json(ctx, http.MethodGet, "/session?limit=1&parentID="+url.QueryEscape(sessionID), nil, &children); err != nil {
+		if isManagedUnavailable(err) {
+			return false, err
+		}
+		// A failed listing is not an empty one; assuming children only costs a tick.
+		return true, nil
+	}
+	return len(children) > 0, nil
 }
 
 func (c *openCodeClient) permissions(ctx context.Context) ([]openCodePermissionRequest, error) {
@@ -318,60 +526,131 @@ func (c *openCodeClient) questions(ctx context.Context) ([]openCodeQuestionReque
 	return requests, err
 }
 
-func (c *openCodeClient) replyPermission(ctx context.Context, requestID, reply string) error {
+// replyPermission answers a request in the session that owns it; an empty
+// sessionID means the client's root session.
+func (c *openCodeClient) replyPermission(ctx context.Context, sessionID, requestID, reply string) error {
 	if c.host.IsV2() {
-		return c.json(ctx, http.MethodPost, "/session/"+url.PathEscape(c.sessionID)+"/permission/"+url.PathEscape(requestID)+"/reply", map[string]any{"decision": reply}, nil)
+		return c.json(ctx, http.MethodPost, "/session/"+url.PathEscape(c.ownerID(sessionID))+"/permission/"+url.PathEscape(requestID)+"/reply", map[string]any{"decision": reply}, nil)
 	}
 	return c.json(ctx, http.MethodPost, "/permission/"+url.PathEscape(requestID)+"/reply", map[string]any{"reply": reply}, nil)
 }
 
-func (c *openCodeClient) replyQuestion(ctx context.Context, requestID string, answers [][]string) error {
+func (c *openCodeClient) replyQuestion(ctx context.Context, sessionID, requestID string, answers [][]string) error {
 	if c.host.IsV2() {
-		return c.replyQuestionV2(ctx, requestID, answers)
+		return c.replyQuestionV2(ctx, c.ownerID(sessionID), requestID, answers)
 	}
 	return c.json(ctx, http.MethodPost, "/question/"+url.PathEscape(requestID)+"/reply", map[string]any{"answers": answers}, nil)
 }
 
-func (c *openCodeClient) rejectQuestion(ctx context.Context, requestID string) error {
+func (c *openCodeClient) rejectQuestion(ctx context.Context, sessionID, requestID string) error {
 	if c.host.IsV2() {
-		return c.json(ctx, http.MethodDelete, "/session/"+url.PathEscape(c.sessionID)+"/form/"+url.PathEscape(requestID), nil, nil)
+		return c.json(ctx, http.MethodDelete, "/session/"+url.PathEscape(c.ownerID(sessionID))+"/form/"+url.PathEscape(requestID), nil, nil)
 	}
 	return c.json(ctx, http.MethodPost, "/question/"+url.PathEscape(requestID)+"/reject", nil, nil)
+}
+
+func (c *openCodeClient) ownerID(sessionID string) string {
+	if sessionID == "" {
+		return c.sessionID
+	}
+	return sessionID
+}
+
+// ownsRequest reports whether a pending request belongs to the root session or
+// one of its descendants. Unresolvable ancestry is not a match.
+func (c *openCodeClient) ownsRequest(ctx context.Context, rootID, sessionID string) (bool, error) {
+	if sessionID == rootID {
+		return true, nil
+	}
+	if !c.host.IsV2() || sessionID == "" {
+		return false, nil
+	}
+	member, err := c.descendsFrom(ctx, sessionID, rootID)
+	return member == memberYes, err
 }
 
 func (c *openCodeClient) abort(ctx context.Context, sessionID string) error {
 	return c.json(ctx, http.MethodPost, "/session/"+url.PathEscape(sessionID)+"/abort", nil, nil)
 }
 
-// interruptAndAwaitIdle interrupts the session's active execution. It returns
-// nil only once the host reports the session idle or no longer has it.
+// interruptAndAwaitIdle interrupts the session's active execution and that of
+// its descendants. It returns nil only once the host reports the whole family
+// idle or no longer has the session.
 func (c *openCodeClient) interruptAndAwaitIdle(ctx context.Context, sessionID string) error {
+	return c.interruptAndSettle(ctx, sessionID, true)
+}
+
+// interruptRootAndAwaitIdle interrupts only the active turn of a user's
+// session and waits for the rest of its family, which may run turns that are
+// not Dagu's.
+func (c *openCodeClient) interruptRootAndAwaitIdle(ctx context.Context, sessionID string) error {
+	return c.interruptAndSettle(ctx, sessionID, false)
+}
+
+func (c *openCodeClient) interruptAndSettle(ctx context.Context, sessionID string, owned bool) error {
 	abortErr := c.abort(ctx, sessionID)
 	if errors.Is(abortErr, errManagedSessionUnavailable) {
 		return nil
 	}
-	if err := c.awaitIdle(ctx, sessionID); err != nil {
+	if err := c.settle(ctx, sessionID, owned); err != nil {
 		return errors.Join(abortErr, err)
 	}
-	// A failed interrupt request is moot once the session is idle.
+	// A failed interrupt request is moot once the family is idle.
 	return nil
 }
 
-// awaitIdle waits until the host reports no active execution for the session.
-// Settlement is scoped to this host's process.
+// awaitIdle waits until the host reports no active execution for the session
+// or its descendants. Settlement is scoped to this host's process.
 func (c *openCodeClient) awaitIdle(ctx context.Context, sessionID string) error {
+	return c.settle(ctx, sessionID, false)
+}
+
+// settle waits for the session's family to stay idle for one more poll when
+// the session has children, because a child's report can start another turn of
+// the session. In a session Dagu owns, active descendants and shell jobs are
+// stopped, and so is a root that turns active again. Sessions of unknown
+// membership are never interrupted.
+func (c *openCodeClient) settle(ctx context.Context, sessionID string, owned bool) error {
 	ticker := time.NewTicker(managedIdlePollInterval)
 	defer ticker.Stop()
 	var lastErr error
+	settling, rootIdle := false, false
 	for {
-		status, err := c.sessionStatus(ctx, sessionID)
+		family, err := c.family(ctx, sessionID, owned)
 		switch {
-		case err == nil && status == "idle":
+		case err == nil && family.idle() && (!family.hasChildren || settling):
 			return nil
 		case errors.Is(err, errManagedHostUnavailable):
 			return err
 		case err == nil:
-			lastErr = fmt.Errorf("OpenCode session %s is still %s", sessionID, status)
+			settling = family.idle()
+			if !settling {
+				lastErr = fmt.Errorf("OpenCode session %s is still %s", sessionID, family.status)
+				if family.status == "idle" {
+					lastErr = fmt.Errorf("OpenCode session %s has active subagent sessions %v", sessionID, family.descendants)
+					if len(family.jobs) > 0 {
+						lastErr = fmt.Errorf("OpenCode session %s has running background jobs", sessionID)
+					} else if len(family.descendants) == 0 {
+						lastErr = fmt.Errorf("OpenCode session %s has active sessions of unresolved ancestry %v", sessionID, family.unknown)
+					}
+				}
+			}
+			if owned {
+				for _, id := range family.descendants {
+					_ = c.abort(ctx, id)
+				}
+				jobs := family.jobs
+				if len(family.unknown) > 0 && len(jobs) == 0 {
+					// Unresolved ancestry skips the idle job read.
+					jobs, _ = c.runningJobs(ctx, sessionID)
+				}
+				c.stopJobs(ctx, jobs)
+				// A child's report can start a new turn of an interrupted root.
+				if rootIdle && family.status != "idle" {
+					_ = c.abort(ctx, sessionID)
+				}
+			}
+			rootIdle = family.status == "idle"
 		case ctx.Err() == nil:
 			lastErr = err
 		}

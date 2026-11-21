@@ -315,8 +315,8 @@ func (c *openCodeClient) questionsV2(ctx context.Context) ([]openCodeQuestionReq
 	return result, nil
 }
 
-func (c *openCodeClient) replyQuestionV2(ctx context.Context, requestID string, answers [][]string) error {
-	path := "/session/" + url.PathEscape(c.sessionID) + "/form/" + url.PathEscape(requestID)
+func (c *openCodeClient) replyQuestionV2(ctx context.Context, sessionID, requestID string, answers [][]string) error {
+	path := "/session/" + url.PathEscape(sessionID) + "/form/" + url.PathEscape(requestID)
 	var form openCodeV2Form
 	if err := c.json(ctx, http.MethodGet, path, nil, &form); err != nil {
 		return err

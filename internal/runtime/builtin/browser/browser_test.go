@@ -56,8 +56,10 @@ type testRun struct {
 	// browser.write_gate and browser.write_policy.
 	hostWriteGate   string
 	hostWritePolicy string
-	// maxOpen is the host config's browser.max_open.
-	maxOpen int
+	// maxOpen and slotsDir are the host config's browser.max_open and
+	// browser.slots_dir.
+	maxOpen  int
+	slotsDir string
 	// base is the context executions run under, in place of the test's,
 	// for a test that cancels one.
 	base context.Context
@@ -146,7 +148,7 @@ func (r *testRun) context() context.Context {
 		Paths: cmnconfig.PathsConfig{DataDir: r.dataDir},
 		Browser: cmnconfig.BrowserConfig{
 			NoSandbox: r.noSandbox, ClientCertificates: r.hostCertificates, TrustedCAs: r.hostTrustedCAs, GuardClientCertificates: r.hostGuard,
-			WriteGate: r.hostWriteGate, WritePolicy: r.hostWritePolicy, MaxOpen: r.maxOpen,
+			WriteGate: r.hostWriteGate, WritePolicy: r.hostWritePolicy, MaxOpen: r.maxOpen, SlotsDir: r.slotsDir,
 		},
 	})
 	return runtime.WithEnv(ctx, runtime.Env{
@@ -454,6 +456,21 @@ func TestDismissedConfirmIsReported(t *testing.T) {
 	session := execution.exec.GetAgentSession()
 	assert.Equal(t, []string{"act:completed", "dialog:completed", "screenshot:completed"}, eventNames(session))
 	assert.Contains(t, execution.stderr.String(), `[1/2] dialog "Delete this record permanently?" → dismissed confirm`)
+}
+
+// The browser counts toward the host's browser.max_open where the host config
+// says, which every Dagu process on the host shares.
+func TestBrowserCountsWhereTheHostConfigSays(t *testing.T) {
+	t.Parallel()
+
+	run := newTestRun(t, pageModel(nil))
+	run.maxOpen, run.slotsDir = 2, t.TempDir()
+	execution := run.execute(`{"do": [{"screenshot": "page"}]}`, nil)
+	require.NoError(t, execution.err)
+
+	require.Len(t, run.launcher.launches, 1)
+	assert.Equal(t, 2, run.launcher.launches[0].MaxOpen)
+	assert.Equal(t, run.slotsDir, run.launcher.launches[0].SlotsDir)
 }
 
 // Under on_confirm: fail, a confirm is dismissed and fails the operation

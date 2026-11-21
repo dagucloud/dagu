@@ -645,30 +645,36 @@ func subRunStatus(id string, status ir.Status) *ir.DAGRunStatus {
 }
 
 // A failed sub-run is expanded even when more succeeded sub-runs than the
-// budget allows come before it, and the notice counts what was left out.
+// budget allows come before it, and the notice counts what was left out. A
+// partially succeeded sub-run counts as failed, since some of its steps failed.
 func TestRenderDAGStatus_SubRunExpansionFailedFirst(t *testing.T) {
 	t.Parallel()
-	ids := make([]string, 0, maxExpandedSubRuns+6)
-	for i := range maxExpandedSubRuns + 5 {
-		ids = append(ids, fmt.Sprintf("ok-%03d", i))
-	}
-	ids = append(ids, "bad-run")
-
-	output := newTestRendererWithConfig(func(c *Config) {
-		c.SubRunResolver = func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
-			if sub.DAGRunID == "bad-run" {
-				return subRunStatus(sub.DAGRunID, ir.Failed), nil
+	for _, status := range []ir.Status{ir.Failed, ir.PartiallySucceeded} {
+		t.Run(status.String(), func(t *testing.T) {
+			t.Parallel()
+			ids := make([]string, 0, maxExpandedSubRuns+6)
+			for i := range maxExpandedSubRuns + 5 {
+				ids = append(ids, fmt.Sprintf("ok-%03d", i))
 			}
-			return subRunStatus(sub.DAGRunID, ir.Succeeded), nil
-		}
-	}).RenderDAGStatus(&ir.DAG{Name: "parent-dag"}, fanOutStatus(ids...))
+			ids = append(ids, "bad-run")
 
-	require.Contains(t, output, "subdag: bad-run (child-dag: failed)")
-	require.Contains(t, output, "step-of-bad-run")
-	require.Contains(t, output, "step-of-ok-000")
-	require.NotContains(t, output, fmt.Sprintf("step-of-ok-%03d", maxExpandedSubRuns))
-	require.Contains(t, output, "Sub-runs not expanded: 5 not failed\n")
-	require.Contains(t, output, "dagu status parent-dag --run-id root-run --sub-run-id <sub-run-id>")
+			output := newTestRendererWithConfig(func(c *Config) {
+				c.SubRunResolver = func(sub ir.SubDAGRun) (*ir.DAGRunStatus, error) {
+					if sub.DAGRunID == "bad-run" {
+						return subRunStatus(sub.DAGRunID, status), nil
+					}
+					return subRunStatus(sub.DAGRunID, ir.Succeeded), nil
+				}
+			}).RenderDAGStatus(&ir.DAG{Name: "parent-dag"}, fanOutStatus(ids...))
+
+			require.Contains(t, output, "subdag: bad-run (child-dag: "+status.String()+")")
+			require.Contains(t, output, "step-of-bad-run")
+			require.Contains(t, output, "step-of-ok-000")
+			require.NotContains(t, output, fmt.Sprintf("step-of-ok-%03d", maxExpandedSubRuns))
+			require.Contains(t, output, "Sub-runs not expanded: 5 not failed\n")
+			require.Contains(t, output, "dagu status parent-dag --run-id root-run --sub-run-id <sub-run-id>")
+		})
+	}
 }
 
 func TestRenderDAGStatus_SubRunExpansionFailedBudget(t *testing.T) {

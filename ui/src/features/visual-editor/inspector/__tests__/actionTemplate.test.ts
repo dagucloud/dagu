@@ -4,6 +4,10 @@
 import { describe, expect, it } from 'vitest';
 import type { JSONSchema } from '../../contracts';
 import { actionTemplate, initialFieldValue } from '../actionTemplate';
+import { applyEdit, parseDagDoc } from '../../doc';
+import { buildActionCatalog } from '../catalog';
+import { checkStepSchema } from '../stepSchemaCheck';
+import { realSchema } from './realSchema';
 
 describe('initialFieldValue', () => {
   it.each<[JSONSchema | undefined, unknown]>([
@@ -73,4 +77,28 @@ describe('actionTemplate', () => {
       with: {},
     });
   });
+});
+
+describe.skipIf(realSchema === null)('the a2a starters', () => {
+  const entries = realSchema ? buildActionCatalog(realSchema, []) : [];
+
+  it.each(['a2a.send', 'a2a.get_task'])(
+    '%s adds a step that parses and passes the real schema',
+    (name) => {
+      const entry = entries.find((e) => e.name === name);
+      expect(entry).toBeDefined();
+      const base = 'steps:\n  - name: first\n    run: echo hi\n';
+      const result = applyEdit(base, {
+        kind: 'addStep',
+        step: structuredClone(entry!.template),
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const model = parseDagDoc(result.text);
+      expect(model.ok).toBe(true);
+      const added = model.steps[model.steps.length - 1]!;
+      expect(added.value).toMatchObject({ action: name });
+      expect(checkStepSchema(realSchema!, added.value)).toEqual([]);
+    }
+  );
 });

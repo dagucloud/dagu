@@ -2001,6 +2001,40 @@ func TestLaunchRefusesSilentSandboxOff(t *testing.T) {
 	require.ErrorContains(t, err, "DAGU_BROWSER_SANDBOX=false")
 }
 
+// A browser another Dagu instance opened holds a launch back while
+// browser.max_open browsers are open, whatever data directory each instance
+// keeps, when both count in the same slots directory. An instance that names
+// none counts under its own browser data directory.
+func TestLaunchWaitsForBrowsersCountedInItsSlotsDir(t *testing.T) {
+	t.Parallel()
+	browserDir := t.TempDir()
+	shared := filepath.Join(t.TempDir(), "slots")
+	for name, tc := range map[string]struct{ slotsDir, counted string }{
+		"shared slots directory": {slotsDir: shared, counted: shared},
+		"own browser directory":  {slotsDir: "", counted: filepath.Join(browserDir, browserhost.OpenDirName)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			other, err := browserhost.TakeSlot(t.Context(), tc.counted, 1, nil, nil)
+			require.NoError(t, err)
+			t.Cleanup(other.Release)
+
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			waited := false
+			_, err = stagehandLauncher{}.Launch(ctx, launchOptions{
+				NoSandbox:  true,
+				BrowserDir: browserDir,
+				MaxOpen:    1,
+				SlotsDir:   tc.slotsDir,
+				Waiting:    func() { waited = true; cancel() },
+			})
+			require.ErrorContains(t, err, "wait for another browser to close")
+			require.True(t, waited, "the launch waited for the other instance's browser")
+		})
+	}
+}
+
 // A browser that starts but whose runtime cannot start in it is ended by the
 // failed launch, so it does not keep running with its profile open. On
 // Windows, removing a profile that a running browser holds stalls cleanup.

@@ -67,6 +67,10 @@ export default defineMessages({
     'Upload files over SFTP.': 'Upload files over SFTP.',
     'Send an email.': 'Send an email.',
     'Call a tool on a remote MCP server.': 'Call a tool on a remote MCP server.',
+    'Send a message to a remote A2A agent.':
+      'Send a message to a remote A2A agent.',
+    'Read the state and artifacts of a remote A2A task.':
+      'Read the state and artifacts of a remote A2A task.',
     'Ask a person to review or fill in a form.':
       'Ask a person to review or fill in a form.',
     'Publish values as outputs of the run.':
@@ -124,6 +128,9 @@ export default defineMessages({
     'Upload files over SFTP.': '通过 SFTP 上传文件。',
     'Send an email.': '发送电子邮件。',
     'Call a tool on a remote MCP server.': '调用远程 MCP 服务器上的工具。',
+    'Send a message to a remote A2A agent.': '向远程 A2A 智能体发送消息。',
+    'Read the state and artifacts of a remote A2A task.':
+      '读取远程 A2A 任务的状态和产物。',
     'Ask a person to review or fill in a form.': '请人员审阅或填写表单。',
     'Publish values as outputs of the run.': '将值发布为此次运行的输出。',
   },
@@ -194,6 +201,10 @@ export default defineMessages({
     'Upload files over SFTP.': 'SFTP でファイルをアップロードします。',
     'Send an email.': 'メールを送信します。',
     'Call a tool on a remote MCP server.': 'リモートの MCP サーバーにあるツールを呼び出します。',
+    'Send a message to a remote A2A agent.':
+      'リモートの A2A エージェントにメッセージを送信します。',
+    'Read the state and artifacts of a remote A2A task.':
+      'リモートの A2A タスクの状態と成果物を読み取ります。',
     'Ask a person to review or fill in a form.':
       '担当者にレビューやフォームの入力を依頼します。',
     'Publish values as outputs of the run.': '値を実行の出力として公開します。',

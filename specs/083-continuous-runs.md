@@ -10,6 +10,8 @@ Covered: which steps are continuous, the samples and events of a step run by
 the local runner, the tiers and their retention, the three API queries and
 their errors, the status writes and the compaction of the status file, and the
 bounded step log. `conformance/spec083_continuous_runs` checks this behavior.
+The UI tests in `ui/src/lib/__tests__/runDisplayStatus.test.ts` check the
+Healthy status of a run.
 
 Not covered yet: runs that a distributed worker executes, the status writes of
 a continuous sub-DAG step, a retry of a run (it starts a new store), and the
@@ -256,6 +258,12 @@ The page of a run shows a continuous step with:
 The chart draws at most the `points` buckets of the response. It never draws
 one element for each sample.
 
+A run whose status is Running reads Healthy while a continuous step runs or
+waits for its next iteration and no node has failed or been rejected. This
+holds for every DAG, whatever its schedule. A failed node, a stopped
+continuous step or any other run status shows the normal status, so a
+failure stays visible.
+
 ## Constraints
 
 - The raw tier of one continuous step uses at most 3 MiB of disk for each
@@ -307,4 +315,7 @@ fixtures in `conformance/spec083_continuous_runs/testdata` give both.
 - The three queries return the documented fields, and the response of
   `samples` has at most `points` buckets for a window of three years.
 - A request for a step that is not continuous gets `404`.
+- A running run with a running continuous step and no failed node reads
+  Healthy. A failed node, a stopped continuous step or a run that is not
+  Running shows the normal status.
 - The compact count rounds down, and the tooltip gives the whole count.
