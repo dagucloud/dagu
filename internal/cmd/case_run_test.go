@@ -138,9 +138,7 @@ steps:
 
 	moved := findFile(t, tc.dir, "result.txt")
 	require.NotEmpty(t, moved, "redirect file is not in the case directory")
-	data, err := os.ReadFile(moved)
-	require.NoError(t, err)
-	assert.Equal(t, "moved\n", string(data))
+	assert.Equal(t, "moved", readOutput(t, moved))
 }
 
 // The env provider would fail on the unset variables, so a passing run
@@ -191,9 +189,7 @@ steps:
 		status, err := tc.run(dag)
 		require.NoError(t, err)
 		require.Equal(t, ir.Succeeded, status.Status, status.Error)
-		stdout, err := os.ReadFile(status.Nodes[0].Stdout)
-		require.NoError(t, err)
-		assert.Equal(t, "token=*******\n", string(stdout))
+		assert.Equal(t, "token=*******", readOutput(t, status.Nodes[0].Stdout))
 	})
 }
 
@@ -238,9 +234,7 @@ steps:
 	assert.Empty(t, entries)
 	moved := findFile(t, tc.dir, "child.txt")
 	require.NotEmpty(t, moved, "the child's redirect file is not in the case directory")
-	data, err := os.ReadFile(moved)
-	require.NoError(t, err)
-	assert.Equal(t, "child=*******\n", string(data))
+	assert.Equal(t, "child=*******", readOutput(t, moved))
 }
 
 func TestCaseTrigger(t *testing.T) {
@@ -267,9 +261,7 @@ func TestCaseTrigger(t *testing.T) {
 			status, err := tc.run(dag)
 			require.NoError(t, err)
 			require.Equal(t, ir.Succeeded, status.Status, status.Error)
-			stdout, err := os.ReadFile(status.Nodes[0].Stdout)
-			require.NoError(t, err)
-			assert.Equal(t, tt.want+"\n", string(stdout))
+			assert.Equal(t, tt.want, readOutput(t, status.Nodes[0].Stdout))
 		})
 	}
 
@@ -450,6 +442,16 @@ func dirSnapshot(t *testing.T, root string) map[string]string {
 		return nil
 	}))
 	return snapshot
+}
+
+// readOutput returns the text a step wrote to the file at path, without the
+// line break echo ends it with, which is \r\n on Windows.
+func readOutput(t *testing.T, path string) string {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return strings.TrimRight(string(data), "\r\n")
 }
 
 // findFile returns the path of the file named name under root, or "".
