@@ -84,6 +84,30 @@ func TestReporter(t *testing.T) {
 	}
 }
 
+// A reporter that only records sends no mail. It records each notification
+// it would have sent, naming the failed step of a mail_on_error one.
+func TestReporterRecordOnly(t *testing.T) {
+	ctx := context.Background()
+	mail := &ir.MailConfig{From: "from@mailer.com", To: []string{"to@mailer.com"}}
+	dag := &ir.DAG{Name: "test DAG", MailOn: &ir.MailOn{Failure: true, Success: true, Wait: true}}
+	mock := &mockSender{}
+	rp := newReporter(mock.Send, reporterConfig{ErrorMail: mail, InfoMail: mail, WaitMail: mail, RecordOnly: true})
+
+	failedStep := runtime.NewNode(ir.Step{Name: "load", MailOnError: true}, runtime.NodeState{Status: ir.NodeFailed})
+	require.NoError(t, rp.reportStep(ctx, dag, ir.DAGRunStatus{Status: ir.Running}, failedStep))
+	for _, status := range []ir.Status{ir.Waiting, ir.Failed, ir.Succeeded} {
+		require.NoError(t, rp.send(ctx, dag, ir.DAGRunStatus{Status: status}, nil))
+	}
+
+	require.Zero(t, mock.count)
+	require.Equal(t, []Notification{
+		{Event: NotificationFailure, Step: "load"},
+		{Event: NotificationWait},
+		{Event: NotificationFailure},
+		{Event: NotificationSuccess},
+	}, rp.notifications())
+}
+
 func TestRenderHTMLWithDAGInfo(t *testing.T) {
 	// Create a test DAGRunStatus
 	status := ir.DAGRunStatus{

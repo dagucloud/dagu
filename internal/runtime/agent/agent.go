@@ -1523,8 +1523,10 @@ func (a *Agent) shouldDelayTerminalStatus(status ir.Status) bool {
 		if a.statusPusher == nil {
 			return true
 		}
-		if a.reporter != nil && a.reporter.selectMailConfig(a.dag, ir.DAGRunStatus{Status: status}, nil) != nil {
-			return true
+		if a.reporter != nil {
+			if mailConfig, _ := a.reporter.selectMailConfig(a.dag, ir.DAGRunStatus{Status: status}, nil); mailConfig != nil {
+				return true
+			}
 		}
 		if a.artifactFinalizer != nil && a.artifactDir != "" {
 			return true
