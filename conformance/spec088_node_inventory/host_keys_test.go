@@ -71,10 +71,10 @@ func TestHostKeysOverAPI(t *testing.T) {
 	server := test.SetupServer(t)
 	server.Client().Post("/api/v1/inventory-imports", []map[string]any{{
 		"name":  "fleet",
-		"nodes": []map[string]any{{"name": "web01", "host": "127.0.0.1", "port": port, "user": "tester", "key": keyFile}},
+		"nodes": []map[string]any{{"name": "web01", "host": "127.0.0.1", "port": port, "user": "tester", "key": keyFile, "labels": []string{"web"}}},
 	}}).ExpectStatus(http.StatusOK).Send(t)
 	testNode := func() map[string]any {
-		resp := server.Client().Post("/api/v1/node-connection-tests", map[string]any{"nodes": []string{"web01"}}).
+		resp := server.Client().Post("/api/v1/node-connection-tests", map[string]any{"labels": "web"}).
 			ExpectStatus(http.StatusOK).Send(t)
 		return result(t, readStream(t, resp.Body))
 	}
