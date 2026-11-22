@@ -62,14 +62,14 @@ func TestStepMockResultsByExecution(t *testing.T) {
 		return func(step *ir.Step) { step.RepeatPolicy.Limit = limit }
 	}
 	for _, tc := range []struct {
-		name         string
-		opts         []stepOption
-		results      []stepmock.Result
-		wantRun      ir.Status
-		wantStatus   ir.NodeStatus
-		wantExitCode int
-		wantStdout   string
-		wantRuns     int
+		name           string
+		opts           []stepOption
+		results        []stepmock.Result
+		wantRun        ir.Status
+		wantStatus     ir.NodeStatus
+		wantExitCode   int
+		wantStdout     string
+		wantExecutions int
 	}{
 		{
 			name: "Retries",
@@ -80,29 +80,29 @@ func TestStepMockResultsByExecution(t *testing.T) {
 				{Stdout: "three\n"},
 				{Stdout: "four\n"},
 			},
-			wantRun:    ir.Succeeded,
-			wantStatus: ir.NodeSucceeded,
-			wantStdout: "one\ntwo\nthree\n",
-			wantRuns:   3,
+			wantRun:        ir.Succeeded,
+			wantStatus:     ir.NodeSucceeded,
+			wantStdout:     "one\ntwo\nthree\n",
+			wantExecutions: 3,
 		},
 		{
-			name:         "LastRepeats",
-			opts:         []stepOption{withRetryPolicy(2, 0)},
-			results:      []stepmock.Result{{ExitCode: 3, Stdout: "fail\n"}},
-			wantRun:      ir.Failed,
-			wantStatus:   ir.NodeFailed,
-			wantExitCode: 3,
-			wantStdout:   "fail\nfail\nfail\n",
-			wantRuns:     3,
+			name:           "LastRepeats",
+			opts:           []stepOption{withRetryPolicy(2, 0)},
+			results:        []stepmock.Result{{ExitCode: 3, Stdout: "fail\n"}},
+			wantRun:        ir.Failed,
+			wantStatus:     ir.NodeFailed,
+			wantExitCode:   3,
+			wantStdout:     "fail\nfail\nfail\n",
+			wantExecutions: 3,
 		},
 		{
-			name:       "Repeats",
-			opts:       []stepOption{withRepeatPolicy(true, 0), repeatLimit(3)},
-			results:    []stepmock.Result{{Stdout: "a\n"}, {Stdout: "b\n"}},
-			wantRun:    ir.Succeeded,
-			wantStatus: ir.NodeSucceeded,
-			wantStdout: "a\nb\nb\n",
-			wantRuns:   3,
+			name:           "Repeats",
+			opts:           []stepOption{withRepeatPolicy(true, 0), repeatLimit(3)},
+			results:        []stepmock.Result{{Stdout: "a\n"}, {Stdout: "b\n"}},
+			wantRun:        ir.Succeeded,
+			wantStatus:     ir.NodeSucceeded,
+			wantStdout:     "a\nb\nb\n",
+			wantExecutions: 3,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -119,7 +119,7 @@ func TestStepMockResultsByExecution(t *testing.T) {
 			assert.Equal(t, tc.wantStatus, state.Status)
 			assert.Equal(t, tc.wantExitCode, state.ExitCode)
 			assert.Equal(t, tc.wantStdout, readLog(t, node.GetStdout()))
-			assert.Equal(t, tc.wantRuns, state.RetryCount+state.DoneCount)
+			assert.Equal(t, tc.wantExecutions, state.RetryCount+state.DoneCount)
 		})
 	}
 }
@@ -267,10 +267,10 @@ func TestStepMockResolvesFieldsByAction(t *testing.T) {
 		t.Run(tc.step.Name, func(t *testing.T) {
 			t.Parallel()
 
-			real := resolve(t, tc.step, false, tc.wantReal)
+			unmocked := resolve(t, tc.step, false, tc.wantReal)
 			mocked := resolve(t, tc.step, true, ir.Succeeded)
-			assert.Equal(t, real.Commands, mocked.Commands)
-			assert.Equal(t, real.Script, mocked.Script)
+			assert.Equal(t, unmocked.Commands, mocked.Commands)
+			assert.Equal(t, unmocked.Script, mocked.Script)
 			if tc.wantCommand != "" {
 				assert.Equal(t, tc.wantCommand, mocked.Commands[0].CmdWithArgs)
 			}
