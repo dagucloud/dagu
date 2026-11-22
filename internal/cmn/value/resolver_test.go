@@ -908,3 +908,23 @@ func TestResolverNode(t *testing.T) {
 	require.Len(t, notices, 1)
 	assert.Equal(t, value.NoticeClassRuntimeOnly, notices[0].Class)
 }
+
+// Outside a bound run, a variable named node keeps the reading it had before
+// the node namespace, a JSON path into its value. Inside one, the node wins.
+func TestResolverNodeVariable(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	field := value.WorkflowField("steps[1].run")
+	env := value.NewEnvScope(nil, false).WithEntry("node", `{"name":"n1"}`, value.EnvSourceOutput)
+
+	unbound := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Env: env})
+	got, err := unbound.String(ctx, "${node.name}", field)
+	require.NoError(t, err)
+	assert.Equal(t, "n1", got)
+
+	bound := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Env: env, Node: &value.BoundNode{Name: "web01"}})
+	got, err = bound.String(ctx, "${node.name}", field)
+	require.NoError(t, err)
+	assert.Equal(t, "web01", got)
+}

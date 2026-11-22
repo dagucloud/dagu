@@ -145,7 +145,9 @@ Every value-resolved field of a bound run reads its node:
 | `${node.labels."<key>"}` | The same, for a key with a dot, such as `gpu.type` |
 
 Outside a bound run, a `${node.*}` reference is kept as text, with a
-runtime-only notice.
+runtime-only notice. A run with a variable named `node`, such as a step
+output, reads `${node.<path>}` as a JSON path into that variable instead,
+as it did before the namespace.
 
 ## Errors
 

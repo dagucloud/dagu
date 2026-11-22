@@ -58,6 +58,20 @@ func parseNodePath(path string) (field, label string, ok bool) {
 	return "labels", unquoted, true
 }
 
+// readsNodeVariable reports whether a node path reads a variable named node
+// instead, as ${node.<path>} did before the node namespace: outside a bound
+// run, when the scope holds such a variable.
+func readsNodeVariable(segments []string, scope RuntimeScope) bool {
+	if segments[0] != "node" || scope.Node != nil {
+		return false
+	}
+	if _, ok := scope.Params["node"]; ok {
+		return true
+	}
+	_, ok := scope.Env.GetEntry("node")
+	return ok
+}
+
 func bindingNodeValue(path string, node *BoundNode, requireValue bool) (any, error) {
 	if node == nil {
 		if !requireValue {

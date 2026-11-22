@@ -130,6 +130,9 @@ func resolveBindings(
 	}
 	owned := func(path string) bool {
 		segments := strings.Split(path, ".")
+		if readsNodeVariable(segments, scope) {
+			return false
+		}
 		return itemPath(path) || supportedStrictBinding(segments) || reservedBuiltinContextReference(segments)
 	}
 	// A leading non-identifier rune keeps an adjacent $NAME from absorbing a placeholder.
