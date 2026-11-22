@@ -1,7 +1,15 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { isMap, isNode, isScalar, isSeq, type Document, type Node } from 'yaml';
+import {
+  isMap,
+  isNode,
+  isScalar,
+  isSeq,
+  Scalar,
+  type Document,
+  type Node,
+} from 'yaml';
 import type {
   DagDocModel,
   IssueGroups,
@@ -246,34 +254,40 @@ function emptyValue(value: unknown): boolean {
   );
 }
 
-function walk(start: Node, tokens: PathToken[]): Node {
+/**
+ * The deepest node of `tokens` that exists. `exact` is true when the node is
+ * the one that the whole path names.
+ */
+function walk(
+  start: Node,
+  tokens: PathToken[]
+): { node: Node; exact: boolean } {
   let node = start;
   for (const token of tokens) {
     if (isMap(node)) {
       const pair = node.items.find(
         (p) => isScalar(p.key) && String(p.key.value) === String(token)
       );
-      if (!pair) break;
+      if (!pair) return { node, exact: false };
       if (emptyValue(pair.value)) {
-        if (isNode(pair.key)) node = pair.key;
-        break;
+        return { node: isNode(pair.key) ? pair.key : node, exact: false };
       }
       node = pair.value as Node;
     } else if (isSeq(node) && typeof token === 'number') {
       const item = node.items[token];
-      if (!isNode(item)) break;
+      if (!isNode(item)) return { node, exact: false };
       node = item;
     } else {
-      break;
+      return { node, exact: false };
     }
   }
-  return node;
+  return { node, exact: true };
 }
 
-function locateFieldPath(
+function resolveFieldPath(
   model: DagDocModel,
   fieldPath: string
-): TextRange | null {
+): { node: Node; exact: boolean } | null {
   const tokens = parsePath(fieldPath);
   if (tokens.length === 0) return null;
   let doc: Document | undefined;
@@ -301,8 +315,10 @@ function locateFieldPath(
     return null;
   }
   if (!start?.range) return null;
+  return walk(start, rest);
+}
 
-  const node = walk(start, rest);
+function nodeRange(model: DagDocModel, node: Node): TextRange | null {
   if (!node.range) return null;
   const from = node.range[0];
   return rangeFromOffsets(
@@ -310,6 +326,31 @@ function locateFieldPath(
     from,
     trimmedEnd(model.text, from, node.range[1])
   );
+}
+
+function locateFieldPath(
+  model: DagDocModel,
+  fieldPath: string
+): TextRange | null {
+  const found = resolveFieldPath(model, fieldPath);
+  return found ? nodeRange(model, found.node) : null;
+}
+
+/**
+ * The scalar that `fieldPath` names, with its value and its range. `block`
+ * is true for a `|` or `>` scalar, whose range starts at its header. Returns
+ * null when the path does not reach a scalar, for a missing key as well.
+ */
+export function scalarAtField(
+  model: DagDocModel,
+  fieldPath: string
+): { value: unknown; range: TextRange; block: boolean } | null {
+  const found = resolveFieldPath(model, fieldPath);
+  if (!found?.exact || !isScalar(found.node)) return null;
+  const range = nodeRange(model, found.node);
+  const { type } = found.node;
+  const block = type === Scalar.BLOCK_LITERAL || type === Scalar.BLOCK_FOLDED;
+  return range ? { value: found.node.value, range, block } : null;
 }
 
 const POSITION_PREFIX = /^\[\d+:\d+\]\s*/;

@@ -19,7 +19,11 @@ import { builtinActionNames } from '../inspector/actionRules';
 import { checkStepSchemaErrors } from '../inspector/stepSchemaCheck';
 import { nextRuns } from '../launchers/nextRuns';
 import { findReferenceTokens } from '../references/tokens';
-import { NO_ID_MESSAGE, OUTPUTS_ID_MESSAGE } from './issueMessages';
+import {
+  mustBeMessage,
+  NO_ID_MESSAGE,
+  OUTPUTS_ID_MESSAGE,
+} from './issueMessages';
 import { locateIssue, rangeFromOffsets } from './issues';
 import { validateStepId, validateStepName } from './names';
 import { readSchedule } from './ops/schedule';
@@ -192,10 +196,17 @@ function schemaDrafts(step: StepView, schema: JSONSchema): Draft[] {
       });
     } else {
       const where = fieldPath.slice(step.key.length + 1) || 'The step';
+      // A rule with one allowed value says the value: a quick fix sets it.
+      const only =
+        (error.keyword === 'const' || error.keyword === 'enum') &&
+        !error.inChoice &&
+        error.allowedValues?.length === 1;
       drafts.push({
         step,
         severity,
-        message: `${where} ${error.message}.`,
+        message: only
+          ? mustBeMessage(where, error.allowedValues?.[0])
+          : `${where} ${error.message}.`,
         fieldPath,
       });
     }
