@@ -12519,6 +12519,100 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /node-connection-tests:
+    post:
+      summary: "Test node connections"
+      description: "Tests the named nodes, or the nodes a label selector matches, from the server. Each test checks the host key of each hop, authenticates, and runs `true`. A hop whose host key is unknown or has changed receives no credential, and the result names that hop. At most 16 nodes are tested at once. The response is a server-sent event stream: a `result` event per node as its test finishes, carrying an `InventoryNodeConnectionTest`, then a `done` event carrying an `InventoryNodeConnectionTestSummary`. A test never trusts a key. Requires the operator role or above."
+      operationId: "testInventoryNodeConnections"
+      tags:
+        - "nodes"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryNodeConnectionTestRequest"
+      responses:
+        "200":
+          description: "A server-sent event stream of one `result` event per node, then a `done` event"
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/InventoryNodeConnectionTestEvent"
+        "400":
+          description: "The request names no node or an unknown one, or its selector is invalid or matches no node"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /node-host-keys:
+    post:
+      summary: "Trust node host keys"
+      description: "Trusts, for each node named, the host key whose fingerprint the user saw. The server reads the node's key again, sending the node no credential, and stores it only when its fingerprint matches. A node behind a bastion is reached through the bastion, whose own host key must be accepted. A node that already has another trusted key keeps it unless its entry sets `replace`. The response is a server-sent event stream: a `result` event per node as it finishes, carrying an `InventoryHostKeyTrust`, then a `done` event carrying an `InventoryHostKeyTrustSummary`. Requires the developer role or above."
+      operationId: "trustInventoryNodeHostKeys"
+      tags:
+        - "nodes"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryHostKeyTrustRequest"
+      responses:
+        "200":
+          description: "A server-sent event stream of one `result` event per node, then a `done` event"
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/InventoryHostKeyTrustEvent"
+        "400":
+          description: "The request names no node, or an entry lacks a node or a SHA256 fingerprint"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /secrets:
     get:
       summary: "List secrets"
@@ -22624,6 +22718,176 @@ components:
         - created
         - replaced
         - dryRun
+
+    InventoryNodeConnectionTestRequest:
+      type: object
+      description: "The nodes to test: either named, or matched by a label selector"
+      properties:
+        nodes:
+          type: array
+          description: "Names of the nodes to test, compared without case"
+          maxItems: 1000
+          items:
+            type: string
+        labels:
+          type: string
+          description: "Label selector of the nodes to test, as `GET /nodes` takes it"
+
+    InventoryNodeConnectionTestEvent:
+      description: "The data of one event of a node test stream: a `result` event carries an `InventoryNodeConnectionTest`, and the `done` event an `InventoryNodeConnectionTestSummary`"
+      oneOf:
+        - $ref: "#/components/schemas/InventoryNodeConnectionTest"
+        - $ref: "#/components/schemas/InventoryNodeConnectionTestSummary"
+
+    InventoryNodeConnectionTest:
+      type: object
+      description: "The outcome of testing one node, sent as a `result` event"
+      properties:
+        node:
+          type: string
+          description: "Name of the node"
+        ok:
+          type: boolean
+          description: "Whether the node passed: its host keys were accepted, it authenticated, and `true` ran"
+        fingerprint:
+          type: string
+          description: "SHA256 fingerprint of the host key the node presented, when the test reached it"
+        bastionFingerprint:
+          type: string
+          description: "SHA256 fingerprint of the host key the bastion presented, when the node has one and the test reached it"
+        durationMs:
+          type: integer
+          format: int64
+          description: "Time the test took, in milliseconds"
+        error:
+          type: string
+          description: "Why the test failed"
+        hostKey:
+          $ref: "#/components/schemas/InventoryHostKeyRefusal"
+      required:
+        - node
+        - ok
+        - durationMs
+
+    InventoryHostKeyRefusal:
+      type: object
+      description: "A host key a hop refused, which ended the test before any credential reached that hop"
+      properties:
+        hop:
+          type: string
+          enum:
+            - "node"
+            - "bastion"
+          description: "The hop that presented the key"
+        node:
+          type: string
+          description: "Name of the node whose key was refused: the node tested, or the node that serves as its bastion"
+        status:
+          type: string
+          enum:
+            - "unknown"
+            - "changed"
+          description: "`unknown` when no key was pinned or trusted, `changed` when the presented key matches none of them"
+        presented:
+          type: string
+          description: "SHA256 fingerprint of the key the server presented. Empty when it holds no key of an expected type"
+        expected:
+          type: array
+          description: "SHA256 fingerprints of the pinned and trusted keys"
+          items:
+            type: string
+      required:
+        - hop
+        - node
+        - status
+        - expected
+
+    InventoryNodeConnectionTestSummary:
+      type: object
+      description: "Counts of a finished test, sent as the `done` event"
+      properties:
+        passed:
+          type: integer
+        failed:
+          type: integer
+      required:
+        - passed
+        - failed
+
+    InventoryHostKeyTrustRequest:
+      type: object
+      properties:
+        keys:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/InventoryHostKeyTrustEntry"
+      required:
+        - keys
+
+    InventoryHostKeyTrustEntry:
+      type: object
+      description: "A node and the fingerprint of the host key the user saw, as a test reported it"
+      properties:
+        node:
+          type: string
+          description: "Name of the node, compared without case"
+        fingerprint:
+          type: string
+          description: "SHA256 fingerprint of the key to trust, such as `SHA256:…`"
+        replace:
+          type: boolean
+          default: false
+          description: "Replace another key trusted for the node before"
+      required:
+        - node
+        - fingerprint
+
+    InventoryHostKeyTrustEvent:
+      description: "The data of one event of a host key trust stream: a `result` event carries an `InventoryHostKeyTrust`, and the `done` event an `InventoryHostKeyTrustSummary`"
+      oneOf:
+        - $ref: "#/components/schemas/InventoryHostKeyTrust"
+        - $ref: "#/components/schemas/InventoryHostKeyTrustSummary"
+
+    InventoryHostKeyTrust:
+      type: object
+      description: "The outcome of one trust entry, sent as a `result` event"
+      properties:
+        node:
+          type: string
+        fingerprint:
+          type: string
+          description: "SHA256 fingerprint the entry asked to trust"
+        outcome:
+          type: string
+          enum:
+            - "trusted"
+            - "replaced"
+            - "unchanged"
+          description: "`trusted` stored the key, `replaced` stored it in place of another, and `unchanged` found it trusted already. Absent when the entry failed"
+        previous:
+          type: string
+          description: "SHA256 fingerprint of another key trusted for the node before"
+        error:
+          type: string
+          description: "Why the key was not trusted"
+      required:
+        - node
+        - fingerprint
+
+    InventoryHostKeyTrustSummary:
+      type: object
+      description: "Counts of a finished trust, sent as the `done` event"
+      properties:
+        trusted:
+          type: integer
+          description: "Entries whose key is now trusted, including those trusted already"
+        failed:
+          type: integer
+      required:
+        - trusted
+        - failed
 
     InventoryRuleError:
       type: object

@@ -210,6 +210,11 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"UpdateWorkspace":      remoteNodeAccessDeveloper,
 	"ImportInventories":    remoteNodeAccessDeveloper,
 
+	// Node connection tests, which need execute permission, and host key
+	// trust, open to developers and above.
+	"TestInventoryNodeConnections": remoteNodeAccessExecute,
+	"TrustInventoryNodeHostKeys":   remoteNodeAccessDeveloper,
+
 	// Audit and event logs, open to managers and above.
 	"ListAuditLogs": remoteNodeAccessManager,
 	"ListEventLogs": remoteNodeAccessManager,

@@ -111,6 +111,7 @@ type API struct {
 	profileStore         profilepkg.Store
 	viewStore            view.Store
 	inventoryStore       inventory.Store
+	hostKeyStore         inventory.HostKeyStore
 	licenseManager       *license.Manager
 	publicWebhookStore   publicwebhook.Store
 	cloudReport          CloudReportService
@@ -339,6 +340,14 @@ func WithViewStore(store view.Store) APIOption {
 func WithInventoryStore(store inventory.Store) APIOption {
 	return func(a *API) {
 		a.inventoryStore = store
+	}
+}
+
+// WithHostKeyStore returns an APIOption that sets the store of trusted node
+// host keys.
+func WithHostKeyStore(store inventory.HostKeyStore) APIOption {
+	return func(a *API) {
+		a.hostKeyStore = store
 	}
 }
 
@@ -1014,6 +1023,22 @@ func (a *API) requireDeveloperOrAbove(ctx context.Context) error {
 		return errAuthRequired
 	}
 	if !user.Role.CanWrite() {
+		return errInsufficientPermissions
+	}
+	return nil
+}
+
+// requireOperatorOrAbove checks if the current user has operator role or above.
+// Returns nil when roles do not apply to the caller (see rolesApply).
+func (a *API) requireOperatorOrAbove(ctx context.Context) error {
+	if !a.rolesApply(ctx) {
+		return nil
+	}
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return errAuthRequired
+	}
+	if !user.Role.CanExecute() {
 		return errInsufficientPermissions
 	}
 	return nil

@@ -98,7 +98,7 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 				}
 			}()
 
-			if isLogDownload(r, apiBasePath) && resp.StatusCode == http.StatusOK {
+			if streamsResponse(r, apiBasePath) && resp.StatusCode == http.StatusOK {
 				if contentType := resp.Header.Get("Content-Type"); contentType != "" {
 					w.Header().Set("Content-Type", contentType)
 				}
@@ -111,7 +111,7 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 				}
 				w.WriteHeader(resp.StatusCode)
 				if _, err := io.Copy(flushWriter{w}, resp.Body); err != nil {
-					logger.Error(r.Context(), "Failed to proxy log download", tag.Error(err))
+					logger.Error(r.Context(), "Failed to proxy streamed response", tag.Error(err))
 					panic(http.ErrAbortHandler)
 				}
 				return
@@ -315,7 +315,7 @@ func (h *remoteNodeProxy) doRequest(body io.Reader, r *http.Request) (*http.Resp
 		Timeout:   remoteProxyTimeout,
 	}
 
-	if isLogDownload(r, h.apiBasePath) {
+	if streamsResponse(r, h.apiBasePath) {
 		// Encoded bodies are forwarded unchanged, so the remote may only use
 		// encodings the client accepts.
 		if encodings := r.Header.Values("Accept-Encoding"); len(encodings) > 0 {
@@ -323,8 +323,8 @@ func (h *remoteNodeProxy) doRequest(body io.Reader, r *http.Request) (*http.Resp
 		} else {
 			req.Header.Set("Accept-Encoding", "identity")
 		}
-		// Log downloads have no total duration limit; connection setup and
-		// stalled transfers remain bounded.
+		// Log downloads and node event streams have no total duration
+		// limit; connection setup and stalled transfers remain bounded.
 		client.Timeout = 0
 		dialer := &net.Dialer{Timeout: remoteProxyTimeout}
 		transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {

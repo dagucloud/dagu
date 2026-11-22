@@ -51,5 +51,6 @@ type Stores struct {
 	Event                *eventstore.Service
 	View                 view.Store
 	Inventory            inventory.Store
+	HostKeys             inventory.HostKeyStore
 	PublicWebhooks       publicwebhook.Store
 }
