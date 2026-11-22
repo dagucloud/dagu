@@ -806,6 +806,47 @@ func TestCursorOverCompaction(t *testing.T) {
 	require.Less(t, st.Size(), int64(minEventBytes))
 }
 
+// A cursor taken before a compaction, at the event that becomes the first one
+// kept, gives an empty page: the events before it are gone. A cursor at a later
+// event still gives the events just before it.
+func TestCursorAtFirstKeptEvent(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, eventsFileName)
+	var lines [][]byte
+	var all []byte
+	for i := range 4 {
+		line := Event{Time: t0.Add(time.Duration(i) * time.Second), Kind: EventGap, Gap: time.Second}.encode()
+		lines = append(lines, line)
+		all = append(all, line...)
+	}
+	require.NoError(t, os.WriteFile(path, all, 0o600))
+	rd := OpenReader(dir)
+	var cursors []string // the cursors at the events 3, 2 and 1
+	cur := ""
+	for range 3 {
+		p, err := rd.Events(ctx, EventQuery{Limit: 1, Before: cur})
+		require.NoError(t, err)
+		require.NotEmpty(t, p.NextCursor)
+		cur = p.NextCursor
+		cursors = append(cursors, cur)
+	}
+
+	// The compaction that drops the event 0, as compactEvents writes it.
+	kept := append(encodeHeader(int64(len(lines[0]))), all[len(lines[0]):]...)
+	require.NoError(t, os.WriteFile(path, kept, 0o600))
+
+	p, err := rd.Events(ctx, EventQuery{Before: cursors[2]})
+	require.NoError(t, err)
+	require.Empty(t, p.Events)
+	require.Empty(t, p.NextCursor)
+
+	p, err = rd.Events(ctx, EventQuery{Before: cursors[1]})
+	require.NoError(t, err)
+	require.Len(t, p.Events, 1)
+	require.Equal(t, t0.Add(time.Second), p.Events[0].Time)
+}
+
 // An outage that opens after a compaction goes on over a restart.
 func TestOutageAfterCompaction(t *testing.T) {
 	dir := t.TempDir()

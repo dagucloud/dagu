@@ -114,8 +114,9 @@
 // before its first event.
 //
 // An events cursor is the offset of an event since the first event ever
-// written, so it stays exact after a compaction. A cursor that points to a
-// dropped event, or not to the start of an event, gives ErrInvalidCursor. The
+// written, so it stays exact after a compaction. A cursor at the first kept
+// event gives an empty page. A cursor that points to a dropped event, or not to
+// the start of an event, gives ErrInvalidCursor. The
 // outage state stays correct, because the compaction keeps the newest events.
 //
 // A run history records the uptime: the time in which a run was active, with

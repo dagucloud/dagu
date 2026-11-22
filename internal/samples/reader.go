@@ -272,8 +272,10 @@ func (r *reader) Events(ctx context.Context, q EventQuery) (EventPage, error) {
 	}
 	end := st.Size()
 	if before >= 0 {
+		// The first kept event of a compacted file follows the header, so its
+		// cursor is valid; with no header, no cursor points to offset 0.
 		issued := false
-		if rel := before - base; rel > 0 && rel < end-hdr {
+		if rel := before - base; rel >= 0 && rel < end-hdr {
 			if issued, err = isEventStart(f, rel+hdr, end); err != nil {
 				return page, err
 			}
