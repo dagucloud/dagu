@@ -134,9 +134,11 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 	if r.closed {
 		return errClosed
 	}
-	// A sample before the newest one, such as after the clock steps back, takes
-	// its time, so that the samples stay in time order.
-	ms := max(s.Time.UnixMilli(), r.lastSample)
+	// A sample before the newest one, such as after the clock steps back or
+	// when two runs overlap, takes its time, so that the samples stay in time
+	// order.
+	start := s.Time.UnixMilli()
+	ms := max(start, r.lastSample)
 	minute := floorTo(ms/1000, 60)
 	switch {
 	case !r.hasMinute:
@@ -153,14 +155,19 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 	if s.ExitCode == 0 {
 		msg = ""
 	}
+	// The gap, the uptime and the newest end use the real interval of the
+	// sample, not the time that its raw line takes.
+	end := start + us/1000
 	// A gap is not in an outage, and it comes before the events of the sample.
-	if gap := time.Duration(ms-r.lastEnd) * time.Millisecond; r.opts.RunHistory && s.GapAfter > 0 && r.hasEnd && !r.trk.inOutage && gap > s.GapAfter {
+	if gap := time.Duration(start-r.lastEnd) * time.Millisecond; r.opts.RunHistory && s.GapAfter > 0 && r.hasEnd && !r.trk.inOutage && gap > s.GapAfter {
 		e := Event{Time: time.UnixMilli(r.lastEnd).UTC(), Kind: EventGap, Gap: gap, RunID: s.RunID}
 		if err := r.writeEvent(e); err != nil {
 			return err
 		}
 	}
-	r.lastEnd, r.hasEnd = ms+us/1000, true
+	if !r.hasEnd || end > r.lastEnd {
+		r.lastEnd, r.hasEnd = end, true
+	}
 	if e, ok := r.trk.observe(ms, s.ExitCode, msg); ok {
 		e.RunID = s.RunID
 		if err := r.writeEvent(e); err != nil {
@@ -180,7 +187,7 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 		err = r.st.writeEnd(r.lastEnd)
 	}
 	if r.up != nil {
-		err = errors.Join(err, r.up.add(ms, ms+us/1000, s.ActiveGap.Milliseconds(), r.now().UnixMilli()))
+		err = errors.Join(err, r.up.add(start, end, s.ActiveGap.Milliseconds(), r.now().UnixMilli()))
 	}
 	return errors.Join(err, r.boundEvents())
 }

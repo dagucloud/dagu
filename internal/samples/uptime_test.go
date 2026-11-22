@@ -221,6 +221,46 @@ func TestUptimeOverlap(t *testing.T) {
 	require.Equal(t, 150*time.Second, sum)
 }
 
+// A run that holds a shorter one ends after it, so the scheduler records it
+// second. Its raw line takes the time of the shorter run, but its uptime and
+// the newest end keep its real end: no up time lands after it.
+func TestUptimeNestedRun(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0.Add(20*time.Second), 10*time.Second)
+	recordRun(t, r, clk, t0, 100*time.Second)
+	end, _, err := NewestEnd(dir)
+	require.NoError(t, err)
+	require.Equal(t, t0.Add(100*time.Second), end)
+
+	// The next run starts 5 s after the real end, within the tolerance.
+	recordTolerant(t, r, clk, t0.Add(105*time.Second), 10*time.Second, 10*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+	require.Equal(t, 55*time.Second, upBucketOf(t, dir, TierMinute, t0.Add(time.Minute)))
+	require.Zero(t, upBucketOf(t, dir, TierMinute, t0.Add(2*time.Minute)))
+}
+
+// A run recorded after a longer one that it overlaps does not move the newest
+// end back, so a reopened recorder does not count the longer run again.
+func TestUptimeOverlapReopen(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0, 100*time.Second)
+	recordRun(t, r, clk, t0.Add(20*time.Second), 10*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+	end, _, err := NewestEnd(dir)
+	require.NoError(t, err)
+	require.Equal(t, t0.Add(100*time.Second), end)
+
+	r = openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0.Add(80*time.Second), 40*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+	sum, _ := upSum(t, dir, TierDay)
+	require.Equal(t, 120*time.Second, sum)
+}
+
 // A reopened recorder continues the open buckets: no line is written twice and
 // the part that the file holds is kept.
 func TestUptimeReopen(t *testing.T) {

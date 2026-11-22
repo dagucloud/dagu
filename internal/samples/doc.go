@@ -117,14 +117,18 @@
 // the interval of each sample (the start and the duration). A run can last
 // hours, so the recorder splits its interval over the buckets that it covers,
 // for the minute, the hour and the day tier, and writes it to the directory
-// "up" of the store (see uptime.go). A bucket of the "up" store holds its whole up time, so a
-// write replaces its line, and a tier is never a roll-up of another tier. The
-// part of an interval before the end of the newest interval is not counted
-// again, so two runs that overlap count their union. A store that has no "up"
-// directory has no known uptime: Uptime.Ratio reports false, and a window that
-// starts before the first interval counts from it. The minute tier loses the
-// up time of the open minute in a crash. The hour and the day tier are written
-// each time the minute moves.
+// "up" of the store (see uptime.go). A bucket of the "up" store holds its
+// whole up time, so a write replaces its line, and a tier is never a roll-up
+// of another tier. The part of an interval before the end of the newest
+// interval is not counted again. Two runs that overlap count their union when
+// they are recorded in the order of their start. A run that starts before a
+// run recorded earlier counts from the end of the newest interval, so a nested
+// run can lose the part before it, but no time is counted twice and none after
+// the end of a run. A store that has no "up" directory has no known uptime:
+// Uptime.Ratio reports false, and a window that starts before the first
+// interval counts from it. The minute tier loses the up time of the open
+// minute in a crash. The hour and the day tier are written each time the
+// minute moves.
 //
 // Sample.ActiveGap above zero counts the gap before a sample as active time,
 // when the gap is not longer than ActiveGap and an interval is already

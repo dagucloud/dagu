@@ -567,12 +567,16 @@ func (s *store) newestRaw() (ms, us int64, ok bool) {
 // bucket of the finest tier that has one.
 func (s *store) newestEnd() (int64, bool) {
 	end, hasEnd := s.readEnd()
-	if ms, us, ok := s.newestRaw(); ok {
+	ms, us, hasRaw := s.newestRaw()
+	switch {
+	case hasEnd && (!hasRaw || ms < end):
+		// The file holds the end of every sample up to the newest raw line. The
+		// raw line of a run that overlaps a newer one starts late, so it can end
+		// after the run did.
+		return end, true
+	case hasRaw:
 		// A crash between the raw line and the file "end" leaves the raw line newer.
 		return max(ms+us/1000, end), true
-	}
-	if hasEnd {
-		return end, true
 	}
 	for _, t := range allTiers[1:] {
 		for _, f := range slices.Backward(s.list(t)) {
