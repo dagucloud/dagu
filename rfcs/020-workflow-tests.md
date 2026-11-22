@@ -307,7 +307,9 @@ A mock is invalid when:
 A real run would fail such a step or publish nothing for it. Rejecting the
 mock at load reports the authoring mistake directly.
 
-`{}` is a valid mock: exit code 0, no output.
+`{}` is a valid mock. On a step whose action is not side-effect free, it
+replaces the action with exit code 0 and no output. On a side-effect-free
+step, it sets nothing and the real action runs.
 
 ### Side-effect-free actions run for real
 
@@ -336,10 +338,10 @@ following and the test does not handle it as the table says:
 
 | Source | Handled by |
 | --- | --- |
-| A step action that is not side-effect free | A mock with a result field, or the step in `real` |
+| A step action that is not side-effect free | A mock that replaces the action, including `{}`, or the step in `real` |
 | A step precondition with a command check or `eval` (Spec 023) | `precondition` in the step's mock, or the step in `real` |
 | A command-check `repeat_policy.condition` (Spec 075) | `condition` in every result of the step's mock, or the step in `real` |
-| A file named by an object-form `output` of an unmocked step | A mock with a result field, or the step in `real` |
+| A file named by an object-form `output` of an unmocked step | A mock that replaces the action, or the step in `real` |
 | A `foreach` body step that is not side-effect free | A mock of the whole `foreach` step |
 | A step that waits for a person (`human.task`, `approval`) | `review` in the step's mock, also for a step in `real` |
 | A DAG-level precondition with a command check or `eval` | The case's `precondition` |
