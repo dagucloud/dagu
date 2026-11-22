@@ -176,10 +176,15 @@ export interface StepSchemaError {
    * True when the rule is in a branch of `oneOf` or `anyOf`, or in the `then`
    * or `else` of a condition: another branch, or a change that turns the
    * condition, can allow other values, so the values above are not the only
-   * ones.
+   * ones. A rule behind a `$ref` counts too, since its place is unknown.
    */
   inChoice?: boolean;
 }
+
+// The schema path of a rule in a choice or a condition. A rule behind a
+// `$ref` has the path of its definition, which hides where the `$ref` is.
+const CHOICE_PATH =
+  /^#\/definitions\/|\/(?:anyOf|oneOf)\/\d+(?:\/|$)|\/(?:then|else)(?:\/|$)/;
 
 /**
  * Checks one step value like `checkStepSchema`, and gives every failed rule
@@ -219,10 +224,7 @@ export function checkStepSchemaErrors(
       ...(allowedValues !== undefined
         ? {
             allowedValues,
-            inChoice:
-              /\/(?:anyOf|oneOf)\/\d+(?:\/|$)|\/(?:then|else)(?:\/|$)/.test(
-                error.schemaPath ?? ''
-              ),
+            inChoice: CHOICE_PATH.test(error.schemaPath ?? ''),
           }
         : {}),
     };
