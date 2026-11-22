@@ -128,7 +128,7 @@ steps:
 }
 
 // Node targeting that is not built yet fails before any step, rather than
-// running commands meant for a node on the Dagu host.
+// running commands meant for a node somewhere else.
 func TestAgent_NodeTargetingFailsBeforeAnyStep(t *testing.T) {
 	t.Parallel()
 
@@ -144,10 +144,10 @@ func TestAgent_NodeTargetingFailsBeforeAnyStep(t *testing.T) {
 			wantErr: "declares node: required, so it runs only bound to a node",
 		},
 		{
-			name:    "BoundCommand",
-			yaml:    "node: required\nsteps:\n  - id: drain\n    action: noop\n  - id: restart\n    run: systemctl restart app\n",
-			opts:    agent.Options{BoundNode: "web01"},
-			wantErr: `step "restart" runs commands, and running commands on inventory node "web01" is not available yet`,
+			name:    "BoundOnWorker",
+			yaml:    "node: required\nsteps:\n  - id: restart\n    run: systemctl restart app\n",
+			opts:    agent.Options{BoundNode: "web01", WorkerID: "worker-1"},
+			wantErr: `the run is bound to inventory node "web01", and running a bound run on a worker is not available yet`,
 		},
 		{
 			name:    "NodesStepOnWorker",
@@ -171,18 +171,18 @@ func TestAgent_NodeTargetingFailsBeforeAnyStep(t *testing.T) {
 }
 
 // A dry run executes nothing, so it succeeds, and reports that the real run
-// would refuse node targeting.
+// would fail on its node.
 func TestAgent_NodeTargetingDryRunReportsRefusal(t *testing.T) {
 	t.Parallel()
 
 	th := test.Setup(t)
 	dag := th.DAG(t, "node: required\nsteps:\n  - id: restart\n    run: systemctl restart app\n")
-	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{Dry: true, BoundNode: "web01"}))
+	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{Dry: true, BoundNode: "web01", NodeSelector: nodeInventory{}}))
 	dagAgent.RunSuccess(t)
 
 	require.Contains(t, dagAgent.DryRunChecks(), runtime.DryRunCheck{
-		Field:   "nodes",
-		Message: `step "restart" runs commands, and running commands on inventory node "web01" is not available yet`,
+		Field:   "node",
+		Message: `node "web01" is not in the project's inventories`,
 	})
 }
 
@@ -193,12 +193,13 @@ func TestAgent_RetryKeepsBoundNode(t *testing.T) {
 
 	th := test.Setup(t)
 	dag := th.DAG(t, "node: required\nsteps:\n  - id: check\n    action: noop\n")
-	first := dag.Agent(test.WithAgentOptions(agent.Options{BoundNode: "web01"}))
+	nodes := nodeInventory{{Name: "web01", Host: "10.0.1.11"}}
+	first := dag.Agent(test.WithAgentOptions(agent.Options{BoundNode: "web01", NodeSelector: nodes}))
 	first.RunSuccess(t)
 	status := first.Status(th.Context)
 	require.Equal(t, "web01", status.BoundNode)
 
-	retry := dag.Agent(test.WithAgentOptions(agent.Options{RetryTarget: &status}))
+	retry := dag.Agent(test.WithAgentOptions(agent.Options{RetryTarget: &status, NodeSelector: nodes}))
 	retry.RunSuccess(t)
 	require.Equal(t, "web01", retry.Status(th.Context).BoundNode)
 }

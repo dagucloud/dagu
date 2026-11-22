@@ -75,6 +75,7 @@ func newResolver(env Env, opts ...cmnvalue.ResolverOption) cmnvalue.Resolver {
 		Outputs:        env.Outputs,
 		BuiltinContext: builtinContextFromEnv(env),
 		Dates:          env.Dates,
+		Node:           env.Node,
 	}
 	return cmnvalue.NewResolver(dagScope.staticScope(), scope, opts...)
 }

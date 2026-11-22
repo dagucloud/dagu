@@ -252,6 +252,7 @@ func executeDAGWithRunID(
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
 			NodeSelector:             as.Inventory,
+			HostKeys:                 as.HostKeys,
 			ServiceRegistry:          ctx.Persistence.ServiceRegistry,
 			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
 			RootDAGRun:               ir.NewDAGRunRef(dag.Name, dagRunID),

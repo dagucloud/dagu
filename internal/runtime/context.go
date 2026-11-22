@@ -20,6 +20,8 @@ type (
 	DAGLoader = runctx.DAGLoader
 	// NodeSelector finds the inventory nodes of steps with nodes.
 	NodeSelector = runctx.NodeSelector
+	// TrustedHostKeys finds the host keys trusted for nodes.
+	TrustedHostKeys = runctx.TrustedHostKeys
 	// Dispatcher is an alias for execution.Dispatcher
 	Dispatcher = dispatch.Dispatcher
 	// RunStatus is an alias for execution.RunStatus
@@ -62,6 +64,8 @@ var (
 	WithScheduleWindow = runctx.WithScheduleWindow
 	// WithDates sets the run's dates.
 	WithDates = runctx.WithDates
+	// WithBoundNode sets the node a bound run reads as ${node.*}.
+	WithBoundNode = runctx.WithBoundNode
 	// WithParams sets runtime parameters.
 	WithParams = runctx.WithParams
 	// WithParamsJSON replaces the DAG's params JSON in the environment steps
@@ -96,6 +100,8 @@ var (
 	WithMaterializationStore = runctx.WithMaterializationStore
 	// WithNodeSelector sets where steps with nodes find their nodes.
 	WithNodeSelector = runctx.WithNodeSelector
+	// WithHostKeys sets where connections to nodes find trusted host keys.
+	WithHostKeys = runctx.WithHostKeys
 	// WithNoReuse records that manifest hits are disabled for the run.
 	WithNoReuse = runctx.WithNoReuse
 	// WithDAGRunLogDir sets the base log directory for newly persisted DAG runs.

@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -93,7 +95,12 @@ func (n *Node) setupNodesExecutor(ctx context.Context) (context.Context, executo
 func (n *Node) resolveNodeChild(ctx context.Context) (executor.RunParams, error) {
 	subDAG := n.Step().SubDAG
 	if subDAG == nil {
-		return executor.RunParams{DAGName: GetDAGContext(ctx).DAG.Name}, nil
+		// The command reads what it would read without nodes, the outputs of
+		// earlier steps included (RFC 013 §The nodes field).
+		return executor.RunParams{
+			DAGName:   GetDAGContext(ctx).DAG.Name,
+			PassedEnv: stepOutputEnvs(GetEnv(ctx).Scope),
+		}, nil
 	}
 	name, err := resolveRuntimeString(ctx, subDAG.Name, cmnvalue.SubDAGNameField("sub_dag.name"))
 	if err != nil {
@@ -112,6 +119,19 @@ func (n *Node) resolveNodeChild(ctx context.Context) (executor.RunParams, error)
 		return executor.RunParams{}, err
 	}
 	return executor.RunParams{DAGName: name, Params: params, PassedEnv: passedEnv}, nil
+}
+
+// stepOutputEnvs returns the output variables of earlier steps in scope, as
+// NAME=value. An output restored with a secret masked holds no value to pass.
+func stepOutputEnvs(scope *cmnvalue.EnvScope) []string {
+	outputs := scope.AllBySource(cmnvalue.EnvSourceOutput)
+	envs := make([]string, 0, len(outputs))
+	for _, name := range slices.Sorted(maps.Keys(outputs)) {
+		if entry, ok := scope.GetEntry(name); ok && !entry.Masked {
+			envs = append(envs, name+"="+entry.Value)
+		}
+	}
+	return envs
 }
 
 // matchStepNodes returns the nodes a step's selector matches, in name order.

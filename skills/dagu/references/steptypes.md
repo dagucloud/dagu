@@ -496,16 +496,24 @@ steps:
 name: deploy-one
 node: required              # runs only bound to one node
 steps:
-  - action: noop
+  - id: drain
+    action: http.request      # runs on the Dagu host
+    with:
+      method: POST
+      url: https://lb.internal/pools/web/${node.name}/drain
+  - id: restart
+    run: sudo systemctl restart app   # runs on the node over SSH
 ```
 
 - `nodes` works on `dag.run` and on command steps (`run`, `command`, `script` without an action, `ssh.run`, `sftp.*`), and not with `parallel`, `foreach`, `worker_selector`, `container`, or `repeat_policy`.
-- Each enabled matched node gets its own child run bound to it, in name order. A `dag.run` child must declare `node: required`. A command step runs alone in each child, with the run's params, and `timeout_sec` and `retry_policy` per node.
+- Each enabled matched node gets its own child run bound to it, in name order. A `dag.run` child must declare `node: required`. A command step runs alone in each child, reading the run's params, env, and earlier steps' outputs, with `timeout_sec` and `retry_policy` per node.
 - A reference in the selector must resolve to one label key or value, so `env=${params.env}` cannot be widened by a value such as `prod,!canary`.
 - The step fails before any node starts when the selector matches no nodes (`selector matched no nodes`) or only disabled ones. Disabled nodes do not run.
 - With `keep_going: false`, no node starts after one fails. The step writes `parallel`'s aggregate with `node` on each entry, including `not_started` and `disabled` ones.
 - A DAG with a `workspace` label cannot use `nodes` or `node: required`.
-- Not available yet: a child bound to a node fails before any step when it has a step that runs commands (no action, `ssh.run`, `sftp.*`), so commands never run on the Dagu host; `${node.*}` references; steps with `nodes` in runs on workers. Use local actions such as `http.request` or `js.run` in bound children until then.
+- A bound child reaches its SSH node as DAG-level `ssh` reaches a host: steps with no action, `ssh.run`, and `sftp.*` run on the node, through its bastion, and other actions run on the Dagu host. `with` fields override the node's; `with.host` connects elsewhere. The node's secret refs resolve once per run and are masked. Only the node's `host_key` or a trusted key is accepted.
+- In a bound run, `${node.name}`, `${node.host}`, `${node.port}`, `${node.user}`, `${node.description}`, `${node.labels}` (sorted, comma-separated), `${node.labels.<key>}`, and `${node.labels."gpu.type"}` read the node. A label the node lacks fails its run before any step. Quote them in shell commands: `"${node.labels.role}"`.
+- Not available yet: bound runs and steps with `nodes` on workers.
 
 ## ssh.run / sftp.upload / sftp.download
 
