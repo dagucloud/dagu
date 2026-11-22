@@ -97,7 +97,8 @@ call with a scripted result, pick results by attempt, and skip waits.
 3. A DAG needs no change to be testable.
 4. One file holds several scenarios of one DAG.
 5. A test reads nothing from and writes nothing to the configured data
-   directory, and only real steps write files outside the case directory.
+   directory, and only real steps write files outside the case directory,
+   apart from the run's control socket.
 6. Retry intervals, repeat intervals, and start delays are not waited for, so
    a mocked case finishes in well under a second.
 7. Runs headless in CI, with an exit status and a report a CI system can read.
@@ -199,7 +200,7 @@ Case fields:
 | `env` | map | no | Merged over the file's `env`, by name |
 | `scheduled_at` | date or time | no | The schedule slot of the run, as `dagu dry --scheduled-at` takes it |
 | `trigger` | trigger type | no | `context.trigger.type` of the run (Spec 017). Defaults to `manual` |
-| `precondition` | `met` or `not_met` | no | Result of the DAG-level preconditions that run a command: command checks and `eval` |
+| `precondition` | `met` or `not_met` | no | Result of the DAG-level preconditions that run a command: command checks and `eval` with command substitution |
 | `mocks` | map | no | Replaces the file's mock for each step it names |
 | `real` | list | no | Added to the file's `real` |
 | `expect` | map | yes | Assertions |
@@ -339,16 +340,18 @@ following and the test does not handle it as the table says:
 | Source | Handled by |
 | --- | --- |
 | A step action that is not side-effect free | A mock that replaces the action, including `{}`, or the step in `real` |
-| A step precondition with a command check or `eval` (Spec 023) | `precondition` in the step's mock, or the step in `real` |
+| A step precondition with a command check, or an `eval` with command substitution (Spec 023) | `precondition` in the step's mock, or the step in `real` |
 | A command-check `repeat_policy.condition` (Spec 075) | `condition` in every result of the step's mock, or the step in `real` |
 | A file named by an object-form `output` of an unmocked step | A mock that replaces the action, or the step in `real` |
 | A `foreach` body step that is not side-effect free | A mock of the whole `foreach` step |
 | A step that waits for a person (`human.task`, `approval`) | `review` in the step's mock, also for a step in `real` |
-| A DAG-level precondition with a command check or `eval` | The case's `precondition` |
-| A `params[].eval` (Spec 011) | A value for that param in `params` |
+| A DAG-level precondition with a command check, or an `eval` with command substitution | The case's `precondition` |
+| A `params[].eval` with command substitution (Spec 011) | A value for that param in `params` |
 
 No person answers in a test, so a waiting step needs `review` even when its
-action is real. Spec 003 allows command substitution only in
+action is real. An `eval` without backtick or `$()` command substitution runs
+no command (Spec 011), so it evaluates as in a real run and needs nothing
+from the test. Spec 003 allows command substitution only in
 `params[].eval` and precondition `eval`, and command checks run only in
 preconditions and repeat conditions, so the table covers every command Dagu
 runs outside a step action.
@@ -369,12 +372,12 @@ takes a line in `real`.
 
 ### Preconditions
 
-Value-match preconditions without `eval` evaluate as in a real run, against
-mocked outputs and the case's params and env. This is how output-driven
-branches are tested.
+Value-match preconditions evaluate as in a real run, against mocked outputs
+and the case's params and env, including an `eval` without command
+substitution. This is how output-driven branches are tested.
 
-A mock's `precondition: met` treats the step's command checks and `eval`
-conditions as met. `not_met` treats them as not met, so the step is skipped
+A mock's `precondition: met` treats the step's command checks and its `eval`
+conditions with command substitution as met. `not_met` treats them as not met, so the step is skipped
 (Spec 023). The step's other value-match conditions still evaluate. The
 case-level `precondition` does the same for DAG-level preconditions, and
 `not_met` aborts the run, as Spec 023 defines.
@@ -431,11 +434,14 @@ outputs (Spec 031). `reject` is invalid for `human.task`. For a step with
 A mock on a `dag.run` or `dag.enqueue` step replaces the child run, and on a
 `parallel` step it replaces every child. The mock's result is the step's
 result, and its `outputs` are the step's outputs. No child run starts.
-`results` counts executions of the step, not children.
+`results` counts executions of the step, not children. A mock on a step with
+`nodes` (RFC 013, Spec 089) replaces every child, as on a `parallel` step.
 
 A `dag.run` step in `real` starts its child in the same case. The child gets
 no mocks, so the fail-closed rule applies to the child's steps: each must be
-side-effect free.
+side-effect free. A child that cannot be resolved before the case starts
+makes the case invalid. A `dag.enqueue` step in `real` queues its child in
+the case directory, where nothing runs it.
 
 A mock on a `foreach` step replaces the whole construct: item expansion, the
 body, `collect`, and the aggregate status. The mock's result is the step's
@@ -460,7 +466,9 @@ case directory. Supplying path outputs is an open question.
 ### Time
 
 Under test, Dagu does not wait for retry intervals and backoff, repeat
-intervals, or `delay_sec`. Execution order and counts are unchanged. A wait
+intervals, or `delay_sec`. Execution order and counts are unchanged. Steps
+in `real` keep their retry and repeat intervals: a real action reaches a
+real system, and its intervals protect that system. A wait
 action such as `wait.duration` is not side-effect free, so a test mocks it
 like any other action. `timeout_sec` applies as in a real
 run, and a mocked action returns immediately, so only a real step can reach
@@ -493,6 +501,11 @@ no restart after it.
   file-sourced output is invalid unless it is real.
 - The run reads its inputs as `dagu start` does: the DAG file, the base
   config, dotenv files, and declared file dependencies (Spec 035).
+- The agent's control socket is created where a real run creates it, under
+  a name unique to the run, and removed when the run ends. A Unix socket
+  path is limited to about 100 bytes, which a temporary case directory can
+  exceed. It is the one file outside the case directory that every case
+  creates.
 
 **Run-level side effects.** The agent does more than run steps. Under test:
 
@@ -504,15 +517,18 @@ no restart after it.
 | DAG-level `container` | Not created, unless the case has a `real` step, which runs in it |
 | DAG-level `ssh` client, which reads keys and known hosts | Not created, unless the case has a `real` step |
 | Declared `tools` | Not installed, unless the case has a `real` step |
+| Native resource limits (`resources.limits` without a DAG-level `container`) | Not applied, unless the case has a `real` step |
 
 A `real` step is the explicit opt-in to side effects, so the working
-directory, container, SSH client, and tools it needs are set up as in a real
-run. A case without one runs on a CI host that has none of them. Tools
+directory, container, SSH client, tools, and resource limits it needs are
+set up as in a real run. A case without one runs on a CI host that has none of them. Tools
 install into the configured tools directory, the one write outside the case
 directory that only `real` causes.
 
 **Secrets.** Secrets resolve only from the test's `secrets` map, and every
-DAG `secrets` entry needs a value there. Values are masked in logs and
+DAG `secrets` entry needs a value there. SSH credentials given as secret
+references resolve from the same map, and only when the case has a `real`
+step, since no SSH client exists without one. Values are masked in logs and
 reports, as in a real run.
 
 ### Assertions
@@ -793,10 +809,10 @@ test start a real command its author thought was mocked.
     with no argument runs it against `release.yaml`.
 13. A `foo.test.yaml` with top-level `steps` and no `cases` is reported by
     `dagu test` as invalid, with a request to rename it.
-14. A `params[].eval` without a value in the test, a step precondition with
-    `eval` and no `precondition` in its mock, and a DAG-level command check
-    without the case's `precondition` each make the case invalid, and no
-    command runs.
+14. A `params[].eval` with command substitution and no value in the test, a
+    step precondition whose `eval` has command substitution and no
+    `precondition` in its mock, and a DAG-level command check without the
+    case's `precondition` each make the case invalid, and no command runs.
 15. A step with `repeat: while` and a command-check condition, mocked with
     results whose `condition` is `met`, `met`, `not_met`, runs three times.
 16. A failing case with no `real` step, on a DAG with `mail_on.failure`,
@@ -829,6 +845,15 @@ test start a real command its author thought was mocked.
 27. A mock with `precondition`, `review`, and two `results` on a step with
     `retry_policy.limit: 1` checks the precondition once, runs twice, and is
     approved once.
+28. A `params[].eval` without command substitution evaluates as in a real
+    run and needs no value in the test.
+29. A mocked step with `nodes` starts no child run.
+30. A `real` step with `retry_policy.interval_sec` waits its interval. A
+    mocked step with the same policy does not.
+31. A case with no `real` step applies no `resources.limits` and resolves
+    no SSH credential given as a secret reference.
+32. A `real` `dag.run` step whose child has an unmocked `run` step makes the
+    case invalid.
 
 ## Alternatives considered
 
