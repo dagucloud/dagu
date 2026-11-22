@@ -644,6 +644,7 @@ func (l *ConfigLoader) loadPeerConfig(def PeerDef) Peer {
 		Insecure:      def.Insecure,
 		MaxRetries:    def.MaxRetries,
 		RetryInterval: l.parseDuration("peer.retry_interval", def.RetryInterval),
+		Token:         strings.TrimSpace(def.Token),
 	}
 }
 
@@ -1564,6 +1565,7 @@ func (l *ConfigLoader) loadCoordinatorConfig(cfg *Config, def Definition) {
 		cfg.Coordinator.Advertise = def.Coordinator.Advertise
 		cfg.Coordinator.Port = def.Coordinator.Port
 		cfg.Coordinator.HealthPort = def.Coordinator.HealthPort
+		cfg.Coordinator.RequireToken = def.Coordinator.RequireToken
 		if def.Coordinator.WorkerWaitTimeout != "" {
 			timeout, err := time.ParseDuration(def.Coordinator.WorkerWaitTimeout)
 			if err != nil {
@@ -2094,6 +2096,7 @@ func (l *ConfigLoader) finalizePaths(cfg *Config) error {
 	if cfg.Paths.ToolsDir == "" {
 		cfg.Paths.ToolsDir = filepath.Join(cfg.Paths.DataDir, "tools")
 	}
+	cfg.Core.Peer.TokenFile = filepath.Join(cfg.Paths.DataDir, "coordinator", "peer-token")
 
 	// Suspend flags default under the shared data directory so every process
 	// observing the same data_dir sees identical suspension state. A legacy
@@ -2614,6 +2617,7 @@ var envBindings = []envBinding{
 	{key: "coordinator.port", env: "COORDINATOR_PORT"},
 	{key: "coordinator.health_port", env: "COORDINATOR_HEALTH_PORT"},
 	{key: "coordinator.worker_wait_timeout", env: "COORDINATOR_WORKER_WAIT_TIMEOUT"},
+	{key: "coordinator.require_token", env: "COORDINATOR_REQUIRE_TOKEN"},
 
 	// Worker
 	{key: "worker.id", env: "WORKER_ID"},
@@ -2629,6 +2633,7 @@ var envBindings = []envBinding{
 	{key: "peer.client_ca_file", env: "PEER_CLIENT_CA_FILE"},
 	{key: "peer.skip_tls_verify", env: "PEER_SKIP_TLS_VERIFY"},
 	{key: "peer.insecure", env: "PEER_INSECURE"},
+	{key: "peer.token", env: "PEER_TOKEN", secret: true},
 
 	// Monitoring
 	{key: "monitoring.retention", env: "MONITORING_RETENTION"},
