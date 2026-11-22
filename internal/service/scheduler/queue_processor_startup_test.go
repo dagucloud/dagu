@@ -174,10 +174,9 @@ func TestQueueDispatcher_WaitForStartupBoundsLocalObservationErrors(t *testing.T
 		MaxRetries:         1,
 		StartupGracePeriod: 0,
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	started := dispatcher.waitForStartup(ctx, "test-queue", runRef, startupWaitState{
+	// No deadline: the MaxRetries bound must end the wait on its own, and a third
+	// call fails the Twice() expectations. A deadline only made a slow runner fail.
+	started := dispatcher.waitForStartup(context.Background(), "test-queue", runRef, startupWaitState{
 		launchedAt: time.Now().Add(-time.Second),
 		execDone: func() (bool, error) {
 			return false, nil
