@@ -141,11 +141,13 @@ func (a *API) dagActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStat
 	activity.Truncated = page.NextCursor != ""
 	// The list holds the runs created in the window. A latest run created
 	// before it, as a queued or retried run can be, shows when it started in
-	// the window or is still active.
+	// the window or is still active. A retry in the queue keeps the start of
+	// its previous attempt, but it has not started again, so it does not show.
 	listed := slices.ContainsFunc(activity.Runs, func(run api.DAGListActivityRun) bool {
 		return run.DagRunId == latest.DAGRunID
 	})
-	if !latestStart.IsZero() && latest.BackfillID == "" && !listed && len(activity.Runs) < activityRunLimit {
+	if !latestStart.IsZero() && latest.Status != ir.Queued && latest.BackfillID == "" && !listed &&
+		len(activity.Runs) < activityRunLimit {
 		activity.Runs = append(activity.Runs, toListActivityRun(latest))
 	}
 	slices.SortStableFunc(activity.Runs, func(x, y api.DAGListActivityRun) int {

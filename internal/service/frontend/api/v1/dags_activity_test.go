@@ -28,6 +28,9 @@ type activityRun struct {
 	took      time.Duration
 	reused    []ir.ReusedInput
 	backfill  string
+	// retried keeps the times of the previous attempt on a queued run, as a
+	// retry that waits in the queue does.
+	retried bool
 }
 
 func createActivityDAG(t *testing.T, server test.Server, name string) *ir.DAG {
@@ -51,11 +54,11 @@ func seedActivityRun(t *testing.T, server test.Server, dag *ir.DAG, run activity
 		ir.WithReusedInputs(run.reused),
 		ir.WithBackfillID(run.backfill),
 	}
-	if !run.status.IsActive() {
+	if !run.status.IsActive() || run.retried {
 		options = append(options, ir.WithFinishedAt(start.Add(run.took)))
 	}
 	startedAt := start
-	if run.status == ir.Queued {
+	if run.status == ir.Queued && !run.retried {
 		startedAt = time.Time{}
 	}
 	status := ir.NewStatusBuilder(dag).Create(run.id, run.status, 0, startedAt, options...)
@@ -170,14 +173,17 @@ func TestListDAGsActivityIsBounded(t *testing.T) {
 }
 
 // A queued run has not started: it is not listed and does not hide the runs
-// before it. A run that started before the window and is still active, here
-// waiting on a person, is listed.
+// before it. A retry in the queue is not listed either, though it keeps the
+// start of its previous attempt. A run that started before the window and is
+// still active, here waiting on a person, is listed.
 func TestListDAGsActivityAroundQueuedAndLongRuns(t *testing.T) {
 	server := test.SetupServer(t)
 	dag := createActivityDAG(t, server, "activity_queue")
 	seedActivityRun(t, server, dag, activityRun{id: "done", status: ir.Succeeded, startAgo: time.Hour, took: time.Minute})
 	seedActivityRun(t, server, dag, activityRun{id: "going", status: ir.Running, startAgo: 10 * time.Minute})
 	seedActivityRun(t, server, dag, activityRun{id: "queued", status: ir.Queued})
+	retry := createActivityDAG(t, server, "activity_retry")
+	seedActivityRun(t, server, retry, activityRun{id: "retry", status: ir.Queued, startAgo: 30 * time.Hour, took: time.Minute, retried: true})
 	long := createActivityDAG(t, server, "activity_long")
 	seedActivityRun(t, server, long, activityRun{id: "long", status: ir.Waiting, startAgo: 30 * time.Hour})
 
@@ -185,6 +191,8 @@ func TestListDAGsActivityAroundQueuedAndLongRuns(t *testing.T) {
 		dags := listActivity(t, server, query)
 		require.NotNil(t, dags["activity_queue"].Activity, query)
 		assert.Equal(t, []string{"going", "done"}, activityRunIDs(dags["activity_queue"].Activity), query)
+		require.NotNil(t, dags["activity_retry"].Activity, query)
+		assert.Empty(t, dags["activity_retry"].Activity.Runs, query)
 		require.NotNil(t, dags["activity_long"].Activity, query)
 		assert.Equal(t, []string{"long"}, activityRunIDs(dags["activity_long"].Activity), query)
 	}
