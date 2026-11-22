@@ -289,6 +289,59 @@ describe('DependencyEdge', () => {
     expect(place(180)).toMatch(/^translate\(0(px)?, -50%\)/);
   });
 
+  it('draws a conditional link dashed, with the label of its condition', () => {
+    const { getByTestId, container } = renderEdge(
+      <DependencyEdge
+        {...edgeProps({
+          condition: {
+            when: 'failed',
+            step: 'verify_1',
+            negate: true,
+            text: '${verify_1.exit_code} != 0',
+          },
+        })}
+      />
+    );
+    const label = getByTestId('ve-canvas-edge-label');
+    expect(label).toHaveTextContent('if verify_1 failed');
+    expect(label).toHaveAttribute('data-conditional');
+    expect(label.getAttribute('title')).toContain('${verify_1.exit_code} != 0');
+    expect(edgePath(container).style.strokeDasharray).not.toBe('');
+  });
+
+  it('centres the label of a condition on its edge top to bottom, clear of the columns beside the step', () => {
+    const { getByTestId } = renderEdge(
+      <DependencyEdge
+        {...edgeProps(
+          {
+            condition: { when: 'failed', step: 'verify_1', text: 'x' },
+          },
+          {},
+          {
+            sourceX: 100,
+            sourceY: 0,
+            targetX: 20,
+            targetY: 96,
+            sourcePosition: Position.Bottom,
+            targetPosition: Position.Top,
+          }
+        )}
+      />,
+      makeActions({ direction: 'TB' })
+    );
+    expect(getByTestId('ve-canvas-edge-label').style.transform).toMatch(
+      /^translate\(-50%, -100%\)/
+    );
+  });
+
+  it('draws a plain link solid and without a label', () => {
+    const { queryByTestId, container } = renderEdge(
+      <DependencyEdge {...edgeProps({})} />
+    );
+    expect(queryByTestId('ve-canvas-edge-label')).toBeNull();
+    expect(edgePath(container).style.strokeDasharray).toBe('');
+  });
+
   it('shows the pattern of a route edge', () => {
     const { getByTestId } = renderEdge(
       <DependencyEdge {...edgeProps({ kind: 'route', label: 'fail*' })} />
@@ -321,6 +374,60 @@ describe('DependencyEdge', () => {
     expect(place(260) - half).toBeGreaterThanOrEqual(100);
     // And ends to the left of the target.
     expect(place(260) + half).toBeLessThanOrEqual(260);
+  });
+
+  // In a left-to-right layout the gap between two cards is short: the label of
+  // a condition wraps at the width of the link, and covers neither card.
+  it('keeps the label of a condition inside a short link in LR', () => {
+    const { getByTestId } = renderEdge(
+      <DependencyEdge
+        {...edgeProps(
+          {
+            condition: {
+              when: 'match',
+              step: 'code',
+              value: 'outputs.verdict = done',
+              text: '${code.outputs.verdict} = done',
+            },
+          },
+          {},
+          { sourceX: 100, targetX: 196 }
+        )}
+      />
+    );
+    const label = getByTestId('ve-canvas-edge-label');
+    const width = Number.parseFloat(label.style.maxWidth);
+    expect(width).toBeLessThanOrEqual(96 - 12);
+    const match = /translate\((-?[\d.]+)px/.exec(
+      label.style.transform.replace('translate(-50%, -100%) ', '')
+    );
+    const centre = Number(match?.[1]);
+    expect(centre - width / 2).toBeGreaterThanOrEqual(100);
+    expect(centre + width / 2).toBeLessThanOrEqual(196);
+    // The text stays whole, for the reader and for the tooltip.
+    expect(label).toHaveTextContent('if code: outputs.verdict = done');
+    expect(label.getAttribute('title')).toContain('if code: outputs.verdict');
+  });
+
+  it('does not limit the width of a label top to bottom', () => {
+    const { getByTestId } = renderEdge(
+      <DependencyEdge
+        {...edgeProps(
+          { condition: { when: 'failed', step: 'verify_1', text: 'x' } },
+          {},
+          {
+            sourceX: 100,
+            sourceY: 0,
+            targetX: 100,
+            targetY: 96,
+            sourcePosition: Position.Bottom,
+            targetPosition: Position.Top,
+          }
+        )}
+      />,
+      makeActions({ direction: 'TB' })
+    );
+    expect(getByTestId('ve-canvas-edge-label').style.maxWidth).toBe('');
   });
 
   it('shows no label on a depends edge', () => {
