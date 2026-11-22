@@ -385,7 +385,6 @@ describe('mustBeMessage and mustBeValue', () => {
   it.each([
     [true, 'with.read must be true.'],
     [false, 'with.read must be false.'],
-    [null, 'with.read must be null.'],
     [3, 'with.read must be 3.'],
     [-1.5, 'with.read must be -1.5.'],
     ['auto', 'with.read must be "auto".'],
@@ -512,6 +511,13 @@ describe('planQuickFixes: a field with one allowed value', () => {
     expect(
       planQuickFixes(model, [notice, missing, wrongType, noPath]).size
     ).toBe(0);
+  });
+
+  it('gives no fix for a field that must be null', () => {
+    // A `type: "null"` rule writes the same message, and its value may be
+    // one branch of a choice.
+    const nullValue = valueIssue('options.flags.read', null);
+    expect(planQuickFixes(model, [nullValue]).size).toBe(0);
   });
 
   it('gives no fix for the message of the server', () => {

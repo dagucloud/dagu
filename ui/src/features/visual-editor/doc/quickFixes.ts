@@ -135,7 +135,7 @@ function nameLineOf(text: string, step: StepView): NameLine | null {
  * string with a flow indicator is quoted, so that it also reads right inside
  * `{...}` or `[...]`.
  */
-function scalarText(value: string | number | boolean | null): string | null {
+function scalarText(value: string | number | boolean): string | null {
   if (typeof value === 'string' && /[,[\]{}]/.test(value)) {
     return JSON.stringify(value);
   }
