@@ -354,13 +354,13 @@ func TestCasePaths(t *testing.T) {
 	fields := reflect.ValueOf(&paths).Elem()
 	for i := range fields.NumField() {
 		field, name := fields.Field(i), fields.Type().Field(i).Name
-		switch field.Kind() {
-		case reflect.String:
-			field.SetString(filepath.Join(configured, name))
-		case reflect.Bool:
-			field.SetBool(true)
-		case reflect.Slice:
-			field.Set(reflect.ValueOf([]string{filepath.Join(configured, name)}))
+		switch ptr := field.Addr().Interface().(type) {
+		case *string:
+			*ptr = filepath.Join(configured, name)
+		case *bool:
+			*ptr = true
+		case *[]string:
+			*ptr = []string{filepath.Join(configured, name)}
 		default:
 			t.Fatalf("PathsConfig.%s has unexpected kind %s", name, field.Kind())
 		}
