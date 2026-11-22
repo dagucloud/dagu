@@ -681,6 +681,12 @@ func TestSeriesUp(t *testing.T) {
 	empty, err := reader.Samples(ctx, SampleQuery{From: at, To: at, MaxPoints: 12})
 	require.NoError(t, err)
 	require.Empty(t, empty.WithActive(t0.Add(4*time.Hour), last, now).Buckets)
+
+	// A series that starts after now gets no up time from a run in progress.
+	future, err := reader.Samples(ctx, SampleQuery{From: now.Add(time.Hour), To: now.Add(3 * time.Hour), MaxPoints: 400})
+	require.NoError(t, err)
+	require.Equal(t, TierMinute, future.Tier)
+	require.Empty(t, future.WithActive(t0.Add(4*time.Hour), last, now).Buckets)
 }
 
 // A history with no up store has no up time, and a step never has it.

@@ -523,14 +523,14 @@ func addUp(buckets []Bucket, t time.Time, up time.Duration) []Bucket {
 // series with no recorded up time. The part of the run before last is already
 // in the buckets and is not added again. A bucket that the run covers and that
 // has no sample is added with its up time only. A raw series holds no up time
-// and is returned as is, as is a series of no length.
+// and is returned as is, as is a series that has no time before now.
 func (s Series) WithActive(start, last, now time.Time) Series {
 	from := laterOf(start, last)
 	end := s.To
 	if now.Before(end) {
 		end = now
 	}
-	if start.IsZero() || s.Tier == TierRaw || !s.To.After(s.From) || !from.Before(end) {
+	if start.IsZero() || s.Tier == TierRaw || !s.From.Before(end) || !from.Before(end) {
 		return s
 	}
 	sec := tierSec(s.Tier)
