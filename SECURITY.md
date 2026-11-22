@@ -45,3 +45,5 @@ We aim to:
 ## Disclosure
 
 Please avoid public disclosure until a fix or mitigation is available and coordinated disclosure timing has been agreed.
+
+Fixed vulnerabilities are disclosed as [GitHub security advisories](https://github.com/dagucloud/dagu/security/advisories). Each published advisory names the first patched version, and the release notes of that version list the advisory's GHSA and CVE IDs under Security.
