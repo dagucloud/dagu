@@ -864,7 +864,7 @@ func (n *Node) determineNodeStatus(cmd executor.Executor) error {
 	return nil
 }
 
-func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Executor, error) {
+func (n *Node) setupExecutor(ctx context.Context, override ExecutorOverride) (context.Context, executor.Executor, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -958,7 +958,7 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 	}
 
 	// Create the executor
-	cmd, err := executor.NewExecutor(ctx, n.Step())
+	cmd, err := newExecutor(ctx, override, n.Step())
 	if err != nil {
 		return ctx, nil, err
 	}
@@ -988,6 +988,17 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 	}
 
 	return ctx, cmd, nil
+}
+
+// newExecutor builds the step's executor, unless override supplies one in
+// place of the step's action.
+func newExecutor(ctx context.Context, override ExecutorOverride, step ir.Step) (executor.Executor, error) {
+	if override != nil {
+		if cmd, ok := override.Executor(ctx, step); ok {
+			return cmd, nil
+		}
+	}
+	return executor.NewExecutor(ctx, step)
 }
 
 func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error) {
