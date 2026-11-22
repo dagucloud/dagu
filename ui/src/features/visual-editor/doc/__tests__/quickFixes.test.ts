@@ -513,6 +513,19 @@ describe('planQuickFixes: a field with one allowed value', () => {
     ).toBe(0);
   });
 
+  it('gives no fix for a block scalar, whose header holds the comment', () => {
+    const block = [
+      'steps:',
+      '  - name: code',
+      '    with:',
+      '      mode: |- # kept',
+      '        fast',
+      '',
+    ].join('\n');
+    const issue = valueIssue('mode', 'slow');
+    expect(planQuickFixes(parseDagDoc(block), [issue]).size).toBe(0);
+  });
+
   it('gives no fix for a field that must be null', () => {
     // A `type: "null"` rule writes the same message, and its value may be
     // one branch of a choice.

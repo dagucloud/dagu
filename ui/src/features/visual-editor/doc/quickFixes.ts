@@ -158,7 +158,10 @@ function planValueFixes(
     if (issue.severity === 'notice' || !issue.fieldPath) continue;
     const wanted = mustBeValue(issue.message);
     const target = wanted && scalarAtField(model, issue.fieldPath);
-    if (!wanted || !target || target.value === wanted.value) continue;
+    // The header of a block scalar holds its comment, which the edit drops.
+    if (!wanted || !target || target.block || target.value === wanted.value) {
+      continue;
+    }
     const text = scalarText(wanted.value);
     if (text === null) continue;
     let fix = byOffset.get(target.range.from);
