@@ -3533,13 +3533,16 @@ func TestRunner_RepeatPolicyWithLimitAndCondition(t *testing.T) {
 	assert.Equal(t, "5", string(content))
 }
 
-// TestRunner_SkipWaits gives each wait an hour, so a run that ends within
-// runBound skipped it. The run timeout ends a run that waits, so a
+// TestRunner_SkipWaits gives each skipped wait an hour, so a run that ends
+// within runBound skipped it. The run timeout ends a run that waits, so a
 // regression fails instead of hanging.
 func TestRunner_SkipWaits(t *testing.T) {
-	const longWait = time.Hour
-	runBound := platformTestDuration(10*time.Second, time.Minute)
-	shortTimeout := platformTestDuration(200*time.Millisecond, time.Second)
+	const (
+		longWait = time.Hour
+		runBound = time.Minute
+		keptWait = 300 * time.Millisecond
+	)
+	shortTimeout := platformTestDuration(time.Second, 3*time.Second)
 
 	t.Run("Retry", func(t *testing.T) {
 		counterFile := filepath.Join(t.TempDir(), "count")
@@ -3612,6 +3615,46 @@ func TestRunner_SkipWaits(t *testing.T) {
 
 		assert.Less(t, time.Since(start), runBound)
 		assert.Len(t, state.records(), 3)
+	})
+
+	// A kept step waits its interval while another step of the same run
+	// still skips an hour-long one.
+	t.Run("KeepWaitsRetry", func(t *testing.T) {
+		dir := t.TempDir()
+		r := setupRunner(t, withSkipWaits("kept"), withTimeout(runBound))
+		// Each script fails once and then succeeds.
+		plan := r.newPlan(t,
+			newStep("kept",
+				withScript(counterThresholdExitScript(filepath.Join(dir, "kept"), 1, 1, 0)),
+				withRetryPolicy(1, keptWait),
+			),
+			newStep("skipped",
+				withScript(counterThresholdExitScript(filepath.Join(dir, "skipped"), 1, 1, 0)),
+				withRetryPolicy(1, longWait),
+			),
+		)
+
+		start := time.Now()
+		result := plan.assertRun(t, ir.Succeeded)
+
+		assert.GreaterOrEqual(t, time.Since(start), keptWait)
+		assert.Equal(t, 1, result.nodeByName(t, "kept").State().RetryCount)
+		assert.Equal(t, 1, result.nodeByName(t, "skipped").State().RetryCount)
+	})
+
+	t.Run("KeepWaitsRepeat", func(t *testing.T) {
+		r := setupRunner(t, withSkipWaits("kept"), withTimeout(runBound))
+		plan := r.newPlan(t, newStep("kept",
+			withCommand("exit 0"),
+			withRepeatPolicy(true, keptWait),
+			func(step *ir.Step) { step.RepeatPolicy.Limit = 2 },
+		))
+
+		start := time.Now()
+		result := plan.assertRun(t, ir.Succeeded)
+
+		assert.GreaterOrEqual(t, time.Since(start), keptWait)
+		assert.Equal(t, 2, result.nodeByName(t, "kept").State().DoneCount)
 	})
 
 	// The commands outlast runBound, so a timeout that does not fire fails

@@ -297,9 +297,11 @@ func withSkipHandlers() runnerOption {
 	}
 }
 
-func withSkipWaits() runnerOption {
+// withSkipWaits skips waits for every step except the kept ones.
+func withSkipWaits(kept ...string) runnerOption {
 	return func(cfg *runtime.Config) {
 		cfg.SkipWaits = true
+		cfg.KeepWaits = kept
 	}
 }
 
