@@ -8,6 +8,7 @@ import (
 	"compress/gzip"
 	"context"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -77,9 +78,7 @@ func serveRemoteNodeRequestTo(t *testing.T, remote http.Handler, server config.S
 	require.NoError(t, a.ConfigureRoutes(t.Context(), router, time.Second))
 
 	request := httptest.NewRequest(method, path+"?remoteNode=edge", strings.NewReader(body))
-	for name, values := range header {
-		request.Header[name] = values
-	}
+	maps.Copy(request.Header, header)
 	request.Header.Set("Authorization", "Bearer caller-token")
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
