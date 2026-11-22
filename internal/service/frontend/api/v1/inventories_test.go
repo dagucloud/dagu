@@ -384,8 +384,9 @@ func TestInventoryAPI_ImportPermissionsAndAudit(t *testing.T) {
 }
 
 // The import refuses a body that holds more than the array, though the
-// generated handler would decode the array alone, and a body over the limit. Strict validation stays off,
-// so no OpenAPI validator stands in front of the handler.
+// generated handler would decode the array alone, and a body over the limit.
+// Strict validation stays off, so no OpenAPI validator stands in front of the
+// handler.
 func TestInventoryAPI_ImportOverHTTP(t *testing.T) {
 	cfg := &config.Config{Server: config.Server{
 		APIBasePath: "/api/v1",
