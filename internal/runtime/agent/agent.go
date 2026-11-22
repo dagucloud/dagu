@@ -295,6 +295,10 @@ type Agent struct {
 	secretReferenceResolver providers.ReferenceResolver
 	// secretMasker redacts resolved secret values from status/history snapshots.
 	secretMasker *masking.Masker
+	// secretValues, when non-nil, replaces the providers of DAG secrets.
+	secretValues map[string]string
+	// redirectRoot is where the run writes step redirect files.
+	redirectRoot runtime.RedirectRoot
 
 	// remoteDAGLoader loads a DAG from a remote source when local store misses.
 	remoteDAGLoader RemoteDAGLoader
@@ -416,6 +420,15 @@ type Options struct {
 	// SecretReferenceResolver resolves DAG-level registry refs.
 	// When nil, SecretStore supplies the local resolver.
 	SecretReferenceResolver providers.ReferenceResolver
+	// SecretValues, when non-nil, holds the value of each DAG secrets entry
+	// by name and of each SSH credential secret ref by ref, and no secret
+	// provider, store, or resolver is called. A secret without a value fails
+	// the run before any step starts. Values are masked as resolved secrets
+	// are.
+	SecretValues map[string]string
+	// RedirectRoot moves step redirect files under a directory. The zero
+	// value writes them at their configured paths.
+	RedirectRoot runtime.RedirectRoot
 	// ProfileStore resolves named runtime profiles.
 	ProfileStore profilepkg.Store
 	// ProfileResolver resolves inherited and selected runtime profile layers.
@@ -508,6 +521,8 @@ func New(
 		materializationStore:     opts.MaterializationStore,
 		secretStore:              opts.SecretStore,
 		secretReferenceResolver:  secretReferenceResolverForDAG(dag, opts),
+		secretValues:             opts.SecretValues,
+		redirectRoot:             opts.RedirectRoot,
 		profileStore:             opts.ProfileStore,
 		profileResolver:          opts.ProfileResolver,
 		registry:                 opts.ServiceRegistry,
@@ -564,6 +579,9 @@ func New(
 }
 
 func secretReferenceResolverForDAG(dag *ir.DAG, opts Options) providers.ReferenceResolver {
+	if opts.SecretValues != nil {
+		return secretValuesResolver(opts.SecretValues)
+	}
 	if opts.SecretReferenceResolver != nil {
 		return opts.SecretReferenceResolver
 	}
@@ -571,6 +589,22 @@ func secretReferenceResolverForDAG(dag *ir.DAG, opts Options) providers.Referenc
 		return nil
 	}
 	return secretpkg.NewReferenceResolver(opts.SecretStore, workspaceNameFromDAG(dag))
+}
+
+// secretValuesResolver resolves each secret ref to the value given for it.
+type secretValuesResolver map[string]string
+
+func (v secretValuesResolver) ResolveReference(_ context.Context, ref secretref.Ref) (string, error) {
+	value, ok := v[ref.Ref]
+	if !ok {
+		return "", errors.New("no value given")
+	}
+	return value, nil
+}
+
+func (v secretValuesResolver) CheckReferenceAccessibility(ctx context.Context, ref secretref.Ref) error {
+	_, err := v.ResolveReference(ctx, ref)
+	return err
 }
 
 func workspaceNameFromDAG(dag *ir.DAG) string {
@@ -888,6 +922,12 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	if a.noReuse {
 		contextOpts = append(contextOpts, runtime.WithNoReuse(true))
+	}
+	if a.redirectRoot.Dir != "" {
+		contextOpts = append(contextOpts, runtime.WithRedirectRoot(a.redirectRoot))
+	}
+	if a.secretValues != nil {
+		contextOpts = append(contextOpts, runtime.WithSecretValues(a.secretValues))
 	}
 	if a.dagRunLogDir != "" {
 		contextOpts = append(contextOpts, runtime.WithDAGRunLogDir(a.dagRunLogDir))
@@ -2420,6 +2460,9 @@ func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfil
 	if len(a.dag.Secrets) == 0 {
 		return nil, nil
 	}
+	if a.secretValues != nil {
+		return secretsFromValues(a.dag.Secrets, a.secretValues)
+	}
 
 	logger.Info(ctx, "Resolving secrets", tag.Count(len(a.dag.Secrets)))
 
@@ -2441,6 +2484,19 @@ func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfil
 
 	logger.Debug(ctx, "Secrets resolved successfully", tag.Count(len(resolvedSecrets)))
 	return resolvedSecrets, nil
+}
+
+// secretsFromValues returns each secret as NAME=value from values, by name.
+func secretsFromValues(refs []secretref.Ref, values map[string]string) ([]string, error) {
+	envs := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		value, ok := values[ref.Name]
+		if !ok {
+			return nil, fmt.Errorf("failed to resolve secrets: no value for secret %q", ref.Name)
+		}
+		envs = append(envs, ref.Name+"="+value)
+	}
+	return envs, nil
 }
 
 // resolveCredentialRefs resolves the secret refs that SSH connections read

@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
 type runOptions struct {
@@ -42,6 +43,12 @@ type runOptions struct {
 	// seed is the queued status of a selected-steps run, which is dispatched
 	// as a retry of that attempt.
 	seed *ir.DAGRunStatus
+	// secretValues, when non-nil, holds the value of each DAG secret in place
+	// of its provider.
+	secretValues map[string]string
+	// redirectRoot moves the step redirect files of a test case into its case
+	// directory.
+	redirectRoot runtime.RedirectRoot
 }
 
 func dagDefinitionIDFromEnv() string {
