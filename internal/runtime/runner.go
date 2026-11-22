@@ -536,7 +536,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 			}(node)
 
 			if r.delay > 0 {
-				r.waitForExecution(ctx, r.delay)
+				waitForExecution(ctx, r.delay)
 			}
 
 		case node := <-doneCh:
@@ -1960,7 +1960,7 @@ func (r *Runner) waitForRetry(ctx context.Context, node *Node, execErr error) bo
 		node.Step().RetryPolicy.MaxInterval,
 		node.GetRetryCount()-1, // -1 because the count includes this retry
 	)
-	if !r.waitForExecution(ctx, interval) || r.isCanceled() {
+	if !waitForExecution(ctx, interval) || r.isCanceled() {
 		node.SetStatus(ir.NodeAborted)
 		r.setLastError(execErr)
 		return false
@@ -2402,7 +2402,7 @@ func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressC
 	if cont != nil && cont.writeDue && cont.reportDue() {
 		r.report(ctx, progressCh, node)
 	}
-	if !r.waitForExecution(ctx, interval) {
+	if !waitForExecution(ctx, interval) {
 		node.SetStatus(ir.NodeAborted)
 		return
 	}
@@ -2422,8 +2422,8 @@ type skipWaitsKey struct{}
 
 // waitForExecution waits for duration before the next execution, or not at
 // all when the run skips waits. It reports false when ctx ends first.
-func (r *Runner) waitForExecution(ctx context.Context, duration time.Duration) bool {
-	if r.skipWaits || ctx.Value(skipWaitsKey{}) != nil {
+func waitForExecution(ctx context.Context, duration time.Duration) bool {
+	if ctx.Value(skipWaitsKey{}) != nil {
 		return ctx.Err() == nil
 	}
 	timer := time.NewTimer(duration)
