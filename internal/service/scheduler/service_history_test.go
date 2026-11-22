@@ -19,22 +19,19 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/samples"
 )
 
-// fakeHistoryStore is the store, the run repository and the recorder of a
-// ServiceHistory in one.
+// fakeHistoryStore is the store and the recorder of a ServiceHistory in one.
 type fakeHistoryStore struct {
 	noDir     bool
 	samples   []samples.Sample
 	order     *[]string // shared with a scanner harness, when set
 	newest    time.Time
 	hasNewest bool
-	retained  []ir.DAGRunStatus // newest first
-	limits    []int
 	dirCalls  int
 	opens     int
 	closes    int
 	opts      samples.Options
 
-	openErr, recordErr, recentErr, newestErr error
+	openErr, recordErr, newestErr error
 }
 
 type fakeHistoryRecorder struct{ store *fakeHistoryStore }
@@ -62,13 +59,6 @@ func (f *fakeHistoryStore) history(clock Clock) *ServiceHistory {
 		Dir: func(string) (string, bool) {
 			f.dirCalls++
 			return "/history", !f.noDir
-		},
-		RecentRuns: func(_ context.Context, _ string, limit int) ([]ir.DAGRunStatus, error) {
-			f.limits = append(f.limits, limit)
-			if f.recentErr != nil {
-				return nil, f.recentErr
-			}
-			return f.retained[:min(limit, len(f.retained))], nil
 		},
 		Open: func(_ context.Context, _ string, o samples.Options) (samples.Recorder, error) {
 			f.opens++
@@ -242,55 +232,18 @@ func TestServiceHistory(t *testing.T) {
 		}
 	})
 
-	t.Run("ImportGrowingLimits", func(t *testing.T) {
+	// The store holds every run that ended at or before its newest sample, so
+	// only a later run records.
+	t.Run("AfterNewestEnd", func(t *testing.T) {
 		t.Parallel()
-		// 150 runs, one each 10 s, newest first. The store ends at run 29, so the
-		// import reads 100 runs, then 1 000, and records runs 30 to 149.
-		var retained []ir.DAGRunStatus
-		for i := 149; i >= 0; i-- {
-			retained = append(retained, histRun(fmt.Sprintf("r%03d", i), ir.Succeeded, time.Duration(i)*10*time.Second, time.Second))
-		}
-		store := &fakeHistoryStore{
-			retained:  retained,
-			hasNewest: true,
-			newest:    historyT0.Add(29*10*time.Second + time.Second),
-		}
-		h := store.history(clock)
-		require.NoError(t, h.Observe(t.Context(), dag, retained[0]))
-		assert.Equal(t, []int{100, 1000}, store.limits)
-		require.Len(t, store.samples, 120)
-		assert.Equal(t, "r030", store.samples[0].RunID)
-		assert.Equal(t, "r149", store.samples[119].RunID)
-
-		require.NoError(t, h.Observe(t.Context(), dag, retained[0], retained[5]))
-		assert.Len(t, store.samples, 120, "the import marks its runs as recorded")
-	})
-
-	t.Run("ImportStopsAtFirstLimit", func(t *testing.T) {
-		t.Parallel()
-		retained := []ir.DAGRunStatus{
+		runs := []ir.DAGRunStatus{
 			histRun("r3", ir.Succeeded, 20*time.Second, time.Second),
 			histRun("r2", ir.Succeeded, 10*time.Second, time.Second),
 			histRun("r1", ir.Succeeded, 0, time.Second),
 		}
-		store := &fakeHistoryStore{retained: retained, hasNewest: true, newest: historyT0.Add(11 * time.Second)}
-		require.NoError(t, store.history(clock).Observe(t.Context(), dag))
-		assert.Equal(t, []int{100}, store.limits)
+		store := &fakeHistoryStore{hasNewest: true, newest: historyT0.Add(11 * time.Second)}
+		require.NoError(t, store.history(clock).Observe(t.Context(), dag, runs...))
 		assert.Equal(t, []string{"r3"}, runIDs(store.samples))
-	})
-
-	t.Run("ImportEmptyStore", func(t *testing.T) {
-		t.Parallel()
-		retained := []ir.DAGRunStatus{
-			histRun("r3", ir.Failed, 20*time.Second, time.Second),
-			histRun("r2", ir.Running, 10*time.Second, 0),
-			histRun("r1", ir.Succeeded, 0, time.Second),
-		}
-		store := &fakeHistoryStore{retained: retained}
-		h := store.history(clock)
-		require.NoError(t, h.Observe(t.Context(), dag, retained[0]))
-		assert.Equal(t, []int{10000}, store.limits)
-		assert.Equal(t, []string{"r1", "r3"}, runIDs(store.samples), "the oldest end first, no active run")
 	})
 
 	// A scheduler that restarts finds its runs in the store, and records none
@@ -301,7 +254,7 @@ func TestServiceHistory(t *testing.T) {
 			histRun("r2", ir.Succeeded, 10*time.Second, time.Second),
 			histRun("r1", ir.Succeeded, 0, time.Second),
 		}
-		store := &fakeHistoryStore{retained: retained, hasNewest: true, newest: historyT0.Add(11 * time.Second)}
+		store := &fakeHistoryStore{hasNewest: true, newest: historyT0.Add(11 * time.Second)}
 		require.NoError(t, store.history(clock).Observe(t.Context(), dag, retained...))
 		assert.Empty(t, store.samples)
 	})
@@ -320,11 +273,10 @@ func TestServiceHistory(t *testing.T) {
 		assert.Equal(t, 1, store.opens, "no new try before the retry delay")
 
 		store.openErr = nil
-		store.retained = []ir.DAGRunStatus{r2, r1}
 		at = at.Add(historyOpenRetry)
-		require.NoError(t, h.Observe(t.Context(), dag, r2))
+		require.NoError(t, h.Observe(t.Context(), dag, r2, r1))
 		assert.Equal(t, 2, store.opens)
-		assert.Equal(t, []string{"r1", "r2"}, runIDs(store.samples), "the import records the missed runs")
+		assert.Equal(t, []string{"r1", "r2"}, runIDs(store.samples), "the runs that the scanner still reads record")
 	})
 
 	t.Run("RecordErrorReopens", func(t *testing.T) {
@@ -332,7 +284,7 @@ func TestServiceHistory(t *testing.T) {
 		at := now
 		r1 := histRun("r1", ir.Succeeded, 0, time.Second)
 		r2 := histRun("r2", ir.Succeeded, 10*time.Second, time.Second)
-		store := &fakeHistoryStore{recordErr: errors.New("io error"), retained: []ir.DAGRunStatus{r2, r1}}
+		store := &fakeHistoryStore{recordErr: errors.New("io error")}
 		h := store.history(func() time.Time { return at })
 
 		require.Error(t, h.Observe(t.Context(), dag, r1))
@@ -340,13 +292,13 @@ func TestServiceHistory(t *testing.T) {
 
 		store.recordErr = nil
 		at = at.Add(historyOpenRetry)
-		require.NoError(t, h.Observe(t.Context(), dag, r2))
+		require.NoError(t, h.Observe(t.Context(), dag, r2, r1))
 		assert.Equal(t, []string{"r1", "r2"}, runIDs(store.samples))
 	})
 
-	t.Run("ImportError", func(t *testing.T) {
+	t.Run("NewestEndError", func(t *testing.T) {
 		t.Parallel()
-		store := &fakeHistoryStore{recentErr: errors.New("unreadable")}
+		store := &fakeHistoryStore{newestErr: errors.New("unreadable")}
 		require.ErrorContains(t, store.history(clock).Observe(t.Context(), dag, histRun("r1", ir.Succeeded, 0, time.Second)), "unreadable")
 		assert.Empty(t, store.samples)
 		assert.Equal(t, 1, store.closes)
@@ -414,10 +366,7 @@ func TestServiceHistoryStore(t *testing.T) {
 	var retained []ir.DAGRunStatus // newest first
 	newHistory := func() *ServiceHistory {
 		return NewServiceHistory(ServiceHistoryConfig{
-			Dir: func(string) (string, bool) { return dir, true },
-			RecentRuns: func(_ context.Context, _ string, limit int) ([]ir.DAGRunStatus, error) {
-				return retained[:min(limit, len(retained))], nil
-			},
+			Dir:       func(string) (string, bool) { return dir, true },
 			Open:      samples.OpenRecorder,
 			NewestEnd: samples.NewestEnd,
 		})
@@ -478,5 +427,22 @@ func TestServiceHistoryStore(t *testing.T) {
 	h = newHistory()
 	require.NoError(t, h.Observe(ctx, dag, retained[:min(11, len(retained))]...))
 	assert.Equal(t, uint64(6), availability().TotalCount)
+
+	// A late start after a failed run and a restart of the scheduler is part of
+	// the outage, not a gap: the store keeps the bound of the failed run.
+	observe(h, run("r7", ir.Failed, 250*time.Second, time.Second, "boom"))
 	h.Close(ctx)
+	h = newHistory()
+	observe(h, run("r8", ir.Succeeded, 600*time.Second, time.Second, ""))
+	h.Close(ctx)
+	page, err = samples.OpenReader(dir).Events(ctx, samples.EventQuery{
+		From: base.Add(-time.Hour), To: time.Now().Add(time.Hour), Limit: 10,
+	})
+	require.NoError(t, err)
+	kinds, ids = nil, nil
+	for _, e := range page.Events {
+		kinds, ids = append(kinds, string(e.Kind)), append(ids, e.RunID)
+	}
+	assert.Equal(t, []string{"recovered", "failed", "gap", "recovered", "failed"}, kinds)
+	assert.Equal(t, []string{"r8", "r7", "r5", "r4", "r2"}, ids)
 }

@@ -20,7 +20,7 @@ This spec covers:
 
 - which runs are service runs
 - the sample that the scheduler records for each service run
-- the import of the runs that the server still keeps
+- the runs that end while no scheduler records them
 - the tiers, the events, the uptime and the success rate of the run history
 - the bounds on disk, memory, API responses and page elements
 - the run history queries of the HTTP API
@@ -119,20 +119,22 @@ Rules:
 - The memory that the scheduler uses for the samples of a DAG does not grow with the count of runs.
 - The scheduler also records the time of the run as active time. See Uptime.
 
-### Import of Retained Runs
+### Runs That End While No Scheduler Records Them
 
-When the scheduler opens the run history of a service DAG, it first imports the retained runs. It
-records a sample for each retained run that ended after the newest sample. It records them in the
-order of their end, the oldest first.
+The scheduler takes the runs of the history from the runs that it reads to restart the DAG: the
+latest run and the 10 newest runs. It reads no other run for the history. A run that ended at or
+before the newest sample of the history is already in it.
 
 Rules:
 
-- A run history with no sample imports the retained runs of the DAG. A service DAG that existed
-  before this spec thus keeps the runs that its retention kept.
-- The import reads at most the 10 000 newest retained runs.
+- A service DAG that existed before this spec starts its history at its first run that the
+  scheduler records. The runs that its retention kept get no sample.
 - A scheduler that was stopped, or that took over from another scheduler, records the runs that
-  ended meanwhile, if the retention still keeps them.
-- The import does not change a run record.
+  ended meanwhile, when they are among the 10 newest runs of the DAG. A service DAG does not
+  restart while no scheduler runs, so only the run in progress and the runs that a user starts can
+  end meanwhile.
+- A run that ended before the newest sample, and that the history does not hold, gets no sample.
+- The scheduler does not change a run record.
 
 ### Retention of Run Records
 
@@ -142,8 +144,8 @@ The run history does not depend on the retention of the run records:
 - The scheduler records the sample of a run before it queues the next run. The retention applies
   when a run starts. Thus the retention never removes a run that the scheduler follows before its
   sample exists. This is also true with `hist_retention_runs: 1`.
-- A run that a user starts while no scheduler runs gets its sample at the next import, if the
-  retention still keeps the run.
+- A run that a user starts while no scheduler runs gets its sample when the scheduler starts again,
+  if it is still among the 10 newest runs of the DAG.
 
 ### Tiers
 
@@ -252,7 +254,6 @@ Rules:
 - The history writes the open hour and the open day each time the minute changes. It writes the open
   minute at once when a run covers more than one minute. A crash can lose the active time of the open
   minute in the minute tier.
-- The import of the retained runs records their active time as the scheduler records the samples.
 - A run history that was written before this feature has no `up` directory. Its uptime is unknown.
   Its samples, aggregates and events do not change. The uptime starts at the first run that the
   scheduler records after the update, and the windows count from it.
@@ -274,7 +275,7 @@ Rules for the reader:
 
 ### Life of a Run History
 
-- The run history of a DAG starts at its first service run, or at its first import.
+- The run history of a DAG starts at its first service run that the scheduler records.
 - A DAG that is no longer a service DAG keeps its run history. It records no new sample, and the API
   still gives its run history.
 - A DAG that becomes a service DAG again continues its run history.
@@ -500,8 +501,8 @@ Rules:
 - A run history that the scheduler cannot open or write does not stop the DAG. The scheduler starts
   the next run as usual and records no sample. It logs the error at most once in 30 seconds for each
   DAG.
-- A run status that the scheduler cannot read gives no sample. The next import records the run, if
-  the retention still keeps it.
+- A run status that the scheduler cannot read gives no sample. A later read records the run, if it
+  is still among the 10 newest runs of the DAG and no run that ended after it has a sample.
 
 ## Examples
 
@@ -563,8 +564,8 @@ The activity of a service DAG in the DAG list, with a window of 24 hours:
 - A stop of the scheduler for more than `restart_wait_sec` plus 60 seconds records a `gap` event at
   the next run.
 - With `hist_retention_runs: 1`, the run history has one sample for each run.
-- A service DAG with retained runs and no run history imports the retained runs at the first start
-  of the scheduler.
+- A run that a user starts while the scheduler is stopped has a sample after the scheduler starts
+  again.
 - A run of three hours gives its time to the buckets that it covers, in each tier. A run across
   midnight gives its time to two days. Two runs and a gap that is longer than the restart gap give
   an uptime below 1.
@@ -590,6 +591,6 @@ The activity of a service DAG in the DAG list, with a window of 24 hours:
 ## Conformance
 
 Not covered yet: the conformance suite comes with the API. It will check the samples, the events,
-the import and the retention. It also checks the gap after a stop of the scheduler, and the three queries and their
+the retention. It also checks the gap after a stop of the scheduler, and the three queries and their
 errors. It checks `upMs` in the buckets, and the live part of the run in progress. It checks a window of three years and the activity of a service DAG in the DAG list. Each
 test starts a scheduler and a server with static fixtures.
