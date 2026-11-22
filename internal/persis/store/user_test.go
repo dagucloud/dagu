@@ -561,21 +561,30 @@ func TestUserIndexRebuildRejectsDuplicateTrustedProxyIdentity(t *testing.T) {
 	assert.ErrorIs(t, err, auth.ErrTrustedProxyIdentityAlreadyExists)
 }
 
-// Removing the record that login does not use must keep the other record
-// reachable by username.
+// Removing either of two records that share a username must keep the other
+// one reachable by that username. Login starts on id-b, the later record.
 func TestUserDuplicateCleanupKeepsLogin(t *testing.T) {
+	deleteUser := func(id string) func(t *testing.T, s *store.UserStore) {
+		return func(t *testing.T, s *store.UserStore) {
+			require.NoError(t, s.Delete(context.Background(), id))
+		}
+	}
+	renameUser := func(id string) func(t *testing.T, s *store.UserStore) {
+		return func(t *testing.T, s *store.UserStore) {
+			username := "admin-old"
+			_, err := s.Patch(context.Background(), id, auth.UserPatch{Username: &username})
+			require.NoError(t, err)
+		}
+	}
 	tests := []struct {
 		name   string
 		remove func(t *testing.T, s *store.UserStore)
+		want   string
 	}{
-		{"Delete", func(t *testing.T, s *store.UserStore) {
-			require.NoError(t, s.Delete(context.Background(), "id-a"))
-		}},
-		{"Rename", func(t *testing.T, s *store.UserStore) {
-			username := "admin-old"
-			_, err := s.Patch(context.Background(), "id-a", auth.UserPatch{Username: &username})
-			require.NoError(t, err)
-		}},
+		{"DeleteOther", deleteUser("id-a"), "id-b"},
+		{"RenameOther", renameUser("id-a"), "id-b"},
+		{"DeleteLogin", deleteUser("id-b"), "id-a"},
+		{"RenameLogin", renameUser("id-b"), "id-a"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -596,7 +605,7 @@ func TestUserDuplicateCleanupKeepsLogin(t *testing.T) {
 
 			got, err := s.GetByUsername(ctx, "admin")
 			require.NoError(t, err)
-			assert.Equal(t, "id-b", got.ID)
+			assert.Equal(t, tt.want, got.ID)
 		})
 	}
 }
