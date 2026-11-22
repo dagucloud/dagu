@@ -6,6 +6,7 @@ package dagtest
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -103,7 +104,7 @@ func (c *checker) add(source, message string) {
 
 func (c *checker) checkParams(defs []ir.ParamDef) {
 	for _, def := range defs {
-		if def.Eval == "" {
+		if !hasCommandSubstitution(def.Eval) {
 			continue
 		}
 		if _, ok := c.params[def.Name]; ok {
@@ -218,10 +219,24 @@ func sideEffectFree(step ir.Step) bool {
 	return registry.ExecutorCapabilitiesFor(step.ExecutorConfig.Type).SideEffectFree
 }
 
-// runsCommand reports whether a condition is a command check or has eval,
-// both of which run a command (Spec 023).
+// runsCommand reports whether a condition is a command check (Spec 023) or
+// an eval with command substitution.
 func runsCommand(cond *ir.Condition) bool {
-	return cond != nil && (cond.Eval != "" || len(cond.ExpectedPatterns()) == 0)
+	if cond == nil {
+		return false
+	}
+	if cond.Eval != "" {
+		return hasCommandSubstitution(cond.Eval)
+	}
+	return len(cond.ExpectedPatterns()) == 0
+}
+
+// hasCommandSubstitution reports whether an eval holds backtick or $()
+// command substitution, the only part of an eval that runs a command
+// (Spec 011). Escaped and unclosed forms count too, so the check errs toward
+// asking the test for a value.
+func hasCommandSubstitution(eval string) bool {
+	return strings.Contains(eval, "`") || strings.Contains(eval, "$(")
 }
 
 func scriptsEveryCondition(mock MockFields) bool {

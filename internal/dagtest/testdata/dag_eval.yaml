@@ -1,0 +1,6 @@
+preconditions:
+  - eval: "$(cat mode.txt)"
+    expected: "on"
+steps:
+  - id: done
+    action: noop

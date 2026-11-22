@@ -155,6 +155,31 @@ func TestCheckFailClosed(t *testing.T) {
 			},
 		},
 		{
+			// An eval without command substitution runs no command, so it
+			// evaluates as in a real run and needs nothing from the case.
+			name: "EvalsWithoutSubstitution",
+			dag:  "evals.yaml",
+			want: []string{
+				"param stamp: eval runs a command; give it a value under params",
+				"step weekday: precondition runs a command; set precondition in its mock or list it under real",
+			},
+		},
+		{
+			name: "HandledEvals",
+			dag:  "evals.yaml",
+			handling: dagtest.Handling{
+				Mocks:  map[string]dagtest.MockFields{"weekday": {Precondition: true}},
+				Params: []string{"stamp"},
+			},
+		},
+		{
+			name: "DAGLevelEvalWithSubstitution",
+			dag:  "dag_eval.yaml",
+			want: []string{
+				"preconditions: a precondition runs a command; set precondition in the case",
+			},
+		},
+		{
 			name: "UnhandledOutputFiles",
 			dag:  "outputs.yaml",
 			want: []string{
