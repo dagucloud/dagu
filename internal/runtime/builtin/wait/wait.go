@@ -47,6 +47,7 @@ type executorImpl struct {
 	op      string
 	cfg     parsedConfig
 	workDir string
+	proxy   func(*http.Request) (*url.URL, error)
 	kill    context.Context
 	cancel  context.CancelFunc
 }
@@ -71,6 +72,7 @@ func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		op:      op,
 		cfg:     parsed,
 		workDir: env.WorkingDir,
+		proxy:   http.ProxyFromEnvironment,
 		kill:    kill,
 		cancel:  cancel,
 	}, nil
@@ -278,7 +280,10 @@ func (e *executorImpl) waitFile(ctx context.Context) error {
 }
 
 func (e *executorImpl) waitHTTP(ctx context.Context) error {
-	client := &http.Client{Timeout: e.cfg.requestTimeout}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = e.proxy
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: e.cfg.requestTimeout}
 	method := strings.ToUpper(e.cfg.Method)
 	var last string
 	return poll(ctx, e.cfg.pollInterval, func() (bool, error) {
@@ -293,7 +298,7 @@ func (e *executorImpl) waitHTTP(ctx context.Context) error {
 		resp, err := client.Do(req)
 		if err != nil {
 			if ctx.Err() == nil {
-				e.logPollResult(&last, fmt.Sprintf("wait: http %s request failed: %v", method, requestError(err)))
+				e.logPollResult(&last, fmt.Sprintf("wait: http %s request%s failed: %v", method, e.viaProxy(req), requestError(err)))
 			}
 			return false, nil
 		}
@@ -330,6 +335,15 @@ func requestError(err error) string {
 		}
 	}
 	return "details left out, they may quote the server's response"
+}
+
+// viaProxy names the proxy req goes through, if any, without its credentials.
+func (e *executorImpl) viaProxy(req *http.Request) string {
+	proxyURL, err := e.proxy(req)
+	if err != nil || proxyURL == nil {
+		return ""
+	}
+	return " via proxy " + proxyURL.Host
 }
 
 // logPollResult writes msg to stderr when it differs from the previous

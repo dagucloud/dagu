@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -253,6 +254,25 @@ func TestHTTPTimeoutLoggedToStderr(t *testing.T) {
 	}))
 	requireOneLine(t, stderr, "wait: http GET request failed: ")
 	require.Contains(t, stderr, "Client.Timeout exceeded")
+}
+
+// A proxy that refuses CONNECT fails with text net/http doesn't type, so the
+// line names the proxy to tell its failure apart from the target's.
+func TestHTTPProxyNamedInStderr(t *testing.T) {
+	t.Parallel()
+
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusProxyAuthRequired)
+	}))
+	defer proxy.Close()
+	proxyURL, err := url.Parse(proxy.URL)
+	require.NoError(t, err)
+	proxyURL.User = url.UserPassword("user", "secret")
+
+	exec := newHTTPWait(t, map[string]any{"url": "https://example.invalid/ready"})
+	exec.proxy = http.ProxyURL(proxyURL)
+	stderr := runHTTPUntilLogged(t, exec)
+	requireOneLine(t, stderr, "wait: http GET request via proxy "+proxyURL.Host+" failed: ")
 }
 
 // requireOneLine checks that stderr holds a single line starting with prefix

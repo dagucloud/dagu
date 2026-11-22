@@ -97,6 +97,8 @@ request error, or the status code received and the one expected. The line
 is written only when it differs from the previous poll's, so repeated
 identical results are logged once. The line does not include the URL or
 text quoted from the server's response, such as a redirect `Location` header.
+When the request goes through a proxy, the line names the proxy's host and
+port, without its credentials.
 
 Config-schema validation for `with.url` (and `with.status`) accepts a value
 that holds a `${...}` or `$VAR` reference anywhere in it, such as
