@@ -234,6 +234,9 @@ type Agent struct {
 	// tracer is the OpenTelemetry tracer for the agent.
 	tracer *telemetry.Tracer
 
+	// testSideEffects turns off run-level side effects for a workflow test.
+	testSideEffects *TestSideEffects
+
 	// statusPusher is used to push status updates to a remote coordinator.
 	// When nil, status is written to local filesystem via the run-state attempt.
 	statusPusher StatusPusher
@@ -484,6 +487,21 @@ type Options struct {
 	// SocketServerFactory creates the local status/control transport.
 	// When nil, the default Unix socket transport is used.
 	SocketServerFactory SocketServerFactory
+	// TestSideEffects turns off the run-level side effects of a real run for
+	// a workflow test. When nil, the run has all of them.
+	TestSideEffects *TestSideEffects
+}
+
+// TestSideEffects configures a workflow test run. The run sends no mail
+// notification and records each one instead (see Agent.Notifications), and
+// it exports no OpenTelemetry trace.
+type TestSideEffects struct {
+	// HasRealSteps reports that the test runs a step for real. The run then
+	// creates its working directory, DAG-level container, and DAG-level SSH
+	// client, resolves SSH credentials given as secret references, and
+	// applies native resource limits, as a real run does. Without it, the
+	// run does none of these.
+	HasRealSteps bool
 }
 
 // New creates a new Agent.
@@ -561,6 +579,7 @@ func New(
 		dagRunArtifactDir:        opts.DAGRunArtifactDir,
 		socketServerFactory:      opts.SocketServerFactory,
 		remoteDAGLoader:          opts.RemoteDAGLoader,
+		testSideEffects:          opts.TestSideEffects,
 	}
 	if a.socketServerFactory == nil {
 		a.socketServerFactory = defaultSocketServerFactory
@@ -728,18 +747,20 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		ctx = telemetry.ExtractTraceContext(ctx)
 	}
 
-	// Initialize OpenTelemetry tracer
-	tracer, err := telemetry.NewTracer(ctx, a.dag, configVars)
-	if err != nil {
-		logger.Warn(ctx, "Failed to initialize OpenTelemetry tracer", tag.Error(err))
-		// Continue without tracing
-	} else {
-		a.tracer = tracer
-		defer func() {
-			if err := tracer.Shutdown(ctx); err != nil {
-				logger.Warn(ctx, "Failed to shutdown OpenTelemetry tracer", tag.Error(err))
-			}
-		}()
+	// Initialize OpenTelemetry tracer. A test run exports no trace.
+	if a.testSideEffects == nil {
+		tracer, err := telemetry.NewTracer(ctx, a.dag, configVars)
+		if err != nil {
+			logger.Warn(ctx, "Failed to initialize OpenTelemetry tracer", tag.Error(err))
+			// Continue without tracing
+		} else {
+			a.tracer = tracer
+			defer func() {
+				if err := tracer.Shutdown(ctx); err != nil {
+					logger.Warn(ctx, "Failed to shutdown OpenTelemetry tracer", tag.Error(err))
+				}
+			}()
+		}
 	}
 
 	// Start root span for DAG execution
@@ -1102,9 +1123,11 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 
 	// Ensure working directory exists
-	if err := os.MkdirAll(a.evaluatedWorkingDir, 0o755); err != nil {
-		initErr = fmt.Errorf("failed to create working directory: %w", err)
-		return initErr
+	if a.preparesForRealSteps() {
+		if err := os.MkdirAll(a.evaluatedWorkingDir, 0o755); err != nil {
+			initErr = fmt.Errorf("failed to create working directory: %w", err)
+			return initErr
+		}
 	}
 
 	// Do not change the process working directory here. Agent runs can execute
@@ -1112,7 +1135,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	// through the runtime context and set per-command working directories.
 
 	// Create a new container if the DAG has a container configuration.
-	if a.dag.Container != nil {
+	if a.dag.Container != nil && a.preparesForRealSteps() {
 		// Expand environment variables in container fields
 		expandedContainer, err := docker.EvalContainerFields(initializationCtx, *a.dag.Container)
 		if err != nil {
@@ -1165,7 +1188,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 
 	// Create SSH Client if the DAG has SSH configuration.
-	if a.dag.SSH != nil {
+	if a.dag.SSH != nil && a.preparesForRealSteps() {
 		var sshTimeout time.Duration
 		if a.dag.SSH.Timeout != "" {
 			parsed, err := time.ParseDuration(a.dag.SSH.Timeout)
@@ -1357,7 +1380,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		ctx = s3.WithS3Config(ctx, a.evaluatedS3)
 	}
 
-	if a.dag.Container == nil && a.dag.Resources.HasLimits() {
+	if a.dag.Container == nil && a.dag.Resources.HasLimits() && a.preparesForRealSteps() {
 		guard := resourcelimit.Start(ctx, resourcelimit.Options{
 			DAGName:  a.dag.Name,
 			DAGRunID: a.dagRunID,
@@ -1523,8 +1546,10 @@ func (a *Agent) shouldDelayTerminalStatus(status ir.Status) bool {
 		if a.statusPusher == nil {
 			return true
 		}
-		if a.reporter != nil && a.reporter.selectMailConfig(a.dag, ir.DAGRunStatus{Status: status}, nil) != nil {
-			return true
+		if a.reporter != nil {
+			if mailConfig, _ := a.reporter.selectMailConfig(a.dag, ir.DAGRunStatus{Status: status}, nil); mailConfig != nil {
+				return true
+			}
 		}
 		if a.artifactFinalizer != nil && a.artifactDir != "" {
 			return true
@@ -2281,11 +2306,29 @@ func (a *Agent) setupReporter(ctx context.Context) error {
 	}
 
 	a.reporter = newReporter(senderFn, reporterConfig{
-		ErrorMail: a.evaluatedErrorMail,
-		InfoMail:  a.evaluatedInfoMail,
-		WaitMail:  a.evaluatedWaitMail,
+		ErrorMail:  a.evaluatedErrorMail,
+		InfoMail:   a.evaluatedInfoMail,
+		WaitMail:   a.evaluatedWaitMail,
+		RecordOnly: a.testSideEffects != nil,
 	})
 	return nil
+}
+
+// Notifications returns the mail notifications a run with TestSideEffects
+// would have sent, in the order the run reached them. It returns nil for any
+// other run.
+func (a *Agent) Notifications() []Notification {
+	a.lock.RLock()
+	defer a.lock.RUnlock()
+	return a.reporter.notifications()
+}
+
+// preparesForRealSteps reports whether the run sets up what real steps need:
+// the working directory, the DAG-level container and SSH client, SSH
+// credentials, and native resource limits. A workflow test run sets them up
+// only when it has a real step.
+func (a *Agent) preparesForRealSteps() bool {
+	return a.testSideEffects == nil || a.testSideEffects.HasRealSteps
 }
 
 func mailerConfigFromSMTP(config *ir.SMTPConfig) (mailer.Config, error) {
@@ -2504,7 +2547,7 @@ func secretsFromValues(refs []secretref.Ref, values map[string]string) ([]string
 // each, and returns the values keyed by ref.
 func (a *Agent) resolveCredentialRefs(ctx context.Context, nodeRefs []secretref.Ref) (map[string]string, error) {
 	refs := append(slices.Clone(a.dag.CredentialRefs), nodeRefs...)
-	if len(refs) == 0 {
+	if len(refs) == 0 || !a.preparesForRealSteps() {
 		return nil, nil
 	}
 	if a.secretReferenceResolver == nil {

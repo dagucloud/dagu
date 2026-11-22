@@ -8,7 +8,9 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"slices"
 	"strings"
+	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -34,13 +36,44 @@ type Sender interface {
 // SenderFn is a function type for sending reports.
 type SenderFn func(ctx context.Context, from string, to []string, subject, body string, attachments []string) error
 
+// NotificationKind names the DAG field that asks for a mail notification,
+// as the workflow test report writes it (Spec 101).
+type NotificationKind string
+
+const (
+	// NotificationMailOnFailure reports a failed run.
+	NotificationMailOnFailure NotificationKind = "mail_on.failure"
+	// NotificationMailOnSuccess reports a succeeded run.
+	NotificationMailOnSuccess NotificationKind = "mail_on.success"
+	// NotificationMailOnWait reports a run waiting for a person.
+	NotificationMailOnWait NotificationKind = "mail_on.wait"
+	// NotificationMailOnError reports a failed step with mail_on_error.
+	NotificationMailOnError NotificationKind = "mail_on_error"
+)
+
+// Notification is a mail notification that a run with TestSideEffects would
+// have sent.
+type Notification struct {
+	// Kind is the DAG field that asks for the notification.
+	Kind NotificationKind
+	// Step names the failed step of a mail_on_error notification. It is empty
+	// for any other kind.
+	Step string
+	// To lists the recipients of the mail.
+	To []string
+}
+
 // reporter is responsible for reporting the status of the runner
 // to the user.
 type reporter struct {
-	senderFn  SenderFn
-	errorMail *ir.MailConfig
-	infoMail  *ir.MailConfig
-	waitMail  *ir.MailConfig
+	senderFn   SenderFn
+	errorMail  *ir.MailConfig
+	infoMail   *ir.MailConfig
+	waitMail   *ir.MailConfig
+	recordOnly bool
+
+	mu       sync.Mutex
+	recorded []Notification
 }
 
 // reporterConfig holds the evaluated mail configurations for the reporter.
@@ -48,14 +81,17 @@ type reporterConfig struct {
 	ErrorMail *ir.MailConfig
 	InfoMail  *ir.MailConfig
 	WaitMail  *ir.MailConfig
+	// RecordOnly records each notification instead of sending its mail.
+	RecordOnly bool
 }
 
 func newReporter(f SenderFn, cfg reporterConfig) *reporter {
 	return &reporter{
-		senderFn:  f,
-		errorMail: cfg.ErrorMail,
-		infoMail:  cfg.InfoMail,
-		waitMail:  cfg.WaitMail,
+		senderFn:   f,
+		errorMail:  cfg.ErrorMail,
+		infoMail:   cfg.InfoMail,
+		waitMail:   cfg.WaitMail,
+		recordOnly: cfg.RecordOnly,
 	}
 }
 
@@ -75,7 +111,8 @@ func (r *reporter) reportStep(
 		return nil
 	}
 	if node.State().Status == ir.NodeFailed && node.NodeData().Step.MailOnError {
-		return r.sendConfiguredMail(ctx, r.errorMail, dag.Name, dagStatus)
+		notification := Notification{Kind: NotificationMailOnError, Step: node.Name()}
+		return r.notify(ctx, notification, r.errorMail, dag.Name, dagStatus)
 	}
 	return nil
 }
@@ -85,34 +122,62 @@ func (r *reporter) send(ctx context.Context, dag *ir.DAG, dagStatus ir.DAGRunSta
 	if r == nil {
 		return nil
 	}
-	mailConfig := r.selectMailConfig(dag, dagStatus, err)
+	mailConfig, kind := r.selectMailConfig(dag, dagStatus, err)
 	if mailConfig == nil {
 		return nil
 	}
-	return r.sendConfiguredMail(ctx, mailConfig, dag.Name, dagStatus)
+	return r.notify(ctx, Notification{Kind: kind}, mailConfig, dag.Name, dagStatus)
 }
 
-// selectMailConfig returns the appropriate mail config based on status, or nil if no mail should be sent.
-func (r *reporter) selectMailConfig(dag *ir.DAG, dagStatus ir.DAGRunStatus, err error) *ir.MailConfig {
+// selectMailConfig returns the appropriate mail config based on status and
+// the kind of notification it sends, or a nil config if no mail should be
+// sent.
+func (r *reporter) selectMailConfig(dag *ir.DAG, dagStatus ir.DAGRunStatus, err error) (*ir.MailConfig, NotificationKind) {
 	if dag.MailOn == nil {
-		return nil
+		return nil, ""
 	}
 	// A backfill run sends no mail, so a backfill does not mail once per
 	// slot; a run waiting for a person still mails.
 	if dagStatus.BackfillID != "" && dagStatus.Status != ir.Waiting {
-		return nil
+		return nil, ""
 	}
 
 	switch {
 	case (err != nil || dagStatus.Status == ir.Failed) && dag.MailOn.Failure:
-		return r.errorMail
+		return r.errorMail, NotificationMailOnFailure
 	case (dagStatus.Status == ir.Succeeded || dagStatus.Status == ir.PartiallySucceeded) && dag.MailOn.Success:
-		return r.infoMail
+		return r.infoMail, NotificationMailOnSuccess
 	case dagStatus.Status == ir.Waiting && dag.MailOn.Wait:
-		return r.waitMail
+		return r.waitMail, NotificationMailOnWait
 	default:
+		return nil, ""
+	}
+}
+
+// notify sends the notification's mail, or records the notification and its
+// recipients instead when the reporter only records.
+func (r *reporter) notify(
+	ctx context.Context, notification Notification, mailConfig *ir.MailConfig, dagName string, dagStatus ir.DAGRunStatus,
+) error {
+	if r.recordOnly {
+		notification.To = slices.Clone(mailConfig.To)
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.recorded = append(r.recorded, notification)
 		return nil
 	}
+	return r.sendConfiguredMail(ctx, mailConfig, dagName, dagStatus)
+}
+
+// notifications returns the recorded notifications in the order the run
+// reached them.
+func (r *reporter) notifications() []Notification {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.recorded)
 }
 
 func (r *reporter) sendConfiguredMail(ctx context.Context, mailConfig *ir.MailConfig, dagName string, dagStatus ir.DAGRunStatus) error {
