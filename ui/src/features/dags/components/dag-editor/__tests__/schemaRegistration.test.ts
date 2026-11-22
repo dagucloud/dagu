@@ -113,6 +113,22 @@ describe('schemaRegistration', () => {
     expect(reads - firstReads).toBeLessThan(firstReads);
   });
 
+  // monaco-yaml reads a boolean as its text: the editor gets a schema that it
+  // reads right. The fingerprint stays the one of the schema that came in.
+  it('gives monaco-yaml a schema without a boolean const', () => {
+    const schema: JSONSchema = {
+      type: 'object',
+      properties: { read: { const: true } },
+    };
+    const owner = registrationFor(schema);
+    const registered = owner.registration.schema as JSONSchema;
+    expect(registered.$id).toBe(owner.registration.uri);
+    expect(registered.properties?.read?.const).toBeUndefined();
+    expect(registered.properties?.read?.allOf).toHaveLength(1);
+    expect(schema.properties?.read?.const).toBe(true);
+    expect(owner.fingerprint).toBe(registrationFor(schema).fingerprint);
+  });
+
   it('does not update Monaco registrations for equal-content schemas', () => {
     const registrations = new Map<string, StoredSchemaRegistration>();
     const first = registrationFor({
