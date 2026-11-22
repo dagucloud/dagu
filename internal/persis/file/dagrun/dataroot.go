@@ -27,6 +27,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/dagrunindex"
 )
@@ -268,6 +269,9 @@ func (dr *DataRoot) LatestAfter(ctx context.Context, cutoff persis.TimeInUTC) (*
 // CreateDAGRun creates a new dag-run directory with the specified timestamp and ID.
 // The directory structure follows the pattern: year/month/day/run-YYYYMMDD_HHMMSS_dagRunID
 func (dr *DataRoot) CreateDAGRun(ts persis.TimeInUTC, dagRunID string) (*DAGRun, error) {
+	if err := ir.ValidateDAGRunID(dagRunID); err != nil {
+		return nil, fmt.Errorf("invalid dag-run ID: %w", err)
+	}
 	dirName := DAGRunDirPrefix + formatDAGRunTimestamp(ts) + "_" + dagRunID
 	dir := filepath.Join(dr.dagRunsDir, ts.Format("2006"), ts.Format("01"), ts.Format("02"), dirName)
 
