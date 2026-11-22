@@ -64,25 +64,6 @@ type Uptime struct {
 	// Since is the start of the first recorded interval. It is zero for a
 	// history that recorded none: its uptime is unknown.
 	Since time.Time
-	// Last is the end of the newest recorded run, also when the history has no
-	// uptime. A run that started before it is already in Up.
-	Last time.Time
-}
-
-// WithActive adds a run that has not ended: it is active from start to To. The
-// part that the history already recorded is not added again.
-func (u Uptime) WithActive(start time.Time) Uptime {
-	if start.IsZero() || !start.Before(u.To) {
-		return u
-	}
-	if u.Since.IsZero() || start.Before(u.Since) {
-		u.Since = start
-	}
-	from := laterOf(laterOf(start, u.Last), u.Start)
-	if u.To.After(from) {
-		u.Up += u.To.Sub(from)
-	}
-	return u
 }
 
 // Ratio returns the share of the window in which a run was active, from 0 to
@@ -509,44 +490,6 @@ func addUp(buckets []Bucket, t time.Time, up time.Duration) []Bucket {
 	return slices.Insert(buckets, i, Bucket{Time: t, Up: up})
 }
 
-// WithActive adds a run that has not ended: it is active from start to the end
-// of the series. The part before `last`, the end of the newest recorded run, is
-// already in the buckets and is not added again. A bucket that the run covers
-// and that has no sample is added with its up time only.
-func (s Series) WithActive(start, last time.Time) Series {
-	from := laterOf(start, last)
-	if start.IsZero() || !from.Before(s.To) {
-		return s
-	}
-	w := s.Tier.Width()
-	buckets := slices.Clone(s.Buckets)
-	first := floorTo(s.From.Unix(), tierSec(s.Tier))
-	for t := max(floorTo(from.Unix(), tierSec(s.Tier)), first); ; t += tierSec(s.Tier) {
-		a, b := laterOf(from, time.Unix(t, 0)), time.Unix(t, 0).Add(w)
-		if b.After(s.To) {
-			b = s.To
-		}
-		if !b.After(a) {
-			break
-		}
-		buckets = addUp(buckets, time.Unix(t, 0).UTC(), b.Sub(a))
-	}
-	for i := range buckets {
-		buckets[i].Up = min(buckets[i].Up, w)
-	}
-	s.Buckets = buckets
-	return s
-}
-
-// Uptime returns the uptime of the window from `from` to `to`. Each part of the
-// window comes from the finest tier that holds it, and the boundaries are on
-// the buckets of that tier, so the window starts and ends on a bucket. The end
-// is not after the time of the reader.
-func (r *reader) Uptime(ctx context.Context, from, to time.Time) (Uptime, error) {
-	ups, err := r.uptimes(ctx, []upWindow{{from, to}}, r.now())
-	return ups[0], err
-}
-
 // upWindow is the window of an uptime query.
 type upWindow struct{ from, to time.Time }
 
@@ -572,18 +515,16 @@ func upParts(lo, hi, now int64) []upPart {
 	return slices.DeleteFunc(parts, func(p upPart) bool { return p.lo >= p.hi })
 }
 
-// uptimes returns the uptime of each window. The windows share one read of the
-// newest end, of "up/since" and of each tier.
+// uptimes returns the uptime of each window. Each part of a window comes from
+// the finest tier that holds it, and the boundaries are on the buckets of that
+// tier, so a window starts and ends on a bucket. A window ends at now at the
+// latest. The windows share one read of "up/since" and of each tier.
 func (r *reader) uptimes(ctx context.Context, wins []upWindow, now time.Time) ([]Uptime, error) {
-	var last time.Time
-	if end, _, ok := r.st.newestEnd(); ok {
-		last = time.UnixMilli(end).UTC()
-	}
 	out := make([]Uptime, len(wins))
 	parts := make([][]upPart, len(wins))
 	anyPart := false
 	for i, w := range wins {
-		out[i] = Uptime{Start: w.from.UTC(), To: w.from.UTC(), Last: last}
+		out[i] = Uptime{Start: w.from.UTC(), To: w.from.UTC()}
 		ps := upParts(w.from.Unix(), w.to.Unix(), now.Unix())
 		if len(ps) == 0 {
 			continue
