@@ -122,8 +122,9 @@ handlers and `foreach` bodies, connect to the node, through its bastion.
 Other actions run where the run runs. Fields under the `with` of an
 `ssh.run` or `sftp.*` step override the node's, except that a step that sets
 `with.host` or `with.ip` connects to that host as it would outside a bound
-run. `with.known_host_file` and `with.strict_host_key` are errors, since a
-node's inventory decides which host keys it accepts, and so is
+run. A key or a password under `with` replaces all of the node's
+credentials. `with.known_host_file` and `with.strict_host_key` are errors,
+since a node's inventory decides which host keys it accepts, and so is
 `with.bastion`, since the node connects through the bastion its inventory
 sets.
 

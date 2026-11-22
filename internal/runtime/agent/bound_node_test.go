@@ -110,24 +110,41 @@ steps:
 	require.Empty(t, dag.Steps[0].ExecutorConfig.Type, "the run routes its own copy of the DAG")
 }
 
-// Fields under an ssh.run step's with override the node's.
+// Fields under an ssh.run step's with override the node's. A password
+// replaces the node's key, which the server here does not accept, so the
+// step signs in only if the password is the credential it sends.
 func TestAgent_BoundRunWithOverridesNode(t *testing.T) {
 	t.Parallel()
 
-	node, server := startNode(t, "web01")
-	node.User = "nobody"
-	dagAgent, _ := runBound(t, nodeInventory{node}, `
+	const keyRef = "ssh/web-key"
+	key, _ := harness.NewSSHKey(t)
+	for _, tc := range []struct {
+		name string
+		node func(*inventory.ResolvedNode)
+		with string
+	}{
+		{name: "User", node: func(n *inventory.ResolvedNode) { n.User = "nobody" }, with: "user: " + nodeUser},
+		{name: "PasswordOverKey", node: func(n *inventory.ResolvedNode) { n.Auth = ir.SSHAuth{KeySecret: keyRef} }, with: "password: " + nodePassword},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			node, server := startNode(t, "web01")
+			tc.node(&node)
+			dagAgent, _ := runBound(t, nodeInventory{node}, `
 node: required
 steps:
-  - id: as_tester
+  - id: connect
     action: ssh.run
     with:
-      user: `+nodeUser+`
+      `+tc.with+`
       command: "true"
-`, newCountingSecretResolver(map[string]string{passwordRef: nodePassword}))
-	dagAgent.RunSuccess(t)
+`, newCountingSecretResolver(map[string]string{passwordRef: nodePassword, keyRef: string(key)}))
+			dagAgent.RunSuccess(t)
 
-	require.Len(t, server.Commands(), 1)
+			require.Len(t, server.Commands(), 1)
+		})
+	}
 }
 
 // A bound run fails before any step starts, and sends no credential, when

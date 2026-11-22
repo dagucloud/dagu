@@ -53,8 +53,8 @@ func nodeConnectionFor(ctx context.Context, with map[string]any) *nodeConnection
 }
 
 // clientWith returns a client for the node with the fields set under with in
-// place of the node's. A key also replaces the node's passphrase, which
-// belongs to the key it unlocks.
+// place of the node's. A key or a password replaces all of the node's
+// credentials.
 func (n *nodeConnection) clientWith(ctx context.Context, with map[string]any) (*Client, error) {
 	var def sshMapConfig
 	md, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{Result: &def, WeaklyTypedInput: true})
@@ -109,18 +109,13 @@ func (n *nodeConnection) clientWith(ctx context.Context, with map[string]any) (*
 	return NewClient(ctx, &cfg)
 }
 
-// overrideAuth applies the credentials set in override to base. A credential
-// set in override replaces the base one whatever its form.
+// overrideAuth applies the credentials set in override to base. A key or a
+// password in override replaces all of base's credentials, so the connection
+// signs in with it. A passphrase alone unlocks base's key.
 func overrideAuth(base, override ir.SSHAuth) ir.SSHAuth {
-	merged := base
-	if override.HasKey() || override.HasPassphrase() {
-		merged.Passphrase, merged.PassphraseSecret = override.Passphrase, override.PassphraseSecret
+	if override.HasKey() || override.HasPassword() {
+		return override
 	}
-	if override.HasKey() {
-		merged.Key, merged.KeySecret = override.Key, override.KeySecret
-	}
-	if override.HasPassword() {
-		merged.Password, merged.PasswordSecret = override.Password, override.PasswordSecret
-	}
-	return merged
+	base.Passphrase, base.PassphraseSecret = override.Passphrase, override.PassphraseSecret
+	return base
 }
