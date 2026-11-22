@@ -4,7 +4,15 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { SWRConfig } from 'swr';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from 'vitest';
 import {
   AVAILABILITY_POLL_MS,
   EVENTS_POLL_MS,
@@ -111,6 +119,29 @@ describe('useSamples', () => {
     expect(h.GET).toHaveBeenCalledTimes(1);
     await tick(LONG_WINDOW_POLL_MS - SHORT_WINDOW_POLL_MS);
     await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(2));
+  });
+
+  // A polled window that fails retries at each period while the tab shows,
+  // and waits for the tab to show again while it is hidden.
+  it('retries a failed poll only while the tab shows', async () => {
+    const visibility = vi.spyOn(document, 'visibilityState', 'get');
+    onTestFinished(() => visibility.mockRestore());
+    visibility.mockReturnValue('visible');
+    h.GET.mockResolvedValue({ error: { message: 'unavailable' } });
+    renderSamples({ preset: '1h' }, true);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(1));
+    await tick(SHORT_WINDOW_POLL_MS);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(2));
+
+    visibility.mockReturnValue('hidden');
+    await tick(SHORT_WINDOW_POLL_MS * 5);
+    expect(h.GET).toHaveBeenCalledTimes(2);
+
+    visibility.mockReturnValue('visible');
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(3));
   });
 
   it('asks for the times of a fixed window and does not poll it', async () => {

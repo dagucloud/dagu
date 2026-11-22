@@ -158,7 +158,8 @@ export function useSamples(
         ? {
             // SWR does not poll a key that holds an error, and the app does
             // not retry a timeout. A polled window retries at each period,
-            // whatever the error, except an expired session.
+            // whatever the error, except an expired session. A hidden tab
+            // retries once it shows again.
             shouldRetryOnError: (error: unknown) =>
               isAbortLikeError(error) || shouldRetryQueryError(error),
             onErrorRetry: (
@@ -168,10 +169,16 @@ export function useSamples(
               revalidate: (opts: { retryCount: number }) => unknown,
               { retryCount }: { retryCount: number }
             ) => {
-              setTimeout(
-                () => revalidate({ retryCount: retryCount + 1 }),
-                pollMs
-              );
+              const retry = () => revalidate({ retryCount: retryCount + 1 });
+              setTimeout(() => {
+                if (document.visibilityState !== 'hidden') {
+                  retry();
+                  return;
+                }
+                document.addEventListener('visibilitychange', retry, {
+                  once: true,
+                });
+              }, pollMs);
             },
           }
         : {}),
