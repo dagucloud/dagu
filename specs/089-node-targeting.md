@@ -80,6 +80,9 @@ Each enabled node gets its own child run, bound to that node:
   to each node's run of the step. `depends`, `preconditions`, `continue_on`,
   and `output` apply to the step with `nodes`.
 
+A bound child runs on the host that runs its parent, even when the default
+execution mode is distributed.
+
 Nodes start in name order, at most `max_concurrent` at a time.
 `defaults.max_concurrent` does not apply. With `keep_going: false`, no node
 starts after a node fails: the nodes running finish, and the rest do not

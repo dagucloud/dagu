@@ -129,6 +129,11 @@ func (r *Runner) ShouldRun(_ context.Context, req executor.SubWorkflowRequest) b
 	if req.DAG.ForceLocal {
 		return false
 	}
+	// A run bound to a node runs on the host that runs its parent (RFC 013
+	// §Bound runs). A coordinator task would also drop the binding.
+	if req.Node != "" {
+		return false
+	}
 	if len(req.WorkerSelector) > 0 {
 		return true
 	}
