@@ -12,7 +12,6 @@ import (
 	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/samples"
@@ -206,16 +205,6 @@ func (a *API) GetDAGRunHistoryAvailability(ctx context.Context, request api.GetD
 		}
 	}
 	return api.GetDAGRunHistoryAvailability200JSONResponse(toStepAvailability(availability)), nil
-}
-
-// runTime parses a run timestamp; the zero time stands for an empty or
-// unreadable value.
-func runTime(value string) time.Time {
-	t, err := stringutil.ParseTime(value)
-	if err != nil {
-		return time.Time{}
-	}
-	return t
 }
 
 // latestRunStatus reads the status of the latest run of a DAG, as the DAG

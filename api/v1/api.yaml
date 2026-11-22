@@ -855,6 +855,14 @@ paths:
             enum: ["asc", "desc"]
             default: "asc"
           description: "Sort order (ascending or descending)"
+        - name: "activityWindow"
+          in: "query"
+          required: false
+          schema:
+            type: "integer"
+            minimum: 60
+            maximum: 604800
+          description: "Length in seconds of a window that ends now. When set, each DAG in the list carries `activity`: its runs that started in the window, newest first, and its latest run while it is active. Without it, no DAG carries `activity`."
       responses:
         "200":
           description: "A successful response"
@@ -16604,6 +16612,8 @@ components:
           $ref: "#/components/schemas/DAG"
         latestDAGRun:
           $ref: "#/components/schemas/DAGRunSummary"
+        activity:
+          $ref: "#/components/schemas/DAGListActivity"
         nextRun:
           type: string
           format: date-time
@@ -18064,6 +18074,60 @@ components:
       type: string
       description: "Schedule slot to run for: latest (the latest fire at or before now), a date (2006-01-02) when the schedule fires once that day, a time without an offset (2006-01-02T15:04) read in the schedule's zone, or an RFC 3339 time with an offset. The run gets the schedule time and window of that slot. A slot later than now returns 400. A time that is not a fire time is accepted with a warning."
       example: "2026-11-09"
+
+    DAGListActivity:
+      type: object
+      description: "The runs of a DAG that started in the window of a list request, newest first, and its latest run while it is active. For a service DAG, the buckets of its run history instead."
+      properties:
+        runs:
+          type: array
+          description: "Runs that started in the window, at most 60"
+          items:
+            $ref: "#/components/schemas/DAGListActivityRun"
+        truncated:
+          type: boolean
+          description: "True when the DAG has more runs in the window than runs lists"
+        resolutionSeconds:
+          type: integer
+          description: "For a service DAG: width of the tier of the buckets (spec 100)"
+        buckets:
+          type: array
+          description: "For a service DAG: the buckets of its run history in the window, at most 60, in time order. A bucket with no run and no active time is not listed. runs is then empty."
+          items:
+            $ref: "#/components/schemas/SampleBucket"
+        uptime:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: "For a service DAG: the share of the window in which a run was active, from 0 to 1. Absent when the run history has no record of the window."
+      required:
+        - runs
+        - truncated
+
+    DAGListActivityRun:
+      type: object
+      description: "One run in the activity of a DAG"
+      properties:
+        dagRunId:
+          $ref: "#/components/schemas/DAGRunId"
+        status:
+          $ref: "#/components/schemas/Status"
+        startedAt:
+          type: string
+          description: "RFC 3339 timestamp when the run started"
+        finishedAt:
+          type: string
+          description: "RFC 3339 timestamp when the run finished. Absent for a run that has not finished."
+        cachedMs:
+          type: integer
+          format: int64
+          description: "Sum in milliseconds of the times that the steps reused from other runs took in those runs. Absent for a run that reused no timed step."
+      required:
+        - dagRunId
+        - status
+        - startedAt
+
     DAGRunSummary:
       type: object
       description: "Current status of a DAG-run"

@@ -600,5 +600,5 @@ succeeds, and a service DAG whose runs fail when a file exists.
 
 `conformance/spec100_service_run_history/` checks the samples, the events and the retention.
 It also checks the gap after a stop of the scheduler, and the three queries and their
-errors. It checks `upMs` in the buckets, and the live part of the run in progress. It checks a window of three years. Each
+errors. It checks `upMs` in the buckets, and the live part of the run in progress. It checks a window of three years and the activity of a service DAG in the DAG list. Each
 test starts a scheduler and a server with static fixtures.

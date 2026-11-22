@@ -80,6 +80,59 @@ func TestQueryParamsAreValidated(t *testing.T) {
 	}
 }
 
+// The DAG list gives the activity of a service DAG as buckets, at most 60, and
+// no run. A DAG that is not a service DAG keeps its runs.
+func TestActivityInDAGList(t *testing.T) {
+	t.Parallel()
+	p := newProject(t, "mixed")
+	p.startServer()
+	p.dagu.RunWithEnv(p.env(), "start", "--run-id=plain-1", "mixed/plain.yaml").ExpectExitCode(0)
+	p.startScheduler()
+
+	list := func() map[string]api.DAGFile {
+		resp := getJSON[api.ListDAGs200JSONResponse](p, http.StatusOK, "/dags", url.Values{"activityWindow": {"86400"}})
+		byName := map[string]api.DAGFile{}
+		for _, d := range resp.Dags {
+			byName[d.FileName] = d
+		}
+		return byName
+	}
+	var service api.DAGFile
+	require.Eventually(t, func() bool {
+		service = list()["service_ok"]
+		if service.Activity == nil || service.Activity.Buckets == nil {
+			return false
+		}
+		var n int64
+		for _, b := range *service.Activity.Buckets {
+			n += b.Count
+		}
+		return n >= 2
+	}, wait, poll, "no buckets in the activity of the service DAG")
+
+	activity := service.Activity
+	assert.Empty(t, activity.Runs)
+	assert.False(t, activity.Truncated)
+	assert.LessOrEqual(t, len(*activity.Buckets), 60)
+	require.NotNil(t, activity.ResolutionSeconds)
+	assert.Contains(t, []int{1, 60, 3600, 86400}, *activity.ResolutionSeconds)
+	// The tier is the one of the samples query with 60 points.
+	now := time.Now().UTC()
+	series := p.samples("service_ok", url.Values{
+		"from":   {now.Add(-24 * time.Hour).Format(time.RFC3339Nano)},
+		"to":     {now.Format(time.RFC3339Nano)},
+		"points": {"60"},
+	})
+	assert.Equal(t, series.ResolutionSeconds, *activity.ResolutionSeconds)
+
+	plain := list()["plain"]
+	require.NotNil(t, plain.Activity)
+	require.Len(t, plain.Activity.Runs, 1)
+	assert.Equal(t, "plain-1", plain.Activity.Runs[0].DagRunId)
+	assert.Empty(t, plain.Activity.Buckets)
+	assert.Nil(t, plain.Activity.ResolutionSeconds)
+}
+
 // A window of three years answers with at most `points` buckets, from the day
 // tier.
 func TestThreeYearWindow(t *testing.T) {

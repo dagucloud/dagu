@@ -279,6 +279,57 @@ func TestRunHistorySamplesAndAvailabilityMapping(t *testing.T) {
 	assert.InDelta(t, 0.9, *avail.Windows[0].Availability, 1e-9)
 }
 
+// A service DAG gets the buckets of its run history, whatever its latest run
+// is. A DAG that is not a service DAG still lists its runs.
+func TestServiceDAGActivity(t *testing.T) {
+	t0 := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
+	fake := &fakeSamplesReader{series: samples.Series{
+		Tier: samples.TierMinute,
+		Buckets: []samples.Bucket{
+			{Time: t0, Count: 20, Failures: 2, Min: time.Second, Max: 2 * time.Second, P50: time.Second, P95: 2 * time.Second},
+			{Time: t0.Add(time.Minute), Count: 18},
+		},
+	}}
+	a := newRunHistoryAPI(t, fake)
+	ctx := t.Context()
+	since := time.Now().Add(-time.Hour)
+	service := &ir.DAG{Name: "svc", RestartPolicy: ir.RestartPolicyAlways}
+
+	for name, latest := range map[string]ir.DAGRunStatus{
+		"no run":     {},
+		"queued run": {DAGRunID: "q", Status: ir.Queued},
+		"done run":   {DAGRunID: "d", Status: ir.Succeeded, StartedAt: "2026-03-01T12:00:00Z"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			activity, err := a.dagActivity(ctx, service, latest, since)
+			require.NoError(t, err)
+			assert.Empty(t, activity.Runs)
+			assert.False(t, activity.Truncated)
+			require.NotNil(t, activity.Buckets)
+			assert.Len(t, *activity.Buckets, 2)
+			require.NotNil(t, activity.ResolutionSeconds)
+			assert.Equal(t, 60, *activity.ResolutionSeconds)
+			assert.Equal(t, int64(2), (*activity.Buckets)[0].Failures)
+		})
+	}
+	assert.Equal(t, 60, fake.sampleQuery.MaxPoints)
+	assert.True(t, fake.sampleQuery.From.Equal(since.UTC()))
+
+	// A service DAG with no history has no bucket but still has the field.
+	fake.series = samples.Series{}
+	activity, err := a.dagActivity(ctx, service, ir.DAGRunStatus{}, since)
+	require.NoError(t, err)
+	require.NotNil(t, activity.Buckets)
+	assert.Empty(t, *activity.Buckets)
+
+	// A DAG that is not a service DAG has runs and no buckets.
+	activity, err = a.dagActivity(ctx, &ir.DAG{Name: "plain"}, ir.DAGRunStatus{}, since)
+	require.NoError(t, err)
+	assert.Empty(t, activity.Runs)
+	assert.Nil(t, activity.Buckets)
+	assert.Nil(t, activity.ResolutionSeconds)
+}
+
 // The availability gives the uptime of a window next to the success rate, and
 // leaves it out when the run history has no record of the window.
 func TestRunHistoryAvailabilityUptime(t *testing.T) {
@@ -352,6 +403,34 @@ func TestActiveRunStart(t *testing.T) {
 	assert.True(t, activeRunStart(ir.DAGRunStatus{Status: ir.Running}).IsZero())
 }
 
+// The activity of a service DAG gives the uptime of its window, with the run
+// in progress, and leaves it out when the history has no record.
+func TestServiceDAGActivityUptime(t *testing.T) {
+	now := time.Now().UTC()
+	since := now.Add(-time.Hour)
+	fake := &fakeSamplesReader{newestEnd: now.Add(-30 * time.Minute), uptime: samples.Uptime{
+		Start: since, To: now, Up: 15 * time.Minute, Since: since.Add(-time.Hour),
+	}}
+	a := newRunHistoryAPI(t, fake)
+	service := &ir.DAG{Name: "svc", RestartPolicy: ir.RestartPolicyAlways}
+
+	activity, err := a.dagActivity(t.Context(), service, ir.DAGRunStatus{}, since)
+	require.NoError(t, err)
+	require.NotNil(t, activity.Uptime)
+	assert.InDelta(t, 0.25, *activity.Uptime, 0.01)
+
+	running := ir.DAGRunStatus{DAGRunID: "r", Status: ir.Running, StartedAt: now.Add(-20 * time.Minute).Format(time.RFC3339)}
+	activity, err = a.dagActivity(t.Context(), service, running, since)
+	require.NoError(t, err)
+	require.NotNil(t, activity.Uptime)
+	assert.InDelta(t, 0.25+20.0/60, *activity.Uptime, 0.02)
+
+	fake.uptime = samples.Uptime{}
+	activity, err = a.dagActivity(t.Context(), service, ir.DAGRunStatus{}, since)
+	require.NoError(t, err)
+	assert.Nil(t, activity.Uptime)
+}
+
 // The samples of the run history give the uptime of their window.
 func TestRunHistorySamplesUptime(t *testing.T) {
 	now := time.Now().UTC()
@@ -369,6 +448,41 @@ func TestRunHistorySamplesUptime(t *testing.T) {
 	resp, err = a.GetDAGRunHistorySamples(t.Context(), openapiv1.GetDAGRunHistorySamplesRequestObject{FileName: "svc"})
 	require.NoError(t, err)
 	assert.Nil(t, resp.(openapiv1.GetDAGRunHistorySamples200JSONResponse).Uptime)
+}
+
+// A bucket gives its up time as upMs, also with no run. The run in progress
+// adds its time to the buckets that it covers, from the end of the newest run.
+func TestServiceDAGActivityBucketUp(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Minute)
+	since := now.Add(-time.Hour)
+	fake := &fakeSamplesReader{
+		series: samples.Series{
+			Tier: samples.TierMinute, From: since, To: now,
+			Buckets: []samples.Bucket{
+				{Time: now.Add(-45 * time.Minute), Count: 1, Up: time.Minute},
+				{Time: now.Add(-44 * time.Minute), Up: time.Minute},
+			},
+		},
+		uptime:    samples.Uptime{Start: since, To: now, Up: 2 * time.Minute, Since: since},
+		newestEnd: now.Add(-43 * time.Minute),
+	}
+	a := newRunHistoryAPI(t, fake)
+	service := &ir.DAG{Name: "svc", RestartPolicy: ir.RestartPolicyAlways}
+
+	activity, err := a.dagActivity(t.Context(), service, ir.DAGRunStatus{}, since)
+	require.NoError(t, err)
+	require.Len(t, *activity.Buckets, 2)
+	assert.Equal(t, int64(60_000), *(*activity.Buckets)[1].UpMs)
+	assert.Zero(t, (*activity.Buckets)[1].Count)
+
+	running := ir.DAGRunStatus{DAGRunID: "r", Status: ir.Running, StartedAt: now.Add(-10 * time.Minute).Format(time.RFC3339)}
+	activity, err = a.dagActivity(t.Context(), service, running, since)
+	require.NoError(t, err)
+	require.Len(t, *activity.Buckets, 12)
+	last := (*activity.Buckets)[11]
+	assert.Equal(t, now.Add(-time.Minute), last.Time)
+	assert.Zero(t, last.Count)
+	assert.Equal(t, int64(60_000), *last.UpMs)
 }
 
 // The run in progress gives its up time to the buckets from the end of the
