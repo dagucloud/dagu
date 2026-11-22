@@ -29,8 +29,9 @@ type caseOptions struct {
 	tempDir string
 	// keep leaves the case directory in place when the case is closed.
 	keep bool
-	// secrets holds the test value of each DAG secret by name. Every secret
-	// the DAG declares needs one, and no secret provider is called.
+	// secrets holds the test value of each DAG secret by name, and of each
+	// SSH credential secret ref by ref. Every secret the DAG declares needs
+	// one, and no secret provider or store is called.
 	secrets map[string]string
 	// trigger is the run's context.trigger.type. The zero value is manual.
 	trigger ir.TriggerType

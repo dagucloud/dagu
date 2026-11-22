@@ -421,9 +421,10 @@ type Options struct {
 	// When nil, SecretStore supplies the local resolver.
 	SecretReferenceResolver providers.ReferenceResolver
 	// SecretValues, when non-nil, holds the value of each DAG secrets entry
-	// by name, and no secret provider is called. A secret without a value
-	// fails the run before any step starts. Values are masked as resolved
-	// secrets are.
+	// by name and of each SSH credential secret ref by ref, and no secret
+	// provider, store, or resolver is called. A secret without a value fails
+	// the run before any step starts. Values are masked as resolved secrets
+	// are.
 	SecretValues map[string]string
 	// RedirectRoot moves step redirect files under a directory. The zero
 	// value writes them at their configured paths.
@@ -578,6 +579,9 @@ func New(
 }
 
 func secretReferenceResolverForDAG(dag *ir.DAG, opts Options) providers.ReferenceResolver {
+	if opts.SecretValues != nil {
+		return secretValuesResolver(opts.SecretValues)
+	}
 	if opts.SecretReferenceResolver != nil {
 		return opts.SecretReferenceResolver
 	}
@@ -585,6 +589,22 @@ func secretReferenceResolverForDAG(dag *ir.DAG, opts Options) providers.Referenc
 		return nil
 	}
 	return secretpkg.NewReferenceResolver(opts.SecretStore, workspaceNameFromDAG(dag))
+}
+
+// secretValuesResolver resolves each secret ref to the value given for it.
+type secretValuesResolver map[string]string
+
+func (v secretValuesResolver) ResolveReference(_ context.Context, ref secretref.Ref) (string, error) {
+	value, ok := v[ref.Ref]
+	if !ok {
+		return "", errors.New("no value given")
+	}
+	return value, nil
+}
+
+func (v secretValuesResolver) CheckReferenceAccessibility(ctx context.Context, ref secretref.Ref) error {
+	_, err := v.ResolveReference(ctx, ref)
+	return err
 }
 
 func workspaceNameFromDAG(dag *ir.DAG) string {
