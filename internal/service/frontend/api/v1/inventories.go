@@ -209,7 +209,7 @@ func (a *API) ImportInventories(ctx context.Context, request api.ImportInventori
 		return importRefused(fmt.Sprintf("The import breaks %d %s, and nothing was stored", len(ruleErrs), rules), ruleErrs), nil
 	case errors.Is(err, inventory.ErrStale):
 		return api.ImportInventories409JSONResponse{
-			Code:    api.ErrorCodeBadRequest,
+			Code:    api.ErrorCodeConflict,
 			Message: "An inventory changed during the import; run it again",
 		}, nil
 	case err != nil:
