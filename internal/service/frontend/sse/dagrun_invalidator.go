@@ -252,8 +252,8 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event, service
 	}
 
 	// The current set of service DAGs wins over the flag of the event, which
-	// the DAG of the run had when it started. A sub-DAG run is not a service
-	// run.
+	// the DAG of the run had when it started. The flag of a sub-DAG run tells
+	// about the sub-DAG, not the DAG of its root run, so it is not read.
 	service := serviceDAGRun
 	if serviceDAGs == nil && (root.DAGRunID == "" || root.DAGRunID == snapshot.DAGRunID) {
 		service = eventstore.IsServiceDAGEvent(event)
