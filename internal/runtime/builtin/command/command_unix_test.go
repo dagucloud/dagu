@@ -96,10 +96,12 @@ func runCommandParentDeathHelper(t *testing.T) {
 	pidFile := filepath.Join(tmpDir, "script.pid")
 	readyFile := filepath.Join(tmpDir, "helper.ready")
 
+	// The redirect creates the file before echo writes the PID, so the script
+	// renames a finished file into place for the existence check below.
 	step := ir.Step{
 		Name: "parent-death",
 		Dir:  tmpDir,
-		Script: "echo $$ > " + pidFile + "\n" +
+		Script: "echo $$ > " + pidFile + ".tmp && mv " + pidFile + ".tmp " + pidFile + "\n" +
 			"while true; do sleep 1; done\n",
 	}
 
