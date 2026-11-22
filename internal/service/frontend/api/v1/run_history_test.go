@@ -117,18 +117,37 @@ func TestRunHistoryNotFound(t *testing.T) {
 }
 
 // A DAG that is no longer a service DAG keeps its history and the API gives it.
+// The scheduler no longer records its runs, so its run in progress adds no up
+// time.
 func TestRunHistoryOfFormerServiceDAG(t *testing.T) {
-	fake := &fakeSamplesReader{}
+	now := time.Now().UTC().Truncate(time.Second)
+	// The history starts 3 hours ago and has no up time in the window.
+	recorded := samples.Uptime{Start: now.Add(-24 * time.Hour), To: now, Since: now.Add(-3 * time.Hour)}
+	fake := &fakeSamplesReader{uptime: recorded, availability: samples.Availability{
+		Windows: []samples.WindowStat{{Window: samples.Window24h, Uptime: recorded}},
+	}}
 	a := newRunHistoryAPI(t, fake)
 	dir := historyDir(t, a, "plain")
 	require.NoError(t, os.MkdirAll(dir, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "raw.log"), []byte("x"), 0o600))
+	fixture := &activityFixture{t: t, repository: a.dagRunRepository, api: a}
+	a.dagRunMgr = runtimepkg.NewManager(a.dagRunRepository, nil, a.config)
+	fixture.addRun("plain", "run-1", ir.Running, now.Add(-90*time.Minute), 0)
 
 	resp, err := a.GetDAGRunHistorySamples(t.Context(), openapiv1.GetDAGRunHistorySamplesRequestObject{FileName: "plain"})
 	require.NoError(t, err)
-	_, ok := resp.(openapiv1.GetDAGRunHistorySamples200JSONResponse)
-	assert.True(t, ok, "got %T", resp)
+	got, ok := resp.(openapiv1.GetDAGRunHistorySamples200JSONResponse)
+	require.True(t, ok, "got %T", resp)
 	assert.Equal(t, dir, fake.dir)
+	require.NotNil(t, got.Uptime)
+	assert.Zero(t, *got.Uptime)
+	assert.Empty(t, got.Buckets)
+
+	av, err := a.GetDAGRunHistoryAvailability(t.Context(), openapiv1.GetDAGRunHistoryAvailabilityRequestObject{FileName: "plain"})
+	require.NoError(t, err)
+	window := av.(openapiv1.GetDAGRunHistoryAvailability200JSONResponse).Windows[0]
+	require.NotNil(t, window.Uptime)
+	assert.Zero(t, *window.Uptime)
 }
 
 func TestRunHistoryQueryRanges(t *testing.T) {
