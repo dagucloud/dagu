@@ -120,17 +120,23 @@ func (n *BoundNode) labelsText() string {
 	return strings.Join(labels, ",")
 }
 
-// CheckNodeReferences returns an error for the first label key that raw,
-// read as a value of the field, reads as ${node.labels.<key>} and node lacks.
-// A bound run fails on it before any step starts, since the text would
-// otherwise fail later and less clearly on the node.
+// CheckNodeReferences returns an error for the first ${node.<path>} in raw,
+// read as a value of the field, that node cannot give: a path the namespace
+// does not define, or a label node lacks. A bound run fails on it before any
+// step starts, since the text would otherwise reach the node unresolved.
 func (f Field) CheckNodeReferences(raw string, node *BoundNode) error {
 	for _, ref := range scanReferences(raw, f.escapesDollar()) {
-		if ref.Kind != referenceStrict || ref.Namespace != "node" {
+		if !ref.Braced || len(ref.Segments) < 2 || ref.Namespace != "node" {
 			continue
 		}
-		if _, key, _ := parseNodePath(ref.Expr); key != "" {
-			if _, ok := node.Labels[strings.ToLower(key)]; !ok {
+		_, key, ok := parseNodePath(ref.Expr)
+		switch {
+		case !ok && strings.HasPrefix(ref.Expr, "node.labels."):
+			return fmt.Errorf(`%s names no node label; quote a key with a dot, as ${node.labels."gpu.type"}`, ref.Raw)
+		case !ok:
+			return fmt.Errorf(`%s names no node field: name, host, port, user, description, or labels; escape it as \%s to keep the text`, ref.Raw, ref.Raw)
+		case key != "":
+			if _, found := node.Labels[strings.ToLower(key)]; !found {
 				return missingNodeLabel(node.Name, key)
 			}
 		}

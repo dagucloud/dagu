@@ -898,6 +898,12 @@ func TestResolverNode(t *testing.T) {
 	}
 	assert.EqualError(t, field.CheckNodeReferences("restart ${node.labels.role} ${node.labels.zone}", node), `node "web01" has no label "zone"`)
 	assert.NoError(t, field.CheckNodeReferences(`${node.labels."gpu.type"} \${node.labels.zone}`, node))
+	// In a bound run every braced node path is the node's, so one the
+	// namespace does not define fails instead of reaching the node as text.
+	// Shell variables named node, as $node or ${node}, are not node paths.
+	assert.EqualError(t, field.CheckNodeReferences("restart ${node.nmae}", node), `${node.nmae} names no node field: name, host, port, user, description, or labels; escape it as \${node.nmae} to keep the text`)
+	assert.EqualError(t, field.CheckNodeReferences("${node.labels.gpu.type}", node), `${node.labels.gpu.type} names no node label; quote a key with a dot, as ${node.labels."gpu.type"}`)
+	assert.NoError(t, field.CheckNodeReferences("for node in a b; do echo ${node} $node.log; done", node))
 	// A backslash in a path field separates the path, so the reference is read.
 	assert.EqualError(t, value.StepArtifactOutputField("steps[0].stdout").CheckNodeReferences(`C:\logs\${node.labels.zone}.log`, node), `node "web01" has no label "zone"`)
 

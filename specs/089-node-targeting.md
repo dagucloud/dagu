@@ -189,6 +189,8 @@ A run fails before any step starts when:
 - it is bound to a node that is not in the inventories, or is disabled;
 - it reads `${node.labels.<key>}` for a label its node lacks, naming the
   node and the key;
+- it reads a `${node.<path>}` that the namespace does not define, such as
+  `${node.nmae}`, naming the reference;
 - a credential of its node is a secret ref that does not resolve, naming the
   field and the ref;
 - it runs on a worker and is bound to a node or has a step with `nodes`.

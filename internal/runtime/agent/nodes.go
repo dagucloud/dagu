@@ -126,10 +126,10 @@ func (b *nodeBinding) valueNode() *cmnvalue.BoundNode {
 	}
 }
 
-// checkNodeReferences fails a run that reads a label its node lacks, naming
-// the node and the key. It reads the fields of dag that resolve values, as
-// stored and by each field's rules, so text such as a description is not
-// checked.
+// checkNodeReferences fails a run that reads a node path the namespace does
+// not define or a label its node lacks, naming it. It reads the fields of dag
+// that resolve values, as stored and by each field's rules, so text such as a
+// description is not checked.
 func checkNodeReferences(dag *ir.DAG, node *cmnvalue.BoundNode) error {
 	for _, field := range spec.ReferenceFields(dag) {
 		if err := field.Field.CheckNodeReferences(field.Value, node); err != nil {

@@ -176,6 +176,11 @@ func TestAgent_BoundRunFailsBeforeAnyStep(t *testing.T) {
 			wantErr: `node "web01" has no label "zone"`,
 		},
 		{
+			name:    "UnknownField",
+			yaml:    "node: required\nsteps:\n  - id: restart\n    run: systemctl restart ${node.nmae}\n",
+			wantErr: `${node.nmae} names no node field`,
+		},
+		{
 			name:    "NotInInventory",
 			yaml:    "node: required\nsteps:\n  - id: restart\n    run: systemctl restart app\n",
 			node:    func(n *inventory.ResolvedNode) { n.Name = "web02" },
