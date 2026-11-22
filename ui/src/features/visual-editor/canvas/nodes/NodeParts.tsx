@@ -31,6 +31,7 @@ import { nodeStatusText, statusLabelText } from '@/lib/status-utils';
 import { cn } from '@/lib/utils';
 import type { CanvasDirection, CanvasNode, StepKey } from '../../contracts';
 import { plainIssueMessage } from '../../inspector/issues';
+import { ConditionMarks } from './ConditionMarks';
 import { InputMark } from '../../references/InputMark';
 import { reusedDurationMs } from '../../run/inputProvenance';
 import { CountBadge } from '../CountBadge';
@@ -526,6 +527,7 @@ export function NodeHeader({
               </span>
             )
           )}
+          <ConditionMarks node={node} />
           <RepeatMarker node={node} />
           <RunMeta run={node.run} />
         </div>

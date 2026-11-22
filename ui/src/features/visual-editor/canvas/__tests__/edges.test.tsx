@@ -21,7 +21,9 @@ import {
   Position,
   type EdgeProps,
   type FlowNode,
+  type FlowProps,
 } from '../engine';
+import { LONG_PRESS_MS } from '../engine/Flow';
 import { DependencyEdge } from '../edges/DependencyEdge';
 import { edgeTypes } from '../edges';
 import { LockedEdge } from '../edges/LockedEdge';
@@ -76,13 +78,17 @@ function makeAffordances(): CanvasAffordances {
 function renderEdge(
   ui: ReactElement,
   actions: CanvasActions = makeActions(),
-  affordances: CanvasAffordances | null = null
+  affordances: CanvasAffordances | null = null,
+  menus: Pick<
+    FlowProps<FlowNode, CanvasFlowEdge>,
+    'onEdgeContextMenu' | 'onPaneContextMenu'
+  > = {}
 ) {
   return render(
     <FlowProvider>
       <CanvasActionsContext.Provider value={actions}>
         <CanvasAffordancesContext.Provider value={affordances}>
-          <Flow nodes={[]} edges={[]} nodeTypes={{}} edgeTypes={{}}>
+          <Flow nodes={[]} edges={[]} nodeTypes={{}} edgeTypes={{}} {...menus}>
             <svg>{ui}</svg>
           </Flow>
         </CanvasAffordancesContext.Provider>
@@ -289,11 +295,112 @@ describe('DependencyEdge', () => {
     expect(place(180)).toMatch(/^translate\(0(px)?, -50%\)/);
   });
 
+  it('draws a conditional link dashed, with the label of its condition', () => {
+    const { getByTestId, container } = renderEdge(
+      <DependencyEdge
+        {...edgeProps({
+          condition: {
+            when: 'failed',
+            step: 'verify_1',
+            negate: true,
+            text: '${verify_1.exit_code} != 0',
+          },
+        })}
+      />
+    );
+    const label = getByTestId('ve-canvas-edge-label');
+    expect(label).toHaveTextContent('if verify_1 failed');
+    expect(label).toHaveAttribute('data-conditional');
+    expect(label.getAttribute('title')).toContain('${verify_1.exit_code} != 0');
+    expect(edgePath(container).style.strokeDasharray).not.toBe('');
+  });
+
+  it('centres the label of a condition on its edge top to bottom, clear of the columns beside the step', () => {
+    const { getByTestId } = renderEdge(
+      <DependencyEdge
+        {...edgeProps(
+          {
+            condition: { when: 'failed', step: 'verify_1', text: 'x' },
+          },
+          {},
+          {
+            sourceX: 100,
+            sourceY: 0,
+            targetX: 20,
+            targetY: 96,
+            sourcePosition: Position.Bottom,
+            targetPosition: Position.Top,
+          }
+        )}
+      />,
+      makeActions({ direction: 'TB' })
+    );
+    expect(getByTestId('ve-canvas-edge-label').style.transform).toMatch(
+      /^translate\(-50%, -100%\)/
+    );
+  });
+
+  it('draws a plain link solid and without a label', () => {
+    const { queryByTestId, container } = renderEdge(
+      <DependencyEdge {...edgeProps({})} />
+    );
+    expect(queryByTestId('ve-canvas-edge-label')).toBeNull();
+    expect(edgePath(container).style.strokeDasharray).toBe('');
+  });
+
+  // The label of a condition takes the pointer: a long press on it opens the
+  // menu of its link, as a long press on the line does.
+  it('opens the link menu on a long press on a condition label', () => {
+    const menus = { onEdgeContextMenu: vi.fn(), onPaneContextMenu: vi.fn() };
+    const { getByTestId } = renderEdge(
+      <DependencyEdge
+        {...edgeProps({
+          condition: { when: 'failed', step: 'verify_1', text: 'x' },
+        })}
+      />,
+      makeActions(),
+      null,
+      menus
+    );
+    const press = new MouseEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 5,
+      clientY: 6,
+      button: 0,
+    });
+    Object.defineProperty(press, 'pointerType', { value: 'touch' });
+    act(() => {
+      getByTestId('ve-canvas-edge-label').dispatchEvent(press);
+    });
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS));
+    expect(menus.onEdgeContextMenu).toHaveBeenCalledWith('e1', {
+      clientX: 5,
+      clientY: 6,
+    });
+    expect(menus.onPaneContextMenu).not.toHaveBeenCalled();
+  });
+
   it('shows the pattern of a route edge', () => {
     const { getByTestId } = renderEdge(
       <DependencyEdge {...edgeProps({ kind: 'route', label: 'fail*' })} />
     );
     expect(getByTestId('ve-canvas-edge-label')).toHaveTextContent('fail*');
+  });
+
+  // The pattern is what a reader needs from a route: only its own maximum
+  // width cuts it, never the gap between the cards.
+  it('does not cut a route pattern at the gap between the cards in LR', () => {
+    const { getByTestId } = renderEdge(
+      <DependencyEdge
+        {...edgeProps(
+          { kind: 'route', label: 're:^(error|failed|timeout)$' },
+          {},
+          { sourceX: 100, targetX: 196 }
+        )}
+      />
+    );
+    expect(getByTestId('ve-canvas-edge-label').style.maxWidth).toBe('');
   });
 
   // In a left-to-right layout a long pattern at the middle of a short edge
@@ -321,6 +428,60 @@ describe('DependencyEdge', () => {
     expect(place(260) - half).toBeGreaterThanOrEqual(100);
     // And ends to the left of the target.
     expect(place(260) + half).toBeLessThanOrEqual(260);
+  });
+
+  // In a left-to-right layout the gap between two cards is short: the label of
+  // a condition wraps at the width of the link, and covers neither card.
+  it('keeps the label of a condition inside a short link in LR', () => {
+    const { getByTestId } = renderEdge(
+      <DependencyEdge
+        {...edgeProps(
+          {
+            condition: {
+              when: 'match',
+              step: 'code',
+              value: 'outputs.verdict = done',
+              text: '${code.outputs.verdict} = done',
+            },
+          },
+          {},
+          { sourceX: 100, targetX: 196 }
+        )}
+      />
+    );
+    const label = getByTestId('ve-canvas-edge-label');
+    const width = Number.parseFloat(label.style.maxWidth);
+    expect(width).toBeLessThanOrEqual(96 - 12);
+    const match = /translate\((-?[\d.]+)px/.exec(
+      label.style.transform.replace('translate(-50%, -100%) ', '')
+    );
+    const centre = Number(match?.[1]);
+    expect(centre - width / 2).toBeGreaterThanOrEqual(100);
+    expect(centre + width / 2).toBeLessThanOrEqual(196);
+    // The text stays whole, for the reader and for the tooltip.
+    expect(label).toHaveTextContent('if code: outputs.verdict = done');
+    expect(label.getAttribute('title')).toContain('if code: outputs.verdict');
+  });
+
+  it('does not limit the width of a label top to bottom', () => {
+    const { getByTestId } = renderEdge(
+      <DependencyEdge
+        {...edgeProps(
+          { condition: { when: 'failed', step: 'verify_1', text: 'x' } },
+          {},
+          {
+            sourceX: 100,
+            sourceY: 0,
+            targetX: 100,
+            targetY: 96,
+            sourcePosition: Position.Bottom,
+            targetPosition: Position.Top,
+          }
+        )}
+      />,
+      makeActions({ direction: 'TB' })
+    );
+    expect(getByTestId('ve-canvas-edge-label').style.maxWidth).toBe('');
   });
 
   it('shows no label on a depends edge', () => {
