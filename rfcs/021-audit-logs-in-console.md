@@ -284,6 +284,7 @@ Content-Encoding: gzip
 ```json
 {
   "protocol": 1,
+  "read": {"2026-11-20": 412},
   "entries": [
     {
       "id": "4f1c...",
@@ -313,6 +314,22 @@ Content-Encoding: gzip
 The answer is `{"stored": n, "duplicates": n, "rejected": [...]}`. Console
 refuses an entry it cannot store on its own, lists its ID in `rejected`, and
 records a `rejected` gap; the shipper logs the IDs and moves on.
+
+`read` gives, for each day the batch's entries belong to, how many entries
+the shipper has put into batches for that day so far, this batch included.
+The shipper keeps the counts with its offsets, and a resend repeats them.
+Console compares them with what it holds, to find entries lost between the
+shipper and its tables.
+
+The report (RFC 002) gains an `audit` object, so Console can show what waits
+on the server:
+
+```json
+"audit": {"level": "changes", "unsent_bytes": 18234,
+          "oldest_unsent_at": "2026-11-20T09:14:03Z"}
+```
+
+At `off`, it carries the level alone.
 
 | Status | Meaning | Server |
 | --- | --- | --- |
@@ -409,6 +426,8 @@ so none is skipped. A PostgreSQL event store needs the same cursor.
 - **The cleanup entry changes.** It is written before the deletion, and its
   `details` gains each file's size.
 - **Config.** `cloud.audit` is new and defaults to `off`.
+- **Report.** The `audit` object is a new field in the report. Console
+  ignores it from older servers, and older Consoles ignore it.
 - **Downgrade.** An older binary reads the new entries and ignores the extra
   fields. It sends nothing and ignores `audit-state.json`. Entries it writes
   lack `"masked": true` and are never sent after an upgrade.
@@ -482,9 +501,16 @@ Upload format:
 21. A single entry that gets `413` becomes a `rejected` gap, and shipping
     continues.
 
+Completeness:
+
+22. Each batch's `read` counts equal the entries the shipper has put into
+    batches for each of its days, and a resent batch repeats them.
+23. The report carries the level, the unsent bytes, and the oldest unsent
+    entry's time while entries wait, and the level alone at `off`.
+
 PostgreSQL:
 
-22. Transaction A writes an entry, then B writes and commits one, then A
+24. Transaction A writes an entry, then B writes and commits one, then A
     commits. The shipper sends both.
 
 ## Alternatives considered
