@@ -655,8 +655,10 @@ func TestSeriesUp(t *testing.T) {
 	require.Len(t, series.Buckets, 4, "the series is not changed")
 
 	// A run in progress that started before the end of the newest recorded run
-	// adds nothing before that end: it is not counted twice.
-	live = series.WithActive(t0.Add(time.Hour), last, now)
+	// adds nothing before that end: it is not counted twice. It starts at 0:15,
+	// in an hour that the recorded run fills only in part, so the hour of 0:00
+	// keeps its 30 minutes.
+	live = series.WithActive(t0.Add(15*time.Minute), last, now)
 	ups = ups[:0]
 	for _, b := range live.Buckets {
 		ups = append(ups, b.Up)
