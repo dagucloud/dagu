@@ -85,7 +85,8 @@ func TestReporter(t *testing.T) {
 }
 
 // A reporter that only records sends no mail. It records each notification
-// it would have sent, naming the failed step of a mail_on_error one.
+// it would have sent with its recipients, naming the failed step of a
+// mail_on_error one.
 func TestReporterRecordOnly(t *testing.T) {
 	ctx := context.Background()
 	mail := &ir.MailConfig{From: "from@mailer.com", To: []string{"to@mailer.com"}}
@@ -101,10 +102,10 @@ func TestReporterRecordOnly(t *testing.T) {
 
 	require.Zero(t, mock.count)
 	require.Equal(t, []Notification{
-		{Event: NotificationFailure, Step: "load"},
-		{Event: NotificationWait},
-		{Event: NotificationFailure},
-		{Event: NotificationSuccess},
+		{Kind: NotificationMailOnError, Step: "load", To: mail.To},
+		{Kind: NotificationMailOnWait, To: mail.To},
+		{Kind: NotificationMailOnFailure, To: mail.To},
+		{Kind: NotificationMailOnSuccess, To: mail.To},
 	}, rp.notifications())
 }
 

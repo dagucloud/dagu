@@ -88,8 +88,8 @@ steps:
 	require.Zero(t, collector.count.Load(), "span exported")
 	require.Zero(t, daemon.count.Load(), "container daemon reached")
 	require.Equal(t, []agent.Notification{
-		{Event: agent.NotificationFailure, Step: "check"},
-		{Event: agent.NotificationFailure},
+		{Kind: agent.NotificationMailOnError, Step: "check", To: []string{"ops@example.com"}},
+		{Kind: agent.NotificationMailOnFailure, To: []string{"ops@example.com"}},
 	}, dagAgent.Notifications())
 }
 

@@ -36,27 +36,31 @@ type Sender interface {
 // SenderFn is a function type for sending reports.
 type SenderFn func(ctx context.Context, from string, to []string, subject, body string, attachments []string) error
 
-// NotificationEvent names the run event a mail notification reports.
-type NotificationEvent string
+// NotificationKind names the DAG field that asks for a mail notification,
+// as the workflow test report writes it (Spec 101).
+type NotificationKind string
 
 const (
-	// NotificationFailure reports a failed run (mail_on.failure) or a failed
-	// step with mail_on_error.
-	NotificationFailure NotificationEvent = "failure"
-	// NotificationSuccess reports a succeeded run (mail_on.success).
-	NotificationSuccess NotificationEvent = "success"
-	// NotificationWait reports a run waiting for a person (mail_on.wait).
-	NotificationWait NotificationEvent = "wait"
+	// NotificationMailOnFailure reports a failed run.
+	NotificationMailOnFailure NotificationKind = "mail_on.failure"
+	// NotificationMailOnSuccess reports a succeeded run.
+	NotificationMailOnSuccess NotificationKind = "mail_on.success"
+	// NotificationMailOnWait reports a run waiting for a person.
+	NotificationMailOnWait NotificationKind = "mail_on.wait"
+	// NotificationMailOnError reports a failed step with mail_on_error.
+	NotificationMailOnError NotificationKind = "mail_on_error"
 )
 
 // Notification is a mail notification that a run with TestSideEffects would
 // have sent.
 type Notification struct {
-	// Event is the run event the notification reports.
-	Event NotificationEvent
+	// Kind is the DAG field that asks for the notification.
+	Kind NotificationKind
 	// Step names the failed step of a mail_on_error notification. It is empty
-	// for a run-level mail_on notification.
+	// for any other kind.
 	Step string
+	// To lists the recipients of the mail.
+	To []string
 }
 
 // reporter is responsible for reporting the status of the runner
@@ -107,7 +111,7 @@ func (r *reporter) reportStep(
 		return nil
 	}
 	if node.State().Status == ir.NodeFailed && node.NodeData().Step.MailOnError {
-		notification := Notification{Event: NotificationFailure, Step: node.Name()}
+		notification := Notification{Kind: NotificationMailOnError, Step: node.Name()}
 		return r.notify(ctx, notification, r.errorMail, dag.Name, dagStatus)
 	}
 	return nil
@@ -118,16 +122,17 @@ func (r *reporter) send(ctx context.Context, dag *ir.DAG, dagStatus ir.DAGRunSta
 	if r == nil {
 		return nil
 	}
-	mailConfig, event := r.selectMailConfig(dag, dagStatus, err)
+	mailConfig, kind := r.selectMailConfig(dag, dagStatus, err)
 	if mailConfig == nil {
 		return nil
 	}
-	return r.notify(ctx, Notification{Event: event}, mailConfig, dag.Name, dagStatus)
+	return r.notify(ctx, Notification{Kind: kind}, mailConfig, dag.Name, dagStatus)
 }
 
 // selectMailConfig returns the appropriate mail config based on status and
-// the event it reports, or a nil config if no mail should be sent.
-func (r *reporter) selectMailConfig(dag *ir.DAG, dagStatus ir.DAGRunStatus, err error) (*ir.MailConfig, NotificationEvent) {
+// the kind of notification it sends, or a nil config if no mail should be
+// sent.
+func (r *reporter) selectMailConfig(dag *ir.DAG, dagStatus ir.DAGRunStatus, err error) (*ir.MailConfig, NotificationKind) {
 	if dag.MailOn == nil {
 		return nil, ""
 	}
@@ -139,22 +144,23 @@ func (r *reporter) selectMailConfig(dag *ir.DAG, dagStatus ir.DAGRunStatus, err 
 
 	switch {
 	case (err != nil || dagStatus.Status == ir.Failed) && dag.MailOn.Failure:
-		return r.errorMail, NotificationFailure
+		return r.errorMail, NotificationMailOnFailure
 	case (dagStatus.Status == ir.Succeeded || dagStatus.Status == ir.PartiallySucceeded) && dag.MailOn.Success:
-		return r.infoMail, NotificationSuccess
+		return r.infoMail, NotificationMailOnSuccess
 	case dagStatus.Status == ir.Waiting && dag.MailOn.Wait:
-		return r.waitMail, NotificationWait
+		return r.waitMail, NotificationMailOnWait
 	default:
 		return nil, ""
 	}
 }
 
-// notify sends the notification's mail, or records the notification instead
-// when the reporter only records.
+// notify sends the notification's mail, or records the notification and its
+// recipients instead when the reporter only records.
 func (r *reporter) notify(
 	ctx context.Context, notification Notification, mailConfig *ir.MailConfig, dagName string, dagStatus ir.DAGRunStatus,
 ) error {
 	if r.recordOnly {
+		notification.To = slices.Clone(mailConfig.To)
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		r.recorded = append(r.recorded, notification)
