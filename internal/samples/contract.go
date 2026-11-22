@@ -16,6 +16,11 @@ var ErrNotImplemented = errors.New("samples: not implemented")
 // ErrInvalidCursor reports an events cursor that the store did not make.
 var ErrInvalidCursor = errors.New("samples: invalid cursor")
 
+// ErrSampleKept wraps an error of Recorder.Record after the recorder kept the
+// sample: a write that follows the sample, such as the uptime or a compaction
+// of the events, failed. A retry of the same sample records it twice.
+var ErrSampleKept = errors.New("samples: sample kept")
+
 // Sample is the record of one execution of a continuous step, or of one run
 // of a service DAG (specs/100-service-run-history.md).
 type Sample struct {
@@ -235,7 +240,8 @@ func NewestEnd(dir string) (time.Time, bool, error) {
 type Recorder interface {
 	// Record adds a sample. It holds at most one minute of samples in memory
 	// and writes the raw tier, the events and the roll-ups at the boundaries
-	// of the buckets.
+	// of the buckets. An error that wraps ErrSampleKept leaves the sample
+	// recorded; any other error leaves it out.
 	Record(ctx context.Context, s Sample) error
 	// Flush writes what is held in memory.
 	Flush(ctx context.Context) error

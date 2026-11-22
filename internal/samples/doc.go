@@ -141,6 +141,9 @@
 // recorded. The gap is from the end of the newest interval to the start of the
 // sample. The stored buckets hold the result, so a reader needs no tolerance.
 //
+// Record returns an error that wraps ErrSampleKept when it kept the sample but
+// a write after it failed, so that a caller does not record the sample again.
+//
 // NewestEnd gives the end of the newest sample of a store. It reads the file
 // "end" and the raw tier. When neither holds the sample, it reads the finest
 // aggregate tier that has a bucket.

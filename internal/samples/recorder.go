@@ -6,6 +6,7 @@ package samples
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -179,6 +180,8 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 	hourStart, _ := fileSpan(TierRaw, r.minute)
 	r.buf = appendRaw(r.buf, ms-hourStart*1000, us, s.ExitCode, msg, &r.bufMsg)
 	r.acc.add(us, s.ExitCode != 0)
+	// The recorder keeps the sample from here: a raw line that fails to write
+	// stays in the buffer for the next write.
 	var err error
 	if r.opts.RunHistory || len(r.buf) >= rawFlushBytes {
 		err = r.writeRaw()
@@ -191,7 +194,10 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 	if r.up != nil {
 		err = errors.Join(err, r.up.add(start, end, s.ActiveGap.Milliseconds(), r.now().UnixMilli()))
 	}
-	return errors.Join(err, r.boundEvents())
+	if err = errors.Join(err, r.boundEvents()); err != nil {
+		return fmt.Errorf("%w: %w", ErrSampleKept, err)
+	}
+	return nil
 }
 
 // beginMinute opens the minute of the newest stored sample. The samples that

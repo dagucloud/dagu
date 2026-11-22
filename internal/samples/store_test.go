@@ -866,7 +866,7 @@ func TestRecordAfterFailedCompaction(t *testing.T) {
 	o := Options{Now: clk.now, RunHistory: true, MaxEventBytes: bound}
 	r := openWith(t, dir, o)
 	failed := Sample{Time: clk.t, Duration: time.Second, ExitCode: 1, Message: "x"}
-	require.Error(t, r.Record(ctx, failed))
+	require.ErrorIs(t, r.Record(ctx, failed), ErrSampleKept)
 	end, ok, err := NewestEnd(dir)
 	require.NoError(t, err)
 	require.True(t, ok)
