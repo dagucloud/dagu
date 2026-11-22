@@ -161,26 +161,27 @@ func (b *lineBuffer) String() string {
 	return b.buf.String()
 }
 
-// runHTTPUntilLogged polls url every 1ms until the step writes its first
-// stderr line, keeps polling 20ms more so a repeated line would show up, then
-// cancels the step and returns what it wrote. It waits for the line instead
-// of using a fixed deadline, because the first poll can be slow on a busy CI
-// runner with -race.
-func runHTTPUntilLogged(t *testing.T, url string) string {
+// newHTTPWait returns a wait.http executor for cfg that polls every 1ms.
+func newHTTPWait(t *testing.T, cfg map[string]any) *executorImpl {
+	t.Helper()
+
+	cfg["poll_interval"] = "1ms"
+	exec, err := newExecutor(context.Background(), ir.Step{
+		Commands:       []ir.CommandEntry{{Command: opHTTP}},
+		ExecutorConfig: ir.ExecutorConfig{Type: "wait", Config: cfg},
+	})
+	require.NoError(t, err)
+	return exec.(*executorImpl)
+}
+
+// runHTTPUntilLogged runs exec until it writes its first stderr line, keeps
+// polling 20ms more so a repeated line would show up, then cancels the step
+// and returns what it wrote. It waits for the line instead of using a fixed
+// deadline, because the first poll can be slow on a busy CI runner with -race.
+func runHTTPUntilLogged(t *testing.T, exec *executorImpl) string {
 	t.Helper()
 
 	stderr := &lineBuffer{first: make(chan struct{})}
-	exec, err := newExecutor(context.Background(), ir.Step{
-		Commands: []ir.CommandEntry{{Command: opHTTP}},
-		ExecutorConfig: ir.ExecutorConfig{
-			Type: "wait",
-			Config: map[string]any{
-				"url":           url,
-				"poll_interval": "1ms",
-			},
-		},
-	})
-	require.NoError(t, err)
 	exec.SetStderr(stderr)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -209,7 +210,7 @@ func TestHTTPRequestErrorLoggedToStderr(t *testing.T) {
 	server.StartTLS()
 	defer server.Close()
 
-	stderr := runHTTPUntilLogged(t, server.URL+"/ready?token=secret")
+	stderr := runHTTPUntilLogged(t, newHTTPWait(t, map[string]any{"url": server.URL + "/ready?token=secret"}))
 	requireOneLine(t, stderr, "wait: http GET request failed: tls: failed to verify certificate: ")
 }
 
@@ -233,8 +234,25 @@ func TestHTTPConnResetLoggedOnce(t *testing.T) {
 		}
 	}()
 
-	stderr := runHTTPUntilLogged(t, "http://"+ln.Addr().String()+"/ready?token=secret")
+	stderr := runHTTPUntilLogged(t, newHTTPWait(t, map[string]any{"url": "http://" + ln.Addr().String() + "/ready?token=secret"}))
 	requireOneLine(t, stderr, "wait: http GET request failed: read tcp "+ln.Addr().String()+": ")
+}
+
+// A request that outlives request_timeout logs the timeout on every OS.
+func TestHTTPTimeoutLoggedToStderr(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	stderr := runHTTPUntilLogged(t, newHTTPWait(t, map[string]any{
+		"url":             server.URL + "/ready?token=secret",
+		"request_timeout": "10ms",
+	}))
+	requireOneLine(t, stderr, "wait: http GET request failed: ")
+	require.Contains(t, stderr, "Client.Timeout exceeded")
 }
 
 // requireOneLine checks that stderr holds a single line starting with prefix
@@ -282,7 +300,7 @@ func TestHTTPServerTextLeftOutOfStderr(t *testing.T) {
 			server := httptest.NewServer(tt.handler)
 			defer server.Close()
 
-			stderr := runHTTPUntilLogged(t, server.URL+"/ready")
+			stderr := runHTTPUntilLogged(t, newHTTPWait(t, map[string]any{"url": server.URL + "/ready"}))
 			require.Equal(t, "wait: http GET request failed: details left out, they may quote the server's response\n", stderr)
 		})
 	}
