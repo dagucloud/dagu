@@ -116,6 +116,9 @@ func (p *project) startServer() {
 	proc := p.dagu.StartWithEnv(p.env(),
 		"server", "--host=127.0.0.1", fmt.Sprintf("--port=%d", port), "--dags="+p.dags)
 	p.base = fmt.Sprintf("http://127.0.0.1:%d/api/v1", port)
+	// A server that accepts the connection and does not answer must not hold
+	// the poll past its deadline.
+	client := &http.Client{Timeout: 5 * time.Second}
 	deadline := time.Now().Add(harness.WaitTimeout(p.t))
 	for time.Now().Before(deadline) {
 		select {
@@ -123,7 +126,9 @@ func (p *project) startServer() {
 			require.FailNowf(p.t, "the server exited at start", "%s", proc.FailureOutput())
 		default:
 		}
-		resp, err := http.Get(p.base + "/health") //nolint:gosec,noctx
+		req, err := http.NewRequestWithContext(p.t.Context(), http.MethodGet, p.base+"/health", nil)
+		require.NoError(p.t, err)
+		resp, err := client.Do(req)
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
@@ -187,8 +192,22 @@ func (p *project) runs(dag string) []api.DAGRunSummary {
 // ended returns the retained runs of a DAG that have ended.
 func (p *project) ended(dag string) []api.DAGRunSummary {
 	p.t.Helper()
+	return endedOf(p.runs(dag))
+}
+
+// betweenRuns reports whether every retained run of a DAG has ended and the
+// newest one succeeded. It reads the runs once, so a run that starts during the
+// check is not missed.
+func (p *project) betweenRuns(dag string) bool {
+	p.t.Helper()
+	runs := p.runs(dag)
+	return len(runs) > 0 && len(endedOf(runs)) == len(runs) && runs[0].Status == api.StatusSuccess
+}
+
+// endedOf returns the runs that have ended.
+func endedOf(runs []api.DAGRunSummary) []api.DAGRunSummary {
 	var ended []api.DAGRunSummary
-	for _, r := range p.runs(dag) {
+	for _, r := range runs {
 		switch r.Status { //nolint:exhaustive // the other statuses are not final
 		case api.StatusSuccess, api.StatusFailed, api.StatusAborted, api.StatusPartialSuccess, api.StatusRejected:
 			ended = append(ended, r)

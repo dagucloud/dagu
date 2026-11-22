@@ -127,8 +127,7 @@ func TestUptimeBelowOneWithGaps(t *testing.T) {
 	}, wait, poll, "fewer than 3 samples")
 	// Stop between two runs, so that the stop does not abort a run.
 	require.Eventually(t, func() bool {
-		runs := p.runs("service_ok")
-		return len(runs) > 0 && len(p.ended("service_ok")) == len(runs) && runs[0].Status == api.StatusSuccess
+		return p.betweenRuns("service_ok")
 	}, wait, 100*time.Millisecond, "no moment between two runs")
 	scheduler.Stop()
 	// restart_wait_sec is 1: the tolerance is 11 seconds.
