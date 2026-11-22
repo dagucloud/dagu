@@ -6,8 +6,8 @@ import type { JSONSchema } from '@/lib/schema-utils';
 /*
  * monaco-yaml 5.4 reads a YAML boolean as its source text. For the `const`
  * and `enum` checks, `true` is then the string "true". A rule such as
- * { "const": true } never holds, and the editor flags `read: true` with
- * "Value must be true". The schema is correct: the Go validation and the
+ * { "const": true } never holds, and the editor flags `create_branch: true`
+ * with "Value must be true". The schema is correct: the Go validation and the
  * client checks accept the value. So the editor gets a copy that its language
  * service reads correctly. The schema file does not change.
  */
