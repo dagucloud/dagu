@@ -88,9 +88,11 @@ function MonitoringValue({
 export function LicenseBadge({
   onNavigate,
   compact = false,
+  className,
 }: {
   onNavigate?: () => void;
   compact?: boolean;
+  className?: string;
 }) {
   const isAdmin = useIsAdmin();
   const remoteNode = useRemoteNode();
@@ -161,10 +163,11 @@ export function LicenseBadge({
       </p>
     </div>
   );
-  const className = cn(
+  const classes = cn(
     'rounded-sm align-middle text-xs font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
     compact ? 'inline-flex p-1' : 'inline-block min-w-0 max-w-full truncate',
-    tone
+    tone,
+    className
   );
   const content = compact ? (
     <AlertTriangle className="h-4 w-4" aria-hidden="true" />
@@ -178,7 +181,7 @@ export function LicenseBadge({
           to="/settings"
           onClick={onNavigate}
           aria-label={ts('Plan & features')}
-          className={className}
+          className={classes}
         >
           {content}
         </Link>
@@ -193,7 +196,7 @@ export function LicenseBadge({
             <button
               type="button"
               aria-label={ts('Plan & features')}
-              className={className}
+              className={classes}
             >
               {content}
             </button>

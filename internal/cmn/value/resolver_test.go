@@ -866,3 +866,73 @@ func TestResolverDates(t *testing.T) {
 		assert.Equal(t, tc.class, notices[0].Class, tc.token)
 	}
 }
+
+// A bound run reads its node's fields and labels. Outside one, a node
+// reference is kept with a runtime-only notice.
+func TestResolverNode(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	field := value.WorkflowField("steps[0].run")
+	node := &value.BoundNode{
+		Name: "web01", Host: "10.0.1.11", Port: "2222", User: "deploy", Description: "Tokyo web",
+		Labels: map[string]string{"role": "web", "gpu.type": "a100", "canary": ""},
+	}
+
+	bound := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Node: node})
+	for ref, want := range map[string]string{
+		"${node.name}":                  "web01",
+		"${node.host}":                  "10.0.1.11",
+		"${node.port}":                  "2222",
+		"${node.user}":                  "deploy",
+		"${node.description}":           "Tokyo web",
+		"${node.labels}":                "canary,gpu.type=a100,role=web",
+		"${node.labels.role}":           "web",
+		"${node.labels.canary}":         "",
+		`${node.labels."gpu.type"}`:     "a100",
+		"ssh ${node.user}@${node.host}": "ssh deploy@10.0.1.11",
+	} {
+		got, err := bound.String(ctx, ref, field)
+		require.NoError(t, err, ref)
+		assert.Equal(t, want, got, ref)
+	}
+	assert.EqualError(t, field.CheckNodeReferences("restart ${node.labels.role} ${node.labels.zone}", node), `node "web01" has no label "zone"`)
+	assert.NoError(t, field.CheckNodeReferences(`${node.labels."gpu.type"} \${node.labels.zone}`, node))
+	// In a bound run every braced node path is the node's, so one the
+	// namespace does not define fails instead of reaching the node as text.
+	// Shell variables named node, as $node or ${node}, are not node paths.
+	assert.EqualError(t, field.CheckNodeReferences("restart ${node.nmae}", node), `${node.nmae} names no node field: name, host, port, user, description, or labels; escape it as \${node.nmae} to keep the text`)
+	assert.EqualError(t, field.CheckNodeReferences("${node.labels.gpu.type}", node), `${node.labels.gpu.type} names no node label; quote a key with a dot, as ${node.labels."gpu.type"}`)
+	assert.NoError(t, field.CheckNodeReferences("for node in a b; do echo ${node} $node.log; done", node))
+	// A backslash in a path field separates the path, so the reference is read.
+	assert.EqualError(t, value.StepArtifactOutputField("steps[0].stdout").CheckNodeReferences(`C:\logs\${node.labels.zone}.log`, node), `node "web01" has no label "zone"`)
+
+	var collector value.ValueReferenceNoticeCollector
+	unbound := value.NewResolver(value.StaticScope{}, value.RuntimeScope{}, value.WithValueReferenceNotices(&collector))
+	got, err := unbound.String(ctx, "drain ${node.name}", field)
+	require.NoError(t, err)
+	assert.Equal(t, "drain ${node.name}", got)
+	notices := collector.Notices()
+	require.Len(t, notices, 1)
+	assert.Equal(t, value.NoticeClassRuntimeOnly, notices[0].Class)
+}
+
+// Outside a bound run, a variable named node keeps the reading it had before
+// the node namespace, a JSON path into its value. Inside one, the node wins.
+func TestResolverNodeVariable(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	field := value.WorkflowField("steps[1].run")
+	env := value.NewEnvScope(nil, false).WithEntry("node", `{"name":"n1"}`, value.EnvSourceOutput)
+
+	unbound := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Env: env})
+	got, err := unbound.String(ctx, "${node.name}", field)
+	require.NoError(t, err)
+	assert.Equal(t, "n1", got)
+
+	bound := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Env: env, Node: &value.BoundNode{Name: "web01"}})
+	got, err = bound.String(ctx, "${node.name}", field)
+	require.NoError(t, err)
+	assert.Equal(t, "web01", got)
+}

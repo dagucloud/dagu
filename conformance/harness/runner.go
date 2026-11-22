@@ -45,10 +45,34 @@ type Process struct {
 	t        *testing.T
 	proc     *cmdutil.ManagedProcess
 	done     chan struct{}
-	stdout   *bytes.Buffer
-	stderr   *bytes.Buffer
+	stdout   *lockedBuffer
+	stderr   *lockedBuffer
 	err      error
 	stopOnce sync.Once
+}
+
+// lockedBuffer is a buffer that a test can read while the command still writes to it.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// Output returns what the command wrote to stdout and stderr until now. It is safe to call
+// while the command runs.
+func (p *Process) Output() string {
+	return p.stdout.String() + p.stderr.String()
 }
 
 // ExitCode returns the command's process exit code.
@@ -128,8 +152,8 @@ func (r *Runner) RunWithStdin(env []string, stdin io.Reader, args ...string) *Re
 func (r *Runner) StartWithEnv(env []string, args ...string) *Process {
 	r.t.Helper()
 
-	stdout := &bytes.Buffer{}
-	stderr := &bytes.Buffer{}
+	stdout := &lockedBuffer{}
+	stderr := &lockedBuffer{}
 	// Binary-level tests intentionally execute the configured Dagu binary.
 	cmd := exec.Command(daguBinary(r.t), args...) //nolint:gosec
 	cmd.Dir = r.dir

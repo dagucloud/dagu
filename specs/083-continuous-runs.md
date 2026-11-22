@@ -35,6 +35,8 @@ This spec does not define:
   [Spec 075: Repeat Policy](075-repeat-policy.md).
 - any change to a step that repeats with a `limit`
 - alerts and notifications on a failed sample
+- the run history of a service DAG. See
+  [Spec 100: Service Run History](100-service-run-history.md).
 
 ## Goal
 
@@ -151,6 +153,10 @@ availability.
 
 The windows are the last 24 hours, 7 days, 30 days and 365 days. The server
 computes them from the finest tier that covers each part of the window.
+
+A continuous step has one figure for each window. The response of a step has no
+`uptime`. [Spec 100](100-service-run-history.md) adds the uptime for the run
+history of a service DAG.
 
 ### Status Record
 

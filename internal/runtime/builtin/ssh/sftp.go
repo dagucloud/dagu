@@ -81,6 +81,9 @@ func NewSFTPExecutor(ctx context.Context, step ir.Step) (executor.Executor, erro
 // resolveSSHClient resolves the SSH client from step config or context.
 func resolveSSHClient(ctx context.Context, step ir.Step) (*Client, error) {
 	if len(step.ExecutorConfig.Config) > 0 {
+		if node := nodeConnectionFor(ctx, step.ExecutorConfig.Config); node != nil {
+			return node.clientWith(ctx, step.ExecutorConfig.Config)
+		}
 		return FromMapConfig(ctx, step.ExecutorConfig.Config)
 	}
 	return getSSHClientFromContext(ctx), nil

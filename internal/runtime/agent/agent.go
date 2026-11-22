@@ -59,6 +59,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/secret/providers"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/telemetry"
@@ -216,6 +217,17 @@ type Agent struct {
 	// parallelItem is the value bound to ITEM for a parallel child run.
 	parallelItem string
 
+	// boundNode names the inventory node a bound child run runs on.
+	boundNode string
+
+	// nodeSelector finds the inventory nodes of steps with nodes.
+	nodeSelector runtime.NodeSelector
+
+	// hostKeys finds the host keys trusted for nodes.
+	hostKeys runtime.TrustedHostKeys
+
+	// binding is the node a bound run runs on, read at startup.
+	binding *nodeBinding
 	// defaultExecMode is the server-level default execution mode.
 	defaultExecMode config.ExecutionMode
 
@@ -424,6 +436,12 @@ type Options struct {
 	TriggerActor string
 	// ParallelItem is the value bound to ITEM for a parallel child run.
 	ParallelItem string
+	// BoundNode names the inventory node a bound child run runs on (RFC 013).
+	BoundNode string
+	// NodeSelector finds the inventory nodes of steps with nodes (RFC 012).
+	NodeSelector runtime.NodeSelector
+	// HostKeys finds the host keys trusted for nodes (RFC 012).
+	HostKeys runtime.TrustedHostKeys
 	// DefaultExecMode is the server-level default execution mode.
 	DefaultExecMode config.ExecutionMode
 	// ScheduleTime is the RFC 3339 timestamp of when this run was scheduled.
@@ -516,6 +534,9 @@ func New(
 		triggerType:              opts.TriggerType,
 		triggerActor:             opts.TriggerActor,
 		parallelItem:             opts.ParallelItem,
+		boundNode:                boundNodeOf(opts),
+		nodeSelector:             opts.NodeSelector,
+		hostKeys:                 opts.HostKeys,
 		defaultExecMode:          opts.DefaultExecMode,
 		scheduleTime:             opts.ScheduleTime,
 		scheduleWindow:           opts.ScheduleWindow,
@@ -647,6 +668,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	a.dag.Env = resolvedEnv.Env
 	a.dag.RuntimeResolved = true
+	a.binding = startup.binding
+	if a.binding != nil && a.binding.connects {
+		a.dag = onNode(a.dag)
+	}
 	a.profileName = startup.profileName
 	a.profileResolvedAt = startup.profileResolvedAt
 	a.profileEntries = startup.profileEntries
@@ -852,6 +877,15 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	if a.materializationStore != nil {
 		contextOpts = append(contextOpts, runtime.WithMaterializationStore(a.materializationStore))
 	}
+	if a.nodeSelector != nil {
+		contextOpts = append(contextOpts, runtime.WithNodeSelector(a.nodeSelector))
+	}
+	if a.hostKeys != nil {
+		contextOpts = append(contextOpts, runtime.WithHostKeys(a.hostKeys))
+	}
+	if a.binding != nil {
+		contextOpts = append(contextOpts, runtime.WithBoundNode(a.binding.valueNode()))
+	}
 	if a.noReuse {
 		contextOpts = append(contextOpts, runtime.WithNoReuse(true))
 	}
@@ -906,7 +940,8 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		}
 		a.noteDryRunStartup(ctx, "profile", profileErr)
 		a.noteDryRunStartup(ctx, "secrets", secretErr)
-		a.noteDryRunStartup(ctx, "nodes", unsupportedNodeTargeting(a.dag))
+		a.noteDryRunStartup(ctx, "nodes", nodeTargetingError(a.dag, a.boundNode, a.workerID))
+		a.noteDryRunStartup(ctx, "node", startup.nodeErr)
 		a.lock.Lock()
 		a.startupCancel = nil
 		stopRequested = a.stopRequest != nil || startupCtx.Err() != nil
@@ -1008,8 +1043,12 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		initErr = profileErr
 		return initErr
 	}
-	if err := unsupportedNodeTargeting(a.dag); err != nil {
+	if err := nodeTargetingError(a.dag, a.boundNode, a.workerID); err != nil {
 		initErr = err
+		return initErr
+	}
+	if startup.nodeErr != nil {
+		initErr = startup.nodeErr
 		return initErr
 	}
 
@@ -1130,6 +1169,18 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			return initErr
 		}
 		ctx = ssh.WithSSHClient(ctx, cli)
+	}
+
+	// A run bound to an inventory node reaches it as DAG-level ssh does.
+	if a.binding != nil && a.binding.connects {
+		cfg, err := a.binding.sshConfig(a.hostKeys)
+		if err == nil {
+			ctx, err = ssh.WithNodeConnection(ctx, cfg)
+		}
+		if err != nil {
+			initErr = fmt.Errorf("failed to set up the connection to node %q: %w", a.binding.node.Name, err)
+			return initErr
+		}
 	}
 
 	listenerErrCh := make(chan error, 1)
@@ -1688,6 +1739,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithTriggerType(a.triggerType),
 			ir.WithTriggerActor(a.triggerActor),
 			ir.WithParallelItem(parallelItem),
+			ir.WithBoundNode(a.boundNode),
 			ir.WithAutoRetryCount(a.currentAutoRetryCount()),
 			ir.WithPIDStartedAt(currentPIDStartedAt()),
 			ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
@@ -1749,6 +1801,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 		ir.WithTriggerType(a.triggerType),
 		ir.WithTriggerActor(a.triggerActor),
 		ir.WithParallelItem(parallelItem),
+		ir.WithBoundNode(a.boundNode),
 		ir.WithAutoRetryCount(a.currentAutoRetryCount()),
 		ir.WithPIDStartedAt(currentPIDStartedAt()),
 		ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
@@ -2373,7 +2426,7 @@ func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfil
 	envScope := a.buildEnvScopeForSecrets(profileValues)
 	secretCtx := cmnvalue.WithEnvScope(ctx, envScope)
 
-	baseDirs := a.buildSecretBaseDirs(envScope)
+	baseDirs := a.buildSecretBaseDirs(ctx, envScope)
 	secretRegistry := providers.NewRegistryWithReferenceResolver(a.secretReferenceResolver, baseDirs...)
 	defer func() {
 		if err := secretRegistry.Close(); err != nil {
@@ -2391,19 +2444,24 @@ func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfil
 }
 
 // resolveCredentialRefs resolves the secret refs that SSH connections read
-// credentials from, once each, and returns the values keyed by ref.
-func (a *Agent) resolveCredentialRefs(ctx context.Context) (map[string]string, error) {
-	if len(a.dag.CredentialRefs) == 0 {
+// credentials from, the DAG's and those of the node a bound run reaches, once
+// each, and returns the values keyed by ref.
+func (a *Agent) resolveCredentialRefs(ctx context.Context, nodeRefs []secretref.Ref) (map[string]string, error) {
+	refs := append(slices.Clone(a.dag.CredentialRefs), nodeRefs...)
+	if len(refs) == 0 {
 		return nil, nil
 	}
 	if a.secretReferenceResolver == nil {
-		ref := a.dag.CredentialRefs[0]
+		ref := refs[0]
 		return nil, fmt.Errorf("failed to resolve %s from secret ref %q: secret store is not configured", ref.Name, ref.Ref)
 	}
 
-	logger.Info(ctx, "Resolving SSH credential secrets", tag.Count(len(a.dag.CredentialRefs)))
-	values := make(map[string]string, len(a.dag.CredentialRefs))
-	for _, ref := range a.dag.CredentialRefs {
+	logger.Info(ctx, "Resolving SSH credential secrets", tag.Count(len(refs)))
+	values := make(map[string]string, len(refs))
+	for _, ref := range refs {
+		if _, ok := values[ref.Ref]; ok {
+			continue
+		}
 		value, err := a.secretReferenceResolver.ResolveReference(ctx, ref)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve %s from secret ref %q: %w", ref.Name, ref.Ref, err)
@@ -2439,8 +2497,16 @@ func (a *Agent) buildEnvScopeForSecrets(profileValues resolvedProfileValues) *cm
 }
 
 // buildSecretBaseDirs returns base directories for file-based secret resolution.
-func (a *Agent) buildSecretBaseDirs(envScope *cmnvalue.EnvScope) []string {
-	baseDirs := []string{envScope.ExpandPath(a.dag.WorkingDir)}
+func (a *Agent) buildSecretBaseDirs(ctx context.Context, envScope *cmnvalue.EnvScope) []string {
+	workingDir := envScope.ExpandPath(a.dag.WorkingDir)
+	// Secrets resolve before the run context exists, so resolve value
+	// references such as ${params.*} the same way steps do.
+	if resolved, err := runtime.ResolveDAGWorkingDir(
+		runtime.WithDAGContext(ctx, runtime.Context{DAG: a.dag, EnvScope: envScope}), a.dag,
+	); err == nil && resolved != "" {
+		workingDir = resolved
+	}
+	baseDirs := []string{workingDir}
 	if a.dag.Location != "" {
 		baseDirs = append(baseDirs, filepath.Dir(a.dag.Location))
 	}
@@ -2635,6 +2701,15 @@ func (a *Agent) dryRun(ctx context.Context) error {
 	}
 	if a.materializationStore != nil {
 		contextOpts = append(contextOpts, runtime.WithMaterializationStore(a.materializationStore))
+	}
+	if a.nodeSelector != nil {
+		contextOpts = append(contextOpts, runtime.WithNodeSelector(a.nodeSelector))
+	}
+	if a.hostKeys != nil {
+		contextOpts = append(contextOpts, runtime.WithHostKeys(a.hostKeys))
+	}
+	if a.binding != nil {
+		contextOpts = append(contextOpts, runtime.WithBoundNode(a.binding.valueNode()))
 	}
 	if a.noReuse {
 		contextOpts = append(contextOpts, runtime.WithNoReuse(true))

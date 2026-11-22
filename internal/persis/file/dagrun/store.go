@@ -98,6 +98,18 @@ func (store *Store) dataRoot(dagName string) DataRoot {
 	return NewDataRootWithArtifactDir(store.baseDir, dagName, store.artifactDir)
 }
 
+// runHistoryDirName is the directory of the run history of a DAG, beside the
+// dag-runs directory that the retention prunes.
+const runHistoryDirName = "run-history"
+
+// RunHistoryDir returns the directory of the run history of a DAG
+// (specs/100-service-run-history.md).
+func (store *Store) RunHistoryDir(dagName string) string {
+	// The directory of the runs: a second directory for the DAG would hide the
+	// runs that an earlier version kept under a legacy name.
+	return filepath.Join(store.baseDir, existingDAGDirName(store.baseDir, dagName), runHistoryDirName)
+}
+
 // resolveStatus resolves and filters a DAGRunStatus for a single dagRun.
 // Uses the index summary for fast filtering when available, falling back to
 // reading status.jsonl directly.

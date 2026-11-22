@@ -1251,6 +1251,7 @@ func (s *dagBuildState) validateResult() {
 			s.errs = append(s.errs, err)
 		}
 		s.errs = append(s.errs, validateNodeRequired(s.result)...)
+		s.errs = append(s.errs, validateWorkspaceNodes(s.result)...)
 	}
 
 	if s.result.RestartPolicy.Enabled() && s.result.RestartWait < time.Second {

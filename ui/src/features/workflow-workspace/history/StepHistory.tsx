@@ -392,7 +392,7 @@ const HistoryRow = memo(function HistoryRow({
           className="w-16 shrink-0 text-muted-foreground"
         />
         <EntryDuration entry={entry} />
-        <span className="w-16 shrink-0 font-mono text-[11px] text-muted-foreground">
+        <span className="w-20 shrink-0 font-mono text-[11px] text-muted-foreground">
           {shortRunId(entry.runId)}
         </span>
         {entry.testRun && (

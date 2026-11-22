@@ -646,6 +646,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dags/{fileName}/run-history/samples": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retrieve the run history of a service DAG, in buckets
+         * @description Returns the runs of a service DAG as buckets of one tier (1 second, 1 minute, 1 hour or 24 hours), also for runs that the retention removed. The server picks the tier as for the samples of a continuous step. The response has at most `points` buckets and does not depend on the count of runs. See specs/100-service-run-history.md.
+         */
+        get: operations["getDAGRunHistorySamples"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dags/{fileName}/run-history/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retrieve the events of the run history of a service DAG
+         * @description Lists the events of the run history of a service DAG, the newest first: failed, recovered and gap.
+         */
+        get: operations["getDAGRunHistoryEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dags/{fileName}/run-history/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retrieve the availability of the runs of a service DAG
+         * @description Gives the availability of the runs of the last 24 hours, 7 days, 30 days and 365 days, the current streak and the total count of runs.
+         */
+        get: operations["getDAGRunHistoryAvailability"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dags/{fileName}/spec": {
         parameters: {
             query?: never;
@@ -8101,7 +8161,7 @@ export interface components {
             agentSession?: components["schemas"]["AgentSession"];
             modelUsage?: components["schemas"]["StepModelUsage"];
         };
-        /** @description The samples of one time bucket of a continuous step */
+        /** @description The samples of one time bucket: executions of a continuous step, or runs of a service DAG */
         SampleBucket: {
             /**
              * Format: date-time
@@ -8115,7 +8175,7 @@ export interface components {
             count: number;
             /**
              * Format: int64
-             * @description Count of failed samples (exit code not 0)
+             * @description Count of failed samples: exit code not 0 for a step, status failed for a run
              */
             failures: number;
             /** Format: int64 */
@@ -8126,16 +8186,28 @@ export interface components {
             p50Ms: number;
             /** Format: int64 */
             p95Ms: number;
+            /**
+             * Format: int64
+             * @description Run history only: the time of the bucket in which a run was active, in milliseconds. A bucket can have it and no run (count 0). Absent when the history has none.
+             */
+            upMs?: number;
         };
-        StepSamples: {
+        StepSamples: components["schemas"]["SampleSeries"];
+        /** @description Buckets of samples: the executions of a continuous step, or the runs of a service DAG */
+        SampleSeries: {
             /** @description Width of the tier that the buckets come from: 1, 60, 3600 or 86400 */
             resolutionSeconds: number;
             /** Format: date-time */
             from: string;
             /** Format: date-time */
             to: string;
-            /** @description Buckets in time order. A bucket with no sample is not listed. */
+            /** @description Buckets in time order. A bucket with no sample and no up time is not listed. */
             buckets: components["schemas"]["SampleBucket"][];
+            /**
+             * Format: double
+             * @description Only for the run history of a service DAG. The share of the window from `from` to `to` in which a run was active, from 0 to 1. Absent when the run history has no record of the window.
+             */
+            uptime?: number;
         };
         /** @enum {string} */
         StepEventKind: StepEventKind;
@@ -8162,6 +8234,39 @@ export interface components {
             /** @description Cursor for the next page. Absent when there are no more events. */
             nextCursor?: string;
         };
+        /** @enum {string} */
+        RunHistoryEventKind: RunHistoryEventKind;
+        RunHistoryEvent: {
+            /**
+             * Format: date-time
+             * @description Start of the run for failed and recovered; end of the previous run for gap
+             */
+            time: string;
+            kind: components["schemas"]["RunHistoryEventKind"];
+            runId: components["schemas"]["DAGRunId"];
+            /** @description For failed: the error of the run, 256 bytes at most */
+            message?: string;
+            /**
+             * Format: int64
+             * @description For recovered and for a repeated failed event: count of failed runs of the outage
+             */
+            failedCount?: number;
+            /**
+             * Format: int64
+             * @description For recovered: length of the outage
+             */
+            outageSeconds?: number;
+            /**
+             * Format: int64
+             * @description For gap: time with no run, from the end of the previous run to the start of the run runId
+             */
+            gapSeconds?: number;
+        };
+        RunHistoryEvents: {
+            events: components["schemas"]["RunHistoryEvent"][];
+            /** @description Cursor for the next page. Absent when there are no more events. */
+            nextCursor?: string;
+        };
         AvailabilityWindow: {
             /** @enum {string} */
             window: AvailabilityWindowWindow;
@@ -8174,8 +8279,15 @@ export interface components {
              * @description From 0 to 1. Absent when `count` is 0.
              */
             availability?: number;
+            /**
+             * Format: double
+             * @description Only for the run history of a service DAG. The share of the window in which a run was active, from 0 to 1. A run in progress counts up to now. Absent when the run history has no record of the window.
+             */
+            uptime?: number;
         };
-        StepAvailability: {
+        StepAvailability: components["schemas"]["SampleAvailability"];
+        /** @description Availability of the samples of a continuous step, or of the runs of a service DAG */
+        SampleAvailability: {
             windows: components["schemas"]["AvailabilityWindow"][];
             /**
              * Format: int64
@@ -11875,6 +11987,170 @@ export interface operations {
                     "application/json": {
                         dagRun: components["schemas"]["DAGRunDetails"];
                     };
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGRunHistorySamples: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Start of the window (RFC 3339). Default: 24 hours before `to`. */
+                from?: string;
+                /** @description End of the window (RFC 3339). Default: now. */
+                to?: string;
+                /** @description Most buckets to return. */
+                points?: number;
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleSeries"];
+                };
+            };
+            /** @description A query parameter is not valid or out of its range, or from is after to */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG not found, or the DAG is not a service DAG and has no run history */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGRunHistoryEvents: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Start of the window (RFC 3339), inclusive. Default: no bound. */
+                from?: string;
+                /** @description End of the window (RFC 3339), exclusive. Default: no bound. */
+                to?: string;
+                /** @description Most events to return. */
+                limit?: number;
+                /** @description Opaque cursor from `nextCursor` of a previous response. */
+                before?: string;
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunHistoryEvents"];
+                };
+            };
+            /** @description A query parameter is not valid or out of its range, from is after to, or before is not a cursor that the server gave or points to a dropped event */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description DAG not found, or the DAG is not a service DAG and has no run history */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGRunHistoryAvailability: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleAvailability"];
+                };
+            };
+            /** @description DAG not found, or the DAG is not a service DAG and has no run history */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
                 };
             };
             /** @description Generic error response */
@@ -26025,6 +26301,11 @@ export enum StepEventKind {
     stopped = "stopped",
     failed = "failed",
     recovered = "recovered"
+}
+export enum RunHistoryEventKind {
+    failed = "failed",
+    recovered = "recovered",
+    gap = "gap"
 }
 export enum AvailabilityWindowWindow {
     Value24h = "24h",

@@ -478,6 +478,43 @@ defaults:
 
 A completed `parallel` step publishes a JSON array of each successful child run's outputs on its step outputs channel, so a later step in the same DAG can read `${fan_out.outputs}` or `${fan_out.outputs[0].NAME}`. Entries follow `parallel.items` order with failed children removed, so index `N` is the Nth successful child rather than the Nth item, and a successful child that published nothing contributes an empty object. An entry merges the child's output variables with its declared outputs, so values published through `outputs:`, `stdout.outputs` or `outputs.write` are included. The array does not merge into the run's collected outputs or into a parent run's `${step.outputs}`.
 
+## nodes: Run On Inventory Nodes
+
+`nodes:` runs a step once per inventory node a selector matches. The selector is the label filter that `dagu history --labels` takes: terms separated by commas, all of which must match, such as `web,env=prod,!canary`. Quote a selector that starts with `!`.
+
+```yaml
+steps:
+  - id: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes:
+      labels: web,env=${params.env}
+      max_concurrent: 1     # nodes at once, 1 to 1000; default 1
+      keep_going: false     # start the other nodes after one fails; default false
+---
+name: deploy-one
+node: required              # runs only bound to one node
+steps:
+  - id: drain
+    action: http.request      # runs on the Dagu host
+    with:
+      method: POST
+      url: https://lb.internal/pools/web/${node.name}/drain
+  - id: restart
+    run: sudo systemctl restart app   # runs on the node over SSH
+```
+
+- `nodes` works on `dag.run` and on command steps (`run`, `command`, `script` without an action, `ssh.run`, `sftp.*`), and not with `parallel`, `foreach`, `worker_selector`, `container`, or `repeat_policy`.
+- Each enabled matched node gets its own child run bound to it, in name order. A `dag.run` child must declare `node: required`. A command step runs alone in each child, reading the run's params, env, and earlier steps' outputs, with `timeout_sec` and `retry_policy` per node.
+- A reference in the selector must resolve to one label key or value, so `env=${params.env}` cannot be widened by a value such as `prod,!canary`.
+- The step fails before any node starts when the selector matches no nodes (`selector matched no nodes`) or only disabled ones. Disabled nodes do not run.
+- With `keep_going: false`, no node starts after one fails. The step writes `parallel`'s aggregate with `node` on each entry, including `not_started` and `disabled` ones.
+- A DAG with a `workspace` label cannot use `nodes` or `node: required`.
+- A bound child reaches its SSH node as DAG-level `ssh` reaches a host: steps with no action, `ssh.run`, and `sftp.*` run on the node, through its bastion, and other actions run on the Dagu host. `with` fields override the node's; `with.host` connects elsewhere; `with.strict_host_key`, `with.known_host_file`, and `with.bastion` are errors. The node's secret refs resolve once per run and are masked. With `strict_host_key` on, the default, only the node's `host_key` or a trusted key is accepted; a node with `strict_host_key: false` accepts any key.
+- In a bound run, `${node.name}`, `${node.host}`, `${node.port}`, `${node.user}`, `${node.description}`, `${node.labels}` (sorted, comma-separated), `${node.labels.<key>}`, and `${node.labels."gpu.type"}` read the node. A label the node lacks, or a `${node.<path>}` not listed here, fails its run before any step. Quote them in shell commands: `"${node.labels.role}"`.
+- Not available yet: bound runs and steps with `nodes` on workers.
+
 ## ssh.run / sftp.upload / sftp.download
 
 Remote command execution and file transfer over SSH.

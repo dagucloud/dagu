@@ -105,6 +105,17 @@ func TestRunnerShouldRun(t *testing.T) {
 			want:   true,
 		},
 		{
+			name:   "bound child stays local in distributed mode",
+			runner: subflow.New(dispatcher, config.ExecutionModeDistributed),
+			req: runtimeexec.SubWorkflowRequest{
+				DAG:        &ir.DAG{Name: "child", NodeRequired: true},
+				RootDAGRun: ir.NewDAGRunRef("parent", "root-1"),
+				RunID:      "child-1",
+				Node:       "web01",
+			},
+			want: false,
+		},
+		{
 			name:   "local default mode stays local without selector",
 			runner: subflow.New(dispatcher, config.ExecutionModeLocal),
 			req:    validReq,

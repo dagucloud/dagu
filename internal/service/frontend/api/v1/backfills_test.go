@@ -389,7 +389,9 @@ func TestDismissDAGMissedSlots(t *testing.T) {
 	require.NoError(t, dismiss(operator, "ops-load"))
 	assert.Nil(t, missedSlots(viewer), "hidden from another user")
 
-	require.NoError(t, periods.AddSuspended(ctx, "ops-load", schedulerstate.Period{From: hour.Add(-70 * time.Minute), To: time.Now().Add(time.Minute)}))
+	// The suspension ends at the next hourly fire, which a period does not count, so a run in
+	// the last minute of the hour still sees two slots. It still ends after the dismissal.
+	require.NoError(t, periods.AddSuspended(ctx, "ops-load", schedulerstate.Period{From: hour.Add(-70 * time.Minute), To: hour.Add(time.Hour)}))
 	missed := missedSlots(viewer)
 	require.NotNil(t, missed, "a newer period adds missed slots")
 	// The outage ended before the dismissal, so only the suspension counts.

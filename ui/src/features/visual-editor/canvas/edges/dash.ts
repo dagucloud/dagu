@@ -10,3 +10,9 @@ export const DASHED = '6 4';
 
 /** Dash pattern of a dotted edge: the order of a chain. */
 export const DOTTED = '2 4';
+
+/**
+ * Dash pattern of a conditional link: long dashes with a dot, so that it does
+ * not read as an inferred link, which is dashed too.
+ */
+export const CONDITIONAL = '10 3 2 3';

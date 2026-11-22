@@ -18,6 +18,7 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 )
@@ -64,6 +65,9 @@ type Context struct {
 	LogWriterFactory     LogWriterFactory     // For remote log streaming (nil = use local files)
 	DefaultExecMode      config.ExecutionMode // Server-level default execution mode (local or distributed)
 	NoReuse              bool
+	Nodes                NodeSelector        // Inventory nodes for steps with nodes (RFC 012)
+	HostKeys             TrustedHostKeys     // Host keys trusted for nodes (RFC 012)
+	Node                 *cmnvalue.BoundNode // The node a bound run reads as ${node.*} (RFC 013)
 }
 
 // LogWriterFactory creates log writers for step stdout/stderr.
@@ -259,6 +263,13 @@ func WithScheduleWindow(window ir.ScheduleWindow) ContextOption {
 	}
 }
 
+// WithBoundNode sets the node a bound run reads as ${node.*}.
+func WithBoundNode(node *cmnvalue.BoundNode) ContextOption {
+	return func(o *contextOptions) {
+		o.Node = node
+	}
+}
+
 // WithDates sets the run's dates for value resolution.
 func WithDates(dates []ir.DateValue) ContextOption {
 	return func(o *contextOptions) {
@@ -396,6 +407,35 @@ func WithMaterializationStore(store build.MaterializationStore) ContextOption {
 	}
 }
 
+// NodeSelector finds the project's inventory nodes.
+type NodeSelector interface {
+	// Select returns the nodes a selector matches, in name order.
+	Select(ctx context.Context, selector string) ([]inventory.ResolvedNode, error)
+	// Nodes returns every node, in name order.
+	Nodes(ctx context.Context) ([]inventory.ResolvedNode, error)
+}
+
+// WithNodeSelector sets where steps with nodes find their nodes.
+func WithNodeSelector(nodes NodeSelector) ContextOption {
+	return func(o *contextOptions) {
+		o.Nodes = nodes
+	}
+}
+
+// TrustedHostKeys finds the host key a user trusted for a node. Runs only
+// read trusted keys and never trust one.
+type TrustedHostKeys interface {
+	// Get returns the key trusted for node, or inventory.ErrNoTrustedHostKey.
+	Get(ctx context.Context, node string) (inventory.TrustedHostKey, error)
+}
+
+// WithHostKeys sets where connections to nodes find trusted host keys.
+func WithHostKeys(keys TrustedHostKeys) ContextOption {
+	return func(o *contextOptions) {
+		o.HostKeys = keys
+	}
+}
+
 // WithNoReuse records that manifest hits are disabled for the run.
 func WithNoReuse(disabled bool) ContextOption {
 	return func(o *contextOptions) {
@@ -479,7 +519,7 @@ func NewContext(
 	maps.Copy(baseForDAGEnv, managedEnvs)
 
 	runBuiltinContext := buildDAGRunBuiltinContext(dag, dagRunID, managedEnvs, options)
-	evaluatedDAGEnvs := evaluateDAGEnvRuntime(ctx, dag, params, baseForDAGEnv, runScoped, managedEnvs, runBuiltinContext, options.Dates)
+	evaluatedDAGEnvs := evaluateDAGEnvRuntime(ctx, dag, params, baseForDAGEnv, runScoped, managedEnvs, runBuiltinContext, options.Dates, options.Node)
 
 	secretEnvs := stringutil.KeyValuesToMap(options.secretEnvs)
 
@@ -538,6 +578,7 @@ func evaluateDAGEnvRuntime(
 	protected map[string]string,
 	runBuiltinContext cmnvalue.BuiltinContext,
 	dates cmnvalue.Values,
+	node *cmnvalue.BoundNode,
 ) map[string]string {
 	var envList []string
 	var params cmnvalue.Values
@@ -589,13 +630,13 @@ func evaluateDAGEnvRuntime(
 		if i >= span.Start && i < span.End {
 			resolver = cmnvalue.NewResolver(
 				cmnvalue.StaticScope{Dates: dag.DateNames()},
-				cmnvalue.RuntimeScope{Env: completionScope, BuiltinContext: runBuiltinContext, Dates: dates},
+				cmnvalue.RuntimeScope{Env: completionScope, BuiltinContext: runBuiltinContext, Dates: dates, Node: node},
 			)
 			field = cmnvalue.DAGEnvCompletionField("env." + key)
 		} else {
 			resolver = cmnvalue.NewResolver(
 				cmnvalue.StaticScope{Params: paramDeclarations, Dates: dag.DateNames()},
-				cmnvalue.RuntimeScope{Params: params, ParamsJSON: paramsJSON, Env: scope, BuiltinContext: runBuiltinContext, Dates: dates},
+				cmnvalue.RuntimeScope{Params: params, ParamsJSON: paramsJSON, Env: scope, BuiltinContext: runBuiltinContext, Dates: dates, Node: node},
 			)
 			field = cmnvalue.RuntimeDAGEnvField("env." + key)
 		}

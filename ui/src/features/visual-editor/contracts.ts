@@ -268,6 +268,36 @@ export interface ReferenceInputProps {
 
 /* Canvas */
 export type CanvasDirection = 'LR' | 'TB';
+/**
+ * What `continue_on` of a step lets the run do after the step: carry on when
+ * the step failed, was skipped, ended with one of the exit codes, or wrote a
+ * matching output. `markSuccess` turns that end into a success.
+ */
+export interface ContinueOnView {
+  failure?: true;
+  skipped?: true;
+  exitCodes?: number[];
+  output?: true;
+  markSuccess?: true;
+}
+
+/**
+ * The condition on a link, from a precondition of the step that the link
+ * reaches that reads the step that the link leaves. `failed` and `succeeded`
+ * come from a test of `${step.exit_code}` against 0. `text` is the
+ * precondition as written, for the tooltip.
+ */
+export interface EdgeCondition {
+  when: 'failed' | 'succeeded' | 'exit' | 'match';
+  /** The name of the step that the link leaves. */
+  step: string;
+  /** The exit code (`exit`), or the comparison (`match`). */
+  value?: string;
+  /** `exit`: the step ended with any other code. */
+  negate?: boolean;
+  text: string;
+}
+
 export interface CanvasNode {
   key: StepKey;
   serverName?: string;
@@ -287,6 +317,10 @@ export interface CanvasNode {
   repeat?: RepeatPolicyView;
   /** What a router step routes on, as written in `value`. */
   routeValue?: string;
+  /** The `continue_on` of the step, when it has one. */
+  continueOn?: ContinueOnView;
+  /** The preconditions of the step, one line each, when it has some. */
+  preconditions?: string[];
   /** The number of tasks of an agent DAG, on its agent node. */
   taskCount?: number;
   issues: { errors: number; warnings: number };
@@ -308,6 +342,8 @@ export interface CanvasEdge {
   target: StepKey;
   kind: 'depends' | 'inferred' | 'route' | 'order' | 'agent';
   label?: string;
+  /** Set on a `depends` edge that a precondition of its target reads. */
+  condition?: EdgeCondition;
 }
 export interface CanvasGraph {
   nodes: CanvasNode[];

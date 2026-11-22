@@ -1,0 +1,10 @@
+working_dir: .
+params:
+  - DIR: ""
+steps:
+  - id: clean
+    run: echo "${node.name} ${node.labels}" >> "${params.DIR}/ran.log"
+    stdout: nodes.json
+    nodes:
+      labels: web
+      keep_going: true

@@ -1,0 +1,224 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package runtime
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
+
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
+)
+
+// maxStepNodes is the most nodes one step runs on, as Spec 018 limits the
+// items of parallel.
+const maxStepNodes = 1000
+
+// errNoNodeInventory reports a run that cannot read the inventory.
+var errNoNodeInventory = errors.New("the node inventory is not available to this run")
+
+// runsOnEachNode reports a command step with nodes. Its timeout and retry
+// policy apply to each node's child run, so one hung or failing host does not
+// use up the others' time or rerun them.
+func runsOnEachNode(step ir.Step) bool {
+	return step.Nodes != nil && step.SubDAG == nil
+}
+
+// setupNodesExecutor prepares a step with nodes (RFC 013). It matches the
+// step's selector against the project's nodes and gives each enabled node a
+// child run bound to it. A command step's command resolves in each child run,
+// so the parent resolves none of it.
+func (n *Node) setupNodesExecutor(ctx context.Context) (context.Context, executor.Executor, error) {
+	matched, err := matchStepNodes(ctx, n.Step().Nodes.Selector)
+	if err != nil {
+		return ctx, nil, err
+	}
+
+	child, err := n.resolveNodeChild(ctx)
+	if err != nil {
+		return ctx, nil, err
+	}
+
+	runs := make([]executor.NodeRun, len(matched))
+	for i, node := range matched {
+		runs[i] = executor.NodeRun{Node: node.Name, Disabled: node.Disabled}
+		if node.Disabled {
+			continue
+		}
+		run := child
+		run.Node = node.Name
+		run.RunID = GenerateSubDAGRunIDForTarget(ctx, child.DAGName, child.Params+"\x00node="+node.Name, false)
+		runs[i].Run = run
+	}
+
+	// A child run whose params read a masked output never starts.
+	if err := maskedReadError(ctx, n); err != nil {
+		return ctx, nil, err
+	}
+
+	execStep := n.Step()
+	execStep.ExecutorConfig = ir.ExecutorConfig{Type: ir.ExecutorTypeNodes}
+	cmd, err := executor.NewExecutor(ctx, execStep)
+	if err != nil {
+		return ctx, nil, err
+	}
+	n.cmd = cmd
+	if err := n.outputs.setupExecutorIO(ctx, cmd, n.NodeData()); err != nil {
+		return ctx, nil, fmt.Errorf("failed to set up step output: %w", err)
+	}
+
+	nodesExecutor, ok := cmd.(executor.NodesExecutor)
+	if !ok {
+		return ctx, nil, fmt.Errorf("action %q does not run steps on nodes", execStep.ExecutorConfig.Type)
+	}
+	var subRuns []executor.RunParams
+	for _, run := range runs {
+		if !run.Disabled {
+			subRuns = append(subRuns, run.Run)
+		}
+	}
+	n.SetSubRuns(subRunsFromParams(subRuns))
+	nodesExecutor.SetNodes(runs)
+	return ctx, cmd, nil
+}
+
+// resolveNodeChild returns what every node's child run shares: for dag.run,
+// the child DAG and its params; for a command step, this DAG, which the child
+// narrows to the step.
+func (n *Node) resolveNodeChild(ctx context.Context) (executor.RunParams, error) {
+	subDAG := n.Step().SubDAG
+	if subDAG == nil {
+		// The command reads what it would read without nodes, the outputs of
+		// earlier steps included (RFC 013 §The nodes field).
+		return executor.RunParams{
+			DAGName:   GetDAGContext(ctx).DAG.Name,
+			PassedEnv: stepOutputEnvs(GetEnv(ctx).Scope),
+		}, nil
+	}
+	name, err := resolveRuntimeString(ctx, subDAG.Name, cmnvalue.SubDAGNameField("sub_dag.name"))
+	if err != nil {
+		return executor.RunParams{}, fmt.Errorf("failed to eval sub DAG name: %w", err)
+	}
+	resolved := *subDAG
+	resolved.Name = name
+	n.SetSubDAG(resolved)
+
+	params, err := resolveRuntimeString(ctx, subDAG.Params, cmnvalue.SubDAGParamsField("sub_dag.params"))
+	if err != nil {
+		return executor.RunParams{}, fmt.Errorf("failed to eval sub dag params: %w", err)
+	}
+	passedEnv, err := resolveSubDAGPassEnv(ctx, subDAG.PassEnv)
+	if err != nil {
+		return executor.RunParams{}, err
+	}
+	return executor.RunParams{DAGName: name, Params: params, PassedEnv: passedEnv}, nil
+}
+
+// stepOutputEnvs returns the output variables of earlier steps in scope, as
+// NAME=value. An output restored with a secret masked holds no value to pass.
+func stepOutputEnvs(scope *cmnvalue.EnvScope) []string {
+	outputs := scope.AllBySource(cmnvalue.EnvSourceOutput)
+	envs := make([]string, 0, len(outputs))
+	for _, name := range slices.Sorted(maps.Keys(outputs)) {
+		if entry, ok := scope.GetEntry(name); ok && !entry.Masked {
+			envs = append(envs, name+"="+entry.Value)
+		}
+	}
+	return envs
+}
+
+// matchStepNodes returns the nodes a step's selector matches, in name order.
+// A step that would run on no node, or on more than maxStepNodes, fails.
+func matchStepNodes(ctx context.Context, selector string) ([]inventory.ResolvedNode, error) {
+	resolved, err := resolveNodeSelector(ctx, selector)
+	if err != nil {
+		return nil, err
+	}
+	nodes := GetDAGContext(ctx).Nodes
+	if nodes == nil {
+		return nil, errNoNodeInventory
+	}
+	matched, err := nodes.Select(ctx, resolved)
+	if err != nil {
+		return nil, fmt.Errorf("failed to match nodes %q: %w", resolved, err)
+	}
+	if len(matched) == 0 {
+		return nil, fmt.Errorf("selector matched no nodes: %s", resolved)
+	}
+	if len(matched) > maxStepNodes {
+		return nil, fmt.Errorf("selector %s matched %d nodes, more than the %d a step runs on", resolved, len(matched), maxStepNodes)
+	}
+	for _, node := range matched {
+		if !node.Disabled {
+			return matched, nil
+		}
+	}
+	return nil, fmt.Errorf("selector %s matched only disabled nodes", resolved)
+}
+
+// resolveNodeSelector resolves the references in a selector. Each part of a
+// term that holds a reference must resolve to one label key or value, which
+// holds no ",", "!", "=", "*", or "?", so a value from a run cannot add a
+// term, negate one, or widen a match (RFC 013 §References in a selector).
+func resolveNodeSelector(ctx context.Context, selector string) (string, error) {
+	if !strings.Contains(selector, "${") {
+		return selector, nil
+	}
+	resolver := ValueResolverWithScope(ctx, GetEnv(ctx).Scope)
+	field := cmnvalue.WorkflowField("nodes.labels")
+	resolve := func(part string, valid func(string) error) (string, error) {
+		if !strings.Contains(part, "${") {
+			return part, nil
+		}
+		value, err := resolver.String(ctx, part, field)
+		if err != nil {
+			return "", fmt.Errorf("failed to eval nodes selector %q: %w", part, err)
+		}
+		if err := valid(value); err != nil {
+			return "", fmt.Errorf("nodes selector %q resolved to %q: %w", part, value, err)
+		}
+		return value, nil
+	}
+
+	terms := strings.Split(selector, ",")
+	for i, term := range terms {
+		negated := strings.HasPrefix(strings.TrimSpace(term), "!")
+		body := strings.TrimPrefix(strings.TrimSpace(term), "!")
+		rawKey, rawValue, hasValue := strings.Cut(body, "=")
+		key, err := resolve(rawKey, func(v string) error {
+			return ir.ValidateLabel(ir.Label{Key: v})
+		})
+		if err != nil {
+			return "", err
+		}
+		value, err := resolve(rawValue, func(v string) error {
+			if v == "" || len(v) > ir.MaxLabelValueLength || !ir.ValidLabelValuePattern.MatchString(v) {
+				return errors.New("not a label value")
+			}
+			return nil
+		})
+		if err != nil {
+			return "", err
+		}
+		resolved := key
+		if hasValue {
+			resolved += "=" + value
+		}
+		if negated {
+			resolved = "!" + resolved
+		}
+		terms[i] = resolved
+	}
+	resolved := strings.Join(terms, ",")
+	if _, err := inventory.ParseSelector(resolved); err != nil {
+		return "", fmt.Errorf("nodes selector %q resolved to %q: %w", selector, resolved, err)
+	}
+	return resolved, nil
+}

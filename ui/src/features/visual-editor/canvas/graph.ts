@@ -18,6 +18,12 @@ import { NodeStatus } from '@/api/v1/schema';
 import { previousOfExecuted } from '../run/upstreamSteps';
 import { readAgentHeader } from './agentHeader';
 import {
+  carriesCondition,
+  edgeCondition,
+  readContinueOn,
+  readPreconditions,
+} from './conditions';
+import {
   AGENT_NODE_KEY,
   type AgentTaskView,
   type CanvasEdgeWithRef,
@@ -211,6 +217,14 @@ function buildNode(
   if ('parallel' in step.value) {
     node.parallel = true;
   }
+  const continueOn = readContinueOn(step.value.continue_on);
+  if (continueOn) {
+    node.continueOn = continueOn;
+  }
+  const preconditions = readPreconditions(step.value);
+  if (preconditions.length > 0) {
+    node.preconditions = preconditions.map((pre) => pre.text);
+  }
   const repeat = readRepeatPolicy(
     step.value.repeat_policy ?? step.value.repeatPolicy
   );
@@ -304,6 +318,36 @@ function inferredEdges(
     }
   }
   return edges;
+}
+
+/**
+ * Puts the condition of a precondition on the link that it reads: the link
+ * from a step to a step whose preconditions test the result of the first one.
+ * A verify loop shows this way: the link from `verify_1` to `code_2` reads
+ * "if verify_1 failed". Changes the edges in place.
+ */
+function markConditionalEdges(
+  model: DagDocModel,
+  nodes: CanvasNodeWithRoutes[],
+  edges: CanvasEdgeWithRef[]
+): void {
+  const steps = new Map(model.steps.map((step) => [step.key, step]));
+  const labels = new Map(nodes.map((node) => [node.key, node.label]));
+  for (const edge of edges) {
+    if (!carriesCondition(edge)) continue;
+    const target = steps.get(edge.target);
+    const source = steps.get(edge.source);
+    // A precondition can read only a step that has an id.
+    if (!target || !source?.id) continue;
+    const pre = readPreconditions(target.value);
+    if (pre.length === 0) continue;
+    const condition = edgeCondition(
+      pre,
+      source.id,
+      labels.get(edge.source) ?? ''
+    );
+    if (condition) edge.condition = condition;
+  }
 }
 
 /**
@@ -494,6 +538,7 @@ export function buildCanvasGraph(input: CanvasGraphInput): CanvasGraph {
     edges.push(...orderEdges(model));
   }
   edges.push(...routeEdges(nodes, resolve));
+  markConditionalEdges(model, nodes, edges);
   if (model.dagType === 'agent') {
     // The steps are the actions of the agent: each hangs from its node, and
     // draws as a tool card.

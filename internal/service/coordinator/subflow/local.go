@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -490,6 +491,9 @@ func (r *Local) newAgent(
 	opts.RootDAGRun = req.RootDAGRun
 	opts.TriggerActor = req.TriggerActor
 	opts.ParallelItem = req.ParallelItem
+	opts.BoundNode = req.Node
+	opts.NodeSelector = rCtx.Nodes
+	opts.HostKeys = rCtx.HostKeys
 	opts.ScheduleTime = req.ScheduleTime
 	opts.ScheduleWindow = req.ScheduleWindow
 	opts.RetryPath = req.RetryPath
@@ -631,6 +635,9 @@ func loadInProcessDAG(
 	default:
 		err = errMissingDAGPath
 	}
+	if err == nil && req.NodeStep != "" {
+		dag, err = dag.NodeStepChild(req.NodeStep)
+	}
 	if err != nil {
 		cleanup()
 		return nil, "", nil, fmt.Errorf("failed to load child workflow DAG: %w", err)
@@ -668,8 +675,13 @@ func inProcessLoadOptions(
 		loadOpts = append(loadOpts, spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(cfg.Paths.DAGsDir)))
 	}
 	// Params are always applied so that a child started without params still
-	// enforces its required params.
-	loadOpts = append(loadOpts, spec.WithParams(req.Params))
+	// enforces its required params. A command step's child is the parent's
+	// definition, so it takes the parent run's param values.
+	params := req.Params
+	if req.NodeStep != "" && req.ParentDAG != nil {
+		params = strings.Join(spec.QuoteRuntimeParams(req.ParentDAG.Params, req.ParentDAG.ParamDefs), " ")
+	}
+	loadOpts = append(loadOpts, spec.WithParams(params))
 	if req.Workspace != nil && workDir != "" {
 		loadOpts = append(loadOpts, spec.WithDefaultWorkingDir(workDir))
 	}

@@ -2,17 +2,20 @@
 
 ## Status
 
-Partially implemented. The `nodes` step field, the `node` DAG field, and
-their validation are implemented, and conformance covers them through
-`dagu validate`. Running a step on its nodes is not implemented yet: a run
-that uses `nodes` or `node: required` fails before any step starts, naming
-the step or the DAG. Further sections are added as running lands (RFC 013).
+Partially implemented. The `nodes` step field, the `node` DAG field, their
+validation, running a step as one child run per node, binding SSH nodes into
+their child runs, and the `node` namespace are implemented. Conformance
+covers validation through `dagu validate` and runs through `dagu start`,
+against SSH servers the test harness starts. Bound runs and steps with
+nodes do not run on workers yet. Further sections are added as RFC 013
+lands.
 
 ## Scope
 
 This spec defines how a workflow names the inventory nodes ([RFC 012](../rfcs/012-node-inventory.md))
-a step runs on, and which steps and DAGs may do so. It does not define the
-inventory, how nodes are matched at run time, or how a step runs on a node.
+a step runs on, which steps and DAGs may do so, how such a step runs one
+child run per node, and how a child run reaches its node. It does not define
+the inventory, its credentials, or its host key checks.
 
 ## Goal
 
@@ -54,6 +57,101 @@ still a command step.
 the only value. A worker selector given when such a DAG is started or
 enqueued is refused, since the bound node decides where it runs.
 
+### Running a step on its nodes
+
+When a step with `nodes` starts, after its dependencies and preconditions,
+its selector is resolved and matched against the project's nodes:
+
+- Each part of a term that holds a reference must resolve to one label key
+  or value, so a value from the run cannot add a term, negate one, or widen
+  the match. `env=${params.env}` works with `prod` and fails with
+  `prod,!canary`.
+- The matched nodes are taken in name order. A step matches at most 1,000.
+- A disabled node is not run. A step whose matched nodes are all disabled
+  fails.
+
+Each enabled node gets its own child run, bound to that node:
+
+- On a `dag.run` step, the child runs the named DAG, which must declare
+  `node: required`. The step fails before any child starts when it does not.
+- On a command step, the child runs that step alone, in a `node: required`
+  DAG with the parent DAG's settings. The step reads what it would read
+  without `nodes`: the parent run's params, its env, and the outputs of
+  earlier steps.
+  `timeout_sec` and `retry_policy` apply
+  to each node's run of the step. `depends`, `preconditions`, `continue_on`,
+  and `output` apply to the step with `nodes`.
+
+A bound child runs on the host that runs its parent, even when the default
+execution mode is distributed.
+
+Nodes start in name order, at most `max_concurrent` at a time.
+`defaults.max_concurrent` does not apply. With `keep_going: false`, no node
+starts after a node fails: the nodes running finish, and the rest do not
+start. With `keep_going: true`, every node runs. Either way the step fails
+when a node failed. Aborting the step stops the nodes not started and aborts
+the running children. Otherwise the step's status follows `parallel`
+([Spec 018](018-parallel-and-foreach.md)).
+
+The step writes `parallel`'s aggregate to its standard output, with one entry
+per matched node, in name order. Each entry adds `node`. A node that did not
+run has the status `not_started`, or `disabled`, and counts in
+`summary.total` only. When the aggregate would exceed `max_output_size`, its
+entries and `outputs` leave out the outputs, which each child run keeps.
+
+```json
+{
+  "summary": {"total": 3, "succeeded": 1, "failed": 1},
+  "results": [
+    {"node": "web01", "name": "deploy-one", "dagRunId": "...", "status": "failed"},
+    {"node": "web02", "status": "disabled"},
+    {"node": "web03", "name": "deploy-one", "dagRunId": "...", "status": "not_started"}
+  ],
+  "outputs": []
+}
+```
+
+The step's status details list the matched nodes in name order. A disabled
+node shows as skipped.
+
+### Bound runs
+
+A run bound to an SSH node reaches the node as a run with DAG-level `ssh`
+reaches its host. Steps with no action, `ssh.run`, and `sftp.*`, including
+handlers and `foreach` bodies, connect to the node, through its bastion.
+Other actions run where the run runs. Fields under the `with` of an
+`ssh.run` or `sftp.*` step override the node's, except that a step that sets
+`with.host` or `with.ip` connects to that host as it would outside a bound
+run. A key or a password under `with` replaces all of the node's
+credentials. `with.known_host_file` and `with.strict_host_key` are errors,
+since a node's inventory decides which host keys it accepts, and so is
+`with.bastion`, since the node connects through the bastion its inventory
+sets.
+
+The node's credentials resolve once per run, before its first step, when a
+step connects to the node, and join the run's masking. A run whose steps
+never connect resolves none. Each hop accepts only its own node's
+`host_key` or trusted key, unless the node sets `strict_host_key: false`. A
+refused key fails the step before any credential is sent.
+
+### The `node` namespace
+
+Every value-resolved field of a bound run reads its node:
+
+| Reference | Value |
+| --- | --- |
+| `${node.name}` | Node name |
+| `${node.host}`, `${node.port}`, `${node.user}` | Connection fields. `port` is `22` when the node sets none |
+| `${node.description}` | Description |
+| `${node.labels}` | Labels, sorted and comma-separated, as `key` or `key=value` |
+| `${node.labels.<key>}` | The value of the label with that key, empty for a label with no value |
+| `${node.labels."<key>"}` | The same, for a key with a dot, such as `gpu.type` |
+
+Outside a bound run, a `${node.*}` reference is kept as text, with a
+runtime-only notice. A run with a variable named `node`, such as a step
+output, reads `${node.<path>}` as a JSON path into that variable instead,
+as it did before the namespace.
+
 ## Errors
 
 `dagu validate` fails, naming the field, when:
@@ -71,9 +169,39 @@ enqueued is refused, since the bound node decides where it runs.
   outside 1 to 1000, or a `keep_going` that is not a boolean;
 - `node` has a value other than `required`;
 - a `node: required` DAG sets `ssh`, `container`, or `worker_selector`
-  (`local` included), or has a step with `nodes`.
+  (`local` included), or has a step with `nodes`;
+- a DAG with a `workspace` label sets `node: required` or has a step with
+  `nodes`, since inventories belong to the installation's one project until
+  workspaces become projects.
+
+A step with `nodes` fails before any node starts, with the error, when:
+
+- a reference in its selector resolves to anything but one label key or
+  value;
+- its selector matches no nodes (`selector matched no nodes`), only disabled
+  nodes, or more than 1,000;
+- the inventory cannot be read;
+- it is a `dag.run` step whose child DAG does not declare `node: required`.
+
+A run fails before any step starts when:
+
+- it is a `node: required` DAG started without a node;
+- it is bound to a node that is not in the inventories, or is disabled;
+- it reads `${node.labels.<key>}` for a label its node lacks, naming the
+  node and the key;
+- it reads a `${node.<path>}` that the namespace does not define, such as
+  `${node.nmae}`, naming the reference;
+- a credential of its node is a secret ref that does not resolve, naming the
+  field and the ref;
+- it runs on a worker and is bound to a node or has a step with `nodes`.
+
+A step of a bound run fails, naming the hop, when its node's or bastion's
+host key is unknown or has changed.
 
 ## Examples
+
+This DAG validates. Until a child run reaches its node, both of its node
+steps fail on each node before any command runs, as [Status](#status) says.
 
 ```yaml
 steps:

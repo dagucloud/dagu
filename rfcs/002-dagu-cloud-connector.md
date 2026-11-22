@@ -153,7 +153,7 @@ were lost from.
 | Level | Fields | When |
 | --- | --- | --- |
 | `health` | Dagu version, OS, architecture, process start time, service counts (schedulers holding the scheduler lock, and registered coordinators), the scheduler's last tick and whether it is paused, the remote access level and whether remote approvals are on, and, on a paid plan or trial, the latest sample of the machine's resources, or its container's when that has limits: logical CPUs and the CPU limit, average and peak CPU use since the last accepted report, load averages, memory use, and the use of the disks that hold the data and log directories, with their inodes. Also, on a paid plan or trial, how many distributed workers send heartbeats | Every report |
-| `runs` | The `health` fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times. Also each scheduled DAG: its name, its next run, and its latest start-schedule slot that came due with what the scheduler did with it (dispatched, skipped as running, queued, done, succeeded, or overlapping, failed, planned, or missed while no scheduler ran). Also each queue that holds queued or running runs: its name, how many runs are waiting and how many are running, on the server and on distributed workers, how many may run at once, when the next run in line was queued, and why it cannot start when it waits for a worker. Also, on a paid plan or trial, each distributed worker: its ID, host, labels, pollers, last heartbeat, and the latest sample of its machine. From protocol 3, each run, scheduled DAG, and queue not defined in `config.yaml` also names its [project](#projects): its ID, name, and display name, and its Dagu Cloud project's ID when bound | Each finished run once, at most 500 and 512 KiB of them per report; the runs in progress with every report, at most 200 of them and a count of all; within 5 seconds of a failed, aborted, or rejected run or a change to the runs in progress. The scheduled DAGs with every report from the process that reports the runs, those whose slot did not run first, at most 500 and 128 KiB of them and a count of all. The queues with every report, read at most once a minute, those whose next run waits for a worker first, then those with room whose next run has not started, then full ones, then those with nothing queued, at most 256 of them and a count of all. The workers with every report, by ID, at most 256 and 64 KiB of them and a count of all |
+| `runs` | The `health` fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times, with up to 200 of its steps, each as its name, status, start and finish times, and retry count. Also each scheduled DAG: its name, its next run, and its latest start-schedule slot that came due with what the scheduler did with it (dispatched, skipped as running, queued, done, succeeded, or overlapping, failed, planned, or missed while no scheduler ran). Also each queue that holds queued or running runs: its name, how many runs are waiting and how many are running, on the server and on distributed workers, how many may run at once, when the next run in line was queued, and why it cannot start when it waits for a worker. Also, on a paid plan or trial, each distributed worker: its ID, host, labels, pollers, last heartbeat, and the latest sample of its machine. From protocol 3, each run, scheduled DAG, and queue not defined in `config.yaml` also names its [project](#projects): its ID, name, and display name, and its Dagu Cloud project's ID when bound | Each finished run once, at most 500 and 512 KiB of them per report; the runs in progress with every report, at most 200 of them and a count of all; within 5 seconds of a failed, aborted, or rejected run or a change to the runs in progress. The scheduled DAGs with every report from the process that reports the runs, those whose slot did not run first, at most 500 and 128 KiB of them and a count of all. The queues with every report, read at most once a minute, those whose next run waits for a worker first, then those with room whose next run has not started, then full ones, then those with nothing queued, at most 256 of them and a count of all. The workers with every report, by ID, at most 256 and 64 KiB of them and a count of all |
 | `errors` | The `runs` fields, plus why each finished run failed: the error messages of its failed steps and handlers, at most 5, or the run's own error when no step has one. Each is sent without terminal escapes, at most 2048 bytes from its end. A command step's error ends with the last 1 KiB of its stderr; the values of workflow secrets are masked in it as in logs | With the finished run it belongs to |
 
 A run is reported unless its event has no valid status snapshot, or it names
@@ -280,10 +280,21 @@ activation's credentials, as the heartbeat is.
                  "queued_at": "2026-10-10T01:00:00Z",
                  "started_at": "2026-10-10T01:00:01Z",
                  "finished_at": "2026-10-10T01:02:03Z",
-                 "failed_steps": ["load", "notify"] }],
+                 "failed_steps": ["load", "notify"],
+                 "steps": [{ "name": "extract", "status": "succeeded",
+                             "started_at": "2026-10-10T01:00:01Z",
+                             "finished_at": "2026-10-10T01:01:00Z", "retries": 0 },
+                           { "name": "load", "status": "failed",
+                             "started_at": "2026-10-10T01:01:00Z",
+                             "finished_at": "2026-10-10T01:02:00Z", "retries": 1 },
+                           { "name": "notify", "status": "failed", "retries": 0 }],
+                 "steps_total": 3 }],
   "active": [{ "workflow": "report", "dag_run_id": "…", "attempt_id": "…",
                "status": "running", "trigger_type": "manual",
-               "queued_at": null, "started_at": "2026-10-10T01:01:00Z" }],
+               "queued_at": null, "started_at": "2026-10-10T01:01:00Z",
+               "steps": [{ "name": "render", "status": "running",
+                           "started_at": "2026-10-10T01:01:00Z", "retries": 0 }],
+               "steps_total": 1 }],
   "active_total": 1,
   "cursor": "opaque",
   "gap": { "since": "2026-10-08T00:00:00Z" }
@@ -332,6 +343,15 @@ handlers, at most 50 of at most 512 bytes each. At `errors`, a failed run
 also carries `errors`: `[{"step": "load", "message": "exit status 1\n…"}]`, at
 most 5, with `step` empty for the run's own error; it is left out when the
 run has none and at every other level.
+
+`steps` lists a run's named steps and handlers in run order, each with its
+`name`, cut to 512 bytes, its `status` (`not_started`, `running`,
+`retrying`, `waiting`, `succeeded`, `partially_succeeded`, `failed`,
+`aborted`, `skipped`, or `rejected`), its `started_at` and `finished_at`,
+left out when unknown, and its `retries`. A run carries at most 200 steps,
+the first in run order that fit 32 KiB encoded, and `steps_total` counts them
+all. A step's error stays in `errors`; its outputs and logs are never sent.
+Events recorded before Dagu kept a step's finish time carry none.
 
 `cursor`, at most 4096 bytes, identifies the position after `finished`; it
 comes with every `finished`, which is empty when the cursor moves only past
@@ -386,7 +406,11 @@ read. With a coordinator and no worker, `workers` is empty and
 `active` lists the runs in progress, with `status` `queued`, `running`, or
 `waiting` and the same fields up to `started_at`: at most 200, the most
 recently started or queued first. `active_total` counts them all. Each
-report's list replaces the one before. Both are left out at `health`, and at
+report's list replaces the one before. A run also carries `steps` and
+`steps_total` as a finished run does, read from its latest status at most
+once a minute. The steps of the runs listed share 512 KiB, first come first;
+a run past that, or one whose status could not be read, is sent without
+steps, which tells Dagu Cloud to keep the ones it has. Both are left out at `health`, and at
 `runs` until the reporter knows the runs in progress; a report without them
 says nothing about the runs in progress.
 

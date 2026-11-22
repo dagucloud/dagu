@@ -22,8 +22,10 @@ import (
 )
 
 type Client struct {
-	hostPort   string
-	cfg        *ssh.ClientConfig
+	hostPort string
+	cfg      *ssh.ClientConfig
+	// hostKey chooses the host key algorithms each handshake offers.
+	hostKey    hostKeyPolicy
 	Shell      string   // Shell for remote command execution
 	ShellArgs  []string // Shell arguments for remote command execution
 	bastionCfg *bastionClientConfig
@@ -33,6 +35,7 @@ type Client struct {
 type bastionClientConfig struct {
 	hostPort string
 	cfg      *ssh.ClientConfig
+	hostKey  hostKeyPolicy
 }
 
 // NewClient creates a client for cfg. Credentials given as secret refs are
@@ -43,7 +46,7 @@ func NewClient(ctx context.Context, cfg *Config) (*Client, error) {
 		return nil, err
 	}
 
-	hostKeyCallback, err := getHostKeyCallback(cfg.StrictHostKey, cfg.KnownHostFile)
+	hostKey, err := targetHostKeyPolicy(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup host key verification: %w", err)
 	}
@@ -53,8 +56,11 @@ func NewClient(ctx context.Context, cfg *Config) (*Client, error) {
 
 	var bastionCfg *bastionClientConfig
 	if cfg.Bastion != nil {
-		// Bastion inherits host key verification settings from main config
-		bastionCfg, err = newBastionClientConfig(ctx, cfg.Bastion, timeout, hostKeyCallback)
+		bastionHostKey, err := bastionHostKeyPolicy(ctx, cfg, hostKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to setup bastion host key verification: %w", err)
+		}
+		bastionCfg, err = newBastionClientConfig(ctx, cfg.Bastion, timeout, bastionHostKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to setup bastion client: %w", err)
 		}
@@ -65,9 +71,10 @@ func NewClient(ctx context.Context, cfg *Config) (*Client, error) {
 		cfg: &ssh.ClientConfig{
 			User:            cfg.User,
 			Auth:            []ssh.AuthMethod{authMethod},
-			HostKeyCallback: hostKeyCallback,
+			HostKeyCallback: hostKey.callback,
 			Timeout:         timeout,
 		},
+		hostKey:    hostKey,
 		Shell:      cfg.Shell,
 		ShellArgs:  slices.Clone(cfg.ShellArgs),
 		bastionCfg: bastionCfg,
@@ -118,35 +125,51 @@ func (c *Client) dial(ctx context.Context) (*ssh.Client, error) {
 	if c.bastionCfg != nil {
 		return c.dialViaBastion(ctx)
 	}
-	return dialContext(ctx, c.hostPort, c.cfg)
+	return c.hostKey.handshake(ctx, c.cfg, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
+		return dialContext(ctx, c.hostPort, cfg)
+	})
 }
 
 // dialViaBastion establishes an SSH connection through a bastion/jump host.
 func (c *Client) dialViaBastion(ctx context.Context) (*ssh.Client, error) {
 	// Connect to bastion host first
-	bastionConn, err := dialContext(ctx, c.bastionCfg.hostPort, c.bastionCfg.cfg)
+	bastionConn, err := c.bastionCfg.hostKey.handshake(ctx, c.bastionCfg.cfg, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
+		return dialContext(ctx, c.bastionCfg.hostPort, cfg)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to bastion host: %w", err)
 	}
 
-	// Create a tunnel through bastion to the target host
-	targetConn, err := bastionConn.Dial("tcp", c.hostPort)
+	client, err := c.hostKey.handshake(ctx, c.cfg, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
+		return c.dialThroughBastion(bastionConn, cfg)
+	})
 	if err != nil {
 		_ = bastionConn.Close()
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
+		return nil, err
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		_ = client.Close()
+		return nil, ctxErr
+	}
+	return client, nil
+}
+
+// dialThroughBastion connects to the target through bastionConn, and leaves
+// bastionConn open when it fails.
+func (c *Client) dialThroughBastion(bastionConn *ssh.Client, cfg *ssh.ClientConfig) (*ssh.Client, error) {
+	// Create a tunnel through bastion to the target host
+	targetConn, err := bastionConn.Dial("tcp", c.hostPort)
+	if err != nil {
 		return nil, fmt.Errorf("failed to dial target through bastion: %w", err)
 	}
 
 	// Perform SSH handshake over the tunnel
-	ncc, chans, reqs, err := ssh.NewClientConn(targetConn, c.hostPort, c.cfg)
+	ncc, chans, reqs, err := ssh.NewClientConn(targetConn, c.hostPort, cfg)
 	if err != nil {
 		_ = targetConn.Close()
-		_ = bastionConn.Close()
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
-		}
 		return nil, fmt.Errorf("failed to establish SSH connection through bastion: %w", err)
 	}
 
@@ -155,13 +178,7 @@ func (c *Client) dialViaBastion(ctx context.Context) (*ssh.Client, error) {
 		Conn:    ncc,
 		bastion: bastionConn,
 	}
-
-	client := ssh.NewClient(wrappedConn, chans, reqs)
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		_ = client.Close()
-		return nil, ctxErr
-	}
-	return client, nil
+	return ssh.NewClient(wrappedConn, chans, reqs), nil
 }
 
 func dialContext(ctx context.Context, addr string, cfg *ssh.ClientConfig) (*ssh.Client, error) {
@@ -231,9 +248,34 @@ func (c *bastionWrappedConn) Close() error {
 	return errors.Join(targetErr, bastionErr)
 }
 
+// targetHostKeyPolicy checks the target's key against its node's keys, or
+// else against the known hosts file.
+func targetHostKeyPolicy(ctx context.Context, cfg *Config) (hostKeyPolicy, error) {
+	if cfg.NodeHostKey != nil {
+		return cfg.NodeHostKey.policy(ctx, hopNode)
+	}
+	callback, err := getHostKeyCallback(cfg.StrictHostKey, cfg.KnownHostFile)
+	if err != nil {
+		return hostKeyPolicy{}, err
+	}
+	return hostKeyPolicy{callback: callback}, nil
+}
+
+// bastionHostKeyPolicy checks the bastion's key against its own node's keys.
+// A bastion that is not a node checks its key as the target does.
+func bastionHostKeyPolicy(ctx context.Context, cfg *Config, target hostKeyPolicy) (hostKeyPolicy, error) {
+	switch {
+	case cfg.Bastion.NodeHostKey != nil:
+		return cfg.Bastion.NodeHostKey.policy(ctx, hopBastion)
+	case cfg.NodeHostKey != nil:
+		return hostKeyPolicy{}, fmt.Errorf("the bastion of node %q names no node to check its host key against", cfg.NodeHostKey.Node)
+	default:
+		return target, nil
+	}
+}
+
 // newBastionClientConfig creates the bastion client configuration.
-// It inherits the host key callback from the main SSH config for security.
-func newBastionClientConfig(ctx context.Context, bastion *BastionConfig, timeout time.Duration, hostKeyCallback ssh.HostKeyCallback) (*bastionClientConfig, error) {
+func newBastionClientConfig(ctx context.Context, bastion *BastionConfig, timeout time.Duration, hostKey hostKeyPolicy) (*bastionClientConfig, error) {
 	authMethod, err := selectBastionAuthMethod(ctx, bastion.SSHAuth)
 	if err != nil {
 		return nil, err
@@ -244,9 +286,10 @@ func newBastionClientConfig(ctx context.Context, bastion *BastionConfig, timeout
 		cfg: &ssh.ClientConfig{
 			User:            bastion.User,
 			Auth:            []ssh.AuthMethod{authMethod},
-			HostKeyCallback: hostKeyCallback,
+			HostKeyCallback: hostKey.callback,
 			Timeout:         timeout,
 		},
+		hostKey: hostKey,
 	}, nil
 }
 

@@ -246,6 +246,7 @@ func expandRuntimeValue(ctx context.Context, raw string, rCtx Context, dag *ir.D
 			Foreach:        foreach,
 			BuiltinContext: builtinContextFromDAGContext(rCtx, scope, step),
 			Dates:          rCtx.Dates,
+			Node:           rCtx.Node,
 		},
 	)
 	return resolver.String(ctx, raw, field)
@@ -538,7 +539,7 @@ func evalShellInvocationWithScope(ctx context.Context, dag *ir.DAG, scope *cmnva
 	dagScope := newDAGValueResolutionScope(dag)
 	resolver := cmnvalue.NewResolver(
 		dagScope.staticScope(),
-		cmnvalue.RuntimeScope{Consts: dagScope.consts, Params: dagScope.params, ParamsJSON: dagScope.paramsJSON, Env: scope, Dates: GetDAGContext(ctx).Dates},
+		cmnvalue.RuntimeScope{Consts: dagScope.consts, Params: dagScope.params, ParamsJSON: dagScope.paramsJSON, Env: scope, Dates: GetDAGContext(ctx).Dates, Node: GetDAGContext(ctx).Node},
 	)
 	shellCmd, err := resolver.String(ctx, shell, shellFieldForPath("shell"))
 	if err != nil {
@@ -552,7 +553,7 @@ func evalShellArgsWithScope(ctx context.Context, dag *ir.DAG, scope *cmnvalue.En
 	dagScope := newDAGValueResolutionScope(dag)
 	resolver := cmnvalue.NewResolver(
 		dagScope.staticScope(),
-		cmnvalue.RuntimeScope{Consts: dagScope.consts, Params: dagScope.params, ParamsJSON: dagScope.paramsJSON, Env: scope, Dates: GetDAGContext(ctx).Dates},
+		cmnvalue.RuntimeScope{Consts: dagScope.consts, Params: dagScope.params, ParamsJSON: dagScope.paramsJSON, Env: scope, Dates: GetDAGContext(ctx).Dates, Node: GetDAGContext(ctx).Node},
 	)
 	return evalShellArgsWithResolver(ctx, shell, shellArgs, fieldForPath, resolver)
 }

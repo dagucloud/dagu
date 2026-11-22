@@ -1,0 +1,24 @@
+working_dir: .
+params:
+  - DIR: ""
+steps:
+  - id: deploy
+    action: dag.run
+    stdout: nodes.json
+    with:
+      dag: deploy-one
+      params:
+        DIR: ${params.DIR}
+    nodes:
+      labels: web
+      max_concurrent: 1
+---
+name: deploy-one
+node: required
+params:
+  - DIR: ""
+steps:
+  - id: drain
+    run: echo "${node.name} drain" >> "${params.DIR}/order.log"
+  - id: restart
+    run: sleep 0.2 && echo "${node.name} restart" >> "${params.DIR}/order.log"

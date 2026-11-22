@@ -1,0 +1,9 @@
+# A service DAG: the scheduler starts a new run 1 second after each run ends.
+# The check fails about one time in ten, so the run history shows failed and
+# recovered events. GET /api/v1/dags/service-check/run-history/availability gives
+# its history.
+restart_policy: always
+restart_wait_sec: 1
+steps:
+  - id: check
+    run: awk 'BEGIN { srand(); exit (rand() < 0.1) }'

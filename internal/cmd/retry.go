@@ -772,6 +772,8 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOp
 			NoReuse:                  opts.noReuse,
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
+			NodeSelector:             as.Inventory,
+			HostKeys:                 as.HostKeys,
 			ProfileName:              opts.profileName,
 			DAGDefinitionID:          opts.definitionID,
 			ServiceRegistry:          ctx.Persistence.ServiceRegistry,

@@ -1,0 +1,23 @@
+working_dir: .
+params:
+  - DIR: ""
+steps:
+  - id: deploy
+    action: dag.run
+    stdout: nodes.json
+    with:
+      dag: deploy-one
+      params:
+        DIR: ${params.DIR}
+    nodes: web
+---
+name: deploy-one
+node: required
+params:
+  - DIR: ""
+steps:
+  - action: file.write
+    with:
+      path: ${params.DIR}/child-ran
+      content: ran
+      overwrite: true
