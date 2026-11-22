@@ -169,7 +169,7 @@ func TestFileCollectionReadsRawNamesWithPercent(t *testing.T) {
 func TestFileCollectionKeepsEscapedLookalikesApart(t *testing.T) {
 	t.Parallel()
 
-	for _, pair := range [][2]string{{"nul", "%6Eul"}, {"nul/child", "%6Eul/child"}, {"a:b", "a%3Ab"}} {
+	for _, pair := range [][2]string{{"nul", "%6Eul"}, {"nul/child", "%6Eul/child"}, {"a:b", "a%3Ab"}, {"a:b", "a%3ab"}, {"nul", "%6eul"}} {
 		t.Run(pair[1], func(t *testing.T) {
 			t.Parallel()
 			ctx := t.Context()
@@ -193,6 +193,32 @@ func TestFileCollectionKeepsEscapedLookalikesApart(t *testing.T) {
 			assert.Equal(t, []string{pair[0]}, ids)
 		})
 	}
+}
+
+// On a file system that ignores case, a%3ab.json is the file of a:b, whose
+// escaped name is a%3Ab.json. The record a%3ab never reads, replaces, or
+// removes it.
+func TestFileCollectionKeepsCaseVariantsApart(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	dir := filepath.Join(t.TempDir(), "collection")
+	other := filepath.Join(dir, "a%3ab.json")
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	require.NoError(t, os.WriteFile(other, []byte(`{"v":0}`), 0o600))
+	col := file.NewCollection(dir)
+
+	_, err := col.Get(ctx, "a%3ab")
+	assert.ErrorIs(t, err, persis.ErrNotFound)
+	require.NoError(t, col.Create(ctx, &persis.Record{ID: "a%3ab", Data: []byte(`{"v":1}`)}))
+	require.NoError(t, col.Put(ctx, &persis.Record{ID: "a%3ab", Data: []byte(`{"v":2}`)}))
+	got, err := col.Get(ctx, "a%3ab")
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"v":2}`, string(got.Data))
+	require.NoError(t, col.Delete(ctx, "a%3ab"))
+
+	raw, err := os.ReadFile(other)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"v":0}`, string(raw))
 }
 
 // A rewrite that stops between writing the escaped file and removing the

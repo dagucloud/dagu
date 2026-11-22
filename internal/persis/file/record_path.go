@@ -23,6 +23,10 @@ import (
 //     or aux.txt, which Windows reserves in any case and with any extension
 //   - the trailing dot or space of a directory, which Windows drops
 //
+// A name that differs from an escaped name only in letter case, such as
+// a%3ab for a%3Ab, holds the same segment, since a file system that ignores
+// case opens it as that file.
+//
 // Records used to be written under their raw segments, so a record whose ID
 // needs escaping may still have its file there. Reads find it, and the next
 // write moves it to the escaped path. Windows never held a usable file under
@@ -104,11 +108,12 @@ func escapeSegment(segment string, dir bool) string {
 }
 
 // segmentFromName returns the ID segment that a directory (dir) or file
-// name holds. A name that is not the escaped form of its own decoding was
-// written before IDs were escaped, so it is its own segment.
+// name holds. A name that is not the escaped form of its own decoding,
+// ignoring case, was written before IDs were escaped, so it is its own
+// segment.
 func segmentFromName(name string, dir bool) string {
 	decoded := unescapeSegment(name)
-	if escapeSegment(decoded, dir) != name {
+	if !strings.EqualFold(escapeSegment(decoded, dir), name) {
 		return name
 	}
 	return decoded
