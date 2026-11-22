@@ -591,6 +591,10 @@ const (
 	// ExecutorTypeParallel is the executor type for parallel steps.
 	ExecutorTypeParallel = "parallel"
 
+	// ExecutorTypeNodes is the executor type that runs a step with nodes as
+	// one bound child run per matched node (RFC 013).
+	ExecutorTypeNodes = "nodes"
+
 	// ExecutorTypeForeach is the executor type for foreach steps.
 	ExecutorTypeForeach = "foreach"
 

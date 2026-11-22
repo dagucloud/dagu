@@ -29,6 +29,7 @@ func TestNodeTargetingValidation(t *testing.T) {
 		{"node_required_ssh.yaml", "cannot be combined with ssh"},
 		{"node_required_nodes_step.yaml", "a node: required DAG runs on one node and cannot target more nodes"},
 		{"node_value.yaml", `must be "required"`},
+		{"workspace_nodes.yaml", "a DAG in a workspace cannot target nodes"},
 	} {
 		t.Run(tc.file, func(t *testing.T) {
 			t.Parallel()

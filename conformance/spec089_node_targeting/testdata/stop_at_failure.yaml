@@ -1,0 +1,17 @@
+working_dir: .
+steps:
+  - id: deploy
+    action: dag.run
+    stdout: nodes.json
+    with:
+      dag: deploy-one
+    nodes:
+      labels: web
+      max_concurrent: 1
+---
+name: deploy-one
+node: required
+steps:
+  - action: js.run
+    with:
+      script: throw new Error("boom")
