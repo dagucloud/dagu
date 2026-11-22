@@ -3543,6 +3543,8 @@ func TestRunner_SkipWaits(t *testing.T) {
 		keptWait = 300 * time.Millisecond
 	)
 	shortTimeout := platformTestDuration(time.Second, 3*time.Second)
+	// holdTimeout lets every first execution finish before the run ends.
+	holdTimeout := platformTestDuration(5*time.Second, 30*time.Second)
 
 	t.Run("Retry", func(t *testing.T) {
 		counterFile := filepath.Join(t.TempDir(), "count")
@@ -3642,19 +3644,36 @@ func TestRunner_SkipWaits(t *testing.T) {
 		assert.Equal(t, 1, result.nodeByName(t, "skipped").State().RetryCount)
 	})
 
-	t.Run("KeepWaitsRepeat", func(t *testing.T) {
-		r := setupRunner(t, withSkipWaits("kept"), withTimeout(runBound))
-		plan := r.newPlan(t, newStep("kept",
-			withCommand("exit 0"),
-			withRepeatPolicy(true, keptWait),
-			func(step *ir.Step) { step.RepeatPolicy.Limit = 2 },
-		))
+	// Kept steps with hour-long intervals are still waiting when the run
+	// times out, while a skipped step with the same interval finishes.
+	t.Run("KeepWaitsHold", func(t *testing.T) {
+		dir := t.TempDir()
+		counter := func(name string) string { return filepath.Join(dir, name) }
+		r := setupRunner(t, withSkipWaits("retry", "repeat"), withTimeout(holdTimeout))
+		plan := r.newPlan(t,
+			newStep("retry",
+				withScript(counterThresholdExitScript(counter("retry"), 1, 1, 0)),
+				withRetryPolicy(1, longWait),
+			),
+			newStep("repeat",
+				withScript(repeatCounterScript(counter("repeat"), false)),
+				withRepeatPolicy(true, longWait),
+				func(step *ir.Step) { step.RepeatPolicy.Limit = 2 },
+			),
+			newStep("skipped",
+				withScript(counterThresholdExitScript(counter("skipped"), 1, 1, 0)),
+				withRetryPolicy(1, longWait),
+			),
+		)
 
-		start := time.Now()
-		result := plan.assertRun(t, ir.Succeeded)
+		result := plan.assertRun(t, ir.Failed)
 
-		assert.GreaterOrEqual(t, time.Since(start), keptWait)
-		assert.Equal(t, 2, result.nodeByName(t, "kept").State().DoneCount)
+		result.assertNodeStatus(t, "retry", ir.NodeAborted)
+		result.assertNodeStatus(t, "repeat", ir.NodeAborted)
+		result.assertNodeStatus(t, "skipped", ir.NodeSucceeded)
+		assert.Equal(t, 1, readRepeatCounterValue(t, counter("retry")))
+		assert.Equal(t, 1, readRepeatCounterValue(t, counter("repeat")))
+		assert.Equal(t, 2, readRepeatCounterValue(t, counter("skipped")))
 	})
 
 	// The commands outlast runBound, so a timeout that does not fire fails
