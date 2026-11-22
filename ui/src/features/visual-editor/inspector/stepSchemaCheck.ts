@@ -173,8 +173,10 @@ export interface StepSchemaError {
   /** The values of the rule that failed, for `const` and `enum`. */
   allowedValues?: unknown[];
   /**
-   * True when the rule is in a branch of `oneOf` or `anyOf`: another branch
-   * can allow other values, so the values above are not the only ones.
+   * True when the rule is in a branch of `oneOf` or `anyOf`, or in the `then`
+   * or `else` of a condition: another branch, or a change that turns the
+   * condition, can allow other values, so the values above are not the only
+   * ones.
    */
   inChoice?: boolean;
 }
@@ -217,9 +219,10 @@ export function checkStepSchemaErrors(
       ...(allowedValues !== undefined
         ? {
             allowedValues,
-            inChoice: /\/(?:anyOf|oneOf)\/\d+(?:\/|$)/.test(
-              error.schemaPath ?? ''
-            ),
+            inChoice:
+              /\/(?:anyOf|oneOf)\/\d+(?:\/|$)|\/(?:then|else)(?:\/|$)/.test(
+                error.schemaPath ?? ''
+              ),
           }
         : {}),
     };

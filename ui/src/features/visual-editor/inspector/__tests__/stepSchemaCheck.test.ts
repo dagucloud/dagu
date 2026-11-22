@@ -222,6 +222,15 @@ describe('checkStepSchemaErrors', () => {
             flag: { const: true },
             format: { enum: ['json'] },
             mode: { oneOf: [{ const: 'a' }, { enum: ['b', 'c'] }] },
+            worktree: {
+              type: 'object',
+              properties: {
+                base: { type: 'string' },
+                create: { type: 'boolean' },
+              },
+              if: { required: ['base'] },
+              then: { properties: { create: { const: true } } },
+            },
           },
         },
       },
@@ -230,6 +239,7 @@ describe('checkStepSchemaErrors', () => {
       flag: false,
       format: 'xml',
       mode: 'z',
+      worktree: { base: 'main', create: false },
     });
     const at = (path: string) =>
       errors.filter((error) => error.instancePath === path);
@@ -251,6 +261,10 @@ describe('checkStepSchemaErrors', () => {
     expect(at('/mode').filter((error) => error.allowedValues)).toEqual([
       expect.objectContaining({ allowedValues: ['a'], inChoice: true }),
       expect.objectContaining({ allowedValues: ['b', 'c'], inChoice: true }),
+    ]);
+    // A rule of a condition holds only while the condition does.
+    expect(at('/worktree/create')).toEqual([
+      expect.objectContaining({ allowedValues: [true], inChoice: true }),
     ]);
   });
 });
