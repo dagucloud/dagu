@@ -271,26 +271,40 @@ steps:
 	require.Len(t, server.Commands(), 2, "each step runs on the node")
 }
 
-// A bastion under a bound step's with fails the step, since the node connects
-// through the bastion its inventory sets and checks that bastion's host key.
-func TestAgent_BoundRunRejectsWithBastion(t *testing.T) {
+// A bastion or host key setting under a bound step's with fails the step,
+// since the node's inventory sets its bastion and decides which host keys it
+// accepts. The node's key is not pinned here, so a step that turned the check
+// off would send the node's password to a host no one verified.
+func TestAgent_BoundRunRejectsWithConnectionFields(t *testing.T) {
 	t.Parallel()
 
-	node, server := startNode(t, "web01")
-	dagAgent, _ := runBound(t, nodeInventory{node}, `
+	for _, tc := range []struct {
+		name    string
+		with    string
+		wantErr string
+	}{
+		{name: "Bastion", with: "bastion:\n        host: 127.0.0.1\n        user: " + nodeUser, wantErr: "with.bastion does not apply to a node"},
+		{name: "StrictHostKey", with: "strict_host_key: false", wantErr: "with.strict_host_key does not apply to a node"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			node, server := startNode(t, "web01")
+			node.HostKey = ""
+			dagAgent, _ := runBound(t, nodeInventory{node}, `
 node: required
 steps:
-  - id: via_bastion
+  - id: connect
     action: ssh.run
     with:
-      bastion:
-        host: 127.0.0.1
-        user: `+nodeUser+`
+      `+tc.with+`
       command: "true"
 `, newCountingSecretResolver(map[string]string{passwordRef: nodePassword}))
-	dagAgent.RunCheckErr(t, "with.bastion does not apply to a node")
+			dagAgent.RunCheckErr(t, tc.wantErr)
 
-	require.Zero(t, server.AuthAttempts(), "no credential reaches the node")
+			require.Zero(t, server.AuthAttempts(), "no credential reaches the node")
+		})
+	}
 }
 
 // The label check reads only the fields that resolve values, so a

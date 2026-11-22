@@ -71,6 +71,9 @@ func (n *nodeConnection) clientWith(ctx context.Context, with map[string]any) (*
 	if has("known_host_file") {
 		return nil, errors.New("with.known_host_file does not apply to a node, whose host key is checked against its pinned and trusted keys")
 	}
+	if has("strict_host_key") {
+		return nil, errors.New("with.strict_host_key does not apply to a node, whose inventory decides which host keys it accepts")
+	}
 	if has("bastion") {
 		return nil, errors.New("with.bastion does not apply to a node, which connects through the bastion its inventory sets")
 	}
@@ -88,11 +91,6 @@ func (n *nodeConnection) clientWith(ctx context.Context, with map[string]any) (*
 			return nil, err
 		}
 		cfg.SSHAuth = overrideAuth(cfg.SSHAuth, auth)
-	}
-	if has("strict_host_key") && cfg.NodeHostKey != nil {
-		hostKey := *cfg.NodeHostKey
-		hostKey.AcceptAnyKey = !def.StrictHostKey
-		cfg.NodeHostKey = &hostKey
 	}
 	switch {
 	case has("shell"):
