@@ -24,6 +24,7 @@ import (
 const (
 	fileExt        = ".jsonl"
 	eventsFileName = "events.jsonl"
+	endFileName    = "end"
 	maxLine        = 1 << 20
 )
 
@@ -114,6 +115,8 @@ func (s *store) path(t Tier, start int64) string {
 }
 
 func (s *store) eventsPath() string { return filepath.Join(s.dir, eventsFileName) }
+
+func (s *store) endPath() string { return filepath.Join(s.dir, endFileName) }
 
 // list returns the files of a tier, the oldest first. A missing directory
 // gives an empty list.
@@ -327,7 +330,11 @@ func readAggCounts(path string) ([]aggCount, error) {
 
 // writeFile replaces a file. The write goes to a temporary file that is
 // synced, then renamed.
-func writeFile(path string, buf []byte) error {
+func writeFile(path string, buf []byte) error { return replaceFile(path, buf, true) }
+
+// replaceFile replaces a file through a temporary file and a rename. With
+// sync, the temporary file is synced before the rename.
+func replaceFile(path string, buf []byte, sync bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
@@ -340,14 +347,16 @@ func writeFile(path string, buf []byte) error {
 		_ = f.Close()
 		return err
 	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
+	if sync {
+		if err := f.Sync(); err != nil {
+			_ = f.Close()
+			return err
+		}
 	}
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp, path)
+	return fileutil.Rename(tmp, path)
 }
 
 const tmpSuffix = ".tmp"
@@ -534,30 +543,88 @@ func scanRaw(f fileInfo, fn func(ms, us int64, exit int) bool) error {
 }
 
 // newestRaw returns the time of the newest sample of the raw tier, in
-// milliseconds.
-func (s *store) newestRaw() (int64, bool) {
+// milliseconds, and its duration, in microseconds.
+func (s *store) newestRaw() (ms, us int64, ok bool) {
 	for _, file := range slices.Backward(s.list(TierRaw)) {
 		f, err := os.Open(file.path) //nolint:gosec
 		if err != nil {
 			continue
 		}
-		var ms int64
-		found := false
 		if st, err := f.Stat(); err == nil {
 			_ = scanLinesBackward(f, st.Size(), func(_ int64, line []byte) bool {
-				if off, _, _, ok := parseRaw(line); ok {
-					ms, found = file.start*1000+off, true
+				if off, d, _, parsed := parseRaw(line); parsed {
+					ms, us, ok = file.start*1000+off, d, true
 					return false
 				}
 				return true
 			})
 		}
 		_ = f.Close()
-		if found {
-			return ms, true
+		if ok {
+			return ms, us, true
 		}
 	}
-	return 0, false
+	return 0, 0, false
+}
+
+// newestEnd returns the end of the newest sample, in milliseconds, and the
+// Sample.GapAfter of that sample. A store written with Options.RunHistory keeps
+// both in the file "end". Without that file, once the raw tier holds no
+// sample, the end is the end of the newest aggregate bucket of the finest tier
+// that has one. A sample that the file does not hold has no gap bound.
+func (s *store) newestEnd() (end, gapAfter int64, ok bool) {
+	end, gapAfter, hasEnd := s.readEnd()
+	ms, us, hasRaw := s.newestRaw()
+	switch {
+	case hasEnd && (!hasRaw || ms < end):
+		// The file holds the end of every sample up to the newest raw line. The
+		// raw line of a run that overlaps a newer one starts late, so it can end
+		// after the run did.
+		return end, gapAfter, true
+	case hasRaw:
+		// A crash between the raw line and the file "end" leaves the raw line newer.
+		return max(ms+us/1000, end), 0, true
+	}
+	for _, t := range allTiers[1:] {
+		for _, f := range slices.Backward(s.list(t)) {
+			if last, err := s.lastOf(f.path); err == nil && last != minInt {
+				return (last + tierSec(t)) * 1000, 0, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+// writeEnd replaces the file "end" with the end of the newest sample and its
+// gap bound, in milliseconds: "end gapAfter". Like the raw line before it, the
+// file is not synced. A sync would cost one for each sample, and it would keep
+// the end of a sample whose raw line a power loss can still lose.
+func (s *store) writeEnd(end, gapAfter int64) error {
+	b := strconv.AppendInt(nil, end, 10)
+	b = append(b, ' ')
+	return replaceFile(s.endPath(), strconv.AppendInt(b, gapAfter, 10), false)
+}
+
+// readEnd reads the file "end". A missing file, or one that a crash cut,
+// gives false.
+func (s *store) readEnd() (end, gapAfter int64, ok bool) {
+	b, err := os.ReadFile(s.endPath()) //nolint:gosec
+	if err != nil {
+		return 0, 0, false
+	}
+	fields := bytes.Fields(b)
+	if len(fields) != 2 {
+		return 0, 0, false
+	}
+	end, err = strconv.ParseInt(string(fields[0]), 10, 64)
+	if err != nil || end <= 0 {
+		return 0, 0, false
+	}
+	gapAfter, err = strconv.ParseInt(string(fields[1]), 10, 64)
+	if err != nil || gapAfter < 0 {
+		return 0, 0, false
+	}
+	return end, gapAfter, true
 }
 
 // scanLinesBackward calls fn for the lines of a file before the offset end,

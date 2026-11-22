@@ -542,6 +542,468 @@ func TestBounds(t *testing.T) {
 
 func okDur(i int) time.Duration { return time.Duration(30+i%40) * time.Millisecond }
 
+// runOpts are the options of a run history.
+func runOpts(clk *clock) Options {
+	return Options{Now: clk.now, RunHistory: true}
+}
+
+func openWith(t *testing.T, dir string, o Options) Recorder {
+	t.Helper()
+	r, err := OpenRecorder(context.Background(), dir, o)
+	require.NoError(t, err)
+	// An open file of the recorder blocks the removal of the temporary
+	// directory on Windows. Close is idempotent, so a test may still close it.
+	t.Cleanup(func() { _ = r.Close(context.Background()) })
+	return r
+}
+
+func allEvents(t *testing.T, dir string) []Event {
+	t.Helper()
+	page, err := OpenReader(dir).Events(context.Background(), EventQuery{Limit: maxEvents})
+	require.NoError(t, err)
+	return page.Events
+}
+
+func kinds(evs []Event) []EventKind {
+	var out []EventKind
+	for _, e := range evs {
+		out = append(out, e.Kind)
+	}
+	return out
+}
+
+func mustFirst(t *testing.T, rd Reader) Event {
+	t.Helper()
+	p, err := rd.Events(context.Background(), EventQuery{Limit: 1})
+	require.NoError(t, err)
+	require.Len(t, p.Events, 1)
+	return p.Events[0]
+}
+
+// A run history has no started and no stopped event, and an outage goes on
+// over a stop and over a crash.
+func TestNoLifecycleEvents(t *testing.T) {
+	ctx := context.Background()
+	fail := func(int) (time.Duration, int, string) { return time.Second, 1, "x" }
+
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	o := runOpts(clk)
+	r := openWith(t, dir, o)
+	require.NoError(t, r.Close(ctx))
+	require.NoFileExists(t, filepath.Join(dir, eventsFileName))
+
+	r = openWith(t, dir, o)
+	feed(t, r, clk, t0, 5, time.Second, fail)
+	require.NoError(t, r.Close(ctx))
+	r = openWith(t, dir, o)
+	feed(t, r, clk, t0.Add(time.Minute), 5, time.Second, fail)
+	feed(t, r, clk, t0.Add(2*time.Minute), 1, time.Second, okFn)
+	require.NoError(t, r.Close(ctx))
+	evs := allEvents(t, dir)
+	require.Equal(t, []EventKind{EventRecovered, EventFailed}, kinds(evs))
+	require.Equal(t, 2*time.Minute, evs[0].Outage)
+	require.EqualValues(t, 10, evs[0].FailedCount)
+
+	// A crash: the first recorder is not closed.
+	dir = t.TempDir()
+	r = openWith(t, dir, o)
+	feed(t, r, clk, t0, 5, time.Second, fail)
+	r = openWith(t, dir, o)
+	feed(t, r, clk, t0.Add(time.Minute), 5, time.Second, fail)
+	feed(t, r, clk, t0.Add(2*time.Minute), 1, time.Second, okFn)
+	require.NoError(t, r.Close(ctx))
+	evs = allEvents(t, dir)
+	require.Equal(t, []EventKind{EventRecovered, EventFailed}, kinds(evs))
+	require.EqualValues(t, 10, evs[0].FailedCount)
+}
+
+// In a run history, a reader opened at the same time sees a sample at once.
+func TestSampleSeenAtOnce(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	ctx := context.Background()
+	r := openWith(t, dir, runOpts(clk))
+	rd := OpenReaderWith(dir, Options{Now: clk.now})
+	for i := 1; i <= 3; i++ {
+		feed(t, r, clk, t0.Add(time.Duration(i)*time.Second), 1, time.Second, okFn)
+		s, err := rd.Samples(ctx, SampleQuery{From: t0, To: t0.Add(time.Hour), MaxPoints: 100})
+		require.NoError(t, err)
+		var n uint64
+		for _, b := range s.Buckets {
+			n += b.Count
+		}
+		require.EqualValues(t, i, n)
+		a, err := rd.Availability(ctx, clk.t)
+		require.NoError(t, err)
+		require.EqualValues(t, i, a.Windows[0].Count)
+	}
+}
+
+// The failed and the recovered events keep the run ID of the sample that caused
+// them. The raw line does not.
+func TestEventRunID(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	ctx := context.Background()
+	require.NoError(t, r.Record(ctx, Sample{Time: t0, Duration: time.Second, ExitCode: 1, Message: "boom", RunID: "run-a"}))
+	require.NoError(t, r.Record(ctx, Sample{Time: t0.Add(time.Minute), Duration: time.Second, RunID: "run-b"}))
+	require.NoError(t, r.Close(ctx))
+	evs := allEvents(t, dir)
+	require.Equal(t, []EventKind{EventRecovered, EventFailed}, kinds(evs))
+	require.Equal(t, "run-b", evs[0].RunID)
+	require.Equal(t, "run-a", evs[1].RunID)
+	for name, content := range snapshot(t, dir) {
+		if filepath.Dir(name) == "raw" {
+			require.NotContains(t, content, "run-")
+		}
+	}
+}
+
+// A gap event needs a long pause after a sample that allows one, and the bound
+// survives a reopen.
+func TestGapEvent(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	o := runOpts(clk)
+	ctx := context.Background()
+	r := openWith(t, dir, o)
+	// As the scheduler does, a run that failed allows no gap after it.
+	rec := func(at time.Duration, exit int, id string) {
+		t.Helper()
+		clk.t = t0.Add(at)
+		s := Sample{Time: t0.Add(at), Duration: 10 * time.Second, ExitCode: exit, RunID: id}
+		if exit == 0 {
+			s.GapAfter = time.Minute
+		}
+		require.NoError(t, r.Record(ctx, s))
+	}
+	rec(0, 0, "r1")              // first sample: no gap
+	rec(40*time.Second, 0, "r2") // 30 s after the end: under the threshold
+	rec(5*time.Minute, 0, "r3")  // 4 min 10 s after the end of r2: gap
+	rec(10*time.Minute, 1, "r4") // gap, then the outage opens
+	rec(30*time.Minute, 1, "r5") // after a failed run: no gap
+	rec(time.Hour, 0, "r6")      // after a failed run: no gap
+	require.NoError(t, r.Close(ctx))
+	r = openWith(t, dir, o)
+	rec(3*time.Hour, 0, "r7") // the end of r6 and its bound come back from the store
+	require.NoError(t, r.Close(ctx))
+
+	var gaps []Event
+	for _, e := range allEvents(t, dir) {
+		if e.Kind == EventGap {
+			gaps = append(gaps, e)
+		}
+	}
+	slices.Reverse(gaps)
+	require.Len(t, gaps, 3)
+	want := []struct {
+		id  string
+		end time.Duration
+		gap time.Duration
+	}{
+		{"r3", 50 * time.Second, 4*time.Minute + 10*time.Second},
+		{"r4", 5*time.Minute + 10*time.Second, 4*time.Minute + 50*time.Second},
+		{"r7", time.Hour + 10*time.Second, time.Hour + 59*time.Minute + 50*time.Second},
+	}
+	for i, w := range want {
+		require.Equal(t, w.id, gaps[i].RunID)
+		require.Equal(t, t0.Add(w.end), gaps[i].Time)
+		require.Equal(t, w.gap, gaps[i].Gap)
+	}
+	// Event times never decrease.
+	evs := allEvents(t, dir)
+	for i := 1; i < len(evs); i++ {
+		require.False(t, evs[i-1].Time.Before(evs[i].Time))
+	}
+}
+
+// The events file stays under its bound, and a cursor stays exact over the
+// compactions.
+func TestEventsBound(t *testing.T) {
+	const bound = 4 << 20
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	o := Options{Now: clk.now, MaxEventBytes: bound}
+	ctx := context.Background()
+	rd := OpenReader(dir)
+	r := openWith(t, dir, o)
+	// Every other sample fails: each sample makes an event.
+	fn := func(i int) (time.Duration, int, string) { return time.Second, i % 2, "failed run" }
+	feed(t, r, clk, t0, 20000, time.Second, fn)
+	early, err := rd.Events(ctx, EventQuery{Limit: 1})
+	require.NoError(t, err)
+	require.NotEmpty(t, early.NextCursor)
+	feed(t, r, clk, t0.Add(20000*time.Second), 80000, time.Second, func(i int) (time.Duration, int, string) { return fn(i + 20000) })
+	// The recorder stays open: a close adds a stopped event at the time of the
+	// newest sample.
+	st, err := os.Stat(filepath.Join(dir, eventsFileName))
+	require.NoError(t, err)
+	require.Less(t, st.Size(), int64(bound))
+
+	// The cursor points to an event that the compactions dropped.
+	_, err = rd.Events(ctx, EventQuery{Before: early.NextCursor})
+	require.ErrorIs(t, err, ErrInvalidCursor)
+
+	// The pages cover the kept events with no hole, the newest first.
+	var prev time.Time
+	n, cur := 0, ""
+	for {
+		p, err := rd.Events(ctx, EventQuery{Limit: 500, Before: cur})
+		require.NoError(t, err)
+		for _, e := range p.Events {
+			if n > 0 {
+				require.Equal(t, prev.Add(-time.Second), e.Time)
+			}
+			prev = e.Time
+			n++
+		}
+		if p.NextCursor == "" {
+			break
+		}
+		cur = p.NextCursor
+	}
+	require.Greater(t, n, 20000)
+	require.Equal(t, t0.Add(99999*time.Second), mustFirst(t, rd).Time)
+}
+
+// After a compaction, a cursor is invalid, or it gives the events just before
+// the event that it was taken at.
+func TestCursorOverCompaction(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	o := Options{Now: clk.now, MaxEventBytes: minEventBytes}
+	ctx := context.Background()
+	rd := OpenReader(dir)
+	r := openWith(t, dir, o)
+	type issued struct {
+		cursor string
+		at     time.Time // the oldest event of the page
+	}
+	var cursors []issued
+	for i := range 400 {
+		feed(t, r, clk, t0.Add(time.Duration(i)*time.Second), 1, time.Second, func(int) (time.Duration, int, string) { return time.Second, i % 2, "x" })
+		p, err := rd.Events(ctx, EventQuery{Limit: 3})
+		require.NoError(t, err)
+		if p.NextCursor != "" {
+			cursors = append(cursors, issued{p.NextCursor, p.Events[len(p.Events)-1].Time})
+		}
+		for _, c := range cursors {
+			p, err := rd.Events(ctx, EventQuery{Limit: 3, Before: c.cursor})
+			if err != nil {
+				require.ErrorIs(t, err, ErrInvalidCursor)
+				continue
+			}
+			for k, e := range p.Events {
+				require.Equal(t, c.at.Add(-time.Duration(k+1)*time.Second), e.Time)
+			}
+		}
+		cursors = cursors[max(len(cursors)-40, 0):]
+	}
+	st, err := os.Stat(filepath.Join(dir, eventsFileName))
+	require.NoError(t, err)
+	require.Less(t, st.Size(), int64(minEventBytes))
+}
+
+// A cursor taken before a compaction, at the event that becomes the first one
+// kept, gives an empty page: the events before it are gone. A cursor at a later
+// event still gives the events just before it.
+func TestCursorAtFirstKeptEvent(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, eventsFileName)
+	var lines [][]byte
+	var all []byte
+	for i := range 4 {
+		line := Event{Time: t0.Add(time.Duration(i) * time.Second), Kind: EventGap, Gap: time.Second}.encode()
+		lines = append(lines, line)
+		all = append(all, line...)
+	}
+	require.NoError(t, os.WriteFile(path, all, 0o600))
+	rd := OpenReader(dir)
+	var cursors []string // the cursors at the events 3, 2 and 1
+	cur := ""
+	for range 3 {
+		p, err := rd.Events(ctx, EventQuery{Limit: 1, Before: cur})
+		require.NoError(t, err)
+		require.NotEmpty(t, p.NextCursor)
+		cur = p.NextCursor
+		cursors = append(cursors, cur)
+	}
+
+	// The compaction that drops the event 0, as compactEvents writes it.
+	kept := append(encodeHeader(int64(len(lines[0]))), all[len(lines[0]):]...)
+	require.NoError(t, os.WriteFile(path, kept, 0o600))
+
+	p, err := rd.Events(ctx, EventQuery{Before: cursors[2]})
+	require.NoError(t, err)
+	require.Empty(t, p.Events)
+	require.Empty(t, p.NextCursor)
+
+	p, err = rd.Events(ctx, EventQuery{Before: cursors[1]})
+	require.NoError(t, err)
+	require.Len(t, p.Events, 1)
+	require.Equal(t, t0.Add(time.Second), p.Events[0].Time)
+}
+
+// An outage that opens after a compaction goes on over a restart.
+func TestOutageAfterCompaction(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	o := Options{Now: clk.now, RunHistory: true, MaxEventBytes: minEventBytes}
+	ctx := context.Background()
+	fail := func(int) (time.Duration, int, string) { return time.Second, 1, "x" }
+	r := openWith(t, dir, o)
+	feed(t, r, clk, t0, 201, time.Second, func(i int) (time.Duration, int, string) { return time.Second, i % 2, "x" })
+	require.NoError(t, r.Close(ctx))
+	data, err := os.ReadFile(filepath.Join(dir, eventsFileName))
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(string(data), headerPrefix))
+
+	start := t0.Add(10 * time.Minute)
+	r = openWith(t, dir, o)
+	feed(t, r, clk, start, 3, time.Second, fail)
+	require.NoError(t, r.Close(ctx))
+	r = openWith(t, dir, o)
+	feed(t, r, clk, start.Add(time.Minute), 1, time.Second, fail)
+	feed(t, r, clk, start.Add(2*time.Minute), 1, time.Second, okFn)
+	require.NoError(t, r.Close(ctx))
+	e := mustFirst(t, OpenReader(dir))
+	require.Equal(t, EventRecovered, e.Kind)
+	require.Equal(t, 2*time.Minute, e.Outage)
+	require.EqualValues(t, 4, e.FailedCount)
+}
+
+// A bound too small to keep an event is rejected; zero sets no bound.
+func TestEventsBoundMinimum(t *testing.T) {
+	ctx := context.Background()
+	_, err := OpenRecorder(ctx, t.TempDir(), Options{MaxEventBytes: minEventBytes - 1})
+	require.Error(t, err)
+	for _, bound := range []int64{0, minEventBytes} {
+		r, err := OpenRecorder(ctx, t.TempDir(), Options{MaxEventBytes: bound})
+		require.NoError(t, err)
+		require.NoError(t, r.Close(ctx))
+	}
+}
+
+// A compaction that fails does not lose the sample whose event was appended,
+// and the next sample compacts the file.
+func TestRecordAfterFailedCompaction(t *testing.T) {
+	const bound = minEventBytes
+	ctx := context.Background()
+	dir := t.TempDir()
+	var fill []byte
+	for i := range 200 {
+		fill = append(fill, Event{Time: t0.Add(time.Duration(i) * time.Second), Kind: EventGap, Gap: time.Second}.encode()...)
+	}
+	require.Greater(t, len(fill), bound)
+	events := filepath.Join(dir, eventsFileName)
+	require.NoError(t, os.WriteFile(events, fill, 0o600))
+	// A directory at the temporary path makes the compaction fail.
+	require.NoError(t, os.Mkdir(events+tmpSuffix, 0o750))
+
+	clk := &clock{t: t0.Add(time.Hour)}
+	o := Options{Now: clk.now, RunHistory: true, MaxEventBytes: bound}
+	r := openWith(t, dir, o)
+	failed := Sample{Time: clk.t, Duration: time.Second, ExitCode: 1, Message: "x"}
+	require.ErrorIs(t, r.Record(ctx, failed), ErrSampleKept)
+	end, ok, err := NewestEnd(dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, failed.Time.Add(time.Second), end, "the sample is stored")
+
+	require.NoError(t, os.Remove(events+tmpSuffix))
+	clk.t = clk.t.Add(time.Minute)
+	require.NoError(t, r.Record(ctx, Sample{Time: clk.t, Duration: time.Second}))
+	require.NoError(t, r.Close(ctx))
+	st, err := os.Stat(events)
+	require.NoError(t, err)
+	require.LessOrEqual(t, st.Size(), int64(bound))
+	require.Equal(t, []EventKind{EventRecovered, EventFailed}, kinds(allEvents(t, dir))[:2])
+	require.NotContains(t, kinds(allEvents(t, dir))[2:], EventFailed)
+}
+
+func TestNewestEnd(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "store")
+	_, ok, err := NewestEnd(dir)
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.NoError(t, os.MkdirAll(dir, 0o750))
+	_, ok, err = NewestEnd(dir)
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	at := t0.Add(90*time.Second + 250*time.Millisecond)
+	require.NoError(t, r.Record(context.Background(), Sample{Time: at, Duration: 2 * time.Second}))
+	require.NoError(t, r.Close(context.Background()))
+	end, ok, err := NewestEnd(dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, at.Add(2*time.Second), end)
+
+	// A run history keeps the end without the raw tier.
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, "raw")))
+	end, ok, err = NewestEnd(dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, at.Add(2*time.Second), end)
+
+	// A store with no file "end" and no raw tier gives the end of the minute
+	// bucket of the sample.
+	require.NoError(t, os.Remove(filepath.Join(dir, endFileName)))
+	end, ok, err = NewestEnd(dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, t0.Add(2*time.Minute), end)
+
+	// Without the minute tier, the end of the hour bucket.
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, "minute")))
+	end, ok, err = NewestEnd(dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, t0.Add(time.Hour), end)
+}
+
+// A run longer than the retention of the raw tier keeps its end over restarts:
+// the repair of a reopen removes its raw line, and the next run still finds the
+// end of it.
+func TestNewestEndLongRun(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	o := runOpts(clk)
+	r := openWith(t, dir, o)
+	clk.t = t0.Add(72 * time.Hour)
+	require.NoError(t, r.Record(ctx, Sample{Time: t0, Duration: 72 * time.Hour, GapAfter: 65 * time.Second}))
+	require.NoError(t, r.Close(ctx))
+	for range 2 {
+		clk.t = clk.t.Add(time.Minute)
+		r = openWith(t, dir, o)
+		require.NoError(t, r.Close(ctx))
+	}
+	end, ok, err := NewestEnd(dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, t0.Add(72*time.Hour), end)
+
+	// The next run starts 5 s after the end: no gap event, and the restart
+	// counts as active time.
+	r = openWith(t, dir, o)
+	start := t0.Add(72*time.Hour + 5*time.Second)
+	clk.t = start.Add(time.Hour)
+	require.NoError(t, r.Record(ctx, Sample{
+		Time: start, Duration: time.Hour, GapAfter: 65 * time.Second, ActiveGap: 15 * time.Second,
+	}))
+	require.NoError(t, r.Close(ctx))
+	require.NotContains(t, kinds(allEvents(t, dir)), EventGap)
+	ratio, ok := uptimeAt(t, dir, clk.t, 24*time.Hour).Ratio()
+	require.True(t, ok)
+	require.Equal(t, 1.0, ratio)
+}
+
 func BenchmarkRecord(b *testing.B) {
 	dir := b.TempDir()
 	clk := &clock{t: t0}

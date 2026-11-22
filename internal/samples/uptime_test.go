@@ -1,0 +1,614 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package samples
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+)
+
+// recordRun records a run from start for d, at the time of its end.
+func recordRun(t *testing.T, r Recorder, clk *clock, start time.Time, d time.Duration) {
+	t.Helper()
+	clk.t = start.Add(d)
+	require.NoError(t, r.Record(context.Background(), Sample{Time: start, Duration: d}))
+}
+
+// upSum returns the up time of the lines of a tier, and the count of lines.
+func upSum(t *testing.T, dir string, tier Tier) (time.Duration, int) {
+	t.Helper()
+	var sum int64
+	n := 0
+	for _, f := range newStore(filepath.Join(dir, upDirName)).list(tier) {
+		require.NoError(t, scanUp(f.path, -1<<62, 1<<62, func(_, ms int64) { sum += ms; n++ }))
+	}
+	return time.Duration(sum) * time.Millisecond, n
+}
+
+func upBucketOf(t *testing.T, dir string, tier Tier, at time.Time) time.Duration {
+	t.Helper()
+	ms, err := newStore(filepath.Join(dir, upDirName)).readUp(tier, at.Unix())
+	require.NoError(t, err)
+	return time.Duration(ms) * time.Millisecond
+}
+
+// upReadOf returns the up time of a bucket as a reader sees it, with the open
+// bucket of a tier taken from the finer tier.
+func upReadOf(t *testing.T, dir string, tier Tier, at time.Time) time.Duration {
+	t.Helper()
+	sec := at.Unix()
+	lines, err := newStore(filepath.Join(dir, upDirName)).upTier(context.Background(), tier, sec, sec+1)
+	require.NoError(t, err)
+	var ms int64
+	for _, l := range lines {
+		ms += l.ms
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+func uptimeAt(t *testing.T, dir string, now time.Time, window time.Duration) Uptime {
+	t.Helper()
+	return uptimeOf(t, dir, now, now.Add(-window), now)
+}
+
+// uptimeOf returns the uptime of the window from `from` to `to` that a reader
+// at the time now gives.
+func uptimeOf(t *testing.T, dir string, now, from, to time.Time) Uptime {
+	t.Helper()
+	rd := OpenReaderWith(dir, Options{Now: func() time.Time { return now }}).(*reader)
+	ups, err := rd.uptimes(context.Background(), []upWindow{{from, to}}, now)
+	require.NoError(t, err)
+	return ups[0]
+}
+
+// A run of three hours is split over the buckets that it covers, in every tier,
+// and not put in the bucket of its start.
+func TestUptimeApportion(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	start := t0.Add(30 * time.Minute)
+	recordRun(t, r, clk, start, 3*time.Hour)
+	require.NoError(t, r.Close(context.Background()))
+
+	for i, want := range []time.Duration{30 * time.Minute, time.Hour, time.Hour, 30 * time.Minute} {
+		require.Equal(t, want, upBucketOf(t, dir, TierHour, t0.Add(time.Duration(i)*time.Hour)), "hour %d", i)
+	}
+	require.Zero(t, upBucketOf(t, dir, TierHour, t0.Add(4*time.Hour)))
+	require.Equal(t, 3*time.Hour, upBucketOf(t, dir, TierDay, t0))
+	require.Equal(t, time.Minute, upBucketOf(t, dir, TierMinute, t0.Add(31*time.Minute)))
+	require.Equal(t, time.Minute, upBucketOf(t, dir, TierMinute, t0.Add(3*time.Hour+29*time.Minute)))
+	require.Zero(t, upBucketOf(t, dir, TierMinute, t0.Add(3*time.Hour+30*time.Minute)))
+	sum, lines := upSum(t, dir, TierMinute)
+	require.Equal(t, 3*time.Hour, sum)
+	require.Equal(t, 180, lines)
+}
+
+// A run across midnight gives each day its own part.
+func TestUptimeAcrossMidnight(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	start := t0.Add(-time.Hour)
+	recordRun(t, r, clk, start, 3*time.Hour)
+	require.NoError(t, r.Close(context.Background()))
+	require.Equal(t, time.Hour, upBucketOf(t, dir, TierDay, t0.Add(-24*time.Hour)))
+	require.Equal(t, 2*time.Hour, upBucketOf(t, dir, TierDay, t0))
+	// The parts are in the files of two days, and the reader sums them.
+	u := uptimeAt(t, dir, t0.Add(4*time.Hour), 24*time.Hour)
+	require.Equal(t, 3*time.Hour, u.Up)
+}
+
+// Two runs and a gap: the gap is not up time.
+func TestUptimeGap(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0, time.Hour)
+	recordRun(t, r, clk, t0.Add(2*time.Hour), time.Hour)
+	require.NoError(t, r.Close(context.Background()))
+	u := uptimeAt(t, dir, t0.Add(4*time.Hour), 4*time.Hour)
+	require.Equal(t, 2*time.Hour, u.Up)
+	ratio, ok := u.Ratio()
+	require.True(t, ok)
+	require.InDelta(t, 0.5, ratio, 1e-9)
+}
+
+// recordTolerant records a run whose gap after the previous run counts as active
+// time when it is not longer than tolerance.
+func recordTolerant(t *testing.T, r Recorder, clk *clock, start time.Time, d, tolerance time.Duration) {
+	t.Helper()
+	clk.t = start.Add(d)
+	require.NoError(t, r.Record(context.Background(), Sample{Time: start, Duration: d, ActiveGap: tolerance}))
+}
+
+// A gap that is not longer than the tolerance is active time, in every tier. A
+// gap that is longer stays absent.
+func TestUptimeTolerance(t *testing.T) {
+	const tol = 11 * time.Second
+	tests := []struct {
+		name string
+		gap  time.Duration
+		want time.Duration // up time of two runs of 10 s with this gap
+	}{
+		{"Short", 4 * time.Second, 24 * time.Second},
+		{"AtTolerance", tol, 31 * time.Second},
+		{"AboveTolerance", tol + time.Second, 20 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			clk := &clock{t: t0}
+			r := openWith(t, dir, runOpts(clk))
+			recordTolerant(t, r, clk, t0.Add(5*time.Second), 10*time.Second, tol)
+			recordTolerant(t, r, clk, t0.Add(15*time.Second+tt.gap), 10*time.Second, tol)
+			require.NoError(t, r.Close(context.Background()))
+			for _, tier := range upTiers {
+				sum, _ := upSum(t, dir, tier)
+				require.Equal(t, tt.want, sum, "tier %d", tier)
+			}
+		})
+	}
+}
+
+// The first run of a history has no gap before it, also when the history has
+// samples but no up store: the up time starts at the start of the run.
+func TestUptimeToleranceFirstRun(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0, 10*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, upDirName)))
+
+	r = openWith(t, dir, runOpts(clk))
+	recordTolerant(t, r, clk, t0.Add(15*time.Second), 10*time.Second, 11*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+	sum, _ := upSum(t, dir, TierDay)
+	require.Equal(t, 10*time.Second, sum)
+	u := uptimeAt(t, dir, t0.Add(time.Hour), time.Hour)
+	require.Equal(t, t0.Add(15*time.Second), u.Since)
+}
+
+// A run that overlaps the previous one adds only the part that is not counted,
+// also with a tolerance.
+func TestUptimeToleranceOverlap(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordTolerant(t, r, clk, t0, 100*time.Second, 11*time.Second)
+	recordTolerant(t, r, clk, t0.Add(50*time.Second), 100*time.Second, 11*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+	sum, _ := upSum(t, dir, TierDay)
+	require.Equal(t, 150*time.Second, sum)
+}
+
+// A fast service that restarts as designed reads near 100 %, and a stop that
+// is longer than the tolerance is absent.
+func TestUptimeToleranceRatio(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	// A run of 100 ms each 4 s for 10 minutes, a stop of 5 minutes, and the
+	// same runs for 5 minutes.
+	for at := time.Duration(0); at < 10*time.Minute; at += 4 * time.Second {
+		recordTolerant(t, r, clk, t0.Add(at), 100*time.Millisecond, 11*time.Second)
+	}
+	for at := 15 * time.Minute; at < 20*time.Minute; at += 4 * time.Second {
+		recordTolerant(t, r, clk, t0.Add(at), 100*time.Millisecond, 11*time.Second)
+	}
+	require.NoError(t, r.Close(context.Background()))
+	u := uptimeAt(t, dir, t0.Add(20*time.Minute), 20*time.Minute)
+	ratio, ok := u.Ratio()
+	require.True(t, ok)
+	require.InDelta(t, 0.75, ratio, 0.01)
+}
+
+// A tier is the sum of its parts: the minute, hour and day tiers give the same
+// total for a history that the minute tier still holds.
+func TestUptimeSumAcrossTiers(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	// Short runs, a run of 26 hours, and runs that cross a minute and an hour.
+	for i := range 30 {
+		recordRun(t, r, clk, t0.Add(time.Duration(i)*7*time.Second+500*time.Millisecond), 3*time.Second)
+	}
+	recordRun(t, r, clk, t0.Add(30*time.Minute), 26*time.Hour)
+	recordRun(t, r, clk, t0.Add(27*time.Hour+59*time.Minute+30*time.Second), 90*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+	m, _ := upSum(t, dir, TierMinute)
+	h, _ := upSum(t, dir, TierHour)
+	d, _ := upSum(t, dir, TierDay)
+	require.Equal(t, 90*time.Second+26*time.Hour+90*time.Second, m)
+	require.Equal(t, m, h)
+	require.Equal(t, m, d)
+}
+
+// A run that overlaps the previous one adds only the time that is not counted.
+func TestUptimeOverlap(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0, 100*time.Second)
+	recordRun(t, r, clk, t0.Add(50*time.Second), 100*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+	sum, _ := upSum(t, dir, TierDay)
+	require.Equal(t, 150*time.Second, sum)
+}
+
+// A run that holds a shorter one ends after it, so the scheduler records it
+// second. Its raw line takes the time of the shorter run, but its uptime and
+// the newest end keep its real end: no up time lands after it.
+func TestUptimeNestedRun(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0.Add(20*time.Second), 10*time.Second)
+	recordRun(t, r, clk, t0, 100*time.Second)
+	end, _, err := NewestEnd(dir)
+	require.NoError(t, err)
+	require.Equal(t, t0.Add(100*time.Second), end)
+
+	// The next run starts 5 s after the real end, within the tolerance.
+	recordTolerant(t, r, clk, t0.Add(105*time.Second), 10*time.Second, 10*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+	require.Equal(t, 55*time.Second, upBucketOf(t, dir, TierMinute, t0.Add(time.Minute)))
+	require.Zero(t, upBucketOf(t, dir, TierMinute, t0.Add(2*time.Minute)))
+}
+
+// A run recorded after a longer one that it overlaps does not move the newest
+// end back, so a reopened recorder does not count the longer run again.
+func TestUptimeOverlapReopen(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0, 100*time.Second)
+	recordRun(t, r, clk, t0.Add(20*time.Second), 10*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+	end, _, err := NewestEnd(dir)
+	require.NoError(t, err)
+	require.Equal(t, t0.Add(100*time.Second), end)
+
+	r = openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0.Add(80*time.Second), 40*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+	sum, _ := upSum(t, dir, TierDay)
+	require.Equal(t, 120*time.Second, sum)
+}
+
+// A reopened recorder continues the open buckets: no line is written twice and
+// the part that the file holds is kept.
+func TestUptimeReopen(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0.Add(10*time.Second), 10*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+	r = openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0.Add(30*time.Second), 10*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+	for _, tier := range upTiers {
+		sum, lines := upSum(t, dir, tier)
+		require.Equal(t, 20*time.Second, sum, "tier %d", tier)
+		require.Equal(t, 1, lines, "tier %d", tier)
+	}
+}
+
+// A crash loses the up time of the open minute, in every tier. The open hour
+// and day are not written yet: a reader takes them from the minute tier, and
+// the next recorder writes them.
+func TestUptimeCrash(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0.Add(10*time.Second), 20*time.Second)
+	recordRun(t, r, clk, t0.Add(70*time.Second), 20*time.Second)
+	_ = r // the recorder is not closed
+	require.Equal(t, 20*time.Second, upBucketOf(t, dir, TierMinute, t0))
+	require.Zero(t, upBucketOf(t, dir, TierMinute, t0.Add(time.Minute)))
+	require.Zero(t, upBucketOf(t, dir, TierHour, t0))
+	require.Equal(t, 20*time.Second, upReadOf(t, dir, TierHour, t0))
+	require.Equal(t, 20*time.Second, upReadOf(t, dir, TierDay, t0))
+
+	// The next recorder writes the open hour and day, and counts from the end
+	// of the newest sample.
+	r = openWith(t, dir, runOpts(clk))
+	require.Equal(t, 20*time.Second, upBucketOf(t, dir, TierHour, t0))
+	require.Equal(t, 20*time.Second, upBucketOf(t, dir, TierDay, t0))
+	recordRun(t, r, clk, t0.Add(130*time.Second), 20*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+	for _, tier := range upTiers {
+		sum, _ := upSum(t, dir, tier)
+		require.Equal(t, 40*time.Second, sum, "tier %d", tier)
+	}
+}
+
+// A fast service writes a bucket once, when it closes. A reader sees the open
+// hour and day from the minute tier, with the same up time that the minute
+// tier holds.
+func TestUptimeOpenBuckets(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	// A run of 100 ms each 4 s, from 0:55 to 1:05.
+	for at := 55 * time.Minute; at < 65*time.Minute; at += 4 * time.Second {
+		recordTolerant(t, r, clk, t0.Add(at), 100*time.Millisecond, 11*time.Second)
+	}
+	_ = r // the recorder is not closed
+	_, hours := upSum(t, dir, TierHour)
+	require.Equal(t, 1, hours, "only the closed hour is written")
+	_, days := upSum(t, dir, TierDay)
+	require.Zero(t, days)
+
+	var minutes [2]time.Duration
+	for m := 55; m < 65; m++ {
+		minutes[m/60] += upBucketOf(t, dir, TierMinute, t0.Add(time.Duration(m)*time.Minute))
+	}
+	require.Equal(t, 5*time.Minute, minutes[0])
+	require.Equal(t, minutes[0], upReadOf(t, dir, TierHour, t0))
+	require.Positive(t, minutes[1])
+	require.Equal(t, minutes[1], upReadOf(t, dir, TierHour, t0.Add(time.Hour)))
+	require.Equal(t, minutes[0]+minutes[1], upReadOf(t, dir, TierDay, t0))
+}
+
+// A close and an open of a recorder write the open hour and day. A reader
+// still sees the runs that the minute tier holds after that write.
+func TestUptimeReadAfterReopen(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0.Add(10*time.Second), 20*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+
+	r = openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0.Add(2*time.Minute), 30*time.Second)
+	recordRun(t, r, clk, t0.Add(5*time.Minute), time.Second) // closes minute 2
+	require.Equal(t, 20*time.Second, upBucketOf(t, dir, TierHour, t0))
+	require.Equal(t, 50*time.Second, upReadOf(t, dir, TierHour, t0))
+	require.Equal(t, 50*time.Second, upReadOf(t, dir, TierDay, t0))
+}
+
+// A run that lasts longer than a tier keeps leaves no bucket older than the
+// retention of the tier.
+func TestUptimeRetention(t *testing.T) {
+	dir := t.TempDir()
+	now := t0.Add(40 * 24 * time.Hour)
+	clk := &clock{t: now}
+	r := openWith(t, dir, runOpts(clk))
+	require.NoError(t, r.Record(context.Background(), Sample{Time: t0, Duration: 40 * 24 * time.Hour}))
+	require.NoError(t, r.Close(context.Background()))
+	m, minutes := upSum(t, dir, TierMinute)
+	h, hours := upSum(t, dir, TierHour)
+	d, days := upSum(t, dir, TierDay)
+	require.InDelta(t, 7*24*60, minutes, 2)
+	require.InDelta(t, 30*24, hours, 2)
+	require.Equal(t, 40, days)
+	require.InDelta(t, float64(7*24*time.Hour), float64(m), float64(time.Minute))
+	require.InDelta(t, float64(30*24*time.Hour), float64(h), float64(time.Hour))
+	require.Equal(t, 40*24*time.Hour, d)
+
+	// The window of 365 days reads the three tiers once each: 30 days from the
+	// hour and the minute tiers, and 10 days from the day tier.
+	u := uptimeAt(t, dir, now, 365*24*time.Hour)
+	ratio, ok := u.Ratio()
+	require.True(t, ok)
+	require.InDelta(t, 1.0, ratio, 0.001)
+}
+
+// A run that ended before the retention of the minute tier takes no up time
+// from that tier; the hour and the day tiers count it.
+func TestUptimeOldRun(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0, 30*time.Second)
+	require.NoError(t, r.Close(ctx))
+
+	// A week later, the scheduler records a run that ended back then.
+	clk.t = t0.Add(7*24*time.Hour + 45*time.Second)
+	r = openWith(t, dir, runOpts(clk))
+	require.NoError(t, r.Record(ctx, Sample{Time: t0.Add(35 * time.Second), Duration: 5 * time.Second}))
+	require.NoError(t, r.Close(ctx))
+	require.Equal(t, 30*time.Second, upBucketOf(t, dir, TierMinute, t0))
+	require.Equal(t, 35*time.Second, upBucketOf(t, dir, TierHour, t0))
+	require.Equal(t, 35*time.Second, upBucketOf(t, dir, TierDay, t0))
+}
+
+// A history that has no up store gives no uptime, not 0 %. A history whose up
+// store starts later counts from its first interval.
+func TestUptimeUnknown(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0, time.Hour)
+	require.NoError(t, r.Close(context.Background()))
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, upDirName)))
+
+	now := t0.Add(3 * time.Hour)
+	rd := OpenReaderWith(dir, Options{Now: func() time.Time { return now }})
+	av, err := rd.Availability(context.Background(), now)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, av.Windows[0].Count)
+	for _, w := range av.Windows {
+		_, ok := w.Uptime.Ratio()
+		require.False(t, ok, w.Window)
+		require.True(t, w.Uptime.Since.IsZero(), w.Window)
+	}
+
+	// The up store starts at t0+2h: the window is counted from there.
+	clk.t = now
+	r = openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0.Add(2*time.Hour), 30*time.Minute)
+	require.NoError(t, r.Close(context.Background()))
+	u := uptimeAt(t, dir, now, 24*time.Hour)
+	require.Equal(t, t0.Add(2*time.Hour), u.Since)
+	ratio, ok := u.Ratio()
+	require.True(t, ok)
+	require.InDelta(t, 0.5, ratio, 1e-9)
+}
+
+// The availability gives the uptime of the four windows.
+func TestAvailabilityUptime(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0, 6*time.Hour)
+	require.NoError(t, r.Close(context.Background()))
+	now := t0.Add(12 * time.Hour)
+	av, err := OpenReaderWith(dir, Options{Now: func() time.Time { return now }}).Availability(context.Background(), now)
+	require.NoError(t, err)
+	for _, w := range av.Windows {
+		ratio, ok := w.Uptime.Ratio()
+		require.True(t, ok, w.Window)
+		// The history starts at t0, so each window counts 12 hours.
+		require.InDelta(t, 0.5, ratio, 1e-9, w.Window)
+	}
+}
+
+// Each window of the availability has the uptime that Uptime gives for the
+// same span, over a history that spans the three tiers.
+func TestAvailabilityMatchesUptime(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	const day = 24 * time.Hour
+	at := t0
+	for _, run := range []struct{ up, gap time.Duration }{
+		{20 * day, 2 * day}, {10 * day, 30 * time.Hour}, {5 * day, 7 * time.Hour}, {20 * time.Hour, 0},
+	} {
+		recordRun(t, r, clk, at, run.up)
+		at = at.Add(run.up + run.gap)
+	}
+	require.NoError(t, r.Close(context.Background()))
+	now := at.Add(90 * time.Minute)
+	av, err := OpenReaderWith(dir, Options{Now: func() time.Time { return now }}).Availability(context.Background(), now)
+	require.NoError(t, err)
+	for _, w := range av.Windows {
+		want := uptimeAt(t, dir, now, windowSpans[w.Window])
+		require.Positive(t, want.Up, w.Window)
+		require.Equal(t, want, w.Uptime, w.Window)
+	}
+}
+
+// A reader sees the new up time of a bucket that a later run rewrites, after
+// it read the file once. The rewrite keeps the size of the file.
+func TestUptimeSeesRewrite(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	now := t0.Add(5 * time.Minute)
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0, 20*time.Second)
+	require.NoError(t, r.Close(ctx))
+	require.Equal(t, 20*time.Second, uptimeAt(t, dir, now, 24*time.Hour).Up)
+
+	r = openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0.Add(30*time.Second), 20*time.Second)
+	require.NoError(t, r.Close(ctx))
+	require.Equal(t, 40*time.Second, uptimeAt(t, dir, now, 24*time.Hour).Up)
+}
+
+// A window in the past counts the up time between its two ends, on the
+// buckets of the tier. The reader does not count beyond its own time.
+func TestUptimePastWindow(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0, time.Hour)
+	recordRun(t, r, clk, t0.Add(2*time.Hour), time.Hour)
+	require.NoError(t, r.Close(context.Background()))
+	now := t0.Add(10 * time.Hour)
+
+	u := uptimeOf(t, dir, now, t0.Add(30*time.Minute), t0.Add(2*time.Hour+30*time.Minute))
+	require.Equal(t, t0.Add(30*time.Minute), u.Start)
+	require.Equal(t, t0.Add(2*time.Hour+30*time.Minute), u.To)
+	require.Equal(t, time.Hour, u.Up)
+	ratio, ok := u.Ratio()
+	require.True(t, ok)
+	require.InDelta(t, 0.5, ratio, 1e-9)
+
+	// An end after the reader time is cut to it.
+	u = uptimeOf(t, dir, now, t0, now.Add(5*time.Hour))
+	require.Equal(t, now, u.To)
+
+	// A window of less than one minute has no bucket.
+	u = uptimeOf(t, dir, now, t0.Add(10*time.Second), t0.Add(50*time.Second))
+	_, ok = u.Ratio()
+	require.False(t, ok)
+}
+
+// The last minute of a run that covers more than one minute is written at once:
+// the next run can last hours, and no write follows it.
+func TestUptimeLongRunWritesItsLastMinute(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0.Add(10*time.Second), 125*time.Second)
+	// The recorder is not closed and not flushed.
+	require.Equal(t, 15*time.Second, upBucketOf(t, dir, TierMinute, t0.Add(2*time.Minute)))
+	require.Equal(t, 125*time.Second, upReadOf(t, dir, TierHour, t0))
+	// A run that starts in the same minute adds to it.
+	recordRun(t, r, clk, t0.Add(2*time.Minute+30*time.Second), 10*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+	require.Equal(t, 25*time.Second, upBucketOf(t, dir, TierMinute, t0.Add(2*time.Minute)))
+	sum, _ := upSum(t, dir, TierMinute)
+	require.Equal(t, 135*time.Second, sum)
+}
+
+// A bucket that a run covers has its up time, also when no run started in it.
+func TestSeriesUp(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0.Add(30*time.Minute), 3*time.Hour)
+	require.NoError(t, r.Close(context.Background()))
+	now := t0.Add(6 * time.Hour)
+	reader := OpenReaderWith(dir, Options{Now: func() time.Time { return now }})
+	ctx := context.Background()
+
+	// 6 hours at 60 points: the minute tier. The run has one sample, in its
+	// start minute, and an up time in each minute that it covers.
+	series, err := reader.Samples(ctx, SampleQuery{From: t0, To: now, MaxPoints: 400})
+	require.NoError(t, err)
+	require.Equal(t, TierMinute, series.Tier)
+	require.Len(t, series.Buckets, 180)
+	require.Equal(t, uint64(1), series.Buckets[0].Count)
+	require.Equal(t, time.Minute, series.Buckets[0].Up)
+	require.Zero(t, series.Buckets[1].Count)
+	require.Equal(t, time.Minute, series.Buckets[1].Up)
+
+	// The hour tier: the up time of each hour, and no bucket without up time.
+	series, err = reader.Samples(ctx, SampleQuery{From: t0, To: now, MaxPoints: 12})
+	require.NoError(t, err)
+	require.Equal(t, TierHour, series.Tier)
+	var ups []time.Duration
+	for _, b := range series.Buckets {
+		ups = append(ups, b.Up)
+	}
+	require.Equal(t, []time.Duration{30 * time.Minute, time.Hour, time.Hour, 30 * time.Minute}, ups)
+}
+
+// A history with no up store has no up time, and a step never has it.
+func TestSeriesNoUp(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := newRecorder(t, dir, clk)
+	feed(t, r, clk, t0, 10, time.Minute, okFn)
+	require.NoError(t, r.Close(context.Background()))
+	now := t0.Add(time.Hour)
+	series, err := OpenReaderWith(dir, Options{Now: func() time.Time { return now }}).
+		Samples(context.Background(), SampleQuery{From: t0, To: now, MaxPoints: 100})
+	require.NoError(t, err)
+	require.NotEmpty(t, series.Buckets)
+	for _, b := range series.Buckets {
+		require.Zero(t, b.Up)
+	}
+}
