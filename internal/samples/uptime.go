@@ -35,11 +35,12 @@ import (
 // A bucket holds the whole up time of the bucket. The recorder writes a bucket
 // when it closes, and when the recorder flushes or closes; a write replaces
 // the line of a bucket that the file holds. The open bucket of the hour and
-// the day tier is in the finer tier only: a reader takes the buckets after the
-// newest line of a tier from the finer tier, and a recorder that opens writes
-// them. A crash loses the up time of the open minute. A store that has no "up"
-// directory has no known uptime. A window that starts before "up/since"
-// counts from it.
+// the day tier can lack the runs after its last write: a reader takes the
+// buckets from the newest line of a tier on from the finer tier too, and keeps
+// the larger of a line and the sum of its finer buckets. A recorder that opens
+// writes them by the same rule. A crash loses the up time of the open minute.
+// A store that has no "up" directory has no known uptime. A window that starts
+// before "up/since" counts from it.
 //
 // The gap between two runs counts as active time when the sample gives a
 // tolerance for it (Sample.ActiveGap). The buckets then hold that time, so the
@@ -425,8 +426,10 @@ func (s *store) eachUp(ctx context.Context, t Tier, lo, hi int64, fn func(sec, m
 }
 
 // upTier returns the up time of the buckets of a tier with lo <= t < hi, in
-// time order. The buckets after the newest line of the hour or the day tier
-// come from the finer tier, since the recorder writes a bucket when it closes.
+// time order. The hour and the day tier read their buckets from the newest
+// line on from the finer tier too, and a bucket keeps the larger of its line
+// and the sum of its finer buckets: a close, a flush or an open of a recorder
+// writes a bucket that is still open.
 func (s *store) upTier(ctx context.Context, t Tier, lo, hi int64) ([]upLine, error) {
 	var out []upLine
 	if err := s.eachUp(ctx, t, lo, hi, func(sec, ms int64) { out = append(out, upLine{sec, ms}) }); err != nil {
@@ -440,7 +443,7 @@ func (s *store) upTier(ctx context.Context, t Tier, lo, hi int64) ([]upLine, err
 		return nil, err
 	}
 	w := tierSec(t)
-	from := max(ceilTo(lo, w), newest+w)
+	from := max(ceilTo(lo, w), newest)
 	if from >= hi {
 		return out, nil
 	}
@@ -452,11 +455,15 @@ func (s *store) upTier(ctx context.Context, t Tier, lo, hi int64) ([]upLine, err
 	if err != nil {
 		return nil, err
 	}
-	for _, f := range finer {
-		if b := floorTo(f.sec, w); len(out) > 0 && out[len(out)-1].sec == b {
-			out[len(out)-1].ms += f.ms
+	for i := 0; i < len(finer); {
+		b, sum := floorTo(finer[i].sec, w), int64(0)
+		for ; i < len(finer) && floorTo(finer[i].sec, w) == b; i++ {
+			sum += finer[i].ms
+		}
+		if n := len(out); n > 0 && out[n-1].sec == b {
+			out[n-1].ms = max(out[n-1].ms, sum)
 		} else {
-			out = append(out, upLine{b, f.ms})
+			out = append(out, upLine{b, sum})
 		}
 	}
 	return out, nil

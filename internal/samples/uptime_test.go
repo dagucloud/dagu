@@ -358,6 +358,23 @@ func TestUptimeOpenBuckets(t *testing.T) {
 	require.Equal(t, minutes[0]+minutes[1], upReadOf(t, dir, TierDay, t0))
 }
 
+// A close and an open of a recorder write the open hour and day. A reader
+// still sees the runs that the minute tier holds after that write.
+func TestUptimeReadAfterReopen(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0.Add(10*time.Second), 20*time.Second)
+	require.NoError(t, r.Close(context.Background()))
+
+	r = openWith(t, dir, runOpts(clk))
+	recordRun(t, r, clk, t0.Add(2*time.Minute), 30*time.Second)
+	recordRun(t, r, clk, t0.Add(5*time.Minute), time.Second) // closes minute 2
+	require.Equal(t, 20*time.Second, upBucketOf(t, dir, TierHour, t0))
+	require.Equal(t, 50*time.Second, upReadOf(t, dir, TierHour, t0))
+	require.Equal(t, 50*time.Second, upReadOf(t, dir, TierDay, t0))
+}
+
 // A run that lasts longer than a tier keeps leaves no bucket older than the
 // retention of the tier.
 func TestUptimeRetention(t *testing.T) {

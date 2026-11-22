@@ -135,8 +135,10 @@
 // interval counts from it. A tier writes a bucket when the bucket closes, so
 // a fast service appends one line to each tier when its bucket ends instead of
 // rewriting a file. A reader takes the open bucket of the hour and the day
-// tier from the finer tier, and a recorder that opens writes it. A crash loses
-// the up time of the open minute.
+// tier from the finer tier, also after a close, a flush or an open wrote a
+// line for it, and keeps the larger of the line and the finer sum. A recorder
+// that opens writes it by the same rule. A crash loses the up time of the open
+// minute.
 //
 // Sample.ActiveGap above zero counts the gap before a sample as active time,
 // when the gap is not longer than ActiveGap and an interval is already
