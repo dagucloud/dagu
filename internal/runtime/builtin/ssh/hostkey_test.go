@@ -4,6 +4,7 @@
 package ssh
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
@@ -22,6 +23,7 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -64,6 +66,13 @@ func authorizedKey(key gossh.PublicKey) string {
 // connect opens a session over cfg and closes it.
 func connect(t *testing.T, cfg *Config) error {
 	t.Helper()
+	_, err := connectLogged(t, cfg)
+	return err
+}
+
+// connectLogged is connect, and also returns what the connection logged.
+func connectLogged(t *testing.T, cfg *Config) (string, error) {
+	t.Helper()
 	cfg.User = testUser
 	cfg.SSHAuth = ir.SSHAuth{Password: testPassword}
 	cfg.Timeout = 10 * time.Second
@@ -71,15 +80,16 @@ func connect(t *testing.T, cfg *Config) error {
 		cfg.Bastion.User = testUser
 		cfg.Bastion.SSHAuth = ir.SSHAuth{Password: testPassword}
 	}
-	ctx := context.Background()
+	var logs bytes.Buffer
+	ctx := logger.WithLogger(context.Background(), logger.NewLogger(logger.WithWriter(&logs), logger.WithQuiet()))
 	client, err := NewClient(ctx, cfg)
 	require.NoError(t, err)
 	conn, session, err := client.NewSession(ctx)
 	if err != nil {
-		return err
+		return logs.String(), err
 	}
 	_ = session.Close()
-	return conn.Close()
+	return logs.String(), conn.Close()
 }
 
 func requireHostKeyError(t *testing.T, err error) *hostKeyError {
@@ -281,7 +291,8 @@ func TestNodeHostKeyBastionNamesNoNode(t *testing.T) {
 // holds. A node whose expected keys differ in type is tried once per type, so
 // the expected key the server still holds is accepted, whether or not the
 // server holds a key of the other type, and a refused handshake sends no
-// credential.
+// credential. An expected key tried and refused before the accepted one is
+// reported as out of date.
 func TestNodeHostKeyServerWithSeveralKeys(t *testing.T) {
 	t.Parallel()
 
@@ -296,6 +307,8 @@ func TestNodeHostKeyServerWithSeveralKeys(t *testing.T) {
 		name       string
 		serverKeys []gossh.Signer
 		hostKey    *NodeHostKey
+		// outdated is the expected key reported as out of date, if any.
+		outdated gossh.PublicKey
 	}{
 		{
 			// Go prefers ECDSA host keys, so the server would present its
@@ -308,13 +321,17 @@ func TestNodeHostKeyServerWithSeveralKeys(t *testing.T) {
 			name:       "OutdatedPinBesideTrusted",
 			serverKeys: []gossh.Signer{ecdsaHost, ed25519Host},
 			hostKey:    outdatedPin,
+			outdated:   outdatedECDSA,
 		},
 		{
 			name:       "OutdatedPinOfTypeServerLacks",
 			serverKeys: []gossh.Signer{ed25519Host},
 			hostKey:    outdatedPin,
+			outdated:   outdatedECDSA,
 		},
 		{
+			// The pin is tried first and accepted, so the outdated trusted
+			// key costs nothing and is not reported.
 			name:       "OutdatedTrustBesidePin",
 			serverKeys: []gossh.Signer{ecdsaHost, ed25519Host},
 			hostKey: &NodeHostKey{
@@ -328,10 +345,16 @@ func TestNodeHostKeyServerWithSeveralKeys(t *testing.T) {
 			t.Parallel()
 			server := startHandshakeServer(t, tt.serverKeys...)
 
-			err := connect(t, &Config{Host: server.host, Port: server.port, NodeHostKey: tt.hostKey})
+			logs, err := connectLogged(t, &Config{Host: server.host, Port: server.port, NodeHostKey: tt.hostKey})
 
 			require.NoError(t, err)
 			assert.EqualValues(t, 1, server.authAttempts.Load(), "only the accepted handshake sends a credential")
+			if tt.outdated == nil {
+				assert.Empty(t, logs)
+			} else {
+				assert.Contains(t, logs, "WARN")
+				assert.Contains(t, logs, gossh.FingerprintSHA256(tt.outdated))
+			}
 		})
 	}
 }

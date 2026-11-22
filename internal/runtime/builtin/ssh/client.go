@@ -125,7 +125,7 @@ func (c *Client) dial(ctx context.Context) (*ssh.Client, error) {
 	if c.bastionCfg != nil {
 		return c.dialViaBastion(ctx)
 	}
-	return c.hostKey.handshake(c.cfg, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
+	return c.hostKey.handshake(ctx, c.cfg, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
 		return dialContext(ctx, c.hostPort, cfg)
 	})
 }
@@ -133,14 +133,14 @@ func (c *Client) dial(ctx context.Context) (*ssh.Client, error) {
 // dialViaBastion establishes an SSH connection through a bastion/jump host.
 func (c *Client) dialViaBastion(ctx context.Context) (*ssh.Client, error) {
 	// Connect to bastion host first
-	bastionConn, err := c.bastionCfg.hostKey.handshake(c.bastionCfg.cfg, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
+	bastionConn, err := c.bastionCfg.hostKey.handshake(ctx, c.bastionCfg.cfg, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
 		return dialContext(ctx, c.bastionCfg.hostPort, cfg)
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to bastion host: %w", err)
 	}
 
-	client, err := c.hostKey.handshake(c.cfg, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
+	client, err := c.hostKey.handshake(ctx, c.cfg, func(cfg *ssh.ClientConfig) (*ssh.Client, error) {
 		return c.dialThroughBastion(bastionConn, cfg)
 	})
 	if err != nil {

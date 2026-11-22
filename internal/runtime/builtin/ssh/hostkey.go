@@ -8,12 +8,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"slices"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 )
 
@@ -65,8 +67,9 @@ type hostKeyPolicy struct {
 // one host key per handshake, of the first offered type it holds, so a node
 // whose expected keys differ in type is tried once per type. A handshake
 // that fails on the host key has sent no credential, so the next type is
-// safe to try.
-func (p hostKeyPolicy) handshake(cfg *ssh.ClientConfig, dial func(*ssh.ClientConfig) (*ssh.Client, error)) (*ssh.Client, error) {
+// safe to try. When a later type is accepted, the expected keys of the types
+// before it are reported as out of date.
+func (p hostKeyPolicy) handshake(ctx context.Context, cfg *ssh.ClientConfig, dial func(*ssh.ClientConfig) (*ssh.Client, error)) (*ssh.Client, error) {
 	var sets [][]string
 	if p.check != nil {
 		sets = p.check.algorithmSets()
@@ -76,11 +79,14 @@ func (p hostKeyPolicy) handshake(cfg *ssh.ClientConfig, dial func(*ssh.ClientCon
 	}
 	var refused error
 	var offered []string
-	for _, algorithms := range sets {
+	for i, algorithms := range sets {
 		attempt := *cfg
 		attempt.HostKeyAlgorithms = algorithms
 		client, err := dial(&attempt)
 		if err == nil {
+			if i > 0 {
+				p.check.warnOutdated(ctx, sets[:i])
+			}
 			return client, nil
 		}
 		if _, ok := errors.AsType[*hostKeyError](err); ok {
@@ -174,6 +180,25 @@ func (c hostKeyCheck) algorithmSets() [][]string {
 		}
 	}
 	return sets
+}
+
+// warnOutdated reports the expected keys of the tried algorithm sets, which
+// the server does not hold. Until the node's host_key or trusted key is
+// updated, each connection to it pays an extra handshake, and the server
+// logs a failed one.
+func (c hostKeyCheck) warnOutdated(ctx context.Context, tried [][]string) {
+	var outdated []string
+	for _, key := range c.expected {
+		algorithms := keyAlgorithms(key)
+		if slices.ContainsFunc(tried, func(set []string) bool { return slices.Equal(set, algorithms) }) {
+			outdated = append(outdated, ssh.FingerprintSHA256(key))
+		}
+	}
+	logger.Warn(ctx, "Server does not hold an expected host key; update the node's host_key or trust its current key",
+		slog.String("hop", c.hop),
+		slog.String("node", c.node),
+		slog.String("outdated", strings.Join(outdated, ", ")),
+	)
 }
 
 // keyAlgorithms lists the signature algorithms for a key, as known_hosts
