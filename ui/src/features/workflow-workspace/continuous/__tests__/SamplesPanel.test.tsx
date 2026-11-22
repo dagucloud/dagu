@@ -317,8 +317,8 @@ describe('the events of a run history', () => {
     // The scheduler ID is short and tells the runs apart.
     const ids = screen.getAllByTestId('continuous-event-run');
     expect(ids.map((i) => i.textContent)).toEqual([
-      'aaaa-113000',
-      'bbbb-110000',
+      '1108T113000',
+      '1108T110000',
     ]);
   });
 
