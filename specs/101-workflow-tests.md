@@ -125,6 +125,12 @@ steps.
 dagu test [flags] [<test file or directory>...]
 ```
 
+Each case runs the tested DAG once, through the same runner as `dagu start`,
+in its own case directory. Dependencies, preconditions, routing, retries,
+repeats, `continue_on`, handlers, and status propagation behave as in a real
+run. Only the replaced actions, the decided conditions, the skipped waits,
+and the isolation this spec defines differ.
+
 Rules:
 
 - A file argument must be a test file.
@@ -429,12 +435,15 @@ side-effect-free actions are:
 - `log.write`
 - `noop`
 
-A `foreach` step is side-effect free when every body step has a
-side-effect-free action and no other source of
-[the fail-closed rule](#the-fail-closed-rule).
-
 Every other action is not side-effect free. That includes command steps,
 `decision.evaluate`, which calls a model provider, and `wait.duration`.
+
+Two steps have no action of their own:
+
+- A `foreach` step runs its body steps. It is side-effect free when every
+  body step has a side-effect-free action and no other source of
+  [the fail-closed rule](#the-fail-closed-rule).
+- A `human.task` step starts no process (Spec 031). Its `review` handles it.
 
 A step with a side-effect-free action that its mock does not replace runs
 its real action, so a test exercises the routing and outputs the DAG
@@ -968,3 +977,604 @@ status with the assertions like any other status.
   unless `--keep` is set.
 - A case directory that cannot be removed is reported on stderr and does not
   change the exit status.
+
+## Examples
+
+The files of each example sit in one `workflows/` directory, and each
+command runs in its parent directory. No example starts a process for a
+replaced step.
+
+### A Passing Test
+
+```yaml
+# workflows/release.yaml
+steps:
+  - id: build
+    run: ./build.sh
+    outputs:
+      - name: image_tag
+  - id: deploy
+    depends: build
+    run: ./deploy.sh "${steps.build.outputs.image_tag}"
+```
+
+```yaml
+# workflows/release.test.yaml
+mocks:
+  build:
+    outputs:
+      image_tag: v1.2.3
+  deploy: {}
+cases:
+  - name: deploys the built image
+    expect:
+      status: succeeded
+  - name: a failed build stops the deploy
+    mocks:
+      build:
+        exit_code: 1
+    expect:
+      status: failed
+      steps:
+        build: failed
+        deploy: aborted
+```
+
+`dagu test workflows/` exits with status 0. Stdout contains
+`PASS workflows/release.test.yaml: deploys the built image`,
+`PASS workflows/release.test.yaml: a failed build stops the deploy`, and
+`2 cases: 2 passed, 0 failed`.
+
+### A Failed Assertion
+
+With `workflows/release.yaml` above:
+
+```yaml
+# workflows/release.test.yaml
+mocks:
+  build:
+    exit_code: 1
+  deploy: {}
+cases:
+  - name: a failed build skips the deploy
+    expect:
+      status: failed
+      steps:
+        deploy: skipped
+```
+
+`dagu test workflows/release.test.yaml` exits with status 1. Stdout contains
+`FAIL workflows/release.test.yaml: a failed build skips the deploy`,
+`step deploy: expected skipped, got aborted`, and
+`1 case: 0 passed, 1 failed`.
+
+`dagu test --format json workflows/release.test.yaml` exits with status 1.
+Stdout is one JSON object. Its only case has `result` `fail` and the failure
+`{"step": "deploy", "field": "status", "expected": "skipped", "actual": "aborted"}`.
+
+### Unhandled Sources
+
+```yaml
+# workflows/ship.yaml
+params:
+  - name: build_date
+    eval: $(date +%F)
+steps:
+  - id: build
+    run: ./build.sh
+  - id: deploy
+    depends: build
+    action: ssh.run
+    with:
+      host: prod.example.invalid
+      user: deploy
+      command: ./deploy.sh
+handler_on:
+  failure:
+    action: mail.send
+    with:
+      from: dagu@example.com
+      to: oncall@example.com
+      subject: ship failed
+      message: ship failed
+```
+
+```yaml
+# workflows/ship.test.yaml
+mocks:
+  build: {}
+cases:
+  - name: ships
+    expect:
+      status: succeeded
+```
+
+`dagu test workflows/ship.test.yaml` exits with status 2, and no command
+runs. Stdout contains `INVALID workflows/ship.test.yaml: ships` and, in this
+order, lines that start with `param build_date: `, `step deploy: `, and
+`handler_on.failure: `. The `step deploy` line names `ssh.run`, and the
+`handler_on.failure` line names `mail.send`.
+
+### Routing on a Mocked Output
+
+```yaml
+# workflows/change.yaml
+steps:
+  - id: plan
+    run: agent plan
+    outputs:
+      - name: risk
+  - id: route
+    depends: plan
+    action: router.route
+    with:
+      value: ${steps.plan.outputs.risk}
+      routes:
+        high: [review]
+        low: [merge]
+  - id: review
+    run: agent review
+  - id: merge
+    run: gh pr merge --auto
+```
+
+```yaml
+# workflows/change.test.yaml
+mocks:
+  plan:
+    outputs:
+      risk: low
+  review: {}
+  merge: {}
+cases:
+  - name: low risk merges without review
+    expect:
+      status: succeeded
+      steps:
+        route: succeeded
+        merge: succeeded
+        review: skipped
+  - name: high risk goes to review
+    mocks:
+      plan:
+        outputs:
+          risk: high
+    expect:
+      steps:
+        review: succeeded
+        merge: skipped
+```
+
+`dagu test workflows/change.test.yaml` exits with status 0. `route` runs its
+real `router.route` action in both cases.
+
+### Retries Without Waiting
+
+```yaml
+# workflows/implement.yaml
+steps:
+  - id: implement
+    run: agent implement
+    retry_policy:
+      limit: 2
+      interval_sec: 60
+```
+
+```yaml
+# workflows/implement.test.yaml
+cases:
+  - name: a flaky step passes on the third attempt
+    mocks:
+      implement:
+        results:
+          - exit_code: 1
+          - exit_code: 1
+          - exit_code: 0
+    expect:
+      status: succeeded
+      steps:
+        implement:
+          status: succeeded
+          attempts: 3
+```
+
+`dagu test workflows/implement.test.yaml` exits with status 0 without
+waiting for either 60-second retry interval.
+
+### Deciding Preconditions
+
+```yaml
+# workflows/migrate.yaml
+preconditions:
+  - condition: test -f /etc/release.lock
+    negate: true
+steps:
+  - id: migrate
+    preconditions:
+      - condition: test -f migrations/pending
+    run: ./migrate.sh
+  - id: notify
+    depends: migrate
+    run: ./notify.sh
+```
+
+```yaml
+# workflows/migrate.test.yaml
+mocks:
+  migrate:
+    precondition: not_met
+  notify: {}
+cases:
+  - name: nothing pending skips the migration
+    precondition: met
+    expect:
+      status: succeeded
+      steps:
+        migrate: skipped
+        notify: skipped
+  - name: a release lock aborts the run
+    precondition: not_met
+    expect:
+      status: aborted
+      steps:
+        migrate: not_started
+  - name: an unscripted DAG precondition is invalid
+    expect:
+      status: succeeded
+```
+
+`dagu test workflows/migrate.test.yaml` exits with status 2. The first two
+cases pass, and no `test` command runs. `precondition: met` passes the
+negated DAG-level condition. The third case is invalid, and its error line
+starts with `precondition: `.
+
+### Scripting a Repeat Condition
+
+```yaml
+# workflows/poll.yaml
+steps:
+  - id: poll
+    run: ./poll.sh
+    repeat_policy:
+      repeat: while
+      condition: test -f pending.flag
+      interval_sec: 30
+      limit: 10
+```
+
+```yaml
+# workflows/poll.test.yaml
+cases:
+  - name: polls until nothing is pending
+    mocks:
+      poll:
+        results:
+          - condition: met
+          - condition: met
+          - condition: not_met
+    expect:
+      steps:
+        poll:
+          status: succeeded
+          attempts: 3
+  - name: a result without condition is invalid
+    mocks:
+      poll:
+        results:
+          - condition: met
+          - exit_code: 0
+    expect:
+      status: succeeded
+```
+
+`dagu test workflows/poll.test.yaml` exits with status 2. The first case
+passes without waiting for a repeat interval. The second case is invalid,
+and its error line starts with `step poll: `.
+
+### Bounding a Continuous Step
+
+```yaml
+# workflows/heartbeat.yaml
+restart_policy: always
+restart_wait_sec: 5
+steps:
+  - id: beat
+    run: ./check.sh
+    repeat_policy:
+      repeat: while
+      interval_sec: 1
+  - id: tick
+    action: log.write
+    with:
+      message: tick
+    repeat_policy:
+      repeat: while
+```
+
+```yaml
+# workflows/heartbeat.test.yaml
+mocks:
+  tick:
+    exit_code: 0
+cases:
+  - name: three healthy beats
+    mocks:
+      beat:
+        results:
+          - exit_code: 0
+          - exit_code: 0
+          - exit_code: 0
+    expect:
+      status: succeeded
+      steps:
+        beat:
+          status: succeeded
+          attempts: 3
+        tick:
+          attempts: 1
+  - name: an unbounded side-effect-free step is invalid
+    mocks:
+      beat: {}
+      tick: {}
+    expect:
+      status: succeeded
+```
+
+`dagu test workflows/heartbeat.test.yaml` exits with status 2. The first
+case passes well before `--timeout`, also while a live run of the DAG runs
+on the same host, and the live run is not stopped. The second case is
+invalid, and its error line starts with `step tick: `.
+
+### Human Tasks
+
+```yaml
+# workflows/window.yaml
+steps:
+  - id: choose_window
+    action: human.task
+    with:
+      prompt: Choose a deployment window
+      form:
+        type: object
+        properties:
+          window:
+            type: string
+            enum: [morning, evening]
+        required: [window]
+  - id: deploy_morning
+    depends: choose_window
+    preconditions:
+      - condition: ${steps.choose_window.outputs.window}
+        expected: morning
+    run: ./deploy.sh
+```
+
+```yaml
+# workflows/window.test.yaml
+mocks:
+  choose_window:
+    review:
+      decision: approve
+      values:
+        window: morning
+  deploy_morning: {}
+cases:
+  - name: the morning window deploys
+    expect:
+      status: succeeded
+      steps:
+        choose_window: succeeded
+        deploy_morning: succeeded
+  - name: the evening window skips the deploy
+    mocks:
+      choose_window:
+        review:
+          decision: approve
+          values:
+            window: evening
+    expect:
+      steps:
+        deploy_morning: skipped
+  - name: an unscripted human task is invalid
+    mocks:
+      choose_window: {}
+    expect:
+      status: succeeded
+```
+
+`dagu test workflows/window.test.yaml` exits with status 2. The first two
+cases pass without waiting for a person. The third case is invalid, and its
+error line starts with `step choose_window: ` and names `review`.
+
+### Approval Gates
+
+```yaml
+# workflows/gate.yaml
+steps:
+  - id: release
+    run: ./release.sh
+    approval:
+      prompt: Ship it?
+```
+
+```yaml
+# workflows/gate.test.yaml
+mocks:
+  release:
+    review:
+      decision: approve
+cases:
+  - name: an approved release succeeds
+    expect:
+      status: succeeded
+      steps:
+        release: succeeded
+  - name: a rejected release ends the run rejected
+    mocks:
+      release:
+        review:
+          decision: reject
+    expect:
+      status: rejected
+      steps:
+        release: rejected
+```
+
+`dagu test workflows/gate.test.yaml` exits with status 0. The mock replaces
+the action of `release`, and its `review` settles the gate.
+
+### Foreach
+
+```yaml
+# workflows/episodes.yaml
+steps:
+  - id: list
+    run: ./list-episodes.sh
+    outputs:
+      - name: episodes
+        type: json
+  - id: summarize
+    depends: list
+    foreach:
+      items: ${steps.list.outputs.episodes}
+      steps:
+        - id: one
+          run: ./summarize.sh ${foreach.item}
+    output: SUMMARIES
+```
+
+```yaml
+# workflows/episodes.test.yaml
+mocks:
+  list:
+    outputs:
+      episodes: [a, b]
+cases:
+  - name: a mocked foreach succeeds without expanding items
+    mocks:
+      summarize:
+        stdout: '{"summary": {"total": 2}}'
+    expect:
+      steps:
+        summarize: succeeded
+  - name: a foreach with a command body is invalid
+    expect:
+      status: succeeded
+```
+
+`dagu test workflows/episodes.test.yaml` exits with status 2. In the first
+case, no item body runs. The second case is invalid, and its error line
+starts with `step summarize, body step one: `.
+
+### Side Effects That Stay Off
+
+```yaml
+# workflows/uploader.yaml
+mail_on:
+  failure: true
+error_mail:
+  from: dagu@example.com
+  to: oncall@example.com
+otel:
+  enabled: true
+  endpoint: localhost:4317
+container:
+  image: alpine:3.20
+steps:
+  - id: test
+    run: make test
+    stdout: result.txt
+```
+
+```yaml
+# workflows/uploader.test.yaml
+cases:
+  - name: failing tests send mail
+    mocks:
+      test:
+        exit_code: 2
+        stdout: FAIL
+    expect:
+      status: failed
+```
+
+`dagu test workflows/uploader.test.yaml` exits with status 0. Stdout
+contains `PASS workflows/uploader.test.yaml: failing tests send mail` and
+`notification mail_on.failure: oncall@example.com`. No mail is sent, no span
+is exported, no container is created, and `workflows/result.txt` does not
+exist. With `--keep`, the reported case directory holds a redirect file that
+contains `FAIL`.
+
+### Setting the Trigger
+
+```yaml
+# workflows/service.yaml
+restart_policy: always
+restart_wait_sec: 5
+steps:
+  - id: recover
+    preconditions:
+      - condition: ${context.trigger.type}
+        expected: restart
+    run: ./recover.sh
+```
+
+```yaml
+# workflows/service.test.yaml
+mocks:
+  recover: {}
+cases:
+  - name: a restarted run recovers
+    trigger: restart
+    expect:
+      steps:
+        recover: succeeded
+  - name: a manual run skips recovery
+    expect:
+      steps:
+        recover: skipped
+```
+
+`dagu test workflows/service.test.yaml` exits with status 0.
+
+### A Test File That Reads as a DAG
+
+```yaml
+# workflows/smoke.test.yaml
+steps:
+  - run: ./smoke.sh
+```
+
+`dagu test workflows/smoke.test.yaml` exits with status 2. Stdout contains
+`INVALID workflows/smoke.test.yaml` and an error line that contains
+`rename`.
+
+### A Build DAG
+
+```yaml
+# workflows/compile.yaml
+type: build
+steps:
+  - id: compile
+    inputs:
+      - name: source
+        path: source.txt
+    outputs:
+      - name: artifact
+        path: artifact.bin
+    run: compiler "${inputs.source}" -o "${outputs.artifact}"
+```
+
+```yaml
+# workflows/compile.test.yaml
+mocks:
+  compile: {}
+cases:
+  - name: compiles
+    expect:
+      status: succeeded
+```
+
+`dagu test workflows/compile.test.yaml` exits with status 2. Stdout contains
+`INVALID workflows/compile.test.yaml` and an error line that contains
+`Spec 033`.
