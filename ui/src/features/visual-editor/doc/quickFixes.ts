@@ -130,15 +130,22 @@ function nameLineOf(text: string, step: StepView): NameLine | null {
   return null;
 }
 
-/** The YAML text of a value on one line, or null when it needs more lines. */
+/**
+ * The YAML text of a value on one line, or null when it needs more lines. A
+ * string with a flow indicator is quoted, so that it also reads right inside
+ * `{...}` or `[...]`.
+ */
 function scalarText(value: string | number | boolean | null): string | null {
+  if (typeof value === 'string' && /[,[\]{}]/.test(value)) {
+    return JSON.stringify(value);
+  }
   const text = stringify(value).trimEnd();
   return text.includes('\n') ? null : text;
 }
 
 /**
  * The fixes of the issues that name the one value that a field accepts
- * (`with.tools.builtin.read must be true.`): the value of the field becomes
+ * (`with.format must be "json".`): the value of the field becomes
  * that value. One fix serves all the issues of a field.
  */
 function planValueFixes(

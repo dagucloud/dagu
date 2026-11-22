@@ -397,7 +397,7 @@ describe('mustBeMessage and mustBeValue', () => {
 
   it.each([
     'with.read must be equal to constant.',
-    'read must be true; omit the key to leave the tool out',
+    'read must be true when the step sets write',
     '[2:5] read must be true.',
     'The step must be true.',
     'with.read must be [1].',
@@ -412,12 +412,12 @@ describe('planQuickFixes: a field with one allowed value', () => {
   const text = [
     'steps:',
     '  - name: code',
-    '    action: agent.run',
+    '    action: demo.check',
     '    with:',
-    '      provider: claude',
+    '      profile: default',
     '      mode: fast # kept',
-    '      tools:',
-    '        builtin:',
+    '      options:',
+    '        flags:',
     '          read: false  # keep it off',
     '          write: "yes"',
     '          edit: True',
@@ -441,8 +441,8 @@ describe('planQuickFixes: a field with one allowed value', () => {
     };
   }
 
-  const read = valueIssue('tools.builtin.read', true);
-  const write = valueIssue('tools.builtin.write', true);
+  const read = valueIssue('options.flags.read', true);
+  const write = valueIssue('options.flags.write', true);
 
   it('replaces the value and nothing else of the line', () => {
     const [fix] = [...planQuickFixes(model, [read]).values()];
@@ -470,6 +470,10 @@ describe('planQuickFixes: a field with one allowed value', () => {
     const plain = valueIssue('mode', 'slow');
     const [other] = [...planQuickFixes(model, [plain]).values()];
     expect(other?.params).toEqual({ value: 'slow' });
+    // A comma or a bracket would end the value inside a flow mapping.
+    const flow = valueIssue('mode', 'a,b');
+    const [quoted] = [...planQuickFixes(model, [flow]).values()];
+    expect(quoted?.params).toEqual({ value: '"a,b"' });
   });
 
   it('gives all the fixes of the file to the wand, in one edit', () => {
@@ -492,18 +496,18 @@ describe('planQuickFixes: a field with one allowed value', () => {
 
   it('gives no fix when the field has the value already', () => {
     // True is a boolean in YAML 1.2: the value is right.
-    const edit = valueIssue('tools.builtin.edit', true);
+    const edit = valueIssue('options.flags.edit', true);
     expect(planQuickFixes(model, [edit]).size).toBe(0);
   });
 
   it('gives no fix for a notice, for a field that is not there or is not a scalar', () => {
     const notice = valueIssue(
-      'tools.builtin.read',
+      'options.flags.read',
       true,
       ValidationIssueSeverity.notice
     );
-    const missing = valueIssue('tools.builtin.shell', true);
-    const wrongType = valueIssue('tools.builtin', true);
+    const missing = valueIssue('options.flags.shell', true);
+    const wrongType = valueIssue('options.flags', true);
     const noPath = { ...read, fieldPath: undefined };
     expect(
       planQuickFixes(model, [notice, missing, wrongType, noPath]).size
@@ -513,7 +517,7 @@ describe('planQuickFixes: a field with one allowed value', () => {
   it('gives no fix for the message of the server', () => {
     const server = {
       ...read,
-      message: 'read must be true; omit the key to leave the tool out',
+      message: 'read must be true when the step sets write',
     };
     expect(planQuickFixes(model, [server]).size).toBe(0);
   });
