@@ -273,7 +273,7 @@ func (s *RestartScanner) scan(ctx context.Context) {
 			s.logError(ctx, entry.DAG.Name, now, err)
 		}
 	}
-	s.forgetOthers(services)
+	s.forgetOthers(ctx, services)
 	s.shareBackoff(ctx, now)
 }
 
@@ -673,7 +673,7 @@ func failedSoonAfterStart(status *ir.DAGRunStatus) bool {
 
 // forgetOthers drops what the scanner remembers about DAGs it no longer keeps
 // alive.
-func (s *RestartScanner) forgetOthers(services map[string]struct{}) {
+func (s *RestartScanner) forgetOthers(ctx context.Context, services map[string]struct{}) {
 	for name := range s.lastErrorLog {
 		if _, ok := services[name]; !ok {
 			delete(s.lastErrorLog, name)
@@ -705,7 +705,7 @@ func (s *RestartScanner) forgetOthers(services map[string]struct{}) {
 			delete(s.observeAt, name)
 		}
 	}
-	s.cfg.History.Forget(services)
+	s.cfg.History.Forget(ctx, services)
 }
 
 func (s *RestartScanner) logError(ctx context.Context, dagName string, now time.Time, err error) {

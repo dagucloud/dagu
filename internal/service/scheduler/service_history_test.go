@@ -145,7 +145,7 @@ func TestServiceHistory(t *testing.T) {
 		t.Parallel()
 		var h *ServiceHistory
 		require.NoError(t, h.Observe(t.Context(), dag, histRun("r1", ir.Succeeded, 0, time.Second)))
-		h.Forget(nil)
+		h.Forget(t.Context(), nil)
 		h.Close(t.Context())
 	})
 
@@ -313,7 +313,7 @@ func TestServiceHistory(t *testing.T) {
 		require.NoError(t, h.Observe(t.Context(), other))
 		assert.Equal(t, 2, store.opens)
 
-		h.Forget(map[string]struct{}{"svc": {}})
+		h.Forget(t.Context(), map[string]struct{}{"svc": {}})
 		assert.Equal(t, 1, store.closes)
 		h.Close(t.Context())
 		assert.Equal(t, 2, store.closes)

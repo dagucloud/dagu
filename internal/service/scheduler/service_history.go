@@ -141,13 +141,13 @@ func (h *ServiceHistory) Observe(ctx context.Context, dag *ir.DAG, runs ...ir.DA
 }
 
 // Forget closes the stores of the DAGs that are not in keep.
-func (h *ServiceHistory) Forget(keep map[string]struct{}) {
+func (h *ServiceHistory) Forget(ctx context.Context, keep map[string]struct{}) {
 	if h == nil {
 		return
 	}
 	for name, d := range h.dags {
 		if _, ok := keep[name]; !ok {
-			h.closeDAG(context.Background(), name, d)
+			h.closeDAG(context.WithoutCancel(ctx), name, d)
 			delete(h.dags, name)
 		}
 	}
