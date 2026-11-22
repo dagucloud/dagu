@@ -634,3 +634,337 @@ A test of a `type: build` DAG (Spec 033) makes the test file invalid, and
 the error names Spec 033. A build step publishes a path output that Dagu
 verifies and commits under the DAG's working directory, which a mock cannot
 produce inside the case directory.
+
+### Time
+
+Rules:
+
+- Under test, Dagu does not wait for retry intervals and backoff, repeat
+  intervals and backoff, or `delay_sec`. The order and count of executions
+  do not change.
+- A wait action such as `wait.duration` is not side-effect free, so a test
+  mocks it like any other action.
+- `timeout_sec` applies as in a real run. A replaced action returns at once,
+  so only a real step can reach a timeout.
+- A continuous step in `real` keeps its intervals. See
+  [Continuous Steps](#continuous-steps).
+
+### Isolation
+
+#### Case Directory
+
+Rules:
+
+- Each case runs in a new temporary case directory. The case's data
+  directory is inside it and holds the case's run history, logs, artifacts,
+  state (Spec 068), materialization records, live-process records, and
+  locks, also when the DAG or the configuration sets `log_dir` or
+  `artifacts.dir`.
+- A case reads nothing from and writes nothing to the configured data
+  directory. `state` starts empty, and no queue, scheduler, or server sees
+  the run.
+- The case directory is removed when the case ends, unless `--keep` is set.
+- An invalid case creates no case directory.
+
+#### Live Runs
+
+A case runs next to the live runs of the same DAG, and neither sees the
+other:
+
+- A test of a service DAG (Spec 080) is not refused while a run of that DAG
+  is active, and the active run is not stopped.
+- The test's run is not in the DAG's run history, and no restart follows it.
+
+#### Files
+
+Rules:
+
+- Without a real step, the DAG's working directory is neither created nor
+  changed. Only real steps write files outside the case directory.
+- The `stdout` and `stderr` redirect files of every step that is not real
+  are written inside the case directory, not at their configured paths. A
+  redirect into the run's artifact directory writes to the case's artifact
+  directory.
+- A replaced step reads no file. See
+  [How a Result Reaches the Run](#how-a-result-reaches-the-run).
+- The run reads its inputs as `dagu start` does: the DAG file, the base
+  config, dotenv files, and declared file dependencies (Spec 035). The
+  snapshot of the file dependencies is materialized inside the case
+  directory.
+
+#### Run-Level Side Effects
+
+The run does more than run steps. Under test:
+
+| Behavior | Under test |
+| --- | --- |
+| `mail_on` notifications and step `mail_on_error` | Not sent. The report lists each notification the run would have sent |
+| OpenTelemetry trace export (`otel`) | Off |
+| An explicit `working_dir` that does not exist | Not created, unless the case has a real step |
+| DAG-level `container` | Not created, unless the case has a real step, which runs in it |
+| DAG-level `ssh` client, which reads keys and known hosts | Not created, unless the case has a real step |
+| Declared `tools` | Not installed, unless the case has a real step |
+
+A real step is the explicit opt-in to side effects, so the working
+directory, container, SSH client, and tools it needs are set up as in a real
+run. A case without a real step runs on a host that has none of them. Tools
+install into the configured tools directory, the one write outside the case
+directory that only a real step causes.
+
+#### Secrets
+
+Rules:
+
+- Every DAG `secrets` entry takes its value from the test's `secrets` map,
+  whatever its provider, the `env` provider included. A missing value is an
+  unhandled source of [the fail-closed rule](#the-fail-closed-rule).
+- No secret provider is contacted, and no file that a provider would read is
+  read.
+- A `secrets` name that the DAG does not declare makes the case invalid.
+- Secret values are masked in logs, in stored run status, and in the
+  report, as in a real run (Spec 069).
+
+### Trigger and Schedule Slot
+
+Rules:
+
+- `trigger` sets `context.trigger.type` (Spec 017). It takes `manual`,
+  `scheduler`, `webhook`, `retry`, `catchup`, `restart`, `backfill`, or
+  `file` (Spec 082). `unknown`, `subdag`, and any other value make the case
+  invalid. Without `trigger`, the type is `manual`.
+- `trigger` changes nothing else. `restart` tests the branch a service DAG
+  takes on its restarted runs. `retry` retries no run, `backfill` starts no
+  backfill, and no trigger carries a payload.
+- `scheduled_at` takes the forms that `dagu dry --scheduled-at` takes
+  (Spec 017), including a slot later than now. An unquoted YAML date or time
+  is read as written.
+- With `scheduled_at`, the run gets the schedule time and window of that
+  slot, as Spec 017 defines for a manual run started with `--scheduled-at`.
+  Its trigger type stays the one `trigger` sets.
+
+### Assertions
+
+```yaml
+expect:
+  status: failed
+  steps:
+    test: failed
+    route: aborted
+    implement:
+      status: succeeded
+      attempts: 3
+    handler_on.failure: succeeded
+```
+
+| Field | Meaning |
+| --- | --- |
+| `status` | Run status: `succeeded`, `failed`, `aborted`, `partially_succeeded`, or `rejected` |
+| `steps.<key>` | A step status token, or a map with `status`, `attempts`, or both |
+| `steps.<key>.status` | Node status: `succeeded`, `failed`, `aborted`, `skipped`, `partially_succeeded`, `rejected`, or `not_started` |
+| `steps.<key>.attempts` | Executions of the step's action, counting retries and repeat iterations |
+
+Rules:
+
+- A step or handler that never started is `not_started`.
+- A step whose action never ran, such as a skipped step, has 0 attempts. A
+  `human.task` step has no action, so it has 0 attempts.
+- A step that has no assertion is not checked.
+- `expect` holds at least one assertion. An empty `steps.<key>` map makes
+  the case invalid.
+- An unknown step key, an unknown status token, or a negative `attempts`
+  makes the case invalid.
+- A case passes when the run reaches a terminal status and every assertion
+  holds. Otherwise it fails.
+- The report lists every failed assertion of a case, not only the first.
+- `expect` has no field for outputs, stdout, stderr, or notifications.
+
+### Report
+
+The report goes to stdout. Its `<file>` is the test file's path relative to
+the current directory when the file is under it, and its absolute path
+otherwise, with `/` as the separator on every platform.
+
+#### Text Report
+
+```text
+PASS workflows/release.test.yaml: deploys the built image (0.08s)
+FAIL workflows/release.test.yaml: a failed build stops the deploy (0.06s)
+  step deploy: expected skipped, got aborted (upstream step build failed)
+2 cases: 1 passed, 1 failed
+```
+
+Rules:
+
+- One line starts each case, in run order:
+  - `PASS <file>: <case name> (<duration>)` for a case that passed
+  - `FAIL <file>: <case name> (<duration>)` for a case that failed
+  - `INVALID <file>: <case name>` for an invalid case
+- An invalid test file has one line, `INVALID <file>`, and none of its cases
+  appears.
+- `<duration>` is the case's wall-clock time in seconds, with two decimal
+  places, followed by `s`.
+- Lines indented by two spaces follow the line of their case or file. A case
+  that ran has one line per failed assertion, then one line per notification
+  the run would have sent, then, with `--keep`, the line
+  `case directory <path>`. An invalid case or file has one line per error.
+- A failed run-status assertion reads
+  `status: expected <expected>, got <actual>`.
+- A failed step-status assertion reads
+  `step <key>: expected <expected>, got <actual>`.
+- A failed attempts assertion reads
+  `step <key> attempts: expected <expected>, got <actual>`.
+- `<key>` is the step key as `expect.steps` writes it. A failure line may
+  end with a reason in parentheses, such as the upstream step that ended the
+  step. The reason is informational, and its text is not part of this
+  contract.
+- A notification line reads `notification <kind>: <recipients>`, or
+  `notification mail_on_error, step <step>: <recipients>` for a step's
+  `mail_on_error`. `<kind>` is `mail_on.failure`, `mail_on.success`, or
+  `mail_on.wait`. Recipients are separated by `, `.
+- An error line reads `<label>: <message>`, or `<message>` when the error
+  has no label. A fail-closed source has the label
+  [the fail-closed rule](#the-fail-closed-rule) gives it. Another case error
+  has the path of the field it concerns in the merged case, such as
+  `mocks.build.outputs` or `expect.steps.deploy`, with `[<index>]` for a list
+  item, counted from 0. A test file error has the path of the field in the
+  file, or no label.
+- In an invalid case, field errors come first, sorted by label, then the
+  unhandled sources in their order.
+- The last line is the summary,
+  `<n> cases: <passed> passed, <failed> failed`. `<n>` counts the cases that
+  passed, failed, or were invalid. `, <invalid> invalid` follows when a case
+  is invalid, and `, <files> invalid files` follows when a test file is
+  invalid. `cases` and `files` are singular when their count is 1.
+
+#### JSON Report
+
+`--format json` writes exactly one JSON object to stdout, and nothing else,
+once every case has finished:
+
+```json
+{"cases": [{"file": "workflows/release.test.yaml", "name": "a failed build stops the deploy", "result": "fail", "duration_ms": 61, "failures": [{"step": "deploy", "field": "status", "expected": "skipped", "actual": "aborted"}]}]}
+```
+
+Top-level fields:
+
+| Field | Present | Meaning |
+| --- | --- | --- |
+| `cases` | always | One object per case that ran or was invalid, in run order |
+| `invalid_files` | when a test file is invalid | One object per invalid test file, in run order |
+
+Case object:
+
+| Field | Present | Meaning |
+| --- | --- | --- |
+| `file` | always | `<file>` of the test file |
+| `name` | always | Case name |
+| `result` | always | `pass`, `fail`, or `invalid` |
+| `duration_ms` | when the case ran | Wall-clock time of the case, in whole milliseconds |
+| `failures` | when `result` is `fail` | Failure objects. The run status comes first, then steps in the order `expect.steps` lists them, status before attempts |
+| `errors` | when `result` is `invalid` | Error objects, in the order of the text report |
+| `notifications` | when the run would have sent one | Notification objects, in the order the run would have sent them |
+| `case_dir` | with `--keep`, when the case ran | Absolute path of the kept case directory |
+
+Failure object:
+
+| Field | Present | Meaning |
+| --- | --- | --- |
+| `step` | for a step assertion | Step key as `expect.steps` writes it |
+| `field` | always | `status`, `attempts`, or `timeout` |
+| `expected` | always | Expected status token as a string, or expected attempts as a number. For `timeout`, the `--timeout` limit in milliseconds |
+| `actual` | for `status` and `attempts` | Actual status token as a string, or actual attempts as a number |
+
+Error object: `source`, the label, present when the error has one, and
+`message`.
+
+Notification object: `kind`, which is `mail_on.failure`, `mail_on.success`,
+`mail_on.wait`, or `mail_on_error`; `step`, present for `mail_on_error`; and
+`to`, the list of recipients.
+
+Invalid file object: `file`, and `errors`, a list of error objects.
+
+### Exit Status
+
+| Status | Meaning |
+| --- | --- |
+| 0 | Every selected case passed, or no case was selected |
+| 1 | At least one case failed |
+| 2 | At least one test file or case is invalid, or the arguments are invalid |
+
+The highest applicable status wins.
+
+## Errors
+
+### Invalid Arguments
+
+`dagu test` exits with status 2, runs no case, and writes the error to
+stderr when:
+
+- a path argument does not exist;
+- a file argument is not a test file;
+- `--run` is not a valid regular expression;
+- `--format` is neither `text` nor `json`;
+- `--timeout` is not a duration greater than zero;
+- a flag is unknown.
+
+### Invalid Test Files
+
+A test file is invalid, and none of its cases runs, when:
+
+- it is not valid YAML, or its top level is not a map;
+- it has a field this spec does not define, at any level, or a field of the
+  wrong type;
+- it leaves out `cases`, or `cases` is empty;
+- a case leaves out `name` or `expect`, or two cases have the same `name`;
+- it has top-level `steps` and no `cases`. The error says that the file
+  reads as a DAG and asks for a rename;
+- the tested DAG file does not exist, `dag` names a test file, or the tested
+  DAG fails to load;
+- the tested DAG is a `type: build` DAG. The error names Spec 033.
+
+The other test files still run.
+
+### Invalid Cases
+
+A case is invalid, and none of its steps runs, when, after the file's fields
+merge into it:
+
+- a step key names no step or handler, or two keys of one map or list name
+  the same step;
+- a mock is invalid. See [Invalid Mocks](#invalid-mocks);
+- a source of [the fail-closed rule](#the-fail-closed-rule) is unhandled;
+- `real` lists a `foreach` step;
+- `dagu start` would reject its params, or `secrets` names an entry the DAG
+  does not declare;
+- `trigger` is not an accepted type, or `scheduled_at` is not an accepted
+  form;
+- a `precondition` or `condition` value is neither `met` nor `not_met`, or a
+  `decision` is neither `approve` nor `reject`;
+- the case sets `precondition` and the DAG has no DAG-level precondition
+  with a command check or `eval`;
+- `expect` holds no assertion, names an unknown step, uses an unknown status
+  token, or sets a negative `attempts`.
+
+The other cases of the file still run.
+
+### Run Failures
+
+A failed step or run is an outcome, not an error. The case compares its
+status with the assertions like any other status.
+
+### Timeout and Interrupt
+
+- A case that runs longer than `--timeout` is stopped as `dagu stop` stops a
+  run. It fails with one `timeout` failure, and its assertions are not
+  evaluated. Its text line reads `timeout: did not finish within <timeout>`,
+  with the limit as a duration such as `5m0s`.
+- An interrupted `dagu test` stops the running case, removes its case
+  directory unless `--keep` is set, starts no further case, and exits with a
+  non-zero status.
+
+### Cleanup
+
+- A case directory is removed when its case passes, fails, or times out,
+  unless `--keep` is set.
+- A case directory that cannot be removed is reported on stderr and does not
+  change the exit status.
