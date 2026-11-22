@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -20,8 +19,8 @@ import (
 
 const defaultDAGRunInvalidationPollInterval = time.Second
 
-// serviceWakeWindow is the shortest time between two wakes of a topic that the
-// runs of service DAGs cause. See specs/100-service-run-history.md.
+// serviceWakeWindow is the shortest time between two wakes of the DAG list
+// that the runs of service DAGs cause. See specs/100-service-run-history.md.
 const serviceWakeWindow = 10 * time.Second
 
 // wakeLimiter lets one wake of each key pass in each window. A wake inside the
@@ -252,7 +251,13 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event, service
 		mux.WakeTopic(TopicTypeBackfill, snapshot.BackfillID)
 	}
 
-	service := serviceDAGRun || eventstore.IsServiceDAGEvent(event)
+	// The current set of service DAGs wins over the flag of the event, which
+	// the DAG of the run had when it started. A sub-DAG run is not a service
+	// run.
+	service := serviceDAGRun
+	if serviceDAGs == nil && (root.DAGRunID == "" || root.DAGRunID == snapshot.DAGRunID) {
+		service = eventstore.IsServiceDAGEvent(event)
+	}
 	mux.WakeTopicType(TopicTypeQueues)
 	wakeOrLimit(mux, service, "dagslist", func() { mux.WakeTopicType(TopicTypeDAGsList) })
 	if serviceDAGs == nil || serviceDAGRun {
@@ -265,14 +270,13 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event, service
 
 	affectedStatuses := affectedDAGRunListStatuses(event.Type, snapshot.Status)
 	if snapshot.DAGFile != "" {
-		file := fileutil.TrimYAMLFileExtension(snapshot.DAGFile)
-		wakeOrLimit(mux, service, "dag:"+file, func() { mux.wakeDAGFileTopics(TopicTypeDAG, file) })
-		wakeOrLimit(mux, service, "daghistory:"+file, func() { mux.wakeDAGFileTopics(TopicTypeDAGHistory, file) })
+		mux.wakeDAGFileTopics(TopicTypeDAG, snapshot.DAGFile)
+		mux.wakeDAGFileTopics(TopicTypeDAGHistory, snapshot.DAGFile)
 		return affectedStatuses, serviceDAGRun
 	}
 
-	wakeOrLimit(mux, service, "dag", func() { mux.WakeTopicType(TopicTypeDAG) })
-	wakeOrLimit(mux, service, "daghistory", func() { mux.WakeTopicType(TopicTypeDAGHistory) })
+	mux.WakeTopicType(TopicTypeDAG)
+	mux.WakeTopicType(TopicTypeDAGHistory)
 	return affectedStatuses, serviceDAGRun
 }
 

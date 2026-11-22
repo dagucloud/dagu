@@ -433,9 +433,9 @@ func (c *fakeWakeClock) advance(d time.Duration) {
 	}
 }
 
-// The runs of a service DAG wake the list and the DAG topics at most once in
-// a window. A wake inside the window fires at its end; a normal DAG wakes at
-// once.
+// The runs of a service DAG wake the DAG list at most once in a window. A
+// wake inside the window fires at its end. The DAG topics, and the list for a
+// normal DAG, wake at once.
 func TestDAGRunInvalidatorLimitsServiceDAGWakes(t *testing.T) {
 	mux := NewMultiplexer(StreamConfig{}, nil)
 	t.Cleanup(mux.Shutdown)
@@ -468,40 +468,46 @@ func TestDAGRunInvalidatorLimitsServiceDAGWakes(t *testing.T) {
 	}
 	service := map[string]any{eventstore.DAGFileNameDataKey: "svc", eventstore.ServiceDAGDataKey: true}
 	normal := map[string]any{eventstore.DAGFileNameDataKey: "svc"}
-	waitCounts := func(want int64) {
+	// Each event wakes the DAG topics; the list counts as given.
+	waitCounts := func(list, events int64) {
 		t.Helper()
 		require.Eventually(t, func() bool {
-			return lists.Load() == want && dags.Load() == want && histories.Load() == want
+			return lists.Load() == list && dags.Load() == events && histories.Load() == events
 		}, time.Second, 10*time.Millisecond)
 	}
-	holdCounts := func(want int64) {
+	holdList := func(want int64) {
 		t.Helper()
-		require.Never(t, func() bool {
-			return lists.Load() != want || dags.Load() != want || histories.Load() != want
-		}, 150*time.Millisecond, 20*time.Millisecond)
+		require.Never(t, func() bool { return lists.Load() != want }, 150*time.Millisecond, 20*time.Millisecond)
 	}
 
 	// The first wake passes. The two next ones stay pending, as one wake.
 	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r1", service)}, nil)
-	waitCounts(1)
+	waitCounts(1, 1)
 	clock.advance(3 * time.Second)
-	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r2", service), newEvent("r3", service)}, nil)
-	holdCounts(1)
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r2", service)}, nil)
+	waitCounts(1, 2)
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r3", service)}, nil)
+	waitCounts(1, 3)
+	holdList(1)
 
 	// The pending wake fires at the end of the window of the first wake.
 	clock.advance(6 * time.Second)
-	holdCounts(1)
+	holdList(1)
 	clock.advance(time.Second)
-	waitCounts(2)
+	waitCounts(2, 3)
 
 	// A wake after the window passes at once.
 	clock.advance(10 * time.Second)
 	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r4", service)}, nil)
-	waitCounts(3)
+	waitCounts(3, 4)
 
 	// A normal DAG wakes at once, also inside the window.
 	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r5", normal)}, nil)
-	waitCounts(4)
+	waitCounts(4, 5)
+
+	// A known set of service DAGs without svc wins over the flag of the event.
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r6", service)}, map[string]struct{}{})
+	waitCounts(5, 6)
 }
 
 // countingTopics subscribes to the topics, all of one type, and returns the
