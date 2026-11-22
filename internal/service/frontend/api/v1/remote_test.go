@@ -50,14 +50,14 @@ func serveRemoteNodeRequest(t *testing.T, server config.Server, user *auth.User,
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{}`))
 	})
-	status := serveRemoteNodeRequestTo(t, remote, server, user, method, path, "")
+	status := serveRemoteNodeRequestTo(t, remote, server, user, method, path, "", nil)
 	return status, remoteCalled.Load()
 }
 
 // serveRemoteNodeRequestTo sends a request with body for the "edge" remote
 // node, served by remote, through the API routes as user. It returns the local
 // response status.
-func serveRemoteNodeRequestTo(t *testing.T, remote http.Handler, server config.Server, user *auth.User, method, path, body string) int {
+func serveRemoteNodeRequestTo(t *testing.T, remote http.Handler, server config.Server, user *auth.User, method, path, body string, header http.Header) int {
 	t.Helper()
 
 	remoteServer := httptest.NewServer(remote)
@@ -77,6 +77,9 @@ func serveRemoteNodeRequestTo(t *testing.T, remote http.Handler, server config.S
 	require.NoError(t, a.ConfigureRoutes(t.Context(), router, time.Second))
 
 	request := httptest.NewRequest(method, path+"?remoteNode=edge", strings.NewReader(body))
+	for name, values := range header {
+		request.Header[name] = values
+	}
 	request.Header.Set("Authorization", "Bearer caller-token")
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
@@ -190,7 +193,7 @@ func TestRemoteNodeProfileAuthorization(t *testing.T) {
 				}
 			})
 
-			status := serveRemoteNodeRequestTo(t, remote, config.Server{Permissions: runPermission}, test.user, http.MethodPost, "/api/v1/dags/deploy/start", test.body)
+			status := serveRemoteNodeRequestTo(t, remote, config.Server{Permissions: runPermission}, test.user, http.MethodPost, "/api/v1/dags/deploy/start", test.body, nil)
 
 			assert.Equal(t, test.wantStatus, status)
 			if test.wantRun {
@@ -200,6 +203,35 @@ func TestRemoteNodeProfileAuthorization(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A proxy in front of the remote node may authenticate requests by a header the
+// caller sends, such as a cookie. The probe carries the same headers as the
+// run, so the proxy cannot reject the probe and then accept the run.
+func TestRemoteNodeProfileProbeSendsCallerHeaders(t *testing.T) {
+	operator := &auth.User{Role: auth.RoleOperator, WorkspaceAccess: auth.AllWorkspaceAccess()}
+	var forwarded atomic.Bool
+	remote := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if c, err := r.Cookie("proxy_session"); err != nil || c.Value != "admin" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"code":"unauthorized","message":"sign in"}`))
+			return
+		}
+		switch r.URL.Path {
+		case "/api/v1/profiles/prod":
+			_, _ = w.Write([]byte(`{"protected":true}`))
+		case "/api/v1/dags/deploy/start":
+			forwarded.Store(true)
+			_, _ = w.Write([]byte(`{}`))
+		}
+	})
+	header := http.Header{"Cookie": {"proxy_session=admin"}}
+
+	status := serveRemoteNodeRequestTo(t, remote, config.Server{Permissions: map[config.Permission]bool{config.PermissionRunDAGs: true}}, operator, http.MethodPost, "/api/v1/dags/deploy/start", `{"profile":"prod"}`, header)
+
+	assert.Equal(t, http.StatusForbidden, status)
+	assert.False(t, forwarded.Load())
 }
 
 func TestRemoteNodeStreamAuthorization(t *testing.T) {

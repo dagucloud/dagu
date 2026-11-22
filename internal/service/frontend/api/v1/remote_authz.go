@@ -366,6 +366,11 @@ func (a *API) remoteNodeProfileProtected(r *http.Request, apiBasePath, name stri
 	if err != nil {
 		return false, errRemoteNodeProfileCheck(name)
 	}
+	// The probe carries the headers the run is forwarded with, so a proxy in
+	// front of the remote node authenticates both the same way.
+	probe.Header = r.Header.Clone()
+	probe.Header.Del("Content-Length")
+	probe.Header.Del("Transfer-Encoding")
 	proxy := &remoteNodeProxy{remoteNode: node, apiBasePath: apiBasePath}
 	resp, err := proxy.doRequest(nil, probe)
 	if err != nil {
