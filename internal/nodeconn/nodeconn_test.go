@@ -197,7 +197,7 @@ func TestServiceTrust(t *testing.T) {
 	require.NoError(t, results["web01"].Err)
 
 	// The server's key changes, as on a rebuilt host.
-	_, err = hostKeys.Trust(context.Background(), "web01", newKey(t), "bob")
+	_, err = hostKeys.Trust(context.Background(), "web01", newKey(t), "bob", want)
 	require.NoError(t, err)
 	previous, err := hostKeys.Get(context.Background(), "web01")
 	require.NoError(t, err)

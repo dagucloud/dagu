@@ -185,7 +185,7 @@ func (s *Service) trust(ctx context.Context, nodes []inventory.ResolvedNode, nod
 	if err != nil {
 		return "", fmt.Errorf("failed to read the host key of node %q: %w", node.Name, err)
 	}
-	if _, err := s.hostKeys.Trust(ctx, node.Name, key, by); err != nil {
+	if _, err := s.hostKeys.Trust(ctx, node.Name, key, by, *previous); err != nil {
 		return "", fmt.Errorf("failed to trust the host key of node %q: %w", node.Name, err)
 	}
 	if *previous != "" {

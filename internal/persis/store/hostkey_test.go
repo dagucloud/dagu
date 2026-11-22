@@ -42,7 +42,7 @@ func TestHostKeyStore_Trust(t *testing.T) {
 	s := newHostKeyStore(t, testutil.NewMemoryBackend())
 	key := newPublicKey(t)
 
-	trusted, err := s.Trust(ctx, "Tokyo-Web01", key, "alice")
+	trusted, err := s.Trust(ctx, "Tokyo-Web01", key, "alice", "")
 	require.NoError(t, err)
 	assert.Equal(t, ssh.FingerprintSHA256(key), trusted.Fingerprint)
 	assert.WithinDuration(t, time.Now(), trusted.TrustedAt, time.Minute)
@@ -62,17 +62,39 @@ func TestHostKeyStore_TrustReplaces(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := newHostKeyStore(t, testutil.NewMemoryBackend())
-	_, err := s.Trust(ctx, "web01", newPublicKey(t), "alice")
+	first, err := s.Trust(ctx, "web01", newPublicKey(t), "alice", "")
 	require.NoError(t, err)
 	rotated := newPublicKey(t)
 
-	_, err = s.Trust(ctx, "WEB01", rotated, "bob")
+	_, err = s.Trust(ctx, "WEB01", rotated, "bob", first.Fingerprint)
 	require.NoError(t, err)
 
 	got, err := s.Get(ctx, "web01")
 	require.NoError(t, err)
 	assert.Equal(t, ssh.FingerprintSHA256(rotated), got.Fingerprint)
 	assert.Equal(t, "bob", got.TrustedBy)
+}
+
+// A trust stores nothing unless the node trusts the key the caller expected
+// to replace, or none when it expected none, so of two trusts that saw the
+// same key only the first is stored.
+func TestHostKeyStore_TrustRefusesUnexpectedKey(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newHostKeyStore(t, testutil.NewMemoryBackend())
+	first, err := s.Trust(ctx, "web01", newPublicKey(t), "alice", "")
+	require.NoError(t, err)
+
+	_, err = s.Trust(ctx, "web01", newPublicKey(t), "bob", "")
+	require.ErrorIs(t, err, inventory.ErrTrustedHostKeyChanged)
+	_, err = s.Trust(ctx, "web01", newPublicKey(t), "bob", "SHA256:stale")
+	require.ErrorIs(t, err, inventory.ErrTrustedHostKeyChanged)
+	_, err = s.Trust(ctx, "web02", newPublicKey(t), "bob", first.Fingerprint)
+	require.ErrorIs(t, err, inventory.ErrTrustedHostKeyChanged)
+
+	got, err := s.Get(ctx, "web01")
+	require.NoError(t, err)
+	assert.Equal(t, first, got)
 }
 
 func TestHostKeyStore_GetUntrusted(t *testing.T) {
@@ -87,7 +109,7 @@ func TestHostKeyStore_TrustRefusesInvalidNodeName(t *testing.T) {
 	t.Parallel()
 	s := newHostKeyStore(t, testutil.NewMemoryBackend())
 
-	_, err := s.Trust(context.Background(), "../web01", newPublicKey(t), "alice")
+	_, err := s.Trust(context.Background(), "../web01", newPublicKey(t), "alice", "")
 	assert.ErrorIs(t, err, inventory.ErrInvalid)
 }
 
