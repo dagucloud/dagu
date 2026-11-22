@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -209,8 +210,40 @@ func TestHTTPRequestErrorLoggedToStderr(t *testing.T) {
 	defer server.Close()
 
 	stderr := runHTTPUntilLogged(t, server.URL+"/ready?token=secret")
+	requireOneLine(t, stderr, "wait: http GET request failed: tls: failed to verify certificate: ")
+}
+
+// A reset connection's error carries the local port, which changes on every
+// poll. The line must still be logged once.
+func TestHTTPConnResetLoggedOnce(t *testing.T) {
+	t.Parallel()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = ln.Close() }()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = conn.Read(make([]byte, 4096))
+			_ = conn.(*net.TCPConn).SetLinger(0)
+			_ = conn.Close()
+		}
+	}()
+
+	stderr := runHTTPUntilLogged(t, "http://"+ln.Addr().String()+"/ready?token=secret")
+	requireOneLine(t, stderr, "wait: http GET request failed: read tcp "+ln.Addr().String()+": ")
+}
+
+// requireOneLine checks that stderr holds a single line starting with prefix
+// and nothing from the URL's query string.
+func requireOneLine(t *testing.T, stderr, prefix string) {
+	t.Helper()
+
 	require.Equal(t, 1, strings.Count(stderr, "\n"), stderr)
-	require.Contains(t, stderr, "wait: http GET request failed: tls: failed to verify certificate: ")
+	require.True(t, strings.HasPrefix(stderr, prefix), stderr)
 	require.NotContains(t, stderr, "secret")
 }
 

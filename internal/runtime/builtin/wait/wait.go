@@ -313,7 +313,10 @@ func (e *executorImpl) waitHTTP(ctx context.Context) error {
 // line). So only errors whose text holds at most a host and port are printed.
 func requestError(err error) string {
 	if opErr, ok := errors.AsType[*net.OpError](err); ok {
-		return opErr.Error()
+		// The local address holds an ephemeral port that changes on every poll.
+		op := *opErr
+		op.Source = nil
+		return op.Error()
 	}
 	if tlsErr, ok := errors.AsType[*tls.CertificateVerificationError](err); ok {
 		return tlsErr.Error()
