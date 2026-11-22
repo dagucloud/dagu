@@ -267,7 +267,7 @@ describe('ContinuousPanel', () => {
     };
     renderPanel();
     const call = h.samples[0]!;
-    expect(call.points).toBe(Math.floor((640 - 24 - 44) / 4));
+    expect(call.points).toBe(Math.floor((640 - 44) / 4));
     expect(call.window).toEqual({ preset: '24h', startedAt: STARTED_MS });
   });
 
