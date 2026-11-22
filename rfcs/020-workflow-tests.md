@@ -107,6 +107,9 @@ call with a scripted result, pick results by attempt, and skip waits.
 - Testing the commands themselves. Mocks fix their results.
 - Scheduler, queue, coordinator, and worker behavior. A test runs locally,
   in the CLI process.
+- The restart loop of a service DAG (Spec 080): when the scheduler starts
+  the next run, `restart_wait_sec`, and `unless-stopped`. A test runs one run
+  of the DAG.
 - `type: agent` DAGs, where a model picks the next step.
 - HTTP or service virtualization. A mock replaces a whole action.
 - Timing and performance assertions.
@@ -193,6 +196,7 @@ Case fields:
 | `params` | map | no | Merged over the file's `params`, by name |
 | `env` | map | no | Merged over the file's `env`, by name |
 | `scheduled_at` | date or time | no | The schedule slot of the run, as `dagu dry --scheduled-at` takes it |
+| `trigger` | trigger type | no | `context.trigger.type` of the run (Spec 017). Defaults to `manual` |
 | `precondition` | `met` or `not_met` | no | Result of the DAG-level preconditions that run a command: command checks and `eval` |
 | `mocks` | map | no | Replaces the file's mock for each step it names |
 | `real` | list | no | Added to the file's `real` |
@@ -200,6 +204,10 @@ Case fields:
 
 The DAG loads as `dagu start` loads it: base config, `defaults`, and dotenv
 files included. Unknown fields at any level are invalid.
+
+`trigger` takes any Spec 017 trigger type except `unknown` and `subdag`. It
+sets only the value a DAG reads: `restart` tests the branch a service DAG
+takes on its restarted runs, and `retry` does not retry a run.
 
 ### Steps and handlers
 
@@ -225,7 +233,8 @@ A mock replaces the step's action with a result:
 
 `results` excludes the inline fields. Each execution of the action takes the
 next result: the first attempt, each retry, and each repeat iteration. After
-the last result, the last one repeats. An inline mock is a one-item
+the last result, the last one repeats, except on a continuous step (see
+[Continuous steps](#continuous-steps)). An inline mock is a one-item
 `results`.
 
 How a result reaches the run:
@@ -335,6 +344,20 @@ command-check one takes the `condition` of the result that the execution
 used, with the meaning Spec 075 gives `met` and `not_met` for `while` and
 `until`.
 
+### Continuous steps
+
+A continuous step has a `repeat` mode and no `limit` (Spec 083), such as the
+heartbeat of a service DAG. With waits skipped, a mock whose last result
+repeats would run it without pause until `--timeout`. Under test:
+
+- A mocked continuous step runs once per result and then stops repeating,
+  unless the step's own repeat rule stops it first. It ends with the status
+  of its last execution. `attempts` counts its executions.
+- An unmocked continuous step that is side-effect free makes the case
+  invalid, because nothing bounds it. Mock it with `results`.
+- A continuous step in `real` keeps its real intervals, and only `--timeout`
+  ends it.
+
 ### Steps that wait for a person
 
 `review` settles the wait as soon as the step reaches `waiting`, through the
@@ -390,9 +413,18 @@ it.
 
 Each case runs in a new temporary case directory. Its data directory holds
 the case's run history, logs, artifacts, state (Spec 068), materialization
-records, and locks. Nothing is read from the configured data directory, so
-`state` starts empty and no queue or scheduler sees the run. The case
-directory is removed when the case ends, unless `--keep` is set.
+records, live-process records, and locks. Nothing is read from the
+configured data directory, so `state` starts empty and no queue or scheduler
+sees the run. The case directory is removed when the case ends, unless
+`--keep` is set.
+
+**Live runs.** A test runs next to the live runs of the same DAG. A service
+DAG has one run at a time (Spec 080), and the check reads the run history
+(`internal/runtime/manager.go:626`) and the live-process records
+(`internal/intake/local.go:133`). Both are in the case's data directory, so
+the check neither refuses the test while the service runs nor sees the
+test's run. The scheduler does not see the test's run either, so it starts
+no restart after it.
 
 **Files.** The DAG's working directory is not created or changed, and only
 `real` steps write outside the case directory:
@@ -725,6 +757,14 @@ test start a real command its author thought was mocked.
 21. A mocked step whose `env` references an output its dependency never
     published starts and takes its mock result, with the reference kept as
     text, as in a real run.
+22. A test of a service DAG passes while a run of the same DAG runs on the
+    same host. The live run is not stopped, and no restart follows the
+    test's run.
+23. A mocked continuous step with three results that all succeed ends
+    `succeeded` with `attempts: 3`, well before `--timeout`. An unmocked
+    side-effect-free continuous step makes the case invalid.
+24. A case with `trigger: restart` resolves `${context.trigger.type}` to
+    `restart`. A case without `trigger` resolves it to `manual`.
 
 ## Alternatives considered
 
@@ -786,3 +826,5 @@ test start a real command its author thought was mocked.
    can test it?
 7. Should a test seed `state` (Spec 068) values?
 8. Should `secrets` from the `env` provider resolve without a test value?
+9. Should a case assert the samples and events a continuous step records
+   (Spec 083)?
