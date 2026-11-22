@@ -30,7 +30,7 @@ type recorder struct {
 	hasEnd     bool
 	compactDue bool // an event was appended since the last compaction
 
-	up *upState // nil unless Options.Uptime is set
+	up *upState // nil unless Options.RunHistory is set
 
 	// The minute that is open.
 	hasMinute bool
@@ -59,7 +59,7 @@ func openRecorder(ctx context.Context, dir string, opts Options) (*recorder, err
 	if err := r.st.repair(now().Unix()); err != nil {
 		return nil, err
 	}
-	if opts.Uptime {
+	if opts.RunHistory {
 		up, err := openUp(dir, r.lastEnd)
 		if err != nil {
 			return nil, err
@@ -82,7 +82,7 @@ func openRecorder(ctx context.Context, dir string, opts Options) (*recorder, err
 		return nil, err
 	}
 	r.trk, r.lastEvent = trk, last
-	if !opts.NoLifecycleEvents {
+	if !opts.RunHistory {
 		if err := r.writeEvent(Event{Time: now().UTC(), Kind: EventStarted}); err != nil {
 			return nil, err
 		}
@@ -154,7 +154,7 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 		msg = ""
 	}
 	// A gap is not in an outage, and it comes before the events of the sample.
-	if gap := time.Duration(ms-r.lastEnd) * time.Millisecond; s.GapAfter > 0 && r.hasEnd && !r.trk.inOutage && gap > s.GapAfter {
+	if gap := time.Duration(ms-r.lastEnd) * time.Millisecond; r.opts.RunHistory && s.GapAfter > 0 && r.hasEnd && !r.trk.inOutage && gap > s.GapAfter {
 		e := Event{Time: time.UnixMilli(r.lastEnd).UTC(), Kind: EventGap, Gap: gap, RunID: s.RunID}
 		if err := r.writeEvent(e); err != nil {
 			return err
@@ -171,12 +171,12 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 	r.buf = appendRaw(r.buf, ms-hourStart*1000, us, s.ExitCode, msg, &r.bufMsg)
 	r.acc.add(us, s.ExitCode != 0)
 	var err error
-	if r.opts.WriteEach || len(r.buf) >= rawFlushBytes {
+	if r.opts.RunHistory || len(r.buf) >= rawFlushBytes {
 		err = r.writeRaw()
 	}
 	// The raw line of a run longer than the raw retention leaves with the hour
 	// of its start, so the end of the newest sample has its own file.
-	if r.opts.WriteEach && err == nil {
+	if r.opts.RunHistory && err == nil {
 		err = r.st.writeEnd(r.lastEnd)
 	}
 	if r.up != nil {
@@ -311,7 +311,7 @@ func (r *recorder) finish() error {
 			}
 		}
 	}
-	if r.opts.NoLifecycleEvents {
+	if r.opts.RunHistory {
 		return errors.Join(r.boundEvents(), r.st.syncAll())
 	}
 	// The stop is not before the samples it ends, so that the next start counts

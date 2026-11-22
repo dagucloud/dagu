@@ -5,18 +5,13 @@ package samples
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
-
-func upOpts(clk *clock) Options {
-	o := runOpts(clk)
-	o.Uptime = true
-	return o
-}
 
 // recordRun records a run from start for d, at the time of its end.
 func recordRun(t *testing.T, r Recorder, clk *clock, start time.Time, d time.Duration) {
@@ -55,7 +50,7 @@ func uptimeAt(t *testing.T, dir string, now time.Time, window time.Duration) Upt
 func TestUptimeApportion(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	start := t0.Add(30 * time.Minute)
 	recordRun(t, r, clk, start, 3*time.Hour)
 	require.NoError(t, r.Close(context.Background()))
@@ -77,7 +72,7 @@ func TestUptimeApportion(t *testing.T) {
 func TestUptimeAcrossMidnight(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	start := t0.Add(-time.Hour)
 	recordRun(t, r, clk, start, 3*time.Hour)
 	require.NoError(t, r.Close(context.Background()))
@@ -92,7 +87,7 @@ func TestUptimeAcrossMidnight(t *testing.T) {
 func TestUptimeGap(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0, time.Hour)
 	recordRun(t, r, clk, t0.Add(2*time.Hour), time.Hour)
 	require.NoError(t, r.Close(context.Background()))
@@ -128,7 +123,7 @@ func TestUptimeTolerance(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
 			clk := &clock{t: t0}
-			r := openWith(t, dir, upOpts(clk))
+			r := openWith(t, dir, runOpts(clk))
 			recordTolerant(t, r, clk, t0.Add(5*time.Second), 10*time.Second, tol)
 			recordTolerant(t, r, clk, t0.Add(15*time.Second+tt.gap), 10*time.Second, tol)
 			require.NoError(t, r.Close(context.Background()))
@@ -140,16 +135,17 @@ func TestUptimeTolerance(t *testing.T) {
 	}
 }
 
-// The first run of a history has no gap before it, also when an older history
-// without up time has samples: the up time starts at the start of the run.
+// The first run of a history has no gap before it, also when the history has
+// samples but no up store: the up time starts at the start of the run.
 func TestUptimeToleranceFirstRun(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, runOpts(clk)) // no Uptime: the history of an earlier version
+	r := openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0, 10*time.Second)
 	require.NoError(t, r.Close(context.Background()))
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, upDirName)))
 
-	r = openWith(t, dir, upOpts(clk))
+	r = openWith(t, dir, runOpts(clk))
 	recordTolerant(t, r, clk, t0.Add(15*time.Second), 10*time.Second, 11*time.Second)
 	require.NoError(t, r.Close(context.Background()))
 	sum, _ := upSum(t, dir, TierDay)
@@ -163,7 +159,7 @@ func TestUptimeToleranceFirstRun(t *testing.T) {
 func TestUptimeToleranceOverlap(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	recordTolerant(t, r, clk, t0, 100*time.Second, 11*time.Second)
 	recordTolerant(t, r, clk, t0.Add(50*time.Second), 100*time.Second, 11*time.Second)
 	require.NoError(t, r.Close(context.Background()))
@@ -176,7 +172,7 @@ func TestUptimeToleranceOverlap(t *testing.T) {
 func TestUptimeToleranceRatio(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	// A run of 100 ms each 4 s for 10 minutes, a stop of 5 minutes, and the
 	// same runs for 5 minutes.
 	for at := time.Duration(0); at < 10*time.Minute; at += 4 * time.Second {
@@ -197,7 +193,7 @@ func TestUptimeToleranceRatio(t *testing.T) {
 func TestUptimeSumAcrossTiers(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	// Short runs, a run of 26 hours, and runs that cross a minute and an hour.
 	for i := range 30 {
 		recordRun(t, r, clk, t0.Add(time.Duration(i)*7*time.Second+500*time.Millisecond), 3*time.Second)
@@ -217,7 +213,7 @@ func TestUptimeSumAcrossTiers(t *testing.T) {
 func TestUptimeOverlap(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0, 100*time.Second)
 	recordRun(t, r, clk, t0.Add(50*time.Second), 100*time.Second)
 	require.NoError(t, r.Close(context.Background()))
@@ -230,10 +226,10 @@ func TestUptimeOverlap(t *testing.T) {
 func TestUptimeReopen(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0.Add(10*time.Second), 10*time.Second)
 	require.NoError(t, r.Close(context.Background()))
-	r = openWith(t, dir, upOpts(clk))
+	r = openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0.Add(30*time.Second), 10*time.Second)
 	require.NoError(t, r.Close(context.Background()))
 	for _, tier := range upTiers {
@@ -248,7 +244,7 @@ func TestUptimeReopen(t *testing.T) {
 func TestUptimeCrash(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0.Add(10*time.Second), 20*time.Second)
 	recordRun(t, r, clk, t0.Add(70*time.Second), 20*time.Second)
 	_ = r // the recorder is not closed
@@ -258,7 +254,7 @@ func TestUptimeCrash(t *testing.T) {
 	require.Equal(t, 40*time.Second, upBucketOf(t, dir, TierDay, t0))
 
 	// The next recorder counts from the end of the newest sample.
-	r = openWith(t, dir, upOpts(clk))
+	r = openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0.Add(130*time.Second), 20*time.Second)
 	require.NoError(t, r.Close(context.Background()))
 	day, _ := upSum(t, dir, TierDay)
@@ -273,7 +269,7 @@ func TestUptimeRetention(t *testing.T) {
 	dir := t.TempDir()
 	now := t0.Add(40 * 24 * time.Hour)
 	clk := &clock{t: now}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	require.NoError(t, r.Record(context.Background(), Sample{Time: t0, Duration: 40 * 24 * time.Hour}))
 	require.NoError(t, r.Close(context.Background()))
 	m, minutes := upSum(t, dir, TierMinute)
@@ -300,13 +296,13 @@ func TestUptimeOldRun(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0, 30*time.Second)
 	require.NoError(t, r.Close(ctx))
 
 	// A week later, the scheduler records a run that ended back then.
 	clk.t = t0.Add(7*24*time.Hour + 45*time.Second)
-	r = openWith(t, dir, upOpts(clk))
+	r = openWith(t, dir, runOpts(clk))
 	require.NoError(t, r.Record(ctx, Sample{Time: t0.Add(35 * time.Second), Duration: 5 * time.Second}))
 	require.NoError(t, r.Close(ctx))
 	require.Equal(t, 30*time.Second, upBucketOf(t, dir, TierMinute, t0))
@@ -314,16 +310,15 @@ func TestUptimeOldRun(t *testing.T) {
 	require.Equal(t, 35*time.Second, upBucketOf(t, dir, TierDay, t0))
 }
 
-// A history that has no up time gives no uptime, not 0 %. A run history that
-// gets the feature later counts from its first interval.
+// A history that has no up store gives no uptime, not 0 %. A history whose up
+// store starts later counts from its first interval.
 func TestUptimeUnknown(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	o := runOpts(clk) // no Uptime: the format of a history that was written earlier
-	r := openWith(t, dir, o)
+	r := openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0, time.Hour)
 	require.NoError(t, r.Close(context.Background()))
-	require.NoDirExists(t, filepath.Join(dir, upDirName))
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, upDirName)))
 
 	now := t0.Add(3 * time.Hour)
 	rd := OpenReaderWith(dir, Options{Now: func() time.Time { return now }})
@@ -336,9 +331,9 @@ func TestUptimeUnknown(t *testing.T) {
 		require.True(t, w.Uptime.Since.IsZero(), w.Window)
 	}
 
-	// The feature starts at t0+2h: the window is counted from there.
+	// The up store starts at t0+2h: the window is counted from there.
 	clk.t = now
-	r = openWith(t, dir, upOpts(clk))
+	r = openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0.Add(2*time.Hour), 30*time.Minute)
 	require.NoError(t, r.Close(context.Background()))
 	u := uptimeAt(t, dir, now, 24*time.Hour)
@@ -353,7 +348,7 @@ func TestUptimeUnknown(t *testing.T) {
 func TestUptimeActiveRun(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0, time.Hour)
 	require.NoError(t, r.Close(context.Background()))
 	now := t0.Add(3 * time.Hour)
@@ -396,7 +391,7 @@ func TestUptimeActiveRun(t *testing.T) {
 func TestAvailabilityUptime(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0, 6*time.Hour)
 	require.NoError(t, r.Close(context.Background()))
 	now := t0.Add(12 * time.Hour)
@@ -415,7 +410,7 @@ func TestAvailabilityUptime(t *testing.T) {
 func TestAvailabilityMatchesUptime(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	const day = 24 * time.Hour
 	at := t0
 	for _, run := range []struct{ up, gap time.Duration }{
@@ -442,12 +437,12 @@ func TestUptimeSeesRewrite(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
 	now := t0.Add(5 * time.Minute)
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0, 20*time.Second)
 	require.NoError(t, r.Close(ctx))
 	require.Equal(t, 20*time.Second, uptimeAt(t, dir, now, 24*time.Hour).Up)
 
-	r = openWith(t, dir, upOpts(clk))
+	r = openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0.Add(30*time.Second), 20*time.Second)
 	require.NoError(t, r.Close(ctx))
 	require.Equal(t, 40*time.Second, uptimeAt(t, dir, now, 24*time.Hour).Up)
@@ -458,7 +453,7 @@ func TestUptimeSeesRewrite(t *testing.T) {
 func TestUptimePastWindow(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0, time.Hour)
 	recordRun(t, r, clk, t0.Add(2*time.Hour), time.Hour)
 	require.NoError(t, r.Close(context.Background()))
@@ -491,7 +486,7 @@ func TestUptimePastWindow(t *testing.T) {
 func TestUptimeLongRunWritesItsLastMinute(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0.Add(10*time.Second), 125*time.Second)
 	// The recorder is not closed and not flushed.
 	require.Equal(t, 15*time.Second, upBucketOf(t, dir, TierMinute, t0.Add(2*time.Minute)))
@@ -509,7 +504,7 @@ func TestUptimeLongRunWritesItsLastMinute(t *testing.T) {
 func TestSeriesUp(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	r := openWith(t, dir, upOpts(clk))
+	r := openWith(t, dir, runOpts(clk))
 	recordRun(t, r, clk, t0.Add(30*time.Minute), 3*time.Hour)
 	require.NoError(t, r.Close(context.Background()))
 	now := t0.Add(6 * time.Hour)

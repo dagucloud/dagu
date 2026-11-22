@@ -15,7 +15,7 @@
 //	hour/YYYYMM.jsonl        one aggregate for each hour, one file for each month
 //	day/YYYY.jsonl           one aggregate for each day, one file for each year
 //	events.jsonl             the events; no expiry, unless Options.MaxEventBytes is set
-//	end                      the end of the newest sample, with Options.WriteEach
+//	end                      the end of the newest sample, in a run history
 //
 // All times are UTC. A file holds only whole buckets of the next tier, so a
 // tier can drop a whole file when the next tier holds the aggregates of it.
@@ -76,14 +76,15 @@
 //
 // # Run history
 //
-// A run history reuses the store with these options. The zero value of each
-// option keeps the behavior of a continuous step.
+// Options.RunHistory makes the store the run history of a service DAG. The
+// options are one mode: a run history needs each of the rules below, and a
+// continuous step needs none.
 //
-// NoLifecycleEvents writes no started event and no stopped event. The outage
+// A run history writes no started event and no stopped event. The outage
 // state still survives a restart: OpenRecorder reads the last failed event and
 // counts the failed samples of the raw tier after it.
 //
-// WriteEach writes the raw line of a sample before Record returns. A Reader
+// A run history writes the raw line of a sample before Record returns. A Reader
 // sees the sample at once, because it builds the open minute from the raw tier.
 // The fsync points of the raw tier do not change. The file "end" keeps the end
 // of the newest sample, because a run that lasts longer than the raw retention
@@ -99,23 +100,24 @@
 // the file "end" and the newest raw line, or from the newest aggregate when
 // neither holds it.
 //
-// MaxEventBytes above zero bounds the events file. When an append makes the file
-// larger, the recorder replaces it with a file that keeps the newest events, at
-// most half of the bound. The bound is 4 KiB at least, so that the half holds
-// the longest event. The write goes to a temporary file, then a rename.
-// The first line of the new file is a header, for example {"b":12345}. It gives
-// the count of bytes that the file dropped before its first event.
+// Options.MaxEventBytes above zero bounds the events file, in any store. When
+// an append makes the file larger, the recorder replaces it with a file that
+// keeps the newest events, at most half of the bound. The bound is 4 KiB at
+// least, so that the half holds the longest event. The write goes to a
+// temporary file, then a rename. The first line of the new file is a header,
+// for example {"b":12345}. It gives the count of bytes that the file dropped
+// before its first event.
 //
 // An events cursor is the offset of an event since the first event ever
 // written, so it stays exact after a compaction. A cursor that points to a
 // dropped event, or not to the start of an event, gives ErrInvalidCursor. The
 // outage state stays correct, because the compaction keeps the newest events.
 //
-// Uptime records the time in which a run was active, with the interval of
-// each sample (the start and the duration). A run can last hours, so the
-// recorder splits its interval over the buckets that it covers, for the minute,
-// the hour and the day tier, and writes it to the directory "up" of the store
-// (see uptime.go). A bucket of the "up" store holds its whole up time, so a
+// A run history records the uptime: the time in which a run was active, with
+// the interval of each sample (the start and the duration). A run can last
+// hours, so the recorder splits its interval over the buckets that it covers,
+// for the minute, the hour and the day tier, and writes it to the directory
+// "up" of the store (see uptime.go). A bucket of the "up" store holds its whole up time, so a
 // write replaces its line, and a tier is never a roll-up of another tier. The
 // part of an interval before the end of the newest interval is not counted
 // again, so two runs that overlap count their union. A store that has no "up"

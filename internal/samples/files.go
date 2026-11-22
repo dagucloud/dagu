@@ -562,7 +562,7 @@ func (s *store) newestRaw() (ms, us int64, ok bool) {
 }
 
 // newestEnd returns the end of the newest sample, in milliseconds. A store
-// written with Options.WriteEach keeps it in the file "end". Without that file,
+// written with Options.RunHistory keeps it in the file "end". Without that file,
 // once the raw tier holds no sample, it is the end of the newest aggregate
 // bucket of the finest tier that has one.
 func (s *store) newestEnd() (int64, bool) {

@@ -544,7 +544,7 @@ func okDur(i int) time.Duration { return time.Duration(30+i%40) * time.Milliseco
 
 // runOpts are the options of a run history.
 func runOpts(clk *clock) Options {
-	return Options{Now: clk.now, NoLifecycleEvents: true, WriteEach: true}
+	return Options{Now: clk.now, RunHistory: true}
 }
 
 func openWith(t *testing.T, dir string, o Options) Recorder {
@@ -580,15 +580,15 @@ func mustFirst(t *testing.T, rd Reader) Event {
 	return p.Events[0]
 }
 
-// With NoLifecycleEvents, the store has no started and no stopped event, and an
-// outage goes on over a stop and over a crash.
+// A run history has no started and no stopped event, and an outage goes on
+// over a stop and over a crash.
 func TestNoLifecycleEvents(t *testing.T) {
 	ctx := context.Background()
 	fail := func(int) (time.Duration, int, string) { return time.Second, 1, "x" }
 
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	o := Options{Now: clk.now, NoLifecycleEvents: true}
+	o := runOpts(clk)
 	r := openWith(t, dir, o)
 	require.NoError(t, r.Close(ctx))
 	require.NoFileExists(t, filepath.Join(dir, eventsFileName))
@@ -607,7 +607,6 @@ func TestNoLifecycleEvents(t *testing.T) {
 
 	// A crash: the first recorder is not closed.
 	dir = t.TempDir()
-	o.WriteEach = true
 	r = openWith(t, dir, o)
 	feed(t, r, clk, t0, 5, time.Second, fail)
 	r = openWith(t, dir, o)
@@ -619,8 +618,8 @@ func TestNoLifecycleEvents(t *testing.T) {
 	require.EqualValues(t, 10, evs[0].FailedCount)
 }
 
-// With WriteEach, a reader opened at the same time sees a sample at once.
-func TestWriteEach(t *testing.T) {
+// In a run history, a reader opened at the same time sees a sample at once.
+func TestSampleSeenAtOnce(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
 	ctx := context.Background()
@@ -722,7 +721,7 @@ func TestEventsBound(t *testing.T) {
 	const bound = 4 << 20
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	o := Options{Now: clk.now, NoLifecycleEvents: true, MaxEventBytes: bound}
+	o := Options{Now: clk.now, MaxEventBytes: bound}
 	ctx := context.Background()
 	rd := OpenReader(dir)
 	r := openWith(t, dir, o)
@@ -733,7 +732,8 @@ func TestEventsBound(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, early.NextCursor)
 	feed(t, r, clk, t0.Add(20000*time.Second), 80000, time.Second, func(i int) (time.Duration, int, string) { return fn(i + 20000) })
-	require.NoError(t, r.Close(ctx))
+	// The recorder stays open: a close adds a stopped event at the time of the
+	// newest sample.
 	st, err := os.Stat(filepath.Join(dir, eventsFileName))
 	require.NoError(t, err)
 	require.Less(t, st.Size(), int64(bound))
@@ -769,7 +769,7 @@ func TestEventsBound(t *testing.T) {
 func TestCursorOverCompaction(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	o := Options{Now: clk.now, NoLifecycleEvents: true, MaxEventBytes: minEventBytes}
+	o := Options{Now: clk.now, MaxEventBytes: minEventBytes}
 	ctx := context.Background()
 	rd := OpenReader(dir)
 	r := openWith(t, dir, o)
@@ -806,7 +806,7 @@ func TestCursorOverCompaction(t *testing.T) {
 func TestOutageAfterCompaction(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	o := Options{Now: clk.now, NoLifecycleEvents: true, WriteEach: true, MaxEventBytes: minEventBytes}
+	o := Options{Now: clk.now, RunHistory: true, MaxEventBytes: minEventBytes}
 	ctx := context.Background()
 	fail := func(int) (time.Duration, int, string) { return time.Second, 1, "x" }
 	r := openWith(t, dir, o)
@@ -859,7 +859,7 @@ func TestRecordAfterFailedCompaction(t *testing.T) {
 	require.NoError(t, os.Mkdir(events+tmpSuffix, 0o750))
 
 	clk := &clock{t: t0.Add(time.Hour)}
-	o := Options{Now: clk.now, NoLifecycleEvents: true, WriteEach: true, MaxEventBytes: bound}
+	o := Options{Now: clk.now, RunHistory: true, MaxEventBytes: bound}
 	r := openWith(t, dir, o)
 	failed := Sample{Time: clk.t, Duration: time.Second, ExitCode: 1, Message: "x"}
 	require.Error(t, r.Record(ctx, failed))
@@ -929,7 +929,7 @@ func TestNewestEndLongRun(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	clk := &clock{t: t0}
-	o := upOpts(clk)
+	o := runOpts(clk)
 	r := openWith(t, dir, o)
 	recordRun(t, r, clk, t0, 72*time.Hour)
 	require.NoError(t, r.Close(ctx))

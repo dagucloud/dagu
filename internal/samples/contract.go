@@ -34,11 +34,12 @@ type Sample struct {
 	RunID string
 	// GapAfter is the longest time from the end of the previous sample to the
 	// start of this one that records no gap event. Zero records no gap event.
+	// Only a run history (Options.RunHistory) records gap events.
 	GapAfter time.Duration
 	// ActiveGap is the longest time from the end of the previous sample to the
 	// start of this one that counts as active time in the uptime. A longer gap
 	// is not active. Zero counts no gap. The first interval of a history has no
-	// gap before it.
+	// gap before it. Only a run history records uptime.
 	ActiveGap time.Duration
 }
 
@@ -203,16 +204,12 @@ type Availability struct {
 type Options struct {
 	// Now gives the time; time.Now when nil. Tests set it.
 	Now func() time.Time
-	// NoLifecycleEvents records no started and no stopped event. A run
-	// history sets it.
-	NoLifecycleEvents bool
-	// WriteEach writes the raw line of each sample when Record returns, so
-	// that a reader sees it at once, and keeps the end of the newest sample
-	// for NewestEnd. A run history sets it.
-	WriteEach bool
-	// Uptime records the time in which a run was active, split over the
-	// buckets that it covers. A run history sets it.
-	Uptime bool
+	// RunHistory makes the store the run history of a service DAG
+	// (specs/100-service-run-history.md). The recorder records no started and
+	// no stopped event, writes the raw line of each sample before Record
+	// returns, keeps the end of the newest sample for NewestEnd, records gap
+	// events, and records the uptime.
+	RunHistory bool
 	// MaxEventBytes bounds the size of the events file. Above it, the recorder
 	// drops the oldest events. Zero sets no bound. OpenRecorder rejects a bound
 	// under 4 KiB.
@@ -220,7 +217,7 @@ type Options struct {
 }
 
 // NewestEnd returns the end (time plus duration) of the newest sample of the
-// store in dir. It is exact for a store written with Options.WriteEach. For
+// store in dir. It is exact for a run history (Options.RunHistory). For
 // another store, once the raw tier no longer holds that sample, it returns the
 // end of the newest aggregate bucket. It reports false for a store with no
 // sample.
