@@ -987,6 +987,25 @@ func TestRestartScannerHistory(t *testing.T) {
 		assert.Len(t, store.samples, 1, "the next scan records the run")
 	})
 
+	// A store that fails to open leaves the status unobserved. The status of a
+	// suspended DAG does not change, so only the retry records its run.
+	t.Run("OpenErrorObservesLater", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		h.suspended["svc"] = true
+		h.endRun(ir.Succeeded, time.Minute)
+		h.recent = []ir.DAGRunStatus{h.latest}
+		store.openErr = errors.New("disk full")
+		h.scan()
+		assert.Empty(t, store.samples)
+
+		store.openErr = nil
+		h.now = h.now.Add(historyOpenRetry)
+		h.scan()
+		assert.Len(t, store.samples, 1, "the run records once the store opens")
+	})
+
 	// An unchanged latest status costs no more than the scan did before.
 	t.Run("NoExtraReads", func(t *testing.T) {
 		t.Parallel()
