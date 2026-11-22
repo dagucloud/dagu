@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -95,11 +96,11 @@ func (a *API) serviceActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRun
 }
 
 // dagActivity lists the runs of a DAG that started since `since`, newest
-// first, and its latest run while it is active. A service DAG gets the buckets
-// of its run history instead. It reads only the runs created in the window,
-// and none when the latest run ended before it. `latest` is the latest status
-// that the list already read; it may be empty when the server keeps only the
-// runs of today.
+// first, and its latest run while it is active. Backfill runs are left out.
+// A service DAG gets the buckets of its run history instead. It reads only
+// the runs created in the window, and none when the latest run ended before
+// it. `latest` is the latest status that the list already read; it may be
+// empty when the server keeps only the runs of today.
 func (a *API) dagActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStatus, since time.Time) (*api.DAGListActivity, error) {
 	if dag.RestartPolicy.Enabled() {
 		return a.serviceActivity(ctx, dag, latest, since)
@@ -117,6 +118,8 @@ func (a *API) dagActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStat
 		// The cached time comes from the reused inputs, which the run index
 		// does not keep.
 		FullStatus: true,
+		// A backfill run is not the latest run of its DAG either.
+		ExcludeBackfill: true,
 	})
 	if err != nil {
 		return activity, fmt.Errorf("list recent runs of %s: %w", dag.Name, err)
@@ -132,11 +135,18 @@ func (a *API) dagActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStat
 		activity.Runs = append(activity.Runs, toListActivityRun(*status))
 	}
 	activity.Truncated = len(statuses) > activityRunLimit
-	// A run created before the window is not in the list, but one that is
-	// still active shows from the start of the window.
-	if before && len(activity.Runs) < activityRunLimit {
+	// The list holds the runs created in the window. A latest run created
+	// before it, as a queued or retried run can be, shows when it started in
+	// the window or is still active.
+	listed := slices.ContainsFunc(activity.Runs, func(run api.DAGListActivityRun) bool {
+		return run.DagRunId == latest.DAGRunID
+	})
+	if !latestStart.IsZero() && latest.BackfillID == "" && !listed && len(activity.Runs) < activityRunLimit {
 		activity.Runs = append(activity.Runs, toListActivityRun(latest))
 	}
+	slices.SortStableFunc(activity.Runs, func(x, y api.DAGListActivityRun) int {
+		return runTime(y.StartedAt).Compare(runTime(x.StartedAt))
+	})
 	return activity, nil
 }
 

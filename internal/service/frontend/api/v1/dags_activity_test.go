@@ -23,8 +23,11 @@ type activityRun struct {
 	id       string
 	status   ir.Status
 	startAgo time.Duration
-	took     time.Duration
-	reused   []ir.ReusedInput
+	// queuedFor is the wait between the creation of the run and its start.
+	queuedFor time.Duration
+	took      time.Duration
+	reused    []ir.ReusedInput
+	backfill  string
 }
 
 func createActivityDAG(t *testing.T, server test.Server, name string) *ir.DAG {
@@ -40,12 +43,13 @@ func seedActivityRun(t *testing.T, server test.Server, dag *ir.DAG, run activity
 	t.Helper()
 	start := time.Now().Add(-run.startAgo)
 	attempt, err := server.DAGRunRepository.CreateAttempt(
-		server.Context, dag, start, run.id, persis.DAGRunCreateAttemptOptions{})
+		server.Context, dag, start.Add(-run.queuedFor), run.id, persis.DAGRunCreateAttemptOptions{})
 	require.NoError(t, err)
 	options := []ir.StatusOption{
 		ir.WithAttemptID(attempt.ID()),
 		ir.WithHierarchyRefs(ir.NewDAGRunRef(dag.Name, run.id), ir.DAGRunRef{}),
 		ir.WithReusedInputs(run.reused),
+		ir.WithBackfillID(run.backfill),
 	}
 	if !run.status.IsActive() {
 		options = append(options, ir.WithFinishedAt(start.Add(run.took)))
@@ -167,6 +171,48 @@ func TestListDAGsActivityAroundQueuedAndLongRuns(t *testing.T) {
 		require.NotNil(t, dags["activity_long"].Activity, query)
 		assert.Equal(t, []string{"long"}, activityRunIDs(dags["activity_long"].Activity), query)
 	}
+}
+
+// A run keeps the time it was created, when it was queued, which can be before
+// the window it starts in. Such a latest run is listed whether it still runs
+// or has ended, and the runs are in the order they started.
+func TestListDAGsActivityOfRunsQueuedBeforeTheyStarted(t *testing.T) {
+	server := test.SetupServer(t)
+	running := createActivityDAG(t, server, "activity_late_running")
+	seedActivityRun(t, server, running, activityRun{id: "running", status: ir.Running, startAgo: 2 * time.Hour, queuedFor: 28 * time.Hour})
+	ended := createActivityDAG(t, server, "activity_late_ended")
+	seedActivityRun(t, server, ended, activityRun{id: "ended", status: ir.Succeeded, startAgo: 2 * time.Hour, queuedFor: 28 * time.Hour, took: time.Minute})
+	order := createActivityDAG(t, server, "activity_late_order")
+	seedActivityRun(t, server, order, activityRun{id: "waited", status: ir.Succeeded, startAgo: time.Hour, queuedFor: 4 * time.Hour, took: time.Minute})
+	seedActivityRun(t, server, order, activityRun{id: "direct", status: ir.Succeeded, startAgo: 3 * time.Hour, took: time.Minute})
+
+	for _, query := range []string{"?activityWindow=86400", "?activityWindow=86400&sort=lastRun"} {
+		dags := listActivity(t, server, query)
+		assert.Equal(t, []string{"running"}, activityRunIDs(dags["activity_late_running"].Activity), query)
+		assert.Equal(t, []string{"ended"}, activityRunIDs(dags["activity_late_ended"].Activity), query)
+		assert.Equal(t, []string{"waited", "direct"}, activityRunIDs(dags["activity_late_order"].Activity), query)
+	}
+}
+
+// A backfill run is not listed, as it is not the latest run of its DAG
+// either: the list shows a backfill on its own.
+func TestListDAGsActivityLeavesOutBackfillRuns(t *testing.T) {
+	server := test.SetupServer(t)
+	idle := createActivityDAG(t, server, "activity_backfill_idle")
+	seedActivityRun(t, server, idle, activityRun{id: "live", status: ir.Succeeded, startAgo: 72 * time.Hour, took: time.Minute})
+	seedActivityRun(t, server, idle, activityRun{id: "slot", status: ir.Succeeded, startAgo: time.Hour, took: time.Minute, backfill: "fill"})
+	recent := createActivityDAG(t, server, "activity_backfill_recent")
+	seedActivityRun(t, server, recent, activityRun{id: "live", status: ir.Succeeded, startAgo: 2 * time.Hour, took: time.Minute})
+	seedActivityRun(t, server, recent, activityRun{id: "slot", status: ir.Succeeded, startAgo: time.Hour, took: time.Minute, backfill: "fill"})
+	only := createActivityDAG(t, server, "activity_backfill_only")
+	seedActivityRun(t, server, only, activityRun{id: "slot", status: ir.Succeeded, startAgo: time.Hour, took: time.Minute, backfill: "fill"})
+
+	dags := listActivity(t, server, "?activityWindow=86400")
+	for _, name := range []string{"activity_backfill_idle", "activity_backfill_only"} {
+		require.NotNil(t, dags[name].Activity, name)
+		assert.Empty(t, dags[name].Activity.Runs, name)
+	}
+	assert.Equal(t, []string{"live"}, activityRunIDs(dags["activity_backfill_recent"].Activity))
 }
 
 func TestListDAGsActivityRejectsAWindowOutOfRange(t *testing.T) {

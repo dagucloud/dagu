@@ -18081,7 +18081,7 @@ components:
       properties:
         runs:
           type: array
-          description: "Runs that started in the window, at most 60"
+          description: "Runs that started in the window, at most 60. Backfill runs are not listed."
           items:
             $ref: "#/components/schemas/DAGListActivityRun"
         truncated:
