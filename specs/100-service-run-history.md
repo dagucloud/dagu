@@ -251,9 +251,10 @@ Rules:
   ends.
 - A run history that has recorded active time before this rule keeps its stored values. The new rule
   applies to the runs that the scheduler records after the update.
-- The history writes the open hour and the open day each time the minute changes. It writes the open
-  minute at once when a run covers more than one minute. A crash can lose the active time of the open
-  minute in the minute tier.
+- Each tier writes a bucket when the bucket ends, and its open bucket when the scheduler closes or
+  opens the history. A reader takes the open hour and the open day from the minute tier, and keeps
+  the larger of their line and the sum of their minutes. The history writes the open minute at once
+  when a run covers more than one minute. A crash can lose the active time of the open minute.
 - A run history that was written before this feature has no `up` directory. Its uptime is unknown.
   Its samples, aggregates and events do not change. The uptime starts at the first run that the
   scheduler records after the update, and the windows count from it.
