@@ -2373,7 +2373,7 @@ func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfil
 	envScope := a.buildEnvScopeForSecrets(profileValues)
 	secretCtx := cmnvalue.WithEnvScope(ctx, envScope)
 
-	baseDirs := a.buildSecretBaseDirs(envScope)
+	baseDirs := a.buildSecretBaseDirs(ctx, envScope)
 	secretRegistry := providers.NewRegistryWithReferenceResolver(a.secretReferenceResolver, baseDirs...)
 	defer func() {
 		if err := secretRegistry.Close(); err != nil {
@@ -2439,8 +2439,16 @@ func (a *Agent) buildEnvScopeForSecrets(profileValues resolvedProfileValues) *cm
 }
 
 // buildSecretBaseDirs returns base directories for file-based secret resolution.
-func (a *Agent) buildSecretBaseDirs(envScope *cmnvalue.EnvScope) []string {
-	baseDirs := []string{envScope.ExpandPath(a.dag.WorkingDir)}
+func (a *Agent) buildSecretBaseDirs(ctx context.Context, envScope *cmnvalue.EnvScope) []string {
+	workingDir := envScope.ExpandPath(a.dag.WorkingDir)
+	// Secrets resolve before the run context exists, so resolve value
+	// references such as ${params.*} the same way steps do.
+	if resolved, err := runtime.ResolveDAGWorkingDir(
+		runtime.WithDAGContext(ctx, runtime.Context{DAG: a.dag, EnvScope: envScope}), a.dag,
+	); err == nil && resolved != "" {
+		workingDir = resolved
+	}
+	baseDirs := []string{workingDir}
 	if a.dag.Location != "" {
 		baseDirs = append(baseDirs, filepath.Dir(a.dag.Location))
 	}
