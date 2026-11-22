@@ -18,9 +18,11 @@ var (
 
 // IsPrivateAddr reports whether addr is a loopback, private, link-local,
 // multicast, or unspecified address, or an IPv6 transition address that
-// carries such an IPv4 address and so can reach it through a translator.
+// carries such an IPv4 address and so can reach it through a translator. An
+// IPv6 zone does not change the result.
 func IsPrivateAddr(addr netip.Addr) bool {
-	addr = addr.Unmap()
+	// Prefix.Contains never matches a zoned address.
+	addr = addr.WithZone("").Unmap()
 	if isLocalAddr(addr) || nat64LocalPrefix.Contains(addr) {
 		return true
 	}

@@ -30,6 +30,7 @@ func TestIsPrivateAddr(t *testing.T) {
 		{addr: "64:ff9b::a9fe:a9fe", want: true},
 		{addr: "64:ff9b::808:808", want: false},
 		{addr: "64:ff9b:1::808:808", want: true},
+		{addr: "64:ff9b::a9fe:a9fe%eth0", want: true},
 		// 6to4.
 		{addr: "2002:7f00:1::", want: true},
 		{addr: "2002:808:808::", want: false},
