@@ -168,7 +168,7 @@ func TestStepMockFailure(t *testing.T) {
 
 // The outputs of a successful mocked execution publish through the step's
 // declared outputs (Spec 012), so a later step and a value-match
-// precondition read them.
+// precondition read them. A json output publishes a string as a JSON string.
 func TestStepMockPublishesDeclaredOutputs(t *testing.T) {
 	t.Parallel()
 
@@ -177,6 +177,7 @@ func TestStepMockPublishesDeclaredOutputs(t *testing.T) {
 			"risk":  "low",
 			"notes": "first\nEOF\nlast",
 			"meta":  map[string]any{"replicas": 2},
+			"color": "blue",
 		}}}},
 		"review": {},
 		"merge":  {},
@@ -186,6 +187,7 @@ func TestStepMockPublishesDeclaredOutputs(t *testing.T) {
 		{Name: "risk", Type: ir.StepDeclaredOutputTypeString},
 		{Name: "notes", Type: ir.StepDeclaredOutputTypeString},
 		{Name: "meta", Type: ir.StepDeclaredOutputTypeJSON},
+		{Name: "color", Type: ir.StepDeclaredOutputTypeJSON},
 	}
 	review := newStep("review", withDepends("plan"), withCommand("exit 0"),
 		withPrecondition(&ir.Condition{Condition: "${steps.plan.outputs.risk}", Expected: "high"}))
@@ -198,7 +200,7 @@ func TestStepMockPublishesDeclaredOutputs(t *testing.T) {
 	assert.Equal(t, []string{"low"}, result.nodeByName(t, "merge").Step().Commands[0].Args)
 	outputs := result.nodeByName(t, "plan").State().StepOutputsValue
 	require.NotNil(t, outputs)
-	assert.JSONEq(t, `{"risk":"low","notes":"first\nEOF\nlast","meta":"{\"replicas\":2}"}`, *outputs)
+	assert.JSONEq(t, `{"risk":"low","notes":"first\nEOF\nlast","meta":"{\"replicas\":2}","color":"\"blue\""}`, *outputs)
 }
 
 // A failed mocked execution publishes no outputs. A later mocked step that

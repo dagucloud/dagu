@@ -34,8 +34,9 @@ type Result struct {
 	Stderr string
 	// Outputs holds the step's named outputs, published only when the
 	// execution succeeds. They are subject to the step's declared outputs
-	// (Spec 012). A string is published as written; any other value is
-	// published as its JSON text.
+	// (Spec 012). An output declared with type json publishes any value as
+	// its JSON text. Any other output publishes a string as written and any
+	// other value as its JSON text.
 	Outputs map[string]any
 }
 
@@ -73,7 +74,23 @@ func (s *Set) Executor(_ context.Context, step ir.Step) (executor.Executor, bool
 	if !ok {
 		return nil, false
 	}
-	return &mockExecutor{script: script, stdout: io.Discard, stderr: io.Discard}, true
+	return &mockExecutor{
+		script:      script,
+		jsonOutputs: jsonOutputs(step),
+		stdout:      io.Discard,
+		stderr:      io.Discard,
+	}, true
+}
+
+// jsonOutputs returns the names of the step's outputs declared with type json.
+func jsonOutputs(step ir.Step) map[string]bool {
+	names := make(map[string]bool)
+	for _, declaration := range step.ValueOutputs() {
+		if declaration.Type == ir.StepDeclaredOutputTypeJSON {
+			names[declaration.Name] = true
+		}
+	}
+	return names
 }
 
 // script holds the results of one mocked step and how many executions took
@@ -100,10 +117,11 @@ func (s *script) next() Result {
 // mockExecutor runs one execution of a mocked step. It starts no process and
 // reads no file.
 type mockExecutor struct {
-	script   *script
-	stdout   io.Writer
-	stderr   io.Writer
-	exitCode int
+	script      *script
+	jsonOutputs map[string]bool
+	stdout      io.Writer
+	stderr      io.Writer
+	exitCode    int
 }
 
 var _ executor.ExitCoder = (*mockExecutor)(nil)
@@ -127,12 +145,12 @@ func (e *mockExecutor) Run(ctx context.Context) error {
 	if result.ExitCode != 0 {
 		return fmt.Errorf("exit status %d", result.ExitCode)
 	}
-	return writeOutputs(ctx, result.Outputs)
+	return e.writeOutputs(ctx, result.Outputs)
 }
 
 // writeOutputs appends outputs to the step's DAGU_OUTPUT_FILE as an action
 // does, so the runtime parses and checks them as it does for any step.
-func writeOutputs(ctx context.Context, outputs map[string]any) error {
+func (e *mockExecutor) writeOutputs(ctx context.Context, outputs map[string]any) error {
 	if len(outputs) == 0 {
 		return nil
 	}
@@ -140,7 +158,7 @@ func writeOutputs(ctx context.Context, outputs map[string]any) error {
 	if !ok || path == "" {
 		return fmt.Errorf("%s is not set", runenv.EnvKeyDAGUOutputFile)
 	}
-	records, err := outputRecords(outputs)
+	records, err := outputRecords(outputs, e.jsonOutputs)
 	if err != nil {
 		return err
 	}
@@ -158,10 +176,10 @@ func writeOutputs(ctx context.Context, outputs map[string]any) error {
 
 // outputRecords encodes outputs as DAGU_OUTPUT_FILE records, in name order.
 // A value that spans lines takes a multiline record.
-func outputRecords(outputs map[string]any) (string, error) {
+func outputRecords(outputs map[string]any, jsonOutputs map[string]bool) (string, error) {
 	var b strings.Builder
 	for _, name := range slices.Sorted(maps.Keys(outputs)) {
-		value, err := outputText(outputs[name])
+		value, err := outputText(outputs[name], jsonOutputs[name])
 		if err != nil {
 			return "", fmt.Errorf("output %q: %w", name, err)
 		}
@@ -175,9 +193,10 @@ func outputRecords(outputs map[string]any) (string, error) {
 	return b.String(), nil
 }
 
-// outputText returns the text an output value publishes.
-func outputText(value any) (string, error) {
-	if text, ok := value.(string); ok {
+// outputText returns the text an output value publishes. A json output
+// publishes a string as a JSON string, as Spec 101 defines.
+func outputText(value any, asJSON bool) (string, error) {
+	if text, ok := value.(string); ok && !asJSON {
 		return text, nil
 	}
 	data, err := jsonutil.MarshalUnescaped(value)
