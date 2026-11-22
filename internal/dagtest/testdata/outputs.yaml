@@ -1,0 +1,24 @@
+steps:
+  - id: report
+    action: log.write
+    with:
+      message: reported
+    output:
+      summary:
+        from: file
+        path: report.json
+        decode: json
+  - id: echo
+    action: log.write
+    with:
+      message: echoed
+    output:
+      line:
+        from: stdout
+  - id: build
+    run: make build
+    output:
+      artifact:
+        from: file
+        path: dist/manifest.json
+        decode: json

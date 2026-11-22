@@ -1,0 +1,50 @@
+steps:
+  - name: build binary
+    id: build
+    run: make build
+  - id: deploy
+    action: ssh.run
+    with:
+      command: ./deploy.sh
+      host: example.com
+  - id: notify
+    action: http.request
+    with:
+      method: POST
+      url: https://example.com/hook
+  - id: announce
+    action: mail.send
+    with:
+      to: team@example.com
+      subject: released
+      message: done
+  - id: summarize
+    action: chat.completion
+    with:
+      provider: openai
+      model: gpt-4o
+      prompt: Summarize the release.
+  - id: route
+    action: router.route
+    with:
+      value: ${params.env}
+      routes:
+        prod: [publish]
+  - id: publish
+    action: outputs.write
+    with:
+      values:
+        channel: stable
+  - id: record
+    action: log.write
+    with:
+      message: released
+  - id: done
+    action: noop
+handler_on:
+  failure:
+    action: mail.send
+    with:
+      to: oncall@example.com
+      subject: release failed
+      message: see the run

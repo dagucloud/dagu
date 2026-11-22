@@ -1,0 +1,28 @@
+steps:
+  - id: upload_all
+    foreach:
+      items: [a, b]
+      as: file
+      steps:
+        - id: check
+          action: log.write
+          with:
+            message: checking
+          preconditions:
+            - condition: test -f input.txt
+        - id: upload
+          action: s3.upload
+          with:
+            bucket: releases
+            key: ${foreach.file.item}
+            source: ${foreach.file.item}
+          depends: [check]
+  - id: log_all
+    foreach:
+      items: [a, b]
+      as: entry
+      steps:
+        - id: print
+          action: log.write
+          with:
+            message: ${foreach.entry.item}
