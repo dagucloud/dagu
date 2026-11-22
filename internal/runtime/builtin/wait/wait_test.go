@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net"
@@ -285,6 +286,8 @@ func requireOneLine(t *testing.T, stderr, prefix string) {
 	require.NotContains(t, stderr, "secret")
 }
 
+const detailsLeftOutLine = "wait: http GET request failed: details left out, they may contain the URL or response text\n"
+
 // net/http quotes text from the server in these errors, and that text may
 // carry a token, so the error text is replaced.
 func TestHTTPServerTextLeftOutOfStderr(t *testing.T) {
@@ -321,7 +324,7 @@ func TestHTTPServerTextLeftOutOfStderr(t *testing.T) {
 			defer server.Close()
 
 			stderr := runHTTPUntilLogged(t, newHTTPWait(t, map[string]any{"url": server.URL + "/ready"}))
-			require.Equal(t, "wait: http GET request failed: details left out, they may quote the server's response\n", stderr)
+			require.Equal(t, detailsLeftOutLine, stderr)
 		})
 	}
 }
@@ -740,4 +743,38 @@ func TestExecutorRunStopsWhenContextIsCanceled(t *testing.T) {
 	cancel()
 
 	require.ErrorIs(t, exec.Run(ctx), context.Canceled)
+}
+
+func TestRequestErrorClearsNestedLocalAddress(t *testing.T) {
+	t.Parallel()
+
+	newErr := func(port int) error {
+		inner := &net.OpError{
+			Op:     "read",
+			Net:    "tcp",
+			Source: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port},
+			Addr:   &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 61431},
+			Err:    errors.New("connection reset by peer"),
+		}
+		return &net.OpError{Op: "proxyconnect", Net: "tcp", Err: inner}
+	}
+
+	first, second := requestError(newErr(61432)), requestError(newErr(61433))
+	require.Equal(t, first, second)
+	require.NotContains(t, first, "61432")
+}
+
+// A header value with a trailing newline, such as a token read from a file,
+// fails before the request is sent, so the line must not blame the server.
+func TestHTTPClientSideErrorNotBlamedOnServer(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	defer server.Close()
+
+	stderr := runHTTPUntilLogged(t, newHTTPWait(t, map[string]any{
+		"url":     server.URL,
+		"headers": map[string]any{"Authorization": "Bearer abc\n"},
+	}))
+	require.Equal(t, detailsLeftOutLine, stderr)
 }
