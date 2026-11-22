@@ -63,6 +63,22 @@ steps:
 	assert.Equal(t, before, dirSnapshot(t, home))
 }
 
+// A run that fails while its agent is set up records no terminal status, so
+// the case reports the failure. A file in place of the case's log directory
+// makes the log file fail to open.
+func TestCaseSetupFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx, _ := newCaseTestContext(t)
+	dag := writeCaseDAG(t, ctx, "setup", "steps:\n  - run: echo ok\n")
+	tc := openTestCase(t, ctx, caseOptions{tempDir: t.TempDir()})
+	require.NoError(t, os.WriteFile(tc.ctx.Config.Paths.LogDir, nil, 0o600))
+
+	status, err := tc.run(dag)
+	require.ErrorContains(t, err, "failed to initialize log file")
+	assert.Nil(t, status)
+}
+
 func TestCaseClose(t *testing.T) {
 	t.Parallel()
 
@@ -179,6 +195,52 @@ steps:
 		require.NoError(t, err)
 		assert.Equal(t, "token=*******\n", string(stdout))
 	})
+}
+
+// A real dag.run step starts its child in the same case. The child takes its
+// secret from the test values, since the env provider would fail on the
+// unset variable, and writes its redirect under the case directory.
+func TestCaseChildRun(t *testing.T) {
+	t.Parallel()
+
+	ctx, _ := newCaseTestContext(t)
+	workDir := t.TempDir()
+	dag := writeCaseDAG(t, ctx, "parent", fmt.Sprintf(`
+steps:
+  - name: call
+    action: dag.run
+    with:
+      dag: child
+---
+name: child
+working_dir: %q
+secrets:
+  - name: CHILD_TOKEN
+    provider: env
+    key: DAGU_CASE_TEST_UNSET_CHILD_TOKEN
+steps:
+  - name: write
+    run: echo child=$CHILD_TOKEN
+    stdout: child.txt
+`, workDir))
+	tc := openTestCase(t, ctx, caseOptions{
+		tempDir: t.TempDir(),
+		secrets: map[string]string{"CHILD_TOKEN": "child-token"},
+		real:    []string{"call"},
+	})
+
+	status, err := tc.run(dag)
+	require.NoError(t, err)
+	require.Equal(t, ir.Succeeded, status.Status, status.Error)
+
+	entries, err := os.ReadDir(workDir)
+	require.NoError(t, err)
+	assert.Empty(t, entries)
+	moved := findFile(t, tc.dir, "child.txt")
+	require.NotEmpty(t, moved, "the child's redirect file is not in the case directory")
+	data, err := os.ReadFile(moved)
+	require.NoError(t, err)
+	assert.Equal(t, "child=*******\n", string(data))
 }
 
 func TestCaseTrigger(t *testing.T) {

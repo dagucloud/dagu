@@ -108,6 +108,9 @@ var (
 	WithNoReuse = runctx.WithNoReuse
 	// WithRedirectRoot sets where the run writes step redirect files.
 	WithRedirectRoot = runctx.WithRedirectRoot
+	// WithSecretValues records the secret values that replace the run's
+	// secret providers.
+	WithSecretValues = runctx.WithSecretValues
 	// WithDAGRunLogDir sets the base log directory for newly persisted DAG runs.
 	WithDAGRunLogDir = runctx.WithDAGRunLogDir
 	// WithDAGRunArtifactDir sets the base artifact directory for newly persisted DAG runs.

@@ -69,6 +69,9 @@ type Context struct {
 	HostKeys             TrustedHostKeys     // Host keys trusted for nodes (RFC 012)
 	Node                 *cmnvalue.BoundNode // The node a bound run reads as ${node.*} (RFC 013)
 	RedirectRoot         RedirectRoot
+	// SecretValues, when non-nil, holds the secret values the run resolved
+	// its secrets from in place of their providers.
+	SecretValues map[string]string
 }
 
 // RedirectRoot moves the stdout and stderr redirect files of steps under Dir,
@@ -457,6 +460,14 @@ func WithNoReuse(disabled bool) ContextOption {
 func WithRedirectRoot(root RedirectRoot) ContextOption {
 	return func(o *contextOptions) {
 		o.RedirectRoot = root
+	}
+}
+
+// WithSecretValues records the secret values the run resolved its secrets
+// from in place of their providers.
+func WithSecretValues(values map[string]string) ContextOption {
+	return func(o *contextOptions) {
+		o.SecretValues = values
 	}
 }
 

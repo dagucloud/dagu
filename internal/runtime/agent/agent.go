@@ -926,6 +926,9 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	if a.redirectRoot.Dir != "" {
 		contextOpts = append(contextOpts, runtime.WithRedirectRoot(a.redirectRoot))
 	}
+	if a.secretValues != nil {
+		contextOpts = append(contextOpts, runtime.WithSecretValues(a.secretValues))
+	}
 	if a.dagRunLogDir != "" {
 		contextOpts = append(contextOpts, runtime.WithDAGRunLogDir(a.dagRunLogDir))
 	}
