@@ -183,6 +183,20 @@ describe('forMonacoYaml', () => {
   });
 
   it.skipIf(!realSchema)(
+    'gives the branch flags of the git worktree actions a rule',
+    () => {
+      const add = forMonacoYaml(realSchema!).definitions!
+        .gitWorktreeAddActionConfig!;
+      const flag = (add.allOf![0] as JSONSchema).then!.properties!
+        .create_branch!;
+      expect(flag.const).toBeUndefined();
+      expect((flag.allOf![0] as JSONSchema).errorMessage).toBe(
+        'create_branch must be true.'
+      );
+    }
+  );
+
+  it.skipIf(!realSchema)(
     'gives the keys of the built-in tools of the real schema a rule',
     () => {
       const tools = forMonacoYaml(realSchema!).definitions!
