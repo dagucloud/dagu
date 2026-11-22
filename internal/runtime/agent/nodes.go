@@ -234,23 +234,33 @@ func splitShell(shell string) (string, []string, error) {
 }
 
 // reachesNode reports whether a step of a run bound to an SSH node runs on
-// the node: a step with no action, or an ssh.run or sftp.* step that names
-// no other host (RFC 013 §Bound runs). Other actions run where the run runs,
-// as under DAG-level ssh.
+// the node: a command step, or an ssh.run or sftp.* step that names no other
+// host (RFC 013 §Bound runs). Other actions run where the run runs, as under
+// DAG-level ssh.
 func reachesNode(step ir.Step) bool {
 	switch step.ExecutorConfig.Type {
-	case "":
-		return step.HumanTask == nil
 	case "ssh", "sftp":
 		_, host := step.ExecutorConfig.Config["host"]
 		_, ip := step.ExecutorConfig.Config["ip"]
 		return !host && !ip
 	default:
+		return isCommandStep(step)
+	}
+}
+
+// isCommandStep reports whether a step runs on the command executor: a step
+// with no action, or one typed command or shell. In a bound run such a step
+// runs on the node, never on the Dagu host.
+func isCommandStep(step ir.Step) bool {
+	switch step.ExecutorConfig.Type {
+	case "", "command", "shell":
+		return step.HumanTask == nil
+	default:
 		return false
 	}
 }
 
-// onNode returns a copy of dag whose steps with no action run over SSH, as
+// onNode returns a copy of dag whose command steps run over SSH, as
 // DAG-level ssh makes them. dag is left unchanged.
 func onNode(dag *ir.DAG) *ir.DAG {
 	bound := dag.Clone()
@@ -275,10 +285,10 @@ func routeSteps(steps []ir.Step) []ir.Step {
 	return routed
 }
 
-// routeStep returns step, and its foreach body, with no action running over
-// SSH.
+// routeStep returns step, and its foreach body, with command steps running
+// over SSH.
 func routeStep(step ir.Step) ir.Step {
-	if step.ExecutorConfig.Type == "" && step.HumanTask == nil {
+	if isCommandStep(step) {
 		step.ExecutorConfig.Type = "ssh"
 	}
 	if step.Foreach != nil {

@@ -249,3 +249,24 @@ steps:
 	require.Zero(t, resolver.callCount(passwordRef))
 	require.Zero(t, server.AuthAttempts())
 }
+
+// A step typed command or shell runs on the command executor, as a step with
+// no action does, so it runs on the node and never on the Dagu host.
+func TestAgent_BoundRunTypedCommandReachesNode(t *testing.T) {
+	t.Parallel()
+
+	node, server := startNode(t, "web01")
+	dagAgent, _ := runBound(t, nodeInventory{node}, `
+node: required
+steps:
+  - id: typed_command
+    type: command
+    command: "true"
+  - id: typed_shell
+    type: shell
+    command: "true"
+`, newCountingSecretResolver(map[string]string{passwordRef: nodePassword}))
+	dagAgent.RunSuccess(t)
+
+	require.Len(t, server.Commands(), 2, "each step runs on the node")
+}
