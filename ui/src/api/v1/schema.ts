@@ -6455,6 +6455,7 @@ export interface components {
             fileName: string;
             dag: components["schemas"]["DAG"];
             latestDAGRun: components["schemas"]["DAGRunSummary"];
+            activity?: components["schemas"]["DAGListActivity"];
             /**
              * Format: date-time
              * @description Scheduler-aware next planned run time. Pending overdue one-offs remain visible until consumed.
@@ -7240,6 +7241,36 @@ export interface components {
          * @example 2026-11-09
          */
         ScheduleSlotValue: string;
+        /** @description The runs of a DAG that started in the window of a list request, newest first, and its latest run while it is active. For a service DAG, the buckets of its run history instead. */
+        DAGListActivity: {
+            /** @description Runs that started in the window, at most 60 */
+            runs: components["schemas"]["DAGListActivityRun"][];
+            /** @description True when the DAG has more runs in the window than runs lists */
+            truncated: boolean;
+            /** @description For a service DAG: width of the tier of the buckets (spec 100) */
+            resolutionSeconds?: number;
+            /** @description For a service DAG: the buckets of its run history in the window, at most 60, in time order. A bucket with no run and no active time is not listed. runs is then empty. */
+            buckets?: components["schemas"]["SampleBucket"][];
+            /**
+             * Format: double
+             * @description For a service DAG: the share of the window in which a run was active, from 0 to 1. Absent when the run history has no record of the window.
+             */
+            uptime?: number;
+        };
+        /** @description One run in the activity of a DAG */
+        DAGListActivityRun: {
+            dagRunId: components["schemas"]["DAGRunId"];
+            status: components["schemas"]["Status"];
+            /** @description RFC 3339 timestamp when the run started */
+            startedAt: string;
+            /** @description RFC 3339 timestamp when the run finished. Absent for a run that has not finished. */
+            finishedAt?: string;
+            /**
+             * Format: int64
+             * @description Sum in milliseconds of the times that the steps reused from other runs took in those runs. Absent for a run that reused no timed step.
+             */
+            cachedMs?: number;
+        };
         /** @description Current status of a DAG-run */
         DAGRunSummary: {
             dagRunId: components["schemas"]["DAGRunId"];
@@ -10829,6 +10860,8 @@ export interface operations {
                 sort?: PathsDagsGetParametersQuerySort;
                 /** @description Sort order (ascending or descending) */
                 order?: PathsDagsGetParametersQueryOrder;
+                /** @description Length in seconds of a window that ends now. When set, each DAG in the list carries `activity`: its runs that started in the window, newest first, and its latest run while it is active. Without it, no DAG carries `activity`. */
+                activityWindow?: number;
             };
             header?: never;
             path?: never;
