@@ -6,6 +6,7 @@ package agent_test
 import (
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -102,8 +103,8 @@ func TestAgent_TestRunRealSteps(t *testing.T) {
 		hasRealSteps bool
 		wantErr      string
 	}{
-		{name: "None"},
-		{name: "Real", hasRealSteps: true, wantErr: "failed to create ssh client"},
+		{name: "NoRealSteps"},
+		{name: "RealSteps", hasRealSteps: true, wantErr: "failed to create ssh client"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -123,13 +124,13 @@ steps:
 				TestSideEffects: &agent.TestSideEffects{HasRealSteps: tc.hasRealSteps},
 			}))
 
-			if tc.hasRealSteps {
+			if tc.wantErr == "" {
+				dagAgent.RunSuccess(t)
+			} else {
 				dagAgent.RunCheckErr(t, tc.wantErr)
-				require.DirExists(t, workDir)
-				return
 			}
-			dagAgent.RunSuccess(t)
-			require.NoDirExists(t, workDir)
+			_, statErr := os.Stat(workDir)
+			require.Equal(t, tc.hasRealSteps, statErr == nil, "working directory created")
 		})
 	}
 }
