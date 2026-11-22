@@ -4,9 +4,10 @@
 - **Date:** 2026-11-22
 - **Issue:** https://github.com/dagucloud/dagu/issues/2864
 - **Affected areas:** `cmd`, a new `dagtest` package, `executor/registry`,
-  `runtime` (mock executor, skipped waits), `runtime/builtin` (side-effect
-  opt-in), `persis/file/dag` (discovery, watcher, name lookup), `specs`,
-  `conformance`, and `docs`
+  `runtime` (mock executor, skipped waits), `runtime/agent` (notifications,
+  trace export, DAG container, and tools under test), `runtime/builtin`
+  (side-effect opt-in), `persis/file/dag` (discovery, watcher, name lookup),
+  `specs`, `conformance`, and `docs`
 
 ## Summary
 
@@ -44,9 +45,11 @@ dagu test workflows/
 Each case runs the DAG through the same runner as `dagu start`, in a
 temporary data directory. Only the mocked actions change. Dependencies,
 preconditions, routing, retries, `continue_on`, handlers, and status
-propagation all work as in a real run. A step whose action has side effects
-must be mocked or explicitly listed as real. Otherwise the case is invalid and
-nothing runs.
+propagation all work as in a real run. Step actions with side effects, and
+the commands Dagu runs outside actions, must be replaced by the test or
+listed as real. Otherwise the case is invalid and nothing runs.
+Notifications, trace export, and the DAG-level container are off unless a
+step is real.
 
 ## Problem statement
 
@@ -86,11 +89,12 @@ call with a scripted result, pick results by attempt, and skip waits.
 1. Test a DAG's orchestration through the same runner as `dagu start`:
    dependencies, preconditions, routing, retries, repeats, `continue_on`,
    handlers, and status propagation.
-2. No action with side effects runs unless the test names it.
+2. Nothing with side effects runs unless the test names it: no step action,
+   no command Dagu runs outside an action, no notification, and no container.
 3. A DAG needs no change to be testable.
 4. One file holds several scenarios of one DAG.
 5. A test reads nothing from and writes nothing to the configured data
-   directory.
+   directory, and only real steps write files outside the case directory.
 6. Retry intervals, repeat intervals, and start delays are not waited for, so
    a mocked case finishes in well under a second.
 7. Runs headless in CI, with an exit status and a report a CI system can read.
@@ -186,7 +190,7 @@ Case fields:
 | `params` | map | no | Merged over the file's `params`, by name |
 | `env` | map | no | Merged over the file's `env`, by name |
 | `scheduled_at` | date or time | no | The schedule slot of the run, as `dagu dry --scheduled-at` takes it |
-| `precondition` | `met` or `not_met` | no | Result of the DAG-level command-check preconditions |
+| `precondition` | `met` or `not_met` | no | Result of the DAG-level preconditions that run a command: command checks and `eval` |
 | `mocks` | map | no | Replaces the file's mock for each step it names |
 | `real` | list | no | Added to the file's `real` |
 | `expect` | map | yes | Assertions |
@@ -212,34 +216,39 @@ A mock replaces the step's action with a result:
 | `exit_code` | int | `0` | Exit code of the action. Non-zero fails the attempt |
 | `stdout` | string | empty | Written to the step's stdout |
 | `stderr` | string | empty | Written to the step's stderr |
-| `outputs` | map | none | Named step outputs, published as Spec 012 publishes them |
-| `results` | list | none | One result per execution. Each item takes the four fields above |
+| `outputs` | map | none | Named step outputs |
+| `condition` | `met` or `not_met` | none | Result of a command-check `repeat_policy.condition` after this execution |
+| `results` | list | none | One result per execution. Each item takes the fields above |
 
-`results` excludes the four inline fields. Each execution of the action takes
-the next result: the first attempt, each retry, and each repeat iteration.
-After the last result, the last one repeats. An inline mock is a one-item
+`results` excludes the inline fields. Each execution of the action takes the
+next result: the first attempt, each retry, and each repeat iteration. After
+the last result, the last one repeats. An inline mock is a one-item
 `results`.
 
-A mocked result goes through the same capture path as a real action:
+How a result reaches the run:
 
-- `stdout` feeds string-form `output: VAR`, object-form `output`, and
-  `stdout.outputs`, as in a real run.
-- `outputs` is written to the step's `DAGU_OUTPUT_FILE` and parsed by Spec 012
-  only when the attempt succeeds. A failed attempt publishes nothing.
+- `stdout` and `stderr` are the step's captured streams. String-form
+  `output: VAR` captures `stdout` as in a real run.
+- `outputs` supplies every named output the step publishes, whatever its
+  source: the output file (Spec 012), object-form `output`, or
+  `stdout.outputs`. Dagu does not parse `stdout` or read a file to publish
+  them. Only a successful attempt publishes outputs.
 - A `string` output takes a YAML string. A `json` output takes any YAML value
   and is published as its JSON text.
 - The step's `env`, `with`, and `run` fields are still resolved. A reference
   that does not resolve fails the step as it would in a real run.
+- A mocked step reads no file: not its `stdin`, and not a file named by an
+  object-form `output`.
 
 A mock is invalid when:
 
 - it names a step that does not exist;
 - it sets `outputs` on a step without `id`;
-- a result with exit code 0 leaves out an output the step declares, or names
-  one the step does not declare, when the step declares `outputs`.
+- a result with exit code 0 leaves out a named output the step declares, or
+  names one it does not declare, when the step declares named outputs.
 
-Spec 012 would fail such a step at run time. Rejecting the mock at load
-reports the authoring mistake directly.
+A real run would fail such a step or publish nothing for it. Rejecting the
+mock at load reports the authoring mistake directly.
 
 `{}` is a valid mock: exit code 0, no output.
 
@@ -265,21 +274,33 @@ action only when it sets a result field, so a mock that sets only
 
 ### The fail-closed rule
 
-A case is invalid, and none of its steps run, when any step or handler of the
-DAG:
+A case is invalid, and none of its steps run, when the DAG has any of the
+following and the test neither replaces it nor lists its step in `real`:
 
-- has an action that is not side-effect free, and is neither mocked nor in
-  `real`; or
-- has a command-check precondition (Spec 023), and its mock sets no
-  `precondition`, and it is not in `real`; or
-- waits for a person (`action: human.task` or `approval`), and its mock sets
-  no `review`.
+| Source | Replaced by |
+| --- | --- |
+| A step action that is not side-effect free | A mock |
+| A step precondition with a command check or `eval` (Spec 023) | `precondition` in the step's mock |
+| A command-check `repeat_policy.condition` (Spec 075) | `condition` in every result of the step's mock |
+| A file named by an object-form `output` of an unmocked step | A mock |
+| A `foreach` body step that is not side-effect free | A mock of the whole `foreach` step |
+| A step that waits for a person (`human.task`, `approval`) | `review` in the step's mock |
+| A DAG-level precondition with a command check or `eval` | The case's `precondition` |
+| A `params[].eval` (Spec 011) | A value for that param in `params` |
 
-The rule covers every step, reached or not, so the result does not depend on
-which branch a case takes. The error lists every offending step at once:
+DAG-level preconditions and `params[].eval` belong to no step, so `real`
+does not apply to them. Spec 003 allows command substitution only in
+`params[].eval` and precondition `eval`, and command checks run only in
+preconditions and repeat conditions, so the table covers every command Dagu
+runs outside a step action.
+
+The rule covers every step and handler, reached or not, so the result does
+not depend on which branch a case takes. The error lists every offending
+source at once:
 
 ```text
 INVALID workflows/release.test.yaml: a failed build stops the deploy
+  param build_date: eval runs a command; give it a value under params
   step deploy: action ssh.run has side effects; mock it or list it under real
   handler_on.failure: action mail.send has side effects; mock it or list it under real
 ```
@@ -289,13 +310,22 @@ takes a line in `real`.
 
 ### Preconditions
 
-Value-match preconditions evaluate as in a real run, against mocked outputs
-and the case's params and env. This is how output-driven branches are tested.
+Value-match preconditions without `eval` evaluate as in a real run, against
+mocked outputs and the case's params and env. This is how output-driven
+branches are tested.
 
-A mock's `precondition: met` treats the step's command-check conditions as
-passed. `not_met` treats one as not met, so the step is skipped (Spec 023).
-Value-match conditions of the same step still evaluate. The case-level
-`precondition` does the same for DAG-level command checks.
+A mock's `precondition: met` treats the step's command checks and `eval`
+conditions as met. `not_met` treats them as not met, so the step is skipped
+(Spec 023). The step's other value-match conditions still evaluate. The
+case-level `precondition` does the same for DAG-level preconditions, and
+`not_met` aborts the run, as Spec 023 defines.
+
+### Repeat conditions
+
+A value-match `repeat_policy.condition` evaluates as in a real run. A
+command-check one takes the `condition` of the result that the execution
+used, with the meaning Spec 075 gives `met` and `not_met` for `while` and
+`until`.
 
 ### Steps that wait for a person
 
@@ -319,17 +349,25 @@ See [Open questions](#open-questions).
 
 ### Sub-DAGs, `parallel`, and `foreach`
 
-A mock on a `dag.run` or `dag.enqueue` step replaces the child run. The mock's
-result is the step's result, and its `outputs` are the step's outputs. No
-child run starts.
+A mock on a `dag.run` or `dag.enqueue` step replaces the child run, and on a
+`parallel` step it replaces every child. The mock's result is the step's
+result, and its `outputs` are the step's outputs. No child run starts.
+`results` counts executions of the step, not children.
 
 A `dag.run` step in `real` starts its child in the same case. The child gets
 no mocks, so the fail-closed rule applies to the child's steps: each must be
 side-effect free.
 
-On a `parallel` or `foreach` step, the mock applies to every item, and
-`results` is invalid, because items do not run in a fixed order. Each item
-takes the same result. Per-item results are an open question.
+A mock on a `foreach` step replaces the whole construct: item expansion, the
+body, `collect`, and the aggregate status. The mock's result is the step's
+result, its `outputs` are the step's outputs, and string-form `output: VAR`
+captures its `stdout` in place of the aggregate. A whole-construct mock ends
+the step `succeeded` or `failed`.
+
+An unmocked `foreach` step runs for real when every body step is
+side-effect free, over items taken from mocked upstream outputs. A body step
+that is not side-effect free makes the case invalid unless the whole
+`foreach` step is mocked. Mocks for individual body steps are deferred.
 
 ### Time
 
@@ -342,20 +380,40 @@ it.
 
 ### Isolation
 
-Each case runs in a new temporary data directory. It holds that case's run
-history, logs, artifacts, state (Spec 068), materialization records, and
-locks. Nothing is read from the configured data directory, so `state` starts
-empty and no queue or scheduler sees the run. The directory is removed when
-the case ends, unless `--keep` is set.
+Each case runs in a new temporary case directory. Its data directory holds
+the case's run history, logs, artifacts, state (Spec 068), materialization
+records, and locks. Nothing is read from the configured data directory, so
+`state` starts empty and no queue or scheduler sees the run. The case
+directory is removed when the case ends, unless `--keep` is set.
 
-The DAG's working directory is not changed. Mocked and side-effect-free
-steps do not write to it. Real steps do.
+**Files.** The DAG's working directory is not changed, but only `real` steps
+write outside the case directory:
 
-Secrets resolve only from the test's `secrets` map, and every DAG `secrets`
-entry needs a value there. Values are masked in logs and reports, as in a
-real run. Command substitution in `params`, `env`, and `eval` (Spec 011)
-runs as in a real run. A test replaces such a value through `params` or
-`env`.
+- The `stdout` and `stderr` redirect paths of every other step are written
+  under the case directory, not at their configured paths. Artifact
+  redirects go to the case's artifact directory.
+- A mocked step reads no file (see [Mocks](#mocks)). An unmocked step with a
+  file-sourced output is invalid unless it is real.
+- The run reads its inputs as `dagu start` does: the DAG file, the base
+  config, dotenv files, and declared file dependencies (Spec 035).
+
+**Run-level side effects.** The agent does more than run steps. Under test:
+
+| Behavior | Under test |
+| --- | --- |
+| `mail_on` notifications and step `mail_on_error` | Not sent. The report lists each notification the run would have sent |
+| OpenTelemetry trace export (`otel`) | Off |
+| DAG-level `container` | Not created, unless the case has a `real` step, which runs in it |
+| Declared `tools` | Not installed, unless the case has a `real` step |
+
+A `real` step is the explicit opt-in to side effects, so the container and
+tools it needs are set up as in a real run. Tools install into the
+configured tools directory, the one write outside the case directory that
+only `real` causes.
+
+**Secrets.** Secrets resolve only from the test's `secrets` map, and every
+DAG `secrets` entry needs a value there. Values are masked in logs and
+reports, as in a real run.
 
 ### Assertions
 
@@ -411,13 +469,19 @@ DAG file --spec--> ir.DAG --apply mocks--> ir.DAG' --runtime agent--> run status
 ```
 
 The `dagtest` package decodes the test file, loads the DAG through `spec`,
-and applies each case to a copy of the `ir.DAG`. A mocked step's executor is
-replaced with a mock executor that holds the step's results. Its other fields
-stay as written: `retry_policy`, `repeat_policy`, `continue_on`, `output`,
-`outputs`, `env`, and preconditions. The case then runs through the same
-local agent as `dagu start`, with paths pointing at the temporary directory
-and waits skipped. The run plan, runner, and node code do not branch on
-tests.
+and applies each case to a copy of the `ir.DAG`:
+
+- A mocked step's executor becomes a mock executor that holds its results.
+- Replaced preconditions and repeat conditions take their scripted results.
+- Redirect paths move into the case directory.
+
+A mocked step keeps its other fields as written: `retry_policy`,
+`repeat_policy`, `continue_on`, `env`, and the rest. The case then runs
+through the same local agent as `dagu start`, with paths pointing at the
+case directory. Two options exist only for tests. The runner skips waits.
+The agent turns off notifications and trace export, and sets up the DAG
+container and tools only for a `real` step. Dependency evaluation, status
+propagation, retries, and handlers do not branch on tests.
 
 The mock executor is not an action authors can name in a DAG. `dagu validate`
 rejects it like any unknown action.
@@ -563,9 +627,11 @@ Rollout:
 2. **`dagtest` and the mock executor**: decoding, mocks, `results`, the
    fail-closed rule, isolation, assertions, and the text and JSON reports.
    DAG discovery, the watcher, and name lookup skip test files.
-3. **Side-effect-free opt-in** for the first executors, and skipped waits in
-   the runtime.
-4. **Preconditions, reviews, and sub-DAG mocks.**
+3. **Side-effect-free opt-in** for the first executors, skipped waits in the
+   runtime, and the agent options for notifications, trace export, the DAG
+   container, and tools.
+4. **Preconditions, repeat conditions, `params[].eval`, redirects, reviews,
+   and sub-DAG and `foreach` mocks.**
 5. **Documentation**: writing tests, and running them in CI.
 
 Steps 1 to 4 ship together. A release with only part of the rule would let a
@@ -574,11 +640,14 @@ test start a real command its author thought was mocked.
 ## Security
 
 - The fail-closed rule is the main safeguard. A real action runs only when
-  `real` names its step.
+  `real` names its step. The same rule covers the commands Dagu runs outside
+  actions: `params[].eval`, precondition `eval` and command checks, and
+  repeat command checks.
+- Without a `real` step, a case sends no notification, exports no trace,
+  creates no container, installs no tool, and writes no file outside its
+  case directory.
 - Test files are usually committed. Their `secrets` values should be fake.
   The docs say so, and a real run never reads test files.
-- Command substitution still runs. A DAG whose `env` runs a command with side
-  effects still runs it under test. See [Open questions](#open-questions).
 
 ## Verification and acceptance criteria
 
@@ -611,6 +680,19 @@ test start a real command its author thought was mocked.
     with no argument runs it against `release.yaml`.
 13. A `foo.test.yaml` with top-level `steps` and no `cases` is reported by
     `dagu test` as invalid, with a request to rename it.
+14. A `params[].eval` without a value in the test, a step precondition with
+    `eval` and no `precondition` in its mock, and a DAG-level command check
+    without the case's `precondition` each make the case invalid, and no
+    command runs.
+15. A step with `repeat: while` and a command-check condition, mocked with
+    results whose `condition` is `met`, `met`, `not_met`, runs three times.
+16. A failing case with no `real` step, on a DAG with `mail_on.failure`,
+    `otel`, and a DAG-level `container`, sends no mail, exports no span, and
+    creates no container. The report lists the failure notification.
+17. A mocked step with `stdout: result.txt` leaves the working directory
+    unchanged, and the redirect file is in the case directory.
+18. A mocked `foreach` step ends `succeeded` without expanding items. An
+    unmocked `foreach` whose body has a `run` step makes the case invalid.
 
 ## Alternatives considered
 
@@ -653,17 +735,19 @@ test start a real command its author thought was mocked.
   produce them.
 - Handlers from the base config must be mocked in every test file. File-level
   `mocks` keep this to one entry per file.
+- A DAG whose params use `eval` needs those params in every test file.
 - The runtime gains a skipped-waits option that only `dagu test` sets.
 
 ## Open questions
 
-1. Should command substitution in `params`, `env`, and `eval` fail closed
-   too, unless the test replaces the value?
-2. Per-item results for `parallel` and `foreach`, keyed by item.
-3. Mocks for the steps of a child run started by a `real` `dag.run` step.
-4. Should assertions on outputs and stdout ship in the first version, given
+1. Mocks for individual `foreach` body steps, and per-item results for
+   `foreach` and `parallel`, keyed by item.
+2. Mocks for the steps of a child run started by a `real` `dag.run` step.
+3. Should assertions on outputs and stdout ship in the first version, given
    that side-effect-free steps run for real and produce outputs worth
    checking?
+4. Should a case assert the notifications the run would have sent, which
+   the report already lists?
 5. Push-back for waiting steps, which reruns upstream steps and would take
    their next results.
 6. Should the MCP server expose `dagu test`, so an agent that writes a DAG
