@@ -28,6 +28,12 @@ const (
 	activityBucketLimit = 60
 )
 
+// startedRunStatuses are the statuses of a run that can have started. A
+// queued run has not, so it takes no place among the runs of an activity.
+var startedRunStatuses = []ir.Status{
+	ir.Running, ir.Waiting, ir.Succeeded, ir.PartiallySucceeded, ir.Failed, ir.Aborted, ir.Rejected,
+}
+
 // activityWindowFromSeconds checks the activityWindow parameter of a list.
 func activityWindowFromSeconds(seconds int) (time.Duration, error) {
 	window := time.Duration(seconds) * time.Second
@@ -111,10 +117,11 @@ func (a *API) dagActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStat
 	if before && !latest.Status.IsActive() {
 		return activity, nil
 	}
-	statuses, err := a.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{
+	page, err := a.dagRunRepository.ListStatusesPage(ctx, persis.DAGRunListOptions{
 		ExactName: dag.Name,
 		From:      persis.NewUTC(since),
-		Limit:     activityRunLimit + 1,
+		Statuses:  startedRunStatuses,
+		Limit:     activityRunLimit,
 		// The cached time comes from the reused inputs, which the run index
 		// does not keep.
 		FullStatus: true,
@@ -124,17 +131,14 @@ func (a *API) dagActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStat
 	if err != nil {
 		return activity, fmt.Errorf("list recent runs of %s: %w", dag.Name, err)
 	}
-	for _, status := range statuses {
+	for _, status := range page.Items {
 		if runTime(status.StartedAt).IsZero() {
-			// A queued run has not started.
+			// A queued run that is aborted ends without a start.
 			continue
-		}
-		if len(activity.Runs) == activityRunLimit {
-			break
 		}
 		activity.Runs = append(activity.Runs, toListActivityRun(*status))
 	}
-	activity.Truncated = len(statuses) > activityRunLimit
+	activity.Truncated = page.NextCursor != ""
 	// The list holds the runs created in the window. A latest run created
 	// before it, as a queued or retried run can be, shows when it started in
 	// the window or is still active.

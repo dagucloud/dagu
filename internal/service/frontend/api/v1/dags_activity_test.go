@@ -145,11 +145,28 @@ func TestListDAGsActivityIsBounded(t *testing.T) {
 		})
 	}
 
-	activity := listActivity(t, server, "?activityWindow=86400")["activity_busy"].Activity
+	// A queued run takes no place among the 60 runs: a DAG with 60 runs and
+	// a queued one lists them all.
+	full := createActivityDAG(t, server, "activity_full")
+	for i := range 60 {
+		seedActivityRun(t, server, full, activityRun{
+			id: fmt.Sprintf("run-%03d", i), status: ir.Succeeded,
+			startAgo: time.Duration(60-i) * time.Minute, took: time.Second,
+		})
+	}
+	seedActivityRun(t, server, full, activityRun{id: "queued", status: ir.Queued})
+
+	dags := listActivity(t, server, "?activityWindow=86400")
+	activity := dags["activity_busy"].Activity
 	require.NotNil(t, activity)
 	assert.Len(t, activity.Runs, 60)
 	assert.True(t, activity.Truncated)
 	assert.Equal(t, "run-064", activity.Runs[0].DagRunId, "the newest run comes first")
+
+	activity = dags["activity_full"].Activity
+	require.NotNil(t, activity)
+	assert.Len(t, activity.Runs, 60)
+	assert.False(t, activity.Truncated)
 }
 
 // A queued run has not started: it is not listed and does not hide the runs
