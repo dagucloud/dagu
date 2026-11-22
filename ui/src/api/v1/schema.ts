@@ -4694,7 +4694,7 @@ export interface paths {
         put?: never;
         /**
          * Test node connections
-         * @description Tests the named nodes, or the nodes a label selector matches, from the server. Each test checks the host key of each hop, authenticates, and runs `true`. A hop whose host key is unknown or has changed receives no credential, and the result names that hop. At most 16 nodes are tested at once. The response is a server-sent event stream: a `result` event per node as its test finishes, carrying an `InventoryNodeConnectionTest`, then a `done` event carrying an `InventoryNodeConnectionTestSummary`. A test never trusts a key. Requires the operator role or above.
+         * @description Tests the named nodes, or the nodes a label selector matches, from the server. Each test checks the host key of each hop, authenticates, and runs `true`. A hop whose host key is unknown or has changed receives no credential, and the result names that hop. A node named twice is tested once. At most 16 nodes are tested at once. The response is a server-sent event stream: a `result` event per node as its test finishes, carrying an `InventoryNodeConnectionTest`, then a `done` event carrying an `InventoryNodeConnectionTestSummary`. A test never trusts a key. Requires the operator role or above.
          */
         post: operations["testInventoryNodeConnections"];
         delete?: never;
@@ -25255,7 +25255,7 @@ export interface operations {
                     "text/event-stream": components["schemas"]["InventoryNodeConnectionTestEvent"];
                 };
             };
-            /** @description The request names no node or an unknown one, or its selector is invalid or matches no node */
+            /** @description The request names no node, an unknown one, or more than 1,000, or its selector is invalid or matches no node */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -25318,7 +25318,7 @@ export interface operations {
                     "text/event-stream": components["schemas"]["InventoryHostKeyTrustEvent"];
                 };
             };
-            /** @description The request names no node, or an entry lacks a node or a SHA256 fingerprint */
+            /** @description The request has no entry or more than 1,000, an entry lacks a node or a SHA256 fingerprint, or two entries name one node */
             400: {
                 headers: {
                     [name: string]: unknown;

@@ -173,8 +173,9 @@ they are never exported or imported.
 **Testing a connection.** `POST /node-connection-tests` tests the named
 nodes, or the nodes a selector matches, from the server. A test checks the
 host key of each hop, authenticates with the node's credentials, and runs
-`true`. At most 16 nodes are tested at once. A disabled node is tested too:
-disabling keeps runs off a node, not tests.
+`true`. At most 16 nodes are tested at once, and a node named twice is
+tested once. A disabled node is tested too: disabling keeps runs off a node,
+not tests.
 
 - The response is a server-sent event stream: a `result` event per node as
   its test ends, then a `done` event with the counts of nodes that passed
@@ -188,7 +189,7 @@ disabling keeps runs off a node, not tests.
 - A test never trusts a key.
 
 **Trusting a key.** `POST /node-host-keys` takes, for each node, the
-fingerprint of the key the user saw.
+fingerprint of the key the user saw. Two entries for one node are refused.
 
 - The server reads the node's key again, through its bastion when it has
   one, and sends the node no credential. A bastion's own key must be
@@ -196,7 +197,8 @@ fingerprint of the key the user saw.
 - The key is stored only when its fingerprint matches. Otherwise the entry
   fails, naming the fingerprints the node presents.
 - A node that has another trusted key keeps it, and the entry fails naming
-  both fingerprints, unless the entry sets `replace`.
+  both fingerprints, unless the entry sets `replace`. A key that another
+  trust stores meanwhile is never replaced by this one.
 - A key that is already trusted is reported as `unchanged`.
 - The response is a `result` event per entry, then a `done` event.
 

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,6 +29,9 @@ const (
 	eventHeartbeat = 15 * time.Second
 	// fingerprintPrefix starts every fingerprint a test reports.
 	fingerprintPrefix = "SHA256:"
+	// maxRequestNodes bounds the nodes or keys one request names, as the
+	// OpenAPI schema does.
+	maxRequestNodes = 1000
 )
 
 // Events of a node test or trust stream.
@@ -54,6 +58,9 @@ func (a *API) TestInventoryNodeConnections(ctx context.Context, request api.Test
 	if (len(names) == 0) == (selector == "") {
 		return nodeTestRefused("the request must give either nodes or labels"), nil
 	}
+	if len(names) > maxRequestNodes {
+		return nodeTestRefused(fmt.Sprintf("the request names %d nodes; a test takes at most %d", len(names), maxRequestNodes)), nil
+	}
 
 	nodes, err := a.inventoryStore.Nodes(ctx)
 	if err != nil {
@@ -73,10 +80,12 @@ func (a *API) TestInventoryNodeConnections(ctx context.Context, request api.Test
 	} else {
 		var missing []string
 		for _, name := range names {
-			if node, ok := findInventoryNode(nodes, name); ok {
-				targets = append(targets, node)
-			} else {
+			node, ok := findInventoryNode(nodes, name)
+			switch {
+			case !ok:
 				missing = append(missing, name)
+			case !slices.ContainsFunc(targets, func(n inventory.ResolvedNode) bool { return n.Name == node.Name }):
+				targets = append(targets, node)
 			}
 		}
 		if len(missing) > 0 {
@@ -114,10 +123,16 @@ func (a *API) TrustInventoryNodeHostKeys(ctx context.Context, request api.TrustI
 	if request.Body == nil || len(request.Body.Keys) == 0 {
 		return hostKeyTrustRefused("the request names no host keys to trust"), nil
 	}
+	if len(request.Body.Keys) > maxRequestNodes {
+		return hostKeyTrustRefused(fmt.Sprintf("the request names %d keys; a trust takes at most %d", len(request.Body.Keys), maxRequestNodes)), nil
+	}
 	requests := make([]nodeconn.TrustRequest, 0, len(request.Body.Keys))
 	for _, entry := range request.Body.Keys {
 		if strings.TrimSpace(entry.Node) == "" {
 			return hostKeyTrustRefused("an entry names no node"), nil
+		}
+		if slices.ContainsFunc(requests, func(r nodeconn.TrustRequest) bool { return strings.EqualFold(r.Node, entry.Node) }) {
+			return hostKeyTrustRefused(fmt.Sprintf("node %q has more than one entry", entry.Node)), nil
 		}
 		if !strings.HasPrefix(entry.Fingerprint, fingerprintPrefix) {
 			return hostKeyTrustRefused(fmt.Sprintf("the fingerprint for node %q is not a SHA256 fingerprint, such as %s…", entry.Node, fingerprintPrefix)), nil

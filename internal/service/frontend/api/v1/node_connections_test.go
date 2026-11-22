@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"strconv"
 	"strings"
@@ -175,10 +176,20 @@ func TestNodeConnectionAPI_RefusesBadRequests(t *testing.T) {
 			require.IsType(t, apigen.TestInventoryNodeConnections400JSONResponse{}, resp)
 		})
 	}
+	tooMany := make([]string, 1001)
+	for i := range tooMany {
+		tooMany[i] = "web01"
+	}
+	resp, err := api.TestInventoryNodeConnections(ctx, apigen.TestInventoryNodeConnectionsRequestObject{Body: &apigen.InventoryNodeConnectionTestRequest{Nodes: &tooMany}})
+	require.NoError(t, err)
+	require.IsType(t, apigen.TestInventoryNodeConnections400JSONResponse{}, resp, "a test of more than 1,000 nodes")
+
 	for name, keys := range map[string][]apigen.InventoryHostKeyTrustEntry{
 		"NoKeys":          nil,
 		"NoNode":          {{Fingerprint: "SHA256:abc"}},
 		"NotAFingerprint": {{Node: "web01", Fingerprint: "MD5:ab:cd"}},
+		"SameNodeTwice":   {{Node: "web01", Fingerprint: "SHA256:abc"}, {Node: "WEB01", Fingerprint: "SHA256:def"}},
+		"TooMany":         trustEntries(1001),
 	} {
 		t.Run("Trust"+name, func(t *testing.T) {
 			resp, err := api.TrustInventoryNodeHostKeys(ctx, apigen.TrustInventoryNodeHostKeysRequestObject{Body: &apigen.InventoryHostKeyTrustRequest{Keys: keys}})
@@ -186,6 +197,22 @@ func TestNodeConnectionAPI_RefusesBadRequests(t *testing.T) {
 			require.IsType(t, apigen.TrustInventoryNodeHostKeys400JSONResponse{}, resp)
 		})
 	}
+
+	// A request of exactly 1,000 entries is taken. These name no node, so
+	// each fails without connecting.
+	trust, err := api.TrustInventoryNodeHostKeys(ctx, apigen.TrustInventoryNodeHostKeysRequestObject{Body: &apigen.InventoryHostKeyTrustRequest{Keys: trustEntries(1000)}})
+	require.NoError(t, err)
+	_, summary := trustResults(t, stream(t, trust))
+	assert.Equal(t, apigen.InventoryHostKeyTrustSummary{Failed: 1000}, summary)
+}
+
+// trustEntries returns n entries for distinct nodes that do not exist.
+func trustEntries(n int) []apigen.InventoryHostKeyTrustEntry {
+	entries := make([]apigen.InventoryHostKeyTrustEntry, n)
+	for i := range entries {
+		entries[i] = apigen.InventoryHostKeyTrustEntry{Node: fmt.Sprintf("missing%04d", i), Fingerprint: "SHA256:abc"}
+	}
+	return entries
 }
 
 // A trust needs the developer role, and a test the operator role. Both are
@@ -197,7 +224,8 @@ func TestNodeConnectionAPI_PermissionsAndAudit(t *testing.T) {
 	as := func(name string, role auth.Role) context.Context {
 		return auth.WithUser(context.Background(), &auth.User{Username: name, Role: role})
 	}
-	testBody := &apigen.InventoryNodeConnectionTestRequest{Nodes: &[]string{"web01"}}
+	// A node named twice is tested once.
+	testBody := &apigen.InventoryNodeConnectionTestRequest{Nodes: &[]string{"web01", "WEB01"}}
 	trustBody := &apigen.InventoryHostKeyTrustRequest{Keys: []apigen.InventoryHostKeyTrustEntry{{Node: "web01", Fingerprint: fleet.fingerprint("web01")}}}
 
 	_, err := api.TestInventoryNodeConnections(as("v", auth.RoleViewer), apigen.TestInventoryNodeConnectionsRequestObject{Body: testBody})
