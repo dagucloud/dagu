@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
@@ -106,7 +107,7 @@ func (a *API) GetDAGRunHistorySamples(ctx context.Context, request api.GetDAGRun
 	if err != nil {
 		return nil, err
 	}
-	result := toStepSamples(series.WithActive(start, last), query.From, query.To)
+	result := toStepSamples(series.WithActive(start, last, time.Now().UTC()), query.From, query.To)
 	if ratio, ok := uptime.WithActive(start, last).Ratio(); ok {
 		result.Uptime = &ratio
 	}
@@ -184,7 +185,8 @@ func (a *API) GetDAGRunHistoryAvailability(ctx context.Context, request api.GetD
 	// A sample is written when a run ends, so the run in progress is added
 	// from the latest status.
 	if start := activeRunStart(a.latestRunStatus(ctx, dag)); !start.IsZero() {
-		last, err := recordedEnd(ctx, reader, start, true)
+		known := slices.ContainsFunc(availability.Windows, func(w samples.WindowStat) bool { return !w.Uptime.Since.IsZero() })
+		last, err := recordedEnd(ctx, reader, start, known)
 		if err != nil {
 			return nil, err
 		}
@@ -201,7 +203,7 @@ func (a *API) GetDAGRunHistoryAvailability(ctx context.Context, request api.GetD
 func (a *API) latestRunStatus(ctx context.Context, dag *ir.DAG) ir.DAGRunStatus {
 	status, err := a.dagRunMgr.GetLatestStatus(ctx, dag)
 	if err != nil {
-		return ir.DAGRunStatus{}
+		return ir.InitialStatus(dag)
 	}
 	return status
 }

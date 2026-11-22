@@ -518,27 +518,31 @@ func addUp(buckets []Bucket, t time.Time, up time.Duration) []Bucket {
 	return slices.Insert(buckets, i, Bucket{Time: t, Up: up})
 }
 
-// WithActive adds a run that has not ended: it is active from start to the end
-// of the series. last is the end of the newest recorded run, or zero for a
+// WithActive adds a run that has not ended: it is active from start to now,
+// within the series. last is the end of the newest recorded run, or zero for a
 // series with no recorded up time. The part of the run before last is already
 // in the buckets and is not added again. A bucket that the run covers and that
 // has no sample is added with its up time only. A raw series holds no up time
 // and is returned as is.
-func (s Series) WithActive(start, last time.Time) Series {
+func (s Series) WithActive(start, last, now time.Time) Series {
 	from := laterOf(start, last)
-	if start.IsZero() || s.Tier == TierRaw || !from.Before(s.To) {
+	end := s.To
+	if now.Before(end) {
+		end = now
+	}
+	if start.IsZero() || s.Tier == TierRaw || !from.Before(end) {
 		return s
 	}
 	sec := tierSec(s.Tier)
 	w := s.Tier.Width()
 	first := max(floorTo(from.Unix(), sec), floorTo(s.From.Unix(), sec))
-	out := make([]Bucket, 0, len(s.Buckets)+int((s.To.Unix()-first)/sec)+1)
+	out := make([]Bucket, 0, len(s.Buckets)+int((end.Unix()-first)/sec)+1)
 	i := 0
 	for t := first; ; t += sec {
 		bt := time.Unix(t, 0).UTC()
 		a, b := laterOf(from, bt), bt.Add(w)
-		if b.After(s.To) {
-			b = s.To
+		if b.After(end) {
+			b = end
 		}
 		if !b.After(a) {
 			break

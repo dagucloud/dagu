@@ -84,7 +84,7 @@ func (a *API) serviceActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRun
 	if err != nil {
 		return activity, fmt.Errorf("read run history of %s: %w", dag.Name, err)
 	}
-	result := toStepSamples(series.WithActive(start, last), since, now)
+	result := toStepSamples(series.WithActive(start, last, now), since, now)
 	activity.Buckets = &result.Buckets
 	activity.ResolutionSeconds = &result.ResolutionSeconds
 	if ratio, ok := uptime.WithActive(start, last).Ratio(); ok {
