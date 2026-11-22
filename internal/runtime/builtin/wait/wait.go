@@ -334,9 +334,10 @@ func requestError(err error) string {
 	return "details left out, they may contain the URL or response text"
 }
 
-// withoutSource copies opErr and every *net.OpError nested in it with the
-// local address cleared. It holds an ephemeral port that changes on every
-// poll, and an https:// proxy nests the failing error inside another one.
+// withoutSource returns a copy of opErr, and of each *net.OpError it wraps
+// directly, with the local address cleared. That address holds an ephemeral
+// port that changes on every poll, and behind an https:// proxy the failing
+// error sits inside a proxyconnect one.
 func withoutSource(opErr *net.OpError) *net.OpError {
 	op := *opErr
 	op.Source = nil
