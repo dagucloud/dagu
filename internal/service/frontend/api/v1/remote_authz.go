@@ -26,6 +26,9 @@ const (
 	remoteNodeAccessAdmin remoteNodeAccess = iota
 	remoteNodeAccessRead
 	remoteNodeAccessExecute
+	// remoteNodeAccessOperator needs the operator role, without the
+	// permission to run DAGs.
+	remoteNodeAccessOperator
 	remoteNodeAccessWrite
 	remoteNodeAccessWriteAndRun
 	remoteNodeAccessDeveloper
@@ -210,9 +213,9 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"UpdateWorkspace":      remoteNodeAccessDeveloper,
 	"ImportInventories":    remoteNodeAccessDeveloper,
 
-	// Node connection tests, which need execute permission, and host key
+	// Node connection tests, open to operators and above, and host key
 	// trust, open to developers and above.
-	"TestInventoryNodeConnections": remoteNodeAccessExecute,
+	"TestInventoryNodeConnections": remoteNodeAccessOperator,
 	"TrustInventoryNodeHostKeys":   remoteNodeAccessDeveloper,
 
 	// Audit and event logs, open to managers and above.
@@ -300,7 +303,7 @@ func (a *API) requireRemoteNodeAccess(ctx context.Context, access remoteNodeAcce
 		if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
 			return err
 		}
-	case remoteNodeAccessAdmin, remoteNodeAccessRead, remoteNodeAccessDeveloper, remoteNodeAccessManager:
+	case remoteNodeAccessAdmin, remoteNodeAccessRead, remoteNodeAccessOperator, remoteNodeAccessDeveloper, remoteNodeAccessManager:
 	}
 
 	if !a.rolesApply(ctx) {
@@ -326,7 +329,7 @@ func (access remoteNodeAccess) allows(role auth.Role) bool {
 	switch access {
 	case remoteNodeAccessRead:
 		return true
-	case remoteNodeAccessExecute:
+	case remoteNodeAccessExecute, remoteNodeAccessOperator:
 		return role.CanExecute()
 	case remoteNodeAccessWrite, remoteNodeAccessWriteAndRun, remoteNodeAccessDeveloper:
 		return role.CanWrite()

@@ -102,8 +102,10 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 				if contentType := resp.Header.Get("Content-Type"); contentType != "" {
 					w.Header().Set("Content-Type", contentType)
 				}
-				if disposition := resp.Header.Get("Content-Disposition"); disposition != "" {
-					w.Header().Set("Content-Disposition", disposition)
+				for _, name := range []string{"Content-Disposition", "Cache-Control", "X-Accel-Buffering"} {
+					if value := resp.Header.Get(name); value != "" {
+						w.Header().Set(name, value)
+					}
 				}
 				if encoding := resp.Header.Get("Content-Encoding"); encoding != "" {
 					w.Header().Set("Content-Encoding", encoding)
@@ -114,6 +116,8 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 					logger.Error(r.Context(), "Failed to proxy streamed response", tag.Error(err))
 					panic(http.ErrAbortHandler)
 				}
+				// The end of the response is written after the last copy.
+				_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(remoteProxyTimeout))
 				return
 			}
 
@@ -393,14 +397,19 @@ func (c idleTimeoutConn) Read(p []byte) (int, error) {
 	return c.Conn.Read(p)
 }
 
-// flushWriter flushes after every write so a proxied log download reaches the
-// client while the remote transfer is still in progress. Writers that cannot
-// flush are written to without flushing.
+// flushWriter flushes after every write so a proxied stream reaches the
+// client while the remote transfer is still in progress. Each write must
+// finish within remoteProxyTimeout, so a client that stops reading cannot
+// hold the stream open. Writers that cannot flush are written to without
+// flushing.
 type flushWriter struct {
 	w http.ResponseWriter
 }
 
 func (f flushWriter) Write(p []byte) (int, error) {
+	if err := http.NewResponseController(f.w).SetWriteDeadline(time.Now().Add(remoteProxyTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return 0, err
+	}
 	n, err := f.w.Write(p)
 	if err != nil {
 		return n, err

@@ -118,6 +118,7 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 		{name: "developer imports inventories", method: http.MethodPost, path: "/api/v1/inventory-imports", user: developer, permissions: writeAndRun, wantCall: true},
 		{name: "viewer cannot test node connections", method: http.MethodPost, path: "/api/v1/node-connection-tests", user: viewer, permissions: writeAndRun},
 		{name: "operator tests node connections", method: http.MethodPost, path: "/api/v1/node-connection-tests", user: operator, permissions: writeAndRun, wantCall: true},
+		{name: "node tests need no run permission", method: http.MethodPost, path: "/api/v1/node-connection-tests", user: operator, wantCall: true},
 		{name: "operator cannot trust host keys", method: http.MethodPost, path: "/api/v1/node-host-keys", user: operator, permissions: writeAndRun},
 		{name: "developer trusts host keys", method: http.MethodPost, path: "/api/v1/node-host-keys", user: developer, permissions: writeAndRun, wantCall: true},
 		{name: "manager reads audit logs", method: http.MethodGet, path: "/api/v1/audit", user: manager, wantCall: true},
@@ -493,6 +494,8 @@ func TestRemoteNodeEventStreams(t *testing.T) {
 			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				assert.Equal(t, "/api/v1"+path, r.URL.Path)
 				w.Header().Set("Content-Type", "text/event-stream")
+				w.Header().Set("Cache-Control", "no-cache")
+				w.Header().Set("X-Accel-Buffering", "no")
 				_, _ = io.WriteString(w, first)
 				_ = http.NewResponseController(w).Flush()
 				select {
@@ -515,6 +518,8 @@ func TestRemoteNodeEventStreams(t *testing.T) {
 			require.NoError(t, err)
 			defer func() { _ = resp.Body.Close() }()
 			require.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
+			assert.Equal(t, "no-cache", resp.Header.Get("Cache-Control"))
+			assert.Equal(t, "no", resp.Header.Get("X-Accel-Buffering"), "proxies must not buffer the stream")
 			got := make([]byte, len(first))
 			_, err = io.ReadFull(resp.Body, got)
 			require.NoError(t, err)
