@@ -235,8 +235,13 @@ Rules:
 - A test file accepts only the fields this spec defines, at every level. Any
   other field makes the test file invalid.
 - The keys of `params`, `env`, `secrets`, `mocks`, `expect.steps`, and
-  `review.values` are names, not fields. A name that matches nothing in the
-  tested DAG makes the case invalid, not the test file.
+  `review.values` are names, not fields, so no such key makes the test file
+  invalid. The section of each map says which names the case accepts: step
+  keys in [Step Keys](#step-keys), `params` and `env` in
+  [Loading the DAG](#loading-the-dag), `secrets` in [Secrets](#secrets), and
+  `review.values` in
+  [Steps That Wait for a Person](#steps-that-wait-for-a-person). An `env`
+  name that the DAG does not declare adds an entry.
 - A case's mock of a step replaces the file's mock of that step as a whole.
   Fields of the two mocks do not merge.
 - A file key and a case key that name the same step, one by `name` and one by
