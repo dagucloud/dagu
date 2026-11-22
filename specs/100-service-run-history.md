@@ -2,11 +2,12 @@
 
 ## Status
 
-Partially implemented. The scheduler records the history of service DAGs.
-The API and the UI that read it are not implemented yet.
+Partially implemented. The scheduler records the history of service DAGs,
+and the API serves it. The UI that reads it is not implemented yet.
 
-The Go tests of `internal/samples` and `internal/service/scheduler` cover the recording. The
-conformance suite comes with the API.
+`conformance/spec100_service_run_history` checks the behavior of this spec with a local scheduler.
+A run that a distributed worker executes has no conformance test. The scheduler records its sample
+from the status that the coordinator writes, as for a local run.
 
 This spec defines the long-term history of the runs of a service DAG. The history keeps one sample
 for each run, also after the retention of the run records removed the run.
@@ -559,6 +560,9 @@ The activity of a service DAG in the DAG list, with a window of 24 hours:
 }
 ```
 
+The fixtures in `conformance/spec100_service_run_history/testdata` give a service DAG that always
+succeeds, and a service DAG whose runs fail when a file exists.
+
 ## Test Scenarios
 
 - Each run of a service DAG with `restart_wait_sec: 1` has one sample. The `totalCount` and the sum
@@ -594,7 +598,7 @@ The activity of a service DAG in the DAG list, with a window of 24 hours:
 
 ## Conformance
 
-Not covered yet: the conformance suite comes with the API. It will check the samples, the events,
-the retention. It also checks the gap after a stop of the scheduler, and the three queries and their
-errors. It checks `upMs` in the buckets, and the live part of the run in progress. It checks a window of three years and the activity of a service DAG in the DAG list. Each
+`conformance/spec100_service_run_history/` checks the samples, the events and the retention.
+It also checks the gap after a stop of the scheduler, and the three queries and their
+errors. It checks `upMs` in the buckets, and the live part of the run in progress. It checks a window of three years. Each
 test starts a scheduler and a server with static fixtures.

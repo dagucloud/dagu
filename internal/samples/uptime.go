@@ -67,6 +67,27 @@ type Uptime struct {
 	Since time.Time
 }
 
+// WithActive adds a run that has not ended: it is active from start to To.
+// last is the end of the newest recorded run. When the history has recorded
+// uptime, the part of the run before last is already in Up and is not added
+// again. Otherwise the run counts from its start.
+func (u Uptime) WithActive(start, last time.Time) Uptime {
+	if start.IsZero() || !start.Before(u.To) {
+		return u
+	}
+	from := laterOf(start, u.Start)
+	if !u.Since.IsZero() {
+		from = laterOf(from, last)
+	}
+	if u.Since.IsZero() || start.Before(u.Since) {
+		u.Since = start
+	}
+	if u.To.After(from) {
+		u.Up += u.To.Sub(from)
+	}
+	return u
+}
+
 // Ratio returns the share of the window in which a run was active, from 0 to
 // 1. It reports false when the history has no record of the window.
 func (u Uptime) Ratio() (float64, bool) {
@@ -495,6 +516,64 @@ func addUp(buckets []Bucket, t time.Time, up time.Duration) []Bucket {
 		return buckets
 	}
 	return slices.Insert(buckets, i, Bucket{Time: t, Up: up})
+}
+
+// WithActive adds a run that has not ended: it is active from start to now,
+// within the series. last is the end of the newest recorded run, or zero for a
+// series with no recorded up time. The part of the run before last is already
+// in the buckets and is not added again. A bucket that the run covers and that
+// has no sample is added with its up time only. A raw series holds no up time
+// and is returned as is.
+func (s Series) WithActive(start, last, now time.Time) Series {
+	from := laterOf(start, last)
+	end := s.To
+	if now.Before(end) {
+		end = now
+	}
+	if start.IsZero() || s.Tier == TierRaw || !from.Before(end) {
+		return s
+	}
+	sec := tierSec(s.Tier)
+	w := s.Tier.Width()
+	first := max(floorTo(from.Unix(), sec), floorTo(s.From.Unix(), sec))
+	out := make([]Bucket, 0, len(s.Buckets)+int((end.Unix()-first)/sec)+1)
+	i := 0
+	for t := first; ; t += sec {
+		bt := time.Unix(t, 0).UTC()
+		a, b := laterOf(from, bt), bt.Add(w)
+		if b.After(end) {
+			b = end
+		}
+		if !b.After(a) {
+			break
+		}
+		for i < len(s.Buckets) && s.Buckets[i].Time.Before(bt) {
+			out = append(out, s.Buckets[i])
+			i++
+		}
+		if i < len(s.Buckets) && s.Buckets[i].Time.Equal(bt) {
+			bk := s.Buckets[i]
+			bk.Up = min(bk.Up+b.Sub(a), w)
+			out = append(out, bk)
+			i++
+			continue
+		}
+		out = append(out, Bucket{Time: bt, Up: b.Sub(a)})
+	}
+	s.Buckets = append(out, s.Buckets[i:]...)
+	return s
+}
+
+// Uptime returns the uptime of the window from `from` to `to`, as uptimes
+// gives it at the time of the reader.
+func (r *reader) Uptime(ctx context.Context, from, to time.Time) (Uptime, error) {
+	ups, err := r.uptimes(ctx, []upWindow{{from, to}}, r.now())
+	return ups[0], err
+}
+
+// NewestEnd returns the end of the newest sample of the store.
+func (r *reader) NewestEnd(_ context.Context) (time.Time, bool, error) {
+	return NewestEnd(r.st.dir)
 }
 
 // upWindow is the window of an uptime query.
