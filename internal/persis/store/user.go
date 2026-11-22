@@ -7,11 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
@@ -58,6 +60,12 @@ func (s *UserStore) rebuildIndex(ctx context.Context) error {
 		}
 		if err := validateTrustedProxyIdentity(stored.AuthProvider, stored.TrustedProxySource, stored.TrustedProxyUser, stored.OIDCIssuer, stored.OIDCSubject); err != nil {
 			return fmt.Errorf("user %q: %w", stored.ID, err)
+		}
+		if otherID, exists := s.byUsername[stored.Username]; exists {
+			logger.Warn(ctx, "user store: two records share a username",
+				slog.String("username", stored.Username),
+				slog.String("login_user_id", stored.ID),
+				slog.String("other_user_id", otherID))
 		}
 		s.byUsername[stored.Username] = stored.ID
 		if stored.OIDCIssuer != "" && stored.OIDCSubject != "" {
@@ -285,12 +293,12 @@ func (s *UserStore) Update(ctx context.Context, user *auth.User) error {
 
 	// Update indices after successful write.
 	if existingStored.Username != user.Username {
-		delete(s.byUsername, existingStored.Username)
+		deleteOwned(s.byUsername, existingStored.Username, user.ID)
 		s.byUsername[user.Username] = user.ID
 	}
 	if oldOIDCKey != newOIDCKey {
 		if existingStored.OIDCIssuer != "" && existingStored.OIDCSubject != "" {
-			delete(s.byOIDCIdentity, oldOIDCKey)
+			deleteOwned(s.byOIDCIdentity, oldOIDCKey, user.ID)
 		}
 		if user.OIDCIssuer != "" && user.OIDCSubject != "" {
 			s.byOIDCIdentity[newOIDCKey] = user.ID
@@ -374,7 +382,7 @@ func (s *UserStore) Patch(ctx context.Context, id string, patch auth.UserPatch) 
 		return nil, err
 	}
 	if stored.Username != oldUsername {
-		delete(s.byUsername, oldUsername)
+		deleteOwned(s.byUsername, oldUsername, id)
 		s.byUsername[stored.Username] = id
 	}
 	return stored.ToUser(), nil
@@ -472,12 +480,12 @@ func (s *UserStore) Delete(ctx context.Context, id string) error {
 	if err := s.col.Delete(ctx, id); err != nil {
 		return err
 	}
-	delete(s.byUsername, stored.Username)
+	deleteOwned(s.byUsername, stored.Username, id)
 	if stored.OIDCIssuer != "" && stored.OIDCSubject != "" {
-		delete(s.byOIDCIdentity, oidcKey(stored.OIDCIssuer, stored.OIDCSubject))
+		deleteOwned(s.byOIDCIdentity, oidcKey(stored.OIDCIssuer, stored.OIDCSubject), id)
 	}
 	if stored.TrustedProxyUser != "" {
-		delete(s.byTrustedProxyIdentity, trustedProxyKey(stored.TrustedProxySource, stored.TrustedProxyUser))
+		deleteOwned(s.byTrustedProxyIdentity, trustedProxyKey(stored.TrustedProxySource, stored.TrustedProxyUser), id)
 	}
 	s.count--
 	return nil
@@ -500,6 +508,14 @@ func oidcKey(issuer, subject string) string {
 
 func trustedProxyKey(source, user string) string {
 	return url.QueryEscape(source) + ":" + url.QueryEscape(user)
+}
+
+// deleteOwned removes key only while it maps to id, so removing one of two
+// records that share a key keeps the other one indexed.
+func deleteOwned(index map[string]string, key, id string) {
+	if index[key] == id {
+		delete(index, key)
+	}
 }
 
 func validateTrustedProxyIdentity(provider, source, user, oidcIssuer, oidcSubject string) error {

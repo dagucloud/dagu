@@ -561,6 +561,57 @@ func TestUserIndexRebuildRejectsDuplicateTrustedProxyIdentity(t *testing.T) {
 	assert.ErrorIs(t, err, auth.ErrTrustedProxyIdentityAlreadyExists)
 }
 
+// Removing the record that login does not use must keep the other record
+// reachable by username.
+func TestUserDuplicateCleanupKeepsLogin(t *testing.T) {
+	tests := []struct {
+		name   string
+		remove func(t *testing.T, s *store.UserStore)
+	}{
+		{"Delete", func(t *testing.T, s *store.UserStore) {
+			require.NoError(t, s.Delete(context.Background(), "id-a"))
+		}},
+		{"Rename", func(t *testing.T, s *store.UserStore) {
+			username := "admin-old"
+			_, err := s.Patch(context.Background(), "id-a", auth.UserPatch{Username: &username})
+			require.NoError(t, err)
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			col := testutil.NewMemoryBackend().Collection("users")
+			older := newUser("admin")
+			older.ID = "id-a"
+			older.CreatedAt = time.Now().UTC().Add(-2 * time.Hour)
+			putUserRecord(t, col, older)
+			newer := newUser("admin")
+			newer.ID = "id-b"
+			newer.CreatedAt = time.Now().UTC().Add(-time.Hour)
+			putUserRecord(t, col, newer)
+
+			s, err := store.NewUserStore(col)
+			require.NoError(t, err)
+			tt.remove(t, s)
+
+			got, err := s.GetByUsername(ctx, "admin")
+			require.NoError(t, err)
+			assert.Equal(t, "id-b", got.ID)
+		})
+	}
+}
+
+// putUserRecord writes u straight to col, bypassing the store's uniqueness
+// checks, to reproduce records left by another process.
+func putUserRecord(t *testing.T, col persis.Collection, u *auth.User) {
+	t.Helper()
+	data, err := persis.Encode(u.ToStorage())
+	require.NoError(t, err)
+	require.NoError(t, col.Put(context.Background(), &persis.Record{
+		ID: u.ID, Data: data, CreatedAt: u.CreatedAt, UpdatedAt: u.CreatedAt,
+	}))
+}
+
 type failingUserCollection struct {
 	persis.Collection
 	putErr    error
