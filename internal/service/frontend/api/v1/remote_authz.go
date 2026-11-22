@@ -376,8 +376,9 @@ func (a *API) remoteNodeProfileProtected(r *http.Request, apiBasePath, name stri
 	switch resp.StatusCode {
 	case http.StatusOK:
 	case http.StatusUnauthorized, http.StatusForbidden:
-		// Only a credential below administrator may not read a profile, and the
-		// remote node refuses a protected profile to such a credential itself.
+		// A 403 means the credential is below administrator, and the remote node
+		// refuses a protected profile to such a credential itself. A 401 means
+		// the node does not accept the credential, so it refuses the run too.
 		return false, nil
 	case http.StatusNotFound:
 		return false, &Error{
