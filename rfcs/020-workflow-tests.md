@@ -111,6 +111,8 @@ call with a scripted result, pick results by attempt, and skip waits.
   the next run, `restart_wait_sec`, and `unless-stopped`. A test runs one run
   of the DAG.
 - `type: agent` DAGs, where a model picks the next step.
+- `type: build` DAGs (Spec 033) in the first version. See
+  [Build workflows](#build-workflows).
 - HTTP or service virtualization. A mock replaces a whole action.
 - Timing and performance assertions.
 - REST API, UI, and MCP surfaces. See [Open questions](#open-questions).
@@ -216,11 +218,16 @@ entrypoint document by `name` or `id`, as Spec 009 allows. A lifecycle handler
 is named `handler_on.<event>`, such as `handler_on.failure`. That includes a
 handler the base config adds.
 
-A step may not appear in both `mocks` and `real` for the same case.
+A step in `real` may also have a mock that sets only step fields (see
+[Mocks](#mocks)).
 
 ### Mocks
 
-A mock replaces the step's action with a result:
+A mock has two kinds of fields. Result fields script what the action
+returns, once per execution. Step fields script what happens around the
+action, once for the step.
+
+Result fields:
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -229,13 +236,46 @@ A mock replaces the step's action with a result:
 | `stderr` | string | empty | Written to the step's stderr |
 | `outputs` | map | none | Named step outputs |
 | `condition` | `met` or `not_met` | none | Result of a command-check `repeat_policy.condition` after this execution |
-| `results` | list | none | One result per execution. Each item takes the fields above |
+| `results` | list | none | One result per execution. Each item takes the result fields above |
 
-`results` excludes the inline fields. Each execution of the action takes the
-next result: the first attempt, each retry, and each repeat iteration. After
-the last result, the last one repeats, except on a continuous step (see
-[Continuous steps](#continuous-steps)). An inline mock is a one-item
-`results`.
+Step fields:
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `precondition` | `met` or `not_met` | none | Result of the step's preconditions that run a command. See [Preconditions](#preconditions) |
+| `review` | map | none | Decision for each wait of the step. See [Steps that wait for a person](#steps-that-wait-for-a-person) |
+
+Step fields sit beside `results` or the inline result fields, never inside a
+result:
+
+```yaml
+mocks:
+  deploy:
+    precondition: met
+    review:
+      decision: approve
+    results:
+      - exit_code: 1
+      - exit_code: 0
+```
+
+With `retry_policy.limit: 1`, Dagu checks the precondition once, the first
+attempt fails, the retry succeeds, and the approval gate is approved when the
+step reaches it. Spec 023 checks step preconditions once per step start, not
+once per attempt, so `precondition` is a step field. `review` settles every
+wait of the step with the same decision.
+
+`results` excludes the inline result fields. Each execution of the action
+takes the next result: the first attempt, each retry, and each repeat
+iteration. After the last result, the last one repeats, except on a
+continuous step (see [Continuous steps](#continuous-steps)). An inline mock
+is a one-item `results`.
+
+A mock replaces the step's action when it sets a result field, or when the
+action is neither side-effect free nor in `real`. The result then defaults
+to exit code 0 with no output. A mock with only step fields keeps the real
+action of a side-effect-free step or a step in `real`. A mock that sets a
+result field on a step in `real` is invalid.
 
 How a result reaches the run:
 
@@ -292,21 +332,21 @@ action only when it sets a result field, so a mock that sets only
 ### The fail-closed rule
 
 A case is invalid, and none of its steps run, when the DAG has any of the
-following and the test neither replaces it nor lists its step in `real`:
+following and the test does not handle it as the table says:
 
-| Source | Replaced by |
+| Source | Handled by |
 | --- | --- |
-| A step action that is not side-effect free | A mock |
-| A step precondition with a command check or `eval` (Spec 023) | `precondition` in the step's mock |
-| A command-check `repeat_policy.condition` (Spec 075) | `condition` in every result of the step's mock |
-| A file named by an object-form `output` of an unmocked step | A mock |
+| A step action that is not side-effect free | A mock with a result field, or the step in `real` |
+| A step precondition with a command check or `eval` (Spec 023) | `precondition` in the step's mock, or the step in `real` |
+| A command-check `repeat_policy.condition` (Spec 075) | `condition` in every result of the step's mock, or the step in `real` |
+| A file named by an object-form `output` of an unmocked step | A mock with a result field, or the step in `real` |
 | A `foreach` body step that is not side-effect free | A mock of the whole `foreach` step |
-| A step that waits for a person (`human.task`, `approval`) | `review` in the step's mock |
+| A step that waits for a person (`human.task`, `approval`) | `review` in the step's mock, also for a step in `real` |
 | A DAG-level precondition with a command check or `eval` | The case's `precondition` |
 | A `params[].eval` (Spec 011) | A value for that param in `params` |
 
-DAG-level preconditions and `params[].eval` belong to no step, so `real`
-does not apply to them. Spec 003 allows command substitution only in
+No person answers in a test, so a waiting step needs `review` even when its
+action is real. Spec 003 allows command substitution only in
 `params[].eval` and precondition `eval`, and command checks run only in
 preconditions and repeat conditions, so the table covers every command Dagu
 runs outside a step action.
@@ -372,11 +412,17 @@ mocks:
         reason: looks good
 ```
 
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `decision` | `approve` or `reject` | yes | How the wait is settled |
+| `values` | map | no | Form values of a `human.task`, or inputs of an `approval` gate |
+
 For `human.task`, `approve` completes the task and `values` become its form
 outputs (Spec 031). `reject` is invalid for `human.task`. For a step with
-`approval`, the step's action runs or is mocked first, and then the gate is
-approved or rejected with `values` as its inputs. Push-back is not covered.
-See [Open questions](#open-questions).
+`approval`, the step's action runs first, for real when the step is in
+`real` and as mocked otherwise. The gate is then approved or rejected with
+`values` as its inputs. Push-back is not covered. See
+[Open questions](#open-questions).
 
 ### Sub-DAGs, `parallel`, and `foreach`
 
@@ -399,6 +445,15 @@ An unmocked `foreach` step runs for real when every body step is
 side-effect free, over items taken from mocked upstream outputs. A body step
 that is not side-effect free makes the case invalid unless the whole
 `foreach` step is mocked. Mocks for individual body steps are deferred.
+
+### Build workflows
+
+A test of a `type: build` DAG (Spec 033) is invalid in the first version.
+After a build step's action succeeds, Dagu verifies the step's path output
+and commits it beside its final path, under the DAG's working directory. Its
+reuse decision also hashes the input files there. A mock produces no file,
+so the step would fail, and a mock that wrote one would write outside the
+case directory. Supplying path outputs is an open question.
 
 ### Time
 
@@ -765,6 +820,13 @@ test start a real command its author thought was mocked.
     side-effect-free continuous step makes the case invalid.
 24. A case with `trigger: restart` resolves `${context.trigger.type}` to
     `restart`. A case without `trigger` resolves it to `manual`.
+25. A test of a `type: build` DAG is invalid, and the error names Spec 033.
+26. A step in `real` with an `approval` gate and `review: {decision:
+    approve}` runs its real action and continues without waiting. The same
+    step with a result field in its mock is invalid.
+27. A mock with `precondition`, `review`, and two `results` on a step with
+    `retry_policy.limit: 1` checks the precondition once, runs twice, and is
+    approved once.
 
 ## Alternatives considered
 
@@ -828,3 +890,6 @@ test start a real command its author thought was mocked.
 8. Should `secrets` from the `env` provider resolve without a test value?
 9. Should a case assert the samples and events a continuous step records
    (Spec 083)?
+10. How should a test of a `type: build` DAG supply path outputs, such as
+    file content in the mock, staged and committed inside the case
+    directory?
