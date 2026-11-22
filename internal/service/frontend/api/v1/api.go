@@ -598,7 +598,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 
 	loginPath := pathutil.BuildPublicEndpointPath(mountedAPIPath, "auth/login")
 
-	remoteNodeAuthorization, err := a.remoteNodeAuthorization(swagger)
+	remoteNodeAuthorization, err := a.remoteNodeAuthorization(swagger, mountedAPIPath)
 	if err != nil {
 		return err
 	}

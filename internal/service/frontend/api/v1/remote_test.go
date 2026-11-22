@@ -45,11 +45,22 @@ func serveRemoteNodeRequest(t *testing.T, server config.Server, user *auth.User,
 	t.Helper()
 
 	var remoteCalled atomic.Bool
-	remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	remote := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		remoteCalled.Store(true)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{}`))
-	}))
+	})
+	status := serveRemoteNodeRequestTo(t, remote, server, user, method, path, "")
+	return status, remoteCalled.Load()
+}
+
+// serveRemoteNodeRequestTo sends a request with body for the "edge" remote
+// node, served by remote, through the API routes as user. It returns the local
+// response status.
+func serveRemoteNodeRequestTo(t *testing.T, remote http.Handler, server config.Server, user *auth.User, method, path, body string) int {
+	t.Helper()
+
+	remoteServer := httptest.NewServer(remote)
 	t.Cleanup(remoteServer.Close)
 
 	server.APIBasePath = "/api/v1"
@@ -65,11 +76,12 @@ func serveRemoteNodeRequest(t *testing.T, server config.Server, user *auth.User,
 	router := chi.NewRouter()
 	require.NoError(t, a.ConfigureRoutes(t.Context(), router, time.Second))
 
-	request := httptest.NewRequest(method, path+"?remoteNode=edge", nil)
+	request := httptest.NewRequest(method, path+"?remoteNode=edge", strings.NewReader(body))
 	request.Header.Set("Authorization", "Bearer caller-token")
+	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)
-	return recorder.Code, remoteCalled.Load()
+	return recorder.Code
 }
 
 // A remote node runs proxied requests with its stored credential, so the
@@ -124,6 +136,61 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 			assert.Equal(t, test.wantCall, called)
 			if !test.wantCall {
 				assert.Equal(t, http.StatusForbidden, status)
+			}
+		})
+	}
+}
+
+// Only the remote node knows whether its runtime profile is protected, so a run
+// that names a profile is checked against the remote node before it is
+// forwarded, as the remote node would check it for the caller's own role.
+func TestRemoteNodeProfileAuthorization(t *testing.T) {
+	all := auth.AllWorkspaceAccess()
+	operator := &auth.User{Role: auth.RoleOperator, WorkspaceAccess: all}
+	admin := &auth.User{Role: auth.RoleAdmin, WorkspaceAccess: all}
+	runPermission := map[config.Permission]bool{config.PermissionRunDAGs: true}
+
+	tests := []struct {
+		name       string
+		body       string
+		user       *auth.User
+		wantStatus int
+		wantRun    bool
+	}{
+		{name: "operator runs with an open profile", body: `{"profile":"dev"}`, user: operator, wantStatus: http.StatusOK, wantRun: true},
+		{name: "operator runs without a profile", body: `{}`, user: operator, wantStatus: http.StatusOK, wantRun: true},
+		{name: "operator cannot run with a protected profile", body: `{"profile":" prod "}`, user: operator, wantStatus: http.StatusForbidden},
+		{name: "admin runs with a protected profile", body: `{"profile":"prod"}`, user: admin, wantStatus: http.StatusOK, wantRun: true},
+		{name: "unknown profile is not forwarded", body: `{"profile":"missing"}`, user: operator, wantStatus: http.StatusNotFound},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var forwardedBody atomic.Value
+			remote := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/api/v1/profiles/dev":
+					_, _ = w.Write([]byte(`{"protected":false}`))
+				case "/api/v1/profiles/prod":
+					_, _ = w.Write([]byte(`{"protected":true}`))
+				case "/api/v1/dags/deploy/start":
+					body, _ := io.ReadAll(r.Body)
+					forwardedBody.Store(string(body))
+					_, _ = w.Write([]byte(`{}`))
+				default:
+					w.WriteHeader(http.StatusNotFound)
+					_, _ = w.Write([]byte(`{"code":"not_found","message":"not found"}`))
+				}
+			})
+
+			status := serveRemoteNodeRequestTo(t, remote, config.Server{Permissions: runPermission}, test.user, http.MethodPost, "/api/v1/dags/deploy/start", test.body)
+
+			assert.Equal(t, test.wantStatus, status)
+			if test.wantRun {
+				assert.Equal(t, test.body, forwardedBody.Load())
+			} else {
+				assert.Nil(t, forwardedBody.Load())
 			}
 		})
 	}
@@ -360,6 +427,31 @@ func TestRemoteNodeProxyPreservesHumanTaskCompletionRequest(t *testing.T) {
 	assert.Equal(t, "application/json", received.contentType)
 	assert.Equal(t, "request-1", received.customHeader)
 	assert.Equal(t, int64(len(rawBody)), received.contentLength)
+}
+
+// The local permission check names the operation from the path as escaped,
+// so the remote node must receive that path rather than its decoded form, in
+// which an escaped slash would name a different operation.
+func TestRemoteNodeProxyKeepsEscapedPath(t *testing.T) {
+	received := make(chan string, 1)
+	remoteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received <- r.URL.EscapedPath()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	t.Cleanup(remoteServer.Close)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/dag-runs/job%2Frun-1%2Fdequeue?remoteNode=edge", nil)
+	proxy := remoteNodeProxy{
+		remoteNode:  &remotenode.RemoteNode{APIBaseURL: remoteServer.URL + "/api/v1"},
+		apiBasePath: "/api/v1",
+	}
+
+	response, err := proxy.proxy(request)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = response.Body.Close() })
+
+	assert.Equal(t, "/api/v1/dag-runs/job%2Frun-1%2Fdequeue", <-received)
 }
 
 func TestRemoteNodeProxyPreservesStructuredError(t *testing.T) {
