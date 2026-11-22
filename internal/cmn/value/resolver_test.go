@@ -866,3 +866,45 @@ func TestResolverDates(t *testing.T) {
 		assert.Equal(t, tc.class, notices[0].Class, tc.token)
 	}
 }
+
+// A bound run reads its node's fields and labels. Outside one, a node
+// reference is kept with a runtime-only notice.
+func TestResolverNode(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	field := value.WorkflowField("steps[0].run")
+	node := &value.BoundNode{
+		Name: "web01", Host: "10.0.1.11", Port: "2222", User: "deploy", Description: "Tokyo web",
+		Labels: map[string]string{"role": "web", "gpu.type": "a100", "canary": ""},
+	}
+
+	bound := value.NewResolver(value.StaticScope{}, value.RuntimeScope{Node: node})
+	for ref, want := range map[string]string{
+		"${node.name}":                  "web01",
+		"${node.host}":                  "10.0.1.11",
+		"${node.port}":                  "2222",
+		"${node.user}":                  "deploy",
+		"${node.description}":           "Tokyo web",
+		"${node.labels}":                "canary,gpu.type=a100,role=web",
+		"${node.labels.role}":           "web",
+		"${node.labels.canary}":         "",
+		`${node.labels."gpu.type"}`:     "a100",
+		"ssh ${node.user}@${node.host}": "ssh deploy@10.0.1.11",
+	} {
+		got, err := bound.String(ctx, ref, field)
+		require.NoError(t, err, ref)
+		assert.Equal(t, want, got, ref)
+	}
+	assert.EqualError(t, value.MissingNodeLabel("restart ${node.labels.role} ${node.labels.zone}", node), `node "web01" has no label "zone"`)
+	assert.NoError(t, value.MissingNodeLabel(`${node.labels."gpu.type"} \${node.labels.zone}`, node))
+
+	var collector value.ValueReferenceNoticeCollector
+	unbound := value.NewResolver(value.StaticScope{}, value.RuntimeScope{}, value.WithValueReferenceNotices(&collector))
+	got, err := unbound.String(ctx, "drain ${node.name}", field)
+	require.NoError(t, err)
+	assert.Equal(t, "drain ${node.name}", got)
+	notices := collector.Notices()
+	require.Len(t, notices, 1)
+	assert.Equal(t, value.NoticeClassRuntimeOnly, notices[0].Class)
+}
