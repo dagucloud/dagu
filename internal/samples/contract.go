@@ -258,6 +258,11 @@ type Reader interface {
 	Samples(ctx context.Context, q SampleQuery) (Series, error)
 	Events(ctx context.Context, q EventQuery) (EventPage, error)
 	Availability(ctx context.Context, now time.Time) (Availability, error)
+	// Uptime gives the uptime of the window from `from` to `to`.
+	Uptime(ctx context.Context, from, to time.Time) (Uptime, error)
+	// NewestEnd gives the end of the newest sample, as the function NewestEnd
+	// does for the directory of the store.
+	NewestEnd(ctx context.Context) (time.Time, bool, error)
 }
 
 // Dir returns the directory of the store of a step, under the directory of

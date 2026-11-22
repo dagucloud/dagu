@@ -78,8 +78,8 @@ func TestRetentionKeepsSamples(t *testing.T) {
 }
 
 // Runs that a user starts while no scheduler runs get their samples when the
-// scheduler opens the history, and no sample is lost.
-func TestImportOfRetainedRuns(t *testing.T) {
+// scheduler starts, since they are among the 10 newest runs of the DAG.
+func TestRunsWhileNoScheduler(t *testing.T) {
 	t.Parallel()
 	p := newProject(t, "ok")
 	p.startServer()

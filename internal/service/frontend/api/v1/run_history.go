@@ -65,6 +65,21 @@ func activeRunStart(status ir.DAGRunStatus) time.Time {
 	return runTime(status.StartedAt)
 }
 
+// recordedEnd returns the end of the newest run that a run history recorded,
+// when a run is in progress since start and the history has recorded uptime
+// (known). The part of the run in progress before that end is already in the
+// history. Otherwise it returns the zero time and reads nothing.
+func recordedEnd(ctx context.Context, reader samples.Reader, start time.Time, known bool) (time.Time, error) {
+	if start.IsZero() || !known {
+		return time.Time{}, nil
+	}
+	end, _, err := reader.NewestEnd(ctx)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("error reading the end of the newest run: %w", err)
+	}
+	return end, nil
+}
+
 func (a *API) GetDAGRunHistorySamples(ctx context.Context, request api.GetDAGRunHistorySamplesRequestObject) (api.GetDAGRunHistorySamplesResponseObject, error) {
 	p := request.Params
 	query, err := sampleQueryOf(p.From, p.To, p.Points)
@@ -87,8 +102,12 @@ func (a *API) GetDAGRunHistorySamples(ctx context.Context, request api.GetDAGRun
 		return nil, fmt.Errorf("error reading run history uptime: %w", err)
 	}
 	start := activeRunStart(a.latestRunStatus(ctx, dag))
-	result := toStepSamples(series.WithActive(start, uptime.Last), query.From, query.To)
-	if ratio, ok := uptime.WithActive(start).Ratio(); ok {
+	last, err := recordedEnd(ctx, reader, start, !uptime.Since.IsZero())
+	if err != nil {
+		return nil, err
+	}
+	result := toStepSamples(series.WithActive(start, last), query.From, query.To)
+	if ratio, ok := uptime.WithActive(start, last).Ratio(); ok {
 		result.Uptime = &ratio
 	}
 	return api.GetDAGRunHistorySamples200JSONResponse(result), nil
@@ -165,8 +184,12 @@ func (a *API) GetDAGRunHistoryAvailability(ctx context.Context, request api.GetD
 	// A sample is written when a run ends, so the run in progress is added
 	// from the latest status.
 	if start := activeRunStart(a.latestRunStatus(ctx, dag)); !start.IsZero() {
+		last, err := recordedEnd(ctx, reader, start, true)
+		if err != nil {
+			return nil, err
+		}
 		for i := range availability.Windows {
-			availability.Windows[i].Uptime = availability.Windows[i].Uptime.WithActive(start)
+			availability.Windows[i].Uptime = availability.Windows[i].Uptime.WithActive(start, last)
 		}
 	}
 	return api.GetDAGRunHistoryAvailability200JSONResponse(toStepAvailability(availability)), nil

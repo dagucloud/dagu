@@ -317,9 +317,9 @@ func TestRunHistoryAvailabilityUptime(t *testing.T) {
 	now := time.Now().UTC()
 	known := samples.Uptime{
 		Start: now.Add(-4 * time.Hour), To: now, Up: 3 * time.Hour,
-		Since: now.Add(-5 * time.Hour), Last: now.Add(-time.Hour),
+		Since: now.Add(-5 * time.Hour),
 	}
-	fake := &fakeSamplesReader{availability: samples.Availability{
+	fake := &fakeSamplesReader{newestEnd: now.Add(-time.Hour), availability: samples.Availability{
 		Windows: []samples.WindowStat{
 			{Window: samples.Window24h, Count: 10, Failures: 5, Uptime: known},
 			{Window: samples.Window7d, Count: 10, Failures: 5},
@@ -376,8 +376,8 @@ func TestActiveRunStart(t *testing.T) {
 func TestServiceDAGActivityUptime(t *testing.T) {
 	now := time.Now().UTC()
 	since := now.Add(-time.Hour)
-	fake := &fakeSamplesReader{uptime: samples.Uptime{
-		Start: since, To: now, Up: 15 * time.Minute, Since: since.Add(-time.Hour), Last: now.Add(-30 * time.Minute),
+	fake := &fakeSamplesReader{newestEnd: now.Add(-30 * time.Minute), uptime: samples.Uptime{
+		Start: since, To: now, Up: 15 * time.Minute, Since: since.Add(-time.Hour),
 	}}
 	a := newRunHistoryAPI(t, fake)
 	service := &ir.DAG{Name: "svc", RestartPolicy: ir.RestartPolicyAlways}
@@ -402,8 +402,8 @@ func TestServiceDAGActivityUptime(t *testing.T) {
 // The samples of the run history give the uptime of their window.
 func TestRunHistorySamplesUptime(t *testing.T) {
 	now := time.Now().UTC()
-	fake := &fakeSamplesReader{uptime: samples.Uptime{
-		Start: now.Add(-time.Hour), To: now, Up: 45 * time.Minute, Since: now.Add(-2 * time.Hour), Last: now,
+	fake := &fakeSamplesReader{newestEnd: now, uptime: samples.Uptime{
+		Start: now.Add(-time.Hour), To: now, Up: 45 * time.Minute, Since: now.Add(-2 * time.Hour),
 	}}
 	a := newRunHistoryAPI(t, fake)
 	resp, err := a.GetDAGRunHistorySamples(t.Context(), openapiv1.GetDAGRunHistorySamplesRequestObject{FileName: "svc"})
@@ -431,7 +431,8 @@ func TestServiceDAGActivityBucketUp(t *testing.T) {
 				{Time: now.Add(-44 * time.Minute), Up: time.Minute},
 			},
 		},
-		uptime: samples.Uptime{Start: since, To: now, Up: 2 * time.Minute, Since: since, Last: now.Add(-43 * time.Minute)},
+		uptime:    samples.Uptime{Start: since, To: now, Up: 2 * time.Minute, Since: since},
+		newestEnd: now.Add(-43 * time.Minute),
 	}
 	a := newRunHistoryAPI(t, fake)
 	service := &ir.DAG{Name: "svc", RestartPolicy: ir.RestartPolicyAlways}

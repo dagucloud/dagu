@@ -28,6 +28,7 @@ type fakeSamplesReader struct {
 	page         samples.EventPage
 	availability samples.Availability
 	uptime       samples.Uptime
+	newestEnd    time.Time
 
 	sampleQuery samples.SampleQuery
 	eventQuery  samples.EventQuery
@@ -51,6 +52,10 @@ func (f *fakeSamplesReader) Availability(_ context.Context, _ time.Time) (sample
 
 func (f *fakeSamplesReader) Uptime(_ context.Context, _, _ time.Time) (samples.Uptime, error) {
 	return f.uptime, nil
+}
+
+func (f *fakeSamplesReader) NewestEnd(_ context.Context) (time.Time, bool, error) {
+	return f.newestEnd, !f.newestEnd.IsZero(), nil
 }
 
 func continuousNode(name string) *ir.Node {
