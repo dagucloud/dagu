@@ -2141,6 +2141,24 @@ func TestNodeOutputRedirectRoot(t *testing.T) {
 			assert.NoFileExists(t, configured)
 		})
 	}
+
+	// A .. at the top of an absolute path stays at the top, so the file it
+	// names lands below the root, not beside it.
+	t.Run("AbsoluteDotDotAtTop", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		volume := filepath.VolumeName(workDir)
+		sep := string(filepath.Separator)
+		path := volume + sep + ".." + workDir[len(volume):] + sep + "out.txt"
+		root := filepath.Join(t.TempDir(), "redirects")
+		require.NoError(t, prepareRedirectNode(t, workDir, ir.Step{Stdout: path},
+			runtime.WithRedirectRoot(runtime.RedirectRoot{Dir: root})))
+
+		moved := filepath.Join(root, strings.TrimSuffix(volume, ":"), workDir[len(volume):], "out.txt")
+		assert.FileExists(t, moved)
+		assert.NoFileExists(t, filepath.Join(filepath.Dir(root), workDir[len(volume):], "out.txt"))
+	})
 }
 
 // Spec validation compares the literal paths, so equivalent spellings reach

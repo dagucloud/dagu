@@ -561,6 +561,8 @@ func moveRedirect(root runctx.RedirectRoot, stepName, path string) (string, erro
 	if root.Dir == "" || slices.Contains(root.Keep, stepName) {
 		return path, nil
 	}
+	// A .. left in the path would climb out of the root once joined to it.
+	path = filepath.Clean(path)
 	volume := filepath.VolumeName(path)
 	// A volume such as C: or \\host\share becomes one directory name.
 	volumeDir := strings.Map(func(r rune) rune {
