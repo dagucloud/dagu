@@ -175,7 +175,8 @@ type Config struct {
 	ExecutorOverride ExecutorOverride
 	// SkipWaits runs retries, repeats, and steps without waiting for retry
 	// and repeat intervals, their backoff, or the DAG start delay. The order
-	// and number of executions are unchanged, and timeouts still apply.
+	// and number of executions are unchanged, and timeouts still apply. Runs
+	// that a step starts in process, such as foreach bodies, skip them too.
 	SkipWaits bool
 
 	DAGRunAutoRetryCount int
@@ -188,6 +189,9 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 	// A run started by a step, such as a sub-DAG run in process, checks its
 	// own reads instead of the step's.
 	ctx = cmnvalue.UntrackMaskedReads(ctx)
+	if r.skipWaits {
+		ctx = context.WithValue(ctx, skipWaitsKey{}, true)
+	}
 	if err := r.setup(ctx); err != nil {
 		return err
 	}
@@ -2412,10 +2416,14 @@ func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressC
 	}
 }
 
+// skipWaitsKey marks the context of a run that skips waits, so that a run a
+// step starts in process, such as a foreach body, skips them too.
+type skipWaitsKey struct{}
+
 // waitForExecution waits for duration before the next execution, or not at
-// all when the runner skips waits. It reports false when ctx ends first.
+// all when the run skips waits. It reports false when ctx ends first.
 func (r *Runner) waitForExecution(ctx context.Context, duration time.Duration) bool {
-	if r.skipWaits {
+	if r.skipWaits || ctx.Value(skipWaitsKey{}) != nil {
 		return ctx.Err() == nil
 	}
 	timer := time.NewTimer(duration)

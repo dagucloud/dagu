@@ -3595,6 +3595,25 @@ func TestRunner_SkipWaits(t *testing.T) {
 		result.assertNodeStatus(t, "2", ir.NodeSucceeded)
 	})
 
+	t.Run("ForeachBody", func(t *testing.T) {
+		probeType, state := registerForeachProbeExecutor(t)
+		r := setupRunner(t, withSkipWaits(), withTimeout(runBound))
+		step := foreachRuntimeStep(probeType, []any{
+			map[string]any{"slug": "one", "url": "https://example.com/one"},
+		}, 1)
+		step.Foreach.Steps[0].RepeatPolicy = ir.RepeatPolicy{
+			RepeatMode: ir.RepeatModeWhile,
+			Limit:      3,
+			Interval:   longWait,
+		}
+
+		start := time.Now()
+		r.newPlan(t, step).assertRun(t, ir.Succeeded)
+
+		assert.Less(t, time.Since(start), runBound)
+		assert.Len(t, state.records(), 3)
+	})
+
 	// The commands outlast runBound, so a timeout that does not fire fails
 	// the run status assertion.
 	t.Run("StepTimeout", func(t *testing.T) {
