@@ -86,9 +86,11 @@ func TestAgent_BoundRunReachesNode(t *testing.T) {
 	resolver := newCountingSecretResolver(map[string]string{passwordRef: nodePassword})
 	dagAgent, dag := runBound(t, nodeInventory{node}, `
 node: required
+env:
+  - ROLE: ${node.labels.role}
 steps:
   - id: where
-    run: echo ${node.name} ${node.labels.role} ${node.labels."gpu.type"} ${node.labels}
+    run: echo ${node.name} $ROLE ${node.labels."gpu.type"} ${node.labels}
     output: WHERE
   - id: leak
     run: echo `+nodePassword+`
@@ -105,6 +107,7 @@ steps:
 	statusJSON, err := json.Marshal(dagAgent.Status(context.Background()))
 	require.NoError(t, err)
 	require.NotContains(t, string(statusJSON), nodePassword)
+	require.Empty(t, dag.Steps[0].ExecutorConfig.Type, "the run routes its own copy of the DAG")
 }
 
 // Fields under an ssh.run step's with override the node's.
@@ -141,6 +144,11 @@ func TestAgent_BoundRunFailsBeforeAnyStep(t *testing.T) {
 		{
 			name:    "MissingLabel",
 			yaml:    "node: required\nsteps:\n  - id: drain\n    action: noop\n  - id: restart\n    run: systemctl restart ${node.labels.zone}\n",
+			wantErr: `node "web01" has no label "zone"`,
+		},
+		{
+			name:    "MissingLabelInEnv",
+			yaml:    "node: required\nenv:\n  - ZONE: ${node.labels.zone}\nsteps:\n  - id: drain\n    action: noop\n",
 			wantErr: `node "web01" has no label "zone"`,
 		},
 		{
@@ -192,6 +200,33 @@ steps:
 
 	require.Zero(t, server.AuthAttempts(), "no credential reaches the node")
 	require.Empty(t, server.Commands())
+}
+
+// An ssh.run step that names another host connects there, so a run whose
+// steps all do never reads the node's credentials.
+func TestAgent_BoundRunWithHostReadsNoNodeCredential(t *testing.T) {
+	t.Parallel()
+
+	node, server := startNode(t, "web01")
+	resolver := newCountingSecretResolver(nil)
+	dagAgent, _ := runBound(t, nodeInventory{node}, `
+node: required
+steps:
+  - id: elsewhere
+    action: ssh.run
+    preconditions:
+      - condition: "skip"
+        expected: "run"
+    continue_on:
+      skipped: true
+    with:
+      host: app.invalid
+      command: "true"
+`, resolver)
+	dagAgent.RunSuccess(t)
+
+	require.Zero(t, resolver.callCount(passwordRef))
+	require.Zero(t, server.AuthAttempts())
 }
 
 // A run whose steps all run where the run runs never connects, so it reads

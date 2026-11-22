@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/go-viper/mapstructure/v2"
 
@@ -90,10 +91,14 @@ func (n *nodeConnection) clientWith(ctx context.Context, with map[string]any) (*
 		hostKey.AcceptAnyKey = !def.StrictHostKey
 		cfg.NodeHostKey = &hostKey
 	}
-	if has("shell") || has("shell_args") {
+	switch {
+	case has("shell"):
 		if cfg.Shell, cfg.ShellArgs, err = parseShellConfig(def.Shell, def.ShellArgs); err != nil {
 			return nil, fmt.Errorf("failed to parse shell config: %w", err)
 		}
+	case has("shell_args"):
+		// shell_args adds arguments to the node's shell.
+		cfg.ShellArgs = append(slices.Clone(cfg.ShellArgs), def.ShellArgs...)
 	}
 	if has("timeout") {
 		if cfg.Timeout, err = parseTimeout(def.Timeout); err != nil {

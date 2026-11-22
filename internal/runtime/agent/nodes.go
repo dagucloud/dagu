@@ -127,8 +127,13 @@ func (b *nodeBinding) valueNode() *cmnvalue.BoundNode {
 }
 
 // missingNodeLabel fails a run that reads a label its node lacks, naming the
-// node and the key. It reads every text field of dag, as stored.
+// node and the key. It reads every text field of dag, as stored, and its env.
 func missingNodeLabel(dag *ir.DAG, node *cmnvalue.BoundNode) error {
+	for _, entry := range dag.Env {
+		if err := cmnvalue.MissingNodeLabel(entry, node); err != nil {
+			return err
+		}
+	}
 	data, err := json.Marshal(dag)
 	if err != nil {
 		return fmt.Errorf("failed to read the DAG's references to node %q: %w", node.Name, err)
@@ -229,42 +234,59 @@ func splitShell(shell string) (string, []string, error) {
 }
 
 // reachesNode reports whether a step of a run bound to an SSH node runs on
-// the node: a step with no action, ssh.run, or sftp.* (RFC 013 §Bound runs).
-// Other actions run where the run runs, as under DAG-level ssh.
+// the node: a step with no action, or an ssh.run or sftp.* step that names
+// no other host (RFC 013 §Bound runs). Other actions run where the run runs,
+// as under DAG-level ssh.
 func reachesNode(step ir.Step) bool {
 	switch step.ExecutorConfig.Type {
 	case "":
 		return step.HumanTask == nil
 	case "ssh", "sftp":
-		return true
+		_, host := step.ExecutorConfig.Config["host"]
+		_, ip := step.ExecutorConfig.Config["ip"]
+		return !host && !ip
 	default:
 		return false
 	}
 }
 
 // onNode returns a copy of dag whose steps with no action run over SSH, as
-// DAG-level ssh makes them.
+// DAG-level ssh makes them. dag is left unchanged.
 func onNode(dag *ir.DAG) *ir.DAG {
 	bound := dag.Clone()
-	route := func(step *ir.Step) {
-		if step.ExecutorConfig.Type == "" && step.HumanTask == nil {
-			step.ExecutorConfig.Type = "ssh"
+	bound.Steps = routeSteps(dag.Steps)
+	for _, handler := range []**ir.Step{
+		&bound.HandlerOn.Init, &bound.HandlerOn.Failure, &bound.HandlerOn.Success,
+		&bound.HandlerOn.Abort, &bound.HandlerOn.Exit, &bound.HandlerOn.Wait,
+	} {
+		if *handler != nil {
+			routed := routeStep(**handler)
+			*handler = &routed
 		}
-	}
-	var walk func(steps []ir.Step)
-	walk = func(steps []ir.Step) {
-		for i := range steps {
-			route(&steps[i])
-			if steps[i].Foreach != nil {
-				walk(steps[i].Foreach.Steps)
-			}
-		}
-	}
-	walk(bound.Steps)
-	for _, handler := range handlerSteps(bound) {
-		route(handler)
 	}
 	return bound
+}
+
+func routeSteps(steps []ir.Step) []ir.Step {
+	routed := slices.Clone(steps)
+	for i := range routed {
+		routed[i] = routeStep(routed[i])
+	}
+	return routed
+}
+
+// routeStep returns step, and its foreach body, with no action running over
+// SSH.
+func routeStep(step ir.Step) ir.Step {
+	if step.ExecutorConfig.Type == "" && step.HumanTask == nil {
+		step.ExecutorConfig.Type = "ssh"
+	}
+	if step.Foreach != nil {
+		foreach := *step.Foreach
+		foreach.Steps = routeSteps(foreach.Steps)
+		step.Foreach = &foreach
+	}
+	return step
 }
 
 // allSteps returns the steps of dag, including foreach bodies and handlers.
