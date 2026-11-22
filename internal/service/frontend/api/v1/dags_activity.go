@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/samples"
 )
 
@@ -94,56 +95,49 @@ func (a *API) serviceActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRun
 }
 
 // dagActivity lists the runs of a DAG that started since `since`, newest
-// first. A service DAG gets the buckets of its run history instead. It first
-// looks at the newest run: when that run started before the window, no run is
-// in the window and no more history is read, so a DAG that has not run for
-// years costs one directory walk. `latest` is the latest status that the list
-// already read; it may be empty when the server keeps only the runs of today.
+// first, and its latest run while it is active. A service DAG gets the buckets
+// of its run history instead. It reads only the runs created in the window,
+// and none when the latest run ended before it. `latest` is the latest status
+// that the list already read; it may be empty when the server keeps only the
+// runs of today.
 func (a *API) dagActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStatus, since time.Time) (*api.DAGListActivity, error) {
 	if dag.RestartPolicy.Enabled() {
 		return a.serviceActivity(ctx, dag, latest, since)
 	}
 	activity := &api.DAGListActivity{Runs: []api.DAGListActivityRun{}}
-	newest := latest
-	if newest.DAGRunID == "" {
-		probe, err := a.dagRunRepository.RecentStatuses(ctx, dag.Name, 1)
-		if err != nil {
-			return activity, fmt.Errorf("list recent runs of %s: %w", dag.Name, err)
-		}
-		if len(probe) == 0 {
-			return activity, nil
-		}
-		newest = probe[0]
-	}
-	if !inActivityWindow(newest, since) {
+	latestStart := runTime(latest.StartedAt)
+	before := !latestStart.IsZero() && latestStart.Before(since)
+	if before && !latest.Status.IsActive() {
 		return activity, nil
 	}
-	statuses, err := a.dagRunRepository.RecentStatuses(ctx, dag.Name, activityRunLimit+1)
+	statuses, err := a.dagRunRepository.ListStatuses(ctx, persis.DAGRunListOptions{
+		ExactName: dag.Name,
+		From:      persis.NewUTC(since),
+		Limit:     activityRunLimit + 1,
+		// The cached time comes from the reused inputs, which the run index
+		// does not keep.
+		FullStatus: true,
+	})
 	if err != nil {
 		return activity, fmt.Errorf("list recent runs of %s: %w", dag.Name, err)
 	}
 	for _, status := range statuses {
-		// The runs come newest first: the first run before the window ends the list.
-		if !inActivityWindow(status, since) {
-			break
+		if runTime(status.StartedAt).IsZero() {
+			// A queued run has not started.
+			continue
 		}
 		if len(activity.Runs) == activityRunLimit {
-			activity.Truncated = true
 			break
 		}
-		activity.Runs = append(activity.Runs, toListActivityRun(status))
+		activity.Runs = append(activity.Runs, toListActivityRun(*status))
+	}
+	activity.Truncated = len(statuses) > activityRunLimit
+	// A run created before the window is not in the list, but one that is
+	// still active shows from the start of the window.
+	if before && len(activity.Runs) < activityRunLimit {
+		activity.Runs = append(activity.Runs, toListActivityRun(latest))
 	}
 	return activity, nil
-}
-
-// inActivityWindow reports whether a run started since `since`. A run that
-// still runs counts whenever it has started.
-func inActivityWindow(status ir.DAGRunStatus, since time.Time) bool {
-	started := runTime(status.StartedAt)
-	if started.IsZero() {
-		return false
-	}
-	return status.Status.IsActive() || !started.Before(since)
 }
 
 func toListActivityRun(status ir.DAGRunStatus) api.DAGListActivityRun {

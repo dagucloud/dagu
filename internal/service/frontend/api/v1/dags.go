@@ -2713,6 +2713,13 @@ func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGLi
 		if k.statusErr != nil {
 			errList = append(errList, k.statusErr.Error())
 		}
+		if source.activityWindow > 0 {
+			activity, activityErr := a.dagActivity(ctx, item.DAG, k.dagStatus, projectionTime.Add(-source.activityWindow))
+			if activityErr != nil {
+				errList = append(errList, activityErr.Error())
+			}
+			dagFile.Activity = activity
+		}
 		dagFiles = append(dagFiles, dagFile)
 	}
 

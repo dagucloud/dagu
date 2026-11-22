@@ -864,7 +864,7 @@ paths:
             type: "integer"
             minimum: 60
             maximum: 604800
-          description: "Length in seconds of a window that ends now. When set, each DAG in the list carries `activity`: its runs that started in the window, newest first. Without it, no DAG carries `activity`."
+          description: "Length in seconds of a window that ends now. When set, each DAG in the list carries `activity`: its runs that started in the window, newest first, and its latest run while it is active. Without it, no DAG carries `activity`."
       responses:
         "200":
           description: "A successful response"
@@ -19426,7 +19426,7 @@ components:
 
     DAGListActivity:
       type: object
-      description: "The runs of a DAG that started in the window of a list request, newest first. For a service DAG, the buckets of its run history instead."
+      description: "The runs of a DAG that started in the window of a list request, newest first, and its latest run while it is active. For a service DAG, the buckets of its run history instead."
       properties:
         runs:
           type: array

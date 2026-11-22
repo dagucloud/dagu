@@ -14,23 +14,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestInActivityWindow(t *testing.T) {
-	t.Parallel()
-	since := time.Now().Add(-24 * time.Hour)
-	started := func(ago time.Duration, status ir.Status) ir.DAGRunStatus {
-		return ir.DAGRunStatus{Status: status, StartedAt: stringutil.FormatTime(time.Now().Add(-ago))}
-	}
-
-	assert.True(t, inActivityWindow(started(time.Hour, ir.Succeeded), since))
-	assert.False(t, inActivityWindow(started(30*time.Hour, ir.Succeeded), since))
-	// A run that still runs stays in the window, whenever it started.
-	assert.True(t, inActivityWindow(started(30*time.Hour, ir.Running), since))
-	assert.True(t, inActivityWindow(started(30*time.Hour, ir.Waiting), since))
-	// A run that has not started has no bar.
-	assert.False(t, inActivityWindow(ir.DAGRunStatus{Status: ir.Queued}, since))
-	assert.False(t, inActivityWindow(ir.DAGRunStatus{Status: ir.NotStarted, StartedAt: "-"}, since))
-}
-
 func TestReusedTimeMs(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)

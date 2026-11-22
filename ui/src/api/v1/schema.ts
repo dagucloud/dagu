@@ -7617,7 +7617,7 @@ export interface components {
          * @example 2026-11-09
          */
         ScheduleSlotValue: string;
-        /** @description The runs of a DAG that started in the window of a list request, newest first. For a service DAG, the buckets of its run history instead. */
+        /** @description The runs of a DAG that started in the window of a list request, newest first, and its latest run while it is active. For a service DAG, the buckets of its run history instead. */
         DAGListActivity: {
             /** @description Runs that started in the window, at most 60 */
             runs: components["schemas"]["DAGListActivityRun"][];
@@ -11380,7 +11380,7 @@ export interface operations {
                 sort?: PathsDagsGetParametersQuerySort;
                 /** @description Sort order (ascending or descending) */
                 order?: PathsDagsGetParametersQueryOrder;
-                /** @description Length in seconds of a window that ends now. When set, each DAG in the list carries `activity`: its runs that started in the window, newest first. Without it, no DAG carries `activity`. */
+                /** @description Length in seconds of a window that ends now. When set, each DAG in the list carries `activity`: its runs that started in the window, newest first, and its latest run while it is active. Without it, no DAG carries `activity`. */
                 activityWindow?: number;
             };
             header?: never;

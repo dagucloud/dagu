@@ -50,7 +50,11 @@ func seedActivityRun(t *testing.T, server test.Server, dag *ir.DAG, run activity
 	if !run.status.IsActive() {
 		options = append(options, ir.WithFinishedAt(start.Add(run.took)))
 	}
-	status := ir.NewStatusBuilder(dag).Create(run.id, run.status, 0, start, options...)
+	startedAt := start
+	if run.status == ir.Queued {
+		startedAt = time.Time{}
+	}
+	status := ir.NewStatusBuilder(dag).Create(run.id, run.status, 0, startedAt, options...)
 	require.NoError(t, attempt.Open(server.Context))
 	require.NoError(t, attempt.Write(server.Context, status))
 	require.NoError(t, attempt.Close(server.Context))
@@ -142,6 +146,27 @@ func TestListDAGsActivityIsBounded(t *testing.T) {
 	assert.Len(t, activity.Runs, 60)
 	assert.True(t, activity.Truncated)
 	assert.Equal(t, "run-064", activity.Runs[0].DagRunId, "the newest run comes first")
+}
+
+// A queued run has not started: it is not listed and does not hide the runs
+// before it. A run that started before the window and is still active, here
+// waiting on a person, is listed.
+func TestListDAGsActivityAroundQueuedAndLongRuns(t *testing.T) {
+	server := test.SetupServer(t)
+	dag := createActivityDAG(t, server, "activity_queue")
+	seedActivityRun(t, server, dag, activityRun{id: "done", status: ir.Succeeded, startAgo: time.Hour, took: time.Minute})
+	seedActivityRun(t, server, dag, activityRun{id: "going", status: ir.Running, startAgo: 10 * time.Minute})
+	seedActivityRun(t, server, dag, activityRun{id: "queued", status: ir.Queued})
+	long := createActivityDAG(t, server, "activity_long")
+	seedActivityRun(t, server, long, activityRun{id: "long", status: ir.Waiting, startAgo: 30 * time.Hour})
+
+	for _, query := range []string{"?activityWindow=86400", "?activityWindow=86400&sort=lastRun"} {
+		dags := listActivity(t, server, query)
+		require.NotNil(t, dags["activity_queue"].Activity, query)
+		assert.Equal(t, []string{"going", "done"}, activityRunIDs(dags["activity_queue"].Activity), query)
+		require.NotNil(t, dags["activity_long"].Activity, query)
+		assert.Equal(t, []string{"long"}, activityRunIDs(dags["activity_long"].Activity), query)
+	}
 }
 
 func TestListDAGsActivityRejectsAWindowOutOfRange(t *testing.T) {
