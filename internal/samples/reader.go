@@ -209,7 +209,7 @@ func (r *reader) Samples(ctx context.Context, q SampleQuery) (Series, error) {
 		series.Buckets[i] = aggs[i].bucket()
 	}
 	if tier != TierRaw {
-		ups, err := newStore(filepath.Join(r.st.dir, upDirName)).upBuckets(ctx, tier, first, toS)
+		ups, err := newStore(filepath.Join(r.st.dir, upDirName)).upTier(ctx, tier, first, toS)
 		if err != nil {
 			return series, err
 		}

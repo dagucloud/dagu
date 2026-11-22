@@ -61,7 +61,7 @@ func openRecorder(ctx context.Context, dir string, opts Options) (*recorder, err
 		return nil, err
 	}
 	if opts.RunHistory {
-		up, err := openUp(dir, r.lastEnd)
+		up, err := openUp(ctx, dir, r.lastEnd)
 		if err != nil {
 			return nil, err
 		}

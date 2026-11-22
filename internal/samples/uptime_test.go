@@ -38,6 +38,20 @@ func upBucketOf(t *testing.T, dir string, tier Tier, at time.Time) time.Duration
 	return time.Duration(ms) * time.Millisecond
 }
 
+// upReadOf returns the up time of a bucket as a reader sees it, with the open
+// bucket of a tier taken from the finer tier.
+func upReadOf(t *testing.T, dir string, tier Tier, at time.Time) time.Duration {
+	t.Helper()
+	sec := at.Unix()
+	lines, err := newStore(filepath.Join(dir, upDirName)).upTier(context.Background(), tier, sec, sec+1)
+	require.NoError(t, err)
+	var ms int64
+	for _, l := range lines {
+		ms += l.ms
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
 func uptimeAt(t *testing.T, dir string, now time.Time, window time.Duration) Uptime {
 	t.Helper()
 	u, err := OpenReaderWith(dir, Options{Now: func() time.Time { return now }}).Uptime(context.Background(), now.Add(-window), now)
@@ -279,8 +293,9 @@ func TestUptimeReopen(t *testing.T) {
 	}
 }
 
-// A crash loses the up time of the open minute, in the minute tier only: the
-// hour and the day are written when the minute moves.
+// A crash loses the up time of the open minute, in every tier. The open hour
+// and day are not written yet: a reader takes them from the minute tier, and
+// the next recorder writes them.
 func TestUptimeCrash(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
@@ -290,17 +305,49 @@ func TestUptimeCrash(t *testing.T) {
 	_ = r // the recorder is not closed
 	require.Equal(t, 20*time.Second, upBucketOf(t, dir, TierMinute, t0))
 	require.Zero(t, upBucketOf(t, dir, TierMinute, t0.Add(time.Minute)))
-	require.Equal(t, 40*time.Second, upBucketOf(t, dir, TierHour, t0))
-	require.Equal(t, 40*time.Second, upBucketOf(t, dir, TierDay, t0))
+	require.Zero(t, upBucketOf(t, dir, TierHour, t0))
+	require.Equal(t, 20*time.Second, upReadOf(t, dir, TierHour, t0))
+	require.Equal(t, 20*time.Second, upReadOf(t, dir, TierDay, t0))
 
-	// The next recorder counts from the end of the newest sample.
+	// The next recorder writes the open hour and day, and counts from the end
+	// of the newest sample.
 	r = openWith(t, dir, runOpts(clk))
+	require.Equal(t, 20*time.Second, upBucketOf(t, dir, TierHour, t0))
+	require.Equal(t, 20*time.Second, upBucketOf(t, dir, TierDay, t0))
 	recordRun(t, r, clk, t0.Add(130*time.Second), 20*time.Second)
 	require.NoError(t, r.Close(context.Background()))
-	day, _ := upSum(t, dir, TierDay)
-	require.Equal(t, 60*time.Second, day)
-	minute, _ := upSum(t, dir, TierMinute)
-	require.Equal(t, 40*time.Second, minute)
+	for _, tier := range upTiers {
+		sum, _ := upSum(t, dir, tier)
+		require.Equal(t, 40*time.Second, sum, "tier %d", tier)
+	}
+}
+
+// A fast service writes a bucket once, when it closes. A reader sees the open
+// hour and day from the minute tier, with the same up time that the minute
+// tier holds.
+func TestUptimeOpenBuckets(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	// A run of 100 ms each 4 s, from 0:55 to 1:05.
+	for at := 55 * time.Minute; at < 65*time.Minute; at += 4 * time.Second {
+		recordTolerant(t, r, clk, t0.Add(at), 100*time.Millisecond, 11*time.Second)
+	}
+	_ = r // the recorder is not closed
+	_, hours := upSum(t, dir, TierHour)
+	require.Equal(t, 1, hours, "only the closed hour is written")
+	_, days := upSum(t, dir, TierDay)
+	require.Zero(t, days)
+
+	var minutes [2]time.Duration
+	for m := 55; m < 65; m++ {
+		minutes[m/60] += upBucketOf(t, dir, TierMinute, t0.Add(time.Duration(m)*time.Minute))
+	}
+	require.Equal(t, 5*time.Minute, minutes[0])
+	require.Equal(t, minutes[0], upReadOf(t, dir, TierHour, t0))
+	require.Positive(t, minutes[1])
+	require.Equal(t, minutes[1], upReadOf(t, dir, TierHour, t0.Add(time.Hour)))
+	require.Equal(t, minutes[0]+minutes[1], upReadOf(t, dir, TierDay, t0))
 }
 
 // A run that lasts longer than a tier keeps leaves no bucket older than the
@@ -530,7 +577,7 @@ func TestUptimeLongRunWritesItsLastMinute(t *testing.T) {
 	recordRun(t, r, clk, t0.Add(10*time.Second), 125*time.Second)
 	// The recorder is not closed and not flushed.
 	require.Equal(t, 15*time.Second, upBucketOf(t, dir, TierMinute, t0.Add(2*time.Minute)))
-	require.Equal(t, 125*time.Second, upBucketOf(t, dir, TierHour, t0))
+	require.Equal(t, 125*time.Second, upReadOf(t, dir, TierHour, t0))
 	// A run that starts in the same minute adds to it.
 	recordRun(t, r, clk, t0.Add(2*time.Minute+30*time.Second), 10*time.Second)
 	require.NoError(t, r.Close(context.Background()))

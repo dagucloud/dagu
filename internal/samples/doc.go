@@ -130,9 +130,11 @@
 // run can lose the part before it, but no time is counted twice and none after
 // the end of a run. A store that has no "up" directory has no known uptime:
 // Uptime.Ratio reports false, and a window that starts before the first
-// interval counts from it. The minute tier loses the up time of the open
-// minute in a crash. The hour and the day tier are written each time the
-// minute moves.
+// interval counts from it. A tier writes a bucket when the bucket closes, so
+// a fast service appends one line to each tier when its bucket ends instead of
+// rewriting a file. A reader takes the open bucket of the hour and the day
+// tier from the finer tier, and a recorder that opens writes it. A crash loses
+// the up time of the open minute.
 //
 // Sample.ActiveGap above zero counts the gap before a sample as active time,
 // when the gap is not longer than ActiveGap and an interval is already

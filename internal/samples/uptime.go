@@ -29,11 +29,17 @@ import (
 //	up/day/YYYY.jsonl          the same for each day
 //	up/since                   the start of the first interval, in unix milliseconds
 //
-// Each tier gets the pieces of an interval at the time of the write, so a
-// bucket is never a roll-up of finer buckets, and the up time of a bucket is
-// the same in every tier that keeps it. A bucket holds the whole up time of the
-// bucket: a write replaces its line. A store that has no "up" directory has
-// no known uptime. A window that starts before "up/since" counts from it.
+// Each tier gets the pieces of an interval at the time of the write, so that a
+// run older than the retention of a finer tier still counts in the coarser
+// tiers, and the up time of a bucket is the same in every tier that keeps it.
+// A bucket holds the whole up time of the bucket. The recorder writes a bucket
+// when it closes, and when the recorder flushes or closes; a write replaces
+// the line of a bucket that the file holds. The open bucket of the hour and
+// the day tier is in the finer tier only: a reader takes the buckets after the
+// newest line of a tier from the finer tier, and a recorder that opens writes
+// them. A crash loses the up time of the open minute. A store that has no "up"
+// directory has no known uptime. A window that starts before "up/since"
+// counts from it.
 //
 // The gap between two runs counts as active time when the sample gives a
 // tolerance for it (Sample.ActiveGap). The buckets then hold that time, so the
@@ -113,17 +119,52 @@ type upState struct {
 	since int64 // unix milliseconds; 0 before the first interval
 	to    int64 // end of the newest interval, unix milliseconds
 	open  [len(allTiers)]upBucket
-	moved bool // the open minute changed since the last settle
 }
 
-func openUp(dir string, lastEnd int64) (*upState, error) {
+func openUp(ctx context.Context, dir string, lastEnd int64) (*upState, error) {
 	u := &upState{st: newStore(filepath.Join(dir, upDirName)), to: lastEnd}
 	since, err := readSince(u.st.dir)
 	if err != nil {
 		return nil, err
 	}
 	u.since = since
+	if err := u.repair(ctx); err != nil {
+		return nil, err
+	}
 	return u, nil
+}
+
+// repair writes the buckets of the hour and the day tier that a stop without
+// a close left out. A bucket keeps the larger of its line and the sum of its
+// finer buckets, so that no part counts twice.
+func (u *upState) repair(ctx context.Context) error {
+	for _, t := range upTiers[1:] {
+		newest, err := u.st.newestUp(t)
+		if err != nil {
+			return err
+		}
+		finer, err := u.st.upTier(ctx, t-1, newest, noLimit)
+		if err != nil {
+			return err
+		}
+		w := tierSec(t)
+		for i := 0; i < len(finer); {
+			b, sum := floorTo(finer[i].sec, w), int64(0)
+			for ; i < len(finer) && floorTo(finer[i].sec, w) == b; i++ {
+				sum += finer[i].ms
+			}
+			held, err := u.st.readUp(t, b)
+			if err != nil {
+				return err
+			}
+			if sum > held {
+				if err := u.st.putUp(t, b, sum); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // add records the interval [a, b), in unix milliseconds. The part before the
@@ -131,6 +172,7 @@ func openUp(dir string, lastEnd int64) (*upState, error) {
 // longer than tolerance counts as active time, when an interval is already
 // recorded. now bounds the buckets that the tiers keep.
 func (u *upState) add(a, b, tolerance, now int64) error {
+	run := a // the start of the run, before the gap and the overlap
 	if u.since != 0 && a > u.to && a-u.to <= tolerance {
 		a = u.to
 	}
@@ -162,13 +204,23 @@ func (u *upState) add(a, b, tolerance, now int64) error {
 	}
 	// A run that covers more than one minute is the last run for a long time,
 	// so its last minute is written at once. The short runs of a minute add to
-	// the open minute, which is written when the minute moves.
-	if floorTo(a, 60_000) != floorTo(b-1, 60_000) {
+	// the open minute, which is written when the minute moves, also when the
+	// gap before a run joins it to the previous minute.
+	if floorTo(run, 60_000) != floorTo(b-1, 60_000) {
 		if err := u.flushTier(TierMinute); err != nil {
 			return err
 		}
 	}
-	return u.settle()
+	// A finer tier that no longer keeps a part of the interval cannot rebuild
+	// the coarser bucket, so that bucket is written at once.
+	for _, t := range upTiers[1:] {
+		if a < now-retentionSec(t-1)*1000 {
+			if err := u.flushTier(t); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (u *upState) put(t Tier, sec, ms int64) error {
@@ -182,21 +234,10 @@ func (u *upState) put(t Tier, sec, ms int64) error {
 			return err
 		}
 		*b = upBucket{t: sec, ms: held, live: true}
-		u.moved = u.moved || t == TierMinute
 	}
 	b.ms += ms
 	b.dirty = true
 	return nil
-}
-
-// settle writes the open hour and the open day once the open minute moved, so
-// that a crash loses the up time of one minute at most.
-func (u *upState) settle() error {
-	if !u.moved {
-		return nil
-	}
-	u.moved = false
-	return errors.Join(u.flushTier(TierHour), u.flushTier(TierDay))
 }
 
 func (u *upState) flushTier(t Tier) error {
@@ -402,12 +443,56 @@ func (s *store) eachUp(ctx context.Context, t Tier, lo, hi int64, fn func(sec, m
 	return nil
 }
 
-// upBuckets returns the up time of the buckets of a tier with lo <= t < hi, in
-// time order.
-func (s *store) upBuckets(ctx context.Context, t Tier, lo, hi int64) ([]upLine, error) {
+// upTier returns the up time of the buckets of a tier with lo <= t < hi, in
+// time order. The buckets after the newest line of the hour or the day tier
+// come from the finer tier, since the recorder writes a bucket when it closes.
+func (s *store) upTier(ctx context.Context, t Tier, lo, hi int64) ([]upLine, error) {
 	var out []upLine
-	err := s.eachUp(ctx, t, lo, hi, func(sec, ms int64) { out = append(out, upLine{sec, ms}) })
-	return out, err
+	if err := s.eachUp(ctx, t, lo, hi, func(sec, ms int64) { out = append(out, upLine{sec, ms}) }); err != nil {
+		return nil, err
+	}
+	if t == TierMinute {
+		return out, nil
+	}
+	newest, err := s.newestUp(t)
+	if err != nil {
+		return nil, err
+	}
+	w := tierSec(t)
+	from := max(ceilTo(lo, w), newest+w)
+	if from >= hi {
+		return out, nil
+	}
+	end := hi
+	if hi < noLimit-w {
+		end = ceilTo(hi, w) // a bucket before hi takes all of its finer buckets
+	}
+	finer, err := s.upTier(ctx, t-1, from, end)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range finer {
+		if b := floorTo(f.sec, w); len(out) > 0 && out[len(out)-1].sec == b {
+			out[len(out)-1].ms += f.ms
+		} else {
+			out = append(out, upLine{b, f.ms})
+		}
+	}
+	return out, nil
+}
+
+// newestUp returns the time of the newest bucket that a tier holds, or minInt.
+func (s *store) newestUp(t Tier) (int64, error) {
+	for _, f := range slices.Backward(s.list(t)) {
+		lines, err := readUpLines(f.path)
+		if err != nil {
+			return 0, err
+		}
+		if len(lines) > 0 {
+			return lines[len(lines)-1].sec, nil
+		}
+	}
+	return minInt, nil
 }
 
 // addUp adds up time to the bucket that starts at t. A bucket that has no
@@ -532,17 +617,18 @@ func (r *reader) uptimes(ctx context.Context, wins []upWindow, now time.Time) ([
 		if lo >= hi {
 			continue
 		}
-		err := up.eachUp(ctx, t, lo, hi, func(sec, ms int64) {
+		lines, err := up.upTier(ctx, t, lo, hi)
+		if err != nil {
+			return out, err
+		}
+		for _, l := range lines {
 			for i, ps := range parts {
 				for _, p := range ps {
-					if p.tier == t && sec >= p.lo && sec < p.hi {
-						out[i].Up += time.Duration(ms) * time.Millisecond
+					if p.tier == t && l.sec >= p.lo && l.sec < p.hi {
+						out[i].Up += time.Duration(l.ms) * time.Millisecond
 					}
 				}
 			}
-		})
-		if err != nil {
-			return out, err
 		}
 	}
 	return out, nil
