@@ -91,8 +91,12 @@ func DescribeServiceDAG(
 // NextRestart returns when the scheduler starts the next run of a service DAG
 // after its latest run ended, given the backoff that the scheduler last shared
 // for the DAG. A run may have ended since that save, so it is counted here as the
-// scheduler counts it. ok is false when the end of the run is unknown.
+// scheduler counts it. ok is false when the end of the run is unknown, and for
+// a run that waits in the queue: that run is the next run.
 func NextRestart(restartWait time.Duration, latest *ir.DAGRunStatus, backoff schedulerstate.RestartBackoff) (time.Time, bool) {
+	if latest != nil && (latest.Status == ir.Queued || latest.Status == ir.NotStarted) {
+		return time.Time{}, false
+	}
 	endedAt, ok := retryReferenceTime(latest)
 	if !ok {
 		return time.Time{}, false

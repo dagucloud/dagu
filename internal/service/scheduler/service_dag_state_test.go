@@ -166,4 +166,8 @@ func TestNextRestart(t *testing.T) {
 
 	_, ok := NextRestart(5*time.Second, &ir.DAGRunStatus{DAGRunID: "run-1"}, schedulerstate.RestartBackoff{})
 	assert.False(t, ok, "a run whose end is unknown has no restart time")
+
+	queued := &ir.DAGRunStatus{DAGRunID: "run-4", Status: ir.Queued, TriggerType: ir.TriggerTypeRestart, CreatedAt: end.UnixMilli()}
+	_, ok = NextRestart(5*time.Second, queued, schedulerstate.RestartBackoff{})
+	assert.False(t, ok, "a queued restart is the next run")
 }
