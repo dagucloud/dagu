@@ -4,8 +4,9 @@
 - **Date:** 2026-11-22
 - **Issue:** https://github.com/dagucloud/dagu/issues/2864
 - **Affected areas:** `cmd`, a new `dagtest` package, `executor/registry`,
-  `runtime` (mock executor, skipped waits), `runtime/agent` (notifications,
-  trace export, DAG container, and tools under test), `runtime/builtin`
+  `runtime` (mock injection at executor construction, skipped waits),
+  `runtime/agent` (notifications, trace export, working directory, DAG
+  container, SSH client, and tools under test), `runtime/builtin`
   (side-effect opt-in), `persis/file/dag` (discovery, watcher, name lookup),
   `specs`, `conformance`, and `docs`
 
@@ -48,8 +49,9 @@ preconditions, routing, retries, `continue_on`, handlers, and status
 propagation all work as in a real run. Step actions with side effects, and
 the commands Dagu runs outside actions, must be replaced by the test or
 listed as real. Otherwise the case is invalid and nothing runs.
-Notifications, trace export, and the DAG-level container are off unless a
-step is real.
+Notifications, trace export, and run setup that reaches beyond the case,
+such as the DAG-level container and SSH client, are off unless a step is
+real.
 
 ## Problem statement
 
@@ -90,7 +92,8 @@ call with a scripted result, pick results by attempt, and skip waits.
    dependencies, preconditions, routing, retries, repeats, `continue_on`,
    handlers, and status propagation.
 2. Nothing with side effects runs unless the test names it: no step action,
-   no command Dagu runs outside an action, no notification, and no container.
+   no command Dagu runs outside an action, no notification, no container,
+   and no SSH connection.
 3. A DAG needs no change to be testable.
 4. One file holds several scenarios of one DAG.
 5. A test reads nothing from and writes nothing to the configured data
@@ -230,13 +233,18 @@ How a result reaches the run:
 - `stdout` and `stderr` are the step's captured streams. String-form
   `output: VAR` captures `stdout` as in a real run.
 - `outputs` supplies every named output the step publishes, whatever its
-  source: the output file (Spec 012), object-form `output`, or
-  `stdout.outputs`. Dagu does not parse `stdout` or read a file to publish
-  them. Only a successful attempt publishes outputs.
+  source as Spec 007 lists them: the output file (Spec 012),
+  `output_schema`, object-form `output`, `stdout.outputs`, or the action
+  itself. Dagu does not parse `stdout` or read a file to publish them. Only a
+  successful attempt publishes outputs.
 - A `string` output takes a YAML string. A `json` output takes any YAML value
   and is published as its JSON text.
-- The step's `env`, `with`, and `run` fields are still resolved. A reference
-  that does not resolve fails the step as it would in a real run.
+- The step's `env`, `with`, and `run` fields resolve as in a real run, with
+  the step's own executor metadata (see [How it runs](#how-it-runs)). A
+  reference to an unavailable value is preserved as text with a passive
+  notice, as Spec 003 defines, and does not fail the step.
+- Checks that the real executor makes when it is built do not run, because a
+  mocked step's executor is never built.
 - A mocked step reads no file: not its `stdin`, and not a file named by an
   object-form `output`.
 
@@ -386,8 +394,8 @@ records, and locks. Nothing is read from the configured data directory, so
 `state` starts empty and no queue or scheduler sees the run. The case
 directory is removed when the case ends, unless `--keep` is set.
 
-**Files.** The DAG's working directory is not changed, but only `real` steps
-write outside the case directory:
+**Files.** The DAG's working directory is not created or changed, and only
+`real` steps write outside the case directory:
 
 - The `stdout` and `stderr` redirect paths of every other step are written
   under the case directory, not at their configured paths. Artifact
@@ -403,13 +411,16 @@ write outside the case directory:
 | --- | --- |
 | `mail_on` notifications and step `mail_on_error` | Not sent. The report lists each notification the run would have sent |
 | OpenTelemetry trace export (`otel`) | Off |
+| An explicit `working_dir` that does not exist | Not created, unless the case has a `real` step |
 | DAG-level `container` | Not created, unless the case has a `real` step, which runs in it |
+| DAG-level `ssh` client, which reads keys and known hosts | Not created, unless the case has a `real` step |
 | Declared `tools` | Not installed, unless the case has a `real` step |
 
-A `real` step is the explicit opt-in to side effects, so the container and
-tools it needs are set up as in a real run. Tools install into the
-configured tools directory, the one write outside the case directory that
-only `real` causes.
+A `real` step is the explicit opt-in to side effects, so the working
+directory, container, SSH client, and tools it needs are set up as in a real
+run. A case without one runs on a CI host that has none of them. Tools
+install into the configured tools directory, the one write outside the case
+directory that only `real` causes.
 
 **Secrets.** Secrets resolve only from the test's `secrets` map, and every
 DAG `secrets` entry needs a value there. Values are masked in logs and
@@ -471,20 +482,32 @@ DAG file --spec--> ir.DAG --apply mocks--> ir.DAG' --runtime agent--> run status
 The `dagtest` package decodes the test file, loads the DAG through `spec`,
 and applies each case to a copy of the `ir.DAG`:
 
-- A mocked step's executor becomes a mock executor that holds its results.
 - Replaced preconditions and repeat conditions take their scripted results.
 - Redirect paths move into the case directory.
 
-A mocked step keeps its other fields as written: `retry_policy`,
-`repeat_policy`, `continue_on`, `env`, and the rest. The case then runs
-through the same local agent as `dagu start`, with paths pointing at the
-case directory. Two options exist only for tests. The runner skips waits.
-The agent turns off notifications and trace export, and sets up the DAG
-container and tools only for a `real` step. Dependency evaluation, status
-propagation, retries, and handlers do not branch on tests.
+A mocked step keeps every field as written, including its action, executor
+type, and `with` fields. Command, script, and path resolution and config
+warnings read the executor's registry metadata by that type
+(`internal/executor/registry/capabilities.go`), so a mocked step resolves
+its fields exactly as the real step does. A mocked `ssh.run` command leaves
+`$HOME` for the remote shell, as a real one does.
 
-The mock executor is not an action authors can name in a DAG. `dagu validate`
-rejects it like any unknown action.
+The mock is injected where the node builds its executor
+(`internal/runtime/node.go:958`). For a mocked step, the runner's executor
+factory returns a mock that holds the step's results instead of building the
+real executor. No mock action type exists, so a DAG cannot name one.
+
+The case then runs through the same local agent as `dagu start`, with paths
+pointing at the case directory. Three options exist only for tests:
+
+- the runner builds mocked steps' executors through the injected factory;
+- the runner skips waits;
+- the agent turns off notifications and trace export, and creates the
+  working directory, container, SSH client, and tools only for a `real`
+  step.
+
+Dependency evaluation, status propagation, retries, and handlers do not
+branch on tests.
 
 ## Example: an agent pipeline
 
@@ -624,12 +647,13 @@ again.
 Rollout:
 
 1. **Spec** for the test file and `dagu test`, beside Spec 064.
-2. **`dagtest` and the mock executor**: decoding, mocks, `results`, the
+2. **`dagtest` and mock injection**: decoding, mocks, `results`, the
    fail-closed rule, isolation, assertions, and the text and JSON reports.
    DAG discovery, the watcher, and name lookup skip test files.
-3. **Side-effect-free opt-in** for the first executors, skipped waits in the
-   runtime, and the agent options for notifications, trace export, the DAG
-   container, and tools.
+3. **Side-effect-free opt-in** for the first executors, mock injection and
+   skipped waits in the runtime, and the agent options for notifications,
+   trace export, the working directory, the DAG container, the SSH client,
+   and tools.
 4. **Preconditions, repeat conditions, `params[].eval`, redirects, reviews,
    and sub-DAG and `foreach` mocks.**
 5. **Documentation**: writing tests, and running them in CI.
@@ -644,8 +668,8 @@ test start a real command its author thought was mocked.
   actions: `params[].eval`, precondition `eval` and command checks, and
   repeat command checks.
 - Without a `real` step, a case sends no notification, exports no trace,
-  creates no container, installs no tool, and writes no file outside its
-  case directory.
+  creates no working directory or container, opens no SSH client, installs
+  no tool, and writes no file outside its case directory.
 - Test files are usually committed. Their `secrets` values should be fake.
   The docs say so, and a real run never reads test files.
 
@@ -693,6 +717,14 @@ test start a real command its author thought was mocked.
     unchanged, and the redirect file is in the case directory.
 18. A mocked `foreach` step ends `succeeded` without expanding items. An
     unmocked `foreach` whose body has a `run` step makes the case invalid.
+19. On a DAG with an explicit `working_dir` that does not exist and a
+    DAG-level `ssh` whose key file is missing, a case with no `real` step
+    passes, creates no directory, and reads no key.
+20. A mocked `run` step and a mocked `ssh.run` step resolve their command,
+    script, and path fields to the same text as a real run of the same step.
+21. A mocked step whose `env` references an output its dependency never
+    published starts and takes its mock result, with the reference kept as
+    text, as in a real run.
 
 ## Alternatives considered
 
