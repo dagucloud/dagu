@@ -242,10 +242,10 @@ function DAGActions({
 
   // Auto-open start modal when requested (e.g., from cockpit preview)
   React.useEffect(() => {
-    if (dagContext.autoOpenStartModal && hasStartButton) {
+    if (dagContext.autoOpenStartModal && hasStartButton && !serviceBusy) {
       setIsEnqueueModal(true);
     }
-  }, [dagContext.autoOpenStartModal, hasStartButton]);
+  }, [dagContext.autoOpenStartModal, hasStartButton, serviceBusy]);
 
   React.useEffect(() => {
     if (!isEnqueueModal) {

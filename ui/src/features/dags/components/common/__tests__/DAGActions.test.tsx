@@ -568,6 +568,25 @@ describe('DAGActions', () => {
       expect(screen.queryByRole('button', { name: 'Submit start' })).toBeNull();
     });
 
+    it('keeps the Start of a bar in place, disabled and closed, while a run is active', () => {
+      render(
+        <MemoryRouter>
+          <DAGContext.Provider value={{ autoOpenStartModal: true } as never}>
+            <DAGActions
+              fileName="svc"
+              dag={always}
+              status={run(Status.Running)}
+              barStart
+              markActions
+            />
+          </DAGContext.Provider>
+        </MemoryRouter>
+      );
+      expect(names()).toEqual(['start', 'stop']);
+      expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled();
+      expect(screen.queryByRole('button', { name: 'Submit start' })).toBeNull();
+    });
+
     it('keeps Start and Stop together for a plain workflow', () => {
       renderService({ name: 'svc' }, Status.Running);
       expect(names()).toEqual(['start', 'stop']);
