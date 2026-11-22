@@ -68,6 +68,16 @@ type Context struct {
 	Nodes                NodeSelector        // Inventory nodes for steps with nodes (RFC 012)
 	HostKeys             TrustedHostKeys     // Host keys trusted for nodes (RFC 012)
 	Node                 *cmnvalue.BoundNode // The node a bound run reads as ${node.*} (RFC 013)
+	RedirectRoot         RedirectRoot
+}
+
+// RedirectRoot moves the stdout and stderr redirect files of steps under Dir,
+// keeping each file's absolute path below it. The steps named in Keep, and
+// redirects to artifacts, write at their configured paths. The zero value
+// moves nothing.
+type RedirectRoot struct {
+	Dir  string
+	Keep []string
 }
 
 // LogWriterFactory creates log writers for step stdout/stderr.
@@ -440,6 +450,13 @@ func WithHostKeys(keys TrustedHostKeys) ContextOption {
 func WithNoReuse(disabled bool) ContextOption {
 	return func(o *contextOptions) {
 		o.NoReuse = disabled
+	}
+}
+
+// WithRedirectRoot sets where the run writes step redirect files.
+func WithRedirectRoot(root RedirectRoot) ContextOption {
+	return func(o *contextOptions) {
+		o.RedirectRoot = root
 	}
 }
 

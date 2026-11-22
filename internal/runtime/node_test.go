@@ -1911,7 +1911,7 @@ func TestNodeArtifactRedirectLatestAttempt(t *testing.T) {
 }
 
 // prepareRedirectNode prepares a node carrying step's redirects in workDir.
-func prepareRedirectNode(t *testing.T, workDir string, step ir.Step) error {
+func prepareRedirectNode(t *testing.T, workDir string, step ir.Step, opts ...runtime.ContextOption) error {
 	t.Helper()
 
 	step.Name = "redirect"
@@ -1919,7 +1919,7 @@ func prepareRedirectNode(t *testing.T, workDir string, step ir.Step) error {
 	node := runtime.NewNode(step, runtime.NodeState{})
 	node.Init()
 
-	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "test-run", "test.log")
+	ctx := runtime.NewContext(context.Background(), &ir.DAG{}, "test-run", "test.log", opts...)
 	env := runtime.GetEnv(ctx)
 	env.WorkingDir = workDir
 	ctx = runtime.WithEnv(ctx, env)
@@ -2089,6 +2089,58 @@ func TestNodeOutputRedirectMissingParent(t *testing.T) {
 
 		require.NoError(t, prepareRedirectNode(t, t.TempDir(), ir.Step{Stdout: `\\.\NUL`}))
 	})
+}
+
+// A redirect root takes the redirect files of every step it does not keep,
+// and creates a parent directory only where the configured path has one or
+// would create one.
+func TestNodeOutputRedirectRoot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		dirs    []string
+		path    string
+		keep    []string
+		wantErr string
+		// want is the file's path relative to the working directory.
+		want  string
+		moved bool
+	}{
+		{name: "MissingParent", path: "logs/out.txt", want: "logs/out.txt", moved: true},
+		{name: "ExistingParentDotDot", dirs: []string{"a", "b"}, path: "a/../b/out.txt", want: "b/out.txt", moved: true},
+		{name: "MissingParentDotDot", path: "gone/../new/out.txt", wantErr: ".. segment"},
+		{name: "Kept", path: "out.txt", keep: []string{"redirect"}, want: "out.txt"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			workDir := t.TempDir()
+			for _, dir := range tt.dirs {
+				require.NoError(t, os.Mkdir(filepath.Join(workDir, dir), 0o750))
+			}
+			root := filepath.Join(t.TempDir(), "redirects")
+			err := prepareRedirectNode(t, workDir, ir.Step{Stdout: tt.path},
+				runtime.WithRedirectRoot(runtime.RedirectRoot{Dir: root, Keep: tt.keep}))
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.NoDirExists(t, root)
+				return
+			}
+			require.NoError(t, err)
+
+			configured := filepath.Join(workDir, filepath.FromSlash(tt.want))
+			if !tt.moved {
+				assert.FileExists(t, configured)
+				assert.NoDirExists(t, root)
+				return
+			}
+			volume := filepath.VolumeName(configured)
+			assert.FileExists(t, filepath.Join(root, strings.TrimSuffix(volume, ":"), configured[len(volume):]))
+			assert.NoFileExists(t, configured)
+		})
+	}
 }
 
 // Spec validation compares the literal paths, so equivalent spellings reach
