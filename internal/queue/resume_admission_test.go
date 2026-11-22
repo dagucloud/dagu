@@ -6,10 +6,12 @@ package queue_test
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -264,4 +266,54 @@ func (s *failedAdmissionStore) EnsureRetryAdmission(ctx context.Context, name st
 		}
 	}
 	return false, s.err
+}
+
+// The publisher holds the dag-run lock across the queue write without renewing
+// it. If the write outlasts the lock's stale threshold, a dispatcher can take
+// the lock over, acknowledge the item and start the run. The publisher must
+// then fail rather than write back its older queued snapshot.
+func TestResumeAdmissionLockLostDuringPublication(t *testing.T) {
+	fixture := pendingResumeAdmission(t)
+	repository, queueStore, status := fixture.repository, fixture.queueStore, fixture.status
+	otherRepository := testutil.NewFileDAGRunRepository(fixture.history, persis.DAGRunRepositoryOptions{})
+	takeover := &lockLostAdmissionStore{QueueStore: queueStore, takeover: func() {
+		locks, err := filepath.Glob(filepath.Join(fixture.history, "*", "dag-runs", dirlock.LockDirectoryName))
+		require.NoError(t, err)
+		require.Len(t, locks, 1)
+		// A contender that judges the lock stale removes it before claiming it.
+		require.NoError(t, os.RemoveAll(locks[0]))
+		items, err := queueStore.List(t.Context(), status.Name)
+		require.NoError(t, err)
+		require.Len(t, items, 1)
+		require.NoError(t, queue.AcknowledgeRetryAdmission(t.Context(), otherRepository, items[0]))
+		_, swapped, err := otherRepository.CompareAndSwapLatestAttemptStatus(t.Context(), status.DAGRun(), status.AttemptID, ir.Queued,
+			func(latest *ir.DAGRunStatus) error {
+				latest.Status = ir.Running
+				return nil
+			}, persis.DAGRunCompareAndSwapOptions{})
+		require.NoError(t, err)
+		require.True(t, swapped)
+	}}
+	_, err := queue.EnqueueRetry(t.Context(), repository, takeover, nil, status, queue.EnqueueRetryOptions{Resume: true})
+	require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
+	attempt, err := otherRepository.FindAttempt(t.Context(), status.DAGRun())
+	require.NoError(t, err)
+	latest, err := attempt.ReadStatusUncached(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, ir.Running, latest.Status, "the stale publisher must not restore its queued snapshot")
+	require.NotNil(t, latest.ResumeAdmission)
+	assert.True(t, latest.ResumeAdmission.Admitted)
+}
+
+type lockLostAdmissionStore struct {
+	*store.QueueStore
+	takeover func()
+}
+
+func (s *lockLostAdmissionStore) EnsureRetryAdmission(ctx context.Context, name string, priority queue.QueuePriority, ref ir.DAGRunRef, identity queue.RetryAdmissionIdentity) (bool, error) {
+	created, err := s.QueueStore.EnsureRetryAdmission(ctx, name, priority, ref, identity)
+	if err == nil {
+		s.takeover()
+	}
+	return created, err
 }
