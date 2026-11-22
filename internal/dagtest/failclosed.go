@@ -76,15 +76,18 @@ func CheckFailClosed(dag *ir.DAG, handling Handling) []Finding {
 	if !handling.Precondition && slices.ContainsFunc(dag.Preconditions, runsCommand) {
 		c.add("preconditions", "a precondition runs a command; set precondition in the case")
 	}
+	handlers := lifecycleHandlers(dag.HandlerOn)
 	for _, step := range dag.Steps {
-		c.checkStep("step "+step.Name, step, stepKeys(step)...)
-	}
-	for _, h := range lifecycleHandlers(dag.HandlerOn) {
-		if h.step == nil {
-			continue
+		name := "step " + step.Name
+		// A case names a handler by its key, so a step of that name would
+		// share the handler's mock and real.
+		if slices.ContainsFunc(handlers, func(h lifecycleHandler) bool { return h.key == step.Name }) {
+			c.add(name, "name is the key of a lifecycle handler; rename the step")
 		}
-		key := "handler_on." + h.event
-		c.checkStep(key, *h.step, key)
+		c.checkStep(name, step, stepKeys(step)...)
+	}
+	for _, h := range handlers {
+		c.checkStep(h.key, h.step, h.key)
 	}
 	return c.findings
 }
@@ -203,8 +206,8 @@ func stepOffenses(step ir.Step, mock MockFields, replaced, real bool) []offense 
 	if waiting := waitKind(step); waiting != "" && !mock.Review {
 		offenses = append(offenses, offense{waiting, "waits for a person", "set review in its mock"})
 	}
-	if runsUnnamed && !actionFlagged && isContinuous(step) {
-		offenses = append(offenses, offense{"repeat policy", "has no limit", "mock it with results"})
+	if runsUnnamed && !actionFlagged && mayRepeatForever(step) {
+		offenses = append(offenses, offense{"repeat policy", "has no fixed limit", "mock it with results"})
 	}
 	return offenses
 }
@@ -267,11 +270,12 @@ func waitKind(step ir.Step) string {
 	}
 }
 
-// isContinuous reports whether the step repeats with no limit (Spec 083). A
-// limit that resolves at run time counts as a limit.
-func isContinuous(step ir.Step) bool {
+// mayRepeatForever reports whether the step repeats with no fixed limit: it
+// has no limit, as a continuous step (Spec 083), or a limit that resolves at
+// run time, where zero or less also means none.
+func mayRepeatForever(step ir.Step) bool {
 	rp := step.RepeatPolicy
-	return rp.RepeatMode != "" && rp.Limit <= 0 && rp.LimitStr == ""
+	return rp.RepeatMode != "" && (rp.Limit <= 0 || rp.LimitStr != "")
 }
 
 // flattenBody returns the steps of a foreach body, each nested foreach step
@@ -287,13 +291,18 @@ func flattenBody(steps []ir.Step) []ir.Step {
 	return flat
 }
 
+// lifecycleHandler is a handler the DAG defines, with the key a case names it
+// by.
 type lifecycleHandler struct {
-	event string
-	step  *ir.Step
+	key  string
+	step ir.Step
 }
 
 func lifecycleHandlers(on ir.HandlerOn) []lifecycleHandler {
-	return []lifecycleHandler{
+	events := []struct {
+		name string
+		step *ir.Step
+	}{
 		{"init", on.Init},
 		{"success", on.Success},
 		{"failure", on.Failure},
@@ -301,6 +310,13 @@ func lifecycleHandlers(on ir.HandlerOn) []lifecycleHandler {
 		{"exit", on.Exit},
 		{"wait", on.Wait},
 	}
+	var handlers []lifecycleHandler
+	for _, event := range events {
+		if event.step != nil {
+			handlers = append(handlers, lifecycleHandler{key: "handler_on." + event.name, step: *event.step})
+		}
+	}
+	return handlers
 }
 
 func toSet(names []string) map[string]struct{} {

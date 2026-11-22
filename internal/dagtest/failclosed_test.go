@@ -269,11 +269,14 @@ func TestCheckFailClosed(t *testing.T) {
 			},
 		},
 		{
+			// A limit that resolves at run time may resolve to zero, which
+			// makes the step continuous, so only a literal limit bounds it.
 			name: "UnmockedContinuousStep",
 			dag:  "continuous.yaml",
 			want: []string{
-				"step heartbeat: repeat policy has no limit; mock it with results",
+				"step heartbeat: repeat policy has no fixed limit; mock it with results",
 				"step probe: command has side effects; mock it or list it under real",
+				"step rounds_log: repeat policy has no fixed limit; mock it with results",
 			},
 		},
 		{
@@ -282,17 +285,34 @@ func TestCheckFailClosed(t *testing.T) {
 			name: "EmptyMockOnContinuousStep",
 			dag:  "continuous.yaml",
 			handling: dagtest.Handling{
-				Mocks: map[string]dagtest.MockFields{"heartbeat": {}, "probe": {}},
+				Mocks: map[string]dagtest.MockFields{"heartbeat": {}, "probe": {}, "rounds_log": {}},
 			},
 			want: []string{
-				"step heartbeat: repeat policy has no limit; mock it with results",
+				"step heartbeat: repeat policy has no fixed limit; mock it with results",
+				"step rounds_log: repeat policy has no fixed limit; mock it with results",
 			},
 		},
 		{
 			name: "MockedContinuousStep",
 			dag:  "continuous.yaml",
 			handling: dagtest.Handling{
-				Mocks: map[string]dagtest.MockFields{"heartbeat": replacing, "probe": replacing},
+				Mocks: map[string]dagtest.MockFields{
+					"heartbeat":  replacing,
+					"probe":      replacing,
+					"rounds_log": replacing,
+				},
+			},
+		},
+		{
+			// One key would otherwise name both the step and the handler, so
+			// the handler's mock would also cover the step.
+			name: "StepNamedAsHandler",
+			dag:  "handler_name.yaml",
+			handling: dagtest.Handling{
+				Mocks: map[string]dagtest.MockFields{"handler_on.failure": {}},
+			},
+			want: []string{
+				"step handler_on.failure: name is the key of a lifecycle handler; rename the step",
 			},
 		},
 		{
