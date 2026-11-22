@@ -92,5 +92,5 @@ func secretMasker(ctx context.Context) *masking.Masker {
 }
 
 func init() {
-	executor.RegisterExecutor("router", newRouter, nil, registry.ExecutorCapabilities{})
+	executor.RegisterExecutor("router", newRouter, nil, registry.ExecutorCapabilities{SideEffectFree: true})
 }

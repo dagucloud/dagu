@@ -1,0 +1,10 @@
+steps:
+  - id: route
+    type: router
+    value: ${params.env}
+    routes:
+      prod: [publish]
+  - id: publish
+    action: log.write
+    with:
+      message: published

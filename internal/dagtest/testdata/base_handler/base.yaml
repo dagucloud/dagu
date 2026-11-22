@@ -1,0 +1,7 @@
+handler_on:
+  failure:
+    action: mail.send
+    with:
+      to: oncall@example.com
+      subject: run failed
+      message: see the run
