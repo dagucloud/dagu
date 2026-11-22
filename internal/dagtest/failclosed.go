@@ -88,15 +88,7 @@ func CheckFailClosed(dag *ir.DAG, handling Handling) []Finding {
 	return c.findings
 }
 
-const (
-	fixMockOrReal     = "mock it or list it under real"
-	fixMockForeach    = "mock the whole foreach step"
-	fixPrecondition   = "set precondition in its mock or list it under real"
-	fixRepeatCond     = "set condition in every result of its mock or list it under real"
-	fixReview         = "set review in its mock"
-	fixMockResults    = "mock it with results"
-	fixRealWithResult = "keep only precondition and review in its mock, or take it out of real"
-)
+const fixMockOrReal = "mock it or list it under real"
 
 type checker struct {
 	mocks    map[string]MockFields
@@ -127,7 +119,7 @@ func (c *checker) checkStep(name string, step ir.Step, keys ...string) {
 	mock, mocked := c.lookupMock(keys)
 	real := c.isReal(keys)
 	if real && len(mock.Results) > 0 {
-		c.add(name, "mock sets a result field on a step under real; "+fixRealWithResult)
+		c.add(name, "mock sets a result field on a step under real; keep only precondition and review in its mock, or take it out of real")
 	}
 	replaced := replacesAction(step, mocked, mock, real)
 
@@ -136,7 +128,7 @@ func (c *checker) checkStep(name string, step ir.Step, keys ...string) {
 	if step.Foreach != nil && !replaced {
 		for _, body := range flattenBody(step.Foreach.Steps) {
 			for _, o := range stepOffenses(body, MockFields{}, false, false) {
-				c.add(name, fmt.Sprintf("%s of body step %s %s; %s", o.subject, body.Name, o.does, fixMockForeach))
+				c.add(name, fmt.Sprintf("%s of body step %s %s; mock the whole foreach step", o.subject, body.Name, o.does))
 			}
 		}
 	}
@@ -197,19 +189,21 @@ func stepOffenses(step ir.Step, mock MockFields, replaced, real bool) []offense 
 		actionFlagged = true
 	}
 	if !real && !mock.Precondition && slices.ContainsFunc(step.Preconditions, runsCommand) {
-		offenses = append(offenses, offense{"precondition", "runs a command", fixPrecondition})
+		offenses = append(offenses, offense{"precondition", "runs a command",
+			"set precondition in its mock or list it under real"})
 	}
 	if !real && runsCommand(step.RepeatPolicy.Condition) && !scriptsEveryCondition(mock) {
-		offenses = append(offenses, offense{"repeat condition", "runs a command", fixRepeatCond})
+		offenses = append(offenses, offense{"repeat condition", "runs a command",
+			"set condition in every result of its mock or list it under real"})
 	}
 	if runsUnnamed && readsOutputFile(step) {
 		offenses = append(offenses, offense{"object-form output", "reads a file", fixMockOrReal})
 	}
 	if waiting := waitKind(step); waiting != "" && !mock.Review {
-		offenses = append(offenses, offense{waiting, "waits for a person", fixReview})
+		offenses = append(offenses, offense{waiting, "waits for a person", "set review in its mock"})
 	}
 	if runsUnnamed && !actionFlagged && isContinuous(step) {
-		offenses = append(offenses, offense{"repeat policy", "has no limit", fixMockResults})
+		offenses = append(offenses, offense{"repeat policy", "has no limit", "mock it with results"})
 	}
 	return offenses
 }
