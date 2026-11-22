@@ -15,6 +15,7 @@
 //	hour/YYYYMM.jsonl        one aggregate for each hour, one file for each month
 //	day/YYYY.jsonl           one aggregate for each day, one file for each year
 //	events.jsonl             the events; no expiry, unless Options.MaxEventBytes is set
+//	end                      the end of the newest sample, in a run history
 //
 // All times are UTC. A file holds only whole buckets of the next tier, so a
 // tier can drop a whole file when the next tier holds the aggregates of it.
@@ -75,58 +76,85 @@
 //
 // # Run history
 //
-// A run history reuses the store with these options. The zero value of each
-// option keeps the behavior of a continuous step.
+// Options.RunHistory makes the store the run history of a service DAG. The
+// options are one mode: a run history needs each of the rules below, and a
+// continuous step needs none.
 //
-// NoLifecycleEvents writes no started event and no stopped event. The outage
+// A run history writes no started event and no stopped event. The outage
 // state still survives a restart: OpenRecorder reads the last failed event and
 // counts the failed samples of the raw tier after it.
 //
-// WriteEach writes the raw line of a sample before Record returns. A Reader
+// A run history writes the raw line of a sample before Record returns. A Reader
 // sees the sample at once, because it builds the open minute from the raw tier.
-// The fsync points do not change.
+// The fsync points of the raw tier do not change. The file "end" keeps the end
+// of the newest sample, because a run that lasts longer than the raw retention
+// leaves the raw tier with the hour of its start. It replaces the file without
+// a sync, as the raw line is not synced either.
 //
 // Sample.RunID goes into the failed and recovered events that the sample causes.
 // The raw line does not keep it.
 //
-// Sample.GapAfter above zero records a gap event when no outage is open and the
-// sample starts more than GapAfter after the end of the previous sample. The
-// event time is that end. The event has the time with no sample and the run ID
-// of the new sample. OpenRecorder restores the end of the previous sample from
-// the newest raw line, or from the newest aggregate when the raw tier is empty.
+// Sample.GapAfter above zero records a gap event when the next sample starts
+// more than GapAfter after the end of this one. The caller gives the bound from
+// the outcome of the run that ends before the gap, so one layer holds the
+// whole rule: Spec 100 records a gap only after a run that succeeded. The
+// event time is the end of the sample before the gap. The event has the time
+// with no sample and the run ID of the new sample. The file "end" keeps the
+// end of the newest sample and its bound, so a restart keeps both. When a
+// crash leaves a raw line newer than the file, that sample has no bound, and
+// the end comes from the raw line, or from the newest aggregate when neither
+// holds it.
 //
-// MaxEventBytes above zero bounds the events file. When an append makes the file
-// larger, the recorder replaces it with a file that keeps the newest events, at
-// most half of the bound. The write goes to a temporary file, then a rename.
-// The first line of the new file is a header, for example {"b":12345}. It gives
-// the count of bytes that the file dropped before its first event.
+// Options.MaxEventBytes above zero bounds the events file, in any store. When
+// an append makes the file larger, the recorder replaces it with a file that
+// keeps the newest events, at most half of the bound. The bound is 4 KiB at
+// least, so that the half holds the longest event. The write goes to a
+// temporary file, then a rename. The first line of the new file is a header,
+// for example {"b":12345}. It gives the count of bytes that the file dropped
+// before its first event.
 //
 // An events cursor is the offset of an event since the first event ever
-// written, so it stays exact after a compaction. A cursor that points to a
-// dropped event, or not to the start of an event, gives ErrInvalidCursor. The
+// written, so it stays exact after a compaction. A cursor at the first kept
+// event gives an empty page. A cursor that points to a dropped event, or not to
+// the start of an event, gives ErrInvalidCursor. The
 // outage state stays correct, because the compaction keeps the newest events.
 //
-// Uptime records the time in which a run was active, with the interval of
-// each sample (the start and the duration). A run can last hours, so the
-// recorder splits its interval over the buckets that it covers, for the minute,
-// the hour and the day tier, and writes it to the directory "up" of the store
-// (see uptime.go). A bucket of the "up" store holds its whole up time, so a
-// write replaces its line, and a tier is never a roll-up of another tier. The
-// part of an interval before the end of the newest interval is not counted
-// again, so two runs that overlap count their union. A store that has no "up"
-// directory has no known uptime: Uptime.Ratio reports false, and a window that
-// starts before the first interval counts from it. The minute tier loses the
-// up time of the open minute in a crash. The hour and the day tier are written
-// each time the minute moves.
+// A run history records the uptime: the time in which a run was active, with
+// the interval of each sample (the start and the duration). A run can last
+// hours, so the recorder splits its interval over the buckets that it covers,
+// for the minute, the hour and the day tier, and writes it to the directory
+// "up" of the store (see uptime.go). A bucket of the "up" store holds its
+// whole up time, so a write replaces its line, and a tier is never a roll-up
+// of another tier. The part of an interval before the end of the newest
+// interval is not counted again. Two runs that overlap count their union when
+// they are recorded in the order of their start. A run that starts before a
+// run recorded earlier counts from the end of the newest interval, so a nested
+// run can lose the part before it, but no time is counted twice and none after
+// the end of a run. A store that has no "up" directory has no known uptime:
+// Uptime.Ratio reports false, and a window that starts before the first
+// interval counts from it. A tier writes a bucket when the bucket closes, so
+// a fast service appends one line to each tier when its bucket ends instead of
+// rewriting a file. A reader takes the open bucket of the hour and the day
+// tier from the finer tier, also after a close, a flush or an open wrote a
+// line for it, and keeps the larger of the line and the finer sum. A recorder
+// that opens writes it by the same rule. A crash loses the up time of the open
+// minute.
 //
 // Sample.ActiveGap above zero counts the gap before a sample as active time,
 // when the gap is not longer than ActiveGap and an interval is already
 // recorded. The gap is from the end of the newest interval to the start of the
-// sample. The stored buckets hold the result, so a reader needs no tolerance.
+// sample. The stored buckets hold the result, so a reader needs no tolerance
+// and reads a bucket once. The cost is that the tolerance is fixed when a
+// sample is recorded: after a change of restart_wait_sec, the new tolerance
+// applies to the next samples only, and the stored uptime is not computed
+// again.
 //
-// NewestEnd gives the end of the newest sample of a store. It reads the raw
-// tier. When the raw tier holds no sample, it reads the finest aggregate tier
-// that has a bucket.
+// Record returns an error that wraps ErrSampleKept when it kept the sample but
+// a write after it failed, so that a caller does not record the sample again.
+//
+// NewestEnd gives the end of the newest sample of a store. It reads the file
+// "end" and the raw tier. When neither holds the sample, it reads the finest
+// aggregate tier that has a bucket.
 //
 // # Reader
 //

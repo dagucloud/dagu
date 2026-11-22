@@ -61,6 +61,7 @@ func NewBackend(paths config.PathsConfig) *Backend {
 				dir:        distributedDir,
 				idPrefixes: []string{"pending/", "claims/", "admissions/"},
 			},
+			persis.CollectionHostKeys:         {dir: filepath.Join(paths.DataDir, "host-keys"), indented: true},
 			persis.CollectionIncidents:        {dir: filepath.Join(paths.DataDir, "incidents"), indented: true},
 			persis.CollectionInventories:      {dir: filepath.Join(paths.DataDir, "inventories"), indented: true},
 			persis.CollectionLicense:          {dir: filepath.Join(paths.DataDir, "license"), indented: true},

@@ -8,7 +8,8 @@ import { buildToolCalls, buildToolSubRuns } from '../toolCalls';
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 
 // A run of a step that called its tool DAGs: each call is a sub-run with the
-// name of the tool DAG, as the chat and agent steps record it.
+// name of the tool DAG, as the chat and agent steps record it. A repeated step
+// keeps its earlier iterations in subRunsRepeated and the latest in subRuns.
 const DETAILS = {
   nodes: [
     { step: { name: 'fetch' }, subRuns: [] },
@@ -29,7 +30,7 @@ describe('buildToolSubRuns', () => {
   it('lists the sub-runs of each tool DAG of a step, in the order of the run', () => {
     expect(buildToolSubRuns(DETAILS)).toEqual({
       triage: {
-        lookup: [{ dagRunId: 'r1', params: '{"id":"1"}' }, { dagRunId: 'r3' }],
+        lookup: [{ dagRunId: 'r3' }, { dagRunId: 'r1', params: '{"id":"1"}' }],
         refund: [{ dagRunId: 'r2' }],
       },
     });
@@ -38,6 +39,24 @@ describe('buildToolSubRuns', () => {
   it('is empty without a run', () => {
     expect(buildToolSubRuns(null)).toEqual({});
     expect(buildToolSubRuns(undefined)).toEqual({});
+  });
+
+  // Step and DAG names are user-defined and can match Object.prototype keys.
+  it('keeps a step and a tool DAG named constructor', () => {
+    const details = {
+      nodes: [
+        {
+          step: { name: 'constructor' },
+          subRuns: [{ dagRunId: 'r1', dagName: 'constructor' }],
+        },
+      ],
+    } as unknown as DAGRunDetails;
+    expect(buildToolSubRuns(details)).toEqual({
+      constructor: { constructor: [{ dagRunId: 'r1' }] },
+    });
+    expect(buildToolCalls(details)).toEqual({
+      constructor: { constructor: 1 },
+    });
   });
 });
 

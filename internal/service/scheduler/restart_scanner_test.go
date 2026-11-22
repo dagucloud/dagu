@@ -987,6 +987,25 @@ func TestRestartScannerHistory(t *testing.T) {
 		assert.Len(t, store.samples, 1, "the next scan records the run")
 	})
 
+	// A store that fails to open leaves the status unobserved. The status of a
+	// suspended DAG does not change, so only the retry records its run.
+	t.Run("OpenErrorObservesLater", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		h.suspended["svc"] = true
+		h.endRun(ir.Succeeded, time.Minute)
+		h.recent = []ir.DAGRunStatus{h.latest}
+		store.openErr = errors.New("disk full")
+		h.scan()
+		assert.Empty(t, store.samples)
+
+		store.openErr = nil
+		h.now = h.now.Add(historyOpenRetry)
+		h.scan()
+		assert.Len(t, store.samples, 1, "the run records once the store opens")
+	})
+
 	// An unchanged latest status costs no more than the scan did before.
 	t.Run("NoExtraReads", func(t *testing.T) {
 		t.Parallel()
@@ -1040,6 +1059,33 @@ func TestRestartScannerHistory(t *testing.T) {
 		assert.ElementsMatch(t, []string{"run-1", "hand"}, runIDs(store.samples))
 	})
 
+	// An older run can outlive the latest one. Once it ends, the scanner follows
+	// it, so its sample comes before the next run is queued.
+	t.Run("OlderRunEndsLast", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		older := ir.DAGRunStatus{
+			DAGRunID: "hand", AttemptID: "hand-1", Status: ir.Running,
+			StartedAt: h.now.Add(-time.Hour).Format(time.RFC3339),
+		}
+		h.endRun(ir.Succeeded, time.Minute)
+		h.recent = []ir.DAGRunStatus{h.latest, older}
+		h.running = true
+		h.scan()
+
+		older.Status, older.FinishedAt = ir.Succeeded, h.now.Format(time.RFC3339)
+		h.recent = []ir.DAGRunStatus{h.latest, older}
+		h.running = false
+		for ended := h.now; len(h.enqueued) == 0; {
+			require.Less(t, h.now.Sub(ended), time.Minute, "no restart within a minute")
+			h.now = h.now.Add(time.Second)
+			h.scan()
+		}
+		assert.Equal(t, []string{"sample:run-1", "sample:hand", "enqueue"}, h.order)
+		assert.Equal(t, []string{"run-1", "hand"}, runIDs(store.samples))
+	})
+
 	// A suspended DAG reads its status again only when a run ends, or after the
 	// reconcile interval.
 	t.Run("SuspendedReads", func(t *testing.T) {
@@ -1059,6 +1105,25 @@ func TestRestartScannerHistory(t *testing.T) {
 		h.endRun(ir.Succeeded, 0)
 		events.add("svc", ir.Succeeded)
 		h.scan()
+		assert.Equal(t, 2, h.latestRead)
+		assert.Len(t, store.samples, 1)
+	})
+
+	// Without events, nothing tells when a run of a suspended DAG ends. Its
+	// status is read on a short interval, not at each scan, and the sample still
+	// comes within the 5 s of Spec 100.
+	t.Run("SuspendedReadsWithoutEvents", func(t *testing.T) {
+		t.Parallel()
+		h := newRestartHarness(t, svc())
+		store := h.withHistory()
+		h.suspended["svc"] = true
+		h.latest = ir.DAGRunStatus{DAGRunID: "run-1", AttemptID: "attempt-1", Status: ir.Running}
+		h.scan()
+		h.endRun(ir.Succeeded, 0)
+		for range 5 {
+			h.now = h.now.Add(time.Second)
+			h.scan()
+		}
 		assert.Equal(t, 2, h.latestRead)
 		assert.Len(t, store.samples, 1)
 	})

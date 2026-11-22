@@ -191,6 +191,10 @@ const (
 	headerPrefix = `{"b":`
 	// maxHeader is more than the longest header line.
 	maxHeader = 32
+	// minEventBytes is the smallest bound of the events file. A compaction keeps
+	// half of the bound, which must hold the longest event line: JSON can
+	// escape each byte of a message to six.
+	minEventBytes = 4 << 10
 )
 
 func encodeHeader(base int64) []byte {

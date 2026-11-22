@@ -13,9 +13,8 @@ package persis
 
 import (
 	"context"
+	"strings"
 	"time"
-
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
 const (
@@ -30,6 +29,7 @@ const (
 	CollectionDAGSettings           = "dag_settings"
 	CollectionDAGState              = "dag_state"
 	CollectionDispatchTasks         = "dispatch_tasks"
+	CollectionHostKeys              = "host_keys"
 	CollectionIncidents             = "incidents"
 	CollectionInventories           = "inventories"
 	CollectionLicense               = "license"
@@ -51,17 +51,25 @@ const (
 )
 
 // SchedulerDAGRecordID names a DAG's record in the scheduler state
-// collection: the ended periods in which its slots could not run. The name is
-// escaped as the host stores it, so no two DAGs share a record.
+// collection: the ended periods in which its slots could not run. The name
+// is one segment of the ID on every host, and no two DAGs share a record.
 func SchedulerDAGRecordID(dag string) string {
-	return "dags/" + fileutil.EscapeName(dag)
+	return "dags/" + dagSegmentEscaper.Replace(dag)
 }
+
+// dagSegmentEscaper keeps a DAG name, which may name a subdirectory, to one
+// ID segment. The collection stores the segment as every host can.
+var dagSegmentEscaper = strings.NewReplacer("%", "%25", "/", "%2F")
 
 // Record is the storage primitive for collection-backed control-plane data.
 //
 // ID uses "/" as a hierarchy separator so that a [ListQuery.Prefix] of
 // "mydag/" returns all records whose IDs start with that prefix — enabling
 // efficient tree traversal without storage-specific query syntax.
+//
+// A segment between separators may hold any characters. The backend maps it
+// to a name its storage can hold, so callers pass IDs unescaped. IDs that
+// differ only in letter case may share one record.
 type Record struct {
 	ID        string
 	Data      []byte

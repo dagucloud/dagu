@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/build"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/secret"
 )
@@ -27,4 +29,16 @@ func (c *Context) runtimeStores() executionStores {
 		ProfileStore:         file.NewProfileStore(c.Context, c.Config, c.backend.Collection(persis.CollectionProfiles)),
 		MaterializationStore: filematerialization.New(filepath.Join(c.Config.Paths.DataDir, "materializations")),
 	}
+}
+
+// inventoryStore opens the node inventories of this installation.
+func (c *Context) inventoryStore() (inventory.Store, error) {
+	s, err := store.NewInventoryStore(
+		c.backend.Collection(persis.CollectionInventories),
+		c.backend.Lock(persis.CollectionInventories),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
 }

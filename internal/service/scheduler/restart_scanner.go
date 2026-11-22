@@ -68,6 +68,12 @@ const (
 	// stays stopped, is checked when no event says its run ended.
 	restartReconcileInterval = 30 * time.Second
 
+	// restartObservePollInterval is how often the status of a DAG that does not
+	// restart is read for History when no event can say its run ended. With the
+	// scan interval, it keeps a sample within 5 s of the end of its run, as
+	// Spec 100 requires.
+	restartObservePollInterval = 4 * time.Second
+
 	// restartErrorLogInterval limits how often a failing DAG is logged, since
 	// the same error would otherwise repeat at every scan.
 	restartErrorLogInterval = 30 * time.Second
@@ -181,9 +187,9 @@ type RestartScanner struct {
 	// nextCheck maps a DAG name to when it is checked again, unless an event
 	// says its run ended first.
 	nextCheck map[string]restartCheck
-	// observed maps a DAG name to the key of the latest status that History
-	// observed, so that an unchanged status costs no read of the recent runs.
-	observed map[string]runStatusKey
+	// observed maps a DAG name to the statuses that History last observed, so
+	// that an unchanged status costs no read of the recent runs.
+	observed map[string]observedRuns
 	// observeAt maps a suspended DAG, or a DAG with no queues, to when its
 	// status is read again, unless an event says a run ended first.
 	observeAt map[string]time.Time
@@ -193,6 +199,13 @@ type RestartScanner struct {
 type runStatusKey struct {
 	runKey
 	status ir.Status
+}
+
+// observedRuns is what History last observed of a DAG: the latest status and
+// the status to follow. An older run that ends after the latest one becomes
+// the run to follow while the latest status stays the same.
+type observedRuns struct {
+	latest, follow runStatusKey
 }
 
 // restartCheck is when a DAG is checked again.
@@ -217,7 +230,7 @@ func NewRestartScanner(cfg RestartScannerConfig) *RestartScanner {
 		stoppedRuns:    make(map[string]string),
 		backoff:        make(map[string]schedulerstate.RestartBackoff),
 		nextCheck:      make(map[string]restartCheck),
-		observed:       make(map[string]runStatusKey),
+		observed:       make(map[string]observedRuns),
 		observeAt:      make(map[string]time.Time),
 		backoffChanged: true,
 	}
@@ -260,7 +273,7 @@ func (s *RestartScanner) scan(ctx context.Context) {
 			s.logError(ctx, entry.DAG.Name, now, err)
 		}
 	}
-	s.forgetOthers(services)
+	s.forgetOthers(ctx, services)
 	s.shareBackoff(ctx, now)
 }
 
@@ -451,7 +464,7 @@ func (s *RestartScanner) process(ctx context.Context, entry DAGEntry, now time.T
 // second does not hide a run that nobody stopped.
 //
 // It also gives the runs that ended to History, once for each change of the
-// latest status.
+// latest status or of the status to follow, before it returns.
 func (s *RestartScanner) statusToFollow(ctx context.Context, dag *ir.DAG) (ir.DAGRunStatus, error) {
 	latest, err := s.cfg.GetLatestStatus(ctx, dag)
 	if err != nil {
@@ -459,40 +472,41 @@ func (s *RestartScanner) statusToFollow(ctx context.Context, dag *ir.DAG) (ir.DA
 	}
 	ended := runEnded(latest.Status.String())
 	lastEnd, ok := retryReferenceTime(&latest)
-	observe := s.shouldObserve(dag, &latest, ended)
+	// Without an end, the latest run is the run to follow, and only History
+	// reads the recent runs.
 	var recent []ir.DAGRunStatus
-	if s.cfg.RecentRuns != nil && ended && (ok || observe) {
-		recent, err = s.cfg.RecentRuns(ctx, dag)
+	if s.cfg.RecentRuns != nil && ended && (ok || s.shouldObserve(dag, &latest, &latest, ended)) {
+		if recent, err = s.cfg.RecentRuns(ctx, dag); err != nil {
+			return ir.DAGRunStatus{}, err
+		}
+	}
+	follow := latest
+	if ended && ok {
+		for i := range recent {
+			if !runEnded(recent[i].Status.String()) {
+				continue
+			}
+			if end, ok := retryReferenceTime(&recent[i]); ok && !end.Before(lastEnd) {
+				follow, lastEnd = recent[i], end
+			}
+		}
 	}
 	// A status counts as observed only once History has taken it: a failed
 	// read or record is tried again at the next scan. A history error is
 	// logged by History and never stops the DAG.
-	if observe && err == nil {
+	if s.shouldObserve(dag, &latest, &follow, ended) {
 		if s.cfg.History.Observe(ctx, dag, append([]ir.DAGRunStatus{latest}, recent...)...) == nil {
-			s.observed[dag.Name] = runStatusKeyOf(&latest)
+			s.observed[dag.Name] = observedRuns{runStatusKeyOf(&latest), runStatusKeyOf(&follow)}
 		}
 	}
-	if err != nil {
-		return ir.DAGRunStatus{}, err
-	}
-	if s.cfg.RecentRuns == nil || !ended || !ok {
-		return latest, nil
-	}
-	for i := range recent {
-		if !runEnded(recent[i].Status.String()) {
-			continue
-		}
-		if end, ok := retryReferenceTime(&recent[i]); ok && !end.Before(lastEnd) {
-			latest, lastEnd = recent[i], end
-		}
-	}
-	return latest, nil
+	return follow, nil
 }
 
-// shouldObserve reports whether History has to see the latest status: the first
+// shouldObserve reports whether History has to see the runs of a DAG: the first
 // time the scanner sees the DAG, so that the store opens and imports, and each
-// time the latest run has ended with a key that History did not observe.
-func (s *RestartScanner) shouldObserve(dag *ir.DAG, latest *ir.DAGRunStatus, ended bool) bool {
+// time the latest run has ended and the latest status or the status to follow
+// has a key that History did not observe.
+func (s *RestartScanner) shouldObserve(dag *ir.DAG, latest, follow *ir.DAGRunStatus, ended bool) bool {
 	if s.cfg.History == nil {
 		return false
 	}
@@ -500,7 +514,7 @@ func (s *RestartScanner) shouldObserve(dag *ir.DAG, latest *ir.DAGRunStatus, end
 	if !seen {
 		return true
 	}
-	return ended && last != runStatusKeyOf(latest)
+	return ended && last != observedRuns{runStatusKeyOf(latest), runStatusKeyOf(follow)}
 }
 
 func runStatusKeyOf(status *ir.DAGRunStatus) runStatusKey {
@@ -509,11 +523,16 @@ func runStatusKeyOf(status *ir.DAGRunStatus) runStatusKey {
 
 // observeLater leaves a DAG that does not restart until an event says a run
 // ended, or until restartReconcileInterval passes, before its status is read
-// again for History. Without events, every scan reads it.
+// again for History. Without events, it waits restartObservePollInterval.
 func (s *RestartScanner) observeLater(dag *ir.DAG, now time.Time) {
-	if s.tailing && s.cfg.History != nil {
-		s.observeAt[dag.Name] = now.Add(restartReconcileInterval)
+	if s.cfg.History == nil {
+		return
 	}
+	wait := restartObservePollInterval
+	if s.tailing {
+		wait = restartReconcileInterval
+	}
+	s.observeAt[dag.Name] = now.Add(wait)
 }
 
 // failStuckRun fails a latest run that never started, unless a coordinator
@@ -654,7 +673,7 @@ func failedSoonAfterStart(status *ir.DAGRunStatus) bool {
 
 // forgetOthers drops what the scanner remembers about DAGs it no longer keeps
 // alive.
-func (s *RestartScanner) forgetOthers(services map[string]struct{}) {
+func (s *RestartScanner) forgetOthers(ctx context.Context, services map[string]struct{}) {
 	for name := range s.lastErrorLog {
 		if _, ok := services[name]; !ok {
 			delete(s.lastErrorLog, name)
@@ -686,7 +705,7 @@ func (s *RestartScanner) forgetOthers(services map[string]struct{}) {
 			delete(s.observeAt, name)
 		}
 	}
-	s.cfg.History.Forget(services)
+	s.cfg.History.Forget(ctx, services)
 }
 
 func (s *RestartScanner) logError(ctx context.Context, dagName string, now time.Time, err error) {

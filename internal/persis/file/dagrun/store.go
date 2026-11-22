@@ -105,7 +105,9 @@ const runHistoryDirName = "run-history"
 // RunHistoryDir returns the directory of the run history of a DAG
 // (specs/100-service-run-history.md).
 func (store *Store) RunHistoryDir(dagName string) string {
-	return filepath.Join(store.baseDir, dagDirName(dagName), runHistoryDirName)
+	// The directory of the runs: a second directory for the DAG would hide the
+	// runs that an earlier version kept under a legacy name.
+	return filepath.Join(store.baseDir, existingDAGDirName(store.baseDir, dagName), runHistoryDirName)
 }
 
 // resolveStatus resolves and filters a DAGRunStatus for a single dagRun.

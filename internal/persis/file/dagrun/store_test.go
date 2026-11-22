@@ -219,7 +219,8 @@ func TestStoreKeepsTrailingDotDAGApart(t *testing.T) {
 }
 
 // Windows 11 accepts a device name such as con as a directory, so earlier
-// versions stored a DAG's runs under its raw name. They are still found.
+// versions stored a DAG's runs under its raw name. They are still found, also
+// once the run history of the DAG exists.
 func TestStoreFindsRunsUnderRawDeviceName(t *testing.T) {
 	th := setupTestRepository(t)
 	dag := th.DAG("con")
@@ -229,11 +230,27 @@ func TestStoreFindsRunsUnderRawDeviceName(t *testing.T) {
 		require.NoError(t, fileutil.Rename(filepath.Join(th.TmpDir, dir), filepath.Join(th.TmpDir, dag.Name)))
 	}
 
-	attempt, err := th.Repository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, "raw-run"))
-	require.NoError(t, err)
-	status, err := attempt.ReadStatus(th.Context)
-	require.NoError(t, err)
-	assert.Equal(t, ir.Succeeded, status.Status)
+	assertFound := func() {
+		t.Helper()
+		attempt, err := th.Repository.FindAttempt(th.Context, ir.NewDAGRunRef(dag.Name, "raw-run"))
+		require.NoError(t, err)
+		status, err := attempt.ReadStatus(th.Context)
+		require.NoError(t, err)
+		assert.Equal(t, ir.Succeeded, status.Status)
+	}
+	assertFound()
+	require.NoError(t, os.MkdirAll(th.Backend.RunHistoryDir(dag.Name), 0o750))
+	assertFound()
+}
+
+// The run history of a DAG sits beside its dag-runs directory, which the
+// retention prunes, under the same DAG directory name.
+func TestRunHistoryDir(t *testing.T) {
+	base := t.TempDir()
+	store := NewStore(base)
+	assert.Equal(t, filepath.Join(base, "svc", "run-history"), store.RunHistoryDir("svc"))
+	assert.Equal(t, filepath.Join(base, dagDirName("a/b c"), "run-history"), store.RunHistoryDir("a/b c"))
+	assert.Equal(t, filepath.Dir(NewDataRoot(base, "svc").dagRunsDir), filepath.Dir(store.RunHistoryDir("svc")))
 }
 
 // The run history of a DAG sits beside its dag-runs directory, which the

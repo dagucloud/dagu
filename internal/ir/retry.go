@@ -16,8 +16,14 @@ func CalculateBackoffInterval(interval time.Duration, backoff float64, maxInterv
 	}
 	if backoff > 0 {
 		sleepTime := float64(interval) * math.Pow(backoff, float64(attemptCount))
-		if maxInterval > 0 && time.Duration(sleepTime) > maxInterval {
+		// Compare before converting: a large exponent overflows int64
+		// nanoseconds and would wrap negative, bypassing maxInterval.
+		if maxInterval > 0 && sleepTime > float64(maxInterval) {
 			return maxInterval
+		}
+		// float64(math.MaxInt64) rounds up to 2^63, so include equality.
+		if sleepTime >= float64(math.MaxInt64) {
+			return time.Duration(math.MaxInt64)
 		}
 		return time.Duration(sleepTime)
 	}

@@ -145,7 +145,11 @@ func TestRealV2Run(t *testing.T) {
 	}()
 	hostConfig, err := host.Ensure()
 	require.NoError(t, err)
-	require.Equal(t, "2.1.4", hostConfig.Version)
+	if expected := os.Getenv("DAGU_TEST_OPENCODE_V2_VERSION"); expected != "" {
+		require.Equal(t, expected, hostConfig.Version)
+	} else {
+		require.Regexp(t, `^2\.\d+\.\d+`, hostConfig.Version)
+	}
 	executor := &harnessExecutor{prompt: "Reply with the test marker", workDir: root}
 	ctx, cancel := context.WithTimeout(runtime.WithEnv(t.Context(), runtime.Env{}), 30*time.Second)
 	defer cancel()

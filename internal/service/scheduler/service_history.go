@@ -17,8 +17,9 @@ import (
 )
 
 // The scheduler records one sample for each service run that ends
-// (specs/100-service-run-history.md). A store error never stops a DAG: the
-// scheduler logs it and starts the next run as usual.
+// (specs/100-service-run-history.md). The runs come from the reads of the
+// restart scanner: the history reads no run itself. A store error never stops
+// a DAG: the scheduler logs it and starts the next run as usual.
 
 const (
 	// historyGapMargin is added to restart_wait_sec to give the time after
@@ -33,7 +34,8 @@ const (
 	historyUptimeMargin = 10 * time.Second
 
 	// historyOpenRetry is the delay before the scheduler opens again a store
-	// that failed. The runs that ended meanwhile are imported at that time.
+	// that failed. The runs that ended meanwhile record then, when the scanner
+	// still reads them.
 	historyOpenRetry = 30 * time.Second
 
 	// historySeenRuns is how many ended runs of a DAG the history remembers, to
@@ -47,17 +49,11 @@ const (
 	historyMaxEventBytes = 4 << 20
 )
 
-// historyImportLimits are the counts of retained runs that an import reads in
-// turn, until a run is not newer than the newest sample.
-var historyImportLimits = []int{100, 1000, 10000}
-
 // ServiceHistoryConfig configures a ServiceHistory.
 type ServiceHistoryConfig struct {
 	// Dir returns the directory of the run history of a DAG. It reports false
 	// when the store keeps no run history.
 	Dir func(dagName string) (string, bool)
-	// RecentRuns returns the retained runs of a DAG, newest first.
-	RecentRuns func(ctx context.Context, dagName string, limit int) ([]ir.DAGRunStatus, error)
 	// Open opens the store of a directory for writing.
 	Open func(ctx context.Context, dir string, o samples.Options) (samples.Recorder, error)
 	// NewestEnd returns the end of the newest sample of a store.
@@ -84,17 +80,17 @@ type dagHistory struct {
 	// rec is nil while the store is closed or failed.
 	rec samples.Recorder
 
+	// newest is the end of the newest sample of the store when it opened. The
+	// store holds each run that ended at or before it, since the runs record in
+	// the order of their end.
+	newest    time.Time
+	hasNewest bool
+
 	// seen holds the last historySeenRuns recorded or imported runs. ring gives
 	// the order in which they leave the set.
 	seen map[runKey]struct{}
 	ring []runKey
 	next int
-
-	// prevKnown says whether the history knows if the last recorded run
-	// succeeded. prevOK is the answer. The history asks for a gap event only
-	// after a run that succeeded, or when it does not know: the scanner makes a
-	// run that does not succeed wait longer.
-	prevKnown, prevOK bool
 
 	retryAt time.Time
 	lastLog time.Time
@@ -111,9 +107,9 @@ func NewServiceHistory(cfg ServiceHistoryConfig) *ServiceHistory {
 
 // Observe records each run that ended and that the history did not record
 // yet, the oldest end first. A retry of a run is one more run: it has its own
-// attempt ID. The first call for a DAG opens its store and imports the
-// retained runs. A store error is logged and returned; the next call tries
-// again, after historyOpenRetry for a store that did not open.
+// attempt ID. The first call for a DAG opens its store. A store error is
+// logged and returned; the next call tries again, after historyOpenRetry for
+// a store that did not open.
 func (h *ServiceHistory) Observe(ctx context.Context, dag *ir.DAG, runs ...ir.DAGRunStatus) error {
 	if h == nil || dag == nil {
 		return nil
@@ -132,7 +128,7 @@ func (h *ServiceHistory) Observe(ctx context.Context, dag *ir.DAG, runs ...ir.DA
 		if now.Before(d.retryAt) {
 			return d.lastErr
 		}
-		if err := h.openAndImport(ctx, dag, dir, d); err != nil {
+		if err := h.open(ctx, dir, d); err != nil {
 			return h.fail(ctx, dag.Name, d, err, now)
 		}
 	}
@@ -145,13 +141,13 @@ func (h *ServiceHistory) Observe(ctx context.Context, dag *ir.DAG, runs ...ir.DA
 }
 
 // Forget closes the stores of the DAGs that are not in keep.
-func (h *ServiceHistory) Forget(keep map[string]struct{}) {
+func (h *ServiceHistory) Forget(ctx context.Context, keep map[string]struct{}) {
 	if h == nil {
 		return
 	}
 	for name, d := range h.dags {
 		if _, ok := keep[name]; !ok {
-			h.closeDAG(context.Background(), name, d)
+			h.closeDAG(context.WithoutCancel(ctx), name, d)
 			delete(h.dags, name)
 		}
 	}
@@ -179,7 +175,7 @@ func (h *ServiceHistory) closeDAG(ctx context.Context, name string, d *dagHistor
 }
 
 // fail closes the store of a DAG, so that the next call opens it again and
-// imports the runs that it missed. It logs the error at most once in
+// reads what the store kept. It logs the error at most once in
 // restartErrorLogInterval.
 func (h *ServiceHistory) fail(ctx context.Context, name string, d *dagHistory, err error, now time.Time) error {
 	h.closeDAG(ctx, name, d)
@@ -192,14 +188,11 @@ func (h *ServiceHistory) fail(ctx context.Context, name string, d *dagHistory, e
 	return err
 }
 
-// openAndImport opens the store and records the retained runs that ended after
-// its newest sample.
-func (h *ServiceHistory) openAndImport(ctx context.Context, dag *ir.DAG, dir string, d *dagHistory) error {
+// open opens the store of a DAG and reads the end of its newest sample.
+func (h *ServiceHistory) open(ctx context.Context, dir string, d *dagHistory) error {
 	rec, err := h.cfg.Open(ctx, dir, samples.Options{
-		NoLifecycleEvents: true,
-		WriteEach:         true,
-		Uptime:            true,
-		MaxEventBytes:     historyMaxEventBytes,
+		RunHistory:    true,
+		MaxEventBytes: historyMaxEventBytes,
 	})
 	if err != nil {
 		return err
@@ -207,74 +200,8 @@ func (h *ServiceHistory) openAndImport(ctx context.Context, dag *ir.DAG, dir str
 	d.rec = rec
 	clear(d.seen)
 	d.ring, d.next = d.ring[:0], 0
-	d.prevKnown = false
-	newest, hasNewest, err := h.cfg.NewestEnd(dir)
-	if err != nil {
-		return err
-	}
-
-	runs, err := h.retainedRuns(ctx, dag.Name, newest, hasNewest)
-	if err != nil {
-		return err
-	}
-	// The runs that the store already holds are marked as seen, oldest first,
-	// so that the newest ones stay in the set.
-	var imported []ir.DAGRunStatus
-	var stored *ir.DAGRunStatus // the run of the store that ended last
-	for i := len(runs) - 1; i >= 0; i-- {
-		if !runEnded(runs[i].Status.String()) {
-			continue
-		}
-		d.mark(runKeyOf(&runs[i]))
-		end := h.runEnd(&runs[i])
-		if !hasNewest || end.After(newest) {
-			imported = append(imported, runs[i])
-		} else if stored == nil || !end.Before(h.runEnd(stored)) {
-			stored = &runs[i]
-		}
-	}
-	if stored != nil {
-		d.prevKnown, d.prevOK = true, stored.Status.IsSuccess()
-	}
-	for _, run := range sortedByEnd(h, imported) {
-		if err := h.record(ctx, dag, d, &run); err != nil {
-			return err
-		}
-	}
-	if len(imported) > 0 {
-		logger.Info(ctx, "Imported retained runs into the run history",
-			tag.DAG(dag.Name), tag.Count(len(imported)))
-	}
-	return nil
-}
-
-// retainedRuns reads the retained runs, newest first, with a growing limit
-// until a run ended at or before newest, or until no more runs exist. An empty
-// store reads the largest count at once.
-func (h *ServiceHistory) retainedRuns(ctx context.Context, name string, newest time.Time, hasNewest bool) ([]ir.DAGRunStatus, error) {
-	limits := historyImportLimits
-	if !hasNewest {
-		// An empty store takes all the retained runs.
-		limits = limits[len(limits)-1:]
-	}
-	var runs []ir.DAGRunStatus
-	for _, limit := range limits {
-		var err error
-		runs, err = h.cfg.RecentRuns(ctx, name, limit)
-		if err != nil {
-			return nil, err
-		}
-		if len(runs) < limit {
-			break
-		}
-		covered := slices.ContainsFunc(runs, func(run ir.DAGRunStatus) bool {
-			return runEnded(run.Status.String()) && !h.runEnd(&run).After(newest)
-		})
-		if covered {
-			break
-		}
-	}
-	return runs, nil
+	d.newest, d.hasNewest, err = h.cfg.NewestEnd(dir)
+	return err
 }
 
 // pending returns the runs that ended and that are not recorded, the oldest
@@ -283,6 +210,9 @@ func (h *ServiceHistory) pending(d *dagHistory, runs []ir.DAGRunStatus) []ir.DAG
 	var out []ir.DAGRunStatus
 	for i := range runs {
 		if !runEnded(runs[i].Status.String()) {
+			continue
+		}
+		if d.hasNewest && !h.runEnd(&runs[i]).After(d.newest) {
 			continue
 		}
 		key := runKeyOf(&runs[i])
@@ -305,14 +235,9 @@ func sortedByEnd(h *ServiceHistory, runs []ir.DAGRunStatus) []ir.DAGRunStatus {
 }
 
 func (h *ServiceHistory) record(ctx context.Context, dag *ir.DAG, d *dagHistory, run *ir.DAGRunStatus) error {
-	s := h.sampleOf(dag, run)
-	if d.prevKnown && !d.prevOK {
-		s.GapAfter = 0
-	}
-	if err := d.rec.Record(ctx, s); err != nil {
+	if err := d.rec.Record(ctx, h.sampleOf(dag, run)); err != nil {
 		return err
 	}
-	d.prevKnown, d.prevOK = true, run.Status.IsSuccess()
 	d.mark(runKeyOf(run))
 	return nil
 }
@@ -366,11 +291,15 @@ func parseHistoryTime(text string) time.Time {
 func (h *ServiceHistory) sampleOf(dag *ir.DAG, run *ir.DAGRunStatus) samples.Sample {
 	end := h.runEnd(run)
 	s := samples.Sample{
-		Time:     end,
-		RunID:    run.DAGRunID,
-		GapAfter: dag.RestartWait + historyGapMargin,
+		Time:  end,
+		RunID: run.DAGRunID,
 		// A restart that is on time is active time, also after a run that failed.
 		ActiveGap: dag.RestartWait + historyUptimeMargin,
+	}
+	// The scanner makes a run that does not succeed wait longer, so only a
+	// late start after a success is a gap.
+	if run.Status.IsSuccess() {
+		s.GapAfter = dag.RestartWait + historyGapMargin
 	}
 	if started := parseHistoryTime(run.StartedAt); !started.IsZero() && !started.After(end) {
 		s.Time, s.Duration = started, end.Sub(started)

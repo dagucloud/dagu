@@ -6,6 +6,7 @@ package samples
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -27,9 +28,11 @@ type recorder struct {
 	lastEvent  int64 // ms of the last event written
 	lastSample int64 // ms of the newest sample
 	lastEnd    int64 // ms of the end of the newest sample
+	gapAfter   int64 // ms of the Sample.GapAfter of that sample
 	hasEnd     bool
+	compactDue bool // an event was appended since the last compaction
 
-	up *upState // nil unless Options.Uptime is set
+	up *upState // nil unless Options.RunHistory is set
 
 	// The minute that is open.
 	hasMinute bool
@@ -48,15 +51,18 @@ func openRecorder(ctx context.Context, dir string, opts Options) (*recorder, err
 	if now == nil {
 		now = time.Now
 	}
+	if opts.MaxEventBytes > 0 && opts.MaxEventBytes < minEventBytes {
+		return nil, errf("MaxEventBytes %d is under the minimum of %d", opts.MaxEventBytes, minEventBytes)
+	}
 	r := &recorder{st: newStore(dir), now: now, opts: opts}
 	// The repair can remove the raw file of the newest sample, so the end of the
 	// sample is read before it.
-	r.lastEnd, r.hasEnd = r.st.newestEnd()
+	r.lastEnd, r.gapAfter, r.hasEnd = r.st.newestEnd()
 	if err := r.st.repair(now().Unix()); err != nil {
 		return nil, err
 	}
-	if opts.Uptime {
-		up, err := openUp(dir, r.lastEnd)
+	if opts.RunHistory {
+		up, err := openUp(ctx, dir, r.lastEnd)
 		if err != nil {
 			return nil, err
 		}
@@ -78,8 +84,11 @@ func openRecorder(ctx context.Context, dir string, opts Options) (*recorder, err
 		return nil, err
 	}
 	r.trk, r.lastEvent = trk, last
-	if !opts.NoLifecycleEvents {
+	if !opts.RunHistory {
 		if err := r.writeEvent(Event{Time: now().UTC(), Kind: EventStarted}); err != nil {
+			return nil, err
+		}
+		if err := r.boundEvents(); err != nil {
 			return nil, err
 		}
 	}
@@ -93,9 +102,21 @@ func (r *recorder) writeEvent(e Event) error {
 	if err := r.st.appendEvent(e); err != nil {
 		return err
 	}
-	if r.opts.MaxEventBytes > 0 {
-		return r.st.compactEvents(r.opts.MaxEventBytes)
+	r.compactDue = r.opts.MaxEventBytes > 0
+	return nil
+}
+
+// boundEvents compacts the events file after an append, once the file passes
+// Options.MaxEventBytes. Record calls it after it stored the sample, so that a
+// failed compaction loses no sample; the next Record tries it again.
+func (r *recorder) boundEvents() error {
+	if !r.compactDue {
+		return nil
 	}
+	if err := r.st.compactEvents(r.opts.MaxEventBytes); err != nil {
+		return err
+	}
+	r.compactDue = false
 	return nil
 }
 
@@ -115,9 +136,11 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 	if r.closed {
 		return errClosed
 	}
-	// A sample before the newest one, such as after the clock steps back, takes
-	// its time, so that the samples stay in time order.
-	ms := max(s.Time.UnixMilli(), r.lastSample)
+	// A sample before the newest one, such as after the clock steps back or
+	// when two runs overlap, takes its time, so that the samples stay in time
+	// order.
+	start := s.Time.UnixMilli()
+	ms := max(start, r.lastSample)
 	minute := floorTo(ms/1000, 60)
 	switch {
 	case !r.hasMinute:
@@ -134,14 +157,20 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 	if s.ExitCode == 0 {
 		msg = ""
 	}
-	// A gap is not in an outage, and it comes before the events of the sample.
-	if gap := time.Duration(ms-r.lastEnd) * time.Millisecond; s.GapAfter > 0 && r.hasEnd && !r.trk.inOutage && gap > s.GapAfter {
-		e := Event{Time: time.UnixMilli(r.lastEnd).UTC(), Kind: EventGap, Gap: gap, RunID: s.RunID}
+	// The gap, the uptime and the newest end use the real interval of the
+	// sample, not the time that its raw line takes.
+	end := start + us/1000
+	// The sample before the gap gives its bound. The gap comes before the
+	// events of the sample.
+	if gap := start - r.lastEnd; r.opts.RunHistory && r.hasEnd && r.gapAfter > 0 && gap > r.gapAfter {
+		e := Event{Time: time.UnixMilli(r.lastEnd).UTC(), Kind: EventGap, Gap: time.Duration(gap) * time.Millisecond, RunID: s.RunID}
 		if err := r.writeEvent(e); err != nil {
 			return err
 		}
 	}
-	r.lastEnd, r.hasEnd = ms+us/1000, true
+	if !r.hasEnd || end >= r.lastEnd {
+		r.lastEnd, r.gapAfter, r.hasEnd = end, s.GapAfter.Milliseconds(), true
+	}
 	if e, ok := r.trk.observe(ms, s.ExitCode, msg); ok {
 		e.RunID = s.RunID
 		if err := r.writeEvent(e); err != nil {
@@ -151,14 +180,24 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 	hourStart, _ := fileSpan(TierRaw, r.minute)
 	r.buf = appendRaw(r.buf, ms-hourStart*1000, us, s.ExitCode, msg, &r.bufMsg)
 	r.acc.add(us, s.ExitCode != 0)
+	// The recorder keeps the sample from here: a raw line that fails to write
+	// stays in the buffer for the next write.
 	var err error
-	if r.opts.WriteEach || len(r.buf) >= rawFlushBytes {
+	if r.opts.RunHistory || len(r.buf) >= rawFlushBytes {
 		err = r.writeRaw()
 	}
-	if r.up != nil {
-		err = errors.Join(err, r.up.add(ms, ms+us/1000, s.ActiveGap.Milliseconds(), r.now().UnixMilli()))
+	// The raw line of a run longer than the raw retention leaves with the hour
+	// of its start, so the end of the newest sample has its own file.
+	if r.opts.RunHistory && err == nil {
+		err = r.st.writeEnd(r.lastEnd, r.gapAfter)
 	}
-	return err
+	if r.up != nil {
+		err = errors.Join(err, r.up.add(start, end, s.ActiveGap.Milliseconds(), r.now().UnixMilli()))
+	}
+	if err = errors.Join(err, r.boundEvents()); err != nil {
+		return fmt.Errorf("%w: %w", ErrSampleKept, err)
+	}
+	return nil
 }
 
 // beginMinute opens the minute of the newest stored sample. The samples that
@@ -287,8 +326,8 @@ func (r *recorder) finish() error {
 			}
 		}
 	}
-	if r.opts.NoLifecycleEvents {
-		return r.st.syncAll()
+	if r.opts.RunHistory {
+		return errors.Join(r.boundEvents(), r.st.syncAll())
 	}
 	// The stop is not before the samples it ends, so that the next start counts
 	// no failed sample of them twice.
@@ -299,7 +338,7 @@ func (r *recorder) finish() error {
 	if err := r.writeEvent(stopped); err != nil {
 		return err
 	}
-	return r.st.syncAll()
+	return errors.Join(r.boundEvents(), r.st.syncAll())
 }
 
 // OpenRecorder opens the store of a step for writing, and builds the roll-ups

@@ -432,10 +432,7 @@ func newScheduler(
 		},
 		Enqueue: enqueueFunc,
 		History: NewServiceHistory(ServiceHistoryConfig{
-			Dir: dagRunRepository.RunHistoryDir,
-			RecentRuns: func(ctx context.Context, dagName string, limit int) ([]ir.DAGRunStatus, error) {
-				return dagRunRepository.RecentStatuses(ctx, dagName, limit)
-			},
+			Dir:       dagRunRepository.RunHistoryDir,
 			Open:      samples.OpenRecorder,
 			NewestEnd: samples.NewestEnd,
 			Clock:     defaultClock,

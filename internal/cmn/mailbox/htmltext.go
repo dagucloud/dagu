@@ -21,20 +21,28 @@ var (
 func htmlToText(r io.Reader) string {
 	var b strings.Builder
 	tokenizer := html.NewTokenizer(r)
-	skip := 0
+	var skipped []string
 	for {
-		switch tokenizer.Next() {
+		tokenType := tokenizer.Next()
+		switch tokenType {
 		case html.ErrorToken:
 			return finishText(b.String())
 		case html.TextToken:
-			if skip == 0 {
+			if len(skipped) == 0 {
 				b.WriteString(spaceRuns.ReplaceAllString(strings.ReplaceAll(string(tokenizer.Text()), "\n", " "), " "))
 			}
 		case html.StartTagToken, html.SelfClosingTagToken:
 			name, _ := tokenizer.TagName()
 			switch tag := string(name); tag {
 			case "script", "style", "head", "title":
-				skip++
+				if tokenType == html.SelfClosingTagToken {
+					// Without this the tokenizer stays in raw-text mode and
+					// returns the rest of the document as literal text. The
+					// tag also has no end tag to balance a skip increment.
+					tokenizer.NextIsNotRawText()
+				} else {
+					skipped = append(skipped, tag)
+				}
 			case "br":
 				b.WriteString("\n")
 			case "li":
@@ -49,8 +57,10 @@ func htmlToText(r io.Reader) string {
 			name, _ := tokenizer.TagName()
 			switch tag := string(name); tag {
 			case "script", "style", "head", "title":
-				if skip > 0 {
-					skip--
+				// Only a matching open tag may be closed; an unmatched end
+				// tag must not expose text hidden by an outer <head>.
+				if n := len(skipped); n > 0 && skipped[n-1] == tag {
+					skipped = skipped[:n-1]
 				}
 			case "p", "div", "tr", "table", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote":
 				b.WriteString("\n")

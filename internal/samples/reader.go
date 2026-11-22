@@ -208,19 +208,35 @@ func (r *reader) Samples(ctx context.Context, q SampleQuery) (Series, error) {
 	for i := range aggs {
 		series.Buckets[i] = aggs[i].bucket()
 	}
-	if tier != TierRaw {
-		ups, err := newStore(filepath.Join(r.st.dir, upDirName)).upBuckets(ctx, tier, first, toS)
-		if err != nil {
-			return series, err
-		}
-		for _, u := range ups {
-			series.Buckets = addUp(series.Buckets, time.Unix(u.sec, 0).UTC(), time.Duration(u.ms)*time.Millisecond)
-		}
+	if err := r.addUps(ctx, &series, tier, first, toS); err != nil {
+		return series, err
 	}
 	if len(series.Buckets) > maxPoints {
 		series.Buckets = series.Buckets[len(series.Buckets)-maxPoints:]
 	}
 	return series, nil
+}
+
+// addUps adds the up time of the buckets of a tier with lo <= t < hi to a
+// series. A store with no recorded interval, such as the store of a step, has
+// none, and the up tiers are not read.
+func (r *reader) addUps(ctx context.Context, series *Series, tier Tier, lo, hi int64) error {
+	if tier == TierRaw {
+		return nil
+	}
+	up := newStore(filepath.Join(r.st.dir, upDirName))
+	since, err := readSince(up.dir)
+	if err != nil || since == 0 {
+		return err
+	}
+	ups, err := up.upTier(ctx, tier, lo, hi)
+	if err != nil {
+		return err
+	}
+	for _, u := range ups {
+		series.Buckets = addUp(series.Buckets, time.Unix(u.sec, 0).UTC(), time.Duration(u.ms)*time.Millisecond)
+	}
+	return nil
 }
 
 func (r *reader) Events(ctx context.Context, q EventQuery) (EventPage, error) {
@@ -256,8 +272,10 @@ func (r *reader) Events(ctx context.Context, q EventQuery) (EventPage, error) {
 	}
 	end := st.Size()
 	if before >= 0 {
+		// The first kept event of a compacted file follows the header, so its
+		// cursor is valid; with no header, no cursor points to offset 0.
 		issued := false
-		if rel := before - base; rel > 0 && rel < end-hdr {
+		if rel := before - base; rel >= 0 && rel < end-hdr {
 			if issued, err = isEventStart(f, rel+hdr, end); err != nil {
 				return page, err
 			}
@@ -318,6 +336,14 @@ func isEventStart(f *os.File, off, size int64) (bool, error) {
 type count struct{ n, f uint64 }
 
 func (c *count) add(o count) { c.n += o.n; c.f += o.f }
+
+// windowSpans is the length of each availability window.
+var windowSpans = map[Window]time.Duration{
+	Window24h:  24 * time.Hour,
+	Window7d:   7 * 24 * time.Hour,
+	Window30d:  30 * 24 * time.Hour,
+	Window365d: 365 * 24 * time.Hour,
+}
 
 func (r *reader) Availability(ctx context.Context, nowT time.Time) (Availability, error) {
 	v := r.view(ctx)
@@ -394,10 +420,16 @@ func (r *reader) Availability(ctx context.Context, nowT time.Time) (Availability
 		stat(Window30d, rawC, m, h30),
 		stat(Window365d, rawC, m, h, d),
 	}}
-	for i, w := range []time.Duration{24 * time.Hour, 7 * 24 * time.Hour, 30 * 24 * time.Hour, 365 * 24 * time.Hour} {
-		if av.Windows[i].Uptime, err = r.uptime(ctx, nowT.Add(-w), nowT, nowT); err != nil {
-			return av, err
-		}
+	wins := make([]upWindow, len(av.Windows))
+	for i, w := range av.Windows {
+		wins[i] = upWindow{nowT.Add(-windowSpans[w.Window]), nowT}
+	}
+	ups, err := r.uptimes(ctx, wins, nowT)
+	if err != nil {
+		return av, err
+	}
+	for i := range av.Windows {
+		av.Windows[i].Uptime = ups[i]
 	}
 	streak, last, err := v.streak()
 	if err != nil {

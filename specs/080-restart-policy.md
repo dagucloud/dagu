@@ -96,8 +96,9 @@ runs do not bound its history:
 A service DAG left without a retention keeps its latest 100 runs, where other
 DAGs keep 30 days of runs.
 
-The retention does not remove the long-term history of a service DAG. Spec 100
-keeps one sample of each run beyond this retention. See
+The retention does not remove the long-term history of a service DAG: the run
+samples of Spec 100 stay after the retention removes their runs. Spec 100 also
+defines the runs that get no sample. See
 [Spec 100: Service Run History](100-service-run-history.md).
 
 ### Restart Command

@@ -2391,7 +2391,7 @@ func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfil
 	envScope := a.buildEnvScopeForSecrets(profileValues)
 	secretCtx := cmnvalue.WithEnvScope(ctx, envScope)
 
-	baseDirs := a.buildSecretBaseDirs(envScope)
+	baseDirs := a.buildSecretBaseDirs(ctx, envScope)
 	secretRegistry := providers.NewRegistryWithReferenceResolver(a.secretReferenceResolver, baseDirs...)
 	defer func() {
 		if err := secretRegistry.Close(); err != nil {
@@ -2482,8 +2482,16 @@ func (a *Agent) buildEnvScopeForSecrets(profileValues resolvedProfileValues) *cm
 }
 
 // buildSecretBaseDirs returns base directories for file-based secret resolution.
-func (a *Agent) buildSecretBaseDirs(envScope *cmnvalue.EnvScope) []string {
-	baseDirs := []string{envScope.ExpandPath(a.dag.WorkingDir)}
+func (a *Agent) buildSecretBaseDirs(ctx context.Context, envScope *cmnvalue.EnvScope) []string {
+	workingDir := envScope.ExpandPath(a.dag.WorkingDir)
+	// Secrets resolve before the run context exists, so resolve value
+	// references such as ${params.*} the same way steps do.
+	if resolved, err := runtime.ResolveDAGWorkingDir(
+		runtime.WithDAGContext(ctx, runtime.Context{DAG: a.dag, EnvScope: envScope}), a.dag,
+	); err == nil && resolved != "" {
+		workingDir = resolved
+	}
+	baseDirs := []string{workingDir}
 	if a.dag.Location != "" {
 		baseDirs = append(baseDirs, filepath.Dir(a.dag.Location))
 	}
@@ -2606,27 +2614,11 @@ func (a *Agent) evaluateWorkingDir(ctx context.Context) error {
 		return nil
 	}
 
-	if a.dag.WorkingDir == "" {
-		return nil
+	wd, err := runtime.ResolveDAGWorkingDir(ctx, a.dag)
+	if err != nil {
+		return fmt.Errorf("failed to evaluate working directory: %w", err)
 	}
-
-	// Use runtime context's EnvScope for consistent variable expansion
-	rCtx := runtime.GetDAGContext(ctx)
-	if rCtx.EnvScope != nil {
-		a.evaluatedWorkingDir = rCtx.EnvScope.ExpandPath(a.dag.WorkingDir)
-	} else {
-		// Fallback to OS expansion if no scope available
-		a.evaluatedWorkingDir = os.ExpandEnv(a.dag.WorkingDir)
-	}
-
-	// Resolve ~ prefix after variable expansion
-	if strings.HasPrefix(a.evaluatedWorkingDir, "~") {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("failed to resolve home directory: %w", err)
-		}
-		a.evaluatedWorkingDir = filepath.Join(homeDir, a.evaluatedWorkingDir[1:])
-	}
+	a.evaluatedWorkingDir = wd
 
 	return nil
 }

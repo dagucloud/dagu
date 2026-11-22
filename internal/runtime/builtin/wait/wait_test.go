@@ -7,10 +7,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"log"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -98,6 +105,228 @@ func TestExecutorRunWaitsForHTTPStatus(t *testing.T) {
 
 	require.NoError(t, exec.Run(context.Background()))
 	require.GreaterOrEqual(t, calls.Load(), int32(3))
+}
+
+// Repeated identical results are logged once, so a short poll_interval does
+// not flood the step log.
+func TestHTTPStatusMismatchLoggedToStderr(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) < 4 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	var stderr bytes.Buffer
+	exec, err := newExecutor(context.Background(), ir.Step{
+		Commands: []ir.CommandEntry{{Command: opHTTP}},
+		ExecutorConfig: ir.ExecutorConfig{
+			Type: "wait",
+			Config: map[string]any{
+				"url":           server.URL,
+				"status":        http.StatusNoContent,
+				"poll_interval": "1ms",
+			},
+		},
+	})
+	require.NoError(t, err)
+	exec.SetStderr(&stderr)
+
+	require.NoError(t, exec.Run(context.Background()))
+	require.Equal(t, "wait: http GET got status 503, want 204\n", stderr.String())
+}
+
+// lineBuffer is a stderr that the test can read while the step still writes
+// to it. first is closed on the first write.
+type lineBuffer struct {
+	mu    sync.Mutex
+	buf   bytes.Buffer
+	once  sync.Once
+	first chan struct{}
+}
+
+func (b *lineBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.once.Do(func() { close(b.first) })
+	return b.buf.Write(p)
+}
+
+func (b *lineBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// newHTTPWait returns a wait.http executor for cfg that polls every 1ms.
+func newHTTPWait(t *testing.T, cfg map[string]any) *executorImpl {
+	t.Helper()
+
+	cfg["poll_interval"] = "1ms"
+	exec, err := newExecutor(context.Background(), ir.Step{
+		Commands:       []ir.CommandEntry{{Command: opHTTP}},
+		ExecutorConfig: ir.ExecutorConfig{Type: "wait", Config: cfg},
+	})
+	require.NoError(t, err)
+	return exec.(*executorImpl)
+}
+
+// runHTTPUntilLogged runs exec until it writes its first stderr line, keeps
+// polling 20ms more so a repeated line would show up, then cancels the step
+// and returns what it wrote. It waits for the line instead of using a fixed
+// deadline, because the first poll can be slow on a busy CI runner with -race.
+func runHTTPUntilLogged(t *testing.T, exec *executorImpl) string {
+	t.Helper()
+
+	stderr := &lineBuffer{first: make(chan struct{})}
+	exec.SetStderr(stderr)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- exec.Run(ctx) }()
+
+	select {
+	case <-stderr.first:
+		time.Sleep(20 * time.Millisecond)
+	case <-time.After(10 * time.Second):
+	}
+	cancel()
+	require.ErrorIs(t, <-done, context.Canceled)
+	return stderr.String()
+}
+
+// A TLS server the client doesn't trust fails the same way, and fast, on
+// every OS. The URL is left out of the message because its query string may
+// carry a token.
+func TestHTTPRequestErrorLoggedToStderr(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewUnstartedServer(http.NotFoundHandler())
+	server.Config.ErrorLog = log.New(io.Discard, "", 0)
+	server.StartTLS()
+	defer server.Close()
+
+	stderr := runHTTPUntilLogged(t, newHTTPWait(t, map[string]any{"url": server.URL + "/ready?token=secret"}))
+	requireOneLine(t, stderr, "wait: http GET request failed: tls: failed to verify certificate: ")
+}
+
+// A reset connection's error carries the local port, which changes on every
+// poll. The line must still be logged once.
+func TestHTTPConnResetLoggedOnce(t *testing.T) {
+	t.Parallel()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() { _ = ln.Close() }()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = conn.Read(make([]byte, 4096))
+			_ = conn.(*net.TCPConn).SetLinger(0)
+			_ = conn.Close()
+		}
+	}()
+
+	stderr := runHTTPUntilLogged(t, newHTTPWait(t, map[string]any{"url": "http://" + ln.Addr().String() + "/ready?token=secret"}))
+	requireOneLine(t, stderr, "wait: http GET request failed: read tcp "+ln.Addr().String()+": ")
+}
+
+// A request that outlives request_timeout logs the timeout on every OS.
+func TestHTTPTimeoutLoggedToStderr(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	stderr := runHTTPUntilLogged(t, newHTTPWait(t, map[string]any{
+		"url":             server.URL + "/ready?token=secret",
+		"request_timeout": "10ms",
+	}))
+	requireOneLine(t, stderr, "wait: http GET request failed: ")
+	require.Contains(t, stderr, "Client.Timeout exceeded")
+}
+
+// A proxy that refuses CONNECT fails with text net/http doesn't type, so the
+// line names the proxy to tell its failure apart from the target's.
+func TestHTTPProxyNamedInStderr(t *testing.T) {
+	t.Parallel()
+
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusProxyAuthRequired)
+	}))
+	defer proxy.Close()
+	proxyURL, err := url.Parse(proxy.URL)
+	require.NoError(t, err)
+	proxyURL.User = url.UserPassword("user", "secret")
+
+	exec := newHTTPWait(t, map[string]any{"url": "https://example.invalid/ready"})
+	exec.proxy = http.ProxyURL(proxyURL)
+	stderr := runHTTPUntilLogged(t, exec)
+	requireOneLine(t, stderr, "wait: http GET request via proxy "+proxyURL.Host+" failed: ")
+}
+
+// requireOneLine checks that stderr holds a single line starting with prefix
+// and nothing from the URL's query string.
+func requireOneLine(t *testing.T, stderr, prefix string) {
+	t.Helper()
+
+	require.Equal(t, 1, strings.Count(stderr, "\n"), stderr)
+	require.True(t, strings.HasPrefix(stderr, prefix), stderr)
+	require.NotContains(t, stderr, "secret")
+}
+
+const detailsLeftOutLine = "wait: http GET request failed: details left out, they may contain the URL or response text\n"
+
+// net/http quotes text from the server in these errors, and that text may
+// carry a token, so the error text is replaced.
+func TestHTTPServerTextLeftOutOfStderr(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name    string
+		handler http.HandlerFunc
+	}{
+		{
+			name: "malformedRedirect",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Location", "/ready%zz?token=secret")
+				w.WriteHeader(http.StatusFound)
+			},
+		},
+		{
+			name: "malformedStatusLine",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				conn, buf, err := http.NewResponseController(w).Hijack()
+				if err != nil {
+					return
+				}
+				defer func() { _ = conn.Close() }()
+				_, _ = buf.WriteString("HTTP/1.1 token=secret\r\n\r\n")
+				_ = buf.Flush()
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(tt.handler)
+			defer server.Close()
+
+			stderr := runHTTPUntilLogged(t, newHTTPWait(t, map[string]any{"url": server.URL + "/ready"}))
+			require.Equal(t, detailsLeftOutLine, stderr)
+		})
+	}
 }
 
 func TestValidateStepDefersReferenceFields(t *testing.T) {
@@ -514,4 +743,38 @@ func TestExecutorRunStopsWhenContextIsCanceled(t *testing.T) {
 	cancel()
 
 	require.ErrorIs(t, exec.Run(ctx), context.Canceled)
+}
+
+func TestRequestErrorClearsNestedLocalAddress(t *testing.T) {
+	t.Parallel()
+
+	newErr := func(port int) error {
+		inner := &net.OpError{
+			Op:     "read",
+			Net:    "tcp",
+			Source: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port},
+			Addr:   &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 61431},
+			Err:    errors.New("connection reset by peer"),
+		}
+		return &net.OpError{Op: "proxyconnect", Net: "tcp", Err: inner}
+	}
+
+	first, second := requestError(newErr(61432)), requestError(newErr(61433))
+	require.Equal(t, first, second)
+	require.NotContains(t, first, "61432")
+}
+
+// A header value with a trailing newline, such as a token read from a file,
+// fails before the request is sent, so the line must not blame the server.
+func TestHTTPClientSideErrorNotBlamedOnServer(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	defer server.Close()
+
+	stderr := runHTTPUntilLogged(t, newHTTPWait(t, map[string]any{
+		"url":     server.URL,
+		"headers": map[string]any{"Authorization": "Bearer abc\n"},
+	}))
+	require.Equal(t, detailsLeftOutLine, stderr)
 }

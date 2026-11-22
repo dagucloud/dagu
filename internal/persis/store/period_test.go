@@ -208,7 +208,7 @@ func TestPeriodStoreSharesPeriodsThroughFiles(t *testing.T) {
 	assert.Equal(t, schedulerstate.PeriodPaused, periods[2].Reason)
 
 	dir := file.SchedulerStateDir(paths)
-	for name, list := range map[string]string{"down.json": "down", "dags/nested%2Fetl.json": "suspended", "paused.json": "history"} {
+	for name, list := range map[string]string{"down.json": "down", "dags/nested%252Fetl.json": "suspended", "paused.json": "history"} {
 		raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(name)))
 		require.NoError(t, err, name)
 		var fields map[string]json.RawMessage
@@ -217,6 +217,29 @@ func TestPeriodStoreSharesPeriodsThroughFiles(t *testing.T) {
 		require.NoError(t, json.Unmarshal(fields[list], &periods), name)
 		require.Len(t, periods, 1, name)
 		assert.ElementsMatch(t, []string{"from", "to"}, slices.Collect(maps.Keys(periods[0])), name)
+	}
+}
+
+// A DAG's record is read where released versions wrote it: Windows escaped a
+// device name such as aux, and every host escaped a subdirectory's slash.
+func TestPeriodStoreReadsReleasedRecords(t *testing.T) {
+	t.Parallel()
+	for dag, rel := range map[string]string{"aux": "dags/%61ux.json", "nested/etl": "dags/nested%2Fetl.json"} {
+		t.Run(dag, func(t *testing.T) {
+			t.Parallel()
+			paths := config.PathsConfig{DataDir: t.TempDir()}
+			suspended := schedulerstate.Period{From: periodAt(1, 9), To: periodAt(1, 10)}
+			data, err := json.Marshal(map[string][]schedulerstate.Period{"suspended": {suspended}})
+			require.NoError(t, err)
+			path := filepath.Join(file.SchedulerStateDir(paths), filepath.FromSlash(rel))
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+			require.NoError(t, os.WriteFile(path, data, 0o600))
+			s := store.NewPeriodStore(file.NewBackend(paths).Collection(persis.CollectionSchedulerState), nil)
+
+			periods, _, err := s.Ended(t.Context(), dag)
+			require.NoError(t, err)
+			assert.Equal(t, []schedulerstate.Period{{From: suspended.From, To: suspended.To, Reason: schedulerstate.PeriodSuspended}}, periods)
+		})
 	}
 }
 

@@ -16,6 +16,11 @@ var ErrNotImplemented = errors.New("samples: not implemented")
 // ErrInvalidCursor reports an events cursor that the store did not make.
 var ErrInvalidCursor = errors.New("samples: invalid cursor")
 
+// ErrSampleKept wraps an error of Recorder.Record after the recorder kept the
+// sample: a write that follows the sample, such as the uptime or a compaction
+// of the events, failed. A retry of the same sample records it twice.
+var ErrSampleKept = errors.New("samples: sample kept")
+
 // Sample is the record of one execution of a continuous step, or of one run
 // of a service DAG (specs/100-service-run-history.md).
 type Sample struct {
@@ -32,13 +37,17 @@ type Sample struct {
 	// RunID is the ID of the run of a run sample. Only the events keep it: a
 	// raw line does not.
 	RunID string
-	// GapAfter is the longest time from the end of the previous sample to the
-	// start of this one that records no gap event. Zero records no gap event.
+	// GapAfter is the longest time from the end of this sample to the start of
+	// the next one that records no gap event. Zero records no gap event after
+	// this sample, as after a run that failed. Only a run history
+	// (Options.RunHistory) records gap events.
 	GapAfter time.Duration
 	// ActiveGap is the longest time from the end of the previous sample to the
 	// start of this one that counts as active time in the uptime. A longer gap
 	// is not active. Zero counts no gap. The first interval of a history has no
-	// gap before it.
+	// gap before it. Only a run history records uptime. The recorder applies
+	// it when it records the sample, and the buckets keep the result: a later
+	// change of the tolerance leaves the stored uptime as it is.
 	ActiveGap time.Duration
 }
 
@@ -203,26 +212,25 @@ type Availability struct {
 type Options struct {
 	// Now gives the time; time.Now when nil. Tests set it.
 	Now func() time.Time
-	// NoLifecycleEvents records no started and no stopped event. A run
-	// history sets it.
-	NoLifecycleEvents bool
-	// WriteEach writes the raw line of each sample when Record returns, so
-	// that a reader sees it at once. A run history sets it.
-	WriteEach bool
-	// Uptime records the time in which a run was active, split over the
-	// buckets that it covers. A run history sets it.
-	Uptime bool
+	// RunHistory makes the store the run history of a service DAG
+	// (specs/100-service-run-history.md). The recorder records no started and
+	// no stopped event, writes the raw line of each sample before Record
+	// returns, keeps the end of the newest sample for NewestEnd, records gap
+	// events, and records the uptime.
+	RunHistory bool
 	// MaxEventBytes bounds the size of the events file. Above it, the recorder
-	// drops the oldest events. Zero sets no bound.
+	// drops the oldest events. Zero sets no bound. OpenRecorder rejects a bound
+	// under 4 KiB.
 	MaxEventBytes int64
 }
 
 // NewestEnd returns the end (time plus duration) of the newest sample of the
-// store in dir. Once the raw tier no longer holds that sample, it returns the
+// store in dir. It is exact for a run history (Options.RunHistory). For
+// another store, once the raw tier no longer holds that sample, it returns the
 // end of the newest aggregate bucket. It reports false for a store with no
 // sample.
 func NewestEnd(dir string) (time.Time, bool, error) {
-	ms, ok := newStore(dir).newestEnd()
+	ms, _, ok := newStore(dir).newestEnd()
 	if !ok {
 		return time.Time{}, false, nil
 	}
@@ -234,7 +242,8 @@ func NewestEnd(dir string) (time.Time, bool, error) {
 type Recorder interface {
 	// Record adds a sample. It holds at most one minute of samples in memory
 	// and writes the raw tier, the events and the roll-ups at the boundaries
-	// of the buckets.
+	// of the buckets. An error that wraps ErrSampleKept leaves the sample
+	// recorded; any other error leaves it out.
 	Record(ctx context.Context, s Sample) error
 	// Flush writes what is held in memory.
 	Flush(ctx context.Context) error
@@ -249,8 +258,6 @@ type Reader interface {
 	Samples(ctx context.Context, q SampleQuery) (Series, error)
 	Events(ctx context.Context, q EventQuery) (EventPage, error)
 	Availability(ctx context.Context, now time.Time) (Availability, error)
-	// Uptime gives the uptime of the window from `from` to `to`.
-	Uptime(ctx context.Context, from, to time.Time) (Uptime, error)
 }
 
 // Dir returns the directory of the store of a step, under the directory of
