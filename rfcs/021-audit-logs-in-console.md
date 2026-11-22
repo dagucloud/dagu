@@ -284,7 +284,6 @@ Content-Encoding: gzip
 ```json
 {
   "protocol": 1,
-  "read": {"2026-11-20": 412},
   "entries": [
     {
       "id": "4f1c...",
@@ -315,12 +314,6 @@ The answer is `{"stored": n, "duplicates": n, "rejected": [...]}`. Console
 refuses an entry it cannot store on its own, lists its ID in `rejected`, and
 records a `rejected` gap; the shipper logs the IDs and moves on.
 
-`read` gives, for each day the batch's entries belong to, how many entries
-the shipper has put into batches for that day so far, this batch included.
-The shipper keeps the counts with its offsets, and a resend repeats them.
-Console compares them with what it holds, to find entries lost between the
-shipper and its tables.
-
 The report (RFC 002) gains an `audit` object, so Console can show what waits
 on the server:
 
@@ -338,7 +331,7 @@ At `off`, it carries the level alone.
 | `402` | Plan has no audit logs | Asks again hourly |
 | `413` | Body over a request limit | Halves the batch. A single entry becomes a `rejected` gap |
 | `429` | Over Console's pace or daily quota | Waits for `Retry-After` |
-| `503` | Console is busy, or over its storage limit | Waits for `Retry-After` |
+| `503` | Console is busy | Waits for `Retry-After` |
 
 ### Gaps
 
@@ -352,8 +345,9 @@ A gap records entries that did not arrive:
 
 The server derives a gap's ID from the reason and the range, so a resend
 repeats it and Console stores the gap once. It merges its unsent gaps of one
-reason into one range. Console accepts a request that carries only a gap
-past its pace and quota, so a server they hold back can still report a loss.
+reason into one range. A gap counts as an entry toward Console's pace and
+quota. A server held back keeps its gaps with its entries and sends them
+once Console accepts them.
 
 ### Ephemeral servers and `dagu secret`
 
@@ -465,8 +459,8 @@ Stopping:
 
 9. A stopping server with 8,000 unsent entries and a reachable Console sends
    them all before it exits.
-10. A stopping server over Console's quota sends a `stopped` gap. On a
-    persistent disk, the entries go out after the next start.
+10. A stopping server over Console's quota keeps its entries, and on a
+    persistent disk they go out after the next start.
 11. With Console unreachable, a stopping server still exits 25 seconds after
     the signal.
 12. A terminal command runs while `dagu start-all` stops, and its entry is
@@ -503,14 +497,12 @@ Upload format:
 
 Completeness:
 
-22. Each batch's `read` counts equal the entries the shipper has put into
-    batches for each of its days, and a resent batch repeats them.
-23. The report carries the level, the unsent bytes, and the oldest unsent
+22. The report carries the level, the unsent bytes, and the oldest unsent
     entry's time while entries wait, and the level alone at `off`.
 
 PostgreSQL:
 
-24. Transaction A writes an entry, then B writes and commits one, then A
+23. Transaction A writes an entry, then B writes and commits one, then A
     commits. The shipper sends both.
 
 ## Alternatives considered
