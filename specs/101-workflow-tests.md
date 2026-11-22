@@ -128,8 +128,8 @@ dagu test [flags] [<test file or directory>...]
 Each case runs the tested DAG once, through the same runner as `dagu start`,
 in its own case directory. Dependencies, preconditions, routing, retries,
 repeats, `continue_on`, handlers, and status propagation behave as in a real
-run. Only the replaced actions, the decided conditions, the skipped waits,
-and the isolation this spec defines differ.
+run. Only the replaced actions, the decided conditions, the settled waits
+for a person, the skipped waits, and the isolation this spec defines differ.
 
 Rules:
 
@@ -230,6 +230,9 @@ Rules:
 
 - A test file accepts only the fields this spec defines, at every level. Any
   other field makes the test file invalid.
+- The keys of `params`, `env`, `secrets`, `mocks`, `expect.steps`, and
+  `review.values` are names, not fields. A name that matches nothing in the
+  tested DAG makes the case invalid, not the test file.
 - A case's mock of a step replaces the file's mock of that step as a whole.
   Fields of the two mocks do not merge.
 - A file key and a case key that name the same step, one by `name` and one by
@@ -438,7 +441,7 @@ side-effect-free actions are:
 Every other action is not side-effect free. That includes command steps,
 `decision.evaluate`, which calls a model provider, and `wait.duration`.
 
-Two steps have no action of their own:
+Two kinds of steps have no action of their own:
 
 - A `foreach` step runs its body steps. It is side-effect free when every
   body step has a side-effect-free action and no other source of
@@ -447,8 +450,7 @@ Two steps have no action of their own:
 
 A step with a side-effect-free action that its mock does not replace runs
 its real action, so a test exercises the routing and outputs the DAG
-defines. A mock on such a step replaces the action only when it sets a
-result field.
+defines.
 
 ### The Fail-Closed Rule
 
@@ -501,9 +503,10 @@ Rules:
 
 - `<step>` and `<body step>` are the step's `id`, or its `name` when it has
   no `id`.
-- The message names what would run and the test field that handles it:
-  `mocks`, `real`, `precondition`, `condition`, `review`, `params`, or
-  `secrets`. For a step action, it names the action.
+- The message names what would run and how the test handles it. It
+  contains `mock` or the test field that handles the source: `real`,
+  `precondition`, `condition`, `review`, `params`, or `secrets`. For a step
+  action, it names the action.
 - Sources are listed in this order: params in declaration order, secrets in
   declaration order, DAG-level preconditions, steps in the order the DAG
   declares them, then handlers in the order `init`, `success`, `failure`,
@@ -605,8 +608,9 @@ Rules:
   step is real, and as its mock replaces it otherwise. When the step reaches
   its gate, `approve` approves the gate with `values` as its inputs, and
   `reject` rejects it as a person does: the step and the run end `rejected`.
-  Each value is a scalar, given as its text. `values` that leave out a name
-  that `approval.required` lists make the case invalid.
+  Each value is a scalar, given as its text. A value that is not a scalar,
+  and `values` that leave out a name that `approval.required` lists, make
+  the case invalid.
 - A real waiting step takes its `review` like any other waiting step.
 
 ### Sub-DAG, Parallel, Foreach, and Node Steps
