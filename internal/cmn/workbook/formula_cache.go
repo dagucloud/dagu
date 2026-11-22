@@ -138,7 +138,7 @@ type cachedFormulaCell struct {
 	TagEnd  int
 	Values  [][2]int
 	Formula *struct {
-		Ref string
+		Ref, Type string
 	}
 }
 
@@ -158,10 +158,16 @@ func (c *cachedFormulaCell) UnmarshalXML(decoder *xml.Decoder, start xml.StartEl
 		switch element := token.(type) {
 		case xml.StartElement:
 			if element.Name.Space == start.Name.Space && element.Name.Local == "f" {
-				c.Formula = &struct{ Ref string }{}
+				c.Formula = &struct{ Ref, Type string }{}
 				for _, attr := range element.Attr {
-					if attr.Name.Space == "" && attr.Name.Local == "ref" {
+					if attr.Name.Space != "" {
+						continue
+					}
+					switch attr.Name.Local {
+					case "ref":
 						c.Formula.Ref = attr.Value
+					case "t":
+						c.Formula.Type = attr.Value
 					}
 				}
 			}
@@ -239,7 +245,10 @@ func clearFormulaCaches(data []byte) ([]byte, error) {
 			return nil
 		}
 		hasFormula = true
-		if cell.Formula.Ref == "" {
+		// Every shared-formula follower carries its own <f si=".."/>, so a
+		// cell inside a shared ref without one is a literal written over a
+		// follower, not a cache. Array and data-table ranges own bare cells.
+		if cell.Formula.Ref == "" || cell.Formula.Type == "shared" {
 			return nil
 		}
 		start, end, found := strings.Cut(cell.Formula.Ref, ":")

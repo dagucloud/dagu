@@ -325,15 +325,6 @@ func cellAt(grid [][]string, col, row int) string {
 	return grid[row][col]
 }
 
-func rowIsEmpty(grid [][]string, row, c1, c2 int) bool {
-	for c := c1; c <= c2; c++ {
-		if strings.TrimSpace(cellAt(grid, c, row)) != "" {
-			return false
-		}
-	}
-	return true
-}
-
 func sortedKeys[V any](m map[string]V) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

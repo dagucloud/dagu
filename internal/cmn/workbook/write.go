@@ -144,10 +144,19 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 		if err != nil {
 			return nil, err
 		}
-		empty := used.R2 == 1 && used.C2 == 1 && cellAt(mustGrid(w, sheet), 1, 1) == ""
+		grid := mustGrid(w, sheet)
+		filled, err := w.cellHasContent(sheet, grid, 1, 1)
+		if err != nil {
+			return nil, err
+		}
+		empty := used.R2 == 1 && used.C2 == 1 && !filled
 		switch {
 		case opts.Mode == WriteAppend && !empty:
-			startRow = lastUsedRow(mustGrid(w, sheet), used) + 1
+			last, err := w.lastUsedRow(sheet, grid, used)
+			if err != nil {
+				return nil, err
+			}
+			startRow = last + 1
 		case opts.Mode == WriteAppend:
 			fresh = true
 		default:
@@ -538,12 +547,21 @@ func (w *file) clearCell(name string, c, r int) error {
 }
 
 // lastUsedRow walks back over fully empty rows at the end of the used range.
-func lastUsedRow(grid [][]string, used region) int {
-	r := used.R2
-	for r > 0 && rowIsEmpty(grid, r, 1, used.C2) {
-		r--
+// A formula whose cached result was cleared has no grid text but still
+// occupies its row, so an append must not land on it.
+func (w *file) lastUsedRow(sheet string, grid [][]string, used region) (int, error) {
+	for r := used.R2; r > 0; r-- {
+		for c := 1; c <= used.C2; c++ {
+			filled, err := w.cellHasContent(sheet, grid, c, r)
+			if err != nil {
+				return 0, err
+			}
+			if filled {
+				return r, nil
+			}
+		}
 	}
-	return r
+	return 0, nil
 }
 
 // columnKinds picks the kind each column is written as: the pinned type, or

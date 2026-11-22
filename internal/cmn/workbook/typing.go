@@ -131,7 +131,13 @@ func (w *file) cellValue(sheet string, col, row int, raw string, opts ReadOption
 		if calculated == "" {
 			return nil, nil
 		}
-		if f, err := strconv.ParseFloat(calculated, 64); err == nil {
+		switch calculated {
+		case "TRUE":
+			return true, nil
+		case "FALSE":
+			return false, nil
+		}
+		if f, ok := calculatedNumber(calculated); ok {
 			return w.numericValue(sheet, cell, f), nil
 		}
 		return w.text(calculated, opts), nil
@@ -188,6 +194,18 @@ func (w *file) uncachedFormulaValue(sheet, cell, formula string, warn func(strin
 		return ""
 	}
 	return calculated
+}
+
+// calculatedNumber reports whether a CalcCellValue result came from a number.
+// The API returns only a string, but Excelize renders numbers in one of two
+// canonical forms (calc.go, CalcCellValue), so text such as "001" or "1e3"
+// that merely parses as a number stays text.
+func calculatedNumber(s string) (float64, bool) {
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, false
+	}
+	return f, s == strconv.FormatFloat(f, 'f', -1, 64) || s == strings.ToUpper(strconv.FormatFloat(f, 'G', 15, 64))
 }
 
 // numericValue applies the cell's number format: dates become ISO strings,

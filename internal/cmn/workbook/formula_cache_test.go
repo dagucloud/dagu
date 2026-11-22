@@ -510,3 +510,74 @@ func TestFormulaCacheEncrypted(t *testing.T) {
 	require.NotEmpty(t, result.Rows)
 	assert.Equal(t, int64(23), result.Rows[0]["total"])
 }
+
+func TestFormulaCacheAppendKeepsTrailingFormulaRow(t *testing.T) {
+	t.Parallel()
+	f := excelize.NewFile()
+	require.NoError(t, f.SetSheetName("Sheet1", "Raw"))
+	setRow(t, f, "Raw", "A1", "total")
+	setRow(t, f, "Raw", "A2", 5)
+	require.NoError(t, f.SetCellFormula("Raw", "A2", "2+3"))
+	_, err := f.NewSheet("Other")
+	require.NoError(t, err)
+	setRow(t, f, "Other", "A1", "input")
+	path := saveBook(t, f, "append-formula.xlsx")
+	ctx := context.Background()
+	_, err = WriteCells(ctx, path, WriteCellsOptions{Sheet: "Other", Cells: map[string]CellValue{"A1": {Value: "changed"}}})
+	require.NoError(t, err)
+	require.NotContains(t, workbookPart(t, path, "xl/worksheets/sheet1.xml"), "<v>5</v>", "the edit must clear the formula cache first")
+	_, err = Append(ctx, path, Table{Columns: []string{"total"}, Rows: [][]any{{9}}}, WriteOptions{Sheet: "Raw", Header: true})
+	require.NoError(t, err)
+	got, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, got.Close()) }()
+	formula, err := got.GetCellFormula("Raw", "A2")
+	require.NoError(t, err)
+	assert.Equal(t, "2+3", formula)
+	appended, err := got.GetCellValue("Raw", "A3")
+	require.NoError(t, err)
+	assert.Equal(t, "9", appended)
+}
+
+func TestFormulaCacheKeepsLiteralOverSharedFollower(t *testing.T) {
+	t.Parallel()
+	path := rawBook(t, `<sheetData><row r="1"><c r="A1"><v>2</v></c><c r="B1"><f t="shared" ref="B1:B3" si="0">A1*2</f><v>4</v></c></row>`+
+		`<row r="2"><c r="A2"><v>3</v></c><c r="B2"><f t="shared" si="0"/><v>6</v></c></row>`+
+		`<row r="3"><c r="A3"><v>4</v></c><c r="B3"><f t="shared" si="0"/><v>8</v></c></row></sheetData>`)
+	_, err := WriteCells(context.Background(), path, WriteCellsOptions{Cells: map[string]CellValue{"B2": {Value: 20}}})
+	require.NoError(t, err)
+	xml := workbookPart(t, path, "xl/worksheets/sheet1.xml")
+	assert.Contains(t, xml, `<c r="B2"><v>20</v></c>`)
+	assert.Contains(t, xml, `<c r="B1"><f t="shared" ref="B1:B3" si="0">A1*2</f></c>`, "the owner's cache is still cleared")
+	assert.Contains(t, xml, `<c r="B3"><f t="shared" si="0"></f></c>`, "an untouched follower's cache is still cleared")
+	f, err := excelize.OpenFile(path)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, f.Close()) }()
+	b2, err := f.GetCellValue("Raw", "B2", rawValues)
+	require.NoError(t, err)
+	assert.Equal(t, "20", b2)
+	b3, err := f.GetCellFormula("Raw", "B3")
+	require.NoError(t, err)
+	assert.Equal(t, "A3*2", b3)
+}
+
+func TestFormulaCacheKeepsResultKinds(t *testing.T) {
+	t.Parallel()
+	path := rawBook(t, `<sheetData><row r="1">`+inline("A1", "text")+inline("B1", "flag")+inline("C1", "number")+inline("D1", "spelled")+inline("E1", "input")+
+		`</row><row r="2"><c r="A2" t="str"><f>"001"</f><v>001</v></c><c r="B2" t="b"><f>E2&gt;1</f><v>1</v></c>`+
+		`<c r="C2"><f>E2+0.5</f><v>2.5</v></c><c r="D2" t="str"><f>"1e3"</f><v>1e3</v></c><c r="E2"><v>2</v></c></row></sheetData>`)
+	ctx := context.Background()
+	before, err := Read(ctx, path, ReadOptions{})
+	require.NoError(t, err)
+	_, err = WriteCells(ctx, path, WriteCellsOptions{Cells: map[string]CellValue{"F2": {Value: "x"}}})
+	require.NoError(t, err)
+	xml := workbookPart(t, path, "xl/worksheets/sheet1.xml")
+	require.NotContains(t, xml, "<v>001</v>")
+	require.NotContains(t, xml, "<v>2.5</v>")
+	after, err := Read(ctx, path, ReadOptions{})
+	require.NoError(t, err)
+	for column, want := range map[string]any{"text": "001", "flag": true, "number": 2.5, "spelled": "1e3"} {
+		assert.Equal(t, want, before.Rows[0][column], "cached %s", column)
+		assert.Equal(t, want, after.Rows[0][column], "uncached %s", column)
+	}
+}
