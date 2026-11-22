@@ -34,7 +34,9 @@ import (
 // device, so it reads a raw path only when its only escapes are of "%".
 
 // RecordIDFromPath returns the ID of the record a collection keeps at rel, a
-// path relative to the collection's directory.
+// path relative to the collection's directory. A file's name is not always
+// its record's ID, so code that reads a collection's directory directly,
+// such as a file watcher, takes IDs from here.
 func RecordIDFromPath(rel string) string {
 	return relPathToID(rel)
 }

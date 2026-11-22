@@ -63,6 +63,10 @@ var dagSegmentEscaper = strings.NewReplacer("%", "%25", "/", "%2F")
 // ID uses "/" as a hierarchy separator so that a [ListQuery.Prefix] of
 // "mydag/" returns all records whose IDs start with that prefix — enabling
 // efficient tree traversal without storage-specific query syntax.
+//
+// A segment between separators may hold any characters. The backend maps it
+// to a name its storage can hold, so callers pass IDs unescaped. IDs that
+// differ only in letter case may share one record.
 type Record struct {
 	ID        string
 	Data      []byte
