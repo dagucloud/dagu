@@ -34,25 +34,24 @@ type UserStore struct {
 
 // NewUserStore creates a UserStore backed by col.
 func NewUserStore(col persis.Collection) (*UserStore, error) {
-	s := &UserStore{
-		col:                    col,
-		byUsername:             make(map[string]string),
-		byOIDCIdentity:         make(map[string]string),
-		byTrustedProxyIdentity: make(map[string]string),
-	}
-	if err := s.rebuildIndex(context.Background()); err != nil {
+	s := &UserStore{col: col}
+	if err := s.rebuildIndexLocked(context.Background()); err != nil {
 		return nil, fmt.Errorf("user store: build index: %w", err)
 	}
 	return s, nil
 }
 
-func (s *UserStore) rebuildIndex(ctx context.Context) error {
+// rebuildIndexLocked replaces the indexes with ones built from the collection
+// and keeps the current ones on error. The caller holds mu.
+func (s *UserStore) rebuildIndexLocked(ctx context.Context) error {
 	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	byUsername := make(map[string]string, len(recs))
+	byOIDCIdentity := make(map[string]string)
+	byTrustedProxyIdentity := make(map[string]string)
+	var count int64
 	for _, rec := range recs {
 		var stored auth.UserForStorage
 		if err := persis.Decode(rec, &stored); err != nil {
@@ -61,25 +60,27 @@ func (s *UserStore) rebuildIndex(ctx context.Context) error {
 		if err := validateTrustedProxyIdentity(stored.AuthProvider, stored.TrustedProxySource, stored.TrustedProxyUser, stored.OIDCIssuer, stored.OIDCSubject); err != nil {
 			return fmt.Errorf("user %q: %w", stored.ID, err)
 		}
-		if otherID, exists := s.byUsername[stored.Username]; exists {
+		if otherID, exists := byUsername[stored.Username]; exists {
 			logger.Warn(ctx, "user store: two records share a username",
 				slog.String("username", stored.Username),
 				slog.String("login_user_id", stored.ID),
 				slog.String("other_user_id", otherID))
 		}
-		s.byUsername[stored.Username] = stored.ID
+		byUsername[stored.Username] = stored.ID
 		if stored.OIDCIssuer != "" && stored.OIDCSubject != "" {
-			s.byOIDCIdentity[oidcKey(stored.OIDCIssuer, stored.OIDCSubject)] = stored.ID
+			byOIDCIdentity[oidcKey(stored.OIDCIssuer, stored.OIDCSubject)] = stored.ID
 		}
 		if stored.TrustedProxyUser != "" {
 			key := trustedProxyKey(stored.TrustedProxySource, stored.TrustedProxyUser)
-			if _, exists := s.byTrustedProxyIdentity[key]; exists {
+			if _, exists := byTrustedProxyIdentity[key]; exists {
 				return fmt.Errorf("user %q: %w", stored.ID, auth.ErrTrustedProxyIdentityAlreadyExists)
 			}
-			s.byTrustedProxyIdentity[key] = stored.ID
+			byTrustedProxyIdentity[key] = stored.ID
 		}
-		s.count++
+		count++
 	}
+	s.byUsername, s.byOIDCIdentity, s.byTrustedProxyIdentity = byUsername, byOIDCIdentity, byTrustedProxyIdentity
+	s.count = count
 	return nil
 }
 
@@ -119,6 +120,16 @@ func (s *UserStore) Create(ctx context.Context, user *auth.User) error {
 		if _, exists := s.byOIDCIdentity[oidcKey(user.OIDCIssuer, user.OIDCSubject)]; exists {
 			return auth.ErrOIDCIdentityAlreadyExists
 		}
+	}
+	claimed := userKeys{username: user.Username}
+	if user.OIDCIssuer != "" && user.OIDCSubject != "" {
+		claimed.oidc = oidcKey(user.OIDCIssuer, user.OIDCSubject)
+	}
+	if user.TrustedProxyUser != "" {
+		claimed.proxy = trustedProxyKey(user.TrustedProxySource, user.TrustedProxyUser)
+	}
+	if err := s.findStoredConflict(ctx, user.ID, claimed); err != nil {
+		return err
 	}
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        user.ID,
@@ -271,15 +282,21 @@ func (s *UserStore) Update(ctx context.Context, user *auth.User) error {
 	newOIDCKey := oidcKey(user.OIDCIssuer, user.OIDCSubject)
 
 	// Conflict checks before writing.
+	var claimed userKeys
 	if existingStored.Username != user.Username {
 		if id, taken := s.byUsername[user.Username]; taken && id != user.ID {
 			return auth.ErrUserAlreadyExists
 		}
+		claimed.username = user.Username
 	}
 	if oldOIDCKey != newOIDCKey && user.OIDCIssuer != "" && user.OIDCSubject != "" {
 		if id, taken := s.byOIDCIdentity[newOIDCKey]; taken && id != user.ID {
 			return auth.ErrOIDCIdentityAlreadyExists
 		}
+		claimed.oidc = newOIDCKey
+	}
+	if err := s.findStoredConflict(ctx, user.ID, claimed); err != nil {
+		return err
 	}
 
 	if err := s.col.Put(ctx, &persis.Record{
@@ -344,6 +361,9 @@ func (s *UserStore) Patch(ctx context.Context, id string, patch auth.UserPatch) 
 	if stored.Username != oldUsername {
 		if existingID, taken := s.byUsername[stored.Username]; taken && existingID != id {
 			return nil, auth.ErrUserAlreadyExists
+		}
+		if err := s.findStoredConflict(ctx, id, userKeys{username: stored.Username}); err != nil {
+			return nil, err
 		}
 	}
 
@@ -491,11 +511,63 @@ func (s *UserStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// Count returns the total number of users.
-func (s *UserStore) Count(_ context.Context) (int64, error) {
+// Count returns the total number of users. While the store holds no users,
+// Count re-reads the collection, so it counts a user that another process
+// sharing the collection created.
+func (s *UserStore) Count(ctx context.Context) (int64, error) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	n := s.count
+	s.mu.RUnlock()
+	if n > 0 {
+		return n, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.count == 0 {
+		if err := s.rebuildIndexLocked(ctx); err != nil {
+			return 0, err
+		}
+	}
 	return s.count, nil
+}
+
+// userKeys holds the unique keys a write claims. An empty field is not
+// checked.
+type userKeys struct {
+	username string
+	oidc     string
+	proxy    string
+}
+
+// findStoredConflict reports a key in claimed that a record other than id
+// already holds in the collection. The indexes miss records written by
+// another process sharing the collection; this read does not.
+func (s *UserStore) findStoredConflict(ctx context.Context, id string, claimed userKeys) error {
+	if claimed == (userKeys{}) {
+		return nil
+	}
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
+	if err != nil {
+		return err
+	}
+	for _, rec := range recs {
+		if rec.ID == id {
+			continue
+		}
+		var stored auth.UserForStorage
+		if err := persis.Decode(rec, &stored); err != nil {
+			continue
+		}
+		switch {
+		case claimed.proxy != "" && trustedProxyKey(stored.TrustedProxySource, stored.TrustedProxyUser) == claimed.proxy:
+			return auth.ErrTrustedProxyIdentityAlreadyExists
+		case claimed.username != "" && stored.Username == claimed.username:
+			return auth.ErrUserAlreadyExists
+		case claimed.oidc != "" && oidcKey(stored.OIDCIssuer, stored.OIDCSubject) == claimed.oidc:
+			return auth.ErrOIDCIdentityAlreadyExists
+		}
+	}
+	return nil
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

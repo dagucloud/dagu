@@ -601,6 +601,41 @@ func TestUserDuplicateCleanupKeepsLogin(t *testing.T) {
 	}
 }
 
+// Two stores on one collection stand in for two server processes sharing a
+// users directory; each builds its index before the other writes.
+func TestUserCreateSeesOtherStore(t *testing.T) {
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("users")
+	s1, err := store.NewUserStore(col)
+	require.NoError(t, err)
+	s2, err := store.NewUserStore(col)
+	require.NoError(t, err)
+
+	require.NoError(t, s1.Create(ctx, newUser("alice")))
+
+	dup := newUser("alice")
+	dup.ID = "id-alice-2"
+	assert.ErrorIs(t, s2.Create(ctx, dup), auth.ErrUserAlreadyExists)
+}
+
+func TestUserCountSeesOtherStore(t *testing.T) {
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("users")
+	s1, err := store.NewUserStore(col)
+	require.NoError(t, err)
+	s2, err := store.NewUserStore(col)
+	require.NoError(t, err)
+
+	require.NoError(t, s1.Create(ctx, newUser("admin")))
+
+	n, err := s2.Count(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), n)
+	got, err := s2.GetByUsername(ctx, "admin")
+	require.NoError(t, err)
+	assert.Equal(t, "id-admin", got.ID)
+}
+
 // putUserRecord writes u straight to col, bypassing the store's uniqueness
 // checks, to reproduce records left by another process.
 func putUserRecord(t *testing.T, col persis.Collection, u *auth.User) {
