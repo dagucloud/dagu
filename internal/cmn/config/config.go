@@ -898,6 +898,20 @@ func (c *Config) Validate() error {
 	if err := c.validateWebhooks(); err != nil {
 		return err
 	}
+	if err := ValidatePeerToken(c.Core.Peer.Token); err != nil {
+		return fmt.Errorf("peer.token %w", err)
+	}
+	return nil
+}
+
+// ValidatePeerToken rejects a token that gRPC metadata cannot carry, which
+// holds any byte outside printable ASCII.
+func ValidatePeerToken(token string) error {
+	for i := range len(token) {
+		if token[i] < 0x20 || token[i] > 0x7e {
+			return errors.New("must contain only printable ASCII characters")
+		}
+	}
 	return nil
 }
 

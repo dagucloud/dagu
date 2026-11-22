@@ -343,6 +343,21 @@ func TestConfig_Validate(t *testing.T) {
 		require.NoError(t, cfg.Validate())
 	})
 
+	// gRPC metadata carries only printable ASCII, so a token with a line
+	// break would fail every coordinator call.
+	t.Run("PeerTokenWithLineBreak", func(t *testing.T) {
+		t.Parallel()
+		cfg := validBaseConfig()
+		cfg.Core.Peer.Token = "first\nsecond"
+		err := cfg.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "peer.token")
+		assert.NotContains(t, err.Error(), "second")
+
+		cfg.Core.Peer.Token = "printable-Token_123"
+		require.NoError(t, cfg.Validate())
+	})
+
 	t.Run("BuiltinAuth_TokenTTLAboveMaximum", func(t *testing.T) {
 		t.Parallel()
 		cfg := validBaseConfig()
