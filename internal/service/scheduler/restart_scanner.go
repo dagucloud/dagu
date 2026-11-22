@@ -68,6 +68,12 @@ const (
 	// stays stopped, is checked when no event says its run ended.
 	restartReconcileInterval = 30 * time.Second
 
+	// restartObservePollInterval is how often the status of a DAG that does not
+	// restart is read for History when no event can say its run ended. With the
+	// scan interval, it keeps a sample within 5 s of the end of its run, as
+	// Spec 100 requires.
+	restartObservePollInterval = 4 * time.Second
+
 	// restartErrorLogInterval limits how often a failing DAG is logged, since
 	// the same error would otherwise repeat at every scan.
 	restartErrorLogInterval = 30 * time.Second
@@ -509,11 +515,16 @@ func runStatusKeyOf(status *ir.DAGRunStatus) runStatusKey {
 
 // observeLater leaves a DAG that does not restart until an event says a run
 // ended, or until restartReconcileInterval passes, before its status is read
-// again for History. Without events, every scan reads it.
+// again for History. Without events, it waits restartObservePollInterval.
 func (s *RestartScanner) observeLater(dag *ir.DAG, now time.Time) {
-	if s.tailing && s.cfg.History != nil {
-		s.observeAt[dag.Name] = now.Add(restartReconcileInterval)
+	if s.cfg.History == nil {
+		return
 	}
+	wait := restartObservePollInterval
+	if s.tailing {
+		wait = restartReconcileInterval
+	}
+	s.observeAt[dag.Name] = now.Add(wait)
 }
 
 // failStuckRun fails a latest run that never started, unless a coordinator
