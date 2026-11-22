@@ -35,8 +35,8 @@ import (
 // testRecordedAt is when the first event of a test is recorded.
 var testRecordedAt = time.Date(2026, 10, 10, 9, 0, 0, 0, time.UTC)
 
-// Reports carry the top-level runs that finished and the runs in progress,
-// without updates, the runs of sub-DAGs, errors, or logs.
+// Reports carry the top-level runs that finished, with their steps, and the
+// runs in progress, without updates, the runs of sub-DAGs, errors, or logs.
 func TestReportRuns(t *testing.T) {
 	t.Parallel()
 
@@ -59,9 +59,10 @@ func TestReportRuns(t *testing.T) {
 	failed.Log = "/var/log/dagu/etl.log"
 	failed.Params = "token=secret"
 	failed.Nodes = []*ir.Node{
-		{Step: ir.Step{Name: "extract"}, Status: ir.NodeSucceeded},
-		{Step: ir.Step{Name: "load"}, Status: ir.NodeFailed, Error: "db.internal: connection refused"},
-		{Step: ir.Step{Name: "notify"}, Status: ir.NodeFailed},
+		{Step: ir.Step{Name: "extract"}, Status: ir.NodeSucceeded, StartedAt: "2026-10-10T09:00:00Z", FinishedAt: "2026-10-10T09:01:00Z"},
+		{Step: ir.Step{Name: "load"}, Status: ir.NodeFailed, Error: "db.internal: connection refused",
+			StartedAt: "2026-10-10T09:01:00Z", FinishedAt: "2026-10-10T09:04:00Z", RetryCount: 2},
+		{Step: ir.Step{Name: "notify"}, Status: ir.NodeFailed, StartedAt: "-", FinishedAt: "-"},
 	}
 	failed.OnFailure = &ir.Node{Step: ir.Step{Name: "on_failure"}, Status: ir.NodeFailed}
 	dir.emit(eventstore.TypeDAGRunFailed, failed)
@@ -92,7 +93,14 @@ func TestReportRuns(t *testing.T) {
 		{
 			"workflow": "etl", "dag_run_id": "run-1", "attempt_id": "attempt-1", "status": "failed",
 			"trigger_type": "webhook", "queued_at": "2026-10-10T08:59:00Z", "started_at": "2026-10-10T09:00:00Z",
-			"finished_at": "2026-10-10T09:05:00Z", "failed_steps": ["load", "notify", "on_failure"]
+			"finished_at": "2026-10-10T09:05:00Z", "failed_steps": ["load", "notify", "on_failure"],
+			"steps": [
+				{"name": "extract", "status": "succeeded", "started_at": "2026-10-10T09:00:00Z", "finished_at": "2026-10-10T09:01:00Z", "retries": 0},
+				{"name": "load", "status": "failed", "started_at": "2026-10-10T09:01:00Z", "finished_at": "2026-10-10T09:04:00Z", "retries": 2},
+				{"name": "notify", "status": "failed", "retries": 0},
+				{"name": "on_failure", "status": "failed", "retries": 0}
+			],
+			"steps_total": 4
 		}
 	]`, string(finished.Finished))
 	assert.NotEmpty(t, finished.Cursor)
@@ -569,6 +577,101 @@ func TestReportRunsSizeCap(t *testing.T) {
 		}
 	}
 	assert.ElementsMatch(t, ids, delivered, "each run is reported once")
+}
+
+// A run carries its first steps in run order, as many as fit 32 KiB encoded
+// even when JSON escapes every byte of their names, and counts them all, so
+// a run with many steps always fits a report.
+func TestReportRunsCapTheirSteps(t *testing.T) {
+	t.Parallel()
+
+	dir := newEventDir(t)
+	console := newFakeConsole(t)
+	clock := startEventReporter(t, console, dir, testClockStart)
+	many := run("etl", "run-1", ir.Succeeded)
+	escaped := run("etl", "run-2", ir.Succeeded)
+	for i := range 250 {
+		many.Nodes = append(many.Nodes, &ir.Node{Step: ir.Step{Name: fmt.Sprint("step-", i)}, Status: ir.NodeSucceeded})
+		name := fmt.Sprintf("%03d%s", i, strings.Repeat("\u0001", maxStepNameBytes))
+		escaped.Nodes = append(escaped.Nodes, &ir.Node{Step: ir.Step{Name: name}, Status: ir.NodeSucceeded})
+	}
+	dir.emit(eventstore.TypeDAGRunSucceeded, many)
+	dir.emit(eventstore.TypeDAGRunSucceeded, escaped)
+
+	report, _ := clock.nextReport(console)
+	var batch []struct {
+		Steps      json.RawMessage `json:"steps"`
+		StepsTotal int             `json:"steps_total"`
+	}
+	require.NoError(t, json.Unmarshal(decodeFinished(t, report).Finished, &batch))
+	require.Len(t, batch, 2)
+	var steps []reportedStep
+	require.NoError(t, json.Unmarshal(batch[0].Steps, &steps))
+	assert.Len(t, steps, maxRunSteps)
+	assert.Equal(t, "step-199", steps[maxRunSteps-1].Name, "the first steps in run order are kept")
+	assert.Equal(t, 250, batch[0].StepsTotal)
+	assert.LessOrEqual(t, len(batch[1].Steps), maxStepsBytes)
+	require.NoError(t, json.Unmarshal(batch[1].Steps, &steps))
+	assert.NotEmpty(t, steps)
+	assert.Less(t, len(steps), maxRunSteps)
+	assert.Equal(t, 250, batch[1].StepsTotal)
+}
+
+// A run in progress carries the steps its latest status holds. The steps
+// read for it serve the reports of the next minute, however soon they go
+// out, and a run whose latest attempt is another carries none.
+func TestReportRunsInProgressCarryTheirSteps(t *testing.T) {
+	t.Parallel()
+
+	dir := newEventDir(t)
+	console := newFakeConsole(t)
+	running := etlRun(ir.Running)
+	running.Nodes = []*ir.Node{
+		{Step: ir.Step{Name: "extract"}, Status: ir.NodeSucceeded, StartedAt: "2026-10-10T09:00:00Z", FinishedAt: "2026-10-10T09:01:00Z"},
+		{Step: ir.Step{Name: "load"}, Status: ir.NodeRunning, StartedAt: "2026-10-10T09:01:00Z", RetryCount: 1},
+	}
+	retried := run("report", "run-3", ir.Running)
+	retried.StartedAt = "2026-10-10T09:10:00Z"
+	latest := *retried
+	latest.AttemptID = "attempt-2"
+	runs := &fakeRuns{statuses: map[string]*ir.DAGRunStatus{"run-1": running, "run-3": &latest}}
+	events := dir.events()
+	events.Runs = runs
+	r := newReporter(console.credentials, nil, fixedLevel(config.ReportRuns))
+	r.events = newEventFeed(events)
+	clock := startReporterAt(t.Context(), t, r, noJitter, testClockStart)
+	clock.wait()
+
+	dir.emit(eventstore.TypeDAGRunRunning, etlRun(ir.Running))
+	dir.emit(eventstore.TypeDAGRunRunning, retried)
+	want := `{
+		"active": [
+			{
+				"workflow": "report", "dag_run_id": "run-3", "attempt_id": "attempt-1", "status": "running",
+				"trigger_type": "", "queued_at": "2026-10-10T08:59:00Z", "started_at": "2026-10-10T09:10:00Z"
+			},
+			{
+				"workflow": "etl", "dag_run_id": "run-1", "attempt_id": "attempt-1", "status": "running",
+				"trigger_type": "", "queued_at": "2026-10-10T08:59:00Z", "started_at": "2026-10-10T09:00:00Z",
+				"steps": [
+					{"name": "extract", "status": "succeeded", "started_at": "2026-10-10T09:00:00Z", "finished_at": "2026-10-10T09:01:00Z", "retries": 0},
+					{"name": "load", "status": "running", "started_at": "2026-10-10T09:01:00Z", "retries": 1}
+				],
+				"steps_total": 2
+			}
+		],
+		"active_total": 2
+	}`
+	report, _ := clock.nextReport(console)
+	assert.JSONEq(t, want, decodeActive(t, report).json(t))
+	opened := runs.openedRuns()
+
+	// A failure sends the next report within seconds.
+	dir.emit(eventstore.TypeDAGRunFailed, run("other", "run-4", ir.Failed))
+	report, waited := clock.nextReport(console)
+	require.Less(t, waited, time.Minute)
+	assert.JSONEq(t, want, decodeActive(t, report).json(t))
+	assert.Equal(t, opened, runs.openedRuns(), "the steps read a moment ago are not read again")
 }
 
 // A run with a name or ID longer than Dagu Console keeps is left out like
