@@ -10,21 +10,32 @@ function text(value: unknown): string | undefined {
     : undefined;
 }
 
+/** An exit code as the server reads it: a number, or a string of digits. */
+function exitCodeOf(value: unknown): number | undefined {
+  if (typeof value === 'number') return value;
+  const digits = typeof value === 'string' ? value.trim() : '';
+  return /^\d+$/.test(digits) ? Number(digits) : undefined;
+}
+
 /**
- * Reads `continue_on` of a step: the shorthand `failed` or `skipped`, or the
- * map. It never throws. A value that lets the run carry on after nothing
- * gives undefined.
+ * Reads `continue_on` of a step as the server does: the shorthand `failed` or
+ * `skipped`, or the map. It never throws. A value that lets the run carry on
+ * after nothing gives undefined.
  */
 export function readContinueOn(value: unknown): ContinueOnView | undefined {
   const view: ContinueOnView = {};
-  if (value === 'failed' || value === 'failure') view.failure = true;
-  else if (value === 'skipped') view.skipped = true;
+  const shorthand =
+    typeof value === 'string' ? value.trim().toLowerCase() : undefined;
+  if (shorthand === 'failed') view.failure = true;
+  else if (shorthand === 'skipped') view.skipped = true;
   else if (isRecord(value)) {
-    if (value.failure === true) view.failure = true;
+    if (value.failure === true || value.failed === true) view.failure = true;
     if (value.skipped === true) view.skipped = true;
     const codes = (
       Array.isArray(value.exit_code) ? value.exit_code : [value.exit_code]
-    ).filter((code): code is number => typeof code === 'number');
+    )
+      .map(exitCodeOf)
+      .filter((code): code is number => code !== undefined);
     if (codes.length > 0) view.exitCodes = codes;
     const output = Array.isArray(value.output) ? value.output : [value.output];
     if (output.some((item) => text(item) !== undefined)) view.output = true;
@@ -86,7 +97,7 @@ function preconditionOf(item: unknown): PreconditionView | null {
 
 /** Reads `preconditions` of a step: a command, a map, or a list of them. It never throws. */
 export function readPreconditions(step: Rec): PreconditionView[] {
-  const raw = step.preconditions ?? step.precondition;
+  const raw = step.preconditions;
   const list = Array.isArray(raw) ? raw : raw === undefined ? [] : [raw];
   return list.flatMap((item) => {
     const view = preconditionOf(item);

@@ -31,6 +31,15 @@ describe('readContinueOn', () => {
     expect(readContinueOn({ exit_code: 3 })).toEqual({ exitCodes: [3] });
   });
 
+  // The server takes the shorthand in any case, the key failed as failure, and
+  // an exit code as a string of digits.
+  it('reads what the server reads', () => {
+    expect(readContinueOn(' Failed ')).toEqual({ failure: true });
+    expect(readContinueOn({ failed: true })).toEqual({ failure: true });
+    expect(readContinueOn({ exit_code: '75' })).toEqual({ exitCodes: [75] });
+    expect(readContinueOn('failure')).toBeUndefined();
+  });
+
   it('gives nothing for a value that continues after no cause', () => {
     expect(readContinueOn(undefined)).toBeUndefined();
     expect(readContinueOn({ failure: false })).toBeUndefined();
@@ -55,6 +64,8 @@ describe('readPreconditions', () => {
       }).map((pre) => pre.text)
     ).toEqual(['${A} = yes', '${B} != 0', 'test -d y']);
     expect(readPreconditions({})).toEqual([]);
+    // The server refuses the key precondition.
+    expect(readPreconditions({ precondition: 'test -f x' })).toEqual([]);
   });
 });
 
@@ -111,7 +122,8 @@ describe('edgeCondition', () => {
   });
 });
 
-// The verify loop of examples/agent-worker-demo/dags/agent-dev-loop.yaml.
+// A verify loop: a step, its check, and a fix that runs only if the check
+// failed.
 describe('the verify loop on the canvas', () => {
   const model = makeModel([
     makeStep({
