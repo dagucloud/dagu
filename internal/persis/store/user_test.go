@@ -590,14 +590,7 @@ func TestUserDuplicateCleanupKeepsLogin(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			col := testutil.NewMemoryBackend().Collection("users")
-			older := newUser("admin")
-			older.ID = "id-a"
-			older.CreatedAt = time.Now().UTC().Add(-2 * time.Hour)
-			putUserRecord(t, col, older)
-			newer := newUser("admin")
-			newer.ID = "id-b"
-			newer.CreatedAt = time.Now().UTC().Add(-time.Hour)
-			putUserRecord(t, col, newer)
+			putDuplicateAdmins(t, col)
 
 			s, err := store.NewUserStore(col)
 			require.NoError(t, err)
@@ -608,6 +601,24 @@ func TestUserDuplicateCleanupKeepsLogin(t *testing.T) {
 			assert.Equal(t, tt.want, got.ID)
 		})
 	}
+}
+
+// A delete that cannot find the remaining duplicate must fail before writing,
+// so the record and its login stay in place.
+func TestUserDuplicateDeleteFailsBeforeWrite(t *testing.T) {
+	ctx := context.Background()
+	col := &failingUserCollection{Collection: testutil.NewMemoryBackend().Collection("users")}
+	putDuplicateAdmins(t, col)
+	s, err := store.NewUserStore(col)
+	require.NoError(t, err)
+
+	col.listErr = errors.New("list failed")
+	assert.Error(t, s.Delete(ctx, "id-b"))
+	col.listErr = nil
+
+	got, err := s.GetByUsername(ctx, "admin")
+	require.NoError(t, err)
+	assert.Equal(t, "id-b", got.ID)
 }
 
 // Two stores on one collection stand in for two server processes sharing a
@@ -645,6 +656,19 @@ func TestUserCountSeesOtherStore(t *testing.T) {
 	assert.Equal(t, "id-admin", got.ID)
 }
 
+// putDuplicateAdmins stores two "admin" records; login uses id-b, the later one.
+func putDuplicateAdmins(t *testing.T, col persis.Collection) {
+	t.Helper()
+	older := newUser("admin")
+	older.ID = "id-a"
+	older.CreatedAt = time.Now().UTC().Add(-2 * time.Hour)
+	putUserRecord(t, col, older)
+	newer := newUser("admin")
+	newer.ID = "id-b"
+	newer.CreatedAt = time.Now().UTC().Add(-time.Hour)
+	putUserRecord(t, col, newer)
+}
+
 // putUserRecord writes u straight to col, bypassing the store's uniqueness
 // checks, to reproduce records left by another process.
 func putUserRecord(t *testing.T, col persis.Collection, u *auth.User) {
@@ -660,6 +684,7 @@ type failingUserCollection struct {
 	persis.Collection
 	putErr    error
 	deleteErr error
+	listErr   error
 }
 
 func (c *failingUserCollection) Put(ctx context.Context, record *persis.Record) error {
@@ -674,6 +699,13 @@ func (c *failingUserCollection) Delete(ctx context.Context, id string) error {
 		return c.deleteErr
 	}
 	return c.Collection.Delete(ctx, id)
+}
+
+func (c *failingUserCollection) List(ctx context.Context, q persis.ListQuery) (*persis.Page, error) {
+	if c.listErr != nil {
+		return nil, c.listErr
+	}
+	return c.Collection.List(ctx, q)
 }
 
 func TestUserTrustedProxyIndexChangesOnlyAfterPersistence(t *testing.T) {

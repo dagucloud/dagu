@@ -14,7 +14,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
-	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
@@ -299,6 +298,12 @@ func (s *UserStore) Update(ctx context.Context, user *auth.User) error {
 	if err := s.findStoredConflict(ctx, user.ID, claimed); err != nil {
 		return err
 	}
+	release := func() {}
+	if claimed.username != "" {
+		if release, err = s.releaseUsername(ctx, existingStored.Username, user.ID); err != nil {
+			return err
+		}
+	}
 
 	if err := s.col.Put(ctx, &persis.Record{
 		ID:        user.ID,
@@ -311,7 +316,7 @@ func (s *UserStore) Update(ctx context.Context, user *auth.User) error {
 
 	// Update indices after successful write.
 	if existingStored.Username != user.Username {
-		s.releaseUsername(ctx, existingStored.Username, user.ID)
+		release()
 		s.byUsername[user.Username] = user.ID
 	}
 	if oldOIDCKey != newOIDCKey {
@@ -359,11 +364,15 @@ func (s *UserStore) Patch(ctx context.Context, id string, patch auth.UserPatch) 
 	if stored.Username == "" {
 		return nil, auth.ErrInvalidUsername
 	}
+	release := func() {}
 	if stored.Username != oldUsername {
 		if existingID, taken := s.byUsername[stored.Username]; taken && existingID != id {
 			return nil, auth.ErrUserAlreadyExists
 		}
 		if err := s.findStoredConflict(ctx, id, userKeys{username: stored.Username}); err != nil {
+			return nil, err
+		}
+		if release, err = s.releaseUsername(ctx, oldUsername, id); err != nil {
 			return nil, err
 		}
 	}
@@ -403,7 +412,7 @@ func (s *UserStore) Patch(ctx context.Context, id string, patch auth.UserPatch) 
 		return nil, err
 	}
 	if stored.Username != oldUsername {
-		s.releaseUsername(ctx, oldUsername, id)
+		release()
 		s.byUsername[stored.Username] = id
 	}
 	return stored.ToUser(), nil
@@ -498,10 +507,14 @@ func (s *UserStore) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("user store: decode for delete: %w", err)
 	}
 
+	release, err := s.releaseUsername(ctx, stored.Username, id)
+	if err != nil {
+		return err
+	}
 	if err := s.col.Delete(ctx, id); err != nil {
 		return err
 	}
-	s.releaseUsername(ctx, stored.Username, id)
+	release()
 	if stored.OIDCIssuer != "" && stored.OIDCSubject != "" {
 		deleteOwned(s.byOIDCIdentity, oidcKey(stored.OIDCIssuer, stored.OIDCSubject), id)
 	}
@@ -532,28 +545,35 @@ func (s *UserStore) Count(ctx context.Context) (int64, error) {
 	return s.count, nil
 }
 
-// releaseUsername drops id's index entry for username and hands it to another
-// stored record that still has that username, so a duplicate stays reachable
-// after the indexed record is deleted or renamed. The caller holds mu.
-func (s *UserStore) releaseUsername(ctx context.Context, username, id string) {
+// releaseUsername prepares to drop id's index entry for username. It finds
+// another stored record that still has the username, as a restart would, and
+// returns a func that moves the entry to it once the caller's write succeeds.
+// The caller holds mu.
+func (s *UserStore) releaseUsername(ctx context.Context, username, id string) (func(), error) {
 	if s.byUsername[username] != id {
-		return
+		return func() {}, nil
 	}
-	delete(s.byUsername, username)
 	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
-		logger.Warn(ctx, "user store: failed to reindex username", slog.String("username", username), tag.Error(err))
-		return
+		return nil, err
 	}
+	var next string
 	for _, rec := range recs {
 		var stored auth.UserForStorage
 		if rec.ID == id || persis.Decode(rec, &stored) != nil {
 			continue
 		}
 		if stored.Username == username {
-			s.byUsername[username] = stored.ID
+			next = stored.ID
 		}
 	}
+	return func() {
+		if next == "" {
+			delete(s.byUsername, username)
+			return
+		}
+		s.byUsername[username] = next
+	}, nil
 }
 
 // userKeys holds the unique keys a write claims. An empty field is not
