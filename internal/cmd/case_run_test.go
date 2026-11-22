@@ -9,9 +9,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
@@ -268,6 +272,54 @@ steps:
 	require.Len(t, runs, 1)
 	assert.Equal(t, liveRunID, runs[0].DAGRunID)
 	assert.ErrorIs(t, ctx.DAGRunMgr.CheckServiceRun(ctx, dag, "manual"), runtime.ErrServiceRunActive)
+}
+
+// Every field of config.PathsConfig is moved into the case directory or is
+// kept on purpose, so a path added later cannot escape the case unnoticed.
+func TestCasePaths(t *testing.T) {
+	t.Parallel()
+
+	// The inputs of a run, and the tools directory, where declared tools
+	// install as in a real run.
+	kept := []string{
+		"DAGsDir", "AltDAGsDir", "BaseConfig", "CalendarsDir", "WikiDir", "WikiDirLegacy",
+		"Executable", "ToolsDir", "ConfigFileUsed", "ConfigFilesUsed",
+	}
+
+	configured := filepath.Join(t.TempDir(), "configured")
+	dir := filepath.Join(t.TempDir(), "case")
+	var paths config.PathsConfig
+	fields := reflect.ValueOf(&paths).Elem()
+	for i := range fields.NumField() {
+		field, name := fields.Field(i), fields.Type().Field(i).Name
+		switch field.Kind() {
+		case reflect.String:
+			field.SetString(filepath.Join(configured, name))
+		case reflect.Bool:
+			field.SetBool(true)
+		case reflect.Slice:
+			field.Set(reflect.ValueOf([]string{filepath.Join(configured, name)}))
+		default:
+			t.Fatalf("PathsConfig.%s has unexpected kind %s", name, field.Kind())
+		}
+	}
+
+	moved := reflect.ValueOf(casePaths(paths, dir))
+	for i := range fields.NumField() {
+		name := fields.Type().Field(i).Name
+		got := moved.Field(i).Interface()
+		if slices.Contains(kept, name) {
+			assert.Equal(t, fields.Field(i).Interface(), got, "PathsConfig.%s is kept", name)
+			continue
+		}
+		path, ok := got.(string)
+		if !assert.True(t, ok, "PathsConfig.%s is neither moved nor kept", name) || path == "" {
+			continue
+		}
+		rel, err := filepath.Rel(dir, path)
+		assert.True(t, err == nil && !strings.HasPrefix(rel, ".."),
+			"PathsConfig.%s is %s, neither moved into the case directory nor kept", name, path)
+	}
 }
 
 // newCaseTestContext returns the context of dagu start with every configured
