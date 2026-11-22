@@ -19,14 +19,6 @@ const FIXED_CLASS = 'nodrag nopan';
 export const ADD_HOVER_CLASS =
   'hover:border-primary hover:bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))] hover:text-primary';
 
-/**
- * The hover of an add button: the accent on the border and the icon, over a
- * soft tint of the card colour. The tint is opaque, so the link behind the
- * button does not show through it.
- */
-const ADD_HOVER_CLASS =
-  'hover:border-primary hover:bg-[color-mix(in_srgb,var(--primary)_12%,var(--card))] hover:text-primary';
-
 const KIND_CLASS = {
   add: ADD_HOVER_CLASS,
   parallel: ADD_HOVER_CLASS,
