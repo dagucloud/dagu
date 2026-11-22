@@ -328,7 +328,6 @@ function inferredEdges(
  */
 function markConditionalEdges(
   model: DagDocModel,
-  names: StepNameMap,
   nodes: CanvasNodeWithRoutes[],
   edges: CanvasEdgeWithRef[]
 ): void {
@@ -338,15 +337,15 @@ function markConditionalEdges(
     if (!carriesCondition(edge)) continue;
     const target = steps.get(edge.target);
     const source = steps.get(edge.source);
-    if (!target || !source) continue;
+    // A precondition can read only a step that has an id.
+    if (!target || !source?.id) continue;
     const pre = readPreconditions(target.value);
     if (pre.length === 0) continue;
-    const refs = [
-      source.explicitName,
+    const condition = edgeCondition(
+      pre,
       source.id,
-      own(names.byKey, source.key),
-    ].filter((ref): ref is string => typeof ref === 'string' && ref !== '');
-    const condition = edgeCondition(pre, refs, labels.get(edge.source) ?? '');
+      labels.get(edge.source) ?? ''
+    );
     if (condition) edge.condition = condition;
   }
 }
@@ -539,7 +538,7 @@ export function buildCanvasGraph(input: CanvasGraphInput): CanvasGraph {
     edges.push(...orderEdges(model));
   }
   edges.push(...routeEdges(nodes, resolve));
-  markConditionalEdges(model, names, nodes, edges);
+  markConditionalEdges(model, nodes, edges);
   if (model.dagType === 'agent') {
     // The steps are the actions of the agent: each hangs from its node, and
     // draws as a tool card.

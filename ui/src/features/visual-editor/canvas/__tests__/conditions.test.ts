@@ -78,25 +78,34 @@ describe('edgeCondition', () => {
         { condition: '${verify_1.exit_code}', expected: '0', negate: true },
       ],
     });
-    expect(edgeCondition(failed, ['verify_1'], 'verify_1')).toMatchObject({
+    expect(edgeCondition(failed, 'verify_1', 'verify_1')).toMatchObject({
       when: 'failed',
       step: 'verify_1',
     });
     const passed = pre({
+      preconditions: [{ condition: '${verify_1.exitCode}', expected: '0' }],
+    });
+    expect(edgeCondition(passed, 'verify_1', 'verify_1')?.when).toBe(
+      'succeeded'
+    );
+  });
+
+  // The server resolves `${id.field}` only: `${steps.id.field}` looks up a
+  // step whose id is "steps".
+  it('gives nothing for a reference that the server does not resolve', () => {
+    const prefixed = pre({
       preconditions: [
         { condition: '${steps.verify_1.exit_code}', expected: '0' },
       ],
     });
-    expect(edgeCondition(passed, ['verify_1'], 'verify_1')?.when).toBe(
-      'succeeded'
-    );
+    expect(edgeCondition(prefixed, 'verify_1', 'verify_1')).toBeUndefined();
   });
 
   it('reads another exit code and any other test of the step', () => {
     const exit = pre({
       preconditions: [{ condition: '${a.exit_code}', expected: '75' }],
     });
-    expect(edgeCondition(exit, ['a'], 'a')).toMatchObject({
+    expect(edgeCondition(exit, 'a', 'a')).toMatchObject({
       when: 'exit',
       value: '75',
     });
@@ -105,7 +114,7 @@ describe('edgeCondition', () => {
         { condition: '${a.stdout}', expected: 'ok', negate: true },
       ],
     });
-    expect(edgeCondition(match, ['a'], 'a')).toMatchObject({
+    expect(edgeCondition(match, 'a', 'a')).toMatchObject({
       when: 'match',
       value: 'stdout != ok',
     });
@@ -117,7 +126,7 @@ describe('edgeCondition', () => {
         { condition: '${a.exit_code}', expected: 're:^[12]$', negate: true },
       ],
     });
-    expect(edgeCondition(negated, ['a'], 'a')).toMatchObject({
+    expect(edgeCondition(negated, 'a', 'a')).toMatchObject({
       when: 'match',
       value: 'exit_code != re:^[12]$',
     });
@@ -127,9 +136,9 @@ describe('edgeCondition', () => {
     const other = pre({
       preconditions: [{ condition: '${b.exit_code}', expected: '0' }],
     });
-    expect(edgeCondition(other, ['a'], 'a')).toBeUndefined();
+    expect(edgeCondition(other, 'a', 'a')).toBeUndefined();
     expect(
-      edgeCondition(pre({ preconditions: 'x' }), ['a'], 'a')
+      edgeCondition(pre({ preconditions: 'x' }), 'a', 'a')
     ).toBeUndefined();
   });
 });
@@ -146,6 +155,7 @@ describe('the verify loop on the canvas', () => {
     makeStep({
       key: 'steps[1]',
       explicitName: 'verify_1',
+      id: 'verify_1',
       depends: ['code_1'],
       value: { run: 'x', continue_on: { failure: true } },
     }),
@@ -157,6 +167,19 @@ describe('the verify loop on the canvas', () => {
         action: 'agent.run',
         preconditions: [
           { condition: '${verify_1.exit_code}', expected: '0', negate: true },
+        ],
+      },
+    }),
+    // A reference by name: the server leaves it unresolved, so the test is
+    // always true and the link carries no condition.
+    makeStep({
+      key: 'steps[3]',
+      explicitName: 'code_3',
+      depends: ['code_2'],
+      value: {
+        run: 'y',
+        preconditions: [
+          { condition: '${code_2.exit_code}', expected: '0', negate: true },
         ],
       },
     }),
@@ -182,5 +205,6 @@ describe('the verify loop on the canvas', () => {
       step: 'verify_1',
     });
     expect(byId['depends:steps[0]->steps[1]']?.condition).toBeUndefined();
+    expect(byId['depends:steps[2]->steps[3]']?.condition).toBeUndefined();
   });
 });

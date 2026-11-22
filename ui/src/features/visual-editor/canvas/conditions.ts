@@ -105,36 +105,35 @@ export function readPreconditions(step: Rec): PreconditionView[] {
   });
 }
 
-const REFERENCE = /\$\{\s*(?:steps\.)?([^.}\s]+)\.([^}\s]+)\s*\}/g;
+const REFERENCE = /\$\{\s*([^.}\s]+)\.([^}\s]+)\s*\}/g;
+// The server reads both spellings of the exit code of a step.
+const EXIT_CODE_FIELDS = new Set(['exit_code', 'exitCode']);
 
 /**
  * The condition that the preconditions of a step put on the link from the
- * step `from`: the first precondition that reads `${from.field}`. `from` is
- * every name that the YAML can call the source: its name, its id. A test of
- * `exit_code` against 0 reads as "failed" or "succeeded", which is the
- * shape of a verify loop. Undefined when no precondition reads the source.
+ * step whose id is `sourceId`: the first precondition that reads
+ * `${sourceId.field}`. The server resolves a step reference by id only. A
+ * test of the exit code against 0 reads as "failed" or "succeeded", which is
+ * the shape of a verify loop. Undefined when no precondition reads the source.
  */
 export function edgeCondition(
   preconditions: readonly PreconditionView[],
-  from: readonly string[],
+  sourceId: string,
   label: string
 ): EdgeCondition | undefined {
   for (const pre of preconditions) {
     for (const match of (pre.condition ?? '').matchAll(REFERENCE)) {
       const [, ref, field] = match;
-      if (ref === undefined || field === undefined || !from.includes(ref)) {
+      if (ref !== sourceId || field === undefined) {
         continue;
       }
       const base = { step: label, negate: pre.negate, text: pre.text };
       const expected = pre.expected;
-      if (field === 'exit_code' && expected === '0') {
+      const exitCode = EXIT_CODE_FIELDS.has(field);
+      if (exitCode && expected === '0') {
         return { ...base, when: pre.negate ? 'failed' : 'succeeded' };
       }
-      if (
-        field === 'exit_code' &&
-        expected !== undefined &&
-        /^\d+$/.test(expected)
-      ) {
+      if (exitCode && expected !== undefined && /^\d+$/.test(expected)) {
         return { ...base, when: 'exit', value: expected };
       }
       return {
