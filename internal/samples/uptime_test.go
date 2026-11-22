@@ -675,6 +675,12 @@ func TestSeriesUp(t *testing.T) {
 	live = ahead.WithActive(t0.Add(5*time.Hour+10*time.Minute), last, now)
 	require.Equal(t, t0.Add(5*time.Hour), live.Buckets[len(live.Buckets)-1].Time)
 	require.Equal(t, 50*time.Minute, live.Buckets[len(live.Buckets)-1].Up)
+
+	// A window of no length gets no up time from a run in progress.
+	at := now.Add(-time.Hour)
+	empty, err := reader.Samples(ctx, SampleQuery{From: at, To: at, MaxPoints: 12})
+	require.NoError(t, err)
+	require.Empty(t, empty.WithActive(t0.Add(4*time.Hour), last, now).Buckets)
 }
 
 // A history with no up store has no up time, and a step never has it.
