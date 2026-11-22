@@ -1,0 +1,32 @@
+[
+  {
+    "name": "Tokyo production",
+    "description": "Racks A and B",
+    "defaults": {
+      "user": "deploy",
+      "key": { "secret": "ssh/tokyo" },
+      "labels": ["site=tokyo", "env=prod"]
+    },
+    "nodes": [
+      { "name": "tokyo-web01", "host": "10.0.1.11", "labels": ["web"] },
+      { "name": "tokyo-web02", "host": "10.0.1.12", "labels": ["web", "canary"] },
+      {
+        "name": "tokyo-db01",
+        "host": "db01.internal",
+        "port": 2222,
+        "user": "postgres",
+        "password": { "secret": "ssh/tokyo-db" },
+        "bastion": "tokyo-jump",
+        "labels": ["db", "env=dr"]
+      },
+      { "name": "tokyo-jump", "host": "jump.tokyo.example.com" }
+    ]
+  },
+  {
+    "name": "Osaka staging",
+    "defaults": { "labels": ["site=osaka", "ENV=Stg"] },
+    "nodes": [
+      { "name": "osaka-web01", "host": "10.1.0.11", "key": "~/.ssh/id_ed25519", "labels": ["web"], "disabled": true }
+    ]
+  }
+]
