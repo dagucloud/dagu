@@ -208,19 +208,35 @@ func (r *reader) Samples(ctx context.Context, q SampleQuery) (Series, error) {
 	for i := range aggs {
 		series.Buckets[i] = aggs[i].bucket()
 	}
-	if tier != TierRaw {
-		ups, err := newStore(filepath.Join(r.st.dir, upDirName)).upTier(ctx, tier, first, toS)
-		if err != nil {
-			return series, err
-		}
-		for _, u := range ups {
-			series.Buckets = addUp(series.Buckets, time.Unix(u.sec, 0).UTC(), time.Duration(u.ms)*time.Millisecond)
-		}
+	if err := r.addUps(ctx, &series, tier, first, toS); err != nil {
+		return series, err
 	}
 	if len(series.Buckets) > maxPoints {
 		series.Buckets = series.Buckets[len(series.Buckets)-maxPoints:]
 	}
 	return series, nil
+}
+
+// addUps adds the up time of the buckets of a tier with lo <= t < hi to a
+// series. A store with no recorded interval, such as the store of a step, has
+// none, and the up tiers are not read.
+func (r *reader) addUps(ctx context.Context, series *Series, tier Tier, lo, hi int64) error {
+	if tier == TierRaw {
+		return nil
+	}
+	up := newStore(filepath.Join(r.st.dir, upDirName))
+	since, err := readSince(up.dir)
+	if err != nil || since == 0 {
+		return err
+	}
+	ups, err := up.upTier(ctx, tier, lo, hi)
+	if err != nil {
+		return err
+	}
+	for _, u := range ups {
+		series.Buckets = addUp(series.Buckets, time.Unix(u.sec, 0).UTC(), time.Duration(u.ms)*time.Millisecond)
+	}
+	return nil
 }
 
 func (r *reader) Events(ctx context.Context, q EventQuery) (EventPage, error) {
