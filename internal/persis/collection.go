@@ -13,9 +13,8 @@ package persis
 
 import (
 	"context"
+	"strings"
 	"time"
-
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
 const (
@@ -49,11 +48,15 @@ const (
 )
 
 // SchedulerDAGRecordID names a DAG's record in the scheduler state
-// collection: the ended periods in which its slots could not run. The name is
-// escaped as the host stores it, so no two DAGs share a record.
+// collection: the ended periods in which its slots could not run. The name
+// is one segment of the ID on every host, and no two DAGs share a record.
 func SchedulerDAGRecordID(dag string) string {
-	return "dags/" + fileutil.EscapeName(dag)
+	return "dags/" + dagSegmentEscaper.Replace(dag)
 }
+
+// dagSegmentEscaper keeps a DAG name, which may name a subdirectory, to one
+// ID segment. The collection stores the segment as every host can.
+var dagSegmentEscaper = strings.NewReplacer("%", "%25", "/", "%2F")
 
 // Record is the storage primitive for collection-backed control-plane data.
 //
