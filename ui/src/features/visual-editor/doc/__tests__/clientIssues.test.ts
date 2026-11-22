@@ -150,6 +150,38 @@ describe.skipIf(realSchema === null)(
 describe.skipIf(realSchema === null)('collectClientIssues rules', () => {
   const step = (body: string) => `steps:\n${body}`;
 
+  // A field with one allowed value names it, for the quick fix. A value of
+  // one branch of a choice is not the only one: the message of the schema
+  // stays.
+  it('names the one value of a field, not the value of a branch', () => {
+    const format = issuesOf(
+      step(
+        '  - name: a\n    action: http.request\n    with:\n      url: https://example.com\n      format: xml\n'
+      )
+    ).find((issue) => issue.fieldPath === 'steps[0].with.format');
+    expect(format?.message).toBe('with.format must be "json".');
+
+    // Each branch of a choice names its own value: none is the only one.
+    const choice = issuesOf(step('  - name: a\n    mode: z\n'), {
+      schema: {
+        type: 'object',
+        definitions: {
+          step: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              mode: { oneOf: [{ const: 'a' }, { const: 'b' }] },
+            },
+          },
+        },
+      },
+    }).filter((issue) => issue.fieldPath === 'steps[0].mode');
+    expect(choice).not.toHaveLength(0);
+    for (const issue of choice) {
+      expect(issue.message).not.toMatch(/must be "a"\.$/);
+    }
+  });
+
   it('reports a wrong type of a field', () => {
     const issues = issuesOf(
       step('  - name: a\n    run: echo\n    timeout_sec: soon\n')
