@@ -74,6 +74,7 @@ type Runner struct {
 	materializations build.MaterializationStore
 	noReuse          bool
 	skipHandlers     bool
+	skipWaits        bool
 
 	// now and openRecorder are set by tests; nil uses the real ones.
 	now          func() time.Time
@@ -137,6 +138,7 @@ func New(cfg *Config) *Runner {
 		materializations:     cfg.MaterializationStore,
 		noReuse:              cfg.NoReuse,
 		skipHandlers:         cfg.SkipHandlers,
+		skipWaits:            cfg.SkipWaits,
 		openRecorder:         samples.OpenRecorder,
 		dagRunAutoRetryCount: cfg.DAGRunAutoRetryCount,
 		dagRunAutoRetryLimit: cfg.DAGRunAutoRetryLimit,
@@ -171,6 +173,10 @@ type Config struct {
 	// ExecutorOverride supplies the executors of the steps and handlers it
 	// covers in place of their actions. Nil runs every action.
 	ExecutorOverride ExecutorOverride
+	// SkipWaits runs retries, repeats, and steps without waiting for retry
+	// and repeat intervals, their backoff, or the DAG start delay. The order
+	// and number of executions are unchanged, and timeouts still apply.
+	SkipWaits bool
 
 	DAGRunAutoRetryCount int
 	DAGRunAutoRetryLimit int
@@ -526,7 +532,7 @@ func (r *Runner) runGraphLoop(ctx context.Context, plan *Plan, nodes []*Node, pr
 			}(node)
 
 			if r.delay > 0 {
-				waitForExecution(ctx, r.delay)
+				r.waitForExecution(ctx, r.delay)
 			}
 
 		case node := <-doneCh:
@@ -1950,7 +1956,7 @@ func (r *Runner) waitForRetry(ctx context.Context, node *Node, execErr error) bo
 		node.Step().RetryPolicy.MaxInterval,
 		node.GetRetryCount()-1, // -1 because the count includes this retry
 	)
-	if !waitForExecution(ctx, interval) || r.isCanceled() {
+	if !r.waitForExecution(ctx, interval) || r.isCanceled() {
 		node.SetStatus(ir.NodeAborted)
 		r.setLastError(execErr)
 		return false
@@ -2392,7 +2398,7 @@ func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressC
 	if cont != nil && cont.writeDue && cont.reportDue() {
 		r.report(ctx, progressCh, node)
 	}
-	if !waitForExecution(ctx, interval) {
+	if !r.waitForExecution(ctx, interval) {
 		node.SetStatus(ir.NodeAborted)
 		return
 	}
@@ -2406,7 +2412,12 @@ func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressC
 	}
 }
 
-func waitForExecution(ctx context.Context, duration time.Duration) bool {
+// waitForExecution waits for duration before the next execution, or not at
+// all when the runner skips waits. It reports false when ctx ends first.
+func (r *Runner) waitForExecution(ctx context.Context, duration time.Duration) bool {
+	if r.skipWaits {
+		return ctx.Err() == nil
+	}
 	timer := time.NewTimer(duration)
 	defer timer.Stop()
 	select {

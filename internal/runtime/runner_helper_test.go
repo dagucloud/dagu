@@ -297,6 +297,18 @@ func withSkipHandlers() runnerOption {
 	}
 }
 
+func withSkipWaits() runnerOption {
+	return func(cfg *runtime.Config) {
+		cfg.SkipWaits = true
+	}
+}
+
+func withDelay(d time.Duration) runnerOption {
+	return func(cfg *runtime.Config) {
+		cfg.Delay = d
+	}
+}
+
 func withOnSuccess(step ir.Step) runnerOption {
 	return func(cfg *runtime.Config) {
 		cfg.OnSuccess = &step

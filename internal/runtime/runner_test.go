@@ -3533,6 +3533,93 @@ func TestRunner_RepeatPolicyWithLimitAndCondition(t *testing.T) {
 	assert.Equal(t, "5", string(content))
 }
 
+// TestRunner_SkipWaits gives each wait an hour, so a run that ends within
+// runBound skipped it. The run timeout ends a run that waits, so a
+// regression fails instead of hanging.
+func TestRunner_SkipWaits(t *testing.T) {
+	const longWait = time.Hour
+	runBound := platformTestDuration(10*time.Second, time.Minute)
+	shortTimeout := platformTestDuration(200*time.Millisecond, time.Second)
+
+	t.Run("Retry", func(t *testing.T) {
+		counterFile := filepath.Join(t.TempDir(), "count")
+		r := setupRunner(t, withSkipWaits(), withTimeout(runBound))
+		// The script fails twice and then succeeds.
+		plan := r.newPlan(t, newStep("1",
+			withScript(counterThresholdExitScript(counterFile, 2, 1, 0)),
+			withRetryPolicy(2, longWait),
+			func(step *ir.Step) {
+				step.RetryPolicy.Backoff = 2
+				step.RetryPolicy.MaxInterval = longWait
+			},
+		))
+
+		start := time.Now()
+		result := plan.assertRun(t, ir.Succeeded)
+
+		assert.Less(t, time.Since(start), runBound)
+		assert.Equal(t, 2, result.nodeByName(t, "1").State().RetryCount)
+		assert.Equal(t, 3, readRepeatCounterValue(t, counterFile))
+	})
+
+	t.Run("Repeat", func(t *testing.T) {
+		counterFile := filepath.Join(t.TempDir(), "count")
+		r := setupRunner(t, withSkipWaits(), withTimeout(runBound))
+		plan := r.newPlan(t, newStep("1",
+			withScript(repeatCounterScript(counterFile, false)),
+			withRepeatPolicy(true, longWait),
+			func(step *ir.Step) {
+				step.RepeatPolicy.Limit = 3
+				step.RepeatPolicy.Backoff = 2
+				step.RepeatPolicy.MaxInterval = longWait
+			},
+		))
+
+		start := time.Now()
+		result := plan.assertRun(t, ir.Succeeded)
+
+		assert.Less(t, time.Since(start), runBound)
+		assert.Equal(t, 3, result.nodeByName(t, "1").State().DoneCount)
+		assert.Equal(t, 3, readRepeatCounterValue(t, counterFile))
+	})
+
+	t.Run("StartDelay", func(t *testing.T) {
+		r := setupRunner(t, withSkipWaits(), withTimeout(runBound), withDelay(longWait))
+		plan := r.newPlan(t, successStep("1"), successStep("2", "1"))
+
+		start := time.Now()
+		result := plan.assertRun(t, ir.Succeeded)
+
+		assert.Less(t, time.Since(start), runBound)
+		result.assertNodeStatus(t, "1", ir.NodeSucceeded)
+		result.assertNodeStatus(t, "2", ir.NodeSucceeded)
+	})
+
+	// The commands outlast runBound, so a timeout that does not fire fails
+	// the run status assertion.
+	t.Run("StepTimeout", func(t *testing.T) {
+		r := setupRunner(t, withSkipWaits())
+		plan := r.newPlan(t, newStep("1",
+			withCommand(test.Sleep(2*runBound)),
+			withStepTimeout(shortTimeout),
+		))
+
+		result := plan.assertRun(t, ir.Failed)
+
+		result.assertNodeStatus(t, "1", ir.NodeFailed)
+		assert.Equal(t, 124, result.nodeByName(t, "1").State().ExitCode)
+	})
+
+	t.Run("RunTimeout", func(t *testing.T) {
+		r := setupRunner(t, withSkipWaits(), withTimeout(shortTimeout))
+		plan := r.newPlan(t, newStep("1", withCommand(test.Sleep(2*runBound))))
+
+		result := plan.assertRun(t, ir.Failed)
+
+		result.assertNodeStatus(t, "1", ir.NodeAborted)
+	})
+}
+
 func TestRunner_ComplexRetryScenarios(t *testing.T) {
 	t.Run("RetryWithSignalTermination", func(t *testing.T) {
 		r := setupRunner(t)
