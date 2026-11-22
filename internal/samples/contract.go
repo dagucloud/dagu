@@ -45,7 +45,9 @@ type Sample struct {
 	// ActiveGap is the longest time from the end of the previous sample to the
 	// start of this one that counts as active time in the uptime. A longer gap
 	// is not active. Zero counts no gap. The first interval of a history has no
-	// gap before it. Only a run history records uptime.
+	// gap before it. Only a run history records uptime. The recorder applies
+	// it when it records the sample, and the buckets keep the result: a later
+	// change of the tolerance leaves the stored uptime as it is.
 	ActiveGap time.Duration
 }
 

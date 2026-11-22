@@ -139,7 +139,11 @@
 // Sample.ActiveGap above zero counts the gap before a sample as active time,
 // when the gap is not longer than ActiveGap and an interval is already
 // recorded. The gap is from the end of the newest interval to the start of the
-// sample. The stored buckets hold the result, so a reader needs no tolerance.
+// sample. The stored buckets hold the result, so a reader needs no tolerance
+// and reads a bucket once. The cost is that the tolerance is fixed when a
+// sample is recorded: after a change of restart_wait_sec, the new tolerance
+// applies to the next samples only, and the stored uptime is not computed
+// again.
 //
 // Record returns an error that wraps ErrSampleKept when it kept the sample but
 // a write after it failed, so that a caller does not record the sample again.
