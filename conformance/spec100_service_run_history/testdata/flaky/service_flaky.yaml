@@ -1,0 +1,7 @@
+# The step fails while the file fail.flag exists in the folder of this file.
+restart_policy: always
+restart_wait_sec: 1
+working_dir: .
+steps:
+  - id: check
+    run: test ! -e fail.flag
