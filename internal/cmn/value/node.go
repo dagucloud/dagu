@@ -120,12 +120,12 @@ func (n *BoundNode) labelsText() string {
 	return strings.Join(labels, ",")
 }
 
-// MissingNodeLabel returns the first label key that raw reads as
-// ${node.labels.<key>} and node lacks. A bound run fails on it before any
-// step starts, since the text would otherwise fail later and less clearly on
-// the node.
-func MissingNodeLabel(raw string, node *BoundNode) error {
-	for _, ref := range scanReferences(raw, true) {
+// CheckNodeReferences returns an error for the first label key that raw,
+// read as a value of the field, reads as ${node.labels.<key>} and node lacks.
+// A bound run fails on it before any step starts, since the text would
+// otherwise fail later and less clearly on the node.
+func (f Field) CheckNodeReferences(raw string, node *BoundNode) error {
+	for _, ref := range scanReferences(raw, f.escapesDollar()) {
 		if ref.Kind != referenceStrict || ref.Namespace != "node" {
 			continue
 		}

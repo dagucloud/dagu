@@ -100,7 +100,7 @@ func (a *Agent) lookupBoundNode(ctx context.Context) (*nodeBinding, error) {
 			return nil, fmt.Errorf("bastion %q of node %q is not in the project's inventories", node.Bastion, node.Name)
 		}
 	}
-	if err := missingNodeLabel(a.dag, binding.valueNode()); err != nil {
+	if err := checkNodeReferences(a.dag, binding.valueNode()); err != nil {
 		return nil, err
 	}
 	return binding, nil
@@ -126,12 +126,13 @@ func (b *nodeBinding) valueNode() *cmnvalue.BoundNode {
 	}
 }
 
-// missingNodeLabel fails a run that reads a label its node lacks, naming the
-// node and the key. It reads the fields of dag that resolve values, as
-// stored, so text such as a description is not checked.
-func missingNodeLabel(dag *ir.DAG, node *cmnvalue.BoundNode) error {
+// checkNodeReferences fails a run that reads a label its node lacks, naming
+// the node and the key. It reads the fields of dag that resolve values, as
+// stored and by each field's rules, so text such as a description is not
+// checked.
+func checkNodeReferences(dag *ir.DAG, node *cmnvalue.BoundNode) error {
 	for _, field := range spec.ReferenceFields(dag) {
-		if err := cmnvalue.MissingNodeLabel(field.Value, node); err != nil {
+		if err := field.Field.CheckNodeReferences(field.Value, node); err != nil {
 			return err
 		}
 	}

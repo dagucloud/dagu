@@ -169,6 +169,13 @@ func TestAgent_BoundRunFailsBeforeAnyStep(t *testing.T) {
 			wantErr: `node "web01" has no label "zone"`,
 		},
 		{
+			// A backslash in a path field separates the path, so the
+			// reference resolves and is checked.
+			name:    "MissingLabelInPath",
+			yaml:    "node: required\nsteps:\n  - id: restart\n    run: systemctl restart app\n    stdout: 'C:\\logs\\${node.labels.zone}.log'\n",
+			wantErr: `node "web01" has no label "zone"`,
+		},
+		{
 			name:    "NotInInventory",
 			yaml:    "node: required\nsteps:\n  - id: restart\n    run: systemctl restart app\n",
 			node:    func(n *inventory.ResolvedNode) { n.Name = "web02" },

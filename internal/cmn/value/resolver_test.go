@@ -896,8 +896,10 @@ func TestResolverNode(t *testing.T) {
 		require.NoError(t, err, ref)
 		assert.Equal(t, want, got, ref)
 	}
-	assert.EqualError(t, value.MissingNodeLabel("restart ${node.labels.role} ${node.labels.zone}", node), `node "web01" has no label "zone"`)
-	assert.NoError(t, value.MissingNodeLabel(`${node.labels."gpu.type"} \${node.labels.zone}`, node))
+	assert.EqualError(t, field.CheckNodeReferences("restart ${node.labels.role} ${node.labels.zone}", node), `node "web01" has no label "zone"`)
+	assert.NoError(t, field.CheckNodeReferences(`${node.labels."gpu.type"} \${node.labels.zone}`, node))
+	// A backslash in a path field separates the path, so the reference is read.
+	assert.EqualError(t, value.StepArtifactOutputField("steps[0].stdout").CheckNodeReferences(`C:\logs\${node.labels.zone}.log`, node), `node "web01" has no label "zone"`)
 
 	var collector value.ValueReferenceNoticeCollector
 	unbound := value.NewResolver(value.StaticScope{}, value.RuntimeScope{}, value.WithValueReferenceNotices(&collector))
