@@ -233,8 +233,10 @@ Rules:
   buckets of a tier is the same in each tier that still keeps them.
 - A tier keeps only the buckets that are inside its retention: 7 days for the minute tier and 30 days
   for the hour tier. The day tier has no limit.
-- The scheduler counts the time that is not yet counted. When two runs overlap, the history counts
-  their union, and never more than the length of a bucket.
+- The scheduler counts the time that is not yet counted: a run counts from the later of its start
+  and the end of the newest recorded run. Two runs that overlap count their union, unless the run
+  that started later ends first. The run that started first then loses its time before the start
+  of the other run. No time counts twice, and a bucket never holds more than its length.
 - The scheduler counts a restart gap as active time when it records the run that ends the gap. It
   gives the gap to the buckets in the same way as the time of a run. The first run of the history
   has no gap before it.
@@ -267,8 +269,9 @@ Rules for the reader:
 - A bucket that has active time and no sample is in the response. It has `count` 0, `failures` 0
   and `upMs`. A history with no `up` directory gives no `upMs`.
 - The run in progress adds its active time to the buckets that it covers, up to the end of the
-  query. It starts at the later of its start and the end of the newest recorded run, so the stored
-  time is not counted twice. The store has no line for the run in progress, because the scheduler
+  query. It starts at the later of its start and the end of the newest recorded run, as the
+  scheduler counts it when the run ends. The stored time is not counted twice, and the uptime does
+  not drop when the run ends. The store has no line for the run in progress, because the scheduler
   writes the active time when the run ends. The server adds the live part at the time of the query.
 - The live part and the uptime of the window use the same start. `upMs` is never more than the
   width of the bucket.
