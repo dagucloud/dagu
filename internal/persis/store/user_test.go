@@ -561,6 +561,43 @@ func TestUserIndexRebuildRejectsDuplicateTrustedProxyIdentity(t *testing.T) {
 	assert.ErrorIs(t, err, auth.ErrTrustedProxyIdentityAlreadyExists)
 }
 
+func TestUserListCollapsesDuplicateUsername(t *testing.T) {
+	ctx := context.Background()
+	col := testutil.NewMemoryBackend().Collection("users")
+
+	// An earlier upgrade left two records for the same username: the original
+	// pre-workspace admin and the migrated admin.
+	writeUser := func(u *auth.User) {
+		t.Helper()
+		data, err := persis.Encode(u.ToStorage())
+		require.NoError(t, err)
+		require.NoError(t, col.Put(ctx, &persis.Record{
+			ID: u.ID, Data: data, CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
+		}))
+	}
+
+	older := newUser("admin")
+	older.ID = "id-admin-pre-workspace"
+	older.CreatedAt = time.Now().UTC().Add(-2 * time.Hour)
+	older.UpdatedAt = older.CreatedAt
+	writeUser(older)
+
+	newer := newUser("admin")
+	newer.ID = "id-admin-current"
+	newer.CreatedAt = time.Now().UTC().Add(-time.Hour)
+	newer.UpdatedAt = newer.CreatedAt
+	writeUser(newer)
+
+	s, err := store.NewUserStore(col)
+	require.NoError(t, err)
+
+	users, err := s.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, users, 1)
+	assert.Equal(t, "id-admin-current", users[0].ID)
+	assert.Equal(t, "admin", users[0].Username)
+}
+
 type failingUserCollection struct {
 	persis.Collection
 	putErr    error
