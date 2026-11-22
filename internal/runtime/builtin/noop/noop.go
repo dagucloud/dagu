@@ -28,5 +28,5 @@ func (*noopExecutor) Kill(_ os.Signal) error { return nil }
 func (*noopExecutor) Run(_ context.Context) error { return nil }
 
 func init() {
-	executor.RegisterExecutor("noop", newNoop, nil, registry.ExecutorCapabilities{})
+	executor.RegisterExecutor("noop", newNoop, nil, registry.ExecutorCapabilities{SideEffectFree: true})
 }

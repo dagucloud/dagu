@@ -55,6 +55,11 @@ type ExecutorCapabilities struct {
 	// PathInputs lists the with keys whose values name filesystem paths. A
 	// backslash in those values is path text, never a Dagu escape marker.
 	PathInputs []string
+	// SideEffectFree indicates whether the executor reads only its resolved
+	// with fields and the run's values, and writes only its stdout, stderr,
+	// and outputs. A workflow test runs such an action for real unless the
+	// test mocks it.
+	SideEffectFree bool
 }
 
 // executorCapabilitiesRegistry is a typed registry of executor capabilities.

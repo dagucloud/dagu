@@ -95,5 +95,5 @@ var configSchema = &jsonschema.Schema{
 
 func init() {
 	registry.RegisterExecutorConfigSchema(executorType, configSchema)
-	executor.RegisterExecutor(executorType, newLog, validateLogStep, registry.ExecutorCapabilities{})
+	executor.RegisterExecutor(executorType, newLog, validateLogStep, registry.ExecutorCapabilities{SideEffectFree: true})
 }
