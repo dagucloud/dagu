@@ -254,6 +254,9 @@ func TestLoad_Env(t *testing.T) {
 		},
 		OpenCode: OpenCodeConfig{Executable: "opencode", EnvPassthrough: []string{}},
 		Browser:  BrowserConfig{SlotsDir: userBrowserSlotsDir(t)},
+		// The defaults of the blocks agent_tools and ai have their own tests.
+		AgentTools: cfg.AgentTools,
+		AI:         cfg.AI,
 		Server: Server{
 			Host:         "test.example.com",
 			Port:         9876,
@@ -375,10 +378,11 @@ func TestLoad_Env(t *testing.T) {
 			WorkerWaitTimeout: 90 * time.Second,
 		},
 		Worker: Worker{
-			ID:              "test-worker-123",
-			MaxActiveRuns:   200,
-			HealthPort:      50102,
-			ShutdownTimeout: 60 * time.Second,
+			ID:                  "test-worker-123",
+			MaxActiveRuns:       200,
+			MaxActiveRunsSource: "env:DAGU_WORKER_MAX_ACTIVE_RUNS",
+			HealthPort:          50102,
+			ShutdownTimeout:     60 * time.Second,
 			PostgresPool: PostgresPoolConfig{
 				MaxOpenConns:    25,
 				MaxIdleConns:    5,
@@ -1081,6 +1085,9 @@ scheduler:
 		},
 		OpenCode: OpenCodeConfig{Executable: "opencode", EnvPassthrough: []string{}},
 		Browser:  BrowserConfig{SlotsDir: userBrowserSlotsDir(t)},
+		// The defaults of the blocks agent_tools and ai have their own tests.
+		AgentTools: cfg.AgentTools,
+		AI:         cfg.AI,
 		Server: Server{
 			Host:              "0.0.0.0",
 			Port:              9090,
@@ -1218,10 +1225,11 @@ scheduler:
 			WorkerWaitTimeout: 2 * time.Minute,
 		},
 		Worker: Worker{
-			ID:              "worker-1",
-			MaxActiveRuns:   50,
-			HealthPort:      8092,
-			ShutdownTimeout: 60 * time.Second,
+			ID:                  "worker-1",
+			MaxActiveRuns:       50,
+			MaxActiveRunsSource: "file",
+			HealthPort:          8092,
+			ShutdownTimeout:     60 * time.Second,
 			Labels: map[string]string{
 				"env":    "production",
 				"region": "us-west-2",
