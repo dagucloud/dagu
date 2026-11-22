@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -49,17 +50,27 @@ func (failingLeases) ListAll(context.Context) ([]dispatch.DAGRunLease, error) {
 
 // fakeRuns reads runs' statuses by run ID, and records which it opened.
 type fakeRuns struct {
+	mu       sync.Mutex
 	statuses map[string]*ir.DAGRunStatus
 	opened   []string
 }
 
 func (r *fakeRuns) FindAttempt(_ context.Context, ref ir.DAGRunRef) (dagrun.Attempt, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.opened = append(r.opened, ref.ID)
 	status, ok := r.statuses[ref.ID]
 	if !ok {
 		return nil, dagrun.ErrDAGRunIDNotFound
 	}
 	return &testutil.MockAttempt{Status: status}, nil
+}
+
+// openedRuns returns the run IDs opened so far, in order.
+func (r *fakeRuns) openedRuns() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.opened)
 }
 
 func newTestQueueStore(t *testing.T) *store.QueueStore {

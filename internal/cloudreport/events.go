@@ -31,11 +31,12 @@ const (
 	eventCheckInterval = 5 * time.Second
 	maxFinishedRuns    = 500
 	// maxFinishedBytes bounds the encoded finished runs of one report. With
-	// at most maxActiveRuns runs in progress, about 250 KiB, the report
-	// stays under the 1 MiB that Dagu Console accepts.
+	// at most maxActiveRuns runs in progress, about 250 KiB, and their steps,
+	// at most maxActiveStepsBytes, the report stays under the 2 MiB that
+	// Dagu Console accepts.
 	maxFinishedBytes = 512 << 10
 	maxFailedSteps   = 50
-	// maxStepNameBytes is the longest failed step name Dagu Console keeps.
+	// maxStepNameBytes is the longest step name Dagu Console keeps.
 	maxStepNameBytes = 512
 	// maxRunErrors and maxErrorBytes bound the errors a finished run carries
 	// at the errors level, as Dagu Console keeps them.
@@ -43,8 +44,9 @@ const (
 	maxErrorBytes = 2048
 	// maxNameBytes and maxIDBytes are the longest DAG name and run or
 	// attempt ID Dagu Console keeps; reports leave out a run with a longer
-	// one. With them, a finished run encodes to about 41 KiB at most, and
-	// about 245 KiB even if JSON escapes every byte: always inside a batch.
+	// one. With them and its steps, a finished run encodes to about 73 KiB
+	// at most, and about 277 KiB even if JSON escapes every byte: always
+	// inside a batch.
 	maxNameBytes = 512
 	maxIDBytes   = 256
 	// caughtUpSaveInterval is how often an idle reporter records that it has
@@ -85,6 +87,9 @@ type Events struct {
 	// events: when the reporter starts without a saved list of them, and
 	// after events were lost. It must be set when Reader is.
 	Statuses RunStatuses
+	// Runs reads the steps of the runs in progress. A nil Runs sends them
+	// without steps.
+	Runs RunFinder
 }
 
 // StateStore persists encoded reporter state.
@@ -136,6 +141,10 @@ type finishedRun struct {
 	// Errors say why the run failed; reports carry them only at the errors
 	// level.
 	Errors []stepError `json:"errors,omitempty"`
+	// Steps are the run's first steps in run order, and StepsTotal counts
+	// them all.
+	Steps      []reportedStep `json:"steps,omitempty"`
+	StepsTotal int            `json:"steps_total,omitempty"`
 }
 
 // stepError is why a run failed: a failed step's error, or the run's own
@@ -194,6 +203,7 @@ func newReportedEvent(event *eventstore.Event) (reportedEvent, bool) {
 			FinishedAt:  finishedAt,
 			FailedSteps: failedSteps(status),
 		}
+		reported.finished.Steps, reported.finished.StepsTotal = runSteps(status)
 		if runFailed(status.Status) {
 			reported.finished.Errors = runErrors(status)
 		}
@@ -384,6 +394,7 @@ type eventFeed struct {
 	stale         StateStore
 	lease         Lease
 	statuses      RunStatuses
+	steps         *stepReader
 	now           func() time.Time
 	// spawn runs a rebuild in the background.
 	spawn func(func())
@@ -426,6 +437,7 @@ func newEventFeed(events Events) *eventFeed {
 		stale:         events.Stale,
 		lease:         events.Lease,
 		statuses:      events.Statuses,
+		steps:         &stepReader{runs: events.Runs},
 		now:           time.Now,
 		spawn:         func(fn func()) { go fn() },
 	}
@@ -735,9 +747,9 @@ func (f *eventFeed) reports() bool {
 	return f != nil && f.loaded
 }
 
-// fill adds the prepared finished runs, the runs in progress, and any gap to
-// req.
-func (f *eventFeed) fill(req *reportRequest) {
+// fill adds the prepared finished runs, the runs in progress with their
+// steps, and any gap to req.
+func (f *eventFeed) fill(ctx context.Context, req *reportRequest) {
 	if f == nil || !f.loaded {
 		return
 	}
@@ -760,7 +772,7 @@ func (f *eventFeed) fill(req *reportRequest) {
 	f.sentActive = f.activeReport()
 	if f.sentActive.known {
 		total := f.sentActive.total
-		req.Active, req.ActiveTotal = f.sentActive.runs, &total
+		req.Active, req.ActiveTotal = f.steps.entries(ctx, f.sentActive.runs, f.now()), &total
 	}
 }
 
