@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net"
@@ -321,7 +322,7 @@ func TestHTTPServerTextLeftOutOfStderr(t *testing.T) {
 			defer server.Close()
 
 			stderr := runHTTPUntilLogged(t, newHTTPWait(t, map[string]any{"url": server.URL + "/ready"}))
-			require.Equal(t, "wait: http GET request failed: details left out, they may quote the server's response\n", stderr)
+			require.Equal(t, "wait: http GET request failed: details left out, they may contain the URL or response text\n", stderr)
 		})
 	}
 }
@@ -740,4 +741,36 @@ func TestExecutorRunStopsWhenContextIsCanceled(t *testing.T) {
 	cancel()
 
 	require.ErrorIs(t, exec.Run(ctx), context.Canceled)
+}
+
+func TestRequestErrorClearsNestedLocalAddress(t *testing.T) {
+	t.Parallel()
+
+	newErr := func(port int) error {
+		inner := &net.OpError{
+			Op:     "read",
+			Net:    "tcp",
+			Source: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port},
+			Addr:   &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 61431},
+			Err:    errors.New("connection reset by peer"),
+		}
+		return &net.OpError{Op: "proxyconnect", Net: "tcp", Err: inner}
+	}
+
+	first, second := requestError(newErr(61432)), requestError(newErr(61433))
+	require.Equal(t, first, second)
+	require.NotContains(t, first, "61432")
+}
+
+func TestHTTPClientSideErrorNotBlamedOnServer(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	defer server.Close()
+
+	stderr := runHTTPUntilLogged(t, newHTTPWait(t, map[string]any{
+		"url":     server.URL,
+		"headers": map[string]any{"Authorization": "Bearer abc\n"},
+	}))
+	require.NotContains(t, stderr, "server")
 }

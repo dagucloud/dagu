@@ -318,10 +318,7 @@ func (e *executorImpl) waitHTTP(ctx context.Context) error {
 // line). So only errors whose text holds at most a host and port are printed.
 func requestError(err error) string {
 	if opErr, ok := errors.AsType[*net.OpError](err); ok {
-		// The local address holds an ephemeral port that changes on every poll.
-		op := *opErr
-		op.Source = nil
-		return op.Error()
+		return withoutSource(opErr).Error()
 	}
 	if tlsErr, ok := errors.AsType[*tls.CertificateVerificationError](err); ok {
 		return tlsErr.Error()
@@ -334,7 +331,19 @@ func requestError(err error) string {
 			return known.Error()
 		}
 	}
-	return "details left out, they may quote the server's response"
+	return "details left out, they may contain the URL or response text"
+}
+
+// withoutSource copies opErr and every *net.OpError nested in it with the
+// local address cleared. It holds an ephemeral port that changes on every
+// poll, and an https:// proxy nests the failing error inside another one.
+func withoutSource(opErr *net.OpError) *net.OpError {
+	op := *opErr
+	op.Source = nil
+	if inner, ok := op.Err.(*net.OpError); ok {
+		op.Err = withoutSource(inner)
+	}
+	return &op
 }
 
 // viaProxy names the proxy req goes through, if any, without its credentials.
