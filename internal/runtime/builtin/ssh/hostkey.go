@@ -24,9 +24,10 @@ type NodeHostKey struct {
 	Node string
 	// Pinned is the node's host_key in authorized_keys form, or empty.
 	Pinned string
-	// Strict refuses a key that is neither pinned nor trusted. Otherwise any
-	// key is accepted.
-	Strict bool
+	// AcceptAnyKey accepts whatever key the server presents, as
+	// strict_host_key: false asks. Otherwise a key that is neither pinned nor
+	// trusted is refused.
+	AcceptAnyKey bool
 	// Trusted finds the key a user trusted for the node. Nil trusts none.
 	Trusted TrustedHostKeys
 }
@@ -105,7 +106,7 @@ func (p hostKeyPolicy) handshake(cfg *ssh.ClientConfig, dial func(*ssh.ClientCon
 // the client sends any credential, so a key the policy refuses ends the
 // connection with no credential sent.
 func (k *NodeHostKey) policy(ctx context.Context, hop string) (hostKeyPolicy, error) {
-	if !k.Strict {
+	if k.AcceptAnyKey {
 		return hostKeyPolicy{callback: ssh.InsecureIgnoreHostKey()}, nil //nolint:gosec // strict_host_key: false opts out.
 	}
 	check := &hostKeyCheck{hop: hop, node: k.Node}

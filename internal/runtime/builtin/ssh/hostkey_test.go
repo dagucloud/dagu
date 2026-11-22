@@ -89,8 +89,9 @@ func requireHostKeyError(t *testing.T, err error) *hostKeyError {
 	return hostKeyErr
 }
 
-// A strict node connection refuses a key that is neither the node's pinned
-// key nor its trusted key, and the server sees no credential.
+// A node connection refuses a key that is neither the node's pinned key nor
+// its trusted key, unless it accepts any key, and the server sees no
+// credential.
 func TestNodeHostKeyRefusedBeforeCredentials(t *testing.T) {
 	t.Parallel()
 
@@ -103,27 +104,27 @@ func TestNodeHostKeyRefusedBeforeCredentials(t *testing.T) {
 		{
 			name: "Unknown",
 			hostKey: func(*harness.SSHServer) *NodeHostKey {
-				return &NodeHostKey{Node: "web01", Strict: true, Trusted: trustedKeys{}}
+				return &NodeHostKey{Node: "web01", Trusted: trustedKeys{}}
 			},
 		},
 		{
 			name: "TrustedKeyChanged",
 			hostKey: func(*harness.SSHServer) *NodeHostKey {
-				return &NodeHostKey{Node: "web01", Strict: true, Trusted: trustedKeys{"web01": other}}
+				return &NodeHostKey{Node: "web01", Trusted: trustedKeys{"web01": other}}
 			},
 			expected: []string{gossh.FingerprintSHA256(other)},
 		},
 		{
 			name: "PinnedKeyChanged",
 			hostKey: func(*harness.SSHServer) *NodeHostKey {
-				return &NodeHostKey{Node: "web01", Strict: true, Pinned: authorizedKey(other)}
+				return &NodeHostKey{Node: "web01", Pinned: authorizedKey(other)}
 			},
 			expected: []string{gossh.FingerprintSHA256(other)},
 		},
 		{
 			name: "KeyTrustedForAnotherNode",
 			hostKey: func(server *harness.SSHServer) *NodeHostKey {
-				return &NodeHostKey{Node: "web01", Strict: true, Trusted: trustedKeys{"web02": server.HostKey}}
+				return &NodeHostKey{Node: "web01", Trusted: trustedKeys{"web02": server.HostKey}}
 			},
 		},
 	}
@@ -154,13 +155,13 @@ func TestNodeHostKeyAccepted(t *testing.T) {
 		{
 			name: "Pinned",
 			hostKey: func(server *harness.SSHServer) *NodeHostKey {
-				return &NodeHostKey{Node: "web01", Strict: true, Pinned: authorizedKey(server.HostKey)}
+				return &NodeHostKey{Node: "web01", Pinned: authorizedKey(server.HostKey)}
 			},
 		},
 		{
 			name: "Trusted",
 			hostKey: func(server *harness.SSHServer) *NodeHostKey {
-				return &NodeHostKey{Node: "web01", Strict: true, Trusted: trustedKeys{"web01": server.HostKey}}
+				return &NodeHostKey{Node: "web01", Trusted: trustedKeys{"web01": server.HostKey}}
 			},
 		},
 		{
@@ -169,15 +170,15 @@ func TestNodeHostKeyAccepted(t *testing.T) {
 			name: "TrustedBesidePinned",
 			hostKey: func(server *harness.SSHServer) *NodeHostKey {
 				return &NodeHostKey{
-					Node: "web01", Strict: true, Pinned: authorizedKey(newPublicKey(t)),
+					Node: "web01", Pinned: authorizedKey(newPublicKey(t)),
 					Trusted: trustedKeys{"web01": server.HostKey},
 				}
 			},
 		},
 		{
-			name: "NotStrict",
+			name: "AcceptAnyKey",
 			hostKey: func(*harness.SSHServer) *NodeHostKey {
-				return &NodeHostKey{Node: "web01", Trusted: trustedKeys{}}
+				return &NodeHostKey{Node: "web01", AcceptAnyKey: true, Trusted: trustedKeys{}}
 			},
 		},
 	}
@@ -243,11 +244,11 @@ func TestNodeHostKeyThroughBastion(t *testing.T) {
 			err := connect(t, &Config{
 				Host:        "127.0.0.1",
 				Port:        target.Port,
-				NodeHostKey: &NodeHostKey{Node: "web01", Strict: true, Trusted: trusted},
+				NodeHostKey: &NodeHostKey{Node: "web01", Trusted: trusted},
 				Bastion: &BastionConfig{
 					Host:        "127.0.0.1",
 					Port:        bastion.Port,
-					NodeHostKey: &NodeHostKey{Node: "jump", Strict: true, Trusted: trusted},
+					NodeHostKey: &NodeHostKey{Node: "jump", Trusted: trusted},
 				},
 			})
 
@@ -269,7 +270,7 @@ func TestNodeHostKeyBastionNamesNoNode(t *testing.T) {
 	_, err := NewClient(context.Background(), &Config{
 		Host:        "127.0.0.1",
 		SSHAuth:     ir.SSHAuth{Password: testPassword},
-		NodeHostKey: &NodeHostKey{Node: "web01", Strict: true},
+		NodeHostKey: &NodeHostKey{Node: "web01"},
 		Bastion:     &BastionConfig{Host: "127.0.0.1", SSHAuth: ir.SSHAuth{Password: testPassword}},
 	})
 
@@ -288,7 +289,7 @@ func TestNodeHostKeyServerWithSeveralKeys(t *testing.T) {
 	ecdsaHost := newECDSASigner(t)
 	outdatedECDSA := newECDSASigner(t).PublicKey()
 	outdatedPin := &NodeHostKey{
-		Node: "web01", Strict: true, Pinned: authorizedKey(outdatedECDSA),
+		Node: "web01", Pinned: authorizedKey(outdatedECDSA),
 		Trusted: trustedKeys{"web01": ed25519Host.PublicKey()},
 	}
 	tests := []struct {
@@ -301,7 +302,7 @@ func TestNodeHostKeyServerWithSeveralKeys(t *testing.T) {
 			// ECDSA key unless the client asks for the trusted type.
 			name:       "Trusted",
 			serverKeys: []gossh.Signer{ecdsaHost, ed25519Host},
-			hostKey:    &NodeHostKey{Node: "web01", Strict: true, Trusted: trustedKeys{"web01": ed25519Host.PublicKey()}},
+			hostKey:    &NodeHostKey{Node: "web01", Trusted: trustedKeys{"web01": ed25519Host.PublicKey()}},
 		},
 		{
 			name:       "OutdatedPinBesideTrusted",
@@ -317,7 +318,7 @@ func TestNodeHostKeyServerWithSeveralKeys(t *testing.T) {
 			name:       "OutdatedTrustBesidePin",
 			serverKeys: []gossh.Signer{ecdsaHost, ed25519Host},
 			hostKey: &NodeHostKey{
-				Node: "web01", Strict: true, Pinned: authorizedKey(ed25519Host.PublicKey()),
+				Node: "web01", Pinned: authorizedKey(ed25519Host.PublicKey()),
 				Trusted: trustedKeys{"web01": outdatedECDSA},
 			},
 		},
@@ -359,12 +360,12 @@ func TestNodeHostKeyServerWithSeveralKeysThroughBastion(t *testing.T) {
 				Host: target.host,
 				Port: target.port,
 				NodeHostKey: &NodeHostKey{
-					Node: "web01", Strict: true, Pinned: authorizedKey(newECDSASigner(t).PublicKey()), Trusted: trusted,
+					Node: "web01", Pinned: authorizedKey(newECDSASigner(t).PublicKey()), Trusted: trusted,
 				},
 				Bastion: &BastionConfig{
 					Host:        "127.0.0.1",
 					Port:        bastion.Port,
-					NodeHostKey: &NodeHostKey{Node: "jump", Strict: true, Trusted: trusted},
+					NodeHostKey: &NodeHostKey{Node: "jump", Trusted: trusted},
 				},
 			})
 
@@ -385,7 +386,7 @@ func TestNodeHostKeyServerHoldsNoExpectedType(t *testing.T) {
 
 	err := connect(t, &Config{
 		Host: server.host, Port: server.port,
-		NodeHostKey: &NodeHostKey{Node: "web01", Strict: true, Trusted: trustedKeys{"web01": trusted}},
+		NodeHostKey: &NodeHostKey{Node: "web01", Trusted: trustedKeys{"web01": trusted}},
 	})
 
 	hostKeyErr := requireHostKeyError(t, err)
@@ -420,7 +421,7 @@ func TestNodeHostKeyRSACertificateWithoutSHA1(t *testing.T) {
 
 	err = connect(t, &Config{
 		Host: server.host, Port: server.port,
-		NodeHostKey: &NodeHostKey{Node: "web01", Strict: true, Pinned: authorizedKey(cert)},
+		NodeHostKey: &NodeHostKey{Node: "web01", Pinned: authorizedKey(cert)},
 	})
 
 	require.NoError(t, err)
