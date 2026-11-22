@@ -388,6 +388,21 @@ describe('DependencyEdge', () => {
     expect(getByTestId('ve-canvas-edge-label')).toHaveTextContent('fail*');
   });
 
+  // The pattern is what a reader needs from a route: only its own maximum
+  // width cuts it, never the gap between the cards.
+  it('does not cut a route pattern at the gap between the cards in LR', () => {
+    const { getByTestId } = renderEdge(
+      <DependencyEdge
+        {...edgeProps(
+          { kind: 'route', label: 're:^(error|failed|timeout)$' },
+          {},
+          { sourceX: 100, targetX: 196 }
+        )}
+      />
+    );
+    expect(getByTestId('ve-canvas-edge-label').style.maxWidth).toBe('');
+  });
+
   // In a left-to-right layout a long pattern at the middle of a short edge
   // sat on the diamond of the router: the label stays between the nodes.
   it('keeps the pattern label clear of the source node in LR', () => {

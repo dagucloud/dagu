@@ -96,11 +96,11 @@ function DependencyEdgeComponent({
   // The pattern sits beside the middle of the edge, away from the buttons. In
   // a left-to-right layout the label is as wide as its text: its centre stays
   // between the two nodes, so that it covers neither the diamond of the
-  // router nor the card that the edge reaches. A label wider than the link
-  // wraps (a condition) or is cut (a pattern) at the width of the link.
+  // router nor the card that the edge reaches. A condition label wider than
+  // the link wraps at the width of the link.
   const maxHalf = condition ? CONDITION_MAX_HALF : LABEL_MAX_HALF;
   const room =
-    direction === 'TB'
+    direction === 'TB' || !condition
       ? undefined
       : Math.min(
           Math.max(targetX - sourceX - 2 * LABEL_CLEARANCE, LABEL_MIN_WIDTH),
