@@ -65,6 +65,8 @@ type RuntimeScope struct {
 	BuiltinContext BuiltinContext
 	// Dates holds a run's dates by name, as ${dates.NAME} inserts them.
 	Dates Values
+	// Node is the node a bound run reads as ${node.*}, or nil outside one.
+	Node *BoundNode
 
 	// declaredDates holds the static scope's date names.
 	declaredDates Values

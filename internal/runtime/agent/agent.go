@@ -224,6 +224,11 @@ type Agent struct {
 	// nodeSelector finds the inventory nodes of steps with nodes.
 	nodeSelector runtime.NodeSelector
 
+	// hostKeys finds the host keys trusted for nodes.
+	hostKeys runtime.TrustedHostKeys
+
+	// binding is the node a bound run runs on, read at startup.
+	binding *nodeBinding
 	// defaultExecMode is the server-level default execution mode.
 	defaultExecMode config.ExecutionMode
 
@@ -442,6 +447,8 @@ type Options struct {
 	BoundNode string
 	// NodeSelector finds the inventory nodes of steps with nodes (RFC 012).
 	NodeSelector runtime.NodeSelector
+	// HostKeys finds the host keys trusted for nodes (RFC 012).
+	HostKeys runtime.TrustedHostKeys
 	// DefaultExecMode is the server-level default execution mode.
 	DefaultExecMode config.ExecutionMode
 	// ScheduleTime is the RFC 3339 timestamp of when this run was scheduled.
@@ -536,6 +543,7 @@ func New(
 		parallelItem:             opts.ParallelItem,
 		boundNode:                boundNodeOf(opts),
 		nodeSelector:             opts.NodeSelector,
+		hostKeys:                 opts.HostKeys,
 		defaultExecMode:          opts.DefaultExecMode,
 		scheduleTime:             opts.ScheduleTime,
 		scheduleWindow:           opts.ScheduleWindow,
@@ -670,6 +678,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	a.dag.Env = resolvedEnv.Env
 	a.dag.RuntimeResolved = true
+	a.binding = startup.binding
+	if a.binding != nil && a.binding.connects {
+		a.dag = onNode(a.dag)
+	}
 	a.profileName = startup.profileName
 	a.profileResolvedAt = startup.profileResolvedAt
 	a.profileEntries = startup.profileEntries
@@ -886,6 +898,12 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	if a.nodeSelector != nil {
 		contextOpts = append(contextOpts, runtime.WithNodeSelector(a.nodeSelector))
 	}
+	if a.hostKeys != nil {
+		contextOpts = append(contextOpts, runtime.WithHostKeys(a.hostKeys))
+	}
+	if a.binding != nil {
+		contextOpts = append(contextOpts, runtime.WithBoundNode(a.binding.valueNode()))
+	}
 	if a.noReuse {
 		contextOpts = append(contextOpts, runtime.WithNoReuse(true))
 	}
@@ -941,6 +959,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		a.noteDryRunStartup(ctx, "profile", profileErr)
 		a.noteDryRunStartup(ctx, "secrets", secretErr)
 		a.noteDryRunStartup(ctx, "nodes", nodeTargetingError(a.dag, a.boundNode, a.workerID))
+		a.noteDryRunStartup(ctx, "node", startup.nodeErr)
 		a.lock.Lock()
 		a.startupCancel = nil
 		stopRequested = a.stopRequest != nil || startupCtx.Err() != nil
@@ -1044,6 +1063,10 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	if err := nodeTargetingError(a.dag, a.boundNode, a.workerID); err != nil {
 		initErr = err
+		return initErr
+	}
+	if startup.nodeErr != nil {
+		initErr = startup.nodeErr
 		return initErr
 	}
 
@@ -1164,6 +1187,18 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			return initErr
 		}
 		ctx = ssh.WithSSHClient(ctx, cli)
+	}
+
+	// A run bound to an inventory node reaches it as DAG-level ssh does.
+	if a.binding != nil && a.binding.connects {
+		cfg, err := a.binding.sshConfig(a.hostKeys)
+		if err == nil {
+			ctx, err = ssh.WithNodeConnection(ctx, cfg)
+		}
+		if err != nil {
+			initErr = fmt.Errorf("failed to set up the connection to node %q: %w", a.binding.node.Name, err)
+			return initErr
+		}
 	}
 
 	listenerErrCh := make(chan error, 1)
@@ -2451,19 +2486,24 @@ func stepSecretResolver(resolver providers.ReferenceResolver, deferred []secretr
 }
 
 // resolveCredentialRefs resolves the secret refs that SSH connections read
-// credentials from, once each, and returns the values keyed by ref.
-func (a *Agent) resolveCredentialRefs(ctx context.Context) (map[string]string, error) {
-	if len(a.dag.CredentialRefs) == 0 {
+// credentials from, the DAG's and those of the node a bound run reaches, once
+// each, and returns the values keyed by ref.
+func (a *Agent) resolveCredentialRefs(ctx context.Context, nodeRefs []secretref.Ref) (map[string]string, error) {
+	refs := append(slices.Clone(a.dag.CredentialRefs), nodeRefs...)
+	if len(refs) == 0 {
 		return nil, nil
 	}
 	if a.secretReferenceResolver == nil {
-		ref := a.dag.CredentialRefs[0]
+		ref := refs[0]
 		return nil, fmt.Errorf("failed to resolve %s from secret ref %q: secret store is not configured", ref.Name, ref.Ref)
 	}
 
-	logger.Info(ctx, "Resolving SSH credential secrets", tag.Count(len(a.dag.CredentialRefs)))
-	values := make(map[string]string, len(a.dag.CredentialRefs))
-	for _, ref := range a.dag.CredentialRefs {
+	logger.Info(ctx, "Resolving SSH credential secrets", tag.Count(len(refs)))
+	values := make(map[string]string, len(refs))
+	for _, ref := range refs {
+		if _, ok := values[ref.Ref]; ok {
+			continue
+		}
 		value, err := a.secretReferenceResolver.ResolveReference(ctx, ref)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve %s from secret ref %q: %w", ref.Name, ref.Ref, err)
@@ -2706,6 +2746,12 @@ func (a *Agent) dryRun(ctx context.Context) error {
 	}
 	if a.nodeSelector != nil {
 		contextOpts = append(contextOpts, runtime.WithNodeSelector(a.nodeSelector))
+	}
+	if a.hostKeys != nil {
+		contextOpts = append(contextOpts, runtime.WithHostKeys(a.hostKeys))
+	}
+	if a.binding != nil {
+		contextOpts = append(contextOpts, runtime.WithBoundNode(a.binding.valueNode()))
 	}
 	if a.noReuse {
 		contextOpts = append(contextOpts, runtime.WithNoReuse(true))

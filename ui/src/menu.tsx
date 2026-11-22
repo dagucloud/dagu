@@ -737,9 +737,11 @@ export const mainListItems = React.forwardRef<
               {isOpen ? `v${config.version}` : config.version.split('.')[0]}
             </span>
           )}
-          <div className="min-w-0">
-            <LicenseBadge onNavigate={onNavItemClick} compact={!isOpen} />
-          </div>
+          <LicenseBadge
+            onNavigate={onNavItemClick}
+            compact={!isOpen}
+            className="font-mono text-[11px]"
+          />
         </div>
       </div>
     </div>

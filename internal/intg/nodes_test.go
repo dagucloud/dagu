@@ -8,10 +8,16 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
+	"golang.org/x/crypto/ssh"
+
+	"github.com/dagucloud/dagu/v2/conformance/harness"
 	"github.com/dagucloud/dagu/v2/internal/cmd"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -34,6 +40,10 @@ func (s staticNodes) Select(_ context.Context, selector string) ([]inventory.Res
 		return nil, err
 	}
 	return inventory.Select(s, filters), nil
+}
+
+func (s staticNodes) Nodes(context.Context) ([]inventory.ResolvedNode, error) {
+	return s, nil
 }
 
 func webNode(name string, labels ...string) inventory.ResolvedNode {
@@ -69,8 +79,9 @@ func runNodeStep(t *testing.T, nodes staticNodes, yaml string, wantErr string) (
 	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
 	require.NoError(t, err)
 
+	// The aggregate is the stdout of the last step, the one with nodes.
 	var aggregate nodeAggregate
-	if data, err := os.ReadFile(status.Nodes[0].Stdout); err == nil && len(data) > 0 {
+	if data, err := os.ReadFile(status.Nodes[len(status.Nodes)-1].Stdout); err == nil && len(data) > 0 {
 		require.NoError(t, json.Unmarshal(data, &aggregate))
 	}
 	return &status, aggregate
@@ -273,17 +284,51 @@ steps:
 	require.Equal(t, map[string]string{"web01": "succeeded"}, nodeStatuses(aggregate))
 }
 
-// A command step runs as the only step of a child bound to each node. Until
-// the node is bound over SSH, that child fails before its command runs, so
-// the command never runs on the Dagu host.
-func TestNodeSteps_CommandStepNeverRunsLocally(t *testing.T) {
+// sshNode starts an SSH server that accepts a new key, and returns a node
+// that reaches it with that key, from a file, and its host key pinned.
+func sshNode(t *testing.T, name string, labels ...string) (inventory.Node, *harness.SSHServer) {
+	t.Helper()
+
+	private, public := harness.NewSSHKey(t)
+	keyPath := filepath.Join(t.TempDir(), "id_ed25519")
+	require.NoError(t, os.WriteFile(keyPath, private, 0o600))
+	server := harness.StartSSHServer(t, harness.SSHServerOptions{User: "tester", AuthorizedKeys: []ssh.PublicKey{public}})
+	port, err := strconv.Atoi(server.Port)
+	require.NoError(t, err)
+	return inventory.Node{
+		Name: name,
+		Host: "127.0.0.1",
+		Connection: inventory.Connection{
+			Port:    port,
+			User:    "tester",
+			Key:     keyPath,
+			HostKey: strings.TrimSpace(string(ssh.MarshalAuthorizedKey(server.HostKey))),
+		},
+		Labels: append([]string{"web"}, labels...),
+	}, server
+}
+
+// resolved applies the inventory rules to nodes, as the store does.
+func resolved(t *testing.T, nodes ...inventory.Node) staticNodes {
+	t.Helper()
+
+	out, err := inventory.Resolve([]inventory.Inventory{{ID: "fleet", Name: "fleet", Nodes: nodes}})
+	require.NoError(t, err)
+	return out
+}
+
+// A command step runs as the only step of a child bound to each node, so the
+// command reaches each node over SSH, and its retry policy applies to each
+// node, not to the step.
+func TestNodeSteps_CommandStepRunsOnEachNode(t *testing.T) {
 	t.Parallel()
 
-	marker := t.TempDir() + "/ran"
-	status, aggregate := runNodeStep(t, staticNodes{webNode("web01"), webNode("web02")}, `
+	web01, server01 := sshNode(t, "web01")
+	web02, server02 := sshNode(t, "web02")
+	status, aggregate := runNodeStep(t, resolved(t, web01, web02), `
 steps:
   - id: clean
-    run: touch `+marker+`
+    run: exit 1
     retry_policy: {limit: 2, interval_sec: 0}
     nodes: {labels: web, keep_going: true}
 `, "failed")
@@ -291,7 +336,32 @@ steps:
 	require.Equal(t, ir.Failed, status.Status)
 	require.Zero(t, status.Nodes[0].RetryCount, "the retry policy applies to each node, not the step")
 	require.Equal(t, map[string]string{"web01": "failed", "web02": "failed"}, nodeStatuses(aggregate))
-	require.NoFileExists(t, marker)
+	require.Len(t, server01.Commands(), 3, "web01 runs the command and both retries")
+	require.Len(t, server02.Commands(), 3, "web02 runs the command and both retries")
+}
+
+// A command step's child reads what the step would read without nodes: the
+// outputs of earlier steps, as variables and as step references, beside the
+// node's fields.
+func TestNodeSteps_CommandStepReadsEarlierOutputs(t *testing.T) {
+	t.Parallel()
+
+	web01, _ := sshNode(t, "web01")
+	dir := filepath.ToSlash(t.TempDir())
+	runNodeStep(t, resolved(t, web01), `
+steps:
+  - id: build
+    run: echo 1.2.3
+    output: VERSION
+  - id: deploy
+    depends: [build]
+    run: echo "$VERSION ${env.VERSION} ${build.exit_code} ${node.name}" > `+dir+`/deployed
+    nodes: web
+`, "")
+
+	data, err := os.ReadFile(filepath.Join(dir, "deployed"))
+	require.NoError(t, err)
+	require.Equal(t, "1.2.3 1.2.3 0 web01\n", string(data))
 }
 
 // dagu start reads the inventory from its data directory, and a command
@@ -307,10 +377,8 @@ func TestNodeSteps_StartReadsInventory(t *testing.T) {
 		backend.Lock(persis.CollectionInventories),
 	)
 	require.NoError(t, err)
-	_, err = inventories.Create(th.Context, inventory.Inventory{
-		Name:  "fleet",
-		Nodes: []inventory.Node{{Name: "web01", Host: "10.0.1.11", Labels: []string{"web"}}},
-	})
+	web01, server := sshNode(t, "web01")
+	_, err = inventories.Create(th.Context, inventory.Inventory{Name: "fleet", Nodes: []inventory.Node{web01}})
 	require.NoError(t, err)
 
 	dagFile := th.CreateDAGFile(t, "clean-web.yaml", `
@@ -324,16 +392,15 @@ steps:
     nodes: web
 `)
 	runID := uuid.Must(uuid.NewV7()).String()
-	err = th.RunCommandWithError(t, cmd.Start(), test.CmdTest{
+	th.RunCommand(t, cmd.Start(), test.CmdTest{
 		Args: []string{"start", "--run-id", runID, "--params", "version=2.1", dagFile},
 	})
-	require.ErrorContains(t, err, `node web01 failed: step "clean" runs commands, and running commands on inventory node "web01" is not available yet`)
+	require.Len(t, server.Commands(), 1)
 
 	status, _ := readAttemptStatusAndOutputs(t, th, "clean-web", runID)
 	require.Len(t, status.Nodes[0].SubRuns, 1)
 	child, _ := readSubAttemptStatusAndOutputs(t, th, ir.NewDAGRunRef("clean-web", runID), status.Nodes[0].SubRuns[0].DAGRunID)
 	require.Equal(t, "web01", child.BoundNode)
 	require.Equal(t, []string{"version=2.1"}, child.ParamsList)
-	require.Equal(t, ir.Failed, child.Status)
-	require.Equal(t, ir.NodeNotStarted, child.Nodes[0].Status)
+	require.Equal(t, ir.Succeeded, child.Status)
 }

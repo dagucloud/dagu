@@ -1,7 +1,9 @@
 working_dir: .
+params:
+  - DIR: ""
 steps:
   - id: clean
-    run: touch ran-on-dagu-host
+    run: echo "${node.name} ${node.labels}" >> "${params.DIR}/ran.log"
     stdout: nodes.json
     nodes:
       labels: web

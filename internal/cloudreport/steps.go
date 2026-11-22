@@ -82,75 +82,71 @@ type activeEntry struct {
 	StepsTotal int            `json:"steps_total,omitempty"`
 }
 
-// readSteps are the steps last read for a run attempt in progress.
+// readSteps are the steps last read for a run in progress, and their
+// encoded size.
 type readSteps struct {
 	at    time.Time
 	steps []reportedStep
 	total int
+	size  int
 }
 
 // stepReader reads the steps of the runs in progress, reusing a read for
 // activeStepsEvery.
 type stepReader struct {
 	runs RunFinder
-	read map[activeKey]readSteps
+	// read holds the last read of each run listed, by the run as listed, so
+	// a run whose status changed is read again.
+	read map[activeRun]readSteps
 }
-
-// activeKey names a run attempt in progress.
-type activeKey struct{ workflow, runID, attemptID string }
 
 // entries returns runs with the steps of each, within maxActiveStepsBytes
 // in the order given. A run whose steps cannot be read, or whose latest
-// attempt is another, carries none. Reads of runs no longer listed are
-// forgotten.
+// attempt is another, carries none, as every run does without a RunFinder.
+// Reads of runs no longer listed are forgotten.
 func (s *stepReader) entries(ctx context.Context, runs []activeRun, now time.Time) []activeEntry {
 	entries := make([]activeEntry, len(runs))
-	if s == nil || s.runs == nil {
-		for i, run := range runs {
-			entries[i] = activeEntry{activeRun: run}
-		}
-		return entries
-	}
-	listed := make(map[activeKey]readSteps, len(runs))
+	listed := make(map[activeRun]readSteps, len(runs))
 	budget := maxActiveStepsBytes
 	for i, run := range runs {
 		entries[i] = activeEntry{activeRun: run}
-		key := activeKey{run.Workflow, run.DAGRunID, run.AttemptID}
-		read, ok := s.read[key]
-		if !ok || now.Sub(read.at) >= activeStepsEvery {
-			read = readSteps{at: now}
-			read.steps, read.total = s.readRun(ctx, run)
-		}
-		listed[key] = read
-		size := len("[]")
-		for _, step := range read.steps {
-			size += encodedStepSize(step)
-		}
-		if len(read.steps) == 0 || size > budget {
+		if s.runs == nil {
 			continue
 		}
-		budget -= size
+		read, ok := s.read[run]
+		if !ok || now.Sub(read.at) >= activeStepsEvery {
+			read = s.readRun(ctx, run, now)
+		}
+		listed[run] = read
+		if len(read.steps) == 0 || read.size > budget {
+			continue
+		}
+		budget -= read.size
 		entries[i].Steps, entries[i].StepsTotal = read.steps, read.total
 	}
 	s.read = listed
 	return entries
 }
 
-// readRun reads the steps of run's attempt, or none when its latest attempt
-// is another or cannot be read.
-func (s *stepReader) readRun(ctx context.Context, run activeRun) ([]reportedStep, int) {
+// readRun reads the steps of run's attempt at now: none when its latest
+// attempt is another or cannot be read.
+func (s *stepReader) readRun(ctx context.Context, run activeRun, now time.Time) readSteps {
+	read := readSteps{at: now}
 	attempt, err := s.runs.FindAttempt(ctx, ir.NewDAGRunRef(run.Workflow, run.DAGRunID))
 	if err != nil {
 		logger.Debug(ctx, "Failed to find a run in progress for its steps in the server report", tag.DAG(run.Workflow), tag.RunID(run.DAGRunID), tag.Error(err))
-		return nil, 0
+		return read
 	}
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil || status == nil {
 		logger.Debug(ctx, "Failed to read a run in progress for its steps in the server report", tag.DAG(run.Workflow), tag.RunID(run.DAGRunID), tag.Error(err))
-		return nil, 0
+		return read
 	}
 	if status.AttemptID != run.AttemptID {
-		return nil, 0
+		return read
 	}
-	return runSteps(status)
+	read.steps, read.total = runSteps(status)
+	data, _ := json.Marshal(read.steps)
+	read.size = len(data)
+	return read
 }

@@ -23,6 +23,8 @@ type startupResolution struct {
 	credentials       map[string]string
 	deferredSecrets   []secretref.Ref
 	secretErr         error
+	binding           *nodeBinding
+	nodeErr           error
 	profileValues     resolvedProfileValues
 	profileErr        error
 	profileName       string
@@ -44,6 +46,8 @@ func (a *Agent) resolveStartup(ctx context.Context) (startupResolution, error) {
 		profileStore:            a.profileStore,
 		secretStore:             a.secretStore,
 		secretReferenceResolver: a.secretReferenceResolver,
+		boundNode:               a.boundNode,
+		nodeSelector:            a.nodeSelector,
 	}
 	resolved := make(chan startupResolution, 1)
 	go func() {
@@ -74,7 +78,12 @@ func (a *Agent) resolveStartup(ctx context.Context) (startupResolution, error) {
 		if result.secretErr != nil || ctx.Err() != nil {
 			return
 		}
-		result.credentials, result.secretErr = snapshot.resolveCredentialRefs(ctx)
+		// A bound run reads its node's credentials with the DAG's.
+		result.binding, result.nodeErr = snapshot.lookupBoundNode(ctx)
+		if result.nodeErr != nil || ctx.Err() != nil {
+			return
+		}
+		result.credentials, result.secretErr = snapshot.resolveCredentialRefs(ctx, result.binding.credentialRefs())
 	}()
 	select {
 	case result := <-resolved:
