@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -93,8 +94,9 @@ steps:
 }
 
 // A test run creates the explicit working directory and the DAG-level SSH
-// client only when it has a real step. The SSH key file is missing, so
-// creating the client fails.
+// client, and resolves the SSH passphrase given as a secret reference, only
+// when it has a real step. The SSH key file is missing, so creating the
+// client fails.
 func TestAgent_TestRunRealSteps(t *testing.T) {
 	t.Parallel()
 
@@ -102,26 +104,30 @@ func TestAgent_TestRunRealSteps(t *testing.T) {
 		name         string
 		hasRealSteps bool
 		wantErr      string
+		wantResolves int
 	}{
 		{name: "NoRealSteps"},
-		{name: "RealSteps", hasRealSteps: true, wantErr: "failed to create ssh client"},
+		{name: "RealSteps", hasRealSteps: true, wantErr: "failed to create ssh client", wantResolves: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			th := test.Setup(t)
+			resolver := newCountingSecretResolver(map[string]string{"ssh/passphrase": "passphrase-value"})
 			workDir := filepath.Join(t.TempDir(), "work")
 			dag := th.DAG(t, fmt.Sprintf(`working_dir: %q
 ssh:
   user: deploy
   host: 127.0.0.1
   key: %q
+  passphrase: {secret: ssh/passphrase}
 steps:
   - name: check
     action: noop
 `, workDir, filepath.Join(t.TempDir(), "missing-key")))
 			dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
-				TestSideEffects: &agent.TestSideEffects{HasRealSteps: tc.hasRealSteps},
+				SecretReferenceResolver: resolver,
+				TestSideEffects:         &agent.TestSideEffects{HasRealSteps: tc.hasRealSteps},
 			}))
 
 			if tc.wantErr == "" {
@@ -131,6 +137,41 @@ steps:
 			}
 			_, statErr := os.Stat(workDir)
 			require.Equal(t, tc.hasRealSteps, statErr == nil, "working directory created")
+			require.Equal(t, tc.wantResolves, resolver.callCount("ssh/passphrase"), "passphrase resolved")
+		})
+	}
+}
+
+// A test run applies native resource limits only when it has a real step.
+// Applying them logs either that they are enforced or why they are not, so a
+// run that applies none logs neither.
+func TestAgent_TestRunResourceLimits(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name         string
+		hasRealSteps bool
+	}{
+		{name: "NoRealSteps"},
+		{name: "RealSteps", hasRealSteps: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			th := test.Setup(t, test.WithCaptureLoggingOutput())
+			dag := th.DAG(t, `resources:
+  limits:
+    memory: "1Gi"
+steps:
+  - name: check
+    action: noop
+`)
+			dag.Agent(test.WithAgentOptions(agent.Options{
+				TestSideEffects: &agent.TestSideEffects{HasRealSteps: tc.hasRealSteps},
+			})).RunSuccess(t)
+
+			logs := th.LoggingOutput.String()
+			require.Equal(t, tc.hasRealSteps, strings.Contains(logs, "resource limits"), logs)
 		})
 	}
 }

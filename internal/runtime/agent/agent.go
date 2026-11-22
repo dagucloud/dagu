@@ -498,7 +498,9 @@ type Options struct {
 type TestSideEffects struct {
 	// HasRealSteps reports that the test runs a step for real. The run then
 	// creates its working directory, DAG-level container, and DAG-level SSH
-	// client as a real run does. Without it, the run creates none of them.
+	// client, resolves SSH credentials given as secret references, and
+	// applies native resource limits, as a real run does. Without it, the
+	// run does none of these.
 	HasRealSteps bool
 }
 
@@ -1121,7 +1123,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 
 	// Ensure working directory exists
-	if a.createsRunResources() {
+	if a.preparesForRealSteps() {
 		if err := os.MkdirAll(a.evaluatedWorkingDir, 0o755); err != nil {
 			initErr = fmt.Errorf("failed to create working directory: %w", err)
 			return initErr
@@ -1133,7 +1135,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	// through the runtime context and set per-command working directories.
 
 	// Create a new container if the DAG has a container configuration.
-	if a.dag.Container != nil && a.createsRunResources() {
+	if a.dag.Container != nil && a.preparesForRealSteps() {
 		// Expand environment variables in container fields
 		expandedContainer, err := docker.EvalContainerFields(initializationCtx, *a.dag.Container)
 		if err != nil {
@@ -1186,7 +1188,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 
 	// Create SSH Client if the DAG has SSH configuration.
-	if a.dag.SSH != nil && a.createsRunResources() {
+	if a.dag.SSH != nil && a.preparesForRealSteps() {
 		var sshTimeout time.Duration
 		if a.dag.SSH.Timeout != "" {
 			parsed, err := time.ParseDuration(a.dag.SSH.Timeout)
@@ -1378,7 +1380,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		ctx = s3.WithS3Config(ctx, a.evaluatedS3)
 	}
 
-	if a.dag.Container == nil && a.dag.Resources.HasLimits() {
+	if a.dag.Container == nil && a.dag.Resources.HasLimits() && a.preparesForRealSteps() {
 		guard := resourcelimit.Start(ctx, resourcelimit.Options{
 			DAGName:  a.dag.Name,
 			DAGRunID: a.dagRunID,
@@ -2321,10 +2323,11 @@ func (a *Agent) Notifications() []Notification {
 	return a.reporter.notifications()
 }
 
-// createsRunResources reports whether the run creates its working directory,
-// DAG-level container, and DAG-level SSH client. A workflow test run creates
-// them only when it has a real step.
-func (a *Agent) createsRunResources() bool {
+// preparesForRealSteps reports whether the run sets up what real steps need:
+// the working directory, the DAG-level container and SSH client, SSH
+// credentials, and native resource limits. A workflow test run sets them up
+// only when it has a real step.
+func (a *Agent) preparesForRealSteps() bool {
 	return a.testSideEffects == nil || a.testSideEffects.HasRealSteps
 }
 
@@ -2544,7 +2547,7 @@ func secretsFromValues(refs []secretref.Ref, values map[string]string) ([]string
 // each, and returns the values keyed by ref.
 func (a *Agent) resolveCredentialRefs(ctx context.Context, nodeRefs []secretref.Ref) (map[string]string, error) {
 	refs := append(slices.Clone(a.dag.CredentialRefs), nodeRefs...)
-	if len(refs) == 0 {
+	if len(refs) == 0 || !a.preparesForRealSteps() {
 		return nil, nil
 	}
 	if a.secretReferenceResolver == nil {
