@@ -200,18 +200,26 @@ func (s *UserStore) GetByTrustedProxyIdentity(ctx context.Context, source, ident
 	return user, err
 }
 
-// List returns all users in the store.
+// List returns all users in the store. A username left with two records by an
+// earlier upgrade collapses to the newest, so List agrees with the byUsername
+// index that login reads.
 func (s *UserStore) List(ctx context.Context) ([]*auth.User, error) {
 	recs, err := listAll(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return nil, err
 	}
+	index := make(map[string]int, len(recs)) // username → position in out
 	out := make([]*auth.User, 0, len(recs))
 	for _, rec := range recs {
 		u, err := userFromRecord(rec)
 		if err != nil {
 			continue
 		}
+		if i, ok := index[u.Username]; ok {
+			out[i] = u // the newest record wins
+			continue
+		}
+		index[u.Username] = len(out)
 		out = append(out, u)
 	}
 	return out, nil
