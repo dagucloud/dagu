@@ -88,7 +88,8 @@
 // sees the sample at once, because it builds the open minute from the raw tier.
 // The fsync points of the raw tier do not change. The file "end" keeps the end
 // of the newest sample, because a run that lasts longer than the raw retention
-// leaves the raw tier with the hour of its start.
+// leaves the raw tier with the hour of its start. It replaces the file without
+// a sync, as the raw line is not synced either.
 //
 // Sample.RunID goes into the failed and recovered events that the sample causes.
 // The raw line does not keep it.

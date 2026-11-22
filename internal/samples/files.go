@@ -330,7 +330,11 @@ func readAggCounts(path string) ([]aggCount, error) {
 
 // writeFile replaces a file. The write goes to a temporary file that is
 // synced, then renamed.
-func writeFile(path string, buf []byte) error {
+func writeFile(path string, buf []byte) error { return replaceFile(path, buf, true) }
+
+// replaceFile replaces a file through a temporary file and a rename. With
+// sync, the temporary file is synced before the rename.
+func replaceFile(path string, buf []byte, sync bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
@@ -343,9 +347,11 @@ func writeFile(path string, buf []byte) error {
 		_ = f.Close()
 		return err
 	}
-	if err := f.Sync(); err != nil {
-		_ = f.Close()
-		return err
+	if sync {
+		if err := f.Sync(); err != nil {
+			_ = f.Close()
+			return err
+		}
 	}
 	if err := f.Close(); err != nil {
 		return err
@@ -590,11 +596,13 @@ func (s *store) newestEnd() (end, gapAfter int64, ok bool) {
 }
 
 // writeEnd replaces the file "end" with the end of the newest sample and its
-// gap bound, in milliseconds: "end gapAfter".
+// gap bound, in milliseconds: "end gapAfter". Like the raw line before it, the
+// file is not synced. A sync would cost one for each sample, and it would keep
+// the end of a sample whose raw line a power loss can still lose.
 func (s *store) writeEnd(end, gapAfter int64) error {
 	b := strconv.AppendInt(nil, end, 10)
 	b = append(b, ' ')
-	return writeFile(s.endPath(), strconv.AppendInt(b, gapAfter, 10))
+	return replaceFile(s.endPath(), strconv.AppendInt(b, gapAfter, 10), false)
 }
 
 // readEnd reads the file "end". A missing file, or one that a crash cut,
