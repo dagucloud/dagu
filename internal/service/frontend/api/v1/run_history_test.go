@@ -117,18 +117,37 @@ func TestRunHistoryNotFound(t *testing.T) {
 }
 
 // A DAG that is no longer a service DAG keeps its history and the API gives it.
+// The scheduler no longer records its runs, so its run in progress adds no up
+// time.
 func TestRunHistoryOfFormerServiceDAG(t *testing.T) {
-	fake := &fakeSamplesReader{}
+	now := time.Now().UTC().Truncate(time.Second)
+	// The history starts 3 hours ago and has no up time in the window.
+	recorded := samples.Uptime{Start: now.Add(-24 * time.Hour), To: now, Since: now.Add(-3 * time.Hour)}
+	fake := &fakeSamplesReader{uptime: recorded, availability: samples.Availability{
+		Windows: []samples.WindowStat{{Window: samples.Window24h, Uptime: recorded}},
+	}}
 	a := newRunHistoryAPI(t, fake)
 	dir := historyDir(t, a, "plain")
 	require.NoError(t, os.MkdirAll(dir, 0o750))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "raw.log"), []byte("x"), 0o600))
+	fixture := &activityFixture{t: t, repository: a.dagRunRepository, api: a}
+	a.dagRunMgr = runtimepkg.NewManager(a.dagRunRepository, nil, a.config)
+	fixture.addRun("plain", "run-1", ir.Running, now.Add(-90*time.Minute), 0)
 
 	resp, err := a.GetDAGRunHistorySamples(t.Context(), openapiv1.GetDAGRunHistorySamplesRequestObject{FileName: "plain"})
 	require.NoError(t, err)
-	_, ok := resp.(openapiv1.GetDAGRunHistorySamples200JSONResponse)
-	assert.True(t, ok, "got %T", resp)
+	got, ok := resp.(openapiv1.GetDAGRunHistorySamples200JSONResponse)
+	require.True(t, ok, "got %T", resp)
 	assert.Equal(t, dir, fake.dir)
+	require.NotNil(t, got.Uptime)
+	assert.Zero(t, *got.Uptime)
+	assert.Empty(t, got.Buckets)
+
+	av, err := a.GetDAGRunHistoryAvailability(t.Context(), openapiv1.GetDAGRunHistoryAvailabilityRequestObject{FileName: "plain"})
+	require.NoError(t, err)
+	window := av.(openapiv1.GetDAGRunHistoryAvailability200JSONResponse).Windows[0]
+	require.NotNil(t, window.Uptime)
+	assert.Zero(t, *window.Uptime)
 }
 
 func TestRunHistoryQueryRanges(t *testing.T) {
@@ -358,6 +377,19 @@ func TestRunHistoryAvailabilityActiveRun(t *testing.T) {
 	require.NotNil(t, got.Uptime)
 	// 90 minutes of the 3 hours that the history covers.
 	assert.InDelta(t, 0.5, *got.Uptime, 0.01)
+
+	// A recorded run that ended 60 minutes ago overlaps the run in progress.
+	// The history holds the time up to that end, so only the 60 minutes after
+	// it are added to the 30 recorded minutes.
+	fake.newestEnd = now.Add(-time.Hour)
+	fake.availability.Windows[0].Uptime = samples.Uptime{
+		Start: now.Add(-24 * time.Hour), To: now, Up: 30 * time.Minute, Since: now.Add(-3 * time.Hour),
+	}
+	av, err = a.GetDAGRunHistoryAvailability(t.Context(), openapiv1.GetDAGRunHistoryAvailabilityRequestObject{FileName: "svc"})
+	require.NoError(t, err)
+	got = av.(openapiv1.GetDAGRunHistoryAvailability200JSONResponse).Windows[0]
+	require.NotNil(t, got.Uptime)
+	assert.InDelta(t, 0.5, *got.Uptime, 0.01)
 }
 
 func TestActiveRunStart(t *testing.T) {
@@ -451,4 +483,36 @@ func TestServiceDAGActivityBucketUp(t *testing.T) {
 	assert.Equal(t, now.Add(-time.Minute), last.Time)
 	assert.Zero(t, last.Count)
 	assert.Equal(t, int64(60_000), *last.UpMs)
+}
+
+// The run in progress gives its up time to the buckets from the end of the
+// newest recorded run, which the history already counts. A history with no
+// recorded uptime counts the run from its start, as its uptime does.
+func TestRunHistorySamplesActiveRun(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Second)
+	fake := &fakeSamplesReader{
+		newestEnd: now.Add(-30 * time.Minute),
+		series:    samples.Series{Tier: samples.TierHour, From: now.Add(-24 * time.Hour), To: now},
+	}
+	a := newRunHistoryAPI(t, fake)
+	fixture := &activityFixture{t: t, repository: a.dagRunRepository, api: a}
+	a.dagRunMgr = runtimepkg.NewManager(a.dagRunRepository, nil, a.config)
+	fixture.addRun("svc", "run-1", ir.Running, now.Add(-90*time.Minute), 0)
+
+	upMinutes := func() float64 {
+		resp, err := a.GetDAGRunHistorySamples(t.Context(), openapiv1.GetDAGRunHistorySamplesRequestObject{FileName: "svc"})
+		require.NoError(t, err)
+		var up int64
+		for _, b := range resp.(openapiv1.GetDAGRunHistorySamples200JSONResponse).Buckets {
+			require.NotNil(t, b.UpMs)
+			up += *b.UpMs
+		}
+		return (time.Duration(up) * time.Millisecond).Minutes()
+	}
+
+	fake.uptime = samples.Uptime{Start: now.Add(-24 * time.Hour), To: now, Since: now.Add(-3 * time.Hour)}
+	assert.InDelta(t, 30, upMinutes(), 1)
+
+	fake.uptime = samples.Uptime{Start: now.Add(-24 * time.Hour), To: now}
+	assert.InDelta(t, 90, upMinutes(), 1)
 }

@@ -18,6 +18,8 @@ type (
 	Context = runctx.Context
 	// DAGLoader is an alias for runctx.DAGLoader.
 	DAGLoader = runctx.DAGLoader
+	// NodeSelector finds the inventory nodes of steps with nodes.
+	NodeSelector = runctx.NodeSelector
 	// Dispatcher is an alias for execution.Dispatcher
 	Dispatcher = dispatch.Dispatcher
 	// RunStatus is an alias for execution.RunStatus
@@ -92,6 +94,8 @@ var (
 	WithStateStore = runctx.WithStateStore
 	// WithMaterializationStore sets the build materialization store.
 	WithMaterializationStore = runctx.WithMaterializationStore
+	// WithNodeSelector sets where steps with nodes find their nodes.
+	WithNodeSelector = runctx.WithNodeSelector
 	// WithNoReuse records that manifest hits are disabled for the run.
 	WithNoReuse = runctx.WithNoReuse
 	// WithDAGRunLogDir sets the base log directory for newly persisted DAG runs.

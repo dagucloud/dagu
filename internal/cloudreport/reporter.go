@@ -612,8 +612,8 @@ type reportRequest struct {
 	Finished []finishedRun `json:"finished,omitzero"`
 	// Active lists the runs in progress, newest first, and ActiveTotal
 	// counts them all. Both are left out while the runs are unknown.
-	Active      []activeRun `json:"active,omitzero"`
-	ActiveTotal *int        `json:"active_total,omitempty"`
+	Active      []activeEntry `json:"active,omitzero"`
+	ActiveTotal *int          `json:"active_total,omitempty"`
 	// Cursor identifies the position after Finished.
 	Cursor string     `json:"cursor,omitempty"`
 	Gap    *reportGap `json:"gap,omitempty"`
@@ -763,7 +763,7 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, lev
 				}
 			}
 		}
-		r.events.fill(&report)
+		r.events.fill(ctx, &report)
 		if read && level.ReportsRuns() && r.events.reports() {
 			schedules, total := schedulesOf(state, now)
 			report.Schedules, report.SchedulesTotal = schedules, &total

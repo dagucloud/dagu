@@ -18,6 +18,7 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 	"github.com/dagucloud/dagu/v2/internal/runtime/untrusted"
@@ -65,6 +66,7 @@ type Context struct {
 	LogWriterFactory     LogWriterFactory     // For remote log streaming (nil = use local files)
 	DefaultExecMode      config.ExecutionMode // Server-level default execution mode (local or distributed)
 	NoReuse              bool
+	Nodes                NodeSelector // Inventory nodes for steps with nodes (RFC 012)
 	// RunSecrets holds the values of every secret of the run, for masking. The
 	// scope of a step can hold fewer secrets (Spec 092).
 	RunSecrets *RunSecrets
@@ -414,6 +416,19 @@ func WithStateStore(store dagrun.StateStore) ContextOption {
 func WithMaterializationStore(store build.MaterializationStore) ContextOption {
 	return func(o *contextOptions) {
 		o.MaterializationStore = store
+	}
+}
+
+// NodeSelector finds the project's inventory nodes that a selector matches,
+// in name order.
+type NodeSelector interface {
+	Select(ctx context.Context, selector string) ([]inventory.ResolvedNode, error)
+}
+
+// WithNodeSelector sets where steps with nodes find their nodes.
+func WithNodeSelector(nodes NodeSelector) ContextOption {
+	return func(o *contextOptions) {
+		o.Nodes = nodes
 	}
 }
 

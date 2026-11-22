@@ -6,6 +6,7 @@
  *
  * @module features/dags/components/dag-editor
  */
+import { useSchema } from '@/contexts/SchemaContext';
 import { KILN_DARK, KILN_LIGHT, registerKilnThemes } from '@/lib/monaco-theme';
 import type { JSONSchema } from '@/lib/schema-utils';
 import { cn } from '@/lib/utils';
@@ -82,7 +83,7 @@ type Props = {
   onCursorPositionChange?: (position: CursorPosition) => void;
   /** Stable model URI used for schema association */
   modelUri?: string;
-  /** Optional document-specific schema */
+  /** Optional document-specific schema; without it, the DAG schema applies */
   schema?: JSONSchema | null;
   /** Server-side validation markers rendered under the 'dagu-server' owner */
   markers?: monaco.editor.IMarkerData[];
@@ -138,6 +139,11 @@ function DAGEditor({
   );
   const effectiveModelUri = modelUri ?? 'inmemory://dagu/editor/default.yaml';
   const schemaRegistrationOwnerId = useId();
+  // An editor without a schema of its own checks the DAG schema. It takes the
+  // loaded copy rather than the URL: monaco-yaml reads the booleans of a
+  // schema right only in the form that the registration builds.
+  const { schema: dagSchema } = useSchema();
+  const effectiveSchema = schema ?? dagSchema;
   // The fingerprint serialises the whole schema: build it when an input
   // changes, not at each render.
   const nextSchemaRegistration = useMemo(
@@ -145,10 +151,10 @@ function DAGEditor({
       buildSchemaRegistration(
         schemaRegistrationOwnerId,
         effectiveModelUri,
-        schema,
+        effectiveSchema,
         schemaUrl
       ),
-    [schemaRegistrationOwnerId, effectiveModelUri, schema]
+    [schemaRegistrationOwnerId, effectiveModelUri, effectiveSchema]
   );
   const nextSchemaRegistrationRef = useRef(nextSchemaRegistration);
   nextSchemaRegistrationRef.current = nextSchemaRegistration;

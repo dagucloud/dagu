@@ -655,8 +655,10 @@ func TestSeriesUp(t *testing.T) {
 	require.Len(t, series.Buckets, 4, "the series is not changed")
 
 	// A run in progress that started before the end of the newest recorded run
-	// adds nothing before that end: it is not counted twice.
-	live = series.WithActive(t0.Add(time.Hour), last, now)
+	// adds nothing before that end: it is not counted twice. It starts at 0:15,
+	// in an hour that the recorded run fills only in part, so the hour of 0:00
+	// keeps its 30 minutes.
+	live = series.WithActive(t0.Add(15*time.Minute), last, now)
 	ups = ups[:0]
 	for _, b := range live.Buckets {
 		ups = append(ups, b.Up)
@@ -675,6 +677,18 @@ func TestSeriesUp(t *testing.T) {
 	live = ahead.WithActive(t0.Add(5*time.Hour+10*time.Minute), last, now)
 	require.Equal(t, t0.Add(5*time.Hour), live.Buckets[len(live.Buckets)-1].Time)
 	require.Equal(t, 50*time.Minute, live.Buckets[len(live.Buckets)-1].Up)
+
+	// A window of no length gets no up time from a run in progress.
+	at := now.Add(-time.Hour)
+	empty, err := reader.Samples(ctx, SampleQuery{From: at, To: at, MaxPoints: 12})
+	require.NoError(t, err)
+	require.Empty(t, empty.WithActive(t0.Add(4*time.Hour), last, now).Buckets)
+
+	// A series that starts after now gets no up time from a run in progress.
+	future, err := reader.Samples(ctx, SampleQuery{From: now.Add(time.Hour), To: now.Add(3 * time.Hour), MaxPoints: 400})
+	require.NoError(t, err)
+	require.Equal(t, TierMinute, future.Tier)
+	require.Empty(t, future.WithActive(t0.Add(4*time.Hour), last, now).Buckets)
 }
 
 // A history with no up store has no up time, and a step never has it.

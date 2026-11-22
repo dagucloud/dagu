@@ -260,6 +260,7 @@ func executeDAGWithRunID(
 			ParallelItem:             parallelItemFromEnv(dag.Env),
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
+			NodeSelector:             as.Inventory,
 			ServiceRegistry:          ctx.Persistence.ServiceRegistry,
 			SubWorkflowRunnerFactory: ctx.SubWorkflowRunnerFactory(),
 			RootDAGRun:               ir.NewDAGRunRef(dag.Name, dagRunID),

@@ -57,6 +57,16 @@ func (a *API) runHistoryTarget(ctx context.Context, fileName string) (dag *ir.DA
 	return dag, reader, "", nil
 }
 
+// serviceRunStart returns the start of the run in progress of a service DAG.
+// The scheduler records the runs of service DAGs only, so the run of a DAG
+// that is no longer a service DAG gives the zero time.
+func (a *API) serviceRunStart(ctx context.Context, dag *ir.DAG) time.Time {
+	if !dag.RestartPolicy.Enabled() {
+		return time.Time{}
+	}
+	return activeRunStart(a.latestRunStatus(ctx, dag))
+}
+
 // activeRunStart returns the start of the run that is in progress, or the zero
 // time when the status is not of a run that has started and not ended.
 func activeRunStart(status ir.DAGRunStatus) time.Time {
@@ -102,7 +112,7 @@ func (a *API) GetDAGRunHistorySamples(ctx context.Context, request api.GetDAGRun
 	if err != nil {
 		return nil, fmt.Errorf("error reading run history uptime: %w", err)
 	}
-	start := activeRunStart(a.latestRunStatus(ctx, dag))
+	start := a.serviceRunStart(ctx, dag)
 	last, err := recordedEnd(ctx, reader, start, !uptime.Since.IsZero())
 	if err != nil {
 		return nil, err
@@ -184,7 +194,7 @@ func (a *API) GetDAGRunHistoryAvailability(ctx context.Context, request api.GetD
 	}
 	// A sample is written when a run ends, so the run in progress is added
 	// from the latest status.
-	if start := activeRunStart(a.latestRunStatus(ctx, dag)); !start.IsZero() {
+	if start := a.serviceRunStart(ctx, dag); !start.IsZero() {
 		known := slices.ContainsFunc(availability.Windows, func(w samples.WindowStat) bool { return !w.Uptime.Since.IsZero() })
 		last, err := recordedEnd(ctx, reader, start, known)
 		if err != nil {

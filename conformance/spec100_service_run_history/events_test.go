@@ -99,8 +99,7 @@ func TestGapAfterStoppedScheduler(t *testing.T) {
 	// A gap follows a run that succeeded. Stop between two runs, so that the
 	// stop does not abort a run.
 	require.Eventually(t, func() bool {
-		runs := p.runs("service_ok")
-		return len(runs) > 0 && len(p.ended("service_ok")) == len(runs) && runs[0].Status == api.StatusSuccess
+		return p.betweenRuns("service_ok")
 	}, wait, 100*time.Millisecond, "no moment between two runs")
 	scheduler.Stop()
 	known := runIDs(p.runs("service_ok"))

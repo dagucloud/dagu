@@ -20,8 +20,8 @@ export function conditionLabel(
     case 'exit':
       return ts(
         condition.negate
-          ? 'if {step} exit code is not {code}'
-          : 'if {step} exit code is {code}',
+          ? 'if {step} does not exit with {code}'
+          : 'if {step} exits with {code}',
         { step, code: value ?? '' }
       );
     default:

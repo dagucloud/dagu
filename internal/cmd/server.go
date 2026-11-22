@@ -449,6 +449,7 @@ func cloudReportEvents(ctx *Context) cloudreport.Events {
 		Stale:         filemonitor.NewStateStore(stateFile + ".stale"),
 		Lease:         filemonitor.NewLease(stateFile, &dirlock.LockOptions{StaleThreshold: cloudReportLeaseStaleThreshold}),
 		Statuses:      ctx.Persistence.DAGRunRepository,
+		Runs:          ctx.Persistence.DAGRunRepository,
 	}
 }
 

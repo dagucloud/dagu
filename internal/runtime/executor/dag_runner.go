@@ -62,6 +62,9 @@ type SubDAGExecutor struct {
 	// externalStepRetry shifts step retry waiting out of the child process and
 	// back to the parent executor.
 	externalStepRetry bool
+
+	// nodeStep names the parent's command step the child runs alone.
+	nodeStep string
 }
 
 // WorkspaceSeed contains workspace contents shared across a DAG-run hierarchy.
@@ -126,6 +129,22 @@ func NewSubDAGExecutorForDAG(ctx context.Context, dag *ir.DAG) (*SubDAGExecutor,
 	}
 	rCtx := runctx.GetContext(ctx)
 	return newSubDAGExecutor(ctx, rCtx, dag, ""), nil
+}
+
+// NewNodeStepExecutor creates a SubDAGExecutor whose child runs the current
+// DAG's command step stepName alone, bound to one node (RFC 013).
+func NewNodeStepExecutor(ctx context.Context, stepName string) (*SubDAGExecutor, error) {
+	rCtx := runctx.GetContext(ctx)
+	if rCtx.DAG == nil {
+		return nil, fmt.Errorf("step %q runs on nodes, but its DAG is not set", stepName)
+	}
+	dag, err := rCtx.DAG.NodeStepChild(stepName)
+	if err != nil {
+		return nil, err
+	}
+	executor := newSubDAGExecutor(ctx, rCtx, dag, "")
+	executor.nodeStep = stepName
+	return executor, nil
 }
 
 func newSubDAGExecutor(ctx context.Context, rCtx runctx.Context, dag *ir.DAG, tempFile string) *SubDAGExecutor {
@@ -324,6 +343,8 @@ func (e *SubDAGExecutor) subWorkflowRequest(ctx context.Context, runParams RunPa
 		PassedEnv:         runParams.PassedEnv,
 		ScheduleTime:      rCtx.ScheduleTime,
 		ScheduleWindow:    rCtx.ScheduleWindow,
+		Node:              runParams.Node,
+		NodeStep:          e.nodeStep,
 	}
 	if e.workspaceSeed != nil {
 		req.Workspace = &SubWorkflowWorkspace{

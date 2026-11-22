@@ -218,6 +218,12 @@ type Agent struct {
 	// parallelItem is the value bound to ITEM for a parallel child run.
 	parallelItem string
 
+	// boundNode names the inventory node a bound child run runs on.
+	boundNode string
+
+	// nodeSelector finds the inventory nodes of steps with nodes.
+	nodeSelector runtime.NodeSelector
+
 	// defaultExecMode is the server-level default execution mode.
 	defaultExecMode config.ExecutionMode
 
@@ -432,6 +438,10 @@ type Options struct {
 	TriggerActor string
 	// ParallelItem is the value bound to ITEM for a parallel child run.
 	ParallelItem string
+	// BoundNode names the inventory node a bound child run runs on (RFC 013).
+	BoundNode string
+	// NodeSelector finds the inventory nodes of steps with nodes (RFC 012).
+	NodeSelector runtime.NodeSelector
 	// DefaultExecMode is the server-level default execution mode.
 	DefaultExecMode config.ExecutionMode
 	// ScheduleTime is the RFC 3339 timestamp of when this run was scheduled.
@@ -524,6 +534,8 @@ func New(
 		triggerType:              opts.TriggerType,
 		triggerActor:             opts.TriggerActor,
 		parallelItem:             opts.ParallelItem,
+		boundNode:                boundNodeOf(opts),
+		nodeSelector:             opts.NodeSelector,
 		defaultExecMode:          opts.DefaultExecMode,
 		scheduleTime:             opts.ScheduleTime,
 		scheduleWindow:           opts.ScheduleWindow,
@@ -871,6 +883,9 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	if a.materializationStore != nil {
 		contextOpts = append(contextOpts, runtime.WithMaterializationStore(a.materializationStore))
 	}
+	if a.nodeSelector != nil {
+		contextOpts = append(contextOpts, runtime.WithNodeSelector(a.nodeSelector))
+	}
 	if a.noReuse {
 		contextOpts = append(contextOpts, runtime.WithNoReuse(true))
 	}
@@ -925,7 +940,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		}
 		a.noteDryRunStartup(ctx, "profile", profileErr)
 		a.noteDryRunStartup(ctx, "secrets", secretErr)
-		a.noteDryRunStartup(ctx, "nodes", unsupportedNodeTargeting(a.dag))
+		a.noteDryRunStartup(ctx, "nodes", nodeTargetingError(a.dag, a.boundNode, a.workerID))
 		a.lock.Lock()
 		a.startupCancel = nil
 		stopRequested = a.stopRequest != nil || startupCtx.Err() != nil
@@ -1027,7 +1042,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		initErr = profileErr
 		return initErr
 	}
-	if err := unsupportedNodeTargeting(a.dag); err != nil {
+	if err := nodeTargetingError(a.dag, a.boundNode, a.workerID); err != nil {
 		initErr = err
 		return initErr
 	}
@@ -1701,6 +1716,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithTriggerType(a.triggerType),
 			ir.WithTriggerActor(a.triggerActor),
 			ir.WithParallelItem(parallelItem),
+			ir.WithBoundNode(a.boundNode),
 			ir.WithAutoRetryCount(a.currentAutoRetryCount()),
 			ir.WithPIDStartedAt(currentPIDStartedAt()),
 			ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
@@ -1762,6 +1778,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 		ir.WithTriggerType(a.triggerType),
 		ir.WithTriggerActor(a.triggerActor),
 		ir.WithParallelItem(parallelItem),
+		ir.WithBoundNode(a.boundNode),
 		ir.WithAutoRetryCount(a.currentAutoRetryCount()),
 		ir.WithPIDStartedAt(currentPIDStartedAt()),
 		ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
@@ -2686,6 +2703,9 @@ func (a *Agent) dryRun(ctx context.Context) error {
 	}
 	if a.materializationStore != nil {
 		contextOpts = append(contextOpts, runtime.WithMaterializationStore(a.materializationStore))
+	}
+	if a.nodeSelector != nil {
+		contextOpts = append(contextOpts, runtime.WithNodeSelector(a.nodeSelector))
 	}
 	if a.noReuse {
 		contextOpts = append(contextOpts, runtime.WithNoReuse(true))

@@ -69,6 +69,53 @@ func TestParallelRetryPathReusesSiblings(t *testing.T) {
 	require.True(t, retryRequests[0].BypassPreconditions)
 }
 
+// A targeted retry of one node of a step with nodes reruns that node even when
+// a node before it failed, since fail-fast stops only nodes that never
+// started.
+func TestNodesRetryPathRunsTargetAfterFailedSibling(t *testing.T) {
+	child := &ir.DAG{
+		Name:         "deploy-one",
+		NodeRequired: true,
+		YamlData:     []byte("name: deploy-one\nnode: required\nsteps:\n  - name: target\n    action: noop\n"),
+		Steps:        []ir.Step{{Name: "target"}},
+	}
+	parent := &ir.DAG{Name: "root", LocalDAGs: map[string]*ir.DAG{child.Name: child}}
+	runner := &retryRecorder{failed: map[string]bool{"run-web01": true}}
+	rootRef := ir.NewDAGRunRef(parent.Name, "root-run")
+	ctx := runtime.NewContext(
+		executor.WithSubWorkflowRunner(context.Background(), runner),
+		parent,
+		rootRef.ID,
+		"",
+		runtime.WithRootDAGRun(rootRef),
+		runtime.WithRetryPath(dagrun.RetryPath{
+			Step: "target",
+			Hops: []dagrun.RetryHop{{Step: "deploy", RunID: "run-web03"}},
+		}),
+	)
+	step := ir.Step{
+		Name:           "deploy",
+		ExecutorConfig: ir.ExecutorConfig{Type: ir.ExecutorTypeNodes},
+		SubDAG:         &ir.SubDAG{Name: child.Name},
+		Nodes:          &ir.NodeTargets{Selector: "web", MaxConcurrent: 1},
+	}
+
+	impl, err := executor.NewExecutor(ctx, step)
+	require.NoError(t, err)
+	var matched []executor.NodeRun
+	for _, node := range []string{"web01", "web02", "web03"} {
+		matched = append(matched, executor.NodeRun{Node: node, Run: executor.RunParams{RunID: "run-" + node, DAGName: child.Name, Node: node}})
+	}
+	impl.(executor.NodesExecutor).SetNodes(matched)
+	require.Error(t, impl.Run(ctx), "the reused failure of web01 still fails the step")
+
+	runRequests, retryRequests := runner.requests()
+	require.Len(t, runRequests, 2)
+	require.Len(t, retryRequests, 1)
+	require.Equal(t, "run-web03", retryRequests[0].RunID)
+	require.Equal(t, "web03", retryRequests[0].Node)
+}
+
 // A path that ends at a parallel child run continues that run as a plain
 // attempt and reuses its siblings, so waiting siblings keep the step waiting.
 func TestParallelRetryPathResumesLeaf(t *testing.T) {
@@ -212,6 +259,8 @@ type retryRecorder struct {
 	mu      sync.Mutex
 	runs    []executor.SubWorkflowRequest
 	retries []executor.SubWorkflowRetryRequest
+	// failed names the runs whose reused results failed.
+	failed map[string]bool
 }
 
 func (r *retryRecorder) ShouldRun(context.Context, executor.SubWorkflowRequest) bool {
@@ -222,7 +271,11 @@ func (r *retryRecorder) Run(_ context.Context, req executor.SubWorkflowRequest) 
 	r.mu.Lock()
 	r.runs = append(r.runs, req)
 	r.mu.Unlock()
-	return &ir.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: ir.Succeeded}, nil
+	status := ir.Succeeded
+	if r.failed[req.RunID] {
+		status = ir.Failed
+	}
+	return &ir.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Params: req.Params, Status: status}, nil
 }
 
 func (r *retryRecorder) Retry(_ context.Context, req executor.SubWorkflowRetryRequest) (*ir.RunStatus, error) {

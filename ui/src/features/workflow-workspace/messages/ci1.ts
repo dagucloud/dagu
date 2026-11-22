@@ -20,8 +20,9 @@ export default defineMessages({
       'The most calls of DAG tools in one attempt. This is the default.',
     'if {step} failed': 'if {step} failed',
     'if {step} succeeded': 'if {step} succeeded',
-    'if {step} exit code is {code}': 'if {step} exit code is {code}',
-    'if {step} exit code is not {code}': 'if {step} exit code is not {code}',
+    'if {step} exits with {code}': 'if {step} exits with {code}',
+    'if {step} does not exit with {code}':
+      'if {step} does not exit with {code}',
     'if {step}: {test}': 'if {step}: {test}',
     'Precondition: {text}': 'Precondition: {text}',
     'continues on failure': 'continues on failure',
@@ -76,8 +77,8 @@ export default defineMessages({
       '一次尝试中 DAG 工具的最大调用次数。这是默认值。',
     'if {step} failed': '如果 {step} 失败',
     'if {step} succeeded': '如果 {step} 成功',
-    'if {step} exit code is {code}': '如果 {step} 的退出码是 {code}',
-    'if {step} exit code is not {code}': '如果 {step} 的退出码不是 {code}',
+    'if {step} exits with {code}': '如果 {step} 的退出码是 {code}',
+    'if {step} does not exit with {code}': '如果 {step} 的退出码不是 {code}',
     'if {step}: {test}': '如果 {step}：{test}',
     'Precondition: {text}': '前置条件：{text}',
     'continues on failure': '失败后继续',
@@ -129,8 +130,8 @@ export default defineMessages({
       '1 回の試行での DAG ツールの最大呼び出し回数。これは既定値です。',
     'if {step} failed': '{step} が失敗した場合',
     'if {step} succeeded': '{step} が成功した場合',
-    'if {step} exit code is {code}': '{step} の終了コードが {code} の場合',
-    'if {step} exit code is not {code}':
+    'if {step} exits with {code}': '{step} の終了コードが {code} の場合',
+    'if {step} does not exit with {code}':
       '{step} の終了コードが {code} 以外の場合',
     'if {step}: {test}': '{step}: {test} の場合',
     'Precondition: {text}': '事前条件: {text}',

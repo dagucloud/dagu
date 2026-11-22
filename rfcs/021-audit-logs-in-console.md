@@ -157,11 +157,12 @@ covers every producer, including the two that call `Append` without
 - **Control fields stay.** It leaves as written only the fields Dagu
   generates or picks from a fixed set: `id`, `timestamp`, `category`,
   `action`, `source`, `surface`, `result`, `resource_type`,
-  `credential_type`, `credential_id`, and `correlation_id`. A secret whose
-  value is `denied` therefore cannot rewrite a result.
+  `credential_type`, `credential_id`, and `correlation_id`, and from v3
+  `project_id` (RFC 003), which the server generates. A secret whose value
+  is `denied` therefore cannot rewrite a result.
 - **Everything else is masked,** and so is any field added later. Today that
   is `details`, `username`, `user_id`, `resource_id`, `workspace`,
-  `mcp_tool`, and `ip_address`. Each can carry text from a request: a failed
+  `mcp_tool`, and `ip_address`, and from v3 `project`. Each can carry text from a request: a failed
   sign-in records the name typed, basic authentication sets `user_id` to the
   username sent (`internal/service/frontend/auth/middleware.go:205`),
   `resource_id` can hold a Git remote with a token, and MCP copies a
@@ -284,7 +285,6 @@ Content-Encoding: gzip
 ```json
 {
   "protocol": 1,
-  "read": {"2026-11-20": 412},
   "entries": [
     {
       "id": "4f1c...",
@@ -308,18 +308,16 @@ Content-Encoding: gzip
 | --- | --- |
 | Request | gzip. 1 MiB compressed, 4 MiB decompressed, 1,000 entries |
 | Entry | 16 KiB as encoded JSON |
-| Identifiers and names, such as `id`, `user_id`, `username`, `resource_id`, `workspace`, and `ip_address` | 256 bytes each |
+| Identifiers and names, such as `id`, `user_id`, `username`, `resource_id`, `workspace`, `project_id`, `project`, and `ip_address` | 256 bytes each |
 | `category` and `action` | 64 bytes each |
+
+From v3, an entry carries `project_id` and `project`, its project's ID and
+its name at the time (RFC 003), and Console filters by them. Entries written
+before v3 carry `workspace` instead, and Console shows it as its own choice.
 
 The answer is `{"stored": n, "duplicates": n, "rejected": [...]}`. Console
 refuses an entry it cannot store on its own, lists its ID in `rejected`, and
 records a `rejected` gap; the shipper logs the IDs and moves on.
-
-`read` gives, for each day the batch's entries belong to, how many entries
-the shipper has put into batches for that day so far, this batch included.
-The shipper keeps the counts with its offsets, and a resend repeats them.
-Console compares them with what it holds, to find entries lost between the
-shipper and its tables.
 
 The report (RFC 002) gains an `audit` object, so Console can show what waits
 on the server:
@@ -338,7 +336,7 @@ At `off`, it carries the level alone.
 | `402` | Plan has no audit logs | Asks again hourly |
 | `413` | Body over a request limit | Halves the batch. A single entry becomes a `rejected` gap |
 | `429` | Over Console's pace or daily quota | Waits for `Retry-After` |
-| `503` | Console is busy, or over its storage limit | Waits for `Retry-After` |
+| `503` | Console is busy | Waits for `Retry-After` |
 
 ### Gaps
 
@@ -352,8 +350,9 @@ A gap records entries that did not arrive:
 
 The server derives a gap's ID from the reason and the range, so a resend
 repeats it and Console stores the gap once. It merges its unsent gaps of one
-reason into one range. Console accepts a request that carries only a gap
-past its pace and quota, so a server they hold back can still report a loss.
+reason into one range. A gap counts as an entry toward Console's pace and
+quota. A server held back keeps its gaps with its entries and sends them
+once Console accepts them.
 
 ### Ephemeral servers and `dagu secret`
 
@@ -465,8 +464,8 @@ Stopping:
 
 9. A stopping server with 8,000 unsent entries and a reachable Console sends
    them all before it exits.
-10. A stopping server over Console's quota sends a `stopped` gap. On a
-    persistent disk, the entries go out after the next start.
+10. A stopping server over Console's quota keeps its entries, and on a
+    persistent disk they go out after the next start.
 11. With Console unreachable, a stopping server still exits 25 seconds after
     the signal.
 12. A terminal command runs while `dagu start-all` stops, and its entry is
@@ -503,14 +502,12 @@ Upload format:
 
 Completeness:
 
-22. Each batch's `read` counts equal the entries the shipper has put into
-    batches for each of its days, and a resent batch repeats them.
-23. The report carries the level, the unsent bytes, and the oldest unsent
+22. The report carries the level, the unsent bytes, and the oldest unsent
     entry's time while entries wait, and the level alone at `off`.
 
 PostgreSQL:
 
-24. Transaction A writes an entry, then B writes and commits one, then A
+23. Transaction A writes an entry, then B writes and commits one, then A
     commits. The shipper sends both.
 
 ## Alternatives considered

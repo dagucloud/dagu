@@ -58,6 +58,7 @@ type DAGRunNodeSnapshot struct {
 	StepID            string                `json:"step_id,omitempty"`
 	StepName          string                `json:"step_name,omitempty"`
 	StartedAt         string                `json:"started_at,omitempty"`
+	FinishedAt        string                `json:"finished_at,omitempty"`
 	Status            ir.NodeStatus         `json:"status,omitempty"`
 	Error             string                `json:"error,omitempty"`
 	StatusDetails     []ir.NodeStatusDetail `json:"status_details,omitempty"`
@@ -76,6 +77,7 @@ func newDAGRunNodeSnapshot(node *ir.Node) *DAGRunNodeSnapshot {
 		StepID:            node.Step.ID,
 		StepName:          node.Step.Name,
 		StartedAt:         node.StartedAt,
+		FinishedAt:        node.FinishedAt,
 		Status:            node.Status,
 		Error:             node.Error,
 		StatusDetails:     append([]ir.NodeStatusDetail(nil), node.StatusDetails...),
@@ -94,6 +96,7 @@ func (s *DAGRunNodeSnapshot) Node() *ir.Node {
 		Stderr:            s.Stderr,
 		Step:              ir.Step{ID: s.StepID, Name: s.StepName},
 		StartedAt:         s.StartedAt,
+		FinishedAt:        s.FinishedAt,
 		Status:            s.Status,
 		Error:             s.Error,
 		StatusDetails:     append([]ir.NodeStatusDetail(nil), s.StatusDetails...),

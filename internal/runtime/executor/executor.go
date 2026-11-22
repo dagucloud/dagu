@@ -113,6 +113,24 @@ type ParallelExecutor interface {
 	SetParamsList([]RunParams)
 }
 
+// NodesExecutor runs a step with nodes as one child run per node (RFC 013).
+type NodesExecutor interface {
+	Executor
+
+	// SetNodes sets the nodes the step matched, in name order.
+	SetNodes([]NodeRun)
+}
+
+// NodeRun is one node a step with nodes matched.
+type NodeRun struct {
+	// Node is the node's name.
+	Node string
+	// Disabled reports a node that does not run, and so has no Run.
+	Disabled bool
+	// Run starts the child run bound to the node.
+	Run RunParams
+}
+
 // RunParams holds the parameters for running a sub DAG.
 type RunParams struct {
 	RunID          string
@@ -123,6 +141,8 @@ type RunParams struct {
 	// PassedEnv holds resolved "KEY=value" pairs the parent opted to share
 	// with the child run via the step's pass_env field.
 	PassedEnv []string
+	// Node names the inventory node the child run is bound to (RFC 013).
+	Node string
 }
 
 // ChatMessageHandler is an interface for executors that handle chat session messages.

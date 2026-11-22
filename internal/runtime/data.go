@@ -187,6 +187,8 @@ type SubDAGRun struct {
 	Params string
 	// ParallelItem contains the value bound to ITEM for this child run.
 	ParallelItem string
+	// Node names the inventory node the child run is bound to.
+	Node string
 	// DAGName is the name of the executed sub-DAG.
 	// For chat tool calls, this is the tool DAG name.
 	// This field enables UI drill-down when step.call is not set.

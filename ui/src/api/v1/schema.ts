@@ -8608,7 +8608,7 @@ export interface components {
             from: string;
             /** Format: date-time */
             to: string;
-            /** @description Buckets in time order. A bucket with no sample is not listed. */
+            /** @description Buckets in time order. A bucket with no sample and no up time is not listed. */
             buckets: components["schemas"]["SampleBucket"][];
             /**
              * Format: double
