@@ -71,6 +71,9 @@ func (n *nodeConnection) clientWith(ctx context.Context, with map[string]any) (*
 	if has("known_host_file") {
 		return nil, errors.New("with.known_host_file does not apply to a node, whose host key is checked against its pinned and trusted keys")
 	}
+	if has("bastion") {
+		return nil, errors.New("with.bastion does not apply to a node, which connects through the bastion its inventory sets")
+	}
 
 	cfg := n.cfg
 	if has("user") {
@@ -102,11 +105,6 @@ func (n *nodeConnection) clientWith(ctx context.Context, with map[string]any) (*
 	}
 	if has("timeout") {
 		if cfg.Timeout, err = parseTimeout(def.Timeout); err != nil {
-			return nil, err
-		}
-	}
-	if has("bastion") {
-		if cfg.Bastion, err = buildBastionFromMap(def.Bastion); err != nil {
 			return nil, err
 		}
 	}

@@ -270,3 +270,25 @@ steps:
 
 	require.Len(t, server.Commands(), 2, "each step runs on the node")
 }
+
+// A bastion under a bound step's with fails the step, since the node connects
+// through the bastion its inventory sets and checks that bastion's host key.
+func TestAgent_BoundRunRejectsWithBastion(t *testing.T) {
+	t.Parallel()
+
+	node, server := startNode(t, "web01")
+	dagAgent, _ := runBound(t, nodeInventory{node}, `
+node: required
+steps:
+  - id: via_bastion
+    action: ssh.run
+    with:
+      bastion:
+        host: 127.0.0.1
+        user: `+nodeUser+`
+      command: "true"
+`, newCountingSecretResolver(map[string]string{passwordRef: nodePassword}))
+	dagAgent.RunCheckErr(t, "with.bastion does not apply to a node")
+
+	require.Zero(t, server.AuthAttempts(), "no credential reaches the node")
+}
