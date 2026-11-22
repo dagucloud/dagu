@@ -10,6 +10,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/incident"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/profile"
@@ -49,5 +50,6 @@ type Stores struct {
 	Audit                audit.Store
 	Event                *eventstore.Service
 	View                 view.Store
+	Inventory            inventory.Store
 	PublicWebhooks       publicwebhook.Store
 }

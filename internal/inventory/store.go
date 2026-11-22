@@ -37,7 +37,8 @@ type Store interface {
 	Delete(ctx context.Context, id string, version int64) error
 	// Import checks invs as a whole and then stores them one at a time,
 	// matching existing inventories by name. It stores nothing when any
-	// inventory breaks a rule, and reports every broken rule.
+	// inventory breaks a rule, and reports every broken rule. When a write
+	// fails, the result names the inventories stored before it.
 	Import(ctx context.Context, invs []Inventory, opts ImportOptions) (ImportResult, error)
 	// Nodes returns the nodes of every inventory with defaults applied, in
 	// name order.
