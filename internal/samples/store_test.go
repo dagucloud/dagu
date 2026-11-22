@@ -661,29 +661,33 @@ func TestEventRunID(t *testing.T) {
 	}
 }
 
-// A gap event needs a long pause and no open outage, and it survives a reopen.
+// A gap event needs a long pause after a sample that allows one, and the bound
+// survives a reopen.
 func TestGapEvent(t *testing.T) {
 	dir := t.TempDir()
 	clk := &clock{t: t0}
 	o := runOpts(clk)
 	ctx := context.Background()
 	r := openWith(t, dir, o)
+	// As the scheduler does, a run that failed allows no gap after it.
 	rec := func(at time.Duration, exit int, id string) {
 		t.Helper()
 		clk.t = t0.Add(at)
-		require.NoError(t, r.Record(ctx, Sample{
-			Time: t0.Add(at), Duration: 10 * time.Second, ExitCode: exit, RunID: id, GapAfter: time.Minute,
-		}))
+		s := Sample{Time: t0.Add(at), Duration: 10 * time.Second, ExitCode: exit, RunID: id}
+		if exit == 0 {
+			s.GapAfter = time.Minute
+		}
+		require.NoError(t, r.Record(ctx, s))
 	}
 	rec(0, 0, "r1")              // first sample: no gap
 	rec(40*time.Second, 0, "r2") // 30 s after the end: under the threshold
 	rec(5*time.Minute, 0, "r3")  // 4 min 10 s after the end of r2: gap
 	rec(10*time.Minute, 1, "r4") // gap, then the outage opens
-	rec(30*time.Minute, 1, "r5") // in the outage: no gap
-	rec(time.Hour, 0, "r6")      // recovery: no gap
+	rec(30*time.Minute, 1, "r5") // after a failed run: no gap
+	rec(time.Hour, 0, "r6")      // after a failed run: no gap
 	require.NoError(t, r.Close(ctx))
 	r = openWith(t, dir, o)
-	rec(3*time.Hour, 0, "r7") // the end of r6 comes back from the store
+	rec(3*time.Hour, 0, "r7") // the end of r6 and its bound come back from the store
 	require.NoError(t, r.Close(ctx))
 
 	var gaps []Event
@@ -931,7 +935,8 @@ func TestNewestEndLongRun(t *testing.T) {
 	clk := &clock{t: t0}
 	o := runOpts(clk)
 	r := openWith(t, dir, o)
-	recordRun(t, r, clk, t0, 72*time.Hour)
+	clk.t = t0.Add(72 * time.Hour)
+	require.NoError(t, r.Record(ctx, Sample{Time: t0, Duration: 72 * time.Hour, GapAfter: 65 * time.Second}))
 	require.NoError(t, r.Close(ctx))
 	for range 2 {
 		clk.t = clk.t.Add(time.Minute)

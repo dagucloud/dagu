@@ -491,7 +491,7 @@ func upParts(lo, hi, now int64) []upPart {
 // newest end, of "up/since" and of each tier.
 func (r *reader) uptimes(ctx context.Context, wins []upWindow, now time.Time) ([]Uptime, error) {
 	var last time.Time
-	if end, ok := r.st.newestEnd(); ok {
+	if end, _, ok := r.st.newestEnd(); ok {
 		last = time.UnixMilli(end).UTC()
 	}
 	out := make([]Uptime, len(wins))

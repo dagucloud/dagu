@@ -32,9 +32,10 @@ type Sample struct {
 	// RunID is the ID of the run of a run sample. Only the events keep it: a
 	// raw line does not.
 	RunID string
-	// GapAfter is the longest time from the end of the previous sample to the
-	// start of this one that records no gap event. Zero records no gap event.
-	// Only a run history (Options.RunHistory) records gap events.
+	// GapAfter is the longest time from the end of this sample to the start of
+	// the next one that records no gap event. Zero records no gap event after
+	// this sample, as after a run that failed. Only a run history
+	// (Options.RunHistory) records gap events.
 	GapAfter time.Duration
 	// ActiveGap is the longest time from the end of the previous sample to the
 	// start of this one that counts as active time in the uptime. A longer gap
@@ -222,7 +223,7 @@ type Options struct {
 // end of the newest aggregate bucket. It reports false for a store with no
 // sample.
 func NewestEnd(dir string) (time.Time, bool, error) {
-	ms, ok := newStore(dir).newestEnd()
+	ms, _, ok := newStore(dir).newestEnd()
 	if !ok {
 		return time.Time{}, false, nil
 	}

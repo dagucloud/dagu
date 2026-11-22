@@ -93,12 +93,16 @@
 // Sample.RunID goes into the failed and recovered events that the sample causes.
 // The raw line does not keep it.
 //
-// Sample.GapAfter above zero records a gap event when no outage is open and the
-// sample starts more than GapAfter after the end of the previous sample. The
-// event time is that end. The event has the time with no sample and the run ID
-// of the new sample. OpenRecorder restores the end of the previous sample from
-// the file "end" and the newest raw line, or from the newest aggregate when
-// neither holds it.
+// Sample.GapAfter above zero records a gap event when the next sample starts
+// more than GapAfter after the end of this one. The caller gives the bound from
+// the outcome of the run that ends before the gap, so one layer holds the
+// whole rule: Spec 100 records a gap only after a run that succeeded. The
+// event time is the end of the sample before the gap. The event has the time
+// with no sample and the run ID of the new sample. The file "end" keeps the
+// end of the newest sample and its bound, so a restart keeps both. When a
+// crash leaves a raw line newer than the file, that sample has no bound, and
+// the end comes from the raw line, or from the newest aggregate when neither
+// holds it.
 //
 // Options.MaxEventBytes above zero bounds the events file, in any store. When
 // an append makes the file larger, the recorder replaces it with a file that

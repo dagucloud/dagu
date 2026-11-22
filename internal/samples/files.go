@@ -561,51 +561,62 @@ func (s *store) newestRaw() (ms, us int64, ok bool) {
 	return 0, 0, false
 }
 
-// newestEnd returns the end of the newest sample, in milliseconds. A store
-// written with Options.RunHistory keeps it in the file "end". Without that file,
-// once the raw tier holds no sample, it is the end of the newest aggregate
-// bucket of the finest tier that has one.
-func (s *store) newestEnd() (int64, bool) {
-	end, hasEnd := s.readEnd()
+// newestEnd returns the end of the newest sample, in milliseconds, and the
+// Sample.GapAfter of that sample. A store written with Options.RunHistory keeps
+// both in the file "end". Without that file, once the raw tier holds no
+// sample, the end is the end of the newest aggregate bucket of the finest tier
+// that has one. A sample that the file does not hold has no gap bound.
+func (s *store) newestEnd() (end, gapAfter int64, ok bool) {
+	end, gapAfter, hasEnd := s.readEnd()
 	ms, us, hasRaw := s.newestRaw()
 	switch {
 	case hasEnd && (!hasRaw || ms < end):
 		// The file holds the end of every sample up to the newest raw line. The
 		// raw line of a run that overlaps a newer one starts late, so it can end
 		// after the run did.
-		return end, true
+		return end, gapAfter, true
 	case hasRaw:
 		// A crash between the raw line and the file "end" leaves the raw line newer.
-		return max(ms+us/1000, end), true
+		return max(ms+us/1000, end), 0, true
 	}
 	for _, t := range allTiers[1:] {
 		for _, f := range slices.Backward(s.list(t)) {
 			if last, err := s.lastOf(f.path); err == nil && last != minInt {
-				return (last + tierSec(t)) * 1000, true
+				return (last + tierSec(t)) * 1000, 0, true
 			}
 		}
 	}
-	return 0, false
+	return 0, 0, false
 }
 
-// writeEnd replaces the file "end" with the end of the newest sample, in
-// milliseconds.
-func (s *store) writeEnd(ms int64) error {
-	return writeFile(s.endPath(), strconv.AppendInt(nil, ms, 10))
+// writeEnd replaces the file "end" with the end of the newest sample and its
+// gap bound, in milliseconds: "end gapAfter".
+func (s *store) writeEnd(end, gapAfter int64) error {
+	b := strconv.AppendInt(nil, end, 10)
+	b = append(b, ' ')
+	return writeFile(s.endPath(), strconv.AppendInt(b, gapAfter, 10))
 }
 
 // readEnd reads the file "end". A missing file, or one that a crash cut,
 // gives false.
-func (s *store) readEnd() (int64, bool) {
+func (s *store) readEnd() (end, gapAfter int64, ok bool) {
 	b, err := os.ReadFile(s.endPath()) //nolint:gosec
 	if err != nil {
-		return 0, false
+		return 0, 0, false
 	}
-	end, err := strconv.ParseInt(string(bytes.TrimSpace(b)), 10, 64)
+	fields := bytes.Fields(b)
+	if len(fields) != 2 {
+		return 0, 0, false
+	}
+	end, err = strconv.ParseInt(string(fields[0]), 10, 64)
 	if err != nil || end <= 0 {
-		return 0, false
+		return 0, 0, false
 	}
-	return end, true
+	gapAfter, err = strconv.ParseInt(string(fields[1]), 10, 64)
+	if err != nil || gapAfter < 0 {
+		return 0, 0, false
+	}
+	return end, gapAfter, true
 }
 
 // scanLinesBackward calls fn for the lines of a file before the offset end,

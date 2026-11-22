@@ -27,6 +27,7 @@ type recorder struct {
 	lastEvent  int64 // ms of the last event written
 	lastSample int64 // ms of the newest sample
 	lastEnd    int64 // ms of the end of the newest sample
+	gapAfter   int64 // ms of the Sample.GapAfter of that sample
 	hasEnd     bool
 	compactDue bool // an event was appended since the last compaction
 
@@ -55,7 +56,7 @@ func openRecorder(ctx context.Context, dir string, opts Options) (*recorder, err
 	r := &recorder{st: newStore(dir), now: now, opts: opts}
 	// The repair can remove the raw file of the newest sample, so the end of the
 	// sample is read before it.
-	r.lastEnd, r.hasEnd = r.st.newestEnd()
+	r.lastEnd, r.gapAfter, r.hasEnd = r.st.newestEnd()
 	if err := r.st.repair(now().Unix()); err != nil {
 		return nil, err
 	}
@@ -158,15 +159,16 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 	// The gap, the uptime and the newest end use the real interval of the
 	// sample, not the time that its raw line takes.
 	end := start + us/1000
-	// A gap is not in an outage, and it comes before the events of the sample.
-	if gap := time.Duration(start-r.lastEnd) * time.Millisecond; r.opts.RunHistory && s.GapAfter > 0 && r.hasEnd && !r.trk.inOutage && gap > s.GapAfter {
-		e := Event{Time: time.UnixMilli(r.lastEnd).UTC(), Kind: EventGap, Gap: gap, RunID: s.RunID}
+	// The sample before the gap gives its bound. The gap comes before the
+	// events of the sample.
+	if gap := start - r.lastEnd; r.opts.RunHistory && r.hasEnd && r.gapAfter > 0 && gap > r.gapAfter {
+		e := Event{Time: time.UnixMilli(r.lastEnd).UTC(), Kind: EventGap, Gap: time.Duration(gap) * time.Millisecond, RunID: s.RunID}
 		if err := r.writeEvent(e); err != nil {
 			return err
 		}
 	}
-	if !r.hasEnd || end > r.lastEnd {
-		r.lastEnd, r.hasEnd = end, true
+	if !r.hasEnd || end >= r.lastEnd {
+		r.lastEnd, r.gapAfter, r.hasEnd = end, s.GapAfter.Milliseconds(), true
 	}
 	if e, ok := r.trk.observe(ms, s.ExitCode, msg); ok {
 		e.RunID = s.RunID
@@ -184,7 +186,7 @@ func (r *recorder) Record(ctx context.Context, s Sample) error {
 	// The raw line of a run longer than the raw retention leaves with the hour
 	// of its start, so the end of the newest sample has its own file.
 	if r.opts.RunHistory && err == nil {
-		err = r.st.writeEnd(r.lastEnd)
+		err = r.st.writeEnd(r.lastEnd, r.gapAfter)
 	}
 	if r.up != nil {
 		err = errors.Join(err, r.up.add(start, end, s.ActiveGap.Milliseconds(), r.now().UnixMilli()))
