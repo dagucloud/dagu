@@ -157,11 +157,12 @@ covers every producer, including the two that call `Append` without
 - **Control fields stay.** It leaves as written only the fields Dagu
   generates or picks from a fixed set: `id`, `timestamp`, `category`,
   `action`, `source`, `surface`, `result`, `resource_type`,
-  `credential_type`, `credential_id`, and `correlation_id`. A secret whose
-  value is `denied` therefore cannot rewrite a result.
+  `credential_type`, `credential_id`, and `correlation_id`, and from v3
+  `project_id` (RFC 003), which the server generates. A secret whose value
+  is `denied` therefore cannot rewrite a result.
 - **Everything else is masked,** and so is any field added later. Today that
   is `details`, `username`, `user_id`, `resource_id`, `workspace`,
-  `mcp_tool`, and `ip_address`. Each can carry text from a request: a failed
+  `mcp_tool`, and `ip_address`, and from v3 `project`. Each can carry text from a request: a failed
   sign-in records the name typed, basic authentication sets `user_id` to the
   username sent (`internal/service/frontend/auth/middleware.go:205`),
   `resource_id` can hold a Git remote with a token, and MCP copies a
@@ -307,8 +308,12 @@ Content-Encoding: gzip
 | --- | --- |
 | Request | gzip. 1 MiB compressed, 4 MiB decompressed, 1,000 entries |
 | Entry | 16 KiB as encoded JSON |
-| Identifiers and names, such as `id`, `user_id`, `username`, `resource_id`, `workspace`, and `ip_address` | 256 bytes each |
+| Identifiers and names, such as `id`, `user_id`, `username`, `resource_id`, `workspace`, `project_id`, `project`, and `ip_address` | 256 bytes each |
 | `category` and `action` | 64 bytes each |
+
+From v3, an entry carries `project_id` and `project`, its project's ID and
+its name at the time (RFC 003), and Console filters by them. Entries written
+before v3 carry `workspace` instead, and Console shows it as its own choice.
 
 The answer is `{"stored": n, "duplicates": n, "rejected": [...]}`. Console
 refuses an entry it cannot store on its own, lists its ID in `rejected`, and
