@@ -6,7 +6,7 @@ export const SHORT_RUN_ID_LENGTH = 8;
 
 /** The IDs of the scheduler: `<scheme>-<hash>` and `<scheme>-<hash>-<time>`. */
 const SCHEDULER_ID =
-  /^(?:restart|catchup|oneoff)-([0-9a-f]{6,})(?:-\d{8}T(\d{6}))?$/;
+  /^(?:sched|restart|catchup|oneoff)-([0-9a-f]{6,})(?:-\d{8}T(\d{6}))?$/;
 const SCHEDULER_HASH_LENGTH = 4;
 
 /**

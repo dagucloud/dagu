@@ -19,7 +19,10 @@ describe('shortRunId', () => {
     expect(a).not.toContain('restart');
   });
 
-  it('reads the catchup and one-off IDs the same way', () => {
+  it('reads the schedule, catchup and one-off IDs the same way', () => {
+    expect(shortRunId('sched-0123456789ab-20260101T090000')).toBe(
+      '0123-090000'
+    );
     expect(shortRunId('catchup-0123456789ab-20260101T000000')).toBe(
       '0123-000000'
     );
