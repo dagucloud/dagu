@@ -247,6 +247,9 @@ function DependencyEdgeComponent({
           <div
             data-testid="ve-canvas-edge-label"
             data-conditional={condition ? '' : undefined}
+            // The label is outside the edge group: the canvas finds its
+            // edge by this mark for a long press.
+            data-flow-edge={id}
             title={condition ? conditionTitle(ts, condition) : pattern}
             style={{ transform: patternPlace, maxWidth: room }}
             className={cn(

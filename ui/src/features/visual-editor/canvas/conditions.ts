@@ -130,10 +130,12 @@ export function edgeCondition(
       if (field === 'exit_code' && expected === '0') {
         return { ...base, when: pre.negate ? 'failed' : 'succeeded' };
       }
-      if (field === 'exit_code' && expected !== undefined) {
-        return /^\d+$/.test(expected)
-          ? { ...base, when: 'exit', value: expected }
-          : { ...base, when: 'match', value: `exit_code ${expected}` };
+      if (
+        field === 'exit_code' &&
+        expected !== undefined &&
+        /^\d+$/.test(expected)
+      ) {
+        return { ...base, when: 'exit', value: expected };
       }
       return {
         ...base,

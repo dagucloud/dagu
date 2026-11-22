@@ -111,6 +111,18 @@ describe('edgeCondition', () => {
     });
   });
 
+  it('keeps the negation of an exit code test against a pattern', () => {
+    const negated = pre({
+      preconditions: [
+        { condition: '${a.exit_code}', expected: 're:^[12]$', negate: true },
+      ],
+    });
+    expect(edgeCondition(negated, ['a'], 'a')).toMatchObject({
+      when: 'match',
+      value: 'exit_code != re:^[12]$',
+    });
+  });
+
   it('gives nothing when no precondition reads the source', () => {
     const other = pre({
       preconditions: [{ condition: '${b.exit_code}', expected: '0' }],

@@ -21,7 +21,9 @@ import {
   Position,
   type EdgeProps,
   type FlowNode,
+  type FlowProps,
 } from '../engine';
+import { LONG_PRESS_MS } from '../engine/Flow';
 import { DependencyEdge } from '../edges/DependencyEdge';
 import { edgeTypes } from '../edges';
 import { LockedEdge } from '../edges/LockedEdge';
@@ -76,13 +78,17 @@ function makeAffordances(): CanvasAffordances {
 function renderEdge(
   ui: ReactElement,
   actions: CanvasActions = makeActions(),
-  affordances: CanvasAffordances | null = null
+  affordances: CanvasAffordances | null = null,
+  menus: Pick<
+    FlowProps<FlowNode, CanvasFlowEdge>,
+    'onEdgeContextMenu' | 'onPaneContextMenu'
+  > = {}
 ) {
   return render(
     <FlowProvider>
       <CanvasActionsContext.Provider value={actions}>
         <CanvasAffordancesContext.Provider value={affordances}>
-          <Flow nodes={[]} edges={[]} nodeTypes={{}} edgeTypes={{}}>
+          <Flow nodes={[]} edges={[]} nodeTypes={{}} edgeTypes={{}} {...menus}>
             <svg>{ui}</svg>
           </Flow>
         </CanvasAffordancesContext.Provider>
@@ -340,6 +346,39 @@ describe('DependencyEdge', () => {
     );
     expect(queryByTestId('ve-canvas-edge-label')).toBeNull();
     expect(edgePath(container).style.strokeDasharray).toBe('');
+  });
+
+  // The label of a condition takes the pointer: a long press on it opens the
+  // menu of its link, as a long press on the line does.
+  it('opens the link menu on a long press on a condition label', () => {
+    const menus = { onEdgeContextMenu: vi.fn(), onPaneContextMenu: vi.fn() };
+    const { getByTestId } = renderEdge(
+      <DependencyEdge
+        {...edgeProps({
+          condition: { when: 'failed', step: 'verify_1', text: 'x' },
+        })}
+      />,
+      makeActions(),
+      null,
+      menus
+    );
+    const press = new MouseEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 5,
+      clientY: 6,
+      button: 0,
+    });
+    Object.defineProperty(press, 'pointerType', { value: 'touch' });
+    act(() => {
+      getByTestId('ve-canvas-edge-label').dispatchEvent(press);
+    });
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS));
+    expect(menus.onEdgeContextMenu).toHaveBeenCalledWith('e1', {
+      clientX: 5,
+      clientY: 6,
+    });
+    expect(menus.onPaneContextMenu).not.toHaveBeenCalled();
   });
 
   it('shows the pattern of a route edge', () => {
