@@ -5,7 +5,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strconv"
@@ -17,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/ssh"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
 // localWorkerID is the worker ID of a run on the Dagu host itself.
@@ -127,42 +127,15 @@ func (b *nodeBinding) valueNode() *cmnvalue.BoundNode {
 }
 
 // missingNodeLabel fails a run that reads a label its node lacks, naming the
-// node and the key. It reads every text field of dag, as stored, and its env.
+// node and the key. It reads the fields of dag that resolve values, as
+// stored, so text such as a description is not checked.
 func missingNodeLabel(dag *ir.DAG, node *cmnvalue.BoundNode) error {
-	for _, entry := range dag.Env {
-		if err := cmnvalue.MissingNodeLabel(entry, node); err != nil {
+	for _, field := range spec.ReferenceFields(dag) {
+		if err := cmnvalue.MissingNodeLabel(field.Value, node); err != nil {
 			return err
 		}
 	}
-	data, err := json.Marshal(dag)
-	if err != nil {
-		return fmt.Errorf("failed to read the DAG's references to node %q: %w", node.Name, err)
-	}
-	var fields any
-	if err := json.Unmarshal(data, &fields); err != nil {
-		return fmt.Errorf("failed to read the DAG's references to node %q: %w", node.Name, err)
-	}
-	var check func(v any) error
-	check = func(v any) error {
-		switch v := v.(type) {
-		case string:
-			return cmnvalue.MissingNodeLabel(v, node)
-		case []any:
-			for _, item := range v {
-				if err := check(item); err != nil {
-					return err
-				}
-			}
-		case map[string]any:
-			for _, item := range v {
-				if err := check(item); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}
-	return check(fields)
+	return nil
 }
 
 // credentialRefs returns the secret refs of the node's credentials and its

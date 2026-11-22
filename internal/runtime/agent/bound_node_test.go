@@ -292,3 +292,19 @@ steps:
 
 	require.Zero(t, server.AuthAttempts(), "no credential reaches the node")
 }
+
+// The label check reads only the fields that resolve values, so a
+// description naming a label the node lacks does not fail the run.
+func TestAgent_BoundRunLabelCheckSkipsDescription(t *testing.T) {
+	t.Parallel()
+
+	node, _ := startNode(t, "web01")
+	dagAgent, _ := runBound(t, nodeInventory{node}, `
+node: required
+description: Drains the app in ${node.labels.zone}
+steps:
+  - id: drain
+    action: noop
+`, newCountingSecretResolver(nil))
+	dagAgent.RunSuccess(t)
+}
