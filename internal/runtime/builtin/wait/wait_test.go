@@ -286,6 +286,8 @@ func requireOneLine(t *testing.T, stderr, prefix string) {
 	require.NotContains(t, stderr, "secret")
 }
 
+const detailsLeftOutLine = "wait: http GET request failed: details left out, they may contain the URL or response text\n"
+
 // net/http quotes text from the server in these errors, and that text may
 // carry a token, so the error text is replaced.
 func TestHTTPServerTextLeftOutOfStderr(t *testing.T) {
@@ -322,7 +324,7 @@ func TestHTTPServerTextLeftOutOfStderr(t *testing.T) {
 			defer server.Close()
 
 			stderr := runHTTPUntilLogged(t, newHTTPWait(t, map[string]any{"url": server.URL + "/ready"}))
-			require.Equal(t, "wait: http GET request failed: details left out, they may contain the URL or response text\n", stderr)
+			require.Equal(t, detailsLeftOutLine, stderr)
 		})
 	}
 }
@@ -762,6 +764,8 @@ func TestRequestErrorClearsNestedLocalAddress(t *testing.T) {
 	require.NotContains(t, first, "61432")
 }
 
+// A header value with a trailing newline, such as a token read from a file,
+// fails before the request is sent, so the line must not blame the server.
 func TestHTTPClientSideErrorNotBlamedOnServer(t *testing.T) {
 	t.Parallel()
 
@@ -772,5 +776,5 @@ func TestHTTPClientSideErrorNotBlamedOnServer(t *testing.T) {
 		"url":     server.URL,
 		"headers": map[string]any{"Authorization": "Bearer abc\n"},
 	}))
-	require.NotContains(t, stderr, "server")
+	require.Equal(t, detailsLeftOutLine, stderr)
 }
