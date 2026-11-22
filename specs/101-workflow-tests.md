@@ -112,6 +112,10 @@ A waiting step is a `human.task` step (Spec 031) or a step with `approval`.
 A continuous step is a step whose `repeat_policy` has a `repeat` mode and no
 `limit` (Spec 083).
 
+A substituting `eval` is a `params[].eval` or a precondition `eval` that
+holds command substitution in backtick or `$()` form (Spec 011). Any other
+`eval` runs no command.
+
 The case directory is the temporary directory a case runs in.
 
 An invalid test file runs none of its cases. An invalid case runs none of its
@@ -207,7 +211,7 @@ A test file is never a DAG:
 | `dag` | string | no | Path of the tested DAG file. Defaults to the DAG beside the test file |
 | `params` | map | no | Run parameters for every case |
 | `env` | map | no | DAG-level `env` entries for every case |
-| `secrets` | map | no | A value for each DAG `secrets` entry, by its `name` |
+| `secrets` | map | no | A value for each DAG `secrets` entry, by its `name`, and for each SSH credential ref |
 | `mocks` | map | no | Mocks for every case, by step key |
 | `real` | list | no | Step keys of the steps that run their real action in every case |
 | `cases` | list | yes | The cases. It must not be empty |
@@ -259,7 +263,8 @@ Rules:
   of the same name in place, or follows the DAG's last entry when the DAG
   declares no entry of that name.
 - Each `secrets` entry gives the value of the DAG `secrets` entry of the same
-  `name`. See [Secrets](#secrets).
+  `name`, or of the SSH credential ref of the same text. See
+  [Secrets](#secrets).
 
 ### Step Keys
 
@@ -419,7 +424,7 @@ A mock makes the case invalid when:
 - it sets a result field on a real step or on a `human.task` step;
 - it sets `outputs` that [Named Outputs](#named-outputs) rejects;
 - it sets `precondition` on a step that has no precondition with a command
-  check or `eval`;
+  check or a substituting `eval`;
 - a result sets `condition` on a step whose `repeat_policy.condition` is not
   a command check;
 - it sets `review` on a step that does not wait for a person, or sets a
@@ -460,15 +465,16 @@ source in this table that the case does not handle as the table says:
 | Source | Handled by |
 | --- | --- |
 | A step action that is not side-effect free | A mock that replaces the action, including `{}`, or the step in `real` |
-| A step precondition with a command check or `eval` (Spec 023) | `precondition` in the step's mock, or the step in `real` |
+| A step precondition with a command check or a substituting `eval` (Spec 023) | `precondition` in the step's mock, or the step in `real` |
 | A command-check `repeat_policy.condition` (Spec 075) | `condition` in every result of the step's mock, or the step in `real` |
 | An object-form `output` entry with `from: file`, on a step whose action is not replaced | A mock that replaces the action, or the step in `real` |
 | A continuous step with a side-effect-free action that is not replaced | A mock that sets a result field, or the step in `real` |
 | A `foreach` body step with a source in this table, including an action that is not side-effect free | A mock of the `foreach` step |
 | A waiting step | `review` in the step's mock, also for a step in `real` |
-| A DAG-level precondition with a command check or `eval` | The case's `precondition` |
-| A `params[].eval` (Spec 011) | A value for that param in `params` |
+| A DAG-level precondition with a command check or a substituting `eval` | The case's `precondition` |
+| A substituting `params[].eval` (Spec 011) | A value for that param in `params` |
 | A DAG `secrets` entry (Spec 069) | A value for that entry in `secrets` |
+| An SSH credential given as `{ secret: <ref> }` (Spec 042), in a case with a real step | A value for that ref in `secrets` |
 | A source in this table in the child DAG of a real step | Nothing. The case is invalid |
 
 Rules:
@@ -480,6 +486,8 @@ Rules:
   precondition `eval`, and command checks run only in preconditions and
   repeat conditions. The table covers every command Dagu runs outside a step
   action.
+- An `eval` that is not substituting runs no command. It evaluates as in a
+  real run and needs nothing from the test.
 - No person answers in a test, so a waiting step needs `review` even when
   its action is real.
 - In an invalid case, no step, handler, `params[].eval`, or precondition
@@ -496,8 +504,9 @@ per source, as `<label>: <message>`:
 | A `foreach` body step | `step <step>, body step <body step>` |
 | A source in the child DAG of a real step | `step <step>, child <DAG name>, ` followed by the source's label in the child DAG |
 | A DAG-level precondition | `precondition` |
-| A `params[].eval` | `param <name>` |
+| A substituting `params[].eval` | `param <name>` |
 | A DAG `secrets` entry | `secret <name>` |
+| An SSH credential ref | `secret <ref>` |
 
 Rules:
 
@@ -508,7 +517,8 @@ Rules:
   `precondition`, `condition`, `review`, `params`, or `secrets`. For a step
   action, it names the action.
 - Sources are listed in this order: params in declaration order, secrets in
-  declaration order, DAG-level preconditions, steps in the order the DAG
+  declaration order, SSH credential refs in lexicographic order, DAG-level
+  preconditions, steps in the order the DAG
   declares them, then handlers in the order `init`, `success`, `failure`,
   `abort`, `exit`, `wait`. Several sources of one step are listed in the
   order of the table.
@@ -527,19 +537,19 @@ takes a line in `real`.
 
 Rules:
 
-- A value-match precondition without `eval` (Spec 023) evaluates as in a
-  real run, against mocked outputs and the case's params and env. A test
-  exercises output-driven branches this way.
+- A value-match precondition without a substituting `eval` (Spec 023)
+  evaluates as in a real run, against mocked outputs and the case's params
+  and env. A test exercises output-driven branches this way.
 - A mock's `precondition` decides every command-check condition and every
-  `eval` condition of the step, once per step start, as Spec 023 checks step
-  preconditions. The value is the outcome of each such condition after
+  substituting `eval` condition of the step, once per step start, as
+  Spec 023 checks step preconditions. The value is the outcome of each such condition after
   `negate` applies: `met` passes it, and `not_met` fails it, which skips the
   step as Spec 023 defines.
 - The step's other conditions still evaluate, so a step with
   `precondition: met` is still skipped when one of its value-match conditions
   fails.
-- The case's `precondition` decides the DAG-level command-check and `eval`
-  conditions in the same way. `not_met` aborts the run, as Spec 023 defines,
+- The case's `precondition` decides the DAG-level command-check and
+  substituting `eval` conditions in the same way. `not_met` aborts the run, as Spec 023 defines,
   and no step starts.
 - No command of a decided condition runs, and no `eval` of one is evaluated.
 - A mock's `precondition` also decides the conditions of a real step.
@@ -569,8 +579,9 @@ without pause until `--timeout`. Under test:
   executions.
 - A continuous step with a side-effect-free action that its mock does not
   replace makes the case invalid, because nothing bounds it.
-- A continuous step in `real` keeps its real retry and repeat intervals. Only
-  its own repeat decision, `timeout_sec`, or `--timeout` ends it.
+- A continuous step in `real` keeps its retry and repeat intervals, as every
+  real step does (see [Time](#time)). Only its own repeat decision,
+  `timeout_sec`, or `--timeout` ends it.
 
 ### Steps That Wait for a Person
 
@@ -626,10 +637,10 @@ Rules:
 - A real `dag.run` step, or a real `parallel` step with `dag.run`, starts its
   children in the same case. A child gets no mocks and no `real`, so a source
   of the fail-closed rule in the child DAG makes the case invalid. So does a
-  child DAG that cannot be known before the case starts, such as one named
-  by a step output.
+  child DAG that cannot be resolved before the case starts, such as one
+  named by a step output.
 - A real `dag.enqueue` step, or a real `parallel` step with `dag.enqueue`,
-  queues its children in the case directory, where no scheduler runs them.
+  queues its children in the case directory, where nothing runs them.
 - A mock on a `foreach` step that is not side-effect free, and a mock that
   sets a result field on any `foreach` step, replace the whole construct:
   item expansion, the body, `collect`, and the aggregate status. String-form
@@ -655,12 +666,12 @@ Rules:
 - Under test, Dagu does not wait for retry intervals and backoff, repeat
   intervals and backoff, or `delay_sec`. The order and count of executions
   do not change.
+- A real step keeps its retry and repeat intervals and backoff. Its action
+  reaches a real system, and its intervals protect that system.
 - A wait action such as `wait.duration` is not side-effect free, so a test
   mocks it like any other action.
 - `timeout_sec` applies as in a real run. A replaced action returns at once,
   so only a real step can reach a timeout.
-- A continuous step in `real` keeps its intervals. See
-  [Continuous Steps](#continuous-steps).
 
 ### Isolation
 
@@ -693,7 +704,11 @@ other:
 Rules:
 
 - Without a real step, the DAG's working directory is neither created nor
-  changed. Only real steps write files outside the case directory.
+  changed. Only real steps write files outside the case directory, apart
+  from the run's control socket.
+- The run's control socket is created where a real run creates it, under a
+  name unique to the run, and removed when the run ends. It is the one file
+  outside the case directory that every case creates.
 - The `stdout` and `stderr` redirect files of every step that is not real
   are written inside the case directory, not at their configured paths. A
   redirect into the run's artifact directory writes to the case's artifact
@@ -717,10 +732,11 @@ The run does more than run steps. Under test:
 | DAG-level `container` | Not created, unless the case has a real step, which runs in it |
 | DAG-level `ssh` client, which reads keys and known hosts | Not created, unless the case has a real step |
 | Declared `tools` | Not installed, unless the case has a real step |
+| Native resource limits (`resources.limits` without a DAG-level `container`) | Not applied, unless the case has a real step |
 
 A real step is the explicit opt-in to side effects, so the working
-directory, container, SSH client, and tools it needs are set up as in a real
-run. A case without a real step runs on a host that has none of them. Tools
+directory, container, SSH client, tools, and resource limits it needs are
+set up as in a real run. A case without a real step runs on a host that has none of them. Tools
 install into the configured tools directory, the one write outside the case
 directory that only a real step causes.
 
@@ -731,9 +747,14 @@ Rules:
 - Every DAG `secrets` entry takes its value from the test's `secrets` map,
   whatever its provider, the `env` provider included. A missing value is an
   unhandled source of [the fail-closed rule](#the-fail-closed-rule).
-- No secret provider is contacted, and no file that a provider would read is
-  read.
-- A `secrets` name that the DAG does not declare makes the case invalid.
+- An SSH credential given as `{ secret: <ref> }` (Spec 042) resolves from
+  the same map, keyed by its ref, and only when the case has a real step,
+  since no SSH client exists without one. In a case with a real step, a
+  missing value is an unhandled source of the fail-closed rule.
+- No secret provider or secret registry is contacted, and no file that a
+  provider would read is read.
+- A `secrets` key that is neither the `name` of a DAG `secrets` entry nor
+  the ref of an SSH credential of the DAG makes the case invalid.
 - Secret values are masked in logs, in stored run status, and in the
   report, as in a real run (Spec 069).
 
@@ -947,14 +968,14 @@ merge into it:
 - a mock is invalid. See [Invalid Mocks](#invalid-mocks);
 - a source of [the fail-closed rule](#the-fail-closed-rule) is unhandled;
 - `real` lists a `foreach` step;
-- `dagu start` would reject its params, or `secrets` names an entry the DAG
-  does not declare;
+- `dagu start` would reject its params, or a `secrets` key names neither a
+  DAG `secrets` entry nor an SSH credential ref of the DAG;
 - `trigger` is not an accepted type, or `scheduled_at` is not an accepted
   form;
 - a `precondition` or `condition` value is neither `met` nor `not_met`, or a
   `decision` is neither `approve` nor `reject`;
 - the case sets `precondition` and the DAG has no DAG-level precondition
-  with a command check or `eval`;
+  with a command check or a substituting `eval`;
 - `expect` holds no assertion, names an unknown step, uses an unknown status
   token, or sets a negative `attempts`.
 
@@ -1061,6 +1082,10 @@ Stdout is one JSON object. Its only case has `result` `fail` and the failure
 ```yaml
 # workflows/ship.yaml
 params:
+  - name: env
+    default: prod
+  - name: service
+    eval: ${params.env}-api
   - name: build_date
     eval: $(date +%F)
 steps:
@@ -1097,7 +1122,8 @@ cases:
 runs. Stdout contains `INVALID workflows/ship.test.yaml: ships` and, in this
 order, lines that start with `param build_date: `, `step deploy: `, and
 `handler_on.failure: `. The `step deploy` line names `ssh.run`, and the
-`handler_on.failure` line names `mail.send`.
+`handler_on.failure` line names `mail.send`. No line names `service`: its
+`eval` has no command substitution, so it evaluates as in a real run.
 
 ### Routing on a Mocked Output
 
