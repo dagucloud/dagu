@@ -4,17 +4,19 @@
 
 Partially implemented. The inventory record, its rules, selectors, import,
 and export are implemented through `dagu nodes list`, `show`, `import`, and
-`export`, and conformance covers them through those commands. Worker nodes,
-editing commands, the API, and host key checks are not implemented yet, and
-further sections are added as they land ([RFC 012](../rfcs/012-node-inventory.md)).
+`export`, and conformance covers them through those commands. Testing
+connections and trusting host keys are implemented over the API, and
+conformance covers them through it. Worker nodes, editing, and the
+`dagu nodes test` command are not implemented yet, and further sections are
+added as they land ([RFC 012](../rfcs/012-node-inventory.md)).
 
 ## Scope
 
 This spec defines the inventory record, the rules every stored inventory
 meets, how a selector matches nodes, and how inventories are imported and
-exported. It does not define how a step runs on its nodes
-([Spec 089](089-node-targeting.md)), worker nodes, host key checks, or Dagu
-Cloud sync.
+exported, and how the server tests a node's connection and trusts its host
+key. It does not define how a step runs on its nodes
+([Spec 089](089-node-targeting.md)), worker nodes, or Dagu Cloud sync.
 
 ## Goal
 
@@ -160,6 +162,46 @@ It prints one line per inventory, in import order, created ones first:
 compared without case. The records leave out `id`, so the output imports
 into any installation. Importing it into an installation without
 inventories, and exporting again, prints the same JSON.
+
+### Host keys
+
+With `strict_host_key` on, the default, a node accepts the key that matches
+its `host_key` or the key trusted for it. A project trusts at most one key
+per node, kept by node name. Trusted keys are not part of an inventory, so
+they are never exported or imported.
+
+**Testing a connection.** `POST /node-connection-tests` tests the named
+nodes, or the nodes a selector matches, from the server. A test checks the
+host key of each hop, authenticates with the node's credentials, and runs
+`true`. At most 16 nodes are tested at once. A disabled node is tested too:
+disabling keeps runs off a node, not tests.
+
+- The response is a server-sent event stream: a `result` event per node as
+  its test ends, then a `done` event with the counts of nodes that passed
+  and failed.
+- A result holds the fingerprint each hop presented, the time the test took,
+  and any error.
+- When a hop presents a key that is unknown or has changed, the test stops
+  before any credential reaches that hop. The result names the hop, `node`
+  or `bastion`, the node whose key it is, and the presented and expected
+  fingerprints.
+- A test never trusts a key.
+
+**Trusting a key.** `POST /node-host-keys` takes, for each node, the
+fingerprint of the key the user saw.
+
+- The server reads the node's key again, through its bastion when it has
+  one, and sends the node no credential. A bastion's own key must be
+  accepted first.
+- The key is stored only when its fingerprint matches. Otherwise the entry
+  fails, naming the fingerprints the node presents.
+- A node that has another trusted key keeps it, and the entry fails naming
+  both fingerprints, unless the entry sets `replace`.
+- A key that is already trusted is reported as `unchanged`.
+- The response is a `result` event per entry, then a `done` event.
+
+A test needs the operator role, and a trust the developer role. Each test,
+and each key a trust stores, is written to the audit log.
 
 ## Errors
 
