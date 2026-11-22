@@ -7243,7 +7243,7 @@ export interface components {
         ScheduleSlotValue: string;
         /** @description The runs of a DAG that started in the window of a list request, newest first, and its latest run while it is active. For a service DAG, the buckets of its run history instead. */
         DAGListActivity: {
-            /** @description Runs that started in the window, at most 60 */
+            /** @description Runs that started in the window, at most 60. Backfill runs are not listed. */
             runs: components["schemas"]["DAGListActivityRun"][];
             /** @description True when the DAG has more runs in the window than runs lists */
             truncated: boolean;
