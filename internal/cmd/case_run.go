@@ -22,10 +22,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 )
 
-// caseRedirectsDir is the directory of a case directory that receives the
-// step redirect files of the case.
-const caseRedirectsDir = "redirects"
-
 // caseOptions configures one workflow-test case.
 type caseOptions struct {
 	// tempDir is where the case directory is created. Empty uses the default
@@ -100,7 +96,7 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 		triggerType:  trigger,
 		secretValues: secrets,
 		redirectRoot: runtime.RedirectRoot{
-			Dir:  filepath.Join(c.dir, caseRedirectsDir),
+			Dir:  filepath.Join(c.dir, "redirects"),
 			Keep: c.opts.real,
 		},
 	}

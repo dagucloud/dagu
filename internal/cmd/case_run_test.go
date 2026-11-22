@@ -215,7 +215,7 @@ func TestCaseTrigger(t *testing.T) {
 		tc := openTestCase(t, ctx, caseOptions{tempDir: t.TempDir(), trigger: ir.TriggerTypeSubDAG})
 
 		_, err := tc.run(dag)
-		require.Error(t, err)
+		require.ErrorContains(t, err, "subdag")
 	})
 }
 
