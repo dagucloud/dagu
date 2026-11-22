@@ -97,4 +97,29 @@ func TestPeerTokenCredentialsRereadFile(t *testing.T) {
 	require.NoError(t, os.WriteFile(tokenFile, []byte("second\n"), 0o600))
 	creds.readAt = creds.readAt.Add(-peerTokenRereadInterval)
 	assert.Equal(t, "second", creds.current())
+
+	// A failed read keeps the last token.
+	require.NoError(t, os.Remove(tokenFile))
+	creds.readAt = creds.readAt.Add(-peerTokenRereadInterval)
+	assert.Equal(t, "second", creds.current())
+}
+
+// A client that dialed before the coordinator wrote its token file picks the
+// token up within a second, not after the full re-read interval.
+func TestPeerTokenCredentialsRetryMissingFile(t *testing.T) {
+	tokenFile := filepath.Join(t.TempDir(), "peer-token")
+	creds := newPeerTokenCredentials("", tokenFile)
+	assert.Empty(t, creds.current())
+
+	require.NoError(t, os.WriteFile(tokenFile, []byte("generated\n"), 0o600))
+	creds.readAt = creds.readAt.Add(-peerTokenRetryInterval)
+	assert.Equal(t, "generated", creds.current())
+}
+
+func TestReadPeerTokenRejectsNonPrintable(t *testing.T) {
+	tokenFile := filepath.Join(t.TempDir(), "peer-token")
+	require.NoError(t, os.WriteFile(tokenFile, []byte("first\x00second\n"), 0o600))
+
+	_, err := readPeerToken(tokenFile)
+	require.Error(t, err)
 }

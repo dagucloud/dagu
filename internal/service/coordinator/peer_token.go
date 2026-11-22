@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 
+	appconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 )
@@ -34,6 +35,9 @@ const (
 	// peerTokenRereadInterval bounds how long a client keeps a token read from
 	// the token file, so it picks up a token the coordinator regenerated.
 	peerTokenRereadInterval = 30 * time.Second
+	// peerTokenRetryInterval bounds how often a client without a token reads
+	// the file again, such as one that dialed before the coordinator wrote it.
+	peerTokenRetryInterval = time.Second
 	// peerTokenWarnInterval bounds how often the coordinator logs that it
 	// accepted a call without a valid peer token.
 	peerTokenWarnInterval = 10 * time.Minute
@@ -78,6 +82,9 @@ func readPeerToken(path string) (string, error) {
 	if token == "" {
 		return "", fmt.Errorf("peer token file %s is empty", path)
 	}
+	if err := appconfig.ValidatePeerToken(token); err != nil {
+		return "", fmt.Errorf("peer token file %s %w", path, err)
+	}
 	return token, nil
 }
 
@@ -119,10 +126,18 @@ func (c *peerTokenCredentials) current() string {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.readAt.IsZero() && time.Since(c.readAt) < peerTokenRereadInterval {
+	interval := peerTokenRereadInterval
+	if c.token == "" {
+		interval = peerTokenRetryInterval
+	}
+	if !c.readAt.IsZero() && time.Since(c.readAt) < interval {
 		return c.token
 	}
-	c.token, _ = readPeerToken(c.file)
+	// A failed read keeps the last token, so a passing file error does not
+	// leave calls without one.
+	if token, err := readPeerToken(c.file); err == nil {
+		c.token = token
+	}
 	c.readAt = time.Now()
 	return c.token
 }
