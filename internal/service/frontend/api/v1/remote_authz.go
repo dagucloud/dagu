@@ -350,7 +350,7 @@ func requestedRunProfile(r *http.Request) (string, error) {
 }
 
 // remoteNodeProfileProtected asks the remote node of r whether its runtime
-// profile name is protected.
+// profile name is protected, as far as the node's stored credential matters.
 func (a *API) remoteNodeProfileProtected(r *http.Request, apiBasePath, name string) (bool, error) {
 	ctx := r.Context()
 	if a.remoteNodeResolver == nil {
@@ -375,6 +375,10 @@ func (a *API) remoteNodeProfileProtected(r *http.Request, apiBasePath, name stri
 
 	switch resp.StatusCode {
 	case http.StatusOK:
+	case http.StatusUnauthorized, http.StatusForbidden:
+		// Only a credential below administrator may not read a profile, and the
+		// remote node refuses a protected profile to such a credential itself.
+		return false, nil
 	case http.StatusNotFound:
 		return false, &Error{
 			HTTPStatus: http.StatusNotFound,

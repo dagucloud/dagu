@@ -162,6 +162,9 @@ func TestRemoteNodeProfileAuthorization(t *testing.T) {
 		{name: "operator cannot run with a protected profile", body: `{"profile":" prod "}`, user: operator, wantStatus: http.StatusForbidden},
 		{name: "admin runs with a protected profile", body: `{"profile":"prod"}`, user: admin, wantStatus: http.StatusOK, wantRun: true},
 		{name: "unknown profile is not forwarded", body: `{"profile":"missing"}`, user: operator, wantStatus: http.StatusNotFound},
+		// The node's credential may not read profiles, so the node itself
+		// refuses a protected profile to it.
+		{name: "operator runs when the node credential cannot read profiles", body: `{"profile":"hidden"}`, user: operator, wantStatus: http.StatusOK, wantRun: true},
 	}
 
 	for _, test := range tests {
@@ -174,6 +177,9 @@ func TestRemoteNodeProfileAuthorization(t *testing.T) {
 					_, _ = w.Write([]byte(`{"protected":false}`))
 				case "/api/v1/profiles/prod":
 					_, _ = w.Write([]byte(`{"protected":true}`))
+				case "/api/v1/profiles/hidden":
+					w.WriteHeader(http.StatusForbidden)
+					_, _ = w.Write([]byte(`{"code":"forbidden","message":"insufficient permissions"}`))
 				case "/api/v1/dags/deploy/start":
 					body, _ := io.ReadAll(r.Body)
 					forwardedBody.Store(string(body))
