@@ -357,9 +357,10 @@ func TestService_DeliversLifecycleEvent(t *testing.T) {
 	stopMonitor := testutil.StartContextRunner(t, monitor)
 	defer stopMonitor()
 
-	require.Eventually(t, func() bool {
-		return smtpServer.data.Load() != nil
-	}, time.Second, 10*time.Millisecond)
+	// No deadline: delivery passes through the file event store, the monitor's
+	// file lease, and SMTP, and a loaded runner can take over a second. A mail
+	// that never arrives still fails the test at the test timeout.
+	<-smtpServer.delivered
 	assert.Equal(t, "dagu@example.com", smtpServer.mailFrom.Load())
 	assert.Equal(t, "ops@example.com", smtpServer.rcptTo.Load())
 }
@@ -2013,6 +2014,8 @@ type recordingSMTPServer struct {
 	mailFrom atomic.Value
 	rcptTo   atomic.Value
 	data     atomic.Value
+	// delivered receives a value once the server has accepted a message.
+	delivered chan struct{}
 }
 
 func newRecordingSMTPServer(t *testing.T) *recordingSMTPServer {
@@ -2023,9 +2026,10 @@ func newRecordingSMTPServer(t *testing.T) *recordingSMTPServer {
 	host, port, err := net.SplitHostPort(listener.Addr().String())
 	require.NoError(t, err)
 	server := &recordingSMTPServer{
-		host:     host,
-		port:     port,
-		listener: listener,
+		host:      host,
+		port:      port,
+		listener:  listener,
+		delivered: make(chan struct{}, 1),
 	}
 	t.Cleanup(func() {
 		_ = listener.Close()
@@ -2074,6 +2078,10 @@ func (s *recordingSMTPServer) serve() {
 				data.WriteString(dataLine)
 			}
 			s.data.Store(data.String())
+			select {
+			case s.delivered <- struct{}{}:
+			default:
+			}
 			writeSMTPLine(writer, "250 OK")
 		case line == "QUIT":
 			writeSMTPLine(writer, "221 Bye")
