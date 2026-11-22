@@ -1,5 +1,7 @@
 steps:
   - id: upload_all
+    approval:
+      prompt: Approve the upload.
     foreach:
       items: [a, b]
       as: file
@@ -26,3 +28,15 @@ steps:
           action: log.write
           with:
             message: ${foreach.entry.item}
+  - id: poll_all
+    foreach:
+      items: [a]
+      as: target
+      steps:
+        - id: tick
+          action: log.write
+          with:
+            message: ${foreach.target.item}
+    repeat_policy:
+      repeat: while
+      interval_sec: 1

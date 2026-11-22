@@ -31,10 +31,12 @@ func TestCheckFailClosed(t *testing.T) {
 		want     []string
 	}{
 		{
+			// A finding names a step by its id, or by its name when it has
+			// none.
 			name: "UnhandledActions",
 			dag:  "actions.yaml",
 			want: []string{
-				"step build binary: command has side effects; mock it or list it under real",
+				"step build: command has side effects; mock it or list it under real",
 				"step deploy: action ssh.run has side effects; mock it or list it under real",
 				"step notify: action http.request has side effects; mock it or list it under real",
 				"step announce: action mail.send has side effects; mock it or list it under real",
@@ -80,24 +82,6 @@ func TestCheckFailClosed(t *testing.T) {
 			dag:  "inline_router.yaml",
 		},
 		{
-			name: "ResultFieldsOnRealStep",
-			dag:  "actions.yaml",
-			handling: dagtest.Handling{
-				Mocks: map[string]dagtest.MockFields{
-					"build":              replacing,
-					"deploy":             {},
-					"notify":             {},
-					"announce":           {},
-					"summarize":          {},
-					"handler_on.failure": {},
-				},
-				Real: []string{"build"},
-			},
-			want: []string{
-				"step build binary: mock sets a result field on a step under real; keep only precondition and review in its mock, or take it out of real",
-			},
-		},
-		{
 			name: "UnhandledConditions",
 			dag:  "conditions.yaml",
 			handling: dagtest.Handling{
@@ -105,7 +89,7 @@ func TestCheckFailClosed(t *testing.T) {
 			},
 			want: []string{
 				"param build_date: eval runs a command; give it a value under params",
-				"preconditions: a precondition runs a command; set precondition in the case",
+				"precondition: command check or substituting eval runs a command; set precondition in the case",
 				"step gate: precondition runs a command; set precondition in its mock or list it under real",
 				"step compare: precondition runs a command; set precondition in its mock or list it under real",
 				"step poll: repeat condition runs a command; set condition in every result of its mock or list it under real",
@@ -176,7 +160,7 @@ func TestCheckFailClosed(t *testing.T) {
 			name: "DAGLevelEvalWithSubstitution",
 			dag:  "dag_eval.yaml",
 			want: []string{
-				"preconditions: a precondition runs a command; set precondition in the case",
+				"precondition: command check or substituting eval runs a command; set precondition in the case",
 			},
 		},
 		{
@@ -212,29 +196,57 @@ func TestCheckFailClosed(t *testing.T) {
 			},
 		},
 		{
+			// Body sources follow the step's own sources and precede its wait,
+			// as the fail-closed table orders them. A foreach step whose body
+			// has no source is side-effect free, so its unbounded repeat is a
+			// source.
 			name: "UnmockedForeachBody",
 			dag:  "foreach.yaml",
 			want: []string{
-				"step upload_all: precondition of body step check runs a command; mock the whole foreach step",
-				"step upload_all: action s3.upload of body step upload has side effects; mock the whole foreach step",
+				"step upload_all, body step check: precondition runs a command; mock the whole foreach step",
+				"step upload_all, body step upload: action s3.upload has side effects; mock the whole foreach step",
+				"step upload_all: approval waits for a person; set review in its mock",
+				"step poll_all: repeat policy has no limit; mock it with a result or list it under real",
 			},
 		},
 		{
 			name: "RealForeachBody",
 			dag:  "foreach.yaml",
 			handling: dagtest.Handling{
+				Mocks: map[string]dagtest.MockFields{
+					"upload_all": {Review: true},
+					"poll_all":   replacing,
+				},
 				Real: []string{"upload_all"},
 			},
 			want: []string{
-				"step upload_all: precondition of body step check runs a command; mock the whole foreach step",
-				"step upload_all: action s3.upload of body step upload has side effects; mock the whole foreach step",
+				"step upload_all, body step check: precondition runs a command; mock the whole foreach step",
+				"step upload_all, body step upload: action s3.upload has side effects; mock the whole foreach step",
 			},
 		},
 		{
 			name: "MockedForeach",
 			dag:  "foreach.yaml",
 			handling: dagtest.Handling{
-				Mocks: map[string]dagtest.MockFields{"upload_all": {}},
+				Mocks: map[string]dagtest.MockFields{
+					"upload_all": {Review: true},
+					"poll_all":   replacing,
+				},
+			},
+		},
+		{
+			// {} changes nothing on a side-effect-free foreach step, so its
+			// body still runs and its repeat stays unbounded.
+			name: "EmptyMockOnCleanForeach",
+			dag:  "foreach.yaml",
+			handling: dagtest.Handling{
+				Mocks: map[string]dagtest.MockFields{
+					"upload_all": {Review: true},
+					"poll_all":   {},
+				},
+			},
+			want: []string{
+				"step poll_all: repeat policy has no limit; mock it with a result or list it under real",
 			},
 		},
 		{
@@ -269,14 +281,13 @@ func TestCheckFailClosed(t *testing.T) {
 			},
 		},
 		{
-			// A limit that resolves at run time may resolve to zero, which
-			// makes the step continuous, so only a literal limit bounds it.
+			// A limit that resolves at run time is a limit, so rounds_log is
+			// not a continuous step (Spec 101).
 			name: "UnmockedContinuousStep",
 			dag:  "continuous.yaml",
 			want: []string{
-				"step heartbeat: repeat policy has no fixed limit; mock it with results",
+				"step heartbeat: repeat policy has no limit; mock it with a result or list it under real",
 				"step probe: command has side effects; mock it or list it under real",
-				"step rounds_log: repeat policy has no fixed limit; mock it with results",
 			},
 		},
 		{
@@ -285,34 +296,29 @@ func TestCheckFailClosed(t *testing.T) {
 			name: "EmptyMockOnContinuousStep",
 			dag:  "continuous.yaml",
 			handling: dagtest.Handling{
-				Mocks: map[string]dagtest.MockFields{"heartbeat": {}, "probe": {}, "rounds_log": {}},
+				Mocks: map[string]dagtest.MockFields{"heartbeat": {}, "probe": {}},
 			},
 			want: []string{
-				"step heartbeat: repeat policy has no fixed limit; mock it with results",
-				"step rounds_log: repeat policy has no fixed limit; mock it with results",
+				"step heartbeat: repeat policy has no limit; mock it with a result or list it under real",
 			},
 		},
 		{
 			name: "MockedContinuousStep",
 			dag:  "continuous.yaml",
 			handling: dagtest.Handling{
-				Mocks: map[string]dagtest.MockFields{
-					"heartbeat":  replacing,
-					"probe":      replacing,
-					"rounds_log": replacing,
-				},
+				Mocks: map[string]dagtest.MockFields{"heartbeat": replacing, "probe": replacing},
 			},
 		},
 		{
-			// One key would otherwise name both the step and the handler, so
-			// the handler's mock would also cover the step.
+			// A key that starts with handler_on. always names a handler, so
+			// the handler's mock does not cover a step of that name.
 			name: "StepNamedAsHandler",
 			dag:  "handler_name.yaml",
 			handling: dagtest.Handling{
 				Mocks: map[string]dagtest.MockFields{"handler_on.failure": {}},
 			},
 			want: []string{
-				"step handler_on.failure: name is the key of a lifecycle handler; rename the step",
+				"step handler_on.failure: command has side effects; mock it or list it under real",
 			},
 		},
 		{

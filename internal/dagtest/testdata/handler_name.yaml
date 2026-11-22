@@ -1,6 +1,6 @@
 steps:
   - name: handler_on.failure
-    action: noop
+    run: ./notify.sh
 handler_on:
   failure:
     action: mail.send
