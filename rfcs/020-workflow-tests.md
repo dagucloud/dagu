@@ -5,17 +5,18 @@
 - **Issue:** https://github.com/dagucloud/dagu/issues/2864
 - **Affected areas:** `cmd`, a new `dagtest` package, `executor/registry`,
   `runtime` (mock executor, skipped waits), `runtime/builtin` (side-effect
-  opt-in), `persis/file` (DAG list), `specs`, `conformance`, and `docs`
+  opt-in), `persis/file/dag` (discovery, watcher, name lookup), `specs`,
+  `conformance`, and `docs`
 
 ## Summary
 
-Test how a DAG behaves without running its commands. A test file names a DAG,
-replaces its steps' actions with fixed results, and states the run and step
-statuses each case must end with:
+Test how a DAG behaves without running its commands. A test file sits beside
+the DAG it tests, as a Go test file sits beside its package. It replaces the
+DAG's step actions with fixed results and states the run and step statuses
+each case must end with:
 
 ```yaml
-# tests/release.test.yaml
-dag: ../workflows/release.yaml
+# workflows/release.test.yaml, beside workflows/release.yaml
 mocks:
   build:
     outputs:
@@ -37,7 +38,7 @@ cases:
 ```
 
 ```sh
-dagu test tests/
+dagu test workflows/
 ```
 
 Each case runs the DAG through the same runner as `dagu start`, in a
@@ -112,9 +113,10 @@ call with a scripted result, pick results by attempt, and skip waits.
 dagu test [flags] <test file or directory>...
 ```
 
-A directory argument runs every file ending in `.test.yaml` under it,
-recursively. Files run in path order. Cases run one at a time, in file
-order.
+A directory argument runs every test file under it, recursively. With no
+argument, `dagu test` runs every test file under the DAGs directory, or under
+the workflow directory in a project (Spec 001). Files run in path order.
+Cases run one at a time, in file order.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
@@ -134,11 +136,41 @@ Exit status:
 The highest applicable status wins. An invalid file runs none of its cases.
 The other files still run.
 
+### Where test files live
+
+A test file ends in `.test.yaml` or `.test.yml` and sits beside the DAG it
+tests:
+
+```text
+workflows/
+  release.yaml
+  release.test.yaml
+  etl/
+    daily.yaml
+    daily.test.yaml
+```
+
+- Without `dag`, a test file tests the DAG beside it with the same name
+  minus `.test`: `release.test.yaml` tests `release.yaml`, or `release.yml`
+  when there is no `release.yaml`. Without `dag` and without such a DAG, the
+  test file is invalid.
+- `dag` names another DAG file, relative to the test file, for a test file
+  kept elsewhere.
+- One test file per DAG is the convention. Its scenarios are `cases`.
+- Moving or renaming a DAG together with its test file keeps the test
+  working.
+
+A test file is never a DAG. DAG discovery in the DAGs directory and in a
+project's workflow directory (Spec 001), the watcher on those directories,
+and DAG name lookup all skip files ending in `.test.yaml` or `.test.yml`. The
+DAG list does not show them, the scheduler does not schedule them, and
+`dagu start release.test` fails with a message that names `dagu test`.
+
 ### The test file
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `dag` | path | yes | DAG file, relative to the test file |
+| `dag` | path | no | DAG file, relative to the test file. Defaults to the DAG beside it |
 | `params` | map | no | Run parameters for every case, as `dagu start -- name=value` takes them |
 | `env` | map | no | Replaces DAG-level `env` entries of the same name. Values are literal |
 | `secrets` | map | no | Value for each DAG `secrets` entry, by name |
@@ -247,7 +279,7 @@ The rule covers every step, reached or not, so the result does not depend on
 which branch a case takes. The error lists every offending step at once:
 
 ```text
-INVALID tests/release.test.yaml: a failed build stops the deploy
+INVALID workflows/release.test.yaml: a failed build stops the deploy
   step deploy: action ssh.run has side effects; mock it or list it under real
   handler_on.failure: action mail.send has side effects; mock it or list it under real
 ```
@@ -357,8 +389,8 @@ holds. The report lists every failed assertion, not only the first.
 ### Report
 
 ```text
-PASS tests/release.test.yaml: deploys the built image (0.08s)
-FAIL tests/release.test.yaml: a failed build stops the deploy (0.06s)
+PASS workflows/release.test.yaml: deploys the built image (0.08s)
+FAIL workflows/release.test.yaml: a failed build stops the deploy (0.06s)
   step deploy: expected skipped, got aborted (upstream step build failed)
 2 cases: 1 passed, 1 failed
 ```
@@ -366,7 +398,7 @@ FAIL tests/release.test.yaml: a failed build stops the deploy (0.06s)
 `--format json` writes one JSON object to stdout:
 
 ```json
-{"cases": [{"file": "tests/release.test.yaml", "name": "a failed build stops the deploy", "result": "fail", "duration_ms": 61, "failures": [{"step": "deploy", "field": "status", "expected": "skipped", "actual": "aborted"}]}]}
+{"cases": [{"file": "workflows/release.test.yaml", "name": "a failed build stops the deploy", "result": "fail", "duration_ms": 61, "failures": [{"step": "deploy", "field": "status", "expected": "skipped", "actual": "aborted"}]}]}
 ```
 
 ### How it runs
@@ -433,8 +465,7 @@ handler_on:
 ```
 
 ```yaml
-# tests/change.test.yaml
-dag: ../workflows/change.yaml
+# workflows/change.test.yaml
 params:
   task: Add retries to the uploader
 mocks:
@@ -505,26 +536,33 @@ CLI command and touches no request, tick, or SSE path.
   the case ends.
 - **Idle cost.** None. Nothing runs between invocations.
 - **Configured data directory.** Not read or written.
-- **DAG list.** One more file-name check per file while listing DAGs (see
-  [Compatibility and rollout](#compatibility-and-rollout)).
+- **DAG discovery.** One file-name suffix check per file. Test files are not
+  read, and the watcher reloads nothing when one changes.
 - **Upgrade.** None.
 
 ## Compatibility and rollout
 
-The change is additive. DAG YAML, persisted run data, the REST API, and the
-coordinator protocol do not change. An older binary has no `dagu test` and
-never reads test files.
+DAG YAML, persisted run data, the REST API, and the coordinator protocol do
+not change.
 
-Test files often sit beside DAGs. The DAG list skips files ending in
-`.test.yaml`, so the server does not show them as broken DAGs. A DAG whose
-file name already ends in `.test.yaml` would disappear from the list after
-the upgrade. The release notes must say so.
+The one break is the file name. DAG names may contain dots
+(`internal/ir/validator.go:11`), so `foo.test.yaml` is a valid DAG today.
+After the upgrade it is a test file: it leaves the DAG list and its schedule
+stops. The release notes must say so. `dagu test` reports such a file, one
+with top-level `steps` and no `cases`, as invalid and asks for a rename. The
+server reads no extra file to detect it.
+
+An older binary has no `dagu test`. It lists test files beside DAGs as DAGs
+that fail to load, because they have no `steps`. A downgrade is safe, but
+those entries show until the test files are moved or the binary is upgraded
+again.
 
 Rollout:
 
 1. **Spec** for the test file and `dagu test`, beside Spec 064.
 2. **`dagtest` and the mock executor**: decoding, mocks, `results`, the
    fail-closed rule, isolation, assertions, and the text and JSON reports.
+   DAG discovery, the watcher, and name lookup skip test files.
 3. **Side-effect-free opt-in** for the first executors, and skipped waits in
    the runtime.
 4. **Preconditions, reviews, and sub-DAG mocks.**
@@ -568,7 +606,11 @@ test start a real command its author thought was mocked.
     temporary directory remains unless `--keep` is set.
 11. A failed assertion exits with status 1 and lists every failed assertion
     of the case.
-12. The DAG list does not show `*.test.yaml` files.
+12. A `release.test.yaml` beside `release.yaml` is not listed, scheduled, or
+    reloaded when it changes. `dagu start release.test` fails. `dagu test`
+    with no argument runs it against `release.yaml`.
+13. A `foo.test.yaml` with top-level `steps` and no `cases` is reported by
+    `dagu test` as invalid, with a request to rename it.
 
 ## Alternatives considered
 
@@ -590,6 +632,14 @@ test start a real command its author thought was mocked.
   one line and states the intent.
 - **Run real steps in a sandbox**, such as a container per step. It costs a
   container runtime and still calls the APIs the steps reach.
+- **A `tests/` directory at the project root.** A project root is often a
+  repository root that already has a `tests/` for its own code. The tree would
+  mirror `workflows/` and drift from it. Paths such as
+  `../../workflows/etl/daily.yaml` break when a DAG moves. A plain DAGs
+  directory would need a second convention.
+- **Go's `_test.yaml` suffix.** Names such as `smoke_test.yaml` and
+  `integration_test.yaml` are likely real DAGs, ones that run test suites.
+  `.test.yaml`, as in JavaScript's `*.test.ts`, is rarer as a DAG name.
 
 ## Consequences
 
@@ -607,18 +657,16 @@ test start a real command its author thought was mocked.
 
 ## Open questions
 
-1. Should the DAG list skip `*.test.yaml`, or should tests live outside the
-   DAGs directory?
-2. Should command substitution in `params`, `env`, and `eval` fail closed
+1. Should command substitution in `params`, `env`, and `eval` fail closed
    too, unless the test replaces the value?
-3. Per-item results for `parallel` and `foreach`, keyed by item.
-4. Mocks for the steps of a child run started by a `real` `dag.run` step.
-5. Should assertions on outputs and stdout ship in the first version, given
+2. Per-item results for `parallel` and `foreach`, keyed by item.
+3. Mocks for the steps of a child run started by a `real` `dag.run` step.
+4. Should assertions on outputs and stdout ship in the first version, given
    that side-effect-free steps run for real and produce outputs worth
    checking?
-6. Push-back for waiting steps, which reruns upstream steps and would take
+5. Push-back for waiting steps, which reruns upstream steps and would take
    their next results.
-7. Should the MCP server expose `dagu test`, so an agent that writes a DAG
+6. Should the MCP server expose `dagu test`, so an agent that writes a DAG
    can test it?
-8. Should a test seed `state` (Spec 068) values?
-9. Should `secrets` from the `env` provider resolve without a test value?
+7. Should a test seed `state` (Spec 068) values?
+8. Should `secrets` from the `env` provider resolve without a test value?
