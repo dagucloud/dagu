@@ -10,6 +10,7 @@ export type ReferenceNamespace =
   | 'params'
   | 'consts'
   | 'dates'
+  | 'node'
   | 'env'
   | 'steps'
   | 'context'
@@ -36,6 +37,7 @@ const RESERVED = new Set<string>([
   'params',
   'consts',
   'dates',
+  'node',
   'env',
   'steps',
   'context',
@@ -83,12 +85,33 @@ function isCanonicalPath(
       );
     case 'context':
       return rest.length === 2 && NAME.test(a) && NAME.test(b);
+    case 'node':
+      return isNodePath(rest.join('.'));
     case 'foreach':
       return (
         (rest.length === 1 && NAME.test(a)) ||
         (rest.length === 2 && NAME.test(a) && ITEM_FIELD.test(b))
       );
   }
+}
+
+const NODE_FIELDS = new Set([
+  'name',
+  'host',
+  'port',
+  'user',
+  'description',
+  'labels',
+]);
+const NODE_LABEL_KEY = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
+const QUOTED_NODE_LABEL_KEY = /^"[a-zA-Z0-9][a-zA-Z0-9_.-]*"$/;
+
+// "node.<field>", "node.labels.<key>", or "node.labels."<key>"" (Spec 089).
+function isNodePath(field: string): boolean {
+  if (NODE_FIELDS.has(field)) return true;
+  if (!field.startsWith('labels.')) return false;
+  const key = field.slice('labels.'.length);
+  return NODE_LABEL_KEY.test(key) || QUOTED_NODE_LABEL_KEY.test(key);
 }
 
 // Older dotted forms: "<id>.stdout", "<id>.outputs.<name>" and "<VAR>.<json.path>".

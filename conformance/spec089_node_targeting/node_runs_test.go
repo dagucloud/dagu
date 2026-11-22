@@ -122,16 +122,3 @@ func TestNodeStepFailsBeforeAnyNode(t *testing.T) {
 		})
 	}
 }
-
-// Until a node is bound into its run over SSH, a command step with nodes fails
-// on every node before its command runs, so the command never reaches the
-// Dagu host.
-func TestNodeCommandStepNeverRunsLocally(t *testing.T) {
-	t.Parallel()
-
-	dagu := harness.NewRunner(t)
-	result := dagu.RunWithEnv(nodesEnv(t), "start", "command_step.yaml")
-	result.ExpectNonZeroExitCode()
-	require.Equal(t, []string{"web01=failed", "web02=disabled", "web03=failed"}, nodeStatuses(t, dagu))
-	require.NoFileExists(t, filepath.Join(dagu.ProjectPath("."), "ran-on-dagu-host"))
-}

@@ -130,6 +130,9 @@ func resolveBindings(
 	}
 	owned := func(path string) bool {
 		segments := strings.Split(path, ".")
+		if readsNodeVariable(segments, scope) {
+			return false
+		}
 		return itemPath(path) || supportedStrictBinding(segments) || reservedBuiltinContextReference(segments)
 	}
 	// A leading non-identifier rune keeps an adjacent $NAME from absorbing a placeholder.
@@ -488,6 +491,8 @@ func bindingValue(ctx context.Context, path string, scope RuntimeScope, requireV
 		return bindingScopedPathValue("outputs", segments[1], scope.Outputs, requireValue)
 	case "dates":
 		return bindingDateValue(segments[1], scope.Dates, scope.declaredDates, requireValue)
+	case "node":
+		return bindingNodeValue(path, scope.Node, requireValue)
 	case "context", "dag", "run", "attempt", "step", "trigger", "paths", "profile", "pushback":
 		return bindingBuiltinContextValue(path, scope.BuiltinContext, requireValue)
 	default:
@@ -748,6 +753,9 @@ func supportedStrictBinding(segments []string) bool {
 		return len(segments) == 2 || validItemFieldSegment(segments[2])
 	case "inputs", "outputs", "dates":
 		return len(segments) == 2 && bindingNamePattern.MatchString(segments[1])
+	case "node":
+		_, _, ok := parseNodePath(strings.Join(segments, "."))
+		return ok
 	case "context":
 		if len(segments) != 3 {
 			return false

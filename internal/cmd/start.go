@@ -748,6 +748,7 @@ func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) er
 			SecretStore:              as.SecretStore,
 			ProfileStore:             as.ProfileStore,
 			NodeSelector:             as.Inventory,
+			HostKeys:                 as.HostKeys,
 			ProfileName:              opts.profileName,
 			DAGDefinitionID:          opts.definitionID,
 			ServiceRegistry:          ctx.Persistence.ServiceRegistry,

@@ -293,8 +293,12 @@ func init() {
 }
 
 func hasShellConfigured(ctx context.Context, step ir.Step) bool {
-	if len(step.ExecutorConfig.Config) > 0 {
-		return cmdutil.IsShellValueSet(step.ExecutorConfig.Config["shell"])
+	if config := step.ExecutorConfig.Config; len(config) > 0 {
+		if cmdutil.IsShellValueSet(config["shell"]) {
+			return true
+		}
+		node := nodeConnectionFor(ctx, config)
+		return node != nil && node.cfg.Shell != ""
 	}
 	if cli := getSSHClientFromContext(ctx); cli != nil && cli.Shell != "" {
 		return true

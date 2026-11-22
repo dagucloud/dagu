@@ -12,6 +12,7 @@ Use scoped references when Dagu should resolve a named value before execution.
 | --- | --- |
 | `${consts.NAME}` | Top-level `consts:` value |
 | `${dates.NAME}` | Top-level `dates:` entry, resolved from the run's schedule slot |
+| `${node.name}`, `${node.labels.KEY}` | The inventory node a bound run runs on (`node: required`); also `host`, `port`, `user`, `description`, `labels` |
 | `${params.NAME}` | Runtime parameter value |
 | `${env.NAME}` | Value in Dagu's runtime environment scope for the current step |
 | `${steps.<step_id>.outputs.<name>}` | Declared value output, human-task form value, or committed build path output |

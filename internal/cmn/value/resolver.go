@@ -229,7 +229,7 @@ func foreachItemAlias(scope Values) (string, bool) {
 }
 
 func (r Resolver) bindingScope() RuntimeScope {
-	if r.runtime.Consts != nil || r.runtime.Params != nil || r.runtime.ParamsJSON != "" || r.runtime.Env != nil || len(r.runtime.Steps) > 0 || r.runtime.Foreach != nil || r.runtime.Inputs != nil || r.runtime.Outputs != nil || len(r.runtime.BuiltinContext.values) > 0 || r.runtime.Dates != nil {
+	if r.runtime.Consts != nil || r.runtime.Params != nil || r.runtime.ParamsJSON != "" || r.runtime.Env != nil || len(r.runtime.Steps) > 0 || r.runtime.Foreach != nil || r.runtime.Inputs != nil || r.runtime.Outputs != nil || len(r.runtime.BuiltinContext.values) > 0 || r.runtime.Dates != nil || r.runtime.Node != nil {
 		scope := r.runtime
 		if scope.Consts == nil {
 			scope.Consts = r.static.Consts

@@ -23,6 +23,7 @@ type executionStores struct {
 	ProfileStore         profile.Store
 	MaterializationStore build.MaterializationStore
 	Inventory            inventory.Store
+	HostKeys             inventory.HostKeyStore
 }
 
 // runtimeStores creates the runtime store bundle for this command context.
@@ -32,6 +33,7 @@ func (c *Context) runtimeStores() executionStores {
 		ProfileStore:         file.NewProfileStore(c.Context, c.Config, c.backend.Collection(persis.CollectionProfiles)),
 		MaterializationStore: filematerialization.New(filepath.Join(c.Config.Paths.DataDir, "materializations")),
 		Inventory:            c.runtimeInventoryStore(),
+		HostKeys:             c.runtimeHostKeyStore(),
 	}
 }
 
@@ -56,4 +58,15 @@ func (c *Context) runtimeInventoryStore() inventory.Store {
 		return nil
 	}
 	return inventories
+}
+
+// runtimeHostKeyStore returns the host keys trusted for nodes, or nil when
+// the backend cannot hold them.
+func (c *Context) runtimeHostKeyStore() inventory.HostKeyStore {
+	keys, err := store.NewHostKeyStore(c.backend.Collection(persis.CollectionHostKeys))
+	if err != nil {
+		logger.Warn(c, "Trusted host keys are unavailable", tag.Error(err))
+		return nil
+	}
+	return keys
 }

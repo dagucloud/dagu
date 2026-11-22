@@ -98,6 +98,18 @@ describe('classifyReferencePath', () => {
     expect(classifyReferencePath('dates.target_day')).toEqual(
       canonical('dates')
     );
+    expect(classifyReferencePath('node.name')).toEqual(canonical('node'));
+    expect(classifyReferencePath('node.labels')).toEqual(canonical('node'));
+    expect(classifyReferencePath('node.labels.role')).toEqual(
+      canonical('node')
+    );
+    expect(classifyReferencePath('node.labels."gpu.type"')).toEqual(
+      canonical('node')
+    );
+    expect(classifyReferencePath('node.labels.gpu.type').kind).toBe(
+      'unsupported'
+    );
+    expect(classifyReferencePath('node.zone').kind).toBe('unsupported');
     expect(classifyReferencePath('env.HOME')).toEqual(canonical('env'));
     expect(classifyReferencePath('env._X')).toEqual(canonical('env'));
     expect(classifyReferencePath('steps.fetch.outputs.body')).toEqual(
