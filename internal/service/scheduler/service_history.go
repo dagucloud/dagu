@@ -90,12 +90,6 @@ type dagHistory struct {
 	ring []runKey
 	next int
 
-	// prevKnown says whether the history knows if the last recorded run
-	// succeeded. prevOK is the answer. The history asks for a gap event only
-	// after a run that succeeded, or when it does not know: the scanner makes a
-	// run that does not succeed wait longer.
-	prevKnown, prevOK bool
-
 	retryAt time.Time
 	lastLog time.Time
 	lastErr error
@@ -196,10 +190,8 @@ func (h *ServiceHistory) fail(ctx context.Context, name string, d *dagHistory, e
 // its newest sample.
 func (h *ServiceHistory) openAndImport(ctx context.Context, dag *ir.DAG, dir string, d *dagHistory) error {
 	rec, err := h.cfg.Open(ctx, dir, samples.Options{
-		NoLifecycleEvents: true,
-		WriteEach:         true,
-		Uptime:            true,
-		MaxEventBytes:     historyMaxEventBytes,
+		RunHistory:    true,
+		MaxEventBytes: historyMaxEventBytes,
 	})
 	if err != nil {
 		return err
@@ -207,7 +199,6 @@ func (h *ServiceHistory) openAndImport(ctx context.Context, dag *ir.DAG, dir str
 	d.rec = rec
 	clear(d.seen)
 	d.ring, d.next = d.ring[:0], 0
-	d.prevKnown = false
 	newest, hasNewest, err := h.cfg.NewestEnd(dir)
 	if err != nil {
 		return err
@@ -220,21 +211,14 @@ func (h *ServiceHistory) openAndImport(ctx context.Context, dag *ir.DAG, dir str
 	// The runs that the store already holds are marked as seen, oldest first,
 	// so that the newest ones stay in the set.
 	var imported []ir.DAGRunStatus
-	var stored *ir.DAGRunStatus // the run of the store that ended last
 	for i := len(runs) - 1; i >= 0; i-- {
 		if !runEnded(runs[i].Status.String()) {
 			continue
 		}
 		d.mark(runKeyOf(&runs[i]))
-		end := h.runEnd(&runs[i])
-		if !hasNewest || end.After(newest) {
+		if !hasNewest || h.runEnd(&runs[i]).After(newest) {
 			imported = append(imported, runs[i])
-		} else if stored == nil || !end.Before(h.runEnd(stored)) {
-			stored = &runs[i]
 		}
-	}
-	if stored != nil {
-		d.prevKnown, d.prevOK = true, stored.Status.IsSuccess()
 	}
 	for _, run := range sortedByEnd(h, imported) {
 		if err := h.record(ctx, dag, d, &run); err != nil {
@@ -305,14 +289,9 @@ func sortedByEnd(h *ServiceHistory, runs []ir.DAGRunStatus) []ir.DAGRunStatus {
 }
 
 func (h *ServiceHistory) record(ctx context.Context, dag *ir.DAG, d *dagHistory, run *ir.DAGRunStatus) error {
-	s := h.sampleOf(dag, run)
-	if d.prevKnown && !d.prevOK {
-		s.GapAfter = 0
-	}
-	if err := d.rec.Record(ctx, s); err != nil {
+	if err := d.rec.Record(ctx, h.sampleOf(dag, run)); err != nil {
 		return err
 	}
-	d.prevKnown, d.prevOK = true, run.Status.IsSuccess()
 	d.mark(runKeyOf(run))
 	return nil
 }
@@ -366,11 +345,15 @@ func parseHistoryTime(text string) time.Time {
 func (h *ServiceHistory) sampleOf(dag *ir.DAG, run *ir.DAGRunStatus) samples.Sample {
 	end := h.runEnd(run)
 	s := samples.Sample{
-		Time:     end,
-		RunID:    run.DAGRunID,
-		GapAfter: dag.RestartWait + historyGapMargin,
+		Time:  end,
+		RunID: run.DAGRunID,
 		// A restart that is on time is active time, also after a run that failed.
 		ActiveGap: dag.RestartWait + historyUptimeMargin,
+	}
+	// The scanner makes a run that does not succeed wait longer, so only a
+	// late start after a success is a gap.
+	if run.Status.IsSuccess() {
+		s.GapAfter = dag.RestartWait + historyGapMargin
 	}
 	if started := parseHistoryTime(run.StartedAt); !started.IsZero() && !started.After(end) {
 		s.Time, s.Duration = started, end.Sub(started)

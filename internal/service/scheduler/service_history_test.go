@@ -140,8 +140,7 @@ func TestServiceHistory(t *testing.T) {
 		t.Parallel()
 		store := &fakeHistoryStore{}
 		require.NoError(t, store.history(clock).Observe(t.Context(), dag))
-		assert.True(t, store.opts.NoLifecycleEvents)
-		assert.True(t, store.opts.WriteEach)
+		assert.True(t, store.opts.RunHistory)
 		assert.Equal(t, int64(4<<20), store.opts.MaxEventBytes)
 	})
 
@@ -212,9 +211,12 @@ func TestServiceHistory(t *testing.T) {
 			duration time.Duration
 			exit     int
 			message  string
+			gap      time.Duration
 		}{
-			{name: "Succeeded", run: histRun("r", ir.Succeeded, 0, time.Second), time: historyT0, duration: time.Second},
-			{name: "Partial", run: histRun("r", ir.PartiallySucceeded, 0, time.Second), time: historyT0, duration: time.Second},
+			// A gap event follows a success only: the scanner makes a run that
+			// does not succeed wait longer. The bound is restart_wait_sec plus 60 s.
+			{name: "Succeeded", run: histRun("r", ir.Succeeded, 0, time.Second), time: historyT0, duration: time.Second, gap: 65 * time.Second},
+			{name: "Partial", run: histRun("r", ir.PartiallySucceeded, 0, time.Second), time: historyT0, duration: time.Second, gap: 65 * time.Second},
 			{name: "Aborted", run: aborted, time: historyT0, duration: time.Second},
 			{name: "Rejected", run: histRun("r", ir.Rejected, 0, 0), time: historyT0},
 			{name: "FailedStep", run: failedStep, time: historyT0, duration: 1500 * time.Millisecond, exit: 1, message: "first failure"},
@@ -234,8 +236,8 @@ func TestServiceHistory(t *testing.T) {
 				assert.Equal(t, tt.exit, got.ExitCode)
 				assert.Equal(t, tt.message, got.Message)
 				assert.Equal(t, "r", got.RunID)
-				assert.Equal(t, 65*time.Second, got.GapAfter, "restart_wait_sec plus 60 s")
-				assert.Equal(t, 15*time.Second, got.ActiveGap, "restart_wait_sec plus 10 s")
+				assert.Equal(t, tt.gap, got.GapAfter)
+				assert.Equal(t, 15*time.Second, got.ActiveGap, "restart_wait_sec plus 10 s, whatever the status")
 			})
 		}
 	})
@@ -381,79 +383,6 @@ func TestServiceHistory(t *testing.T) {
 		d := h.dags["svc"]
 		assert.LessOrEqual(t, len(d.seen), historySeenRuns)
 		assert.LessOrEqual(t, len(d.ring), historySeenRuns)
-	})
-}
-
-// A run that does not succeed makes the scanner wait longer, so only a run
-// that follows a success can start late with no outage.
-func TestServiceHistoryGap(t *testing.T) {
-	t.Parallel()
-
-	dag := &ir.DAG{Name: "svc", RestartWait: 5 * time.Second}
-	clock := func() time.Time { return historyT0.Add(time.Hour) }
-	const gap = 65 * time.Second
-
-	gaps := func(store *fakeHistoryStore) []time.Duration {
-		var out []time.Duration
-		for _, s := range store.samples {
-			out = append(out, s.GapAfter)
-		}
-		return out
-	}
-
-	t.Run("AfterSuccessOnly", func(t *testing.T) {
-		t.Parallel()
-		store := &fakeHistoryStore{}
-		h := store.history(clock)
-		runs := []ir.DAGRunStatus{
-			histRun("r1", ir.Succeeded, 0, time.Second),
-			histRun("r2", ir.Rejected, 10*time.Second, 0),
-			histRun("r3", ir.Aborted, 20*time.Second, time.Second),
-			histRun("r4", ir.PartiallySucceeded, 30*time.Second, time.Second),
-			histRun("r5", ir.Failed, 40*time.Second, time.Second),
-			histRun("r6", ir.Succeeded, 50*time.Second, time.Second),
-		}
-		for _, run := range runs {
-			require.NoError(t, h.Observe(t.Context(), dag, run))
-		}
-		// The first run has no known predecessor, so it keeps the gap.
-		assert.Equal(t, []time.Duration{gap, gap, 0, 0, gap, 0}, gaps(store))
-		// The tolerance of the uptime does not depend on the status of the previous run.
-		for _, smp := range store.samples {
-			assert.Equal(t, 15*time.Second, smp.ActiveGap)
-		}
-	})
-
-	tests := []struct {
-		name   string
-		status ir.Status
-		gap    time.Duration
-	}{
-		{"ReopenAfterSuccess", ir.Succeeded, gap},
-		{"ReopenAfterPartial", ir.PartiallySucceeded, gap},
-		{"ReopenAfterFailure", ir.Failed, 0},
-		{"ReopenAfterAbort", ir.Aborted, 0},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			last := histRun("r1", tt.status, 0, time.Second)
-			store := &fakeHistoryStore{
-				retained:  []ir.DAGRunStatus{last},
-				hasNewest: true,
-				newest:    historyT0.Add(time.Second),
-			}
-			next := histRun("r2", ir.Succeeded, 10*time.Minute, time.Second)
-			require.NoError(t, store.history(clock).Observe(t.Context(), dag, next))
-			assert.Equal(t, []time.Duration{tt.gap}, gaps(store))
-		})
-	}
-
-	t.Run("ReopenWithoutRetainedRun", func(t *testing.T) {
-		t.Parallel()
-		store := &fakeHistoryStore{hasNewest: true, newest: historyT0}
-		require.NoError(t, store.history(clock).Observe(t.Context(), dag, histRun("r2", ir.Succeeded, time.Hour, time.Second)))
-		assert.Equal(t, []time.Duration{gap}, gaps(store), "an unknown predecessor allows the gap")
 	})
 }
 
