@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { CronExpressionParser } from 'cron-parser';
-import dayjs from '@/lib/dayjs';
 
 /** A leading `TZ=` or `CRON_TZ=` field, as the scheduler reads it. */
 const ZONE_PREFIX = /^(?:CRON_)?TZ=(\S+)\s+(.*)$/;
@@ -37,35 +36,6 @@ export function nextRuns(
   } catch {
     return null;
   }
-}
-
-/** The zone in which the scheduler reads an expression, if it is known. */
-export function scheduleZone(
-  expression: string,
-  tz?: string
-): string | undefined {
-  return ZONE_PREFIX.exec(expression)?.[1] ?? (tz || undefined);
-}
-
-/**
- * The wall clock of an instant in a zone, as `YYYY-MM-DD HH:mm`. The zone is
- * a name or the `UTC+9` form that the server reports; without a readable zone
- * the clock of the browser applies.
- */
-export function formatInZone(date: Date, zone?: string): string {
-  const value = dayjs(date);
-  const offset = zone ? /^UTC([+-]\d+)$/.exec(zone) : null;
-  let zoned = value;
-  if (offset) {
-    zoned = value.utcOffset(Number(offset[1]) * 60);
-  } else if (zone) {
-    try {
-      zoned = value.tz(zone);
-    } catch {
-      // An unreadable zone gives the clock of the browser.
-    }
-  }
-  return zoned.format('YYYY-MM-DD HH:mm');
 }
 
 /** Starter schedules, as a static message key and its expression. */
