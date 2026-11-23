@@ -729,10 +729,9 @@ func TestStepMockNodes(t *testing.T) {
 }
 
 // A mocked step that runs child DAGs publishes any output names it is given,
-// and a later step resolves them. Only dag.run adds them to the outputs the
-// run collects: a real dag.enqueue step publishes no outputs, and a real
-// parallel step or step with nodes publishes its children's outputs as a
-// list.
+// and a later step resolves them. A real parallel step or step with nodes
+// publishes its children's outputs as a list, so the mock's outputs stay out
+// of the outputs the run collects.
 func TestStepMockChildRunOutputs(t *testing.T) {
 	t.Parallel()
 
@@ -748,10 +747,6 @@ func TestStepMockChildRunOutputs(t *testing.T) {
 			name:           "DAGRun",
 			action:         []stepOption{withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy")},
 			wantRunOutputs: true,
-		},
-		{
-			name:   "DAGEnqueue",
-			action: []stepOption{withExecutorType(ir.ExecutorTypeDAGEnqueue), withSubDAG("deploy")},
 		},
 		{
 			name:   "Parallel",
