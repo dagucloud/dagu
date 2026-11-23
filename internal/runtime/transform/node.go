@@ -102,6 +102,8 @@ func newNode(node runtime.NodeData) *ir.Node {
 		PreconditionResults:    slices.Clone(node.State.PreconditionResults),
 		Stdout:                 node.State.Stdout,
 		Stderr:                 node.State.Stderr,
+		StdoutStart:            node.State.StdoutStart,
+		StderrStart:            node.State.StderrStart,
 		WorkingDir:             node.State.WorkingDir,
 		StartedAt:              stringutil.FormatTime(node.State.StartedAt),
 		FinishedAt:             stringutil.FormatTime(node.State.FinishedAt),

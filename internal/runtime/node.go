@@ -880,6 +880,9 @@ func (n *Node) setupExecutor(ctx context.Context, override ExecutorOverride) (co
 	// Reset the done flag
 	n.done.Store(false)
 
+	// The execution's output starts where the step's logs end now.
+	n.setExecutionStart(n.outputs.logSizes())
+
 	var err error
 	ctx, err = n.setupStepOutputFile(ctx)
 	if err != nil {
