@@ -689,11 +689,15 @@ func coerceStringToType(value, paramType string) (any, error) {
 		return value, nil
 
 	case ir.ParamDefTypeInteger:
-		number, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("cannot coerce %q to integer", value)
+		text := strings.TrimSpace(value)
+		if number, err := strconv.ParseInt(text, 10, 64); err == nil {
+			return number, nil
 		}
-		return number, nil
+		// Above the int64 range, as an exact enum member may be.
+		if number, err := strconv.ParseUint(text, 10, 64); err == nil {
+			return number, nil
+		}
+		return nil, fmt.Errorf("cannot coerce %q to integer", value)
 
 	case ir.ParamDefTypeNumber:
 		number, err := strconv.ParseFloat(strings.TrimSpace(value), 64)

@@ -302,7 +302,8 @@ params:
 
 // The schema library decodes enum members and defaults as float64, which
 // rounds integers above 2^53. The required region makes a load without it
-// check the schema again with region left out.
+// check the schema again with region left out, and huge is above the int64
+// range.
 func TestBuildInlineSchemaParamPlan_KeepsLargeIntegers(t *testing.T) {
 	t.Parallel()
 
@@ -318,6 +319,8 @@ params:
       type: integer
       enum: [9007199254740993]
       default: 9007199254740993
+    huge:
+      enum: [9223372036854775809]
     region:
       type: string
   required: [region]
@@ -327,9 +330,9 @@ params:
 	require.NoError(t, err)
 	assert.Equal(t, `limit="9007199254740993"`, dag.DefaultParams)
 
-	dag, err = LoadYAML(context.Background(), yaml, WithoutEval(), WithParams("region=us serial=9007199254740993"))
+	dag, err = LoadYAML(context.Background(), yaml, WithoutEval(), WithParams("region=us serial=9007199254740993 huge=9223372036854775809"))
 	require.NoError(t, err)
-	assert.Equal(t, []string{"limit=9007199254740993", "region=us", "serial=9007199254740993"}, dag.Params)
+	assert.Equal(t, []string{"huge=9223372036854775809", "limit=9007199254740993", "region=us", "serial=9007199254740993"}, dag.Params)
 }
 
 func TestBuildInlineSchemaParamPlan_ParamDefTitle(t *testing.T) {
