@@ -560,11 +560,12 @@ func TestStepMockResolvesFieldsByAction(t *testing.T) {
 }
 
 // childRuns records the child runs that steps start or queue. Each run it
-// starts succeeds and publishes outputs.
+// starts publishes outputs and succeeds, or fails with err when err is set.
 type childRuns struct {
 	mu      sync.Mutex
 	runIDs  []string
 	outputs map[string]any
+	err     error
 }
 
 var (
@@ -588,7 +589,11 @@ func (*childRuns) ShouldRun(context.Context, executor.SubWorkflowRequest) bool {
 
 func (c *childRuns) Run(_ context.Context, req executor.SubWorkflowRequest) (*ir.RunStatus, error) {
 	c.record(req.RunID)
-	return &ir.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Status: ir.Succeeded, OutputValues: c.outputs}, nil
+	status := ir.Succeeded
+	if c.err != nil {
+		status = ir.Failed
+	}
+	return &ir.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Status: status, OutputValues: c.outputs}, c.err
 }
 
 func (c *childRuns) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*ir.RunStatus, error) {
