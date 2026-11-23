@@ -9,6 +9,7 @@ import {
   RotateCcw,
   Save,
   Settings2,
+  Star,
   Trash2,
 } from 'lucide-react';
 import React from 'react';
@@ -68,7 +69,7 @@ const VIEW_COPY: Record<
       'Save the current name and label filters, plus the sort order, for this remote and workspace.',
     manageTitle: 'Manage workflow views',
     manageDescription:
-      'Choose the shared default, or remove views saved for this remote and workspace.',
+      'Star shared sidebar shortcuts, choose the shared default, or remove views saved for this remote and workspace.',
     deleteTitle: 'Delete workflow view?',
     deleteBody:
       '“{name}” will be removed for everyone with access to this workspace scope. Workflows are not affected.',
@@ -82,7 +83,7 @@ const VIEW_COPY: Record<
       'Save the current name, run ID, status, label, and date filters for this remote and workspace.',
     manageTitle: 'Manage run views',
     manageDescription:
-      'Choose the shared default, or remove views saved for this remote and workspace.',
+      'Star shared sidebar shortcuts, choose the shared default, or remove views saved for this remote and workspace.',
     deleteTitle: 'Delete run view?',
     deleteBody:
       '“{name}” will be removed for everyone with access to this workspace scope. Runs are not affected.',
@@ -96,7 +97,7 @@ const VIEW_COPY: Record<
       'Save the current DAG name, file name, and date filters for this remote and workspace.',
     manageTitle: 'Manage artifact views',
     manageDescription:
-      'Choose the shared default, or remove views saved for this remote and workspace.',
+      'Star shared sidebar shortcuts, choose the shared default, or remove views saved for this remote and workspace.',
     deleteTitle: 'Delete artifact view?',
     deleteBody:
       '“{name}” will be removed for everyone with access to this workspace scope. Artifacts are not affected.',
@@ -126,8 +127,8 @@ type Props = {
   onSetPinned: (viewId: string, pinned: boolean) => Promise<void>;
   onDeleteView: (viewId: string) => Promise<void>;
   /**
-   * Renames a saved view. With it, the selector shows Save, Rename and Delete
-   * buttons for the active view.
+   * Renames a saved view. With it, a toolbar next to the selector saves,
+   * renames and deletes the active view; the menu keeps all its items.
    */
   onRenameView?: (viewId: string, name: string) => Promise<void>;
   /** The current filters are those of a saved view: there is nothing new to save. */
@@ -149,6 +150,7 @@ export function ViewSelector({
   onSaveView,
   onUpdateView,
   onSetDefault,
+  onSetPinned,
   onDeleteView,
   onRenameView,
   filtersAlreadySaved = false,
@@ -157,12 +159,14 @@ export function ViewSelector({
   const [manageDialogOpen, setManageDialogOpen] = React.useState(false);
   const [viewName, setViewName] = React.useState('');
   const [makeDefault, setMakeDefault] = React.useState(false);
+  const [pinToSidebar, setPinToSidebar] = React.useState(false);
   const [isMutating, setIsMutating] = React.useState(false);
   const [pendingDelete, setPendingDelete] =
     React.useState<SavedViewItem | null>(null);
   const [deleteFromManage, setDeleteFromManage] = React.useState(true);
   const [renameOpen, setRenameOpen] = React.useState(false);
   const [renameName, setRenameName] = React.useState('');
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
 
   const { ts } = useI18n();
   const copy = VIEW_COPY[kind];
@@ -180,9 +184,14 @@ export function ViewSelector({
     !duplicateName &&
     !isMutating;
 
+  const saveLabel = activeView
+    ? ts('Save the changes of “{name}”', { name: activeView.name })
+    : ts('Save current filters as view…');
+
   const openSaveDialog = () => {
     setViewName('');
     setMakeDefault(false);
+    setPinToSidebar(false);
     setSaveDialogOpen(true);
   };
 
@@ -201,11 +210,19 @@ export function ViewSelector({
       return;
     }
     try {
-      await runMutation(() => onSaveView(normalizedName, makeDefault, false));
+      await runMutation(() =>
+        onSaveView(normalizedName, makeDefault, pinToSidebar)
+      );
       setSaveDialogOpen(false);
     } catch {
       // The page displays the server error alongside the view controls.
     }
+  };
+
+  // A toolbar button can turn off once its dialog closes: the focus goes
+  // back to the selector instead.
+  const focusTrigger = () => {
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
   };
 
   const requestDelete = (view: SavedViewItem, fromManage = true) => {
@@ -214,10 +231,13 @@ export function ViewSelector({
     setPendingDelete(view);
   };
 
-  const dismissDelete = () => {
+  const afterDelete = () => {
     setPendingDelete(null);
-    setManageDialogOpen(deleteFromManage);
+    if (deleteFromManage) setManageDialogOpen(true);
+    else focusTrigger();
   };
+
+  const dismissDelete = afterDelete;
 
   const normalizedRename = renameName.trim();
   const renameTaken = views.some(
@@ -245,14 +265,18 @@ export function ViewSelector({
     }
   };
 
+  const toFocusTrigger = (event: Event) => {
+    event.preventDefault();
+    triggerRef.current?.focus();
+  };
+
   const confirmDelete = async () => {
     if (!pendingDelete) {
       return;
     }
     try {
       await runMutation(() => onDeleteView(pendingDelete.id));
-      setPendingDelete(null);
-      setManageDialogOpen(deleteFromManage);
+      afterDelete();
     } catch {
       // Keep the confirmation open so the operation can be retried.
     }
@@ -260,22 +284,24 @@ export function ViewSelector({
 
   return (
     <>
-      <div
-        className={
-          // With the toolbar, the selector is a child of the row of the page,
-          // and the toolbar follows the selector in that row.
-          onRenameView ? 'contents' : 'flex min-w-0 items-center gap-2'
-        }
-      >
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="text-xs font-medium text-muted-foreground">
+          <I18nText text={'View'} />
+        </span>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
+              ref={triggerRef}
               type="button"
               variant="outline"
               className="h-9 min-w-[190px] max-w-[280px] justify-start px-3"
               aria-label={copy.triggerAria(selectedLabel)}
             >
-              <Bookmark />
+              {activeView?.pinned ? (
+                <Star className="fill-current text-primary" />
+              ) : (
+                <Bookmark />
+              )}
               <span className="min-w-0 flex-1 truncate text-left">
                 {selectedLabel}
               </span>
@@ -317,6 +343,9 @@ export function ViewSelector({
                     <span className="min-w-0 flex-1 whitespace-normal break-words">
                       {view.name}
                     </span>
+                    {view.pinned && (
+                      <Star className="fill-current text-primary" />
+                    )}
                     {view.id === defaultViewId && (
                       <Badge variant="primary">
                         <I18nText text={'Default'} />
@@ -330,7 +359,7 @@ export function ViewSelector({
             {activeView && isActiveViewEdited && (
               <>
                 <DropdownMenuSeparator />
-                {canManageViews && !onRenameView && (
+                {canManageViews && (
                   <DropdownMenuItem
                     onSelect={() =>
                       void runMutation(onUpdateView).catch(() => undefined)
@@ -351,7 +380,7 @@ export function ViewSelector({
               </>
             )}
 
-            {canManageViews && !onRenameView && (
+            {canManageViews && (
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={openSaveDialog}>
@@ -367,20 +396,18 @@ export function ViewSelector({
           </DropdownMenuContent>
         </DropdownMenu>
         {onRenameView && canManageViews && (
-          <div className="flex items-center gap-1">
+          <div
+            role="toolbar"
+            aria-label={ts('View actions')}
+            className="flex items-center gap-1"
+          >
             <Button
               type="button"
               variant="primary"
               size="xs"
               className="h-7 w-7 justify-center p-0"
-              title={
-                activeView
-                  ? ts('Save the changes of “{name}”', {
-                      name: activeView.name,
-                    })
-                  : ts('Save current filters as view…')
-              }
-              aria-label={ts('Save view')}
+              title={saveLabel}
+              aria-label={saveLabel}
               disabled={
                 isMutating ||
                 (activeView
@@ -399,6 +426,22 @@ export function ViewSelector({
               type="button"
               variant="outline"
               size="xs"
+              className="h-7 w-7 justify-center p-0"
+              title={ts('Rename view')}
+              aria-label={ts('Rename view')}
+              disabled={isMutating || !activeView}
+              onClick={() => {
+                if (!activeView) return;
+                setRenameName(activeView.name);
+                setRenameOpen(true);
+              }}
+            >
+              <PencilLine aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
               className="h-7 w-7 justify-center p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
               title={ts('Delete view')}
               aria-label={ts('Delete view')}
@@ -407,34 +450,15 @@ export function ViewSelector({
             >
               <Trash2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
             </Button>
-            {activeView && (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="xs"
-                  className="h-7 w-7 justify-center p-0"
-                  title={ts('Rename view')}
-                  aria-label={ts('Rename view')}
-                  disabled={isMutating}
-                  onClick={() => {
-                    setRenameName(activeView.name);
-                    setRenameOpen(true);
-                  }}
-                >
-                  <PencilLine
-                    aria-hidden="true"
-                    className="h-3.5 w-3.5 shrink-0"
-                  />
-                </Button>
-              </>
-            )}
           </div>
         )}
       </div>
 
       <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
-        <DialogContent className="sm:max-w-[440px]">
+        <DialogContent
+          className="sm:max-w-[440px]"
+          onCloseAutoFocus={toFocusTrigger}
+        >
           <form onSubmit={saveView}>
             <DialogHeader>
               <DialogTitle>
@@ -464,6 +488,18 @@ export function ViewSelector({
                     <I18nText text={'A view with this name already exists.'} />
                   </p>
                 )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id={`view-pinned-${kind}`}
+                  checked={pinToSidebar}
+                  onCheckedChange={(checked) =>
+                    setPinToSidebar(checked === true)
+                  }
+                />
+                <Label htmlFor={`view-pinned-${kind}`} className="font-normal">
+                  <I18nText text={'Star and add to the sidebar for everyone'} />
+                </Label>
               </div>
               <div className="flex items-center gap-2">
                 <Checkbox
@@ -500,12 +536,18 @@ export function ViewSelector({
       </Dialog>
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-        <DialogContent className="sm:max-w-[440px]">
+        <DialogContent
+          className="sm:max-w-[440px]"
+          onCloseAutoFocus={toFocusTrigger}
+        >
           <form onSubmit={renameView}>
             <DialogHeader>
               <DialogTitle>
                 <I18nText text={'Rename view'} />
               </DialogTitle>
+              <DialogDescription>
+                <I18nText text={'The view keeps its saved filters.'} />
+              </DialogDescription>
             </DialogHeader>
             <div className="space-y-2 py-5">
               <Label htmlFor={`view-rename-${kind}`}>
@@ -564,6 +606,29 @@ export function ViewSelector({
                     key={view.id}
                     className="flex items-center gap-2 rounded-md border border-border px-3 py-2"
                   >
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-pressed={view.pinned}
+                      aria-label={
+                        view.pinned
+                          ? `Remove ${view.name} from the sidebar`
+                          : `Add ${view.name} to the sidebar`
+                      }
+                      disabled={isMutating}
+                      onClick={() =>
+                        void runMutation(() =>
+                          onSetPinned(view.id, !view.pinned)
+                        ).catch(() => undefined)
+                      }
+                    >
+                      <Star
+                        className={
+                          view.pinned ? 'fill-current text-primary' : undefined
+                        }
+                      />
+                    </Button>
                     <span className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium">
                       {view.name}
                     </span>
@@ -626,6 +691,7 @@ export function ViewSelector({
         <ConfirmDialog
           title={copy.deleteTitle}
           buttonText="Delete view"
+          initialFocus="cancel"
           visible={pendingDelete !== null}
           dismissModal={dismissDelete}
           onSubmit={confirmDelete}

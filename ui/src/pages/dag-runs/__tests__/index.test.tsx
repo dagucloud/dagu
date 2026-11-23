@@ -743,7 +743,9 @@ describe('DAGRuns page', () => {
     expect(
       screen.getByRole('button', { name: 'Run view: Custom view' })
     ).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Save view' }));
+    await user.click(
+      screen.getByRole('button', { name: 'Save current filters as view…' })
+    );
     await user.type(
       screen.getByRole('textbox', { name: 'Name' }),
       'Nightly runs'

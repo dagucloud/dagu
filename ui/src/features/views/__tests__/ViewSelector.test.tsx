@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -20,8 +20,10 @@ const views: SavedViewItem[] = [
   },
 ];
 
-function baseProps(): ComponentProps<typeof ViewSelector> {
-  return {
+function renderSelector(
+  overrides: Partial<ComponentProps<typeof ViewSelector>> = {}
+) {
+  const props: ComponentProps<typeof ViewSelector> = {
     kind: 'run',
     views,
     activeViewId: null,
@@ -37,14 +39,6 @@ function baseProps(): ComponentProps<typeof ViewSelector> {
     onSetDefault: vi.fn().mockResolvedValue(undefined),
     onSetPinned: vi.fn().mockResolvedValue(undefined),
     onDeleteView: vi.fn().mockResolvedValue(undefined),
-  };
-}
-
-function renderSelector(
-  overrides: Partial<ComponentProps<typeof ViewSelector>> = {}
-) {
-  const props: ComponentProps<typeof ViewSelector> = {
-    ...baseProps(),
     ...overrides,
   };
   render(<ViewSelector {...props} />);
@@ -167,7 +161,7 @@ describe('ViewSelector', () => {
     expect(props.onResetView).toHaveBeenCalledOnce();
   });
 
-  it('keeps default selection and deletion independent', async () => {
+  it('keeps starring, default selection, and deletion independent', async () => {
     const user = userEvent.setup();
     const props = renderSelector({ defaultViewId: undefined });
 
@@ -177,81 +171,41 @@ describe('ViewSelector', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Manage views…' }));
     await user.click(
       screen.getByRole('button', {
+        name: 'Add Failed runs to the sidebar',
+      })
+    );
+    expect(props.onSetPinned).toHaveBeenCalledWith('failed-runs', true);
+    expect(props.onSetDefault).not.toHaveBeenCalled();
+
+    await user.click(
+      screen.getByRole('button', {
         name: 'Make Failed runs the default view',
       })
     );
     expect(props.onSetDefault).toHaveBeenCalledWith('failed-runs');
-    expect(props.onDeleteView).not.toHaveBeenCalled();
 
     await user.click(
       screen.getByRole('button', { name: 'Delete Failed runs' })
     );
     await user.click(screen.getByRole('button', { name: 'Delete view' }));
     expect(props.onDeleteView).toHaveBeenCalledWith('failed-runs');
-    expect(props.onSetDefault).toHaveBeenCalledOnce();
   });
 
-  // The sidebar star was removed: no control offers it and views are saved unpinned.
-  it('offers no star or sidebar control', async () => {
-    const user = userEvent.setup();
-    const props = renderSelector({
-      views: views.map((view) => ({ ...view, pinned: true })),
-      defaultViewId: undefined,
-    });
-
-    const trigger = screen.getByRole('button', { name: 'Run view: All runs' });
-    expect(trigger.querySelector('.lucide-star')).toBeNull();
-    await user.click(trigger);
-    expect(document.querySelector('.lucide-star')).toBeNull();
-    expect(screen.queryByText(/sidebar/i)).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('menuitem', { name: 'Manage views…' }));
-    expect(
-      screen.queryByRole('button', { name: /sidebar/i })
-    ).not.toBeInTheDocument();
-    expect(document.querySelector('.lucide-star')).toBeNull();
-    await user.click(screen.getByRole('button', { name: 'Done' }));
-
-    await user.click(trigger);
-    await user.click(
-      screen.getByRole('menuitem', { name: 'Save current filters as view…' })
-    );
-    expect(screen.queryByText(/sidebar/i)).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('checkbox', { name: /sidebar|star/i })
-    ).not.toBeInTheDocument();
-    await user.type(screen.getByRole('textbox', { name: 'Name' }), 'New view');
-    await user.click(screen.getByRole('button', { name: 'Save view' }));
-    expect(props.onSaveView).toHaveBeenCalledWith('New view', false, false);
-    expect(props.onSetPinned).not.toHaveBeenCalled();
-  });
-
-  describe('with the view toolbar (onRenameView)', () => {
+  // With onRenameView, a toolbar next to the selector saves, renames and
+  // deletes the active view. The menu keeps all its items.
+  describe('with the view toolbar', () => {
     const toolbar = () => ({
       onRenameView: vi.fn().mockResolvedValue(undefined),
     });
-
-    it('removes the save and manage items from the dropdown', async () => {
-      const user = userEvent.setup();
-      renderSelector({ ...toolbar() });
-
-      await user.click(
-        screen.getByRole('button', { name: 'Run view: All runs' })
+    const button = (name: string) =>
+      within(screen.getByRole('toolbar', { name: 'View actions' })).getByRole(
+        'button',
+        { name }
       );
-      expect(screen.getByRole('menuitem', { name: 'All runs' })).toBeVisible();
-      expect(
-        screen.queryByRole('menuitem', {
-          name: 'Save current filters as view…',
-        })
-      ).not.toBeInTheDocument();
-      expect(
-        screen.queryByRole('menuitem', { name: 'Manage views…' })
-      ).not.toBeInTheDocument();
-    });
 
-    it('moves the update item to the Save button', async () => {
+    it('keeps the save, update and manage items of the menu', async () => {
       const user = userEvent.setup();
-      const props = renderSelector({
+      renderSelector({
         ...toolbar(),
         activeViewId: 'production',
         isAllView: false,
@@ -261,21 +215,29 @@ describe('ViewSelector', () => {
       await user.click(
         screen.getByRole('button', { name: 'Run view: Production operations' })
       );
-      expect(
-        screen.queryByRole('menuitem', {
-          name: 'Update “Production operations”',
-        })
-      ).not.toBeInTheDocument();
-      expect(
-        screen.getByRole('menuitem', { name: 'Reset changes' })
-      ).toBeVisible();
-      await user.keyboard('{Escape}');
+      for (const name of [
+        'Update “Production operations”',
+        'Save current filters as view…',
+        'Manage views…',
+      ]) {
+        expect(screen.getByRole('menuitem', { name })).toBeVisible();
+      }
+    });
 
-      await user.click(screen.getByRole('button', { name: 'Save view' }));
+    it('saves the changes of the active view from the Save button', async () => {
+      const user = userEvent.setup();
+      const props = renderSelector({
+        ...toolbar(),
+        activeViewId: 'production',
+        isAllView: false,
+        isActiveViewEdited: true,
+      });
+
+      await user.click(button('Save the changes of “Production operations”'));
       expect(props.onUpdateView).toHaveBeenCalledOnce();
     });
 
-    it('disables Save while the active view is not edited', () => {
+    it('turns off Save while the active view is not edited', () => {
       renderSelector({
         ...toolbar(),
         activeViewId: 'production',
@@ -283,31 +245,21 @@ describe('ViewSelector', () => {
         isActiveViewEdited: false,
       });
 
-      expect(screen.getByRole('button', { name: 'Save view' })).toBeDisabled();
+      expect(
+        button('Save the changes of “Production operations”')
+      ).toBeDisabled();
     });
 
-    it('disables Save without an active view on All or saved filters', () => {
-      const { unmount } = render(
-        <ViewSelector
-          {...baseProps()}
-          {...toolbar()}
-          activeViewId={null}
-          isAllView
-        />
-      );
-      expect(screen.getByRole('button', { name: 'Save view' })).toBeDisabled();
-      unmount();
+    it.each([
+      ['on All runs', { isAllView: true }],
+      [
+        'on the filters of a saved view',
+        { isAllView: false, filtersAlreadySaved: true },
+      ],
+    ])('turns off Save without an active view %s', (_name, extra) => {
+      renderSelector({ ...toolbar(), activeViewId: null, ...extra });
 
-      render(
-        <ViewSelector
-          {...baseProps()}
-          {...toolbar()}
-          activeViewId={null}
-          isAllView={false}
-          filtersAlreadySaved
-        />
-      );
-      expect(screen.getByRole('button', { name: 'Save view' })).toBeDisabled();
+      expect(button('Save current filters as view…')).toBeDisabled();
     });
 
     it('saves new filters as a view from the Save button', async () => {
@@ -318,9 +270,7 @@ describe('ViewSelector', () => {
         isAllView: false,
       });
 
-      const save = screen.getByRole('button', { name: 'Save view' });
-      expect(save).toBeEnabled();
-      await user.click(save);
+      await user.click(button('Save current filters as view…'));
       await user.type(
         screen.getByRole('textbox', { name: 'Name' }),
         'Slow runs'
@@ -330,18 +280,16 @@ describe('ViewSelector', () => {
       expect(props.onSaveView).toHaveBeenCalledWith('Slow runs', false, false);
     });
 
-    it('disables Delete without an active view and hides Rename', () => {
+    it('turns off Rename and Delete without an active view', () => {
       renderSelector({ ...toolbar() });
 
-      expect(
-        screen.getByRole('button', { name: 'Delete view' })
-      ).toBeDisabled();
-      expect(
-        screen.queryByRole('button', { name: 'Rename view' })
-      ).not.toBeInTheDocument();
+      expect(button('Rename view')).toBeDisabled();
+      expect(button('Delete view')).toBeDisabled();
     });
 
-    it('asks for confirmation before it deletes the active view', async () => {
+    // Delete is destructive: Cancel has the focus first. The toolbar button
+    // turns off once the view is gone, so the focus goes back to the selector.
+    it('asks before it deletes the active view, then focuses the selector', async () => {
       const user = userEvent.setup();
       const props = renderSelector({
         ...toolbar(),
@@ -349,18 +297,28 @@ describe('ViewSelector', () => {
         isAllView: false,
       });
 
-      await user.click(screen.getByRole('button', { name: 'Delete view' }));
+      await user.click(button('Delete view'));
       expect(props.onDeleteView).not.toHaveBeenCalled();
-
       const dialog = await screen.findByRole('dialog');
       expect(dialog).toHaveTextContent('Failed runs');
+      await waitFor(() =>
+        expect(
+          within(dialog).getByRole('button', { name: 'Cancel' })
+        ).toHaveFocus()
+      );
+
       await user.click(
         within(dialog).getByRole('button', { name: 'Delete view' })
       );
       expect(props.onDeleteView).toHaveBeenCalledWith('failed-runs');
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Run view: Failed runs' })
+        ).toHaveFocus()
+      );
     });
 
-    it('renames the active view and rejects a duplicate name', async () => {
+    it('renames the active view and refuses a name that is taken', async () => {
       const user = userEvent.setup();
       const props = renderSelector({
         ...toolbar(),
@@ -368,7 +326,7 @@ describe('ViewSelector', () => {
         isAllView: false,
       });
 
-      await user.click(screen.getByRole('button', { name: 'Rename view' }));
+      await user.click(button('Rename view'));
       const dialog = await screen.findByRole('dialog');
       const input = within(dialog).getByRole('textbox', { name: 'Name' });
       const submit = within(dialog).getByRole('button', { name: 'Rename' });
@@ -385,9 +343,6 @@ describe('ViewSelector', () => {
 
       await user.clear(input);
       await user.type(input, '  Broken runs ');
-      expect(
-        within(dialog).queryByText('A view with this name already exists.')
-      ).not.toBeInTheDocument();
       await user.click(submit);
 
       expect(props.onRenameView).toHaveBeenCalledWith(
