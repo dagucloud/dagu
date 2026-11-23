@@ -47,7 +47,6 @@ export const RUN_RANGE_KEY = 'dagu.workspace.runTimelineRange';
  * later visit. While it is set, it is the range.
  */
 export const CUSTOM_RANGE_KEY = 'dagu.workspace.runTimelineCustomRange';
-/** Whether the timeline counts the cached time: "1" (the default) or "0". */
 /**
  * The time range of a service DAG, apart from that of the other DAGs: it
  * offers longer presets, and its choice does not change theirs.
@@ -55,6 +54,7 @@ export const CUSTOM_RANGE_KEY = 'dagu.workspace.runTimelineCustomRange';
 export const SERVICE_RANGE_KEY = 'dagu.workspace.serviceRunRange';
 /** The custom range of a service DAG, for the tab. */
 export const SERVICE_CUSTOM_RANGE_KEY = 'dagu.workspace.serviceRunCustomRange';
+/** Whether the timeline counts the cached time: "1" (the default) or "0". */
 export const SHOW_CACHED_KEY = 'dagu.workspace.runTimelineCached';
 /** The trigger types that the timeline hides, as a JSON list. */
 export const HIDDEN_TYPES_KEY = 'dagu.workspace.runTimelineHiddenTypes';
