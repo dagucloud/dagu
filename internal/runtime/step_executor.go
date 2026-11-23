@@ -161,10 +161,36 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		return captureErr
 	}
 
+	if outputErr := captureStepOutputs(ctx, cmd, node, err == nil, declaredOutputsValue, hasDeclaredOutputs); outputErr != nil {
+		// The attempt fails, so it publishes nothing, including the outputs
+		// its action published before it failed.
+		node.clearOutputsValue()
+		node.clearStepOutputsValue()
+		return outputErr
+	}
+
+	statusErr := node.determineNodeStatus(cmd)
+	if execErr := node.Error(); execErr != nil {
+		return execErr
+	}
+	return statusErr
+}
+
+// captureStepOutputs publishes the step's named outputs once its executor has
+// returned, and returns the error that fails the attempt while doing so.
+// executorSucceeded reports that the executor returned no error.
+func captureStepOutputs(
+	ctx context.Context,
+	cmd executor.Executor,
+	node *Node,
+	executorSucceeded bool,
+	declaredOutputsValue string,
+	hasDeclaredOutputs bool,
+) error {
 	// An executor that publishes every named output of its step replaces the
 	// output file and the step's output fields as their source.
 	publisher, publishesOutputs := cmd.(executor.NamedOutputsPublisher)
-	if err == nil && !publishesOutputs {
+	if executorSucceeded && !publishesOutputs {
 		if err := node.captureDeclaredStepOutputs(ctx); err != nil {
 			node.SetError(err)
 			return err
@@ -175,30 +201,21 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 	}
 
 	// An output field is resolved after the run and can read a masked value.
-	var outputErr error
+	var err error
 	if publishesOutputs {
-		outputErr = node.capturePublishedOutputs(ctx, publisher.NamedOutputs())
+		err = node.capturePublishedOutputs(ctx, publisher.NamedOutputs())
 	} else {
-		outputErr = node.captureOutput(ctx)
+		err = node.captureOutput(ctx)
 	}
-	if outputErr != nil {
-		// The attempt fails, so it publishes nothing, including the outputs
-		// its action published before output capture failed.
-		node.clearOutputsValue()
-		node.clearStepOutputsValue()
-		return preferMaskedRead(ctx, node, outputErr)
+	if err != nil {
+		return preferMaskedRead(ctx, node, err)
 	}
 	// An executor can resolve a field while it runs.
 	if err := maskedReadError(ctx, node); err != nil {
 		node.SetError(err)
 		return err
 	}
-
-	statusErr := node.determineNodeStatus(cmd)
-	if execErr := node.Error(); execErr != nil {
-		return execErr
-	}
-	return statusErr
+	return nil
 }
 
 func preRunAbortErr(ctx context.Context, node *Node) error {
