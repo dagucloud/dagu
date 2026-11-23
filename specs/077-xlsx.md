@@ -365,8 +365,9 @@ Some formulas are cleared by any change, because their text does not show
 what they read: those that call `INDIRECT`, `OFFSET`, `CELL`, `INFO`, `SHEET`,
 `SHEETS`, or a user-defined function, those with a 3-D or spill reference,
 and data tables. References to other workbooks never depend on a change.
-Other formulas keep their cached values. The cells an array formula fills
-lose their caches with it. Formula text, shared, array, and data-table
+Other formulas keep their cached values. The cells an array or data-table
+formula fills lose their caches with it, except a cell the writer sets,
+which keeps the written value. Formula text, shared, array, and data-table
 attributes, styles, and other workbook metadata are retained, and so are
 the existing calculation settings, such as manual mode and iterative
 calculation.

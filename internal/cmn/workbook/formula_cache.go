@@ -56,6 +56,18 @@ func (w *file) edit(sheet string, reg region) {
 	w.edits[key] = append(w.edits[key], reg)
 }
 
+// cells returns the cells a writer set on sheet: the single cells editCell
+// recorded, not the sheets editSheet marked.
+func (e cacheEdits) cells(sheet string) map[[2]int]bool {
+	cells := map[[2]int]bool{}
+	for _, reg := range e[sheetKey(sheet)] {
+		if reg.C1 == reg.C2 && reg.R1 == reg.R2 {
+			cells[[2]int{reg.C1, reg.R1}] = true
+		}
+	}
+	return cells
+}
+
 // invalidateFormulaCaches runs before a writer saves. When the writer
 // changed something, the saved workbook asks to be recalculated on open,
 // and the formulas that can depend on a change lose their cached values,
@@ -177,7 +189,7 @@ func (w *formulaCacheZipWriter) writeHeld() error {
 		data := part.data.Bytes()
 		if len(part.clear) > 0 {
 			var err error
-			if data, err = clearCaches(data, part.clear, part.groups); err != nil {
+			if data, err = clearCaches(data, part.clear, part.groups, w.edits.cells(part.sheet)); err != nil {
 				return fmt.Errorf("invalidate formula caches in %s: %w", part.name, err)
 			}
 		}
@@ -547,14 +559,16 @@ func nextRow(element xml.StartElement, previous int) int {
 
 // clearCaches removes the cached values of the formula cells in clear and of
 // the cells inside groups, the ranges that cleared array and data-table
-// formulas fill. Offsets delimit the original XML, so namespaces, formula
+// formulas fill. A cell in written holds a value a writer set, not a cache,
+// and keeps it. Offsets delimit the original XML, so namespaces, formula
 // attributes, and other cell metadata are not re-encoded.
-func clearCaches(data []byte, clear map[[2]int]bool, groups []region) ([]byte, error) {
+func clearCaches(data []byte, clear map[[2]int]bool, groups []region, written map[[2]int]bool) ([]byte, error) {
 	var out bytes.Buffer
 	last := 0
 	err := visitCells(data, func(cell cachedCell, col, row, start, end int) error {
 		if cell.Formula != nil && !clear[[2]int{col, row}] ||
-			cell.Formula == nil && !slices.ContainsFunc(groups, func(g region) bool { return g.contains(col, row) }) {
+			cell.Formula == nil && (written[[2]int{col, row}] ||
+				!slices.ContainsFunc(groups, func(g region) bool { return g.contains(col, row) })) {
 			return nil
 		}
 		out.Write(data[last:start])

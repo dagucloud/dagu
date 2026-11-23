@@ -534,7 +534,7 @@ func TestFormulaCacheXMLPreservation(t *testing.T) {
 				`<s:c r="A1" t="str" s="4" cm="2" vm="3" x:note="literal t='kept'"><q:f t="array" ref="A1:A2" ca="1">B1:B2</q:f><q:v>old</q:v><x:v>keep</x:v></s:c>` +
 				`<s:c r="B1" t="n"><x:f>not a formula</x:f><q:v>2</q:v></s:c></s:row><s:row r="2"><s:c r="A2" t="b"><s:v>1</s:v></s:c></s:row></s:sheetData>` +
 				`<s:extLst><x:extension><s:c r="A1"><s:f>keep</s:f><s:v>keep</s:v></s:c></x:extension></s:extLst></s:worksheet>`
-			after, err := clearCaches([]byte(before), map[[2]int]bool{{1, 1}: true}, []region{{Sheet: "raw", C1: 1, R1: 1, C2: 1, R2: 2}})
+			after, err := clearCaches([]byte(before), map[[2]int]bool{{1, 1}: true}, []region{{Sheet: "raw", C1: 1, R1: 1, C2: 1, R2: 2}}, nil)
 			require.NoError(t, err)
 			want := strings.Replace(before, `<s:c r="A1" t="str"`, `<s:c r="A1"`, 1)
 			want = strings.Replace(want, "<q:v>old</q:v>", "", 1)
@@ -543,7 +543,7 @@ func TestFormulaCacheXMLPreservation(t *testing.T) {
 		})
 	}
 	nonWorksheet := `<custom xmlns="urn:custom"><sheetData><row><c r="A1"><f>1+1</f><v>2</v></c></row></sheetData></custom>`
-	after, err := clearCaches([]byte(nonWorksheet), map[[2]int]bool{{1, 1}: true}, nil)
+	after, err := clearCaches([]byte(nonWorksheet), map[[2]int]bool{{1, 1}: true}, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, nonWorksheet, string(after))
 }
@@ -664,6 +664,29 @@ func TestFormulaCacheKeepsLiteralOverSharedFollower(t *testing.T) {
 	b3, err := f.GetCellFormula("Raw", "B3")
 	require.NoError(t, err)
 	assert.Equal(t, "A3*2", b3)
+}
+
+// A value written inside the range an array or data-table formula fills is
+// the writer's, not a cache, so it survives the group losing its caches.
+func TestFormulaCacheKeepsLiteralInGroupRange(t *testing.T) {
+	t.Parallel()
+	for kind, formula := range map[string]string{
+		"array":     `<f t="array" ref="B1:B3">A1:A3*2</f>`,
+		"dataTable": `<f t="dataTable" ref="B1:B3" dtr="1" r1="A1"/>`,
+	} {
+		t.Run(kind, func(t *testing.T) {
+			t.Parallel()
+			path := rawBook(t, `<sheetData><row r="1"><c r="A1"><v>2</v></c><c r="B1">`+formula+`<v>4</v></c></row>`+
+				`<row r="2"><c r="A2"><v>3</v></c><c r="B2"><v>6</v></c></row>`+
+				`<row r="3"><c r="A3"><v>7</v></c><c r="B3"><v>14</v></c></row></sheetData>`)
+			_, err := WriteCells(context.Background(), path, WriteCellsOptions{Cells: map[string]CellValue{"A1": {Value: 5}, "B2": {Value: 20}}})
+			require.NoError(t, err)
+			xml := workbookPart(t, path, "xl/worksheets/sheet1.xml")
+			assert.Contains(t, xml, `<c r="B2"><v>20</v></c>`)
+			assert.NotContains(t, xml, "<v>4</v>", "the group still loses its caches")
+			assert.NotContains(t, xml, "<v>14</v>")
+		})
+	}
 }
 
 func TestFormulaCacheKeepsResultKinds(t *testing.T) {
