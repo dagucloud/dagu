@@ -1791,6 +1791,41 @@ func TestListExcludesBaseConfigInDAGDir(t *testing.T) {
 	}
 }
 
+// A test file is neither listed nor found by name or path, in the DAG
+// directory or a search path, even when it holds a valid DAG.
+func TestStoreSkipsTestFiles(t *testing.T) {
+	for _, recursive := range []bool{false, true} {
+		t.Run(fmt.Sprintf("recursive=%t", recursive), func(t *testing.T) {
+			dagDir := t.TempDir()
+			searchDir := t.TempDir()
+			for _, path := range []string{
+				filepath.Join(dagDir, "release.yaml"),
+				filepath.Join(dagDir, "release.test.yaml"),
+				filepath.Join(searchDir, "alt.test.yml"),
+			} {
+				require.NoError(t, os.WriteFile(path, []byte("steps: []\n"), 0600))
+			}
+			store := newRepository(dagDir,
+				WithSearchPaths([]string{searchDir}),
+				WithRecursiveDiscovery(recursive),
+				WithSkipExamples(true),
+			)
+			ctx := context.Background()
+
+			result, errList, err := store.List(ctx, persis.DAGListOptions{})
+			require.NoError(t, err)
+			require.Empty(t, errList)
+			require.Len(t, result.Items, 1)
+			assert.Equal(t, "release", result.Items[0].Name)
+
+			for _, name := range []string{"release.test", "release.test.yaml", filepath.Join(dagDir, "release.test.yaml"), "alt.test"} {
+				_, err := store.GetSpec(ctx, name)
+				assert.ErrorIs(t, err, persis.ErrDAGNotFound, name)
+			}
+		})
+	}
+}
+
 func TestListWithPagination(t *testing.T) {
 	tmpDir := fileutil.MustTempDir("test-list-pagination")
 	defer func() {

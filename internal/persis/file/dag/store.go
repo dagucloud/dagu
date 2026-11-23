@@ -1008,10 +1008,12 @@ func relativeToBase(baseDir, path string) (string, bool) {
 }
 
 func dagFileCandidates(name string) []string {
+	candidates := []string{name + ".yaml", name + ".yml"}
 	if fileutil.IsYAMLFile(name) {
-		return []string{name}
+		candidates = []string{name}
 	}
-	return []string{name + ".yaml", name + ".yml"}
+	// Lookup skips test files, as discovery does.
+	return slices.DeleteFunc(candidates, spec.IsTestFile)
 }
 
 // fileExists checks if a file exists.

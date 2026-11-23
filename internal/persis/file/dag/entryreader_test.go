@@ -505,6 +505,49 @@ func TestEntryReaderWatchesMixedCaseYAML(t *testing.T) {
 	expect(persis.DAGChangeUpdated, "mixed")
 }
 
+// A test file beside a DAG is not loaded at start, and creating or changing
+// one reloads nothing, even when it holds a valid DAG. The add of a later DAG
+// shows that the watcher handled the earlier events.
+func TestEntryReaderSkipsTestFiles(t *testing.T) {
+	for _, recursive := range []bool{false, true} {
+		t.Run(fmt.Sprintf("recursive=%t", recursive), func(t *testing.T) {
+			dir := t.TempDir()
+			writeDAGFile(t, dir, "release.yaml", "release")
+			writeDAGFile(t, dir, "release.test.yaml", "release-test")
+			store := newRepository(dir, WithSkipExamples(true), WithRecursiveDiscovery(recursive))
+			er := NewFileEntryReader(dir, store, recursive, "", "")
+			events := make(chan persis.DAGChangeEvent, 10)
+			er.events = events
+
+			ctx, cancel := context.WithCancel(context.Background())
+			require.NoError(t, er.Init(ctx))
+			go er.Start(ctx)
+			t.Cleanup(func() {
+				cancel()
+				er.Stop()
+			})
+			names := func() []string {
+				var names []string
+				for _, entry := range er.Entries() {
+					names = append(names, entry.DAG.Name)
+				}
+				sort.Strings(names)
+				return names
+			}
+			require.Equal(t, []string{"release"}, names())
+
+			writeDAGFile(t, dir, "release.test.yaml", "release-test")
+			writeDAGFile(t, dir, "release.test.yml", "release-yml")
+			writeDAGFile(t, dir, "other.yaml", "other")
+
+			event := nextEvent(t, events)
+			assert.Equal(t, persis.DAGChangeAdded, event.Type)
+			assert.Equal(t, "other", event.DAG.Name)
+			assert.Equal(t, []string{"other", "release"}, names())
+		})
+	}
+}
+
 func TestBaseWatchLifecycle(t *testing.T) {
 	for _, scope := range []string{"global", "workspace"} {
 		t.Run(scope, func(t *testing.T) {

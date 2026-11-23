@@ -128,6 +128,29 @@ func TestDiscoverNonRecursiveOnlyReadsRoot(t *testing.T) {
 	assert.Equal(t, []string{root}, result.Dirs)
 }
 
+// A test file is never discovered, with either extension and at any depth,
+// while a DAG whose name merely contains "test" still is.
+func TestDiscoverSkipsTestFiles(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "etl"), 0750))
+	for _, name := range []string{"release.yaml", "release.test.yaml", "latest.yaml", "etl/daily.yaml", "etl/daily.test.yml"} {
+		require.NoError(t, os.WriteFile(filepath.Join(root, filepath.FromSlash(name)), []byte("steps: []\n"), 0600))
+	}
+
+	for recursive, want := range map[bool][]string{
+		true:  {"etl/daily.yaml", "latest.yaml", "release.yaml"},
+		false: {"latest.yaml", "release.yaml"},
+	} {
+		result, err := Discover(root, DiscoveryOptions{Recursive: recursive})
+		require.NoError(t, err)
+		var files []string
+		for _, file := range result.Files {
+			files = append(files, file.RelPath)
+		}
+		assert.Equal(t, want, files, "recursive=%t", recursive)
+	}
+}
+
 func TestDiscoverNonRecursiveAllowsInternalFileSymlinkByDefault(t *testing.T) {
 	root := t.TempDir()
 	nestedDir := filepath.Join(root, "nested")

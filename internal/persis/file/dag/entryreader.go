@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -380,7 +381,7 @@ func (er *entryReaderImpl) watch(ctx context.Context) {
 				if needsRecursiveRefresh(event) {
 					scheduleRefresh()
 				}
-			case fileutil.IsYAMLFile(event.Name):
+			case isDAGFile(event.Name):
 				er.handleFSEvent(ctx, event)
 			}
 		case <-refresh:
@@ -399,6 +400,10 @@ func (er *entryReaderImpl) watch(ctx context.Context) {
 }
 
 func needsRecursiveRefresh(event fsnotify.Event) bool {
+	// A change to a test file never changes a DAG.
+	if spec.IsTestFile(event.Name) {
+		return false
+	}
 	if fileutil.IsYAMLFile(event.Name) {
 		return true
 	}
@@ -855,7 +860,7 @@ func (er *entryReaderImpl) observeSymlinkTargets() map[string]symlinkTarget {
 			continue
 		}
 		for _, entry := range entries {
-			if entry.Type()&os.ModeSymlink == 0 || !fileutil.IsYAMLFile(entry.Name()) {
+			if entry.Type()&os.ModeSymlink == 0 || !isDAGFile(entry.Name()) {
 				continue
 			}
 			link := filepath.Join(dir, entry.Name())
@@ -898,7 +903,7 @@ func (er *entryReaderImpl) initialize(ctx context.Context) error {
 
 	var dags []string
 	for _, fi := range fis {
-		if fileutil.IsYAMLFile(fi.Name()) && !er.isBaseConfigEvent(fsnotify.Event{Name: filepath.Join(er.targetDir, fi.Name())}) {
+		if isDAGFile(fi.Name()) && !er.isBaseConfigEvent(fsnotify.Event{Name: filepath.Join(er.targetDir, fi.Name())}) {
 			snapshot, err := er.dagSource.snapshot(ctx, fi.Name())
 			if err != nil {
 				logger.Error(ctx, "DAG load failed",
