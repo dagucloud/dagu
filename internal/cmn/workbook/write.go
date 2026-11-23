@@ -129,7 +129,6 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	}
 	defer w.close()
 
-	sheetCount := len(w.sheets)
 	sheet, err := w.targetSheet(opts.Sheet, created)
 	if err != nil {
 		return nil, err
@@ -241,6 +240,7 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 			if err := w.f.SetCellStr(sheet, cellName(cols[c], startRow), name); err != nil {
 				return nil, w.cellError(sheet, cols[c], startRow, err.Error())
 			}
+			w.editCell(sheet, cols[c], startRow)
 		}
 		cells += len(table.Columns)
 		dataRow++
@@ -301,7 +301,7 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	if opts.DryRun {
 		return result, nil
 	}
-	if !created && (cells > 0 || result.Changes.ColumnsAdded > 0 || len(w.sheets) > sheetCount || opts.Mode != WriteAppend) {
+	if !created {
 		if err := w.invalidateFormulaCaches(); err != nil {
 			return nil, err
 		}
@@ -433,6 +433,7 @@ func (w *file) addHeaderColumn(sheet string, merges mergeFill, headerRow, col in
 	if err := w.f.SetCellStr(sheet, cell, name); err != nil {
 		return w.cellError(sheet, col, headerRow, err.Error())
 	}
+	w.editCell(sheet, col, headerRow)
 	if style, err := w.f.GetCellStyle(sheet, cellName(col-1, headerRow)); err == nil && style != 0 {
 		_ = w.f.SetCellStyle(sheet, cell, cell, style)
 	}
@@ -456,6 +457,7 @@ func (w *file) targetSheet(name string, created bool) (string, error) {
 		return "", fmt.Errorf("%s: invalid sheet name %q: %v", w.base, name, err)
 	}
 	w.sheets = w.f.GetSheetList()
+	w.editSheet(name)
 	return name, nil
 }
 
@@ -520,6 +522,7 @@ func (w *file) clearSheet(name string) error {
 		}
 	}
 	w.forget(name)
+	w.editSheet(name)
 	return nil
 }
 
@@ -678,6 +681,7 @@ func (w *file) setCell(sheet string, col, row int, v any) error {
 	if err != nil {
 		return w.cellError(sheet, col, row, err.Error())
 	}
+	w.editCell(sheet, col, row)
 	return nil
 }
 

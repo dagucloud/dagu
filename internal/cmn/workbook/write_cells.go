@@ -207,6 +207,7 @@ func writeCellsOnce(ctx context.Context, path string, opts WriteCellsOptions) (*
 			continue
 		}
 		touched[reg.Sheet] = true
+		w.editCell(reg.Sheet, reg.C1, reg.R1)
 		if changedRows[reg.Sheet] == nil {
 			changedRows[reg.Sheet] = map[int]bool{}
 		}
@@ -231,10 +232,8 @@ func writeCellsOnce(ctx context.Context, path string, opts WriteCellsOptions) (*
 	if opts.DryRun {
 		return result, nil
 	}
-	if result.Changes.CellsChanged > 0 || result.Changes.Merged > 0 {
-		if err := w.invalidateFormulaCaches(); err != nil {
-			return nil, err
-		}
+	if err := w.invalidateFormulaCaches(); err != nil {
+		return nil, err
 	}
 	if opts.Output != "" {
 		if err := ensureParentDir(opts.Output); err != nil {

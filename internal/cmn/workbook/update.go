@@ -300,10 +300,8 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 	if opts.DryRun || (unchanged && opts.Output == "") {
 		return result, nil
 	}
-	if result.Changes.CellsChanged > 0 || result.Changes.ColumnsAdded > 0 {
-		if err := w.invalidateFormulaCaches(); err != nil {
-			return nil, err
-		}
+	if err := w.invalidateFormulaCaches(); err != nil {
+		return nil, err
 	}
 	if opts.Output != "" {
 		if err := ensureParentDir(opts.Output); err != nil {
@@ -600,6 +598,7 @@ func (w *file) applyRow(plan *updatePlan, target rowTarget, appended bool) (int,
 				if err := w.f.SetCellStr(plan.sheet, cell, ""); err != nil {
 					return 0, w.cellError(plan.sheet, col, cellRow, err.Error())
 				}
+				w.editCell(plan.sheet, col, cellRow)
 				changed++
 			}
 			continue

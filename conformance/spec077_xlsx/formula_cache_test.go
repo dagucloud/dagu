@@ -4,6 +4,7 @@
 package spec077_xlsx_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -23,9 +24,12 @@ func TestXlsxWritersInvalidateFormulaCaches(t *testing.T) {
 		require.NoError(t, f.SetCellFormula("Sheet1", "B2", "SUM(A2:A4)"))
 		_, err := f.NewSheet("Summary")
 		require.NoError(t, err)
-		require.NoError(t, f.SetCellStr("Summary", "A1", "doubled"))
-		require.NoError(t, f.SetCellInt("Summary", "A2", 10))
+		require.NoError(t, f.SetSheetRow("Summary", "A1", &[]any{"doubled", "kept"}))
+		require.NoError(t, f.SetSheetRow("Summary", "A2", &[]any{10, 7}))
 		require.NoError(t, f.SetCellFormula("Summary", "A2", "Sheet1!B2*2"))
+		// Reads nothing the edits change, and cannot be evaluated: only its
+		// cache gives a value.
+		require.NoError(t, f.SetCellFormula("Summary", "B2", "UNSUPPORTED(1)"))
 		require.NoError(t, f.SaveAs(dagu.ProjectPath(name+".xlsx")))
 		require.NoError(t, f.Close())
 	}
@@ -38,5 +42,6 @@ func TestXlsxWritersInvalidateFormulaCaches(t *testing.T) {
 		require.Contains(t, out[name].Warnings, "Sheet1!B2: formula had no cached value; evaluated")
 		require.Len(t, out[name+"_summary"].Rows, 1, name)
 		require.Equal(t, float64(46), out[name+"_summary"].Rows[0]["doubled"], name)
+		require.Equal(t, "7", fmt.Sprint(out[name+"_summary"].Rows[0]["kept"]), "%s: an unrelated formula keeps its cache", name)
 	}
 }

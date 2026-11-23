@@ -119,6 +119,8 @@ type file struct {
 	// numFmts memoizes styles derived from a cell's style with another
 	// number format, such as a date written into a plain cell.
 	numFmts map[numFmtKey]int
+	// edits holds what a writer changed, for invalidateFormulaCaches.
+	edits cacheEdits
 }
 
 func open(path, password string) (*file, error) {

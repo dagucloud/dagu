@@ -147,6 +147,9 @@ func sheetOnce(ctx context.Context, path string, opts SheetOptions) (*SheetResul
 	if opts.DryRun || result.Skipped {
 		return result, nil
 	}
+	if err := w.invalidateFormulaCaches(); err != nil {
+		return nil, err
+	}
 	if err := w.save(opts.InPlace); err != nil {
 		return nil, err
 	}
@@ -259,6 +262,7 @@ func (op *sheetOp) add() (string, error) {
 	if err := op.create(name); err != nil {
 		return "", err
 	}
+	op.w.editSheet(name)
 	return name, op.place(name, op.opts.Position)
 }
 
@@ -293,6 +297,7 @@ func (op *sheetOp) copy() (string, error) {
 			if err != nil {
 				return "", err
 			}
+			op.w.editSheet(existing)
 			return existing, op.w.f.CopySheet(fromIndex, toIndex)
 		case ExistsFail:
 			return "", fmt.Errorf("%s: sheet %q already exists", op.w.base, existing)
@@ -310,6 +315,7 @@ func (op *sheetOp) copy() (string, error) {
 	if err := op.w.f.CopySheet(fromIndex, toIndex); err != nil {
 		return "", fmt.Errorf("%s: copy sheet %q: %v", op.w.base, source, err)
 	}
+	op.w.editSheet(to)
 	position := op.opts.Position
 	if position == 0 {
 		// Right after the source, where a person would expect the copy.
@@ -353,6 +359,8 @@ func (op *sheetOp) rename() (string, error) {
 	if err := op.w.f.SetSheetName(source, to); err != nil {
 		return "", fmt.Errorf("%s: invalid sheet name %q: %v", op.w.base, to, err)
 	}
+	op.w.editSheet(source)
+	op.w.editSheet(to)
 	return to, nil
 }
 
@@ -368,5 +376,6 @@ func (op *sheetOp) delete() (string, error) {
 		return "", fmt.Errorf("%s: delete sheet %q: %v", op.w.base, target, err)
 	}
 	op.w.forget(target)
+	op.w.editSheet(target)
 	return target, nil
 }
