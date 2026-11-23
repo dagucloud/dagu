@@ -249,8 +249,9 @@ with the old one's.
   display name, creation time, and
   [Dagu Cloud binding](002-dagu-cloud-connector.md#binding). It is the only
   list of projects: creating, deleting, and migration change it, and
-  nothing on disk adds to it. Every write to it holds one lock and checks the name rules before it stores. Writes are
-  rare, so one lock costs nothing.
+  nothing on disk adds to it. Every write to it holds one lock and checks
+  the name rules before it stores. Writes are rare, so one lock costs
+  nothing.
 - Records that outlive a request refer to a project by ID: grants, audit
   entries, dispatch tasks, leases, and status reports. Names are for people:
   `--project`, the API's `project` parameter, and `project_mappings` take a
