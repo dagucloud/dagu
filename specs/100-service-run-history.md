@@ -330,9 +330,15 @@ Rules:
 
 ### Activity in the DAG List
 
-The DAG list gives the activity of each DAG in the window of the request (`activityWindow`). For a
-service DAG, the activity holds buckets of the run history instead of runs. A service DAG with no
-run history has no bucket.
+`GET /dag-list-activity` gives the activity of each DAG of one page of the DAG list, in the window
+that ends now (`window`, in seconds). It takes the paging, the filters and the sort of `GET /dags`,
+and gives the DAGs of the same page in the same order. For a service DAG, the activity holds
+buckets of the run history instead of runs. A service DAG with no run history has no bucket.
+
+The `daglistactivity` topic of the stream gives the same activity. Its identifier is the query of
+the `dagslist` topic of the page with `window`. It reads the activity again at most once in 10
+seconds after a change of a run or of a DAG, and once in 60 seconds otherwise. It sends the
+activity only when it changed.
 
 The activity of a service DAG has:
 
@@ -349,6 +355,9 @@ Rules:
 - The cost of the activity of a service DAG does not depend on its count of runs.
 - The activity of a service DAG does not depend on the status of its latest run. A queued run, or a
   run that has not started, does not empty it.
+- A `window` that is missing, or outside 60 to 604800 seconds, gets `400`. A page of more than 200
+  DAGs gets `400`.
+- `GET /dags` does not read the activity.
 
 ### Compact Count
 
@@ -415,8 +424,15 @@ Rules:
 
 - The row and the card of a service DAG draw no element for each run.
 - When the activity of a service DAG has no `buckets`, the list draws no strip and no bar for it.
-- The list makes no request of its own for each service DAG. The activity comes in the list
-  response. The only exception is the detail of a strip that the user opens.
+- The list makes no request of its own for each DAG. The activity of the page comes in one
+  `GET /dag-list-activity` request and its `daglistactivity` topic, on the stream of the list. The
+  only exception is the detail of a strip that the user opens.
+- The list adds the topic in a topic change of its own, so that the list does not wait for the
+  activity.
+- Until the activity of a row arrives, its strip shows a placeholder. While the activity refreshes,
+  the strip keeps the last activity.
+- A node that gives no activity, such as an older remote node that answers `404` or
+  `unsupported_topic`, draws no strip and no placeholder.
 - The Last Run column of a service DAG shows the state of the service in the chip of the Runs list:
   Healthy for the states running and restarting, because a service that restarts as designed is
   well. Pending, failing, suspended and stopped keep their names. A DAG that is not a service DAG
@@ -443,7 +459,8 @@ Rules:
 - The detail makes one availability request when it opens. A closed strip makes none, and the
   detail does not poll.
 - The runs of service DAGs cause at most one update of the DAG list stream in 10 seconds. A change
-  of a DAG that is not a service DAG still updates the list at once.
+  of a DAG that is not a service DAG still updates the list at once. The strips update at most once
+  in 10 seconds.
 
 #### Runs List
 
@@ -544,19 +561,22 @@ The `gap` event of a scheduler that was stopped for 20 minutes:
  "gapSeconds": 1200}
 ```
 
-The activity of a service DAG in the DAG list, with a window of 24 hours:
+The entry of a service DAG in `GET /dag-list-activity?window=86400`:
 
 ```json
 {
-  "runs": [],
-  "truncated": false,
-  "resolutionSeconds": 3600,
-  "buckets": [
-    {"time": "2026-11-07T00:00:00Z", "count": 941, "failures": 0,
-     "minMs": 101, "maxMs": 162, "p50Ms": 118, "p95Ms": 139},
-    {"time": "2026-11-07T01:00:00Z", "count": 938, "failures": 3,
-     "minMs": 99, "maxMs": 2410, "p50Ms": 119, "p95Ms": 141}
-  ]
+  "fileName": "service_ok",
+  "activity": {
+    "runs": [],
+    "truncated": false,
+    "resolutionSeconds": 3600,
+    "buckets": [
+      {"time": "2026-11-07T00:00:00Z", "count": 941, "failures": 0,
+       "minMs": 101, "maxMs": 162, "p50Ms": 118, "p95Ms": 139},
+      {"time": "2026-11-07T01:00:00Z", "count": 938, "failures": 3,
+       "minMs": 99, "maxMs": 2410, "p50Ms": 119, "p95Ms": 141}
+    ]
+  }
 }
 ```
 
@@ -586,12 +606,13 @@ succeeds, and a service DAG whose runs fail when a file exists.
 - The run in progress counts in the uptime at the time of the query. A service DAG whose step lasts
   longer than the restart wait has an uptime near 1 while a run is in progress.
 - A run history that has no `up` directory gives no uptime, and its other figures do not change.
-- The samples query and the activity of the DAG list give `upMs`. A bucket of a long run that has no
+- The samples query and the activity of a DAG list page give `upMs`. A bucket of a long run that has no
   sample has `count` 0 and `upMs` more than 0. The run in progress has `upMs` in the buckets that it
   covers, and no sample.
 - The success rate does not change: a killed run is one failure.
 - A DAG that is not a service DAG and has no run history gets `404` from the three queries.
-- The DAG list gives at most 60 buckets for a service DAG, and runs for the other DAGs.
+- The activity of a DAG list page gives at most 60 buckets for a service DAG, and runs for the
+  other DAGs, for the DAGs of the page of `GET /dags` with the same query.
 - The response of the samples query for a window of three years has at most `points` buckets.
 - The events of a run history stay under 4 MiB after 100 000 runs that fail one time in two.
 - A service run that a worker executes has a sample.
@@ -600,5 +621,5 @@ succeeds, and a service DAG whose runs fail when a file exists.
 
 `conformance/spec100_service_run_history/` checks the samples, the events and the retention.
 It also checks the gap after a stop of the scheduler, and the three queries and their
-errors. It checks `upMs` in the buckets, and the live part of the run in progress. It checks a window of three years and the activity of a service DAG in the DAG list. Each
+errors. It checks `upMs` in the buckets, and the live part of the run in progress. It checks a window of three years and the activity of a service DAG on a DAG list page. Each
 test starts a scheduler and a server with static fixtures.

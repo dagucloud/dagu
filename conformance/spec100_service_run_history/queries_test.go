@@ -80,7 +80,7 @@ func TestQueryParamsAreValidated(t *testing.T) {
 	}
 }
 
-// The DAG list gives the activity of a service DAG as buckets, at most 60, and
+// The activity of a DAG list page gives a service DAG buckets, at most 60, and
 // no run. A DAG that is not a service DAG keeps its runs.
 func TestActivityInDAGList(t *testing.T) {
 	t.Parallel()
@@ -89,28 +89,27 @@ func TestActivityInDAGList(t *testing.T) {
 	p.dagu.RunWithEnv(p.env(), "start", "--run-id=plain-1", "mixed/plain.yaml").ExpectExitCode(0)
 	p.startScheduler()
 
-	list := func() map[string]api.DAGFile {
-		resp := getJSON[api.ListDAGs200JSONResponse](p, http.StatusOK, "/dags", url.Values{"activityWindow": {"86400"}})
-		byName := map[string]api.DAGFile{}
-		for _, d := range resp.Dags {
-			byName[d.FileName] = d
+	list := func() map[string]*api.DAGListActivity {
+		resp := getJSON[api.DAGListActivityPage](p, http.StatusOK, "/dag-list-activity", url.Values{"window": {"86400"}})
+		byName := map[string]*api.DAGListActivity{}
+		for _, entry := range resp.Dags {
+			byName[entry.FileName] = &entry.Activity
 		}
 		return byName
 	}
-	var service api.DAGFile
+	var activity *api.DAGListActivity
 	require.Eventually(t, func() bool {
-		service = list()["service_ok"]
-		if service.Activity == nil || service.Activity.Buckets == nil {
+		activity = list()["service_ok"]
+		if activity == nil || activity.Buckets == nil {
 			return false
 		}
 		var n int64
-		for _, b := range *service.Activity.Buckets {
+		for _, b := range *activity.Buckets {
 			n += b.Count
 		}
 		return n >= 2
 	}, wait, poll, "no buckets in the activity of the service DAG")
 
-	activity := service.Activity
 	assert.Empty(t, activity.Runs)
 	assert.False(t, activity.Truncated)
 	assert.LessOrEqual(t, len(*activity.Buckets), 60)
@@ -126,11 +125,11 @@ func TestActivityInDAGList(t *testing.T) {
 	assert.Equal(t, series.ResolutionSeconds, *activity.ResolutionSeconds)
 
 	plain := list()["plain"]
-	require.NotNil(t, plain.Activity)
-	require.Len(t, plain.Activity.Runs, 1)
-	assert.Equal(t, "plain-1", plain.Activity.Runs[0].DagRunId)
-	assert.Empty(t, plain.Activity.Buckets)
-	assert.Nil(t, plain.Activity.ResolutionSeconds)
+	require.NotNil(t, plain)
+	require.Len(t, plain.Runs, 1)
+	assert.Equal(t, "plain-1", plain.Runs[0].DagRunId)
+	assert.Empty(t, plain.Buckets)
+	assert.Nil(t, plain.ResolutionSeconds)
 }
 
 // A window of three years answers with at most `points` buckets, from the day
