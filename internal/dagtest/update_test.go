@@ -203,11 +203,11 @@ func TestUpdateRewrites(t *testing.T) {
 		},
 		{
 			name:   "MultilineFlow",
-			expect: "    expect: {\n      status: succeeded\n    }\n# end\n",
+			expect: "    expect: {\n      # why\n      status: succeeded # rationale\n    }\n# end\n",
 			edit: func(e *Expect) {
 				e.Steps = []StepExpect{{Key: "build", Step: "build image", Status: "succeeded"}}
 			},
-			want: "    expect:\n      status: succeeded\n      steps:\n        build: succeeded\n# end\n",
+			want: "    expect:\n      # why\n      status: succeeded # rationale\n      steps:\n        build: succeeded\n# end\n",
 		},
 		{
 			name:   "BigInteger",

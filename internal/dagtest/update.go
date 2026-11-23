@@ -317,7 +317,8 @@ func (ed *expectEditor) add(at slot, entries ...*yaml.Node) {
 
 // render returns the text edits of the changes. A scalar that fits on the
 // line of its old text replaces that text. Any other change inside a flow
-// collection rewrites the outermost one in block style.
+// collection rewrites the outermost one in block style, comments inside it
+// included.
 func (ed *expectEditor) render() ([]textEdit, error) {
 	edits := make([]textEdit, 0, len(ed.changes))
 	for _, c := range ed.changes {
@@ -329,9 +330,9 @@ func (ed *expectEditor) render() ([]textEdit, error) {
 		var err error
 		switch root := c.at.flow; {
 		case root == nil && c.added && c.at.value().Style&yaml.FlowStyle != 0:
-			edit, err = ed.valueEdit(c.at, c.old, plainCopy(c.at.value(), true))
+			edit, err = ed.valueEdit(c.at, c.old, blockCopy(c.at.value()))
 		case root != nil:
-			edit, err = ed.valueEdit(*root, *root.value(), plainCopy(root.value(), true))
+			edit, err = ed.valueEdit(*root, *root.value(), blockCopy(root.value()))
 		case c.added:
 			edit = ed.appendEdit(c)
 		default:
@@ -412,9 +413,12 @@ func (ed *expectEditor) place(n *yaml.Node, indent int) (inline, below string) {
 	return lines[0], ed.below(lines[1:], indent)
 }
 
-// lines returns the lines of n written as YAML, without comments.
+// lines returns the lines of n written as YAML. The comments of n itself
+// stay on the lines of its old text, and those inside n come along.
 func (ed *expectEditor) lines(n *yaml.Node) []string {
-	return strings.Split(strings.TrimSuffix(encodeYAML(plainCopy(n, false), ed.indent), "\n"), "\n")
+	bare := *n
+	bare.HeadComment, bare.LineComment, bare.FootComment = "", "", ""
+	return strings.Split(strings.TrimSuffix(encodeYAML(&bare, ed.indent), "\n"), "\n")
 }
 
 // below returns each line after a line break, indented by pad.
@@ -429,17 +433,16 @@ func (ed *expectEditor) below(lines []string, pad int) string {
 	return b.String()
 }
 
-// plainCopy returns a copy of n without comments, and in block style when
-// block is set. An empty collection stays in flow style.
-func plainCopy(n *yaml.Node, block bool) *yaml.Node {
+// blockCopy returns a copy of n in block style. An empty collection stays
+// in flow style.
+func blockCopy(n *yaml.Node) *yaml.Node {
 	c := *n
-	c.HeadComment, c.LineComment, c.FootComment = "", "", ""
-	if block && len(c.Content) > 0 {
+	if len(c.Content) > 0 {
 		c.Style &^= yaml.FlowStyle
 	}
 	c.Content = make([]*yaml.Node, len(n.Content))
 	for i, child := range n.Content {
-		c.Content[i] = plainCopy(child, block)
+		c.Content[i] = blockCopy(child)
 	}
 	return &c
 }
