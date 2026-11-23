@@ -218,9 +218,18 @@ func (n *Node) capturePublishedOutputs(ctx context.Context, outputs map[string]a
 
 // setsOutputsObject reports whether a real run of the step sets the outputs
 // object the run collects. Object-form output, stdout.outputs, and an action
-// that publishes outputs set it. output_schema alone does not.
+// that publishes outputs set it. output_schema alone does not, nor does a
+// parallel step or a step with nodes, which publish their children's outputs
+// as a list.
 func setsOutputsObject(step ir.Step) bool {
-	return step.HasStructuredOutput() || step.HasStdoutOutputs() || !step.HasOutputSchema()
+	switch {
+	case step.HasStructuredOutput(), step.HasStdoutOutputs():
+		return true
+	case step.HasOutputSchema():
+		return false
+	default:
+		return step.Parallel == nil && step.Nodes == nil
+	}
 }
 
 // splitPublishedOutputs separates the outputs the step declares under Spec
