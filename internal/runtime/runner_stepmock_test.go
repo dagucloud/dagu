@@ -688,6 +688,62 @@ func TestStepMockNodes(t *testing.T) {
 	}
 }
 
+// A mocked step that runs child DAGs publishes any output names it is given,
+// and a later step resolves them. A real parallel step or step with nodes
+// publishes its children's outputs as a list, so the mock's outputs stay out
+// of the outputs the run collects.
+func TestStepMockChildRunOutputs(t *testing.T) {
+	t.Parallel()
+
+	parallel := func(step *ir.Step) {
+		step.Parallel = &ir.ParallelConfig{Items: []ir.ParallelItem{{Value: "a"}, {Value: "b"}}}
+	}
+	for _, tc := range []struct {
+		name           string
+		action         []stepOption
+		wantRunOutputs bool
+	}{
+		{
+			name:           "DAGRun",
+			action:         []stepOption{withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy")},
+			wantRunOutputs: true,
+		},
+		{
+			name:           "DAGEnqueue",
+			action:         []stepOption{withExecutorType(ir.ExecutorTypeDAGEnqueue), withSubDAG("deploy")},
+			wantRunOutputs: true,
+		},
+		{
+			name:   "Parallel",
+			action: []stepOption{withExecutorType(ir.ExecutorTypeParallel), withSubDAG("deploy"), parallel},
+		},
+		{
+			name:   "Nodes",
+			action: []stepOption{withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy-one"), withNodes("web")},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := setupRunner(t, withStepMocks(map[string]stepmock.Step{
+				"rollout": {Results: []stepmock.Result{{Outputs: map[string]any{"version": "v1.2.3", "replicas": 2}}}},
+				"verify":  {},
+			}))
+			rollout := newStep("rollout", append(tc.action, withID("rollout"))...)
+			verify := newStep("verify", withDepends("rollout"),
+				withCommand("./verify.sh ${steps.rollout.outputs.version} ${steps.rollout.outputs.replicas}"))
+			result := r.newPlan(t, rollout, verify).assertRun(t, ir.Succeeded)
+
+			assert.Equal(t, []string{"v1.2.3", "2"}, result.nodeByName(t, "verify").Step().Commands[0].Args)
+			var wantRunOutputs map[string]string
+			if tc.wantRunOutputs {
+				wantRunOutputs = map[string]string{"version": "v1.2.3", "replicas": "2"}
+			}
+			assert.Equal(t, wantRunOutputs, result.nodeByName(t, "rollout").NodeData().OutputsValueStringMap())
+		})
+	}
+}
+
 // A mock on a foreach step replaces the whole construct: no item body runs,
 // string-form output captures the mock's stdout in place of the aggregate,
 // and the exit code alone decides between succeeded and failed. Results
