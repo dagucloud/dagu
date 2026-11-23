@@ -648,7 +648,7 @@ or a copy of one, before the upgrade.
 | Global base config and `<dags>/workspaces/X/base.yaml` | `<projects_dir>/X/base.yaml`: `X`'s merged over the global one, as v2 merged them at run time |
 | Secrets and profile entries of `X` | Project `X`'s secrets and profiles, still encrypted with the server's key |
 | Notification routes and incident policies of `X` | Project `X`'s routes and policies |
-| Global secrets, profiles, profile defaults, notification routes, and incident policies | The default project's. Project `X` also gets a copy of every global entry, since any of `X`'s DAGs could use it on v2; an entry of `X`'s own with the same name stays as it is |
+| Global secrets, profiles, profile defaults, notification routes, and incident policies | The default project's. Project `X` also gets a copy of each one it inherited on v2: every global secret, profile, and profile default, the global routes when `X`'s route set has `inheritGlobal`, and the global policies when `X`'s policy set has `inheritParent`. An entry of `X`'s own with the same name stays as it is. Both flags are then dropped |
 | Per-DAG wiki directory `<wiki>/X/<dag>`, pages under `<wiki>/X/` | Project `X`'s wiki in `<projects_dir>/X/wiki/` |
 | User or API key with roles in `X` | Grants on project `X` |
 | User or API key with `workspace_access.all: false` | No server-wide role, and `viewer` on the default project, which keeps v2 read access to unlabelled DAGs |
@@ -975,9 +975,9 @@ Criteria 23 and 24 apply from the release that ships the feature.
     attached to a project by its name.
 40. After migration, the default project holds v2's global settings, and
     its base config is the file at `paths.base_config`. Each workspace's
-    project holds a copy of every global entry that it has no entry of its
-    own name for, its DAGs run with every base config setting they
-    inherited on v2, and the report lists each copied entry.
+    project holds a copy of every global entry it inherited on v2 and has
+    no entry of its own name for, its DAGs run with every base config
+    setting they inherited on v2, and the report lists each copied entry.
 41. Admitting a run to a queue defined in `config.yaml` reads the queue's
     store in `<data_dir>/server/` and no project's process heartbeats.
 42. A project with no restart policy and no open backfill runs neither the
