@@ -93,9 +93,10 @@ export function ServiceHistory({
         : controlsHost && createPortal(controls, controlsHost)}
       <SamplesPanel
         source={source}
-        // The dock stops the polls of a closed panel: the panel itself is
-        // always live, so closing it reads nothing again.
-        active
+        // The history changes only while a run is alive: its end reads it
+        // once more, and a DAG with no run in progress does not poll. The
+        // dock stops the polls of a closed panel by itself.
+        active={liveRun !== null}
         range={panelRange}
         links={links}
         notice={notice}

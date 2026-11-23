@@ -76,6 +76,7 @@ vi.mock('../../continuous/SamplesPanel', () => ({
       open(id: string): void;
     };
     liveRun: { id: string } | null;
+    active: boolean;
     onOpenRun(id: string): void;
   }) => (
     <div data-testid={props.testId}>
@@ -92,6 +93,7 @@ vi.mock('../../continuous/SamplesPanel', () => ({
       </button>
       {props.notice?.(h.chartWindow) as never}
       <span data-testid="stub-live">{JSON.stringify(props.liveRun)}</span>
+      <span data-testid="stub-active">{String(props.active)}</span>
       {props.liveRun && (
         <button
           type="button"
@@ -256,6 +258,29 @@ describe('the Activity panel of a service DAG', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'open live run' }));
     expect(h.select).toHaveBeenCalledWith('run-1', { replace: true });
+  });
+
+  // A stopped or a waiting service has no run that adds to the history: its
+  // panel does not poll.
+  it('polls the history only while a run is in progress', () => {
+    h.latest = {
+      dagRunId: 'run-1',
+      status: Status.Running,
+      startedAt: '2026-11-05T12:00:00Z',
+      finishedAt: '',
+    };
+    renderDock();
+    expect(screen.getByTestId('stub-active')).toHaveTextContent('true');
+    cleanup();
+
+    h.latest = {
+      dagRunId: 'run-1',
+      status: Status.Aborted,
+      startedAt: '2026-11-05T12:00:00Z',
+      finishedAt: '2026-11-05T13:00:00Z',
+    };
+    renderDock();
+    expect(screen.getByTestId('stub-active')).toHaveTextContent('false');
   });
 
   it('gives the history no run in progress after the latest run ended', () => {
