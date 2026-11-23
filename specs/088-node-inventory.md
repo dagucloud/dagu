@@ -3,12 +3,12 @@
 ## Status
 
 Partially implemented. The inventory record, its rules, selectors, import,
-and export are implemented through `dagu nodes list`, `show`, `import`, and
-`export`, and conformance covers them through those commands. Testing
-connections and trusting host keys are implemented over the API, and
-conformance covers them through it. Worker nodes, editing, and the
-`dagu nodes test` command are not implemented yet, and further sections are
-added as they land ([RFC 012](../rfcs/012-node-inventory.md)).
+export, and changes to one node are implemented through `dagu nodes list`,
+`show`, `add`, `remove`, `import`, and `export`, and conformance covers them
+through those commands. Testing connections and trusting host keys are
+implemented over the API, and conformance covers them through it. Worker
+nodes and the `dagu nodes test` command are not implemented yet, and further
+sections are added as they land ([RFC 012](../rfcs/012-node-inventory.md)).
 
 ## Scope
 
@@ -116,6 +116,8 @@ order, comparing bytes.
 | --- | --- |
 | `dagu nodes list [--labels <selector>] [--inventory <name or id>] [--format table\|json]` | Prints the nodes the selector matches, or every node without `--labels` |
 | `dagu nodes show <name> [--format table\|json]` | Prints one node. The name is compared without case |
+| `dagu nodes add <name> --host <host> [--inventory <name or id>] [flags]` | Adds a node, or replaces the node of that name, as [Changing inventories](#changing-inventories) defines |
+| `dagu nodes remove <name>` | Removes a node from the inventory that holds it |
 | `dagu nodes import <file> [--replace] [--dry-run]` | Imports a JSON array of inventories, as [Import](#import) defines |
 | `dagu nodes export [--inventory <name or id>]` | Prints inventories, as [Export](#export) defines |
 
@@ -162,6 +164,42 @@ It prints one line per inventory, in import order, created ones first:
 compared without case. The records leave out `id`, so the output imports
 into any installation. Importing it into an installation without
 inventories, and exporting again, prints the same JSON.
+
+### Changing inventories
+
+A change is checked against every rule and the other inventories, and a
+change that breaks one stores nothing. Each change names the version of the
+inventory it is based on. A change based on an older version is refused,
+and over the API the refusal carries the inventory as it is now.
+
+A node's trusted host key belongs to its name. A change that removes or
+renames a node forgets the key trusted for that name, and a node that is
+added starts with none, so a host never inherits the key a user trusted for
+another host. A node that keeps its name keeps its key. An import and
+`dagu nodes remove` follow the same rule.
+
+**`dagu nodes add`** builds a node from its flags: `--host`, `--port`,
+`--user`, `--key` (a path) or `--key-secret`, `--password-secret`,
+`--passphrase-secret`, `--bastion`, `--labels` (comma-separated), and
+`--description`. `--inventory` may be left out when there is one
+inventory. Before it saves, `add` tests the connection as
+[Host keys](#host-keys) defines.
+
+- A node that passes is saved, and `add` prints `added <name> in
+  <inventory>`, or `replaced` for a node of that name.
+- When a hop's host key is unknown, `add` prints `The host key of <hop>
+  "<node>" is unknown: <fingerprint>` and asks before it trusts the key. On
+  yes it saves the node, trusts the key, tests again, and prints each step.
+  Any other answer, or none, saves nothing.
+- A node whose test fails otherwise is not saved, unless `--no-test` skips
+  the test.
+
+**Over the API**, `POST /inventories` creates an inventory, `PUT` and
+`DELETE /inventories/{id}?version=` replace and delete one, and `PUT` and
+`DELETE /inventories/{id}/nodes/{name}?version=` add, change, and remove one
+node. A request body is decoded as sent: an unknown field, or data after
+the record, is refused. Changes need the developer role and are written to
+the audit log.
 
 ### Host keys
 

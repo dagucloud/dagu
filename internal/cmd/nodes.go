@@ -54,19 +54,22 @@ var (
 func Nodes() *cobra.Command {
 	cmd := NewCommand(&cobra.Command{
 		Use:   "nodes",
-		Short: "List, show, import, and export node inventories",
+		Short: "List, show, add, remove, import, and export inventory nodes",
 		Long: `Work with the node inventories of this installation: named lists of SSH
 hosts with labels, which steps select with the label filter that
 'dagu history --labels' takes.
 
 Inventories are stored as JSON records. 'dagu nodes export' prints them, and
-'dagu nodes import' reads the same JSON.`,
+'dagu nodes import' reads the same JSON. 'dagu nodes add' and 'dagu nodes
+remove' change one node.`,
 	}, nil, func(ctx *Context, _ []string) error {
 		return ctx.Command.Help()
 	})
 
 	cmd.AddCommand(nodesListCommand())
 	cmd.AddCommand(nodesShowCommand())
+	cmd.AddCommand(nodesAddCommand())
+	cmd.AddCommand(nodesRemoveCommand())
 	cmd.AddCommand(nodesImportCommand())
 	cmd.AddCommand(nodesExportCommand())
 	return cmd
@@ -182,11 +185,11 @@ nothing is stored and every broken rule is listed. --dry-run only checks.`,
 		if err != nil {
 			return err
 		}
-		store, err := ctx.inventoryStore()
+		stores, err := ctx.nodeStores()
 		if err != nil {
 			return err
 		}
-		result, err := store.Import(ctx, invs, inventory.ImportOptions{Replace: replace, DryRun: dryRun})
+		result, err := stores.editor().Import(ctx, invs, inventory.ImportOptions{Replace: replace, DryRun: dryRun})
 		if errors.Is(err, inventory.ErrInvalid) {
 			return fmt.Errorf("nothing imported:\n%w", err)
 		}
