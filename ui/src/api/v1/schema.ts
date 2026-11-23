@@ -7265,11 +7265,6 @@ export interface components {
             startedAt: string;
             /** @description RFC 3339 timestamp when the run finished. Absent for a run that has not finished. */
             finishedAt?: string;
-            /**
-             * Format: int64
-             * @description Sum in milliseconds of the times that the steps reused from other runs took in those runs. Absent for a run that reused no timed step.
-             */
-            cachedMs?: number;
         };
         /** @description Current status of a DAG-run */
         DAGRunSummary: {

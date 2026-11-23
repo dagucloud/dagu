@@ -246,9 +246,6 @@ func (a *API) dagActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStat
 		From:      persis.NewUTC(since),
 		Statuses:  startedRunStatuses,
 		Limit:     activityRunLimit,
-		// The cached time comes from the reused inputs, which the run index
-		// does not keep.
-		FullStatus: true,
 		// The activity cache keeps what the list needs, and these reads would
 		// push out of the shared status cache what other pages read.
 		SkipStatusCache: true,
@@ -292,27 +289,7 @@ func toListActivityRun(status ir.DAGRunStatus) api.DAGListActivityRun {
 	if !runTime(status.FinishedAt).IsZero() {
 		run.FinishedAt = ptrOf(status.FinishedAt)
 	}
-	if cached, ok := reusedTimeMs(status.ReusedInputs); ok {
-		run.CachedMs = ptrOf(cached)
-	}
 	return run
-}
-
-// reusedTimeMs sums the times that the reused steps of a run took in their
-// source runs, as the timeline of the workspace does. It reports false when
-// no reused step has a known time.
-func reusedTimeMs(inputs []ir.ReusedInput) (int64, bool) {
-	var sum int64
-	known := false
-	for _, input := range inputs {
-		started, finished := runTime(input.StartedAt), runTime(input.FinishedAt)
-		if started.IsZero() || finished.IsZero() || finished.Before(started) {
-			continue
-		}
-		sum += finished.Sub(started).Milliseconds()
-		known = true
-	}
-	return sum, known
 }
 
 // runTime parses a run timestamp; the zero time stands for an empty or

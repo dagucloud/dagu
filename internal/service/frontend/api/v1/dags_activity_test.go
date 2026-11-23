@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
@@ -26,7 +25,6 @@ type activityRun struct {
 	// queuedFor is the wait between the creation of the run and its start.
 	queuedFor time.Duration
 	took      time.Duration
-	reused    []ir.ReusedInput
 	backfill  string
 	// retried keeps the times of the previous attempt on a queued run, as a
 	// retry that waits in the queue does.
@@ -51,7 +49,6 @@ func seedActivityRun(t *testing.T, server test.Server, dag *ir.DAG, run activity
 	options := []ir.StatusOption{
 		ir.WithAttemptID(attempt.ID()),
 		ir.WithHierarchyRefs(ir.NewDAGRunRef(dag.Name, run.id), ir.DAGRunRef{}),
-		ir.WithReusedInputs(run.reused),
 		ir.WithBackfillID(run.backfill),
 	}
 	if !run.status.IsActive() || run.retried {
@@ -89,21 +86,8 @@ func activityRunIDs(activity *api.DAGListActivity) []string {
 func TestListDAGsActivityLimitedToTheWindow(t *testing.T) {
 	server := test.SetupServer(t)
 	dag := createActivityDAG(t, server, "activity_window")
-	reused := func(step string, took time.Duration) ir.ReusedInput {
-		finished := time.Now().Add(-time.Hour)
-		return ir.ReusedInput{
-			Step:       step,
-			RunID:      "source",
-			StartedAt:  stringutil.FormatTime(finished.Add(-took)),
-			FinishedAt: stringutil.FormatTime(finished),
-			Via:        ir.ReusedInputViaRun,
-		}
-	}
 	seedActivityRun(t, server, dag, activityRun{id: "older", status: ir.Succeeded, startAgo: 72 * time.Hour, took: time.Minute})
-	seedActivityRun(t, server, dag, activityRun{
-		id: "first", status: ir.Succeeded, startAgo: 3 * time.Hour, took: 5 * time.Minute,
-		reused: []ir.ReusedInput{reused("a", 4*time.Second), reused("b", 6*time.Second)},
-	})
+	seedActivityRun(t, server, dag, activityRun{id: "first", status: ir.Succeeded, startAgo: 3 * time.Hour, took: 5 * time.Minute})
 	seedActivityRun(t, server, dag, activityRun{id: "second", status: ir.Failed, startAgo: 30 * time.Minute, took: time.Minute})
 
 	dags := listActivity(t, server, "?activityWindow=86400")
@@ -112,12 +96,9 @@ func TestListDAGsActivityLimitedToTheWindow(t *testing.T) {
 	assert.Equal(t, []string{"second", "first"}, activityRunIDs(activity))
 	assert.False(t, activity.Truncated)
 
-	second, first := activity.Runs[0], activity.Runs[1]
+	second := activity.Runs[0]
 	assert.Equal(t, api.Status(ir.Failed), second.Status)
 	assert.NotNil(t, second.FinishedAt)
-	assert.Nil(t, second.CachedMs, "a run that reused nothing has no cached time")
-	require.NotNil(t, first.CachedMs)
-	assert.Equal(t, int64(10_000), *first.CachedMs, "the cached time sums the reused steps")
 
 	assert.Nil(t, listActivity(t, server, "")["activity_window"].Activity,
 		"a list without a window carries no activity")

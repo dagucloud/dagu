@@ -15,24 +15,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestReusedTimeMs(t *testing.T) {
-	t.Parallel()
-	at := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
-	step := func(took time.Duration) ir.ReusedInput {
-		return ir.ReusedInput{StartedAt: stringutil.FormatTime(at), FinishedAt: stringutil.FormatTime(at.Add(took))}
-	}
-
-	sum, ok := reusedTimeMs([]ir.ReusedInput{step(4 * time.Second), step(1500 * time.Millisecond)})
-	assert.True(t, ok)
-	assert.Equal(t, int64(5500), sum)
-
-	// A step that a client supplied has no times, and a negative span is unknown.
-	_, ok = reusedTimeMs([]ir.ReusedInput{{Step: "supplied"}, {StartedAt: stringutil.FormatTime(at), FinishedAt: stringutil.FormatTime(at.Add(-time.Second))}})
-	assert.False(t, ok)
-	_, ok = reusedTimeMs(nil)
-	assert.False(t, ok)
-}
-
 func TestActivityWindowFromQuery(t *testing.T) {
 	t.Parallel()
 	window, err := activityWindowFromQuery(url.Values{})
