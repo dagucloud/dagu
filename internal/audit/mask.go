@@ -5,7 +5,6 @@ package audit
 
 import (
 	"context"
-	"encoding/json"
 	"reflect"
 	"regexp"
 	"strings"
@@ -107,22 +106,9 @@ func (m *Masker) Mask(ctx context.Context, entry *Entry) {
 		}
 	}
 	if entry.Details != "" {
-		entry.Details = maskDetails(entry.Details, secrets.MaskString)
+		entry.Details = secrets.MaskJSON(entry.Details)
 	}
 	entry.Masked = loaded
-}
-
-// maskDetails masks details, a JSON document, keeping it JSON: the smallest
-// value holding a secret becomes a masked string, and in the rare document
-// MaskJSON cannot keep JSON, the masked text is kept as a JSON string.
-func maskDetails(details string, mask func(string) string) string {
-	masked := masking.MaskJSON(details, mask)
-	if json.Valid([]byte(masked)) || !json.Valid([]byte(details)) {
-		return masked
-	}
-	// Encoding a string cannot fail.
-	quoted, _ := json.Marshal(masked)
-	return string(quoted)
 }
 
 // current returns the masker of the secret values and token formats, and

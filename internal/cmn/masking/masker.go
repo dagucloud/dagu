@@ -36,6 +36,9 @@ type Masker struct {
 // span is a range of text to mask, from start up to end.
 type span struct {
 	start, end int
+	// value reports that the span is a whole JSON value, so its mask is
+	// written as a JSON string.
+	value bool
 }
 
 // NewMasker creates a masker from sourced environment variables. Each value
@@ -157,6 +160,7 @@ func joinSpans(spans []span) []span {
 	for _, s := range spans {
 		if last := len(joined) - 1; last >= 0 && s.start < joined[last].end {
 			joined[last].end = max(joined[last].end, s.end)
+			joined[last].value = joined[last].value || s.value
 			continue
 		}
 		joined = append(joined, s)
@@ -175,7 +179,11 @@ func writeSpans(text string, spans []span) string {
 	last := 0
 	for _, s := range spans {
 		out.WriteString(text[last:s.start])
-		out.WriteString(DefaultMaskString)
+		if s.value {
+			out.WriteString(`"` + DefaultMaskString + `"`)
+		} else {
+			out.WriteString(DefaultMaskString)
+		}
 		last = s.end
 	}
 	out.WriteString(text[last:])

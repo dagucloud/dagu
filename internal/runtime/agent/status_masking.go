@@ -110,13 +110,13 @@ func maskStepOutputs(masker *masking.Masker, node *ir.Node) *string {
 	return maskOutputDocument(masker, node.StepOutputsValue)
 }
 
-// maskOutputDocument masks a stored JSON output document, keeping it JSON
-// where it can, so a run that reuses it can still read it.
+// maskOutputDocument masks a stored JSON output document, keeping it JSON,
+// so a run that reuses it can still read it.
 func maskOutputDocument(masker *masking.Masker, value *string) *string {
 	if value == nil {
 		return nil
 	}
-	masked := masking.MaskJSON(*value, masker.MaskString)
+	masked := masker.MaskJSON(*value)
 	return &masked
 }
 

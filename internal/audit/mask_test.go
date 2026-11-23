@@ -65,12 +65,15 @@ func TestMaskHidesSecretsOutsideControlFields(t *testing.T) {
 
 // A secret that is a whole JSON value, even an object or a quoted string,
 // becomes a masked string, and the values around it keep their structure.
+// An object holding a token is masked whole, whatever its key order.
 func TestMaskKeepsDetailsJSON(t *testing.T) {
-	masker := NewMasker(&secretValues{values: []string{"1234", `{"token":"abc"}`, `"xyz"`}})
+	credential := `{"secret_access_key":"wJalrXUtnFEMI","access_key_id":"AKIA` + strings.Repeat("Z", 16) + `"}`
+	masker := NewMasker(&secretValues{values: []string{"1234", `{"token":"abc"}`, `"xyz"`, credential}})
 	for details, want := range map[string]string{
 		`{"pin":1234,"duration_ms":1234}`:         `{"pin":"*******","duration_ms":"*******"}`,
 		`{"response":{"token":"abc"},"other":42}`: `{"response":"*******","other":42}`,
 		`{"response":"xyz","other":42}`:           `{"response":"*******","other":42}`,
+		`{"request":` + credential + `,"n":1}`:    `{"request":"*******","n":1}`,
 	} {
 		entry := &Entry{Details: details}
 
