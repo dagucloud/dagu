@@ -548,8 +548,8 @@ steps:
 }
 
 // A wait that needs no values and has no review is approved automatically
-// with no values, and listed in the order it was settled. A form property's
-// default still becomes its output.
+// with no values, and listed in the order it was settled. A required form
+// property with a default needs no value, and the default becomes its output.
 func TestCaseAutoApproval(t *testing.T) {
 	t.Parallel()
 
@@ -569,6 +569,7 @@ steps:
           size:
             type: string
             default: small
+        required: [size]
   - name: gate
     run: echo built
     approval:
