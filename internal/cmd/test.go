@@ -288,6 +288,7 @@ func runTestCase(ctx *Context, file *dagtest.File, c dagtest.Case, opts testOpti
 	result.name = c.Name
 	result.errors = append(slices.Clone(c.Errors), dagtest.CheckRealChildren(file.DAG, c, childResolver(ctx, file.DAG))...)
 	if len(result.errors) > 0 {
+		result.fix, result.fileFix = c.Fix, c.FileFix
 		return result
 	}
 

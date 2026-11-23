@@ -27,6 +27,10 @@ type caseResult struct {
 	// errors lists what makes the case invalid. An invalid case runs
 	// nothing.
 	errors []dagtest.Finding
+	// fix and fileFix hold the YAML that handles the unhandled sources of
+	// an invalid case: case fields, and the test file's secrets.
+	fix     string
+	fileFix string
 	// failures lists every failed assertion, or what kept the run from its
 	// assertions.
 	failures []caseFailure
@@ -176,6 +180,8 @@ func (r *testReport) writeCase(c caseResult) {
 		for _, err := range c.errors {
 			r.printf("  %s\n", err)
 		}
+		r.writeFix("fix, ready to paste:", c.fix)
+		r.writeFix("fix for the test file, ready to paste:", c.fileFix)
 	case resultFail:
 		r.printf("FAIL %s: %s (%.2fs)\n", c.file, c.name, c.duration.Seconds())
 		for _, failure := range c.failures {
@@ -195,6 +201,17 @@ func (r *testReport) writeCase(c caseResult) {
 	}
 	if c.caseDir != "" {
 		r.printf("  case directory %s\n", c.caseDir)
+	}
+}
+
+// writeFix writes a fix under its title, indented by four spaces.
+func (r *testReport) writeFix(title, fix string) {
+	if fix == "" {
+		return
+	}
+	r.printf("  %s\n", title)
+	for line := range strings.Lines(fix) {
+		r.printf("    %s", line)
 	}
 }
 
