@@ -1,0 +1,123 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package audit
+
+import (
+	"context"
+	"reflect"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
+)
+
+// secretsMaxAge bounds how long a secret changed by another process, such as
+// `dagu profile` or another server, can go unmasked.
+const secretsMaxAge = time.Minute
+
+// controlFields are the JSON names of the entry fields Dagu generates or
+// picks from a fixed set. Mask leaves them as written, so no secret value
+// can rewrite them. Every other text field is masked, fields added later
+// included.
+var controlFields = map[string]bool{
+	"id":              true,
+	"timestamp":       true,
+	"category":        true,
+	"action":          true,
+	"source":          true,
+	"surface":         true,
+	"result":          true,
+	"resource_type":   true,
+	"credential_type": true,
+	"credential_id":   true,
+	"correlation_id":  true,
+}
+
+// maskedFields holds the indexes of the Entry text fields Mask masks.
+var maskedFields = sync.OnceValue(func() [][]int {
+	var fields [][]int
+	for _, field := range reflect.VisibleFields(reflect.TypeFor[Entry]()) {
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if field.Type.Kind() == reflect.String && !controlFields[name] {
+			fields = append(fields, field.Index)
+		}
+	}
+	return fields
+})
+
+// tokenPattern matches common credential formats: GitHub tokens, AWS access
+// key IDs, and Slack tokens.
+var tokenPattern = regexp.MustCompile(
+	`\bgh[pousr]_[A-Za-z0-9]{36,}\b` +
+		`|\bgithub_pat_[A-Za-z0-9_]{22,}\b` +
+		`|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b` +
+		`|\bxox[abposr]-[A-Za-z0-9-]{10,}`,
+)
+
+// SecretSource supplies the secret values a Masker hides.
+type SecretSource interface {
+	// CurrentValues returns the current value of every secret to hide.
+	CurrentValues(ctx context.Context) ([]string, error)
+	// Revision changes whenever this process changes a secret value.
+	Revision() uint64
+}
+
+// Masker hides secret values and common token formats in audit entries.
+// It is safe for concurrent use.
+type Masker struct {
+	source SecretSource
+	now    func() time.Time
+
+	mu       sync.Mutex
+	secrets  *masking.Masker
+	revision uint64
+	loadedAt time.Time
+}
+
+// NewMasker returns a masker that hides the values source supplies and
+// common token formats. A nil source hides the token formats only.
+func NewMasker(source SecretSource) *Masker {
+	return &Masker{source: source, now: time.Now}
+}
+
+// Mask masks every field of entry but its control fields and marks the entry
+// masked. Values are replaced whole, and no field is cut.
+func (m *Masker) Mask(ctx context.Context, entry *Entry) {
+	secrets := m.current(ctx)
+	value := reflect.ValueOf(entry).Elem()
+	for _, index := range maskedFields() {
+		field := value.FieldByIndex(index)
+		if text := field.String(); text != "" {
+			field.SetString(tokenPattern.ReplaceAllLiteralString(secrets.MaskString(text), masking.DefaultMaskString))
+		}
+	}
+	entry.Masked = true
+}
+
+// current returns the masker of the secret values, reloading them when this
+// process changed a secret or they are older than secretsMaxAge. A failed
+// reload keeps the previous values until the next change or secretsMaxAge.
+func (m *Masker) current(ctx context.Context) *masking.Masker {
+	if m == nil || m.source == nil {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	revision := m.source.Revision()
+	if !m.loadedAt.IsZero() && revision == m.revision && m.now().Sub(m.loadedAt) < secretsMaxAge {
+		return m.secrets
+	}
+	values, err := m.source.CurrentValues(ctx)
+	m.revision, m.loadedAt = revision, m.now()
+	if err != nil {
+		logger.Warn(ctx, "Failed to load secret values for audit masking", tag.Error(err))
+		return m.secrets
+	}
+	m.secrets = masking.NewValueMasker(values)
+	return m.secrets
+}

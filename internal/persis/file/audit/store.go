@@ -43,16 +43,28 @@ func Dir(adminLogsDir string) string {
 // Audit entries are stored as JSON lines in daily log files.
 type Store struct {
 	baseDir string
+	masker  *audit.Masker
 	mu      sync.Mutex
 	cleaner *cleaner
 }
 
 var _ audit.Store = (*Store)(nil)
 
+// Option configures a Store.
+type Option func(*Store)
+
+// WithMasker sets the masker Append runs on every entry. Without it, Append
+// masks common token formats only.
+func WithMasker(m *audit.Masker) Option {
+	return func(s *Store) {
+		s.masker = m
+	}
+}
+
 // New creates a new file-based audit store.
 // If retentionDays > 0, a background cleaner goroutine is started to purge
 // expired audit log files. Use Close() to stop the cleaner on shutdown.
-func New(baseDir string, retentionDays int) (*Store, error) {
+func New(baseDir string, retentionDays int, opts ...Option) (*Store, error) {
 	if baseDir == "" {
 		return nil, errors.New("fileaudit: baseDir cannot be empty")
 	}
@@ -62,7 +74,10 @@ func New(baseDir string, retentionDays int) (*Store, error) {
 		return nil, fmt.Errorf("fileaudit: failed to create directory %s: %w", baseDir, err)
 	}
 
-	s := &Store{baseDir: baseDir}
+	s := &Store{baseDir: baseDir, masker: audit.NewMasker(nil)}
+	for _, opt := range opts {
+		opt(s)
+	}
 
 	if retentionDays > 0 {
 		s.cleaner = newCleaner(baseDir, retentionDays, s.Append)
@@ -84,20 +99,23 @@ func (s *Store) auditFilePath(date time.Time) string {
 	return filepath.Join(s.baseDir, date.Format(dateFormat)+auditFileExtension)
 }
 
-// Append adds a new audit entry to the store.
-func (s *Store) Append(_ context.Context, entry *audit.Entry) error {
+// Append masks the entry and adds it to the store. The caller's entry is
+// left unchanged.
+func (s *Store) Append(ctx context.Context, entry *audit.Entry) error {
 	if entry == nil {
 		return errors.New("fileaudit: entry cannot be nil")
 	}
+	masked := *entry
+	s.masker.Mask(ctx, &masked)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Determine file path based on entry timestamp
-	filePath := s.auditFilePath(entry.Timestamp)
+	filePath := s.auditFilePath(masked.Timestamp)
 
 	// Marshal entry to JSON
-	data, err := json.Marshal(entry)
+	data, err := json.Marshal(&masked)
 	if err != nil {
 		return fmt.Errorf("fileaudit: failed to marshal entry: %w", err)
 	}
