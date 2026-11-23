@@ -3022,7 +3022,8 @@ func TestLoadYAMLCase(t *testing.T) {
 
 // A name never resolves to a test file, even one that holds a DAG. An
 // absolute path loads as given, since the server starts runs from temporary
-// files named after the DAG, and a DAG name may end in .test.
+// files named after the DAG, and a DAG name may end in .test. A real test
+// file at such a path fails the DAG schema, and the error names dagu test.
 func TestLoadTestFileName(t *testing.T) {
 	t.Parallel()
 
@@ -3038,6 +3039,11 @@ func TestLoadTestFileName(t *testing.T) {
 	dag, err := spec.Load(context.Background(), path)
 	require.NoError(t, err)
 	assert.Equal(t, "release.test", dag.Name)
+
+	testFile := filepath.Join(dagsDir, "deploy.test.yml")
+	require.NoError(t, os.WriteFile(testFile, []byte("cases:\n  - name: deploys\n"), 0600))
+	_, err = spec.Load(context.Background(), testFile)
+	require.ErrorIs(t, err, spec.ErrTestFile)
 }
 
 // TestLoadWithoutEval tests the WithoutEval loader option

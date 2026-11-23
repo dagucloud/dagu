@@ -237,6 +237,9 @@ func WithBuildEnvSnapshot(snapshot buildenv.Snapshot) LoadOption {
 //   - For YAML files, the extension is optional
 //   - A name that resolves to a test file fails with ErrTestFile
 //
+// A test file given by path loads as a DAG, and when that fails, the error
+// also wraps ErrTestFile.
+//
 // This approach provides a flexible way to load ir.DAG definitions from multiple sources
 // while supporting customization through the LoadOptions.
 func Load(ctx context.Context, nameOrPath string, opts ...LoadOption) (*ir.DAG, error) {
@@ -446,7 +449,13 @@ func loadDAG(ctx buildContext, nameOrPath string) (*ir.DAG, error) {
 	if err != nil {
 		return loadDAGFailure(ctx, filePath, fmt.Errorf("failed to read file %q: %w", filePath, err))
 	}
-	return loadDAGData(ctx, data, filePath)
+	dag, err := loadDAGData(ctx, data, filePath)
+	// An explicit path loads as given, so a test file reaches here and fails
+	// the DAG schema; the error then points at the command that runs it.
+	if err != nil && IsTestFile(filePath) {
+		return nil, fmt.Errorf("%s: %w: %w", filePath, ErrTestFile, err)
+	}
+	return dag, err
 }
 
 func loadDAGData(ctx buildContext, data []byte, filePath string) (*ir.DAG, error) {

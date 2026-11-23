@@ -114,15 +114,18 @@ steps:
 	})
 }
 
-// A test file is never started by name, even when it holds a DAG, and the
-// error points at dagu test.
+// A test file does not start: its name resolves to no DAG, and its path
+// fails to load as a DAG. Both errors point at dagu test.
 func TestStartRejectsTestFile(t *testing.T) {
 	th := test.SetupCommand(t)
-	th.CreateDAGFile(t, "release.test.yaml", "steps:\n  - run: \"true\"\n")
+	th.CreateDAGFile(t, "release.test.yaml", "cases:\n  - name: deploys\n")
+	t.Chdir(th.Config.Paths.DAGsDir)
 
-	err := th.RunCommandWithError(t, cmd.Start(), test.CmdTest{Args: []string{"start", "release.test"}})
-	require.ErrorIs(t, err, spec.ErrTestFile)
-	require.ErrorContains(t, err, "dagu test")
+	for _, arg := range []string{"release.test", "./release.test.yaml"} {
+		err := th.RunCommandWithError(t, cmd.Start(), test.CmdTest{Args: []string{"start", arg}})
+		require.ErrorIs(t, err, spec.ErrTestFile, arg)
+		require.ErrorContains(t, err, "dagu test", arg)
+	}
 }
 
 func TestStartCommand_BuiltExecutablePreservesExplicitEnv(t *testing.T) {
