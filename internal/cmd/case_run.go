@@ -37,8 +37,9 @@ type caseOptions struct {
 	secrets map[string]string
 	// trigger is the run's context.trigger.type. The zero value is manual.
 	trigger ir.TriggerType
-	// real names, by step name, the steps whose redirect files are written
-	// at their configured paths.
+	// real names, by step name, the steps that run for real. Their redirect
+	// files are written at their configured paths, and a case with one sets
+	// up what a real step needs, as a real run does.
 	real []string
 }
 
@@ -51,6 +52,9 @@ type testCase struct {
 	ctx  *Context
 	dir  string
 	opts caseOptions
+	// notifications lists the mail notifications the case's runs would have
+	// sent, in the order the runs reached them. A case sends no mail.
+	notifications []agent.Notification
 }
 
 // openCase creates a case directory and the stores rooted in it. The case
@@ -72,7 +76,7 @@ func openCase(ctx *Context, opts caseOptions) (*testCase, error) {
 // status and no error. In a case with a real step, a DAG secret or SSH
 // credential ref without a test value is an error before the run starts.
 func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
-	secrets, err := caseSecrets(dag, c.opts.secrets, len(c.opts.real) > 0)
+	secrets, err := caseSecrets(dag, c.opts.secrets, c.hasRealSteps())
 	if err != nil {
 		return nil, err
 	}
@@ -99,6 +103,7 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 			Dir:  filepath.Join(c.dir, "redirects"),
 			Keep: c.opts.real,
 		},
+		testSideEffects: &agent.TestSideEffects{HasRealSteps: c.hasRealSteps()},
 	}
 	runErr := withPreparedLocalExecution(
 		ctx,
@@ -118,6 +123,7 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 					ag.Signal(context.WithoutCancel(agentCtx), os.Interrupt)
 				})
 				defer stop()
+				defer func() { c.notifications = append(c.notifications, ag.Notifications()...) }()
 				return ag.Run(agentCtx)
 			})
 		},
@@ -132,6 +138,11 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 		return nil, errors.Join(runErr, err)
 	}
 	return status, nil
+}
+
+// hasRealSteps reports whether the case runs a step for real.
+func (c *testCase) hasRealSteps() bool {
+	return len(c.opts.real) > 0
 }
 
 // close removes the case directory unless the case keeps it.

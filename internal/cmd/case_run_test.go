@@ -7,11 +7,13 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -244,6 +247,75 @@ steps:
 			assert.Empty(t, runs, "the case started a run")
 		})
 	}
+}
+
+// A case with no real step leaves an SSH credential ref unresolved, so it
+// needs no test value for it.
+func TestCaseSSHCredentialRef(t *testing.T) {
+	t.Parallel()
+
+	ctx, _ := newCaseTestContext(t)
+	dag := writeCaseDAG(t, ctx, "ssh", `
+ssh:
+  user: deploy
+  host: app.invalid
+  key: {secret: ssh/deploy-key}
+steps:
+  - name: check
+    action: noop
+`)
+	tc := openTestCase(t, ctx, caseOptions{tempDir: t.TempDir()})
+
+	status, err := tc.run(dag)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Succeeded, status.Status, status.Error)
+}
+
+// A case records the mail its run would have sent and reaches no SMTP
+// server. The listener closes each connection it accepts at once, so a mail
+// client returns only after its connection was counted.
+func TestCaseSendsNoMail(t *testing.T) {
+	t.Parallel()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	var connections atomic.Int32
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			connections.Add(1)
+			_ = conn.Close()
+		}
+	}()
+	host, port, err := net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
+
+	ctx, _ := newCaseTestContext(t)
+	dag := writeCaseDAG(t, ctx, "mail", fmt.Sprintf(`
+smtp:
+  host: %s
+  port: "%s"
+mail_on:
+  success: true
+info_mail:
+  from: dagu@example.com
+  to: ops@example.com
+steps:
+  - run: echo ok
+`, host, port))
+	tc := openTestCase(t, ctx, caseOptions{tempDir: t.TempDir()})
+
+	status, err := tc.run(dag)
+	require.NoError(t, err)
+	require.Equal(t, ir.Succeeded, status.Status, status.Error)
+	assert.Zero(t, connections.Load(), "mail sent")
+	assert.Equal(t, []agent.Notification{
+		{Kind: agent.NotificationMailOnSuccess, To: []string{"ops@example.com"}},
+	}, tc.notifications)
 }
 
 // A real dag.run step starts its child in the same case. The child takes its
