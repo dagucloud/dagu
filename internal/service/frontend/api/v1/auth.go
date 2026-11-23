@@ -134,6 +134,7 @@ func (a *API) Login(ctx context.Context, request api.LoginRequestObject) (api.Lo
 				entry := audit.NewEntry(audit.CategoryUser, "login_failed", "", request.Body.Username).
 					WithDetails(string(details)).
 					WithIPAddress(clientIP)
+				entry.Result = "failed"
 				_ = a.auditService.Log(ctx, entry)
 			}
 			return api.Login401JSONResponse{
@@ -151,6 +152,7 @@ func (a *API) Login(ctx context.Context, request api.LoginRequestObject) (api.Lo
 				entry := audit.NewEntry(audit.CategoryUser, "login_failed", "", request.Body.Username).
 					WithDetails(string(details)).
 					WithIPAddress(clientIP)
+				entry.Result = "failed"
 				_ = a.auditService.Log(ctx, entry)
 			}
 			return api.Login401JSONResponse{

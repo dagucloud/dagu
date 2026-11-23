@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -148,4 +149,29 @@ func TestCommunityMode_ListUsersAndResetPassword(t *testing.T) {
 		Password: "password123",
 		Role:     api.UserRoleViewer,
 	}).WithBearerToken(freshToken).ExpectStatus(http.StatusForbidden).Send(t)
+}
+
+// A failed sign-in is recorded as failed, and the server masks the values
+// of the secrets it stores, one created after it started included.
+func TestFailedSignInIsMaskedAndFailed(t *testing.T) {
+	t.Parallel()
+	server := setupLicensedAuditTestServer(t)
+	adminToken := getWebhookAdminToken(t, server)
+	value := "typed-into-the-username-box"
+	server.Client().Post("/api/v1/secrets", api.CreateSecretRequest{
+		Ref:          "prod/db-password",
+		ProviderType: api.CreateSecretRequestProviderTypeDaguManaged,
+		Value:        &value,
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+
+	server.Client().Post("/api/v1/auth/login", api.LoginRequest{Username: value, Password: "wrong"}).
+		ExpectStatus(http.StatusUnauthorized).Send(t)
+
+	var logs api.AuditLogsResponse
+	server.Client().Get("/api/v1/audit?category=user&action=login_failed").
+		WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &logs)
+	require.Len(t, logs.Entries, 1)
+	require.Equal(t, masking.DefaultMaskString, logs.Entries[0].Username)
+	require.NotNil(t, logs.Entries[0].Result)
+	require.Equal(t, "failed", *logs.Entries[0].Result)
 }
