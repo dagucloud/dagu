@@ -155,7 +155,10 @@ func TestLoadFileCaseErrors(t *testing.T) {
 			"mocks.build.outputs.extra: is not an output the step declares",
 			"mocks.build.outputs.image_tag: must be a string, as the step declares it with type string",
 		},
-		"outputs per result": {"mocks.build.results[1].outputs: leaves out declared outputs manifest"},
+		"outputs per result": {
+			"mocks.build.results[0].outputs.image_tag: must be a string, as the step declares it with type string",
+			"mocks.build.results[1].outputs: leaves out declared outputs manifest",
+		},
 		"outputs without id": {
 			"mocks.untitled.outputs: the step has no id, so no reference can read its outputs; give the step an id",
 		},

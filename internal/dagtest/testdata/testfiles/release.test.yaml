@@ -78,7 +78,12 @@ cases:
     mocks:
       build:
         results:
+          # A failed result publishes nothing, but a declared output still
+          # takes only a value of its type.
           - exit_code: 1
+            outputs:
+              image_tag: 42
+              extra: x
           - outputs:
               image_tag: v2
     expect:

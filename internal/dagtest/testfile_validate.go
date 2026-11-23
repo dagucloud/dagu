@@ -242,20 +242,21 @@ func (b *caseBuilder) checkOutputs(label string, step ir.Step, results []labeled
 					b.fail(path+"."+name, "is not a valid output name")
 				}
 			}
-		case r.spec.exitCode == 0 && step.ID != "":
+		case step.ID != "":
 			// A step without an id cannot set outputs, so it is not asked
 			// for its known ones either.
-			b.checkKnownOutputs(path, known, outputs)
+			b.checkKnownOutputs(path, known, outputs, r.spec.exitCode == 0)
 		}
 	}
 }
 
-// checkKnownOutputs checks that a successful result sets every known output
-// of a step and no other name, each with a value its type takes.
-func (b *caseBuilder) checkKnownOutputs(path string, known map[string]ir.StepOutputDeclaration, outputs map[string]any) {
+// checkKnownOutputs checks the outputs a result sets on a step with known
+// outputs. Each declared one takes a value its type takes, and a successful
+// result sets every known output and no other name.
+func (b *caseBuilder) checkKnownOutputs(path string, known map[string]ir.StepOutputDeclaration, outputs map[string]any, succeeds bool) {
 	var missing []string
 	for name := range known {
-		if _, ok := outputs[name]; !ok {
+		if _, ok := outputs[name]; !ok && succeeds {
 			missing = append(missing, name)
 		}
 	}
@@ -267,9 +268,9 @@ func (b *caseBuilder) checkKnownOutputs(path string, known map[string]ir.StepOut
 		decl, ok := known[name]
 		_, isString := value.(string)
 		switch {
-		case !ok:
+		case !ok && succeeds:
 			b.fail(path+"."+name, "is not an output the step declares")
-		case decl.Source == "" && decl.Type != ir.StepDeclaredOutputTypeJSON && !isString:
+		case ok && decl.Source == "" && decl.Type != ir.StepDeclaredOutputTypeJSON && !isString:
 			b.fail(path+"."+name, "must be a string, as the step declares it with type string")
 		}
 	}
