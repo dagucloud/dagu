@@ -237,6 +237,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	if cloudReporter := startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService); cloudReporter != nil {
 		defer cloudReporter.Stop()
 	}
+	defer startCloudAudit(serviceCtx, stores.Secret)()
 	defer startCloudAccess(serviceCtx, cloudAccess, server)()
 
 	// WaitGroup to track all services

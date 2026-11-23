@@ -15,9 +15,11 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/dagucloud/dagu/v2/internal/audit"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/license"
 )
 
 const (
@@ -46,40 +48,63 @@ const (
 	warnAuditState     = "Unreadable audit shipping state; sending the audit entries on disk from the oldest"
 	warnAuditLease     = "Failed to take the lease to send audit entries to Dagu Console"
 	warnAuditLeaseLost = "Lost the lease to send audit entries to Dagu Console"
+	warnAuditHeld      = "Holding audit entries for Dagu Console"
 )
 
 // auditGapNamespace scopes the IDs derived for gaps.
 var auditGapNamespace = uuid.MustParse("6f1d3c2e-8a4b-4c5d-9e7f-0a1b2c3d4e5f")
 
-// auditLevel is which audit entries the shipper sends.
-type auditLevel string
-
-const (
-	// auditChanges sends every entry except successful reads.
-	auditChanges auditLevel = "changes"
-	// auditAll sends every entry.
-	auditAll auditLevel = "all"
-)
-
 // auditReadTools are the MCP tools that only read, as their ReadOnlyHint
 // annotation says.
 var auditReadTools = []string{"dagu_read"}
 
-// auditFeed reads the entries an audit store holds after a position.
-type auditFeed interface {
+// AuditFeed reads the entries an audit store holds after a position.
+type AuditFeed interface {
 	Read(ctx context.Context, q audit.FeedQuery) (audit.FeedChunk, error)
+}
+
+// AuditOptions configures sending a server's audit entries to Dagu Console.
+type AuditOptions struct {
+	// Level is which entries go.
+	Level config.AuditLevel
+	Feed  AuditFeed
+	// State keeps the position Console has stored up to, and Lease lets one
+	// process per installation send.
+	State StateStore
+	Lease Lease
+	// Credentials returns the license's credentials while the server is
+	// connected to Dagu Console.
+	Credentials func() (license.CloudCredentials, bool)
+	// Licensed reports whether the license includes audit logs.
+	Licensed func() bool
+	// Secrets gives the values entries are masked with again before they
+	// are sent.
+	Secrets audit.SecretSource
+}
+
+// StartAudit sends the audit entries the feed holds to Dagu Console while the
+// server is connected with a license that includes audit logs, and returns a
+// function that stops it.
+func StartAudit(ctx context.Context, opts AuditOptions) (stop func()) {
+	s := newAuditShipper(opts.Feed, opts.State, opts.Lease, opts.Level, newAuditSender(opts.Secrets).send)
+	s.credentials, s.licensed = opts.Credentials, opts.Licensed
+	s.start(ctx)
+	return s.stop
 }
 
 // auditShipper sends the audit entries a store holds, from the position its
 // state saves, in batches. The process holding the lease sends; others stand
 // by.
 type auditShipper struct {
-	feed  auditFeed
-	state StateStore
-	lease Lease
-	level auditLevel
-	// send delivers a batch and returns nil once Console has stored it.
-	send  func(context.Context, auditBatch) error
+	feed        AuditFeed
+	state       StateStore
+	lease       Lease
+	level       config.AuditLevel
+	credentials func() (license.CloudCredentials, bool)
+	licensed    func() bool
+	// send delivers a batch and returns nil once Console has stored it, or
+	// an *auditRefusal when Console holds sending.
+	send  func(context.Context, license.CloudCredentials, auditBatch) error
 	after func(time.Duration) <-chan time.Time
 	now   func() time.Time
 
@@ -97,6 +122,24 @@ type auditShipper struct {
 	pending   *auditPass
 	scannedAt time.Time
 	warning   string
+	// heldUntil holds sending until then, as Console asked or after a
+	// failure; refusedBy holds it while the license is the one Console
+	// refused.
+	heldUntil time.Time
+	refusedBy *auditCredentials
+	backoff   time.Duration
+	// waiting reports that the server lacks the connection or license to
+	// send, as last logged.
+	waiting bool
+}
+
+// auditCredentials identifies the license and server Console refused.
+type auditCredentials struct {
+	licenseID, serverID, secret string
+}
+
+func credentialsOf(creds license.CloudCredentials) auditCredentials {
+	return auditCredentials{licenseID: creds.LicenseID, serverID: creds.ServerID, secret: creds.HeartbeatSecret}
 }
 
 // auditState is what the shipper saves once Console stores a batch.
@@ -134,11 +177,11 @@ type auditPass struct {
 }
 
 func newAuditShipper(
-	feed auditFeed,
+	feed AuditFeed,
 	state StateStore,
 	lease Lease,
-	level auditLevel,
-	send func(context.Context, auditBatch) error,
+	level config.AuditLevel,
+	send func(context.Context, license.CloudCredentials, auditBatch) error,
 ) *auditShipper {
 	return &auditShipper{
 		feed:  feed,
@@ -182,12 +225,26 @@ func (s *auditShipper) run(ctx context.Context) {
 // found is stored. A batch Console did not store goes again first, as built,
 // so a failing Console costs no reads.
 func (s *auditShipper) ship(ctx context.Context) {
-	if !s.hold(ctx) || !s.load(ctx) {
+	creds, ok := s.connected(ctx)
+	if !ok {
+		// No file I/O, and the lease goes to a process that can send.
+		s.release()
+		return
+	}
+	if !s.hold(ctx) || s.now().Before(s.heldUntil) || !s.load(ctx) {
 		return
 	}
 	startedAt := s.now()
 	full := s.scannedAt.IsZero() || startedAt.Sub(s.scannedAt) >= auditScanInterval
-	for {
+	for first := true; ; first = false {
+		// Each batch goes only while the server may still send, with the
+		// credentials it has then.
+		if !first {
+			if creds, ok = s.connected(ctx); !ok {
+				s.release()
+				return
+			}
+		}
 		pass, resend := s.pending, s.pending != nil
 		if !resend {
 			built, err := s.build(ctx, full)
@@ -209,13 +266,13 @@ func (s *auditShipper) ship(ctx context.Context) {
 			}
 			break
 		}
-		if err := s.send(ctx, pass.batch); err != nil {
+		if err := s.send(ctx, creds, pass.batch); err != nil {
 			s.pending = pass
-			s.warn(ctx, warnAuditSend, err)
+			s.refused(ctx, creds, err)
 			return
 		}
-		s.pending = nil
-		s.recovered(warnAuditSend)
+		s.pending, s.backoff = nil, 0
+		s.recovered(warnAuditSend, warnAuditHeld)
 		if !s.save(ctx, pass.next) {
 			return
 		}
@@ -226,6 +283,48 @@ func (s *auditShipper) ship(ctx context.Context) {
 	}
 	if full {
 		s.scannedAt = startedAt
+	}
+}
+
+// connected returns the credentials to send with while the server is
+// connected to Dagu Console with a license that includes audit logs, and
+// Console has not refused that license.
+func (s *auditShipper) connected(ctx context.Context) (license.CloudCredentials, bool) {
+	creds, ok := s.credentials()
+	ok = ok && s.licensed()
+	if ok && s.refusedBy != nil {
+		if *s.refusedBy == credentialsOf(creds) {
+			return creds, false
+		}
+		s.refusedBy = nil
+		s.recovered(warnAuditHeld)
+	}
+	if ok == s.waiting {
+		s.waiting = !ok
+		if !ok {
+			logger.Info(ctx, "Audit entries go to Dagu Console once this server connects with a license that includes audit logs")
+		}
+	}
+	return creds, ok
+}
+
+// refused holds sending after a failed batch: as long as Console asked, until
+// the license changes, or, after any other failure, for a backoff that grows
+// from a minute to five.
+func (s *auditShipper) refused(ctx context.Context, creds license.CloudCredentials, err error) {
+	var refusal *auditRefusal
+	switch {
+	case errors.As(err, &refusal) && refusal.until:
+		by := credentialsOf(creds)
+		s.refusedBy = &by
+		s.warn(ctx, warnAuditHeld, err)
+	case errors.As(err, &refusal):
+		s.heldUntil = s.now().Add(refusal.wait)
+		s.warn(ctx, warnAuditHeld, err)
+	default:
+		s.backoff = min(max(2*s.backoff, initialBackoff), maxBackoff)
+		s.heldUntil = s.now().Add(s.backoff)
+		s.warn(ctx, warnAuditSend, err)
 	}
 }
 
@@ -281,7 +380,7 @@ func (s *auditShipper) sends(entry *audit.Entry) bool {
 	if entry.Category == audit.CategoryMCP && (entry.Result == "received" || entry.Result == "started") {
 		return false
 	}
-	return s.level == auditAll || !isSuccessfulRead(entry)
+	return s.level == config.AuditAll || !isSuccessfulRead(entry)
 }
 
 // isSuccessfulRead reports an MCP resource read or read-only tool call that

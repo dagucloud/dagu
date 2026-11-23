@@ -28,7 +28,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
+	fileaudit "github.com/dagucloud/dagu/v2/internal/persis/file/audit"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
+	"github.com/dagucloud/dagu/v2/internal/secret"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	frontendfile "github.com/dagucloud/dagu/v2/internal/service/frontend/file"
@@ -121,12 +123,14 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	var resourceService *resource.Service
 	var cloudReporter *cloudreport.Reporter
 	stopCloudAccess := func() {}
+	stopCloudAudit := func() {}
 	defer func() {
 		stop()
 		stopCloudAccess()
 		if cloudReporter != nil {
 			cloudReporter.Stop()
 		}
+		stopCloudAudit()
 		if resourceService != nil {
 			if err := resourceService.Stop(ctx); err != nil {
 				logger.Error(ctx, "Failed to stop resource service", tag.Error(err))
@@ -211,6 +215,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	}
 
 	cloudReporter = startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService)
+	stopCloudAudit = startCloudAudit(serviceCtx, stores.Secret)
 	stopCloudAccess = startCloudAccess(serviceCtx, cloudAccess, server)
 
 	err = restartExit(server.Serve(serviceCtx))
@@ -337,6 +342,33 @@ func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring, access *
 	scheduler := cloudreport.Scheduler{State: ctx.Persistence.SchedulerStateStore, Pause: ctx.Persistence.SchedulerPauseStore}
 	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry, cloudReportEvents(ctx), scheduler,
 		cloudReportQueues(ctx), cloudReportWorkers(ctx), monitoring, remote, sampled, ctx.LicenseManager.Refresh)
+}
+
+// cloudAuditLeaseStaleThreshold outlasts the longest pause between the audit
+// shipper's lease heartbeats: a batch sent as several requests.
+const cloudAuditLeaseStaleThreshold = 2 * time.Minute
+
+// startCloudAudit sends the server's audit entries to Dagu Console at the
+// level cloud.audit sets, while the server holds an online license that
+// includes audit logs, and returns a function that stops it. Nothing starts,
+// and no audit file is read, while cloud.audit or local audit is off, or no
+// license manager runs.
+func startCloudAudit(ctx *Context, secrets secret.Store) func() {
+	cfg := ctx.Config
+	if !cfg.Cloud.Audit.Sends() || !cfg.Server.Audit.Enabled || ctx.LicenseManager == nil {
+		return func() {}
+	}
+	manager := ctx.LicenseManager
+	stateFile := filepath.Join(cfg.Paths.DataDir, "cloud", "audit-state.json")
+	return cloudreport.StartAudit(ctx, cloudreport.AuditOptions{
+		Level:       cfg.Cloud.Audit,
+		Feed:        fileaudit.NewFeed(fileaudit.Dir(cfg.Paths.AdminLogsDir)),
+		State:       filemonitor.NewStateStore(stateFile),
+		Lease:       filemonitor.NewLease(stateFile, &dirlock.LockOptions{StaleThreshold: cloudAuditLeaseStaleThreshold}),
+		Credentials: manager.CloudCredentials,
+		Licensed:    func() bool { return manager.Checker().IsFeatureEnabled(license.FeatureAudit) },
+		Secrets:     secrets,
+	})
 }
 
 // cloudReportQueues reads the server's queues for reports: what waits and
