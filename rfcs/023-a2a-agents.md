@@ -92,6 +92,9 @@ Not promised:
   `TaskNotFoundError`.
 - **A final state from a blocking call.** A blocking `SendMessage` waits at
   most `a2a.max_wait` and may return a task that is still running.
+- **Recovery of an admission cut by a crash.** A crash between writing the
+  run and queuing it leaves the task submitted until an operator dequeues
+  it.
 
 ## Design
 
