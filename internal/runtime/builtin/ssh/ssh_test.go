@@ -15,13 +15,13 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/sshconn"
 
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	gossh "golang.org/x/crypto/ssh"
 )
 
 func TestNewSSHExecutor(t *testing.T) {
@@ -118,15 +118,14 @@ func TestSSHExecutor_ShellPriority(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		client        *Client
+		client        *sshconn.Client
 		step          ir.Step
 		expectedShell string
 		expectedArgs  []string
 	}{
 		{
 			name: "DAGLevelShell",
-			client: &Client{
-				hostPort:  "localhost:22",
+			client: &sshconn.Client{
 				Shell:     "/bin/bash",
 				ShellArgs: []string{"-e"},
 			},
@@ -139,8 +138,7 @@ func TestSSHExecutor_ShellPriority(t *testing.T) {
 		},
 		{
 			name: "StepLevelShellOverridesDAGLevel",
-			client: &Client{
-				hostPort:  "localhost:22",
+			client: &sshconn.Client{
 				Shell:     "/bin/sh",
 				ShellArgs: []string{"-e"},
 			},
@@ -163,9 +161,8 @@ func TestSSHExecutor_ShellPriority(t *testing.T) {
 		},
 		{
 			name: "StepShellFallbackWhenNoSSHConfigShell",
-			client: &Client{
-				hostPort: "localhost:22",
-				Shell:    "",
+			client: &sshconn.Client{
+				Shell: "",
 			},
 			step: ir.Step{
 				Name:           "ssh-step",
@@ -178,8 +175,7 @@ func TestSSHExecutor_ShellPriority(t *testing.T) {
 		},
 		{
 			name: "SSHConfigShellTakesPriorityOverStepShell",
-			client: &Client{
-				hostPort:  "localhost:22",
+			client: &sshconn.Client{
 				Shell:     "/bin/zsh",
 				ShellArgs: []string{"-e"},
 			},
@@ -194,9 +190,8 @@ func TestSSHExecutor_ShellPriority(t *testing.T) {
 		},
 		{
 			name: "StepSSHConfigWithoutShellIgnoresDAGShell",
-			client: &Client{
-				hostPort: "localhost:22",
-				Shell:    "/bin/zsh",
+			client: &sshconn.Client{
+				Shell: "/bin/zsh",
 			},
 			step: ir.Step{
 				Name: "ssh-step",
@@ -288,7 +283,7 @@ func TestSSHExecutorCommandResolution(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			if tt.dagShell != "" {
-				ctx = WithSSHClient(ctx, &Client{Shell: tt.dagShell})
+				ctx = WithSSHClient(ctx, &sshconn.Client{Shell: tt.dagShell})
 			}
 
 			command := registry.CommandResolution(ctx, tt.step)
@@ -391,21 +386,21 @@ func TestSSHExecutor_ResolveShell_Fallback(t *testing.T) {
 	tests := []struct {
 		name          string
 		step          ir.Step
-		client        *Client
+		client        *sshconn.Client
 		expectedShell string
 		expectedArgs  []string
 	}{
 		{
 			name:          "FallbackToSh",
 			step:          ir.Step{},
-			client:        &Client{},
+			client:        &sshconn.Client{},
 			expectedShell: "/bin/sh",
 			expectedArgs:  nil,
 		},
 		{
 			name: "ClientShellTakesPriority",
 			step: ir.Step{Shell: "/bin/zsh"},
-			client: &Client{
+			client: &sshconn.Client{
 				Shell:     "/bin/bash",
 				ShellArgs: []string{"-e"},
 			},
@@ -415,7 +410,7 @@ func TestSSHExecutor_ResolveShell_Fallback(t *testing.T) {
 		{
 			name:          "StepShellWhenNoClient",
 			step:          ir.Step{Shell: "/bin/zsh", ShellArgs: []string{"-x"}},
-			client:        &Client{},
+			client:        &sshconn.Client{},
 			expectedShell: "/bin/zsh",
 			expectedArgs:  []string{"-x"},
 		},
@@ -561,8 +556,7 @@ func TestSSHExecutor_TimeoutConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			client, err := FromMapConfig(ctx, tt.config)
+			cfg, err := configFromMap(tt.config)
 
 			if tt.expectError {
 				require.Error(t, err)
@@ -571,8 +565,7 @@ func TestSSHExecutor_TimeoutConfig(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			require.NotNil(t, client)
-			assert.Equal(t, tt.expectedTimeout, client.cfg.Timeout)
+			assert.Equal(t, tt.expectedTimeout, cfg.Timeout)
 		})
 	}
 }
@@ -720,39 +713,13 @@ func TestFromMapConfig_WithBastion(t *testing.T) {
 				"bastion":         tt.bastion,
 			}
 
-			client, err := FromMapConfig(context.Background(), config)
+			cfg, err := configFromMap(config)
 			require.NoError(t, err)
-			require.NotNil(t, client)
-			require.NotNil(t, client.bastionCfg)
-			assert.Equal(t, tt.expectedHostPort, client.bastionCfg.hostPort)
-			assert.Equal(t, tt.expectedUser, client.bastionCfg.cfg.User)
+			require.NotNil(t, cfg.Bastion)
+			assert.Equal(t, tt.expectedHostPort, net.JoinHostPort(cfg.Bastion.Host, cfg.Bastion.Port))
+			assert.Equal(t, tt.expectedUser, cfg.Bastion.User)
 		})
 	}
-}
-
-func TestNewClient_WithBastionConfig(t *testing.T) {
-	t.Parallel()
-
-	cfg := &Config{
-		User:     "testuser",
-		Host:     "target.example.com",
-		Port:     "22",
-		Password: "targetpass",
-		Bastion: &BastionConfig{
-			Host:     "bastion.example.com",
-			Port:     "2222",
-			User:     "bastionuser",
-			Password: "bastionpass",
-		},
-	}
-
-	client, err := NewClient(context.Background(), cfg)
-	require.NoError(t, err)
-	require.NotNil(t, client)
-
-	// Verify bastion config is properly set
-	assert.NotNil(t, client.bastionCfg)
-	assert.Equal(t, "bastion.example.com:2222", client.bastionCfg.hostPort)
 }
 
 func TestNewSFTPExecutor(t *testing.T) {
@@ -789,7 +756,7 @@ func TestNewSFTPExecutor(t *testing.T) {
 func TestSFTPClientInheritance(t *testing.T) {
 	t.Parallel()
 
-	dagClient := &Client{hostPort: "dag-host:2222"}
+	dagClient := &sshconn.Client{}
 	for _, direction := range []string{"upload", "download"} {
 		t.Run(direction, func(t *testing.T) {
 			t.Parallel()
@@ -819,7 +786,8 @@ func TestSFTPClientInheritance(t *testing.T) {
 func TestSFTPClientOverride(t *testing.T) {
 	t.Parallel()
 
-	ctx := WithSSHClient(context.Background(), &Client{hostPort: "dag-host:2222"})
+	dagClient := &sshconn.Client{}
+	ctx := WithSSHClient(context.Background(), dagClient)
 	config := map[string]any{
 		"host":            "step-host",
 		"port":            "2200",
@@ -833,8 +801,8 @@ func TestSFTPClientOverride(t *testing.T) {
 	exec, err := NewSFTPExecutor(ctx, step)
 	require.NoError(t, err)
 	sftpExec := exec.(*sftpExecutor)
-	assert.Equal(t, "step-host:2200", sftpExec.client.hostPort)
-	assert.Equal(t, "step-user", sftpExec.client.cfg.User)
+	require.NotNil(t, sftpExec.client)
+	assert.NotSame(t, dagClient, sftpExec.client, "the step's connection replaces the DAG's")
 
 	// Invalid explicit connection settings must not fall back to the DAG client.
 	config["timeout"] = "invalid"
@@ -948,11 +916,11 @@ func TestSFTPExecutor_SetStdout_SetStderr(t *testing.T) {
 func TestExecutorCancellationInterruptsSSHHandshake(t *testing.T) {
 	tests := []struct {
 		name    string
-		newExec func(*Client) runtimeexec.Executor
+		newExec func(*sshconn.Client) runtimeexec.Executor
 	}{
 		{
 			name: "SSH",
-			newExec: func(client *Client) runtimeexec.Executor {
+			newExec: func(client *sshconn.Client) runtimeexec.Executor {
 				return &sshExecutor{
 					step:   ir.Step{Commands: []ir.CommandEntry{{Command: "true", CmdWithArgs: "true"}}},
 					client: client,
@@ -964,7 +932,7 @@ func TestExecutorCancellationInterruptsSSHHandshake(t *testing.T) {
 		},
 		{
 			name: "SFTP",
-			newExec: func(client *Client) runtimeexec.Executor {
+			newExec: func(client *sshconn.Client) runtimeexec.Executor {
 				return &sftpExecutor{
 					client:      client,
 					direction:   "download",
@@ -981,7 +949,7 @@ func TestExecutorCancellationInterruptsSSHHandshake(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Run("ContextCancellation", func(t *testing.T) {
 				addr, accepted := startBlackholeSSHServer(t)
-				exec := tt.newExec(newBlackholeSSHClient(addr))
+				exec := tt.newExec(newBlackholeSSHClient(t, addr))
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 
@@ -1001,7 +969,7 @@ func TestExecutorCancellationInterruptsSSHHandshake(t *testing.T) {
 
 			t.Run("Kill", func(t *testing.T) {
 				addr, accepted := startBlackholeSSHServer(t)
-				exec := tt.newExec(newBlackholeSSHClient(addr))
+				exec := tt.newExec(newBlackholeSSHClient(t, addr))
 				errCh := make(chan error, 1)
 				go func() { errCh <- exec.Run(context.Background()) }()
 				conn := receiveAcceptedConnection(t, accepted)
@@ -1067,16 +1035,19 @@ func startBlackholeSSHServer(t *testing.T) (string, <-chan net.Conn) {
 	return listener.Addr().String(), accepted
 }
 
-func newBlackholeSSHClient(addr string) *Client {
-	return &Client{
-		hostPort: addr,
-		cfg: &gossh.ClientConfig{
-			User:            "test",
-			Auth:            []gossh.AuthMethod{gossh.Password("test")},
-			HostKeyCallback: gossh.InsecureIgnoreHostKey(), //nolint:gosec
-			Timeout:         time.Second,
-		},
-	}
+func newBlackholeSSHClient(t *testing.T, addr string) *sshconn.Client {
+	t.Helper()
+	host, port, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+	client, err := sshconn.NewClient(context.Background(), &sshconn.Config{
+		User:    "test",
+		Host:    host,
+		Port:    port,
+		SSHAuth: ir.SSHAuth{Password: "test"},
+		Timeout: time.Second,
+	})
+	require.NoError(t, err)
+	return client
 }
 
 func receiveAcceptedConnection(t *testing.T, accepted <-chan net.Conn) net.Conn {
@@ -1160,170 +1131,6 @@ func TestGetStringConfig(t *testing.T) {
 	}
 }
 
-func TestDefaultIfZero(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		val        time.Duration
-		defaultVal time.Duration
-		expected   time.Duration
-	}{
-		{
-			name:       "ZeroValue",
-			val:        0,
-			defaultVal: 30 * time.Second,
-			expected:   30 * time.Second,
-		},
-		{
-			name:       "NonZeroValue",
-			val:        1 * time.Minute,
-			defaultVal: 30 * time.Second,
-			expected:   1 * time.Minute,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := defaultIfZero(tt.val, tt.defaultVal)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestDefaultIfEmpty(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name       string
-		val        string
-		defaultVal string
-		expected   string
-	}{
-		{
-			name:       "EmptyValue",
-			val:        "",
-			defaultVal: "22",
-			expected:   "22",
-		},
-		{
-			name:       "ZeroString",
-			val:        "0",
-			defaultVal: "22",
-			expected:   "22",
-		},
-		{
-			name:       "NonEmptyValue",
-			val:        "2222",
-			defaultVal: "22",
-			expected:   "2222",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := defaultIfEmpty(tt.val, tt.defaultVal)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
-func TestGetDefaultSSHKeys(t *testing.T) {
-	t.Parallel()
-
-	keys := getDefaultSSHKeys()
-
-	// Should return 4 default key paths
-	assert.Len(t, keys, 4)
-
-	// All paths should contain .ssh directory
-	for _, key := range keys {
-		assert.Contains(t, key, ".ssh")
-	}
-
-	// Should contain the standard key names
-	keyNames := strings.Join(keys, ",")
-	assert.Contains(t, keyNames, "id_rsa")
-	assert.Contains(t, keyNames, "id_ecdsa")
-	assert.Contains(t, keyNames, "id_ed25519")
-	assert.Contains(t, keyNames, "id_dsa")
-}
-
-func TestGetHostKeyCallback_InsecureMode(t *testing.T) {
-	t.Parallel()
-
-	// When strict_host_key is false, should return InsecureIgnoreHostKey
-	callback, err := getHostKeyCallback(false, "")
-	require.NoError(t, err)
-	require.NotNil(t, callback)
-
-	// The callback should accept any host key (insecure mode)
-	// We can't easily test the callback itself, but we verify it's not nil
-}
-
-func TestSelectSSHAuthMethod_Password(t *testing.T) {
-	t.Parallel()
-
-	cfg := &Config{
-		Password: "testpassword",
-	}
-
-	authMethod, err := selectSSHAuthMethod(context.Background(), cfg.SSHAuth)
-	require.NoError(t, err)
-	require.NotNil(t, authMethod)
-}
-
-func TestSelectSSHAuthMethod_NoAuth(t *testing.T) {
-	t.Parallel()
-
-	// Skip if default SSH keys exist on the system
-	if findDefaultSSHKey() != "" {
-		t.Skip("Skipping: default SSH keys found on system")
-	}
-
-	// No key, no password, and no default keys exist
-	cfg := &Config{
-		// Empty - no auth method specified
-	}
-
-	_, err := selectSSHAuthMethod(context.Background(), cfg.SSHAuth)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no SSH key specified")
-}
-
-func TestSelectBastionAuthMethod_Password(t *testing.T) {
-	t.Parallel()
-
-	bastion := &BastionConfig{
-		Host:     "bastion.example.com",
-		User:     "bastionuser",
-		Password: "bastionpass",
-	}
-
-	authMethod, err := selectBastionAuthMethod(context.Background(), bastion.SSHAuth)
-	require.NoError(t, err)
-	require.NotNil(t, authMethod)
-}
-
-func TestSelectBastionAuthMethod_NoAuth(t *testing.T) {
-	t.Parallel()
-
-	// Skip if default SSH keys exist on the system
-	if findDefaultSSHKey() != "" {
-		t.Skip("Skipping: default SSH keys found on system")
-	}
-
-	bastion := &BastionConfig{
-		Host: "bastion.example.com",
-		User: "bastionuser",
-		// No key, no password
-	}
-
-	_, err := selectBastionAuthMethod(context.Background(), bastion.SSHAuth)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no authentication method available for bastion")
-}
-
 // Unknown keys fail validation for both executors, at the top level of the
 // config and inside the bastion block.
 func TestSSHRejectsUnknownKeys(t *testing.T) {
@@ -1396,4 +1203,43 @@ func TestSSHAcceptsDeclaredKeys(t *testing.T) {
 			require.NoError(t, registry.ValidateExecutorConfig(executorType, config))
 		})
 	}
+}
+
+// Credentials given as secret refs under with are read from the values
+// resolved at run start, for the target and for its bastion, and a malformed
+// ref names its field.
+func TestFromMapConfigReadsSecretCredentials(t *testing.T) {
+	t.Parallel()
+
+	ctx := sshconn.WithSecretValues(context.Background(), map[string]string{
+		"ssh/password": "app-password",
+		"ssh/jump-pw":  "jump-password",
+	})
+
+	_, err := FromMapConfig(ctx, map[string]any{
+		"host":            "app.example.com",
+		"user":            "deploy",
+		"strict_host_key": false,
+		"password":        map[string]any{"secret": "ssh/password"},
+		"bastion": map[string]any{
+			"host":     "jump.example.com",
+			"user":     "ops",
+			"password": map[string]any{"secret": "ssh/jump-pw"},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = FromMapConfig(context.Background(), map[string]any{
+		"host":            "app.example.com",
+		"strict_host_key": false,
+		"password":        map[string]any{"secret": "ssh/password"},
+	})
+	require.EqualError(t, err, `password: secret "ssh/password" was not resolved at run start`)
+
+	_, err = FromMapConfig(ctx, map[string]any{
+		"host":            "app.example.com",
+		"strict_host_key": false,
+		"bastion":         map[string]any{"host": "jump", "key": map[string]any{"secret": "Bad"}},
+	})
+	require.ErrorContains(t, err, "field 'with.bastion.key.secret'")
 }

@@ -13,9 +13,9 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/ssh"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/sshconn"
 )
 
 // localWorkerID is the worker ID of a run on the Dagu host itself.
@@ -144,12 +144,12 @@ func (b *nodeBinding) credentialRefs() []secretref.Ref {
 	if b == nil || !b.connects {
 		return nil
 	}
-	return ssh.NodeSecretRefs(b.node, b.bastion)
+	return sshconn.NodeSecretRefs(b.node, b.bastion)
 }
 
 // sshConfig returns the connection to the node, through its bastion.
-func (b *nodeBinding) sshConfig(trusted ssh.TrustedHostKeys) (ssh.Config, error) {
-	return ssh.NodeConfig(b.node, b.bastion, trusted)
+func (b *nodeBinding) sshConfig(trusted sshconn.TrustedHostKeys) (sshconn.Config, error) {
+	return sshconn.NodeConfig(b.node, b.bastion, trusted)
 }
 
 // nodePort returns the node's SSH port, or empty for the default.

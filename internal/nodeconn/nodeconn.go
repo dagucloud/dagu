@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/inventory"
-	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/ssh"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
+	"github.com/dagucloud/dagu/v2/internal/sshconn"
 )
 
 const (
@@ -55,7 +55,7 @@ type TestResult struct {
 	// Err is why the test failed, or nil when it passed.
 	Err error
 	// Refused describes the host key that ended the test, when one did.
-	Refused *ssh.HostKeyRefusal
+	Refused *sshconn.HostKeyRefusal
 }
 
 // Test tests each of targets, finding bastions among nodes: it checks each
@@ -74,27 +74,27 @@ func (s *Service) Test(ctx context.Context, nodes, targets []inventory.ResolvedN
 			Duration:           time.Since(started),
 			Err:                err,
 		}
-		if refused, ok := ssh.AsHostKeyRefusal(err); ok {
+		if refused, ok := sshconn.AsHostKeyRefusal(err); ok {
 			result.Refused = &refused
 		}
 		return result
 	})
 }
 
-func (s *Service) test(ctx context.Context, nodes []inventory.ResolvedNode, node inventory.ResolvedNode, secrets *secretCache) (ssh.ConnectionTest, error) {
+func (s *Service) test(ctx context.Context, nodes []inventory.ResolvedNode, node inventory.ResolvedNode, secrets *secretCache) (sshconn.ConnectionTest, error) {
 	bastion, err := bastionOf(nodes, node)
 	if err != nil {
-		return ssh.ConnectionTest{}, err
+		return sshconn.ConnectionTest{}, err
 	}
-	cfg, err := ssh.NodeConfig(node, bastion, s.hostKeys)
+	cfg, err := sshconn.NodeConfig(node, bastion, s.hostKeys)
 	if err != nil {
-		return ssh.ConnectionTest{}, err
+		return sshconn.ConnectionTest{}, err
 	}
-	values, err := secrets.resolve(ctx, ssh.NodeSecretRefs(node, bastion))
+	values, err := secrets.resolve(ctx, sshconn.NodeSecretRefs(node, bastion))
 	if err != nil {
-		return ssh.ConnectionTest{}, err
+		return sshconn.ConnectionTest{}, err
 	}
-	return ssh.TestConnection(ssh.WithSecretValues(ctx, values), cfg)
+	return sshconn.TestConnection(sshconn.WithSecretValues(ctx, values), cfg)
 }
 
 // TrustRequest asks to trust the host key of Node whose fingerprint the user
@@ -172,17 +172,17 @@ func (s *Service) trust(ctx context.Context, nodes []inventory.ResolvedNode, nod
 	if err != nil {
 		return "", err
 	}
-	cfg, err := ssh.NodeConfig(node, bastion, s.hostKeys)
+	cfg, err := sshconn.NodeConfig(node, bastion, s.hostKeys)
 	if err != nil {
 		return "", err
 	}
 	var values map[string]string
 	if bastion != nil {
-		if values, err = secrets.resolve(ctx, ssh.NodeSecretRefs(*bastion, nil)); err != nil {
+		if values, err = secrets.resolve(ctx, sshconn.NodeSecretRefs(*bastion, nil)); err != nil {
 			return "", err
 		}
 	}
-	key, err := ssh.FindHostKey(ssh.WithSecretValues(ctx, values), cfg, request.Fingerprint)
+	key, err := sshconn.FindHostKey(sshconn.WithSecretValues(ctx, values), cfg, request.Fingerprint)
 	if err != nil {
 		return "", fmt.Errorf("failed to read the host key of node %q: %w", node.Name, err)
 	}

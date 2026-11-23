@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package ssh
+package sshconn
 
 import (
 	"context"
@@ -51,7 +51,7 @@ func NewClient(ctx context.Context, cfg *Config) (*Client, error) {
 		return nil, fmt.Errorf("failed to setup host key verification: %w", err)
 	}
 
-	timeout := defaultIfZero(cfg.Timeout, defaultSSHTimeout)
+	timeout := defaultIfZero(cfg.Timeout, DefaultTimeout)
 	port := defaultIfEmpty(cfg.Port, "22")
 
 	var bastionCfg *bastionClientConfig
@@ -98,7 +98,7 @@ func defaultIfEmpty(val, defaultVal string) string {
 }
 
 func (c *Client) NewSession(ctx context.Context) (*ssh.Client, *ssh.Session, error) {
-	conn, err := c.dial(ctx)
+	conn, err := c.Dial(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -120,8 +120,8 @@ func (c *Client) NewSession(ctx context.Context) (*ssh.Client, *ssh.Session, err
 	return conn, session, nil
 }
 
-// dial establishes an SSH connection either directly or via bastion host.
-func (c *Client) dial(ctx context.Context) (*ssh.Client, error) {
+// Dial connects to the server, through the bastion when there is one.
+func (c *Client) Dial(ctx context.Context) (*ssh.Client, error) {
 	if c.bastionCfg != nil {
 		return c.dialViaBastion(ctx)
 	}

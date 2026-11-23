@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package ssh
+package sshconn
 
 import (
 	"bytes"
@@ -14,8 +14,6 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
-
-	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // testCommand is what a connection test runs once it has authenticated.
@@ -52,16 +50,15 @@ func TestConnection(ctx context.Context, cfg Config) (ConnectionTest, error) {
 	defer func() { _ = conn.Close() }()
 	defer func() { _ = session.Close() }()
 	// true runs as a run's command step runs: through the node's shell, or
-	// /bin/sh, reading its script from stdin.
-	shell, shellArgs := resolveShell(ir.Step{}, client)
-	run := &sshExecutor{
-		step:      ir.Step{Commands: []ir.CommandEntry{{CmdWithArgs: testCommand}}},
-		shell:     shell,
-		shellArgs: shellArgs,
+	// DefaultShell, reading its script from stdin.
+	shell, shellArgs := client.Shell, client.ShellArgs
+	if shell == "" {
+		shell, shellArgs = DefaultShell, nil
 	}
-	session.Stdin = strings.NewReader(run.buildScript())
-	if err := session.Run(run.buildShellCommand()); err != nil {
-		return test, fmt.Errorf("running %s with %s on %s: %w", testCommand, run.buildShellCommand(), client.hostPort, err)
+	command := ShellCommand(shell, shellArgs)
+	session.Stdin = strings.NewReader(Script("set -e\n" + testCommand + "\n"))
+	if err := session.Run(command); err != nil {
+		return test, fmt.Errorf("running %s with %s on %s: %w", testCommand, command, client.hostPort, err)
 	}
 	return test, nil
 }
@@ -94,7 +91,7 @@ var hostKeyAlgorithmSets = [][]string{
 // once the server presents its key. A bastion is reached as a connection
 // reaches it, with its host key checked and its credentials sent.
 func FindHostKey(ctx context.Context, cfg Config, fingerprint string) (ssh.PublicKey, error) {
-	timeout := defaultIfZero(cfg.Timeout, defaultSSHTimeout)
+	timeout := defaultIfZero(cfg.Timeout, DefaultTimeout)
 	hostPort := net.JoinHostPort(cfg.Host, defaultIfEmpty(cfg.Port, "22"))
 	var bastion *ssh.Client
 	if cfg.Bastion != nil {
