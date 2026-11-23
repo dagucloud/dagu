@@ -82,13 +82,13 @@
     },
     "user": {
       "type": "string",
-      "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]*$",
-      "description": "SSH user."
+      "pattern": "^([A-Za-z0-9_][A-Za-z0-9._-]*)?$",
+      "description": "SSH user. Empty is the same as unset."
     },
     "key": {
-      "description": "Private key: a path, {\"file\": <path>}, or {\"secret\": <ref>}.",
+      "description": "Private key: a path, {\"file\": <path>}, or {\"secret\": <ref>}. An empty path is the same as unset.",
       "oneOf": [
-        { "type": "string", "minLength": 1 },
+        { "type": "string" },
         {
           "type": "object",
           "additionalProperties": false,
@@ -123,8 +123,9 @@
     },
     "timeout": {
       "type": "string",
-      "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$",
-      "description": "Connect timeout, a positive duration such as 10s or 1m30s. Default 30s."
+      "pattern": "^(\\+?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+)?$",
+      "not": { "pattern": "^\\+?([0.]+(ns|us|µs|μs|ms|s|m|h))+$" },
+      "description": "Connect timeout, a positive duration such as 10s or 1m30s. Default 30s; empty is the same as unset."
     },
     "labels": {
       "type": "array",
