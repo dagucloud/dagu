@@ -4714,7 +4714,7 @@ export interface paths {
         put?: never;
         /**
          * Trust node host keys
-         * @description Trusts, for each node named, the host key whose fingerprint the user saw. The server reads the node's key again, sending the node no credential, and stores it only when its fingerprint matches. A node behind a bastion is reached through the bastion, whose own host key must be accepted. A node that already has another trusted key keeps it unless its entry sets `replace`. The response is a server-sent event stream: a `result` event per node as it finishes, carrying an `InventoryHostKeyTrust`, then a `done` event carrying an `InventoryHostKeyTrustSummary`. Requires the developer role or above.
+         * @description Trusts, for each node named, the host key whose fingerprint the user saw. The server reads the node's key again, sending the node no credential, and stores it only when its fingerprint matches. A node behind a bastion is reached through the bastion, whose own host key must be accepted. A node that already has another trusted key keeps it unless its entry's `replace` names that key's fingerprint. The response is a server-sent event stream: a `result` event per node as it finishes, carrying an `InventoryHostKeyTrust`, then a `done` event carrying an `InventoryHostKeyTrustSummary`. Requires the developer role or above.
          */
         post: operations["trustInventoryNodeHostKeys"];
         delete?: never;
@@ -9714,11 +9714,8 @@ export interface components {
             node: string;
             /** @description SHA256 fingerprint of the key to trust, such as `SHA256:…` */
             fingerprint: string;
-            /**
-             * @description Replace another key trusted for the node before
-             * @default false
-             */
-            replace: boolean;
+            /** @description SHA256 fingerprint of the key trusted for the node that the user saw and agreed to replace. The entry stores nothing unless the node trusts exactly this key */
+            replace?: string;
         };
         /** @description The data of one event of a host key trust stream: a `result` event carries an `InventoryHostKeyTrust`, and the `done` event an `InventoryHostKeyTrustSummary` */
         InventoryHostKeyTrustEvent: components["schemas"]["InventoryHostKeyTrust"] | components["schemas"]["InventoryHostKeyTrustSummary"];
@@ -25296,7 +25293,7 @@ export interface operations {
                     "text/event-stream": components["schemas"]["InventoryHostKeyTrustEvent"];
                 };
             };
-            /** @description The request has no entry or more than 1,000, an entry lacks a node or a SHA256 fingerprint, or two entries name one node */
+            /** @description The request has no entry or more than 1,000, an entry lacks a node or a SHA256 fingerprint, its `replace` is not a SHA256 fingerprint, or two entries name one node */
             400: {
                 headers: {
                     [name: string]: unknown;

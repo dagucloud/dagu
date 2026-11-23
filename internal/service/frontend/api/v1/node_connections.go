@@ -137,6 +137,9 @@ func (a *API) TrustInventoryNodeHostKeys(ctx context.Context, request api.TrustI
 		if !strings.HasPrefix(entry.Fingerprint, fingerprintPrefix) {
 			return hostKeyTrustRefused(fmt.Sprintf("the fingerprint for node %q is not a SHA256 fingerprint, such as %s…", entry.Node, fingerprintPrefix)), nil
 		}
+		if replace := valueOf(entry.Replace); replace != "" && !strings.HasPrefix(replace, fingerprintPrefix) {
+			return hostKeyTrustRefused(fmt.Sprintf("the replaced fingerprint for node %q is not a SHA256 fingerprint, such as %s…", entry.Node, fingerprintPrefix)), nil
+		}
 		requests = append(requests, nodeconn.TrustRequest{Node: entry.Node, Fingerprint: entry.Fingerprint, Replace: valueOf(entry.Replace)})
 	}
 

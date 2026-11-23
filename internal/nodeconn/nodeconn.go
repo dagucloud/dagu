@@ -98,11 +98,12 @@ func (s *Service) test(ctx context.Context, nodes []inventory.ResolvedNode, node
 }
 
 // TrustRequest asks to trust the host key of Node whose fingerprint the user
-// saw. Replace allows replacing a key trusted before.
+// saw. Replace is the fingerprint of the trusted key the user saw and agreed
+// to replace, or empty to replace none.
 type TrustRequest struct {
 	Node        string
 	Fingerprint string
-	Replace     bool
+	Replace     string
 }
 
 // TrustOutcome is what a trust request did.
@@ -132,9 +133,9 @@ type TrustResult struct {
 // Trust trusts, for each request, the key its node presents when that key
 // has the fingerprint the user saw, finding nodes and bastions among nodes.
 // The node receives no credential; a bastion is reached with its host key
-// checked. A request that would replace a trusted key fails unless it sets
-// Replace. Trust calls emit once per request as each finishes, never
-// concurrently, and returns when all have finished.
+// checked. A request stores its key only when Replace names the key trusted
+// for the node, or is empty while none is. Trust calls emit once per request
+// as each finishes, never concurrently, and returns when all have finished.
 func (s *Service) Trust(ctx context.Context, nodes []inventory.ResolvedNode, requests []TrustRequest, by string, emit func(TrustResult)) {
 	secrets := s.newSecretCache()
 	forEach(ctx, requests, emit, func(ctx context.Context, request TrustRequest) TrustResult {
@@ -162,9 +163,9 @@ func (s *Service) trust(ctx context.Context, nodes []inventory.ResolvedNode, nod
 		return TrustOutcomeUnchanged, nil
 	default:
 		*previous = current.Fingerprint
-		if !request.Replace {
-			return "", fmt.Errorf("node %q already has trusted host key %s; replacing it with %s must be asked for", node.Name, current.Fingerprint, request.Fingerprint)
-		}
+	}
+	if *previous != request.Replace {
+		return "", replaceRefusal(node.Name, *previous, request)
 	}
 
 	bastion, err := bastionOf(nodes, node)
@@ -192,6 +193,19 @@ func (s *Service) trust(ctx context.Context, nodes []inventory.ResolvedNode, nod
 		return TrustOutcomeReplaced, nil
 	}
 	return TrustOutcomeTrusted, nil
+}
+
+// replaceRefusal says why request replaces nothing on node, whose trusted key
+// has fingerprint current, or none when current is empty.
+func replaceRefusal(node, current string, request TrustRequest) error {
+	switch {
+	case request.Replace == "":
+		return fmt.Errorf("node %q already has trusted host key %s; replacing it with %s must be asked for", node, current, request.Fingerprint)
+	case current == "":
+		return fmt.Errorf("node %q has no trusted host key, so %s cannot be replaced", node, request.Replace)
+	default:
+		return fmt.Errorf("node %q trusts host key %s, not %s, which was asked to be replaced", node, current, request.Replace)
+	}
 }
 
 // forEach runs do for each item, at most maxConnections at once and each

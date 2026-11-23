@@ -166,7 +166,7 @@ func TestServiceTestUnresolvedSecret(t *testing.T) {
 }
 
 // Trusting a key stores it only when the node presents that key, and later
-// tests accept it. Replacing another trusted key must be asked for.
+// tests accept it. Replacing another trusted key must name that key.
 func TestServiceTrust(t *testing.T) {
 	t.Parallel()
 
@@ -206,7 +206,14 @@ func TestServiceTrust(t *testing.T) {
 	require.ErrorContains(t, refused[0].Err, "must be asked for")
 	assert.Equal(t, previous.Fingerprint, refused[0].Previous)
 
-	replaced := trust(t, service, nodes, nodeconn.TrustRequest{Node: "web01", Fingerprint: want, Replace: true})
+	// A user who saw a key that is no longer trusted replaces nothing.
+	stale := trust(t, service, nodes, nodeconn.TrustRequest{Node: "web01", Fingerprint: want, Replace: "SHA256:stale"})
+	require.ErrorContains(t, stale[0].Err, previous.Fingerprint, "the error names the key trusted now")
+	current, err := hostKeys.Get(context.Background(), "web01")
+	require.NoError(t, err)
+	assert.Equal(t, previous.Fingerprint, current.Fingerprint)
+
+	replaced := trust(t, service, nodes, nodeconn.TrustRequest{Node: "web01", Fingerprint: want, Replace: previous.Fingerprint})
 	require.NoError(t, replaced[0].Err)
 	assert.Equal(t, nodeconn.TrustOutcomeReplaced, replaced[0].Outcome)
 	assert.Equal(t, previous.Fingerprint, replaced[0].Previous)

@@ -197,8 +197,9 @@ fingerprint of the key the user saw. Two entries for one node are refused.
 - The key is stored only when its fingerprint matches. Otherwise the entry
   fails, naming the fingerprints the node presents.
 - A node that has another trusted key keeps it, and the entry fails naming
-  both fingerprints, unless the entry sets `replace`. A key that another
-  trust stores meanwhile is never replaced by this one.
+  both fingerprints, unless the entry's `replace` is that key's
+  fingerprint. An entry whose `replace` names a key the node no longer
+  trusts fails naming the key it trusts now, and stores nothing.
 - A key that is already trusted is reported as `unchanged`.
 - The response is a `result` event per entry, then a `done` event.
 

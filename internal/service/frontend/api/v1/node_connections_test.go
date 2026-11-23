@@ -185,11 +185,12 @@ func TestNodeConnectionAPI_RefusesBadRequests(t *testing.T) {
 	require.IsType(t, apigen.TestInventoryNodeConnections400JSONResponse{}, resp, "a test of more than 1,000 nodes")
 
 	for name, keys := range map[string][]apigen.InventoryHostKeyTrustEntry{
-		"NoKeys":          nil,
-		"NoNode":          {{Fingerprint: "SHA256:abc"}},
-		"NotAFingerprint": {{Node: "web01", Fingerprint: "MD5:ab:cd"}},
-		"SameNodeTwice":   {{Node: "web01", Fingerprint: "SHA256:abc"}, {Node: "WEB01", Fingerprint: "SHA256:def"}},
-		"TooMany":         trustEntries(1001),
+		"NoKeys":                 nil,
+		"NoNode":                 {{Fingerprint: "SHA256:abc"}},
+		"NotAFingerprint":        {{Node: "web01", Fingerprint: "MD5:ab:cd"}},
+		"ReplaceNotAFingerprint": {{Node: "web01", Fingerprint: "SHA256:abc", Replace: new("MD5:ab:cd")}},
+		"SameNodeTwice":          {{Node: "web01", Fingerprint: "SHA256:abc"}, {Node: "WEB01", Fingerprint: "SHA256:def"}},
+		"TooMany":                trustEntries(1001),
 	} {
 		t.Run("Trust"+name, func(t *testing.T) {
 			resp, err := api.TrustInventoryNodeHostKeys(ctx, apigen.TrustInventoryNodeHostKeysRequestObject{Body: &apigen.InventoryHostKeyTrustRequest{Keys: keys}})
