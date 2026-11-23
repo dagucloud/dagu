@@ -54,7 +54,20 @@ func TestConnectionReportsEachHop(t *testing.T) {
 
 	assert.Equal(t, gossh.FingerprintSHA256(target.HostKey), test.Fingerprint)
 	assert.Equal(t, gossh.FingerprintSHA256(bastion.HostKey), test.BastionFingerprint)
-	assert.Equal(t, []string{testCommand}, target.Commands())
+	assert.Len(t, target.Commands(), 1)
+}
+
+// A test runs true as a run's command step runs, through the node's shell,
+// so a shell the node lacks fails the test as it fails every run.
+func TestConnectionUsesNodeShell(t *testing.T) {
+	t.Parallel()
+
+	target := startTestServer(t)
+	cfg := nodeConfig(target.Port, trustedKeys{"web01": target.HostKey})
+	cfg.Shell = "dagu-missing-shell"
+
+	_, err := TestConnection(context.Background(), cfg)
+	require.ErrorContains(t, err, "dagu-missing-shell")
 }
 
 // A test that meets an unknown key reports the hop and the key it presented,

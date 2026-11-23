@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
 // testCommand is what a connection test runs once it has authenticated.
@@ -49,8 +51,17 @@ func TestConnection(ctx context.Context, cfg Config) (ConnectionTest, error) {
 	}
 	defer func() { _ = conn.Close() }()
 	defer func() { _ = session.Close() }()
-	if err := session.Run(testCommand); err != nil {
-		return test, fmt.Errorf("running %s on %s: %w", testCommand, client.hostPort, err)
+	// true runs as a run's command step runs: through the node's shell, or
+	// /bin/sh, reading its script from stdin.
+	shell, shellArgs := resolveShell(ir.Step{}, client)
+	run := &sshExecutor{
+		step:      ir.Step{Commands: []ir.CommandEntry{{CmdWithArgs: testCommand}}},
+		shell:     shell,
+		shellArgs: shellArgs,
+	}
+	session.Stdin = strings.NewReader(run.buildScript())
+	if err := session.Run(run.buildShellCommand()); err != nil {
+		return test, fmt.Errorf("running %s with %s on %s: %w", testCommand, run.buildShellCommand(), client.hostPort, err)
 	}
 	return test, nil
 }
