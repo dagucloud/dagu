@@ -154,9 +154,10 @@ func handlerNode(status *ir.DAGRunStatus, kind ir.HandlerType) *ir.Node {
 		return status.OnAbort
 	case ir.HandlerOnExit:
 		return status.OnExit
-	default:
+	case ir.HandlerOnWait:
 		return status.OnWait
 	}
+	return nil
 }
 
 func nodeStatusToken(node *ir.Node) string {
