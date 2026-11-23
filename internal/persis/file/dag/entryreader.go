@@ -20,13 +20,11 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/filenotify"
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/spec"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -399,12 +397,10 @@ func (er *entryReaderImpl) watch(ctx context.Context) {
 	}
 }
 
+// needsRecursiveRefresh ignores writes to files that hold no DAG, such as test
+// files. A create, remove, or rename may name a directory, whatever its name.
 func needsRecursiveRefresh(event fsnotify.Event) bool {
-	// A change to a test file never changes a DAG.
-	if spec.IsTestFile(event.Name) {
-		return false
-	}
-	if fileutil.IsYAMLFile(event.Name) {
+	if isDAGFile(event.Name) {
 		return true
 	}
 	return event.Op&(fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0

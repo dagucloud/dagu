@@ -548,6 +548,22 @@ func TestEntryReaderSkipsTestFiles(t *testing.T) {
 	}
 }
 
+// Only files are test files: a directory named like one holds DAGs, so its
+// creation refreshes a recursive reader. The event is sent by hand, since a
+// platform watcher may report the directory's contents on its own.
+func TestRecursiveEntryReaderRefreshesTestNamedDirectory(t *testing.T) {
+	dir := t.TempDir()
+	watcher := &silentWatcher{events: make(chan fsnotify.Event), errors: make(chan error)}
+	_, events := startSilentEntryReader(t, dir, true,
+		withWatcherFactory(func() filenotify.FileWatcher { return watcher }))
+
+	jobs := filepath.Join(dir, "jobs.test.yaml")
+	require.NoError(t, os.MkdirAll(jobs, 0750))
+	writeDAGFile(t, jobs, "daily.yaml", "daily")
+	watcher.events <- fsnotify.Event{Name: jobs, Op: fsnotify.Create}
+	expectEvent(t, events, persis.DAGChangeAdded, "daily")
+}
+
 func TestBaseWatchLifecycle(t *testing.T) {
 	for _, scope := range []string{"global", "workspace"} {
 		t.Run(scope, func(t *testing.T) {
