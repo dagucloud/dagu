@@ -18,7 +18,7 @@ type StepEvents = components['schemas']['StepEvents'];
 type StepSamples = components['schemas']['StepSamples'];
 type Node = components['schemas']['Node'];
 
-// useQuery and useStepSamples are answered by path. A value of null is an
+// useQuery and useSamples are answered by path. A value of null is an
 // error, undefined is still loading.
 const h = vi.hoisted(() => ({
   responses: {} as Record<string, unknown>,
@@ -65,7 +65,7 @@ vi.mock('@/hooks/api', () => ({
 // The samples hook has tests of its own: here it records what the panel asks.
 vi.mock('../useContinuousData', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../useContinuousData')>()),
-  useStepSamples: (
+  useSamples: (
     _target: unknown,
     window: SamplesWindow,
     points: number,
@@ -269,6 +269,35 @@ describe('ContinuousPanel', () => {
     const call = h.samples[0]!;
     expect(call.points).toBe(Math.floor((640 - 44) / 4));
     expect(call.window).toEqual({ preset: '24h', startedAt: STARTED_MS });
+  });
+
+  // The measured width is the content width of the root: the padding is out.
+  it('draws the chart as wide as the measured width', () => {
+    class Observer {
+      constructor(private callback: ResizeObserverCallback) {}
+      observe() {
+        this.callback(
+          [{ contentRect: { width: 700 } } as ResizeObserverEntry],
+          this as unknown as ResizeObserver
+        );
+      }
+      disconnect() {}
+      unobserve() {}
+    }
+    vi.stubGlobal('ResizeObserver', Observer);
+    try {
+      h.responses = {
+        [AVAIL]: availability,
+        [SAMPLES]: samples(5),
+        [EVENTS]: events,
+      };
+      renderPanel();
+      const svg = screen.getByTestId('continuous-chart').querySelector('svg')!;
+      expect(Number(svg.getAttribute('width')) + 44).toBe(700);
+      expect(lastSamples().points).toBe(Math.floor((700 - 44) / 4));
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('shows a bar tooltip with the bucket numbers on hover', () => {
