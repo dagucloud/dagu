@@ -24,6 +24,10 @@ const secretsMaxAge = time.Minute
 // again, so a broken record does not cost a full read on every entry.
 const secretsRetryInterval = 10 * time.Second
 
+// secretsLoadTimeout bounds a load of the secret values, which holds up every
+// entry written meanwhile.
+const secretsLoadTimeout = 5 * time.Second
+
 // controlFields are the JSON names of the entry fields Dagu generates or
 // picks from a fixed set. Mask leaves them as written, so no secret value
 // can rewrite them. Every other text field is masked, fields added later
@@ -81,8 +85,9 @@ type SecretSource interface {
 // Masker hides secret values and common token formats in audit entries.
 // It is safe for concurrent use.
 type Masker struct {
-	source SecretSource
-	now    func() time.Time
+	source      SecretSource
+	now         func() time.Time
+	loadTimeout time.Duration
 
 	mu        sync.Mutex
 	secrets   *masking.Masker
@@ -96,7 +101,7 @@ type Masker struct {
 // common token formats. A nil source hides the token formats only and marks
 // no entry masked.
 func NewMasker(source SecretSource) *Masker {
-	return &Masker{source: source, now: time.Now, secrets: tokenMasker}
+	return &Masker{source: source, now: time.Now, loadTimeout: secretsLoadTimeout, secrets: tokenMasker}
 }
 
 // Mask masks every field of entry but its control fields. Values are
@@ -137,8 +142,10 @@ func (m *Masker) current(ctx context.Context) (*masking.Masker, bool) {
 		return m.secrets, m.loaded
 	}
 	// An entry can be written for a request that has already ended, as when
-	// the server stops; the values load all the same.
-	values, err := m.source.CurrentValues(context.WithoutCancel(ctx))
+	// the server stops; the values load all the same, within their own time.
+	loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), m.loadTimeout)
+	defer cancel()
+	values, err := m.source.CurrentValues(loadCtx)
 	m.revision, m.checkedAt, m.loaded = revision, now, err == nil
 	if err != nil {
 		logger.Warn(ctx, "Failed to load secret values for audit masking", tag.Error(err))

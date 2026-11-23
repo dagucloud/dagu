@@ -185,6 +185,28 @@ func TestMaskLoadsSecretsForARequestThatEnded(t *testing.T) {
 	assert.True(t, entry.Masked)
 }
 
+// blockingSecrets is a SecretSource whose load never ends before its context.
+type blockingSecrets struct{}
+
+func (blockingSecrets) CurrentValues(ctx context.Context) ([]string, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (blockingSecrets) Revision() uint64 { return 0 }
+
+// A load that hangs ends with its own timeout, so entries are still written,
+// unmarked.
+func TestMaskBoundsASlowLoad(t *testing.T) {
+	m := NewMasker(blockingSecrets{})
+	m.loadTimeout = 10 * time.Millisecond
+	entry := &Entry{Username: "u1"}
+
+	m.Mask(t.Context(), entry)
+
+	assert.False(t, entry.Masked)
+}
+
 // A secret changed in this process is masked in the next entry; one changed
 // elsewhere is masked once the values are a minute old.
 func TestMaskReloadsChangedSecrets(t *testing.T) {
