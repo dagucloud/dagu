@@ -4,11 +4,12 @@
 import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Status } from '@/api/v1/schema';
+import { Status, TriggerType } from '@/api/v1/schema';
 import { WorkspaceDataContext, type WorkspaceDataValue } from '../context';
 import type { ApiDAGRunDetails } from '../types';
 import {
   CUSTOM_RANGE_KEY,
+  HIDDEN_TYPES_KEY,
   RUN_MODE_KEY,
   RUN_RANGE_KEY,
   SERVICE_RANGE_KEY,
@@ -84,6 +85,38 @@ beforeEach(() => {
 });
 
 const ids = (runs: readonly ApiDAGRunDetails[]) => runs.map((r) => r.dagRunId);
+
+// The page of a DAG; a restart policy makes it a service DAG.
+const onPage =
+  (restartPolicy?: string) =>
+  ({ children }: { children: ReactNode }) => (
+    <WorkspaceDataContext.Provider
+      value={
+        {
+          dagData: { dag: { name: 'demo', restartPolicy } },
+        } as unknown as WorkspaceDataValue
+      }
+    >
+      {children}
+    </WorkspaceDataContext.Provider>
+  );
+
+// The history of a service DAG, whose scheduler starts each run.
+const SERVICE_HISTORY = HISTORY.map((r) => ({
+  ...r,
+  triggerType: TriggerType.restart,
+}));
+
+// The choices of the view menu of another DAG that would hide every run of
+// SERVICE_HISTORY.
+function hideServiceRuns() {
+  window.localStorage.setItem(SHOW_TESTS_KEY, '0');
+  window.localStorage.setItem(
+    HIDDEN_TYPES_KEY,
+    JSON.stringify([TriggerType.restart])
+  );
+  h.history = { runs: SERVICE_HISTORY, isLoading: false };
+}
 
 describe('useVisibleRuns', () => {
   it('asks for the history with the test runs', () => {
@@ -262,19 +295,6 @@ describe('useVisibleRuns', () => {
   });
 
   describe('with a service DAG', () => {
-    const onPage =
-      (restartPolicy?: string) =>
-      ({ children }: { children: ReactNode }) => (
-        <WorkspaceDataContext.Provider
-          value={
-            {
-              dagData: { dag: { name: 'demo', restartPolicy } },
-            } as unknown as WorkspaceDataValue
-          }
-        >
-          {children}
-        </WorkspaceDataContext.Provider>
-      );
     const visible = (restartPolicy?: string) =>
       renderHook(() => useVisibleRuns({ enabled: true }), {
         wrapper: onPage(restartPolicy),
@@ -304,6 +324,17 @@ describe('useVisibleRuns', () => {
       const other = visible();
       expect(other.settings.mode).toBe('count');
       expect(other.range).toBeNull();
+    });
+
+    // The chart of a service DAG draws buckets, not runs, and it has no view
+    // menu: the arrows and the keys go through every retained run, whatever
+    // its window and the choices made on the other DAGs.
+    it('goes through every retained run', () => {
+      window.localStorage.setItem(SERVICE_RANGE_KEY, '{"preset":"1h"}');
+      hideServiceRuns();
+      const service = visible('always');
+      expect(ids(service.runs)).toEqual(['n1', 't1', 'n2']);
+      expect(service.adjacentId('older')).toBe('t1');
     });
   });
 });
@@ -349,5 +380,14 @@ describe('useHistoryRuns', () => {
     window.localStorage.setItem(SHOW_TESTS_KEY, '0');
     const { result } = renderHook(() => useHistoryRuns());
     expect(ids(result.current.runs)).toEqual(['n1', 'n2']);
+  });
+
+  // A service DAG has no view menu to show again what another DAG hid.
+  it('lists every run of a service DAG', () => {
+    hideServiceRuns();
+    const { result } = renderHook(() => useHistoryRuns(), {
+      wrapper: onPage('always'),
+    });
+    expect(ids(result.current.runs)).toEqual(['n1', 't1', 'n2']);
   });
 });

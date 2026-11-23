@@ -396,6 +396,9 @@ Rules:
   and their choice does not change it.
 - The History tab of the panel shows the retained runs only: the run history is already above the
   tab.
+- A service DAG has no view menu. The History tab lists all its retained runs, whatever another DAG
+  hides, and the move to the previous or the next run goes through them, whatever the window of
+  the chart.
 - The chart of a time window shows the buckets of the run history, not the retained runs.
 - The run in progress is the latest run of the DAG while it runs or waits. Its sample is recorded
   in the bucket of its start only when it ends, so no bar shows it while it runs.

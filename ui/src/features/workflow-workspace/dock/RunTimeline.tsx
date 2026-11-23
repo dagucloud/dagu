@@ -1455,8 +1455,8 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
     ? actions.setShowBackfill
     : undefined;
 
-  // A service DAG always shows its run history, not the retained runs: the
-  // view menu has nothing to filter, so it is not offered. It has no count.
+  // A service DAG always shows its run history, not the retained runs. It
+  // has no count and no view menu: the History tab lists every retained run.
   if (service) {
     return (
       <ServiceHistory
