@@ -2260,7 +2260,8 @@ func (a *Agent) watchCancelRequested(ctx context.Context, attempt runstate.Attem
 			// This handles cancellation from the worker via heartbeat CancelledRuns.
 			// If the agent already finished normally, sending an extra SIGTERM is unnecessary.
 			if !a.finished.Load() {
-				a.stopChildren(context.Background(), syscall.SIGTERM, true)
+				// The run's logger stays, so the stop is logged where the run logs.
+				a.stopChildren(context.WithoutCancel(ctx), syscall.SIGTERM, true)
 			}
 			return
 		case <-ticker.C:
