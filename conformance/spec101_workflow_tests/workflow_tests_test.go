@@ -241,6 +241,8 @@ func TestWorkflowTestArguments(t *testing.T) {
 		"zero timeout":    {"--timeout", "0s", "workflows/release.test.yaml"},
 		"invalid timeout": {"--timeout", "soon", "workflows/release.test.yaml"},
 		"unknown flag":    {"--no-such-flag", "workflows/release.test.yaml"},
+		"invalid run":     {"--run", "(", "workflows/release.test.yaml"},
+		"unknown format":  {"--format", "yaml", "workflows/release.test.yaml"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

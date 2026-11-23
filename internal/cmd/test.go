@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"syscall"
@@ -31,13 +32,30 @@ const (
 	testExitInvalid = 2
 )
 
-var testTimeoutFlag = commandLineFlag{
-	name:         "timeout",
-	defaultValue: "5m",
-	usage:        "Longest a case may run, such as 30s or 5m",
-}
+var (
+	testRunFlag = commandLineFlag{
+		name:  "run",
+		usage: "Run only the cases whose name this RE2 regular expression matches",
+	}
+	testTimeoutFlag = commandLineFlag{
+		name:         "timeout",
+		defaultValue: "5m",
+		usage:        "Longest a case may run, such as 30s or 5m",
+	}
+	testFormatFlag = commandLineFlag{
+		name:         "format",
+		shorthand:    "f",
+		defaultValue: "text",
+		usage:        "Report format: text (default) or json",
+	}
+	testKeepFlag = commandLineFlag{
+		name:   "keep",
+		usage:  "Keep each case directory and report its path",
+		isBool: true,
+	}
+)
 
-var testFlags = []commandLineFlag{testTimeoutFlag}
+var testFlags = []commandLineFlag{testRunFlag, testTimeoutFlag, testFormatFlag, testKeepFlag}
 
 // Test returns the cobra command that runs workflow tests.
 func Test() *cobra.Command {
@@ -54,12 +72,16 @@ neither mocks nor lists under real makes the case invalid, and nothing runs.
 A directory argument runs every test file under it. With no argument, every
 test file under the DAGs directory runs.
 
+--format json writes one JSON object to stdout once every case has ended.
+--keep keeps each case directory and reports its path.
+
 Exit status: 0 when every case passed, 1 when a case failed, and 2 when a
 test file or case is invalid or the arguments are.
 
 Example:
   dagu test workflows/
-  dagu test --timeout 30s workflows/release.test.yaml
+  dagu test --run 'failed build' --timeout 30s workflows/release.test.yaml
+  dagu test --format json --keep workflows/
 `,
 		}, testFlags, runTest,
 	)
@@ -71,8 +93,14 @@ Example:
 
 // testOptions holds the flags of dagu test.
 type testOptions struct {
+	// run selects the cases by name, or is nil to select every case.
+	run *regexp.Regexp
 	// timeout is the longest a case may run.
 	timeout time.Duration
+	// json writes the report as one JSON object.
+	json bool
+	// keep keeps each case directory.
+	keep bool
 }
 
 func runTest(ctx *Context, args []string) error {
@@ -91,12 +119,17 @@ func runTest(ctx *Context, args []string) error {
 	ctx = ctx.WithContext(runCtx)
 
 	report := &testReport{out: ctx.Command.OutOrStdout()}
+	if opts.json {
+		report.json = newJSONTestReport()
+	}
 	for _, file := range files {
 		if err := runTestFile(ctx, file, opts, report); err != nil {
 			return err
 		}
 	}
-	report.writeSummary()
+	if err := report.writeSummary(); err != nil {
+		return err
+	}
 	if code := report.exitStatus(); code != 0 {
 		// The report already names every failed and invalid case.
 		ctx.Command.SilenceErrors = true
@@ -106,15 +139,29 @@ func runTest(ctx *Context, args []string) error {
 }
 
 func testOptionsFromFlags(ctx *Context) (testOptions, error) {
+	var opts testOptions
 	value, err := ctx.StringParam(testTimeoutFlag.name)
 	if err != nil {
-		return testOptions{}, err
+		return opts, err
 	}
-	timeout, err := time.ParseDuration(value)
-	if err != nil || timeout <= 0 {
-		return testOptions{}, fmt.Errorf("--timeout %q: use a duration greater than zero, such as 30s or 5m", value)
+	if opts.timeout, err = time.ParseDuration(value); err != nil || opts.timeout <= 0 {
+		return opts, fmt.Errorf("--timeout %q: use a duration greater than zero, such as 30s or 5m", value)
 	}
-	return testOptions{timeout: timeout}, nil
+	if value, err = ctx.StringParam(testRunFlag.name); err != nil {
+		return opts, err
+	}
+	if value != "" {
+		if opts.run, err = regexp.Compile(value); err != nil {
+			return opts, fmt.Errorf("--run %q: %w", value, err)
+		}
+	}
+	format, err := outputFormatParam(ctx)
+	if err != nil {
+		return opts, err
+	}
+	opts.json = format == "json"
+	opts.keep, err = ctx.Command.Flags().GetBool(testKeepFlag.name)
+	return opts, err
 }
 
 // testFileRef is a selected test file.
@@ -211,6 +258,10 @@ func runTestFile(ctx *Context, file testFileRef, opts testOptions, report *testR
 		return nil
 	}
 	for _, c := range loaded.Cases {
+		// A case that --run does not select is neither checked nor reported.
+		if opts.run != nil && !opts.run.MatchString(c.Name) {
+			continue
+		}
 		result := runTestCase(ctx, loaded, c, opts)
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
@@ -251,10 +302,14 @@ func runTestCase(ctx *Context, file *dagtest.File, c dagtest.Case, opts testOpti
 
 	caseCtx, cancel := context.WithTimeout(ctx.Context, opts.timeout)
 	defer cancel()
+	caseOpts.keep = opts.keep
 	tc, err := openCase(ctx.WithContext(caseCtx), caseOpts)
 	if err != nil {
 		result.failures = []caseFailure{{field: failureError, actual: err.Error()}}
 		return result
+	}
+	if opts.keep {
+		result.caseDir, _ = filepath.Abs(tc.dir)
 	}
 	defer func() {
 		if err := tc.close(); err != nil {
