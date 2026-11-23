@@ -419,7 +419,9 @@ runtime outputs.
 
 Rules:
 
-- `outputs` on a step without `id` makes the case invalid.
+- `outputs` on a step without `id` makes the case invalid. A mock of such a
+  step sets no `outputs`, so the rule below that a result sets every known
+  output applies only to a step with `id`.
 - On a step without runtime outputs, a result of a mock under `mocks` with
   exit code 0 sets every known output and no other name. When the step has
   no known outputs, the result sets no `outputs`.
