@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
+import type { ApiDAGDetails } from '../../contracts';
 import { parseDagDoc, resolveStepNames } from '../parse';
 
 // Expected keys come from `spec.LoadYAML` on the same texts (Go
@@ -31,6 +32,45 @@ describe('StepKey numbering against the server', () => {
       ['steps[2]', 'parallelGroup', 'g2'],
       ['steps[3]', 'block', 'last'],
     ]);
+  });
+});
+
+describe('resolveStepNames', () => {
+  const details = (...names: string[]) =>
+    ({ steps: names.map((name) => ({ name })) }) as ApiDAGDetails;
+
+  // The server names a step without a name from its id.
+  it('matches by id when the details are stale', () => {
+    const model = parseDagDoc(
+      'steps:\n  - id: y\n    run: echo y\n  - id: x\n    run: echo x\n  - name: c\n    run: echo c\n'
+    );
+    const stale = {
+      steps: [{ name: 'x', id: 'x' }, { name: 'y', id: 'y' }, { name: 'c' }],
+    } as ApiDAGDetails;
+    expect(resolveStepNames(model, stale).byKey).toEqual({
+      'steps[0]': 'y',
+      'steps[1]': 'x',
+      'steps[2]': 'c',
+    });
+  });
+
+  // The server trims the name and names a step with an empty name like an
+  // unnamed one.
+  it('maps by position a padded or an empty name with fresh details', () => {
+    const model = parseDagDoc(
+      'steps:\n  - name: " a "\n    run: echo a\n  - name: ""\n    run: echo b\n'
+    );
+    expect(resolveStepNames(model, details('a', 'cmd_2')).byKey).toEqual({
+      'steps[0]': 'a',
+      'steps[1]': 'cmd_2',
+    });
+  });
+
+  it('trims the names of a text with no details', () => {
+    const model = parseDagDoc(
+      'steps:\n  - name: " a "\n    run: echo a\n  - name: ""\n    run: echo b\n'
+    );
+    expect(resolveStepNames(model).byKey).toEqual({ 'steps[0]': 'a' });
   });
 });
 
