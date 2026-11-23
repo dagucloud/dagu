@@ -14,18 +14,12 @@ export interface RestartView {
   schedule: boolean;
   /** True when the file sets a DAG-level `retry_policy`. A service DAG cannot have one. */
   retryPolicy: boolean;
-  /**
-   * True when the file gives `restart_wait_sec` a wait that the server takes.
-   * No value and 0 leave the wait of the base configuration.
-   */
-  waitGiven: boolean;
 }
 
 const NO_RESTART: RestartView = {
   policy: 'no',
   schedule: false,
   retryPolicy: false,
-  waitGiven: false,
 };
 
 /** True for a policy that keeps a run alive. */
@@ -50,11 +44,19 @@ function isEmpty(node: unknown): boolean {
   );
 }
 
-/** The entries of a schedule: a string, a list, or the start, stop and restart of a map. */
+/** The keys of the map form of a schedule. */
+const SCHEDULE_KINDS = ['start', 'stop', 'restart'];
+
+/**
+ * The entries of a schedule: a string, a list, an entry object, or the
+ * start, stop and restart of the map form, each of them in any form.
+ */
 function scheduleEntries(node: unknown): number {
   if (isSeq(node)) return node.items.length;
   if (isMap(node)) {
-    return ['start', 'stop', 'restart'].reduce(
+    const kinds = SCHEDULE_KINDS.filter((key) => node.has(key));
+    if (kinds.length === 0) return node.items.length > 0 ? 1 : 0;
+    return kinds.reduce(
       (count, key) => count + scheduleEntries(node.get(key, true)),
       0
     );
@@ -74,13 +76,10 @@ export function readRestart(text: string): RestartView {
       return NO_RESTART;
     }
     const root = doc.contents;
-    const wait = root.get('restart_wait_sec', true);
     return {
       policy: readPolicy(root.get('restart_policy', true)),
       schedule: scheduleEntries(root.get('schedule', true)) > 0,
       retryPolicy: !isEmpty(root.get('retry_policy', true)),
-      waitGiven:
-        !isEmpty(wait) && !(isScalar(wait) && Number(wait.value) === 0),
     };
   } catch {
     return NO_RESTART;

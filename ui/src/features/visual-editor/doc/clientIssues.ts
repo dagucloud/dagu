@@ -35,8 +35,6 @@ import {
   mustBeMessage,
   NO_ID_MESSAGE,
   OUTPUTS_ID_MESSAGE,
-  RESTART_WAIT_MISSING_MESSAGE,
-  RESTART_WAIT_SERVER_ERROR,
   RESTART_WITH_RETRY_MESSAGE,
   RESTART_WITH_SCHEDULE_MESSAGE,
   restartWaitMessage,
@@ -667,12 +665,10 @@ function restartDrafts(model: DagDocModel): Draft[] {
   if (restart.retryPolicy) {
     drafts.push(at('error', RESTART_WITH_RETRY_MESSAGE, 'restart_policy'));
   }
-  // No wait in the file leaves the one of the base configuration: only the
-  // server knows it.
+  // No wait and a wait of 0 leave the one of the base configuration, which
+  // only the server knows: it reports them. A negative wait is an error.
   const wait = scalarAtField(model, 'restart_wait_sec')?.value;
-  if (!restart.waitGiven) {
-    drafts.push(at('warning', RESTART_WAIT_MISSING_MESSAGE, 'restart_policy'));
-  } else if (typeof wait === 'number' && Number.isInteger(wait) && wait < 1) {
+  if (typeof wait === 'number' && Number.isInteger(wait) && wait < 0) {
     drafts.push(
       at('error', restartWaitMessage(restart.policy), 'restart_wait_sec')
     );
@@ -813,7 +809,9 @@ function coveredByServerReference(
 
 /**
  * The issues of the server and the issues of the client in one list. A
- * client issue that the server has said already is dropped. The list is
+ * client issue that the server has said already is dropped, and a server
+ * issue of no step that a client issue says with its line gives way to it.
+ * The list is
  * sorted by line; an issue without a line comes first (it is about the
  * whole file), and errors come before warnings on one line.
  */
@@ -824,26 +822,7 @@ export function mergeIssues(
   found: ValidationIssue[]
 ): ValidationIssue[] {
   if (found.length === 0) return server;
-  // The server error of a missing `restart_wait_sec` confirms the warning:
-  // one error, with its text, on the line of the warning.
-  const waitError = server.find(
-    (issue) =>
-      issue.stepPath === undefined &&
-      issue.stepName === undefined &&
-      RESTART_WAIT_SERVER_ERROR.test(plainIssueMessage(issue.message))
-  );
-  const client = waitError
-    ? found.map((issue) =>
-        issue.message === RESTART_WAIT_MISSING_MESSAGE
-          ? {
-              ...issue,
-              severity: waitError.severity,
-              source: waitError.source,
-              message: plainIssueMessage(waitError.message),
-            }
-          : issue
-      )
-    : found;
+  const client = found;
   // A server error that names no step ("Workflow-level") and that a client
   // issue says again, with its step and its line, gives way to that issue.
   const clientMessages = new Set(client.map((issue) => issue.message));

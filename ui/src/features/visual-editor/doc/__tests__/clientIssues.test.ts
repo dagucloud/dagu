@@ -22,7 +22,6 @@ import {
   type ClientIssueInput,
 } from '../clientIssues';
 import {
-  RESTART_WAIT_MISSING_MESSAGE,
   RESTART_WITH_RETRY_MESSAGE,
   RESTART_WITH_SCHEDULE_MESSAGE,
 } from '../issueMessages';
@@ -768,14 +767,16 @@ describe('collectClientIssues: restart_policy', () => {
   const shape = (text: string) =>
     restartIssues(text).map((i) => [i.severity, i.message, i.line]);
   const error = ValidationIssueSeverity.error;
-  const warning = ValidationIssueSeverity.warning;
   const WAIT_ALWAYS =
     'restart_wait_sec must be at least 1 when restart_policy is "always"';
 
-  // The server takes these: an empty schedule or retry_policy defines none,
-  // and an alias gives the value of its anchor.
-  it('gives nothing for restart settings that the server takes', () => {
+  // An empty schedule or retry_policy defines none, and an alias gives the
+  // value of its anchor. No wait and a wait of 0 leave the one of the base
+  // configuration, which only the server knows.
+  it('gives nothing for restart settings that the server may take', () => {
     for (const text of [
+      dag('restart_policy: always'),
+      dag('restart_policy: always', 'restart_wait_sec: 0'),
       dag('restart_policy: always', 'restart_wait_sec: 5'),
       dag('restart_policy: " Unless-Stopped "', 'restart_wait_sec: 10'),
       dag('restart_policy: no', 'schedule: "* * * * *"'),
@@ -836,20 +837,6 @@ describe('collectClientIssues: restart_policy', () => {
     expect(shape(text)).toEqual([[error, WAIT_ALWAYS, 2]]);
   });
 
-  // The server merges the file over the base configuration, and a 0 does not
-  // replace the wait of the base: only the server knows the result.
-  it('warns about a missing or zero wait: the base configuration can give it', () => {
-    for (const text of [
-      dag('restart_policy: always'),
-      dag('restart_policy: always', 'restart_wait_sec: 0'),
-    ]) {
-      expect(shape(text)).toEqual([[warning, RESTART_WAIT_MISSING_MESSAGE, 1]]);
-      expect(restartIssues(text)[0]?.source).toBe(
-        ValidationIssueSource.warning
-      );
-    }
-  });
-
   it('keeps one issue when the server says the same errors', () => {
     const text = dag(
       'restart_policy: always',
@@ -874,38 +861,6 @@ describe('collectClientIssues: restart_policy', () => {
     expect(merged.map((i) => [i.severity, i.message, i.line])).toEqual([
       [error, RESTART_WITH_SCHEDULE_MESSAGE, 1],
       [error, WAIT_ALWAYS, 2],
-    ]);
-  });
-
-  it('turns the warning of a missing wait into the error of the server', () => {
-    const text = dag('restart_policy: always');
-    const model = parseDagDocLenient(text);
-    const merged = mergeIssues(
-      model,
-      resolveStepNames(model),
-      [
-        serverIssue({
-          message: `field 'restart_wait_sec': ${WAIT_ALWAYS} (value: 0s)`,
-        }),
-      ],
-      issuesOf(text, { schema: null })
-    );
-    expect(merged.map((i) => [i.severity, i.message, i.line])).toEqual([
-      [error, WAIT_ALWAYS, 1],
-    ]);
-  });
-
-  it('shows the warning alone when the server says nothing', () => {
-    const text = dag('restart_policy: always');
-    const model = parseDagDocLenient(text);
-    const merged = mergeIssues(
-      model,
-      resolveStepNames(model),
-      [],
-      issuesOf(text, { schema: null })
-    );
-    expect(merged.map((i) => [i.severity, i.message])).toEqual([
-      [warning, RESTART_WAIT_MISSING_MESSAGE],
     ]);
   });
 });

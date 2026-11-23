@@ -9,7 +9,6 @@ import {
 } from '@/api/v1/schema';
 import type { StepView, ValidationIssue } from '../../contracts';
 import {
-  RESTART_WAIT_MISSING_MESSAGE,
   RESTART_WITH_RETRY_MESSAGE,
   RESTART_WITH_SCHEDULE_MESSAGE,
   SECRETS_UNTRUSTED_MESSAGE,
@@ -190,7 +189,6 @@ describe('required field issues', () => {
     for (const message of [
       RESTART_WITH_SCHEDULE_MESSAGE,
       RESTART_WITH_RETRY_MESSAGE,
-      RESTART_WAIT_MISSING_MESSAGE,
     ]) {
       const japanese = refineIssue(issue({ message }), (text, values) =>
         translateStatic('ja', text, values)

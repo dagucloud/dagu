@@ -26,15 +26,11 @@ describe('readRestart', () => {
       policy: 'no',
       schedule: false,
       retryPolicy: false,
-      waitGiven: false,
     });
   });
 
-  it('reads the policy and that the file gives a wait', () => {
-    expect(readRestart(SERVICE)).toMatchObject({
-      policy: 'always',
-      waitGiven: true,
-    });
+  it('reads the policy', () => {
+    expect(readRestart(SERVICE).policy).toBe('always');
   });
 
   // Spec 080: the case and the spaces of the value do not count.
@@ -51,21 +47,6 @@ describe('readRestart', () => {
     }
   });
 
-  // The server merges the file over the base configuration: no value and 0
-  // leave the wait of the base. An alias gives the value of its anchor.
-  it('tells when the file gives a wait', () => {
-    const given = (wait: string) =>
-      readRestart(`restart_wait_sec: ${wait}\n`).waitGiven;
-    expect(given('5')).toBe(true);
-    expect(given('-1')).toBe(true);
-    expect(given('0')).toBe(false);
-    expect(given('')).toBe(false);
-    expect(given('null')).toBe(false);
-    expect(
-      readRestart('delay_sec: &w 5\nrestart_wait_sec: *w\n').waitGiven
-    ).toBe(true);
-  });
-
   it('tells a schedule of any form and a retry_policy', () => {
     expect(readRestart('schedule: "* * * * *"\n').schedule).toBe(true);
     expect(
@@ -76,6 +57,13 @@ describe('readRestart', () => {
     expect(readRestart('schedule: ""\n').schedule).toBe(false);
     expect(readRestart('schedule: {}\n').schedule).toBe(false);
     expect(readRestart('schedule:\n  start: []\n').schedule).toBe(false);
+    // An entry can be an object, in a list or in the map form.
+    expect(
+      readRestart('schedule:\n  start:\n    expression: "0 8 * * *"\n').schedule
+    ).toBe(true);
+    expect(
+      readRestart('schedule:\n  - expression: "0 8 * * *"\n').schedule
+    ).toBe(true);
     expect(readRestart('retry_policy:\n  limit: 2\n').retryPolicy).toBe(true);
     // A key with no value: the server reads no retry policy.
     expect(readRestart('retry_policy:\n').retryPolicy).toBe(false);

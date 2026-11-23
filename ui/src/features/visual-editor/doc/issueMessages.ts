@@ -34,17 +34,6 @@ export function restartWaitMessage(policy: string): string {
 }
 
 /**
- * The warning of a service DAG with no `restart_wait_sec` in its file: the
- * base configuration can give it, and only the server knows.
- */
-export const RESTART_WAIT_MISSING_MESSAGE =
-  'restart_wait_sec is missing: set it to 1 or more in the file, or set it in the base configuration';
-
-/** The plain server error that confirms `RESTART_WAIT_MISSING_MESSAGE`. */
-export const RESTART_WAIT_SERVER_ERROR =
-  /^restart_wait_sec must be at least 1 when restart_policy is /;
-
-/**
  * The warning of a step that names an endpoint which the AI page does not
  * list. The loader cannot know it, so the step may fail when it starts.
  */

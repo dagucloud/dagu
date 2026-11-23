@@ -20,7 +20,6 @@ const OFF: RestartSettings = {
   histRetentionRuns: null,
   schedule: false,
   retryPolicy: false,
-  waitGiven: false,
 };
 const ON: RestartSettings = {
   ...OFF,

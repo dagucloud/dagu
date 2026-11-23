@@ -38,7 +38,6 @@ const OFF: RestartSettings = {
   histRetentionRuns: null,
   schedule: false,
   retryPolicy: false,
-  waitGiven: false,
 };
 const ON: RestartSettings = { ...OFF, policy: 'always', waitSec: 5 };
 
@@ -69,7 +68,8 @@ function renderPanel(
   return {
     onSchedule,
     onRestart,
-    rerender: (s: ScheduleView, r: RestartSettings) => utils.rerender(view(s, r)),
+    rerender: (s: ScheduleView, r: RestartSettings) =>
+      utils.rerender(view(s, r)),
   };
 }
 
