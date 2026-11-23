@@ -159,7 +159,7 @@ and links use the name.
 
 | Scope | Contents |
 | --- | --- |
-| Server | `config.yaml`, global `base.yaml`, the [server layer](#server-layer) of secrets, profiles, notification routes, and incident policies, library DAG files (`paths.alt_dags_dir`), business calendars, the project registry, users and their grants, API keys, OIDC and proxy authentication, the encryption key, license, upgrade check, Dagu Cloud connection with its report and remote access state, remote nodes, coordinator and worker state (dispatch tasks, leases, active distributed runs, worker heartbeats), service registry, the scheduler lock, pause flag, and restart backoff, audit log, admin logs, queues defined in `config.yaml` |
+| Server | `config.yaml`, global `base.yaml`, the [server layer](#server-layer) of secrets, profiles, notification routes, and incident policies, library DAG files (`paths.alt_dags_dir`), business calendars, the project registry, old webhook URLs of moved webhooks, users and their grants, API keys, OIDC and proxy authentication, the encryption key, license, upgrade check, Dagu Cloud connection with its report and remote access state, remote nodes, coordinator and worker state (dispatch tasks, leases, active distributed runs, worker heartbeats), service registry, the scheduler lock, pause flag, and restart backoff, audit log, admin logs, queues defined in `config.yaml` |
 | Project | DAG files, project `base.yaml`, runs, logs, artifacts, run work directories, process heartbeats, run events, DAG state, suspend flags, DAG settings, pins, views, scheduler state and checkpoints, watch state, slot index, backfills, materializations, agent session cleanups, secrets, profiles, notification routes, incident policies and incidents, wiki, per-DAG webhooks and their public URLs, node inventories ([RFC 012](012-node-inventory.md)), other queues |
 
 A store added later is per project unless it holds identity, authentication,
@@ -263,11 +263,16 @@ with the old one's.
   existing clients keep working against the default project. A request for
   a DAG the project lacks fails, and the error names the projects the
   caller can see that have a DAG of that name.
-- A per-DAG webhook URL, `/webhooks/{name}`, carries no project. It reaches
-  the DAG of that name whose webhook token matches, in whichever project
-  holds it. Tokens are random and unique, so DAGs of one name in several
-  projects never collide, and a URL keeps working after migration or a
-  move.
+- A per-DAG webhook URL is `/webhooks/{project}/{name}`. The URL selects
+  the DAG, and the webhook's token or signature authenticates the request,
+  as in v2.
+- `/webhooks/{name}` reaches the default project's DAG, as in v2.
+- A webhook that migration or a move takes to another project keeps its old
+  URL. The server records which DAG each old URL reaches, so callers
+  outside Dagu need no change. A v2 server has one DAG of each name, so
+  each old URL reaches one DAG.
+- A webhook whose URL is another webhook's old URL is refused until an
+  admin removes that old URL on the moved webhook's page.
 - `/projects` lists and creates projects. The `/workspaces*`,
   `/settings/workspaces/*`, `/notification-routes/workspaces/*`,
   `/incident-policies/workspaces/*`, and `/profiles/_workspaces/*` paths and
@@ -440,9 +445,10 @@ new project, and its runs stay in the old one.
 
 - An admin, or a user with the `manager` role in both projects, moves a DAG
   in the UI or API, or with `dagu move`. Its file, runs, logs, artifacts,
-  DAG state, suspend flag, settings, and per-DAG webhooks move with it, and
-  its webhook URLs keep working. Runs in which it was a child stay with
-  their parent runs.
+  DAG state, suspend flag, settings, and per-DAG webhooks move with it. Its
+  webhook gets the target project's URL and keeps its old one, as
+  [Identity and references](#identity-and-references) describes. Runs in
+  which it was a child stay with their parent runs.
 - The target project's users then see the DAG's past runs and logs, which
   can hold data the source project never shared. The move asks to confirm
   that before it starts.
@@ -732,8 +738,8 @@ Criteria 23 and 24 apply from the release that ships the feature.
 35. When a folder is added to a server whose key differs from the key its
     secrets were set with, the projects page lists those secrets for an
     admin to enter again.
-36. `/webhooks/{name}` reaches the DAG of that name whose token matches,
-    whatever its project, before and after migration.
+36. `/webhooks/{project}/{name}` reaches that project's DAG. Every v2
+    webhook URL reaches the same DAG after migration and after a move.
 37. A CLI command run as a user other than the owner of a server project's
     state refuses to write to it and names the user to run as.
 
