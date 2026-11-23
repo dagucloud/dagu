@@ -198,6 +198,14 @@ func TestConfigSchemaCloudRemoteAccess(t *testing.T) {
 	}
 }
 
+func TestConfigSchemaCloudRunKey(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveConfigSchema(t)
+	require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, "cloud:\n  run_key: drk_0123456789abcdef\n")))
+	require.Error(t, resolved.Validate(mustParseYAMLDocument(t, "cloud:\n  run_key: dsk_0123456789abcdef\n")))
+}
+
 func TestConfigSchemaOIDCWorkspaceMappings(t *testing.T) {
 	t.Parallel()
 
