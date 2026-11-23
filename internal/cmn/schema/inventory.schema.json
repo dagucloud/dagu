@@ -1,0 +1,139 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Dagu node inventory",
+  "description": "One node inventory: SSH hosts with labels, as each element of 'dagu nodes export' and 'dagu nodes import' (Spec 088). Rules that span records, such as unique names and bastions, are checked when the inventory is stored.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "\\S",
+      "description": "Display name, unique among inventories without regard to case."
+    },
+    "description": {
+      "type": "string"
+    },
+    "defaults": {
+      "type": "object",
+      "description": "Fill the connection fields a node leaves unset. Labels are added to each node's labels; a node label with the same key replaces a default one.",
+      "additionalProperties": false,
+      "properties": {
+        "port": { "$ref": "#/definitions/port" },
+        "user": { "$ref": "#/definitions/user" },
+        "key": { "$ref": "#/definitions/key" },
+        "password": { "$ref": "#/definitions/secretRef" },
+        "passphrase": { "$ref": "#/definitions/secretRef" },
+        "bastion": { "$ref": "#/definitions/bastion" },
+        "host_key": { "$ref": "#/definitions/hostKey" },
+        "strict_host_key": { "$ref": "#/definitions/strictHostKey" },
+        "shell": { "$ref": "#/definitions/shell" },
+        "timeout": { "$ref": "#/definitions/timeout" },
+        "labels": { "$ref": "#/definitions/labels" }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/node" }
+    }
+  },
+  "definitions": {
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "host"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+          "description": "Node name, unique across all inventories without regard to case."
+        },
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "description": "DNS name, IPv4 address, or IPv6 address without a zone."
+        },
+        "port": { "$ref": "#/definitions/port" },
+        "user": { "$ref": "#/definitions/user" },
+        "key": { "$ref": "#/definitions/key" },
+        "password": { "$ref": "#/definitions/secretRef" },
+        "passphrase": { "$ref": "#/definitions/secretRef" },
+        "bastion": { "$ref": "#/definitions/bastion" },
+        "host_key": { "$ref": "#/definitions/hostKey" },
+        "strict_host_key": { "$ref": "#/definitions/strictHostKey" },
+        "shell": { "$ref": "#/definitions/shell" },
+        "timeout": { "$ref": "#/definitions/timeout" },
+        "labels": { "$ref": "#/definitions/labels" },
+        "description": { "type": "string" },
+        "disabled": {
+          "type": "boolean",
+          "description": "Keeps runs off the node. It is still listed and matched."
+        }
+      }
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "SSH port. Default 22."
+    },
+    "user": {
+      "type": "string",
+      "pattern": "^([A-Za-z0-9_][A-Za-z0-9._-]*)?$",
+      "description": "SSH user. Empty is the same as unset."
+    },
+    "key": {
+      "description": "Private key: a path, {\"file\": <path>}, or {\"secret\": <ref>}. An empty path is the same as unset.",
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file"],
+          "properties": { "file": { "type": "string", "minLength": 1 } }
+        },
+        { "$ref": "#/definitions/secretRef" }
+      ]
+    },
+    "secretRef": {
+      "type": "object",
+      "description": "A secret ref. An inventory never holds a secret value.",
+      "additionalProperties": false,
+      "required": ["secret"],
+      "properties": { "secret": { "type": "string", "minLength": 1 } }
+    },
+    "bastion": {
+      "type": "string",
+      "description": "Name of another node of the same inventory to connect through."
+    },
+    "hostKey": {
+      "type": "string",
+      "description": "Pinned public key in authorized_keys form, such as ssh-ed25519 AAAA…"
+    },
+    "strictHostKey": {
+      "type": "boolean",
+      "description": "Refuse a host key that is neither pinned nor trusted. Default true."
+    },
+    "shell": {
+      "type": "string",
+      "description": "Remote shell."
+    },
+    "timeout": {
+      "type": "string",
+      "pattern": "^(\\+?(([0-9]+(\\.[0-9]*)?|\\.[0-9]+)(ns|us|µs|μs|ms|s|m|h))+)?$",
+      "not": { "pattern": "^\\+?([0.]+(ns|us|µs|μs|ms|s|m|h))+$" },
+      "description": "Connect timeout, a positive duration such as 10s or 1m30s. Default 30s; empty is the same as unset."
+    },
+    "labels": {
+      "type": "array",
+      "description": "Labels as key or key=value. Keys and values are lowercased.",
+      "items": {
+        "type": "string",
+        "pattern": "^\\s*[A-Za-z0-9][A-Za-z0-9_.-]*\\s*(=\\s*([A-Za-z0-9][A-Za-z0-9_./-]*)?\\s*)?$"
+      }
+    }
+  }
+}

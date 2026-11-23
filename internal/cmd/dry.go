@@ -55,7 +55,7 @@ Example:
 
 // runDry executes a dry-run simulation of the specified DAG.
 func runDry(ctx *Context, args []string) error {
-	format, err := dryOutputFormat(ctx)
+	format, err := outputFormatParam(ctx)
 	if err != nil {
 		return err
 	}
@@ -160,7 +160,7 @@ func runDry(ctx *Context, args []string) error {
 	return nil
 }
 
-func dryOutputFormat(ctx *Context) (string, error) {
+func outputFormatParam(ctx *Context) (string, error) {
 	format, err := ctx.StringParam("format")
 	if err != nil {
 		return "", err

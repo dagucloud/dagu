@@ -7,6 +7,7 @@ import aiEndpointMessages from '@/features/ai-endpoints/messages';
 import mcpMessages from '@/features/ai-endpoints/mcpMessages';
 import skillMessages from '@/features/skills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
+import { inventoryMessages } from '@/pages/nodes/inventories/messages';
 import { nodeTestMessages } from '@/pages/nodes/messages';
 
 const baseEnglish = {
@@ -3353,6 +3354,7 @@ const english = {
   ...mcpMessages.en,
   ...skillMessages.en,
   ...nodeTestMessages.en,
+  ...inventoryMessages.en,
   ...baseEnglish,
 } as const;
 
@@ -9971,6 +9973,7 @@ const chinese = {
   ...mcpMessages['zh-CN'],
   ...skillMessages['zh-CN'],
   ...nodeTestMessages['zh-CN'],
+  ...inventoryMessages['zh-CN'],
   ...baseChinese,
 } as const satisfies Record<StaticMessage, string>;
 
@@ -9981,6 +9984,7 @@ const japanese = {
   ...mcpMessages.ja,
   ...skillMessages.ja,
   ...nodeTestMessages.ja,
+  ...inventoryMessages.ja,
   ...baseJapanese,
 } as const satisfies Record<StaticMessage, string>;
 

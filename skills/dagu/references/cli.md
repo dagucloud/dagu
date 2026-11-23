@@ -197,9 +197,9 @@ For a build DAG, `--no-reuse` previews the decisions with manifest reuse disable
 
 ### dagu test
 
-Run workflow tests: `dagu test [--timeout 5m] [<test file or directory>...]`. With no argument, it runs every test file under the DAGs directory.
+Run workflow tests: `dagu test [--run <regexp>] [--timeout 5m] [--format/-f text|json] [--keep] [<test file or directory>...]`. With no argument, it runs every test file under the DAGs directory. `--run` selects cases by name (RE2, matches anywhere). `--format json` prints one JSON object, `{"cases":[...]}`, once every case has ended. `--keep` keeps each case's temporary directory, with its logs and redirect files, and prints its path.
 
-A test file sits beside its DAG and ends in `.test.yaml` or `.test.yml`: `release.test.yaml` tests `release.yaml`, or set `dag:` to another file. Each case runs the unchanged DAG through the real runner in a temporary directory, with step actions replaced by mocks. Every step whose action has side effects must be mocked, listed under `real`, or covered by `default_mock`; otherwise the case is invalid and nothing runs. Only `router.route`, `outputs.write`, `log.write`, and `noop` run for real unmocked. Retry and repeat intervals are not waited for, except by steps in `real`. A step or handler in `real` that starts a child run, such as `dag.run` or `parallel`, makes the case invalid for now; mock it instead.
+A test file sits beside its DAG and ends in `.test.yaml` or `.test.yml`: `release.test.yaml` tests `release.yaml`, or set `dag:` to another file. Each case runs the unchanged DAG through the real runner in a temporary directory, with step actions replaced by mocks. Every step whose action has side effects must be mocked, listed under `real`, or covered by `default_mock`; otherwise the case is invalid and nothing runs. Only `router.route`, `outputs.write`, `log.write`, and `noop` run for real unmocked. Retry and repeat intervals are not waited for, except by steps in `real`. A step or handler in `real` that starts a child run, such as `dag.run` or `parallel`, runs its child in the case. The child takes no mocks, so any step or source of it that a case would have to handle makes the case invalid; mock the parent step instead.
 
 ```yaml
 # release.test.yaml

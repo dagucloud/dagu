@@ -88,12 +88,19 @@ func CheckFailClosed(dag *ir.DAG, handling Handling) []Finding {
 		real:        toSet(handling.Real),
 		params:      toSet(handling.Params),
 	}
+	c.checkDAG(dag, handling, len(handling.Real) > 0)
+	return c.findings
+}
+
+// checkDAG adds the sources of dag that handling leaves unhandled. In a case
+// with a real step, every secret needs a value.
+func (c *checker) checkDAG(dag *ir.DAG, handling Handling, hasRealSteps bool) {
 	c.checkParams(dag.ParamDefs)
-	if len(handling.Real) > 0 {
+	if hasRealSteps {
 		c.checkSecrets(dag, toSet(handling.Secrets))
 	}
 	if !handling.Precondition && slices.ContainsFunc(dag.Preconditions, (*ir.Condition).RunsCommand) {
-		c.add("precondition", "command check or substituting eval runs a command; set precondition in the case")
+		c.add("precondition", "command check or substituting eval runs a command", "set precondition in the case")
 	}
 	for _, step := range dag.Steps {
 		c.checkStep("step "+stepLabel(step), step, stepKeys(step)...)
@@ -101,7 +108,6 @@ func CheckFailClosed(dag *ir.DAG, handling Handling) []Finding {
 	for _, h := range lifecycleHandlers(dag.HandlerOn) {
 		c.checkStep(h.key, h.step, h.key)
 	}
-	return c.findings
 }
 
 const (
@@ -115,11 +121,19 @@ type checker struct {
 	defaultMock *MockFields
 	real        map[string]struct{}
 	params      map[string]struct{}
-	findings    []Finding
+	// fix, when set, replaces the fix of every finding, for a source that no
+	// field of the case handles.
+	fix      string
+	findings []Finding
 }
 
-func (c *checker) add(source, message string) {
-	c.findings = append(c.findings, Finding{Source: source, Message: message})
+// add records an unhandled source: what it does, and how the case handles
+// it.
+func (c *checker) add(source, does, fix string) {
+	if c.fix != "" {
+		fix = c.fix
+	}
+	c.findings = append(c.findings, Finding{Source: source, Message: does + "; " + fix})
 }
 
 func (c *checker) checkParams(defs []ir.ParamDef) {
@@ -130,7 +144,7 @@ func (c *checker) checkParams(defs []ir.ParamDef) {
 		if _, ok := c.params[def.Name]; ok {
 			continue
 		}
-		c.add("param "+def.Name, "eval runs a command; give it a value under params")
+		c.add("param "+def.Name, "eval runs a command", "give it a value under params")
 	}
 }
 
@@ -140,7 +154,7 @@ func (c *checker) checkParams(defs []ir.ParamDef) {
 func (c *checker) checkSecrets(dag *ir.DAG, values map[string]struct{}) {
 	for _, secret := range dag.Secrets {
 		if _, ok := values[secret.Name]; !ok {
-			c.add("secret "+secret.Name, "a real step may read it; give it a value under secrets")
+			c.add("secret "+secret.Name, "a real step may read it", "give it a value under secrets")
 		}
 	}
 	refs := make([]string, 0, len(dag.CredentialRefs))
@@ -150,7 +164,7 @@ func (c *checker) checkSecrets(dag *ir.DAG, values map[string]struct{}) {
 	slices.Sort(refs)
 	for _, ref := range slices.Compact(refs) {
 		if _, ok := values[ref]; !ok {
-			c.add("secret "+ref, "a real step may read this SSH credential; give it a value under secrets")
+			c.add("secret "+ref, "a real step may read this SSH credential", "give it a value under secrets")
 		}
 	}
 }
@@ -169,7 +183,7 @@ func (c *checker) checkStep(label string, step ir.Step, keys ...string) {
 	}
 	replaced := replacesAction(step, mocked, mock, real)
 	for _, o := range stepOffenses(step, mock, replaced, real) {
-		c.add(label+o.label, o.subject+" "+o.does+"; "+o.fix)
+		c.add(label+o.label, o.subject+" "+o.does, o.fix)
 	}
 }
 

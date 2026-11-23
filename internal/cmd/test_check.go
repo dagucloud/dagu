@@ -43,40 +43,6 @@ func unsupportedAssertions(expect dagtest.Expect) []dagtest.Finding {
 	return errs
 }
 
-// realChildRuns reports each real step and handler of c that starts a child
-// run in the case, as dag.run and parallel do. This version of dagu test
-// does not check a child DAG against the fail-closed rule, so such a case
-// is invalid instead of running the child's actions.
-func realChildRuns(dag *ir.DAG, c dagtest.Case) []dagtest.Finding {
-	var errs []dagtest.Finding
-	check := func(label string, step *ir.Step, real bool) {
-		if real && step != nil && step.SubDAG != nil && step.ExecutorConfig.Type != ir.ExecutorTypeDAGEnqueue {
-			errs = append(errs, dagtest.Finding{
-				Source:  label,
-				Message: "a real step that starts a child run is not supported by this version of dagu test; mock it",
-			})
-		}
-	}
-	for i := range dag.Steps {
-		check("step "+stepLabel(dag.Steps[i]), &dag.Steps[i], c.Steps[dag.Steps[i].Name].Real)
-	}
-	for _, h := range []struct {
-		event string
-		kind  ir.HandlerType
-		step  *ir.Step
-	}{
-		{"init", ir.HandlerOnInit, dag.HandlerOn.Init},
-		{"success", ir.HandlerOnSuccess, dag.HandlerOn.Success},
-		{"failure", ir.HandlerOnFailure, dag.HandlerOn.Failure},
-		{"abort", ir.HandlerOnAbort, dag.HandlerOn.Abort},
-		{"exit", ir.HandlerOnExit, dag.HandlerOn.Exit},
-		{"wait", ir.HandlerOnWait, dag.HandlerOn.Wait},
-	} {
-		check("handler_on."+h.event, h.step, c.Handlers[h.kind].Real)
-	}
-	return errs
-}
-
 // checkCase returns every assertion of expect that the run's final status
 // fails. waited holds the statuses at which the run's last attempt waited
 // before it resumed, where a handler that ran before a resume shows. A run

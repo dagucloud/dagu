@@ -24,7 +24,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import { Tab, Tabs } from '@/components/ui/tabs';
 import {
+  useCanEditInventories,
   useCanTestNodes,
   useCanTrustNodeHostKeys,
 } from '@/contexts/AuthContext';
@@ -37,6 +39,8 @@ import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { Server } from 'lucide-react';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { InventoriesView } from './inventories/InventoriesView';
+import { InventoryDialog } from './inventories/InventoryDialog';
 import { NodeDetailsDrawer } from './NodeDetailsDrawer';
 import { NodeTestPanel } from './NodeTestPanel';
 import { nodeKey, useNodeTests } from './useNodeTests';
@@ -102,7 +106,10 @@ function NodeList(): React.ReactElement {
   const client = useClient();
   const canTest = useCanTestNodes();
   const canTrust = useCanTrustNodeHostKeys();
+  const canEdit = useCanEditInventories();
   const tests = useNodeTests(config.apiURL);
+  const [view, setView] = useState<'nodes' | 'inventories'>('nodes');
+  const [creating, setCreating] = useState(false);
 
   // A change of filter starts again from the first page, with no node
   // checked.
@@ -220,38 +227,95 @@ function NodeList(): React.ReactElement {
     }
   };
 
+  /** Reads again what a change to the inventories affects. */
+  const refresh = () => {
+    void inventories.mutate();
+    void nodeLabels.mutate();
+    void mutate();
+  };
+
   if (inventories.data && inventoryList.length === 0) {
     return (
-      <EmptyState
-        headingLevel={1}
-        icon={<Server />}
-        title={<I18nText text={'No nodes yet'} />}
-        description={
-          <I18nTemplate
-            text="Import an inventory of SSH hosts with {command}."
-            values={{
-              command: <code className="text-xs">dagu nodes import</code>,
-            }}
+      <>
+        <EmptyState
+          headingLevel={1}
+          icon={<Server />}
+          title={<I18nText text={'No nodes yet'} />}
+          description={
+            <I18nTemplate
+              text="Import an inventory of SSH hosts with {command}."
+              values={{
+                command: <code className="text-xs">dagu nodes import</code>,
+              }}
+            />
+          }
+          action={
+            canEdit ? (
+              <Button size="sm" onClick={() => setCreating(true)}>
+                <I18nText text={'New inventory'} />
+              </Button>
+            ) : undefined
+          }
+        />
+        {creating && (
+          <InventoryDialog
+            onClose={() => setCreating(false)}
+            onSaved={refresh}
           />
-        }
-      />
+        )}
+      </>
+    );
+  }
+
+  const heading = (
+    <div>
+      <h1 className="text-2xl font-semibold tracking-[-0.01em]">
+        <I18nText text={'Nodes'} />
+      </h1>
+      <p className="text-sm text-muted-foreground">
+        <I18nText
+          text={
+            "SSH hosts from this server's inventories. Steps select them by label."
+          }
+        />
+      </p>
+      <Tabs className="mt-2">
+        <Tab isActive={view === 'nodes'} onClick={() => setView('nodes')}>
+          <I18nText text={'Nodes'} />
+        </Tab>
+        <Tab
+          isActive={view === 'inventories'}
+          onClick={() => setView('inventories')}
+        >
+          <I18nText text={'Inventories'} />
+        </Tab>
+      </Tabs>
+    </div>
+  );
+
+  if (view === 'inventories') {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
+        {heading}
+        {inventories.error && (
+          <FilterLoadError
+            what="Couldn't load inventories."
+            error={inventories.error}
+            onRetry={() => void inventories.mutate()}
+          />
+        )}
+        <InventoriesView
+          inventories={inventoryList}
+          canEdit={canEdit}
+          onChanged={refresh}
+        />
+      </div>
     );
   }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-[-0.01em]">
-          <I18nText text={'Nodes'} />
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          <I18nText
-            text={
-              "SSH hosts from this server's inventories. Steps select them by label."
-            }
-          />
-        </p>
-      </div>
+      {heading}
 
       <div className="flex flex-wrap items-center gap-2">
         <Select value={inventory} onValueChange={setInventory}>
