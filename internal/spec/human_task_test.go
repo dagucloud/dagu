@@ -827,6 +827,8 @@ func TestHumanTaskFormKeepsLargeIntegers(t *testing.T) {
 				map[string]any{"const": int64(9007199254740993), "title": "Large"},
 			}},
 			"limit": map[string]any{"type": "integer", "default": int64(9007199254740993)},
+			// Above the int64 range.
+			"huge":  map[string]any{"type": "integer", "enum": []any{uint64(9223372036854775809)}},
 			"ratio": map[string]any{"enum": []any{1, 1.5}},
 		},
 	})
@@ -835,10 +837,12 @@ func TestHumanTaskFormKeepsLargeIntegers(t *testing.T) {
 	result, err := ValidateHumanTaskInputs(form, map[string]any{
 		"serial": json.Number("9007199254740993"),
 		"pick":   json.Number("9007199254740993"),
+		"huge":   json.Number("9223372036854775809"),
 		"ratio":  json.Number("1.5"),
 	}, false)
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{
-		"serial": "9007199254740993", "pick": "9007199254740993", "limit": "9007199254740993", "ratio": "1.5",
+		"serial": "9007199254740993", "pick": "9007199254740993", "limit": "9007199254740993",
+		"huge": "9223372036854775809", "ratio": "1.5",
 	}, result.Outputs)
 }
