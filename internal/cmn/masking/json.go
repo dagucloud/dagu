@@ -52,7 +52,15 @@ func encodeJSON(value any) (string, error) {
 func maskJSONValue(mask func(string) string, value any) any {
 	switch typed := value.(type) {
 	case string:
-		return mask(typed)
+		if masked := mask(typed); masked != typed {
+			return masked
+		}
+		// A secret can be the string with its quotes.
+		encoded, err := encodeJSON(typed)
+		if err != nil {
+			return typed
+		}
+		return maskJSONLiteral(mask, encoded, typed)
 	case json.Number:
 		return maskJSONLiteral(mask, typed.String(), typed)
 	case bool:
