@@ -1461,7 +1461,46 @@ runs. Stdout contains `INVALID workflows/ship.test.yaml: ships` and, in this
 order, lines that start with `param build_date: `, `step deploy: `, and
 `handler_on.failure: `. The `step deploy` line names `ssh.run`, and the
 `handler_on.failure` line names `mail.send`. No line names `service`: its
-`eval` has no command substitution, so it evaluates as in a real run.
+`eval` has no command substitution, so it evaluates as in a real run. The
+error lines end with this fix:
+
+```text
+  fix, ready to paste:
+    params:
+      build_date: ""
+    mocks:
+      deploy: {}
+      handler_on.failure: {}
+```
+
+With the fix pasted into the case, `dagu test workflows/ship.test.yaml`
+exits with status 0.
+
+### The Default Mock
+
+With `workflows/release.yaml` from [A Passing Test](#a-passing-test):
+
+```yaml
+# workflows/release.test.yaml
+default_mock: {}
+cases:
+  - name: every step succeeds by default
+    expect:
+      status: succeeded
+  - name: a failed build stops the deploy
+    mocks:
+      build:
+        exit_code: 1
+    expect:
+      steps:
+        build: failed
+        deploy: aborted
+```
+
+`dagu test workflows/release.test.yaml` exits with status 0, and no process
+starts. Under the first case, stdout contains `default mock: build, deploy`,
+and `build` publishes `image_tag` as an empty string. Under the second, it
+contains `default mock: deploy`.
 
 ### Routing on a Mocked Output
 
@@ -1763,20 +1802,37 @@ steps:
     run: ./release.sh
     approval:
       prompt: Ship it?
+  - id: announce
+    depends: release
+    run: ./announce.sh
+    approval:
+      prompt: Announce it?
+      input: [channel]
+      required: [channel]
+handler_on:
+  wait:
+    action: log.write
+    with:
+      message: waiting
 ```
 
 ```yaml
 # workflows/gate.test.yaml
 mocks:
-  release:
+  release: {}
+  announce:
     review:
       decision: approve
+      values:
+        channel: releases
 cases:
-  - name: an approved release succeeds
+  - name: an approved release is announced
     expect:
       status: succeeded
       steps:
         release: succeeded
+        announce: succeeded
+        handler_on.wait: succeeded
   - name: a rejected release ends the run rejected
     mocks:
       release:
@@ -1786,10 +1842,20 @@ cases:
       status: rejected
       steps:
         release: rejected
+        announce: not_started
+  - name: a required input without review is invalid
+    mocks:
+      announce: {}
+    expect:
+      status: succeeded
 ```
 
-`dagu test workflows/gate.test.yaml` exits with status 0. The mock replaces
-the action of `release`, and its `review` settles the gate.
+`dagu test workflows/gate.test.yaml` exits with status 2. In the first case,
+the run reaches `waiting` and runs `handler_on.wait` before each gate is
+settled. The gate of `release` needs no values, so it is approved
+automatically, and stdout contains `approved automatically: release`. The
+second case passes. The third case is invalid, and its error line starts
+with `step announce: ` and names `review`.
 
 ### Foreach
 
@@ -1904,6 +1970,239 @@ cases:
 ```
 
 `dagu test workflows/service.test.yaml` exits with status 0.
+
+### Secrets Without Values
+
+```yaml
+# workflows/publish.yaml
+secrets:
+  - name: API_TOKEN
+    provider: env
+    key: PUBLISH_TOKEN
+steps:
+  - id: show
+    action: log.write
+    with:
+      message: token ${API_TOKEN}
+  - id: publish
+    depends: show
+    run: ./publish.sh
+```
+
+```yaml
+# workflows/publish.test.yaml
+mocks:
+  publish: {}
+cases:
+  - name: a case without a real step needs no secret
+    expect:
+      status: succeeded
+      steps:
+        show:
+          stdout:
+            contains: token *******
+  - name: a real step needs every secret
+    real: [publish]
+    expect:
+      status: succeeded
+```
+
+`dagu test workflows/publish.test.yaml` exits with status 2, with
+`PUBLISH_TOKEN` unset. The first case passes: `API_TOKEN` resolves to its
+placeholder, which the log masks. The second case is invalid, and no command
+runs. Its error line starts with `secret API_TOKEN: `, and its fix is under
+`fix for the test file, ready to paste:`.
+
+### Run Retries
+
+```yaml
+# workflows/nightly.yaml
+retry_policy:
+  limit: 2
+  interval_sec: 300
+steps:
+  - id: sync
+    run: ./sync.sh
+```
+
+```yaml
+# workflows/nightly.test.yaml
+cases:
+  - name: the second run attempt succeeds
+    mocks:
+      sync:
+        results:
+          - exit_code: 1
+          - exit_code: 0
+    expect:
+      status: succeeded
+      attempts: 2
+      steps:
+        sync:
+          status: succeeded
+          attempts: 2
+```
+
+`dagu test workflows/nightly.test.yaml` exits with status 0 without waiting
+for the 300-second retry interval.
+
+### Outputs, Streams, and Notifications
+
+```yaml
+# workflows/report.yaml
+mail_on:
+  failure: true
+error_mail:
+  from: dagu@example.com
+  to: oncall@example.com
+steps:
+  - id: count
+    run: ./count.sh
+    outputs:
+      - name: files
+      - name: stats
+        type: json
+  - id: summary
+    depends: count
+    action: log.write
+    with:
+      message: ${steps.count.outputs.files} files changed
+  - id: check
+    depends: summary
+    run: ./check.sh
+```
+
+```yaml
+# workflows/report.test.yaml
+mocks:
+  count:
+    outputs:
+      files: "3"
+      stats:
+        files: 3
+        lines: 40
+  check: {}
+cases:
+  - name: the summary reports the count
+    expect:
+      status: succeeded
+      steps:
+        count:
+          outputs:
+            files: "3"
+            stats:
+              files: 3
+        summary:
+          stdout:
+            contains: 3 files changed
+            matches: '^\d+ files changed'
+      notifications: []
+  - name: a failed check sends one mail
+    mocks:
+      check:
+        exit_code: 1
+    expect:
+      status: failed
+      notifications:
+        - kind: mail_on.failure
+          to: [oncall@example.com]
+```
+
+`dagu test workflows/report.test.yaml` exits with status 0. The `stats`
+assertion lists one of two keys and matches. With `notifications: []` in the
+second case instead, the case fails, and stdout contains
+`notifications: expected none, got mail_on.failure to oncall@example.com`.
+
+### A Repeat Limit From a Param
+
+```yaml
+# workflows/poll_n.yaml
+params:
+  - name: n
+    default: "3"
+steps:
+  - id: poll
+    run: ./poll.sh
+    repeat_policy:
+      repeat: while
+      limit: ${params.n}
+  - id: tick
+    action: log.write
+    with:
+      message: tick
+    repeat_policy:
+      repeat: while
+      limit: ${params.n}
+```
+
+```yaml
+# workflows/poll_n.test.yaml
+mocks:
+  poll: {}
+cases:
+  - name: the limit bounds both steps
+    expect:
+      steps:
+        poll:
+          attempts: 3
+        tick:
+          attempts: 3
+  - name: without a limit the results bound the mocked steps
+    params:
+      n: "0"
+    mocks:
+      poll:
+        results:
+          - exit_code: 0
+          - exit_code: 0
+      tick:
+        exit_code: 0
+    expect:
+      steps:
+        poll:
+          attempts: 2
+        tick:
+          attempts: 1
+  - name: without a limit an unmocked step fails the case
+    params:
+      n: "0"
+    expect:
+      status: succeeded
+```
+
+`dagu test workflows/poll_n.test.yaml` exits with status 1. The first two
+cases pass. The third case fails, and stdout contains
+`step tick: repeat limit 0 leaves the step continuous; mock it with results`.
+
+### Writing a Test File
+
+With `workflows/release.yaml` from [A Passing Test](#a-passing-test) and no
+test file beside it, `dagu test --init workflows/release.yaml` exits with
+status 0, prints `workflows/release.test.yaml`, and writes:
+
+```yaml
+mocks:
+  build:
+    outputs:
+      image_tag: ""
+  deploy: {}
+cases:
+  - name: initial
+    expect:
+      status: succeeded
+      steps:
+        build: succeeded
+        deploy: succeeded
+```
+
+`dagu test workflows/release.test.yaml` then exits with status 0. A second
+`dagu test --init workflows/release.yaml` exits with status 2 and writes
+nothing.
+
+After the file's `build` mock gets `exit_code: 1`,
+`dagu test --update workflows/release.test.yaml` exits with status 0 and
+rewrites only the case's `expect`, to `status: failed` with `build: failed`
+and `deploy: aborted`.
 
 ### A Test File That Reads as a DAG
 
