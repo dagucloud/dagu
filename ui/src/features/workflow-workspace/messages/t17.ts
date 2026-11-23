@@ -13,4 +13,7 @@ export default defineMessages({
   ja: {
     'Answer in the Agent tab': 'エージェントタブで回答',
   },
+  de: {
+    'Answer in the Agent tab': 'Im Reiter Agent antworten',
+  },
 });

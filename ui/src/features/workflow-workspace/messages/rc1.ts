@@ -17,4 +17,8 @@ export default defineMessages({
     'Workflow and YAML': 'ワークフローと YAML',
     Collapse: '折りたたむ',
   },
+  de: {
+    'Workflow and YAML': 'Ablauf und YAML',
+    Collapse: 'Einklappen',
+  },
 });

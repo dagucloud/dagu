@@ -21,4 +21,10 @@ export default defineMessages({
     "Couldn't load older runs. Retry":
       '過去の実行を読み込めませんでした。再試行',
   },
+  de: {
+    'Loading older runs...': 'Ältere Läufe werden geladen …',
+    "Couldn't load older runs": 'Ältere Läufe konnten nicht geladen werden',
+    "Couldn't load older runs. Retry":
+      'Ältere Läufe konnten nicht geladen werden. Erneut versuchen',
+  },
 });

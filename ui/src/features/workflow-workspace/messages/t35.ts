@@ -22,4 +22,10 @@ export default defineMessages({
     '{seconds}s': '{seconds}秒',
     'exit:[{codes}]': '終了コード:[{codes}]',
   },
+  de: {
+    'Open {step}': '{step} öffnen',
+    'YAML copied': 'YAML kopiert',
+    '{seconds}s': '{seconds} s',
+    'exit:[{codes}]': 'Exit-Code:[{codes}]',
+  },
 });

@@ -40,4 +40,16 @@ export default defineMessages({
     'This step did not run in the selected run.':
       'このステップは選択した実行で実行されていません。',
   },
+  de: {
+    'Run summary': 'Zusammenfassung',
+    'Run steps': 'Schritte ausführen',
+    'not in current definition': 'nicht in der aktuellen Definition',
+    '{count} sub-runs': '{count} Unterläufe',
+    reused: 'übernommen',
+    'always run': 'immer ausführen',
+    'This workflow has not run yet.': 'Dieser Ablauf ist noch nicht gelaufen.',
+    'Run…': 'Starten…',
+    'This step did not run in the selected run.':
+      'Dieser Schritt lief im gewählten Lauf nicht.',
+  },
 });

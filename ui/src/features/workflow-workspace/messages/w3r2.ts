@@ -45,4 +45,17 @@ export default defineMessages({
     'no output in run {id}': '実行 {id} に出力なし',
     reused: '再利用',
   },
+  de: {
+    'Changed steps': 'Geänderte Schritte',
+    'Checking earlier runs': 'Frühere Läufe werden geprüft',
+    'Inputs from run {id}': 'Eingaben aus Lauf {id}',
+    'No earlier run holds the outputs that this step reads.':
+      'Kein früherer Lauf enthält die Ausgaben, die dieser Schritt liest.',
+    'Run {id} used other parameters. The step runs with the defaults.':
+      'Lauf {id} hatte andere Parameter. Der Schritt läuft mit den Standardwerten.',
+    'Waits for run {id} to finish': 'Wartet auf das Ende von Lauf {id}',
+    'changed since run {id}': 'geändert seit Lauf {id}',
+    'no output in run {id}': 'keine Ausgabe in Lauf {id}',
+    reused: 'übernommen',
+  },
 });

@@ -48,4 +48,18 @@ export default defineMessages({
     'Webhook enabled': 'Webhook 有効',
     'Webhook disabled': 'Webhook 無効',
   },
+  de: {
+    'every minute': 'jede Minute',
+    'every {n} min': 'alle {n} Min.',
+    'every {n} h': 'alle {n} Std.',
+    hourly: 'stündlich',
+    'hourly at :{minute}': 'stündlich um :{minute}',
+    'daily at {time}': 'täglich um {time}',
+    'weekdays at {time}': 'werktags um {time}',
+    once: 'einmal',
+    'Show all {count} schedules': 'Alle {count} Zeitpläne anzeigen',
+    'profile {name}': 'Profil {name}',
+    'Webhook enabled': 'Webhook an',
+    'Webhook disabled': 'Webhook aus',
+  },
 });

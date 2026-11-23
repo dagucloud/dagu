@@ -34,4 +34,14 @@ export default defineMessages({
     'Select the step on the left': '左のステップを選択',
     'Select the step on the right': '右のステップを選択',
   },
+  de: {
+    'Copy the selected step': 'Gewählten Schritt kopieren',
+    'Paste steps': 'Schritte einfügen',
+    'Duplicate the selected step': 'Gewählten Schritt duplizieren',
+    'Zoom to 100%': 'Auf 100 % zoomen',
+    'Select the step above': 'Schritt darüber wählen',
+    'Select the step below': 'Schritt darunter wählen',
+    'Select the step on the left': 'Schritt links wählen',
+    'Select the step on the right': 'Schritt rechts wählen',
+  },
 });

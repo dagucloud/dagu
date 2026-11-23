@@ -37,4 +37,15 @@ export default defineMessages({
     'Save or fix the step to see its upstream data':
       'ステップを保存または修正すると上流のデータを表示できます',
   },
+  de: {
+    Input: 'Eingabe',
+    Output: 'Ausgabe',
+    'Previous step': 'Vorheriger Schritt',
+    'Next step': 'Nächster Schritt',
+    'Dock to the side': 'An der Seite andocken',
+    'Step data': 'Schrittdaten',
+    'Select a step first': 'Zuerst einen Schritt wählen',
+    'Save or fix the step to see its upstream data':
+      'Schritt speichern oder korrigieren, um seine Eingangsdaten zu sehen',
+  },
 });

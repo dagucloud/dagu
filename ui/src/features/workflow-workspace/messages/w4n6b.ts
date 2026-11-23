@@ -17,4 +17,8 @@ export default defineMessages({
     'This is the first step': '最初のステップです',
     'This is the last step': '最後のステップです',
   },
+  de: {
+    'This is the first step': 'Das ist der erste Schritt',
+    'This is the last step': 'Das ist der letzte Schritt',
+  },
 });

@@ -102,4 +102,38 @@ export const nodeTestMessages = defineMessages({
     'Bastion key': '踏み台の鍵',
     'Not tested': '未テスト',
   },
+  de: {
+    'Connection test': 'Verbindungstest',
+    'Tested {done} of {total}': '{done} von {total} getestet',
+    '{passed} passed, {failed} failed':
+      '{passed} bestanden, {failed} fehlgeschlagen',
+    'Trust {count} unknown keys': '{count} unbekannten Schlüsseln vertrauen',
+    'Replace key': 'Schlüssel ersetzen',
+    'Trust key': 'Schlüssel vertrauen',
+    Passed: 'Bestanden',
+    'Changed key': 'Geänderter Schlüssel',
+    'Unknown key': 'Unbekannter Schlüssel',
+    'Key replaced': 'Schlüssel ersetzt',
+    'Key trusted': 'Schlüssel vertraut',
+    'Replace trusted host key': 'Vertrauten Host-Schlüssel ersetzen',
+    'The host key of {node} has changed. A host that was reinstalled presents a new key, and so does a connection someone intercepts. Replace the key only if you know why it changed.':
+      'Der Host-Schlüssel von {node} hat sich geändert. Ein neu installierter Host zeigt einen neuen Schlüssel, eine abgefangene Verbindung aber auch. Den Schlüssel nur ersetzen, wenn du weißt, warum er sich geändert hat.',
+    Trusted: 'Vertraut',
+    Presented: 'Vorgelegt',
+    'Trust host keys': 'Host-Schlüsseln vertrauen',
+    Trust: 'Vertrauen',
+    'Runs and tests will accept these keys. Trust them only if they are the keys of these hosts.':
+      'Läufe und Tests nehmen diese Schlüssel an. Nur vertrauen, wenn es die Schlüssel dieser Hosts sind.',
+    "Couldn't list the matched nodes.":
+      'Die passenden Knoten konnten nicht aufgelistet werden.',
+    'A test takes at most 1,000 nodes. Narrow the filters, or check the nodes to test.':
+      'Ein Test umfasst höchstens 1.000 Knoten. Filter eingrenzen oder die zu testenden Knoten anhaken.',
+    'Test {count} checked': '{count} angehakte testen',
+    'Test matched nodes': 'Passende Knoten testen',
+    'Check the nodes of this page': 'Knoten dieser Seite anhaken',
+    'Check {name}': '{name} anhaken',
+    'Last test': 'Letzter Test',
+    'Bastion key': 'Bastion-Schlüssel',
+    'Not tested': 'Nicht getestet',
+  },
 });

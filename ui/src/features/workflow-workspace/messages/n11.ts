@@ -33,4 +33,14 @@ export default defineMessages({
     'Fix the YAML syntax error before you save':
       '保存する前に YAML の構文エラーを修正してください',
   },
+  de: {
+    'Declared outputs': 'Angegebene Ausgaben',
+    'This step declares no outputs': 'Dieser Schritt gibt keine Ausgaben an',
+    'Switch document': 'Dokument wechseln',
+    'Workflow-level': 'Ablaufebene',
+    'Discard {count} changed lines? This cannot be undone.':
+      '{count} geänderte Zeilen verwerfen? Das lässt sich nicht rückgängig machen.',
+    'Fix the YAML syntax error before you save':
+      'Vor dem Speichern den YAML-Syntaxfehler beheben',
+  },
 });

@@ -25,4 +25,11 @@ export default defineMessages({
       'サブ実行のヒューマンタスクはここでは完了できません。',
     'Copy failed': 'コピーできませんでした',
   },
+  de: {
+    'Show activity': 'Aktivität anzeigen',
+    'Hide activity': 'Aktivität ausblenden',
+    'A human task of a sub-run cannot be completed here.':
+      'Eine Benutzeraufgabe eines Unterlaufs kann hier nicht erledigt werden.',
+    'Copy failed': 'Kopieren fehlgeschlagen',
+  },
 });

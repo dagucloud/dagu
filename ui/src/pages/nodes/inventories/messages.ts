@@ -192,4 +192,34 @@ export const inventoryMessages = defineMessages({
     'The node is no longer in its inventory.':
       'このノードはもうインベントリにありません。',
   },
+  de: {
+    Inventories: 'Inventare',
+    'New inventory': 'Neues Inventar',
+    'Edit inventory': 'Inventar bearbeiten',
+    'Edit JSON': 'JSON bearbeiten',
+    'Delete inventory': 'Inventar löschen',
+    'Delete {name} and its {count} nodes? Their trusted host keys are forgotten, and steps no longer match them.':
+      '{name} und seine {count} Knoten löschen? Ihre vertrauten Host-Schlüssel werden vergessen, und Schritte treffen sie nicht mehr.',
+    "Couldn't read the inventory.": 'Das Inventar konnte nicht gelesen werden.',
+    'Defaults fill the fields a node leaves unset. Credentials are key paths and secret refs, never values.':
+      'Vorgaben füllen die Felder, die ein Knoten offen lässt. Zugangsdaten sind Schlüsselpfade und Geheimnis-Verweise, nie Werte.',
+    'Default user': 'Standardbenutzer',
+    'Default port': 'Standard-Port',
+    'Default labels': 'Standard-Labels',
+    'Refuse host keys that are neither pinned nor trusted':
+      'Host-Schlüssel ablehnen, die weder festgelegt noch vertraut sind',
+    'The default port must be a whole number.':
+      'Der Standard-Port muss eine ganze Zahl sein.',
+    'Give a key file or a key secret, not both.':
+      'Schlüsseldatei oder Schlüssel-Geheimnis angeben, nicht beides.',
+    'Someone changed this inventory after you opened it. Load it as it is now, then make your change again.':
+      'Jemand hat dieses Inventar nach dem Öffnen geändert. Den aktuellen Stand laden und die Änderung erneut vornehmen.',
+    'Load current version': 'Aktuelle Fassung laden',
+    'Edit {name} as JSON': '{name} als JSON bearbeiten',
+    'The record that dagu nodes export prints. Removing or renaming a node forgets its trusted host key.':
+      'Der Datensatz, den dagu nodes export ausgibt. Entfernen oder Umbenennen eines Knotens vergisst seinen vertrauten Host-Schlüssel.',
+    'Inventory JSON': 'Inventar-JSON',
+    'The text is not valid JSON.': 'Der Text ist kein gültiges JSON.',
+    'An inventory is one JSON object.': 'Ein Inventar ist ein JSON-Objekt.',
+  },
 });

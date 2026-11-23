@@ -20,4 +20,9 @@ export default defineMessages({
     'the outputs of this step': 'このステップの出力',
     'the run {runId}': '実行 {runId}',
   },
+  de: {
+    'Could not load {thing}': '{thing} konnte nicht geladen werden',
+    'the outputs of this step': 'die Ausgaben dieses Schritts',
+    'the run {runId}': 'den Lauf {runId}',
+  },
 });
