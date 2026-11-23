@@ -1300,6 +1300,10 @@ a step it adds in the same shape:
   and a string keeps its quotes. A flow-style map or list that gains an
   entry, or one of whose values changes other than in place on its line,
   is rewritten in block style.
+- Each rewrite is read back before it is kept. A case whose rewritten text
+  would not read as its rewritten `expect`, with the case otherwise as valid
+  as before and the rest of the file as before, keeps its `expect`, so the
+  file never gets invalid YAML or a value other than the run's.
 - The report and the exit status are those of a run of the rewritten cases.
   A rewritten case passes unless an assertion that stays as written fails,
   such as a stream assertion or an output that the step did not publish, and
@@ -1309,8 +1313,9 @@ a step it adds in the same shape:
   passes: `expect updated` (`updated`) when its text changed,
   `expect unchanged` (`unchanged`) when the run left its text as it was, and
   `expect kept: <reason>` (`kept`) when it stays as written whatever the run
-  did. `<reason>` is `the case is invalid`, `the run did not finish`, or
-  `the case is written in flow style or uses a YAML anchor, alias, or merge key`.
+  did. `<reason>` is `the case is invalid`, `the run did not finish`,
+  `the case is written in flow style or uses a YAML anchor, alias, or merge key`,
+  or `the expect could not be rewritten in place`.
 - A test file is written once its selected cases have run, and only when an
   `expect` changed, through a temporary file in its directory renamed over
   it, keeping its mode. A test file that changed while its cases ran is not

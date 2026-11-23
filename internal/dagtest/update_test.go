@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -282,6 +283,37 @@ func TestUpdateKeepsForm(t *testing.T) {
 			assertFile(t, path, file)
 		})
 	}
+}
+
+// A rewrite that would not read back as the expect it was given, or that
+// would change another part of the file, is not kept: the case keeps its
+// expect with the reason, and the file gets only rewrites that read back.
+// The edits stand in for a scanner that misjudges where text ends.
+func TestUpdateReadBack(t *testing.T) {
+	t.Parallel()
+
+	const file = "mocks:\n  build: {}\ncases:\n  - name: c\n    expect:\n      status: succeeded\n  - name: d\n    expect:\n      status: succeeded\n"
+	c, d := strings.Index(file, "succeeded"), strings.LastIndex(file, "succeeded")
+	edit := func(at int, text string) textEdit { return textEdit{start: at, end: at + len("succeeded"), text: text} }
+	tests := map[string][]textEdit{
+		"InvalidYAML": {edit(c, "[failed")},
+		"WrongValue":  {edit(c, "aborted")},
+		"OtherCase":   {edit(c, "failed"), edit(d, "failed")},
+	}
+	path := writeTestFile(t, draftDAG, file)
+	update, loaded := newTestUpdate(t, path)
+	for name, edits := range tests {
+		failed := updatedExpect(loaded.Cases[0].Expect, func(e *Expect) { e.Status = "failed" })
+		err := update.accept(0, failed, edits)
+		require.ErrorIs(t, err, errNotInPlace, name)
+		assert.EqualError(t, err, "the expect could not be rewritten in place", name)
+	}
+
+	changed, err := update.Set("d", updatedExpect(loaded.Cases[1].Expect, func(e *Expect) { e.Status = "failed" }))
+	require.NoError(t, err)
+	assert.True(t, changed)
+	require.NoError(t, update.Write())
+	assertFile(t, path, file[:d]+"failed\n")
 }
 
 // Write keeps the file's mode, writes nothing when no expect changed, and

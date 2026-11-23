@@ -6,6 +6,7 @@ package dagtest
 import (
 	"bytes"
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -24,6 +25,10 @@ import (
 // the file.
 var errCaseForm = errors.New("the case is written in flow style or uses a YAML anchor, alias, or merge key")
 
+// errNotInPlace is why Update keeps an expect whose rewritten text would not
+// read back as the expect it was given, with the rest of the file as before.
+var errNotInPlace = errors.New("the expect could not be rewritten in place")
+
 // defaultIndent is the indentation step of written YAML, and of an expect
 // whose own step yaml.v3 cannot write, which is 2 to 9 spaces.
 const defaultIndent = 2
@@ -31,7 +36,7 @@ const defaultIndent = 2
 // Update rewrites the expect of cases of a test file that LoadFile read, as
 // dagu test --update does (Spec 101, Authoring Flags). Only the text of
 // what an expect changes is rewritten, so the rest of the file stays as it
-// is, comments included.
+// is, comments included, and each rewrite is read back before it is kept.
 type Update struct {
 	file  *File
 	text  *yamlText
@@ -39,8 +44,11 @@ type Update struct {
 	// cases is the file's list of cases, or nil when it is not written
 	// directly under the top-level map.
 	cases *yaml.Node
-	// edits holds the text edits of every expect that Set changed.
-	edits []textEdit
+	// edits holds the text edits of every expect that Set changed, written
+	// the text they make, and decoded that text decoded.
+	edits   []textEdit
+	written []byte
+	decoded fileSpec
 }
 
 // NewUpdate returns the update of the test file f, which LoadFile returned.
@@ -52,7 +60,11 @@ func NewUpdate(f *File) (*Update, error) {
 	if len(doc.Content) == 0 {
 		return nil, fmt.Errorf("%s holds no test file", f.Path)
 	}
-	u := &Update{file: f, text: newYAMLText(f.data), steps: indexSteps(f.DAG)}
+	decoded, errs := decodeFile(f.data)
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("%s: %s", f.Path, joinFindings(errs))
+	}
+	u := &Update{file: f, text: newYAMLText(f.data), steps: indexSteps(f.DAG), written: f.data, decoded: decoded}
 	top := resolve(doc.Content[0])
 	if i := keyIndex(top, "cases"); i >= 0 {
 		u.cases = top.Content[i+1]
@@ -64,8 +76,10 @@ func NewUpdate(f *File) (*Update, error) {
 // written, with its assertions in their order and some of their values
 // changed, followed by the step entries it adds. An output value is written
 // as yaml.v3 writes it, so a number is an int64, uint64, or float64. Set
-// reports whether the file's text changes. A case that uses a YAML anchor, alias, or merge key,
-// or is written in flow style, keeps its expect, and Set returns why.
+// reports whether the file's text changes. A case that uses a YAML anchor,
+// alias, or merge key, or is written in flow style, keeps its expect, and so
+// does one whose rewritten text would not read back as expect with the rest
+// of the file as before; Set then returns why.
 func (u *Update) Set(name string, expect Expect) (bool, error) {
 	i := slices.IndexFunc(u.file.Cases, func(c Case) bool { return c.Name == name })
 	if i < 0 {
@@ -78,11 +92,47 @@ func (u *Update) Set(name string, expect Expect) (bool, error) {
 	ed := &expectEditor{text: u.text, steps: u.steps, indent: indentStep(at)}
 	ed.expect(at, u.file.Cases[i].Expect, expect)
 	edits, err := ed.render()
-	if err != nil {
+	if err != nil || len(edits) == 0 {
 		return false, err
 	}
-	u.edits = append(u.edits, edits...)
-	return len(edits) > 0, nil
+	if err := u.accept(i, expect, edits); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// accept keeps the edits that rewrite the expect of the case at index i to
+// expect when the text they make, with the edits kept before, decodes with
+// that case's expect as expect and the case otherwise valid as before, and
+// with every other part of the file as before. Otherwise it keeps nothing and
+// returns errNotInPlace.
+func (u *Update) accept(i int, expect Expect, edits []textEdit) error {
+	all := append(slices.Clone(u.edits), edits...)
+	text := u.text.apply(slices.Clone(all))
+	decoded, errs := decodeFile(text)
+	if len(errs) > 0 || len(decoded.cases) != len(u.decoded.cases) {
+		return errNotInPlace
+	}
+	rebuilt := buildCase(u.file.DAG, u.steps, decoded, decoded.cases[i])
+	if !sameExpect(rebuilt.Expect, expect) || !reflect.DeepEqual(rebuilt.Errors, u.file.Cases[i].Errors) {
+		return errNotInPlace
+	}
+	rest := decoded
+	rest.cases = slices.Clone(decoded.cases)
+	rest.cases[i].expect = u.decoded.cases[i].expect
+	if !reflect.DeepEqual(rest, u.decoded) {
+		return errNotInPlace
+	}
+	u.edits, u.written, u.decoded = all, text, decoded
+	return nil
+}
+
+// sameExpect reports whether two expects hold the same assertions, with
+// numbers compared by value.
+func sameExpect(a, b Expect) bool {
+	x, errA := json.Marshal(a)
+	y, errB := json.Marshal(b)
+	return errA == nil && errB == nil && bytes.Equal(x, y)
 }
 
 // Write writes the file with every expect that Set changed, through a
@@ -108,7 +158,7 @@ func (u *Update) Write() error {
 	if !bytes.Equal(current, u.text.data) {
 		return fmt.Errorf("%s changed while its cases ran, so its expects were not updated", u.file.Path)
 	}
-	return fileutil.WriteFileAtomic(path, u.text.apply(u.edits), info.Mode().Perm())
+	return fileutil.WriteFileAtomic(path, u.written, info.Mode().Perm())
 }
 
 // expectEntry returns the expect entry of the named case, or errCaseForm
@@ -368,7 +418,7 @@ func (ed *expectEditor) valueEdit(at slot, old yaml.Node, n *yaml.Node) (textEdi
 	key := at.key()
 	colon, ok := ed.text.colonEnd(key)
 	if !ok {
-		return textEdit{}, errCaseForm
+		return textEdit{}, errNotInPlace
 	}
 	inline, below := ed.place(n, key.Column-1)
 	start, end, ok := ed.text.span(&old)
