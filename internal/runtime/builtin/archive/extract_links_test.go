@@ -7,10 +7,12 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,11 +21,13 @@ import (
 )
 
 // archiveEntry is one entry of a test archive. A non-empty link makes the
-// entry a symbolic link to that target.
+// entry a symbolic link to that target. A file entry has mode 0o644 unless
+// mode is set.
 type archiveEntry struct {
 	name string
 	link string
 	body string
+	mode fs.FileMode
 }
 
 var testArchiveFormats = []string{"tar", "tar.gz", "zip"}
@@ -42,7 +46,7 @@ func writeTestArchive(t *testing.T, path, format string, entries []archiveEntry)
 		}
 		tw := tar.NewWriter(w)
 		for _, e := range entries {
-			hdr := &tar.Header{Name: e.name, Mode: 0o644, Typeflag: tar.TypeReg, Size: int64(len(e.body))}
+			hdr := &tar.Header{Name: e.name, Mode: tarMode(e.mode), Typeflag: tar.TypeReg, Size: int64(len(e.body))}
 			if e.link != "" {
 				hdr = &tar.Header{Name: e.name, Mode: 0o777, Typeflag: tar.TypeSymlink, Linkname: e.link}
 			}
@@ -68,7 +72,7 @@ func writeTestArchive(t *testing.T, path, format string, entries []archiveEntry)
 		for _, e := range entries {
 			hdr := &zip.FileHeader{Name: e.name, Method: zip.Deflate}
 			body := e.body
-			hdr.SetMode(0o644)
+			hdr.SetMode(cmp.Or(e.mode, 0o644))
 			if e.link != "" {
 				hdr.SetMode(os.ModeSymlink | 0o777)
 				body = e.link
@@ -90,6 +94,24 @@ func writeTestArchive(t *testing.T, path, format string, entries []archiveEntry)
 	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
 		t.Fatalf("write archive: %v", err)
 	}
+}
+
+// tarMode returns mode as the Unix mode bits of a tar header, 0o644 when zero.
+func tarMode(mode fs.FileMode) int64 {
+	if mode == 0 {
+		return 0o644
+	}
+	bits := int64(mode.Perm())
+	if mode&fs.ModeSetuid != 0 {
+		bits |= 0o4000
+	}
+	if mode&fs.ModeSetgid != 0 {
+		bits |= 0o2000
+	}
+	if mode&fs.ModeSticky != 0 {
+		bits |= 0o1000
+	}
+	return bits
 }
 
 // extractTestArchive extracts source into destination with default options.

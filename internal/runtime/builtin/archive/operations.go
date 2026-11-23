@@ -718,8 +718,10 @@ func linkTargetWithin(destReal, linkDir, linkTarget string) (string, error) {
 	return rel, nil
 }
 
+// fileModeFor returns the permission bits to create an entry's file with.
+// os.Root takes no other bits, so setuid, setgid, and sticky bits are dropped.
 func fileModeFor(info archives.FileInfo) fs.FileMode {
-	mode := info.Mode()
+	mode := info.Mode().Perm()
 	if mode == 0 {
 		return 0o644
 	}
