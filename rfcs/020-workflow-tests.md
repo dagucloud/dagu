@@ -622,12 +622,11 @@ expect:
     implement:
       status: succeeded
       attempts: 3
-    route:
+    collect:
       outputs:
-        target: merge
-    report:
+        summary: 3 files changed
       stdout:
-        contains: 3 files changed
+        contains: collected 3 files
     handler_on.failure: succeeded
   notifications:
     - kind: mail_on.failure
@@ -682,7 +681,12 @@ sent.
   an existing file.
 - **`dagu test --update`** runs the cases and rewrites each case's `expect`
   from its actual run, so a change in behavior shows as a diff to review.
-  It rewrites only `expect` blocks.
+  It never removes an assertion the author wrote. Exact facts take the
+  actual values: run and step `status` and `attempts`, `notifications`, and
+  the values of outputs the case already asserts. `contains` and `matches`
+  stay as written and still report a failure. A step with no assertion
+  gains its `status`. It rewrites only `expect` blocks, and leaves invalid
+  and unfinished cases as they are.
 - **Editor support.** Dagu publishes a JSON Schema for test files beside the
   DAG schema, so editors validate and complete `*.test.yaml`.
 
