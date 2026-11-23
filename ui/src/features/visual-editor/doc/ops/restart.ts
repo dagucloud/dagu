@@ -79,7 +79,8 @@ export function readRestart(text: string): RestartView {
       policy: readPolicy(root.get('restart_policy', true)),
       schedule: scheduleEntries(root.get('schedule', true)) > 0,
       retryPolicy: !isEmpty(root.get('retry_policy', true)),
-      waitGiven: !isEmpty(wait) && !(isScalar(wait) && Number(wait.value) === 0),
+      waitGiven:
+        !isEmpty(wait) && !(isScalar(wait) && Number(wait.value) === 0),
     };
   } catch {
     return NO_RESTART;
