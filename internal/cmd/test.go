@@ -18,6 +18,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagtest"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -234,7 +235,7 @@ func testLoadOptions(ctx *Context) []spec.LoadOption {
 // assertions. An invalid case runs nothing.
 func runTestCase(ctx *Context, file *dagtest.File, c dagtest.Case, opts testOptions) (result caseResult) {
 	result.name = c.Name
-	result.errors = append(slices.Clone(c.Errors), realChildRuns(file.DAG, c)...)
+	result.errors = append(slices.Clone(c.Errors), dagtest.CheckRealChildren(file.DAG, c, childResolver(ctx, file.DAG))...)
 	result.errors = append(result.errors, unsupportedAssertions(c.Expect)...)
 	if len(result.errors) > 0 {
 		return result
@@ -363,4 +364,26 @@ func scriptedStep(s dagtest.Script) stepmock.Step {
 		step.Review = &stepmock.Review{Reject: s.Review.Reject, Values: s.Review.Values}
 	}
 	return step
+}
+
+// childResolver returns the child DAGs that the steps of parent start, as
+// an in-process child run loads them: a document of the parent's file by
+// name, else the DAG the repository finds. A child takes no handler from
+// the base config, and none of its params[].eval runs.
+func childResolver(ctx *Context, parent *ir.DAG) func(name string) (*ir.DAG, error) {
+	return func(name string) (*ir.DAG, error) {
+		opts := append(testLoadOptions(ctx), spec.WithSkipBaseHandlers(), spec.DeferAllParamEvals())
+		if local, ok := parent.LocalDAGs[name]; ok {
+			return spec.LoadYAML(ctx, local.YamlData, append(opts, spec.WithName(name))...)
+		}
+		repository, err := ctx.dagRepository(dagRepositoryConfig{SearchPaths: []string{filepath.Dir(parent.Location)}})
+		if err != nil {
+			return nil, err
+		}
+		found, err := repository.GetDetails(ctx, name, persis.DAGLoadOptions{})
+		if err != nil {
+			return nil, err
+		}
+		return spec.Load(ctx, found.Location, opts...)
+	}
 }

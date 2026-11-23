@@ -93,10 +93,9 @@ func TestWorkflowTests(t *testing.T) {
 			"PASS workflows/episodes.test.yaml: a mocked foreach succeeds without expanding items (",
 			"INVALID workflows/episodes.test.yaml: a foreach with a command body is invalid\n  step summarize, body step one: ",
 		}},
-		// The child of a real step is not checked yet, so it does not run.
 		{"parent.test.yaml", 2, []string{
-			"INVALID workflows/parent.test.yaml: a real child of side-effect-free steps runs in the case\n  step call_quiet: ",
-			"INVALID workflows/parent.test.yaml: a real child with a command step is invalid\n  step call: ",
+			"PASS workflows/parent.test.yaml: a real child of side-effect-free steps runs in the case (",
+			"INVALID workflows/parent.test.yaml: a real child with a command step is invalid\n  step call, child child, step write: ",
 		}},
 		{"service.test.yaml", 0, []string{"2 cases: 2 passed, 0 failed\n"}},
 		{"publish.test.yaml", 2, []string{

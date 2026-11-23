@@ -1,0 +1,25 @@
+params:
+  - name: child
+    default: child
+steps:
+  - id: call
+    action: dag.run
+    with:
+      dag: child
+  - id: dynamic
+    action: dag.run
+    with:
+      dag: ${params.child}
+  - id: missing
+    action: dag.run
+    with:
+      dag: absent
+  - id: queue
+    action: dag.enqueue
+    with:
+      dag: child
+handler_on:
+  exit:
+    action: dag.run
+    with:
+      dag: child

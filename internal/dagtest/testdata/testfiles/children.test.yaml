@@ -1,0 +1,5 @@
+real: [call, dynamic, missing, queue, handler_on.exit]
+cases:
+  - name: real children
+    expect:
+      status: succeeded

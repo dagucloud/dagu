@@ -6,11 +6,10 @@ Partially implemented.
 
 `dagu test` runs test files with `--timeout`, the text report, and the exit
 status, and checks run status, step status, and step `attempts`. A case
-with another assertion, or with a real step that starts a child run, is
-reported invalid. Not implemented yet: the other assertions, the check of
-a real step's child DAG, `--run`, `--keep`, `--format json`, the fix of an
-invalid case, the report's lists of default mocks, automatic approvals,
-and notifications, and skipping test files in DAG discovery.
+with another assertion is reported invalid. Not implemented yet: the other
+assertions, `--run`, `--keep`, `--format json`, the fix of an invalid case,
+the report's lists of default mocks, automatic approvals, and
+notifications, and skipping test files in DAG discovery.
 
 The authoring flags `--init` and `--update` (see
 [Authoring Flags](#authoring-flags)) ship after the first release of
