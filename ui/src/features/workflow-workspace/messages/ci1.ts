@@ -22,6 +22,15 @@ export default defineMessages({
       'The run goes on with the steps after this one.',
     'The step then counts as a success.': 'The step then counts as a success.',
     'Runs only if:': 'Runs only if:',
+    'Retries the step up to {limit} times.':
+      'Retries the step up to {limit} times.',
+    'Retries the step.': 'Retries the step.',
+    'Waits {interval} between the attempts.':
+      'Waits {interval} between the attempts.',
+    'Waits {interval} before the second attempt, then longer each time.':
+      'Waits {interval} before the second attempt, then longer each time.',
+    'Retries only after the exit code {codes}.':
+      'Retries only after the exit code {codes}.',
   },
   'zh-CN': {
     'if {step} failed': '如果 {step} 失败',
@@ -38,6 +47,13 @@ export default defineMessages({
       '运行会继续执行此步骤之后的步骤。',
     'The step then counts as a success.': '此步骤随后视为成功。',
     'Runs only if:': '仅在以下条件成立时运行：',
+    'Retries the step up to {limit} times.': '此步骤最多重试 {limit} 次。',
+    'Retries the step.': '此步骤会重试。',
+    'Waits {interval} between the attempts.': '两次尝试之间等待 {interval}。',
+    'Waits {interval} before the second attempt, then longer each time.':
+      '第二次尝试前等待 {interval}，之后每次更长。',
+    'Retries only after the exit code {codes}.':
+      '仅在退出码为 {codes} 时重试。',
   },
   ja: {
     'if {step} failed': '{step} が失敗した場合',
@@ -56,5 +72,14 @@ export default defineMessages({
     'The step then counts as a success.':
       'その場合、ステップは成功と見なされます。',
     'Runs only if:': '次の条件のときだけ実行:',
+    'Retries the step up to {limit} times.':
+      'このステップを最大 {limit} 回再試行します。',
+    'Retries the step.': 'このステップを再試行します。',
+    'Waits {interval} between the attempts.':
+      '試行の間に {interval} 待ちます。',
+    'Waits {interval} before the second attempt, then longer each time.':
+      '2 回目の試行の前に {interval} 待ち、その後は毎回長くなります。',
+    'Retries only after the exit code {codes}.':
+      '終了コードが {codes} のときだけ再試行します。',
   },
 });

@@ -5,6 +5,7 @@ import type { NodeStatus } from '@/api/v1/schema';
 import type { CanvasEdge, CanvasNode, GhostLook, StepKey } from '../contracts';
 import type { LauncherState, LauncherStatus } from '../launchers/model';
 import type { EdgeBundleData } from './bundles';
+import type { RetryFacts } from './retryPolicy';
 import type { FlowEdge, FlowNode, Waypoint } from './engine';
 
 /** Node type names of the canvas. */
@@ -92,6 +93,8 @@ export interface CanvasNodeWithRoutes extends CanvasNode {
   hub?: AgentHubData;
   /** Set on the steps of an agent DAG, which draw as tool cards. */
   tool?: ToolCardData;
+  /** The retry policy of the step, when it has one: its card draws the loop. */
+  retry?: RetryFacts;
 }
 
 /**

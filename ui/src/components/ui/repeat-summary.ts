@@ -16,6 +16,8 @@ export interface RepeatPolicyView {
   intervalSec?: number;
   /** The maximum number of runs, when the policy sets a fixed number. */
   limit?: number;
+  /** The text of the limit when a reference or a variable gives it. */
+  limitRef?: string;
   /** The condition, with ` = expected` appended when the policy has one. */
   condition?: string;
   exitCodes?: number[];
@@ -103,6 +105,9 @@ export function readRepeatPolicy(raw: unknown): RepeatPolicyView | null {
   if (intervalSec !== undefined) view.intervalSec = intervalSec;
   const limit = count(raw.limit);
   if (limit !== undefined) view.limit = limit;
+  else if (typeof raw.limit === 'string' && raw.limit.trim() !== '') {
+    view.limitRef = raw.limit.trim();
+  }
   if (condition !== undefined) view.condition = condition;
   if (exitCodes !== undefined) view.exitCodes = exitCodes;
   if (raw.backoff !== undefined && raw.backoff !== false && raw.backoff !== 0) {
@@ -156,8 +161,8 @@ export function repeatSummary(policy: RepeatPolicyView, ts: Translate): string {
     );
   }
   parts.push(
-    policy.limit !== undefined
-      ? ts('max {limit}', { limit: policy.limit })
+    policy.limit !== undefined || policy.limitRef !== undefined
+      ? ts('max {limit}', { limit: policy.limit ?? policy.limitRef ?? '' })
       : ts('no limit')
   );
   return parts.join(' · ');
