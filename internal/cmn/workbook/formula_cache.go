@@ -374,8 +374,8 @@ func relsPath(part string) string {
 // partPath resolves a relationship target: absolute from the package root,
 // or relative to the directory of the part that holds the relationship.
 func partPath(dir, target string) string {
-	if strings.HasPrefix(target, "/") {
-		return strings.TrimPrefix(target, "/")
+	if absolute, ok := strings.CutPrefix(target, "/"); ok {
+		return absolute
 	}
 	return path.Join(dir, target)
 }
