@@ -4,7 +4,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RestartPolicy } from '@/api/v1/schema';
+import { RestartPolicy, Status } from '@/api/v1/schema';
 import {
   WorkspaceDataContext,
   type WorkspaceDataValue,
@@ -23,6 +23,7 @@ import { RunTimeline } from '../RunTimeline';
 const h = vi.hoisted(() => ({
   select: vi.fn(),
   restartPolicy: undefined as string | undefined,
+  latest: undefined as unknown,
 }));
 
 vi.mock('../../data', () => ({
@@ -54,10 +55,21 @@ vi.mock('../../continuous/SamplesPanel', () => ({
     testId: string;
     source: unknown;
     range: unknown;
+    liveRun: { id: string } | null;
+    onOpenRun(id: string): void;
   }) => (
     <div data-testid={props.testId}>
       <span data-testid="stub-source">{JSON.stringify(props.source)}</span>
       <span data-testid="stub-range">{JSON.stringify(props.range)}</span>
+      <span data-testid="stub-live">{JSON.stringify(props.liveRun)}</span>
+      {props.liveRun && (
+        <button
+          type="button"
+          onClick={() => props.onOpenRun(props.liveRun!.id)}
+        >
+          open live run
+        </button>
+      )}
     </div>
   ),
 }));
@@ -85,6 +97,7 @@ function renderDock() {
     remoteNode: 'local',
     dagData: {
       dag: { name: 'svc', restartPolicy: h.restartPolicy },
+      latestDAGRun: h.latest,
     },
   } as unknown as WorkspaceDataValue;
   return render(
@@ -100,6 +113,7 @@ beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   h.restartPolicy = RestartPolicy.always;
+  h.latest = undefined;
   h.select.mockReset();
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(NOW);
@@ -185,6 +199,37 @@ describe('the Activity panel of a service DAG', () => {
     choose('Custom range');
     expect(screen.getByTestId('stub-range')).toHaveTextContent('"from"');
     expect(screen.getByTestId('stub-range')).not.toHaveTextContent('preset');
+  });
+
+  // A service that runs for days has no sample in a short window until its
+  // run ends: the latest run, while it runs, goes to the history.
+  it('gives the history the run in progress, which opens', () => {
+    h.latest = {
+      dagRunId: 'run-1',
+      status: Status.Running,
+      startedAt: '2026-11-05T12:00:00Z',
+      finishedAt: '',
+    };
+    renderDock();
+    expect(screen.getByTestId('stub-live')).toHaveTextContent(
+      JSON.stringify({
+        id: 'run-1',
+        startedAt: Date.parse('2026-11-05T12:00:00Z'),
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'open live run' }));
+    expect(h.select).toHaveBeenCalledWith('run-1', { replace: true });
+  });
+
+  it('gives the history no run in progress after the latest run ended', () => {
+    h.latest = {
+      dagRunId: 'run-1',
+      status: Status.Failed,
+      startedAt: '2026-11-05T12:00:00Z',
+      finishedAt: '2026-11-08T11:00:00Z',
+    };
+    renderDock();
+    expect(screen.getByTestId('stub-live')).toHaveTextContent('null');
   });
 
   // The view menu filters the runs of the timeline: the history has none.

@@ -17,6 +17,7 @@ export default defineMessages({
     '{failures} failed of {count} runs': '{failures} failed of {count} runs',
     Gap: 'Gap',
     'no run for {length}': 'no run for {length}',
+    'Running since {time}': 'Running since {time}',
   },
   'zh-CN': {
     'Last year': '最近 1 年',
@@ -29,6 +30,7 @@ export default defineMessages({
     '{failures} failed of {count} runs': '{count} 次运行中失败 {failures} 次',
     Gap: '空档',
     'no run for {length}': '{length} 内没有运行',
+    'Running since {time}': '自 {time} 起运行中',
   },
   ja: {
     'Last year': '過去 1 年',
@@ -41,5 +43,6 @@ export default defineMessages({
     '{failures} failed of {count} runs': '{count} 件中 {failures} 件が失敗',
     Gap: '空白',
     'no run for {length}': '{length} の間、実行なし',
+    'Running since {time}': '{time} から実行中',
   },
 });

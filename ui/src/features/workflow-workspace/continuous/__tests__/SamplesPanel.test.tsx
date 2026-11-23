@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { act, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AvailabilityWindowWindow,
@@ -237,15 +237,36 @@ describe('SamplesPanel with a run history', () => {
     );
   });
 
-  // A bucket that has up time and no run is not a sample: no bar, and the
-  // window still has no runs.
-  it('shows the empty state when the buckets have up time only', () => {
+  // A run in progress has no sample until it ends: the buckets of a window
+  // that it fills have up time only. Its band shows it, and opens it.
+  it('shows the run in progress in place of the empty state', () => {
     const only = series(3);
     h.responses.samples = {
       ...only,
       buckets: only.buckets.map((b) => ({ ...b, count: 0, upMs: 3_600_000 })),
     };
-    render(panel());
+    const onOpenRun = vi.fn();
+    render(
+      panel({
+        liveRun: { id: 'run-1', startedAt: NOW - 3 * 86_400_000 },
+        onOpenRun,
+      })
+    );
+    expect(screen.queryByTestId('continuous-empty')).toBeNull();
+    const band = screen.getByTestId('continuous-live-run');
+    expect(band).toHaveAccessibleName(/^Running since /);
+    fireEvent.click(band);
+    expect(onOpenRun).toHaveBeenCalledWith('run-1');
+  });
+
+  // A window in the past ends before the run in progress started.
+  it('shows the empty state of a window before the run in progress', () => {
+    h.responses.samples = {
+      ...series(0),
+      from: new Date(NOW - 2 * 86_400_000).toISOString(),
+      to: new Date(NOW - 86_400_000).toISOString(),
+    };
+    render(panel({ liveRun: { id: 'run-1', startedAt: NOW - 3_600_000 } }));
     expect(screen.getByTestId('continuous-empty')).toBeInTheDocument();
   });
 });

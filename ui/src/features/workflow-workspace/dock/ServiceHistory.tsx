@@ -3,15 +3,26 @@
 
 import { useMemo, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import type { LiveRun } from '../continuous/SamplesChart';
 import { runHistorySource } from '../continuous/sampleSource';
 import { SamplesPanel, type PanelRange } from '../continuous/SamplesPanel';
+import type { ApiDAGRunDetails } from '../contracts';
+import { useWorkspaceRun } from '../data';
 import { useWorkspaceData } from '../data/context';
+import { runSpan } from './runExtents';
 import type { RunRange } from './runTimelineModel';
+
+/** The latest run of the DAG while it runs or waits; null otherwise. */
+function liveRunOf(latest: ApiDAGRunDetails | undefined): LiveRun | null {
+  const span = latest ? runSpan(latest, Date.now()) : null;
+  return span?.running ? { id: span.id, startedAt: span.ownStart } : null;
+}
 
 /**
  * The run history of a service DAG, for a time range of the Activity panel:
- * buckets of the history, not the retained runs. The controls are those of
- * the run timeline; `controlsHost` follows the rule of the timeline.
+ * buckets of the history, not the retained runs, and the run in progress,
+ * which has no sample until it ends. The controls are those of the run
+ * timeline; `controlsHost` follows the rule of the timeline.
  */
 export function ServiceHistory({
   range,
@@ -23,7 +34,8 @@ export function ServiceHistory({
   /** undefined: in place. null: hidden. An element: the controls go there. */
   controlsHost: HTMLElement | null | undefined;
 }): ReactElement {
-  const { fileName } = useWorkspaceData('ServiceHistory');
+  const { fileName, dagData } = useWorkspaceData('ServiceHistory');
+  const run = useWorkspaceRun();
   const source = useMemo(() => runHistorySource(fileName), [fileName]);
   const panelRange = useMemo<PanelRange>(
     () =>
@@ -32,6 +44,8 @@ export function ServiceHistory({
         : { preset: range.preset },
     [range]
   );
+  const latest = dagData.latestDAGRun;
+  const liveRun = useMemo(() => liveRunOf(latest), [latest]);
 
   return (
     <div
@@ -47,6 +61,8 @@ export function ServiceHistory({
         // always live, so closing it reads nothing again.
         active
         range={panelRange}
+        liveRun={liveRun}
+        onOpenRun={(id) => run.select(id, { replace: true })}
         testId="ww-service-history-panel"
         // The phone view of Activity is a whole screen: the availability
         // takes two columns there, so the chart needs more height.
