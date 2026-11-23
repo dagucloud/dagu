@@ -248,6 +248,9 @@ type CloudConfig struct {
 	// Report is how much the server reports to Dagu Console. Empty means it
 	// is not set, and the server reports nothing.
 	Report ReportLevel
+	// Audit is which audit entries the server sends to Dagu Console. Empty
+	// means off.
+	Audit AuditLevel
 	// RemoteAccess is the highest role a Dagu Cloud user gets on calls Dagu
 	// Cloud carries to this server. Empty means it is not set, and an
 	// administrator chooses it; until then it is off.
@@ -277,6 +280,25 @@ const (
 	// any command on the host as the user Dagu runs as.
 	RemoteAccessDeveloper RemoteAccessLevel = "developer"
 )
+
+// AuditLevel is which audit entries a server sends to Dagu Console. It takes
+// effect only with local audit on and a license with the audit feature that
+// connects to Dagu Console.
+type AuditLevel string
+
+const (
+	// AuditOff sends nothing.
+	AuditOff AuditLevel = "off"
+	// AuditChanges sends every entry but successful reads.
+	AuditChanges AuditLevel = "changes"
+	// AuditAll sends every entry.
+	AuditAll AuditLevel = "all"
+)
+
+// Sends reports whether the level sends anything.
+func (l AuditLevel) Sends() bool {
+	return l == AuditChanges || l == AuditAll
+}
 
 // ReportLevel is how much a server reports to Dagu Console, beyond the
 // license check-in every licensed server makes.
@@ -880,6 +902,9 @@ func (c *Config) Validate() error {
 	if err := c.validateCloudReport(); err != nil {
 		return err
 	}
+	if err := c.validateCloudAudit(); err != nil {
+		return err
+	}
 	if err := c.validateGitSync(); err != nil {
 		return err
 	}
@@ -1470,6 +1495,16 @@ func (c *Config) validateCloudReport() error {
 		return nil
 	default:
 		return fmt.Errorf("invalid cloud.report: %q (must be one of: off, health, runs, errors)", c.Cloud.Report)
+	}
+}
+
+// validateCloudAudit validates which audit entries go to Dagu Console.
+func (c *Config) validateCloudAudit() error {
+	switch c.Cloud.Audit {
+	case "", AuditOff, AuditChanges, AuditAll:
+		return nil
+	default:
+		return fmt.Errorf("invalid cloud.audit: %q (must be one of: off, changes, all)", c.Cloud.Audit)
 	}
 }
 

@@ -740,6 +740,43 @@ cloud:
 	})
 }
 
+func TestLoad_CloudAudit(t *testing.T) {
+	t.Run("DefaultSendsNothing", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_AUDIT", "")
+		audit := testLoad(t).Cloud.Audit
+		require.Equal(t, AuditLevel(""), audit)
+		require.False(t, audit.Sends())
+	})
+
+	t.Run("YAML", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_AUDIT", "")
+		cfg := loadFromYAML(t, `
+cloud:
+  audit: changes
+`)
+		require.Equal(t, AuditChanges, cfg.Cloud.Audit)
+		require.True(t, cfg.Cloud.Audit.Sends())
+	})
+
+	t.Run("Env", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_AUDIT", " All ")
+		require.Equal(t, AuditAll, testLoad(t).Cloud.Audit)
+	})
+
+	t.Run("Off", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_AUDIT", "off")
+		require.False(t, testLoad(t).Cloud.Audit.Sends())
+	})
+
+	t.Run("Invalid", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_AUDIT", "")
+		for _, value := range []string{"true", "runs"} {
+			err := loadWithErrorFromYAML(t, "cloud:\n  audit: "+value+"\n")
+			require.ErrorContains(t, err, "invalid cloud.audit", value)
+		}
+	})
+}
+
 func TestLoad_CloudRemoteAccess(t *testing.T) {
 	t.Run("DefaultIsChosenInTheUI", func(t *testing.T) {
 		t.Setenv("DAGU_CLOUD_REMOTE_ACCESS", "")
