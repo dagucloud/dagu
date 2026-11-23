@@ -107,7 +107,8 @@ func NewMasker(source SecretSource) *Masker {
 // Mask masks every field of entry but its control fields. Values are
 // replaced whole, no field is cut, and details stays JSON. The entry is
 // marked masked only when the secret values loaded; otherwise it keeps the
-// values loaded last and carries no marker.
+// values loaded last and carries no marker. The values load even once ctx is
+// cancelled, but not past its deadline.
 func (m *Masker) Mask(ctx context.Context, entry *Entry) {
 	secrets, loaded := m.current(ctx)
 	value := reflect.ValueOf(entry).Elem()
@@ -142,8 +143,13 @@ func (m *Masker) current(ctx context.Context) (*masking.Masker, bool) {
 		return m.secrets, m.loaded
 	}
 	// An entry can be written for a request that has already ended, as when
-	// the server stops; the values load all the same, within their own time.
-	loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), m.loadTimeout)
+	// the server stops; the values load all the same, within their own time
+	// and by the caller's deadline.
+	timeout := m.loadTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout = min(timeout, time.Until(deadline))
+	}
+	loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 	values, err := m.source.CurrentValues(loadCtx)
 	m.revision, m.checkedAt, m.loaded = revision, now, err == nil

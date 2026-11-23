@@ -207,6 +207,20 @@ func TestMaskBoundsASlowLoad(t *testing.T) {
 	assert.False(t, entry.Masked)
 }
 
+// A load that hangs ends by the caller's deadline, so a caller with its own
+// time limit, as the audit drain has, is not held past it.
+func TestMaskKeepsTheCallerDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+	entry := &Entry{Username: "u1"}
+
+	started := time.Now()
+	NewMasker(blockingSecrets{}).Mask(ctx, entry)
+
+	assert.Less(t, time.Since(started), time.Second)
+	assert.False(t, entry.Masked)
+}
+
 // A secret changed in this process is masked in the next entry; one changed
 // elsewhere is masked once the values are a minute old.
 func TestMaskReloadsChangedSecrets(t *testing.T) {
