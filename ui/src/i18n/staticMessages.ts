@@ -3323,6 +3323,8 @@ const baseEnglish = {
   'Strict checking': 'Strict checking',
   'Off: any key is accepted': 'Off: any key is accepted',
   'Pinned key': 'Pinned key',
+  "Couldn't load inventories.": "Couldn't load inventories.",
+  "Couldn't load node labels.": "Couldn't load node labels.",
 } as const;
 
 type BaseStaticMessage = keyof typeof baseEnglish;
@@ -6562,6 +6564,8 @@ const baseChinese = {
   'Strict checking': '严格检查',
   'Off: any key is accepted': '关闭：接受任何密钥',
   'Pinned key': '固定的密钥',
+  "Couldn't load inventories.": '无法加载清单。',
+  "Couldn't load node labels.": '无法加载节点标签。',
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const baseJapanese = {
@@ -9915,6 +9919,8 @@ const baseJapanese = {
   'Strict checking': '厳密な検証',
   'Off: any key is accepted': 'オフ：どの鍵も受け入れます',
   'Pinned key': '固定された鍵',
+  "Couldn't load inventories.": 'インベントリを読み込めませんでした。',
+  "Couldn't load node labels.": 'ノードのラベルを読み込めませんでした。',
 } as const satisfies Record<BaseStaticMessage, string>;
 
 const chinese = {

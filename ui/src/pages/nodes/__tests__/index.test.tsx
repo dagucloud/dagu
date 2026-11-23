@@ -48,12 +48,33 @@ const NODES = [
 type Responses = {
   nodes?: { data?: unknown; error?: unknown };
   inventories?: unknown[];
+  inventoriesError?: unknown;
+  retryInventories?: () => void;
 };
 
-function respond({ nodes, inventories }: Responses = {}) {
+function pages(currentPage: number, totalPages: number) {
+  return {
+    totalRecords: totalPages * 50,
+    currentPage,
+    totalPages,
+    nextPage: Math.min(currentPage + 1, totalPages),
+    prevPage: Math.max(currentPage - 1, 1),
+    hasNextPage: currentPage < totalPages,
+  };
+}
+
+function respond({
+  nodes,
+  inventories,
+  inventoriesError,
+  retryInventories,
+}: Responses = {}) {
   useQueryMock.mockImplementation((path: string) => {
     switch (path) {
       case '/inventories':
+        if (inventoriesError) {
+          return { error: inventoriesError, mutate: retryInventories };
+        }
         return {
           data: {
             inventories: inventories ?? [
@@ -191,6 +212,41 @@ describe('NodesPage', () => {
       screen.getByRole('heading', { name: 'No nodes yet' })
     ).toBeInTheDocument();
     expect(screen.getByText('dagu nodes import')).toBeInTheDocument();
+  });
+
+  it('reports inventories that fail to load, offers a retry, and keeps the nodes', () => {
+    const retry = vi.fn();
+    respond({
+      inventoriesError: { code: 'internal_error', message: 'disk unavailable' },
+      retryInventories: retry,
+    });
+    renderPage();
+
+    expect(screen.getByText("Couldn't load inventories.")).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('disk unavailable');
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(retry).toHaveBeenCalled();
+    expect(screen.getByText('web01')).toBeInTheDocument();
+    expect(screen.getByText('2 nodes')).toBeInTheDocument();
+  });
+
+  it('pages only from the rows of the current request', () => {
+    // Page 2 of the previous filter is still shown while page 1 of the new
+    // one loads.
+    respond({ nodes: { data: { nodes: NODES, pagination: pages(2, 3) } } });
+    renderPage();
+
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled();
+  });
+
+  it('moves to the next page', async () => {
+    respond({ nodes: { data: { nodes: NODES, pagination: pages(1, 3) } } });
+    renderPage();
+
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(lastNodesQuery()).toMatchObject({ page: 2 }));
   });
 
   it('reads no inventory while a remote node is selected', () => {

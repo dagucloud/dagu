@@ -87,7 +87,7 @@ function NodeList(): React.ReactElement {
 
   const inventories = useQuery('/inventories', {});
   const nodeLabels = useQuery('/node-labels', {});
-  const { data, error, isLoading, mutate } = useQuery(
+  const { data, error, isLoading, isValidating, mutate } = useQuery(
     '/nodes',
     {
       params: {
@@ -110,6 +110,10 @@ function NodeList(): React.ReactElement {
   );
   const nodes = data?.nodes ?? [];
   const pagination = data?.pagination;
+  // While a new filter loads, the rows and pages shown are the previous
+  // request's, so paging from them would ask for the wrong page.
+  const canPage =
+    !!pagination && pagination.currentPage === page && !isValidating;
   const availableLabels = useMemo(
     () => nodeLabels.data?.labels ?? [],
     [nodeLabels.data?.labels]
@@ -197,6 +201,20 @@ function NodeList(): React.ReactElement {
           </span>
         )}
       </div>
+      {inventories.error && (
+        <FilterLoadError
+          what="Couldn't load inventories."
+          error={inventories.error}
+          onRetry={() => void inventories.mutate()}
+        />
+      )}
+      {nodeLabels.error && (
+        <FilterLoadError
+          what="Couldn't load node labels."
+          error={nodeLabels.error}
+          onRetry={() => void nodeLabels.mutate()}
+        />
+      )}
 
       <div className="card-obsidian min-h-0 flex-1 !overflow-auto">
         <Table className="text-xs">
@@ -265,7 +283,7 @@ function NodeList(): React.ReactElement {
           <Button
             size="sm"
             variant="outline"
-            disabled={!pagination.prevPage}
+            disabled={!canPage || pagination.currentPage <= 1}
             onClick={() => setPage(pagination.prevPage)}
           >
             <I18nText text={'Previous'} />
@@ -282,7 +300,7 @@ function NodeList(): React.ReactElement {
           <Button
             size="sm"
             variant="outline"
-            disabled={!pagination.hasNextPage}
+            disabled={!canPage || !pagination.hasNextPage}
             onClick={() => setPage(pagination.nextPage)}
           >
             <I18nText text={'Next'} />
@@ -295,6 +313,24 @@ function NodeList(): React.ReactElement {
         open={selected !== null}
         onOpenChange={(open) => !open && setSelected(null)}
       />
+    </div>
+  );
+}
+
+/** A filter's choices failed to load. The nodes stay listed. */
+function FilterLoadError({
+  what,
+  error,
+  onRetry,
+}: {
+  what: string;
+  error: unknown;
+  onRetry: () => void;
+}): React.ReactElement {
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 text-xs text-error">
+      <I18nText text={what} />
+      <InlineLoadError error={error} onRetry={onRetry} />
     </div>
   );
 }
