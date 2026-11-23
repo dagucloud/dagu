@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
 // Handling is what one test case supplies for the sources the fail-closed
@@ -330,27 +331,11 @@ func waitNeedingValues(step ir.Step) string {
 	}
 }
 
-// formNeedsValues reports whether a human.task form has a required property
-// without a default. A default fills an omitted property before required is
-// enforced (Spec 031), so only such a property needs a value.
+// formNeedsValues reports whether completing a human.task with no values
+// fails, as the completion path validates its input.
 func formNeedsValues(form json.RawMessage) bool {
-	if len(form) == 0 {
-		return false
-	}
-	var schema struct {
-		Required   []string `json:"required"`
-		Properties map[string]struct {
-			Default json.RawMessage `json:"default"`
-		} `json:"properties"`
-	}
-	if err := json.Unmarshal(form, &schema); err != nil {
-		// A form that cannot be read counts as needing values, so the rule
-		// stays closed.
-		return true
-	}
-	return slices.ContainsFunc(schema.Required, func(name string) bool {
-		return len(schema.Properties[name].Default) == 0
-	})
+	_, err := spec.ValidateHumanTaskInputs(form, nil, false)
+	return err != nil
 }
 
 // isContinuous reports whether the step repeats with no limit (Spec 083). A
