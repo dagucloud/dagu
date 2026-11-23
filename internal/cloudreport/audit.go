@@ -236,7 +236,15 @@ func (s *auditShipper) ship(ctx context.Context) {
 	}
 	startedAt := s.now()
 	full := s.scannedAt.IsZero() || startedAt.Sub(s.scannedAt) >= auditScanInterval
-	for {
+	for first := true; ; first = false {
+		// Each batch goes only while the server may still send, with the
+		// credentials it has then.
+		if !first {
+			if creds, ok = s.connected(ctx); !ok {
+				s.release()
+				return
+			}
+		}
 		pass, resend := s.pending, s.pending != nil
 		if !resend {
 			built, err := s.build(ctx, full)

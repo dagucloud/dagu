@@ -389,6 +389,36 @@ func TestAuditShipperWaitsForANewLicense(t *testing.T) {
 	}
 }
 
+// A pass with several batches sends each only while the server is still
+// connected.
+func TestAuditShipperChecksTheConnectionBeforeEachBatch(t *testing.T) {
+	d := newAuditDir(t)
+	for range 1500 {
+		d.write(t, testClockStart, audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
+	}
+	var connected atomic.Bool
+	connected.Store(true)
+	var batches atomic.Int32
+	send := func(context.Context, license.CloudCredentials, auditBatch) error {
+		batches.Add(1)
+		connected.Store(false)
+		return nil
+	}
+	s := newAuditShipper(fileaudit.NewFeed(d.dir), d.state, filemonitor.NewLease(d.stateFile, nil), config.AuditAll, send)
+	s.credentials = func() (license.CloudCredentials, bool) {
+		creds, _ := testCredentials()
+		return creds, connected.Load()
+	}
+	s.licensed = func() bool { return true }
+	clock := &fakeClock{t: t, waits: make(chan time.Duration, 16), fire: make(chan time.Time), at: testClockStart}
+	s.after, s.now = clock.after, clock.now
+	s.start(t.Context())
+	t.Cleanup(s.stop)
+	clock.wait()
+
+	assert.Equal(t, int32(1), batches.Load())
+}
+
 // A server that is no longer connected to Dagu Console, or whose license no
 // longer includes audit logs, reads no audit file and frees the lease.
 func TestAuditShipperIdlesWithoutConsole(t *testing.T) {
