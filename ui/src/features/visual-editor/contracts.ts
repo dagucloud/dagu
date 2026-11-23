@@ -149,17 +149,17 @@ export type DagEditOp =
       name: string;
       value: string | number | boolean | null;
     }
+  /** Changes the tools of a `chat.completion` or `agent.run` step: `with.dags`, `with.tools` and its limits. */
+  | { kind: 'editStepTools'; step: StepKey; change: ToolsChange }
+  /** Changes the skills of a `chat.completion` or `agent.run` step: `with.skills`. */
+  | { kind: 'editStepSkills'; step: StepKey; change: SkillsChange }
   /** Sets `restart_policy`, `restart_wait_sec` and `hist_retention_runs`. A field that is left out stays; `null` removes the key. */
   | {
       kind: 'setRestartPolicy';
       policy?: 'no' | 'always' | 'unless-stopped';
       waitSec?: number | null;
       histRetentionRuns?: number | null;
-    }
-  /** Changes the tools of a `chat.completion` or `agent.run` step: `with.dags`, `with.tools` and its limits. */
-  | { kind: 'editStepTools'; step: StepKey; change: ToolsChange }
-  /** Changes the skills of a `chat.completion` or `agent.run` step: `with.skills`. */
-  | { kind: 'editStepSkills'; step: StepKey; change: SkillsChange };
+    };
 
 export interface StepNameMap {
   byKey: Record<StepKey, string>;
