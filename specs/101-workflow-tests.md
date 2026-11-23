@@ -4,12 +4,13 @@
 
 Partially implemented.
 
-`dagu test` runs test files with `--timeout`, the text report, and the exit
-status, and checks run status, step status, and step `attempts`. A case
-with another assertion is reported invalid. Not implemented yet: the other
-assertions, `--run`, `--keep`, `--format json`, the fix of an invalid case,
-the report's lists of default mocks, automatic approvals, and
-notifications, and skipping test files in DAG discovery.
+`dagu test` runs test files with `--run`, `--timeout`, `--format`, and
+`--keep`, writes the text and JSON reports, and exits with the statuses
+below. It checks run status, step status, and step `attempts`. A case with
+another assertion is reported invalid. Not implemented yet: the other
+assertions, the fix of an invalid case, the report's lists of default
+mocks, automatic approvals, and notifications, and skipping test files in
+DAG discovery.
 
 The authoring flags `--init` and `--update` (see
 [Authoring Flags](#authoring-flags)) ship after the first release of
@@ -1186,9 +1187,9 @@ Failure object:
 | Field | Present | Meaning |
 | --- | --- | --- |
 | `step` | for a step assertion, and for `limit` | Step key as `expect.steps` writes it. For `limit`, the step label |
-| `field` | always | `status`, `attempts`, `outputs.<name>`, `stdout.contains`, `stdout.matches`, `stderr.contains`, `stderr.matches`, `notifications`, `timeout`, or `limit` |
-| `expected` | except for `limit` | For `status` and `attempts`, the expected token or number. For `outputs.<name>`, the expected value. For a stream, the text or expression. For `notifications`, the expected list of notification objects. For `timeout`, the `--timeout` limit in milliseconds |
-| `actual` | for `status`, `attempts`, `notifications`, `limit`, and a published output | The actual token or number, the published value (a string for a text output, the JSON value for a `type: json` output), the actual list of notification objects, or, for `limit`, the resolved limit as a string |
+| `field` | always | `status`, `attempts`, `outputs.<name>`, `stdout.contains`, `stdout.matches`, `stderr.contains`, `stderr.matches`, `notifications`, `timeout`, `limit`, or `error` |
+| `expected` | except for `limit` and `error` | For `status` and `attempts`, the expected token or number. For `outputs.<name>`, the expected value. For a stream, the text or expression. For `notifications`, the expected list of notification objects. For `timeout`, the `--timeout` limit in milliseconds |
+| `actual` | for `status`, `attempts`, `notifications`, `limit`, `error`, and a published output | The actual token or number, the published value (a string for a text output, the JSON value for a `type: json` output), the actual list of notification objects, for `limit`, the resolved limit as a string, or, for `error`, the reason a run could not complete (see [Timeout, Limits, and Interrupt](#timeout-limits-and-interrupt)) |
 
 Error object: `source`, the label, present when the error has one, and
 `message`.
@@ -1376,6 +1377,10 @@ status with the assertions like any other status.
   text line reads
   `step <step>: repeat limit <value> leaves the step continuous; mock it with results`,
   where `<step>` is the step label and `<value>` the resolved limit.
+- A run that cannot reach a terminal status, such as one with a step that
+  waits for a child run's person, which a test cannot settle, fails with
+  one `error` failure, and its assertions are not evaluated. Its text line
+  is the reason. The reason's text is not part of this contract.
 - An interrupted `dagu test` stops the running case, removes its case
   directory unless `--keep` is set, starts no further case, and exits with a
   non-zero status.
