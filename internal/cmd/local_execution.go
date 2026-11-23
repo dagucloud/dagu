@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 )
 
 type runOptions struct {
@@ -49,6 +50,9 @@ type runOptions struct {
 	// redirectRoot moves the step redirect files of a test case into its case
 	// directory.
 	redirectRoot runtime.RedirectRoot
+	// testSideEffects, when non-nil, runs a test case without the run-level
+	// side effects of a real run.
+	testSideEffects *agent.TestSideEffects
 }
 
 func dagDefinitionIDFromEnv() string {

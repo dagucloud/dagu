@@ -7,11 +7,13 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -142,7 +145,8 @@ steps:
 }
 
 // The env provider would fail on the unset variables, so a passing run
-// resolved its secrets from the test values.
+// resolved its secrets from the test values and placeholders. The step runs
+// only when its preconditions find the values the case expects.
 func TestCaseSecrets(t *testing.T) {
 	t.Parallel()
 
@@ -156,41 +160,162 @@ secrets:
     key: DAGU_CASE_TEST_UNSET_PASSWORD
 steps:
   - name: use
+    preconditions:
+      - condition: "${API_TOKEN}"
+        expected: %q
+      - condition: "${DB_PASSWORD}"
+        expected: %q
     run: echo token=$API_TOKEN
 `
 
-	t.Run("Missing", func(t *testing.T) {
-		t.Parallel()
+	for _, tt := range []struct {
+		name         string
+		secrets      map[string]string
+		real         []string
+		wantToken    string
+		wantPassword string
+	}{
+		{name: "Placeholders", wantToken: "<secret:API_TOKEN>", wantPassword: "<secret:DB_PASSWORD>"},
+		{
+			name:         "ValueOverPlaceholder",
+			secrets:      map[string]string{"API_TOKEN": "case-token"},
+			wantToken:    "case-token",
+			wantPassword: "<secret:DB_PASSWORD>",
+		},
+		{
+			name:         "RealStep",
+			secrets:      map[string]string{"API_TOKEN": "case-token", "DB_PASSWORD": "case-password"},
+			real:         []string{"use"},
+			wantToken:    "case-token",
+			wantPassword: "case-password",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		ctx, _ := newCaseTestContext(t)
-		dag := writeCaseDAG(t, ctx, "secrets", yaml)
-		tc := openTestCase(t, ctx, caseOptions{
-			tempDir: t.TempDir(),
-			secrets: map[string]string{"API_TOKEN": "case-token"},
+			ctx, _ := newCaseTestContext(t)
+			dag := writeCaseDAG(t, ctx, "secrets", fmt.Sprintf(yaml, tt.wantToken, tt.wantPassword))
+			tc := openTestCase(t, ctx, caseOptions{tempDir: t.TempDir(), secrets: tt.secrets, real: tt.real})
+
+			status, err := tc.run(dag)
+			require.NoError(t, err)
+			require.Equal(t, ir.Succeeded, status.Status, status.Error)
+			require.Equal(t, ir.NodeSucceeded, status.Nodes[0].Status, "a secret does not hold the expected value")
+			assert.Equal(t, "token=*******", readOutput(t, status.Nodes[0].Stdout))
 		})
+	}
+}
 
-		_, err := tc.run(dag)
-		require.ErrorContains(t, err, "DB_PASSWORD")
-		runs, err := tc.ctx.Persistence.DAGRunRepository.RecentStatuses(tc.ctx, dag.Name, 1)
-		require.NoError(t, err)
-		assert.Empty(t, runs, "the case started a run")
-	})
+// A case with a real step needs a test value for every DAG secret and SSH
+// credential ref, and starts no run without one.
+func TestCaseSecretsMissing(t *testing.T) {
+	t.Parallel()
 
-	t.Run("Masked", func(t *testing.T) {
-		t.Parallel()
+	const yaml = `
+secrets:
+  - name: API_TOKEN
+    provider: env
+    key: DAGU_CASE_TEST_UNSET_TOKEN
+steps:
+  - name: remote
+    action: ssh.run
+    with:
+      host: app.invalid
+      command: "true"
+      password: {secret: ssh/password}
+`
 
-		ctx, _ := newCaseTestContext(t)
-		dag := writeCaseDAG(t, ctx, "secrets", yaml)
-		tc := openTestCase(t, ctx, caseOptions{
-			tempDir: t.TempDir(),
-			secrets: map[string]string{"API_TOKEN": "case-token", "DB_PASSWORD": "case-password"},
+	for _, tt := range []struct {
+		name    string
+		secrets map[string]string
+		missing string
+	}{
+		{name: "Secret", secrets: map[string]string{"ssh/password": "case-password"}, missing: "API_TOKEN"},
+		{name: "CredentialRef", secrets: map[string]string{"API_TOKEN": "case-token"}, missing: "ssh/password"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, _ := newCaseTestContext(t)
+			dag := writeCaseDAG(t, ctx, "secrets", yaml)
+			tc := openTestCase(t, ctx, caseOptions{tempDir: t.TempDir(), secrets: tt.secrets, real: []string{"remote"}})
+
+			_, err := tc.run(dag)
+			require.ErrorContains(t, err, tt.missing)
+			runs, err := tc.ctx.Persistence.DAGRunRepository.RecentStatuses(tc.ctx, dag.Name, 1)
+			require.NoError(t, err)
+			assert.Empty(t, runs, "the case started a run")
 		})
+	}
+}
 
-		status, err := tc.run(dag)
-		require.NoError(t, err)
-		require.Equal(t, ir.Succeeded, status.Status, status.Error)
-		assert.Equal(t, "token=*******", readOutput(t, status.Nodes[0].Stdout))
-	})
+// A case with no real step leaves an SSH credential ref unresolved, so it
+// needs no test value for it.
+func TestCaseSSHCredentialRef(t *testing.T) {
+	t.Parallel()
+
+	ctx, _ := newCaseTestContext(t)
+	dag := writeCaseDAG(t, ctx, "ssh", `
+ssh:
+  user: deploy
+  host: app.invalid
+  key: {secret: ssh/deploy-key}
+steps:
+  - name: check
+    action: noop
+`)
+	tc := openTestCase(t, ctx, caseOptions{tempDir: t.TempDir()})
+
+	status, err := tc.run(dag)
+	require.NoError(t, err)
+	assert.Equal(t, ir.Succeeded, status.Status, status.Error)
+}
+
+// A case records the mail its run would have sent and reaches no SMTP
+// server. The listener closes each connection it accepts at once, so a mail
+// client returns only after its connection was counted.
+func TestCaseSendsNoMail(t *testing.T) {
+	t.Parallel()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	var connections atomic.Int32
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			connections.Add(1)
+			_ = conn.Close()
+		}
+	}()
+	host, port, err := net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
+
+	ctx, _ := newCaseTestContext(t)
+	dag := writeCaseDAG(t, ctx, "mail", fmt.Sprintf(`
+smtp:
+  host: %s
+  port: "%s"
+mail_on:
+  success: true
+info_mail:
+  from: dagu@example.com
+  to: ops@example.com
+steps:
+  - run: echo ok
+`, host, port))
+	tc := openTestCase(t, ctx, caseOptions{tempDir: t.TempDir()})
+
+	status, err := tc.run(dag)
+	require.NoError(t, err)
+	require.Equal(t, ir.Succeeded, status.Status, status.Error)
+	assert.Zero(t, connections.Load(), "mail sent")
+	assert.Equal(t, []agent.Notification{
+		{Kind: agent.NotificationMailOnSuccess, To: []string{"ops@example.com"}},
+	}, tc.notifications)
 }
 
 // A real dag.run step starts its child in the same case. The child takes its
