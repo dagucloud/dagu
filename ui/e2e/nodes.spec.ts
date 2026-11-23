@@ -152,6 +152,46 @@ test.describe('Nodes', () => {
     await expect(page.getByRole('cell', { name, exact: true })).toBeVisible();
   });
 
+  test('imports an inventory, then disables a node from its drawer', async ({
+    page,
+  }) => {
+    const stack = await loadStack();
+    const id = uniqueName('e2e');
+    const web = `${id}-web`;
+
+    await loginViaUI(page, stack.auth.adminUsername, stack.auth.adminPassword);
+    await page.goto('/nodes');
+    // With no inventory yet the page shows its empty state, which offers
+    // Import without tabs.
+    const inventoriesTab = page.getByRole('button', { name: 'Inventories' });
+    if (await inventoriesTab.isVisible()) {
+      await inventoriesTab.click();
+    }
+    await page.getByRole('button', { name: 'Import' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog
+      .getByLabel('Inventories JSON')
+      .fill(
+        JSON.stringify([
+          { name: `${id} inventory`, nodes: [{ name: web, host: '10.0.9.9' }] },
+        ])
+      );
+    await dialog.getByRole('button', { name: 'Check' }).click();
+    await expect(dialog).toContainText(`Would create: ${id} inventory`);
+    await dialog.getByRole('button', { name: 'Import' }).click();
+    await expect(dialog).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Nodes' }).click();
+    await page.getByRole('textbox', { name: 'Search by name...' }).fill(id);
+    await page.getByRole('cell', { name: web, exact: true }).click();
+    const drawer = page.getByRole('dialog');
+    await drawer.getByRole('button', { name: 'Disable' }).click();
+    await expect(drawer.getByRole('button', { name: 'Enable' })).toBeVisible();
+    await expect(
+      page.getByRole('row', { name: new RegExp(web) })
+    ).toContainText('Disabled');
+  });
+
   test('tests a checked node and shows its result as the stream delivers it', async ({
     page,
     request,

@@ -41,6 +41,7 @@ import { Server } from 'lucide-react';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { AddNodeDialog } from './AddNodeDialog';
 import { InventoriesView } from './inventories/InventoriesView';
+import { ImportDialog } from './inventories/ImportDialog';
 import { InventoryDialog } from './inventories/InventoryDialog';
 import { NodeDetailsDrawer } from './NodeDetailsDrawer';
 import { NodeTestPanel } from './NodeTestPanel';
@@ -111,6 +112,7 @@ function NodeList(): React.ReactElement {
   const tests = useNodeTests(config.apiURL);
   const [view, setView] = useState<'nodes' | 'inventories'>('nodes');
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [addingNode, setAddingNode] = useState(false);
 
   // A change of filter starts again from the first page, with no node
@@ -146,6 +148,12 @@ function NodeList(): React.ReactElement {
   // request's, so paging from them would ask for the wrong page.
   const canPage =
     !!pagination && pagination.currentPage === page && !isValidating;
+  // The drawer shows the node as the list now holds it, so an edit shows at
+  // once; a node the list no longer holds stays as it was opened.
+  const shown =
+    selected &&
+    (nodes.find((node) => nodeKey(node.name) === nodeKey(selected.name)) ??
+      selected);
   const availableLabels = useMemo(
     () => nodeLabels.data?.labels ?? [],
     [nodeLabels.data?.labels]
@@ -253,9 +261,18 @@ function NodeList(): React.ReactElement {
           }
           action={
             canEdit ? (
-              <Button size="sm" onClick={() => setCreating(true)}>
-                <I18nText text={'New inventory'} />
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => setCreating(true)}>
+                  <I18nText text={'New inventory'} />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setImporting(true)}
+                >
+                  <I18nText text={'Import'} />
+                </Button>
+              </div>
             ) : undefined
           }
         />
@@ -263,6 +280,12 @@ function NodeList(): React.ReactElement {
           <InventoryDialog
             onClose={() => setCreating(false)}
             onSaved={refresh}
+          />
+        )}
+        {importing && (
+          <ImportDialog
+            onClose={() => setImporting(false)}
+            onImported={refresh}
           />
         )}
       </>
@@ -552,8 +575,14 @@ function NodeList(): React.ReactElement {
         />
       )}
       <NodeDetailsDrawer
-        node={selected}
+        node={shown}
         lastTest={selected ? tests.results[nodeKey(selected.name)] : undefined}
+        canEdit={canEdit}
+        onChanged={refresh}
+        onRemoved={() => {
+          setSelected(null);
+          refresh();
+        }}
         open={selected !== null}
         onOpenChange={(open) => !open && setSelected(null)}
       />

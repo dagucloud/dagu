@@ -42,6 +42,31 @@ export const inventoryMessages = defineMessages({
     'Add without testing': 'Add without testing',
     'The port must be a whole number.': 'The port must be a whole number.',
     'Adding...': 'Adding...',
+    Import: 'Import',
+    Export: 'Export',
+    Check: 'Check',
+    'Import inventories': 'Import inventories',
+    'Paste the JSON that dagu nodes export prints, or choose a file. The import is checked before it is stored.':
+      'Paste the JSON that dagu nodes export prints, or choose a file. The import is checked before it is stored.',
+    'Inventories JSON': 'Inventories JSON',
+    'Choose file': 'Choose file',
+    'Replace inventories with the same name':
+      'Replace inventories with the same name',
+    'Nothing to import.': 'Nothing to import.',
+    'Would create: {names}': 'Would create: {names}',
+    'Would replace: {names}': 'Would replace: {names}',
+    'An import is a JSON array of inventories, as dagu nodes export prints it.':
+      'An import is a JSON array of inventories, as dagu nodes export prints it.',
+    'Edit node': 'Edit node',
+    'Node labels': 'Node labels',
+    "The inventory's default labels are added to these.":
+      "The inventory's default labels are added to these.",
+    'Save labels': 'Save labels',
+    'Remove node': 'Remove node',
+    'Remove {name} from {inventory}? Its trusted host key is forgotten, and steps no longer run on it.':
+      'Remove {name} from {inventory}? Its trusted host key is forgotten, and steps no longer run on it.',
+    'The node is no longer in its inventory.':
+      'The node is no longer in its inventory.',
   },
   'zh-CN': {
     Inventories: '清单',
@@ -79,6 +104,29 @@ export const inventoryMessages = defineMessages({
     'Add without testing': '不测试直接添加',
     'The port must be a whole number.': '端口必须是整数。',
     'Adding...': '正在添加...',
+    Import: '导入',
+    Export: '导出',
+    Check: '检查',
+    'Import inventories': '导入清单',
+    'Paste the JSON that dagu nodes export prints, or choose a file. The import is checked before it is stored.':
+      '粘贴 dagu nodes export 输出的 JSON，或选择文件。导入会先检查再保存。',
+    'Inventories JSON': '清单 JSON',
+    'Choose file': '选择文件',
+    'Replace inventories with the same name': '替换同名清单',
+    'Nothing to import.': '没有可导入的内容。',
+    'Would create: {names}': '将创建：{names}',
+    'Would replace: {names}': '将替换：{names}',
+    'An import is a JSON array of inventories, as dagu nodes export prints it.':
+      '导入内容是一个清单的 JSON 数组，与 dagu nodes export 的输出相同。',
+    'Edit node': '编辑节点',
+    'Node labels': '节点标签',
+    "The inventory's default labels are added to these.":
+      '清单的默认标签会添加到这些标签中。',
+    'Save labels': '保存标签',
+    'Remove node': '移除节点',
+    'Remove {name} from {inventory}? Its trusted host key is forgotten, and steps no longer run on it.':
+      '从 {inventory} 中移除 {name}？其已信任的主机密钥将被清除，步骤也不再在其上运行。',
+    'The node is no longer in its inventory.': '该节点已不在其清单中。',
   },
   ja: {
     Inventories: 'インベントリ',
@@ -118,5 +166,30 @@ export const inventoryMessages = defineMessages({
     'Add without testing': 'テストせずに追加',
     'The port must be a whole number.': 'ポートは整数で指定してください。',
     'Adding...': '追加中...',
+    Import: 'インポート',
+    Export: 'エクスポート',
+    Check: 'チェック',
+    'Import inventories': 'インベントリをインポート',
+    'Paste the JSON that dagu nodes export prints, or choose a file. The import is checked before it is stored.':
+      'dagu nodes export が出力する JSON を貼り付けるか、ファイルを選択してください。インポートは保存前にチェックされます。',
+    'Inventories JSON': 'インベントリの JSON',
+    'Choose file': 'ファイルを選択',
+    'Replace inventories with the same name':
+      '同じ名前のインベントリを置き換える',
+    'Nothing to import.': 'インポートするものはありません。',
+    'Would create: {names}': '作成予定：{names}',
+    'Would replace: {names}': '置き換え予定：{names}',
+    'An import is a JSON array of inventories, as dagu nodes export prints it.':
+      'インポートは dagu nodes export が出力するのと同じ、インベントリの JSON 配列です。',
+    'Edit node': 'ノードを編集',
+    'Node labels': 'ノードのラベル',
+    "The inventory's default labels are added to these.":
+      'インベントリのデフォルトのラベルがこれに追加されます。',
+    'Save labels': 'ラベルを保存',
+    'Remove node': 'ノードを削除',
+    'Remove {name} from {inventory}? Its trusted host key is forgotten, and steps no longer run on it.':
+      '{inventory} から {name} を削除しますか？信頼済みのホスト鍵は破棄され、ステップはこのノードで実行されなくなります。',
+    'The node is no longer in its inventory.':
+      'このノードはもうインベントリにありません。',
   },
 });
