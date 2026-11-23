@@ -16,10 +16,11 @@ import { useClient } from '@/hooks/api';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
-import React, { Suspense, lazy, useState } from 'react';
+import React, { Suspense, lazy, useRef, useState } from 'react';
 import { InventoryDialog } from './InventoryDialog';
 import {
   deleteInventory,
+  readInventory,
   type ChangeRefusal,
   type Inventory,
 } from './inventoryChanges';
@@ -59,22 +60,33 @@ export function InventoriesView({
   const [editing, setEditing] = useState<Editing | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<ChangeRefusal | null>(null);
+  // Counts the actions that open something, so a read that a later action
+  // superseded opens nothing.
+  const actionRef = useRef(0);
+
+  /** Opens what an action asks for, and supersedes any pending read. */
+  function show(next: Editing | null) {
+    actionRef.current += 1;
+    setEditing(next);
+  }
 
   /** Reads the whole inventory, which a summary lacks, and opens it. */
   async function open(id: string, kind: 'form' | 'json') {
+    const action = ++actionRef.current;
     setError(null);
-    const { data, error } = await client.GET('/inventories/{inventoryId}', {
-      params: { path: { inventoryId: id } },
-    });
-    if (!data) {
-      setError(error?.message ?? ts("Couldn't read the inventory."));
+    const read = await readInventory(client, id);
+    if (action !== actionRef.current) {
       return;
     }
-    setEditing({ kind, inventory: data });
+    if ('failure' in read) {
+      setError(read.failure || ts("Couldn't read the inventory."));
+      return;
+    }
+    setEditing({ kind, inventory: read });
   }
 
   async function remove(inventory: InventorySummary) {
-    setEditing(null);
+    show(null);
     const { refusal } = await deleteInventory(
       client,
       inventory.id,
@@ -88,7 +100,7 @@ export function InventoriesView({
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {canEdit && (
         <div>
-          <Button size="sm" onClick={() => setEditing({ kind: 'create' })}>
+          <Button size="sm" onClick={() => show({ kind: 'create' })}>
             <I18nText text={'New inventory'} />
           </Button>
         </div>
@@ -148,7 +160,7 @@ export function InventoriesView({
                         name={inventory.name}
                         onClick={() => {
                           setRefusal(null);
-                          setEditing({ kind: 'delete', inventory });
+                          show({ kind: 'delete', inventory });
                         }}
                       />
                     </div>
@@ -161,12 +173,12 @@ export function InventoriesView({
       </div>
 
       {editing?.kind === 'create' && (
-        <InventoryDialog onClose={() => setEditing(null)} onSaved={onChanged} />
+        <InventoryDialog onClose={() => show(null)} onSaved={onChanged} />
       )}
       {editing?.kind === 'form' && (
         <InventoryDialog
           inventory={editing.inventory}
-          onClose={() => setEditing(null)}
+          onClose={() => show(null)}
           onSaved={onChanged}
         />
       )}
@@ -174,7 +186,7 @@ export function InventoriesView({
         <Suspense fallback={null}>
           <InventoryJSONDialog
             inventory={editing.inventory}
-            onClose={() => setEditing(null)}
+            onClose={() => show(null)}
             onSaved={onChanged}
           />
         </Suspense>
@@ -185,7 +197,7 @@ export function InventoriesView({
           title={ts('Delete inventory')}
           buttonText={ts('Delete')}
           initialFocus="cancel"
-          dismissModal={() => setEditing(null)}
+          dismissModal={() => show(null)}
           onSubmit={() => void remove(editing.inventory)}
         >
           <p className="text-sm">

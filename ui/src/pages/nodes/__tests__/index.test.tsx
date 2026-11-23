@@ -287,6 +287,21 @@ describe('NodesPage', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('keeps a failed inventory load and its retry on the Inventories tab', () => {
+    const retry = vi.fn();
+    respond({
+      inventoriesError: { code: 'internal_error', message: 'disk unavailable' },
+      retryInventories: retry,
+    });
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inventories' }));
+
+    expect(screen.getByText("Couldn't load inventories.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(retry).toHaveBeenCalled();
+  });
+
   it('lists the inventories on their own tab', () => {
     renderPage();
 

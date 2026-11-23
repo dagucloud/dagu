@@ -97,6 +97,7 @@ describe('modules that hold Monaco', () => {
       'features/visual-editor/inspector/monacoSetup.ts',
       'lib/monaco-theme.ts',
       'lib/monaco-yaml.ts',
+      'pages/nodes/inventories/InventoryJSONDialog.tsx',
       'pages/wiki/components/WikiPageHistoryModal.tsx',
     ]);
   });
@@ -104,6 +105,7 @@ describe('modules that hold Monaco', () => {
   it('keeps the code editors behind a dynamic import', () => {
     expect(staticImporters(ends('DAGEditor'))).toEqual([]);
     expect(staticImporters(ends('MonacoFieldEditor'))).toEqual([]);
+    expect(staticImporters(ends('InventoryJSONDialog'))).toEqual([]);
   });
 
   it('lets only the editor modules import the Monaco setup', () => {

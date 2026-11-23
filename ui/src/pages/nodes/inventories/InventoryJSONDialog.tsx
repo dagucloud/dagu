@@ -99,6 +99,9 @@ export function InventoryJSONDialog({
     monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
       validate: true,
       allowComments: false,
+      // Monaco reports schema violations as warnings by default, which
+      // would not block Save.
+      schemaValidation: 'error',
       schemas: [
         {
           uri: 'dagu://schemas/inventory.json',

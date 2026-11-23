@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { components } from '@/api/v1/schema';
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { InventoriesView } from '../InventoriesView';
 
@@ -290,6 +297,39 @@ describe('InventoriesView', () => {
     expect(onChanged).toHaveBeenCalled();
   });
 
+  it('opens nothing for a read that a later action superseded', async () => {
+    let read!: (value: unknown) => void;
+    client.GET.mockReturnValue(new Promise((resolve) => (read = resolve)));
+    renderView();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Edit Tokyo production' })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'New inventory' }));
+    await act(async () => read({ data: TOKYO }));
+
+    expect(screen.getByRole('dialog')).toHaveTextContent('New inventory');
+    expect(field('Name')).toHaveValue('');
+  });
+
+  it('reports a change that failed to reach the server', async () => {
+    client.DELETE.mockRejectedValue(new Error('Failed to fetch'));
+    renderView();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Delete Tokyo production' })
+    );
+    await act(async () => {
+      fireEvent.click(
+        within(screen.getByRole('dialog')).getByRole('button', {
+          name: 'Delete',
+        })
+      );
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Failed to fetch');
+  });
+
   it('edits an inventory as JSON, checked against the schema', async () => {
     client.PUT.mockResolvedValue({ data: TOKYO });
     renderView();
@@ -307,10 +347,14 @@ describe('InventoriesView', () => {
       defaults: TOKYO.defaults,
       nodes: TOKYO.nodes,
     });
-    expect(editor.setDiagnosticsOptions).toHaveBeenCalledWith(
-      expect.objectContaining({
-        schemas: [expect.objectContaining({ schema: { type: 'object' } })],
-      })
+    // The schema arrives after the editor opens.
+    await waitFor(() =>
+      expect(editor.setDiagnosticsOptions).toHaveBeenCalledWith(
+        expect.objectContaining({
+          schemaValidation: 'error',
+          schemas: [expect.objectContaining({ schema: { type: 'object' } })],
+        })
+      )
     );
     const save = screen.getByRole('button', { name: 'Save' });
 

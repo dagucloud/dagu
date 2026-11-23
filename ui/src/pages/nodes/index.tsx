@@ -297,6 +297,13 @@ function NodeList(): React.ReactElement {
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-4 p-4">
         {heading}
+        {inventories.error && (
+          <FilterLoadError
+            what="Couldn't load inventories."
+            error={inventories.error}
+            onRetry={() => void inventories.mutate()}
+          />
+        )}
         <InventoriesView
           inventories={inventoryList}
           canEdit={canEdit}

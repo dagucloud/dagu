@@ -44,39 +44,71 @@ export function recordOf(inventory: Inventory): InventoryRecord {
 
 type Outcome = { refusal?: ChangeRefusal };
 
+/**
+ * The outcome of a change request: a refusal for an error response, and
+ * for a request that failed to reach the server or to come back.
+ */
+async function outcomeOf(
+  request: Promise<{ error?: unknown }>
+): Promise<Outcome> {
+  try {
+    const { error } = await request;
+    return { refusal: error ? refusalOf(error) : undefined };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { refusal: { message, rules: [] } };
+  }
+}
+
+/** Reads the inventory id, or why it could not be read. */
+export async function readInventory(
+  client: Client,
+  id: string
+): Promise<Inventory | { failure: string }> {
+  try {
+    const { data, error } = await client.GET('/inventories/{inventoryId}', {
+      params: { path: { inventoryId: id } },
+    });
+    return data ?? { failure: error?.message ?? '' };
+  } catch (error) {
+    return { failure: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /** Creates an inventory from record. */
-export async function createInventory(
+export function createInventory(
   client: Client,
   record: InventoryRecord
 ): Promise<Outcome> {
-  const { error } = await client.POST('/inventories', { body: record });
-  return { refusal: error ? refusalOf(error) : undefined };
+  return outcomeOf(client.POST('/inventories', { body: record }));
 }
 
 /** Replaces the inventory id, based on version, with record. */
-export async function replaceInventory(
+export function replaceInventory(
   client: Client,
   id: string,
   version: number,
   record: InventoryRecord
 ): Promise<Outcome> {
-  const { error } = await client.PUT('/inventories/{inventoryId}', {
-    params: { path: { inventoryId: id }, query: { version } },
-    body: record,
-  });
-  return { refusal: error ? refusalOf(error) : undefined };
+  return outcomeOf(
+    client.PUT('/inventories/{inventoryId}', {
+      params: { path: { inventoryId: id }, query: { version } },
+      body: record,
+    })
+  );
 }
 
 /** Deletes the inventory id, based on version, with its nodes. */
-export async function deleteInventory(
+export function deleteInventory(
   client: Client,
   id: string,
   version: number
 ): Promise<Outcome> {
-  const { error } = await client.DELETE('/inventories/{inventoryId}', {
-    params: { path: { inventoryId: id }, query: { version } },
-  });
-  return { refusal: error ? refusalOf(error) : undefined };
+  return outcomeOf(
+    client.DELETE('/inventories/{inventoryId}', {
+      params: { path: { inventoryId: id }, query: { version } },
+    })
+  );
 }
 
 function refusalOf(error: unknown): ChangeRefusal {
