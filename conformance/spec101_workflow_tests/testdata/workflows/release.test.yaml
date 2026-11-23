@@ -1,0 +1,18 @@
+mocks:
+  build:
+    outputs:
+      image_tag: v1.2.3
+  deploy: {}
+cases:
+  - name: deploys the built image
+    expect:
+      status: succeeded
+  - name: a failed build stops the deploy
+    mocks:
+      build:
+        exit_code: 1
+    expect:
+      status: failed
+      steps:
+        build: failed
+        deploy: aborted

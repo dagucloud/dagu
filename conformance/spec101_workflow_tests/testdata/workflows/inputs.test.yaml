@@ -1,0 +1,22 @@
+mocks:
+  loud: {}
+  slot: {}
+cases:
+  - name: a case env entry replaces the DAG's
+    env:
+      MODE: loud
+    expect:
+      steps:
+        loud: succeeded
+        slot: skipped
+  - name: a schedule slot sets the run's schedule time
+    scheduled_at: "2026-01-05T09:00:00Z"
+    expect:
+      steps:
+        loud: skipped
+        slot: succeeded
+  - name: a param dagu start rejects is invalid
+    params:
+      count: many
+    expect:
+      status: succeeded

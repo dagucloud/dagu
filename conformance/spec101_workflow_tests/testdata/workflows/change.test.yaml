@@ -1,0 +1,53 @@
+mocks:
+  plan:
+    outputs:
+      risk: low
+  implement: {}
+  review: {}
+  merge: {}
+  handler_on.failure: {}
+cases:
+  - name: low risk merges without review
+    expect:
+      status: succeeded
+      steps:
+        route: succeeded
+        merge: succeeded
+        review: skipped
+        handler_on.failure: not_started
+  - name: high risk goes to review
+    mocks:
+      plan:
+        outputs:
+          risk: high
+    expect:
+      steps:
+        review: succeeded
+        merge: skipped
+  - name: a flaky implement passes on the third attempt
+    mocks:
+      implement:
+        results:
+          - exit_code: 1
+          - exit_code: 1
+          - exit_code: 0
+    expect:
+      status: succeeded
+      steps:
+        implement:
+          status: succeeded
+          attempts: 3
+  - name: a failed implement stops the run and runs the failure handler
+    mocks:
+      implement:
+        exit_code: 2
+    expect:
+      status: failed
+      steps:
+        implement:
+          status: failed
+          attempts: 3
+        route: aborted
+        handler_on.failure:
+          status: succeeded
+          attempts: 1

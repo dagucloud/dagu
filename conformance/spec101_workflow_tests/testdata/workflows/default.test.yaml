@@ -1,0 +1,21 @@
+dag: release.yaml
+default_mock: {}
+cases:
+  - name: every step succeeds by default
+    expect:
+      status: succeeded
+  - name: a failed build stops the deploy
+    mocks:
+      build:
+        exit_code: 1
+    expect:
+      steps:
+        build: failed
+        deploy: aborted
+  - name: a mock without its declared output is invalid
+    mocks:
+      build:
+        outputs:
+          tag: v1
+    expect:
+      status: succeeded

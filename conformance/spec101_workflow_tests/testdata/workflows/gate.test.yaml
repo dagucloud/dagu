@@ -1,0 +1,37 @@
+mocks:
+  release: {}
+  announce:
+    precondition: met
+    review:
+      decision: approve
+      values:
+        channel: releases
+    results:
+      - exit_code: 1
+      - exit_code: 0
+cases:
+  - name: an approved release is announced
+    expect:
+      status: succeeded
+      steps:
+        release: succeeded
+        announce:
+          status: succeeded
+          attempts: 2
+        handler_on.wait: succeeded
+  - name: a rejected release ends the run rejected
+    mocks:
+      release:
+        review:
+          decision: reject
+    expect:
+      status: rejected
+      steps:
+        release: rejected
+        announce: not_started
+  - name: a required input without review is invalid
+    mocks:
+      announce:
+        precondition: met
+    expect:
+      status: succeeded

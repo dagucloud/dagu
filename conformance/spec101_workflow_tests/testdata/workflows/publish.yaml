@@ -1,0 +1,12 @@
+secrets:
+  - name: API_TOKEN
+    provider: env
+    key: DAGU_SPEC101_UNSET_PUBLISH_TOKEN
+steps:
+  - id: show
+    action: log.write
+    with:
+      message: token ${API_TOKEN}
+  - id: publish
+    depends: show
+    run: touch publish.ran

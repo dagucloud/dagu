@@ -1,0 +1,12 @@
+mocks:
+  publish: {}
+cases:
+  - name: a case without a real step needs no secret
+    expect:
+      status: succeeded
+      steps:
+        show: succeeded
+  - name: a real step needs every secret
+    real: [publish]
+    expect:
+      status: succeeded

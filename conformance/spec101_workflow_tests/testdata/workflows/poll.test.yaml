@@ -1,0 +1,60 @@
+mocks:
+  poll:
+    results:
+      - condition: not_met
+  beat:
+    results:
+      - exit_code: 0
+      - exit_code: 0
+      - exit_code: 0
+  idle:
+    exit_code: 0
+cases:
+  - name: polls until nothing is pending
+    mocks:
+      poll:
+        results:
+          - condition: met
+          - condition: met
+          - condition: not_met
+    expect:
+      status: succeeded
+      steps:
+        poll:
+          status: succeeded
+          attempts: 3
+        beat:
+          status: succeeded
+          attempts: 3
+        tick:
+          attempts: 3
+        idle:
+          attempts: 1
+  - name: a result without condition is invalid
+    mocks:
+      poll:
+        results:
+          - condition: met
+          - exit_code: 0
+    expect:
+      status: succeeded
+  - name: an unbounded side-effect-free step is invalid
+    mocks:
+      idle: {}
+    expect:
+      status: succeeded
+  - name: without a limit the results bound a mocked step
+    params:
+      n: "0"
+    mocks:
+      tick:
+        exit_code: 0
+    expect:
+      steps:
+        tick:
+          attempts: 1
+  - name: without a limit an unmocked step fails the case
+    params:
+      n: "0"
+    expect:
+      status: succeeded

@@ -1,0 +1,6 @@
+retry_policy:
+  limit: 2
+  interval_sec: 300
+steps:
+  - id: sync
+    run: touch sync.ran
