@@ -1,0 +1,16 @@
+dag: noop.yaml
+params:
+  list: [a, b]
+env: [A=1]
+real: check
+mocks:
+  check:
+    exit_code: "0"
+    stdout: 1
+    results: {}
+cases:
+  - name: wrong types
+    expect:
+      attempts: one
+      steps:
+        check: [succeeded]

@@ -1,0 +1,71 @@
+dag: release.yaml
+params:
+  env: staging
+  stamp: 2026-11-23
+env:
+  REGION: us-east-1
+  TIER: gold
+secrets:
+  API_TOKEN: file-token
+mocks:
+  build:
+    outputs:
+      image_tag: v1
+      manifest: {files: 3}
+  gate:
+    precondition: met
+  poll:
+    results:
+      - exit_code: 1
+        condition: met
+      - condition: not_met
+  sign_off:
+    review: &approve
+      decision: approve
+      values:
+        reason: looks good
+  ship:
+    # The merged review's values give way to the ones written here.
+    review:
+      <<: *approve
+      values:
+        ticket: 0042
+  fanout: {}
+  child:
+    outputs:
+      revision: 7
+  untitled: {}
+  handler_on.failure: {}
+real: [route]
+cases:
+  - name: merged
+    params:
+      env: prod
+      extra: 0x10
+    env:
+      TIER: silver
+    trigger: restart
+    scheduled_at: 2026-11-30T09:00:00Z
+    mocks:
+      # The case names build by name and replaces the file's mock, which
+      # names it by id.
+      build image:
+        exit_code: 1
+        stderr: boom
+    real: [route, untitled]
+    expect:
+      status: failed
+      attempts: 1
+      steps:
+        build image:
+          status: failed
+          attempts: 1
+          stderr:
+            contains: boom
+            matches: ^bo+m$
+        route: skipped
+        handler_on.failure: succeeded
+      notifications:
+        - kind: mail_on_error
+          step: build
+          to: [oncall@example.com]

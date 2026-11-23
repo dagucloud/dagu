@@ -1,0 +1,4 @@
+cases:
+  - name: infers its DAG
+    expect:
+      status: succeeded

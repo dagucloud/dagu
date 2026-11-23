@@ -1,0 +1,5 @@
+dag: ../invalid/noop.yaml
+cases:
+  - name: infers its DAG
+    expect:
+      status: succeeded

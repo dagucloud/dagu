@@ -1,0 +1,5 @@
+dag: orphan.test.yaml
+cases:
+  - name: tests a test file
+    expect:
+      status: succeeded
