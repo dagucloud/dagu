@@ -160,6 +160,9 @@ func TestUpdateRewrites(t *testing.T) {
 		expect string
 		edit   func(*Expect)
 		want   string
+		// output, when set, is the value build's first output reads back
+		// as from the written file.
+		output any
 	}{
 		{
 			name:   "FlowExpect",
@@ -199,6 +202,23 @@ func TestUpdateRewrites(t *testing.T) {
 			want: "    expect:\n      steps:\n        build:\n          outputs:\n            meta:  # count\n              files: 3\n",
 		},
 		{
+			name:   "MultilineFlow",
+			expect: "    expect: {\n      status: succeeded\n    }\n# end\n",
+			edit: func(e *Expect) {
+				e.Steps = []StepExpect{{Key: "build", Step: "build image", Status: "succeeded"}}
+			},
+			want: "    expect:\n      status: succeeded\n      steps:\n        build: succeeded\n# end\n",
+		},
+		{
+			name:   "BigInteger",
+			expect: "    expect:\n      steps:\n        build:\n          outputs:\n            tag: 1\n",
+			edit: func(e *Expect) {
+				e.Steps[0].Outputs[0].Value = json.Number("9223372036854775809")
+			},
+			want:   "    expect:\n      steps:\n        build:\n          outputs:\n            tag: 9223372036854775809\n",
+			output: uint64(9223372036854775809),
+		},
+		{
 			name:   "CRLF",
 			expect: "    expect:\r\n      status: succeeded\r\n      steps:\r\n        build: succeeded\r\n",
 			edit: func(e *Expect) {
@@ -219,6 +239,11 @@ func TestUpdateRewrites(t *testing.T) {
 			assert.True(t, changed)
 			require.NoError(t, update.Write())
 			assertFile(t, path, head+tt.want)
+			if tt.output != nil {
+				written, err := LoadFile(context.Background(), path)
+				require.NoError(t, err)
+				assert.Equal(t, tt.output, written.Cases[0].Expect.Steps[0].Outputs[0].Value)
+			}
 		})
 	}
 }

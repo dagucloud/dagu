@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -23,7 +24,7 @@ import (
 // errCaseForm is why Update keeps an expect whose text it cannot change in
 // place. An edit through an anchor or alias would change another part of
 // the file.
-var errCaseForm = errors.New("the case uses a YAML anchor, alias, merge key, or flow style")
+var errCaseForm = errors.New("the case is written in flow style or uses a YAML anchor, alias, or merge key")
 
 // defaultIndent is the indentation step of written YAML, and of an expect
 // whose own step yaml.v3 cannot write, which is 2 to 9 spaces.
@@ -370,8 +371,14 @@ func (ed *expectEditor) valueEdit(at slot, old yaml.Node, n *yaml.Node) (textEdi
 		return textEdit{}, errCaseForm
 	}
 	inline, below := ed.place(n, key.Column-1)
+	start, end, ok := ed.text.span(&old)
+	last := ed.text.entryEnd(key, &old)
+	if ok {
+		// A flow collection may close on a line no deeper than its key.
+		last = max(last, ed.text.lineEnd(ed.text.lineOf(end)))
+	}
 	var comment string
-	switch start, end, ok := ed.text.span(&old); {
+	switch {
 	case old.Line != key.Line:
 		comment = ed.text.restOfLine(colon)
 	case ok && below == "":
@@ -382,7 +389,7 @@ func (ed *expectEditor) valueEdit(at slot, old yaml.Node, n *yaml.Node) (textEdi
 	if inline != "" {
 		inline = " " + inline
 	}
-	return textEdit{start: colon, end: ed.text.entryEnd(key, &old), text: inline + comment + below}, nil
+	return textEdit{start: colon, end: last, text: inline + comment + below}, nil
 }
 
 // appendEdit returns the edit that writes the entries appended to a block
@@ -445,6 +452,9 @@ func yamlValue(v any) any {
 	case json.Number:
 		if i, err := x.Int64(); err == nil {
 			return i
+		}
+		if u, err := strconv.ParseUint(x.String(), 10, 64); err == nil {
+			return u
 		}
 		if f, err := x.Float64(); err == nil {
 			return f
@@ -539,25 +549,30 @@ func (t *yamlText) lineEnd(line int) int {
 	return end
 }
 
-// restOfLine returns the text from pos to the end of its line.
-func (t *yamlText) restOfLine(pos int) string {
+// lineOf returns the line that holds the offset pos.
+func (t *yamlText) lineOf(pos int) int {
 	line, _ := slices.BinarySearch(t.starts, pos+1)
-	return string(t.data[pos:t.lineEnd(line)])
+	return line
 }
 
-// span returns the offsets of the text of n when it ends on its first line:
-// a scalar other than a block scalar, or a flow collection.
+// restOfLine returns the text from pos to the end of its line.
+func (t *yamlText) restOfLine(pos int) string {
+	return string(t.data[pos:t.lineEnd(t.lineOf(pos))])
+}
+
+// span returns the offsets of the text of n when it can tell where it ends:
+// a scalar other than a block scalar that ends on its first line, or a flow
+// collection.
 func (t *yamlText) span(n *yaml.Node) (start, end int, ok bool) {
 	start = t.offset(n.Line, n.Column)
 	if start > t.lineEnd(n.Line) {
 		return start, start, false
 	}
-	rest := t.data[start:t.lineEnd(n.Line)]
 	switch {
 	case n.Kind == yaml.ScalarNode:
-		end, ok = scalarEnd(rest, n)
+		end, ok = scalarEnd(t.data[start:t.lineEnd(n.Line)], n)
 	case n.Style&yaml.FlowStyle != 0:
-		end, ok = flowEnd(rest)
+		end, ok = flowEnd(t.data[start:])
 	}
 	return start, start + end, ok
 }
@@ -593,7 +608,7 @@ func scalarEnd(rest []byte, n *yaml.Node) (int, bool) {
 }
 
 // flowEnd returns the length of the flow collection at the start of rest,
-// when it closes there.
+// which may span lines.
 func flowEnd(rest []byte) (int, bool) {
 	depth := 0
 	var quote, prev byte
@@ -608,8 +623,14 @@ func flowEnd(rest []byte) (int, bool) {
 			if c == quote {
 				quote = 0
 			}
-		case c == '#' && i > 0 && rest[i-1] == ' ':
-			return 0, false
+		case c == '#' && i > 0 && strings.IndexByte(" \t\n", rest[i-1]) >= 0:
+			// A comment runs to the end of its line.
+			j := bytes.IndexByte(rest[i:], '\n')
+			if j < 0 {
+				return 0, false
+			}
+			i += j
+			continue
 		case (c == '"' || c == '\'') && strings.IndexByte("{[,:", prev) >= 0:
 			// A quote starts a scalar only where a scalar can start.
 			quote = c
@@ -620,7 +641,7 @@ func flowEnd(rest []byte) (int, bool) {
 				return i + 1, true
 			}
 		}
-		if c != ' ' {
+		if strings.IndexByte(" \t\r\n", c) < 0 {
 			prev = c
 		}
 	}
