@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/mholt/archives"
 )
 
@@ -106,6 +105,19 @@ func (e *executorImpl) runExtract(ctx context.Context) error {
 	if err := e.ensureDir(dest); err != nil {
 		return err
 	}
+	// Writes go through root, which refuses any path that leaves the
+	// destination, including through links that earlier entries created.
+	var root *os.Root
+	var destReal string
+	if !e.cfg.DryRun {
+		if root, err = os.OpenRoot(destRoot); err != nil {
+			return wrapError(ErrDestination, err)
+		}
+		defer root.Close()
+		if destReal, err = filepath.EvalSymlinks(destRoot); err != nil {
+			return wrapError(ErrDestination, err)
+		}
+	}
 
 	preservePaths := e.cfg.PreservePaths
 	handle := func(handleCtx context.Context, file archives.FileInfo) error {
@@ -136,28 +148,25 @@ func (e *executorImpl) runExtract(ctx context.Context) error {
 			return joinErr
 		}
 
-		if file.IsDir() {
-			if err := e.ensureDir(targetPath); err != nil {
-				return err
-			}
-			return nil
-		}
-
-		parentDir := filepath.Dir(targetPath)
-		if parentDir != "" && parentDir != "." {
-			if err := e.ensureDir(parentDir); err != nil {
-				return err
-			}
-		}
-
 		if e.cfg.DryRun {
-			res.FilesExtracted++
-			res.BytesExtracted += file.Size()
+			if !file.IsDir() {
+				res.FilesExtracted++
+				res.BytesExtracted += file.Size()
+			}
 			return nil
+		}
+
+		if file.IsDir() {
+			return mkdirInRoot(root, rel)
+		}
+		if parent := filepath.Dir(rel); parent != "." {
+			if err := mkdirInRoot(root, parent); err != nil {
+				return err
+			}
 		}
 
 		if !e.cfg.Overwrite {
-			if _, err := os.Stat(targetPath); err == nil {
+			if _, err := root.Lstat(rel); err == nil {
 				return fmt.Errorf("%w: destination %q exists (overwrite disabled)", ErrDestination, targetPath)
 			}
 		}
@@ -167,25 +176,19 @@ func (e *executorImpl) runExtract(ctx context.Context) error {
 			if linkTarget == "" {
 				return fmt.Errorf("%w: empty symlink target", ErrCorrupted)
 			}
-			if filepath.IsAbs(linkTarget) {
+			// On Windows, a target with a volume name, such as C:foo, resolves
+			// from that volume even when filepath.IsAbs reports false.
+			if filepath.IsAbs(linkTarget) || filepath.VolumeName(linkTarget) != "" {
 				return fmt.Errorf("%w: symlink target %q is absolute", ErrCorrupted, linkTarget)
 			}
 
-			// Validate symlink doesn't escape destination directory
-			symlinkParent := filepath.Dir(targetPath)
-			resolvedTarget := filepath.Clean(filepath.Join(symlinkParent, linkTarget))
-			if !pathWithin(destRoot, resolvedTarget) {
-				return fmt.Errorf("%w: symlink target %q escapes destination", ErrCorrupted, linkTarget)
-			}
-
-			// Convert to safe relative path
-			safeTarget, err := filepath.Rel(symlinkParent, resolvedTarget)
+			safeTarget, err := linkTargetWithin(destReal, filepath.Join(destRoot, filepath.Dir(rel)), linkTarget)
 			if err != nil {
-				return wrapError(ErrExtract, err)
+				return err
 			}
 
-			_ = fileutil.Remove(targetPath)
-			if err := os.Symlink(safeTarget, targetPath); err != nil {
+			_ = root.Remove(rel)
+			if err := root.Symlink(safeTarget, rel); err != nil {
 				if errors.Is(err, fs.ErrPermission) {
 					return fmt.Errorf("%w: %v", ErrPermission, err)
 				}
@@ -195,7 +198,7 @@ func (e *executorImpl) runExtract(ctx context.Context) error {
 			return nil
 		}
 
-		destFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fileModeFor(file))
+		destFile, err := root.OpenFile(rel, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fileModeFor(file))
 		if err != nil {
 			if errors.Is(err, fs.ErrPermission) {
 				return fmt.Errorf("%w: %v", ErrPermission, err)
@@ -685,8 +688,83 @@ func bz2WithLevel(level int) archives.Bz2 {
 	return archives.Bz2{CompressionLevel: level}
 }
 
+// mkdirInRoot creates dir, relative to root, with its missing parents.
+func mkdirInRoot(root *os.Root, dir string) error {
+	if err := root.MkdirAll(dir, 0o755); err != nil {
+		if errors.Is(err, fs.ErrPermission) {
+			return fmt.Errorf("%w: %w", ErrPermission, err)
+		}
+		return fmt.Errorf("%w: %w", ErrDestination, err)
+	}
+	return nil
+}
+
+// linkTargetWithin returns linkTarget in clean form relative to linkDir, the
+// directory a link is created in, and fails when the target leaves destReal.
+// linkDir and the links the target passes through are resolved on disk, so
+// neither a link an earlier entry created nor one the destination already held
+// can carry the target outside. In clean form, ".." elements only lead, so
+// entries extracted later cannot redirect the link.
+func linkTargetWithin(destReal, linkDir, linkTarget string) (string, error) {
+	dirReal, err := filepath.EvalSymlinks(linkDir)
+	if err != nil {
+		return "", wrapError(ErrDestination, err)
+	}
+	rel, err := filepath.Rel(dirReal, filepath.Join(dirReal, linkTarget))
+	if err != nil {
+		return "", wrapError(ErrExtract, err)
+	}
+	if !resolvesWithin(destReal, dirReal, rel) {
+		return "", fmt.Errorf("%w: symlink target %q escapes destination", ErrCorrupted, linkTarget)
+	}
+	return rel, nil
+}
+
+// maxLinkHops bounds the links resolvesWithin follows, so a cycle of links ends.
+const maxLinkHops = 40
+
+// resolvesWithin reports whether target, read from dir, stays inside root at
+// every step when the links on disk are followed. Elements that do not exist
+// are taken as written. Like os.Root, it treats an absolute link as leaving
+// root. root and dir are resolved paths.
+func resolvesWithin(root, dir, target string) bool {
+	cur := dir
+	parts := strings.Split(filepath.ToSlash(target), "/")
+	for hops := 0; len(parts) > 0; {
+		part := parts[0]
+		parts = parts[1:]
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			cur = filepath.Dir(cur)
+		default:
+			next := filepath.Join(cur, part)
+			link, err := os.Readlink(next)
+			if err != nil {
+				// next is not a link, or does not exist yet.
+				cur = next
+				break
+			}
+			// On Windows, a link with a volume name or a leading separator
+			// is absolute even when filepath.IsAbs reports false.
+			link = filepath.ToSlash(link)
+			if hops++; hops > maxLinkHops || filepath.VolumeName(link) != "" || strings.HasPrefix(link, "/") {
+				return false
+			}
+			parts = append(strings.Split(link, "/"), parts...)
+		}
+		if !pathWithin(root, cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// fileModeFor returns the permission bits to create an entry's file with.
+// os.Root takes no other bits, so setuid, setgid, and sticky bits are dropped.
 func fileModeFor(info archives.FileInfo) fs.FileMode {
-	mode := info.Mode()
+	mode := info.Mode().Perm()
 	if mode == 0 {
 		return 0o644
 	}

@@ -90,6 +90,33 @@ func TestRunExtractZip(t *testing.T) {
 	}
 }
 
+// Setuid, setgid, and sticky bits, which os.Root cannot create files with, do
+// not stop the extraction.
+func TestExtractFileWithSetuidBit(t *testing.T) {
+	t.Parallel()
+
+	for _, format := range testArchiveFormats {
+		t.Run(format, func(t *testing.T) {
+			t.Parallel()
+
+			tempDir := t.TempDir()
+			dest := filepath.Join(tempDir, "out")
+			source := filepath.Join(tempDir, "setuid."+format)
+			writeTestArchive(t, source, format, []archiveEntry{
+				{name: "bin/tool", body: "echo tool", mode: fs.ModeSetuid | 0o755},
+			})
+
+			if err := extractTestArchive(t, source, dest); err != nil {
+				t.Fatalf("extract: %v", err)
+			}
+			got, err := os.ReadFile(filepath.Join(dest, "bin", "tool"))
+			if err != nil || string(got) != "echo tool" {
+				t.Fatalf("read bin/tool: %q (%v)", got, err)
+			}
+		})
+	}
+}
+
 func TestRunCreateTarGzAndList(t *testing.T) {
 	t.Parallel()
 
