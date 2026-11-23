@@ -710,10 +710,10 @@ steps:
         required: [window, replicas]
   - name: after
     depends: pick
-    run: echo ${steps.pick.outputs.window} ${steps.pick.outputs.replicas}
+    run: echo ${steps.pick.outputs.window}_${steps.pick.outputs.replicas}
 `,
 			values: map[string]any{"window": "evening", "replicas": 3},
-			want:   "evening 3",
+			want:   "evening_3",
 		},
 		{
 			name: "Approval",
@@ -727,10 +727,10 @@ steps:
       required: [CHANNEL]
   - name: after
     depends: pick
-    run: echo ${CHANNEL} ${COUNT}
+    run: echo ${CHANNEL}_${COUNT}
 `,
 			values: map[string]any{"CHANNEL": "releases", "COUNT": 3},
-			want:   "releases 3",
+			want:   "releases_3",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
