@@ -73,8 +73,8 @@ workspaces without a replacement would keep those installs on v2.
 6. Leave "workspace" to mean only the Dagu Cloud account.
 7. Give each project an identity that Dagu Cloud can tell apart across
    servers, without putting Dagu Cloud in the run path.
-8. Give every setting a workflow runs with one owner, a project, with no
-   server-wide layer that projects inherit.
+8. Give every setting a workflow runs with, other than business calendars,
+   one owner, a project, with no server-wide layer that projects inherit.
 
 ## Non-goals
 
@@ -201,7 +201,9 @@ Pages show the display name; commands, API calls, and links use the name.
 
 A store added later is per project unless it holds identity, authentication,
 licensing, or the state of the processes and workers that serve every
-project. A setting a workflow runs with is always per project.
+project. A setting a workflow runs with is always per project, except
+business calendars: holidays are the same for every team, so the server
+keeps one set.
 
 ### Storage
 
@@ -453,7 +455,9 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   already brought, such as from a checkout used as `paths.projects_dir`,
   becomes a project only when an admin creates a project of its name. A new
   project starts with no secrets, profiles, routes, or policies, and with
-  the base config its directory holds, if any.
+  the base config its directory holds, if any. Create is refused while a
+  state directory of that name records another ID, until an admin
+  restores or deletes it on the projects page.
 - **No rename.** A project's name never changes; see [Names](#names). An
   admin changes the display name in the UI or API at any time, and only
   the registry changes.
@@ -466,9 +470,10 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   process has recorded it, delete checks the project's runs. While any
   is queued, in its own queues or a server-wide one, running, or
   waiting, delete is refused and the mark removed. Otherwise it removes
-  the DAG directory, the state directories, grants, and Dagu Cloud
-  binding, and last the registry entry. A process that starts while a
-  project is marked deleting finishes the delete.
+  the DAG directory, the state directories, grants, each API key left
+  with no role, and Dagu Cloud binding, and last the registry entry. A
+  process that starts while a project is marked deleting finishes the
+  delete.
   - When the DAG directory is in a git checkout, delete is refused while
     the directory exists: the checkout owns it, so it is removed there
     first.
@@ -646,6 +651,9 @@ or a copy of one, before the upgrade.
   process is still live, as `dagu stop` does, and moves a run's files
   only after its process exits. A run on a worker is marked cancelled,
   and the coordinator stops it when the worker next connects.
+- Runs waiting in a queue keep their order. Those in a queue defined in
+  `config.yaml` move to `<data_dir>/server/`, and the others to their
+  DAG's project.
 - A process killed during migration resumes it on its next start. While
   migration waits or runs, the health endpoint of every v3.0 process,
   including one that waits for another to migrate, answers 200 and reports
@@ -691,7 +699,10 @@ or a copy of one, before the upgrade.
   to the directory that holds it.
 - The operator moves a file to `<projects_dir>/X/` at any time, by hand
   or in git. It is then `X`'s by its directory, keeps its name and
-  history, and its record ends. A record also ends when its file is gone.
+  history, and its record ends. While both files exist, as when two git
+  syncs bring the move one after the other, the file in
+  `<projects_dir>/X/` wins and the record ends. A record also ends when
+  its file is gone.
   A DAG that sets no `working_dir` runs in its file's directory, so
   moving it changes where it runs; the projects page says so beside each
   file that runs in place.
@@ -708,7 +719,8 @@ or a copy of one, before the upgrade.
   exists, it alone is `X`'s base config, and the projects page lists the
   global settings to add to it.
 - Project `X`'s wiki is its v2 directory until the operator moves it to
-  `<projects_dir>/X/wiki/`.
+  `<projects_dir>/X/wiki/`, and the default project's wiki leaves that
+  directory out. Once `<projects_dir>/X/wiki/` exists, `X` uses it alone.
 - `git_sync` keeps syncing `paths.dags_dir`, the files that run in place
   included, as on v2. To move such a file, an admin gives project `X` a
   git sync on a path of its own, and the file moves there in the
@@ -875,7 +887,9 @@ Criteria 23 and 24 apply from the release that ships the feature.
    DAG whose base config changes.
 3. After migration, each user and API key can see and do what it could on v2,
    and no more, except that every user can read a library DAG that carried
-   a `workspace` label, which the report lists.
+   a `workspace` label, which the report lists, and a user limited to
+   workspaces can read default-project DAGs through MCP, as through the UI
+   on v2.
 4. A user without a role in a project gets `404` for its DAGs, runs, logs, and
    wiki pages, and does not see the project in lists or search.
 5. `dag.run` to a DAG in another project fails at load.
