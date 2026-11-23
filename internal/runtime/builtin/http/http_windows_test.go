@@ -204,9 +204,9 @@ func TestHTTPExecutor_WindowsSpecific(t *testing.T) {
 		err = httpExec.Run(context.Background())
 		duration := time.Since(start)
 
-		// Should timeout and return an error
-		assert.Error(t, err)
-		assert.Contains(t, strings.ToLower(err.Error()), "timeout")
+		// The client's deadline can surface as its own timeout error or as the
+		// request context's deadline error; both match DeadlineExceeded.
+		assert.ErrorIs(t, err, context.DeadlineExceeded)
 		// Should complete within reasonable time (not wait for full 3 seconds)
 		assert.Less(t, duration, 2*time.Second)
 	})
