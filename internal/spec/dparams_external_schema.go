@@ -501,14 +501,23 @@ func largeInteger(value any) bool {
 	}
 }
 
-// decodeDefault decodes a schema default as the schema library does, with
-// float64 numbers, except that an integer float64 would round stays exact.
-func decodeDefault(raw json.RawMessage) (any, bool) {
-	if exact, ok := exactJSONValue(string(raw)); ok && largeInteger(exact) {
-		return exact, true
+// numberTyped reports whether schema declares type number. Its values are
+// coerced to float64, so its enum members and default stay float64 too.
+func numberTyped(schema *jsonschema.Schema) bool {
+	return schema.Type == "number" || slices.Contains(schema.Types, "number")
+}
+
+// decodeDefault decodes the default of property as the schema library does,
+// with float64 numbers, except that an integer float64 would round stays exact
+// unless property is number typed.
+func decodeDefault(property *jsonschema.Schema) (any, bool) {
+	if !numberTyped(property) {
+		if exact, ok := exactJSONValue(string(property.Default)); ok && largeInteger(exact) {
+			return exact, true
+		}
 	}
 	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
+	if err := json.Unmarshal(property.Default, &value); err != nil {
 		return nil, false
 	}
 	return value, true
@@ -526,7 +535,7 @@ func fillDefaults(values map[string]any, schema *jsonschema.Schema, withRequired
 		if !withRequired && slices.Contains(schema.Required, name) {
 			continue
 		}
-		value, ok := decodeDefault(property.Default)
+		value, ok := decodeDefault(property)
 		if !ok {
 			return fmt.Errorf("%s: invalid default %s", name, property.Default)
 		}
@@ -545,9 +554,11 @@ type schemaNumbers struct {
 }
 
 // keepExactEnums replaces each enum and const member that float64 rounds, in
-// each top-level property of schema and its oneOf and anyOf members, with the
-// exact integer in data, the JSON that schema was decoded from. Call it after
-// Resolve, which checks defaults as float64 against those members.
+// each top-level property of schema that is not number typed and in its oneOf
+// and anyOf members, with the exact integer in data, the JSON that schema was
+// decoded from. The property's type decides for its members, as it decides
+// how its values and default decode. Call it after Resolve, which checks
+// defaults as float64 against those members.
 func keepExactEnums(schema *jsonschema.Schema, data []byte) {
 	var root struct {
 		Properties map[string]json.RawMessage `json:"properties"`
@@ -558,17 +569,17 @@ func keepExactEnums(schema *jsonschema.Schema, data []byte) {
 	for name, raw := range root.Properties {
 		decoder := json.NewDecoder(bytes.NewReader(raw))
 		decoder.UseNumber()
+		property := schema.Properties[name]
 		var numbers schemaNumbers
 		// A boolean property schema has no members to keep.
-		if decoder.Decode(&numbers) == nil {
-			numbers.apply(schema.Properties[name])
+		if property != nil && !numberTyped(property) && decoder.Decode(&numbers) == nil {
+			numbers.apply(property)
 		}
 	}
 }
 
 func (n schemaNumbers) apply(schema *jsonschema.Schema) {
-	// A number value is coerced to float64, so its members stay float64.
-	if schema == nil || schema.Type == "number" || slices.Contains(schema.Types, "number") {
+	if schema == nil {
 		return
 	}
 	if len(n.Enum) == len(schema.Enum) {

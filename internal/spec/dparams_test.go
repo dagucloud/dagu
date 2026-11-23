@@ -556,8 +556,9 @@ steps:
 }
 
 // The schema library decodes enum members and defaults as float64, which
-// rounds integers above 2^53. A boolean property schema, a number param, and
-// an object default, where the library's float64 values must stay, still load.
+// rounds integers above 2^53. A number param keeps float64 members and
+// defaults, an integer param keeps exact ones in every branch, and a boolean
+// property schema and an object default still load.
 func TestExternalSchemaParams_KeepLargeIntegers(t *testing.T) {
 	t.Parallel()
 
@@ -578,6 +579,16 @@ params:
       weight:
         type: number
         enum: [9007199254740993]
+      scale:
+        type: number
+        enum: [9007199254740993]
+        default: 9007199254740993
+      level:
+        type: integer
+        default: 9007199254740993
+        oneOf:
+          - type: number
+            const: 9007199254740993
       config:
         type: object
         properties:
