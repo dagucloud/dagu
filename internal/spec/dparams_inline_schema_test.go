@@ -300,6 +300,47 @@ params:
 	assert.Contains(t, err.Error(), "batch_size")
 }
 
+// The schema library decodes enum members and defaults as float64, which
+// rounds integers above 2^53. The required region makes a load without it
+// check the schema again with region left out, and huge is above the int64
+// range.
+func TestBuildInlineSchemaParamPlan_KeepsLargeIntegers(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+name: inline-schema-large-integers
+params:
+  type: object
+  properties:
+    serial:
+      type: integer
+      enum: [9007199254740993]
+    limit:
+      type: integer
+      enum: [9007199254740993]
+      default: 9007199254740993
+    huge:
+      enum: [9223372036854775809]
+    count:
+      type: integer
+    region:
+      type: string
+  required: [region]
+`)
+
+	dag, err := LoadYAML(context.Background(), yaml, WithoutEval())
+	require.NoError(t, err)
+	assert.Equal(t, `limit="9007199254740993"`, dag.DefaultParams)
+
+	dag, err = LoadYAML(context.Background(), yaml, WithoutEval(), WithParams("region=us serial=9007199254740993 huge=9223372036854775809"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"huge=9223372036854775809", "limit=9007199254740993", "region=us", "serial=9007199254740993"}, dag.Params)
+
+	// A typed integer param keeps the int64 range.
+	_, err = LoadYAML(context.Background(), yaml, WithoutEval(), WithParams("region=us count=9223372036854775809"))
+	require.ErrorContains(t, err, `count: cannot coerce "9223372036854775809" to integer`)
+}
+
 func TestBuildInlineSchemaParamPlan_ParamDefTitle(t *testing.T) {
 	t.Parallel()
 

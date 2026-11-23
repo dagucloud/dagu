@@ -81,6 +81,7 @@ func resolveSchemaData(schemaData []byte) (*jsonschema.Resolved, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve schema: %w", err)
 	}
+	keepExactEnums(resolvedSchema.Schema(), schemaData)
 
 	return resolvedSchema, nil
 }
