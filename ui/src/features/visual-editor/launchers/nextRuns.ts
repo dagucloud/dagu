@@ -4,7 +4,22 @@
 import { CronExpressionParser } from 'cron-parser';
 
 /** A leading `TZ=` or `CRON_TZ=` field, as the scheduler reads it. */
-const ZONE_PREFIX = /^(?:CRON_)?TZ=(\S+)\s+(.*)$/;
+export const CRON_ZONE_PREFIX = /^(?:CRON_)?TZ=(\S+)\s+/;
+
+/**
+ * The zone that a `TZ=` field names: `Local` is the zone of the scheduler.
+ * null for a name that the time zone database does not have, which the
+ * server refuses.
+ */
+function prefixZone(name: string, tz: string | undefined): string | null {
+  if (name === 'Local') return tz ?? '';
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: name });
+    return name;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The next fire times of a cron expression, or null when the parser does not
@@ -21,11 +36,10 @@ export function nextRuns(
   from: Date = new Date(),
   tz?: string
 ): Date[] | null {
-  const prefixed = ZONE_PREFIX.exec(expression);
-  const body = prefixed?.[2] ?? expression;
-  const zone = prefixed?.[1] ?? (tz || undefined);
-  // The scheduler has no zone for an interval: it refuses a prefix there.
-  if (prefixed && body.startsWith('@every ')) return null;
+  const prefixed = CRON_ZONE_PREFIX.exec(expression);
+  const body = prefixed ? expression.slice(prefixed[0].length) : expression;
+  const zone = prefixed ? prefixZone(prefixed[1]!, tz) : (tz ?? '');
+  if (zone === null) return null;
   try {
     return CronExpressionParser.parse(body, {
       currentDate: from,
