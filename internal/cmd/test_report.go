@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"time"
@@ -25,6 +26,8 @@ type caseResult struct {
 	// failures lists every failed assertion, or what kept the run from its
 	// assertions.
 	failures []caseFailure
+	// caseDir is the absolute path of the case directory that --keep kept.
+	caseDir string
 }
 
 // Fields of a case failure (Spec 101, JSON Report).
@@ -74,10 +77,31 @@ func (f caseFailure) String() string {
 	}
 }
 
-// testReport writes the text report of dagu test as each case ends, and
-// counts the cases.
+// Results of a case.
+const (
+	resultPass    = "pass"
+	resultFail    = "fail"
+	resultInvalid = "invalid"
+)
+
+func (c caseResult) result() string {
+	switch {
+	case len(c.errors) > 0:
+		return resultInvalid
+	case len(c.failures) > 0:
+		return resultFail
+	default:
+		return resultPass
+	}
+}
+
+// testReport writes the report of dagu test and counts the cases. The text
+// report is written as each case ends.
 type testReport struct {
-	out          io.Writer
+	out io.Writer
+	// json collects the report for --format json, which is written once
+	// every case has ended. Nil writes text.
+	json         *jsonTestReport
 	passed       int
 	failed       int
 	invalid      int
@@ -86,6 +110,10 @@ type testReport struct {
 
 func (r *testReport) writeInvalidFile(file string, errs []dagtest.Finding) {
 	r.invalidFiles++
+	if r.json != nil {
+		r.json.InvalidFiles = append(r.json.InvalidFiles, jsonInvalidFile{File: file, Errors: jsonErrors(errs)})
+		return
+	}
 	r.printf("INVALID %s\n", file)
 	for _, err := range errs {
 		r.printf("  %s\n", err)
@@ -93,27 +121,43 @@ func (r *testReport) writeInvalidFile(file string, errs []dagtest.Finding) {
 }
 
 func (r *testReport) writeCase(c caseResult) {
-	switch {
-	case len(c.errors) > 0:
+	switch c.result() {
+	case resultInvalid:
 		r.invalid++
+	case resultFail:
+		r.failed++
+	default:
+		r.passed++
+	}
+	if r.json != nil {
+		r.json.Cases = append(r.json.Cases, jsonCaseOf(c))
+		return
+	}
+	switch c.result() {
+	case resultInvalid:
 		r.printf("INVALID %s: %s\n", c.file, c.name)
 		for _, err := range c.errors {
 			r.printf("  %s\n", err)
 		}
-	case len(c.failures) > 0:
-		r.failed++
+	case resultFail:
 		r.printf("FAIL %s: %s (%.2fs)\n", c.file, c.name, c.duration.Seconds())
 		for _, failure := range c.failures {
 			r.printf("  %s\n", failure)
 		}
 	default:
-		r.passed++
 		r.printf("PASS %s: %s (%.2fs)\n", c.file, c.name, c.duration.Seconds())
+	}
+	if c.caseDir != "" {
+		r.printf("  case directory %s\n", c.caseDir)
 	}
 }
 
-// writeSummary writes the last line, which counts the cases by outcome.
-func (r *testReport) writeSummary() {
+// writeSummary ends the report: the text report's last line, which counts
+// the cases by outcome, or the JSON object.
+func (r *testReport) writeSummary() error {
+	if r.json != nil {
+		return json.NewEncoder(r.out).Encode(r.json)
+	}
 	total := r.passed + r.failed + r.invalid
 	r.printf("%d %s: %d passed, %d failed", total, plural(total, "case", "cases"), r.passed, r.failed)
 	if r.invalid > 0 {
@@ -123,6 +167,7 @@ func (r *testReport) writeSummary() {
 		r.printf(", %d invalid %s", r.invalidFiles, plural(r.invalidFiles, "file", "files"))
 	}
 	r.printf("\n")
+	return nil
 }
 
 // exitStatus returns the exit status of the reported cases: the highest
