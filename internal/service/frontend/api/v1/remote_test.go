@@ -116,11 +116,8 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 		{name: "viewer reads an inventory", method: http.MethodGet, path: "/api/v1/inventories/inv-1", user: viewer, wantCall: true},
 		{name: "operator cannot import inventories", method: http.MethodPost, path: "/api/v1/inventory-imports", user: operator, permissions: writeAndRun},
 		{name: "developer imports inventories", method: http.MethodPost, path: "/api/v1/inventory-imports", user: developer, permissions: writeAndRun, wantCall: true},
-		{name: "viewer cannot test node connections", method: http.MethodPost, path: "/api/v1/node-connection-tests", user: viewer, permissions: writeAndRun},
-		{name: "operator tests node connections", method: http.MethodPost, path: "/api/v1/node-connection-tests", user: operator, permissions: writeAndRun, wantCall: true},
-		{name: "node tests need no run permission", method: http.MethodPost, path: "/api/v1/node-connection-tests", user: operator, wantCall: true},
-		{name: "operator cannot trust host keys", method: http.MethodPost, path: "/api/v1/node-host-keys", user: operator, permissions: writeAndRun},
-		{name: "developer trusts host keys", method: http.MethodPost, path: "/api/v1/node-host-keys", user: developer, permissions: writeAndRun, wantCall: true},
+		{name: "node tests are never forwarded", method: http.MethodPost, path: "/api/v1/node-connection-tests", user: admin, permissions: writeAndRun},
+		{name: "host key trusts are never forwarded", method: http.MethodPost, path: "/api/v1/node-host-keys", user: admin, permissions: writeAndRun},
 		{name: "manager reads audit logs", method: http.MethodGet, path: "/api/v1/audit", user: manager, wantCall: true},
 		{name: "developer cannot create an API key", method: http.MethodPost, path: "/api/v1/api-keys", user: developer, permissions: writeAndRun},
 		{name: "admin creates an API key", method: http.MethodPost, path: "/api/v1/api-keys", user: admin, wantCall: true},
@@ -480,56 +477,6 @@ func TestRemoteLogDownloadStreams(t *testing.T) {
 			tail, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 			require.Equal(t, append(first[len(got):], []byte("tail")...), tail)
-		})
-	}
-}
-
-// A remote node's test and trust events reach the client as they come, past
-// the server's write deadline.
-func TestRemoteNodeEventStreams(t *testing.T) {
-	for _, path := range []string{"/node-connection-tests", "/node-host-keys"} {
-		t.Run(path, func(t *testing.T) {
-			const first, last = "event: result\ndata: {}\n\n", "event: done\ndata: {}\n\n"
-			release := make(chan struct{})
-			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				assert.Equal(t, "/api/v1"+path, r.URL.Path)
-				w.Header().Set("Content-Type", "text/event-stream")
-				w.Header().Set("Cache-Control", "no-cache")
-				w.Header().Set("X-Accel-Buffering", "no")
-				_, _ = io.WriteString(w, first)
-				_ = http.NewResponseController(w).Flush()
-				select {
-				case <-release:
-					_, _ = io.WriteString(w, last)
-				case <-r.Context().Done():
-				}
-			}))
-			defer remote.Close()
-			defer close(release)
-			resolver := remotenode.NewResolver([]config.RemoteNode{{Name: "edge", APIBaseURL: remote.URL + "/api/v1"}}, nil)
-			handler := WithRemoteNode(resolver, "/dagu/api/v1")(http.NotFoundHandler())
-			proxy := httptest.NewUnstartedServer(logDownloadDeadline("/dagu/api/v1")(handler))
-			proxy.Config.WriteTimeout = 50 * time.Millisecond
-			proxy.Start()
-			defer proxy.Close()
-			client := proxy.Client()
-			client.Timeout = 5 * time.Second
-			resp, err := client.Post(proxy.URL+"/dagu/api/v1"+path+"?remoteNode=edge", "application/json", strings.NewReader(`{}`))
-			require.NoError(t, err)
-			defer func() { _ = resp.Body.Close() }()
-			require.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
-			assert.Equal(t, "no-cache", resp.Header.Get("Cache-Control"))
-			assert.Equal(t, "no", resp.Header.Get("X-Accel-Buffering"), "proxies must not buffer the stream")
-			got := make([]byte, len(first))
-			_, err = io.ReadFull(resp.Body, got)
-			require.NoError(t, err)
-			require.Equal(t, first, string(got))
-			// Finish after the normal server write deadline, once streaming is observed.
-			time.Sleep(100 * time.Millisecond)
-			release <- struct{}{}
-			rest, err := io.ReadAll(resp.Body)
-			require.NoError(t, err)
-			require.Equal(t, last, string(rest))
 		})
 	}
 }

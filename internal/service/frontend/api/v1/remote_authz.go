@@ -26,9 +26,6 @@ const (
 	remoteNodeAccessAdmin remoteNodeAccess = iota
 	remoteNodeAccessRead
 	remoteNodeAccessExecute
-	// remoteNodeAccessOperator needs the operator role, without the
-	// permission to run DAGs.
-	remoteNodeAccessOperator
 	remoteNodeAccessWrite
 	remoteNodeAccessWriteAndRun
 	remoteNodeAccessDeveloper
@@ -213,11 +210,6 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"UpdateWorkspace":      remoteNodeAccessDeveloper,
 	"ImportInventories":    remoteNodeAccessDeveloper,
 
-	// Node connection tests, open to operators and above, and host key
-	// trust, open to developers and above.
-	"TestInventoryNodeConnections": remoteNodeAccessOperator,
-	"TrustInventoryNodeHostKeys":   remoteNodeAccessDeveloper,
-
 	// Audit and event logs, open to managers and above.
 	"ListAuditLogs": remoteNodeAccessManager,
 	"ListEventLogs": remoteNodeAccessManager,
@@ -229,6 +221,11 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"Setup":          remoteNodeAccessDenied,
 	"GetMetrics":     remoteNodeAccessDenied,
 	"TriggerWebhook": remoteNodeAccessDenied,
+
+	// Node connection tests and host key trust, which remote nodes do not
+	// support.
+	"TestInventoryNodeConnections": remoteNodeAccessDenied,
+	"TrustInventoryNodeHostKeys":   remoteNodeAccessDenied,
 }
 
 // remoteNodeAuthorization rejects remote node requests the caller could not
@@ -303,7 +300,7 @@ func (a *API) requireRemoteNodeAccess(ctx context.Context, access remoteNodeAcce
 		if err := a.isAllowed(config.PermissionRunDAGs); err != nil {
 			return err
 		}
-	case remoteNodeAccessAdmin, remoteNodeAccessRead, remoteNodeAccessOperator, remoteNodeAccessDeveloper, remoteNodeAccessManager:
+	case remoteNodeAccessAdmin, remoteNodeAccessRead, remoteNodeAccessDeveloper, remoteNodeAccessManager:
 	}
 
 	if !a.rolesApply(ctx) {
@@ -329,7 +326,7 @@ func (access remoteNodeAccess) allows(role auth.Role) bool {
 	switch access {
 	case remoteNodeAccessRead:
 		return true
-	case remoteNodeAccessExecute, remoteNodeAccessOperator:
+	case remoteNodeAccessExecute:
 		return role.CanExecute()
 	case remoteNodeAccessWrite, remoteNodeAccessWriteAndRun, remoteNodeAccessDeveloper:
 		return role.CanWrite()

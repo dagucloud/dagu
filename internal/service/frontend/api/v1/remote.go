@@ -98,14 +98,12 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 				}
 			}()
 
-			if streamsResponse(r, apiBasePath) && resp.StatusCode == http.StatusOK {
+			if isLogDownload(r, apiBasePath) && resp.StatusCode == http.StatusOK {
 				if contentType := resp.Header.Get("Content-Type"); contentType != "" {
 					w.Header().Set("Content-Type", contentType)
 				}
-				for _, name := range []string{"Content-Disposition", "Cache-Control", "X-Accel-Buffering"} {
-					if value := resp.Header.Get(name); value != "" {
-						w.Header().Set(name, value)
-					}
+				if disposition := resp.Header.Get("Content-Disposition"); disposition != "" {
+					w.Header().Set("Content-Disposition", disposition)
 				}
 				if encoding := resp.Header.Get("Content-Encoding"); encoding != "" {
 					w.Header().Set("Content-Encoding", encoding)
@@ -113,11 +111,9 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 				}
 				w.WriteHeader(resp.StatusCode)
 				if _, err := io.Copy(flushWriter{w}, resp.Body); err != nil {
-					logger.Error(r.Context(), "Failed to proxy streamed response", tag.Error(err))
+					logger.Error(r.Context(), "Failed to proxy log download", tag.Error(err))
 					panic(http.ErrAbortHandler)
 				}
-				// The end of the response is written after the last copy.
-				_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(remoteProxyTimeout))
 				return
 			}
 
@@ -319,7 +315,7 @@ func (h *remoteNodeProxy) doRequest(body io.Reader, r *http.Request) (*http.Resp
 		Timeout:   remoteProxyTimeout,
 	}
 
-	if streamsResponse(r, h.apiBasePath) {
+	if isLogDownload(r, h.apiBasePath) {
 		// Encoded bodies are forwarded unchanged, so the remote may only use
 		// encodings the client accepts.
 		if encodings := r.Header.Values("Accept-Encoding"); len(encodings) > 0 {
@@ -327,8 +323,8 @@ func (h *remoteNodeProxy) doRequest(body io.Reader, r *http.Request) (*http.Resp
 		} else {
 			req.Header.Set("Accept-Encoding", "identity")
 		}
-		// Log downloads and node event streams have no total duration
-		// limit; connection setup and stalled transfers remain bounded.
+		// Log downloads have no total duration limit; connection setup and
+		// stalled transfers remain bounded.
 		client.Timeout = 0
 		dialer := &net.Dialer{Timeout: remoteProxyTimeout}
 		transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -397,19 +393,14 @@ func (c idleTimeoutConn) Read(p []byte) (int, error) {
 	return c.Conn.Read(p)
 }
 
-// flushWriter flushes after every write so a proxied stream reaches the
-// client while the remote transfer is still in progress. Each write must
-// finish within remoteProxyTimeout, so a client that stops reading cannot
-// hold the stream open. Writers that cannot flush are written to without
-// flushing.
+// flushWriter flushes after every write so a proxied log download reaches the
+// client while the remote transfer is still in progress. Writers that cannot
+// flush are written to without flushing.
 type flushWriter struct {
 	w http.ResponseWriter
 }
 
 func (f flushWriter) Write(p []byte) (int, error) {
-	if err := http.NewResponseController(f.w).SetWriteDeadline(time.Now().Add(remoteProxyTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
-		return 0, err
-	}
 	n, err := f.w.Write(p)
 	if err != nil {
 		return n, err

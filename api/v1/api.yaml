@@ -12526,8 +12526,6 @@ paths:
       operationId: "testInventoryNodeConnections"
       tags:
         - "nodes"
-      parameters:
-        - $ref: "#/components/parameters/RemoteNode"
       requestBody:
         required: true
         content:
@@ -12573,8 +12571,6 @@ paths:
       operationId: "trustInventoryNodeHostKeys"
       tags:
         - "nodes"
-      parameters:
-        - $ref: "#/components/parameters/RemoteNode"
       requestBody:
         required: true
         content:

@@ -25232,10 +25232,7 @@ export interface operations {
     };
     testInventoryNodeConnections: {
         parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -25295,10 +25292,7 @@ export interface operations {
     };
     trustInventoryNodeHostKeys: {
         parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
