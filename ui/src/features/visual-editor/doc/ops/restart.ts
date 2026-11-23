@@ -27,12 +27,24 @@ export function isServicePolicy(policy: RestartPolicy): boolean {
   return policy !== 'no';
 }
 
+/**
+ * The policy that a value names, as the loader reads it: the case and the
+ * spaces do not count, and an empty value is `no`. Null for any other value.
+ */
+export function parseRestartPolicy(value: string): RestartPolicy | null {
+  const policy = value.trim().toLowerCase();
+  if (policy === '') return 'no';
+  return policy === 'no' || policy === 'always' || policy === 'unless-stopped'
+    ? policy
+    : null;
+}
+
 function readPolicy(node: unknown): RestartPolicy {
-  const value =
+  const policy =
     isScalar(node) && typeof node.value === 'string'
-      ? node.value.trim().toLowerCase()
-      : '';
-  return value === 'always' || value === 'unless-stopped' ? value : 'no';
+      ? parseRestartPolicy(node.value)
+      : null;
+  return policy ?? 'no';
 }
 
 /** True for a key with no value: absent, `null`, or empty. */

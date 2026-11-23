@@ -31,7 +31,11 @@ import {
 } from './issueMessages';
 import { locateIssue, rangeFromOffsets, scalarAtField } from './issues';
 import { validateStepId, validateStepName } from './names';
-import { isServicePolicy, readRestart } from './ops/restart';
+import {
+  isServicePolicy,
+  parseRestartPolicy,
+  readRestart,
+} from './ops/restart';
 import { readSchedule } from './ops/schedule';
 
 /*
@@ -523,8 +527,6 @@ function scheduleDrafts(model: DagDocModel): Draft[] {
   return drafts;
 }
 
-const RESTART_POLICIES = new Set(['', 'no', 'always', 'unless-stopped']);
-
 /** The rules of `restart_policy` that the loader checks in the file (Spec 080). */
 function restartDrafts(model: DagDocModel): Draft[] {
   const raw = scalarAtField(model, 'restart_policy')?.value;
@@ -535,7 +537,7 @@ function restartDrafts(model: DagDocModel): Draft[] {
     message,
     fieldPath: field,
   });
-  if (!RESTART_POLICIES.has(raw.trim().toLowerCase())) {
+  if (parseRestartPolicy(raw) === null) {
     return [error(invalidRestartPolicyMessage(raw), 'restart_policy')];
   }
   const restart = readRestart(model.text);
