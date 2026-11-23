@@ -234,6 +234,7 @@ func (r *DAGRunRepository) statusQuery(options DAGRunListOptions) DAGRunStatusQu
 		Labels:          options.Labels,
 		WorkspaceFilter: options.WorkspaceFilter,
 		FullStatus:      options.FullStatus,
+		SkipStatusCache: options.SkipStatusCache,
 		ExcludeDAGNames: options.ExcludeDAGNames,
 		ExcludeBackfill: options.ExcludeBackfill,
 		OnlyBackfill:    options.OnlyBackfill,

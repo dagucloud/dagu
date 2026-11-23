@@ -1,0 +1,3 @@
+steps:
+  - id: once
+    run: "true"

@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 )
 
 type runOptions struct {
@@ -56,6 +57,9 @@ type runOptions struct {
 	// a run dagu start begins as a retry, such as a selected-steps run,
 	// without --trigger-type.
 	reportNoTrigger bool
+	// testSideEffects, when non-nil, runs a test case without the run-level
+	// side effects of a real run.
+	testSideEffects *agent.TestSideEffects
 }
 
 func dagDefinitionIDFromEnv() string {

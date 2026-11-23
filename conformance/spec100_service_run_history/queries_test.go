@@ -80,6 +80,58 @@ func TestQueryParamsAreValidated(t *testing.T) {
 	}
 }
 
+// The activity of a DAG list page gives a service DAG buckets, at most 60, and
+// no run. A DAG that is not a service DAG keeps its runs.
+func TestActivityInDAGList(t *testing.T) {
+	t.Parallel()
+	p := newProject(t, "mixed")
+	p.startServer()
+	p.dagu.RunWithEnv(p.env(), "start", "--run-id=plain-1", "mixed/plain.yaml").ExpectExitCode(0)
+	p.startScheduler()
+
+	list := func() map[string]*api.DAGListActivity {
+		resp := getJSON[api.DAGListActivityPage](p, http.StatusOK, "/dag-list-activity", url.Values{"window": {"86400"}})
+		byName := map[string]*api.DAGListActivity{}
+		for _, entry := range resp.Dags {
+			byName[entry.FileName] = &entry.Activity
+		}
+		return byName
+	}
+	var activity *api.DAGListActivity
+	require.Eventually(t, func() bool {
+		activity = list()["service_ok"]
+		if activity == nil || activity.Buckets == nil {
+			return false
+		}
+		var n int64
+		for _, b := range *activity.Buckets {
+			n += b.Count
+		}
+		return n >= 2
+	}, wait, poll, "no buckets in the activity of the service DAG")
+
+	assert.Empty(t, activity.Runs)
+	assert.False(t, activity.Truncated)
+	assert.LessOrEqual(t, len(*activity.Buckets), 60)
+	require.NotNil(t, activity.ResolutionSeconds)
+	assert.Contains(t, []int{1, 60, 3600, 86400}, *activity.ResolutionSeconds)
+	// The tier is the one of the samples query with 60 points.
+	now := time.Now().UTC()
+	series := p.samples("service_ok", url.Values{
+		"from":   {now.Add(-24 * time.Hour).Format(time.RFC3339Nano)},
+		"to":     {now.Format(time.RFC3339Nano)},
+		"points": {"60"},
+	})
+	assert.Equal(t, series.ResolutionSeconds, *activity.ResolutionSeconds)
+
+	plain := list()["plain"]
+	require.NotNil(t, plain)
+	require.Len(t, plain.Runs, 1)
+	assert.Equal(t, "plain-1", plain.Runs[0].DagRunId)
+	assert.Empty(t, plain.Buckets)
+	assert.Nil(t, plain.ResolutionSeconds)
+}
+
 // A window of three years answers with at most `points` buckets, from the day
 // tier.
 func TestThreeYearWindow(t *testing.T) {

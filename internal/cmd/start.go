@@ -731,7 +731,12 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 	queuedRun := opts.workerID != "local"
 
 	as := ctx.runtimeStores()
-	extraEnvs, err := prepareDAGTools(ctx, d)
+	var extraEnvs []string
+	if opts.testSideEffects != nil {
+		extraEnvs, err = prepareTestDAGTools(ctx, d, opts.testSideEffects.HasRealSteps)
+	} else {
+		extraEnvs, err = prepareDAGTools(ctx, d)
+	}
 	if err != nil {
 		return err
 	}
@@ -784,6 +789,7 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
 			ExpandSubRuns:            opts.recursiveOutput,
 			RedirectRoot:             opts.redirectRoot,
+			TestSideEffects:          opts.testSideEffects,
 		},
 	)
 

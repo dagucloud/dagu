@@ -65,6 +65,8 @@ type TopicType string
 //   - TopicTypeQueueItems: "queueName"
 //   - TopicTypeQueues: URL query string
 //   - TopicTypeDAGsList: URL query string (e.g., "page=1&perPage=100&name=mydag")
+//   - TopicTypeDAGListActivity: the query string of a DAG list page with
+//     window (e.g., "page=1&perPage=100&window=86400")
 //   - TopicTypeServiceDAGs: URL query string (e.g., "workspace=ops")
 //   - TopicTypeWikiPage: Wiki page path (e.g., "runbooks/deployment")
 //   - TopicTypeWikiTree: URL query string (e.g., "page=1&perPage=200")
@@ -83,6 +85,9 @@ const (
 	TopicTypeQueueItems     TopicType = "queueitems"
 	TopicTypeQueues         TopicType = "queues"
 	TopicTypeDAGsList       TopicType = "dagslist"
+	// TopicTypeDAGListActivity streams the activity of the DAGs of one DAG
+	// list page over a window that ends now.
+	TopicTypeDAGListActivity TopicType = "daglistactivity"
 	// TopicTypeServiceDAGs streams the DAGs that set a restart policy, with a
 	// compact state that stays the same while a service DAG keeps running.
 	TopicTypeServiceDAGs TopicType = "servicedags"
