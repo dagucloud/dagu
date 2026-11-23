@@ -1,0 +1,9 @@
+dag: noop.yaml
+mocks:
+  check: &loop
+    outputs:
+      self: *loop
+cases:
+  - name: an alias inside its own anchor
+    expect:
+      status: succeeded

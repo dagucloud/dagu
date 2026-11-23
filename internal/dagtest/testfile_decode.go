@@ -128,6 +128,14 @@ func decodeFile(data []byte) (fileSpec, []Finding) {
 	if err := dec.Decode(&next); !errors.Is(err, io.EOF) {
 		return fileSpec{}, []Finding{{Message: "holds more than one YAML document"}}
 	}
+	// The walk below follows aliases, so an alias inside its own anchor, or
+	// aliases that expand without bound, are refused first, as a decode
+	// refuses them. A type error, such as a repeated key, is left to the
+	// walk, which labels it.
+	var value any
+	if err := root.Decode(&value); err != nil && !errors.As(err, new(*yaml.TypeError)) {
+		return fileSpec{}, []Finding{{Message: "not valid YAML: " + err.Error()}}
+	}
 	if len(root.Content) == 0 || resolve(root.Content[0]).Kind != yaml.MappingNode {
 		return fileSpec{}, []Finding{{Message: "the top level must be a map"}}
 	}

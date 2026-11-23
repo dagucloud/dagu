@@ -67,6 +67,7 @@ func TestLoadFileInvalid(t *testing.T) {
 		{file: "list.test.yaml", want: []string{"the top level must be a map"}},
 		{file: "syntax.test.yaml", want: []string{"not valid YAML: yaml: line 1: did not find expected node content"}},
 		{file: "two_docs.test.yaml", want: []string{"holds more than one YAML document"}},
+		{file: "alias_loop.test.yaml", want: []string{"not valid YAML: yaml: anchor 'loop' value contains itself"}},
 		{
 			file: "orphan.test.yaml",
 			want: []string{"no DAG file " + invalidPath("orphan.yaml") + " or " + invalidPath("orphan.yml") + " beside the test file; set dag"},
