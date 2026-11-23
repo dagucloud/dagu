@@ -129,7 +129,7 @@ var serviceRequirements = map[Service]ConfigSection{
 	ServiceScheduler:   SectionScheduler | SectionCoordinator | SectionQueues | SectionProc,
 	ServiceWorker:      SectionWorker | SectionCoordinator | SectionProc,
 	ServiceCoordinator: SectionCoordinator | SectionProc,
-	ServiceAgent:       SectionQueues | SectionProc,
+	ServiceAgent:       SectionQueues | SectionProc | SectionLicense,
 }
 
 // requires checks if the loader's service requires the given config section.

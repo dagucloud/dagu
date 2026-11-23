@@ -799,6 +799,18 @@ func TestLoad_CloudRunKey(t *testing.T) {
 		t.Setenv("DAGU_CLOUD_RUN_KEY", " drk_from_env\n")
 		require.Equal(t, "drk_from_env", testLoad(t).Cloud.RunKey)
 	})
+
+	// dagu start, exec, retry, and restart load as an agent, which reports
+	// with the key, at the report level, to the configured Console.
+	t.Run("Agent", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_RUN_KEY", "drk_for_agent")
+		t.Setenv("DAGU_CLOUD_REPORT", "runs")
+		t.Setenv("DAGU_LICENSE_CLOUD_URL", "https://console.example.com")
+		cfg := testLoad(t, WithService(ServiceAgent))
+		require.Equal(t, "drk_for_agent", cfg.Cloud.RunKey)
+		require.Equal(t, ReportRuns, cfg.Cloud.Report)
+		require.Equal(t, "https://console.example.com", cfg.License.CloudURL)
+	})
 }
 
 func TestLoad_OpenCodeConfigFromEnv(t *testing.T) {
