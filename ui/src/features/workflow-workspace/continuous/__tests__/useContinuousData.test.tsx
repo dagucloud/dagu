@@ -79,6 +79,15 @@ const tick = async (ms: number) => {
   });
 };
 
+/** Makes each read fail, in a tab that shows until the test hides it. */
+function failInShownTab() {
+  h.GET.mockResolvedValue({ error: { message: 'unavailable' } });
+  const visibility = vi.spyOn(document, 'visibilityState', 'get');
+  onTestFinished(() => visibility.mockRestore());
+  visibility.mockReturnValue('visible');
+  return visibility;
+}
+
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(Date.parse('2026-10-28T12:00:00Z'));
@@ -133,10 +142,7 @@ describe('useSamples', () => {
   // A polled window that fails retries at each period while the tab shows,
   // and waits for the tab to show again while it is hidden.
   it('retries a failed poll only while the tab shows', async () => {
-    const visibility = vi.spyOn(document, 'visibilityState', 'get');
-    onTestFinished(() => visibility.mockRestore());
-    visibility.mockReturnValue('visible');
-    h.GET.mockResolvedValue({ error: { message: 'unavailable' } });
+    const visibility = failInShownTab();
     renderSamples({ preset: '1h' }, true);
     await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(1));
     await tick(SHORT_WINDOW_POLL_MS);
@@ -156,10 +162,7 @@ describe('useSamples', () => {
   // A closed dock stops the poll of the hooks in it (FreezeWhenHidden): a
   // failed read there waits for the dock to read again.
   it('does not retry a failed poll that the host stops', async () => {
-    const visibility = vi.spyOn(document, 'visibilityState', 'get');
-    onTestFinished(() => visibility.mockRestore());
-    visibility.mockReturnValue('visible');
-    h.GET.mockResolvedValue({ error: { message: 'unavailable' } });
+    failInShownTab();
     const noPolling: Middleware = (useSWRNext) => (key, fetcher, config) =>
       useSWRNext(key, fetcher, { ...config, refreshInterval: 0 });
     renderSamples({ preset: '1h' }, true, [noPolling]);
@@ -168,13 +171,28 @@ describe('useSamples', () => {
     expect(h.GET).toHaveBeenCalledTimes(1);
   });
 
+  // A dock that closes while a retry waits drops that retry.
+  it('drops a pending retry when the host stops the poll', async () => {
+    failInShownTab();
+    let stopped = false;
+    const host: Middleware = (useSWRNext) => (key, fetcher, config) =>
+      useSWRNext(
+        key,
+        fetcher,
+        stopped ? { ...config, refreshInterval: 0 } : config
+      );
+    const view = renderSamples({ preset: '1h' }, true, [host]);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(1));
+    stopped = true;
+    view.rerender();
+    await tick(SHORT_WINDOW_POLL_MS * 5);
+    expect(h.GET).toHaveBeenCalledTimes(1);
+  });
+
   // A read that the host asks for during an error, such as a dock that
   // opens again, starts no second chain of retries.
   it('keeps one retry for a failed key', async () => {
-    const visibility = vi.spyOn(document, 'visibilityState', 'get');
-    onTestFinished(() => visibility.mockRestore());
-    visibility.mockReturnValue('visible');
-    h.GET.mockResolvedValue({ error: { message: 'unavailable' } });
+    failInShownTab();
     const view = renderSamples({ preset: '1h' }, true);
     await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(1));
     await act(async () => {
