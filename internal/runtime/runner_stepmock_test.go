@@ -15,7 +15,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/dag"
-	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/foreach"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 	"github.com/stretchr/testify/assert"
@@ -346,6 +345,12 @@ func withNodes(selector string) stepOption {
 	}
 }
 
+func withSubDAG(name string) stepOption {
+	return func(step *ir.Step) {
+		step.SubDAG = &ir.SubDAG{Name: name, Params: "ENV=prod"}
+	}
+}
+
 // A mock on a step that runs child DAGs replaces every child: the step takes
 // the mock's result, and no child run starts, is queued, or is recorded on
 // the step. Results count executions of the step, not children, so the
@@ -362,9 +367,6 @@ func TestStepMockReplacesChildRuns(t *testing.T) {
 			YamlData:     []byte("name: deploy-one\nnode: required\nsteps:\n  - run: ./deploy.sh\n"),
 		},
 	}
-	subDAG := func(name string) stepOption {
-		return func(step *ir.Step) { step.SubDAG = &ir.SubDAG{Name: name, Params: "ENV=prod"} }
-	}
 	parallel := func(step *ir.Step) {
 		step.Parallel = &ir.ParallelConfig{Items: []ir.ParallelItem{{Value: "a"}, {Value: "b"}}}
 	}
@@ -373,10 +375,10 @@ func TestStepMockReplacesChildRuns(t *testing.T) {
 		name string
 		step ir.Step
 	}{
-		{name: "DAGRun", step: newStep("rollout", withExecutorType(ir.ExecutorTypeDAG), subDAG("deploy"))},
-		{name: "DAGEnqueue", step: newStep("rollout", withExecutorType(ir.ExecutorTypeDAGEnqueue), subDAG("deploy"))},
-		{name: "Parallel", step: newStep("rollout", withExecutorType(ir.ExecutorTypeParallel), subDAG("deploy"), parallel)},
-		{name: "NodesDAGRun", step: newStep("rollout", withExecutorType(ir.ExecutorTypeDAG), subDAG("deploy-one"), withNodes("web"))},
+		{name: "DAGRun", step: newStep("rollout", withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy"))},
+		{name: "DAGEnqueue", step: newStep("rollout", withExecutorType(ir.ExecutorTypeDAGEnqueue), withSubDAG("deploy"))},
+		{name: "Parallel", step: newStep("rollout", withExecutorType(ir.ExecutorTypeParallel), withSubDAG("deploy"), parallel)},
+		{name: "NodesDAGRun", step: newStep("rollout", withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy-one"), withNodes("web"))},
 		{name: "NodesCommand", step: newStep("rollout", withCommand("./deploy.sh"), withNodes("web"))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -412,13 +414,44 @@ func TestStepMockReplacesChildRuns(t *testing.T) {
 	}
 }
 
-// A mocked step with nodes matches no nodes, so it takes its result in a run
-// without an inventory, where the real step would fail before any node.
-func TestStepMockNodesNeedNoInventory(t *testing.T) {
+// A mocked step with nodes matches no nodes, so it takes its results in a run
+// without an inventory, where the real step would fail before any node. A
+// command step with nodes retries each node's child run (Spec 089), so its
+// mock takes one result per step start. A dag.run step with nodes retries as
+// a step and takes the next result.
+func TestStepMockNodes(t *testing.T) {
 	t.Parallel()
 
-	r := setupRunner(t, withStepMocks(map[string]stepmock.Step{"rollout": {}}))
-	r.newPlan(t, newStep("rollout", withCommand("./deploy.sh"), withNodes("web"))).assertRun(t, ir.Succeeded)
+	for _, tc := range []struct {
+		name           string
+		action         []stepOption
+		wantRun        ir.Status
+		wantExecutions int
+	}{
+		{
+			name:           "Command",
+			action:         []stepOption{withCommand("./deploy.sh")},
+			wantRun:        ir.Failed,
+			wantExecutions: 1,
+		},
+		{
+			name:           "DAGRun",
+			action:         []stepOption{withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy-one")},
+			wantRun:        ir.Succeeded,
+			wantExecutions: 2,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := setupRunner(t, withStepMocks(map[string]stepmock.Step{
+				"rollout": {Results: []stepmock.Result{{ExitCode: 1}, {}}},
+			}))
+			step := newStep("rollout", append(tc.action, withNodes("web"), withRetryPolicy(1, 0))...)
+			state := r.newPlan(t, step).assertRun(t, tc.wantRun).nodeByName(t, "rollout").State()
+			assert.Equal(t, tc.wantExecutions, state.RetryCount+state.DoneCount)
+		})
+	}
 }
 
 // A mock on a foreach step replaces the whole construct: no item body runs,

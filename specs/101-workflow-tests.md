@@ -781,6 +781,9 @@ Rules:
   recorded.
 - The mock's result is the step's result, and its `outputs` are the step's
   outputs. `results` counts executions of the step, not children.
+- On a command step with `nodes`, `retry_policy` applies to each node's child
+  run (Spec 089), so a mock that replaces the whole step takes one result per
+  step start.
 - A real `dag.run` step, or a real `parallel` step with `dag.run`, starts its
   children in the same case. A child gets no mocks and no `real`, so a source
   of the fail-closed rule in the child DAG makes the case invalid. So does a
