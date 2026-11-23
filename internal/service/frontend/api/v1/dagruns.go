@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,7 +24,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
-	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -1552,8 +1550,7 @@ func (a *API) ApproveDAGRunStep(ctx context.Context, request api.ApproveDAGRunSt
 
 	// Resume DAG if no more waiting steps, or if the approval unblocked a step
 	// while other manual steps keep waiting.
-	shouldResume := !hasWaitingSteps(updated.Nodes) || humantask.ResumePending(updated) ||
-		humantask.UnblockedNodeReady(updated)
+	shouldResume := humantask.ApprovalResumeReady(updated)
 	if shouldResume {
 		if resumeErr := a.resumeWaitingDAGRun(ctx, ref, updated); resumeErr != nil {
 			logger.Error(ctx, "Failed to resume DAG", tag.Error(resumeErr))
@@ -4264,41 +4261,17 @@ func (a *API) waitForManualStepMutationReady(
 }
 
 func applyApproval(ctx context.Context, node *ir.Node, body *api.ApproveStepRequest) {
-	node.Status = ir.NodeSucceeded
-	node.ApprovedAt = time.Now().Format(time.RFC3339)
-	node.ApprovedBy, node.ApprovedByID = manualActionSubject(ctx)
-
+	var inputs map[string]string
 	if body != nil && body.Inputs != nil {
-		if node.OutputVariables == nil {
-			node.OutputVariables = &collections.SyncMap{}
-		}
-		camelInputs := make(map[string]string, len(*body.Inputs))
-		for k, v := range *body.Inputs {
-			node.OutputVariables.Store(k, k+"="+v)
-			camelInputs[stringutil.ScreamingSnakeToCamel(k)] = v
-		}
-		node.ApprovalInputs = camelInputs
-		// An input replaces a masked output variable of the same name.
-		if node.MaskedOutputs != nil {
-			node.MaskedOutputs.Variables = slices.DeleteFunc(node.MaskedOutputs.Variables, func(name string) bool {
-				_, ok := (*body.Inputs)[name]
-				return ok
-			})
-		}
+		inputs = *body.Inputs
 	}
+	by, byID := manualActionSubject(ctx)
+	dagrun.ApproveStep(node, inputs, by, byID)
 }
 
 func applyRejection(ctx context.Context, node *ir.Node, status *ir.DAGRunStatus, reason *string) {
-	node.Status = ir.NodeRejected
-	node.RejectedAt = time.Now().Format(time.RFC3339)
-	node.RejectedBy, node.RejectedByID = manualActionSubject(ctx)
-
-	if reason != nil {
-		node.RejectionReason = *reason
-	}
-
-	status.Status = ir.Rejected
-	status.FinishedAt = stringutil.FormatTime(time.Now())
+	by, byID := manualActionSubject(ctx)
+	dagrun.RejectStep(status, node, reason, by, byID)
 }
 
 // resumeWaitingDAGRun accepts a manual resume only while its attempt and status
@@ -4722,20 +4695,6 @@ func hasWaitingSteps(nodes []*ir.Node) bool {
 	return false
 }
 
-// checkMissingInputs validates that all required fields are present in the provided inputs.
-func checkMissingInputs(required []string, provided map[string]string) error {
-	var missing []string
-	for _, fieldName := range required {
-		if provided == nil || strings.TrimSpace(provided[fieldName]) == "" {
-			missing = append(missing, fieldName)
-		}
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("missing required inputs: %v", missing)
-	}
-	return nil
-}
-
 // requiredFieldsForStep returns the list of required input field names for a step.
 func requiredFieldsForStep(step ir.Step) []string {
 	if step.Approval != nil {
@@ -4753,7 +4712,7 @@ func validateRequiredInputs(step ir.Step, body *api.ApproveStepRequest) error {
 	if body != nil && body.Inputs != nil {
 		provided = *body.Inputs
 	}
-	return checkMissingInputs(required, provided)
+	return dagrun.CheckRequiredInputs(required, provided)
 }
 
 func validatePushBackInputs(step ir.Step, body *api.PushBackStepRequest) error {
@@ -4762,7 +4721,7 @@ func validatePushBackInputs(step ir.Step, body *api.PushBackStepRequest) error {
 		provided = *body.Inputs
 	}
 	if step.Approval != nil && len(step.Approval.Required) > 0 {
-		if err := checkMissingInputs(step.Approval.Required, provided); err != nil {
+		if err := dagrun.CheckRequiredInputs(step.Approval.Required, provided); err != nil {
 			return err
 		}
 	}

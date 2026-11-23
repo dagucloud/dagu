@@ -238,6 +238,9 @@ type Agent struct {
 	// testSideEffects turns off run-level side effects for a workflow test.
 	testSideEffects *TestSideEffects
 
+	// executorOverride supplies the executors of mocked steps.
+	executorOverride runtime.ExecutorOverride
+
 	// statusPusher is used to push status updates to a remote coordinator.
 	// When nil, status is written to local filesystem via the run-state attempt.
 	statusPusher StatusPusher
@@ -496,6 +499,10 @@ type Options struct {
 	// TestSideEffects turns off the run-level side effects of a real run for
 	// a workflow test. When nil, the run has all of them.
 	TestSideEffects *TestSideEffects
+	// ExecutorOverride supplies the executors of the steps and handlers it
+	// covers in place of their actions, for a workflow test. Nil runs every
+	// action.
+	ExecutorOverride runtime.ExecutorOverride
 }
 
 // TestSideEffects configures a workflow test run. The run sends no mail
@@ -586,6 +593,7 @@ func New(
 		socketServerFactory:      opts.SocketServerFactory,
 		remoteDAGLoader:          opts.RemoteDAGLoader,
 		testSideEffects:          opts.TestSideEffects,
+		executorOverride:         opts.ExecutorOverride,
 	}
 	if a.socketServerFactory == nil {
 		a.socketServerFactory = defaultSocketServerFactory
@@ -2386,6 +2394,7 @@ func (a *Agent) newRunner(attempt runstate.Attempt) *runtime.Runner {
 		DAGRunAutoRetryLimit: autoRetryLimit,
 		DAGRunIsRoot:         a.parentDAGRun.Zero(),
 		SkipHandlers:         a.retryTarget != nil && a.retryTarget.SkipHandlers,
+		ExecutorOverride:     a.executorOverride,
 	}
 	return runtime.New(cfg)
 }

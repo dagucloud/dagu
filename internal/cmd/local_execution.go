@@ -53,6 +53,28 @@ type runOptions struct {
 	// testSideEffects, when non-nil, runs a test case without the run-level
 	// side effects of a real run.
 	testSideEffects *agent.TestSideEffects
+	// executorOverride replaces the actions of the mocked steps of a test
+	// case.
+	executorOverride runtime.ExecutorOverride
+}
+
+// prepareTools prepares the tools of dag for one attempt of the run. A
+// workflow-test case installs them only when it has a real step.
+func (o runOptions) prepareTools(ctx *Context, dag *ir.DAG) ([]string, error) {
+	if o.testSideEffects != nil {
+		return prepareTestDAGTools(ctx, dag, o.testSideEffects.HasRealSteps)
+	}
+	return prepareDAGTools(ctx, dag)
+}
+
+// withTestOptions returns agentOpts with the options a workflow-test case
+// gives every attempt of its run. Outside a test case, they are all empty.
+func (o runOptions) withTestOptions(agentOpts agent.Options) agent.Options {
+	agentOpts.SecretValues = o.secretValues
+	agentOpts.RedirectRoot = o.redirectRoot
+	agentOpts.TestSideEffects = o.testSideEffects
+	agentOpts.ExecutorOverride = o.executorOverride
+	return agentOpts
 }
 
 func dagDefinitionIDFromEnv() string {
