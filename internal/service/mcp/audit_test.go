@@ -4,8 +4,8 @@
 package mcp
 
 import (
+	"strings"
 	"testing"
-	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 )
@@ -32,11 +32,15 @@ func TestMergeToolOutputAuditDetailsHandlesStructOutput(t *testing.T) {
 	require.Equal(t, true, details["valid"])
 }
 
-func TestSanitizeAuditStringTruncatesRunes(t *testing.T) {
-	got := sanitizeAuditString(" あいう ", 2)
+// The store masks a secret only when it is whole, so no field is cut before
+// it: a URI with a secret across byte 256 stays whole.
+func TestResourceAuditDetailsKeepLongURIsWhole(t *testing.T) {
+	uri := "dagu://reference/" + strings.Repeat("a", 230) + "ghp_" + strings.Repeat("b", 49)
+	require.Len(t, uri, 300)
 
-	require.Equal(t, "あい", got)
-	require.True(t, utf8.ValidString(got))
+	details := resourceAuditDetails(uri)
+
+	require.Equal(t, uri, details["resource_id"])
 }
 
 func TestResourceAuditDetailsIdentifiesStepLog(t *testing.T) {
