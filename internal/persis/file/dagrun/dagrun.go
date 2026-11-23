@@ -141,6 +141,9 @@ func newDAGRun(dir, artifactDir string) (*DAGRun, error) {
 // It creates a new Attempt directory and initializes a record within it.
 // If attemptID is provided, it uses that ID instead of generating a new one.
 func (dr DAGRun) CreateAttempt(_ context.Context, ts persis.TimeInUTC, cache *fileutil.Cache[*ir.DAGRunStatus], attemptID string) (*Attempt, error) {
+	if strings.ContainsAny(attemptID, `/\`) {
+		return nil, fmt.Errorf("invalid attempt ID %q: must not contain a path separator", attemptID)
+	}
 	attID := attemptID
 	if attID == "" {
 		var err error

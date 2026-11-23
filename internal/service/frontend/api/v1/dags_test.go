@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
@@ -2384,6 +2385,44 @@ steps:
 	text, ok := actionProperties["text"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "string", text["type"])
+}
+
+// A DAG's env includes the env of the global base config, which only
+// developers and above may read, so lower roles see env names without values.
+func TestGetDAGDetailsHidesEnvValuesBelowDeveloper(t *testing.T) {
+	t.Parallel()
+
+	helper := test.Setup(t)
+	require.NoError(t, os.WriteFile(helper.Config.Paths.BaseConfig, []byte("env:\n  - BASE_TOKEN: base-secret\n"), 0o600))
+	dag := helper.DAG(t, "name: env-details\nsteps:\n  - run: echo hi\n")
+	apiImpl := localapi.New(
+		helper.DAGRepository,
+		helper.DAGRunRepository,
+		helper.QueueStore,
+		helper.ProcRepository,
+		helper.DAGRunMgr,
+		helper.Config,
+		nil,
+		helper.ServiceRegistry,
+		nil,
+		nil,
+		localapi.WithAuthService(stubAuthService{}),
+	)
+
+	envFor := func(role auth.Role) []string {
+		ctx := auth.WithUser(context.Background(), &auth.User{Role: role, WorkspaceAccess: auth.AllWorkspaceAccess()})
+		respObj, err := apiImpl.GetDAGDetails(ctx, api.GetDAGDetailsRequestObject{FileName: dag.FileName()})
+		require.NoError(t, err)
+		resp, ok := respObj.(api.GetDAGDetails200JSONResponse)
+		require.True(t, ok)
+		require.NotNil(t, resp.Dag)
+		require.NotNil(t, resp.Dag.Env)
+		return *resp.Dag.Env
+	}
+
+	assert.Contains(t, envFor(auth.RoleDeveloper), "BASE_TOKEN=base-secret")
+	assert.Contains(t, envFor(auth.RoleOperator), "BASE_TOKEN="+config.MaskedValue)
+	assert.Contains(t, envFor(auth.RoleViewer), "BASE_TOKEN="+config.MaskedValue)
 }
 
 func TestGetDAGDetails_EditorHintsKeepDistinctDescriptions(t *testing.T) {
