@@ -741,7 +741,7 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 		return err
 	}
 	runState := persis.NewRunStateStore(ctx.Persistence.DAGRunRepository, opts.preparedAttempt)
-	if !opts.testCase {
+	if opts.testSideEffects == nil {
 		runState = withJobReports(ctx, runState, jobRun{
 			parent: opts.parent, workerID: opts.workerID, keepTrigger: triggerPassed(ctx),
 		})

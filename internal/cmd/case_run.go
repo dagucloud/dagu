@@ -99,7 +99,6 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 		workerID:     "local",
 		triggerType:  trigger,
 		secretValues: secrets,
-		testCase:     true,
 		redirectRoot: runtime.RedirectRoot{
 			Dir:  filepath.Join(c.dir, "redirects"),
 			Keep: c.opts.real,
