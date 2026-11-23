@@ -306,10 +306,14 @@ func applyPersistedRunWorkingDir(dag *ir.DAG, status *ir.DAGRunStatus) {
 
 // extractDAGName extracts the DAG name from a file path or name.
 // If the input is a file path (.yaml or .yml), it loads the DAG metadata
-// to extract the name. Otherwise, it returns the input as-is.
+// to extract the name, and a test file fails with spec.ErrTestFile.
+// Otherwise, it returns the input as-is.
 func extractDAGName(ctx *Context, name string) (string, error) {
 	if !fileutil.IsYAMLFile(name) {
 		return name, nil
+	}
+	if spec.IsTestFile(name) {
+		return "", fmt.Errorf("%s: %w", name, spec.ErrTestFile)
 	}
 
 	absolutePath, err := filepath.Abs(name)

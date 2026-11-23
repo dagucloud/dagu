@@ -357,7 +357,10 @@ func TestFeed_Retention(t *testing.T) {
 		d.write(t, "old", 1)
 		d.cleaner.purgeExpiredFiles()
 
-		chunk := d.read(t, nil)
+		// The position starts after the cleanup. A coarse clock, as on
+		// Windows, can stamp both with the same time, and a cleanup at the
+		// start of a position counts as one the reader had to see.
+		chunk := readFeed(t, d.dir, nil, time.Now().UTC().Add(time.Millisecond), true)
 
 		assert.Equal(t, []string{cleanupAction}, actions(chunk))
 		assert.Empty(t, chunk.Losses)

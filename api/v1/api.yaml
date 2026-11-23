@@ -12658,6 +12658,127 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /inventories/{inventoryId}/nodes:
+    post:
+      summary: "Add a node"
+      description: "Adds a node to an inventory, given the version of the inventory the change is based on, and then trusts the host keys in `trust`. A name the inventory already holds is refused; `PUT /inventories/{inventoryId}/nodes/{nodeName}` replaces a node. Each key is read from its node by fingerprint, sending it no credential, before anything is stored, so a key that cannot be read stores nothing. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403."
+      operationId: "addInventoryNode"
+      tags:
+        - "nodes"
+      parameters:
+        - name: inventoryId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/InventoryVersion"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryNodeAddRequest"
+      responses:
+        "201":
+          description: "The node was added and its keys trusted; the inventory as stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Inventory"
+        "400":
+          description: "The node breaks a rule, the inventory already holds its name, or a key in `trust` names another node or cannot be read; nothing was stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryImportError"
+        "404":
+          description: "No inventory has this ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The inventory changed since `version`; the response carries the current inventory"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryConflict"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /inventories/{inventoryId}/node-tests:
+    post:
+      summary: "Test a node before it is added"
+      description: "Tests a node that is not stored yet from the server, as it would be in this inventory with the inventory's defaults. The node is checked against every rule first, and a name the inventory already holds is refused. Each key in `accept` is read from its node by fingerprint, sending it no credential, and accepted in memory for this test only. The test then runs as `POST /node-connection-tests` runs one. Nothing is stored or trusted. The response is a server-sent event stream: a `result` event carrying an `InventoryNodeConnectionTest`, then a `done` event carrying an `InventoryNodeConnectionTestSummary`. Requires the developer role or above, since the record decides which host receives the inventory's credentials, and is audited."
+      operationId: "testNewInventoryNode"
+      tags:
+        - "nodes"
+      parameters:
+        - name: inventoryId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryNewNodeTestRequest"
+      responses:
+        "200":
+          description: "A server-sent event stream of one `result` event, then a `done` event"
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/InventoryNodeConnectionTestEvent"
+        "400":
+          description: "The node breaks a rule, or the inventory already holds its name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No inventory has this ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /inventories/{inventoryId}/nodes/{nodeName}:
     put:
       summary: "Add or change a node"
@@ -23188,6 +23309,54 @@ components:
         labels:
           type: string
           description: "Label selector of the nodes to test, as `GET /nodes` takes it"
+
+    InventoryNewNodeTestRequest:
+      type: object
+      description: "A node that is not stored yet, and the host keys the user accepted for its test"
+      properties:
+        node:
+          type: object
+          additionalProperties: true
+          description: "The node in the record format that `InventoryNodeSpec` describes. An unknown field is refused"
+        accept:
+          type: array
+          description: "Host keys the user accepted for this test only: at most one for the node and one for its bastion, the only hops of its connection. Each is read again by fingerprint without sending a credential, and accepted in memory"
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/InventoryAcceptedHostKey"
+      required:
+        - node
+
+    InventoryNodeAddRequest:
+      type: object
+      description: "A node to add, and the host keys to trust once it is stored"
+      properties:
+        node:
+          type: object
+          additionalProperties: true
+          description: "The node in the record format that `InventoryNodeSpec` describes. An unknown field is refused"
+        trust:
+          type: array
+          description: "Host keys the user accepted in the node's test, to trust once the node is stored: at most one for the node and one for its bastion"
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/InventoryAcceptedHostKey"
+      required:
+        - node
+
+    InventoryAcceptedHostKey:
+      type: object
+      description: "A host key a user accepted for a hop of a node's connection, by the fingerprint the user saw. A key trusted for a node is never replaced this way"
+      properties:
+        node:
+          type: string
+          description: "Name of the node, or of its bastion, compared without case"
+        fingerprint:
+          type: string
+          description: "SHA256 fingerprint of the key, such as `SHA256:…`"
+      required:
+        - node
+        - fingerprint
 
     InventoryNodeConnectionTestEvent:
       description: "The data of one event of a node test stream: a `result` event carries an `InventoryNodeConnectionTest`, and the `done` event an `InventoryNodeConnectionTestSummary`"

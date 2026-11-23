@@ -124,3 +124,52 @@ func TestHostKeysOverAPI(t *testing.T) {
 	assert.Equal(t, fingerprint, replaced["previous"])
 	assert.Equal(t, true, testNode()["ok"])
 }
+
+// A new node is tested as it would be in its inventory. The key the user
+// accepts lets that test pass but is not trusted; adding the node with that
+// key stores the node and then trusts the key (Spec 088 §Host keys).
+func TestNewNodeOverAPI(t *testing.T) {
+	keyPEM, publicKey := harness.NewSSHKey(t)
+	keyFile := filepath.Join(t.TempDir(), "id_ed25519")
+	require.NoError(t, os.WriteFile(keyFile, keyPEM, 0o600))
+	node := harness.StartSSHServer(t, harness.SSHServerOptions{User: "tester", AuthorizedKeys: []ssh.PublicKey{publicKey}})
+	port, err := strconv.Atoi(node.Port)
+	require.NoError(t, err)
+	accepted := []map[string]any{{"node": "web01", "fingerprint": ssh.FingerprintSHA256(node.HostKey)}}
+	web01 := map[string]any{"name": "web01", "host": "127.0.0.1", "port": port}
+
+	server := test.SetupServer(t)
+	server.Client().Post("/api/v1/inventory-imports", []map[string]any{{
+		"name":     "fleet",
+		"defaults": map[string]any{"user": "tester", "key": keyFile},
+		"nodes":    []map[string]any{},
+	}}).ExpectStatus(http.StatusOK).Send(t)
+	var list struct {
+		Inventories []struct {
+			ID      string `json:"id"`
+			Version int    `json:"version"`
+		} `json:"inventories"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(server.Client().Get("/api/v1/inventories").ExpectStatus(http.StatusOK).Send(t).Body), &list))
+	require.Len(t, list.Inventories, 1)
+	inv := list.Inventories[0]
+	testNew := func(body map[string]any) map[string]any {
+		resp := server.Client().Post("/api/v1/inventories/"+inv.ID+"/node-tests", body).ExpectStatus(http.StatusOK).Send(t)
+		return result(t, readStream(t, resp.Body))
+	}
+
+	unknown := testNew(map[string]any{"node": web01})
+	assert.Equal(t, "unknown", unknown["hostKey"].(map[string]any)["status"])
+	assert.Zero(t, node.AuthAttempts(), "a credential reached a host whose key is unknown")
+
+	passed := testNew(map[string]any{"node": web01, "accept": accepted})
+	assert.Equal(t, true, passed["ok"], passed["error"])
+	assert.Len(t, node.Commands(), 1)
+	assert.Equal(t, "unknown", testNew(map[string]any{"node": web01})["hostKey"].(map[string]any)["status"], "an accepted key was trusted")
+
+	server.Client().Post("/api/v1/inventories/"+inv.ID+"/nodes?version="+strconv.Itoa(inv.Version), map[string]any{"node": web01, "trust": accepted}).
+		ExpectStatus(http.StatusCreated).Send(t)
+	stored := server.Client().Post("/api/v1/node-connection-tests", map[string]any{"nodes": []string{"web01"}}).
+		ExpectStatus(http.StatusOK).Send(t)
+	assert.Equal(t, true, result(t, readStream(t, stored.Body))["ok"], "the key was not trusted")
+}

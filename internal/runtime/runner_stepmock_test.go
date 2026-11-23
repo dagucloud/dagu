@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -559,10 +561,12 @@ func TestStepMockResolvesFieldsByAction(t *testing.T) {
 }
 
 // childRuns records the child runs that steps start or queue. Each run it
-// starts succeeds.
+// starts publishes outputs and succeeds, or fails with err when err is set.
 type childRuns struct {
-	mu     sync.Mutex
-	runIDs []string
+	mu      sync.Mutex
+	runIDs  []string
+	outputs map[string]any
+	err     error
 }
 
 var (
@@ -586,7 +590,11 @@ func (*childRuns) ShouldRun(context.Context, executor.SubWorkflowRequest) bool {
 
 func (c *childRuns) Run(_ context.Context, req executor.SubWorkflowRequest) (*ir.RunStatus, error) {
 	c.record(req.RunID)
-	return &ir.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Status: ir.Succeeded}, nil
+	status := ir.Succeeded
+	if c.err != nil {
+		status = ir.Failed
+	}
+	return &ir.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Status: status, OutputValues: c.outputs}, c.err
 }
 
 func (c *childRuns) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*ir.RunStatus, error) {
@@ -747,11 +755,6 @@ func TestStepMockChildRunOutputs(t *testing.T) {
 			wantRunOutputs: true,
 		},
 		{
-			name:           "DAGEnqueue",
-			action:         []stepOption{withExecutorType(ir.ExecutorTypeDAGEnqueue), withSubDAG("deploy")},
-			wantRunOutputs: true,
-		},
-		{
 			name:   "Parallel",
 			action: []stepOption{withExecutorType(ir.ExecutorTypeParallel), withSubDAG("deploy"), parallel},
 		},
@@ -780,6 +783,170 @@ func TestStepMockChildRunOutputs(t *testing.T) {
 			assert.Equal(t, wantRunOutputs, result.nodeByName(t, "rollout").NodeData().OutputsValueStringMap())
 		})
 	}
+}
+
+// A mocked step adds its outputs to the outputs the run collects, which feed
+// outputs.json and a parent's outputValues, exactly as a real run of the step
+// adds the outputs its action publishes. output_schema does not keep a
+// dag.run step's outputs out, and a dag.enqueue step publishes none. A
+// command step publishes its output_schema and output file outputs to
+// references only, so the run collects neither. Whether an action publishes
+// can depend on its operation, as for git and mail.
+func TestStepMockCollectsOutputsAsRealRun(t *testing.T) {
+	t.Parallel()
+
+	localDAGs := map[string]*ir.DAG{
+		"deploy": {Name: "deploy", YamlData: []byte("name: deploy\nsteps:\n  - run: ./deploy.sh\n")},
+	}
+	outputs := map[string]any{"version": "v1.2.3"}
+	// collected runs step and returns the outputs the run collects from it. A
+	// child run the step starts publishes outputs.
+	collected := func(t *testing.T, step ir.Step, opts ...runnerOption) map[string]string {
+		t.Helper()
+
+		r := setupRunner(t, opts...)
+		r.Context = executor.WithSubWorkflowRunner(r.Context, &childRuns{outputs: outputs})
+		ph := r.newPlan(t, step)
+		ph.steps = []ir.Step{step}
+		ph.localDAGs = localDAGs
+		ph.contextOpts = []runtime.ContextOption{
+			runtime.WithRootDAGRun(runtime.NewDAGRunRef("test_dag", r.cfg.DAGRunID)),
+		}
+		return ph.assertRun(t, ir.Succeeded).nodeByName(t, step.Name).NodeData().OutputsValueStringMap()
+	}
+	mocked := func(t *testing.T, step ir.Step, outputs map[string]any) map[string]string {
+		t.Helper()
+
+		return collected(t, step, withStepMocks(map[string]stepmock.Step{
+			step.Name: {Results: []stepmock.Result{{Outputs: outputs}}},
+		}))
+	}
+	outputSchema := func(step *ir.Step) {
+		step.OutputSchema = map[string]any{"type": "object"}
+	}
+	outputFile := func(step *ir.Step) {
+		step.Outputs = []ir.StepOutputDeclaration{{Name: "version", Type: ir.StepDeclaredOutputTypeString}}
+	}
+	for _, tc := range []struct {
+		name   string
+		action []stepOption
+		want   map[string]string
+	}{
+		{
+			name:   "DAGRun",
+			action: []stepOption{withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy")},
+			want:   map[string]string{"version": "v1.2.3"},
+		},
+		{
+			name:   "DAGRunOutputSchema",
+			action: []stepOption{withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy"), outputSchema},
+			want:   map[string]string{"version": "v1.2.3"},
+		},
+		{
+			name:   "DAGEnqueue",
+			action: []stepOption{withExecutorType(ir.ExecutorTypeDAGEnqueue), withSubDAG("deploy")},
+		},
+		{
+			name:   "CommandOutputSchema",
+			action: []stepOption{withCommand(`echo '{"version":"v1.2.3"}'`), outputSchema},
+		},
+		{
+			name: "CommandOutputFile",
+			action: []stepOption{withCommand(test.ForOS(
+				`printf 'version=v1.2.3\n' >> "$DAGU_OUTPUT_FILE"`,
+				`Add-Content -LiteralPath $env:DAGU_OUTPUT_FILE -Value 'version=v1.2.3'`,
+			)), outputFile},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			step := newStep("rollout", append(tc.action, withID("rollout"))...)
+			assert.Equal(t, tc.want, collected(t, step))
+			assert.Equal(t, tc.want, mocked(t, step, outputs))
+		})
+	}
+
+	// The mock takes the values the real run published, so the two runs
+	// differ only in whether the run collects them.
+	t.Run("GitWorktreeAdd", func(t *testing.T) {
+		t.Parallel()
+
+		step := loadSteps(t, fmt.Sprintf(`
+steps:
+  - id: rollout
+    working_dir: '%s'
+    action: git.worktree.add
+`, filepath.ToSlash(initGitRepo(t))))[0]
+		real := collected(t, step)
+		require.Contains(t, real, "path")
+		published := make(map[string]any, len(real))
+		for name, value := range real {
+			published[name] = value
+		}
+		assert.Equal(t, real, mocked(t, step, published))
+	})
+
+	// A real mail step needs a mail server, so only the mocked side runs.
+	// mail.search and mail.organize publish their outputs, and mail.send
+	// publishes none.
+	for _, tc := range []struct {
+		name string
+		step string
+		want map[string]string
+	}{
+		{
+			name: "MailSearch",
+			step: "action: mail.search\n    with: {mailbox: ops@example.com}",
+			want: map[string]string{"version": "v1.2.3"},
+		},
+		{
+			name: "MailOrganize",
+			step: `action: mail.organize
+    with: {mailbox: ops@example.com, emails: ["1"], mark: read}`,
+			want: map[string]string{"version": "v1.2.3"},
+		},
+		{
+			name: "MailSend",
+			step: "action: mail.send\n    with: {to: a@example.com, subject: s, message: b}",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			step := loadSteps(t, "steps:\n  - id: rollout\n    "+tc.step+"\n")[0]
+			assert.Equal(t, tc.want, mocked(t, step, outputs))
+		})
+	}
+}
+
+// initGitRepo creates a repository with one commit on main, apart from the
+// host's Git configuration, and returns its path.
+func initGitRepo(t *testing.T) string {
+	t.Helper()
+
+	repo := filepath.Join(t.TempDir(), "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "base.txt"), []byte("base\n"), 0o600))
+	for _, args := range [][]string{
+		{"init"},
+		{"symbolic-ref", "HEAD", "refs/heads/main"},
+		{"add", "--", "base.txt"},
+		{"commit", "-m", "initial"},
+	} {
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_CONFIG_GLOBAL="+os.DevNull,
+			"GIT_CONFIG_NOSYSTEM=1",
+			"GIT_AUTHOR_NAME=Dagu Test",
+			"GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=Dagu Test",
+			"GIT_COMMITTER_EMAIL=test@example.com",
+		)
+		output, err := cmd.CombinedOutput()
+		require.NoError(t, err, "git %v\n%s", args, output)
+	}
+	return repo
 }
 
 // A mock on a foreach step replaces the whole construct: no item body runs,

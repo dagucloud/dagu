@@ -234,9 +234,6 @@ func LoadFile(ctx context.Context, path string, opts ...spec.LoadOption) (*File,
 	return file, nil
 }
 
-// testFileSuffixes are the endings of a test file's name.
-var testFileSuffixes = []string{".test.yaml", ".test.yml"}
-
 // testedDAGPath returns the DAG file a test file tests: dag resolved against
 // the test file's directory, or the file beside it with the test suffix
 // removed, .yaml before .yml.
@@ -245,7 +242,7 @@ func testedDAGPath(testFile, dag string) (string, *Finding) {
 		if !filepath.IsAbs(dag) {
 			dag = filepath.Join(filepath.Dir(testFile), dag)
 		}
-		if IsTestFile(dag) {
+		if spec.IsTestFile(dag) {
 			return "", &Finding{Source: "dag", Message: "names a test file, not a DAG"}
 		}
 		if _, err := os.Stat(dag); err != nil {
@@ -253,25 +250,16 @@ func testedDAGPath(testFile, dag string) (string, *Finding) {
 		}
 		return dag, nil
 	}
-	for _, suffix := range testFileSuffixes {
-		base, ok := strings.CutSuffix(testFile, suffix)
-		if !ok {
-			continue
-		}
-		for _, ext := range []string{".yaml", ".yml"} {
-			if _, err := os.Stat(base + ext); err == nil {
-				return base + ext, nil
-			}
-		}
-		return "", &Finding{Message: fmt.Sprintf("no DAG file %s.yaml or %[1]s.yml beside the test file; set dag", base)}
+	base, ok := spec.CutTestFileSuffix(testFile)
+	if !ok {
+		return "", &Finding{Message: "the file name does not end in .test.yaml or .test.yml; set dag"}
 	}
-	return "", &Finding{Message: "the file name does not end in .test.yaml or .test.yml; set dag"}
-}
-
-// IsTestFile reports whether the name of the file at path ends in
-// .test.yaml or .test.yml, the endings of a test file's name.
-func IsTestFile(path string) bool {
-	return slices.ContainsFunc(testFileSuffixes, func(suffix string) bool { return strings.HasSuffix(path, suffix) })
+	for _, ext := range []string{".yaml", ".yml"} {
+		if _, err := os.Stat(base + ext); err == nil {
+			return base + ext, nil
+		}
+	}
+	return "", &Finding{Message: fmt.Sprintf("no DAG file %s.yaml or %[1]s.yml beside the test file; set dag", base)}
 }
 
 // loadFindings returns one finding for each error a DAG load joined.

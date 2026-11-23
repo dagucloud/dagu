@@ -278,7 +278,15 @@ func decodeConfig(dat map[string]any, cfg any) error {
 
 func init() {
 	executor.RegisterExecutor("mail", newMail, validateStep, registry.ExecutorCapabilities{
-		Command:    true,
-		PathInputs: []string{"attachments"},
+		Command:                true,
+		PathInputs:             []string{"attachments"},
+		ActionPublishesOutputs: publishesOutputs,
 	})
+}
+
+// publishesOutputs reports whether the step's operation publishes named
+// outputs. Search and organize do; send does not.
+func publishesOutputs(step ir.Step) bool {
+	op := stepOperation(step)
+	return op == opSearch || op == opOrganize
 }

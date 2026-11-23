@@ -34,6 +34,14 @@ export const inventoryMessages = defineMessages({
     'Inventory JSON': 'Inventory JSON',
     'The text is not valid JSON.': 'The text is not valid JSON.',
     'An inventory is one JSON object.': 'An inventory is one JSON object.',
+    'The server tests the connection before the node is added. An unknown host key is trusted only once the node is added.':
+      'The server tests the connection before the node is added. An unknown host key is trusted only once the node is added.',
+    'The host key of {hop} {node} is unknown: {fingerprint}':
+      'The host key of {hop} {node} is unknown: {fingerprint}',
+    'Trust this key and test again': 'Trust this key and test again',
+    'Add without testing': 'Add without testing',
+    'The port must be a whole number.': 'The port must be a whole number.',
+    'Adding...': 'Adding...',
   },
   'zh-CN': {
     Inventories: '清单',
@@ -63,6 +71,14 @@ export const inventoryMessages = defineMessages({
     'Inventory JSON': '清单 JSON',
     'The text is not valid JSON.': '文本不是有效的 JSON。',
     'An inventory is one JSON object.': '一个清单是一个 JSON 对象。',
+    'The server tests the connection before the node is added. An unknown host key is trusted only once the node is added.':
+      '添加节点前，服务器会测试连接。未知的主机密钥只在节点添加后才会被信任。',
+    'The host key of {hop} {node} is unknown: {fingerprint}':
+      '{hop} {node} 的主机密钥未知：{fingerprint}',
+    'Trust this key and test again': '信任此密钥并重新测试',
+    'Add without testing': '不测试直接添加',
+    'The port must be a whole number.': '端口必须是整数。',
+    'Adding...': '正在添加...',
   },
   ja: {
     Inventories: 'インベントリ',
@@ -94,5 +110,13 @@ export const inventoryMessages = defineMessages({
     'The text is not valid JSON.': '有効な JSON ではありません。',
     'An inventory is one JSON object.':
       'インベントリは 1 つの JSON オブジェクトです。',
+    'The server tests the connection before the node is added. An unknown host key is trusted only once the node is added.':
+      'ノードを追加する前に、サーバーが接続をテストします。不明なホスト鍵は、ノードを追加した後にのみ信頼されます。',
+    'The host key of {hop} {node} is unknown: {fingerprint}':
+      '{hop} {node} のホスト鍵は不明です：{fingerprint}',
+    'Trust this key and test again': 'この鍵を信頼して再テスト',
+    'Add without testing': 'テストせずに追加',
+    'The port must be a whole number.': 'ポートは整数で指定してください。',
+    'Adding...': '追加中...',
   },
 });

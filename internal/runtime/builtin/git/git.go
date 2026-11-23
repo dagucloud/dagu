@@ -74,9 +74,17 @@ type checkoutResult struct {
 
 func init() {
 	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{
-		Command:    true,
-		PathInputs: []string{"path", "ssh_key_path"},
+		Command:                true,
+		PathInputs:             []string{"path", "ssh_key_path"},
+		ActionPublishesOutputs: publishesOutputs,
 	})
+}
+
+// publishesOutputs reports whether the step's operation publishes named
+// outputs. Only the worktree operations do; checkout prints its result.
+func publishesOutputs(step ir.Step) bool {
+	op := stepOperation(step)
+	return op == opWorktreeAdd || op == opWorktreeRemove
 }
 
 func newExecutor(ctx context.Context, step ir.Step) (executor.Executor, error) {

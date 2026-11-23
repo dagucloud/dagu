@@ -5,7 +5,10 @@ import { getAuthHeaders } from '@/lib/authHeaders';
 import { handleAuthResponse } from '@/lib/authSession';
 
 /** The endpoints that answer with a stream of node events. */
-export type NodeEventPath = '/node-connection-tests' | '/node-host-keys';
+export type NodeEventPath =
+  | '/node-connection-tests'
+  | '/node-host-keys'
+  | `/inventories/${string}/node-tests`;
 
 /**
  * Posts body to a node test or trust endpoint and reads its server-sent

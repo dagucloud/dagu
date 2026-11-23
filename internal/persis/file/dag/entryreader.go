@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/filenotify"
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -380,7 +379,7 @@ func (er *entryReaderImpl) watch(ctx context.Context) {
 				if needsRecursiveRefresh(event) {
 					scheduleRefresh()
 				}
-			case fileutil.IsYAMLFile(event.Name):
+			case isDAGFile(event.Name):
 				er.handleFSEvent(ctx, event)
 			}
 		case <-refresh:
@@ -398,8 +397,10 @@ func (er *entryReaderImpl) watch(ctx context.Context) {
 	}
 }
 
+// needsRecursiveRefresh ignores writes to files that hold no DAG, such as test
+// files. A create, remove, or rename may name a directory, whatever its name.
 func needsRecursiveRefresh(event fsnotify.Event) bool {
-	if fileutil.IsYAMLFile(event.Name) {
+	if isDAGFile(event.Name) {
 		return true
 	}
 	return event.Op&(fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0
@@ -855,7 +856,7 @@ func (er *entryReaderImpl) observeSymlinkTargets() map[string]symlinkTarget {
 			continue
 		}
 		for _, entry := range entries {
-			if entry.Type()&os.ModeSymlink == 0 || !fileutil.IsYAMLFile(entry.Name()) {
+			if entry.Type()&os.ModeSymlink == 0 || !isDAGFile(entry.Name()) {
 				continue
 			}
 			link := filepath.Join(dir, entry.Name())
@@ -898,7 +899,7 @@ func (er *entryReaderImpl) initialize(ctx context.Context) error {
 
 	var dags []string
 	for _, fi := range fis {
-		if fileutil.IsYAMLFile(fi.Name()) && !er.isBaseConfigEvent(fsnotify.Event{Name: filepath.Join(er.targetDir, fi.Name())}) {
+		if isDAGFile(fi.Name()) && !er.isBaseConfigEvent(fsnotify.Event{Name: filepath.Join(er.targetDir, fi.Name())}) {
 			snapshot, err := er.dagSource.snapshot(ctx, fi.Name())
 			if err != nil {
 				logger.Error(ctx, "DAG load failed",

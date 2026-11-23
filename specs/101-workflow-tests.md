@@ -8,8 +8,7 @@ Partially implemented.
 `--keep`, writes the text and JSON reports, and exits with the statuses
 below. It checks every assertion of [Assertions](#assertions), ends each
 invalid case with [its fix](#the-fix), and lists the default mocks,
-automatic approvals, and notifications of each case that ran. Not
-implemented yet: skipping test files in DAG discovery.
+automatic approvals, and notifications of each case that ran.
 
 The authoring flags `--init` and `--update` (see
 [Authoring Flags](#authoring-flags)) ship after the first release of
