@@ -1,0 +1,4 @@
+cases:
+  - name: tests nothing
+    expect:
+      status: succeeded

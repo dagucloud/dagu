@@ -1,0 +1,37 @@
+preconditions:
+  - condition: test -f /etc/release.lock
+    negate: true
+steps:
+  - id: build
+    run: ./build.sh
+    outputs:
+      - name: image_tag
+      - name: manifest
+        type: json
+  - id: notify
+    action: log.write
+    with:
+      message: built
+  - id: tick
+    action: log.write
+    with:
+      message: tick
+    repeat_policy:
+      repeat: while
+  - id: gate
+    action: noop
+    preconditions:
+      - condition: test -f ready
+  - id: child
+    action: dag.run
+    with:
+      dag: other
+  - id: ship
+    run: ./ship.sh
+    approval:
+      prompt: Ship it?
+      input: [ticket]
+      required: [ticket]
+handler_on:
+  exit:
+    run: ./cleanup.sh

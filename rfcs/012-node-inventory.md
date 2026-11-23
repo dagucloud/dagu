@@ -143,7 +143,7 @@ file-backed collection lays them out (`internal/persis/file/collection.go`):
 | `host-keys/` | The project's state | Trusted host key, keyed by node name |
 | `worker-nodes/` | `<data dir>/`, since workers are server-wide | Worker node, keyed by worker ID |
 
-- **Location.** In a project state laid out as spec 001 lays out `.dagu/`,
+- **Location.** In a project's state, laid out as spec 001 lays it out,
   `inventories/` and `host-keys/` are in `settings/`, beside the project's
   secrets and profiles.
 - **Writes.** Every write to a project's inventories holds one lock for the

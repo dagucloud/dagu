@@ -132,6 +132,7 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 		{name: "inventory lists are never forwarded", method: http.MethodGet, path: "/api/v1/inventories", user: admin, permissions: writeAndRun},
 		{name: "inventories are never forwarded", method: http.MethodGet, path: "/api/v1/inventories/inv-1", user: admin, permissions: writeAndRun},
 		{name: "inventory imports are never forwarded", method: http.MethodPost, path: "/api/v1/inventory-imports", user: admin, permissions: writeAndRun},
+		{name: "inventory changes are never forwarded", method: http.MethodPut, path: "/api/v1/inventories/inv-1/nodes/web01", user: admin, permissions: writeAndRun},
 		{name: "node tests are never forwarded", method: http.MethodPost, path: "/api/v1/node-connection-tests", user: admin, permissions: writeAndRun},
 		{name: "host key trusts are never forwarded", method: http.MethodPost, path: "/api/v1/node-host-keys", user: admin, permissions: writeAndRun},
 		{name: "manager reads audit logs", method: http.MethodGet, path: "/api/v1/audit", user: manager, wantCall: true},

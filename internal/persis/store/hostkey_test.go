@@ -97,6 +97,19 @@ func TestHostKeyStore_TrustRefusesUnexpectedKey(t *testing.T) {
 	assert.Equal(t, first, got)
 }
 
+func TestHostKeyStore_Forget(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := newHostKeyStore(t, testutil.NewMemoryBackend())
+	_, err := s.Trust(ctx, "web01", newPublicKey(t), "alice", "")
+	require.NoError(t, err)
+
+	require.NoError(t, s.Forget(ctx, "WEB01"))
+	_, err = s.Get(ctx, "web01")
+	require.ErrorIs(t, err, inventory.ErrNoTrustedHostKey)
+	require.NoError(t, s.Forget(ctx, "web01"), "forgetting a node with no key is not an error")
+}
+
 func TestHostKeyStore_GetUntrusted(t *testing.T) {
 	t.Parallel()
 	s := newHostKeyStore(t, testutil.NewMemoryBackend())

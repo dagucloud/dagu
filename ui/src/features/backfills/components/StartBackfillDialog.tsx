@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { useCanManageProfiles } from '@/contexts/AuthContext';
+import { useCanManageProfiles, useIsAdmin } from '@/contexts/AuthContext';
 import {
   DAGParamsFields,
   useDAGParamsForm,
@@ -153,6 +153,8 @@ export function StartBackfillDialog({
   const { ts } = useI18n();
   const client = useClient();
   const canManageProfiles = useCanManageProfiles();
+  // Only an administrator may run with a protected profile.
+  const canUseProtectedProfiles = useIsAdmin();
   const { activeProfiles } = useProfiles({
     enabled: open && canManageProfiles,
     remoteNode,
@@ -477,11 +479,23 @@ export function StartBackfillDialog({
                   onChange={(event) => setProfile(event.target.value)}
                 >
                   <option value="">{ts("The DAG's default profile")}</option>
-                  {activeProfiles.map((item) => (
-                    <option key={item.name} value={item.name}>
-                      {item.name}
-                    </option>
-                  ))}
+                  {activeProfiles.map((item) => {
+                    const unavailable =
+                      item.protected && !canUseProtectedProfiles;
+                    return (
+                      <option
+                        key={item.name}
+                        value={item.name}
+                        disabled={unavailable}
+                      >
+                        {unavailable
+                          ? ts('{name} (admin only)', { name: item.name })
+                          : item.protected
+                            ? ts('{name} (protected)', { name: item.name })
+                            : item.name}
+                      </option>
+                    );
+                  })}
                 </select>
               </label>
             )}

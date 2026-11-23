@@ -66,8 +66,7 @@ func (a *API) ResumeDAGRun(ctx context.Context, request api.ResumeDAGRunRequestO
 }
 
 func approvalResumePending(status *ir.DAGRunStatus) bool {
-	return hasRootApproval(status) && status.Status == ir.Waiting &&
-		(!hasWaitingSteps(status.Nodes) || humantask.ResumePending(status) || humantask.UnblockedNodeReady(status))
+	return hasRootApproval(status) && status.Status == ir.Waiting && humantask.ApprovalResumeReady(status)
 }
 
 func hasRootApproval(status *ir.DAGRunStatus) bool {

@@ -119,6 +119,8 @@ type file struct {
 	// numFmts memoizes styles derived from a cell's style with another
 	// number format, such as a date written into a plain cell.
 	numFmts map[numFmtKey]int
+	// edits holds what a writer changed, for invalidateFormulaCaches.
+	edits cacheEdits
 }
 
 func open(path, password string) (*file, error) {
@@ -323,15 +325,6 @@ func cellAt(grid [][]string, col, row int) string {
 		return ""
 	}
 	return grid[row][col]
-}
-
-func rowIsEmpty(grid [][]string, row, c1, c2 int) bool {
-	for c := c1; c <= c2; c++ {
-		if strings.TrimSpace(cellAt(grid, c, row)) != "" {
-			return false
-		}
-	}
-	return true
 }
 
 func sortedKeys[V any](m map[string]V) []string {

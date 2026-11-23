@@ -5,22 +5,28 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
+	"os/user"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 )
 
 // caseOptions configures one workflow-test case.
@@ -41,6 +47,10 @@ type caseOptions struct {
 	// files are written at their configured paths, and a case with one sets
 	// up what a real step needs, as a real run does.
 	real []string
+	// mocks holds the scripted steps of the case by step name. A step in
+	// real keeps its own action and takes only its step fields, such as its
+	// review.
+	mocks map[string]stepmock.Step
 }
 
 // testCase is one run of a DAG that keeps its run history, logs, artifacts,
@@ -55,6 +65,14 @@ type testCase struct {
 	// notifications lists the mail notifications the case's runs would have
 	// sent, in the order the runs reached them. A case sends no mail.
 	notifications []agent.Notification
+	// autoApproved names, in the order the run settled them, the steps whose
+	// waits the case approved automatically because their mocks set no
+	// review.
+	autoApproved []string
+	// attempts counts the run attempts the case started: the first and each
+	// retry of its DAG-level retry_policy. A resume after a wait is part of
+	// the attempt it resumes.
+	attempts int
 }
 
 // openCase creates a case directory and the stores rooted in it. The case
@@ -75,6 +93,23 @@ func openCase(ctx *Context, opts caseOptions) (*testCase, error) {
 // the status the run recorded. A run that fails or is aborted returns its
 // status and no error. In a case with a real step, a DAG secret or SSH
 // credential ref without a test value is an error before the run starts.
+//
+// Each time the run reaches a waiting checkpoint, the case settles its
+// waiting steps one at a time through the completion path a person uses.
+// While the run has failed and its DAG-level retry_policy has a retry left,
+// the case accepts the retry the scheduler would, at once instead of after
+// the policy's interval. It runs each resume or retry that is queued, under
+// the same run ID, and returns the last attempt's status. A settled step
+// that queues no resume leaves the next waiting step to settle. Once the
+// case's context is canceled, the case accepts no further retry, and an
+// attempt that starts after the cancellation is interrupted at once.
+//
+//	attempt --> status
+//	   ^          |-- waiting ------------> settle one step --+
+//	   |          |-- failed, retry left -> accept retry -----+
+//	   |          +-- otherwise ----------> return status     |
+//	   |                                                      v
+//	   +------------------ yes ------------------------ queued?
 func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 	secrets, err := caseSecrets(dag, c.opts.secrets, c.hasRealSteps())
 	if err != nil {
@@ -103,7 +138,8 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 			Dir:  filepath.Join(c.dir, "redirects"),
 			Keep: c.opts.real,
 		},
-		testSideEffects: &agent.TestSideEffects{HasRealSteps: c.hasRealSteps()},
+		testSideEffects:  &agent.TestSideEffects{HasRealSteps: c.hasRealSteps()},
+		executorOverride: c.executorOverride(),
 	}
 	runErr := withPreparedLocalExecution(
 		ctx,
@@ -116,33 +152,302 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 		func(preparedAttempt dagrun.Attempt) error {
 			prepared := opts
 			prepared.preparedAttempt = preparedAttempt
-			return withDAGRunAgent(ctx, dag, dagRunID, prepared, func(ag *agent.Agent, logFile *os.File) error {
-				agentCtx := ctx.WithContext(ctx.Context)
-				agentCtx.LogToFile(logFile)
-				stop := context.AfterFunc(agentCtx, func() {
-					ag.Signal(context.WithoutCancel(agentCtx), os.Interrupt)
-				})
-				defer stop()
-				defer func() { c.notifications = append(c.notifications, ag.Notifications()...) }()
-				return ag.Run(agentCtx)
-			})
+			return withDAGRunAgent(ctx, dag, dagRunID, prepared, c.runAgent)
 		},
 	)
 
-	attempt, err := ctx.Persistence.DAGRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, dagRunID))
+	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
+	status, err := c.latestStatus(ref)
 	if err != nil {
 		return nil, errors.Join(runErr, err)
 	}
-	status, err := attempt.ReadStatus(ctx)
-	if err != nil {
-		return nil, errors.Join(runErr, err)
+	c.attempts = 1
+	for {
+		switch {
+		case status.Status == ir.Waiting:
+			err = c.settle(dag, status)
+		// A failed root run with retries left is what the scheduler retries.
+		case ctx.Err() == nil && dagrun.CanCancelFailedAutoRetryPendingRun(status):
+			err = c.acceptRetry(dag, status)
+		default:
+			return status, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if status, err = c.latestStatus(ref); err != nil {
+			return nil, err
+		}
+		if status.Status != ir.Queued {
+			continue
+		}
+		queuedErr := c.runQueued(dag, status, opts)
+		if status, err = c.latestStatus(ref); err != nil {
+			return nil, errors.Join(queuedErr, err)
+		}
+		if status.Status == ir.Queued && queuedErr != nil {
+			return nil, queuedErr
+		}
 	}
-	return status, nil
+}
+
+// acceptRetry accepts the DAG-level retry of a failed run as the scheduler
+// does, which queues the retry, and counts its attempt.
+func (c *testCase) acceptRetry(dag *ir.DAG, failed *ir.DAGRunStatus) error {
+	ctx := c.ctx
+	admission, err := queue.PrepareRetry(ctx, ctx.Persistence.DAGRunRepository, dag, failed, queue.EnqueueRetryOptions{
+		AutoRetry: true,
+		Processes: ctx.Persistence.ProcRepository,
+	})
+	if err != nil {
+		return err
+	}
+	// A failed run is not queued, so a nil admission means its last attempt
+	// still has a live process record.
+	if admission == nil {
+		return fmt.Errorf("dag-run %s: the retry was not accepted because the process record of attempt %s was not released", failed.DAGRun(), failed.AttemptID)
+	}
+	c.attempts++
+	return nil
 }
 
 // hasRealSteps reports whether the case runs a step for real.
 func (c *testCase) hasRealSteps() bool {
 	return len(c.opts.real) > 0
+}
+
+// runAgent runs one attempt of the case's run. Canceling the case's context
+// interrupts the attempt.
+func (c *testCase) runAgent(ag *agent.Agent, logFile *os.File) error {
+	agentCtx := c.ctx.WithContext(c.ctx.Context)
+	agentCtx.LogToFile(logFile)
+	stop := context.AfterFunc(agentCtx, func() {
+		ag.Signal(context.WithoutCancel(agentCtx), os.Interrupt)
+	})
+	defer stop()
+	defer func() { c.notifications = append(c.notifications, ag.Notifications()...) }()
+	return ag.Run(agentCtx)
+}
+
+// latestStatus returns the status of the latest attempt of the run.
+func (c *testCase) latestStatus(ref ir.DAGRunRef) (*ir.DAGRunStatus, error) {
+	attempt, err := c.ctx.Persistence.DAGRunRepository.FindAttempt(c.ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return attempt.ReadStatus(c.ctx)
+}
+
+// executorOverride returns the override that runs the case's mocked steps, or
+// nil when the case replaces no action. Every attempt of the run shares it,
+// so the results of a step keep counting after a resume or a retry.
+func (c *testCase) executorOverride() runtime.ExecutorOverride {
+	replaced := make(map[string]stepmock.Step, len(c.opts.mocks))
+	for name, step := range c.opts.mocks {
+		if !slices.Contains(c.opts.real, name) {
+			replaced[name] = step
+		}
+	}
+	if len(replaced) == 0 {
+		return nil
+	}
+	return stepmock.New(replaced)
+}
+
+// runQueued runs the attempt of a retry queued for the run, such as the
+// resume a completion queues, as the queue's dispatch runs it, with the
+// options of the case. It runs the case's DAG instead of rebuilding the DAG
+// from its YAML, which would restore its log and artifact directories
+// outside the case directory.
+func (c *testCase) runQueued(dag *ir.DAG, queued *ir.DAGRunStatus, opts runOptions) error {
+	ctx := c.ctx
+	opts.triggerType = queue.PreservedQueueTriggerType(queued)
+	opts.triggerActor = queued.TriggerActor
+	return withPreparedLocalExecution(
+		ctx,
+		dag,
+		queued.DAGRunID,
+		opts,
+		func(execCtx context.Context) (dagrun.Attempt, error) {
+			return ctx.Persistence.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), queued.DAGRunID, persis.DAGRunCreateAttemptOptions{Retry: true})
+		},
+		func(preparedAttempt dagrun.Attempt) error {
+			prepared := opts
+			prepared.preparedAttempt = preparedAttempt
+			return withRetryAgent(ctx, dag, queued, prepared, c.runAgent)
+		},
+	)
+}
+
+// settle settles the first waiting step of a run at its waiting checkpoint,
+// as its review decides, through the completion path a person uses. A step
+// whose mock sets no review is approved with no values, which fails when its
+// wait needs values.
+func (c *testCase) settle(dag *ir.DAG, status *ir.DAGRunStatus) error {
+	idx := slices.IndexFunc(status.Nodes, func(node *ir.Node) bool {
+		return node != nil && node.Status == ir.NodeWaiting
+	})
+	if idx < 0 {
+		return fmt.Errorf("dag-run %s is waiting with no waiting step", status.DAGRun())
+	}
+	node := status.Nodes[idx]
+	name := node.Step.Name
+	waitsForChild, err := c.childWaits(status, node)
+	if err != nil {
+		return fmt.Errorf("step %s: %w", name, err)
+	}
+	review := c.opts.mocks[name].Review
+	switch {
+	case waitsForChild:
+		return fmt.Errorf("step %s waits for its child run, which a test cannot settle", name)
+	case node.Step.HumanTask != nil:
+		err = c.completeHumanTask(status, node, review)
+	case node.Step.Approval != nil:
+		err = c.settleApproval(dag, status, node, review)
+	default:
+		return fmt.Errorf("step %s waits for input that a test cannot give", name)
+	}
+	switch {
+	case err != nil && review == nil:
+		return fmt.Errorf("step %s: approving its wait with no values failed; give it a review: %w", name, err)
+	case err != nil:
+		return fmt.Errorf("step %s: %w", name, err)
+	case review == nil && !slices.Contains(c.autoApproved, name):
+		c.autoApproved = append(c.autoApproved, name)
+	}
+	return nil
+}
+
+// childWaits reports whether a child run of node waits. The node then waits
+// for that run, even when it also has its own approval gate.
+func (c *testCase) childWaits(status *ir.DAGRunStatus, node *ir.Node) (bool, error) {
+	root := status.Root
+	if root.Zero() {
+		root = status.DAGRun()
+	}
+	for _, child := range node.SubRuns {
+		attempt, err := c.ctx.Persistence.DAGRunRepository.FindSubAttempt(c.ctx, root, child.DAGRunID)
+		if err != nil {
+			return false, fmt.Errorf("failed to find child run %s: %w", child.DAGRunID, err)
+		}
+		childStatus, err := attempt.ReadStatus(c.ctx)
+		if err != nil {
+			return false, fmt.Errorf("failed to read child run %s: %w", child.DAGRunID, err)
+		}
+		if childStatus.Status == ir.Waiting {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// completeHumanTask completes a waiting human task as dagu human-task complete
+// does, with the review's values typed as --inputs-json types them. The
+// completion requests the resume when the run can make progress.
+func (c *testCase) completeHumanTask(status *ir.DAGRunStatus, node *ir.Node, review *stepmock.Review) error {
+	var input humantask.Input
+	if review != nil && review.Reject {
+		return errors.New("a human task cannot be rejected")
+	}
+	if review != nil && review.Values != nil {
+		data, err := json.Marshal(review.Values)
+		if err != nil {
+			return fmt.Errorf("invalid review values: %w", err)
+		}
+		if input, err = humantask.ParseJSONInput(data); err != nil {
+			return err
+		}
+	}
+	deps := defaultHumanTaskCompleteDeps()
+	service := newLocalHumanTaskService(c.ctx, deps)
+	completedBy, completedByID := localOSSubject(deps.currentUser)
+	_, err := service.Complete(c.ctx, humantask.CompleteRequest{
+		DAGName:       status.Name,
+		DAGRunID:      status.DAGRunID,
+		StepID:        node.Step.ID,
+		Input:         input,
+		CompletedBy:   completedBy,
+		CompletedByID: completedByID,
+	})
+	return err
+}
+
+// settleApproval approves or rejects a waiting approval gate as the approve
+// and reject endpoints do. An approval that lets the run make progress
+// accepts its resume, as the approve endpoint does for a DAG outside a queue.
+func (c *testCase) settleApproval(dag *ir.DAG, status *ir.DAGRunStatus, node *ir.Node, review *stepmock.Review) error {
+	reject := review != nil && review.Reject
+	var inputs map[string]string
+	if !reject {
+		var err error
+		if review != nil {
+			inputs, err = approvalInputs(review.Values)
+		}
+		if err == nil {
+			err = dagrun.CheckRequiredInputs(node.Step.Approval.Required, inputs)
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	ctx := c.ctx
+	by, byID := localOSSubject(user.Current)
+	repository := ctx.Persistence.DAGRunRepository
+	updated, swapped, err := repository.CompareAndSwapLatestAttemptStatus(ctx, status.DAGRun(), status.AttemptID, ir.Waiting,
+		func(latest *ir.DAGRunStatus) error {
+			idx := slices.IndexFunc(latest.Nodes, func(n *ir.Node) bool { return n != nil && n.Step.Name == node.Step.Name })
+			if idx < 0 || latest.Nodes[idx].Status != ir.NodeWaiting {
+				return fmt.Errorf("step %s is not waiting for approval", node.Step.Name)
+			}
+			if reject {
+				dagrun.RejectStep(latest, latest.Nodes[idx], nil, by, byID)
+			} else {
+				dagrun.ApproveStep(latest.Nodes[idx], inputs, by, byID)
+			}
+			return nil
+		}, persis.DAGRunCompareAndSwapOptions{})
+	if err != nil {
+		return err
+	}
+	if !swapped {
+		return errors.New("the dag-run changed before the step could be settled")
+	}
+	if reject || !humantask.ApprovalResumeReady(updated) {
+		return nil
+	}
+	_, err = queue.PrepareRetry(ctx, repository, dag, updated, queue.EnqueueRetryOptions{
+		Processes: ctx.Persistence.ProcRepository,
+		Resume:    true,
+	})
+	return err
+}
+
+// approvalInputs returns the inputs of an approval gate. Each value is a
+// scalar, given as its text. A null value is empty, so it counts as left out.
+func approvalInputs(values map[string]any) (map[string]string, error) {
+	if values == nil {
+		return nil, nil
+	}
+	inputs := make(map[string]string, len(values))
+	for name, value := range values {
+		switch v := value.(type) {
+		case nil:
+			inputs[name] = ""
+		case string:
+			inputs[name] = v
+		case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64,
+			float32, float64, json.Number:
+			text, err := json.Marshal(v)
+			if err != nil {
+				return nil, fmt.Errorf("value %s: %w", name, err)
+			}
+			inputs[name] = string(text)
+		default:
+			return nil, fmt.Errorf("value %s is not a scalar", name)
+		}
+	}
+	return inputs, nil
 }
 
 // close removes the case directory unless the case keeps it.

@@ -1,0 +1,5 @@
+dag: nowhere.yaml
+cases:
+  - name: tests a missing DAG
+    expect:
+      status: succeeded

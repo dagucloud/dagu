@@ -10,14 +10,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"slices"
-	"strings"
 	"sync"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
-	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -32,73 +28,163 @@ type Result struct {
 	Stdout string
 	// Stderr is written to the step's stderr.
 	Stderr string
-	// Outputs holds the step's named outputs, published only when the
-	// execution succeeds. They are subject to the step's declared outputs
-	// (Spec 012). An output declared with type json publishes any value as
-	// its JSON text. Any other output publishes a string as written and any
-	// other value as its JSON text.
+	// Outputs holds every named output the step publishes, whatever its
+	// source: the output file, output_schema, object-form output,
+	// stdout.outputs, or the action. They are published only when the
+	// execution succeeds, and reach the references and run outputs that
+	// their source reaches in a real run. An output declared with type json
+	// (Spec 012) publishes any value as its JSON text. Any other output
+	// publishes a string as written and any other value as its JSON text.
 	Outputs map[string]any
+	// Condition is whether the step's repeat condition, when it runs a
+	// command, is met after this execution. Nil leaves it to run.
+	Condition *bool
 }
 
-// Step scripts the action of one mocked step.
+// Step scripts one step of a workflow test: its action, the conditions that
+// would run a command, and how its wait for a person is settled.
 type Step struct {
 	// Results holds one result for each execution of the action: the first
 	// attempt, each retry, and each repeat iteration. After the last result,
-	// the last one repeats. With no results, every execution succeeds with no
-	// output.
+	// the last one repeats, except on a step that repeats without a limit,
+	// which then stops. With no results, every execution succeeds with no
+	// output, unless the step keeps its action.
 	Results []Result
+	// Precondition is whether the step's preconditions that run a command
+	// are met, for each start of the step, whether or not its action is
+	// replaced. Nil leaves them to run.
+	Precondition *bool
+	// KeepAction runs the step's own action when it has no Results. Results
+	// always replace the action, since each execution takes its repeat
+	// condition from its result.
+	KeepAction bool
+	// Real marks a step that the test runs for real. It keeps its action as
+	// KeepAction does, and repeats as written when it has no repeat limit.
+	Real bool
+	// Review settles each wait of the step for a person. Nil approves each
+	// wait with no values. A Set does not read it; the caller that settles
+	// the run's waits does.
+	Review *Review
 }
 
-// Set replaces the actions of the steps it holds with their scripted
-// results. A step's next result depends on its earlier executions, so a Set
-// serves a single run.
+// Review is the decision a workflow test makes for a step that waits for a
+// person.
+type Review struct {
+	// Reject rejects the wait. False approves it.
+	Reject bool
+	// Values holds the completion input of a human task, or the inputs of an
+	// approval gate.
+	Values map[string]any
+}
+
+// Set scripts the steps it holds in place of their actions and of the
+// conditions that would run a command. A step that is not in the set runs
+// its own action and must not repeat without a limit. A step's next result
+// depends on its earlier executions, so a Set serves a single run.
 type Set struct {
-	steps map[string]*script
+	steps           map[string]*script
+	dagPrecondition *bool
 }
 
-var _ runtime.ExecutorOverride = (*Set)(nil)
+var (
+	_ runtime.ExecutorOverride  = (*Set)(nil)
+	_ runtime.ConditionOverride = (*Set)(nil)
+)
 
 // New returns a Set holding the given steps, keyed by step name.
 func New(steps map[string]Step) *Set {
 	set := &Set{steps: make(map[string]*script, len(steps))}
 	for name, step := range steps {
-		set.steps[name] = &script{results: slices.Clone(step.Results)}
+		step.Results = slices.Clone(step.Results)
+		set.steps[name] = newScript(step)
 	}
 	return set
 }
 
-// Executor returns an executor that runs the step's next result, or false
-// when the step is not in the set.
-func (s *Set) Executor(_ context.Context, step ir.Step) (executor.Executor, bool) {
+// SetDAGPrecondition scripts whether the DAG-level preconditions that run a
+// command are met. It must be called before the run starts.
+func (s *Set) SetDAGPrecondition(met bool) {
+	s.dagPrecondition = &met
+}
+
+// DAGPrecondition returns what SetDAGPrecondition scripts, or nil.
+func (s *Set) DAGPrecondition() *bool {
+	return s.dagPrecondition
+}
+
+// Precondition returns the step's Precondition.
+func (s *Set) Precondition(step ir.Step) *bool {
 	script, ok := s.steps[step.Name]
 	if !ok {
+		return nil
+	}
+	return script.step.Precondition
+}
+
+// RepeatCondition returns the Condition of the result that the step's
+// latest execution took, or of its first result before any. A step whose
+// action the set does not replace scripts none.
+func (s *Set) RepeatCondition(step ir.Step) *bool {
+	script, ok := s.steps[step.Name]
+	if !ok || !script.replaces() {
+		return nil
+	}
+	return script.latest().Condition
+}
+
+// ContinuousLimit bounds a step that repeats without a limit. A step whose
+// action the set replaces stops after one execution for each result, or
+// after one when it has no results. A Real step repeats as written. Any
+// other step gets no execution.
+func (s *Set) ContinuousLimit(step ir.Step) (limit int, ok bool) {
+	script, ok := s.steps[step.Name]
+	switch {
+	case !ok:
+		return 0, true
+	case script.replaces():
+		return max(1, len(script.step.Results)), true
+	case script.step.Real:
+		return 0, false
+	default:
+		return 0, true
+	}
+}
+
+// Executor returns an executor that runs the step's next result, or false
+// when the set does not replace the step's action.
+func (s *Set) Executor(_ context.Context, step ir.Step) (executor.Executor, bool) {
+	script, ok := s.steps[step.Name]
+	if !ok || !script.replaces() {
 		return nil, false
 	}
 	return &mockExecutor{
-		script:      script,
-		jsonOutputs: jsonOutputs(step),
-		stdout:      io.Discard,
-		stderr:      io.Discard,
+		script: script,
+		stdout: io.Discard,
+		stderr: io.Discard,
 	}, true
 }
 
-// jsonOutputs returns the names of the step's outputs declared with type json.
-func jsonOutputs(step ir.Step) map[string]bool {
-	names := make(map[string]bool)
-	for _, declaration := range step.ValueOutputs() {
-		if declaration.Type == ir.StepDeclaredOutputTypeJSON {
-			names[declaration.Name] = true
-		}
-	}
-	return names
+// script holds one scripted step and how many executions took a result.
+type script struct {
+	step Step
+
+	mu         sync.Mutex
+	executions int
+	// last is the result the latest execution took.
+	last Result
 }
 
-// script holds the results of one mocked step and how many executions took
-// one.
-type script struct {
-	mu         sync.Mutex
-	results    []Result
-	executions int
+func newScript(step Step) *script {
+	s := &script{step: step}
+	if len(step.Results) > 0 {
+		s.last = step.Results[0]
+	}
+	return s
+}
+
+// replaces reports whether the step's results run in place of its action.
+func (s *script) replaces() bool {
+	return len(s.step.Results) > 0 || !s.step.KeepAction && !s.step.Real
 }
 
 // next returns the result of the next execution.
@@ -106,25 +192,39 @@ func (s *script) next() Result {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	results := s.step.Results
 	var result Result
-	if len(s.results) > 0 {
-		result = s.results[min(s.executions, len(s.results)-1)]
+	if len(results) > 0 {
+		result = results[min(s.executions, len(results)-1)]
 	}
 	s.executions++
+	s.last = result
 	return result
+}
+
+// latest returns the result the latest execution took, or the first result
+// before any execution.
+func (s *script) latest() Result {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.last
 }
 
 // mockExecutor runs one execution of a mocked step. It starts no process and
 // reads no file.
 type mockExecutor struct {
-	script      *script
-	jsonOutputs map[string]bool
-	stdout      io.Writer
-	stderr      io.Writer
-	exitCode    int
+	script   *script
+	stdout   io.Writer
+	stderr   io.Writer
+	exitCode int
+	// outputs holds the outputs the execution publishes.
+	outputs map[string]any
 }
 
-var _ executor.ExitCoder = (*mockExecutor)(nil)
+var (
+	_ executor.ExitCoder             = (*mockExecutor)(nil)
+	_ executor.NamedOutputsPublisher = (*mockExecutor)(nil)
+)
 
 func (e *mockExecutor) SetStdout(out io.Writer) { e.stdout = out }
 func (e *mockExecutor) SetStderr(out io.Writer) { e.stderr = out }
@@ -133,7 +233,10 @@ func (*mockExecutor) Kill(os.Signal) error      { return nil }
 // ExitCode returns the exit code of the result the execution took.
 func (e *mockExecutor) ExitCode() int { return e.exitCode }
 
-func (e *mockExecutor) Run(ctx context.Context) error {
+// NamedOutputs returns the outputs of the result the execution took.
+func (e *mockExecutor) NamedOutputs() map[string]any { return e.outputs }
+
+func (e *mockExecutor) Run(context.Context) error {
 	result := e.script.next()
 	e.exitCode = result.ExitCode
 	if _, err := io.WriteString(e.stdout, result.Stdout); err != nil {
@@ -145,74 +248,6 @@ func (e *mockExecutor) Run(ctx context.Context) error {
 	if result.ExitCode != 0 {
 		return fmt.Errorf("exit status %d", result.ExitCode)
 	}
-	return e.writeOutputs(ctx, result.Outputs)
-}
-
-// writeOutputs appends outputs to the step's DAGU_OUTPUT_FILE as an action
-// does, so the runtime parses and checks them as it does for any step.
-func (e *mockExecutor) writeOutputs(ctx context.Context, outputs map[string]any) error {
-	if len(outputs) == 0 {
-		return nil
-	}
-	path, ok := runtime.GetEnv(ctx).Scope.Get(runenv.EnvKeyDAGUOutputFile)
-	if !ok || path == "" {
-		return fmt.Errorf("%s is not set", runenv.EnvKeyDAGUOutputFile)
-	}
-	records, err := outputRecords(outputs, e.jsonOutputs)
-	if err != nil {
-		return err
-	}
-	// #nosec G304 -- the runtime creates DAGU_OUTPUT_FILE for this execution.
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
-	if err != nil {
-		return err
-	}
-	if _, err := file.WriteString(records); err != nil {
-		_ = file.Close()
-		return err
-	}
-	return file.Close()
-}
-
-// outputRecords encodes outputs as DAGU_OUTPUT_FILE records, in name order.
-// A value that spans lines takes a multiline record.
-func outputRecords(outputs map[string]any, jsonOutputs map[string]bool) (string, error) {
-	var b strings.Builder
-	for _, name := range slices.Sorted(maps.Keys(outputs)) {
-		value, err := outputText(outputs[name], jsonOutputs[name])
-		if err != nil {
-			return "", fmt.Errorf("output %q: %w", name, err)
-		}
-		if !strings.ContainsAny(value, "\r\n") {
-			fmt.Fprintf(&b, "%s=%s\n", name, value)
-			continue
-		}
-		delimiter := multilineDelimiter(value)
-		fmt.Fprintf(&b, "%s<<%s\n%s\n%s\n", name, delimiter, value, delimiter)
-	}
-	return b.String(), nil
-}
-
-// outputText returns the text an output value publishes. A json output
-// publishes a string as a JSON string, as Spec 101 defines.
-func outputText(value any, asJSON bool) (string, error) {
-	if text, ok := value.(string); ok && !asJSON {
-		return text, nil
-	}
-	data, err := jsonutil.MarshalUnescaped(value)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-// multilineDelimiter returns a delimiter that no line of value equals, so the
-// record ends after the whole value. The reader also splits lines at "\r".
-func multilineDelimiter(value string) string {
-	lines := strings.Split(strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(value), "\n")
-	delimiter := "EOF"
-	for i := 1; slices.Contains(lines, delimiter); i++ {
-		delimiter = fmt.Sprintf("EOF_%d", i)
-	}
-	return delimiter
+	e.outputs = result.Outputs
+	return nil
 }

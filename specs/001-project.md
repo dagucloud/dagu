@@ -8,7 +8,7 @@ treated as current product behavior.
 ## Scope
 
 This spec defines how the CLI finds a project, discovers its workflows,
-resolves workflow targets and working directories, and where project-mode runs
+resolves workflow targets and working directories, and where a project's runs
 keep their state. It also defines how a project relates to a server project of
 [RFC 003](../rfcs/003-projects.md).
 
@@ -19,12 +19,12 @@ It does not define workflow YAML semantics, step execution, or output formats.
 Let a repository keep its workflows next to its code, and run them with no
 server and no setup beyond `dagu init`.
 
-A project is a directory that contains `.dagu.json`. That directory is
+A project is a directory that contains `dagu.json`. That directory is
 `project_root`.
 
 ## Project file
 
-`.dagu.json` must be a JSON object. An empty object, `{}`, is valid.
+`dagu.json` must be a JSON object. An empty object, `{}`, is valid.
 
 Fields defined by this spec:
 
@@ -32,7 +32,7 @@ Fields defined by this spec:
 | --- | --- | --- |
 | `workflows` | No | Project-relative directory that contains workflow files. Defaults to `workflows`. |
 | `working_dir` | No | Project-relative default working directory for steps. Defaults to `.`. |
-| `project` | No | Name of the server project this checkout belongs to. See [Server projects](#server-projects). |
+| `project` | No | Name of the project. Defaults to a valid name made from the name of `project_root`, as RFC 003 makes one. The project's runs and settings are kept under this name; see [Project state](#project-state). |
 
 Rules:
 
@@ -55,7 +55,7 @@ Default layout:
 
 ```text
 project/
-  .dagu.json
+  dagu.json
   base.yaml
   workflows/
     deploy.yaml
@@ -63,36 +63,36 @@ project/
       daily.yaml
   scripts/
     deploy.sh
-  .dagu/                 run state, ignored by git; see Project state
 ```
 
 ## Finding the project
 
-- The CLI looks for `.dagu.json` in the current directory, then in each parent
+- The CLI looks for `dagu.json` in the current directory, then in each parent
   directory, and stops at the first one it finds. That directory is
   `project_root`.
 - A project nested inside another project hides the outer one.
-- Without `.dagu.json` in the current directory or above it, commands do not
-  run in project mode. A folder that a server project uses is still found
-  without it; see [Server projects](#server-projects).
+- Without `dagu.json` in the current directory or above it, a command
+  addresses a server project or the default project, as
+  [Server projects](#server-projects) says.
 
 ## Commands
 
-| Command | In project mode |
+| Command | Inside a project |
 | --- | --- |
 | `dagu init` | Creates a project in the current directory. |
 | `dagu list` | Prints the workflow targets. |
 | `dagu validate [<target>]` | Validates the project file and every workflow, or one workflow. |
 | `dagu start <target> [-- params]` | Runs one workflow. |
 | Other commands that take a DAG, such as `status`, `stop`, `retry`, and `enqueue` | Resolve the DAG as a workflow target. |
-| `dagu server`, `dagu start-all` | Serve the project's workflows and runs. `start-all` also schedules them. Both refuse inside a server project's DAG directory; see [Server projects](#server-projects). |
+| `dagu server`, `dagu start-all` | Serve the project's workflows and runs. `start-all` also schedules them. |
 
 Rules:
 
-- `dagu init` writes `.dagu.json` containing `{}`, `workflows/hello.yaml`,
-  and `.dagu/.gitignore`, then prints `dagu start hello` as the next
-  command. It refuses when `.dagu.json` already exists in the current
-  directory, and it never overwrites a file.
+- `dagu init` writes `dagu.json`, naming the project after the current
+  directory, such as `{"project": "myapp"}`, and `workflows/hello.yaml`,
+  then prints `dagu start hello` as the next command. It refuses when
+  `dagu.json` already exists in the current directory, and it never
+  overwrites a file.
 - `dagu list` prints targets in lexicographic order, one per line.
 - `dagu validate` without `<target>` validates the project file and every
   discovered workflow.
@@ -119,7 +119,7 @@ steps:
 
 ## Workflow discovery
 
-Dagu resolves the workflow directory from `.dagu.json`.
+Dagu resolves the workflow directory from `dagu.json`.
 
 Rules:
 
@@ -167,7 +167,7 @@ The process working directory is the directory from which step commands run.
 Rules:
 
 - The default process working directory is `project_root`, or the
-  `working_dir` of `.dagu.json` resolved from `project_root`.
+  `working_dir` of `dagu.json` resolved from `project_root`.
 - A relative workflow root `working_dir` is resolved from the project default
   process working directory.
 - An absolute workflow root `working_dir` is used as written.
@@ -179,7 +179,7 @@ Example:
 
 ```text
 project/
-  .dagu.json
+  dagu.json
   workflows/
     deploy.yaml
   scripts/
@@ -205,13 +205,12 @@ It resolves the same way when `dagu start deploy` runs from
 
 ## Project state
 
-A project keeps its state and its own settings in one directory,
-`project_root/.dagu/`, laid out so that a person who opens it finds what they
-look for:
+A project keeps its runs and its own settings in the data directory of the
+user's Dagu home, under its name, never inside `project_root`. A checkout
+stays clean, and `git clean -x` or a fresh clone loses nothing.
 
 ```text
-.dagu/
-  .gitignore     contains "*"
+<data_dir>/projects/<name>/
   runs/          run records, by workflow and date
   logs/          step logs
   artifacts/     run artifacts
@@ -221,28 +220,23 @@ look for:
 
 Rules:
 
-- Dagu creates `.dagu/` and its `.gitignore` on first use, so git ignores the
-  state without setup. `git clean -x` removes `.dagu/`, and with it the
-  project's run history and secrets.
-- One directory keeps Dagu's files apart from a project's own `logs/` or
-  `runs/`, and discovery never enters it, since it skips hidden directories.
-- Project mode uses the user's Dagu configuration, except that its DAG
-  directory is the workflow directory and its state and settings live under
-  `.dagu/` as shown.
+- The project's name selects its state. Two folders whose `dagu.json` names
+  one project, such as two clones of one repository, share its runs and
+  settings.
+- Inside a project, the CLI uses the user's Dagu configuration, except that
+  its DAG directory is the workflow directory.
 - A workflow uses the project's secrets, profiles, notification routes, and
   incident policies, then those of the server layer of the user's Dagu home,
-  in the order [RFC 003](../rfcs/003-projects.md#server-layer) gives. In
-  project mode, `dagu secret` and `dagu profile` act on the project's
-  entries.
+  in the order [RFC 003](../rfcs/003-projects.md#server-layer) gives. Inside
+  a project, `dagu secret` and `dagu profile` act on the project's entries.
 - Secrets are encrypted with the key of the user's Dagu home, as on a
   server.
-- A server project ([RFC 003](../rfcs/003-projects.md#layout)) lays out its
-  state the same way. On an existing folder, with the file backend, it uses
-  the folder's `.dagu/`, so the CLI and the server read one history and one
-  set of secrets and profiles. Elsewhere its state is in the server's data
-  directory.
+- A server project ([RFC 003](../rfcs/003-projects.md#layout)) keeps its
+  state the same way, in the server's data directory, wherever its DAG
+  directory is. A folder used from the CLI keeps its history when a server
+  on the same Dagu home adds it.
 - `dagu start` prints where the run's logs are when it finishes, and
-  `dagu history` lists past runs, so people rarely need to open `.dagu/`.
+  `dagu history` lists past runs.
 - Project loading and workflow discovery do not write workflow events, run
   logs, artifacts, or result files.
 
@@ -254,7 +248,7 @@ project's DAG directory may be a checkout.
 
 Rules:
 
-- A server project's DAG directory may hold `.dagu.json`. The server then
+- A server project's DAG directory may hold `dagu.json`. The server then
   discovers workflows, applies base config, and sets working directories as
   this spec says, whatever the server's `dag_discovery` settings are.
 - On a server, a `project` field that differs from the server project's name
@@ -262,23 +256,14 @@ Rules:
 - A command runs in the first of these that applies:
   1. The server project named by `--project` or `DAGU_PROJECT`.
   2. The server project of the configured Dagu home whose DAG directory
-     contains the current directory, with or without `.dagu.json`. This
-     includes a project on an existing folder. The command uses that
-     project's rules, base config, secrets, and run history.
-  3. Project mode, when `.dagu.json` is found from the current directory,
-     with its state in `.dagu/`.
+     contains the current directory, with or without `dagu.json`. The
+     command uses that project's rules, base config, secrets, and run
+     history.
+  3. The project named by the `dagu.json` found from the current
+     directory.
   4. The default project of the configured Dagu home, as without projects.
-- Inside a server project's DAG directory, as in step 2, `dagu server` and
-  `dagu start-all` refuse to start. The server already schedules that
-  project, and a second scheduler with its own lock would run each
-  scheduled workflow twice.
-- A command that would write a server project's state refuses when it runs
-  as a user other than the owner of that state, and names the user to run
-  as. Dagu keeps its files readable only by their owner, so the server
-  could not read what another user wrote.
-- When the CLI addresses a remote server through a context, a project-mode
-  command addresses the server project named by `project`, and fails when
-  `project` is not set.
+- When the CLI addresses a remote server through a context, a command
+  inside a project addresses the server project of the project's name.
 
 ## Outputs
 
@@ -288,9 +273,9 @@ Step stdout, stderr, exit code, and runtime outputs belong to execution specs.
 
 Project loading must fail when:
 
-- `.dagu.json` exists but is not a file.
-- `.dagu.json` is not valid JSON, or is not an object.
-- `.dagu.json` contains an invalid field defined by this spec.
+- `dagu.json` exists but is not a file.
+- `dagu.json` is not valid JSON, or is not an object.
+- `dagu.json` contains an invalid field defined by this spec.
 - A configured workflow directory is missing or is not a directory.
 - The workflow directory resolves outside `project_root`.
 - Two workflow files have targets that match without regard to case.
@@ -311,7 +296,7 @@ Configured workflow directory:
 
 ```text
 project/
-  .dagu.json
+  dagu.json
   pipelines/
     deploy.yaml
     etl/
@@ -320,7 +305,7 @@ project/
     backup.yaml
 ```
 
-`.dagu.json`:
+`dagu.json`:
 
 ```json
 { "workflows": "pipelines" }

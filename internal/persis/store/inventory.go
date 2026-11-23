@@ -27,6 +27,8 @@ var _ inventory.Store = (*InventoryStore)(nil)
 type InventoryStore struct {
 	col  persis.Collection
 	lock persis.Lock
+	// hostKeys holds the keys trusted for the nodes, or is nil.
+	hostKeys inventory.HostKeyStore
 }
 
 // inventoryStoredRecord keeps its own timestamps, since a backend may derive a
@@ -67,15 +69,18 @@ var inventoryIDPattern = regexp.MustCompile(`^inv_[a-z2-7]+$`)
 var errIDSet = errors.New("is set by Dagu and cannot be given")
 
 // NewInventoryStore creates an InventoryStore. lock serializes changes across
-// every process that shares col.
-func NewInventoryStore(col persis.Collection, lock persis.Lock) (*InventoryStore, error) {
+// every process that shares col. A change forgets the key that hostKeys
+// trusts for each node name it adds or removes, so a host that takes a
+// node's name never inherits the key trusted for another host (RFC 012 §Host
+// keys). A nil hostKeys keeps no keys.
+func NewInventoryStore(col persis.Collection, lock persis.Lock, hostKeys inventory.HostKeyStore) (*InventoryStore, error) {
 	if col == nil {
 		return nil, errors.New("inventory store: collection cannot be nil")
 	}
 	if lock == nil {
 		return nil, errors.New("inventory store: lock cannot be nil")
 	}
-	return &InventoryStore{col: col, lock: lock}, nil
+	return &InventoryStore{col: col, lock: lock, hostKeys: hostKeys}, nil
 }
 
 func (s *InventoryStore) List(ctx context.Context) ([]inventory.Stored, error) {
@@ -114,7 +119,12 @@ func (s *InventoryStore) Create(ctx context.Context, inv inventory.Inventory) (i
 		if err != nil {
 			return err
 		}
-		if _, err := inventory.Resolve(append(inventoriesOf(all), inv)); err != nil {
+		before := inventoriesOf(all)
+		after := append(slices.Clone(before), inv)
+		if _, err := inventory.Resolve(after); err != nil {
+			return err
+		}
+		if err := s.forgetChanged(ctx, before, after); err != nil {
 			return err
 		}
 		if err := held(); err != nil {
@@ -143,8 +153,12 @@ func (s *InventoryStore) Replace(ctx context.Context, inv inventory.Inventory, v
 		}
 		// The changed inventory goes last, so a clash is reported on it and
 		// names the inventory that already holds the name.
-		others := inventoriesOf(slices.Delete(all, i, i+1))
-		if _, err := inventory.Resolve(append(others, inv)); err != nil {
+		before := inventoriesOf(all)
+		after := append(inventoriesOf(slices.Delete(all, i, i+1)), inv)
+		if _, err := inventory.Resolve(after); err != nil {
+			return err
+		}
+		if err := s.forgetChanged(ctx, before, after); err != nil {
 			return err
 		}
 		if err := held(); err != nil {
@@ -164,6 +178,11 @@ func (s *InventoryStore) Delete(ctx context.Context, id string, version int64) e
 		}
 		if current.stored.Version != version {
 			return inventory.ErrStale
+		}
+		// Node names are unique across inventories, so each of this one's
+		// names goes away.
+		if err := s.forgetChanged(ctx, []inventory.Inventory{current.stored.Inventory}, nil); err != nil {
+			return err
 		}
 		if err := held(); err != nil {
 			return err
@@ -195,6 +214,9 @@ func (s *InventoryStore) Import(ctx context.Context, invs []inventory.Inventory,
 		if opts.DryRun {
 			result = plan.result()
 			return nil
+		}
+		if err := s.forgetChanged(ctx, inventoriesOf(all), plan.after); err != nil {
+			return err
 		}
 		// Each inventory is stored on its own. When this stops partway, the
 		// ones stored so far stay, the result names them, and the same import
@@ -348,6 +370,8 @@ func (s *InventoryStore) replace(ctx context.Context, current storedInventory, i
 // replace a stored one.
 type importPlan struct {
 	steps []importStep
+	// after is every inventory as the import leaves them.
+	after []inventory.Inventory
 }
 
 type importStep struct {
@@ -402,7 +426,45 @@ func planImport(all []storedInventory, invs []inventory.Inventory, replace bool)
 	if len(errs) > 0 {
 		return importPlan{}, errors.Join(errs...)
 	}
+	plan.after = set
 	return plan, nil
+}
+
+// forgetChanged forgets the trusted key of each node name that is in only
+// one of before and after. It runs under the lock and before the change is
+// written, so no other change interleaves, and a key that cannot be
+// forgotten stops the change before anything is stored. A write that fails
+// afterwards leaves its nodes to be trusted again.
+func (s *InventoryStore) forgetChanged(ctx context.Context, before, after []inventory.Inventory) error {
+	if s.hostKeys == nil {
+		return nil
+	}
+	was, is := nodeNames(before), nodeNames(after)
+	for name := range was {
+		if _, ok := is[name]; ok {
+			delete(is, name)
+			delete(was, name)
+		}
+	}
+	for _, names := range []map[string]struct{}{was, is} {
+		for name := range names {
+			if err := s.hostKeys.Forget(ctx, name); err != nil {
+				return fmt.Errorf("inventory store: %w", err)
+			}
+		}
+	}
+	return nil
+}
+
+// nodeNames returns the lowercased names of the nodes of invs.
+func nodeNames(invs []inventory.Inventory) map[string]struct{} {
+	names := map[string]struct{}{}
+	for _, inv := range invs {
+		for _, node := range inv.Nodes {
+			names[strings.ToLower(node.Name)] = struct{}{}
+		}
+	}
+	return names
 }
 
 func (p importPlan) result() inventory.ImportResult {

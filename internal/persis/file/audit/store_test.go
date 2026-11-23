@@ -5,10 +5,14 @@ package audit
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/audit"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -166,4 +170,68 @@ func TestStore_QueryOffsetBeyondTotal(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, result.Total)
 	assert.Len(t, result.Entries, 0)
+}
+
+// staticSecrets is a SecretSource with fixed values.
+type staticSecrets []string
+
+func (s staticSecrets) CurrentValues(context.Context) ([]string, error) { return s, nil }
+func (staticSecrets) Revision() uint64                                  { return 0 }
+
+// The file holds the masked entry, whole and marked, and the caller's entry
+// is left as it was.
+func TestStore_AppendMasksTheEntryOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	store, err := New(dir, 0, WithMasker(audit.NewMasker(staticSecrets{"s3cr3t"})))
+	require.NoError(t, err)
+	command := "export TOKEN=s3cr3t && " + strings.Repeat("x", 300)
+	entry := audit.NewEntry(audit.CategoryTerminal, "command", "user-1", "alice").
+		WithDetails(`{"command":"` + command + `"}`)
+
+	require.NoError(t, store.Append(context.Background(), entry))
+
+	assert.Contains(t, entry.Details, "s3cr3t")
+	assert.False(t, entry.Masked)
+	data, err := os.ReadFile(store.auditFilePath(entry.Timestamp))
+	require.NoError(t, err)
+	var stored audit.Entry
+	require.NoError(t, json.Unmarshal(data, &stored))
+	assert.True(t, stored.Masked)
+	assert.Equal(t, `{"command":"export TOKEN=*******`+" && "+strings.Repeat("x", 300)+`"}`, stored.Details)
+}
+
+// The cleaner records its run through the store, so its entry is masked too.
+func TestStore_CleanupEntryIsMasked(t *testing.T) {
+	dir := t.TempDir()
+	store, err := New(dir, 0, WithMasker(audit.NewMasker(staticSecrets{})))
+	require.NoError(t, err)
+	createTestFile(t, dir, time.Now().UTC().AddDate(0, 0, -30).Format(dateFormat)+auditFileExtension)
+	c := &cleaner{baseDir: dir, retentionDays: 7, appendFn: store.appendDurable, stopCh: make(chan struct{})}
+
+	c.purgeExpiredFiles()
+
+	result, err := store.Query(context.Background(), audit.QueryFilter{Action: "audit_cleanup"})
+	require.NoError(t, err)
+	require.Len(t, result.Entries, 1)
+	assert.True(t, result.Entries[0].Masked)
+}
+
+// Entries keep their fields whole, so a line can outgrow the reader's buffer;
+// it is skipped like a malformed line and the entries around it still read.
+func TestStore_QuerySkipsOversizedLines(t *testing.T) {
+	store, err := New(t.TempDir(), 0)
+	require.NoError(t, err)
+	ctx := context.Background()
+	require.NoError(t, store.Append(ctx, audit.NewEntry(audit.CategoryUser, "before", "u", "alice")))
+	require.NoError(t, store.Append(ctx, audit.NewEntry(audit.CategoryUser, "login_failed", "",
+		strings.Repeat("<", fileutil.ScannerMaxTokenSize/6+1))))
+	require.NoError(t, store.Append(ctx, audit.NewEntry(audit.CategoryUser, "after", "u", "alice")))
+
+	result, err := store.Query(ctx, audit.QueryFilter{})
+	require.NoError(t, err)
+	actions := make([]string, 0, len(result.Entries))
+	for _, e := range result.Entries {
+		actions = append(actions, e.Action)
+	}
+	assert.ElementsMatch(t, []string{"before", "after"}, actions)
 }

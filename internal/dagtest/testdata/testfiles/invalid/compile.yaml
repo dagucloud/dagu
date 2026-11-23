@@ -1,0 +1,10 @@
+type: build
+steps:
+  - id: compile
+    inputs:
+      - name: source
+        path: source.txt
+    outputs:
+      - name: artifact
+        path: artifact.bin
+    run: compiler "${inputs.source}" -o "${outputs.artifact}"

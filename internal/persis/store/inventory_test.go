@@ -26,6 +26,7 @@ func newInventoryStore(t *testing.T, backend persis.Backend) *store.InventorySto
 	s, err := store.NewInventoryStore(
 		backend.Collection(persis.CollectionInventories),
 		backend.Lock(persis.CollectionInventories),
+		nil,
 	)
 	require.NoError(t, err)
 	return s
@@ -431,7 +432,7 @@ func TestInventoryStore_ReadDuringImport(t *testing.T) {
 	ctx := context.Background()
 	backend := testutil.NewMemoryBackend()
 	col := &swapHookCollection{Collection: backend.Collection(persis.CollectionInventories)}
-	s, err := store.NewInventoryStore(col, backend.Lock(persis.CollectionInventories))
+	s, err := store.NewInventoryStore(col, backend.Lock(persis.CollectionInventories), nil)
 	require.NoError(t, err)
 	_, err = s.Create(ctx, testInventory("Tokyo", "web01"))
 	require.NoError(t, err)
@@ -494,7 +495,7 @@ func TestInventoryStore_ReadRefusedWhenLockLost(t *testing.T) {
 	_, err := writer.Create(ctx, testInventory("Tokyo", "web01"))
 	require.NoError(t, err)
 
-	reader, err := store.NewInventoryStore(col, lockLostAfter(0))
+	reader, err := store.NewInventoryStore(col, lockLostAfter(0), nil)
 	require.NoError(t, err)
 	list, err := reader.List(ctx)
 	require.ErrorIs(t, err, errLockLost)
@@ -510,7 +511,7 @@ func TestInventoryStore_ImportStoppedPartway(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	backend := testutil.NewMemoryBackend()
-	importer, err := store.NewInventoryStore(backend.Collection(persis.CollectionInventories), lockLostAfter(1))
+	importer, err := store.NewInventoryStore(backend.Collection(persis.CollectionInventories), lockLostAfter(1), nil)
 	require.NoError(t, err)
 
 	result, err := importer.Import(ctx, []inventory.Inventory{

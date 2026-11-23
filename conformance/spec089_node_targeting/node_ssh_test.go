@@ -70,6 +70,7 @@ func sshFleet(t *testing.T) ([]string, string) {
 	inventories, err := store.NewInventoryStore(
 		backend.Collection(persis.CollectionInventories),
 		backend.Lock(persis.CollectionInventories),
+		nil,
 	)
 	require.NoError(t, err)
 	_, err = inventories.Create(ctx, inventory.Inventory{Name: "fleet", Nodes: nodes})

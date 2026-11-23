@@ -158,8 +158,8 @@ func (w *file) validate(ctx context.Context, opts ValidateOptions) (*ValidateRes
 			return nil, err
 		}
 	}
-	headers := headerNames(reg, layout, grid, merges, warn)
-	readOpts := ReadOptions{Columns: opts.Columns, Merged: opts.Merged, Trim: opts.Trim, Formulas: opts.Formulas}
+	headers := w.headerNames(reg, layout, grid, merges, warn)
+	readOpts := ReadOptions{Columns: opts.Columns, Merged: opts.Merged, Trim: opts.Trim, Formulas: opts.Formulas, uncached: &uncachedWarnings{}}
 	plan, err := w.planColumns(sheet, headers, readOpts)
 	if err != nil {
 		return nil, err
@@ -295,6 +295,7 @@ func (w *file) validate(ctx context.Context, opts ValidateOptions) (*ValidateRes
 			}
 		}
 	}
+	readOpts.uncached.report(warn)
 	result.OK = result.Count == 0
 	return result, nil
 }

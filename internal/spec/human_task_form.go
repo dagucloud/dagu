@@ -79,6 +79,7 @@ func buildHumanTaskForm(raw any) (json.RawMessage, []ir.StepOutputDeclaration, e
 		return nil, nil, fmt.Errorf("resolve form schema: %w", err)
 	}
 	root := resolved.Schema()
+	keepExactEnums(root, data)
 
 	var sanitized *jsonschema.Schema
 	if len(root.Properties) == 0 {
@@ -484,6 +485,7 @@ func ValidateHumanTaskInputs(form json.RawMessage, inputs map[string]any, coerce
 	if err != nil {
 		return nil, fmt.Errorf("resolve stored human task form: %w", err)
 	}
+	keepExactEnums(resolved.Schema(), form)
 	for name, value := range values {
 		property, declared := resolved.Schema().Properties[name]
 		if !declared {
@@ -491,12 +493,8 @@ func ValidateHumanTaskInputs(form json.RawMessage, inputs map[string]any, coerce
 		}
 		switch typed := value.(type) {
 		case json.Number:
-			if integer, err := typed.Int64(); err == nil {
-				values[name] = integer
-				continue
-			}
-			number, err := typed.Float64()
-			if err != nil {
+			number, ok := validationNumbers(typed)
+			if !ok {
 				return nil, fmt.Errorf("%s: invalid number %q", name, typed)
 			}
 			values[name] = number
@@ -513,6 +511,11 @@ func ValidateHumanTaskInputs(form json.RawMessage, inputs map[string]any, coerce
 		default:
 			continue
 		}
+	}
+	// Spec 031 applies every default, required or not, before it enforces
+	// required.
+	if err := fillDefaults(values, resolved.Schema(), true); err != nil {
+		return nil, err
 	}
 	values, err = validateSchemaMap(values, resolved, false)
 	if err != nil {

@@ -855,7 +855,7 @@ func TestBuildInputIsAvailableToStepPrecondition(t *testing.T) {
 
 	assert.Equal(t, inputPath, GetEnv(ctx).Inputs["source"])
 	assert.Equal(t, inputPath, AllEnvsMap(ctx)["SOURCE"])
-	require.NoError(t, node.evalPreconditions(ctx))
+	require.NoError(t, node.evalPreconditions(ctx, nil))
 }
 
 func TestBuildRunnerFingerprintsResolvedRecipe(t *testing.T) {

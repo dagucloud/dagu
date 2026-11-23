@@ -87,6 +87,11 @@ describe('isSameYaml', () => {
     expect(isSameYaml('a: 1\n# tail\n', 'a: 1\n\n# tail\n\n')).toBe(true);
   });
 
+  it('compares the comments of a text without a document', () => {
+    expect(isSameYaml('# a\n', '# b\n')).toBe(false);
+    expect(isSameYaml('# a\n', '# a\n\n')).toBe(true);
+  });
+
   it('takes a quote style change as the same value', () => {
     expect(isSameYaml('name: "demo"\n', "name: 'demo'\n")).toBe(true);
     expect(isSameYaml('name: demo\n', 'name: "demo"\n')).toBe(true);

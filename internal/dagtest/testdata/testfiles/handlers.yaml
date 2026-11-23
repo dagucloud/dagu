@@ -1,0 +1,6 @@
+steps:
+  - name: onFailure
+    run: ./notify.sh
+handler_on:
+  failure:
+    run: ./page.sh

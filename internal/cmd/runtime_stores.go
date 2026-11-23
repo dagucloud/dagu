@@ -39,9 +39,14 @@ func (c *Context) runtimeStores() executionStores {
 
 // inventoryStore opens the node inventories of this installation.
 func (c *Context) inventoryStore() (inventory.Store, error) {
+	hostKeys, err := c.hostKeyStore()
+	if err != nil {
+		return nil, err
+	}
 	s, err := store.NewInventoryStore(
 		c.backend.Collection(persis.CollectionInventories),
 		c.backend.Lock(persis.CollectionInventories),
+		hostKeys,
 	)
 	if err != nil {
 		return nil, err
@@ -60,10 +65,16 @@ func (c *Context) runtimeInventoryStore() inventory.Store {
 	return inventories
 }
 
+// hostKeyStore opens the host keys trusted for the nodes of this
+// installation.
+func (c *Context) hostKeyStore() (*store.HostKeyStore, error) {
+	return store.NewHostKeyStore(c.backend.Collection(persis.CollectionHostKeys))
+}
+
 // runtimeHostKeyStore returns the host keys trusted for nodes, or nil when
 // the backend cannot hold them.
 func (c *Context) runtimeHostKeyStore() inventory.HostKeyStore {
-	keys, err := store.NewHostKeyStore(c.backend.Collection(persis.CollectionHostKeys))
+	keys, err := c.hostKeyStore()
 	if err != nil {
 		logger.Warn(c, "Trusted host keys are unavailable", tag.Error(err))
 		return nil

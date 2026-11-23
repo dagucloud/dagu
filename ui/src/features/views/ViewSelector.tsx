@@ -5,6 +5,7 @@ import {
   Bookmark,
   Check,
   ChevronDown,
+  PencilLine,
   RotateCcw,
   Save,
   Settings2,
@@ -36,6 +37,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
+import { useI18n } from '@/i18n/I18nProvider';
 
 export type SavedViewItem = {
   id: string;
@@ -124,6 +126,13 @@ type Props = {
   onSetDefault: (viewId: string | undefined) => Promise<void>;
   onSetPinned: (viewId: string, pinned: boolean) => Promise<void>;
   onDeleteView: (viewId: string) => Promise<void>;
+  /**
+   * Renames a saved view. With it, a toolbar next to the selector saves,
+   * renames and deletes the active view; the menu keeps all its items.
+   */
+  onRenameView?: (viewId: string, name: string) => Promise<void>;
+  /** The current filters are those of a saved view: there is nothing new to save. */
+  filtersAlreadySaved?: boolean;
 };
 
 export function ViewSelector({
@@ -143,6 +152,8 @@ export function ViewSelector({
   onSetDefault,
   onSetPinned,
   onDeleteView,
+  onRenameView,
+  filtersAlreadySaved = false,
 }: Props): React.ReactElement {
   const [saveDialogOpen, setSaveDialogOpen] = React.useState(false);
   const [manageDialogOpen, setManageDialogOpen] = React.useState(false);
@@ -152,7 +163,13 @@ export function ViewSelector({
   const [isMutating, setIsMutating] = React.useState(false);
   const [pendingDelete, setPendingDelete] =
     React.useState<SavedViewItem | null>(null);
+  const [deleteFromManage, setDeleteFromManage] = React.useState(true);
+  const [renameOpen, setRenameOpen] = React.useState(false);
+  const [renameName, setRenameName] = React.useState('');
+  const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const focusTriggerOnDeleteClose = React.useRef(false);
 
+  const { ts } = useI18n();
   const copy = VIEW_COPY[kind];
   const activeView = views.find((view) => view.id === activeViewId);
   const isCustomView = !activeView && !isAllView;
@@ -167,6 +184,10 @@ export function ViewSelector({
     normalizedName.length > 0 &&
     !duplicateName &&
     !isMutating;
+
+  const saveLabel = activeView
+    ? ts('Save the changes of “{name}”', { name: activeView.name })
+    : ts('Save current filters as view…');
 
   const openSaveDialog = () => {
     setViewName('');
@@ -199,14 +220,52 @@ export function ViewSelector({
     }
   };
 
-  const requestDelete = (view: SavedViewItem) => {
+  // A toolbar button can turn off once its action completes: the focus goes
+  // back to the selector instead.
+  const focusTrigger = () => {
+    triggerRef.current?.focus();
+  };
+
+  const requestDelete = (view: SavedViewItem, fromManage = true) => {
+    setDeleteFromManage(fromManage);
     setManageDialogOpen(false);
     setPendingDelete(view);
   };
 
   const dismissDelete = () => {
     setPendingDelete(null);
-    setManageDialogOpen(true);
+    if (deleteFromManage) setManageDialogOpen(true);
+  };
+
+  const normalizedRename = renameName.trim();
+  const renameTaken = views.some(
+    (view) =>
+      view.id !== activeView?.id &&
+      view.name.toLowerCase() === normalizedRename.toLowerCase()
+  );
+  const canRename =
+    !!activeView &&
+    normalizedRename.length > 0 &&
+    normalizedRename !== activeView.name &&
+    !renameTaken &&
+    !isMutating;
+
+  const renameView = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!canRename || !activeView || !onRenameView) {
+      return;
+    }
+    try {
+      await runMutation(() => onRenameView(activeView.id, normalizedRename));
+      setRenameOpen(false);
+    } catch {
+      // The page displays the server error alongside the view controls.
+    }
+  };
+
+  const toFocusTrigger = (event: Event) => {
+    event.preventDefault();
+    focusTrigger();
   };
 
   const confirmDelete = async () => {
@@ -215,8 +274,11 @@ export function ViewSelector({
     }
     try {
       await runMutation(() => onDeleteView(pendingDelete.id));
+      // Closing the dialog focuses its opener. The toolbar's Delete button
+      // turns off with the view, so the focus goes to the selector instead.
+      focusTriggerOnDeleteClose.current = !deleteFromManage;
       setPendingDelete(null);
-      setManageDialogOpen(true);
+      if (deleteFromManage) setManageDialogOpen(true);
     } catch {
       // Keep the confirmation open so the operation can be retried.
     }
@@ -231,6 +293,7 @@ export function ViewSelector({
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
+              ref={triggerRef}
               type="button"
               variant="outline"
               className="h-9 min-w-[190px] max-w-[280px] justify-start px-3"
@@ -334,10 +397,72 @@ export function ViewSelector({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+        {onRenameView && canManageViews && (
+          <div
+            role="group"
+            aria-label={ts('View actions')}
+            className="flex items-center gap-1"
+          >
+            <Button
+              type="button"
+              variant="primary"
+              size="xs"
+              className="h-7 w-7 justify-center p-0"
+              title={saveLabel}
+              aria-label={saveLabel}
+              disabled={
+                isMutating ||
+                (activeView
+                  ? !isActiveViewEdited
+                  : isAllView || filtersAlreadySaved)
+              }
+              onClick={() =>
+                activeView
+                  ? void runMutation(onUpdateView)
+                      .then(focusTrigger)
+                      .catch(() => undefined)
+                  : openSaveDialog()
+              }
+            >
+              <Save aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              className="h-7 w-7 justify-center p-0"
+              title={ts('Rename view')}
+              aria-label={ts('Rename view')}
+              disabled={isMutating || !activeView}
+              onClick={() => {
+                if (!activeView) return;
+                setRenameName(activeView.name);
+                setRenameOpen(true);
+              }}
+            >
+              <PencilLine aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              className="h-7 w-7 justify-center p-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              title={ts('Delete view')}
+              aria-label={ts('Delete view')}
+              disabled={isMutating || !activeView}
+              onClick={() => activeView && requestDelete(activeView, false)}
+            >
+              <Trash2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+            </Button>
+          </div>
+        )}
       </div>
 
       <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
-        <DialogContent className="sm:max-w-[440px]">
+        <DialogContent
+          className="sm:max-w-[440px]"
+          onCloseAutoFocus={toFocusTrigger}
+        >
           <form onSubmit={saveView}>
             <DialogHeader>
               <DialogTitle>
@@ -408,6 +533,55 @@ export function ViewSelector({
               </Button>
               <Button type="submit" variant="primary" disabled={!canSave}>
                 <I18nText text={'Save view'} />
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent className="sm:max-w-[440px]">
+          <form onSubmit={renameView}>
+            <DialogHeader>
+              <DialogTitle>
+                <I18nText text={'Rename view'} />
+              </DialogTitle>
+              <DialogDescription>
+                <I18nText text={'The view keeps its saved filters.'} />
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 py-5">
+              <Label htmlFor={`view-rename-${kind}`}>
+                <I18nText text={'Name'} />
+              </Label>
+              <Input
+                id={`view-rename-${kind}`}
+                value={renameName}
+                maxLength={80}
+                autoFocus
+                onChange={(event) => setRenameName(event.target.value)}
+              />
+              {renameTaken && (
+                <p className="text-xs text-destructive">
+                  <I18nText text={'A view with this name already exists.'} />
+                </p>
+              )}
+              {error && (
+                <p role="alert" className="text-xs text-destructive">
+                  {error}
+                </p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setRenameOpen(false)}
+              >
+                <I18nText text={'Cancel'} />
+              </Button>
+              <Button type="submit" variant="primary" disabled={!canRename}>
+                <I18nText text={'Rename'} />
               </Button>
             </DialogFooter>
           </form>
@@ -518,9 +692,15 @@ export function ViewSelector({
         <ConfirmDialog
           title={copy.deleteTitle}
           buttonText="Delete view"
+          initialFocus="cancel"
           visible={pendingDelete !== null}
           dismissModal={dismissDelete}
           onSubmit={confirmDelete}
+          onCloseAutoFocus={(event) => {
+            if (!focusTriggerOnDeleteClose.current) return;
+            focusTriggerOnDeleteClose.current = false;
+            toFocusTrigger(event);
+          }}
         >
           <p className="text-sm text-muted-foreground">
             <I18nText

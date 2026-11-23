@@ -1,0 +1,4 @@
+cases:
+  - name: tests a broken DAG
+    expect:
+      status: succeeded

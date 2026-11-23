@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -221,6 +222,42 @@ func TestNewStoresProvidesWorkspaceBaseConfig(t *testing.T) {
 	spec, err := workspaceStore.GetSpec(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, "max_active_runs: 2\n", spec)
+}
+
+// A server whose secret store failed to start cannot mask the stored secret
+// values, so its audit entries must not carry the masked marker.
+func TestNewStoresMarksNoAuditEntryWithoutSecretStore(t *testing.T) {
+	// An empty key falls through to the key file, which the blocker hides.
+	t.Setenv("DAGU_ENCRYPTION_KEY", "")
+	root := t.TempDir()
+	dataDir := filepath.Join(root, "data")
+	require.NoError(t, os.MkdirAll(dataDir, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "auth"), []byte("not a directory"), 0o600))
+	cfg := &config.Config{
+		Paths: config.PathsConfig{
+			DAGsDir:        filepath.Join(root, "dags"),
+			WikiDir:        filepath.Join(root, "wiki"),
+			DataDir:        dataDir,
+			AdminLogsDir:   filepath.Join(root, "admin"),
+			RemoteNodesDir: filepath.Join(root, "remote-nodes"),
+			WorkspacesDir:  filepath.Join(root, "workspaces"),
+			ViewsDir:       filepath.Join(root, "views"),
+		},
+		Server: config.Server{
+			Auth:  config.Auth{Mode: config.AuthModeNone},
+			Audit: config.AuditConfig{Enabled: true},
+		},
+	}
+	stores, err := NewStores(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
+	require.NoError(t, err)
+	require.Nil(t, stores.Secret, "the secret store must fail to start")
+
+	require.NoError(t, stores.Audit.Append(t.Context(), audit.NewEntry(audit.CategoryTerminal, "command", "u", "alice")))
+
+	result, err := stores.Audit.Query(t.Context(), audit.QueryFilter{})
+	require.NoError(t, err)
+	require.Len(t, result.Entries, 1)
+	assert.False(t, result.Entries[0].Masked)
 }
 
 func TestNewWikiStoreCreatesWikiDirectory(t *testing.T) {

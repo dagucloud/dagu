@@ -120,6 +120,13 @@ func (s *HostKeyStore) Trust(ctx context.Context, node string, key ssh.PublicKey
 	return trusted, nil
 }
 
+func (s *HostKeyStore) Forget(ctx context.Context, node string) error {
+	if err := s.col.Delete(ctx, hostKeyRecordID(node)); err != nil {
+		return fmt.Errorf("host key store: forget the key of node %q: %w", node, err)
+	}
+	return nil
+}
+
 // hostKeyRecordID keys a node's record by its name without case, as node
 // names are compared, so file systems that ignore case keep one file.
 func hostKeyRecordID(node string) string {

@@ -6,6 +6,7 @@ package audit
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -43,16 +44,28 @@ func Dir(adminLogsDir string) string {
 // Audit entries are stored as JSON lines in daily log files.
 type Store struct {
 	baseDir string
+	masker  *audit.Masker
 	mu      sync.Mutex
 	cleaner *cleaner
 }
 
 var _ audit.Store = (*Store)(nil)
 
+// Option configures a Store.
+type Option func(*Store)
+
+// WithMasker sets the masker Append runs on every entry. Without it, Append
+// masks common token formats only and marks no entry masked.
+func WithMasker(m *audit.Masker) Option {
+	return func(s *Store) {
+		s.masker = m
+	}
+}
+
 // New creates a new file-based audit store.
 // If retentionDays > 0, a background cleaner goroutine is started to purge
 // expired audit log files. Use Close() to stop the cleaner on shutdown.
-func New(baseDir string, retentionDays int) (*Store, error) {
+func New(baseDir string, retentionDays int, opts ...Option) (*Store, error) {
 	if baseDir == "" {
 		return nil, errors.New("fileaudit: baseDir cannot be empty")
 	}
@@ -62,10 +75,13 @@ func New(baseDir string, retentionDays int) (*Store, error) {
 		return nil, fmt.Errorf("fileaudit: failed to create directory %s: %w", baseDir, err)
 	}
 
-	s := &Store{baseDir: baseDir}
+	s := &Store{baseDir: baseDir, masker: audit.NewMasker(nil)}
+	for _, opt := range opts {
+		opt(s)
+	}
 
 	if retentionDays > 0 {
-		s.cleaner = newCleaner(baseDir, retentionDays, s.Append)
+		s.cleaner = newCleaner(baseDir, retentionDays, s.appendDurable)
 	}
 
 	return s, nil
@@ -84,20 +100,32 @@ func (s *Store) auditFilePath(date time.Time) string {
 	return filepath.Join(s.baseDir, date.Format(dateFormat)+auditFileExtension)
 }
 
-// Append adds a new audit entry to the store.
-func (s *Store) Append(_ context.Context, entry *audit.Entry) error {
+// Append masks the entry and adds it to the store. The caller's entry is
+// left unchanged.
+func (s *Store) Append(ctx context.Context, entry *audit.Entry) error {
+	return s.append(ctx, entry, false)
+}
+
+// appendDurable is Append that returns only once the entry is on disk.
+func (s *Store) appendDurable(ctx context.Context, entry *audit.Entry) error {
+	return s.append(ctx, entry, true)
+}
+
+func (s *Store) append(ctx context.Context, entry *audit.Entry, durable bool) error {
 	if entry == nil {
 		return errors.New("fileaudit: entry cannot be nil")
 	}
+	masked := *entry
+	s.masker.Mask(ctx, &masked)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Determine file path based on entry timestamp
-	filePath := s.auditFilePath(entry.Timestamp)
+	filePath := s.auditFilePath(masked.Timestamp)
 
 	// Marshal entry to JSON
-	data, err := json.Marshal(entry)
+	data, err := json.Marshal(&masked)
 	if err != nil {
 		return fmt.Errorf("fileaudit: failed to marshal entry: %w", err)
 	}
@@ -113,7 +141,17 @@ func (s *Store) Append(_ context.Context, entry *audit.Entry) error {
 	if _, err := f.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("fileaudit: failed to write entry: %w", err)
 	}
+	if !durable {
+		return nil
+	}
 
+	if err := f.Sync(); err != nil {
+		return fmt.Errorf("fileaudit: failed to sync file %s: %w", filePath, err)
+	}
+	// The write may have created the file, so its directory entry is synced too.
+	if err := fileutil.SyncDir(s.baseDir); err != nil {
+		return fmt.Errorf("fileaudit: failed to sync directory %s: %w", s.baseDir, err)
+	}
 	return nil
 }
 
@@ -207,6 +245,7 @@ func (s *Store) readEntriesFromFile(filePath string, filter audit.QueryFilter) (
 	var entries []*audit.Entry
 	scanner := bufio.NewScanner(f)
 	fileutil.ConfigureScanner(scanner)
+	scanner.Split(skipLongLines(fileutil.ScannerMaxTokenSize))
 	lineNum := 0
 
 	for scanner.Scan() {
@@ -278,4 +317,31 @@ func (s *Store) readEntriesFromFile(filePath string, filter audit.QueryFilter) (
 	}
 
 	return entries, nil
+}
+
+// skipLongLines splits lines as bufio.ScanLines does, except that a line of
+// limit bytes or more becomes an empty token, which reads as a malformed
+// entry, instead of stopping the scan. Entries keep their fields whole, so
+// one oversized entry must not hide the rest of its day.
+func skipLongLines(limit int) bufio.SplitFunc {
+	skipping := false
+	return func(data []byte, atEOF bool) (int, []byte, error) {
+		if !skipping {
+			advance, token, err := bufio.ScanLines(data, atEOF)
+			if advance == 0 && token == nil && err == nil && len(data) >= limit {
+				skipping = true
+				return len(data), nil, nil
+			}
+			return advance, token, err
+		}
+		if i := bytes.IndexByte(data, '\n'); i >= 0 {
+			skipping = false
+			return i + 1, []byte{}, nil
+		}
+		if atEOF {
+			skipping = false
+			return len(data), []byte{}, nil
+		}
+		return len(data), nil, nil
+	}
 }

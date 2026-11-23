@@ -279,7 +279,9 @@ func withoutRequired(schema *jsonschema.Resolved, names []string) (*jsonschema.R
 	}
 	clone := schema.Schema().CloneSchemas()
 	clone.Required = kept
-	resolved, err := clone.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
+	// The defaults were checked when schema resolved. Checking them again
+	// would compare float64 defaults with exact enum members.
+	resolved, err := clone.Resolve(nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare parameter schema: %w", err)
 	}

@@ -25,9 +25,16 @@ vi.mock('@/hooks/api', () => ({
   useClient: () => ({ POST: post }),
   useQuery: () => ({ data: details.dag ? { dag: details.dag } : undefined }),
 }));
-vi.mock('@/contexts/AuthContext', () => ({ useCanManageProfiles: () => true }));
+/** Whether the user is an administrator, which a test may set. */
+const auth = vi.hoisted(() => ({ admin: true }));
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanManageProfiles: () => true,
+  useIsAdmin: () => auth.admin,
+}));
 vi.mock('@/features/dags/hooks/useProfiles', () => ({
-  useProfiles: () => ({ activeProfiles: [{ name: 'night' }] }),
+  useProfiles: () => ({
+    activeProfiles: [{ name: 'night' }, { name: 'prod', protected: true }],
+  }),
 }));
 
 function plan(revision: string, runs: number): BackfillPlan {
@@ -67,6 +74,7 @@ describe('StartBackfillDialog', () => {
   beforeEach(() => {
     post.mockReset();
     details.dag = undefined;
+    auth.admin = true;
   });
 
   // A missed span opens with its bounds as fire times, sent unchanged until
@@ -171,6 +179,36 @@ describe('StartBackfillDialog', () => {
     });
     await waitFor(() =>
       expect(lastBody()).toMatchObject({ profile: 'night', dryRun: true })
+    );
+  });
+
+  // The server refuses a protected profile to anyone but an administrator,
+  // so the list shows it to others without letting them choose it.
+  it('lets only an administrator choose a protected profile', async () => {
+    post.mockResolvedValue({ data: { plan: plan('r1', 2) } });
+    auth.admin = false;
+    renderDialog({ kind: 'range', from: '2026-10-01T00:00:00Z' });
+    fireEvent.click(await screen.findByRole('button', { name: /^Options/ }));
+
+    expect(
+      screen.getByRole('option', { name: 'prod (admin only)' })
+    ).toBeDisabled();
+    expect(screen.getByRole('option', { name: 'night' })).toBeEnabled();
+  });
+
+  it('plans with a protected profile for an administrator', async () => {
+    post.mockResolvedValue({ data: { plan: plan('r1', 2) } });
+    renderDialog({ kind: 'range', from: '2026-10-01T00:00:00Z' });
+    fireEvent.click(await screen.findByRole('button', { name: /^Options/ }));
+
+    expect(
+      screen.getByRole('option', { name: 'prod (protected)' })
+    ).toBeEnabled();
+    fireEvent.change(screen.getByLabelText('Profile'), {
+      target: { value: 'prod' },
+    });
+    await waitFor(() =>
+      expect(lastBody()).toMatchObject({ profile: 'prod', dryRun: true })
     );
   });
 

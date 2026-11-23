@@ -143,10 +143,19 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 		if err != nil {
 			return nil, err
 		}
-		empty := used.R2 == 1 && used.C2 == 1 && cellAt(mustGrid(w, sheet), 1, 1) == ""
+		grid := mustGrid(w, sheet)
+		filled, err := w.cellHasContent(sheet, grid, 1, 1)
+		if err != nil {
+			return nil, err
+		}
+		empty := used.R2 == 1 && used.C2 == 1 && !filled
 		switch {
 		case opts.Mode == WriteAppend && !empty:
-			startRow = lastUsedRow(mustGrid(w, sheet), used) + 1
+			last, err := w.lastUsedRow(sheet, grid, used)
+			if err != nil {
+				return nil, err
+			}
+			startRow = last + 1
 		case opts.Mode == WriteAppend:
 			fresh = true
 		default:
@@ -231,6 +240,7 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 			if err := w.f.SetCellStr(sheet, cellName(cols[c], startRow), name); err != nil {
 				return nil, w.cellError(sheet, cols[c], startRow, err.Error())
 			}
+			w.editCell(sheet, cols[c], startRow)
 		}
 		cells += len(table.Columns)
 		dataRow++
@@ -290,6 +300,11 @@ func writeOnce(ctx context.Context, path string, table Table, opts WriteOptions)
 	w.forget(sheet)
 	if opts.DryRun {
 		return result, nil
+	}
+	if !created {
+		if err := w.invalidateFormulaCaches(); err != nil {
+			return nil, err
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -376,7 +391,7 @@ func (w *file) alignAppend(sheet string, table Table, header bool, warn func(str
 	if err != nil {
 		return targets, err
 	}
-	headers := headerNames(loc.reg, layout, loc.grid, merges, warn)
+	headers := w.headerNames(loc.reg, layout, loc.grid, merges, warn)
 	targets.headerRow = layout.rows[0]
 	next := loc.reg.C2
 	seen := make(map[string]bool, len(table.Columns))
@@ -418,6 +433,7 @@ func (w *file) addHeaderColumn(sheet string, merges mergeFill, headerRow, col in
 	if err := w.f.SetCellStr(sheet, cell, name); err != nil {
 		return w.cellError(sheet, col, headerRow, err.Error())
 	}
+	w.editCell(sheet, col, headerRow)
 	if style, err := w.f.GetCellStyle(sheet, cellName(col-1, headerRow)); err == nil && style != 0 {
 		_ = w.f.SetCellStyle(sheet, cell, cell, style)
 	}
@@ -441,6 +457,7 @@ func (w *file) targetSheet(name string, created bool) (string, error) {
 		return "", fmt.Errorf("%s: invalid sheet name %q: %v", w.base, name, err)
 	}
 	w.sheets = w.f.GetSheetList()
+	w.editSheet(name)
 	return name, nil
 }
 
@@ -505,6 +522,7 @@ func (w *file) clearSheet(name string) error {
 		}
 	}
 	w.forget(name)
+	w.editSheet(name)
 	return nil
 }
 
@@ -532,12 +550,21 @@ func (w *file) clearCell(name string, c, r int) error {
 }
 
 // lastUsedRow walks back over fully empty rows at the end of the used range.
-func lastUsedRow(grid [][]string, used region) int {
-	r := used.R2
-	for r > 0 && rowIsEmpty(grid, r, 1, used.C2) {
-		r--
+// A formula whose cached result was cleared has no grid text but still
+// occupies its row, so an append must not land on it.
+func (w *file) lastUsedRow(sheet string, grid [][]string, used region) (int, error) {
+	for r := used.R2; r > 0; r-- {
+		for c := 1; c <= used.C2; c++ {
+			filled, err := w.cellHasContent(sheet, grid, c, r)
+			if err != nil {
+				return 0, err
+			}
+			if filled {
+				return r, nil
+			}
+		}
 	}
-	return r
+	return 0, nil
 }
 
 // columnKinds picks the kind each column is written as: the pinned type, or
@@ -654,6 +681,7 @@ func (w *file) setCell(sheet string, col, row int, v any) error {
 	if err != nil {
 		return w.cellError(sheet, col, row, err.Error())
 	}
+	w.editCell(sheet, col, row)
 	return nil
 }
 

@@ -1,0 +1,7 @@
+dag: noop.yaml
+cases:
+  - name: first
+    expect:
+      status: succeeded
+---
+cases: []

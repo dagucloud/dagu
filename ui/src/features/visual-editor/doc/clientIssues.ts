@@ -17,7 +17,7 @@ import type {
 } from '../contracts';
 import { builtinActionNames } from '../inspector/actionRules';
 import { checkStepSchemaErrors } from '../inspector/stepSchemaCheck';
-import { nextRuns } from '../launchers/nextRuns';
+import { CRON_ZONE_PREFIX, nextRuns } from '../launchers/nextRuns';
 import { findReferenceTokens } from '../references/tokens';
 import {
   mustBeMessage,
@@ -487,8 +487,6 @@ function referenceDrafts(
   return drafts;
 }
 
-const CRON_PREFIX = /^(?:CRON_TZ|TZ)=\S+\s+/;
-
 function scheduleDrafts(model: DagDocModel): Draft[] {
   const schedule = readSchedule(model.text);
   if (schedule.expressions.length === 0) return [];
@@ -497,7 +495,7 @@ function scheduleDrafts(model: DagDocModel): Draft[] {
   const drafts: Draft[] = [];
   const used = new Set<number>();
   for (const expression of schedule.expressions) {
-    const bare = expression.replace(CRON_PREFIX, '').trim();
+    const bare = expression.replace(CRON_ZONE_PREFIX, '').trim();
     // The server reads `@every` and the descriptors.
     if (bare.startsWith('@') || nextRuns(bare, 1) !== null) continue;
     const index = lines.findIndex(

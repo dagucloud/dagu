@@ -93,6 +93,16 @@ func Decode(data []byte) (Inventory, error) {
 	return inv, nil
 }
 
+// DecodeNode reads one node of an inventory from JSON. An unknown field is
+// an error.
+func DecodeNode(data []byte) (Node, error) {
+	var node Node
+	if err := decodeStrict(data, &node); err != nil {
+		return Node{}, err
+	}
+	return node, nil
+}
+
 // DecodeList reads a JSON array of inventories, as an export holds. An unknown
 // field is an error.
 func DecodeList(data []byte) ([]Inventory, error) {

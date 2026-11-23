@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
@@ -74,6 +75,11 @@ type Runner struct {
 	materializations build.MaterializationStore
 	noReuse          bool
 	skipHandlers     bool
+	skipWaits        bool
+	keepWaits        []string
+	// conditions scripts the conditions that run a command and bounds the
+	// continuous steps; nil does neither.
+	conditions ConditionOverride
 
 	// now and openRecorder are set by tests; nil uses the real ones.
 	now          func() time.Time
@@ -132,11 +138,14 @@ func New(cfg *Config) *Runner {
 		dagRunID:             cfg.DAGRunID,
 		messagesHandler:      cfg.MessagesHandler,
 		stepExecutor:         &StepExecutor{override: cfg.ExecutorOverride},
+		conditions:           cfg.ConditionOverride,
 		onWait:               cfg.OnWait,
 		forcedStatus:         cfg.ForcedStatus,
 		materializations:     cfg.MaterializationStore,
 		noReuse:              cfg.NoReuse,
 		skipHandlers:         cfg.SkipHandlers,
+		skipWaits:            cfg.SkipWaits,
+		keepWaits:            cfg.KeepWaits,
 		openRecorder:         samples.OpenRecorder,
 		dagRunAutoRetryCount: cfg.DAGRunAutoRetryCount,
 		dagRunAutoRetryLimit: cfg.DAGRunAutoRetryLimit,
@@ -171,6 +180,19 @@ type Config struct {
 	// ExecutorOverride supplies the executors of the steps and handlers it
 	// covers in place of their actions. Nil runs every action.
 	ExecutorOverride ExecutorOverride
+	// SkipWaits runs retries, repeats, and steps without waiting for retry
+	// and repeat intervals, their backoff, or the DAG start delay. The order
+	// and number of executions are unchanged, and timeouts still apply. Runs
+	// that a step starts in process, such as foreach bodies, skip them too.
+	SkipWaits bool
+	// KeepWaits names the steps that keep their retry and repeat intervals
+	// when SkipWaits is set. Runs that such a step starts in process still
+	// skip their waits.
+	KeepWaits []string
+	// ConditionOverride scripts the conditions that run a command and bounds
+	// the steps that repeat without a limit. Nil runs every condition and
+	// bounds no step.
+	ConditionOverride ConditionOverride
 
 	DAGRunAutoRetryCount int
 	DAGRunAutoRetryLimit int
@@ -182,6 +204,9 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 	// A run started by a step, such as a sub-DAG run in process, checks its
 	// own reads instead of the step's.
 	ctx = cmnvalue.UntrackMaskedReads(ctx)
+	if r.skipWaits {
+		ctx = context.WithValue(ctx, skipWaitsKey{}, true)
+	}
 	if err := r.setup(ctx); err != nil {
 		return err
 	}
@@ -234,7 +259,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 			r.Cancel(plan)
 		} else {
 			checkCtx, stopCheck := r.watchPreconditionStop(executionCtx)
-			results, conditionErr := EvaluateConditions(checkCtx, shell, rCtx.DAG.Preconditions)
+			results, conditionErr := evaluateConditions(checkCtx, shell, rCtx.DAG.Preconditions, r.scriptedDAGPrecondition())
 			stopCheck()
 			r.setPreconditionResults(results)
 			if conditionErr != nil {
@@ -627,7 +652,17 @@ func (r *Runner) runNodeExecution(ctx context.Context, plan *Plan, node *Node, p
 	ctx = spanCtx
 	ctx = withStepTraceContext(ctx)
 	ctx = r.setupNodeExecutionEnv(ctx, node)
-	cont := r.newContinuousStep(ctx, node)
+	continuousLimit, err := r.continuousLimit(node)
+	if err != nil {
+		logger.Info(ctx, "Step repeats without a limit; stopping the run", tag.Error(err))
+		r.setLastError(err)
+		node.MarkError(err)
+		r.Signal(ctx, plan, syscall.SIGTERM, nil, false)
+		r.teardownPreparedNode(node)
+		r.report(ctx, progressCh, node)
+		return
+	}
+	cont := r.newContinuousStep(ctx, node, continuousLimit)
 	defer cont.close(ctx)
 	preparedNodeTornDown := false
 	teardownPreparedNode := func() {
@@ -725,7 +760,7 @@ ExecRepeat: // repeat execution
 			}
 			execErr = commitErr
 		}
-		isRetriable := r.handleNodeExecutionError(ctx, plan, node, execErr)
+		isRetriable := r.handleNodeExecutionError(ctx, plan, node, execErr, !cont.spent())
 		// The sample is of the execution alone, without the retry wait.
 		cont.afterExecution(ctx, node, execErr)
 		if isRetriable {
@@ -753,7 +788,7 @@ ExecRepeat: // repeat execution
 			node.IncDoneCount()
 		}
 
-		shouldRepeat := r.shouldRepeatNode(ctx, node, execErr)
+		shouldRepeat := r.shouldRepeatNode(ctx, node, execErr) && !cont.spent()
 		if shouldRepeat && !r.isCanceled() {
 			if stagingPath != "" {
 				_ = os.Remove(stagingPath)
@@ -1691,7 +1726,7 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 	}
 	defer func() { _ = node.Teardown() }()
 
-	if err := node.evalPreconditions(ctx); err != nil {
+	if err := node.evalPreconditions(ctx, r.scriptedPrecondition(node)); err != nil {
 		if errors.Is(err, ErrConditionNotMet) {
 			node.SetStatus(ir.NodeSkipped)
 			return nil
@@ -1950,7 +1985,7 @@ func (r *Runner) waitForRetry(ctx context.Context, node *Node, execErr error) bo
 		node.Step().RetryPolicy.MaxInterval,
 		node.GetRetryCount()-1, // -1 because the count includes this retry
 	)
-	if !waitForExecution(ctx, interval) || r.isCanceled() {
+	if !r.waitForStep(ctx, node, interval) || r.isCanceled() {
 		node.SetStatus(ir.NodeAborted)
 		r.setLastError(execErr)
 		return false
@@ -2037,15 +2072,34 @@ func (r *Runner) handlePreconditionError(plan *Plan, err error) {
 	}
 }
 
-// evalPreconditions evaluates the node's preconditions. A precondition
-// decides on what it reads, so a masked read fails the step whatever the
-// precondition decides; readErr reports it.
-func evalPreconditions(ctx context.Context, node *Node) (err, readErr error) {
+// evalPreconditions evaluates the node's preconditions, with those that run
+// a command taking the outcome scripted holds when it is not nil. A
+// precondition decides on what it reads, so a masked read fails the step
+// whatever the precondition decides; readErr reports it.
+func evalPreconditions(ctx context.Context, node *Node, scripted *bool) (err, readErr error) {
 	ctx = cmnvalue.TrackMaskedReads(ctx)
 	// A precondition command does not run on a masked value.
 	cmnvalue.RejectMaskedReads(ctx)
-	err = node.evalPreconditions(ctx)
+	err = node.evalPreconditions(ctx, scripted)
 	return err, maskedReadError(ctx, node)
+}
+
+// scriptedDAGPrecondition returns the outcome the condition override scripts
+// for the DAG-level preconditions that run a command, or nil.
+func (r *Runner) scriptedDAGPrecondition() *bool {
+	if r.conditions == nil {
+		return nil
+	}
+	return r.conditions.DAGPrecondition()
+}
+
+// scriptedPrecondition returns the outcome the condition override scripts
+// for the node's preconditions that run a command, or nil.
+func (r *Runner) scriptedPrecondition(node *Node) *bool {
+	if r.conditions == nil {
+		return nil
+	}
+	return r.conditions.Precondition(node.Step())
 }
 
 // maskedReadError returns the error for an output restored masked that the
@@ -2088,7 +2142,7 @@ func isMaskedRead(err error) bool {
 
 // checkPreconditions evaluates the preconditions for a node and updates its status accordingly.
 func (r *Runner) meetsPreconditions(ctx context.Context, node *Node, progressCh chan ProgressUpdate) (bool, error) {
-	err, readErr := evalPreconditions(ctx, node)
+	err, readErr := evalPreconditions(ctx, node, r.scriptedPrecondition(node))
 	if readErr != nil && !errors.Is(err, errConditionInterrupted) {
 		node.SetStatus(ir.NodeFailed)
 		node.MarkError(readErr)
@@ -2115,7 +2169,8 @@ func (r *Runner) meetsPreconditions(ctx context.Context, node *Node, progressCh 
 }
 
 // handleNodeExecutionError handles the error from node execution and determines if it should be retried.
-func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node *Node, execErr error) bool {
+// Without canRetry, a failed execution is final.
+func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node *Node, execErr error, canRetry bool) bool {
 	if execErr == nil {
 		return false // no error, nothing to handle
 	}
@@ -2171,7 +2226,7 @@ func (r *Runner) handleNodeExecutionError(ctx context.Context, plan *Plan, node 
 		// A masked read fails the same way on every attempt.
 		r.finalizeFailedNode(ctx, node, execErr)
 
-	case node.retryPolicy.Limit > node.GetRetryCount():
+	case canRetry && node.retryPolicy.Limit > node.GetRetryCount():
 		if r.shouldRetryNode(ctx, node, execErr) {
 			return true
 		}
@@ -2277,12 +2332,23 @@ func (r *Runner) reloadNodeOutputs(ctx context.Context, node *Node) context.Cont
 	return WithEnv(ctx, env)
 }
 
+// evalRepeatCondition evaluates the node's repeat condition. One that runs a
+// command takes the outcome the condition override scripts for the node's
+// latest execution, when it scripts one.
+func (r *Runner) evalRepeatCondition(ctx context.Context, shell []string, node *Node, c *ir.Condition) error {
+	var scripted *bool
+	if r.conditions != nil {
+		scripted = r.conditions.RepeatCondition(node.Step())
+	}
+	return evalScriptedCondition(ctx, shell, c, scripted)
+}
+
 // evalWhileCondition evaluates the repeat condition for a "while" loop.
 // A not-met condition is a normal loop answer; any other error is an
 // evaluation error for the caller to report.
 func (r *Runner) evalWhileCondition(ctx context.Context, shell []string, node *Node, rp ir.RepeatPolicy, execErr error) (bool, error) {
 	if rp.Condition != nil {
-		err := EvalCondition(ctx, shell, rp.Condition)
+		err := r.evalRepeatCondition(ctx, shell, node, rp.Condition)
 		if err != nil && !errors.Is(err, ErrConditionNotMet) {
 			return false, err
 		}
@@ -2300,7 +2366,7 @@ func (r *Runner) evalWhileCondition(ctx context.Context, shell []string, node *N
 // evaluation error for the caller to report.
 func (r *Runner) evalUntilCondition(ctx context.Context, shell []string, node *Node, rp ir.RepeatPolicy, execErr error) (bool, error) {
 	if rp.Condition != nil {
-		err := EvalCondition(ctx, shell, rp.Condition)
+		err := r.evalRepeatCondition(ctx, shell, node, rp.Condition)
 		if err != nil && !errors.Is(err, ErrConditionNotMet) {
 			return false, err
 		}
@@ -2326,7 +2392,7 @@ func (r *Runner) failRepeatLimit(ctx context.Context, node *Node, rp ir.RepeatPo
 	ctx = r.reloadNodeOutputs(ctx, node)
 	cmnvalue.RejectMaskedReads(ctx)
 	shell := GetEnv(ctx).Shell(ctx)
-	err := EvalCondition(ctx, shell, rp.Condition)
+	err := r.evalRepeatCondition(ctx, shell, node, rp.Condition)
 	// Abort and timeout take precedence over the final condition result. A
 	// graceful stop does not cancel ctx, so the runner flag is checked too.
 	if r.isCanceled() || node.State().Status == ir.NodeAborted || ctx.Err() != nil {
@@ -2392,7 +2458,7 @@ func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressC
 	if cont != nil && cont.writeDue && cont.reportDue() {
 		r.report(ctx, progressCh, node)
 	}
-	if !waitForExecution(ctx, interval) {
+	if !r.waitForStep(ctx, node, interval) {
 		node.SetStatus(ir.NodeAborted)
 		return
 	}
@@ -2406,7 +2472,25 @@ func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressC
 	}
 }
 
+// waitForStep waits before the next retry or repeat of node. A step named in
+// KeepWaits waits even when the run skips waits.
+func (r *Runner) waitForStep(ctx context.Context, node *Node, duration time.Duration) bool {
+	if slices.Contains(r.keepWaits, node.Name()) {
+		ctx = context.WithValue(ctx, skipWaitsKey{}, false)
+	}
+	return waitForExecution(ctx, duration)
+}
+
+// skipWaitsKey marks the context of a run that skips waits, so that a run a
+// step starts in process, such as a foreach body, skips them too.
+type skipWaitsKey struct{}
+
+// waitForExecution waits for duration before the next execution, or not at
+// all when the run skips waits. It reports false when ctx ends first.
 func waitForExecution(ctx context.Context, duration time.Duration) bool {
+	if skip, _ := ctx.Value(skipWaitsKey{}).(bool); skip {
+		return ctx.Err() == nil
+	}
 	timer := time.NewTimer(duration)
 	defer timer.Stop()
 	select {

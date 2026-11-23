@@ -731,12 +731,7 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 	queuedRun := opts.workerID != "local"
 
 	as := ctx.runtimeStores()
-	var extraEnvs []string
-	if opts.testSideEffects != nil {
-		extraEnvs, err = prepareTestDAGTools(ctx, d, opts.testSideEffects.HasRealSteps)
-	} else {
-		extraEnvs, err = prepareDAGTools(ctx, d)
-	}
+	extraEnvs, err := opts.prepareTools(ctx, d)
 	if err != nil {
 		return err
 	}
@@ -754,7 +749,7 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 		logFile.Name(),
 		ctx.DAGRunMgr,
 		dr,
-		agent.Options{
+		opts.withTestOptions(agent.Options{
 			ParentDAGRun:             opts.parent,
 			ProgressDisplay:          shouldEnableProgress(ctx),
 			ExtraEnvs:                extraEnvs,
@@ -766,7 +761,6 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  opts.noReuse,
 			SecretStore:              as.SecretStore,
-			SecretValues:             opts.secretValues,
 			ProfileStore:             as.ProfileStore,
 			NodeSelector:             as.Inventory,
 			HostKeys:                 as.HostKeys,
@@ -788,9 +782,7 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
 			ExpandSubRuns:            opts.recursiveOutput,
-			RedirectRoot:             opts.redirectRoot,
-			TestSideEffects:          opts.testSideEffects,
-		},
+		}),
 	)
 
 	return run(agentInstance, logFile)
