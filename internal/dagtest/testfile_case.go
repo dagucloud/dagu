@@ -92,6 +92,7 @@ func buildCase(dag *ir.DAG, steps *stepIndex, file fileSpec, cs caseSpec) Case {
 		c.setScript(m.target, b.mockScript(m, slices.Contains(real, m.target)))
 	}
 	c.Expect = b.expect(cs.expect)
+	b.validate(&c, file)
 
 	slices.SortFunc(b.errs, func(x, y Finding) int {
 		return cmp.Or(cmp.Compare(x.Source, y.Source), cmp.Compare(x.Message, y.Message))
@@ -210,6 +211,7 @@ func (b *caseBuilder) mergeReal(file, own []string) []*stepTarget {
 				b.fail(label, "%q names the same step as %s", key, seen[t])
 				continue
 			}
+			b.checkReal(label, key, t)
 			seen[t] = label
 			merged = append(merged, t)
 		}
@@ -260,6 +262,7 @@ func (b *caseBuilder) mockScript(m keyedMock, real bool) Script {
 	if s.ReplacesAction {
 		s.Results = resultsOf(results)
 	}
+	b.checkMock(label, step, m.mock, results, real)
 	return s
 }
 
@@ -301,6 +304,7 @@ func (b *caseBuilder) review(label string, step *ir.Step, r *reviewSpec) *Review
 			review.Values[v.name] = v.text
 		}
 	}
+	b.checkReview(label, step, r, review)
 	return review
 }
 
@@ -362,6 +366,7 @@ func (b *caseBuilder) stepExpect(label string, t *stepTarget, s stepExpectSpec) 
 	if t.handler == "" {
 		out.Step = t.step.Name
 	}
+	b.checkOutputAssertions(label, *t.step, s.outputs)
 	return out
 }
 

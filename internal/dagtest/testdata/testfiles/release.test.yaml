@@ -47,8 +47,84 @@ cases:
     expect:
       status: succeeded
 
+  - name: inline fields and results
+    mocks:
+      untitled:
+        exit_code: 1
+        results:
+          - exit_code: 0
+      child:
+        results: []
+    expect:
+      status: succeeded
+
+  - name: missing outputs
+    mocks:
+      build: {}
+    expect:
+      status: succeeded
+
+  - name: wrong outputs
+    mocks:
+      build:
+        outputs:
+          image_tag: 1
+          manifest: [a]
+          extra: x
+    expect:
+      status: succeeded
+
+  - name: outputs per result
+    mocks:
+      build:
+        results:
+          - exit_code: 1
+          - outputs:
+              image_tag: v2
+    expect:
+      status: succeeded
+
+  - name: outputs without id
+    mocks:
+      untitled:
+        outputs:
+          count: "1"
+    expect:
+      status: succeeded
+
+  - name: runtime outputs
+    mocks:
+      child:
+        outputs:
+          anything: 1
+          bad-name: 2
+    expect:
+      status: succeeded
+
   - name: real steps
     real: [fanout, build, deplooy, gate, gate]
+    expect:
+      status: succeeded
+
+  - name: human task result
+    mocks:
+      sign_off:
+        exit_code: 0
+        review:
+          decision: approve
+          values:
+            reason: ok
+    expect:
+      status: succeeded
+
+  - name: fields without a source
+    mocks:
+      route:
+        precondition: met
+        results:
+          - condition: met
+        review:
+          decision: approve
     expect:
       status: succeeded
 
@@ -66,6 +142,20 @@ cases:
           decision: later
           values:
             ticket: REL-1
+    expect:
+      status: succeeded
+
+  - name: review values
+    mocks:
+      ship:
+        review:
+          decision: approve
+          values:
+            ticket: " "
+            links: [a]
+      sign_off:
+        review:
+          decision: reject
     expect:
       status: succeeded
 

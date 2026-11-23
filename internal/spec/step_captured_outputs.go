@@ -3,7 +3,19 @@
 
 package spec
 
-import "github.com/dagucloud/dagu/v2/internal/ir"
+import (
+	"slices"
+
+	"github.com/dagucloud/dagu/v2/internal/ir"
+)
+
+// StepOutputs returns the named outputs a loaded step publishes when it
+// succeeds, as its declarations and its action name them. The bool reports
+// whether a run may also publish names that only the run reveals, such as
+// those of a sub-DAG or of an action resolved from a manifest.
+func StepOutputs(step ir.Step) ([]ir.StepOutputDeclaration, bool) {
+	return slices.Concat(step.Outputs, fixedActionOutputs(step)), publishesRuntimeOnlyOutputs(step)
+}
 
 // deriveCapturedStepOutputs records the names a step publishes outside
 // DAGU_OUTPUT_FILE so strict step-output references can be validated against
