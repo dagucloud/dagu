@@ -44,6 +44,13 @@ func (a *API) SubmitBackfill(ctx context.Context, request api.SubmitBackfillRequ
 	if err != nil {
 		return nil, err
 	}
+	// Every slot runs with the backfill's profile, so the profile is checked
+	// as for a single run: a protected profile needs an administrator.
+	profile, err := a.ensureRunnableRuntimeProfile(ctx, valueOf(request.Body.Profile))
+	if err != nil {
+		return nil, err
+	}
+	sched.Profile = profile
 	body := request.Body
 	dryRun := valueOf(body.DryRun)
 	if !dryRun && !a.config.Queues.Enabled {
@@ -57,7 +64,7 @@ func (a *API) SubmitBackfill(ctx context.Context, request api.SubmitBackfillRequ
 		MaxConcurrency: valueOf(body.MaxConcurrency),
 		OnFailure:      string(valueOf(body.OnFailure)),
 		Params:         valueOf(body.Params),
-		Profile:        valueOf(body.Profile),
+		Profile:        profile,
 	}
 	if body.Slots != nil {
 		breq.Slots = *body.Slots
