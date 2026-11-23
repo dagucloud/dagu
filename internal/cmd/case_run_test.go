@@ -203,8 +203,8 @@ steps:
 	}
 }
 
-// A case with a real step needs a test value for every DAG secret, and
-// starts no run without one.
+// A case with a real step needs a test value for every DAG secret and SSH
+// credential ref, and starts no run without one.
 func TestCaseSecretsMissing(t *testing.T) {
 	t.Parallel()
 
@@ -228,6 +228,7 @@ steps:
 		missing string
 	}{
 		{name: "Secret", secrets: map[string]string{"ssh/password": "case-password"}, missing: "API_TOKEN"},
+		{name: "CredentialRef", secrets: map[string]string{"API_TOKEN": "case-token"}, missing: "ssh/password"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()

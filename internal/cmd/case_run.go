@@ -69,8 +69,8 @@ func openCase(ctx *Context, opts caseOptions) (*testCase, error) {
 
 // run runs dag through the local execution path of dagu start and returns
 // the status the run recorded. A run that fails or is aborted returns its
-// status and no error. In a case with a real step, a DAG secret without a
-// test value is an error before the run starts.
+// status and no error. In a case with a real step, a DAG secret or SSH
+// credential ref without a test value is an error before the run starts.
 func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 	secrets, err := caseSecrets(dag, c.opts.secrets, len(c.opts.real) > 0)
 	if err != nil {
@@ -217,7 +217,8 @@ func caseDAG(dag *ir.DAG) *ir.DAG {
 
 // caseSecrets returns the values the secrets of a case resolve from, in
 // place of their providers. A case with a real step needs a test value for
-// every DAG secret, since the real step may read any of them. In a case without one, a DAG secret without a test value
+// every DAG secret and SSH credential ref, since the real step may read any
+// of them. In a case without one, a DAG secret without a test value
 // resolves to the placeholder <secret:NAME>, masked as a value is. An SSH
 // credential ref takes no placeholder, since a run without a real step does
 // not resolve it (agent.TestSideEffects).
@@ -238,12 +239,18 @@ func caseSecrets(dag *ir.DAG, values map[string]string, hasRealSteps bool) (map[
 	return resolved, nil
 }
 
-// checkCaseSecrets requires a test value for every secret the DAG declares.
+// checkCaseSecrets requires a test value for every DAG secret and SSH
+// credential ref.
 func checkCaseSecrets(dag *ir.DAG, values map[string]string) error {
 	var missing []string
 	for _, ref := range dag.Secrets {
 		if _, ok := values[ref.Name]; !ok {
 			missing = append(missing, ref.Name)
+		}
+	}
+	for _, ref := range dag.CredentialRefs {
+		if _, ok := values[ref.Ref]; !ok {
+			missing = append(missing, ref.Ref)
 		}
 	}
 	if len(missing) > 0 {
