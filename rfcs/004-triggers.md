@@ -135,8 +135,19 @@ become runs.
 
 ### Record
 
-A DAG has at most one poll. Polls are kept as records in a collection in the
-data directory, beside webhooks:
+A DAG has at most one poll. Polls are stored the way per-DAG webhooks are:
+JSON records in folders of the data directory, one folder per kind of data.
+
+| Folder | Holds | Written by | Like |
+| --- | --- | --- | --- |
+| `polls/` | Each poll's settings, one record per poll | The API | `webhooks/` |
+| `poll-state/` | Each poll's seen keys, check log, and next due time, and pending Check now requests | The scheduler | `public-webhooks/` |
+
+Settings and state are apart so that the API and the scheduler never write
+the same record. Under [RFC 003](003-projects.md) both folders are project
+data, as `webhooks/` is.
+
+A poll's settings:
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
@@ -175,7 +186,7 @@ invalid gojq expression, or an unknown `backlog` is rejected.
   list of polls shows it. It can be pointed at the DAG's new name, keeping
   its record, or deleted. A DAG that comes back under the old name takes it
   back.
-- **Pickup.** The scheduler rereads the poll collection every 10 seconds, as
+- **Pickup.** The scheduler rereads `polls/` every 10 seconds, as
   it rereads the webhook store for public URLs. A change takes effect within
   10 seconds.
 - **A DAG that fails to load.** Its poll is not checked, and its page says
@@ -257,7 +268,8 @@ and starts nothing, as `watch` and Zapier do. With `backlog: run`, every
 listed item is new. A work queue wants `run`; a listing of an archive, such as
 a channel's past videos, wants `skip`.
 
-If the scheduler's state is lost, the next check is a first check again.
+If a poll's record in `poll-state/` is lost, its next check is a first
+check again.
 With `backlog: run`, items whose runs have left the history run again.
 
 ### Where the check runs
@@ -290,9 +302,9 @@ cut: start time, duration, exit code, number of items, number of new items,
 links to up to 20 runs started, and the stderr excerpt. Checks that found
 nothing new are not listed one by one; the log keeps their count since the
 last listed check and when the latest ended. So a log of a quiet poll still
-reaches back to its last real work. The log is kept with the scheduler's state, not in the run history,
-and is shown in the DAG's Poll tab with when the last check ended and when
-the next is due.
+reaches back to its last real work. The log is kept in `poll-state/`, not in
+the run history, and is shown in the DAG's Poll tab with when the last check
+ended and when the next is due.
 
 ### Alerts
 
@@ -315,13 +327,14 @@ the next is due.
 
 **Check now** in the Poll tab, and `POST /api/v1/dags/{fileName}/poll/check`,
 run the command once with the settings being edited and show the items it
-lists and which of them are new. They start no run and change no record, so
-a command can be tried before it is saved.
+lists and which of them are new. They start no run and leave the poll's
+keys and check log as they were, so a command can be tried before it is
+saved.
 
 The scheduler runs it, so it runs where real checks do. The server writes a
-request; the scheduler that holds the lock takes it at its next pickup,
-within 10 seconds, runs it in one of the 4 check slots, and writes back the
-result. The call waits up to the timeout plus 20 seconds, and says so if no
+request to `poll-state/`; the scheduler that holds the lock takes it at its
+next pickup, within 10 seconds, runs it in one of the 4 check slots, and
+writes back the result. The call waits up to the timeout plus 20 seconds, and says so if no
 scheduler took the request. The audit log records each try. A request is
 removed once answered, or after 10 minutes.
 
@@ -329,10 +342,10 @@ removed once answered, or after 10 minutes.
 
 | Record | Size bound | Location |
 | --- | --- | --- |
-| Poll settings | One small record per polling DAG | Poll collection, data directory |
-| Keys of the last check | 10,000 keys as 16-byte hashes, 160 KiB per poll; written only when it changes | Scheduler state |
-| Check log | 50 entries, about 5 KiB each, and a counter of quiet checks | Scheduler state, per poll |
-| Check now requests | Removed when answered or after 10 minutes | Data directory |
+| Poll settings | One small record per poll | `polls/` |
+| Keys of the last check | 10,000 keys as 16-byte hashes, 160 KiB per poll; written only when it changes | `poll-state/` |
+| Check log | 50 entries, about 5 KiB each, and a counter of quiet checks | `poll-state/` |
+| Check now requests | Removed when answered or after 10 minutes | `poll-state/` |
 | Runs | One per new item | Run history, as today |
 
 ### Example: the feed DAG
@@ -376,7 +389,7 @@ would.
 | Scheduler stops between queuing runs and saving its record | The next check derives the same run IDs; nothing new starts. |
 | DAG suspended | Not checked; items still listed when it resumes run then. |
 | DAG fails to load | Not checked; the DAG's page says why. |
-| Poll collection cannot be read | The scheduler keeps the polls from its last complete read. |
+| `polls/` cannot be read | The scheduler keeps the polls from its last complete read. |
 
 ## Performance
 
@@ -389,18 +402,18 @@ would.
   DAG's queue.
 - **Notifications.** At most two per run of failures: one when it starts,
   one when it ends.
-- **Pickup.** One read of the poll collection and one of pending Check now
-  requests every 10 seconds. Both grow with the number of polls, not with
+- **Pickup.** One read of `polls/` and one of pending Check now requests in
+  `poll-state/` every 10 seconds. Both grow with the number of polls, not with
   DAGs or runs.
 - **Idle cost.** Proportional to the number of enabled polls of unsuspended
   DAGs, plus the pickup read.
 - **Writes.** A check that finds nothing new updates one small state
   record: its quiet-check counter, its end time, and when the next check is
   due.
-- **Storage.** Under 450 KiB of scheduler state per poll. Event store
+- **Storage.** Under 450 KiB in `poll-state/` per poll. Event store
   retention does not change.
 - **Run history.** Looked up by derived run ID on enqueue; never listed.
-- **Upgrade.** None. The collection and state are created on first use.
+- **Upgrade.** None. `polls/` and `poll-state/` are created on first use.
 
 ## First release: public URLs for per-DAG webhooks
 
@@ -506,13 +519,13 @@ through Dagu Cloud.
 | Release | Ships |
 | --- | --- |
 | v2.20 | Public URLs for per-DAG webhooks (above). |
-| Next | Polls: the collection, the API, the Poll tab, the list of polls, the check log, alerts, and Check now. |
+| Next | Polls: `polls/` and `poll-state/`, the API, the Poll tab, the list of polls, the check log, alerts, and Check now. |
 
 Documentation explains choosing between `watch`, a poll, the per-DAG webhook,
 and `discard_run_on`.
 
-DAG files do not change. An older binary ignores the poll collection and the
-scheduler state polls add, and reads the run trigger type `poll` as unknown
+DAG files do not change. An older binary ignores `polls/` and `poll-state/`,
+and reads the run trigger type `poll` as unknown
 (`ir.ParseTriggerType`). A downgrade is safe: polls stop until the newer
 binary returns.
 
