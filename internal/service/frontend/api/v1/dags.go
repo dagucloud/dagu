@@ -2545,7 +2545,7 @@ func (a *API) listDAGsDataWithSearchPaths(ctx context.Context, listOpts persis.D
 			errList = append(errList, statusErr.Error())
 		}
 		if source.activityWindow > 0 {
-			activity, activityErr := a.dagActivity(ctx, item.DAG, dagStatus, projectionTime.Add(-source.activityWindow))
+			activity, activityErr := a.listActivity(ctx, item.DAG, dagStatus, projectionTime, source.activityWindow)
 			if activityErr != nil {
 				errList = append(errList, activityErr.Error())
 			}
@@ -2711,7 +2711,7 @@ func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGLi
 			errList = append(errList, k.statusErr.Error())
 		}
 		if source.activityWindow > 0 {
-			activity, activityErr := a.dagActivity(ctx, item.DAG, k.dagStatus, projectionTime.Add(-source.activityWindow))
+			activity, activityErr := a.listActivity(ctx, item.DAG, k.dagStatus, projectionTime, source.activityWindow)
 			if activityErr != nil {
 				errList = append(errList, activityErr.Error())
 			}

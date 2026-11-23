@@ -240,6 +240,18 @@ func TestListDAGsActivityLeavesOutBackfillRuns(t *testing.T) {
 	assert.Equal(t, []string{"live"}, activityRunIDs(dags["activity_backfill_recent"].Activity))
 }
 
+// A list keeps the activity of a DAG, and the next list shows a new run of
+// the DAG at once.
+func TestListDAGsActivityShowsANewRunAtOnce(t *testing.T) {
+	server := test.SetupServer(t)
+	dag := createActivityDAG(t, server, "activity_new")
+	seedActivityRun(t, server, dag, activityRun{id: "first", status: ir.Succeeded, startAgo: time.Hour, took: time.Minute})
+	assert.Equal(t, []string{"first"}, activityRunIDs(listActivity(t, server, "?activityWindow=86400")["activity_new"].Activity))
+
+	seedActivityRun(t, server, dag, activityRun{id: "second", status: ir.Running, startAgo: time.Minute})
+	assert.Equal(t, []string{"second", "first"}, activityRunIDs(listActivity(t, server, "?activityWindow=86400")["activity_new"].Activity))
+}
+
 func TestListDAGsActivityRejectsAWindowOutOfRange(t *testing.T) {
 	server := test.SetupServer(t)
 	for _, window := range []string{"10", "604801"} {

@@ -130,6 +130,7 @@ type API struct {
 	openCodeHost         *opencodehost.Host
 	workspaceDeprecation deprecation.Sources
 	serviceDAGFailures   failureStreaks
+	activities           activityCache
 	restartBackoffStore  schedulerstate.RestartBackoffStore
 	periodStore          schedulerstate.PeriodStore
 }
