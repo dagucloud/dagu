@@ -106,19 +106,52 @@ var errForget = errors.New("disk full")
 func (failingForget) Forget(context.Context, string) error { return errForget }
 
 // A change whose key cannot be forgotten stores nothing, so it never leaves
-// a key for the next host of a name.
+// a key for the next host of a name. Every writer forgets before it writes.
 func TestInventoryStore_ChangeStopsWhenForgetFails(t *testing.T) {
 	t.Parallel()
-	backend := testutil.NewMemoryBackend()
-	s, err := store.NewInventoryStore(backend.Collection(persis.CollectionInventories), backend.Lock(persis.CollectionInventories),
-		failingForget{newHostKeyStore(t, backend)})
-	require.NoError(t, err)
+	tests := []struct {
+		name   string
+		change func(context.Context, *store.InventoryStore, inventory.Stored) error
+	}{
+		{"create", func(ctx context.Context, s *store.InventoryStore, _ inventory.Stored) error {
+			_, err := s.Create(ctx, testInventory("osaka", "db01"))
+			return err
+		}},
+		{"replace", func(ctx context.Context, s *store.InventoryStore, tokyo inventory.Stored) error {
+			inv := tokyo.Inventory
+			inv.Nodes = inv.Nodes[:1]
+			_, err := s.Replace(ctx, inv, tokyo.Version)
+			return err
+		}},
+		{"delete", func(ctx context.Context, s *store.InventoryStore, tokyo inventory.Stored) error {
+			return s.Delete(ctx, tokyo.ID, tokyo.Version)
+		}},
+		{"import", func(ctx context.Context, s *store.InventoryStore, _ inventory.Stored) error {
+			_, err := s.Import(ctx, []inventory.Inventory{testInventory("tokyo", "web01")}, inventory.ImportOptions{Replace: true})
+			return err
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			backend := testutil.NewMemoryBackend()
+			col, lock := backend.Collection(persis.CollectionInventories), backend.Lock(persis.CollectionInventories)
+			// A store that keeps no keys sets up the inventory, so only the
+			// change under test forgets.
+			setup, err := store.NewInventoryStore(col, lock, nil)
+			require.NoError(t, err)
+			tokyo, err := setup.Create(ctx, testInventory("tokyo", "web01", "web02"))
+			require.NoError(t, err)
+			s, err := store.NewInventoryStore(col, lock, failingForget{newHostKeyStore(t, backend)})
+			require.NoError(t, err)
 
-	_, err = s.Create(context.Background(), testInventory("tokyo", "web01"))
-	require.ErrorIs(t, err, errForget)
-	list, err := s.List(context.Background())
-	require.NoError(t, err)
-	assert.Empty(t, list)
+			require.ErrorIs(t, tt.change(ctx, s, tokyo), errForget)
+			list, err := s.List(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, []inventory.Stored{tokyo}, list)
+		})
+	}
 }
 
 var _ inventory.HostKeyStore = failingForget{}
