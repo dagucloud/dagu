@@ -127,10 +127,10 @@ func (c *checker) checkParams(defs []ir.ParamDef) {
 func (c *checker) checkStep(label string, step ir.Step, keys ...string) {
 	mock, mocked := c.lookupMock(keys)
 	real := c.isReal(keys)
-	// Spec 101 limits the default mock to steps with a source, and its
-	// result fields to side-effect-free actions that are a source. Neither
-	// limit changes a finding, so it applies to every step and handler the
-	// case does not name.
+	// Spec 101 narrows which steps take the default mock and when its
+	// results replace a side-effect-free action. No narrowing changes a
+	// finding, so it applies to every step and handler the case does not
+	// name.
 	if !mocked && !real && c.defaultMock != nil {
 		mock, mocked = *c.defaultMock, true
 	}
