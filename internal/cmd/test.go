@@ -154,13 +154,21 @@ func runTest(ctx *Context, args []string) error {
 	if opts.json {
 		report.json = newJSONTestReport()
 	}
+	// A test file that --update cannot write does not stop the others.
+	var updateErrs []error
 	for _, file := range files {
 		if err := runTestFile(ctx, file, opts, report); err != nil {
-			return err
+			if ctx.Err() != nil {
+				return err
+			}
+			updateErrs = append(updateErrs, err)
 		}
 	}
 	if err := report.writeSummary(); err != nil {
 		return err
+	}
+	if err := errors.Join(updateErrs...); err != nil {
+		return &exitStatusError{code: max(report.exitStatus(), testExitFailed), err: err}
 	}
 	if code := report.exitStatus(); code != 0 {
 		// The report already names every failed and invalid case.

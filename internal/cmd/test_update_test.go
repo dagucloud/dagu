@@ -5,11 +5,13 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -222,6 +224,39 @@ steps:
 		"FAIL "+reported+": unfinished (", "  expect kept: the run did not finish\n",
 		"INVALID "+reported+": invalid\n", "  expect kept: the case is invalid\n")
 	assertFileContent(t, testPath, updated)
+}
+
+// A test file edited while its cases ran is not written, and the next file
+// still is. The report ends as usual, and the command exits 1 with an error
+// that names the file. The case's real step edits its own test file.
+func TestTestUpdateFileChanged(t *testing.T) {
+	t.Parallel()
+
+	home := writeInitDAG(t, "b.yaml", "steps:\n  - id: note\n    action: log.write\n    with:\n      message: hi\n")
+	dags := filepath.Join(home, "dags")
+	edited := filepath.Join(dags, "a.test.yaml")
+	edit := test.ForOS(
+		"echo '# edited' >> "+test.PosixQuote(edited),
+		"Add-Content -Path "+test.PowerShellQuote(edited)+" -Value '# edited'",
+	)
+	require.NoError(t, os.WriteFile(filepath.Join(dags, "a.yaml"), fmt.Appendf(nil, "steps:\n  - id: edit\n    run: %q\n", edit), 0o600))
+	const stale = "cases:\n  - name: c\n    expect:\n      status: failed\n"
+	require.NoError(t, os.WriteFile(edited, []byte("real: [edit]\n"+stale), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dags, "b.test.yaml"), []byte(stale), 0o600))
+
+	stdout, err := runTestCommand(t, home, "--update", "--format", "json", dags)
+	var exit *exitStatusError
+	require.ErrorAs(t, err, &exit)
+	assert.Equal(t, testExitFailed, exit.code)
+	assert.ErrorContains(t, err, edited+" changed while its cases ran")
+	var report jsonTestReport
+	require.NoError(t, json.Unmarshal([]byte(stdout), &report))
+	assert.Len(t, report.Cases, 2)
+	data, err := os.ReadFile(edited) // #nosec G304 -- the path is under the test's directory.
+	require.NoError(t, err)
+	assert.Contains(t, string(data), stale)
+	assert.Contains(t, string(data), "# edited")
+	assertFileContent(t, filepath.Join(dags, "b.test.yaml"), "cases:\n  - name: c\n    expect:\n      status: succeeded\n      steps:\n        note: succeeded\n")
 }
 
 // assertInOrder fails unless out holds each part, each after the one
