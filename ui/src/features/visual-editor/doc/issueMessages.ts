@@ -7,6 +7,23 @@ export const OUTPUTS_ID_MESSAGE =
   'id is required when the step declares outputs.';
 
 /**
+ * The loader errors of a service DAG (Spec 080). The client says the same
+ * text as the server, so that the merge keeps one issue.
+ */
+export const RESTART_WITH_SCHEDULE_MESSAGE =
+  'restart_policy cannot be combined with schedule';
+export const RESTART_WITH_RETRY_MESSAGE =
+  'restart_policy cannot be combined with retry_policy';
+
+export function invalidRestartPolicyMessage(value: string): string {
+  return `invalid restart_policy ${JSON.stringify(value)}: must be "no", "always", or "unless-stopped"`;
+}
+
+export function restartWaitMessage(policy: string): string {
+  return `restart_wait_sec must be at least 1 when restart_policy is "${policy}"`;
+}
+
+/**
  * The message of a field that accepts one value only: `with.read must be
  * true.` A quick fix reads the value back with `mustBeValue`.
  */

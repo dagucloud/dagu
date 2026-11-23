@@ -15,6 +15,10 @@ import {
   mergeIssues,
   type ClientIssueInput,
 } from '../clientIssues';
+import {
+  RESTART_WITH_RETRY_MESSAGE,
+  RESTART_WITH_SCHEDULE_MESSAGE,
+} from '../issueMessages';
 import { parseDagDocLenient, resolveStepNames } from '../parse';
 
 // The file of the issues demo: the server stops at the first error of it.
@@ -452,6 +456,36 @@ describe.skipIf(realSchema === null)('mergeIssues', () => {
     expect(mergeIssues(model, names, server, client)).toContain(server[0]);
   });
 
+  // Only a server issue of no step gives way to the client issue that says
+  // it again; a server issue of a step keeps its place.
+  it('keeps a server issue of a step that a client issue says again', () => {
+    const repeated = client.find((i) =>
+      i.message.startsWith('The step "title" has no output')
+    )!;
+    const server = [
+      serverIssue({
+        message: repeated.message,
+        stepName: repeated.stepName,
+        stepPath: repeated.stepPath,
+        fieldPath: repeated.fieldPath,
+      }),
+    ];
+    const merged = mergeIssues(model, names, server, client);
+    const same = merged.filter((i) => i.message === repeated.message);
+    expect(same).toHaveLength(1);
+    expect(same[0]).toBe(server[0]);
+  });
+
+  // A client warning cannot stand for a server error: the error would read
+  // as a warning.
+  it('keeps a server error of no step that a client warning says again', () => {
+    const warning = client.find(
+      (i) => i.severity === ValidationIssueSeverity.warning
+    )!;
+    const server = [serverIssue({ message: warning.message })];
+    expect(mergeIssues(model, names, server, client)).toContain(server[0]);
+  });
+
   it('drops a client reference that the server has said as a value reference', () => {
     const server = [
       serverIssue({
@@ -487,5 +521,116 @@ describe.skipIf(realSchema === null)('mergeIssues', () => {
   it('gives the server list back when the client has nothing to add', () => {
     const server = [serverIssue({ message: 'm' })];
     expect(mergeIssues(model, names, server, [])).toBe(server);
+  });
+});
+
+// The rules of Spec 080 that the loader checks in the file, on the line of the key.
+describe('collectClientIssues: restart_policy', () => {
+  const dag = (...top: string[]) =>
+    [...top, 'steps:', '  - run: echo serve', ''].join('\n');
+  const restartIssues = (text: string) =>
+    issuesOf(text, { schema: null }).filter(
+      (issue) =>
+        issue.stepPath === undefined &&
+        /restart_/.test(`${issue.message} ${issue.fieldPath ?? ''}`)
+    );
+  const shape = (text: string) =>
+    restartIssues(text).map((i) => [i.severity, i.message, i.line]);
+  const error = ValidationIssueSeverity.error;
+  const WAIT_ALWAYS =
+    'restart_wait_sec must be at least 1 when restart_policy is "always"';
+
+  // An empty schedule or retry_policy defines none, and an alias gives the
+  // value of its anchor. No wait and a wait of 0 leave the one of the base
+  // configuration, which only the server knows.
+  it('gives nothing for restart settings that the server may take', () => {
+    for (const text of [
+      dag('restart_policy: always'),
+      dag('restart_policy: always', 'restart_wait_sec: 0'),
+      dag('restart_policy: always', 'restart_wait_sec: 5'),
+      dag('restart_policy: " Unless-Stopped "', 'restart_wait_sec: 10'),
+      dag('restart_policy: no', 'schedule: "* * * * *"'),
+      dag('restart_policy: ""'),
+      dag('restart_policy: always', 'restart_wait_sec: 5', 'schedule: []'),
+      dag('restart_policy: always', 'restart_wait_sec: 5', 'schedule: ""'),
+      dag('restart_policy: always', 'restart_wait_sec: 5', 'schedule: {}'),
+      dag('restart_policy: always', 'restart_wait_sec: 5', 'retry_policy:'),
+      dag('delay_sec: &w 5', 'restart_policy: always', 'restart_wait_sec: *w'),
+      dag('schedule: "* * * * *"', 'retry_policy:', '  limit: 2'),
+    ]) {
+      expect(restartIssues(text)).toEqual([]);
+    }
+  });
+
+  it('reports a value that is not no, always or unless-stopped', () => {
+    const text = dag('restart_policy: on-failure', 'restart_wait_sec: 5');
+    expect(shape(text)).toEqual([
+      [
+        error,
+        'invalid restart_policy "on-failure": must be "no", "always", or "unless-stopped"',
+        1,
+      ],
+    ]);
+    expect(restartIssues(text)[0]).toMatchObject({
+      fieldPath: 'restart_policy',
+      source: ValidationIssueSource.build,
+    });
+  });
+
+  it('reports a schedule on the restart_policy line, in each form', () => {
+    for (const schedule of [
+      ['schedule: "* * * * *"'],
+      ['schedule:', '  start: "0 8 * * *"', '  stop: "0 18 * * *"'],
+    ]) {
+      const text = dag(
+        'restart_policy: always',
+        'restart_wait_sec: 5',
+        ...schedule
+      );
+      expect(shape(text)).toEqual([[error, RESTART_WITH_SCHEDULE_MESSAGE, 1]]);
+    }
+  });
+
+  it('reports a DAG-level retry_policy on the restart_policy line', () => {
+    const text = dag(
+      'name: svc',
+      'restart_policy: unless-stopped',
+      'restart_wait_sec: 5',
+      'retry_policy:',
+      '  limit: 3'
+    );
+    expect(shape(text)).toEqual([[error, RESTART_WITH_RETRY_MESSAGE, 2]]);
+  });
+
+  it('reports a negative wait on the restart_wait_sec line', () => {
+    const text = dag('restart_policy: Always', 'restart_wait_sec: -3');
+    expect(shape(text)).toEqual([[error, WAIT_ALWAYS, 2]]);
+  });
+
+  it('keeps one issue when the server says the same errors', () => {
+    const text = dag(
+      'restart_policy: always',
+      'restart_wait_sec: -3',
+      'schedule: "* * * * *"'
+    );
+    const model = parseDagDocLenient(text);
+    const server = [
+      serverIssue({
+        message: `field 'restart_policy': ${RESTART_WITH_SCHEDULE_MESSAGE} (value: always)`,
+      }),
+      serverIssue({
+        message: `field 'restart_wait_sec': ${WAIT_ALWAYS} (value: -3s)`,
+      }),
+    ];
+    const merged = mergeIssues(
+      model,
+      resolveStepNames(model),
+      server,
+      issuesOf(text, { schema: null })
+    );
+    expect(merged.map((i) => [i.severity, i.message, i.line])).toEqual([
+      [error, RESTART_WITH_SCHEDULE_MESSAGE, 1],
+      [error, WAIT_ALWAYS, 2],
+    ]);
   });
 });

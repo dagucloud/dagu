@@ -16,16 +16,26 @@ import type {
   ValidationIssue,
 } from '../contracts';
 import { builtinActionNames } from '../inspector/actionRules';
+import { plainIssueMessage } from '../inspector/issues';
 import { checkStepSchemaErrors } from '../inspector/stepSchemaCheck';
 import { CRON_ZONE_PREFIX, nextRuns } from '../launchers/nextRuns';
 import { findReferenceTokens } from '../references/tokens';
 import {
+  invalidRestartPolicyMessage,
   mustBeMessage,
   NO_ID_MESSAGE,
   OUTPUTS_ID_MESSAGE,
+  RESTART_WITH_RETRY_MESSAGE,
+  RESTART_WITH_SCHEDULE_MESSAGE,
+  restartWaitMessage,
 } from './issueMessages';
-import { locateIssue, rangeFromOffsets } from './issues';
+import { locateIssue, rangeFromOffsets, scalarAtField } from './issues';
 import { validateStepId, validateStepName } from './names';
+import {
+  isServicePolicy,
+  parseRestartPolicy,
+  readRestart,
+} from './ops/restart';
 import { readSchedule } from './ops/schedule';
 
 /*
@@ -517,6 +527,38 @@ function scheduleDrafts(model: DagDocModel): Draft[] {
   return drafts;
 }
 
+/** The rules of `restart_policy` that the loader checks in the file (Spec 080). */
+function restartDrafts(model: DagDocModel): Draft[] {
+  const raw = scalarAtField(model, 'restart_policy')?.value;
+  if (typeof raw !== 'string') return [];
+  const error = (message: string, field: string): Draft => ({
+    step: null,
+    severity: 'error',
+    message,
+    fieldPath: field,
+  });
+  const policy = parseRestartPolicy(raw);
+  if (policy === null) {
+    return [error(invalidRestartPolicyMessage(raw), 'restart_policy')];
+  }
+  if (!isServicePolicy(policy)) return [];
+  const restart = readRestart(model.text);
+  const drafts: Draft[] = [];
+  if (restart.schedule) {
+    drafts.push(error(RESTART_WITH_SCHEDULE_MESSAGE, 'restart_policy'));
+  }
+  if (restart.retryPolicy) {
+    drafts.push(error(RESTART_WITH_RETRY_MESSAGE, 'restart_policy'));
+  }
+  // No wait and a wait of 0 leave the one of the base configuration, which
+  // only the server knows: it reports them. A negative wait is an error.
+  const wait = scalarAtField(model, 'restart_wait_sec')?.value;
+  if (typeof wait === 'number' && Number.isInteger(wait) && wait < 0) {
+    drafts.push(error(restartWaitMessage(policy), 'restart_wait_sec'));
+  }
+  return drafts;
+}
+
 function toIssue(draft: Draft, input: ClientIssueInput): ValidationIssue {
   const { model, names } = input;
   const issue: ValidationIssue = {
@@ -579,7 +621,8 @@ export function collectClientIssues(
     ...identityDrafts(model),
     ...dependencyDrafts(model),
     ...referenceDrafts(model, scope),
-    ...scheduleDrafts(model)
+    ...scheduleDrafts(model),
+    ...restartDrafts(model)
   );
   return drafts.map((draft) => toIssue(draft, input));
 }
@@ -644,9 +687,11 @@ function coveredByServerReference(
 
 /**
  * The issues of the server and the issues of the client in one list. A
- * client issue that the server has said already is dropped. The list is
- * sorted by line; an issue without a line comes first (it is about the
- * whole file), and errors come before warnings on one line.
+ * client issue that the server has said already is dropped, and a server
+ * issue of no step that a client issue of the same severity says with its
+ * line gives way to it. The list is sorted by line; an issue without a line
+ * comes first (it is about the whole file), and errors come before warnings
+ * on one line.
  */
 export function mergeIssues(
   model: DagDocModel,
@@ -655,8 +700,21 @@ export function mergeIssues(
   client: ValidationIssue[]
 ): ValidationIssue[] {
   if (client.length === 0) return server;
-  const taken = new Set(server.map(signatureOf));
-  const merged = [...server];
+  // A server issue that names no step ("Workflow-level") and that a client
+  // issue of the same severity says again, with its line, gives way to it.
+  const clientMessages = new Set(
+    client.map((issue) => `${issue.severity}|${issue.message}`)
+  );
+  const kept = server.filter(
+    (issue) =>
+      issue.stepPath !== undefined ||
+      issue.stepName !== undefined ||
+      !clientMessages.has(
+        `${issue.severity}|${plainIssueMessage(issue.message)}`
+      )
+  );
+  const taken = new Set(kept.map(signatureOf));
+  const merged = [...kept];
   for (const issue of client) {
     const signature = signatureOf(issue);
     if (taken.has(signature) || coveredByServerReference(issue, server)) {
