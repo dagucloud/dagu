@@ -30,6 +30,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -426,11 +427,16 @@ steps:
 }
 
 // A step in real waits for its retry interval, and a mocked step with a
-// longer interval does not.
+// longer interval does not. Windows runs the real step in PowerShell, so it
+// takes its own command to fail once.
 func TestCaseWaits(t *testing.T) {
 	t.Parallel()
 
 	ctx, _ := newCaseTestContext(t)
+	failOnce := test.ForOS(
+		"test -f failed-once || { touch failed-once; exit 1; }",
+		"if (Test-Path failed-once) { exit 0 }; New-Item -ItemType File failed-once | Out-Null; exit 1",
+	)
 	dag := writeCaseDAG(t, ctx, "waits", fmt.Sprintf(`
 working_dir: %q
 steps:
@@ -441,11 +447,11 @@ steps:
       interval_sec: 60
   - name: real
     depends: mocked
-    run: test -f failed-once || { touch failed-once; exit 1; }
+    run: '%s'
     retry_policy:
       limit: 1
       interval_sec: 1
-`, t.TempDir()))
+`, t.TempDir(), failOnce))
 	tc := openTestCase(t, ctx, caseOptions{
 		tempDir: t.TempDir(),
 		real:    []string{"real"},
@@ -457,6 +463,7 @@ steps:
 	elapsed := time.Since(started)
 	require.NoError(t, err)
 	require.Equal(t, ir.Succeeded, status.Status, status.Error)
+	require.Equal(t, 1, caseNode(t, status, "real").RetryCount, "the real step did not fail once")
 	assert.GreaterOrEqual(t, elapsed, time.Second, "the real step skipped its retry interval")
 	assert.Less(t, elapsed, 30*time.Second, "the mocked step waited for its retry interval")
 }
