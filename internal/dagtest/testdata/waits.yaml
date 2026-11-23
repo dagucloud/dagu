@@ -1,0 +1,40 @@
+steps:
+  - id: sign_off
+    action: human.task
+    with:
+      prompt: Sign off the release.
+      form:
+        type: object
+        properties:
+          reason:
+            type: string
+        required: [reason]
+  - id: release
+    run: ./release.sh
+    approval:
+      prompt: Approve the release.
+      input: [ticket]
+      required: [ticket]
+    depends: [sign_off]
+  - id: acknowledge
+    action: human.task
+    with:
+      prompt: Acknowledge the release.
+  - id: confirm
+    action: human.task
+    with:
+      prompt: Confirm the channel.
+      form:
+        type: object
+        properties:
+          channel:
+            type: string
+            default: stable
+          note:
+            type: string
+        required: [channel]
+  - id: announce
+    action: noop
+    approval:
+      prompt: Approve the announcement.
+      input: [note]

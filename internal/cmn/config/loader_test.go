@@ -249,8 +249,11 @@ func TestLoad_Env(t *testing.T) {
 			SkipExamples:           false,
 			EnvPassthrough:         []string{},
 			EnvPassthroughPrefixes: []string{},
-			Peer:                   Peer{Insecure: true}, // Default is true
-			BaseEnv:                cfg.Core.BaseEnv,     // Dynamic, copy from actual
+			Peer: Peer{
+				Insecure:  true, // Default is true
+				TokenFile: filepath.Join(testPaths, "data", "coordinator", "peer-token"),
+			},
+			BaseEnv: cfg.Core.BaseEnv, // Dynamic, copy from actual
 		},
 		OpenCode: OpenCodeConfig{Executable: "opencode", EnvPassthrough: []string{}},
 		Browser:  BrowserConfig{SlotsDir: userBrowserSlotsDir(t)},
@@ -1080,6 +1083,7 @@ scheduler:
 				ClientCaFile:  "/path/to/peer-ca.pem",
 				SkipTLSVerify: false,
 				Insecure:      false,
+				TokenFile:     filepath.Join(resolvedTestPath(t, "/var/dagu/data"), "coordinator", "peer-token"),
 			},
 			BaseEnv: cfg.Core.BaseEnv, // Dynamic, copy from actual
 		},

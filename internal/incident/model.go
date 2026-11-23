@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/netutil"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -439,11 +440,5 @@ func isBlockedPrivateHostLiteral(host string) bool {
 	if err != nil {
 		return false
 	}
-	addr = addr.Unmap()
-	return addr.IsLoopback() ||
-		addr.IsPrivate() ||
-		addr.IsLinkLocalUnicast() ||
-		addr.IsLinkLocalMulticast() ||
-		addr.IsMulticast() ||
-		addr.IsUnspecified()
+	return netutil.IsPrivateAddr(addr)
 }

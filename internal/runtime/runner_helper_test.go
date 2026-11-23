@@ -368,16 +368,20 @@ type planHelper struct {
 	workDir string
 	// steps are the steps of the DAG the run context carries.
 	steps []ir.Step
+	// localDAGs are the local DAGs of the DAG the run context carries.
+	localDAGs map[string]*ir.DAG
+	// contextOpts are applied to the run context.
+	contextOpts []runtime.ContextOption
 }
 
 func (ph planHelper) assertRun(t *testing.T, expectedStatus ir.Status) runResult {
 	t.Helper()
 
-	dag := &ir.DAG{Name: "test_dag", WorkingDir: ph.workDir, Steps: ph.steps}
+	dag := &ir.DAG{Name: "test_dag", WorkingDir: ph.workDir, Steps: ph.steps, LocalDAGs: ph.localDAGs}
 	logFilename := fmt.Sprintf("%s_%s.log", dag.Name, ph.cfg.DAGRunID)
 	logFilePath := path.Join(ph.cfg.LogDir, logFilename)
 
-	ctx := runtime.NewContext(ph.Context, dag, ph.cfg.DAGRunID, logFilePath)
+	ctx := runtime.NewContext(ph.Context, dag, ph.cfg.DAGRunID, logFilePath, ph.contextOpts...)
 
 	progressCh := make(chan runtime.ProgressUpdate)
 	drained := drainProgress(progressCh)

@@ -32,6 +32,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	incidentmodel "github.com/dagucloud/dagu/v2/internal/incident"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/license"
@@ -112,6 +113,8 @@ type API struct {
 	aiMCPServers         *aiendpoint.MCPService
 	profileStore         profilepkg.Store
 	viewStore            view.Store
+	inventoryStore       inventory.Store
+	hostKeyStore         inventory.HostKeyStore
 	licenseManager       *license.Manager
 	publicWebhookStore   publicwebhook.Store
 	cloudReport          CloudReportService
@@ -131,6 +134,7 @@ type API struct {
 	openCodeHost         *opencodehost.Host
 	workspaceDeprecation deprecation.Sources
 	serviceDAGFailures   failureStreaks
+	activities           activityCache
 	restartBackoffStore  schedulerstate.RestartBackoffStore
 	periodStore          schedulerstate.PeriodStore
 }
@@ -347,6 +351,21 @@ func WithProfileStore(store profilepkg.Store) APIOption {
 func WithViewStore(store view.Store) APIOption {
 	return func(a *API) {
 		a.viewStore = store
+	}
+}
+
+// WithInventoryStore returns an APIOption that sets the node inventory store.
+func WithInventoryStore(store inventory.Store) APIOption {
+	return func(a *API) {
+		a.inventoryStore = store
+	}
+}
+
+// WithHostKeyStore returns an APIOption that sets the store of trusted node
+// host keys.
+func WithHostKeyStore(store inventory.HostKeyStore) APIOption {
+	return func(a *API) {
+		a.hostKeyStore = store
 	}
 }
 
@@ -615,7 +634,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 
 	loginPath := pathutil.BuildPublicEndpointPath(mountedAPIPath, "auth/login")
 
-	remoteNodeAuthorization, err := a.remoteNodeAuthorization(swagger)
+	remoteNodeAuthorization, err := a.remoteNodeAuthorization(swagger, mountedAPIPath)
 	if err != nil {
 		return err
 	}
@@ -630,6 +649,7 @@ func (a *API) ConfigureRoutes(ctx context.Context, r chi.Router, writeTimeout ti
 		r.Use(remoteNodeAuthorization)
 		r.Use(humanTaskInputMiddleware(mountedAPIPath))
 		r.Use(closedBodyMiddleware(swagger, mountedAPIPath))
+		r.Use(inventoryImportBodyMiddleware(mountedAPIPath))
 		if a.config.Server.StrictValidation {
 			r.Use(a.createValidatorMiddleware(swagger))
 		}
@@ -1022,6 +1042,22 @@ func (a *API) requireDeveloperOrAbove(ctx context.Context) error {
 		return errAuthRequired
 	}
 	if !user.Role.CanWrite() {
+		return errInsufficientPermissions
+	}
+	return nil
+}
+
+// requireOperatorOrAbove checks if the current user has operator role or above.
+// Returns nil when roles do not apply to the caller (see rolesApply).
+func (a *API) requireOperatorOrAbove(ctx context.Context) error {
+	if !a.rolesApply(ctx) {
+		return nil
+	}
+	user, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return errAuthRequired
+	}
+	if !user.Role.CanExecute() {
 		return errInsufficientPermissions
 	}
 	return nil

@@ -13,8 +13,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
-	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/ssh"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/sshconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -151,9 +151,9 @@ steps:
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := evalSSHConfig(ctx, ssh.Config{
+			got, err := evalSSHConfig(ctx, sshconn.Config{
 				Host:    tt.raw,
-				Bastion: &ssh.BastionConfig{Host: tt.raw},
+				Bastion: &sshconn.BastionConfig{Host: tt.raw},
 			}, vars)
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, got.Host)

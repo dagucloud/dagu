@@ -301,7 +301,7 @@ func TestServiceDAGActivity(t *testing.T) {
 		"done run":   {DAGRunID: "d", Status: ir.Succeeded, StartedAt: "2026-03-01T12:00:00Z"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			activity, err := a.dagActivity(ctx, service, latest, since)
+			activity, err := a.dagActivity(ctx, service, latest, since, time.Hour)
 			require.NoError(t, err)
 			assert.Empty(t, activity.Runs)
 			assert.False(t, activity.Truncated)
@@ -317,13 +317,13 @@ func TestServiceDAGActivity(t *testing.T) {
 
 	// A service DAG with no history has no bucket but still has the field.
 	fake.series = samples.Series{}
-	activity, err := a.dagActivity(ctx, service, ir.DAGRunStatus{}, since)
+	activity, err := a.dagActivity(ctx, service, ir.DAGRunStatus{}, since, time.Hour)
 	require.NoError(t, err)
 	require.NotNil(t, activity.Buckets)
 	assert.Empty(t, *activity.Buckets)
 
 	// A DAG that is not a service DAG has runs and no buckets.
-	activity, err = a.dagActivity(ctx, &ir.DAG{Name: "plain"}, ir.DAGRunStatus{}, since)
+	activity, err = a.dagActivity(ctx, &ir.DAG{Name: "plain"}, ir.DAGRunStatus{}, since, time.Hour)
 	require.NoError(t, err)
 	assert.Empty(t, activity.Runs)
 	assert.Nil(t, activity.Buckets)
@@ -414,19 +414,19 @@ func TestServiceDAGActivityUptime(t *testing.T) {
 	a := newRunHistoryAPI(t, fake)
 	service := &ir.DAG{Name: "svc", RestartPolicy: ir.RestartPolicyAlways}
 
-	activity, err := a.dagActivity(t.Context(), service, ir.DAGRunStatus{}, since)
+	activity, err := a.dagActivity(t.Context(), service, ir.DAGRunStatus{}, since, time.Hour)
 	require.NoError(t, err)
 	require.NotNil(t, activity.Uptime)
 	assert.InDelta(t, 0.25, *activity.Uptime, 0.01)
 
 	running := ir.DAGRunStatus{DAGRunID: "r", Status: ir.Running, StartedAt: now.Add(-20 * time.Minute).Format(time.RFC3339)}
-	activity, err = a.dagActivity(t.Context(), service, running, since)
+	activity, err = a.dagActivity(t.Context(), service, running, since, time.Hour)
 	require.NoError(t, err)
 	require.NotNil(t, activity.Uptime)
 	assert.InDelta(t, 0.25+20.0/60, *activity.Uptime, 0.02)
 
 	fake.uptime = samples.Uptime{}
-	activity, err = a.dagActivity(t.Context(), service, ir.DAGRunStatus{}, since)
+	activity, err = a.dagActivity(t.Context(), service, ir.DAGRunStatus{}, since, time.Hour)
 	require.NoError(t, err)
 	assert.Nil(t, activity.Uptime)
 }
@@ -469,14 +469,14 @@ func TestServiceDAGActivityBucketUp(t *testing.T) {
 	a := newRunHistoryAPI(t, fake)
 	service := &ir.DAG{Name: "svc", RestartPolicy: ir.RestartPolicyAlways}
 
-	activity, err := a.dagActivity(t.Context(), service, ir.DAGRunStatus{}, since)
+	activity, err := a.dagActivity(t.Context(), service, ir.DAGRunStatus{}, since, time.Hour)
 	require.NoError(t, err)
 	require.Len(t, *activity.Buckets, 2)
 	assert.Equal(t, int64(60_000), *(*activity.Buckets)[1].UpMs)
 	assert.Zero(t, (*activity.Buckets)[1].Count)
 
 	running := ir.DAGRunStatus{DAGRunID: "r", Status: ir.Running, StartedAt: now.Add(-10 * time.Minute).Format(time.RFC3339)}
-	activity, err = a.dagActivity(t.Context(), service, running, since)
+	activity, err = a.dagActivity(t.Context(), service, running, since, time.Hour)
 	require.NoError(t, err)
 	require.Len(t, *activity.Buckets, 12)
 	last := (*activity.Buckets)[11]

@@ -864,7 +864,7 @@ func (n *Node) determineNodeStatus(cmd executor.Executor) error {
 	return nil
 }
 
-func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Executor, error) {
+func (n *Node) setupExecutor(ctx context.Context, override ExecutorOverride) (context.Context, executor.Executor, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
@@ -883,7 +883,7 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 		return ctx, nil, err
 	}
 	if n.Step().Nodes != nil {
-		return n.setupNodesExecutor(ctx)
+		return n.setupNodesExecutor(ctx, override)
 	}
 
 	// Evaluate the command and args if not already evaluated
@@ -958,7 +958,7 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 	}
 
 	// Create the executor
-	cmd, err := executor.NewExecutor(ctx, n.Step())
+	cmd, replaced, err := newExecutor(ctx, override, n.Step())
 	if err != nil {
 		return ctx, nil, err
 	}
@@ -968,8 +968,9 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 		return ctx, nil, fmt.Errorf("failed to set up step output: %w", err)
 	}
 
-	// Handle sub DAG execution
-	if subDAG := n.Step().SubDAG; subDAG != nil {
+	// Handle sub DAG execution. A replaced action runs no child, so the
+	// step builds and records none.
+	if subDAG := n.Step().SubDAG; subDAG != nil && !replaced {
 		runParams, err := n.buildChildRunParams(ctx, subDAG)
 		if err != nil {
 			return ctx, nil, err
@@ -988,6 +989,25 @@ func (n *Node) setupExecutor(ctx context.Context) (context.Context, executor.Exe
 	}
 
 	return ctx, cmd, nil
+}
+
+// newExecutor builds the step's executor, unless override supplies one in
+// place of the step's action. It reports whether override supplied it.
+func newExecutor(ctx context.Context, override ExecutorOverride, step ir.Step) (executor.Executor, bool, error) {
+	if cmd, ok := replacementExecutor(ctx, override, step); ok {
+		return cmd, true, nil
+	}
+	cmd, err := executor.NewExecutor(ctx, step)
+	return cmd, false, err
+}
+
+// replacementExecutor returns the executor override supplies in place of the
+// step's action, or false when the step runs its own action.
+func replacementExecutor(ctx context.Context, override ExecutorOverride, step ir.Step) (executor.Executor, bool) {
+	if override == nil {
+		return nil, false
+	}
+	return override.Executor(ctx, step)
 }
 
 func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error) {

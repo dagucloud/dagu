@@ -466,13 +466,21 @@ func TestInventoryStore_ReadDuringImport(t *testing.T) {
 	assert.Equal(t, "Osaka", selected[0].InventoryName)
 }
 
-// lostLock is a lock that passes to another client while its holder works.
-type lostLock struct{}
+// lockLostAfter is a lock that passes to another client once its holder has
+// checked it that many times.
+type lockLostAfter int
 
 var errLockLost = errors.New("lock lost")
 
-func (lostLock) Do(_ context.Context, fn func(held func() error) error) error {
-	return fn(func() error { return errLockLost })
+func (n lockLostAfter) Do(_ context.Context, fn func(held func() error) error) error {
+	left := int(n)
+	return fn(func() error {
+		if left == 0 {
+			return errLockLost
+		}
+		left--
+		return nil
+	})
 }
 
 // A read during which the lock passed to another client may have seen an
@@ -486,7 +494,7 @@ func TestInventoryStore_ReadRefusedWhenLockLost(t *testing.T) {
 	_, err := writer.Create(ctx, testInventory("Tokyo", "web01"))
 	require.NoError(t, err)
 
-	reader, err := store.NewInventoryStore(col, lostLock{})
+	reader, err := store.NewInventoryStore(col, lockLostAfter(0))
 	require.NoError(t, err)
 	list, err := reader.List(ctx)
 	require.ErrorIs(t, err, errLockLost)
@@ -494,6 +502,27 @@ func TestInventoryStore_ReadRefusedWhenLockLost(t *testing.T) {
 	nodes, err := reader.Nodes(ctx)
 	require.ErrorIs(t, err, errLockLost)
 	assert.Empty(t, nodes)
+}
+
+// An import that stops partway keeps what it stored, and its result names
+// those inventories, so the caller can report them.
+func TestInventoryStore_ImportStoppedPartway(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	backend := testutil.NewMemoryBackend()
+	importer, err := store.NewInventoryStore(backend.Collection(persis.CollectionInventories), lockLostAfter(1))
+	require.NoError(t, err)
+
+	result, err := importer.Import(ctx, []inventory.Inventory{
+		testInventory("Osaka", "osaka01"),
+		testInventory("Nagoya", "nagoya01"),
+	}, inventory.ImportOptions{})
+	require.ErrorIs(t, err, errLockLost)
+	assert.Equal(t, []string{"Osaka"}, result.Created)
+
+	list, err := newInventoryStore(t, backend).List(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Osaka"}, storedNames(list))
 }
 
 // A record written by a newer Dagu may hold fields this one does not know.

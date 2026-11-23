@@ -67,6 +67,8 @@ tags:
     description: "Skill folders that give instructions to chat steps"
   - name: "ai"
     description: "AI endpoint management: the addresses and the keys of model APIs (admin only)"
+  - name: "nodes"
+    description: "Node inventories: named lists of SSH hosts that steps select by label"
 
 paths:
   /health:
@@ -857,14 +859,6 @@ paths:
             enum: ["asc", "desc"]
             default: "asc"
           description: "Sort order (ascending or descending)"
-        - name: "activityWindow"
-          in: "query"
-          required: false
-          schema:
-            type: "integer"
-            minimum: 60
-            maximum: 604800
-          description: "Length in seconds of a window that ends now. When set, each DAG in the list carries `activity`: its runs that started in the window, newest first, and its latest run while it is active. Without it, no DAG carries `activity`."
       responses:
         "200":
           description: "A successful response"
@@ -2800,6 +2794,97 @@ paths:
                 $ref: "#/components/schemas/DAGRunActivity"
         "400":
           description: "The window, filters, or cursor are invalid"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-list-activity:
+    get:
+      summary: "Get the activity of a DAG list page"
+      description: |
+        Gives the activity of each DAG of one page of `GET /dags` over a window
+        that ends now. The paging, filters, and sort select the same DAGs in
+        the same order as `GET /dags` with the same values, and a `perPage`
+        above 200 reads 200 DAGs, as `GET /dags` does. A plain DAG lists its
+        runs that started in the window, the last started first, and its runs
+        still in progress. It finds them among the runs created since one
+        window before the window, at most the 1000 created last, so a run that
+        waited in a queue for longer shows only while it is the latest run. A service DAG gives the buckets
+        of its run history instead.
+      operationId: "getDAGListActivity"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: "window"
+          in: "query"
+          required: true
+          schema:
+            type: "integer"
+            minimum: 60
+            maximum: 604800
+          description: "Length in seconds of the window that ends now"
+        - name: "name"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+          description: "Same as `name` of `GET /dags`"
+        - name: "labels"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+          description: "Same as `labels` of `GET /dags`"
+        - name: "active"
+          in: "query"
+          required: false
+          schema:
+            type: "boolean"
+            default: false
+          description: "Same as `active` of `GET /dags`"
+        - name: "tags"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+          deprecated: true
+          description: "Same as `tags` of `GET /dags`"
+        - name: "sort"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+            enum: ["name", "nextRun", "status", "lastRun"]
+            default: "name"
+          description: "Same as `sort` of `GET /dags`"
+        - name: "order"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+            enum: ["asc", "desc"]
+            default: "asc"
+          description: "Same as `order` of `GET /dags`"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DAGListActivityPage"
+        "400":
+          description: "The window or a filter is invalid"
           content:
             application/json:
               schema:
@@ -13615,6 +13700,359 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /nodes:
+    get:
+      summary: "List inventory nodes"
+      description: "Lists the nodes of the inventories with their inventory's defaults applied, in name order, one page at a time. Credentials appear as secret references and key paths, never as values."
+      operationId: "listInventoryNodes"
+      tags:
+        - "nodes"
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: "labels"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+          description: "Node selector: label filter terms separated by commas, as a step's `nodes` field takes them. A node is listed when it matches every term. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400 naming the term."
+        - name: "inventory"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+          description: "Lists only the nodes of one inventory, given by its ID or by its name compared without case. An inventory that does not exist returns HTTP 400."
+        - name: "name"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+          description: "Lists only the nodes whose name contains this text, compared without case."
+      responses:
+        "200":
+          description: "The matched nodes"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryNodeListResponse"
+        "400":
+          description: "Invalid selector or unknown inventory"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /nodes/{nodeName}:
+    get:
+      summary: "Get an inventory node"
+      description: "Returns one node with its inventory's defaults applied. Credentials appear as secret references and key paths, never as values."
+      operationId: "getInventoryNode"
+      tags:
+        - "nodes"
+      parameters:
+        - name: nodeName
+          in: path
+          required: true
+          description: "Node name, compared without case"
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "The node"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryNode"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No node has this name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /node-labels:
+    get:
+      summary: "List inventory node labels"
+      description: "Lists the labels of the inventory nodes, with their inventory's defaults applied, for completion."
+      operationId: "listInventoryNodeLabels"
+      tags:
+        - "nodes"
+      responses:
+        "200":
+          description: "The labels, sorted"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListLabelResponse"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /inventories:
+    get:
+      summary: "List inventories"
+      description: "Lists the inventories in name order, with their node counts."
+      operationId: "listInventories"
+      tags:
+        - "nodes"
+      responses:
+        "200":
+          description: "The inventories"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryListResponse"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /inventories/{inventoryId}:
+    get:
+      summary: "Get an inventory"
+      description: "Returns one inventory as stored, with the version a change to it names. Credentials appear as secret references and key paths, never as values."
+      operationId: "getInventory"
+      tags:
+        - "nodes"
+      parameters:
+        - name: inventoryId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: "The inventory"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Inventory"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "No inventory has this ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /inventory-imports:
+    post:
+      summary: "Import inventories"
+      description: "Imports a JSON array of inventories, as `dagu nodes export` prints it. The whole array is checked against every rule and the stored inventories first. An inventory whose name is new is created. One whose name is taken, compared without case, is refused unless `replace` is true, which replaces that inventory as a whole and keeps its ID. An inventory that sets `id` is refused, since Dagu assigns IDs. When any rule is broken, nothing is stored and the response lists every broken rule. Otherwise the inventories are stored one at a time; an import that stops partway finishes when run again with `replace`. Requires the developer role or above."
+      operationId: "importInventories"
+      tags:
+        - "nodes"
+      parameters:
+        - name: "replace"
+          in: "query"
+          required: false
+          schema:
+            type: "boolean"
+            default: false
+          description: "Replace an inventory whose name is taken, keeping its ID."
+        - name: "dryRun"
+          in: "query"
+          required: false
+          schema:
+            type: "boolean"
+            default: false
+          description: "Check the import and store nothing."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              description: "Inventories in the record format that `Inventory` describes, without `id`, `version`, `createdAt`, and `updatedAt`. An unknown field is refused."
+              items:
+                type: object
+                additionalProperties: true
+      responses:
+        "200":
+          description: "The inventories that were, or with `dryRun` would be, created and replaced"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryImportResult"
+        "400":
+          description: "The import breaks a rule, and nothing was stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryImportError"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "An inventory changed during the import; run it again"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: "The import exceeds the 32 MiB request-body limit"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /node-connection-tests:
+    post:
+      summary: "Test node connections"
+      description: "Tests the named nodes, or the nodes a label selector matches, from the server. Each test checks the host key of each hop, authenticates, and runs `true`. A hop whose host key is unknown or has changed receives no credential, and the result names that hop. A node named twice is tested once. At most 16 nodes are tested at once. The response is a server-sent event stream: a `result` event per node as its test finishes, carrying an `InventoryNodeConnectionTest`, then a `done` event carrying an `InventoryNodeConnectionTestSummary`. A test never trusts a key. Requires the operator role or above."
+      operationId: "testInventoryNodeConnections"
+      tags:
+        - "nodes"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryNodeConnectionTestRequest"
+      responses:
+        "200":
+          description: "A server-sent event stream of one `result` event per node, then a `done` event"
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/InventoryNodeConnectionTestEvent"
+        "400":
+          description: "The request names no node, an unknown one, or more than 1,000, or its selector is invalid or matches no node"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /node-host-keys:
+    post:
+      summary: "Trust node host keys"
+      description: "Trusts, for each node named, the host key whose fingerprint the user saw. The server reads the node's key again, sending the node no credential, and stores it only when its fingerprint matches. A node behind a bastion is reached through the bastion, whose own host key must be accepted. A node that already has another trusted key keeps it unless its entry's `replace` names that key's fingerprint. The response is a server-sent event stream: a `result` event per node as it finishes, carrying an `InventoryHostKeyTrust`, then a `done` event carrying an `InventoryHostKeyTrustSummary`. Requires the developer role or above."
+      operationId: "trustInventoryNodeHostKeys"
+      tags:
+        - "nodes"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryHostKeyTrustRequest"
+      responses:
+        "200":
+          description: "A server-sent event stream of one `result` event per node, then a `done` event"
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/InventoryHostKeyTrustEvent"
+        "400":
+          description: "The request has no entry or more than 1,000, an entry lacks a node or a SHA256 fingerprint, its `replace` is not a SHA256 fingerprint, or two entries name one node"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /secrets:
     get:
       summary: "List secrets"
@@ -17961,8 +18399,6 @@ components:
           $ref: "#/components/schemas/DAG"
         latestDAGRun:
           $ref: "#/components/schemas/DAGRunSummary"
-        activity:
-          $ref: "#/components/schemas/DAGListActivity"
         nextRun:
           type: string
           format: date-time
@@ -19424,13 +19860,43 @@ components:
       description: "Schedule slot to run for: latest (the latest fire at or before now), a date (2006-01-02) when the schedule fires once that day, a time without an offset (2006-01-02T15:04) read in the schedule's zone, or an RFC 3339 time with an offset. The run gets the schedule time and window of that slot. A slot later than now returns 400. A time that is not a fire time is accepted with a warning."
       example: "2026-11-09"
 
+    DAGListActivityPage:
+      type: object
+      description: "The activity of the DAGs of one DAG list page, in page order"
+      properties:
+        dags:
+          type: array
+          items:
+            $ref: "#/components/schemas/DAGListActivityEntry"
+        errors:
+          type: array
+          description: "Errors encountered while listing the DAGs or reading their activity"
+          items:
+            type: string
+      required:
+        - dags
+        - errors
+
+    DAGListActivityEntry:
+      type: object
+      description: "The activity of one DAG of a list page"
+      properties:
+        fileName:
+          type: string
+          description: "The fileName of the DAG in `GET /dags`"
+        activity:
+          $ref: "#/components/schemas/DAGListActivity"
+      required:
+        - fileName
+        - activity
+
     DAGListActivity:
       type: object
-      description: "The runs of a DAG that started in the window of a list request, newest first, and its latest run while it is active. For a service DAG, the buckets of its run history instead."
+      description: "The runs of a DAG that started in the window of the request, newest first, and its latest run while it is active. For a service DAG, the buckets of its run history instead."
       properties:
         runs:
           type: array
-          description: "Runs that started in the window, at most 60"
+          description: "Runs that started in the window, the last started first, at most 60, and runs still in progress. Backfill runs and runs that never started are not listed."
           items:
             $ref: "#/components/schemas/DAGListActivityRun"
         truncated:
@@ -19468,10 +19934,6 @@ components:
         finishedAt:
           type: string
           description: "RFC 3339 timestamp when the run finished. Absent for a run that has not finished."
-        cachedMs:
-          type: integer
-          format: int64
-          description: "Sum in milliseconds of the times that the steps reused from other runs took in those runs. Absent for a run that reused no timed step."
       required:
         - dagRunId
         - status
@@ -23767,6 +24229,480 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/View"
+
+    InventoryNodeKind:
+      type: string
+      description: "How Dagu reaches a node. An `ssh` node is a host of an inventory."
+      enum:
+        - "ssh"
+
+    InventoryRef:
+      type: object
+      description: "The inventory a node belongs to"
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+      required:
+        - id
+        - name
+
+    InventoryNodeAuth:
+      type: object
+      description: "The credentials a node uses. Secrets appear as references, never as values."
+      properties:
+        keyPath:
+          type: string
+          description: "Path of the private key, read on the host that opens the connection"
+        keySecret:
+          type: string
+          description: "Secret reference of the private key"
+        passwordSecret:
+          type: string
+          description: "Secret reference of the password"
+        passphraseSecret:
+          type: string
+          description: "Secret reference of the private key's passphrase"
+
+    InventoryNode:
+      type: object
+      description: "A node of an inventory with its inventory's defaults applied"
+      properties:
+        name:
+          type: string
+        kind:
+          $ref: "#/components/schemas/InventoryNodeKind"
+        inventory:
+          $ref: "#/components/schemas/InventoryRef"
+        host:
+          type: string
+        port:
+          type: integer
+        user:
+          type: string
+        auth:
+          $ref: "#/components/schemas/InventoryNodeAuth"
+        bastion:
+          type: string
+          description: "Name of the node of the same inventory that the connection goes through"
+        hostKey:
+          type: string
+          description: "Public key the host must present"
+        strictHostKey:
+          type: boolean
+          description: "Whether the host key is checked"
+        shell:
+          type: string
+        timeout:
+          type: string
+          description: "Connect timeout, such as `30s`"
+        labels:
+          type: array
+          description: "Labels as `key` or `key=value`, sorted"
+          items:
+            type: string
+        description:
+          type: string
+        disabled:
+          type: boolean
+          description: "Whether runs are kept off the node. A disabled node is still listed and matched."
+      required:
+        - name
+        - kind
+        - inventory
+        - host
+        - port
+        - auth
+        - strictHostKey
+        - timeout
+        - labels
+        - disabled
+
+    InventoryNodeListResponse:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryNode"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+      required:
+        - nodes
+        - pagination
+
+    InventoryCredential:
+      description: "A key path, `{\"file\": <path>}`, or `{\"secret\": <ref>}`. A password and a passphrase take only `{\"secret\": <ref>}`."
+
+    InventoryDefaults:
+      type: object
+      description: "Node fields that fill the fields a node leaves unset, and labels added to every node. Field names are those of the inventory record."
+      properties:
+        port:
+          type: integer
+        user:
+          type: string
+        key:
+          $ref: "#/components/schemas/InventoryCredential"
+        password:
+          $ref: "#/components/schemas/InventoryCredential"
+        passphrase:
+          $ref: "#/components/schemas/InventoryCredential"
+        bastion:
+          type: string
+        host_key:
+          type: string
+        strict_host_key:
+          type: boolean
+        shell:
+          type: string
+        timeout:
+          type: string
+        labels:
+          type: array
+          items:
+            type: string
+
+    InventoryNodeSpec:
+      type: object
+      description: "One node of an inventory record. Field names are those of the inventory record."
+      properties:
+        name:
+          type: string
+        host:
+          type: string
+        port:
+          type: integer
+        user:
+          type: string
+        key:
+          $ref: "#/components/schemas/InventoryCredential"
+        password:
+          $ref: "#/components/schemas/InventoryCredential"
+        passphrase:
+          $ref: "#/components/schemas/InventoryCredential"
+        bastion:
+          type: string
+        host_key:
+          type: string
+        strict_host_key:
+          type: boolean
+        shell:
+          type: string
+        timeout:
+          type: string
+        labels:
+          type: array
+          items:
+            type: string
+        description:
+          type: string
+        disabled:
+          type: boolean
+      required:
+        - name
+        - host
+
+    Inventory:
+      type: object
+      description: "An inventory as stored. `name`, `description`, `defaults`, and `nodes` form the record that `dagu nodes export` prints and an import takes. `version` counts the changes stored, starting at 1; a change names the version it is based on."
+      properties:
+        id:
+          type: string
+          description: "Set by Dagu when the inventory is created. It never changes."
+        name:
+          type: string
+          description: "Display name, unique without regard to case"
+        description:
+          type: string
+        defaults:
+          $ref: "#/components/schemas/InventoryDefaults"
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryNodeSpec"
+        version:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - defaults
+        - nodes
+        - version
+        - createdAt
+        - updatedAt
+
+    InventorySummary:
+      type: object
+      description: "An inventory without its nodes, as a list shows it"
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        nodeCount:
+          type: integer
+        version:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - nodeCount
+        - version
+        - createdAt
+        - updatedAt
+
+    InventoryListResponse:
+      type: object
+      properties:
+        inventories:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventorySummary"
+      required:
+        - inventories
+
+    InventoryImportResult:
+      type: object
+      properties:
+        created:
+          type: array
+          description: "Names of the inventories created, in import order"
+          items:
+            type: string
+        replaced:
+          type: array
+          description: "Names of the inventories replaced, in import order"
+          items:
+            type: string
+        dryRun:
+          type: boolean
+          description: "Whether the import only checked and stored nothing"
+      required:
+        - created
+        - replaced
+        - dryRun
+
+    InventoryNodeConnectionTestRequest:
+      type: object
+      description: "The nodes to test: either named, or matched by a label selector"
+      properties:
+        nodes:
+          type: array
+          description: "Names of the nodes to test, compared without case"
+          maxItems: 1000
+          items:
+            type: string
+        labels:
+          type: string
+          description: "Label selector of the nodes to test, as `GET /nodes` takes it"
+
+    InventoryNodeConnectionTestEvent:
+      description: "The data of one event of a node test stream: a `result` event carries an `InventoryNodeConnectionTest`, and the `done` event an `InventoryNodeConnectionTestSummary`"
+      oneOf:
+        - $ref: "#/components/schemas/InventoryNodeConnectionTest"
+        - $ref: "#/components/schemas/InventoryNodeConnectionTestSummary"
+
+    InventoryNodeConnectionTest:
+      type: object
+      description: "The outcome of testing one node, sent as a `result` event"
+      properties:
+        node:
+          type: string
+          description: "Name of the node"
+        ok:
+          type: boolean
+          description: "Whether the node passed: its host keys were accepted, it authenticated, and `true` ran"
+        fingerprint:
+          type: string
+          description: "SHA256 fingerprint of the host key the node presented, when the test reached it"
+        bastionFingerprint:
+          type: string
+          description: "SHA256 fingerprint of the host key the bastion presented, when the node has one and the test reached it"
+        durationMs:
+          type: integer
+          format: int64
+          description: "Time the test took, in milliseconds"
+        error:
+          type: string
+          description: "Why the test failed"
+        hostKey:
+          $ref: "#/components/schemas/InventoryHostKeyRefusal"
+      required:
+        - node
+        - ok
+        - durationMs
+
+    InventoryHostKeyRefusal:
+      type: object
+      description: "A host key a hop refused, which ended the test before any credential reached that hop"
+      properties:
+        hop:
+          type: string
+          enum:
+            - "node"
+            - "bastion"
+          description: "The hop that presented the key"
+        node:
+          type: string
+          description: "Name of the node whose key was refused: the node tested, or the node that serves as its bastion"
+        status:
+          type: string
+          enum:
+            - "unknown"
+            - "changed"
+          description: "`unknown` when no key was pinned or trusted, `changed` when the presented key matches none of them"
+        presented:
+          type: string
+          description: "SHA256 fingerprint of the key the server presented. Empty when it holds no key of an expected type"
+        expected:
+          type: array
+          description: "SHA256 fingerprints of the pinned and trusted keys"
+          items:
+            type: string
+      required:
+        - hop
+        - node
+        - status
+        - expected
+
+    InventoryNodeConnectionTestSummary:
+      type: object
+      description: "Counts of a finished test, sent as the `done` event"
+      properties:
+        passed:
+          type: integer
+        failed:
+          type: integer
+      required:
+        - passed
+        - failed
+
+    InventoryHostKeyTrustRequest:
+      type: object
+      properties:
+        keys:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/InventoryHostKeyTrustEntry"
+      required:
+        - keys
+
+    InventoryHostKeyTrustEntry:
+      type: object
+      description: "A node and the fingerprint of the host key the user saw, as a test reported it"
+      properties:
+        node:
+          type: string
+          description: "Name of the node, compared without case"
+        fingerprint:
+          type: string
+          description: "SHA256 fingerprint of the key to trust, such as `SHA256:…`"
+        replace:
+          type: string
+          description: "SHA256 fingerprint of the key trusted for the node that the user saw and agreed to replace. The entry stores nothing unless the node trusts exactly this key"
+      required:
+        - node
+        - fingerprint
+
+    InventoryHostKeyTrustEvent:
+      description: "The data of one event of a host key trust stream: a `result` event carries an `InventoryHostKeyTrust`, and the `done` event an `InventoryHostKeyTrustSummary`"
+      oneOf:
+        - $ref: "#/components/schemas/InventoryHostKeyTrust"
+        - $ref: "#/components/schemas/InventoryHostKeyTrustSummary"
+
+    InventoryHostKeyTrust:
+      type: object
+      description: "The outcome of one trust entry, sent as a `result` event"
+      properties:
+        node:
+          type: string
+        fingerprint:
+          type: string
+          description: "SHA256 fingerprint the entry asked to trust"
+        outcome:
+          type: string
+          enum:
+            - "trusted"
+            - "replaced"
+            - "unchanged"
+          description: "`trusted` stored the key, `replaced` stored it in place of another, and `unchanged` found it trusted already. Absent when the entry failed"
+        previous:
+          type: string
+          description: "SHA256 fingerprint of another key trusted for the node before"
+        error:
+          type: string
+          description: "Why the key was not trusted"
+      required:
+        - node
+        - fingerprint
+
+    InventoryHostKeyTrustSummary:
+      type: object
+      description: "Counts of a finished trust, sent as the `done` event"
+      properties:
+        trusted:
+          type: integer
+          description: "Entries whose key is now trusted, including those trusted already"
+        failed:
+          type: integer
+      required:
+        - trusted
+        - failed
+
+    InventoryRuleError:
+      type: object
+      description: "A rule an import breaks, located by inventory, node, and field"
+      properties:
+        inventory:
+          type: string
+          description: "Name of the inventory that breaks the rule"
+        node:
+          type: string
+          description: "Name of the node that breaks the rule"
+        field:
+          type: string
+          description: "Field that breaks the rule"
+        message:
+          type: string
+      required:
+        - message
+
+    InventoryImportError:
+      type: object
+      description: "An import that was refused, with every rule it breaks"
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        message:
+          type: string
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryRuleError"
+      required:
+        - code
+        - message
+        - errors
 
     CreateWorkspaceRequest:
       type: object

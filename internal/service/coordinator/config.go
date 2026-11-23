@@ -21,6 +21,11 @@ type Config struct {
 	CAFile        string // CA certificate
 	SkipTLSVerify bool   // Skip server certificate verification
 
+	// Peer token sent on every call: Token when set, otherwise the content of
+	// TokenFile when this process can read it.
+	Token     string
+	TokenFile string
+
 	// Timeouts
 	DialTimeout      time.Duration // Connection and health check timeout of one coordinator (default: 10s)
 	RequestTimeout   time.Duration // Per-request timeout (default: 5m)
@@ -51,6 +56,8 @@ func ConfigFromPeer(peer appconfig.Peer) *Config {
 	cfg.KeyFile = peer.KeyFile
 	cfg.SkipTLSVerify = peer.SkipTLSVerify
 	cfg.Insecure = peer.Insecure
+	cfg.Token = peer.Token
+	cfg.TokenFile = peer.TokenFile
 	if peer.MaxRetries > 0 {
 		cfg.MaxRetries = peer.MaxRetries
 	}

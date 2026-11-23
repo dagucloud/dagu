@@ -998,6 +998,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dag-list-activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the activity of a DAG list page
+         * @description Gives the activity of each DAG of one page of `GET /dags` over a window
+         *     that ends now. The paging, filters, and sort select the same DAGs in
+         *     the same order as `GET /dags` with the same values, and a `perPage`
+         *     above 200 reads 200 DAGs, as `GET /dags` does. A plain DAG lists its
+         *     runs that started in the window, the last started first, and its runs
+         *     still in progress. It finds them among the runs created since one
+         *     window before the window, at most the 1000 created last, so a run that
+         *     waited in a queue for longer shows only while it is the latest run. A service DAG gives the buckets
+         *     of its run history instead.
+         *
+         */
+        get: operations["getDAGListActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dag-runs": {
         parameters: {
             query?: never;
@@ -4953,6 +4982,166 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List inventory nodes
+         * @description Lists the nodes of the inventories with their inventory's defaults applied, in name order, one page at a time. Credentials appear as secret references and key paths, never as values.
+         */
+        get: operations["listInventoryNodes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/nodes/{nodeName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an inventory node
+         * @description Returns one node with its inventory's defaults applied. Credentials appear as secret references and key paths, never as values.
+         */
+        get: operations["getInventoryNode"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/node-labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List inventory node labels
+         * @description Lists the labels of the inventory nodes, with their inventory's defaults applied, for completion.
+         */
+        get: operations["listInventoryNodeLabels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/inventories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List inventories
+         * @description Lists the inventories in name order, with their node counts.
+         */
+        get: operations["listInventories"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/inventories/{inventoryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an inventory
+         * @description Returns one inventory as stored, with the version a change to it names. Credentials appear as secret references and key paths, never as values.
+         */
+        get: operations["getInventory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/inventory-imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import inventories
+         * @description Imports a JSON array of inventories, as `dagu nodes export` prints it. The whole array is checked against every rule and the stored inventories first. An inventory whose name is new is created. One whose name is taken, compared without case, is refused unless `replace` is true, which replaces that inventory as a whole and keeps its ID. An inventory that sets `id` is refused, since Dagu assigns IDs. When any rule is broken, nothing is stored and the response lists every broken rule. Otherwise the inventories are stored one at a time; an import that stops partway finishes when run again with `replace`. Requires the developer role or above.
+         */
+        post: operations["importInventories"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/node-connection-tests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test node connections
+         * @description Tests the named nodes, or the nodes a label selector matches, from the server. Each test checks the host key of each hop, authenticates, and runs `true`. A hop whose host key is unknown or has changed receives no credential, and the result names that hop. A node named twice is tested once. At most 16 nodes are tested at once. The response is a server-sent event stream: a `result` event per node as its test finishes, carrying an `InventoryNodeConnectionTest`, then a `done` event carrying an `InventoryNodeConnectionTestSummary`. A test never trusts a key. Requires the operator role or above.
+         */
+        post: operations["testInventoryNodeConnections"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/node-host-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trust node host keys
+         * @description Trusts, for each node named, the host key whose fingerprint the user saw. The server reads the node's key again, sending the node no credential, and stores it only when its fingerprint matches. A node behind a bastion is reached through the bastion, whose own host key must be accepted. A node that already has another trusted key keeps it unless its entry's `replace` names that key's fingerprint. The response is a server-sent event stream: a `result` event per node as it finishes, carrying an `InventoryHostKeyTrust`, then a `done` event carrying an `InventoryHostKeyTrustSummary`. Requires the developer role or above.
+         */
+        post: operations["trustInventoryNodeHostKeys"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/secrets": {
         parameters: {
             query?: never;
@@ -6831,7 +7020,6 @@ export interface components {
             fileName: string;
             dag: components["schemas"]["DAG"];
             latestDAGRun: components["schemas"]["DAGRunSummary"];
-            activity?: components["schemas"]["DAGListActivity"];
             /**
              * Format: date-time
              * @description Scheduler-aware next planned run time. Pending overdue one-offs remain visible until consumed.
@@ -7617,9 +7805,21 @@ export interface components {
          * @example 2026-11-09
          */
         ScheduleSlotValue: string;
-        /** @description The runs of a DAG that started in the window of a list request, newest first, and its latest run while it is active. For a service DAG, the buckets of its run history instead. */
+        /** @description The activity of the DAGs of one DAG list page, in page order */
+        DAGListActivityPage: {
+            dags: components["schemas"]["DAGListActivityEntry"][];
+            /** @description Errors encountered while listing the DAGs or reading their activity */
+            errors: string[];
+        };
+        /** @description The activity of one DAG of a list page */
+        DAGListActivityEntry: {
+            /** @description The fileName of the DAG in `GET /dags` */
+            fileName: string;
+            activity: components["schemas"]["DAGListActivity"];
+        };
+        /** @description The runs of a DAG that started in the window of the request, newest first, and its latest run while it is active. For a service DAG, the buckets of its run history instead. */
         DAGListActivity: {
-            /** @description Runs that started in the window, at most 60 */
+            /** @description Runs that started in the window, the last started first, at most 60, and runs still in progress. Backfill runs and runs that never started are not listed. */
             runs: components["schemas"]["DAGListActivityRun"][];
             /** @description True when the DAG has more runs in the window than runs lists */
             truncated: boolean;
@@ -7641,11 +7841,6 @@ export interface components {
             startedAt: string;
             /** @description RFC 3339 timestamp when the run finished. Absent for a run that has not finished. */
             finishedAt?: string;
-            /**
-             * Format: int64
-             * @description Sum in milliseconds of the times that the steps reused from other runs took in those runs. Absent for a run that reused no timed step.
-             */
-            cachedMs?: number;
         };
         /** @description Current status of a DAG-run */
         DAGRunSummary: {
@@ -9897,6 +10092,232 @@ export interface components {
         ViewListResponse: {
             views: components["schemas"]["View"][];
         };
+        /**
+         * @description How Dagu reaches a node. An `ssh` node is a host of an inventory.
+         * @enum {string}
+         */
+        InventoryNodeKind: InventoryNodeKind;
+        /** @description The inventory a node belongs to */
+        InventoryRef: {
+            id: string;
+            name: string;
+        };
+        /** @description The credentials a node uses. Secrets appear as references, never as values. */
+        InventoryNodeAuth: {
+            /** @description Path of the private key, read on the host that opens the connection */
+            keyPath?: string;
+            /** @description Secret reference of the private key */
+            keySecret?: string;
+            /** @description Secret reference of the password */
+            passwordSecret?: string;
+            /** @description Secret reference of the private key's passphrase */
+            passphraseSecret?: string;
+        };
+        /** @description A node of an inventory with its inventory's defaults applied */
+        InventoryNode: {
+            name: string;
+            kind: components["schemas"]["InventoryNodeKind"];
+            inventory: components["schemas"]["InventoryRef"];
+            host: string;
+            port: number;
+            user?: string;
+            auth: components["schemas"]["InventoryNodeAuth"];
+            /** @description Name of the node of the same inventory that the connection goes through */
+            bastion?: string;
+            /** @description Public key the host must present */
+            hostKey?: string;
+            /** @description Whether the host key is checked */
+            strictHostKey: boolean;
+            shell?: string;
+            /** @description Connect timeout, such as `30s` */
+            timeout: string;
+            /** @description Labels as `key` or `key=value`, sorted */
+            labels: string[];
+            description?: string;
+            /** @description Whether runs are kept off the node. A disabled node is still listed and matched. */
+            disabled: boolean;
+        };
+        InventoryNodeListResponse: {
+            nodes: components["schemas"]["InventoryNode"][];
+            pagination: components["schemas"]["Pagination"];
+        };
+        /** @description A key path, `{"file": <path>}`, or `{"secret": <ref>}`. A password and a passphrase take only `{"secret": <ref>}`. */
+        InventoryCredential: unknown;
+        /** @description Node fields that fill the fields a node leaves unset, and labels added to every node. Field names are those of the inventory record. */
+        InventoryDefaults: {
+            port?: number;
+            user?: string;
+            key?: components["schemas"]["InventoryCredential"];
+            password?: components["schemas"]["InventoryCredential"];
+            passphrase?: components["schemas"]["InventoryCredential"];
+            bastion?: string;
+            host_key?: string;
+            strict_host_key?: boolean;
+            shell?: string;
+            timeout?: string;
+            labels?: string[];
+        };
+        /** @description One node of an inventory record. Field names are those of the inventory record. */
+        InventoryNodeSpec: {
+            name: string;
+            host: string;
+            port?: number;
+            user?: string;
+            key?: components["schemas"]["InventoryCredential"];
+            password?: components["schemas"]["InventoryCredential"];
+            passphrase?: components["schemas"]["InventoryCredential"];
+            bastion?: string;
+            host_key?: string;
+            strict_host_key?: boolean;
+            shell?: string;
+            timeout?: string;
+            labels?: string[];
+            description?: string;
+            disabled?: boolean;
+        };
+        /** @description An inventory as stored. `name`, `description`, `defaults`, and `nodes` form the record that `dagu nodes export` prints and an import takes. `version` counts the changes stored, starting at 1; a change names the version it is based on. */
+        Inventory: {
+            /** @description Set by Dagu when the inventory is created. It never changes. */
+            id: string;
+            /** @description Display name, unique without regard to case */
+            name: string;
+            description?: string;
+            defaults: components["schemas"]["InventoryDefaults"];
+            nodes: components["schemas"]["InventoryNodeSpec"][];
+            /** Format: int64 */
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description An inventory without its nodes, as a list shows it */
+        InventorySummary: {
+            id: string;
+            name: string;
+            description?: string;
+            nodeCount: number;
+            /** Format: int64 */
+            version: number;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        InventoryListResponse: {
+            inventories: components["schemas"]["InventorySummary"][];
+        };
+        InventoryImportResult: {
+            /** @description Names of the inventories created, in import order */
+            created: string[];
+            /** @description Names of the inventories replaced, in import order */
+            replaced: string[];
+            /** @description Whether the import only checked and stored nothing */
+            dryRun: boolean;
+        };
+        /** @description The nodes to test: either named, or matched by a label selector */
+        InventoryNodeConnectionTestRequest: {
+            /** @description Names of the nodes to test, compared without case */
+            nodes?: string[];
+            /** @description Label selector of the nodes to test, as `GET /nodes` takes it */
+            labels?: string;
+        };
+        /** @description The data of one event of a node test stream: a `result` event carries an `InventoryNodeConnectionTest`, and the `done` event an `InventoryNodeConnectionTestSummary` */
+        InventoryNodeConnectionTestEvent: components["schemas"]["InventoryNodeConnectionTest"] | components["schemas"]["InventoryNodeConnectionTestSummary"];
+        /** @description The outcome of testing one node, sent as a `result` event */
+        InventoryNodeConnectionTest: {
+            /** @description Name of the node */
+            node: string;
+            /** @description Whether the node passed: its host keys were accepted, it authenticated, and `true` ran */
+            ok: boolean;
+            /** @description SHA256 fingerprint of the host key the node presented, when the test reached it */
+            fingerprint?: string;
+            /** @description SHA256 fingerprint of the host key the bastion presented, when the node has one and the test reached it */
+            bastionFingerprint?: string;
+            /**
+             * Format: int64
+             * @description Time the test took, in milliseconds
+             */
+            durationMs: number;
+            /** @description Why the test failed */
+            error?: string;
+            hostKey?: components["schemas"]["InventoryHostKeyRefusal"];
+        };
+        /** @description A host key a hop refused, which ended the test before any credential reached that hop */
+        InventoryHostKeyRefusal: {
+            /**
+             * @description The hop that presented the key
+             * @enum {string}
+             */
+            hop: InventoryHostKeyRefusalHop;
+            /** @description Name of the node whose key was refused: the node tested, or the node that serves as its bastion */
+            node: string;
+            /**
+             * @description `unknown` when no key was pinned or trusted, `changed` when the presented key matches none of them
+             * @enum {string}
+             */
+            status: InventoryHostKeyRefusalStatus;
+            /** @description SHA256 fingerprint of the key the server presented. Empty when it holds no key of an expected type */
+            presented?: string;
+            /** @description SHA256 fingerprints of the pinned and trusted keys */
+            expected: string[];
+        };
+        /** @description Counts of a finished test, sent as the `done` event */
+        InventoryNodeConnectionTestSummary: {
+            passed: number;
+            failed: number;
+        };
+        InventoryHostKeyTrustRequest: {
+            keys: components["schemas"]["InventoryHostKeyTrustEntry"][];
+        };
+        /** @description A node and the fingerprint of the host key the user saw, as a test reported it */
+        InventoryHostKeyTrustEntry: {
+            /** @description Name of the node, compared without case */
+            node: string;
+            /** @description SHA256 fingerprint of the key to trust, such as `SHA256:…` */
+            fingerprint: string;
+            /** @description SHA256 fingerprint of the key trusted for the node that the user saw and agreed to replace. The entry stores nothing unless the node trusts exactly this key */
+            replace?: string;
+        };
+        /** @description The data of one event of a host key trust stream: a `result` event carries an `InventoryHostKeyTrust`, and the `done` event an `InventoryHostKeyTrustSummary` */
+        InventoryHostKeyTrustEvent: components["schemas"]["InventoryHostKeyTrust"] | components["schemas"]["InventoryHostKeyTrustSummary"];
+        /** @description The outcome of one trust entry, sent as a `result` event */
+        InventoryHostKeyTrust: {
+            node: string;
+            /** @description SHA256 fingerprint the entry asked to trust */
+            fingerprint: string;
+            /**
+             * @description `trusted` stored the key, `replaced` stored it in place of another, and `unchanged` found it trusted already. Absent when the entry failed
+             * @enum {string}
+             */
+            outcome?: InventoryHostKeyTrustOutcome;
+            /** @description SHA256 fingerprint of another key trusted for the node before */
+            previous?: string;
+            /** @description Why the key was not trusted */
+            error?: string;
+        };
+        /** @description Counts of a finished trust, sent as the `done` event */
+        InventoryHostKeyTrustSummary: {
+            /** @description Entries whose key is now trusted, including those trusted already */
+            trusted: number;
+            failed: number;
+        };
+        /** @description A rule an import breaks, located by inventory, node, and field */
+        InventoryRuleError: {
+            /** @description Name of the inventory that breaks the rule */
+            inventory?: string;
+            /** @description Name of the node that breaks the rule */
+            node?: string;
+            /** @description Field that breaks the rule */
+            field?: string;
+            message: string;
+        };
+        /** @description An import that was refused, with every rule it breaks */
+        InventoryImportError: {
+            code: components["schemas"]["ErrorCode"];
+            message: string;
+            errors: components["schemas"]["InventoryRuleError"][];
+        };
         CreateWorkspaceRequest: {
             name: components["schemas"]["WorkspaceName"];
             description?: string;
@@ -11380,8 +11801,6 @@ export interface operations {
                 sort?: PathsDagsGetParametersQuerySort;
                 /** @description Sort order (ascending or descending) */
                 order?: PathsDagsGetParametersQueryOrder;
-                /** @description Length in seconds of a window that ends now. When set, each DAG in the list carries `activity`: its runs that started in the window, newest first, and its latest run while it is active. Without it, no DAG carries `activity`. */
-                activityWindow?: number;
             };
             header?: never;
             path?: never;
@@ -13456,6 +13875,70 @@ export interface operations {
                 };
             };
             /** @description The window, filters, or cursor are invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGListActivity: {
+        parameters: {
+            query: {
+                /** @description page number of items to fetch (default is 1) */
+                page?: components["parameters"]["Page"];
+                /** @description number of items per page (default is 30, max is 100) */
+                perPage?: components["parameters"]["PerPage"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Length in seconds of the window that ends now */
+                window: number;
+                /** @description Same as `name` of `GET /dags` */
+                name?: string;
+                /** @description Same as `labels` of `GET /dags` */
+                labels?: string;
+                /** @description Same as `active` of `GET /dags` */
+                active?: boolean;
+                /**
+                 * @deprecated
+                 * @description Same as `tags` of `GET /dags`
+                 */
+                tags?: string;
+                /** @description Same as `sort` of `GET /dags` */
+                sort?: PathsDagListActivityGetParametersQuerySort;
+                /** @description Same as `order` of `GET /dags` */
+                order?: PathsDagListActivityGetParametersQueryOrder;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DAGListActivityPage"];
+                };
+            };
+            /** @description The window or a filter is invalid */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -27059,6 +27542,444 @@ export interface operations {
             };
         };
     };
+    listInventoryNodes: {
+        parameters: {
+            query?: {
+                /** @description page number of items to fetch (default is 1) */
+                page?: components["parameters"]["Page"];
+                /** @description number of items per page (default is 30, max is 100) */
+                perPage?: components["parameters"]["PerPage"];
+                /** @description Node selector: label filter terms separated by commas, as a step's `nodes` field takes them. A node is listed when it matches every term. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400 naming the term. */
+                labels?: string;
+                /** @description Lists only the nodes of one inventory, given by its ID or by its name compared without case. An inventory that does not exist returns HTTP 400. */
+                inventory?: string;
+                /** @description Lists only the nodes whose name contains this text, compared without case. */
+                name?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The matched nodes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryNodeListResponse"];
+                };
+            };
+            /** @description Invalid selector or unknown inventory */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getInventoryNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Node name, compared without case */
+                nodeName: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The node */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryNode"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No node has this name */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listInventoryNodeLabels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The labels, sorted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListLabelResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    listInventories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The inventories */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryListResponse"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getInventory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                inventoryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The inventory */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inventory"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No inventory has this ID */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    importInventories: {
+        parameters: {
+            query?: {
+                /** @description Replace an inventory whose name is taken, keeping its ID. */
+                replace?: boolean;
+                /** @description Check the import and store nothing. */
+                dryRun?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                }[];
+            };
+        };
+        responses: {
+            /** @description The inventories that were, or with `dryRun` would be, created and replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryImportResult"];
+                };
+            };
+            /** @description The import breaks a rule, and nothing was stored */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryImportError"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description An inventory changed during the import; run it again */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The import exceeds the 32 MiB request-body limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    testInventoryNodeConnections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryNodeConnectionTestRequest"];
+            };
+        };
+        responses: {
+            /** @description A server-sent event stream of one `result` event per node, then a `done` event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["InventoryNodeConnectionTestEvent"];
+                };
+            };
+            /** @description The request names no node, an unknown one, or more than 1,000, or its selector is invalid or matches no node */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    trustInventoryNodeHostKeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryHostKeyTrustRequest"];
+            };
+        };
+        responses: {
+            /** @description A server-sent event stream of one `result` event per node, then a `done` event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["InventoryHostKeyTrustEvent"];
+                };
+            };
+            /** @description The request has no entry or more than 1,000, an entry lacks a node or a SHA256 fingerprint, its `replace` is not a SHA256 fingerprint, or two entries name one node */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     listSecrets: {
         parameters: {
             query?: {
@@ -27817,6 +28738,16 @@ export enum PathsDagsGetParametersQueryOrder {
     asc = "asc",
     desc = "desc"
 }
+export enum PathsDagListActivityGetParametersQuerySort {
+    name = "name",
+    nextRun = "nextRun",
+    status = "status",
+    lastRun = "lastRun"
+}
+export enum PathsDagListActivityGetParametersQueryOrder {
+    asc = "asc",
+    desc = "desc"
+}
 export enum PathsDagRunsGetParametersQueryBackfill {
     exclude = "exclude",
     only = "only"
@@ -28488,6 +29419,22 @@ export enum ViewSpecType {
     workflow = "workflow",
     run = "run",
     artifact = "artifact"
+}
+export enum InventoryNodeKind {
+    ssh = "ssh"
+}
+export enum InventoryHostKeyRefusalHop {
+    node = "node",
+    bastion = "bastion"
+}
+export enum InventoryHostKeyRefusalStatus {
+    unknown = "unknown",
+    changed = "changed"
+}
+export enum InventoryHostKeyTrustOutcome {
+    trusted = "trusted",
+    replaced = "replaced",
+    unchanged = "unchanged"
 }
 export enum WorkspaceDeprecationItemKind {
     baseConfig = "baseConfig",

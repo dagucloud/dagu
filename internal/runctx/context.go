@@ -69,6 +69,10 @@ type Context struct {
 	Nodes                NodeSelector        // Inventory nodes for steps with nodes (RFC 012)
 	HostKeys             TrustedHostKeys     // Host keys trusted for nodes (RFC 012)
 	Node                 *cmnvalue.BoundNode // The node a bound run reads as ${node.*} (RFC 013)
+	RedirectRoot         RedirectRoot
+	// SecretValues, when non-nil, holds the secret values the run resolved
+	// its secrets from in place of their providers.
+	SecretValues map[string]string
 	// RunSecrets holds the values of every secret of the run, for masking. The
 	// scope of a step can hold fewer secrets (Spec 092).
 	RunSecrets *RunSecrets
@@ -77,6 +81,15 @@ type Context struct {
 	RunWorkDir string
 	// StepGate lets an isolated untrusted step hold the run alone.
 	StepGate *StepGate
+}
+
+// RedirectRoot moves the stdout and stderr redirect files of steps under Dir,
+// keeping each file's absolute path below it. The steps named in Keep, and
+// redirects to artifacts, write at their configured paths. The zero value
+// moves nothing.
+type RedirectRoot struct {
+	Dir  string
+	Keep []string
 }
 
 // LogWriterFactory creates log writers for step stdout/stderr.
@@ -461,6 +474,21 @@ func WithHostKeys(keys TrustedHostKeys) ContextOption {
 func WithNoReuse(disabled bool) ContextOption {
 	return func(o *contextOptions) {
 		o.NoReuse = disabled
+	}
+}
+
+// WithRedirectRoot sets where the run writes step redirect files.
+func WithRedirectRoot(root RedirectRoot) ContextOption {
+	return func(o *contextOptions) {
+		o.RedirectRoot = root
+	}
+}
+
+// WithSecretValues records the secret values the run resolved its secrets
+// from in place of their providers.
+func WithSecretValues(values map[string]string) ContextOption {
+	return func(o *contextOptions) {
+		o.SecretValues = values
 	}
 }
 

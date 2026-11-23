@@ -1,0 +1,25 @@
+params:
+  - name: env
+    default: dev
+  - name: tag
+    eval: "release-${params.env}"
+  - name: stamp
+    eval: "$(date +%s)"
+preconditions:
+  - eval: "${params.env}"
+    expected: dev
+steps:
+  - id: plain
+    action: log.write
+    with:
+      message: plain
+    preconditions:
+      - eval: "${params.env}"
+        expected: dev
+  - id: weekday
+    action: log.write
+    with:
+      message: weekday
+    preconditions:
+      - eval: "`date +%u`"
+        expected: "1"

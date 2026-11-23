@@ -121,7 +121,7 @@ func applyDefaults(s *step, d *defaults, raw map[string]any) {
 	}
 
 	// Override fields: apply only if step did not explicitly set the field
-	if strings.TrimSpace(s.Action) != "human.task" {
+	if strings.TrimSpace(s.Action) != humanTaskAction {
 		if shouldApply("retry_policy", s.RetryPolicy == nil) && d.RetryPolicy != nil {
 			s.RetryPolicy = d.RetryPolicy
 		}

@@ -29,6 +29,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
+	"github.com/dagucloud/dagu/v2/internal/cmn/netutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -1735,13 +1736,7 @@ func isPrivateHostLiteral(host string) bool {
 }
 
 func rejectPrivateAddress(addr netip.Addr) error {
-	addr = addr.Unmap()
-	if addr.IsLoopback() ||
-		addr.IsPrivate() ||
-		addr.IsLinkLocalUnicast() ||
-		addr.IsLinkLocalMulticast() ||
-		addr.IsMulticast() ||
-		addr.IsUnspecified() {
+	if netutil.IsPrivateAddr(addr) {
 		return errors.New("webhook url resolves to loopback or private network")
 	}
 	return nil

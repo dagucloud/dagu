@@ -571,7 +571,11 @@ steps:
 			return resp.StatusCode == http.StatusOK
 		}, commandLogWaitTimeout(), 20*time.Millisecond)
 		fileName := strings.TrimSuffix(filepath.Base(run.dag.Location), ".yaml")
-		resp, err := client.Post(baseURL+"/dags/"+url.PathEscape(fileName)+"/start", "application/json", strings.NewReader("{}"))
+		// The start request returns once the run has started, which the
+		// server waits up to 10 seconds for, so a health probe's timeout is
+		// too short for it.
+		startClient := &http.Client{Timeout: commandLogWaitTimeout()}
+		resp, err := startClient.Post(baseURL+"/dags/"+url.PathEscape(fileName)+"/start", "application/json", strings.NewReader("{}"))
 		require.NoError(t, err)
 		_ = resp.Body.Close()
 		require.Equal(t, http.StatusOK, resp.StatusCode)

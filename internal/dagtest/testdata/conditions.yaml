@@ -1,0 +1,41 @@
+params:
+  - name: build_date
+    eval: "`date +%F`"
+  - name: env
+    default: dev
+preconditions:
+  - condition: test -f ready.flag
+steps:
+  - id: gate
+    action: log.write
+    with:
+      message: gated
+    preconditions:
+      - condition: test -d dist
+  - id: compare
+    action: log.write
+    with:
+      message: compared
+    preconditions:
+      - eval: "$(cat version.txt)"
+        expected: v1
+  - id: matched
+    action: log.write
+    with:
+      message: matched
+    preconditions:
+      - condition: ${params.env}
+        expected: dev
+  - id: poll
+    run: ./status.sh
+    repeat_policy:
+      repeat: until
+      condition: test -f done.flag
+      limit: 5
+  - id: watch
+    run: ./status.sh
+    repeat_policy:
+      repeat: until
+      condition: ${params.env}
+      expected: prod
+      limit: 5

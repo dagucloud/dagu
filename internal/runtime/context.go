@@ -22,6 +22,8 @@ type (
 	NodeSelector = runctx.NodeSelector
 	// TrustedHostKeys finds the host keys trusted for nodes.
 	TrustedHostKeys = runctx.TrustedHostKeys
+	// RedirectRoot is an alias for runctx.RedirectRoot.
+	RedirectRoot = runctx.RedirectRoot
 	// Dispatcher is an alias for execution.Dispatcher
 	Dispatcher = dispatch.Dispatcher
 	// RunStatus is an alias for execution.RunStatus
@@ -104,6 +106,11 @@ var (
 	WithHostKeys = runctx.WithHostKeys
 	// WithNoReuse records that manifest hits are disabled for the run.
 	WithNoReuse = runctx.WithNoReuse
+	// WithRedirectRoot sets where the run writes step redirect files.
+	WithRedirectRoot = runctx.WithRedirectRoot
+	// WithSecretValues records the secret values that replace the run's
+	// secret providers.
+	WithSecretValues = runctx.WithSecretValues
 	// WithDAGRunLogDir sets the base log directory for newly persisted DAG runs.
 	WithDAGRunLogDir = runctx.WithDAGRunLogDir
 	// WithDAGRunArtifactDir sets the base artifact directory for newly persisted DAG runs.

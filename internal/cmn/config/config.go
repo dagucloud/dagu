@@ -768,6 +768,9 @@ type Coordinator struct {
 	// are not calls of a worker, such as a dispatch (Spec 092). The key is
 	// required with WorkerPools and invalid without them.
 	Dispatchers []string
+	// RequireToken rejects calls that do not carry the peer token. When
+	// false, such calls are accepted with a warning.
+	RequireToken bool
 }
 
 // Worker represents the worker configuration.
@@ -842,6 +845,12 @@ type Peer struct {
 	Insecure      bool          // Use h2c instead of TLS
 	MaxRetries    int           // Default: 10 (exponential backoff, capped at 30s)
 	RetryInterval time.Duration // Default: 1s
+	// Token is the shared token peers send to the coordinator. Empty means
+	// the token the coordinator generates in TokenFile.
+	Token string
+	// TokenFile is where the coordinator keeps the token it generates, under
+	// the data directory. Processes that share the data directory read it.
+	TokenFile string
 }
 
 // Validate performs basic validation on the configuration to ensure required fields are set
@@ -903,6 +912,20 @@ func (c *Config) Validate() error {
 	}
 	if err := c.validateWebhooks(); err != nil {
 		return err
+	}
+	if err := ValidatePeerToken(c.Core.Peer.Token); err != nil {
+		return fmt.Errorf("peer.token %w", err)
+	}
+	return nil
+}
+
+// ValidatePeerToken rejects a token that gRPC metadata cannot carry, which
+// holds any byte outside printable ASCII.
+func ValidatePeerToken(token string) error {
+	for i := range len(token) {
+		if token[i] < 0x20 || token[i] > 0x7e {
+			return errors.New("must contain only printable ASCII characters")
+		}
 	}
 	return nil
 }

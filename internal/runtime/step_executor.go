@@ -24,12 +24,29 @@ var errNodeExecutionAborted = errors.New("node execution aborted before start")
 // shorten it.
 var liveModelUsageInterval = 5 * time.Second
 
+// ExecutorOverride supplies executors that run in place of step actions.
+type ExecutorOverride interface {
+	// Executor returns the executor that runs in place of the step's action
+	// for one execution, or false when the step runs its own action. It
+	// answers the same way for every execution of a step, since a step's
+	// state, such as its child runs, assumes one kind of action. The
+	// step's fields are resolved as they are for its own action. On a step
+	// that starts child runs, such as dag.run, parallel, or a step with
+	// nodes, the executor replaces every child run, so none starts or is
+	// recorded.
+	Executor(ctx context.Context, step ir.Step) (executor.Executor, bool)
+}
+
 // StepExecutor owns a single step execution attempt.
 //
 // The scheduler-facing Runner decides when a node should run. StepExecutor owns
 // the executor-specific protocol for setting up one run, passing executor
 // context, collecting executor side channels, and capturing outputs.
-type StepExecutor struct{}
+type StepExecutor struct {
+	// override supplies executors in place of step actions. Nil builds each
+	// step's own.
+	override ExecutorOverride
+}
 
 // NewStepExecutor creates a StepExecutor.
 func NewStepExecutor() *StepExecutor {
@@ -105,7 +122,7 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		}()
 	}
 
-	ctx, cmd, err := node.setupExecutor(ctx)
+	ctx, cmd, err := node.setupExecutor(ctx, e.override)
 	defer func() {
 		if cleanupErr := node.cleanupStepOutputFile(); cleanupErr != nil {
 			logger.Warn(ctx, "Failed to remove step output file",
@@ -197,7 +214,10 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		return captureErr
 	}
 
-	if err == nil {
+	// An executor that publishes every named output of its step replaces the
+	// output file and the step's output fields as their source.
+	publisher, publishesOutputs := cmd.(executor.NamedOutputsPublisher)
+	if err == nil && !publishesOutputs {
 		if err := node.captureDeclaredStepOutputs(ctx); err != nil {
 			node.SetError(err)
 			return err
@@ -208,8 +228,14 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 	}
 
 	// An output field is resolved after the run and can read a masked value.
-	if err := node.captureOutput(ctx); err != nil {
-		return preferMaskedRead(ctx, node, err)
+	var outputErr error
+	if publishesOutputs {
+		outputErr = node.capturePublishedOutputs(ctx, publisher.NamedOutputs())
+	} else {
+		outputErr = node.captureOutput(ctx)
+	}
+	if outputErr != nil {
+		return preferMaskedRead(ctx, node, outputErr)
 	}
 	// An executor can resolve a field while it runs.
 	if err := maskedReadError(ctx, node); err != nil {

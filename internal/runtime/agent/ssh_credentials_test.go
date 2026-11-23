@@ -127,6 +127,55 @@ steps:
 	}
 }
 
+// With secret values, an SSH credential ref takes the value given for the
+// ref, masked like a resolved credential, and the resolver is not asked.
+func TestAgent_SSHCredentialRefsFromSecretValues(t *testing.T) {
+	t.Parallel()
+
+	const credential = "test-value-9q2m"
+	const yaml = `
+steps:
+  - name: local
+    run: echo ` + credential + `
+    output: RESPONSE
+  - name: remote
+    action: ssh.run
+    preconditions:
+      - condition: "skip"
+        expected: "run"
+    with:
+      host: app.invalid
+      command: "true"
+      password: {secret: ssh/password}
+`
+
+	t.Run("Given", func(t *testing.T) {
+		t.Parallel()
+
+		th := test.Setup(t)
+		resolver := newCountingSecretResolver(map[string]string{"ssh/password": "resolver-value"})
+		dag := th.DAG(t, yaml)
+		dag.Agent(test.WithAgentOptions(agent.Options{
+			SecretReferenceResolver: resolver,
+			SecretValues:            map[string]string{"ssh/password": credential},
+		})).RunSuccess(t)
+
+		require.Zero(t, resolver.callCount("ssh/password"))
+		outputs := dag.ReadOutputs(t)
+		require.NotContains(t, outputs["response"], credential)
+		require.Contains(t, outputs["response"], "*******")
+	})
+
+	t.Run("Missing", func(t *testing.T) {
+		t.Parallel()
+
+		th := test.Setup(t)
+		dag := th.DAG(t, yaml)
+		dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{SecretValues: map[string]string{}}))
+		dagAgent.RunCheckErr(t, `failed to resolve steps.remote.with.password from secret ref "ssh/password": no value given`)
+	})
+}
+
 // Node targeting that is not built yet fails before any step, rather than
 // running commands meant for a node somewhere else.
 func TestAgent_NodeTargetingFailsBeforeAnyStep(t *testing.T) {

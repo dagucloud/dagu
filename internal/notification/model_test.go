@@ -487,6 +487,24 @@ func TestNormalizeRejectsPrivateWebhookTargetUnlessExplicitlyAllowed(t *testing.
 	require.NoError(t, err)
 }
 
+// A NAT64 address reaches the IPv4 address it carries, here the cloud metadata
+// address, so it counts as a private target.
+func TestNormalizeRejectsPrivateIPv4InsideIPv6Target(t *testing.T) {
+	t.Parallel()
+
+	_, err := Normalize(&Settings{
+		DAGName: "daily-report",
+		Enabled: true,
+		Events:  []eventstore.EventType{eventstore.TypeDAGRunFailed},
+		Targets: []Target{{
+			Type:    ProviderWebhook,
+			Enabled: true,
+			Webhook: &WebhookTarget{URL: "https://[64:ff9b::a9fe:a9fe]/webhook"},
+		}},
+	}, "tester")
+	assert.ErrorIs(t, err, ErrInvalidSettings)
+}
+
 func TestNormalizeRejectsInvalidTelegramTopicID(t *testing.T) {
 	t.Parallel()
 

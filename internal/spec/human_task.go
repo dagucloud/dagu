@@ -10,6 +10,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
+// humanTaskAction is the action that waits for a person to complete a task.
+const humanTaskAction = "human.task"
+
 var humanTaskIncompatibleStepFields = []string{
 	"approval",
 	"container",
@@ -62,7 +65,7 @@ func normalizeHumanTaskAction(normalized map[string]any, with map[string]any) er
 }
 
 func buildStepHumanTask(_ stepBuildContext, s *step, result *ir.Step) error {
-	if strings.TrimSpace(s.Action) != "human.task" {
+	if strings.TrimSpace(s.Action) != humanTaskAction {
 		return nil
 	}
 

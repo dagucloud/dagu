@@ -157,8 +157,8 @@ func TestBuiltinActionNamesMatchDAGSchema(t *testing.T) {
 	}
 	sort.Strings(schemaActions)
 
-	codeActions := make([]string, 0, len(builtinActionNormalizers))
-	for action := range builtinActionNormalizers {
+	codeActions := make([]string, 0, len(builtinActions))
+	for action := range builtinActions {
 		codeActions = append(codeActions, action)
 	}
 	sort.Strings(codeActions)

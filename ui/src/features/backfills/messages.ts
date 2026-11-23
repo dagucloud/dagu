@@ -47,6 +47,8 @@ export const backfillMessages = defineMessages({
     '{count} at a time, continue after a failed slot':
       '{count} at a time, continue after a failed slot',
     "The DAG's default profile": "The DAG's default profile",
+    '{name} (protected)': '{name} (protected)',
+    '{name} (admin only)': '{name} (admin only)',
     'No slots in this state.': 'No slots in this state.',
     'Slot {time}': 'Slot {time}',
     'Older definition': 'Older definition',
@@ -202,6 +204,8 @@ export const backfillMessages = defineMessages({
     '{count} at a time, continue after a failed slot':
       '每次 {count} 个，时段失败后继续',
     "The DAG's default profile": 'DAG 的默认配置',
+    '{name} (protected)': '{name}（受保护）',
+    '{name} (admin only)': '{name}（仅管理员）',
     'No slots in this state.': '没有处于此状态的时段。',
     'Slot {time}': '时段 {time}',
     'Older definition': '较早的定义',
@@ -354,6 +358,8 @@ export const backfillMessages = defineMessages({
     '{count} at a time, continue after a failed slot':
       '同時に {count} 件、スロットが失敗しても続行',
     "The DAG's default profile": 'DAG の既定のプロファイル',
+    '{name} (protected)': '{name}（保護済み）',
+    '{name} (admin only)': '{name}（管理者のみ）',
     'No slots in this state.': 'この状態のスロットはありません。',
     'Slot {time}': 'スロット {time}',
     'Older definition': '以前の定義',

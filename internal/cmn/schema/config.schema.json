@@ -1115,6 +1115,10 @@
         "retry_interval": {
           "type": "string",
           "description": "Interval between connection retries. Default: '1s'."
+        },
+        "token": {
+          "type": "string",
+          "description": "Shared token that peers send to the coordinator. When empty, peers use the token the coordinator generates in the data directory."
         }
       }
     },
@@ -1243,6 +1247,10 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "require_token": {
+          "type": "boolean",
+          "description": "Reject calls that do not carry the peer token. When false, such calls are accepted with a warning. Default: false."
         }
       }
     },
