@@ -167,6 +167,7 @@ export function ViewSelector({
   const [renameOpen, setRenameOpen] = React.useState(false);
   const [renameName, setRenameName] = React.useState('');
   const triggerRef = React.useRef<HTMLButtonElement>(null);
+  const focusTriggerOnDeleteClose = React.useRef(false);
 
   const { ts } = useI18n();
   const copy = VIEW_COPY[kind];
@@ -219,10 +220,10 @@ export function ViewSelector({
     }
   };
 
-  // A toolbar button can turn off once its dialog closes: the focus goes
+  // A toolbar button can turn off once its action completes: the focus goes
   // back to the selector instead.
   const focusTrigger = () => {
-    window.requestAnimationFrame(() => triggerRef.current?.focus());
+    triggerRef.current?.focus();
   };
 
   const requestDelete = (view: SavedViewItem, fromManage = true) => {
@@ -264,7 +265,7 @@ export function ViewSelector({
 
   const toFocusTrigger = (event: Event) => {
     event.preventDefault();
-    triggerRef.current?.focus();
+    focusTrigger();
   };
 
   const confirmDelete = async () => {
@@ -273,9 +274,11 @@ export function ViewSelector({
     }
     try {
       await runMutation(() => onDeleteView(pendingDelete.id));
+      // Closing the dialog focuses its opener. The toolbar's Delete button
+      // turns off with the view, so the focus goes to the selector instead.
+      focusTriggerOnDeleteClose.current = !deleteFromManage;
       setPendingDelete(null);
       if (deleteFromManage) setManageDialogOpen(true);
-      else focusTrigger();
     } catch {
       // Keep the confirmation open so the operation can be retried.
     }
@@ -693,6 +696,11 @@ export function ViewSelector({
           visible={pendingDelete !== null}
           dismissModal={dismissDelete}
           onSubmit={confirmDelete}
+          onCloseAutoFocus={(event) => {
+            if (!focusTriggerOnDeleteClose.current) return;
+            focusTriggerOnDeleteClose.current = false;
+            toFocusTrigger(event);
+          }}
         >
           <p className="text-sm text-muted-foreground">
             <I18nText
