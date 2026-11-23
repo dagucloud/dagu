@@ -42,7 +42,7 @@ type executorImpl struct {
 }
 
 func init() {
-	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true, SideEffectFree: true})
+	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{Command: true, SideEffectFree: true, PublishesOutputs: true})
 	registry.RegisterExecutorConfigSchema(executorType, configSchema)
 }
 

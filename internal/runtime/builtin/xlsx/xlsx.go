@@ -45,10 +45,11 @@ var errConfig = errors.New("xlsx: configuration error")
 
 func init() {
 	executor.RegisterExecutor(executorType, newExecutor, validateStep, registry.ExecutorCapabilities{
-		Command:     true,
-		LLM:         true,
-		DryRunCheck: dryRunCheck,
-		PathInputs:  []string{"path", "input", "output"},
+		Command:          true,
+		LLM:              true,
+		DryRunCheck:      dryRunCheck,
+		PathInputs:       []string{"path", "input", "output"},
+		PublishesOutputs: true,
 	})
 }
 

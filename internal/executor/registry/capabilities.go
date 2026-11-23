@@ -60,6 +60,10 @@ type ExecutorCapabilities struct {
 	// and outputs. A workflow test runs such an action for real unless the
 	// test mocks it.
 	SideEffectFree bool
+	// PublishesOutputs indicates whether every operation of the executor
+	// publishes named outputs of its own, which the run collects. An executor
+	// with an operation that publishes none leaves it unset.
+	PublishesOutputs bool
 }
 
 // executorCapabilitiesRegistry is a typed registry of executor capabilities.
