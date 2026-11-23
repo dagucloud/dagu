@@ -6,6 +6,7 @@ package file
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -123,8 +124,12 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 	}
 
 	if cfg.Server.Audit.Enabled {
+		var secrets audit.SecretSource = unavailableSecrets{}
+		if stores.Secret != nil {
+			secrets = stores.Secret
+		}
 		auditStore, err := fileaudit.New(fileaudit.Dir(cfg.Paths.AdminLogsDir), cfg.Server.Audit.RetentionDays,
-			fileaudit.WithMasker(audit.NewMasker(stores.Secret)))
+			fileaudit.WithMasker(audit.NewMasker(secrets)))
 		if err != nil {
 			return fmt.Errorf("failed to initialize audit service: failed to create audit store: %w", err)
 		}
@@ -233,6 +238,21 @@ func newWorkspaceStore(cfg *config.Config, col persis.Collection) (*store.Worksp
 	}
 	return store.NewWorkspaceStore(col)
 }
+
+// errSecretStoreUnavailable reports that the server runs without its secret
+// store, so audit entries cannot be masked with the stored values.
+var errSecretStoreUnavailable = errors.New("secret store is unavailable")
+
+// unavailableSecrets is the audit secret source of a server whose secret
+// store failed to start. Every load fails, so no audit entry is marked
+// masked.
+type unavailableSecrets struct{}
+
+func (unavailableSecrets) CurrentValues(context.Context) ([]string, error) {
+	return nil, errSecretStoreUnavailable
+}
+
+func (unavailableSecrets) Revision() uint64 { return 0 }
 
 func initEncryptedStores(ctx context.Context, cfg *config.Config, backend persis.Backend, stores *frontend.Stores) {
 	encKey, err := crypto.ResolveKey(cfg.Paths.DataDir)
