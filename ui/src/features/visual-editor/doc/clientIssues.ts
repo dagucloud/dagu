@@ -537,11 +537,12 @@ function restartDrafts(model: DagDocModel): Draft[] {
     message,
     fieldPath: field,
   });
-  if (parseRestartPolicy(raw) === null) {
+  const policy = parseRestartPolicy(raw);
+  if (policy === null) {
     return [error(invalidRestartPolicyMessage(raw), 'restart_policy')];
   }
+  if (!isServicePolicy(policy)) return [];
   const restart = readRestart(model.text);
-  if (!isServicePolicy(restart.policy)) return [];
   const drafts: Draft[] = [];
   if (restart.schedule) {
     drafts.push(error(RESTART_WITH_SCHEDULE_MESSAGE, 'restart_policy'));
@@ -553,7 +554,7 @@ function restartDrafts(model: DagDocModel): Draft[] {
   // only the server knows: it reports them. A negative wait is an error.
   const wait = scalarAtField(model, 'restart_wait_sec')?.value;
   if (typeof wait === 'number' && Number.isInteger(wait) && wait < 0) {
-    drafts.push(error(restartWaitMessage(restart.policy), 'restart_wait_sec'));
+    drafts.push(error(restartWaitMessage(policy), 'restart_wait_sec'));
   }
   return drafts;
 }
