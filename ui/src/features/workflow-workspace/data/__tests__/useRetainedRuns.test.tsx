@@ -8,7 +8,12 @@ import {
   resetTestRunsStarted,
   SERVICE_READ_GAP_MS,
 } from '../useRunHistory';
-import { RETAINED_READ_MS, useRetainedRuns } from '../useServiceDag';
+import {
+  gatedRead,
+  noteRead,
+  RETAINED_READ_MS,
+  useRetainedRuns,
+} from '../useServiceDag';
 import { dagPage, idleSSE, run } from './fixtures';
 import { renderWorkspace, serve, type FakeServer } from './harness';
 
@@ -165,5 +170,31 @@ describe('useRetainedRuns without a connected feed', () => {
     renderWorkspace(() => useRetainedRuns(false));
     await wait(RETAINED_READ_MS * 2);
     expect(retainedCalls()).toHaveLength(0);
+  });
+});
+
+// A list has one pending read. A caller with a shorter gap moves it earlier,
+// and a read that happens first cancels it.
+describe('gatedRead', () => {
+  it('keeps the earliest pending read of a list', async () => {
+    const read = vi.fn(() => Promise.resolve());
+    noteRead('list');
+    void gatedRead('list', read, 30_000);
+    void gatedRead('list', read, 10_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(read).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the pending read when the list is read first', async () => {
+    const read = vi.fn(() => Promise.resolve());
+    noteRead('list');
+    void gatedRead('list', read, 10_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    void gatedRead('list', read, 1_000);
+    expect(read).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(read).toHaveBeenCalledTimes(1);
   });
 });

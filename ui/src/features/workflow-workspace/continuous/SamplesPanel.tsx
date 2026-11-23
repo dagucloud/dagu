@@ -280,7 +280,7 @@ export function SamplesPanel({
             ))}
           </ToggleGroup>
         )}
-        {notice?.(asked)}
+        {notice?.(shown)}
         <div className="pt-2">
           {samples.error && !samples.data ? (
             <PanelMessage tone="error" align="start" className="p-0">

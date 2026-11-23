@@ -3,6 +3,7 @@
 
 import { useMemo, useRef, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { RestartPolicy, Status } from '@/api/v1/schema';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import type { RunLinks } from '../continuous/EventsList';
@@ -55,6 +56,16 @@ export function ServiceHistory({
   );
   const latest = dagData.latestDAGRun;
   const liveRun = useMemo(() => liveRunOf(latest), [latest]);
+  // The history of a DAG that gets no new run cannot change: a suspended
+  // one, and an unless-stopped one whose latest run was stopped. Its panel
+  // does not poll. A run that starts after all makes it poll again.
+  const restarts =
+    liveRun !== null ||
+    !(
+      dagData.suspended ||
+      (dagData.dag?.restartPolicy === RestartPolicy.unless_stopped &&
+        latest?.status === Status.Aborted)
+    );
 
   // The links keep one identity while the retained runs do not change.
   const select = useRef(run.select);
@@ -93,15 +104,13 @@ export function ServiceHistory({
         : controlsHost && createPortal(controls, controlsHost)}
       <SamplesPanel
         source={source}
-        // The history changes only while a run is alive: its end reads it
-        // once more, and a DAG with no run in progress does not poll. The
-        // dock stops the polls of a closed panel by itself.
-        active={liveRun !== null}
+        // The dock stops the polls of a closed panel by itself.
+        active={restarts}
         range={panelRange}
         links={links}
         notice={notice}
         liveRun={liveRun}
-        onOpenRun={(id) => run.select(id, { replace: true })}
+        onOpenRun={links.open}
         testId="ww-service-history-panel"
         // The phone view of Activity is a whole screen: the availability
         // takes two columns there, so the chart needs more height.

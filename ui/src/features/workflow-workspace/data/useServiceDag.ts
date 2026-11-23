@@ -50,6 +50,8 @@ interface ReadGate {
   /** When the last read of the list ended, in ms. */
   last: number;
   timer: ReturnType<typeof setTimeout> | null;
+  /** When the pending read is due, in ms. */
+  due: number;
 }
 
 // One gate for each list, so that every reader of it shares the gap.
@@ -58,7 +60,7 @@ const readGates = new Map<string, ReadGate>();
 function gateOf(key: string): ReadGate {
   let gate = readGates.get(key);
   if (!gate) {
-    gate = { last: 0, timer: null };
+    gate = { last: 0, timer: null, due: 0 };
     readGates.set(key, gate);
   }
   return gate;
@@ -71,7 +73,8 @@ export function noteRead(key: string): void {
 
 /**
  * Reads now when the last read is older than the gap. Else it reads once
- * when the gap ends, whatever the count of calls before that.
+ * when the gap ends, whatever the count of calls before that. A list has
+ * one pending read: the earliest that a caller asked for.
  */
 export function gatedRead(
   key: string,
@@ -81,10 +84,16 @@ export function gatedRead(
   const gate = gateOf(key);
   const wait = gate.last + gap - Date.now();
   if (wait <= 0) {
+    if (gate.timer) clearTimeout(gate.timer);
+    gate.timer = null;
     gate.last = Date.now();
     return read();
   }
-  gate.timer ??= setTimeout(() => {
+  const due = Date.now() + wait;
+  if (gate.timer && gate.due <= due) return Promise.resolve(undefined);
+  if (gate.timer) clearTimeout(gate.timer);
+  gate.due = due;
+  gate.timer = setTimeout(() => {
     gate.timer = null;
     gate.last = Date.now();
     void read();
@@ -187,6 +196,7 @@ export function useRetainedRuns(
       void gatedRead(gateKey, () => mutate(), SERVICE_READ_GAP_MS);
     }
     // Only a new window reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [windowKey]);
   return useMemo(() => {
     const runs = data?.dagRuns;

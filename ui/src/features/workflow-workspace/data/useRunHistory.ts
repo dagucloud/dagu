@@ -166,7 +166,9 @@ export function useRunHistory({
   );
   const startedAt = useTestRunStartedAt(fileName);
   const service = useIsServiceDag();
-  const gateKey = `${remoteNode}\n${fileName}\n${includeEphemeral}`;
+  // One gate for each list that SWR keeps: a read of one must not stand in
+  // for a read of another.
+  const gateKey = `${remoteNode}\n${fileName}\n${includeEphemeral}\n${includeBackfill}`;
   const base = sseFallbackOptions(historySSE);
   const baseInterval = spaced(service, base.refreshInterval);
   // SWR restarts its poll timer when this function changes, so it changes

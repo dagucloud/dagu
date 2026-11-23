@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RestartPolicy, Status } from '@/api/v1/schema';
+import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import {
   WorkspaceDataContext,
   type WorkspaceDataValue,
@@ -27,6 +28,7 @@ const h = vi.hoisted(() => ({
   retained: undefined as unknown,
   chartWindow: { from: 0, to: 0 },
   latest: undefined as unknown,
+  suspended: false,
 }));
 
 vi.mock('../../data', () => ({
@@ -134,6 +136,7 @@ function renderDock() {
         histRetentionRuns: h.histRetentionRuns,
       },
       latestDAGRun: h.latest,
+      suspended: h.suspended,
     },
   } as unknown as WorkspaceDataValue;
   return render(
@@ -153,6 +156,7 @@ beforeEach(() => {
   h.retained = undefined;
   h.chartWindow = { from: NOW - 7 * 86_400_000, to: NOW };
   h.latest = undefined;
+  h.suspended = false;
   h.select.mockReset();
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(NOW);
@@ -260,27 +264,34 @@ describe('the Activity panel of a service DAG', () => {
     expect(h.select).toHaveBeenCalledWith('run-1', { replace: true });
   });
 
-  // A stopped or a waiting service has no run that adds to the history: its
-  // panel does not poll.
-  it('polls the history only while a run is in progress', () => {
-    h.latest = {
-      dagRunId: 'run-1',
-      status: Status.Running,
-      startedAt: '2026-11-05T12:00:00Z',
-      finishedAt: '',
-    };
-    renderDock();
-    expect(screen.getByTestId('stub-active')).toHaveTextContent('true');
-    cleanup();
-
-    h.latest = {
+  // The history of a DAG that gets no new run cannot change: its panel does
+  // not poll.
+  it('polls the history unless the DAG gets no new run', () => {
+    const ended = {
       dagRunId: 'run-1',
       status: Status.Aborted,
       startedAt: '2026-11-05T12:00:00Z',
       finishedAt: '2026-11-05T13:00:00Z',
     };
-    renderDock();
-    expect(screen.getByTestId('stub-active')).toHaveTextContent('false');
+    const active = () => {
+      renderDock();
+      const text = screen.getByTestId('stub-active').textContent;
+      cleanup();
+      return text;
+    };
+    // An always DAG runs again after a stop.
+    h.latest = ended;
+    expect(active()).toBe('true');
+    // An unless-stopped DAG stays down, until a run starts after all.
+    h.restartPolicy = RestartPolicy.unless_stopped;
+    expect(active()).toBe('false');
+    h.latest = { ...ended, status: Status.Running, finishedAt: '' };
+    expect(active()).toBe('true');
+    // A suspended DAG gets no run.
+    h.restartPolicy = RestartPolicy.always;
+    h.latest = ended;
+    h.suspended = true;
+    expect(active()).toBe('false');
   });
 
   it('gives the history no run in progress after the latest run ended', () => {
@@ -308,6 +319,9 @@ describe('the Activity panel of a service DAG', () => {
       startedAt,
     });
 
+    // The note gives the time in the zone of the browser.
+    const OLDEST = formatAbsoluteTime(Date.parse('2026-11-08T11:50:00Z'));
+
     beforeEach(() => {
       window.localStorage.setItem(SERVICE_RANGE_KEY, '{"preset":"7d"}');
     });
@@ -322,7 +336,7 @@ describe('the Activity panel of a service DAG', () => {
       };
       renderDock();
       expect(screen.getByTestId('ww-service-history-notice')).toHaveTextContent(
-        /^The runs before .*11:50.* are not kept\.$/
+        `The runs before ${OLDEST} are not kept.`
       );
     });
 
@@ -359,7 +373,7 @@ describe('the Activity panel of a service DAG', () => {
       };
       renderDock();
       expect(screen.getByTestId('ww-service-history-notice')).toHaveTextContent(
-        /^The runs before .*11:50.* are not kept\.$/
+        `The runs before ${OLDEST} are not kept.`
       );
     });
 
