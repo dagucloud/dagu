@@ -1015,11 +1015,16 @@ steps:
 }
 
 // A stream assertion reads the step's last execution: the last retry of a
-// mocked step and the last repeat of a real one, not their whole logs.
+// mocked step and the last repeat of a real one, not their whole logs. The
+// run retries once for gate and carries flaky and tick over, so their
+// streams come from the first attempt's logs.
 func TestCaseLastExecutionStream(t *testing.T) {
 	t.Parallel()
 
 	tc, status, err := runCase(t, `
+retry_policy:
+  limit: 1
+  interval_sec: 60
 steps:
   - name: flaky
     run: ./flaky.sh
@@ -1033,12 +1038,19 @@ steps:
     repeat_policy:
       repeat: while
       limit: 3
-`, caseOptions{mocks: map[string]stepmock.Step{"flaky": {Results: []stepmock.Result{
-		{ExitCode: 1, Stdout: "first\n", Stderr: "boom\n"},
-		{Stdout: "second\n"},
-	}}}})
+  - name: gate
+    depends: [flaky, tick]
+    run: ./gate.sh
+`, caseOptions{mocks: map[string]stepmock.Step{
+		"flaky": {Results: []stepmock.Result{
+			{ExitCode: 1, Stdout: "first\n", Stderr: "boom\n"},
+			{Stdout: "second\n"},
+		}},
+		"gate": {Results: []stepmock.Result{{ExitCode: 1}, {}}},
+	}})
 	require.NoError(t, err)
 	require.Equal(t, ir.Succeeded, status.Status, status.Error)
+	require.Equal(t, 2, tc.attempts)
 
 	failures := tc.check(dagtest.Expect{Steps: []dagtest.StepExpect{
 		{Key: "flaky", Step: "flaky", Stdout: &dagtest.StreamExpect{

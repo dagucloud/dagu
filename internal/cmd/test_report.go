@@ -306,11 +306,7 @@ func notificationList(list []testNotification) string {
 func sentNotifications(dag *ir.DAG, sent []agent.Notification) []testNotification {
 	out := make([]testNotification, 0, len(sent))
 	for _, n := range sent {
-		item := testNotification{Kind: string(n.Kind), To: n.To}
-		if n.Step != "" {
-			item.Step = stepLabelOf(dag, n.Step)
-		}
-		out = append(out, item)
+		out = append(out, newTestNotification(dag, string(n.Kind), n.Step, n.To))
 	}
 	return out
 }
@@ -320,20 +316,22 @@ func sentNotifications(dag *ir.DAG, sent []agent.Notification) []testNotificatio
 func expectedNotifications(dag *ir.DAG, expected []dagtest.Notification) []testNotification {
 	out := make([]testNotification, 0, len(expected))
 	for _, n := range expected {
-		item := testNotification{Kind: n.Kind, To: n.To}
-		if n.Step != "" {
-			item.Step = stepLabelOf(dag, n.Step)
-		}
-		out = append(out, item)
+		out = append(out, newTestNotification(dag, n.Kind, n.Step, n.To))
 	}
 	return out
 }
 
+// newTestNotification names the sending step, given by name, by its label.
+func newTestNotification(dag *ir.DAG, kind, step string, to []string) testNotification {
+	n := testNotification{Kind: kind, To: to}
+	if step != "" {
+		n.Step = stepLabelOf(dag, step)
+	}
+	return n
+}
+
 // quoteJSON writes text as a JSON string.
 func quoteJSON(text any) string {
-	data, err := jsonutil.MarshalUnescaped(text)
-	if err != nil {
-		return fmt.Sprint(text)
-	}
+	data, _ := jsonutil.MarshalUnescaped(text)
 	return string(data)
 }

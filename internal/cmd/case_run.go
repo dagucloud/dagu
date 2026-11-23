@@ -14,12 +14,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -28,7 +26,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
-	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 )
 
@@ -95,8 +92,9 @@ type testCase struct {
 	// of the run stopped: waiting, failed with a retry left, or finished.
 	// The executions of every attempt show only across them.
 	ended []*ir.DAGRunStatus
-	// streams notes where each execution's output starts in the step logs.
-	streams *streamMarks
+	// streamStarts maps a step log file to where the latest execution that
+	// wrote it starts, as the attempt that ran the execution recorded it.
+	streamStarts map[string]int64
 }
 
 // openCase creates a case directory and the stores rooted in it. The case
@@ -155,7 +153,6 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 		return nil, err
 	}
 	scripts := c.scripts()
-	c.streams = &streamMarks{override: scripts}
 	opts := runOptions{
 		root:           ir.NewDAGRunRef(dag.Name, dagRunID),
 		workerID:       "local",
@@ -170,7 +167,7 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 			Keep: c.opts.real,
 		},
 		testSideEffects:   &agent.TestSideEffects{HasRealSteps: c.hasRealSteps()},
-		executorOverride:  c.streams,
+		executorOverride:  scripts,
 		conditionOverride: scripts,
 		skipWaits:         true,
 		keepWaits:         c.opts.real,
@@ -228,60 +225,6 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 	}
 }
 
-// streamMarks supplies the executors its override supplies, and notes, as
-// each execution of a step or handler starts, the size of the step's log
-// files, so the case reads the streams of a step's last execution. The
-// runner asks for an execution's executor once the output of the step's
-// earlier executions is written.
-type streamMarks struct {
-	override runtime.ExecutorOverride
-
-	mu sync.Mutex
-	// starts maps a log file to its size when the latest execution that
-	// writes to it started.
-	starts map[string]int64
-}
-
-var _ runtime.ExecutorOverride = (*streamMarks)(nil)
-
-// Executor notes where the execution's output starts in the step's log
-// files, and returns what override returns.
-func (m *streamMarks) Executor(ctx context.Context, step ir.Step) (executor.Executor, bool) {
-	scope := runtime.GetEnv(ctx).Scope
-	for _, key := range []string{runenv.EnvKeyDAGRunStepStdoutFile, runenv.EnvKeyDAGRunStepStderrFile} {
-		if path, _ := scope.Get(key); path != "" {
-			m.mark(path)
-		}
-	}
-	return m.override.Executor(ctx, step)
-}
-
-func (m *streamMarks) mark(path string) {
-	var size int64
-	if info, err := os.Stat(path); err == nil {
-		size = info.Size()
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.starts == nil {
-		m.starts = make(map[string]int64)
-	}
-	m.starts[path] = size
-}
-
-// lastExecution returns what the log file at path holds from the start of
-// the latest execution that wrote to it.
-func (m *streamMarks) lastExecution(path string) (string, error) {
-	data, err := fileutil.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	m.mu.Lock()
-	start := min(m.starts[path], int64(len(data)))
-	m.mu.Unlock()
-	return string(data[start:]), nil
-}
-
 // acceptRetry accepts the DAG-level retry of a failed run as the scheduler
 // does, which queues the retry, and counts its attempt.
 func (c *testCase) acceptRetry(dag *ir.DAG, failed *ir.DAGRunStatus) error {
@@ -318,8 +261,43 @@ func (c *testCase) runAgent(ag *agent.Agent, logFile *os.File) error {
 		ag.Signal(context.WithoutCancel(agentCtx), os.Interrupt)
 	})
 	defer stop()
-	defer func() { c.notifications = append(c.notifications, ag.Notifications()...) }()
+	defer func() {
+		c.notifications = append(c.notifications, ag.Notifications()...)
+		c.noteStreamStarts(ag.Status(agentCtx))
+	}()
 	return ag.Run(agentCtx)
+}
+
+// noteStreamStarts records where the latest execution of each node of an
+// attempt starts in its logs. A node the attempt carried over without
+// running it holds no start, so the one recorded before stays.
+func (c *testCase) noteStreamStarts(status ir.DAGRunStatus) {
+	if c.streamStarts == nil {
+		c.streamStarts = make(map[string]int64)
+	}
+	nodes := append(slices.Clone(status.Nodes), status.OnInit, status.OnSuccess, status.OnFailure, status.OnAbort, status.OnExit, status.OnWait)
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		if node.StdoutStart > 0 {
+			c.streamStarts[node.Stdout] = node.StdoutStart
+		}
+		if node.StderrStart > 0 {
+			c.streamStarts[node.Stderr] = node.StderrStart
+		}
+	}
+}
+
+// lastExecution returns what the log file at path holds from the start of
+// the latest execution that wrote to it.
+func (c *testCase) lastExecution(path string) (string, error) {
+	data, err := fileutil.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	start := min(c.streamStarts[path], int64(len(data)))
+	return string(data[start:]), nil
 }
 
 // latestStatus returns the status of the latest attempt of the run.

@@ -93,8 +93,10 @@ func (c *testCase) checkStep(s dagtest.StepExpect, status *ir.DAGRunStatus) []ca
 }
 
 // stepAttempts counts the executions of a step or handler in every attempt
-// of the run. A retry or resume carries over the nodes it does not run
-// again, log files included, so each node counts once by its stdout log.
+// of the run. Each run attempt, a resume included, logs to a directory of
+// its own and starts each step at most once there, so a node's stdout log
+// names one node start. A retry or resume carries over the nodes it does
+// not run again with their log paths, so each node counts once by its log.
 func (c *testCase) stepAttempts(s dagtest.StepExpect) int {
 	counts := make(map[string]int)
 	for _, status := range c.ended {
@@ -212,10 +214,7 @@ func publishedOutputs(node *ir.Node) map[string]any {
 // as its JSON text for a type: json output. A failure has no actual value
 // when the step published no such output.
 func checkOutput(key string, o dagtest.OutputExpect, published map[string]any) (caseFailure, bool) {
-	expected, err := jsonutil.MarshalUnescaped(o.Value)
-	if err != nil {
-		expected, _ = jsonutil.MarshalUnescaped(fmt.Sprint(o.Value))
-	}
+	expected, _ := jsonutil.MarshalUnescaped(o.Value)
 	failure := caseFailure{step: key, field: failureOutputPrefix + o.Name, expected: json.RawMessage(expected)}
 	value, ok := published[o.Name]
 	if !ok {
@@ -228,8 +227,7 @@ func checkOutput(key string, o dagtest.OutputExpect, published map[string]any) (
 	var compact bytes.Buffer
 	if !o.JSON || json.Compact(&compact, []byte(text)) != nil {
 		compact.Reset()
-		data, _ := jsonutil.MarshalUnescaped(text)
-		compact.Write(data)
+		compact.WriteString(quoteJSON(text))
 	}
 	failure.actual = json.RawMessage(compact.Bytes())
 	return failure, false
@@ -241,10 +239,7 @@ func outputText(value any) string {
 	if text, ok := value.(string); ok {
 		return text
 	}
-	data, err := jsonutil.MarshalUnescaped(value)
-	if err != nil {
-		return fmt.Sprint(value)
-	}
+	data, _ := jsonutil.MarshalUnescaped(value)
 	return string(data)
 }
 
@@ -343,7 +338,7 @@ func (c *testCase) checkStream(key, stream string, expect *dagtest.StreamExpect,
 	var text string
 	if path != "" {
 		var err error
-		if text, err = c.streams.lastExecution(path); err != nil {
+		if text, err = c.lastExecution(path); err != nil {
 			return []caseFailure{{field: failureError, actual: fmt.Sprintf("step %s %s: %v", key, stream, err)}}
 		}
 	}
