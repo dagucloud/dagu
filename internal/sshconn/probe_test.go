@@ -89,6 +89,30 @@ func TestConnectionRefusesUnknownKey(t *testing.T) {
 	assert.Empty(t, target.Commands())
 }
 
+// A changed key's refusal names, among the expected keys, the one trusted
+// for the node, which a trust of the new key must replace.
+func TestConnectionRefusesChangedKey(t *testing.T) {
+	t.Parallel()
+
+	target := startTestServer(t)
+	pinned, trustedKey := newPublicKey(t), newPublicKey(t)
+	cfg := nodeConfig(target.Port, trustedKeys{"web01": trustedKey})
+	cfg.NodeHostKey.Pinned = authorizedKey(pinned)
+
+	_, err := TestConnection(context.Background(), cfg)
+
+	refused, ok := AsHostKeyRefusal(err)
+	require.True(t, ok, "want a host key refusal, got %v", err)
+	assert.Equal(t, HostKeyRefusal{
+		Hop:       hopNode,
+		Node:      "web01",
+		Presented: gossh.FingerprintSHA256(target.HostKey),
+		Expected:  []string{gossh.FingerprintSHA256(pinned), gossh.FingerprintSHA256(trustedKey)},
+		Trusted:   gossh.FingerprintSHA256(trustedKey),
+	}, refused)
+	assert.Zero(t, target.AuthAttempts(), "credentials sent to the target")
+}
+
 // FindHostKey finds whichever of a server's keys has the fingerprint, and
 // sends the server no credential.
 func TestFindHostKey(t *testing.T) {

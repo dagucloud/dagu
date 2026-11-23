@@ -23291,6 +23291,9 @@ components:
           description: "SHA256 fingerprints of the pinned and trusted keys"
           items:
             type: string
+        trusted:
+          type: string
+          description: "SHA256 fingerprint of the key trusted for the node, one of `expected`. A trust of the presented key names it as `replace`. Absent when no key is trusted for the node"
       required:
         - hop
         - node

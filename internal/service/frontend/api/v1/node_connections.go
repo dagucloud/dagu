@@ -231,6 +231,7 @@ func toNodeConnectionTest(result nodeconn.TestResult) api.InventoryNodeConnectio
 			Status:    status,
 			Presented: ptrOf(refused.Presented),
 			Expected:  append([]string{}, refused.Expected...),
+			Trusted:   ptrOf(refused.Trusted),
 		}
 	}
 	return test

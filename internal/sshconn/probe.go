@@ -204,6 +204,9 @@ type HostKeyRefusal struct {
 	// Expected are the fingerprints of the keys the node may present. None
 	// means the key is unknown, and some mean it has changed.
 	Expected []string
+	// Trusted is the fingerprint among Expected of the key trusted for the
+	// node, or empty when none is.
+	Trusted string
 }
 
 // AsHostKeyRefusal returns the host key refusal that err holds.
@@ -217,5 +220,6 @@ func AsHostKeyRefusal(err error) (HostKeyRefusal, bool) {
 		Node:      refused.node,
 		Presented: refused.presented,
 		Expected:  slices.Clone(refused.expected),
+		Trusted:   refused.trusted,
 	}, true
 }
