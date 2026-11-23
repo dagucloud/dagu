@@ -5,6 +5,10 @@ package store_test
 
 import (
 	"context"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/secret"
@@ -364,4 +369,29 @@ func TestSecretCurrentValues(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"new"}, values)
 	assert.NotEqual(t, before, s.Revision())
+}
+
+// A record the store cannot read fails the load, rather than dropping a
+// value the masker would then stop hiding.
+func TestSecretCurrentValuesFailsOnUnreadableRecord(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+	s, err := store.NewSecretStore(file.NewCollection(dir), enc)
+	require.NoError(t, err)
+	require.NoError(t, s.Create(ctx, newSecret("payments", "prod/db-pass"),
+		&secret.WriteValueInput{Value: "s3cr3t", CreatedBy: "alice"}))
+	var record string
+	require.NoError(t, filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(path, ".json") {
+			record = path
+		}
+		return err
+	}))
+	require.NoError(t, os.WriteFile(record, []byte("{"), 0o600))
+
+	_, err = s.CurrentValues(ctx)
+
+	require.Error(t, err)
 }

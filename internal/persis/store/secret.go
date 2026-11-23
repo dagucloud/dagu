@@ -417,18 +417,23 @@ func (s *SecretStore) ReadValue(ctx context.Context, id string) (string, *secret
 }
 
 // CurrentValues returns the current value of every dagu-managed secret,
-// disabled ones included. A record that cannot be decoded or decrypted is
-// skipped: Dagu cannot read its value, so no run can carry it.
+// disabled ones included. It fails when a record cannot be read, decoded,
+// or decrypted, so a value is never left out without an error.
 func (s *SecretStore) CurrentValues(ctx context.Context) ([]string, error) {
-	recs, err := listAll(ctx, s.col, persis.ListQuery{})
+	recs, err := listAllStrict(ctx, s.col, persis.ListQuery{})
 	if err != nil {
 		return nil, err
 	}
 	values := make([]string, 0, len(recs))
 	for _, rec := range recs {
 		var sr secretStoredRecord
-		if err := persis.Decode(rec, &sr); err != nil || sr.Secret == nil ||
-			sr.Secret.ProviderType != secret.ProviderDaguManaged {
+		if err := persis.Decode(rec, &sr); err != nil {
+			return nil, fmt.Errorf("secret store: decode %q: %w", rec.ID, err)
+		}
+		if sr.Secret == nil {
+			return nil, fmt.Errorf("secret store: decode %q: missing secret payload", rec.ID)
+		}
+		if sr.Secret.ProviderType != secret.ProviderDaguManaged {
 			continue
 		}
 		v, ok := secretCurrentVersion(&sr)
@@ -437,7 +442,7 @@ func (s *SecretStore) CurrentValues(ctx context.Context) ([]string, error) {
 		}
 		plaintext, err := s.encryptor.Decrypt(v.EncryptedValue)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("secret store: decrypt %q: %w", rec.ID, err)
 		}
 		values = append(values, plaintext)
 	}
