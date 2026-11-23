@@ -100,7 +100,7 @@ Not promised:
 | Key | Environment | Default | Meaning |
 | --- | --- | --- | --- |
 | `a2a.enabled` | `DAGU_A2A_ENABLED` | `false` | Serves the A2A endpoints and the AI Catalog. Off answers 404 on all of them. |
-| `a2a.max_wait` | `DAGU_A2A_MAX_WAIT` | `30s` | Longest wait of a blocking `SendMessage`. Must be below the frontend's 60s HTTP write timeout. |
+| `a2a.max_wait` | `DAGU_A2A_MAX_WAIT` | `30s` | Longest wait of a blocking `SendMessage`. The handler extends its write deadline to cover the wait. |
 | `paths.a2a_dir` | `DAGU_A2A_DIR` | `<dags_dir>/a2a` | Directory of publishing files. |
 
 The server refuses to start with `a2a.enabled: true` and no `public_url`,
@@ -235,7 +235,8 @@ because its task store keeps task state of its own.
         "uri": "urn:dagu:a2a:workflow:v1",
         "params": {
           "inputSchema": { "type": "object", "properties": { "incident_id": { "type": "string" } }, "required": ["incident_id"] },
-          "outputs": { "summary": "string", "findings": "json" }
+          "outputs": { "summary": "string", "findings": "json" },
+          "maxWaitSeconds": 30
         }
       }
     ]
@@ -252,7 +253,10 @@ because its task store keeps task state of its own.
   ],
   "securitySchemes": {
     "dagu": { "httpAuthSecurityScheme": { "scheme": "Bearer" } }
-  }
+  },
+  "securityRequirements": [
+    { "schemes": { "dagu": { "list": [] } } }
+  ]
 }
 ```
 
@@ -262,8 +266,10 @@ because its task store keeps task state of its own.
   so a client can tell when the contract changed.
 - A2A skills carry no input schema, so the parameter schema and the result
   names travel in a Dagu extension.
+- `maxWaitSeconds` is `a2a.max_wait`. It tells a client how long a blocking
+  `SendMessage` waits before it answers with a task that is still running.
 - `text/plain` is listed only when the file sets `text_param`.
-- The card also lists the `dagu` scheme as its security requirement.
+- `securityRequirements` requires the `dagu` scheme on every call.
 
 ### Identity and access
 
@@ -285,11 +291,17 @@ existing API key, sent as `Authorization: Bearer`.
   `triggerSubject: {type, id}`, and every later attempt keeps it.
   `triggerActor` stays for display. The field is general, not an A2A one:
   this RFC sets it for A2A runs, and other surfaces can set it later.
-- **Authorization.**
+- **Authorization.** Each request is checked against the role and workspace
+  access of the key it carries, as they are when the request arrives.
   - Cards, catalog entries, and `SendMessage` require permission to run the
-    DAG: the key's role and workspace access, as for REST enqueue.
+    DAG, as for REST enqueue.
+  - `GetTask` requires access to the run's workspace, as a REST read of the
+    run does. `CancelTask` requires permission to run the DAG, as REST stop
+    does.
   - `GetTask` and `CancelTask` also require the run's `triggerSubject` to
-    match the caller.
+    match the caller. Owning a task does not bypass the other checks: a new
+    key of the same subject with a narrower role or fewer workspaces cannot
+    reach a task outside its scope.
   - A failed check answers as if the agent or task did not exist: HTTP 404
     for cards and endpoints, and `TaskNotFoundError` for tasks (A2A §3.3.2).
 
@@ -329,9 +341,18 @@ existing API key, sent as `Authorization: Bearer`.
      reading the run status as the synchronous REST start does (100 ms
      growing to 2 s). Then it answers with the task as it is. A2A §3.2.2
      requires a blocking call to wait for a terminal or interrupted state, so
-     returning a running task is a documented deviation. It is needed because
-     the HTTP write timeout would otherwise cut the response. The spec's own
-     §6.6 example also returns a submitted task without `returnImmediately`.
+     returning a running task is a documented deviation.
+   - The frontend's 60s write timeout does not force the limit. The handler
+     extends its write deadline, as the MCP endpoint and the synchronous
+     REST start already do. The limit exists because reverse proxies and
+     load balancers in front of Dagu commonly close a response after 60s,
+     and the client then gets an error instead of the task. Each wait also
+     holds a connection and a goroutine.
+   - A client that sends a blocking message must poll `GetTask` when the
+     answer is not terminal. The card states the limit as `maxWaitSeconds`.
+     Dagu's `a2a.send` already reports a non-terminal task with its state
+     (Spec 099). The spec's own §6.6 example also returns a submitted task
+     without `returnImmediately`.
 
 The answer is always the `task` variant, never a direct message.
 
@@ -380,8 +401,16 @@ A completed task carries one artifact when the DAG declares `outputs`:
 
 ### CancelTask
 
-- A queued run is dequeued, and a running or waiting run is stopped, as the
-  REST stop does.
+- A queued run is dequeued as the REST dequeue does, and a running or
+  waiting run is stopped as the REST stop does.
+- **A dequeued run stays visible as `aborted`.** Today a dequeue hides the
+  attempt and removes a run left with no visible attempt
+  (`internal/queue/queue_abort.go`). For an A2A run that would turn a
+  canceled task into `TaskNotFoundError`, and the same `messageId` would
+  start a new run. The dequeue already keeps a restart run visible. It
+  keeps a `retryDisabled` run visible the same way, because both rules keep
+  a terminal task final. The rule lives in that shared function, so the
+  REST, UI, and CLI dequeue keep such a run too.
 - The answer is the task. It may still be `WORKING` until the stop finishes.
 - A terminal task returns `TaskNotCancelableError`.
 
@@ -553,12 +582,14 @@ agents then points to it.
   non-terminal task within the limit. `GetTask` later returns the final
   state.
 - `CancelTask` dequeues a queued run, stops a running one, and refuses a
-  terminal one.
+  terminal one. After a dequeue, `GetTask` returns `TASK_STATE_CANCELED`,
+  and the same `messageId` returns that task instead of starting a run.
 - Retry is refused for a terminal A2A run from the REST API, the UI, `dagu
   retry`, step retry, and the DAG `retry_policy`. A waiting A2A run can still
   be approved, rejected, and pushed back.
 - Another subject's `GetTask` and `CancelTask` return `TaskNotFoundError`. A
-  new key of the same service account reads the task.
+  new key of the same service account reads the task. A new key of the same
+  subject without access to the run's workspace gets `TaskNotFoundError`.
 - The catalog lists only agents the caller may run, and omits a file whose
   DAG is missing.
 - Dagu to Dagu: a DAG with `a2a.send` and `a2a.get_task` calls an agent on a
@@ -582,8 +613,9 @@ agents then points to it.
   together, and a retry overwrites the trigger type of the newest attempt.
 - **Starting instead of enqueuing.** A start skips queues, and external
   agents call in bursts and retry.
-- **Blocking until the run ends.** The HTTP write timeout cuts long waits,
-  and the client then has no task.
+- **Blocking until the run ends.** Proxies in front of Dagu cut long waits,
+  and the client then has no task. Each wait also holds a connection and a
+  goroutine for the whole run.
 - **An A2A-only output list in the publishing file.** It would reference step
   IDs from outside the DAG, which `dagu validate` cannot check, and it gives a
   run a second definition of its result.
