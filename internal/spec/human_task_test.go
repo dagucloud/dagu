@@ -812,3 +812,30 @@ func TestHumanTaskInputsFillRequiredDefaults(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "note")
 }
+
+// The schema library decodes enum members, oneOf constants, and defaults as
+// float64, which rounds integers above 2^53.
+func TestHumanTaskFormKeepsLargeIntegers(t *testing.T) {
+	t.Parallel()
+
+	form, _, err := buildHumanTaskForm(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"serial": map[string]any{"type": "integer", "enum": []any{int64(9007199254740993)}},
+			"pick": map[string]any{"oneOf": []any{
+				map[string]any{"const": int64(9007199254740993), "title": "Large"},
+			}},
+			"limit": map[string]any{"type": "integer", "default": int64(9007199254740993)},
+		},
+	})
+	require.NoError(t, err)
+
+	result, err := ValidateHumanTaskInputs(form, map[string]any{
+		"serial": json.Number("9007199254740993"),
+		"pick":   json.Number("9007199254740993"),
+	}, false)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{
+		"serial": "9007199254740993", "pick": "9007199254740993", "limit": "9007199254740993",
+	}, result.Outputs)
+}

@@ -128,6 +128,7 @@ func parseInlineSchema(input any, validate bool) (*jsonschema.Schema, *jsonschem
 		return nil, nil, fmt.Errorf("failed to parse inline param schema: %w", err)
 	}
 	if !validate {
+		keepExactEnums(&schema, raw)
 		return &schema, nil, nil
 	}
 
@@ -135,6 +136,7 @@ func parseInlineSchema(input any, validate bool) (*jsonschema.Schema, *jsonschem
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to resolve inline param schema: %w", err)
 	}
+	keepExactEnums(resolved.Schema(), raw)
 	return resolved.Schema(), resolved, nil
 }
 
@@ -151,8 +153,8 @@ func explicitInlineSchemaDefaults(root *jsonschema.Schema) map[string]any {
 		if _, ok := schemaScalarType(property); !ok {
 			continue
 		}
-		var value any
-		if err := json.Unmarshal(property.Default, &value); err != nil {
+		value, ok := exactJSONValue(string(property.Default))
+		if !ok {
 			continue
 		}
 		defaults[name] = value

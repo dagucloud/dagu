@@ -193,7 +193,7 @@ params:
 
 	assert.Equal(t, "batch_size", dag.ParamDefs[0].Name)
 	assert.Equal(t, ir.ParamDefTypeInteger, dag.ParamDefs[0].Type)
-	assert.Equal(t, float64(10), dag.ParamDefs[0].Default)
+	assert.Equal(t, int64(10), dag.ParamDefs[0].Default)
 
 	assert.Equal(t, "debug", dag.ParamDefs[1].Name)
 	assert.Equal(t, ir.ParamDefTypeBoolean, dag.ParamDefs[1].Type)
@@ -298,6 +298,38 @@ params:
 	_, err := LoadYAML(context.Background(), yaml, WithoutEval(), WithParams("batch_size=not-an-integer"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "batch_size")
+}
+
+// The schema library decodes enum members and defaults as float64, which
+// rounds integers above 2^53. The required region makes a load without it
+// check the schema again with region left out.
+func TestBuildInlineSchemaParamPlan_KeepsLargeIntegers(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+name: inline-schema-large-integers
+params:
+  type: object
+  properties:
+    serial:
+      type: integer
+      enum: [9007199254740993]
+    limit:
+      type: integer
+      enum: [9007199254740993]
+      default: 9007199254740993
+    region:
+      type: string
+  required: [region]
+`)
+
+	dag, err := LoadYAML(context.Background(), yaml, WithoutEval())
+	require.NoError(t, err)
+	assert.Equal(t, `limit="9007199254740993"`, dag.DefaultParams)
+
+	dag, err = LoadYAML(context.Background(), yaml, WithoutEval(), WithParams("region=us serial=9007199254740993"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"limit=9007199254740993", "region=us", "serial=9007199254740993"}, dag.Params)
 }
 
 func TestBuildInlineSchemaParamPlan_ParamDefTitle(t *testing.T) {

@@ -4,6 +4,7 @@
 package spec
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -151,6 +152,9 @@ func resolveExternalSchemaEntries(plan *dagParamPlan, rawParams string, paramsLi
 
 func validateSchemaMap(values map[string]any, schema *jsonschema.Resolved, metadataMode bool) (map[string]any, error) {
 	working := maps.Clone(values)
+	if err := fillDefaults(working, schema.Schema(), false); err != nil {
+		return nil, fmt.Errorf("failed to apply schema defaults: %w", err)
+	}
 	if err := schema.ApplyDefaults(&working); err != nil {
 		return nil, fmt.Errorf("failed to apply schema defaults: %w", err)
 	}
@@ -160,7 +164,9 @@ func validateSchemaMap(values map[string]any, schema *jsonschema.Resolved, metad
 		if !hasAllRequiredKeys(working, schema.Schema().Required) {
 			clone := schema.Schema().CloneSchemas()
 			clone.Required = nil
-			resolved, err := clone.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
+			// The defaults were checked when schema resolved. Checking them
+			// again would compare float64 defaults with exact enum members.
+			resolved, err := clone.Resolve(nil)
 			if err != nil {
 				return nil, fmt.Errorf("failed to prepare parameter schema: %w", err)
 			}
@@ -462,14 +468,94 @@ func stringifyUntypedValue(value any) string {
 // as is when it is not JSON. Integers that fit in 64 bits keep their exact
 // value, so bounds are checked against the number the run receives.
 func parseJSONLikeValue(value string) any {
-	decoded, ok := decodeJSONNumbers(value)
+	if decoded, ok := exactJSONValue(value); ok {
+		return decoded
+	}
+	return value
+}
+
+// exactJSONValue decodes text as one JSON value, keeping each integer that
+// fits in 64 bits exact.
+func exactJSONValue(text string) (any, bool) {
+	decoded, ok := decodeJSONNumbers(text)
 	if !ok {
-		return value
+		return nil, false
 	}
-	if decoded, ok = validationNumbers(decoded); !ok {
-		return value
+	return validationNumbers(decoded)
+}
+
+// fillDefaults sets each top-level property that values omits to its default,
+// keeping integers exact, which the schema library's float64 defaults do not.
+// Like the library, it skips required properties unless withRequired is set.
+func fillDefaults(values map[string]any, schema *jsonschema.Schema, withRequired bool) error {
+	for name, property := range schema.Properties {
+		if _, supplied := values[name]; supplied || property == nil || len(property.Default) == 0 {
+			continue
+		}
+		if !withRequired && slices.Contains(schema.Required, name) {
+			continue
+		}
+		value, ok := exactJSONValue(string(property.Default))
+		if !ok {
+			return fmt.Errorf("%s: invalid default %s", name, property.Default)
+		}
+		values[name] = value
 	}
-	return decoded
+	return nil
+}
+
+// schemaNumbers holds the members of a schema that the schema library decodes
+// as float64.
+type schemaNumbers struct {
+	Enum  []any           `json:"enum"`
+	Const any             `json:"const"`
+	OneOf []schemaNumbers `json:"oneOf"`
+	AnyOf []schemaNumbers `json:"anyOf"`
+}
+
+// keepExactEnums replaces the enum and const members of each top-level
+// property of schema, and of its oneOf and anyOf members, with the exact
+// numbers in data, the JSON that schema was decoded from. Call it after
+// Resolve, which checks defaults as float64 against those members.
+func keepExactEnums(schema *jsonschema.Schema, data []byte) {
+	var root struct {
+		Properties map[string]schemaNumbers `json:"properties"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if decoder.Decode(&root) != nil {
+		// A boolean schema has no properties.
+		return
+	}
+	for name, numbers := range root.Properties {
+		numbers.apply(schema.Properties[name])
+	}
+}
+
+func (n schemaNumbers) apply(schema *jsonschema.Schema) {
+	if schema == nil {
+		return
+	}
+	if len(n.Enum) > 0 && len(n.Enum) == len(schema.Enum) {
+		if enum, ok := validationNumbers(n.Enum); ok {
+			schema.Enum = enum.([]any)
+		}
+	}
+	if number, ok := n.Const.(json.Number); ok && schema.Const != nil {
+		if value, ok := validationNumbers(number); ok {
+			schema.Const = &value
+		}
+	}
+	for i, member := range n.OneOf {
+		if i < len(schema.OneOf) {
+			member.apply(schema.OneOf[i])
+		}
+	}
+	for i, member := range n.AnyOf {
+		if i < len(schema.AnyOf) {
+			member.apply(schema.AnyOf[i])
+		}
+	}
 }
 
 // parseJSONNumberValue decodes value like parseJSONLikeValue but keeps each

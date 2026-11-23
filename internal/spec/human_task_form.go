@@ -79,6 +79,7 @@ func buildHumanTaskForm(raw any) (json.RawMessage, []ir.StepOutputDeclaration, e
 		return nil, nil, fmt.Errorf("resolve form schema: %w", err)
 	}
 	root := resolved.Schema()
+	keepExactEnums(root, data)
 
 	var sanitized *jsonschema.Schema
 	if len(root.Properties) == 0 {
@@ -484,6 +485,7 @@ func ValidateHumanTaskInputs(form json.RawMessage, inputs map[string]any, coerce
 	if err != nil {
 		return nil, fmt.Errorf("resolve stored human task form: %w", err)
 	}
+	keepExactEnums(resolved.Schema(), form)
 	for name, value := range values {
 		property, declared := resolved.Schema().Properties[name]
 		if !declared {
@@ -514,7 +516,9 @@ func ValidateHumanTaskInputs(form json.RawMessage, inputs map[string]any, coerce
 			continue
 		}
 	}
-	if err := applyRequiredDefaults(values, resolved.Schema()); err != nil {
+	// Spec 031 applies every default, required or not, before it enforces
+	// required.
+	if err := fillDefaults(values, resolved.Schema(), true); err != nil {
 		return nil, err
 	}
 	values, err = validateSchemaMap(values, resolved, false)
@@ -539,26 +543,4 @@ func ValidateHumanTaskInputs(form json.RawMessage, inputs map[string]any, coerce
 		outputs[declaration.Name] = stringifyTypedValue(value)
 	}
 	return &HumanTaskInputResult{Canonical: canonical, Outputs: outputs}, nil
-}
-
-// applyRequiredDefaults sets each omitted required property that has a
-// default. The schema library applies defaults to optional properties only,
-// and Spec 031 applies every default before it enforces required.
-func applyRequiredDefaults(values map[string]any, schema *jsonschema.Schema) error {
-	for _, name := range schema.Required {
-		property := schema.Properties[name]
-		if _, supplied := values[name]; supplied || property == nil || len(property.Default) == 0 {
-			continue
-		}
-		// Keep an integer default exact, as a supplied value is.
-		value, ok := decodeJSONNumbers(string(property.Default))
-		if ok {
-			value, ok = validationNumbers(value)
-		}
-		if !ok {
-			return fmt.Errorf("%s: invalid default %s", name, property.Default)
-		}
-		values[name] = value
-	}
-	return nil
 }
