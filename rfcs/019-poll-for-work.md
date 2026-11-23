@@ -2,10 +2,11 @@
 
 - **Status:** Draft
 - **Date:** 2026-11-16, revised 2026-11-23 as a source type of RFC 004
-- **Depends on:** [RFC 004](004-triggers.md): source files, triggers, and the
+- **Depends on:** [RFC 004](004-triggers.md): sources, triggers, and the
   matcher
-- **Affected areas:** `spec`, `service/scheduler`, `schedulerstate`,
-  `eventstore`, `service/frontend` (API, UI), `specs`, and `docs`
+- **Affected areas:** `spec`, `persis`, `service/scheduler`,
+  `schedulerstate`, `eventstore`, `service/frontend` (API, UI), `cmd`,
+  `specs`, and `docs`
 
 ## Summary
 
@@ -16,13 +17,14 @@ A `command` source is a pull source of RFC 004. It runs a command at an
 interval, and each new line it prints becomes one event. DAGs subscribe to it
 with triggers.
 
-```yaml
-# sources/channel-videos.yaml
-type: command
-command: yt-dlp --flat-playlist --print id "$CHANNEL_URL"
-env:
-  CHANNEL_URL: https://www.youtube.com/@example
-interval: 10m
+```json
+{
+  "name": "channel-videos",
+  "type": "command",
+  "command": "yt-dlp --flat-playlist --print id $CHANNEL_URL",
+  "env": { "CHANNEL_URL": "https://www.youtube.com/@example" },
+  "interval": "10m"
+}
 ```
 
 ```yaml
@@ -127,10 +129,12 @@ only new items become runs.
 
 ### Declaring a source
 
-A `command` source is a source file of RFC 004, `sources/<name>.yaml`:
+A `command` source is a source of RFC 004, kept by the server. Only an admin
+creates or changes one, since its command runs on the scheduler host.
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
+| `name` | string | required | The source's name, which triggers use |
 | `type` | string | required | `command` |
 | `command` | string | required | Command that prints one item per line on stdout |
 | `env` | map | none | Variables the command receives |
@@ -141,9 +145,9 @@ A `command` source is a source file of RFC 004, `sources/<name>.yaml`:
 | `backlog` | `skip` or `run` | `skip` | What the first check does with the items it lists |
 
 `interval`, `timeout`, `key`, and `backlog` belong to every pull type;
-`command`, `env`, and `working_dir` belong to this one. `dagu validate`
-rejects a missing command, an interval under `10s`, a timeout over `5m`, an
-invalid gojq expression, and an unknown `backlog`.
+`command`, `env`, and `working_dir` belong to this one. The API and
+`dagu source` reject a missing command, an interval under `10s`, a timeout
+over `5m`, an invalid gojq expression, and an unknown `backlog`.
 
 A DAG subscribes with a trigger that names the source, as in the
 [Summary](#summary). The trigger's `condition` and `params` read the item's
@@ -200,7 +204,7 @@ The scheduler runs `command` with the default shell, as a step without
 
 With `backlog: skip`, the first check remembers what it lists and writes no
 event, as `watch` and Zapier do. Changing `command` or `key` counts as a first
-check again, and so does renaming the source, which makes a new source. With
+check again, and so does deleting the source and creating it again. With
 `backlog: run`, every listed item is new on the first check. A work queue
 wants `run`; a listing of an archive, such as a channel's past videos, wants
 `skip`.
@@ -236,6 +240,13 @@ subscribing DAG's page links to it.
 After 3 failed checks in a row, the source's page and the pages of its
 subscribing DAGs show the latest error. A successful check clears it.
 
+### Trying a check
+
+`dagu source check <name>`, and **Check now** on the source's page, run the
+check once and show the items it lists, which of them are new, and which
+triggers would start a run. They write no event and change no state, so a
+command can be tried before any DAG subscribes.
+
 ### What is stored
 
 | Record | Size bound | Location |
@@ -250,12 +261,14 @@ subscribing DAGs show the latest error. A successful check clears it.
 The five copies become one source and one DAG. The check lists job files on
 the machine that holds the queue; each job runs once, at most three at a time:
 
-```yaml
-# sources/feed-jobs.yaml
-type: command
-command: ssh cloud-vm 'ls ~/feed/jobs'
-interval: 1m
-backlog: run
+```json
+{
+  "name": "feed-jobs",
+  "type": "command",
+  "command": "ssh cloud-vm 'ls ~/feed/jobs'",
+  "interval": "1m",
+  "backlog": "run"
+}
 ```
 
 ```yaml
@@ -297,22 +310,22 @@ If the jobs were files on the scheduler host, `watch` would already do this.
 
 ## Compatibility and rollout
 
-Source files and triggers are additive; a DAG without triggers behaves as
-today. `command` is the first source type on RFC 004's model, so the model
-ships with it.
+Sources and triggers are additive; a DAG without triggers behaves as today.
+`command` is the first source type on RFC 004's model, so the model ships
+with it.
 
-1. **RFC 004's model:** source files, triggers, the matcher, and
-   `DAGU_EVENT_FILE`, each with a spec.
+1. **RFC 004's model:** the source collection with its API, UI, and CLI,
+   triggers, the matcher, and `DAGU_EVENT_FILE`, each with a spec.
 2. **The `command` type:** checks, keys, events, and state, sharing the
    `watch` ledger code.
-3. **The check log** in the API and on the source's page.
+3. **The check log and `dagu source check`** in the API, the CLI, and on the
+   source's page.
 4. **Documentation:** choosing between `watch`, `command` sources, push
    sources, and `discard_run_on`.
 
 An older binary fails to load a DAG with `triggers`, as it does any unknown
-field, ignores the scheduler state this type adds, and reads the run trigger
-type `trigger` as unknown (`ir.ParseTriggerType`). RFC 004 covers how it
-treats `sources/`.
+field, ignores the source collection and the scheduler state this type adds,
+and reads the run trigger type `trigger` as unknown (`ir.ParseTriggerType`).
 
 ## Verification and acceptance criteria
 
@@ -336,6 +349,8 @@ treats `sources/`.
 10. With 100 queued runs on the DAG, new items wait and start as the queue
     drains.
 11. An item with shell metacharacters runs no command beyond the step's own.
+12. `dagu source check` lists the items and the runs they would start, and a
+    check right after it still finds the same items new.
 
 ## Alternatives considered
 
@@ -385,6 +400,6 @@ treats `sources/`.
    case?
 4. Should three failed checks in a row notify, and through what: the
    subscribing DAGs' failure notification, or the source's own?
-5. Should a source file take `secrets`, as a DAG does, or only `env`?
+5. Should a source take `secrets`, as a DAG does, or only `env`?
 6. Should a key be allowed to run again after its run leaves the history, or
    once per key forever, using the remembered hashes?
