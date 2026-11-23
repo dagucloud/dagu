@@ -31,15 +31,17 @@ type cleaner struct {
 
 // cleanupRecord is the details of an audit_cleanup entry. It is written
 // before the files it lists are removed, so a reader that tracks byte offsets
-// can tell whether a removed file held entries it never read.
+// can tell whether a removed file held entries it never read. A file whose
+// removal fails stays on disk and is listed again by the next run.
 type cleanupRecord struct {
-	PurgedFrom    string        `json:"purged_from"`
-	PurgedTo      string        `json:"purged_to"`
+	ExpiredFrom   string        `json:"expired_from"`
+	ExpiredTo     string        `json:"expired_to"`
 	Files         []cleanupFile `json:"files"`
 	RetentionDays int           `json:"retention_days"`
 }
 
-// cleanupFile is an audit file the cleaner removes, with its size.
+// cleanupFile is an expired audit file the cleaner is about to remove, with
+// its size.
 type cleanupFile struct {
 	Name  string `json:"name"`
 	Bytes int64  `json:"bytes"`
@@ -166,8 +168,8 @@ func (c *cleaner) expiredFiles() []cleanupFile {
 // recordCleanup appends the audit_cleanup entry that lists files.
 func (c *cleaner) recordCleanup(files []cleanupFile) error {
 	details, err := json.Marshal(cleanupRecord{
-		PurgedFrom:    strings.TrimSuffix(files[0].Name, auditFileExtension),
-		PurgedTo:      strings.TrimSuffix(files[len(files)-1].Name, auditFileExtension),
+		ExpiredFrom:   strings.TrimSuffix(files[0].Name, auditFileExtension),
+		ExpiredTo:     strings.TrimSuffix(files[len(files)-1].Name, auditFileExtension),
 		Files:         files,
 		RetentionDays: c.retentionDays,
 	})

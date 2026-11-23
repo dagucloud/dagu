@@ -203,8 +203,8 @@ func TestPurgeExpiredFiles_LogsCleanupAuditEntry(t *testing.T) {
 	assert.Equal(t, "", entries[0].UserID)
 	assert.Equal(t, "system", entries[0].Username)
 	assert.Contains(t, entries[0].Details, `"retention_days":7`)
-	assert.Contains(t, entries[0].Details, `"purged_from"`)
-	assert.Contains(t, entries[0].Details, `"purged_to"`)
+	assert.Contains(t, entries[0].Details, `"expired_from"`)
+	assert.Contains(t, entries[0].Details, `"expired_to"`)
 }
 
 // The entry lists each file and its size while the files are still on disk,
@@ -228,8 +228,8 @@ func TestPurgeExpiredFiles_RecordsSizesFirst(t *testing.T) {
 	c.purgeExpiredFiles()
 
 	assert.JSONEq(t, fmt.Sprintf(`{
-		"purged_from": %q,
-		"purged_to": %q,
+		"expired_from": %q,
+		"expired_to": %q,
 		"files": [{"name": %q, "bytes": 2}, {"name": %q, "bytes": 5}],
 		"retention_days": 7
 	}`, olderDate, oldDate, older, old), details)
