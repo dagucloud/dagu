@@ -191,10 +191,10 @@ func TestLoadFileMerge(t *testing.T) {
 
 	assert.Equal(t, map[string]dagtest.Script{
 		"build image": {ReplacesAction: true, Results: []dagtest.Result{{ExitCode: 1, Stderr: "boom"}}},
-		"gate":        {ReplacesAction: true, Precondition: ptr(true)},
+		"gate":        {ReplacesAction: true, Precondition: new(true)},
 		"poll": {ReplacesAction: true, Results: []dagtest.Result{
-			{ExitCode: 1, Condition: ptr(true)},
-			{Condition: ptr(false)},
+			{ExitCode: 1, Condition: new(true)},
+			{Condition: new(false)},
 		}},
 		"route": {Real: true},
 		// An approval input is its text as written.
@@ -214,11 +214,11 @@ func TestLoadFileMerge(t *testing.T) {
 	build.Stderr.Matches = nil
 	assert.Equal(t, dagtest.Expect{
 		Status:   "failed",
-		Attempts: ptr(1),
+		Attempts: new(1),
 		Steps: []dagtest.StepExpect{
 			{
-				Key: "build image", Step: "build image", Status: "failed", Attempts: ptr(1),
-				Stderr: &dagtest.StreamExpect{Contains: ptr("boom")},
+				Key: "build image", Step: "build image", Status: "failed", Attempts: new(1),
+				Stderr: &dagtest.StreamExpect{Contains: new("boom")},
 			},
 			{Key: "route", Step: "route", Status: "skipped"},
 			{Key: "handler_on.failure", Handler: ir.HandlerOnFailure, Status: "succeeded"},
@@ -272,8 +272,4 @@ func findingStrings(findings []dagtest.Finding) []string {
 		out = append(out, finding.String())
 	}
 	return out
-}
-
-func ptr[T any](v T) *T {
-	return &v
 }
