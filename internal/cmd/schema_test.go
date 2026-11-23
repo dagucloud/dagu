@@ -48,6 +48,19 @@ func TestSchemaCommand(t *testing.T) {
 		assert.Contains(t, out, "inclusive range")
 	})
 
+	t.Run("WorkflowTestRoot", func(t *testing.T) {
+		out, err := runSchemaCmd("schema", "test")
+		require.NoError(t, err)
+		assert.Contains(t, out, `"cases"`)
+		assert.Contains(t, out, `"default_mock"`)
+	})
+
+	t.Run("WorkflowTestCaseExpect", func(t *testing.T) {
+		out, err := runSchemaCmd("schema", "test", "cases.expect")
+		require.NoError(t, err)
+		assert.Contains(t, out, `"notifications"`)
+	})
+
 	t.Run("DAGSteps", func(t *testing.T) {
 		out, err := runSchemaCmd("schema", "dag", "steps")
 		require.NoError(t, err)
