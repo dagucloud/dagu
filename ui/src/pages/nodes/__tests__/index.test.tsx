@@ -302,6 +302,20 @@ describe('NodesPage', () => {
     expect(retry).toHaveBeenCalled();
   });
 
+  it('offers Add node to editors only', () => {
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Add node' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Add node');
+  });
+
+  it('offers no Add node to a user who cannot edit inventories', () => {
+    canEditMock.mockReturnValue(false);
+    renderPage();
+    expect(
+      screen.queryByRole('button', { name: 'Add node' })
+    ).not.toBeInTheDocument();
+  });
+
   it('lists the inventories on their own tab', () => {
     renderPage();
 

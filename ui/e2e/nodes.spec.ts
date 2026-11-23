@@ -111,6 +111,47 @@ test.describe('Nodes', () => {
     await expect(page.getByRole('cell', { name, exact: true })).toHaveCount(0);
   });
 
+  test('tests a node before adding it, and adds it', async ({
+    page,
+    request,
+  }) => {
+    const stack = await loadStack();
+    const token = await loginViaAPI(
+      request,
+      stack.auth.adminUsername,
+      stack.auth.adminPassword
+    );
+    const id = uniqueName('e2e');
+    const inventory = `${id} inventory`;
+    const imported = await request.post('/api/v1/inventory-imports', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: [{ name: inventory, defaults: { user: 'deploy' }, nodes: [] }],
+    });
+    expect(imported.ok(), await imported.text()).toBeTruthy();
+    const name = `${id}-web`;
+
+    await loginViaUI(page, stack.auth.adminUsername, stack.auth.adminPassword);
+    await page.goto('/nodes');
+    await page.getByRole('button', { name: 'Add node' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('combobox', { name: 'Inventory' }).click();
+    await page.getByRole('option', { name: inventory }).click();
+    await dialog.getByLabel('Name').fill(name);
+    await dialog.getByLabel('Host').fill('127.0.0.1');
+    // The key's secret does not exist, so the test fails before it connects.
+    await dialog.getByLabel('Key secret').fill(`ssh/${id}-missing`);
+    await dialog.getByRole('button', { name: 'Test connection' }).click();
+    await expect(dialog).toContainText(`ssh/${id}-missing`);
+    await expect(
+      dialog.getByRole('button', { name: 'Add node' })
+    ).toBeDisabled();
+
+    await dialog.getByRole('button', { name: 'Add without testing' }).click();
+    await expect(dialog).toHaveCount(0);
+    await page.getByRole('textbox', { name: 'Search by name...' }).fill(id);
+    await expect(page.getByRole('cell', { name, exact: true })).toBeVisible();
+  });
+
   test('tests a checked node and shows its result as the stream delivers it', async ({
     page,
     request,

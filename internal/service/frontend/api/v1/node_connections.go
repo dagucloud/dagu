@@ -95,9 +95,81 @@ func (a *API) TestInventoryNodeConnections(ctx context.Context, request api.Test
 	}
 	a.logAudit(ctx, audit.CategorySystem, "node_connection_test", details)
 
+	return testStream(ctx, func(ctx context.Context, emit func(nodeconn.TestResult)) {
+		service.Test(ctx, nodes, targets, emit)
+	}), nil
+}
+
+// TestNewInventoryNode tests a node that is not stored yet, as it would be
+// in the inventory, with the host keys the user accepted pinned in memory,
+// and streams its result. Nothing is stored or trusted. The record decides
+// which host receives the inventory's credentials, so this takes the role
+// that may store it.
+func (a *API) TestNewInventoryNode(ctx context.Context, request api.TestNewInventoryNodeRequestObject) (api.TestNewInventoryNodeResponseObject, error) {
+	service, err := a.nodeConnections()
+	if err != nil {
+		return nil, err
+	}
+	if err := a.requireDeveloperOrAbove(ctx); err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return newNodeTestRefused("Request body is required"), nil
+	}
+	node, err := decodeNodeRecord(request.Body.Node)
+	if err != nil {
+		return newNodeTestRefused(err.Error()), nil
+	}
+	accepted, err := acceptedKeys(valueOf(request.Body.Accept))
+	if err != nil {
+		return newNodeTestRefused(err.Error()), nil
+	}
+	target, nodes, err := a.withNewNode(ctx, request.InventoryId, node)
+	switch {
+	case errors.Is(err, inventory.ErrNotFound):
+		return api.TestNewInventoryNode404JSONResponse(inventoryNotFound(request.InventoryId)), nil
+	case errors.Is(err, inventory.ErrInvalid), errors.Is(err, inventory.ErrNodeExists):
+		return newNodeTestRefused(err.Error()), nil
+	case err != nil:
+		return nil, err
+	}
+	resolved, _ := findInventoryNode(nodes, node.Name)
+	a.logAudit(ctx, audit.CategorySystem, "node_connection_test", map[string]any{
+		"node":      resolved.Name,
+		"host":      resolved.Host,
+		"inventory": target.Name,
+		"stored":    false,
+	})
+
+	return testStream(ctx, func(ctx context.Context, emit func(nodeconn.TestResult)) {
+		staged, err := service.Stage(ctx, nodes, resolved.Name, accepted)
+		if err != nil {
+			emit(nodeconn.TestResult{Node: resolved.Name, Err: err})
+			return
+		}
+		node, _ := findInventoryNode(staged, resolved.Name)
+		service.Test(ctx, staged, []inventory.ResolvedNode{node}, emit)
+	}), nil
+}
+
+// acceptedKeys reads the host keys a request accepts for a new node.
+func acceptedKeys(keys []api.InventoryAcceptedHostKey) ([]nodeconn.Accepted, error) {
+	accepted := make([]nodeconn.Accepted, 0, len(keys))
+	for _, key := range keys {
+		if !strings.HasPrefix(key.Fingerprint, fingerprintPrefix) {
+			return nil, fmt.Errorf("the fingerprint for node %q is not a SHA256 fingerprint, such as %s…", key.Node, fingerprintPrefix)
+		}
+		accepted = append(accepted, nodeconn.Accepted{Node: key.Node, Fingerprint: key.Fingerprint})
+	}
+	return accepted, nil
+}
+
+// testStream answers a test with an event stream: a result event for each
+// result test emits, then a done event with their counts.
+func testStream(ctx context.Context, test func(ctx context.Context, emit func(nodeconn.TestResult))) nodeEventStream {
 	return nodeEventStream{ctx: ctx, run: func(ctx context.Context, send func(string, any)) {
 		var summary api.InventoryNodeConnectionTestSummary
-		service.Test(ctx, nodes, targets, func(result nodeconn.TestResult) {
+		test(ctx, func(result nodeconn.TestResult) {
 			if result.Err == nil {
 				summary.Passed++
 			} else {
@@ -106,7 +178,7 @@ func (a *API) TestInventoryNodeConnections(ctx context.Context, request api.Test
 			send(nodeEventResult, toNodeConnectionTest(result))
 		})
 		send(nodeEventDone, summary)
-	}}, nil
+	}}
 }
 
 // TrustInventoryNodeHostKeys trusts the host key of each node named, when
@@ -188,6 +260,10 @@ func nodeTestRefused(message string) api.TestInventoryNodeConnections400JSONResp
 	return api.TestInventoryNodeConnections400JSONResponse{Code: api.ErrorCodeBadRequest, Message: message}
 }
 
+func newNodeTestRefused(message string) api.TestNewInventoryNode400JSONResponse {
+	return api.TestNewInventoryNode400JSONResponse{Code: api.ErrorCodeBadRequest, Message: message}
+}
+
 func hostKeyTrustRefused(message string) api.TrustInventoryNodeHostKeys400JSONResponse {
 	return api.TrustInventoryNodeHostKeys400JSONResponse{Code: api.ErrorCodeBadRequest, Message: message}
 }
@@ -264,6 +340,10 @@ func (s nodeEventStream) VisitTestInventoryNodeConnectionsResponse(w http.Respon
 	return s.write(w)
 }
 
+func (s nodeEventStream) VisitTestNewInventoryNodeResponse(w http.ResponseWriter) error {
+	return s.write(w)
+}
+
 func (s nodeEventStream) VisitTrustInventoryNodeHostKeysResponse(w http.ResponseWriter) error {
 	return s.write(w)
 }
@@ -330,5 +410,10 @@ func isNodeEventStream(r *http.Request, apiBasePath string) bool {
 		return false
 	}
 	base := strings.TrimRight(apiBasePath, "/")
-	return r.URL.Path == base+"/node-connection-tests" || r.URL.Path == base+"/node-host-keys"
+	if r.URL.Path == base+"/node-connection-tests" || r.URL.Path == base+"/node-host-keys" {
+		return true
+	}
+	rest, ok := strings.CutPrefix(r.URL.Path, base+"/inventories/")
+	parts := strings.Split(rest, "/")
+	return ok && len(parts) == 2 && parts[1] == "node-tests"
 }
