@@ -19,6 +19,9 @@ var (
 	ErrDAGAlreadyExists = errors.New("DAG already exists")
 	ErrDAGNotFound      = errors.New("DAG is not found")
 	ErrDAGReadOnly      = errors.New("DAG definition is read-only")
+	// ErrDAGNameReserved reports a DAG name whose file would be a workflow
+	// test file, which is never a DAG.
+	ErrDAGNameReserved = errors.New("the .test suffix is reserved for workflow test files")
 )
 
 // DAGDefinition is a stored DAG specification.
@@ -44,6 +47,8 @@ type DAGCatalog struct {
 
 // DAGDefinitionStore persists definitions and exposes their listing projection.
 type DAGDefinitionStore interface {
+	// Create and Rename return an error that wraps ErrDAGNameReserved for an
+	// id that would name a workflow test file.
 	Create(ctx context.Context, id string, source []byte) error
 	Delete(ctx context.Context, id string) error
 	Get(ctx context.Context, id string) (DAGDefinition, error)

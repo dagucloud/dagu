@@ -249,6 +249,13 @@ func (a *API) CreateNewDAG(ctx context.Context, request api.CreateNewDAGRequestO
 				Code:       api.ErrorCodeAlreadyExists,
 			}
 		}
+		if errors.Is(err, persis.ErrDAGNameReserved) {
+			return nil, &Error{
+				HTTPStatus: http.StatusBadRequest,
+				Code:       api.ErrorCodeBadRequest,
+				Message:    err.Error(),
+			}
+		}
 		return nil, fmt.Errorf("error creating DAG: %w", err)
 	}
 
@@ -531,6 +538,13 @@ func (a *API) RenameDAG(ctx context.Context, request api.RenameDAGRequestObject)
 	if err := a.dagRepository.Rename(ctx, request.FileName, request.Body.NewFileName); err != nil {
 		if webhookMoved {
 			a.restoreWebhookAfterFailedRename(ctx, request.FileName, request.Body.NewFileName)
+		}
+		if errors.Is(err, persis.ErrDAGNameReserved) {
+			return nil, &Error{
+				HTTPStatus: http.StatusBadRequest,
+				Code:       api.ErrorCodeBadRequest,
+				Message:    err.Error(),
+			}
 		}
 		return nil, fmt.Errorf("failed to move DAG: %w", err)
 	}

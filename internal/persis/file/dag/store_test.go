@@ -1259,6 +1259,31 @@ steps:
 	assert.FileExists(t, targetPath)
 }
 
+// No DAG is created or renamed under a name whose file would be a test file,
+// while a name field that ends in .test stays allowed.
+func TestCreateAndRenameRejectTestFileNames(t *testing.T) {
+	for _, recursive := range []bool{false, true} {
+		t.Run(fmt.Sprintf("recursive=%t", recursive), func(t *testing.T) {
+			store := newRepository(t.TempDir(), WithSkipExamples(true), WithRecursiveDiscovery(recursive))
+			ctx := context.Background()
+			source := []byte("name: smoke.test\nsteps: []\n")
+
+			for _, name := range []string{"release.test", "release.test.yml"} {
+				assert.ErrorIs(t, store.Create(ctx, name, source), persis.ErrDAGNameReserved, name)
+			}
+			require.NoError(t, store.Create(ctx, "smoke", source))
+			assert.ErrorIs(t, store.Rename(ctx, "smoke", "smoke.test"), persis.ErrDAGNameReserved)
+
+			result, _, err := store.List(ctx, persis.DAGListOptions{})
+			require.NoError(t, err)
+			require.Len(t, result.Items, 1)
+			assert.Equal(t, "smoke.test", result.Items[0].Name)
+			_, err = store.GetSpec(ctx, "smoke")
+			require.NoError(t, err)
+		})
+	}
+}
+
 // writeAfterPut is a collection that runs write once, right after its first
 // Put, as a write that lands while a renamed DAG's record moves does.
 type writeAfterPut struct {
