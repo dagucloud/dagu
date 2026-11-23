@@ -1475,7 +1475,7 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 		if srv.dagRepository != nil {
 			serviceDAGs = srv.dagRepository.SavedServiceDAGNames
 		}
-		sse.StartDAGRunEventInvalidation(srv.sseMultiplexer.Context(), srv.eventService, srv.sseMultiplexer, serviceDAGs, slog.Default(), time.Second)
+		sse.StartDAGRunEventInvalidation(srv.sseMultiplexer.Context(), srv.eventService, srv.sseMultiplexer, serviceDAGs, srv.apiV1.DAGRunsChanged, slog.Default(), time.Second)
 	}
 
 	multiplexHandler := sse.NewMultiplexHandler(srv.sseMultiplexer, srv.remoteNodeResolver)

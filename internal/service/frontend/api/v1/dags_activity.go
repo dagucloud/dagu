@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
@@ -35,6 +36,9 @@ const (
 	// serviceActivityMaxAge bounds how long lists reuse the activity of a
 	// service DAG, whose runs update the list at most once in 10 seconds.
 	serviceActivityMaxAge = 10 * time.Second
+	// activityFollowGrace is how long after the last read of the run events a
+	// kept activity still waits for them. The events are read each second.
+	activityFollowGrace = 10 * time.Second
 )
 
 // startedRunStatuses are the statuses of a run that can have started. A
@@ -99,9 +103,9 @@ func (a *API) serviceActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRun
 }
 
 // listActivity gives the activity of a DAG over the window that ends at now.
-// It reuses the activity that an earlier list read while the latest run of
-// the DAG is the same, so that a list reads the runs only of the DAGs whose
-// latest run changed.
+// It reuses the activity that an earlier list read while the runs of the DAG
+// did not change, so that a list reads the runs only of the DAGs whose runs
+// changed.
 func (a *API) listActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStatus, now time.Time, window time.Duration) (*api.DAGListActivity, error) {
 	since := now.Add(-window)
 	key := activityKey{dag: dag.Name, window: window, service: dag.RestartPolicy.Enabled()}
@@ -115,15 +119,32 @@ func (a *API) listActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunSta
 	return activity, err
 }
 
+// DAGRunsChanged is told, after each read of the DAG-run events, the names of
+// the DAGs whose runs changed in them, possibly none. A list then reads the
+// runs of those DAGs again, and reuses the activity of the other DAGs for at
+// most one bucket of its window. When it is not told for a while, a list
+// reuses an activity for a shorter time.
+func (a *API) DAGRunsChanged(dagNames []string) {
+	a.activities.changed(dagNames, time.Now())
+}
+
 // activityCache keeps the activity of each listed DAG with the latest run
-// that it was read for. A kept activity is reused for at most one bucket of
-// its window, and at most activityCacheMaxAge. That bounds the changes that
-// the latest run does not show, such as the retry of an older run. A service
-// DAG starts a run each few seconds, so its activity is reused whatever its
-// latest run, for at most serviceActivityMaxAge.
+// that it was read for, and reuses it for at most one bucket of its window.
+// While the run events are followed, the activity of a plain DAG lasts until
+// an event tells that the runs of the DAG changed. Otherwise it lasts at most
+// activityCacheMaxAge, which bounds the changes that the latest run does not
+// show, such as the retry of an older run. A service DAG starts a run each
+// few seconds, so its activity is reused whatever its runs, for at most
+// serviceActivityMaxAge.
 type activityCache struct {
 	once    sync.Once
 	entries *lru.Cache[activityKey, keptActivity]
+	// changedAt holds when the runs of each DAG last changed, so that an
+	// activity whose read began before that change is not reused.
+	changedAt *lru.Cache[string, time.Time]
+	// followedAt is when the run events were last read, in Unix nanoseconds,
+	// or 0 before the first read.
+	followedAt atomic.Int64
 }
 
 type activityKey struct {
@@ -160,42 +181,81 @@ func latestRunKeyOf(status ir.DAGRunStatus) latestRunKey {
 func (c *activityCache) store() *lru.Cache[activityKey, keptActivity] {
 	c.once.Do(func() {
 		c.entries, _ = lru.New[activityKey, keptActivity](activityCacheSize)
+		c.changedAt, _ = lru.New[string, time.Time](activityCacheSize)
 	})
 	return c.entries
 }
 
+func (c *activityCache) changes() *lru.Cache[string, time.Time] {
+	c.store()
+	return c.changedAt
+}
+
 // get returns the activity kept for key when it is still recent at now and,
-// for a plain DAG, was read for the same latest run.
+// for a plain DAG, was read for the same latest run and after the last change
+// of its runs.
 func (c *activityCache) get(key activityKey, latest ir.DAGRunStatus, now time.Time) (*api.DAGListActivity, bool) {
 	kept, ok := c.store().Get(key)
-	if !ok || (!key.service && kept.latest != latestRunKeyOf(latest)) {
+	if !ok {
 		return nil, false
 	}
-	if age := now.Sub(kept.readAt); age < 0 || age >= key.maxAge() {
+	if age := now.Sub(kept.readAt); age < 0 || age >= c.maxAge(key, now) {
+		return nil, false
+	}
+	if key.service {
+		return kept.activity, true
+	}
+	if kept.latest != latestRunKeyOf(latest) || c.changedSince(key.dag, kept.readAt) {
+		return nil, false
+	}
+	if !c.follows(now) && changesUnseen(latest, kept.activity) {
 		return nil, false
 	}
 	return kept.activity, true
 }
 
-// maxAge is how long lists reuse the activity of the key: one bucket of its
-// window, and at most activityCacheMaxAge, or serviceActivityMaxAge for a
-// service DAG.
-func (key activityKey) maxAge() time.Duration {
-	limit := activityCacheMaxAge
-	if key.service {
-		limit = serviceActivityMaxAge
+// maxAge is how long lists reuse the activity of key at now: one bucket of
+// its window, and at most serviceActivityMaxAge for a service DAG, or
+// activityCacheMaxAge for a plain DAG while the run events are not followed.
+func (c *activityCache) maxAge(key activityKey, now time.Time) time.Duration {
+	bucket := key.window / activityBucketLimit
+	switch {
+	case key.service:
+		return min(serviceActivityMaxAge, bucket)
+	case c.follows(now):
+		return bucket
+	default:
+		return min(activityCacheMaxAge, bucket)
 	}
-	return min(limit, key.window/activityBucketLimit)
 }
 
-// put keeps an activity read for the latest run at now, unless it is the
-// activity of a plain DAG that can change while the latest run stays the same.
+// put keeps an activity read for the latest run at now.
 func (c *activityCache) put(key activityKey, latest ir.DAGRunStatus, now time.Time, activity *api.DAGListActivity) {
-	if !key.service && changesUnseen(latest, activity) {
-		c.store().Remove(key)
-		return
-	}
 	c.store().Add(key, keptActivity{latest: latestRunKeyOf(latest), readAt: now, activity: activity})
+}
+
+// changed records that the run events were read at, and that the runs of the
+// DAGs of names changed then, so that get no longer returns the activity of a
+// plain DAG among them that was read before.
+func (c *activityCache) changed(names []string, at time.Time) {
+	c.followedAt.Store(at.UnixNano())
+	changedAt := c.changes()
+	for _, name := range names {
+		changedAt.Add(name, at)
+	}
+}
+
+// follows reports whether the run events were read recently enough at now
+// for a kept activity to wait for them.
+func (c *activityCache) follows(now time.Time) bool {
+	followed := c.followedAt.Load()
+	return followed != 0 && now.Sub(time.Unix(0, followed)) < activityFollowGrace
+}
+
+// changedSince reports whether the runs of the DAG changed at or after readAt.
+func (c *activityCache) changedSince(dag string, readAt time.Time) bool {
+	at, ok := c.changes().Peek(dag)
+	return ok && !readAt.After(at)
 }
 
 // changesUnseen reports whether the activity of a plain DAG can change while

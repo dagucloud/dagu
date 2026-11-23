@@ -625,3 +625,23 @@ func TestDAGRunInvalidatorWakesServiceDAGListOnlyForItsDAGs(t *testing.T) {
 	wakeTopicsForDAGRunEvents(mux, running("job", ""), nil)
 	require.Eventually(t, func() bool { return refreshes(topic) == 3 }, time.Second, 10*time.Millisecond)
 }
+
+// After each read of events, the DAGs whose root runs changed are told, each
+// once, also when no event came, which tells that the events are read. A
+// sub-DAG run names no DAG.
+func TestHandleDAGRunEventsTellsTheChangedDAGs(t *testing.T) {
+	mux := NewMultiplexer(StreamConfig{}, nil)
+	t.Cleanup(mux.Shutdown)
+	var told [][]string
+	changed := func(names []string) { told = append(told, names) }
+
+	handleDAGRunEvents(mux, []*eventstore.Event{
+		runEvent(eventstore.TypeDAGRunRunning, ir.Running, "a", "r1", ""),
+		runEvent(eventstore.TypeDAGRunSucceeded, ir.Succeeded, "b", "root-run", "b"),
+		runEvent(eventstore.TypeDAGRunSucceeded, ir.Succeeded, "a", "r1", ""),
+		runEvent(eventstore.TypeDAGRunRunning, ir.Running, "child", "c1", "a"),
+	}, nil, changed)
+	handleDAGRunEvents(mux, nil, nil, changed)
+
+	require.Equal(t, [][]string{{"a", "b"}, nil}, told)
+}

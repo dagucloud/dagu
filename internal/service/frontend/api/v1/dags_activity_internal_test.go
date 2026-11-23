@@ -34,8 +34,9 @@ func TestActivityWindowFromQuery(t *testing.T) {
 	}
 }
 
-// A list reuses the activity of a DAG while its latest run is the same, for
-// at most one bucket of the window and at most activityCacheMaxAge.
+// While the run events are not followed, a list reuses the activity of a DAG
+// while its latest run is the same, for at most one bucket of the window and
+// at most activityCacheMaxAge.
 func TestActivityCacheReusesWhileTheLatestRunIsTheSame(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
@@ -84,8 +85,8 @@ func TestActivityCacheReusesServiceActivityByAge(t *testing.T) {
 	assert.False(t, ok, "older than the max age of a service DAG")
 }
 
-// The activity of a plain DAG is not kept when it can change while the
-// latest run stays the same.
+// While the run events are not followed, the activity of a plain DAG is not
+// reused when it can change while the latest run stays the same.
 func TestActivityCacheSkipsActivitiesThatChangeUnseen(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
@@ -109,6 +110,75 @@ func TestActivityCacheSkipsActivitiesThatChangeUnseen(t *testing.T) {
 	cache.put(service, queued, at, empty)
 	_, ok = cache.get(service, queued, at)
 	assert.True(t, ok, "a service DAG keeps its buckets")
+}
+
+// While the run events are followed, a list reuses the activity of a plain
+// DAG for one bucket of its window, also when an older run is in progress,
+// until an event tells that the runs of the DAG changed. An activity whose read
+// began before that change is not reused. A service DAG keeps its activity by
+// age only.
+func TestActivityCacheFollowsRunChanges(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	window := 24 * time.Hour
+	running := ir.DAGRunStatus{DAGRunID: "r2", AttemptID: "a2", Status: ir.Running}
+	olderRunning := &openapiv1.DAGListActivity{Runs: []openapiv1.DAGListActivityRun{
+		{DagRunId: "r2", Status: openapiv1.Status(ir.Running)},
+		{DagRunId: "r1", Status: openapiv1.Status(ir.Running)},
+	}}
+	plain := activityKey{dag: "d", window: window}
+	other := activityKey{dag: "o", window: window}
+	service := activityKey{dag: "s", window: window, service: true}
+
+	var cache activityCache
+	cache.changed(nil, at)
+	for _, key := range []activityKey{plain, other, service} {
+		cache.put(key, running, at, olderRunning)
+	}
+
+	later := at.Add(activityCacheMaxAge + time.Minute)
+	cache.changed(nil, later)
+	kept, ok := cache.get(plain, running, later)
+	assert.True(t, ok, "no run of the DAG changed")
+	assert.Same(t, olderRunning, kept)
+
+	cache.changed([]string{"d", "s"}, later)
+	_, ok = cache.get(plain, running, later)
+	assert.False(t, ok, "a run of the DAG changed")
+	_, ok = cache.get(other, running, later)
+	assert.True(t, ok, "the runs of another DAG did not change")
+	cache.put(service, running, later.Add(-time.Second), olderRunning)
+	_, ok = cache.get(service, running, later)
+	assert.True(t, ok, "a service DAG keeps its activity by age")
+
+	cache.put(plain, running, later.Add(-time.Second), olderRunning)
+	_, ok = cache.get(plain, running, later)
+	assert.False(t, ok, "the read began before the change")
+
+	end := at.Add(window / activityBucketLimit)
+	cache.changed(nil, end)
+	_, ok = cache.get(other, running, end)
+	assert.False(t, ok, "older than one bucket of the window")
+}
+
+// When the run events are no longer read, a list reuses the activity of a
+// plain DAG for at most activityCacheMaxAge again.
+func TestActivityCacheFallsBackWhenTheEventsStop(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	latest := ir.DAGRunStatus{DAGRunID: "r1", AttemptID: "a1", Status: ir.Succeeded}
+	activity := &openapiv1.DAGListActivity{Runs: []openapiv1.DAGListActivityRun{}}
+	key := activityKey{dag: "d", window: 24 * time.Hour}
+
+	var cache activityCache
+	cache.changed(nil, at)
+	cache.put(key, latest, at, activity)
+	last := at.Add(activityCacheMaxAge)
+	cache.changed(nil, last)
+	_, ok := cache.get(key, latest, last)
+	assert.True(t, ok, "the events are read")
+	_, ok = cache.get(key, latest, last.Add(activityFollowGrace))
+	assert.False(t, ok, "the events stopped and the activity is older than the max age")
 }
 
 // A list that reuses an activity leaves out the ended runs that the window

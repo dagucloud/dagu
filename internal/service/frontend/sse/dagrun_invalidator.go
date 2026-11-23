@@ -7,6 +7,7 @@ import (
 	"context"
 	"log/slog"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -101,14 +102,21 @@ func wakeOrLimit(mux *Multiplexer, service bool, fire func()) {
 // called for each batch of events, so it must not wait on such a build.
 type ServiceDAGNames func() ([]string, bool)
 
+// DAGRunsChanged is told, after each read of DAG-run events, the names of the
+// DAGs whose root runs changed in them, possibly none. It hears of a change
+// before the topics that show the run wake.
+type DAGRunsChanged func(dagNames []string)
+
 // StartDAGRunEventInvalidation wakes the topics that show the runs of new
 // DAG-run events. serviceDAGs tells which events concern a service DAG;
 // when it is nil or does not know them, every event counts as one that may.
+// changed, when set, is told the DAGs whose runs changed after each read.
 func StartDAGRunEventInvalidation(
 	ctx context.Context,
 	service *eventstore.Service,
 	mux *Multiplexer,
 	serviceDAGs ServiceDAGNames,
+	changed DAGRunsChanged,
 	logger *slog.Logger,
 	pollInterval time.Duration,
 ) {
@@ -158,13 +166,45 @@ func StartDAGRunEventInvalidation(
 				continue
 			}
 			cursor = nextCursor
-			if len(events) == 0 {
-				continue
-			}
-
-			wakeTopicsForDAGRunEvents(mux, events, readServiceDAGs(serviceDAGs))
+			handleDAGRunEvents(mux, events, serviceDAGs, changed)
 		}
 	}()
+}
+
+// handleDAGRunEvents tells changed the DAGs whose root runs the events
+// change, then wakes the topics that show the runs. changed hears first, so
+// that a topic it serves reads the changed runs when it wakes.
+func handleDAGRunEvents(mux *Multiplexer, events []*eventstore.Event, serviceDAGs ServiceDAGNames, changed DAGRunsChanged) {
+	if changed != nil {
+		changed(changedDAGNames(events))
+	}
+	if len(events) == 0 {
+		return
+	}
+	wakeTopicsForDAGRunEvents(mux, events, readServiceDAGs(serviceDAGs))
+}
+
+// changedDAGNames returns the names of the DAGs whose root runs the events
+// change, each once. A sub-DAG run is not a run of a DAG list, so its events
+// name no DAG.
+func changedDAGNames(events []*eventstore.Event) []string {
+	var names []string
+	for _, event := range events {
+		if event == nil {
+			continue
+		}
+		snapshot, err := eventstore.DAGRunSnapshotFromEvent(event)
+		if err != nil || snapshot == nil || snapshot.Name == "" {
+			continue
+		}
+		if root := snapshot.Root; root.DAGRunID != "" && root.DAGRunID != snapshot.DAGRunID {
+			continue
+		}
+		if !slices.Contains(names, snapshot.Name) {
+			names = append(names, snapshot.Name)
+		}
+	}
+	return names
 }
 
 // readServiceDAGs returns the set of service DAG names, or nil when they are
