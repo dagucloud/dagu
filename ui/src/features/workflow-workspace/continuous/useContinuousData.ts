@@ -104,6 +104,36 @@ function samplesPollMs(window: SamplesWindow): number {
     : LONG_WINDOW_POLL_MS;
 }
 
+type RetryOptions = { retryCount: number; dedupe: boolean };
+
+// The retry that waits for each samples key. A key has one at a time, so a
+// read that the host asks for during an error starts no second chain.
+const pendingRetries = new Map<string, () => void>();
+
+/**
+ * Calls `retry` once after `ms`, or once the tab shows again when it is
+ * hidden then. It replaces the retry that waits for the same key.
+ */
+function retryWhenShown(key: string, ms: number, retry: () => void): void {
+  pendingRetries.get(key)?.();
+  const run = () => {
+    pendingRetries.delete(key);
+    retry();
+  };
+  const timer = setTimeout(() => {
+    if (document.visibilityState !== 'hidden') {
+      run();
+      return;
+    }
+    document.addEventListener('visibilitychange', run, { once: true });
+  }, ms);
+  pendingRetries.set(key, () => {
+    clearTimeout(timer);
+    document.removeEventListener('visibilitychange', run);
+    pendingRetries.delete(key);
+  });
+}
+
 /**
  * The buckets of a window. A preset has one key: each read asks for the
  * window that ends at the time of the read, so `poll` reads it again (each
@@ -159,26 +189,20 @@ export function useSamples(
             // SWR does not poll a key that holds an error, and the app does
             // not retry a timeout. A polled window retries at each period,
             // whatever the error, except an expired session. A hidden tab
-            // retries once it shows again.
+            // retries once it shows again. A host that stops the poll, such
+            // as a closed dock, stops the retries too.
             shouldRetryOnError: (error: unknown) =>
               isAbortLikeError(error) || shouldRetryQueryError(error),
             onErrorRetry: (
               _error: unknown,
-              _key: unknown,
-              _config: unknown,
-              revalidate: (opts: { retryCount: number }) => unknown,
-              { retryCount }: { retryCount: number }
+              key: string,
+              config: { refreshInterval?: unknown },
+              revalidate: (opts: RetryOptions) => unknown,
+              opts: RetryOptions
             ) => {
-              const retry = () => revalidate({ retryCount: retryCount + 1 });
-              setTimeout(() => {
-                if (document.visibilityState !== 'hidden') {
-                  retry();
-                  return;
-                }
-                document.addEventListener('visibilitychange', retry, {
-                  once: true,
-                });
-              }, pollMs);
+              const ms = config.refreshInterval;
+              if (typeof ms !== 'number' || ms <= 0) return;
+              retryWhenShown(key, ms, () => void revalidate(opts));
             },
           }
         : {}),

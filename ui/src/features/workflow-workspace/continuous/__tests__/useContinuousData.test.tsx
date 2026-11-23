@@ -3,7 +3,7 @@
 
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { SWRConfig } from 'swr';
+import { SWRConfig, type Middleware } from 'swr';
 import {
   afterEach,
   beforeEach,
@@ -49,19 +49,28 @@ function requests(): Query[] {
   );
 }
 
-function renderWithCache(hook: () => unknown) {
+function renderWithCache<T>(hook: () => T, use: Middleware[] = []) {
   const cache = new Map();
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <SWRConfig value={{ provider: () => cache, dedupingInterval: 0 }}>
+    <SWRConfig value={{ provider: () => cache, dedupingInterval: 0, use }}>
       {children}
     </SWRConfig>
   );
   const view = renderHook(hook, { wrapper });
-  return { cache, rerender: view.rerender, unmount: view.unmount };
+  return {
+    cache,
+    result: view.result,
+    rerender: view.rerender,
+    unmount: view.unmount,
+  };
 }
 
-function renderSamples(window: SamplesWindow, poll: boolean) {
-  return renderWithCache(() => useSamples(target, window, 100, poll));
+function renderSamples(
+  window: SamplesWindow,
+  poll: boolean,
+  use: Middleware[] = []
+) {
+  return renderWithCache(() => useSamples(target, window, 100, poll), use);
 }
 
 const tick = async (ms: number) => {
@@ -142,6 +151,40 @@ describe('useSamples', () => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
     await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(3));
+  });
+
+  // A closed dock stops the poll of the hooks in it (FreezeWhenHidden): a
+  // failed read there waits for the dock to read again.
+  it('does not retry a failed poll that the host stops', async () => {
+    const visibility = vi.spyOn(document, 'visibilityState', 'get');
+    onTestFinished(() => visibility.mockRestore());
+    visibility.mockReturnValue('visible');
+    h.GET.mockResolvedValue({ error: { message: 'unavailable' } });
+    const noPolling: Middleware = (useSWRNext) => (key, fetcher, config) =>
+      useSWRNext(key, fetcher, { ...config, refreshInterval: 0 });
+    renderSamples({ preset: '1h' }, true, [noPolling]);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(1));
+    await tick(SHORT_WINDOW_POLL_MS * 5);
+    expect(h.GET).toHaveBeenCalledTimes(1);
+  });
+
+  // A read that the host asks for during an error, such as a dock that
+  // opens again, starts no second chain of retries.
+  it('keeps one retry for a failed key', async () => {
+    const visibility = vi.spyOn(document, 'visibilityState', 'get');
+    onTestFinished(() => visibility.mockRestore());
+    visibility.mockReturnValue('visible');
+    h.GET.mockResolvedValue({ error: { message: 'unavailable' } });
+    const view = renderSamples({ preset: '1h' }, true);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await view.result.current.mutate();
+    });
+    expect(h.GET).toHaveBeenCalledTimes(2);
+    await tick(SHORT_WINDOW_POLL_MS);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(3));
+    await tick(SHORT_WINDOW_POLL_MS - 1000);
+    expect(h.GET).toHaveBeenCalledTimes(3);
   });
 
   it('asks for the times of a fixed window and does not poll it', async () => {
