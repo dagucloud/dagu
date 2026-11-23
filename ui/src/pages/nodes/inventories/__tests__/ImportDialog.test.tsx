@@ -88,6 +88,30 @@ describe('ImportDialog', () => {
     expect(importButton).toBeDisabled();
   });
 
+  it('needs a new check after the replace option changes, and passes it for the new option', async () => {
+    client.POST.mockResolvedValue({
+      data: { created: ['Osaka'], replaced: [], dryRun: true },
+    });
+    renderDialog();
+
+    type(JSON.stringify(OSAKA));
+    await click('Check');
+    const importButton = screen.getByRole('button', { name: 'Import' });
+    expect(importButton).toBeEnabled();
+
+    const replace = screen.getByRole('checkbox', {
+      name: 'Replace inventories with the same name',
+    });
+    fireEvent.click(replace);
+    expect(importButton).toBeDisabled();
+    await click('Check');
+    expect(importButton).toBeEnabled();
+    expect(client.POST.mock.calls[1]![1].params.query).toEqual({
+      replace: true,
+      dryRun: true,
+    });
+  });
+
   it('lists each rule the import breaks', async () => {
     client.POST.mockResolvedValue({
       error: {

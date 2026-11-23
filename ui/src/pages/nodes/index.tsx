@@ -148,8 +148,28 @@ function NodeList(): React.ReactElement {
   // request's, so paging from them would ask for the wrong page.
   const canPage =
     !!pagination && pagination.currentPage === page && !isValidating;
+  /**
+   * Reads the drawer's node again after a change, since the filters may no
+   * longer list it.
+   */
+  const reloadSelected = async () => {
+    if (!selected) {
+      return;
+    }
+    try {
+      const { data } = await client.GET('/nodes/{nodeName}', {
+        params: { path: { nodeName: selected.name } },
+      });
+      if (data) {
+        setSelected(data);
+      }
+    } catch {
+      // The drawer keeps the node as it was read before.
+    }
+  };
+
   // The drawer shows the node as the list now holds it, so an edit shows at
-  // once; a node the list no longer holds stays as it was opened.
+  // once; a node the list no longer holds shows as it was last read.
   const shown =
     selected &&
     (nodes.find((node) => nodeKey(node.name) === nodeKey(selected.name)) ??
@@ -578,7 +598,10 @@ function NodeList(): React.ReactElement {
         node={shown}
         lastTest={selected ? tests.results[nodeKey(selected.name)] : undefined}
         canEdit={canEdit}
-        onChanged={refresh}
+        onChanged={() => {
+          refresh();
+          void reloadSelected();
+        }}
         onRemoved={() => {
           setSelected(null);
           refresh();

@@ -149,7 +149,7 @@ export function NodeEditor({
       <Field label="Node labels">
         <Input
           value={labels}
-          disabled={!spec}
+          disabled={!spec || busy}
           placeholder="role=web, canary"
           onChange={(event) => setLabels(event.target.value)}
         />
