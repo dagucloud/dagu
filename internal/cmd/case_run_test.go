@@ -637,6 +637,49 @@ steps:
 	}
 }
 
+// A real dag.run step whose child run waits is waiting too, even when the
+// step has its own gate. The case does not approve that gate, which would
+// leave the child unsettled, and fails with the step's name. Once the child
+// finishes, the step's gate takes its review.
+func TestCaseChildWait(t *testing.T) {
+	t.Parallel()
+
+	const yaml = `
+steps:
+  - name: call
+    action: dag.run
+    with:
+      dag: child
+    approval:
+      prompt: Accept the child's result?
+---
+name: child
+steps:
+  - name: build
+    run: echo built
+%s`
+	opts := caseOptions{
+		mocks: map[string]stepmock.Step{"call": {Review: &stepmock.Review{}}},
+		real:  []string{"call"},
+	}
+
+	t.Run("Waiting", func(t *testing.T) {
+		t.Parallel()
+
+		_, _, err := runCase(t, fmt.Sprintf(yaml, "    approval:\n      prompt: Ship it?\n"), opts)
+		require.ErrorContains(t, err, "step call waits for its child run")
+	})
+
+	t.Run("Finished", func(t *testing.T) {
+		t.Parallel()
+
+		_, status, err := runCase(t, fmt.Sprintf(yaml, ""), opts)
+		require.NoError(t, err)
+		require.Equal(t, ir.Succeeded, status.Status, status.Error)
+		assert.NotEmpty(t, caseNode(t, status, "call").ApprovedAt)
+	})
+}
+
 // approve completes a human task with the review's values as its typed
 // outputs, and approves a gate with them as its inputs.
 func TestCaseReviewApprove(t *testing.T) {

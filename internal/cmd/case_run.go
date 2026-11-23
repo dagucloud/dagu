@@ -251,9 +251,14 @@ func (c *testCase) settle(dag *ir.DAG, status *ir.DAGRunStatus) error {
 	}
 	node := status.Nodes[idx]
 	name := node.Step.Name
+	waitsForChild, err := c.childWaits(status, node)
+	if err != nil {
+		return fmt.Errorf("step %s: %w", name, err)
+	}
 	review := c.opts.mocks[name].Review
-	var err error
 	switch {
+	case waitsForChild:
+		return fmt.Errorf("step %s waits for its child run, which a test cannot settle", name)
 	case node.Step.HumanTask != nil:
 		err = c.completeHumanTask(status, node, review)
 	case node.Step.Approval != nil:
@@ -270,6 +275,29 @@ func (c *testCase) settle(dag *ir.DAG, status *ir.DAGRunStatus) error {
 		c.autoApproved = append(c.autoApproved, name)
 	}
 	return nil
+}
+
+// childWaits reports whether a child run of node waits. The node then waits
+// for that run, even when it also has its own approval gate.
+func (c *testCase) childWaits(status *ir.DAGRunStatus, node *ir.Node) (bool, error) {
+	root := status.Root
+	if root.Zero() {
+		root = status.DAGRun()
+	}
+	for _, child := range node.SubRuns {
+		attempt, err := c.ctx.Persistence.DAGRunRepository.FindSubAttempt(c.ctx, root, child.DAGRunID)
+		if err != nil {
+			return false, fmt.Errorf("failed to find child run %s: %w", child.DAGRunID, err)
+		}
+		childStatus, err := attempt.ReadStatus(c.ctx)
+		if err != nil {
+			return false, fmt.Errorf("failed to read child run %s: %w", child.DAGRunID, err)
+		}
+		if childStatus.Status == ir.Waiting {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // completeHumanTask completes a waiting human task as dagu human-task complete
