@@ -87,9 +87,10 @@ func TestMacOSExcelProcessBlocksWrite(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "held 空.xlsx")
 	_, err := Write(context.Background(), path, orders(), WriteOptions{Header: true})
 	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(lockFilePath(path), []byte("owner"), 0o600))
 	release := holdMacOSWorkbook(t, path, "Microsoft Excel")
 	// Confirm the actual OS probe sees the intended fixture before asserting
-	// Dagu's behavior. No owner file is needed for this detection.
+	// Dagu's behavior.
 	output, err := exec.Command("lsof", "+c", "0", "-Fc", "--", path).Output()
 	require.NoError(t, err)
 	require.Contains(t, string(output), "cMicrosoft Excel\n")

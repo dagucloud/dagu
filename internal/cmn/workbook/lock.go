@@ -41,14 +41,12 @@ func lockFilePath(path string) string {
 // means the workbook is in use and the result is a LockedError, and one
 // nobody holds is a leftover of a crash, so the result is a warning and the
 // write goes ahead. Where it cannot be probed, the file is only a hint and
-// the warning says so.
+// the warning says so. A lock file beside a workbook that Excel is seen to
+// hold open is a LockedError as well.
 func checkLockFile(path string) (warning string, err error) {
 	target := path
 	if resolved, resolveErr := filepath.EvalSymlinks(path); resolveErr == nil {
 		target = resolved
-	}
-	if workbookHeld(target) {
-		return "", &LockedError{Path: path}
 	}
 	lock := lockFilePath(target)
 	if _, statErr := os.Stat(lock); statErr != nil {
@@ -57,7 +55,7 @@ func checkLockFile(path string) (warning string, err error) {
 		}
 		return "", statErr
 	}
-	if lockFileHeld(lock) {
+	if lockFileHeld(lock) || workbookHeld(target) {
 		return "", &LockedError{Path: path}
 	}
 	if lockProbeSupported {
