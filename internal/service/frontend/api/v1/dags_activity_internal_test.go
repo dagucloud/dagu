@@ -39,12 +39,25 @@ func TestValidateDAGListActivityQuery(t *testing.T) {
 		"page=1&perPage=100",
 		"window=86400&sort=size",
 		"window=86400&order=up",
-		"window=86400&perPage=9223372036854775807",
 	} {
 		err := a.ValidateDAGListActivityQuery(t.Context(), bad)
 		var apiErr *Error
 		if assert.ErrorAs(t, err, &apiErr, bad) {
 			assert.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus, bad)
+		}
+	}
+}
+
+// The activity reads at most the 200 DAGs of the largest list page, as the
+// list limits a page, also for the largest integer, which the list reads as
+// all DAGs.
+func TestDAGListActivityQueryLimitsThePage(t *testing.T) {
+	t.Parallel()
+	a := &API{config: &config.Config{}}
+	for _, perPage := range []string{"201", "9223372036854775807"} {
+		listOpts, _, err := a.dagListActivityQuery(t.Context(), "window=86400&perPage="+perPage)
+		if assert.NoError(t, err, perPage) {
+			assert.Equal(t, 200, listOpts.Paginator.Limit(), perPage)
 		}
 	}
 }

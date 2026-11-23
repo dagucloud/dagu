@@ -1009,7 +1009,8 @@ export interface paths {
          * Get the activity of a DAG list page
          * @description Gives the activity of each DAG of one page of `GET /dags` over a window
          *     that ends now. The paging, filters, and sort select the same DAGs in
-         *     the same order as `GET /dags` with the same values. A plain DAG lists
+         *     the same order as `GET /dags` with the same values, and a `perPage`
+         *     above 200 reads 200 DAGs, as `GET /dags` does. A plain DAG lists
          *     its runs that started in the window, newest first, and its latest run
          *     while it is active. A service DAG gives the buckets of its run history
          *     instead.
@@ -13029,7 +13030,7 @@ export interface operations {
                     "application/json": components["schemas"]["DAGListActivityPage"];
                 };
             };
-            /** @description The window, the page size, or a filter is invalid */
+            /** @description The window or a filter is invalid */
             400: {
                 headers: {
                     [name: string]: unknown;

@@ -14,6 +14,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/samples"
 )
@@ -75,9 +76,7 @@ func (a *API) GetDAGListActivity(ctx context.Context, request api.GetDAGListActi
 	if err != nil {
 		return nil, err
 	}
-	if err := checkActivityPage(listOpts); err != nil {
-		return nil, err
-	}
+	limitActivityPage(&listOpts, valueOf(p.Page))
 	page, err := a.dagListActivity(ctx, listOpts, window)
 	if err != nil {
 		return nil, err
@@ -127,18 +126,18 @@ func (a *API) dagListActivityQuery(ctx context.Context, queryString string) (per
 	if err != nil {
 		return persis.DAGListOptions{}, 0, err
 	}
-	if err := checkActivityPage(listOpts); err != nil {
-		return persis.DAGListOptions{}, 0, err
-	}
+	limitActivityPage(&listOpts, parseIntParam(params.Get("page"), 1))
 	return listOpts, window, nil
 }
 
-// checkActivityPage rejects a page that is larger than a DAG list page.
-func checkActivityPage(listOpts persis.DAGListOptions) error {
+// limitActivityPage limits the page of listOpts to the DAGs of the largest
+// list page, as a list limits its page. A list reads the largest integer as
+// all DAGs; the activity reads those 200 too.
+func limitActivityPage(listOpts *persis.DAGListOptions, page int) {
 	if listOpts.Paginator.Limit() > maxActivityPageSize {
-		return activityBadRequest(fmt.Sprintf("perPage must be at most %d", maxActivityPageSize))
+		limited := pagination.NewPaginator(page, maxActivityPageSize)
+		listOpts.Paginator = &limited
 	}
-	return nil
 }
 
 // dagListActivity gives the activity of each DAG of the DAG list page that

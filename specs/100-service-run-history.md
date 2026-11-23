@@ -355,8 +355,8 @@ Rules:
 - The cost of the activity of a service DAG does not depend on its count of runs.
 - The activity of a service DAG does not depend on the status of its latest run. A queued run, or a
   run that has not started, does not empty it.
-- A `window` that is missing, or outside 60 to 604800 seconds, gets `400`. A page of more than 200
-  DAGs gets `400`.
+- A `window` that is missing, or outside 60 to 604800 seconds, gets `400`. A `perPage` above 200
+  reads 200 DAGs, as `GET /dags` does.
 - `GET /dags` does not read the activity.
 
 ### Compact Count
