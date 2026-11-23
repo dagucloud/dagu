@@ -60,6 +60,10 @@ type ExecutorCapabilities struct {
 	// and outputs. A workflow test runs such an action for real unless the
 	// test mocks it.
 	SideEffectFree bool
+	// ActionPublishesOutputs reports whether the step's operation publishes
+	// named outputs of its own, which the run collects. It is nil when no
+	// operation of the executor publishes any.
+	ActionPublishesOutputs func(step ir.Step) bool
 }
 
 // executorCapabilitiesRegistry is a typed registry of executor capabilities.

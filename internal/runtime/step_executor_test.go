@@ -270,21 +270,6 @@ func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 	require.JSONEq(t, `{"answer":42}`, *state.OutputsValue)
 }
 
-// failedChildRuns fails each child run it starts, and the failed run still
-// reports outputs.
-type failedChildRuns struct {
-	childRuns
-}
-
-func (*failedChildRuns) Run(_ context.Context, req runtimeexec.SubWorkflowRequest) (*ir.RunStatus, error) {
-	return &ir.RunStatus{
-		Name:         req.DAG.Name,
-		DAGRunID:     req.RunID,
-		Status:       ir.Failed,
-		OutputValues: map[string]any{"version": "v1.2.3"},
-	}, errors.New("child run failed")
-}
-
 // A failed attempt publishes no outputs, including those its executor reports
 // when it fails: a dag.run step whose child run fails adds none of the
 // child's outputs to the outputs the run collects, and a later reference
@@ -293,7 +278,10 @@ func TestFailedChildRunPublishesNoOutputs(t *testing.T) {
 	t.Parallel()
 
 	r := setupRunner(t, withStepMocks(map[string]stepmock.Step{"verify": {}}))
-	r.Context = runtimeexec.WithSubWorkflowRunner(r.Context, &failedChildRuns{})
+	r.Context = runtimeexec.WithSubWorkflowRunner(r.Context, &childRuns{
+		outputs: map[string]any{"version": "v1.2.3"},
+		err:     errors.New("child run failed"),
+	})
 	rollout := newStep("rollout", withID("rollout"), withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy"),
 		withContinueOn(ir.ContinueOn{Failure: true}))
 	verify := newStep("verify", withDepends("rollout"),
