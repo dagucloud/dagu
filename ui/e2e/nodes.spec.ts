@@ -199,6 +199,10 @@ test.describe('Nodes', () => {
     const drawer = page.getByRole('dialog');
     await drawer.getByRole('button', { name: 'Disable' }).click();
     await expect(drawer.getByRole('button', { name: 'Enable' })).toBeVisible();
+    // The drawer is modal, so the page's rows are hidden from the
+    // accessibility tree until it closes.
+    await drawer.getByRole('button', { name: 'Close' }).click();
+    await expect(drawer).toHaveCount(0);
     await expect(
       page.getByRole('row', { name: new RegExp(web) })
     ).toContainText('Disabled');
