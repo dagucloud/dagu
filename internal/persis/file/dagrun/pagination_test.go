@@ -343,9 +343,9 @@ func TestQueryStatusesLazyReadUsesIndex(t *testing.T) {
 	require.Zero(t, cache.Size())
 }
 
-// A page of whole statuses reads from disk only the statuses that it lists,
-// and the one that tells whether a next page exists. The index of the day
-// orders and filters the other runs.
+// A page of whole statuses reads from disk only the statuses that it lists.
+// The index of the day orders and filters the other runs, and tells whether
+// a next page exists.
 func TestQueryStatusesFullStatusReadsThePage(t *testing.T) {
 	th := setupTestRepository(t)
 	seedIndexedDay(t, th, &ir.DAG{Name: "indexed", Steps: []ir.Step{{Name: "s"}}})
@@ -362,7 +362,7 @@ func TestQueryStatusesFullStatusReadsThePage(t *testing.T) {
 	for _, item := range page.Items {
 		require.Len(t, item.Nodes, 1, item.DAGRunID)
 	}
-	require.Equal(t, 11, cache.Size())
+	require.Equal(t, 10, cache.Size())
 }
 
 type fakeDirEntry struct {

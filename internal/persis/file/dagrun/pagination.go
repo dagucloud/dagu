@@ -119,7 +119,9 @@ func (store *Store) listStatusesOrdered(
 	for pq.Len() > 0 && len(statuses) < target {
 		current := heap.Pop(&pq).(dagRunHeapItem)
 		if opts.Cursor == "" || compareDagRunListKeys(current.Item.Key, cursorKey) > 0 {
-			if status := store.pageStatus(ctx, current.Item); status != nil {
+			// The item past the limit only tells that a next page exists.
+			beyondPage := limit > 0 && len(statuses) == limit
+			if status := store.pageStatus(ctx, current.Item, beyondPage); status != nil {
 				statuses = append(statuses, status)
 				keys = append(keys, current.Item.Key)
 			}
@@ -147,9 +149,10 @@ func (store *Store) listStatusesOrdered(
 }
 
 // pageStatus returns the status that a page lists for an item, or nil when
-// its whole status cannot be read.
-func (store *Store) pageStatus(ctx context.Context, item dagRunListItem) *ir.DAGRunStatus {
-	if item.whole == nil {
+// its whole status cannot be read. An item beyond the page keeps its summary,
+// since no page lists it.
+func (store *Store) pageStatus(ctx context.Context, item dagRunListItem, beyondPage bool) *ir.DAGRunStatus {
+	if item.whole == nil || beyondPage {
 		return item.Status
 	}
 	return store.resolveStatus(ctx, item.whole, nil, nil, nil, false)
