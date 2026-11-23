@@ -153,15 +153,8 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 	node.SetError(err)
 	node.SetExitCode(exitCode)
 
-	declaredOutputsValue, hasDeclaredOutputs, captureErr := e.captureExecutorSideChannels(ctx, cmd, node)
-	if captureErr != nil {
-		if err == nil {
-			node.SetError(captureErr)
-		}
-		return captureErr
-	}
-
-	if outputErr := captureStepOutputs(ctx, cmd, node, err == nil, declaredOutputsValue, hasDeclaredOutputs); outputErr != nil {
+	e.captureExecutorSideChannels(cmd, node)
+	if outputErr := captureStepOutputs(ctx, cmd, node, err == nil); outputErr != nil {
 		// The attempt fails, so it publishes nothing, including the outputs
 		// its action published before it failed.
 		node.clearOutputsValue()
@@ -179,14 +172,15 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 // captureStepOutputs publishes the step's named outputs once its executor has
 // returned, and returns the error that fails the attempt while doing so.
 // executorSucceeded reports that the executor returned no error.
-func captureStepOutputs(
-	ctx context.Context,
-	cmd executor.Executor,
-	node *Node,
-	executorSucceeded bool,
-	declaredOutputsValue string,
-	hasDeclaredOutputs bool,
-) error {
+func captureStepOutputs(ctx context.Context, cmd executor.Executor, node *Node, executorSucceeded bool) error {
+	declaredOutputsValue, hasDeclaredOutputs, err := captureExecutorOutputs(ctx, cmd, node)
+	if err != nil {
+		if executorSucceeded {
+			node.SetError(err)
+		}
+		return err
+	}
+
 	// An executor that publishes every named output of its step replaces the
 	// output file and the step's output fields as their source.
 	publisher, publishesOutputs := cmd.(executor.NamedOutputsPublisher)
@@ -201,7 +195,6 @@ func captureStepOutputs(
 	}
 
 	// An output field is resolved after the run and can read a masked value.
-	var err error
 	if publishesOutputs {
 		err = node.capturePublishedOutputs(ctx, publisher.NamedOutputs())
 	} else {
@@ -288,11 +281,7 @@ func (e *StepExecutor) captureLiveExecutorSideChannels(cmd executor.Executor, no
 	}
 }
 
-func (e *StepExecutor) captureExecutorSideChannels(
-	ctx context.Context,
-	cmd executor.Executor,
-	node *Node,
-) (string, bool, error) {
+func (e *StepExecutor) captureExecutorSideChannels(cmd executor.Executor, node *Node) {
 	if statusDetailsProvider, ok := cmd.(executor.StatusDetailsProvider); ok {
 		node.SetStatusDetails(statusDetailsProvider.GetStatusDetails())
 	}
@@ -322,7 +311,12 @@ func (e *StepExecutor) captureExecutorSideChannels(
 		toolDefs := toolDefProvider.GetToolDefinitions()
 		node.SetToolDefinitions(toolDefs)
 	}
+}
 
+// captureExecutorOutputs publishes the outputs the executor reports. It
+// returns their payload and whether the executor declares them as the step's
+// named outputs, which replace those of the output file.
+func captureExecutorOutputs(ctx context.Context, cmd executor.Executor, node *Node) (string, bool, error) {
 	// An executor publishes through either channel, never both: this branch
 	// returns before the OutputsProvider branch below can run.
 	if valueProvider, ok := cmd.(executor.OutputsValueProvider); ok {
