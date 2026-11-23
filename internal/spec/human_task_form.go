@@ -550,9 +550,13 @@ func applyRequiredDefaults(values map[string]any, schema *jsonschema.Schema) err
 		if _, supplied := values[name]; supplied || property == nil || len(property.Default) == 0 {
 			continue
 		}
-		var value any
-		if err := json.Unmarshal(property.Default, &value); err != nil {
-			return fmt.Errorf("%s: invalid default: %w", name, err)
+		// Keep an integer default exact, as a supplied value is.
+		value, ok := decodeJSONNumbers(string(property.Default))
+		if ok {
+			value, ok = validationNumbers(value)
+		}
+		if !ok {
+			return fmt.Errorf("%s: invalid default %s", name, property.Default)
 		}
 		values[name] = value
 	}
