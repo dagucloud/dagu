@@ -278,7 +278,7 @@ function buildNode(
     node.repeat = repeat;
   }
   // The card draws the loop of the retry as an arc.
-  const retry = readRetry(step.value.retry_policy ?? step.value.retryPolicy);
+  const retry = readRetry(step.value.retry_policy);
   if (retry) {
     node.retry = retry;
   }

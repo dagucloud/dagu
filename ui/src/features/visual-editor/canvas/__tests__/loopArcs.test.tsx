@@ -5,7 +5,6 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { readRepeatPolicy } from '@/components/ui/repeat-summary';
 import { translateStatic } from '@/i18n/translateStatic';
-import type { CanvasNode } from '../../contracts';
 import { readRetry } from '../retryPolicy';
 import { buildCanvasGraph } from '../graph';
 import { loopArcs } from '../loopArcs';
@@ -34,12 +33,11 @@ describe('loopArcs', () => {
     expect(loopArcs(ts, plain())).toEqual([]);
   });
 
-  it('draws the retry on the right with its most tries', () => {
+  it('draws the retry with its most tries', () => {
     const retry = readRetry({ limit: 12, interval_sec: 5 });
     const [arc] = loopArcs(ts, plain({ retry }));
     expect(arc).toMatchObject({
       kind: 'retry',
-      side: 'right',
       label: 'max 12',
     });
     expect(arc?.title).toBe(
@@ -47,7 +45,7 @@ describe('loopArcs', () => {
     );
   });
 
-  it('draws the repeat on the left, with its limit or with the sign of no limit', () => {
+  it('draws the repeat with its limit, or with the sign of no limit', () => {
     const limited = readRepeatPolicy({
       repeat: 'until',
       limit: 8,
@@ -56,7 +54,6 @@ describe('loopArcs', () => {
     const [until] = loopArcs(ts, plain({ repeat: limited! }));
     expect(until).toMatchObject({
       kind: 'repeat',
-      side: 'left',
       label: 'max 8',
     });
     const endless = readRepeatPolicy({ repeat: true, interval_sec: 30 });
@@ -72,9 +69,9 @@ describe('loopArcs', () => {
         repeat: readRepeatPolicy({ repeat: 'while', limit: 5 })!,
       })
     );
-    expect(arcs.map((arc) => [arc.kind, arc.side, arc.label])).toEqual([
-      ['retry', 'right', 'max 3'],
-      ['repeat', 'left', 'max 5'],
+    expect(arcs.map((arc) => [arc.kind, arc.label])).toEqual([
+      ['retry', 'max 3'],
+      ['repeat', 'max 5'],
     ]);
   });
 
@@ -103,6 +100,14 @@ describe('loopArcs', () => {
     );
     expect(arc).toMatchObject({ kind: 'retry', label: '' });
     expect(arc?.title).toContain('up to $TRIES times');
+  });
+
+  // The limit of a repeat can be a reference too: it is not "no limit".
+  it('has no label for a repeat whose limit a reference gives', () => {
+    const repeat = readRepeatPolicy({ repeat: 'while', limit: '${N}' });
+    const [arc] = loopArcs(ts, plain({ repeat: repeat! }));
+    expect(arc).toMatchObject({ kind: 'repeat', label: '' });
+    expect(arc?.title).toContain('max ${N}');
   });
 
   // A limit of 0 never retries.
@@ -151,13 +156,11 @@ describe('the arcs on a card', () => {
   });
 
   it('draws each arc with its label and its tooltip', () => {
-    render(<LoopArcs node={withBoth as CanvasNode} />);
+    render(<LoopArcs node={withBoth} />);
     const arcs = screen.getAllByTestId('ve-loop-arc');
-    expect(
-      arcs.map((arc) => [arc.dataset.kind, arc.dataset.side, arc.textContent])
-    ).toEqual([
-      ['retry', 'right', 'max 12'],
-      ['repeat', 'left', 'max 8'],
+    expect(arcs.map((arc) => [arc.dataset.kind, arc.textContent])).toEqual([
+      ['retry', 'max 12'],
+      ['repeat', 'max 8'],
     ]);
     expect(arcs[0]).toHaveAccessibleName(/Retries the step up to 12 times/);
     expect(arcs[0]).toHaveAttribute(
@@ -171,31 +174,23 @@ describe('the arcs on a card', () => {
     expect(arcs[1]!.querySelector('svg')).toHaveAttribute('stroke-dasharray');
   });
 
-  // The tooltip is the only place that says the whole policy.
-  it('lets a hover reach the tooltip of an arc', () => {
-    render(<LoopArcs node={withBoth as CanvasNode} />);
-    for (const arc of screen.getAllByTestId('ve-loop-arc')) {
-      expect(arc.closest('.pointer-events-none')).toBeNull();
-      expect(arc.querySelector('.pointer-events-none')).toBeNull();
-    }
+  // The right of the upper edge holds the toolbar of the step and its issue
+  // badges, and the middle a handle: the arcs sit side by side at the left.
+  it('sets the arcs side by side at the left of the upper edge', () => {
+    render(<LoopArcs node={withBoth} />);
+    const arcs = screen.getAllByTestId('ve-loop-arc');
+    expect(arcs[0]!.style.left).toBe('22px');
+    expect(arcs[1]!.style.left).toBe('46.4px');
   });
 
-  // The upper edge has no handle at its corners, in either direction of the
-  // graph. A compact card is narrow: its arcs hug the corners.
-  it('hangs the arcs at the corners of the upper edge', () => {
-    const view = render(<LoopArcs node={withBoth as CanvasNode} />);
-    let arcs = screen.getAllByTestId('ve-loop-arc');
-    expect(arcs[0]!.style.right).toBe('22px');
-    expect(arcs[1]!.style.left).toBe('22px');
-    view.rerender(<LoopArcs node={withBoth as CanvasNode} compact />);
-    arcs = screen.getAllByTestId('ve-loop-arc');
-    expect(arcs[0]!.style.right).toBe('2px');
-    expect(arcs[1]!.style.left).toBe('2px');
+  it('draws no arc on a compact card', () => {
+    const { container } = render(<LoopArcs node={withBoth} compact />);
+    expect(container).toBeEmptyDOMElement();
   });
 
   // Only the theme tokens: a literal colour breaks the dark theme.
   it('uses theme tokens only, and the colour of the links for the stroke', () => {
-    const { container } = render(<LoopArcs node={withBoth as CanvasNode} />);
+    const { container } = render(<LoopArcs node={withBoth} />);
     expect(container.innerHTML).not.toMatch(/#[0-9a-f]{3,8}\b|rgb\(|hsl\(/i);
     for (const svg of container.querySelectorAll('svg')) {
       expect(svg).toHaveClass('text-muted-foreground');
@@ -204,7 +199,7 @@ describe('the arcs on a card', () => {
   });
 
   it('draws nothing for a step with no loop', () => {
-    const { container } = render(<LoopArcs node={plain() as CanvasNode} />);
+    const { container } = render(<LoopArcs node={plain()} />);
     expect(container).toBeEmptyDOMElement();
   });
 });

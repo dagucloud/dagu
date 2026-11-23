@@ -180,8 +180,8 @@ describe('buildExportSvg', () => {
     repeat: { mode: 'while', limit: 8 },
   } as Partial<CanvasNode>;
 
-  // The arcs sit on the upper edge in both directions, as on the canvas: the
-  // retry at the right corner, the repeat at the left one and dashed.
+  // The arcs sit at the left of the upper edge in both directions, as on the
+  // canvas: the retry, then the repeat, which is dashed.
   it.each(['LR', 'TB'] as const)(
     'draws the arcs of a step above its card in a %s graph',
     (direction) => {
@@ -195,10 +195,10 @@ describe('buildExportSvg', () => {
         'repeat',
       ]);
       expect(arcs[0]?.getAttribute('transform')).toBe(
-        'translate(195.6 0) scale(1.4 -1.4)'
+        'translate(22 0) scale(1.4 -1.4)'
       );
       expect(arcs[1]?.getAttribute('transform')).toBe(
-        'translate(22 0) scale(1.4 -1.4)'
+        'translate(46.4 0) scale(1.4 -1.4)'
       );
       expect(
         arcs[0]?.querySelector('path')?.hasAttribute('stroke-dasharray')
@@ -221,10 +221,10 @@ describe('buildExportSvg', () => {
     expect(nodeEl(doc, 'h').querySelectorAll('[data-loop]')).toHaveLength(0);
   });
 
-  it('grows the margin above a card with loops, and only above', () => {
+  it('grows the margin for the arcs and their labels', () => {
     const plainBox = buildExportSvg(graphOf([node('a')]), ONE, 'LR');
     const looping = buildExportSvg(graphOf([node('a', LOOPS)]), ONE, 'LR');
-    expect(looping.width).toBe(plainBox.width);
+    expect(looping.width).toBeGreaterThan(plainBox.width);
     expect(looping.height).toBeGreaterThan(plainBox.height);
   });
 

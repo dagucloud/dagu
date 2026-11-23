@@ -14,8 +14,6 @@ import type { CanvasNodeWithRoutes } from './types';
  */
 export interface LoopArc {
   kind: 'retry' | 'repeat';
-  /** The corner of the upper edge that the arc sits at: the retry right, the repeat left. */
-  side: 'right' | 'left';
   /** The most tries, as `max 12`. `∞` for a repeat with no limit. Empty when the limit is a reference. */
   label: string;
   /** The whole policy, as a tooltip and as the name of the arc. */
@@ -43,7 +41,6 @@ export function loopArcs(
   if (node.retry && !(typeof retries === 'number' && retries <= 0)) {
     arcs.push({
       kind: 'retry',
-      side: 'right',
       label: triesLabel(ts, node.retry.limit),
       title: retryTitle(ts, node.retry),
     });
@@ -51,11 +48,12 @@ export function loopArcs(
   if (node.repeat) {
     arcs.push({
       kind: 'repeat',
-      side: 'left',
       label:
         node.repeat.limit !== undefined
           ? triesLabel(ts, node.repeat.limit)
-          : '∞',
+          : node.repeat.limitRef !== undefined
+            ? ''
+            : '∞',
       title: repeatSummary(node.repeat, ts),
     });
   }
@@ -63,22 +61,24 @@ export function loopArcs(
 }
 
 /**
- * The geometry of an arc in px. The arcs sit on the upper edge of the card,
- * which has no handle at its corners in either direction of the graph: the
- * retry at the right corner, the repeat at the left one. The path is drawn in
- * a box of 16 x 14 and shown `LOOP_SCALE` times larger, so an arc rises about
- * 20 px above the card, and its label sits over it.
+ * The geometry of an arc in px. The arcs sit side by side at the left of the
+ * upper edge of the card: clear of the handles in either direction of the
+ * graph, of the toolbar that shows over the right of the edge, and of the
+ * issue badges at the right corner. The path is drawn in a box of 16 x 14 and
+ * shown `LOOP_SCALE` times larger, so an arc rises about 20 px above the
+ * card, and its label sits over it. A compact card has no room: it draws none.
  */
 export const LOOP_SCALE = 1.4;
 export const LOOP_WIDTH = 16 * LOOP_SCALE;
 export const LOOP_HEIGHT = 14 * LOOP_SCALE;
-/**
- * The distance from a corner to the nearer foot of the arc. A compact card
- * is narrow and can have the link of the step at the middle of its upper
- * edge: its arcs sit at the corners.
- */
+/** The distance from the left corner to the first arc, and between two arcs. */
 export const LOOP_INSET = 22;
-export const LOOP_COMPACT_INSET = 2;
+export const LOOP_GAP = 2;
+
+/** The left of the arc in a slot (0 or 1), from the left side of the card. */
+export function loopArcLeft(slot: number): number {
+  return LOOP_INSET + slot * (LOOP_WIDTH + LOOP_GAP);
+}
 
 /**
  * The path of an arc, in a box of 16 x 14 units whose top edge is on the

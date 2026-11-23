@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { NodeStatus } from '@/api/v1/schema';
+import type { Translate } from '@/components/ui/repeat-summary';
+import { translateStatic } from '@/i18n/translateStatic';
 import { GRAPH_TONE_COLORS, type StatusTone } from '@/lib/statusPalette';
 import type {
   CanvasDirection,
@@ -13,10 +15,9 @@ import { routedCurve, type Obstacle } from './edgeRouting';
 import {
   LOOP_ARC_HEAD,
   LOOP_ARC_PATH,
-  LOOP_COMPACT_INSET,
-  LOOP_INSET,
   LOOP_SCALE,
   LOOP_WIDTH,
+  loopArcLeft,
   loopArcs,
 } from './loopArcs';
 import {
@@ -54,6 +55,8 @@ const MONO_CHAR_PX = 6.7;
 const LOOP_LABEL_CHAR_PX = 5.8;
 /** How far the arc of a loop and its label rise above the card, in px. */
 const LOOP_REACH = 38;
+/** How far the label of the first arc can pass the left side of the card, in px. */
+const LOOP_LABEL_HANG = 24;
 const SMALL_MONO_CHAR_PX = 6.1;
 
 /** The colours of a theme, with the status colours that the canvas shows. */
@@ -199,6 +202,10 @@ function initials(label: string): string {
   return Array.from(label.trim()).slice(0, 2).join('').toUpperCase();
 }
 
+/** The picture is in English, as its other texts are. */
+const english: Translate = (text, values) =>
+  translateStatic('en', text, values);
+
 /**
  * Whether a card has loop arcs: the card of a step. A handler and a router
  * draw none on the canvas, so the picture draws none either.
@@ -207,7 +214,7 @@ function hasLoopArcs(node: CanvasNode): boolean {
   return (
     node.lane !== 'handler' &&
     !isRouter(node) &&
-    loopArcs((source) => source, node).length > 0
+    loopArcs(english, node).length > 0
   );
 }
 
@@ -218,18 +225,15 @@ function hasLoopArcs(node: CanvasNode): boolean {
  */
 function drawLoops(
   node: CanvasNode,
-  size: { width: number; height: number },
   palette: Palette,
   compact: boolean
 ): string {
-  if (!hasLoopArcs(node)) return '';
-  const inset = compact ? LOOP_COMPACT_INSET : LOOP_INSET;
-  return loopArcs((source) => source, node)
-    .map((arc) => {
+  if (compact || !hasLoopArcs(node)) return '';
+  return loopArcs(english, node)
+    .map((arc, slot) => {
       const dash = arc.kind === 'repeat' ? ' stroke-dasharray="3 2.5"' : '';
       const stroke = `fill="none" stroke="${palette.edge}" stroke-width="1.5" stroke-linecap="round"${dash}`;
-      const right = arc.side === 'right';
-      const left = right ? size.width - inset - LOOP_WIDTH : inset;
+      const left = loopArcLeft(slot);
       const parts = [
         `<g data-loop="${arc.kind}" transform="translate(${num(left)} 0) scale(${LOOP_SCALE} ${-LOOP_SCALE})">` +
           `<path d="${LOOP_ARC_PATH}" ${stroke}/>` +
@@ -239,7 +243,8 @@ function drawLoops(
       if (arc.label) {
         const width = Math.max(20, arc.label.length * LOOP_LABEL_CHAR_PX + 10);
         const middle = left + LOOP_WIDTH / 2;
-        const x = right ? middle : middle - width;
+        // The first label grows to the left, the second to the right.
+        const x = slot === 0 ? middle - width : middle;
         const y = -18 * LOOP_SCALE;
         parts.push(
           `<rect x="${num(x)}" y="${num(y - 8)}" width="${num(width)}" height="16" rx="4" ry="4" fill="${palette.card}" stroke="${palette.border}" stroke-width="1"/>`,
@@ -339,7 +344,7 @@ function drawCard(
       );
     }
   }
-  parts.push(drawLoops(node, box, palette, compact));
+  parts.push(drawLoops(node, palette, compact));
   if (handler) {
     const caption = 'Handler';
     parts.push(
@@ -574,8 +579,11 @@ export function buildExportSvg(
         box.height
       : 0;
     // The arcs of a retry and of a repeat rise above the card.
-    const reach = hasLoopArcs(node) ? LOOP_REACH : 0;
-    minX = Math.min(minX, box.x - Math.max(0, hang));
+    const reach = !compact && hasLoopArcs(node) ? LOOP_REACH : 0;
+    minX = Math.min(
+      minX,
+      box.x - Math.max(0, hang, reach ? LOOP_LABEL_HANG : 0)
+    );
     minY = Math.min(minY, box.y - Math.max(rise, reach));
     maxX = Math.max(maxX, box.x + box.width + ghost + Math.max(0, hang));
     maxY = Math.max(maxY, box.y + box.height + ghost + Math.max(0, below));
