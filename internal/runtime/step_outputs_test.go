@@ -13,12 +13,16 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/outputs"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -205,6 +209,79 @@ func TestStepExecutorDoesNotPublishDeclaredOutputsFromFailedAttempt(t *testing.T
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "executor failed")
 	require.Nil(t, node.State().StepOutputsValue)
+}
+
+// An action publishes its outputs before Dagu reads the output file and
+// checks output_schema. A failed read or check fails the attempt, so the
+// action's outputs reach neither a later reference nor the outputs the run
+// collects. The later step is mocked so that no shell runs the reference it
+// keeps as text.
+func TestFailedOutputCapturePublishesNoOutputs(t *testing.T) {
+	t.Parallel()
+
+	for name, check := range map[string]string{
+		"OutputFile": `
+    outputs:
+      - name: summary`,
+		"OutputSchema": `
+    output_schema:
+      type: object`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			r := setupRunner(t, withStepMocks(map[string]stepmock.Step{"use": {}}))
+			steps := loadSteps(t, `
+steps:
+  - id: plan
+    action: outputs.write
+    with:
+      values:
+        risk: high`+check+`
+    continue_on: failed
+  - id: use
+    run: echo ${steps.plan.outputs.risk}
+`)
+			result := r.newPlan(t, steps...).assertRun(t, ir.PartiallySucceeded)
+
+			result.assertNodeStatus(t, "plan", ir.NodeFailed)
+			assert.Nil(t, result.nodeByName(t, "plan").NodeData().OutputsValueStringMap())
+			assert.Equal(t, []string{"${steps.plan.outputs.risk}"}, result.nodeByName(t, "use").Step().Commands[0].Args)
+		})
+	}
+}
+
+// maskedReadExecutor publishes outputs after it reads a masked output, as an
+// executor that resolves a field while it runs can.
+type maskedReadExecutor struct {
+	declaredOutputExecutor
+}
+
+func (e *maskedReadExecutor) Run(ctx context.Context) error {
+	cmnvalue.AddMaskedRead(ctx, &cmnvalue.MaskedReadError{Step: "fetch", Output: "token"})
+	return nil
+}
+
+func (e *maskedReadExecutor) GetOutputs() map[string]any { return map[string]any{"risk": "high"} }
+
+func (e *maskedReadExecutor) PublishesDeclaredOutputs() bool { return true }
+
+// A masked read while the executor runs fails the attempt after its outputs
+// are captured, so the attempt publishes none of them.
+func TestMaskedReadPublishesNoOutputs(t *testing.T) {
+	executorType := "test-masked-read-outputs"
+	runtimeexec.RegisterExecutor(executorType, func(context.Context, ir.Step) (runtimeexec.Executor, error) {
+		return &maskedReadExecutor{}, nil
+	}, nil, registry.ExecutorCapabilities{})
+	t.Cleanup(func() { runtimeexec.UnregisterExecutor(executorType) })
+
+	node := newDeclaredOutputNode(t, executorType, nil)
+	ctx := cmnvalue.TrackMaskedReads(runtime.NewContext(context.Background(), &ir.DAG{}, "run-1", "dag.log"))
+
+	err := runtime.NewStepExecutor().Execute(ctx, node)
+	require.ErrorAs(t, err, new(*cmnvalue.MaskedReadError))
+	assert.Nil(t, node.State().OutputsValue)
+	assert.Nil(t, node.State().StepOutputsValue)
 }
 
 func TestNewPlanEnvForNodeIncludesOnlyPredecessorStepReferences(t *testing.T) {
