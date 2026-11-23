@@ -1,0 +1,14 @@
+steps:
+  - id: list
+    run: touch list.ran
+    outputs:
+      - name: episodes
+        type: json
+  - id: summarize
+    depends: list
+    foreach:
+      items: ${steps.list.outputs.episodes}
+      steps:
+        - id: one
+          run: touch one.ran ${foreach.item}
+    output: SUMMARIES

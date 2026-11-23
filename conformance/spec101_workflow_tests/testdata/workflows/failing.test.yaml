@@ -1,0 +1,13 @@
+dag: release.yaml
+mocks:
+  build:
+    exit_code: 1
+  deploy: {}
+cases:
+  - name: a failed build skips the deploy
+    expect:
+      status: succeeded
+      steps:
+        deploy: skipped
+        build:
+          attempts: 2

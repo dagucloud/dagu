@@ -1,0 +1,46 @@
+params:
+  - name: env
+    default: prod
+  - name: service
+    eval: ${params.env}-api
+  - name: build_date
+    eval: $(touch eval.ran)
+steps:
+  - id: build
+    run: touch build.ran
+  - id: deploy
+    depends: build
+    action: ssh.run
+    with:
+      host: prod.example.invalid
+      user: deploy
+      command: ./deploy.sh
+  - id: hook
+    depends: deploy
+    preconditions:
+      - condition: ${params.service}
+        expected: prod-api
+    action: http.request
+    with:
+      method: POST
+      url: https://hooks.example.invalid/shipped
+  - id: summary
+    depends: deploy
+    action: chat.completion
+    with:
+      provider: openai
+      model: gpt-4o-mini
+      prompt: Summarize the release.
+  - id: lint
+    preconditions:
+      - eval: $(touch precondition.ran)
+        expected: ok
+    run: touch lint.ran
+handler_on:
+  failure:
+    action: mail.send
+    with:
+      from: dagu@example.com
+      to: oncall@example.com
+      subject: ship failed
+      message: ship failed

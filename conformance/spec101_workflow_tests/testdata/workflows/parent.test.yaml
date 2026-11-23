@@ -1,0 +1,14 @@
+cases:
+  - name: a real child of side-effect-free steps runs in the case
+    mocks:
+      call: {}
+    real: [call_quiet]
+    expect:
+      steps:
+        call_quiet: succeeded
+  - name: a real child with a command step is invalid
+    mocks:
+      call_quiet: {}
+    real: [call]
+    expect:
+      status: succeeded

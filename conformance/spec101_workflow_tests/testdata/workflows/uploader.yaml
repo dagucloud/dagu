@@ -1,0 +1,19 @@
+mail_on:
+  failure: true
+error_mail:
+  from: dagu@example.com
+  to: oncall@example.com
+otel:
+  enabled: true
+  endpoint: localhost:4317
+container:
+  image: alpine:3.20
+working_dir: ./missing-workdir
+ssh:
+  user: deploy
+  host: prod.example.invalid
+  key: ./missing-key
+steps:
+  - id: test
+    run: make test
+    stdout: result.txt

@@ -524,7 +524,7 @@ func serviceForCommand(cmdName string) config.Service {
 		return config.ServiceWorker
 	case "coordinator":
 		return config.ServiceCoordinator
-	case "start", "restart", "retry", "dry", "exec":
+	case "start", "restart", "retry", "dry", "exec", "test":
 		return config.ServiceAgent
 	default:
 		// For all other commands (status, stop, validate, etc.), load all config

@@ -1,0 +1,31 @@
+mocks:
+  choose_window:
+    review:
+      decision: approve
+      values:
+        window: morning
+  deploy_morning: {}
+cases:
+  - name: the morning window deploys
+    expect:
+      status: succeeded
+      steps:
+        choose_window:
+          status: succeeded
+          attempts: 0
+        deploy_morning: succeeded
+  - name: the evening window skips the deploy
+    mocks:
+      choose_window:
+        review:
+          decision: approve
+          values:
+            window: evening
+    expect:
+      steps:
+        deploy_morning: skipped
+  - name: an unscripted human task is invalid
+    mocks:
+      choose_window: {}
+    expect:
+      status: succeeded

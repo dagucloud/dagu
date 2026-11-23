@@ -1,0 +1,15 @@
+mocks:
+  list:
+    outputs:
+      episodes: [a, b]
+cases:
+  - name: a mocked foreach succeeds without expanding items
+    mocks:
+      summarize:
+        stdout: '{"summary": {"total": 2}}'
+    expect:
+      steps:
+        summarize: succeeded
+  - name: a foreach with a command body is invalid
+    expect:
+      status: succeeded

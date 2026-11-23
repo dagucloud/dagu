@@ -1,0 +1,8 @@
+steps:
+  - id: build
+    run: touch build.ran
+    outputs:
+      - name: image_tag
+  - id: deploy
+    depends: build
+    run: touch deploy.ran "${steps.build.outputs.image_tag}"

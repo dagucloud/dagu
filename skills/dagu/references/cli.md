@@ -154,6 +154,38 @@ Dry-run a DAG without executing commands: `dagu dry [--params/-p] [--name/-N] [-
 
 For a build DAG, `--no-reuse` previews the decisions with manifest reuse disabled. Dry-run still creates no locks, staging files, manifests, or run history.
 
+### dagu test
+
+Run workflow tests: `dagu test [--timeout 5m] [<test file or directory>...]`. With no argument, it runs every test file under the DAGs directory.
+
+A test file sits beside its DAG and ends in `.test.yaml` or `.test.yml`: `release.test.yaml` tests `release.yaml`, or set `dag:` to another file. Each case runs the unchanged DAG through the real runner in a temporary directory, with step actions replaced by mocks. Every step whose action has side effects must be mocked, listed under `real`, or covered by `default_mock`; otherwise the case is invalid and nothing runs. Only `router.route`, `outputs.write`, `log.write`, and `noop` run for real unmocked. Retry and repeat intervals are not waited for, except by steps in `real`. A step or handler in `real` that starts a child run, such as `dag.run` or `parallel`, makes the case invalid for now; mock it instead.
+
+```yaml
+# release.test.yaml
+mocks:
+  build:
+    outputs:
+      image_tag: v1.2.3   # a step that declares outputs gets all of them
+  deploy: {}              # {} succeeds with no output
+cases:
+  - name: a failed build stops the deploy
+    mocks:
+      build:
+        results:          # one result per execution: attempt, retry, or repeat
+          - exit_code: 1
+    expect:
+      status: failed
+      steps:
+        build: failed
+        deploy:
+          status: aborted
+          attempts: 0
+```
+
+A mock also takes `stdout`, `stderr`, `precondition: met|not_met` for preconditions that run a command, `condition` per result for a command-check repeat condition, and `review: {decision: approve|reject, values: {...}}` for `human.task` and approval steps. A case can set `params`, `env`, `secrets` (needed only with a `real` step), `trigger`, `scheduled_at`, and `precondition` for DAG-level preconditions. Name a handler as `handler_on.failure`.
+
+The report prints `PASS`, `FAIL`, or `INVALID` per case, every failed assertion, and the unhandled sources of an invalid case. Exit status: 0 all passed, 1 a case failed, 2 a file or case is invalid. `expect` currently checks run `status` and step `status` and `attempts`.
+
 ### dagu validate
 
 Validate DAG YAML without executing: `dagu validate <dag>`

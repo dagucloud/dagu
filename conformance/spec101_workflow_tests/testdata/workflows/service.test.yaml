@@ -1,0 +1,12 @@
+mocks:
+  recover: {}
+cases:
+  - name: a restarted run recovers
+    trigger: restart
+    expect:
+      steps:
+        recover: succeeded
+  - name: a manual run skips recovery
+    expect:
+      steps:
+        recover: skipped

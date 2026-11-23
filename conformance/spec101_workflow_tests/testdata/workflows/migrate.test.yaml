@@ -1,0 +1,21 @@
+mocks:
+  migrate:
+    precondition: not_met
+  notify: {}
+cases:
+  - name: nothing pending skips the migration
+    precondition: met
+    expect:
+      status: succeeded
+      steps:
+        migrate: skipped
+        notify: skipped
+  - name: a release lock aborts the run
+    precondition: not_met
+    expect:
+      status: aborted
+      steps:
+        migrate: not_started
+  - name: an unscripted DAG precondition is invalid
+    expect:
+      status: succeeded

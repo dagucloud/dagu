@@ -1,0 +1,5 @@
+real: [wait]
+cases:
+  - name: a real step outlasts the timeout
+    expect:
+      status: succeeded

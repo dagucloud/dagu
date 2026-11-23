@@ -54,6 +54,12 @@ type caseOptions struct {
 	// handlers holds the scripted lifecycle handlers of the case by handler
 	// type. A handler marked Real runs for real.
 	handlers map[ir.HandlerType]stepmock.Step
+	// dagPrecondition is the outcome of the DAG-level preconditions that run
+	// a command, or nil to run them.
+	dagPrecondition *bool
+	// slot is the schedule slot of the run, and dates the dates it resolves.
+	slot  runSlot
+	dates []ir.DateValue
 }
 
 // testCase is one run of a DAG that keeps its run history, logs, artifacts,
@@ -76,6 +82,10 @@ type testCase struct {
 	// retry of its DAG-level retry_policy. A resume after a wait is part of
 	// the attempt it resumes.
 	attempts int
+	// waited holds, in order, the statuses at which the last run attempt
+	// waited before it resumed. A handler that ran before a resume, such as
+	// handler_on.wait, shows only there.
+	waited []*ir.DAGRunStatus
 }
 
 // openCase creates a case directory and the stores rooted in it. The case
@@ -132,17 +142,25 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 	if err := ctx.DAGRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
 		return nil, err
 	}
+	scripts := c.scripts()
 	opts := runOptions{
-		root:         ir.NewDAGRunRef(dag.Name, dagRunID),
-		workerID:     "local",
-		triggerType:  trigger,
-		secretValues: secrets,
+		root:           ir.NewDAGRunRef(dag.Name, dagRunID),
+		workerID:       "local",
+		triggerType:    trigger,
+		scheduleTime:   c.opts.slot.scheduleTime,
+		scheduleWindow: c.opts.slot.window,
+		defaultSlot:    c.opts.slot.isDefault,
+		dates:          c.opts.dates,
+		secretValues:   secrets,
 		redirectRoot: runtime.RedirectRoot{
 			Dir:  filepath.Join(c.dir, "redirects"),
 			Keep: c.opts.real,
 		},
-		testSideEffects:  &agent.TestSideEffects{HasRealSteps: c.hasRealSteps()},
-		executorOverride: c.executorOverride(),
+		testSideEffects:   &agent.TestSideEffects{HasRealSteps: c.hasRealSteps()},
+		executorOverride:  scripts,
+		conditionOverride: scripts,
+		skipWaits:         true,
+		keepWaits:         c.opts.real,
 	}
 	runErr := withPreparedLocalExecution(
 		ctx,
@@ -168,9 +186,11 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 	for {
 		switch {
 		case status.Status == ir.Waiting:
+			c.waited = append(c.waited, status)
 			err = c.settle(dag, status)
 		// A failed root run with retries left is what the scheduler retries.
 		case ctx.Err() == nil && dagrun.CanCancelFailedAutoRetryPendingRun(status):
+			c.waited = nil
 			err = c.acceptRetry(dag, status)
 		default:
 			return status, nil
@@ -214,9 +234,11 @@ func (c *testCase) acceptRetry(dag *ir.DAG, failed *ir.DAGRunStatus) error {
 	return nil
 }
 
-// hasRealSteps reports whether the case runs a step for real.
+// hasRealSteps reports whether the case runs a step or handler for real.
 func (c *testCase) hasRealSteps() bool {
-	return len(c.opts.real) > 0
+	return len(c.opts.real) > 0 || slices.ContainsFunc(slices.Collect(maps.Values(c.opts.handlers)), func(h stepmock.Step) bool {
+		return h.Real
+	})
 }
 
 // runAgent runs one attempt of the case's run. Canceling the case's context
@@ -241,20 +263,23 @@ func (c *testCase) latestStatus(ref ir.DAGRunRef) (*ir.DAGRunStatus, error) {
 	return attempt.ReadStatus(c.ctx)
 }
 
-// executorOverride returns the override that runs the case's mocked steps, or
-// nil when the case replaces no action. Every attempt of the run shares it,
-// so the results of a step keep counting after a resume or a retry.
-func (c *testCase) executorOverride() runtime.ExecutorOverride {
-	replaced := make(map[string]stepmock.Step, len(c.opts.mocks))
-	for name, step := range c.opts.mocks {
-		if !slices.Contains(c.opts.real, name) {
-			replaced[name] = step
-		}
+// scripts returns the set that scripts the case's steps and handlers. A step
+// in real keeps its action and repeats as written. Every attempt of the run
+// shares the set, so the results of a step keep counting after a resume or
+// a retry.
+func (c *testCase) scripts() *stepmock.Set {
+	steps := make(map[string]stepmock.Step, len(c.opts.mocks)+len(c.opts.real))
+	maps.Copy(steps, c.opts.mocks)
+	for _, name := range c.opts.real {
+		step := steps[name]
+		step.Real = true
+		steps[name] = step
 	}
-	if len(replaced) == 0 && len(c.opts.handlers) == 0 {
-		return nil
+	set := stepmock.New(steps, c.opts.handlers)
+	if c.opts.dagPrecondition != nil {
+		set.SetDAGPrecondition(*c.opts.dagPrecondition)
 	}
-	return stepmock.New(replaced, c.opts.handlers)
+	return set
 }
 
 // runQueued runs the attempt of a retry queued for the run, such as the

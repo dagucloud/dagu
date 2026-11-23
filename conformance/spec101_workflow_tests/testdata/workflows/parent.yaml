@@ -1,0 +1,25 @@
+steps:
+  - id: call
+    action: dag.run
+    with:
+      dag: child
+  - id: call_quiet
+    action: dag.run
+    with:
+      dag: quiet
+---
+name: child
+steps:
+  - id: write
+    run: touch child.ran
+---
+name: quiet
+steps:
+  - id: say
+    action: log.write
+    with:
+      message: quiet
+    repeat_policy:
+      repeat: while
+      limit: 2
+      interval_sec: 60

@@ -1,0 +1,8 @@
+cases:
+  - name: failing tests send mail
+    mocks:
+      test:
+        exit_code: 2
+        stdout: FAIL
+    expect:
+      status: failed

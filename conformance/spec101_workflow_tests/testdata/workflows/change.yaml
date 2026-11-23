@@ -1,0 +1,31 @@
+steps:
+  - id: plan
+    run: touch plan.ran
+    outputs:
+      - name: risk
+  - id: implement
+    depends: plan
+    run: touch implement.ran
+    retry_policy:
+      limit: 2
+      interval_sec: 60
+  - id: route
+    depends: implement
+    action: router.route
+    with:
+      value: ${steps.plan.outputs.risk}
+      routes:
+        high: [review]
+        low: [merge]
+  - id: review
+    run: touch review.ran
+  - id: merge
+    run: touch merge.ran
+handler_on:
+  failure:
+    action: mail.send
+    with:
+      from: dagu@example.com
+      to: oncall@example.com
+      subject: change failed
+      message: change failed
