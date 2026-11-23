@@ -14,3 +14,6 @@ var ConfigSchemaJSON []byte
 
 //go:embed calendar.schema.json
 var CalendarSchemaJSON []byte
+
+//go:embed test.schema.json
+var TestSchemaJSON []byte
