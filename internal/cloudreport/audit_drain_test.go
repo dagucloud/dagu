@@ -85,6 +85,30 @@ func TestAuditDrainRetriesAfterAFailure(t *testing.T) {
 	assert.Len(t, ids, 1)
 }
 
+// A hold Console asks for that ends before the send time is waited out, and
+// the entries go.
+func TestAuditDrainWaitsOutAShortHold(t *testing.T) {
+	d := newAuditDir(t)
+	console := newAuditFakeConsole(t)
+	held := false
+	console.answer = func(auditReceived) (int, string) {
+		if !held {
+			held = true
+			return http.StatusTooManyRequests, "1"
+		}
+		return http.StatusOK, ""
+	}
+	writeCommands(t, d, 3)
+	s, _ := startSendingShipper(t, d, console)
+	require.Len(t, console.requests(), 1)
+
+	drainFor(s, 22*time.Second, 25*time.Second)
+
+	ids, gaps := sentIDs(console.requests())
+	assert.Len(t, ids, 3)
+	assert.Empty(t, gaps)
+}
+
 // With Console unreachable, a stopping server still ends its drain in time
 // (RFC 021 Verification 11).
 func TestAuditDrainEndsInTime(t *testing.T) {

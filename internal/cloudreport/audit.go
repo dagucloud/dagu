@@ -275,7 +275,7 @@ func (s *AuditShipper) run(ctx context.Context) {
 
 // drain sends batches back to back until everything is stored or nothing can
 // go, starting with a check of every file, and then reports what is left as
-// a stopped gap.
+// a stopped gap. A hold Console asked for is waited out when it ends in time.
 func (s *AuditShipper) drain(d auditDrain) {
 	logger.Info(s.base, "Sending the audit entries left to Dagu Console before stopping")
 	sendCtx, cancel := context.WithDeadline(s.base, d.sendUntil)
@@ -287,9 +287,11 @@ func (s *AuditShipper) drain(d auditDrain) {
 	}
 	outcome := auditBlocked
 	for sendCtx.Err() == nil {
-		if outcome = s.ship(sendCtx); outcome != auditSent {
-			break
+		outcome = s.ship(sendCtx)
+		if outcome == auditSent || outcome == auditBlocked && s.waitHold(sendCtx) {
+			continue
 		}
+		break
 	}
 	if outcome == auditIdle {
 		return
@@ -297,6 +299,27 @@ func (s *AuditShipper) drain(d auditDrain) {
 	gapCtx, cancelGap := context.WithDeadline(s.base, d.endBy)
 	defer cancelGap()
 	s.reportStopped(gapCtx)
+}
+
+// waitHold waits out the hold Console asked for, and reports whether it did:
+// only one that ends before ctx does.
+func (s *AuditShipper) waitHold(ctx context.Context) bool {
+	if !s.consoleHeld || s.refusedBy != nil {
+		return false
+	}
+	wait := s.heldUntil.Sub(s.now())
+	if deadline, ok := ctx.Deadline(); wait <= 0 || ok && time.Now().Add(wait).After(deadline) {
+		return false
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		s.heldUntil = time.Time{}
+		return true
+	}
 }
 
 // reportStopped tells Console, best effort, that entries from the first one
