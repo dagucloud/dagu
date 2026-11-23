@@ -1120,6 +1120,48 @@ describe('overlapping edges', () => {
     expect(seen).toHaveLength(0);
   });
 
+  // An edge that leaves while it is hovered gets no `mouseleave`: the flow
+  // drops the hover with it, so that the edge shows no buttons when it comes
+  // back under a pointer that is elsewhere.
+  it('forgets the hover of an edge that leaves the flow', () => {
+    const insertable = (id: string, target: string): CanvasFlowEdge => {
+      const edge = dep(id, target);
+      return { ...edge, data: { ...edge.data!, insertable: true } };
+    };
+    const props = (edges: CanvasFlowEdge[]) => (
+      <FlowProvider>
+        <CanvasActionsContext.Provider value={makeActions()}>
+          <CanvasAffordancesContext.Provider value={null}>
+            <Flow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={{ box: () => <div /> }}
+              edgeTypes={edgeTypes}
+            />
+          </CanvasAffordancesContext.Provider>
+        </CanvasActionsContext.Provider>
+      </FlowProvider>
+    );
+    const first = insertable('e1', 'b');
+    const second = insertable('e2', 'c');
+    const both = [first, second];
+    const view = render(props(both));
+    const line = view.container.querySelector(
+      '[data-flow-edge="e1"] path[data-flow-edge-interaction]'
+    )!;
+    fireEvent.mouseEnter(line);
+    act(() => vi.advanceTimersByTime(EDGE_HOVER_SETTLE_MS));
+    expect(view.queryAllByTestId('ve-canvas-edge-buttons')).toHaveLength(1);
+    view.rerender(props([second]));
+    act(() => vi.advanceTimersByTime(EDGE_HOVER_RELEASE_MS));
+    view.rerender(props(both));
+    act(() => vi.advanceTimersByTime(EDGE_HOVER_SETTLE_MS * 3));
+    expect(view.queryAllByTestId('ve-canvas-edge-buttons')).toHaveLength(0);
+    expect(
+      view.container.querySelector('[data-flow-edge][data-hovered]')
+    ).toBeNull();
+  });
+
   it('a selected edge keeps the top over the other edge, which stays plain', () => {
     const { container } = renderFlow([dep('e1', 'b'), dep('e2', 'c', true)]);
     expect(strokeOf(container, 'e2')).toBe('var(--primary)');

@@ -1,7 +1,14 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import {
   createRef,
   startTransition,
@@ -425,7 +432,7 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
       expect(view.revealStep).toHaveBeenCalledWith('steps[2]');
     });
 
-    it('tells the host the new name of the selected step after a rename', () => {
+    it('tells the host the new name of the selected step after a rename', async () => {
       const onSelectedStepNameChange = vi.fn();
       const details = (second: string) =>
         ({
@@ -445,7 +452,9 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
       try {
         update({
           ...props,
-          text: yamlArraySteps.replace('name: transform', 'name: shape'),
+          text: yamlArraySteps
+            .replace('name: transform', 'name: shape')
+            .replace('- transform', '- shape'),
           validation: { issues: [], dag: details('shape') },
         });
         act(() => {
@@ -455,7 +464,9 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
         vi.useRealTimers();
       }
 
-      expect(onSelectedStepNameChange).toHaveBeenLastCalledWith('shape');
+      await waitFor(() =>
+        expect(onSelectedStepNameChange).toHaveBeenLastCalledWith('shape')
+      );
       expect(isSelected('steps[1]')).toBe(true);
     });
 
@@ -1845,7 +1856,10 @@ describe.skipIf(realSchema === null)('VisualEditor seams of the NDV', () => {
         referenceScope: scopeHttpJq,
         dag: {
           name: 'fetch-items',
-          steps: [{ name: 'fetch' }, { name: 'extract' }],
+          steps: [
+            { name: 'fetch', id: 'fetch' },
+            { name: 'extract', id: 'names' },
+          ],
         } as unknown as ApiDAGDetails,
       };
       const { update } = renderEditor({ ...props, validation: named });
