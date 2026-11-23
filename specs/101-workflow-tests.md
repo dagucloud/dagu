@@ -2,19 +2,7 @@
 
 ## Status
 
-Partially implemented.
-
-`dagu test` runs test files with `--run`, `--timeout`, `--format`, and
-`--keep`, writes the text and JSON reports, and exits with the statuses
-below. It checks every assertion of [Assertions](#assertions), ends each
-invalid case with [its fix](#the-fix), and lists the default mocks,
-automatic approvals, and notifications of each case that ran.
-`dagu schema test` prints the [JSON Schema](#json-schema) of test files.
-
-The authoring flags `--init` and `--update` (see
-[Authoring Flags](#authoring-flags)) ship after the first release of
-`dagu test`. Everything else in this spec ships together in that release.
-`--init` is implemented; `--update` is not yet.
+Implemented.
 
 ## Scope
 
@@ -1097,6 +1085,9 @@ Rules:
     automatically;
   - one line per notification the run would have sent;
   - `case directory <path>`, with `--keep`.
+- With `--update`, the last line of each case says what happened to its
+  `expect` (see [Authoring Flags](#authoring-flags)): `expect updated`,
+  `expect unchanged`, or `expect kept: <reason>`.
 - `<steps>` lists step labels in the order the DAG declares the steps, then
   handlers, separated by `, `. A step label is the step's `id`, or its
   `name` when it has no `id`, and a handler's label is
@@ -1178,6 +1169,7 @@ Case object:
 | `auto_approved` | when a wait was approved automatically | Step labels of the waits approved automatically, in the order of the text report |
 | `notifications` | when the run would have sent one | Notification objects, in the order the run would have sent them |
 | `case_dir` | with `--keep`, when the case ran | Absolute path of the kept case directory |
+| `update` | with `--update` | What happened to the case's `expect`: `updated`, `unchanged`, or `kept` (see [Authoring Flags](#authoring-flags)) |
 
 Failure object:
 
@@ -1266,34 +1258,61 @@ a step it adds in the same shape:
 `dagu test --update [<test file or directory>...]`:
 
 - Selects test files and cases as `dagu test` does without it, `--run`
-  included.
+  included. `--timeout` bounds each run, and `--keep` and `--format json`
+  apply as they do without it.
 - Runs each selected case and rewrites its `expect` from its run, so a
   change in behavior shows as a diff to review. It never removes an
   assertion the author wrote. Every other part of the file, comments
   included, stays as it was.
 - The exact facts that the case asserts take the run's values: the run
   `status` and `attempts`, each step's and handler's `status` and
-  `attempts`, and `notifications`.
+  `attempts`, and `notifications`, each notification written as the shape
+  above writes it. An assertion that already holds stays as written.
 - A step or handler with no assertion gains `status`, and `attempts` when
-  its attempts are more than one, as the shape above writes them. No other
-  assertion is added.
+  its attempts are more than one, as the shape above writes them, after
+  the case's last step entry and in the shape's order. No other assertion
+  is added.
 - A step entry keeps its form: a status token stays a token, and a map keeps
   its fields.
 - The outputs that the case asserts take their published values, and no
-  output assertion is added. For a `type: json` output asserted with an
-  object, each key it lists takes its published value, recursively, and no
-  key is added. An asserted output that the step did not publish, a listed
-  key that the published object lacks, and an expected object whose
-  published value at that place, at any depth, is not an object, keep their
-  expected values, and the case reports them as failures.
+  output assertion is added. A string asserted on an output without
+  `type: json` takes the published text, and any other value takes the
+  text read as JSON. For an output asserted with an object, each key it
+  lists takes its published value, recursively, and no key is added. An
+  asserted output that the step did not publish, a listed key that the
+  published object lacks, an expected object whose published value at that
+  place, at any depth, is not an object, and the value of a `type: json`
+  output whose text is not JSON keep their expected values, and the case
+  reports them as failures. Any other value whose text is not JSON takes
+  the text.
 - `stdout` and `stderr` assertions, `contains` and `matches`, stay as
   written.
-- A case that is invalid, or that does not reach a terminal status, keeps its
-  `expect`.
+- A case that is invalid, or whose run does not finish, such as one that
+  times out or has a repeat limit that leaves a step without a limit,
+  keeps its `expect`.
+- A case written in flow style or with a YAML anchor or merge key, and a
+  case whose `expect` holds an anchor, alias, or merge key, keep their
+  `expect`, since rewriting it could change another part of the file.
+- Only the text of what changes is rewritten. A value keeps its comment,
+  and a string keeps its quotes. A flow-style map or list that gains an
+  entry, or one of whose values changes other than in place on its line,
+  is rewritten in block style.
 - The report and the exit status are those of a run of the rewritten cases.
   A rewritten case passes unless an assertion that stays as written fails,
   such as a stream assertion or an output that the step did not publish, and
   then it reports that failure.
+- The last line of each case in the text report, and `update` in the JSON
+  report, say what happened to its `expect`: `expect updated` (`updated`)
+  when its text changed, `expect unchanged` (`unchanged`) when every
+  assertion already held and no step gained one, and
+  `expect kept: <reason>` (`kept`) when it stays as written. `<reason>` is
+  `the case is invalid`, `the run did not finish`, or
+  `the case uses a YAML anchor, alias, merge key, or flow style`.
+- A test file is written once its selected cases have run, and only when an
+  `expect` changed, through a temporary file in its directory renamed over
+  it, keeping its mode. A test file that changed while its cases ran is not
+  written, and `dagu test` stops with an error and exit status 1. An
+  interrupt leaves the test file whose cases were running as it was.
 
 ### Exit Status
 
@@ -2263,9 +2282,10 @@ cases:
 nothing.
 
 After the file's `build` mock gets `exit_code: 1`,
-`dagu test --update workflows/release.test.yaml` exits with status 0 and
-rewrites only the case's `expect`, to `status: failed` with `build: failed`
-and `deploy: aborted`.
+`dagu test --update workflows/release.test.yaml` exits with status 0, its
+report follows the case's `PASS` line with `expect updated`, and it rewrites
+only the case's `expect`, to `status: failed` with `build: failed` and
+`deploy: aborted`.
 
 ### A Test File That Reads as a DAG
 
