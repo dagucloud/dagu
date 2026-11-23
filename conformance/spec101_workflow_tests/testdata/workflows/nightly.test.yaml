@@ -1,0 +1,11 @@
+cases:
+  - name: the second run attempt succeeds
+    mocks:
+      sync:
+        results:
+          - exit_code: 1
+          - exit_code: 0
+    expect:
+      status: succeeded
+      steps:
+        sync: succeeded

@@ -5,6 +5,7 @@ import type { components } from '@/api/v1/schema';
 import { EmptyState, InlineLoadError } from '@/components/PageStates';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { LabelCombobox } from '@/components/ui/label-combobox';
 import {
@@ -23,21 +24,34 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { AppBarContext } from '@/contexts/AppBarContext';
-import { useQuery } from '@/hooks/api';
+import {
+  useCanTestNodes,
+  useCanTrustNodeHostKeys,
+} from '@/contexts/AuthContext';
+import { useConfig } from '@/contexts/ConfigContext';
+import { useClient, useQuery } from '@/hooks/api';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { I18nProps } from '@/i18n/I18nProps';
 import { I18nTemplate } from '@/i18n/I18nTemplate';
 import { I18nText } from '@/i18n/I18nText';
+import { useI18n } from '@/i18n/I18nProvider';
 import { Server } from 'lucide-react';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { NodeDetailsDrawer } from './NodeDetailsDrawer';
+import { NodeTestPanel } from './NodeTestPanel';
+import { nodeKey, useNodeTests } from './useNodeTests';
 
 type InventoryNode = components['schemas']['InventoryNode'];
+type ConnectionTest = components['schemas']['InventoryNodeConnectionTest'];
 
 const ALL_INVENTORIES = 'all';
 const NODES_PER_PAGE = 50;
 const NAME_DEBOUNCE_MS = 300;
 const COLUMN_COUNT = 5;
+// The most nodes one test takes, as the API does.
+const MAX_TEST_NODES = 1000;
+// The most nodes GET /nodes returns per page.
+const MATCHED_PAGE_SIZE = 200;
 
 /**
  * Lists the nodes of this server's inventories, filtered by inventory,
@@ -79,27 +93,34 @@ function NodeList(): React.ReactElement {
   const searchName = useDebouncedValue(name.trim(), NAME_DEBOUNCE_MS);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<InventoryNode | null>(null);
+  // Names of the nodes checked for a test.
+  const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
+  // Whether the names of the matched nodes are being read for a test.
+  const [listingMatched, setListingMatched] = useState(false);
+  const { ts } = useI18n();
+  const config = useConfig();
+  const client = useClient();
+  const canTest = useCanTestNodes();
+  const canTrust = useCanTrustNodeHostKeys();
+  const tests = useNodeTests(config.apiURL);
 
-  // A change of filter starts again from the first page.
+  // A change of filter starts again from the first page, with no node
+  // checked.
   useEffect(() => {
     setPage(1);
+    setChecked(new Set());
   }, [inventory, labels, searchName]);
 
+  const filter = {
+    labels: labels.length > 0 ? labels.join(',') : undefined,
+    inventory: inventory === ALL_INVENTORIES ? undefined : inventory,
+    name: searchName || undefined,
+  };
   const inventories = useQuery('/inventories', {});
   const nodeLabels = useQuery('/node-labels', {});
   const { data, error, isLoading, isValidating, mutate } = useQuery(
     '/nodes',
-    {
-      params: {
-        query: {
-          page,
-          perPage: NODES_PER_PAGE,
-          labels: labels.length > 0 ? labels.join(',') : undefined,
-          inventory: inventory === ALL_INVENTORIES ? undefined : inventory,
-          name: searchName || undefined,
-        },
-      },
-    },
+    { params: { query: { page, perPage: NODES_PER_PAGE, ...filter } } },
     { keepPreviousData: true }
   );
 
@@ -120,6 +141,84 @@ function NodeList(): React.ReactElement {
     () => nodeLabels.data?.labels ?? [],
     [nodeLabels.data?.labels]
   );
+  const columnCount = canTest ? COLUMN_COUNT + 1 : COLUMN_COUNT;
+  const pageChecked = nodes.filter((node) => checked.has(node.name)).length;
+
+  const setPageChecked = (value: boolean) => {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      for (const node of nodes) {
+        if (value) {
+          next.add(node.name);
+        } else {
+          next.delete(node.name);
+        }
+      }
+      return next;
+    });
+  };
+
+  const toggleChecked = (name: string, value: boolean) => {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (value) {
+        next.add(name);
+      } else {
+        next.delete(name);
+      }
+      return next;
+    });
+  };
+
+  /** Tests the checked nodes, or else every node the filters match. */
+  const startTest = async () => {
+    if (checked.size > 0) {
+      await tests.test([...checked]);
+      return;
+    }
+    setListingMatched(true);
+    try {
+      const names = await listMatched();
+      if (names) {
+        await tests.test(names);
+      }
+    } finally {
+      setListingMatched(false);
+    }
+  };
+
+  /**
+   * Returns the names of every node the filters match, a page at a time, or
+   * null after it reports why they cannot be tested.
+   */
+  const listMatched = async (): Promise<string[] | null> => {
+    const names: string[] = [];
+    for (let next = 1; ; next++) {
+      const matched = await client.GET('/nodes', {
+        params: {
+          query: { page: next, perPage: MATCHED_PAGE_SIZE, ...filter },
+        },
+      });
+      if (!matched.data) {
+        tests.refuse(
+          matched.error?.message ?? ts("Couldn't list the matched nodes.")
+        );
+        return null;
+      }
+      if (matched.data.pagination.totalRecords > MAX_TEST_NODES) {
+        tests.refuse(
+          ts(
+            'A test takes at most 1,000 nodes. Narrow the filters, or check the nodes to test.'
+          )
+        );
+        return null;
+      }
+      names.push(...matched.data.nodes.map((node) => node.name));
+      if (!matched.data.pagination.hasNextPage || !matched.data.nodes.length) {
+        return names;
+      }
+    }
+  };
 
   if (inventories.data && inventoryList.length === 0) {
     return (
@@ -202,6 +301,29 @@ function NodeList(): React.ReactElement {
             )}
           </span>
         )}
+        {canTest && (
+          <Button
+            size="sm"
+            variant="outline"
+            className={pagination ? 'h-8' : 'ml-auto h-8'}
+            disabled={
+              listingMatched ||
+              tests.running ||
+              tests.trusting ||
+              (checked.size === 0 && !pagination?.totalRecords)
+            }
+            onClick={() => void startTest()}
+          >
+            {checked.size > 0 ? (
+              <I18nTemplate
+                text="Test {count} checked"
+                values={{ count: checked.size }}
+              />
+            ) : (
+              <I18nText text={'Test matched nodes'} />
+            )}
+          </Button>
+        )}
       </div>
       {inventories.error && (
         <FilterLoadError
@@ -217,11 +339,42 @@ function NodeList(): React.ReactElement {
           onRetry={() => void nodeLabels.mutate()}
         />
       )}
+      {tests.run && (
+        <NodeTestPanel
+          run={tests.run}
+          results={tests.runResults}
+          trusts={tests.trusts}
+          trusting={tests.trusting}
+          canTrust={canTrust}
+          onTrust={(offers) => void tests.trust(offers, tests.run!.names)}
+          onClose={tests.close}
+        />
+      )}
 
       <div className="card-obsidian min-h-0 flex-1 !overflow-auto">
         <Table className="text-xs">
           <TableHeader>
             <TableRow>
+              {canTest && (
+                <TableHead className="w-8">
+                  <I18nProps>
+                    <Checkbox
+                      aria-label="Check the nodes of this page"
+                      checked={
+                        pageChecked === 0
+                          ? false
+                          : pageChecked === nodes.length
+                            ? true
+                            : 'indeterminate'
+                      }
+                      disabled={nodes.length === 0 || isValidating}
+                      onCheckedChange={(value) =>
+                        setPageChecked(value === true)
+                      }
+                    />
+                  </I18nProps>
+                </TableHead>
+              )}
               <TableHead className="w-[220px]">
                 <I18nText text={'Name'} />
               </TableHead>
@@ -242,7 +395,7 @@ function NodeList(): React.ReactElement {
           <TableBody>
             {error ? (
               <TableRow>
-                <TableCell colSpan={COLUMN_COUNT} className="py-8">
+                <TableCell colSpan={columnCount} className="py-8">
                   <InlineLoadError
                     error={error}
                     onRetry={() => void mutate()}
@@ -252,7 +405,7 @@ function NodeList(): React.ReactElement {
             ) : isLoading && !data ? (
               <TableRow>
                 <TableCell
-                  colSpan={COLUMN_COUNT}
+                  colSpan={columnCount}
                   className="py-8 text-center text-muted-foreground"
                 >
                   <I18nText text={'Loading nodes...'} />
@@ -261,7 +414,7 @@ function NodeList(): React.ReactElement {
             ) : nodes.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={COLUMN_COUNT}
+                  colSpan={columnCount}
                   className="py-8 text-center text-muted-foreground"
                 >
                   <I18nText text={'No nodes match these filters.'} />
@@ -272,6 +425,16 @@ function NodeList(): React.ReactElement {
                 <NodeRow
                   key={node.name}
                   node={node}
+                  test={
+                    tests.run?.pending.has(nodeKey(node.name))
+                      ? 'pending'
+                      : tests.results[nodeKey(node.name)]
+                  }
+                  checked={canTest ? checked.has(node.name) : undefined}
+                  // The rows of the previous filter stay while a new one
+                  // loads; a node checked then would be tested unseen.
+                  checkDisabled={isValidating}
+                  onCheckedChange={(value) => toggleChecked(node.name, value)}
                   onOpen={() => setSelected(node)}
                 />
               ))
@@ -312,6 +475,7 @@ function NodeList(): React.ReactElement {
 
       <NodeDetailsDrawer
         node={selected}
+        lastTest={selected ? tests.results[nodeKey(selected.name)] : undefined}
         open={selected !== null}
         onOpenChange={(open) => !open && setSelected(null)}
       />
@@ -339,11 +503,22 @@ function FilterLoadError({
 
 function NodeRow({
   node,
+  test,
+  checked,
+  checkDisabled,
+  onCheckedChange,
   onOpen,
 }: {
   node: InventoryNode;
+  /** The node's last test result, or 'pending' while it is tested. */
+  test?: ConnectionTest | 'pending';
+  /** Whether the node is checked, or undefined when nodes cannot be. */
+  checked?: boolean;
+  checkDisabled: boolean;
+  onCheckedChange: (checked: boolean) => void;
   onOpen: () => void;
 }): React.ReactElement {
+  const { ts } = useI18n();
   return (
     <TableRow
       className="cursor-pointer"
@@ -356,9 +531,36 @@ function NodeRow({
         }
       }}
     >
+      {checked !== undefined && (
+        // The row opens the drawer; checking a node does not.
+        <TableCell
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <Checkbox
+            aria-label={ts('Check {name}', { name: node.name })}
+            checked={checked}
+            disabled={checkDisabled}
+            onCheckedChange={(value) => onCheckedChange(value === true)}
+          />
+        </TableCell>
+      )}
       <TableCell>
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="truncate font-medium">{node.name}</span>
+          {test === 'pending' ? (
+            <Badge variant="outline">
+              <I18nText text={'Testing...'} />
+            </Badge>
+          ) : test ? (
+            <Badge variant={test.ok ? 'success' : 'error'}>
+              {test.ok ? (
+                <I18nText text={'Passed'} />
+              ) : (
+                <I18nText text={'Failed'} />
+              )}
+            </Badge>
+          ) : null}
           {node.disabled && (
             <Badge variant="outline">
               <I18nText text={'Disabled'} />

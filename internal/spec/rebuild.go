@@ -41,7 +41,9 @@ func EvaluateDeferredParams(ctx context.Context, dag *ir.DAG, dates []ir.DateVal
 	if len(dag.DeferredParams) == 0 {
 		return dag, nil
 	}
-	return reloadFromYAML(ctx, dag, dag.Params, WithRunValues(dates, runContext))
+	// Quoted, an empty value stays the value of its own param.
+	params := QuoteRuntimeParams(dag.Params, dag.ParamDefs)
+	return reloadFromYAML(ctx, dag, params, WithRunValues(dates, runContext))
 }
 
 // reloadFromYAML reloads dag from its YamlData with params, reusing the

@@ -1,0 +1,18 @@
+steps:
+  - id: choose_window
+    action: human.task
+    with:
+      prompt: Choose a deployment window
+      form:
+        type: object
+        properties:
+          window:
+            type: string
+            enum: [morning, evening]
+        required: [window]
+  - id: deploy_morning
+    depends: choose_window
+    preconditions:
+      - condition: ${steps.choose_window.outputs.window}
+        expected: morning
+    run: touch deploy.ran

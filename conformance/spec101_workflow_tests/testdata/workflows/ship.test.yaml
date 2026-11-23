@@ -1,0 +1,23 @@
+mocks:
+  build: {}
+cases:
+  - name: ships
+    expect:
+      status: succeeded
+  # A param with a value runs no eval, and one without substitution
+  # evaluates as in a real run.
+  - name: handling every source ships
+    params:
+      build_date: ""
+    mocks:
+      deploy: {}
+      hook: {}
+      summary: {}
+      lint:
+        precondition: met
+      handler_on.failure: {}
+    expect:
+      status: succeeded
+      steps:
+        hook: succeeded
+        lint: succeeded

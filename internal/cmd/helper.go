@@ -136,9 +136,22 @@ func runSlotParams(ctx *Context, dag *ir.DAG, profile string, allowFuture bool) 
 	case scheduledAt == "":
 		return runSlot{}, nil
 	}
+	slot, warning, err := resolveScheduledAt(ctx, dag, profile, scheduledAt, allowFuture)
+	if err != nil {
+		return runSlot{}, fmt.Errorf("invalid --scheduled-at: %w", err)
+	}
+	if warning != "" {
+		_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "Warning: %s\n", warning)
+	}
+	return slot, nil
+}
 
+// resolveScheduledAt resolves a slot in a form --scheduled-at takes among
+// the DAG's start schedules for the profile. It also returns a warning when
+// no schedule fires at that time.
+func resolveScheduledAt(ctx *Context, dag *ir.DAG, profile, value string, allowFuture bool) (runSlot, string, error) {
 	slot, err := ir.ResolveScheduleSlot(ir.ScheduleSlotRequest{
-		Value:       scheduledAt,
+		Value:       value,
 		Schedules:   boundStartSchedules(ctx, dag),
 		Profile:     profile,
 		Location:    ctx.Config.Core.Location,
@@ -146,16 +159,13 @@ func runSlotParams(ctx *Context, dag *ir.DAG, profile string, allowFuture bool) 
 		AllowFuture: allowFuture,
 	})
 	if err != nil {
-		return runSlot{}, fmt.Errorf("invalid --scheduled-at: %w", err)
-	}
-	if slot.Warning != "" {
-		_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "Warning: %s\n", slot.Warning)
+		return runSlot{}, "", err
 	}
 	return runSlot{
 		scheduleTime:   stringutil.FormatTime(slot.At.In(ctx.Config.Core.Location)),
 		window:         slot.Window,
 		operatorChosen: true,
-	}, nil
+	}, slot.Warning, nil
 }
 
 // slotDates resolves the dates of a run being created for slot. An error

@@ -496,6 +496,16 @@ func (r *Local) newAgent(
 	if artifactBaseDir == "" {
 		artifactBaseDir = config.GetConfig(ctx).Paths.ArtifactDir
 	}
+	// A run of a workflow test case moves its redirects into the case. Only
+	// a real step starts a child there, so the child runs with the side
+	// effects of a case with a real step, and keeps its artifacts in the
+	// case's artifact directory.
+	if rCtx.RedirectRoot.Dir != "" {
+		opts.TestSideEffects = &rtagent.TestSideEffects{HasRealSteps: true}
+		if dag.Artifacts != nil {
+			dag.Artifacts.Dir = ""
+		}
+	}
 
 	artifactDir, err := inProcessArtifactDir(ctx, dag, artifactBaseDir, req.RunID, opts.RetryTarget)
 	if err != nil {

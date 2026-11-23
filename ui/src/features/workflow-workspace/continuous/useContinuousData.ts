@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useRef } from 'react';
-import useSWR from 'swr';
+import useSWR, { unstable_serialize, type Middleware } from 'swr';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient, useQuery } from '@/hooks/api';
 import { isAbortLikeError, shouldRetryQueryError } from '@/lib/requestTimeout';
@@ -110,12 +110,36 @@ type RetryOptions = { retryCount: number; dedupe: boolean };
 // read that the host asks for during an error starts no second chain.
 const pendingRetries = new Map<string, () => void>();
 
+/** The period at which SWR polls a key, or 0 when it does not poll it. */
+function pollPeriod(config: { refreshInterval?: unknown }): number {
+  const ms = config.refreshInterval;
+  return typeof ms === 'number' && ms > 0 ? ms : 0;
+}
+
+/** Drops the retry that waits for `key`, if any. */
+function cancelRetry(key: string): void {
+  pendingRetries.get(key)?.();
+}
+
+// Drops the pending retry of a key once its poll stops, also when a host
+// such as a closed dock turns the poll off. The middleware of a hook runs
+// inside the middleware of its host, so it sees the poll that SWR runs.
+const dropRetryWhenStopped: Middleware = (useSWRNext) =>
+  function useRetryWhilePolled(key, fetcher, config) {
+    const id = unstable_serialize(key);
+    const polled = pollPeriod(config) > 0;
+    useEffect(() => {
+      if (!polled) cancelRetry(id);
+    }, [id, polled]);
+    return useSWRNext(key, fetcher, config);
+  };
+
 /**
  * Calls `retry` once after `ms`, or once the tab shows again when it is
  * hidden then. It replaces the retry that waits for the same key.
  */
 function retryWhenShown(key: string, ms: number, retry: () => void): void {
-  pendingRetries.get(key)?.();
+  cancelRetry(key);
   const run = () => {
     pendingRetries.delete(key);
     retry();
@@ -184,6 +208,7 @@ export function useSamples(
     {
       keepPreviousData: true,
       refreshInterval: poll ? pollMs : 0,
+      use: [dropRetryWhenStopped],
       ...(poll
         ? {
             // SWR does not poll a key that holds an error, and the app does
@@ -200,9 +225,8 @@ export function useSamples(
               revalidate: (opts: RetryOptions) => unknown,
               opts: RetryOptions
             ) => {
-              const ms = config.refreshInterval;
-              if (typeof ms !== 'number' || ms <= 0) return;
-              retryWhenShown(key, ms, () => void revalidate(opts));
+              const ms = pollPeriod(config);
+              if (ms > 0) retryWhenShown(key, ms, () => void revalidate(opts));
             },
           }
         : {}),

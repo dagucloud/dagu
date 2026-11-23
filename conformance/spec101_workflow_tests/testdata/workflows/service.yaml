@@ -1,0 +1,8 @@
+restart_policy: always
+restart_wait_sec: 5
+steps:
+  - id: recover
+    preconditions:
+      - condition: ${context.trigger.type}
+        expected: restart
+    run: touch recover.ran

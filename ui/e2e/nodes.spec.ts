@@ -47,21 +47,71 @@ test.describe('Nodes', () => {
     ).toBeVisible();
 
     await page.getByRole('textbox', { name: 'Search by name...' }).fill(id);
-    await expect(page.getByRole('cell', { name: web })).toBeVisible();
     await expect(
-      page.getByRole('cell', { name: new RegExp(db) })
+      page.getByRole('cell', { name: web, exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole('cell', { name: new RegExp(`^${db}`) })
     ).toBeVisible();
 
     const labels = page.getByRole('combobox', { name: 'Filter by labels...' });
     await labels.fill('role=db');
     await labels.press('Enter');
-    await expect(page.getByRole('cell', { name: web })).toHaveCount(0);
+    await expect(
+      page.getByRole('cell', { name: web, exact: true })
+    ).toHaveCount(0);
 
-    await page.getByRole('cell', { name: new RegExp(db) }).click();
+    await page.getByRole('cell', { name: new RegExp(`^${db}`) }).click();
     const drawer = page.getByRole('dialog');
     await expect(drawer).toContainText('db.internal');
     await expect(drawer).toContainText('2222');
     await expect(drawer).toContainText('ssh/e2e-fleet');
     await expect(drawer).toContainText('Disabled');
+  });
+
+  test('tests a checked node and shows its result as the stream delivers it', async ({
+    page,
+    request,
+  }) => {
+    const stack = await loadStack();
+    const token = await loginViaAPI(
+      request,
+      stack.auth.adminUsername,
+      stack.auth.adminPassword
+    );
+    const id = uniqueName('e2e');
+    const web = `${id}-web`;
+    // The key's secret does not exist, so the test fails at once, before it
+    // connects.
+    const imported = await request.post('/api/v1/inventory-imports', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: [
+        {
+          name: `${id} inventory`,
+          nodes: [
+            {
+              name: web,
+              host: '127.0.0.1',
+              user: 'deploy',
+              key: { secret: `ssh/${id}-missing` },
+            },
+          ],
+        },
+      ],
+    });
+    expect(imported.ok(), await imported.text()).toBeTruthy();
+
+    await loginViaUI(page, stack.auth.adminUsername, stack.auth.adminPassword);
+    await page.goto('/nodes');
+    await page.getByRole('textbox', { name: 'Search by name...' }).fill(id);
+    await page.getByRole('checkbox', { name: `Check ${web}` }).check();
+    await page.getByRole('button', { name: 'Test 1 checked' }).click();
+
+    const panel = page.getByRole('region', { name: 'Connection test' });
+    await expect(panel).toContainText('0 passed, 1 failed');
+    await expect(panel).toContainText(`ssh/${id}-missing`);
+    await expect(
+      page.getByRole('row', { name: new RegExp(web) })
+    ).toContainText('Failed');
   });
 });

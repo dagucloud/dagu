@@ -1,0 +1,18 @@
+schedule: "0 9 * * *"
+params:
+  - name: count
+    type: integer
+    default: 1
+env:
+  - MODE: normal
+steps:
+  - id: loud
+    preconditions:
+      - condition: ${MODE}
+        expected: loud
+    run: touch loud.ran
+  - id: slot
+    preconditions:
+      - condition: ${context.run.scheduled_at}
+        expected: "2026-01-05T09:00:00Z"
+    run: touch slot.ran

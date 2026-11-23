@@ -54,14 +54,15 @@ var (
 func Nodes() *cobra.Command {
 	cmd := NewCommand(&cobra.Command{
 		Use:   "nodes",
-		Short: "List, show, add, remove, import, and export inventory nodes",
+		Short: "List, show, add, remove, test, import, and export inventory nodes",
 		Long: `Work with the node inventories of this installation: named lists of SSH
 hosts with labels, which steps select with the label filter that
 'dagu history --labels' takes.
 
 Inventories are stored as JSON records. 'dagu nodes export' prints them, and
 'dagu nodes import' reads the same JSON. 'dagu nodes add' and 'dagu nodes
-remove' change one node.`,
+remove' change one node. 'dagu nodes test' tests connections and trusts
+host keys.`,
 	}, nil, func(ctx *Context, _ []string) error {
 		return ctx.Command.Help()
 	})
@@ -70,6 +71,7 @@ remove' change one node.`,
 	cmd.AddCommand(nodesShowCommand())
 	cmd.AddCommand(nodesAddCommand())
 	cmd.AddCommand(nodesRemoveCommand())
+	cmd.AddCommand(nodesTestCommand())
 	cmd.AddCommand(nodesImportCommand())
 	cmd.AddCommand(nodesExportCommand())
 	return cmd

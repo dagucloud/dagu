@@ -529,7 +529,12 @@ jobs:
               args+=(-run "${run}")
             fi
             # shellcheck disable=SC2086 # packages is a space-separated list.
-            go test "${args[@]}" ${packages} || status=1
+            if ! go test "${args[@]}" ${packages}; then
+              status=1
+              # Report port use right away: ports held in TIME_WAIT free up
+              # about two minutes after a failure, before a later step runs.
+              pwsh -NoProfile -NonInteractive -File scripts/ci/windows-socket-report.ps1 || true
+            fi
           done 3< "${RUNNER_TEMP}/go-test-plan.tsv"
           exit "${status}"
 

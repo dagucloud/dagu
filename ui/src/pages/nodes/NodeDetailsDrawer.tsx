@@ -13,11 +13,15 @@ import {
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import React from 'react';
+import { TestOutcome } from './NodeTestPanel';
 
 type InventoryNode = components['schemas']['InventoryNode'];
+type ConnectionTest = components['schemas']['InventoryNodeConnectionTest'];
 
 type NodeDetailsDrawerProps = {
   node: InventoryNode | null;
+  /** The node's last test on this page, if any. */
+  lastTest?: ConnectionTest;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
@@ -28,11 +32,13 @@ type DetailField = {
 };
 
 /**
- * Shows one node as its runs reach it, with its inventory's defaults applied.
- * Credentials appear as key paths and secret refs, never as values.
+ * Shows one node as its runs reach it, with its inventory's defaults applied,
+ * and its last test. Credentials appear as key paths and secret refs, never
+ * as values.
  */
 export function NodeDetailsDrawer({
   node,
+  lastTest,
   open,
   onOpenChange,
 }: NodeDetailsDrawerProps): React.ReactElement | null {
@@ -119,6 +125,15 @@ export function NodeDetailsDrawer({
               { label: 'Pinned key', value: node.hostKey },
             ]}
           />
+          {lastTest && (
+            <DetailSection
+              title="Last test"
+              fields={[
+                { label: 'Result', value: <TestOutcome result={lastTest} /> },
+                { label: 'Bastion key', value: lastTest.bastionFingerprint },
+              ]}
+            />
+          )}
         </div>
       </DialogContent>
     </Dialog>

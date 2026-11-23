@@ -17,6 +17,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 )
 
+// cleanupAction is the action of the entry each cleanup writes.
+const cleanupAction = "audit_cleanup"
+
 // appendFn is a function that appends an audit entry to the store.
 type appendFn func(ctx context.Context, entry *audit.Entry) error
 
@@ -146,12 +149,8 @@ func (c *cleaner) expiredFiles() []cleanupFile {
 		}
 
 		name := entry.Name()
-		if !strings.HasSuffix(name, auditFileExtension) {
-			continue
-		}
-
-		fileDate, err := time.Parse(dateFormat, strings.TrimSuffix(name, auditFileExtension))
-		if err != nil || !fileDate.Before(cutoff) {
+		fileDate, ok := fileDay(name)
+		if !ok || !fileDate.Before(cutoff) {
 			continue
 		}
 
@@ -176,7 +175,7 @@ func (c *cleaner) recordCleanup(files []cleanupFile) error {
 	if err != nil {
 		return err
 	}
-	entry := audit.NewEntry(audit.CategorySystem, "audit_cleanup", "", "system").
+	entry := audit.NewEntry(audit.CategorySystem, cleanupAction, "", "system").
 		WithDetails(string(details))
 	return c.appendFn(context.Background(), entry)
 }

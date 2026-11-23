@@ -1,0 +1,11 @@
+preconditions:
+  - condition: touch dag-check.ran
+    negate: true
+steps:
+  - id: migrate
+    preconditions:
+      - condition: touch step-check.ran
+    run: touch migrate.ran
+  - id: notify
+    depends: migrate
+    run: touch notify.ran

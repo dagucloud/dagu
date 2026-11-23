@@ -241,6 +241,22 @@ export function useIsAdminIfSignedIn(): boolean {
   return context.user?.role === UserRole.admin;
 }
 
+/** Whether the user can test node connections, which takes the operator role. */
+export function useCanTestNodes(): boolean {
+  const { user } = useAuth();
+  const config = useConfig();
+  if (config.authMode !== 'builtin') return true;
+  return roleAtLeast(user?.role ?? null, UserRole.operator);
+}
+
+/** Whether the user can trust node host keys, which takes the developer role. */
+export function useCanTrustNodeHostKeys(): boolean {
+  const { user } = useAuth();
+  const config = useConfig();
+  if (config.authMode !== 'builtin') return true;
+  return roleAtLeast(user?.role ?? null, UserRole.developer);
+}
+
 export function useCanWrite(): boolean {
   const { user } = useAuth();
   const config = useConfig();

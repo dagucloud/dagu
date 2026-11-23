@@ -1,0 +1,29 @@
+params:
+  - name: n
+    default: "3"
+steps:
+  - id: poll
+    run: touch poll.ran
+    repeat_policy:
+      repeat: while
+      condition: touch condition.ran
+      interval_sec: 30
+      limit: 10
+  - id: beat
+    run: touch beat.ran
+    repeat_policy:
+      repeat: while
+      interval_sec: 1
+  - id: tick
+    action: log.write
+    with:
+      message: tick
+    repeat_policy:
+      repeat: while
+      limit: ${params.n}
+  - id: idle
+    action: log.write
+    with:
+      message: idle
+    repeat_policy:
+      repeat: while

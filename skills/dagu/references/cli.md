@@ -195,6 +195,38 @@ Dry-run a DAG without executing commands: `dagu dry [--params/-p] [--name/-N] [-
 
 For a build DAG, `--no-reuse` previews the decisions with manifest reuse disabled. Dry-run still creates no locks, staging files, manifests, or run history.
 
+### dagu test
+
+Run workflow tests: `dagu test [--timeout 5m] [<test file or directory>...]`. With no argument, it runs every test file under the DAGs directory.
+
+A test file sits beside its DAG and ends in `.test.yaml` or `.test.yml`: `release.test.yaml` tests `release.yaml`, or set `dag:` to another file. Each case runs the unchanged DAG through the real runner in a temporary directory, with step actions replaced by mocks. Every step whose action has side effects must be mocked, listed under `real`, or covered by `default_mock`; otherwise the case is invalid and nothing runs. Only `router.route`, `outputs.write`, `log.write`, and `noop` run for real unmocked. Retry and repeat intervals are not waited for, except by steps in `real`. A step or handler in `real` that starts a child run, such as `dag.run` or `parallel`, makes the case invalid for now; mock it instead.
+
+```yaml
+# release.test.yaml
+mocks:
+  build:
+    outputs:
+      image_tag: v1.2.3   # a step that declares outputs gets all of them
+  deploy: {}              # {} succeeds with no output
+cases:
+  - name: a failed build stops the deploy
+    mocks:
+      build:
+        results:          # one result per execution: attempt, retry, or repeat
+          - exit_code: 1
+    expect:
+      status: failed
+      steps:
+        build: failed
+        deploy:
+          status: aborted
+          attempts: 0
+```
+
+A mock also takes `stdout`, `stderr`, `precondition: met|not_met` for preconditions that run a command, `condition` per result for a command-check repeat condition, and `review: {decision: approve|reject, values: {...}}` for `human.task` and approval steps. A case can set `params`, `env`, `secrets` (needed only with a `real` step), `trigger`, `scheduled_at`, and `precondition` for DAG-level preconditions. Name a handler as `handler_on.failure`.
+
+The report prints `PASS`, `FAIL`, or `INVALID` per case, every failed assertion, and the unhandled sources of an invalid case. Exit status: 0 all passed, 1 a case failed, 2 a file or case is invalid. `expect` currently checks run `status` and step `status` and `attempts`.
+
 ### dagu validate
 
 Validate DAG YAML without executing: `dagu validate <dag>`
@@ -403,6 +435,7 @@ dagu nodes list [--labels <selector>] [--inventory <name|id>] [--format/-f table
 dagu nodes show <name> [--format/-f table|json]
 dagu nodes add <name> --host <host> [--inventory <name|id>] [--port N] [--user U] [--key <path>|--key-secret <ref>] [--password-secret <ref>] [--passphrase-secret <ref>] [--bastion <node>] [--labels a,b] [--description <text>] [--no-test]
 dagu nodes remove <name>
+dagu nodes test [<name>...] [--labels <selector>]
 dagu nodes import <file> [--replace] [--dry-run]
 dagu nodes export [--inventory <name|id>]
 ```
@@ -411,6 +444,7 @@ dagu nodes export [--inventory <name|id>]
 - `show` — One node with its inventory, labels, and connection settings. The name is compared without case
 - `add` — Adds a node, or replaces the node of that name. It first tests the connection (host key, authentication, `true`); when the host key is unknown it shows the fingerprint and asks, then tests again with that key accepted and saves the node and trusts the key only if that test passes. A node whose test fails is not added unless `--no-test`. `--inventory` may be left out when there is one inventory
 - `remove` — Removes a node. Removing, renaming, or adding a node forgets the host key trusted for that name, so the next host of that name is trusted again
+- `test` — Tests the named nodes, the nodes `--labels` selects, or every node: host key, authentication, `true`, printing each result as it ends. It lists unknown keys and asks once before it trusts them, and lists changed keys with the trusted and presented fingerprints and asks again before it replaces them. It then tests again the nodes a trusted key stopped. Fails when any node fails its last test. A key that differs only from the node's `host_key` is not offered; fix `host_key` in the inventory
 - `import` — Reads a JSON array of inventories. A new name is created; an existing name is refused unless `--replace`, which replaces it and keeps its ID. When any inventory breaks a rule, nothing is stored and every broken rule is listed. `--dry-run` only checks. A record that sets `id` is refused
 - `export` — Prints inventories as a JSON array without IDs, which `import` reads back unchanged
 - `--inventory` — Names an inventory by ID, or by name compared without case

@@ -61,6 +61,13 @@ type runOptions struct {
 	// executorOverride replaces the actions of the mocked steps of a test
 	// case.
 	executorOverride runtime.ExecutorOverride
+	// conditionOverride scripts the conditions of a test case that would run
+	// a command, and bounds its steps that repeat without a limit.
+	conditionOverride runtime.ConditionOverride
+	// skipWaits runs a test case without waiting for retry and repeat
+	// intervals or the start delay, except for the steps in keepWaits.
+	skipWaits bool
+	keepWaits []string
 }
 
 // prepareTools prepares the tools of dag for one attempt of the run. A
@@ -79,6 +86,9 @@ func (o runOptions) withTestOptions(agentOpts agent.Options) agent.Options {
 	agentOpts.RedirectRoot = o.redirectRoot
 	agentOpts.TestSideEffects = o.testSideEffects
 	agentOpts.ExecutorOverride = o.executorOverride
+	agentOpts.ConditionOverride = o.conditionOverride
+	agentOpts.SkipWaits = o.skipWaits
+	agentOpts.KeepWaits = o.keepWaits
 	return agentOpts
 }
 

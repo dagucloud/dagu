@@ -84,7 +84,7 @@ project/
 | `dagu validate [<target>]` | Validates the project file and every workflow, or one workflow. |
 | `dagu start <target> [-- params]` | Runs one workflow. |
 | Other commands that take a DAG, such as `status`, `stop`, `retry`, and `enqueue` | Resolve the DAG as a workflow target. |
-| `dagu server`, `dagu start-all` | Serve the project's workflows and runs. `start-all` also schedules them. |
+| `dagu server`, `dagu start-all` | Serve the server projects of the configured Dagu home, as outside a project. The folder is served only as a server project's DAG directory. |
 
 Rules:
 
@@ -158,9 +158,9 @@ never runs a file that discovery did not find.
 
 ## Base config
 
-A workflow's base config is the user's global base config, then `base.yaml` in
-`project_root` when it exists, then the workflow file. This is the order a
-server applies to a project's DAGs.
+A workflow's base config is `base.yaml` in `project_root` when it exists, then
+the workflow file. No other base config applies, as on a server
+([RFC 003](../rfcs/003-projects.md#base-config)).
 
 ## Working directory
 
@@ -223,19 +223,26 @@ stays clean, and `git clean -x` or a fresh clone loses nothing.
 Rules:
 
 - The project's name selects its state. Two folders whose `dagu.json` names
-  one project, such as two clones of one repository, share its runs and
-  settings.
+  one project that no server project of the Dagu home registers, such as
+  two clones of one repository, share its runs and settings. A retry runs
+  the definition its run recorded.
 - Inside a project, the CLI uses the user's Dagu configuration, except that
   its DAG directory is the workflow directory.
-- A workflow uses the project's secrets, profiles, notification routes, and
-  incident policies, then those of the server layer of the user's Dagu home,
-  in the order [RFC 003](../rfcs/003-projects.md#server-layer) gives. Inside
-  a project, `dagu secret` and `dagu profile` act on the project's entries.
+- A workflow uses only the project's secrets, profiles, notification routes,
+  and incident policies, as [RFC 003](../rfcs/003-projects.md#settings)
+  defines. Inside a project, `dagu secret` and `dagu profile` act on the
+  project's entries.
 - Secrets are encrypted with the key of the user's Dagu home, as on a
   server.
 - A server project ([RFC 003](../rfcs/003-projects.md#layout)) keeps its
-  state the same way, in the server's data directory, so a folder whose
-  `dagu.json` names it shares its history on that Dagu home.
+  state the same way, in the server's data directory. Only its DAG
+  directory may use its name: a command outside every server project's DAG
+  directory whose `dagu.json` names it fails, and the error names that DAG
+  directory.
+- A project that no server project of the Dagu home registers has no
+  scheduler: `dagu start` runs its workflows, `dagu enqueue` and a dispatch
+  to a worker fail with an error that says only a registered project can,
+  and no `schedule` runs.
 - `dagu start` prints where the run's logs are when it finishes, and
   `dagu history` lists past runs.
 - Project loading and workflow discovery do not write workflow events, run
@@ -261,7 +268,8 @@ Rules:
      command uses that project's rules, base config, secrets, and run
      history.
   3. The project named by the `dagu.json` found from the current
-     directory.
+     directory, unless a server project of that name is registered, which
+     fails as [Project state](#project-state) says.
   4. The default project of the configured Dagu home, as without projects.
 - When the CLI addresses a remote server through a context, a command
   inside a project addresses the server project of the project's name.

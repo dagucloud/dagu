@@ -12,12 +12,12 @@
 
 Replace workspaces with projects in v3.0. A project is a directory of DAG
 files with its own runs, logs, base config, secrets, profiles, notification
-routes, incident policies, and wiki. Secrets, profiles, notification routes,
-and incident policies also have a server layer that every project inherits,
-as base config does. Users, API keys, authentication, and workers stay
-server-wide. A project's DAG files live under `paths.projects_dir`, and its
-state lives in the server's data directory. One server process serves every
-project. Child DAGs that several projects call live in a library at
+routes, incident policies, and wiki. A project inherits none of these from
+the server: every setting a workflow runs with belongs to one project, the
+default project or another. Users, API keys, authentication, and workers
+stay server-wide. A project's DAG files live under `paths.projects_dir`, and
+its state lives in the server's data directory. One server process serves
+every project. Child DAGs that several projects call live in a library at
 `paths.alt_dags_dir` and run in the project that calls them.
 
 A project's name never changes; its display name can. Each project also has
@@ -25,13 +25,15 @@ an ID, so a project created again under a deleted one's name is a new
 project. Dagu Cloud tells projects apart by an explicit binding, never by
 name.
 
-v3.0 moves each v2 workspace into a project on its first start.
+v3.0 moves each v2 workspace into a project on its first start, and v2's
+global settings become the default project's.
 `dagu migrate workspaces` previews that move and changes nothing. Installs
-without workspaces run unchanged as the default project.
+without workspaces run as the default project; the same first start moves
+its state into `<data_dir>/projects/default/`, like every project's.
 
-v3.0 ships the core, with checkouts. Moving DAGs between projects, adding a
-folder outside `paths.projects_dir` as a project, the All projects view, and
-Dagu Cloud bindings follow, as
+v3.0 ships the core, with checkouts and git sync per project. Moving DAGs
+between projects, adding a folder outside `paths.projects_dir` as a
+project, the All projects view, and Dagu Cloud bindings follow, as
 [Compatibility and rollout](#compatibility-and-rollout) lists.
 
 ## Problem statement
@@ -65,12 +67,15 @@ workspaces without a replacement would keep those installs on v2.
    directory holds it.
 3. Keep most subsystems unaware of projects. Only startup wiring, the API, MCP,
    and CLI edge, and authorization resolve a project.
-4. Leave installs without workspaces unchanged.
+4. Upgrade installs without workspaces with no manual step. Their DAG
+   files, URLs, and commands stay the same; only their state moves.
 5. Migrate workspaces on upgrade with no manual step, and never change
    silently which settings or secrets a workflow runs with.
 6. Leave "workspace" to mean only the Dagu Cloud account.
 7. Give each project an identity that Dagu Cloud can tell apart across
    servers, without putting Dagu Cloud in the run path.
+8. Give every setting a workflow runs with one owner, a project, with no
+   server-wide layer that projects inherit.
 
 ## Non-goals
 
@@ -88,10 +93,15 @@ workspaces without a replacement would keep those installs on v2.
 ```text
 $DAGU_HOME/
   config.yaml            server-wide settings
-  base.yaml              global base config
-  dags/ logs/            the default project
-  data/                  the default project's and the server's state
+  base.yaml              the default project's base config
+  dags/                  the default project's DAG files
+  logs/admin/            admin and audit logs
+  data/                  paths.data_dir
+    projects.json        the project registry
+    server/              queues defined in config.yaml
+    users/ apikeys/ auth/ ...  other server-wide state
     projects/
+      default/           the default project's state
       weather/           project state
         runs/ logs/ artifacts/ settings/ state/
   projects/              paths.projects_dir
@@ -101,27 +111,30 @@ $DAGU_HOME/
       wiki/              project wiki
 ```
 
-A project has a DAG directory and a state directory, as the default project
-has `paths.dags_dir` and `paths.data_dir`.
+A project has a DAG directory and a state directory.
 
 - The DAG directory is `<projects_dir>/<name>/`. It holds the project's DAG
   files, its `base.yaml`, which is the project base config, not a DAG, and
   its wiki in `wiki/`, as the default project keeps its wiki in
   `dags_dir/wiki`. Wiki pages then stay in git with the DAGs they describe.
 - `paths.projects_dir` defaults to `$DAGU_HOME/projects`, or to `projects`
-  beside `dags` in the XDG config directory when `DAGU_HOME` is unset.
-  Pointing it at a git checkout keeps every project's DAG files and base
-  config in git.
+  beside `dags` in the XDG config directory when `DAGU_HOME` is unset. A
+  project's [git sync](#git-sync), or a git checkout at
+  `paths.projects_dir`, keeps its DAG files and base config in git.
 - The state directory is `<data_dir>/projects/<name>/`, laid out as
   [spec 001](../specs/001-project.md#project-state) lays out project state.
   It holds everything else the project has: runs, logs, artifacts,
   secrets, profiles, and the rest of [Scope](#scope). State never lives in
   a DAG directory, so a checkout stays clean.
-- When `config.yaml` sets `paths.log_dir` or `paths.artifact_dir`, a
-  project's logs or artifacts live there instead, in `.projects/<name>/`,
-  apart from the default project's DAG directories. A volume set aside for
-  logs or artifacts then holds every project's, and migration moves them
-  within that volume.
+- When `paths.log_dir`, `paths.artifact_dir`, `paths.dag_runs_dir`, or
+  `paths.dag_run_work_dir` is set, by `config.yaml`, the environment, or a
+  flag, a project's logs, artifacts, runs, or run work directories live
+  there instead, in `.projects/<name>/`. A volume set aside for any of them
+  then holds every project's, and migration moves them within that volume.
+- `paths.data_dir` itself holds only server-wide state: the registry in
+  `projects.json`, the queues defined in `config.yaml` in `server/`, and
+  the rest of the Server row of [Scope](#scope). Every project's state, the
+  default project's included, is under `projects/`.
 - `dag_discovery` settings in `config.yaml` apply to every project's DAG
   directory, as they do to the default project. Discovery never follows a
   symbolic link out of a project's DAG directory, whatever
@@ -130,14 +143,23 @@ has `paths.dags_dir` and `paths.data_dir`.
   `paths.alt_dags_dir` lies inside another, discovery in the outer one
   skips the inner one, so each DAG file belongs to one project or the
   library.
-- The default project is the existing home. Its paths, including any set in
-  `config.yaml`, do not change.
+- The default project's DAG directory is `paths.dags_dir`, its wiki stays
+  in `dags_dir/wiki`, and its base config is the file at
+  `paths.base_config`, which v2 applied to every DAG as the global base
+  config, also when `dags_dir` holds `dagu.json`. Its DAG files, names, and
+  URLs do not change; its state lives in `<data_dir>/projects/default/`
+  like every project's.
+- Settings that place another per-project store, such as `paths.queue_dir`,
+  `paths.suspend_flags_dir`, or `paths.proc_dir`, only tell migration
+  where v2 kept that data. v3.0 warns about them and does not use them
+  afterwards.
 - Project names follow [Names](#names).
-- A new directory under `paths.projects_dir` that holds a DAG file,
-  `base.yaml`, or `dagu.json` is a new project. Discovery ignores other
-  directories, so a checkout's `scripts/` or `docs/` never becomes one, and
-  skips directories whose names start with `.`, such as `.git/`, without
-  logging them. Admins can also create a project in the UI or API.
+- The server knows its projects only from the registry in
+  `paths.data_dir` ([Identity and references](#identity-and-references)).
+  A directory under `paths.projects_dir` is a project's DAG directory only
+  when a project of that name is registered, so a checkout's `scripts/`,
+  `docs/`, or `.git/` never becomes one. `dagu.json` is optional in a
+  project's DAG directory; see [Checkouts](#checkouts).
 
 ### Names
 
@@ -148,7 +170,7 @@ Windows, and Linux.
   levels below the project directory, and many Windows tools stop at 260
   characters in a path. A name never starts with `-`, so `--project` never
   reads it as a flag, or with `_`, which API paths keep for their own
-  segments, such as `_global`.
+  segments.
 - It is not a Windows device name: `con`, `prn`, `aux`, `nul`, `com0` to
   `com9`, or `lpt0` to `lpt9`, in any case.
 - `default` is reserved, in any case.
@@ -156,12 +178,6 @@ Windows, and Linux.
   file names that way and Linux does not. A request that names a project in
   another case resolves to the stored spelling, so every path uses one
   spelling.
-- Discovery skips a directory whose name breaks these rules or differs only
-  in case from another project's name. Except for a name that starts with
-  `.`, the server logs it, and the projects page lists it for admins. Of
-  two directories whose names differ only in case, the one already in the
-  registry stays the project; when neither is, the first in byte order
-  does, so every start picks the same one.
 - A name never changes. Commands, scripts, API clients, links,
   `project_mappings`, and directory paths all carry it, and a rename would
   break each of them.
@@ -174,12 +190,12 @@ Pages show the display name; commands, API calls, and links use the name.
 
 | Scope | Contents |
 | --- | --- |
-| Server | `config.yaml`, global `base.yaml`, the [server layer](#server-layer) of secrets, profiles, notification routes, and incident policies, library DAG files (`paths.alt_dags_dir`), business calendars, the project registry, v2 webhook URLs that migration kept, users and their grants, API keys, OIDC and proxy authentication, the encryption key, license, upgrade check, Dagu Cloud connection with its report and remote access state, remote nodes, coordinator and worker state (dispatch tasks, leases, active distributed runs, worker heartbeats), service registry, the scheduler lock, pause flag, and restart backoff, audit log, admin logs, queues defined in `config.yaml` |
-| Project | DAG files, project `base.yaml`, runs, logs, artifacts, run work directories, process heartbeats, run events, DAG state, suspend flags, DAG settings, pins, views, scheduler state and checkpoints, watch state, slot index, backfills, materializations, agent session cleanups, secrets, profiles, notification routes, incident policies and incidents, wiki, per-DAG webhooks and their public URLs, node inventories ([RFC 012](012-node-inventory.md)), other queues |
+| Server | `config.yaml`, library DAG files (`paths.alt_dags_dir`), business calendars, the project registry, v2 webhook URLs that migration kept, users and their grants, API keys, OIDC and proxy authentication, the encryption key, license, upgrade check, Dagu Cloud connection with its report and remote access state, remote nodes, coordinator and worker state (dispatch tasks, leases, active distributed runs, worker heartbeats), service registry, the scheduler lock, pause flag, and restart backoff, audit log, admin logs, queues defined in `config.yaml` |
+| Project | DAG files, base config, runs, logs, artifacts, run work directories, git sync settings and clone, process heartbeats, run events, DAG state, suspend flags, DAG settings, pins, views, scheduler state and checkpoints, watch state, slot index, backfills, materializations, agent session cleanups, secrets, profiles, notification routes, incident policies and incidents, wiki, per-DAG webhooks and their public URLs, node inventories ([RFC 012](012-node-inventory.md)), other queues |
 
 A store added later is per project unless it holds identity, authentication,
 licensing, or the state of the processes and workers that serve every
-project.
+project. A setting a workflow runs with is always per project.
 
 ### Storage
 
@@ -207,54 +223,61 @@ request, scheduler unit, or task ──▶ project ID ──▶ that project's s
   A later move of the DAG rewrites them. A path a DAG sets outside the
   project's directories stays absolute and does not move.
 - **Reads across projects.** Most pages show one project. Search and the
-  All projects view read the stores of each project the user can see, a few
-  at a time, and merge the results. Their cost grows with the number of
-  projects.
+  All projects view read the index of each project the user can see, a few
+  at a time, and merge the results. They run only when a user asks, never
+  on a tick, so their cost grows with the projects a user can see, not with
+  time. No server-wide index copies the projects' indexes.
 
 ### Base config
 
-A DAG's base config is the global `base.yaml`, then its project's `base.yaml`,
-then the DAG file. The order matches v2's global, workspace, DAG. A child
-started with `dag.run` runs in its caller's project, so it gets that project's
-base config without carrying provenance. This holds whether the child is in
-the caller's file, in its own file, or in the library.
+A DAG's base config is its project's `base.yaml`, then the DAG file. No
+server-wide base config applies. The default project's base config is the
+file at `paths.base_config`, which v2 applied to every DAG as the global
+base config. Migration merges it into each workspace's project
+([Migration](#migration)), so those DAGs keep the result of v2's global,
+workspace, DAG order. A child started with `dag.run` runs in its caller's
+project, so it gets that project's base config without carrying provenance.
+This holds whether the child is in the caller's file, in its own file, or in
+the library.
 
-### Server layer
+### Settings
 
-Secrets, profiles, notification routes, and incident policies have a server
-layer that every project inherits, as v2 workspaces inherit global entries.
-A credential or alert route that every team uses is kept once, not copied
-into each project.
+A project owns its base config, secrets, profiles, notification routes, and
+incident policies, and inherits none of them from the server or from
+another project. v2's global entries become the default project's. A change
+to one project's settings never changes what another project's DAGs run
+with.
 
 | Setting | A project's DAG uses |
 | --- | --- |
-| Secret | The project's secret of that name, else the server's |
-| Profile | The server's defaults, then the project's defaults, then the selected profile. A profile named by a run resolves in the project, then the server |
-| Notification routes | The project's routes, and the server's when the project's route set inherits them |
-| Incident policies | The DAG's policy, then the project's, then the server's, each inheriting its parent as in v2 |
+| Secret | The project's secret of that name |
+| Profile | The project's defaults, then the selected profile. A profile named by a run resolves in the project |
+| Notification routes | The project's routes |
+| Incident policies | The DAG's policy, then the project's, the DAG's inheriting the project's as in v2 |
 
-- Editing the server layer needs a server-wide role, as editing global
-  entries does in v2.
-- Every project's DAG authors can read server-layer secrets, since a DAG
-  can print what it receives, as in v2. The server layer holds only
-  credentials that every project may use.
-- Project pages list inherited entries read-only, marked as coming from the
-  server. Secret values are never shown either way.
-- The server layer is stored in `paths.data_dir`, apart from the default
-  project's own entries.
+- A credential that every project uses belongs in a secret provider
+  ([spec 069](../specs/069-secrets-providers.md)), which each project's DAGs
+  reference. Rotating it there reaches every project at once.
+- Other settings that several projects share are set in each of them.
+- Editing a project's settings needs the role in that project that editing
+  a workspace's needs in v2. A server-wide role covers the default project,
+  so whoever edits global entries on v2 edits the default project's.
 
 ### Identity and references
 
-Each project has an ID, a random UUID assigned when the project is created or
-first discovered. A project deleted and created again under the same name
+Each project has an ID, a random UUID assigned when the project is created. A
+project deleted and created again under the same name
 gets a new ID, so its grants, audit trail, and Dagu Cloud history never mix
 with the old one's.
 
-- A server-wide registry holds each project's ID, name, display name,
-  creation time, and
-  [Dagu Cloud binding](002-dagu-cloud-connector.md#binding). Every write to
-  it holds one lock and checks the name rules before it stores. Writes are
-  rare, so one lock costs nothing.
+- A server-wide registry in `paths.data_dir` holds each project's ID, name,
+  display name, creation time,
+  [Dagu Cloud binding](002-dagu-cloud-connector.md#binding), and, for a
+  migrated project, the v2 workspace name it came from. It is the only
+  list of projects: creating, deleting, and migration change it, and
+  nothing on disk adds to it. Every write to it holds one lock and checks
+  the name rules before it stores. Writes are rare, so one lock costs
+  nothing.
 - Records that outlive a request refer to a project by ID: grants, audit
   entries, dispatch tasks, leases, and status reports. Names are for people:
   `--project`, the API's `project` parameter, and `project_mappings` take a
@@ -272,13 +295,15 @@ with the old one's.
   it, else `default`, as
   [Checkouts](#checkouts) details.
 - API paths and MCP tools that address DAGs, runs, secrets, profiles, routes,
-  policies, or wiki pages take `project`. The default is `default`, so
-  existing clients keep working against the default project. A request for
-  a DAG the project lacks fails, and the error names the projects the
-  caller can see that have a DAG of that name.
+  policies, base config, or wiki pages take `project`. The default is
+  `default`, so existing clients keep working against the default project.
+  A request for a DAG the project lacks fails, and the error names the
+  projects the caller can see that have a DAG of that name.
 - A DAG in a subdirectory of its project, such as `etl/daily.yaml`, is
-  named `etl/daily`, as v2 recursive discovery and spec 001 name it. API
-  paths take such a name as one segment, with `/` encoded as `%2F`.
+  named `daily` when `dag_discovery.recursive` finds it, as v2 names it, so
+  migration changes no DAG name. In a directory that holds `dagu.json`, it
+  is named `etl/daily`, as spec 001 names it. API paths take a name with
+  `/` as one segment, with `/` encoded as `%2F`.
 - A per-DAG webhook URL is `/webhooks/{project}/{name}`: the first segment
   after `/webhooks/` is the project, and the rest, `/` included, is the
   DAG, so `/webhooks/billing/etl/daily` reaches `etl/daily` in `billing`.
@@ -288,14 +313,17 @@ with the old one's.
   under that name while it exists, so callers outside Dagu need no change,
   and otherwise the default project's DAG, as in v2. A v2 server has one
   DAG of each name, so each such URL reaches one DAG. It matches only a
-  name without `/`, which every v2 webhook URL has. A default-project DAG
-  in a subdirectory uses `/webhooks/default/{name}`.
+  name without `/`, which every v2 DAG name is. A default-project DAG whose
+  name has `/` uses `/webhooks/default/{name}`.
 - `/projects` lists and creates projects. The `/workspaces*`,
   `/settings/workspaces/*`, `/notification-routes/workspaces/*`,
-  `/incident-policies/workspaces/*`, and `/profiles/_workspaces/*` paths and
-  the `?workspace=` parameter are removed.
+  `/incident-policies/workspaces/*`, `/profiles/_workspaces/*`,
+  `/notification-routes/global`, `/incident-policies/global`, and
+  `/profiles/_global/*` paths and the `?workspace=` parameter are removed.
+  A client that wrote v2's global entries there gets an error instead of
+  writing only the default project's.
 - Local runs start their child process with `--project`. `DAGU_HOME` stays the
-  server root, so the child still reads `config.yaml` and the global base.
+  server root, so the child still reads `config.yaml`.
 - Audit entries record the project's ID and its name at the time. Old
   entries keep `workspace`.
 
@@ -322,16 +350,45 @@ project seen from a checkout, not a second concept. Checkouts ship with spec
   without `dagu.json`, then the project named by the `dagu.json` found from
   it, then `default`.
 - A command keeps a project's state in `<data_dir>/projects/<name>/` of its
-  Dagu home and writes nothing inside the folder. A folder whose
-  `dagu.json` names an existing project, from anywhere on the machine,
-  shares that project's runs, settings, and secrets, as two clones of one
-  repository do. On a server this needs Dagu's user and the server's Dagu
-  home, as running a v2 workspace DAG from the CLI does, so it opens no
-  new access.
-- State that no project owns, such as runs from a folder whose `dagu.json`
-  names no project of the server, is listed on the projects page, where an
-  admin can delete it. A project created or discovered under that name
-  takes it over.
+  Dagu home and writes nothing inside the folder.
+- A command in a folder outside every registered project's DAG directory
+  whose `dagu.json` names a registered project fails, and the error names
+  that project's DAG directory. A working copy elsewhere never writes runs
+  into the project's history, and a project has one DAG directory for its
+  scheduler, retries, and `dag.run` to read. Adding a folder to a project
+  follows v3.0 ([Compatibility and rollout](#compatibility-and-rollout)).
+- A folder whose `dagu.json` names no registered project keeps its state
+  under that name. Its runs have no project ID: audit entries record the
+  name, and Dagu Cloud reports leave them out. The project has no scheduler
+  unit and no ID for a worker task, so `dagu start` runs its workflows in
+  the CLI's process, `dagu enqueue` and a dispatch to a worker fail with an
+  error that says only a registered project can, and no `schedule` runs. The
+  projects page lists that state, and an admin who creates a project of
+  that name chooses to take it over or delete it.
+
+### Git sync
+
+`git_sync` in `config.yaml` syncs `paths.dags_dir`, the default project's
+DAG directory, as in v2. Every other project may have a git sync of its
+own, with the same pull, push, auto sync, and conflict handling.
+
+- An admin sets a project's repository, branch, path in the repository,
+  and credentials, a token or an SSH key, in the UI or API. They are kept
+  with the project's settings, and the credentials are encrypted with the
+  server's key. The repository decides what code runs with the project's
+  secrets, so only an admin sets it.
+- Users who may edit the project's DAGs pull and push its files, as they
+  do with `git_sync`. API paths for git sync take `project`.
+- A project's git sync keeps its clone in the project's state directory and
+  copies files to and from `<projects_dir>/<name>/`, as `git_sync` keeps
+  its clone in `paths.data_dir` and copies files to and from
+  `paths.dags_dir`. The DAG directory never holds `.git`.
+- Several projects may sync one repository, each from its own path, so one
+  repository can hold every team's directory. Each keeps its own clone.
+- Each file has at most one sync. When a project syncs a path of the
+  repository that `git_sync` syncs, `git_sync` leaves that path out, and
+  when `paths.projects_dir` lies inside `paths.dags_dir`, `git_sync` leaves
+  `paths.projects_dir` out.
 
 ### Library
 
@@ -353,7 +410,9 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   there, and it uses that project's base config, secrets, and profiles.
 - A project keeps a library DAG's runs and DAG state apart from its own
   DAGs', so a project DAG added later under the same name starts without
-  the library DAG's history.
+  the library DAG's history. API paths, URLs, and CLI commands address a
+  library DAG in a project with `library` beside `project`, so its runs
+  stay reachable after a project DAG takes its name.
 - A project DAG shadows a library DAG of the same name. `dag.run` finds the
   project's DAG, and an explicit start of the library DAG in that project
   is refused, since the name there addresses the project's own DAG.
@@ -390,8 +449,9 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   project's DAG directory can run code with that project's secrets, and
   whoever can change the library can run code with the secrets of every
   project that calls it. A multi-team install therefore gives each project
-  its own repository, or limits each project's directory to its team with
-  code owners, and limits `paths.alt_dags_dir` to admins.
+  its own repository with [git sync](#git-sync), or limits each project's
+  directory to its team with code owners, and limits `paths.alt_dags_dir`
+  to admins.
 - Only admins grant users and groups roles in a project, since users are
   server-wide.
 - OIDC and proxy `project_mappings` and `default_project_access` replace
@@ -401,10 +461,13 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 ### Lifecycle
 
 - **Create.** An admin creates a project in the UI or API, or with `dagu
-  project create`, which makes its DAG directory where [Layout](#layout)
-  puts it, or adds a directory that discovery finds. Either way the
-  registry assigns its ID, and the scheduler starts its unit without a
-  restart.
+  project create`. The registry assigns its ID, the scheduler starts its
+  unit without a restart, and Dagu uses `<projects_dir>/<name>/` as its DAG
+  directory, creating it when it does not exist. A directory that git
+  already brought, such as from a checkout used as `paths.projects_dir`,
+  becomes a project only when an admin creates a project of its name. A new
+  project starts with no secrets, profiles, routes, or policies, and with
+  the base config its directory holds, if any.
 - **No rename.** A project's name never changes; see [Names](#names). An
   admin changes the display name in the UI or API at any time, and only
   the registry changes.
@@ -421,8 +484,8 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 - **Changed on disk.** A project whose DAG directory disappears outside
   Dagu is listed as missing and is not scheduled. It keeps its registry
   entry, grants, binding, and state until the directory returns or an
-  admin deletes it. A directory that appears under another name is a new
-  project, since names never change.
+  admin deletes it. A directory renamed outside Dagu is not a project until
+  an admin creates one of its new name, since names never change.
 - **The default project** cannot be deleted. Its display name can change.
 
 ### Moving a DAG
@@ -494,11 +557,21 @@ scheduler process   HA lock, health server, service registry, signals, license
   own lock and collide on the health port.
 - The pause flag and restart backoff also belong to the process. Pausing the
   scheduler pauses every unit.
+- A unit runs a periodic task only while its project has work for it: the
+  restart scanner while a DAG has a restart policy, and the backfill
+  dispatcher while a backfill is open. A periodic task added later follows
+  the same rule, so an idle project costs little
+  ([Performance](#performance)).
 - The supervisor owns each queue defined in `config.yaml`. Items from every
-  project wait in one server-wide store, and the supervisor admits them
-  oldest first under the queue's limit, as v2's single queue did, then
-  hands each run to its project's unit. Other queues are per project, and
-  their unit processes them.
+  project wait in one server-wide store in `<data_dir>/server/`, and the
+  supervisor admits them oldest first under the queue's limit, as v2's
+  single queue did, then hands each run to its project's unit. Other queues
+  are per project, and their unit processes them.
+- A queue page lists the runs of the projects the user can see, and counts
+  the others without naming them, since they share the queue's limit.
+- No cap limits concurrent runs across every project, as none does in v2.
+  A queue defined in `config.yaml` limits the DAGs of every project that
+  use it, and each worker's `max_active_runs` limits what it runs.
 - One file watcher covers `paths.projects_dir` and routes events by path.
   A watcher per project would reach the Linux inotify instance limit (128
   by default) on servers with many projects.
@@ -509,7 +582,7 @@ scheduler process   HA lock, health server, service registry, signals, license
   coordinator records attempts in that project's run store.
 - Tasks already carry base config content and the profile name. Both now come
   from the task's project. Profile and secret values resolve from the task's
-  project, then the server layer.
+  project.
 - `base_config_workspace` is removed from the task.
 - Workers stay shared and do not read project directories. A `dag.run` inside
   a dispatched run fetches its child from the coordinator, which resolves it
@@ -567,27 +640,38 @@ or a copy of one, before the upgrade.
 - Migration waits while a v2 scheduler or coordinator is in the service
   registry, or a run has a live process heartbeat, and logs what it waits
   for. It never moves the files of a run that is still running.
-- A process killed during migration resumes it on its next start. The
-  health endpoint stays up and reports progress, so orchestrators do not
-  restart a large install midway.
+- A process killed during migration resumes it on its next start. While
+  migration waits or runs, the health endpoint of every v3.0 process,
+  including one that waits for another to migrate, answers 200 and reports
+  progress, and other requests get 503. An orchestrator then neither
+  restarts a large install midway nor holds a rolling update, in which the
+  v2 process stops only once its v3.0 replacement reports healthy.
 - When it finishes, the server logs a report, and the projects page shows
   it to admins: what moved, and each item below that needs attention.
+- Every install migrates the default project, with or without workspaces:
+  its runs, DAG state, queues, suspend flags, DAG settings, and the rest of
+  its state move from v2's directories in `paths.data_dir`, and its logs
+  from the default log directory, into `<data_dir>/projects/default/`.
+  Its DAG files stay in `paths.dags_dir`. Tools outside Dagu that read v2's
+  paths, such as log shippers and backup scripts, need the new ones; the
+  preview lists each path that moves.
 
 | v2 | v3.0 |
 | --- | --- |
 | Workspace `X` | Project `X` in the registry, with a new ID |
 | DAG labelled `workspace=X` | `<projects_dir>/X/`, with its runs, logs, artifacts, DAG state, suspend flags, and DAG settings in `<data_dir>/projects/X/` |
 | DAG or base file already at its v3 path | Left in place. Its runs, logs, and state still move |
-| DAG without a `workspace` label | Stays in the default project |
+| DAG without a `workspace` label | Stays in the default project. Its file stays in `paths.dags_dir`; its runs, logs, and state move to `<data_dir>/projects/default/` |
 | DAG under `paths.alt_dags_dir` | Stays in place as a library DAG |
-| `<dags>/workspaces/X/base.yaml` | `<projects_dir>/X/base.yaml` |
+| Global base config (`paths.base_config`) | The default project's base config, at the same path |
+| Global base config and `<dags>/workspaces/X/base.yaml` | `<projects_dir>/X/base.yaml`: `X`'s merged over the global one, as v2 merged them at run time |
 | Secrets and profile entries of `X` | Project `X`'s secrets and profiles, still encrypted with the server's key |
 | Notification routes and incident policies of `X` | Project `X`'s routes and policies |
-| Global secrets, profile defaults, notification routes, and incident policies | The server layer, which every project inherits |
+| Global secrets, profiles, profile defaults, notification routes, and incident policies | The default project's. Project `X` also gets a copy of each one `X` inherited on v2; an entry of `X`'s own with the same name stays as it is |
 | Per-DAG wiki directory `<wiki>/X/<dag>`, pages under `<wiki>/X/` | Project `X`'s wiki in `<projects_dir>/X/wiki/` |
 | User or API key with roles in `X` | Grants on project `X` |
 | User or API key with `workspace_access.all: false` | No server-wide role, and `viewer` on the default project, which keeps v2 read access to unlabelled DAGs |
-| `workspace_mappings`, `default_workspace_access` | Read as `project_mappings`, `default_project_access` until v3.1 |
+| `workspace_mappings`, `default_workspace_access` | Read as `project_mappings`, `default_project_access` until v3.1. A workspace name that migration changed reads as its project's name |
 | `workspace` label on a moved DAG | Kept as an ordinary label |
 
 - Per-DAG webhook URLs keep their paths and tokens, and reach the DAG in its
@@ -600,13 +684,33 @@ or a copy of one, before the upgrade.
   schedules, or starts it. A held base file holds its project's DAGs the
   same way, so none runs without its base config. Runs and state move at
   once.
+- Migration moves a DAG file, base file, or wiki page only by a rename
+  within one file system. A file whose move would cross file systems, such
+  as from a `dags_dir` mounted from the host into a container volume, is
+  held as a file in a git checkout is, until the operator moves it. A copy
+  would take the file out of the directory where people edit it, and a git
+  checkout above a mount point is not visible to detect.
+- `git_sync` keeps its clone in `paths.data_dir`, so `paths.dags_dir` is
+  not a git checkout, and migration moves workspace files out of it. From
+  then on `git_sync` leaves each moved file's repository path out: a pull
+  never writes it back into `paths.dags_dir`, and a push never deletes it
+  from the repository. The moved files have no git sync until an admin
+  gives their project one; the report says so for each project.
+- Migration writes project `X`'s `base.yaml` by the merge the v2 loader
+  applies at run time, so `X`'s DAGs keep the base config they ran with. It
+  changes nothing when the global base config is empty or absent, or when
+  `X`'s file already sets what the global one sets. A base file inside a
+  git checkout that would need the merge is held, as above, until the
+  global settings are added to it in git.
 - From v2.28, v2 reads DAG files and `base.yaml` in `<projects_dir>/X/` as
-  workspace `X`'s, so operators who keep DAG files in git move them there
-  before the upgrade, and nothing is held. v2 skips and logs a file whose
-  DAG name another v2 DAG already uses.
+  workspace `X`'s, so operators who keep DAG files in a git checkout move
+  them there before the upgrade, with the global base config's settings
+  added to each `base.yaml`, and nothing is held. v2 skips and logs a file
+  whose DAG name another v2 DAG already uses.
 - Before it copies a directory to another file system, migration checks
-  free space there. When there is not enough, it stops before moving
-  anything and says how much it needs.
+  free space there. When there is not enough, it moves nothing and waits:
+  the health endpoint names the path and the space it needs, and migration
+  starts once there is room. The process never exits into a restart loop.
 - Migration keeps the directory each moved DAG runs in. On v2, a DAG that
   sets no `working_dir` runs in its file's directory, and a relative
   `working_dir` resolves from there. Migration writes the directory the DAG
@@ -618,9 +722,15 @@ or a copy of one, before the upgrade.
 The report lists these items, which migration cannot settle alone:
 
 - A DAG file, base file, or wiki page that a git checkout holds or would
-  receive, as above. When such a DAG sets no `working_dir`, or a relative
-  one, the report names the directory to set before the file moves, since
-  migration does not edit it.
+  receive, or whose move would cross file systems, as above. When such a
+  DAG sets no `working_dir`, or a relative one, the report names the
+  directory to set before the file moves, since migration does not edit
+  it. For a held base file, it lists the global base config settings to
+  add.
+- Each global entry copied into a workspace's project. Later changes to the
+  default project's entry, including by a script that wrote v2's global
+  entries, no longer reach the copies. A credential that every project uses
+  can move to a secret provider instead.
 - A DAG or base file at both its v2 and v3 paths. The v3 file is used, and
   the v2 file is held, as above.
 - A moved DAG whose v2 working directory one absolute `working_dir`
@@ -630,7 +740,9 @@ The report lists these items, which migration cannot settle alone:
   `default` and two names that differ only in case. The project gets a
   valid name made from it, as the UI suggests one, and keeps the workspace
   name as its display name. When that name is taken, a number is added to
-  it. The preview shows these names before the upgrade.
+  it. The preview shows these names before the upgrade, and
+  `workspace_mappings` that name the workspace keep granting the same
+  access until v3.1.
 - A `dag.run` target that lands in another project. The step fails at run
   time with a load error that names both projects. Moving the target into
   the library fixes it.
@@ -648,6 +760,10 @@ The report lists these items, which migration cannot settle alone:
   `${JOBS_ROOT}/facilities/${ITEM}`, since migration cannot resolve it. At
   run time, a target found in neither the caller's project nor the library
   fails the step with a load error that names both.
+- Each project whose files `git_sync` synced on v2. Its files run from
+  `<projects_dir>/X/` but have no git sync until an admin gives the project
+  one, for example the same repository with the files moved to a path of
+  their own.
 
 ```text
 dagu: moved 2 workspaces into projects
@@ -656,6 +772,7 @@ dagu: moved 2 workspaces into projects
 needs attention:
   git checkout   dags/etl.yaml is held until moved to projects/billing/
   dag.run        billing/report calls sim/score in another project
+  global copy    secret DB_PASS copied into billing and ops
 ```
 
 ## Performance
@@ -663,12 +780,15 @@ needs attention:
 Cost grows with the number of projects, so an idle project adds little.
 
 - **Periodic tasks.** Each unit runs the current scheduler's periodic
-  tasks, such as the tick planner, retry scanner, and zombie detector, on
-  its own timers ([Scheduler](#scheduler)). A waiting timer costs nothing;
-  the cost is each tick's reads of the project's stores. At the current
-  intervals, an idle project's queue processor and retry scanner each read
-  its stores about every 30 seconds, so 100 idle projects add about seven
-  such reads a second.
+  tasks on its own timers ([Scheduler](#scheduler)). A waiting timer costs
+  nothing; the cost is each tick's reads of the project's stores. The
+  restart scanner lists the run event directories every second, and the
+  backfill dispatcher reads open backfills every 10 seconds, so a unit runs
+  them only while its project uses them. An idle project's queue processor
+  and retry scanner then read its stores every 30 seconds each, and its
+  zombie detector every 45 seconds: 100 idle projects add about nine reads
+  a second. Each project with a restart policy adds two directory reads a
+  second.
 - **Memory.** Each project's caches keyed by DAG or run keep the bounds
   the default project's caches have today, so each project adds at most
   one set of those bounds.
@@ -677,20 +797,27 @@ Cost grows with the number of projects, so an idle project adds little.
   the topics of the project it shows.
 - **File watching.** One watcher covers every project
   ([Scheduler](#scheduler)).
+- **Git sync.** A project without git sync costs nothing. Each project with
+  auto sync fetches its repository once per interval, 300 seconds by
+  default, so 100 such projects fetch about once every three seconds. Each
+  clone takes the disk its repository takes, also when several projects
+  sync one repository.
 - **Reads across projects.** Search and the All projects view cost one
   index read per visible project ([Storage](#storage)).
-- **Migration.** Run, log, and state directories move by rename, and a log
-  directory on another file system is copied. No run record is rewritten
-  ([Storage](#storage)), so the first start costs one rename per moved
-  directory, not one write per stored run.
+- **Migration.** Run, log, and state directories move by rename, on every
+  install, since the default project's state moves too. A directory on
+  another file system, such as one that `paths.queue_dir` placed, is
+  copied. No run record is rewritten ([Storage](#storage)), so the first
+  start costs one rename per moved directory, not one write per stored
+  run.
 
 ## Compatibility and rollout
 
 | Release | Ships |
 | --- | --- |
 | v2.22 | Warnings and an admin notice that list workspace settings in use. |
-| v2.28 | The warning and notice say that v3.0 moves workspaces into projects on its first start, and stop asking operators to move settings by hand. v2 reads `<projects_dir>/X/` as workspace `X`, so DAG files kept in git can move there before the upgrade. |
-| v3.0 | Projects with IDs, names, and display names; the server layer; store scopes and relative run paths; create and delete; migration on first start, with its preview `dagu migrate workspaces`; report protocol 3 (RFC 002); checkouts, with spec 001. |
+| v2.28 | The warning and notice say that v3.0 moves workspaces into projects on its first start, and stop asking operators to move settings by hand. v2 reads `<projects_dir>/X/` as workspace `X`, so DAG files kept in git can move there before the upgrade, and the notice lists the global base config settings each such `base.yaml` needs. |
+| v3.0 | Projects with IDs, names, and display names; settings owned by each project, with v2's global settings in the default project; store scopes and relative run paths; the default project's state in `projects/default/`; create and delete; migration on first start, with its preview `dagu migrate workspaces`; report protocol 3 (RFC 002); checkouts, with spec 001; git sync per project; compose files that mount `./projects` beside `./dags`, and a Helm chart that drops the per-project paths v3.0 no longer reads. |
 | v3.1 | Drops the `workspace_mappings` and `default_workspace_access` aliases. |
 | After v3.0 | Moving DAGs between projects; adding a folder outside `paths.projects_dir` as a project; the All projects view; Dagu Cloud bindings (RFC 002). |
 
@@ -702,18 +829,33 @@ These specs define workspace behavior, and v3.0 rewrites them for projects:
   [spec 021](../specs/021-mcp-read-tool.md): the `workspace` parameter
   becomes `project`, and wiki URIs become `dagu://wiki/{project}` and
   `dagu://wiki/{project}/{path}`.
+- [Spec 018](../specs/018-parallel-and-foreach.md): the nearest
+  `defaults.max_concurrent` is the DAG's, then its project base config's.
 - [Spec 034](../specs/034-wiki-page-format.md): a wiki link resolves in the
   page's project.
-- [Spec 070](../specs/070-runtime-profiles.md): workspace profile defaults
-  become the project's, applied to every DAG of the project instead of by
-  `workspace` label.
+- [Spec 042](../specs/042-ssh-run.md): a `{ secret: <ref> }` resolves in the
+  DAG's project only.
+- [Spec 069](../specs/069-secrets-providers.md): provider settings that
+  come from workspace configuration come from the project's.
+- [Spec 070](../specs/070-runtime-profiles.md): global and workspace profile
+  defaults become one set of project defaults, applied to every DAG of the
+  project instead of by `workspace` label, and named profiles belong to a
+  project.
+- [Spec 086](../specs/086-backfill.md): a backfill summary goes to the
+  project's routes, and dismissing its notice needs the operator role in
+  the DAG's project.
+- [Spec 089](../specs/089-node-targeting.md): the rule that a DAG with a
+  `workspace` label cannot target nodes is dropped, since each project has
+  its own inventories.
 
 ## Verification and acceptance criteria
 
 Criteria 23 and 24 apply from the release that ships the feature.
 
-1. A v2 data directory with no workspaces starts on v3.0 unchanged, as the
-   default project.
+1. A v2 data directory with no workspaces starts on v3.0 as the default
+   project, with no manual step. Its DAG files and URLs do not change, and
+   its runs, logs, and settings move to `<data_dir>/projects/default/` and
+   open as before.
 2. After migration, each DAG outside the library runs with the same base
    config, secrets, profile, notification routes, and incident policies, and
    in the same working directory, as on v2. The report lists every library
@@ -723,13 +865,13 @@ Criteria 23 and 24 apply from the release that ships the feature.
 4. A user without a role in a project gets `404` for its DAGs, runs, logs, and
    wiki pages, and does not see the project in lists or search.
 5. `dag.run` to a DAG in another project fails at load.
-6. One scheduler process schedules every project. A new project directory
+6. One scheduler process schedules every project. A newly created project
    starts scheduling without a restart.
 7. A distributed run of a project DAG records its status in that project.
 8. The first v3.0 start migrates every workspace with no manual step,
-   waits while a v2 process or a run is still live, resumes after being
-   killed, keeps its health endpoint up, and reports every item that needs
-   attention.
+   waits while a v2 process or a run is still live or space is short,
+   resumes after being killed, answers 200 on its health endpoint
+   throughout, and reports every item that needs attention.
 9. `dagu migrate workspaces` changes nothing on disk and shows the names,
    display names, and moves that the first start would make, and every item
    its report would list as needing attention.
@@ -740,14 +882,16 @@ Criteria 23 and 24 apply from the release that ships the feature.
     and the library.
 13. A project's DAG files, base config, and wiki live in
     `<projects_dir>/<name>/`, and its state lives in
-    `<data_dir>/projects/<name>/`, never in `paths.projects_dir`. With
-    `paths.log_dir` or `paths.artifact_dir` set, its logs or artifacts live
-    there, in `.projects/<name>/`.
+    `<data_dir>/projects/<name>/`, never in `paths.projects_dir`. Outside
+    `projects/`, `paths.data_dir` holds only server-wide state. With
+    `paths.log_dir`, `paths.artifact_dir`, `paths.dag_runs_dir`, or
+    `paths.dag_run_work_dir` set, that part of its state lives there, in
+    `.projects/<name>/`.
 14. Migration leaves DAG files already at their v3 path in place, never
-    moves a file inside a git checkout or writes one into a checkout, and
+    moves a file inside a git checkout or writes one into a checkout, never
+    copies a DAG file, base file, or wiki page to another file system, and
     still moves their runs and state.
-15. A project name that breaks the name rules is refused at creation and
-    skipped at discovery, and the server logs it.
+15. A project name that breaks the name rules is refused at creation.
 16. No UI, API, or CLI path changes a project's name. Delete is refused
     while the project has runs queued, running, or waiting, and for the
     default project.
@@ -756,9 +900,9 @@ Criteria 23 and 24 apply from the release that ships the feature.
     returns or an admin deletes it.
 18. Every project's secrets decrypt with the server's key, and no project
     directory holds a key of its own.
-19. A project DAG uses the server layer's secrets, profile defaults,
-    notification routes, and incident policies unless its project overrides
-    them, as a v2 workspace DAG uses global entries.
+19. A project DAG uses only its project's base config, secrets, profiles,
+    notification routes, and incident policies. Changing one project's
+    settings leaves every other project's DAGs as they were.
 20. A display name takes any text up to 200 characters, and changing it
     moves nothing.
 21. A user who can see one project sees no project selector.
@@ -782,11 +926,12 @@ Criteria 23 and 24 apply from the release that ships the feature.
 29. A `dagu.json` under `paths.projects_dir` whose `project` differs from
     its directory's name loads, with a warning on the projects page.
 30. `/webhooks/{project}/{name}` reaches that project's DAG, including a
-    DAG in a subdirectory, such as `/webhooks/billing/etl/daily`. Every v2
-    webhook URL reaches the same DAG after migration.
-31. A directory under `paths.projects_dir` that holds no DAG file,
-    `base.yaml`, or `dagu.json`, or whose name starts with `.`, is not a
-    project, and the server does not log it.
+    DAG whose name has `/`, such as `/webhooks/billing/etl/daily`. Every v2
+    webhook URL reaches the same DAG after migration, and no v2 DAG name
+    changes.
+31. The server lists exactly the projects in its registry. A directory
+    under `paths.projects_dir` that no registered project uses is not a
+    project, whatever it holds.
 32. Each DAG file belongs to one project or the library: discovery skips a
     `dags_dir`, `projects_dir`, or `alt_dags_dir` nested in another, and
     never follows a symbolic link out of a project.
@@ -795,23 +940,41 @@ Criteria 23 and 24 apply from the release that ships the feature.
     user is not `manager`.
 34. An explicit start of a library DAG is refused in a project that has a
     DAG of the same name.
-35. Of two project directories whose names differ only in case, the one in
-    the registry stays the project on every start.
-36. A v2.28 server runs a DAG file moved in git to `<projects_dir>/X/` as
-    workspace `X`'s, and the first v3.0 start holds none of those DAGs.
-37. A DAG that migration holds is not listed, scheduled, or startable in any
+35. A v2.28 server runs a DAG file moved in git to `<projects_dir>/X/` as
+    workspace `X`'s, and the first v3.0 start holds none of those DAGs once
+    that directory's `base.yaml` sets what the global base config sets.
+36. A DAG that migration holds is not listed, scheduled, or startable in any
     project, and a user who could not see it on v2 cannot see it on v3.0.
-38. A secret, profile, or DAG state that a worker reads through the
-    coordinator comes from the task's project, then the server layer, and
-    the coordinator refuses a call without a project for a task of another
-    project.
-39. A project DAG added under a library DAG's name starts with no runs,
-    even when the library DAG has run in that project.
-40. A `dagu` command inside a folder that holds `dagu.json` keeps the
+37. A secret, profile, or DAG state that a worker reads through the
+    coordinator comes from the task's project, and the coordinator refuses
+    a call without a project for a task of another project.
+38. A project DAG added under a library DAG's name starts with no runs,
+    even when the library DAG has run in that project, and the library
+    DAG's runs in that project stay reachable.
+39. A `dagu` command inside a folder that holds `dagu.json` keeps the
     project's state in `<data_dir>/projects/<name>/` of its Dagu home and
     writes nothing inside the folder. State that no project owns is listed
-    on the projects page, and a project created under its name takes it
-    over.
+    on the projects page, and an admin who creates a project of its name
+    takes it over or deletes it.
+40. After migration, the default project holds v2's global settings, and
+    its base config is the file at `paths.base_config`. Each workspace's
+    project holds a copy of every global entry and base config setting its
+    DAGs inherited on v2, and the report lists each copied entry.
+41. A command in a folder outside every registered project's DAG
+    directory whose `dagu.json` names a registered project fails, and the
+    error names that project's DAG directory. In a folder whose `dagu.json`
+    names no registered project, `dagu start` runs the workflow, and
+    `dagu enqueue` fails.
+42. A project with no restart policy and no open backfill runs neither the
+    restart scanner nor the backfill dispatcher.
+43. A user who can see a queue defined in `config.yaml` sees only the runs
+    of projects the user can see.
+44. A project with git sync pulls from and pushes to its own repository
+    and path, keeps its clone in its state directory, and leaves no `.git`
+    in its DAG directory. Only an admin sets its repository and
+    credentials.
+45. After migration, a file moved out of a `git_sync` directory is neither
+    written back by a pull nor deleted from the repository by a push.
 
 ## Alternatives considered
 
@@ -842,9 +1005,13 @@ Criteria 23 and 24 apply from the release that ships the feature.
   no longer run the files that production runs.
 - **Merge projects that share child DAGs.** Brings back the coarse access
   that projects replace.
-- **Settings per project with no server layer.** A credential or alert route
-  that every team uses would be copied into each project and rotated in
-  each, and migration would have to make those copies.
+- **A server layer that every project inherits.** Secrets, profiles,
+  routes, policies, and base config kept once for every project. A setting
+  then has two possible owners: a request without `project` can mean the
+  server layer or the default project, a v2 script that wrote global
+  entries writes the one it did not mean without an error, and every page
+  must show what a project inherits. A secret provider keeps a credential
+  that every project uses in one place instead.
 - **Renaming projects.** Commands, scripts, API clients, links,
   `project_mappings`, and directory paths carry the name, and a rename
   breaks each of them. The display name changes instead.
@@ -859,6 +1026,10 @@ Criteria 23 and 24 apply from the release that ships the feature.
   cover every folder.
 - **State kept by folder path.** A moved folder would lose its history,
   and the CLI would have to remember every folder it ever ran in.
+- **Let any folder that names a registered project share its state.** One
+  project would have several DAG directories, a working copy's runs would
+  mix into the server project's history, and its scheduler and `dag.run`
+  could read files other than those its runs came from.
 - **Keep spec 001's project separate.** A checkout and the server project
   it becomes would use one word for two things, as workspaces did.
 - **Matching projects across servers by name.** A guess: two servers may
@@ -867,14 +1038,38 @@ Criteria 23 and 24 apply from the release that ships the feature.
 - **An encryption key per project.** Keeps a copied directory's secrets
   unreadable elsewhere, but migration must re-encrypt every secret, and each
   key is one more file to back up.
+- **Keep the default project's state at v2's paths.** Installs without
+  workspaces would move nothing, but `paths.data_dir` would mix server-wide
+  state with the default project's, and every store would need two
+  layouts.
+- **Move the default project with a command the operator runs.** Until it
+  runs, v3.0 would have to serve both layouts, and refusing to start
+  without it would leave an upgraded image restarting in a loop.
+- **Projects inside `dags_dir` by default, under the one `git_sync`.** One
+  repository would hold every project, but the default project's directory
+  would contain every other project, and whoever could write it or its
+  repository could write them all. Git sync per project gives each team
+  its own repository, and one repository can still hold every project by
+  path.
+- **A server-wide cap on concurrent runs.** v2 has none, and projects add
+  no runs. Queues defined in `config.yaml` and each worker's
+  `max_active_runs` already bound the load.
+- **A server-wide index for reads across projects.** A second copy of every
+  project's index, kept consistent through crashes, migration, moves, and
+  deletes, for reads that happen only when a user asks.
 
 ## Consequences
 
 - Multi-team installs keep roles per group, visibility limits, and base
   config, with membership fixed by location.
-- Settings every project shares stay in one place, in the server layer.
-- Upgrading an install with workspaces needs no manual step, and a preview
-  shows each change beforehand.
+- Every setting a workflow runs with belongs to one project. A credential
+  that every project uses lives in a secret provider; other shared settings
+  are set in each project.
+- Upgrading needs no manual step, with or without workspaces, and a preview
+  shows each change beforehand. Every install's state moves once, so tools
+  that read v2's paths need the new ones.
+- Every project, the default one included, keeps its state in one layout,
+  and `paths.data_dir` keeps server-wide state apart from it.
 - Project-scoped API paths, MCP tools, and CLI commands gain a project
   parameter. Clients that omit it address the default project.
 - `dag.run` cannot cross projects. Shared child DAGs live in the library and
@@ -891,16 +1086,3 @@ Criteria 23 and 24 apply from the release that ships the feature.
   follow the same rule.
 - Dagu Cloud tells projects apart by binding, and report protocol 3 names
   each run's project.
-
-## Open questions
-
-1. **Git sync per project.** With `paths.projects_dir` at a git checkout,
-   one repository holds every project as `<name>/` directories, as v2's
-   `dags_dir` holds every workspace. A multi-team install that cannot limit
-   paths with code owners needs one repository per project
-   ([Access](#access)). Open: whether git sync supports that in v3.0.
-2. **A server-wide cap on concurrent runs** across projects, beyond queues
-   defined in `config.yaml`.
-3. **An index for reads across projects.** Search and the All projects view
-   read every visible project's stores. Open: whether servers with many
-   projects need a server-wide index.

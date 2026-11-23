@@ -1,0 +1,22 @@
+steps:
+  - id: release
+    run: touch release.ran
+    approval:
+      prompt: Ship it?
+  - id: announce
+    depends: release
+    run: touch announce.ran
+    preconditions:
+      - condition: touch check.ran
+    retry_policy:
+      limit: 1
+      interval_sec: 60
+    approval:
+      prompt: Announce it?
+      input: [channel]
+      required: [channel]
+handler_on:
+  wait:
+    action: log.write
+    with:
+      message: waiting

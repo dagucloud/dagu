@@ -276,28 +276,11 @@ steps:
 }
 
 // A case records the mail its run would have sent and reaches no SMTP
-// server. The listener closes each connection it accepts at once, so a mail
-// client returns only after its connection was counted.
+// server.
 func TestCaseSendsNoMail(t *testing.T) {
 	t.Parallel()
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = listener.Close() })
-	var connections atomic.Int32
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				return
-			}
-			connections.Add(1)
-			_ = conn.Close()
-		}
-	}()
-	host, port, err := net.SplitHostPort(listener.Addr().String())
-	require.NoError(t, err)
-
+	host, port, connections := listenSMTP(t)
 	ctx, _ := newCaseTestContext(t)
 	dag := writeCaseDAG(t, ctx, "mail", fmt.Sprintf(`
 smtp:
@@ -388,6 +371,92 @@ steps:
 	moved := findFile(t, tc.dir, "child.txt")
 	require.NotEmpty(t, moved, "the child's redirect file is not in the case directory")
 	assert.Equal(t, "child=*******", readOutput(t, moved))
+}
+
+// The child of a real dag.run step runs under the case's side effects: it
+// sends no mail, keeps its artifacts in the case directory although its DAG
+// sets artifacts.dir, and does not wait for its repeat interval.
+func TestCaseChildSideEffects(t *testing.T) {
+	t.Parallel()
+
+	host, port, connections := listenSMTP(t)
+	ctx, home := newCaseTestContext(t)
+	artifacts := filepath.Join(home, "child-artifacts")
+	dag := writeCaseDAG(t, ctx, "parent", fmt.Sprintf(`
+steps:
+  - name: call
+    action: dag.run
+    with:
+      dag: child
+---
+name: child
+smtp:
+  host: %s
+  port: "%s"
+mail_on:
+  success: true
+info_mail:
+  from: dagu@example.com
+  to: ops@example.com
+artifacts:
+  enabled: true
+  dir: %q
+steps:
+  - name: report
+    run: echo report
+    stdout:
+      artifact: report.txt
+    repeat_policy:
+      repeat: while
+      limit: 2
+      interval_sec: 60
+`, host, port, artifacts))
+	tc := openTestCase(t, ctx, caseOptions{tempDir: t.TempDir(), real: []string{"call"}})
+
+	started := time.Now()
+	status, err := tc.run(dag)
+	require.NoError(t, err)
+	require.Equal(t, ir.Succeeded, status.Status, status.Error)
+	assert.Less(t, time.Since(started), 30*time.Second, "the child waited for its repeat interval")
+	assert.Zero(t, connections.Load(), "the child sent mail")
+	assert.NoDirExists(t, artifacts)
+	assert.NotEmpty(t, findFile(t, tc.dir, "report.txt"), "the child's artifact is not in the case directory")
+}
+
+// A step in real waits for its retry interval, and a mocked step with a
+// longer interval does not.
+func TestCaseWaits(t *testing.T) {
+	t.Parallel()
+
+	ctx, _ := newCaseTestContext(t)
+	dag := writeCaseDAG(t, ctx, "waits", fmt.Sprintf(`
+working_dir: %q
+steps:
+  - name: mocked
+    run: ./flaky.sh
+    retry_policy:
+      limit: 1
+      interval_sec: 60
+  - name: real
+    depends: mocked
+    run: test -f failed-once || { touch failed-once; exit 1; }
+    retry_policy:
+      limit: 1
+      interval_sec: 1
+`, t.TempDir()))
+	tc := openTestCase(t, ctx, caseOptions{
+		tempDir: t.TempDir(),
+		real:    []string{"real"},
+		mocks:   map[string]stepmock.Step{"mocked": {Results: []stepmock.Result{{ExitCode: 1}, {}}}},
+	})
+
+	started := time.Now()
+	status, err := tc.run(dag)
+	elapsed := time.Since(started)
+	require.NoError(t, err)
+	require.Equal(t, ir.Succeeded, status.Status, status.Error)
+	assert.GreaterOrEqual(t, elapsed, time.Second, "the real step skipped its retry interval")
+	assert.Less(t, elapsed, 30*time.Second, "the mocked step waited for its retry interval")
 }
 
 func TestCaseTrigger(t *testing.T) {
@@ -958,10 +1027,12 @@ handler_on:
 steps:
   - name: sync
     run: ./sync.sh
-`, caseOptions{mocks: map[string]stepmock.Step{
-		"sync":      {Results: []stepmock.Result{{ExitCode: 1}}},
-		"onFailure": {Results: []stepmock.Result{{Stdout: "first\n"}, {Stdout: "second\n"}}},
-	}})
+`, caseOptions{
+		mocks: map[string]stepmock.Step{"sync": {Results: []stepmock.Result{{ExitCode: 1}}}},
+		handlers: map[ir.HandlerType]stepmock.Step{
+			ir.HandlerOnFailure: {Results: []stepmock.Result{{Stdout: "first\n"}, {Stdout: "second\n"}}},
+		},
+	})
 	require.NoError(t, err)
 	require.Equal(t, ir.Failed, status.Status)
 
@@ -1059,6 +1130,31 @@ func runCase(t *testing.T, yaml string, opts caseOptions) (*testCase, *ir.DAGRun
 	tc := openTestCase(t, ctx, opts)
 	status, err := tc.run(dag)
 	return tc, status, err
+}
+
+// listenSMTP returns the address of a listener that counts the connections
+// it accepts. It closes each at once, so a mail client returns only after
+// its connection was counted.
+func listenSMTP(t *testing.T) (host, port string, connections *atomic.Int32) {
+	t.Helper()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	connections = new(atomic.Int32)
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			connections.Add(1)
+			_ = conn.Close()
+		}
+	}()
+	host, port, err = net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
+	return host, port, connections
 }
 
 // caseNode returns the node of the step named name.

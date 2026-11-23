@@ -1,0 +1,6 @@
+dag: ../workflows/release.yaml
+default_mock: {}
+cases:
+  - name: one
+    expect:
+      status: succeeded
