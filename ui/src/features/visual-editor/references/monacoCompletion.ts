@@ -24,9 +24,12 @@ import {
   type ReferenceEditorState,
 } from './editorState';
 import { registerReferenceHover } from './monacoHover';
-import { findOpenReference } from './tokens';
+import { findOpenReference, findReferenceTokens } from './tokens';
 
 type Monaco = typeof import('monaco-editor');
+
+/** The text after the caret that can still be part of a reference name. */
+const REFERENCE_NAME_REST = /^[\w.\-[\]]*$/;
 
 // A lone "$" is shell text as often as the start of a reference: "${" opens.
 const TRIGGER_CHARACTERS = ['{', '.'];
@@ -219,8 +222,20 @@ function replacedRange(
 ): { from: number; to: number } | null {
   const open = findOpenReference(text, offset);
   if (open && (atOffset || text[open.from + 1] === '{')) {
-    // The editor closes a brace that the user types: replace it too.
-    return { from: open.from, to: text[offset] === '}' ? offset + 1 : offset };
+    // Replace the whole reference that the caret is inside, up to its '}',
+    // when only the rest of a name comes before that brace. This includes the
+    // brace that the editor closes when the user types "${". A space or a
+    // quote ends the name: the '}' after it is other text.
+    const closed = findReferenceTokens(text).find(
+      (token) =>
+        token.from === open.from &&
+        offset < token.to &&
+        REFERENCE_NAME_REST.test(text.slice(offset, token.to - 1))
+    );
+    return {
+      from: open.from,
+      to: closed ? closed.to : text[offset] === '}' ? offset + 1 : offset,
+    };
   }
   return atOffset ? { from: offset, to: offset } : null;
 }
