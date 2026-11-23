@@ -3,7 +3,10 @@
 
 package masking
 
-import "slices"
+import (
+	"math"
+	"slices"
+)
 
 // valueTrie finds the longest of a set of values that a text starts with.
 // Its nodes are stored flat, and the children of each node are contiguous
@@ -54,23 +57,32 @@ func newValueTrie(values []string) *valueTrie {
 			t.nodes[p.node].end = true
 			values = values[1:]
 		}
-		first := int32(len(t.nodes))
+		first := nodeIndex(len(t.nodes))
 		for i := 0; i < len(values); {
 			next := i + 1
 			for next < len(values) && values[next][p.depth] == values[i][p.depth] {
 				next++
 			}
-			stack = append(stack, pending{node: int32(len(t.nodes)), values: values[i:next], depth: p.depth + 1})
+			stack = append(stack, pending{node: nodeIndex(len(t.nodes)), values: values[i:next], depth: p.depth + 1})
 			t.nodes = append(t.nodes, trieNode{label: values[i][p.depth]})
 			i = next
 		}
-		t.nodes[p.node].first, t.nodes[p.node].count = first, int32(len(t.nodes))-first
+		t.nodes[p.node].first, t.nodes[p.node].count = first, nodeIndex(len(t.nodes))-first
 	}
 	root := t.nodes[0]
 	for i := root.first; i < root.first+root.count; i++ {
 		t.root[t.nodes[i].label] = i
 	}
 	return t
+}
+
+// nodeIndex converts a node count or index to the type nodes are indexed
+// by. A trie needs more than 2 GiB of values to exceed it.
+func nodeIndex(n int) int32 {
+	if n < 0 || n > math.MaxInt32 {
+		panic("masking: too many trie nodes")
+	}
+	return int32(n)
 }
 
 // starts reports whether a value starts with b.
