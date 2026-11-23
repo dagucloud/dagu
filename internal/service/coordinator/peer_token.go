@@ -5,15 +5,9 @@ package coordinator
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/subtle"
-	"encoding/hex"
-	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -25,7 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	appconfig "github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 )
 
@@ -50,42 +44,26 @@ const (
 // storing one first when the file does not exist. Coordinators that share the
 // file agree on one token.
 func LoadOrCreatePeerToken(path string) (string, error) {
-	token, err := readPeerToken(path)
-	if !errors.Is(err, fs.ErrNotExist) {
-		return token, err
-	}
-
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return "", fmt.Errorf("generate peer token: %w", err)
-	}
-	token = hex.EncodeToString(raw)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", fmt.Errorf("create peer token directory: %w", err)
-	}
-	err = fileutil.WriteFileAtomicExclusive(path, []byte(token+"\n"), 0o600)
-	if errors.Is(err, fs.ErrExist) {
-		return readPeerToken(path)
-	}
+	token, err := crypto.LoadOrCreateToken(path)
 	if err != nil {
-		return "", fmt.Errorf("write peer token: %w", err)
+		return "", fmt.Errorf("peer token: %w", err)
 	}
-	return token, nil
+	return token, validatePeerToken(path, token)
 }
 
 func readPeerToken(path string) (string, error) {
-	data, err := fileutil.ReadFile(path)
+	token, err := crypto.ReadToken(path)
 	if err != nil {
 		return "", err
 	}
-	token := strings.TrimSpace(string(data))
-	if token == "" {
-		return "", fmt.Errorf("peer token file %s is empty", path)
-	}
+	return token, validatePeerToken(path, token)
+}
+
+func validatePeerToken(path, token string) error {
 	if err := appconfig.ValidatePeerToken(token); err != nil {
-		return "", fmt.Errorf("peer token file %s %w", path, err)
+		return fmt.Errorf("peer token file %s %w", path, err)
 	}
-	return token, nil
+	return nil
 }
 
 // peerTokenCredentials attaches the peer token to every call: the configured
