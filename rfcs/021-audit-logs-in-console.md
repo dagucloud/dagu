@@ -152,7 +152,9 @@ covers every producer, including the two that call `Append` without
   (`masking.Masker`), and common token formats, such as GitHub, AWS, and
   Slack tokens. It reloads the values on the next entry after this process
   changes a secret, and at most a minute after another process, such as
-  `dagu profile` or another server, does.
+  `dagu profile` or another server, does. After a failed load it tries
+  again 10 seconds later, or on the next entry after this process changes
+  a secret.
 - **One pass.** The masker builds a trie of the values once per reload and
   finds the longest value at each offset, so a field takes one pass however
   many secrets there are. Matches that overlap, token formats included, are
@@ -396,7 +398,7 @@ so none is skipped. A PostgreSQL event store needs the same cursor.
 | An entry lands in an older file, as one made just before UTC midnight, or after the clock is set back | The shipper still holds that file's offset, and sends the entry within a minute |
 | A line does not parse, or is over 1 MiB | It becomes a `rejected` gap, and the shipper moves on |
 | A `dagu-managed` secret is rotated or deleted after an entry carries it | The entry was masked when written |
-| The secret values fail to load, or a secret record cannot be read | The entry is masked with the values loaded last and lacks `"masked": true`, so it is not sent. The next entry loads them again |
+| The secret values fail to load, or a secret record cannot be read | The entry is masked with the values loaded last and lacks `"masked": true`, so it is not sent. The values load again 10 seconds later, or after this server changes a secret |
 | A long secret is added after an entry that carries it was written | The entry was not cut on disk, so the upload mask matches it |
 | Entries written before this release | Not sent. They lack `"masked": true` |
 | `dagu secret` appends or starts a file while the web server is stopped, and retention deletes it before the shipper starts | The cleanup entry records the file's size, so the shipper sends a `deleted` gap |

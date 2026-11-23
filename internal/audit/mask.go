@@ -20,6 +20,10 @@ import (
 // `dagu profile` or another server, can go unmasked.
 const secretsMaxAge = time.Minute
 
+// secretsRetryInterval bounds how often a store that fails to load is read
+// again, so a broken record does not cost a full read on every entry.
+const secretsRetryInterval = 10 * time.Second
+
 // controlFields are the JSON names of the entry fields Dagu generates or
 // picks from a fixed set. Mask leaves them as written, so no secret value
 // can rewrite them. Every other text field is masked, fields added later
@@ -80,10 +84,12 @@ type Masker struct {
 	source SecretSource
 	now    func() time.Time
 
-	mu       sync.Mutex
-	secrets  *masking.Masker
-	revision uint64
-	loadedAt time.Time
+	mu        sync.Mutex
+	secrets   *masking.Masker
+	revision  uint64
+	checkedAt time.Time
+	// loaded reports that the load at checkedAt succeeded.
+	loaded bool
 }
 
 // NewMasker returns a masker that hides the values source supplies and
@@ -95,7 +101,7 @@ func NewMasker(source SecretSource) *Masker {
 // Mask masks every field of entry but its control fields. Values are
 // replaced whole, no field is cut, and details stays JSON. The entry is
 // marked masked only when the secret values loaded; otherwise it keeps the
-// values loaded last, carries no marker, and the next entry tries again.
+// values loaded last and carries no marker.
 func (m *Masker) Mask(ctx context.Context, entry *Entry) {
 	secrets, loaded := m.current(ctx)
 	value := reflect.ValueOf(entry).Elem()
@@ -112,24 +118,29 @@ func (m *Masker) Mask(ctx context.Context, entry *Entry) {
 }
 
 // current returns the masker of the secret values and token formats, and
-// whether the values loaded, reloading them when this process changed a
-// secret or they are older than secretsMaxAge.
+// whether the values loaded. It reloads them when this process changed a
+// secret, or when the last load is older than secretsMaxAge, or than
+// secretsRetryInterval if it failed.
 func (m *Masker) current(ctx context.Context) (*masking.Masker, bool) {
 	if m == nil || m.source == nil {
 		return tokenMasker, true
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	revision := m.source.Revision()
-	if !m.loadedAt.IsZero() && revision == m.revision && m.now().Sub(m.loadedAt) < secretsMaxAge {
-		return m.secrets, true
+	revision, now := m.source.Revision(), m.now()
+	maxAge := secretsMaxAge
+	if !m.loaded {
+		maxAge = secretsRetryInterval
+	}
+	if !m.checkedAt.IsZero() && revision == m.revision && now.Sub(m.checkedAt) < maxAge {
+		return m.secrets, m.loaded
 	}
 	values, err := m.source.CurrentValues(ctx)
+	m.revision, m.checkedAt, m.loaded = revision, now, err == nil
 	if err != nil {
 		logger.Warn(ctx, "Failed to load secret values for audit masking", tag.Error(err))
 		return m.secrets, false
 	}
 	m.secrets = masking.NewValueMasker(values, tokenPattern)
-	m.revision, m.loadedAt = revision, m.now()
 	return m.secrets, true
 }

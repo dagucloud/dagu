@@ -105,21 +105,32 @@ func TestMaskHidesOverlappingTokensAndStoredValues(t *testing.T) {
 }
 
 // An entry masked without the secret values carries no marker, so it is
-// never sent, and the next entry loads them again.
+// never sent. A failing store is read again only after the retry interval
+// or a change in this process, not on every entry.
 func TestMaskMarksNothingWhenSecretsFailToLoad(t *testing.T) {
 	source := &secretValues{values: []string{"s3cr3t"}, err: errors.New("store unavailable")}
+	now := time.Unix(0, 0)
 	masker := NewMasker(source)
-	failed := &Entry{Username: "s3cr3t"}
+	masker.now = func() time.Time { return now }
+	mask := func() *Entry {
+		entry := &Entry{Username: "s3cr3t"}
+		masker.Mask(context.Background(), entry)
+		return entry
+	}
 
-	masker.Mask(context.Background(), failed)
+	assert.False(t, mask().Masked)
+	assert.False(t, mask().Masked)
+	assert.Equal(t, 1, source.loads, "no reload within the retry interval")
 
-	assert.False(t, failed.Masked)
-	source.err = nil
-	next := &Entry{Username: "s3cr3t"}
-	masker.Mask(context.Background(), next)
-	assert.True(t, next.Masked)
+	now = now.Add(secretsRetryInterval)
+	assert.False(t, mask().Masked)
+	assert.Equal(t, 2, source.loads, "a reload once the interval passes")
+
+	source.err, source.revision = nil, 1
+	next := mask()
+	assert.True(t, next.Masked, "a reload after a change in this process")
 	assert.Equal(t, masking.DefaultMaskString, next.Username)
-	assert.Equal(t, 2, source.loads)
+	assert.Equal(t, 3, source.loads)
 }
 
 func TestMaskHidesCommonTokenFormats(t *testing.T) {
