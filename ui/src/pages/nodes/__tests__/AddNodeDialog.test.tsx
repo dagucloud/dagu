@@ -188,7 +188,7 @@ describe('AddNodeDialog', () => {
     fill('Description', '');
     await click('Add node');
 
-    expect(client.POST.mock.calls[0][1].body.trust).toEqual([
+    expect(client.POST.mock.calls[0]?.[1].body.trust).toEqual([
       { node: 'web01', fingerprint: 'SHA256:web01' },
     ]);
   });
@@ -250,7 +250,7 @@ describe('AddNodeDialog', () => {
     expect(client.POST.mock.calls.map(([, init]) => init.params.query)).toEqual(
       [{ version: 4 }, { version: 5 }]
     );
-    expect(client.POST.mock.calls[1][1].body.trust).toBeUndefined();
+    expect(client.POST.mock.calls[1]?.[1].body.trust).toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
   });
