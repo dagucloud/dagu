@@ -85,7 +85,7 @@ project/
 | `dagu validate [<target>]` | Validates the project file and every workflow, or one workflow. |
 | `dagu start <target> [-- params]` | Runs one workflow. |
 | Other commands that take a DAG, such as `status`, `stop`, `retry`, and `enqueue` | Resolve the DAG as a workflow target. |
-| `dagu server`, `dagu start-all` | Serve the project's workflows and runs. `start-all` also schedules them. Both refuse inside a server project's DAG directory; see [Server projects](#server-projects). |
+| `dagu server`, `dagu start-all` | Serve the project's workflows and runs. `start-all` also schedules them. Both refuse in a folder whose `.dagu/` another Dagu home serves; see [Server projects](#server-projects). |
 
 Rules:
 
@@ -239,7 +239,8 @@ Rules:
 - A server project ([RFC 003](../rfcs/003-projects.md#layout)) lays out its
   state the same way. On an existing folder, with the file backend, it uses
   the folder's `.dagu/`, so the CLI and the server read one history and one
-  set of secrets and profiles. Elsewhere its state is in the server's data
+  set of secrets and profiles. That `.dagu/` names the project and the Dagu
+  home that serves it. Elsewhere its state is in the server's data
   directory.
 - `dagu start` prints where the run's logs are when it finishes, and
   `dagu history` lists past runs, so people rarely need to open `.dagu/`.
@@ -268,10 +269,13 @@ Rules:
   3. Project mode, when `.dagu.json` is found from the current directory,
      with its state in `.dagu/`.
   4. The default project of the configured Dagu home, as without projects.
-- Inside a server project's DAG directory, as in step 2, `dagu server` and
-  `dagu start-all` refuse to start. The server already schedules that
-  project, and a second scheduler with its own lock would run each
-  scheduled workflow twice.
+- A command run for a Dagu home other than the one named in a folder's
+  `.dagu/`, such as from a shell without the server's `DAGU_HOME`, refuses
+  to write that state, `dagu server` and `dagu start-all` included, and
+  names the Dagu home to use. A second scheduler on one folder would run
+  each scheduled workflow twice, and a second history would split its
+  runs. Run for the Dagu home that serves the project, these commands
+  start wherever the current directory is.
 - A command that would write a server project's state refuses when it runs
   as a user other than the owner of that state, and names the user to run
   as. Dagu keeps its files readable only by their owner, so the server
