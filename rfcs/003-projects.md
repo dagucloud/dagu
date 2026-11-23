@@ -133,11 +133,12 @@ has `paths.dags_dir` and `paths.data_dir`.
 - The default project is the existing home. Its paths, including any set in
   `config.yaml`, do not change.
 - Project names follow [Names](#names).
-- A new directory under `paths.projects_dir` that holds a DAG file,
-  `base.yaml`, or `dagu.json` is a new project. Discovery ignores other
-  directories, so a checkout's `scripts/` or `docs/` never becomes one, and
-  skips directories whose names start with `.`, such as `.git/`, without
-  logging them. Admins can also create a project in the UI or API.
+- The server knows its projects only from the registry in
+  `paths.data_dir` ([Identity and references](#identity-and-references)).
+  A directory under `paths.projects_dir` is a project's DAG directory only
+  when a project of that name is registered, so a checkout's `scripts/`,
+  `docs/`, or `.git/` never becomes one. `dagu.json` is optional in a
+  project's DAG directory; see [Checkouts](#checkouts).
 
 ### Names
 
@@ -156,12 +157,6 @@ Windows, and Linux.
   file names that way and Linux does not. A request that names a project in
   another case resolves to the stored spelling, so every path uses one
   spelling.
-- Discovery skips a directory whose name breaks these rules or differs only
-  in case from another project's name. Except for a name that starts with
-  `.`, the server logs it, and the projects page lists it for admins. Of
-  two directories whose names differ only in case, the one already in the
-  registry stays the project; when neither is, the first in byte order
-  does, so every start picks the same one.
 - A name never changes. Commands, scripts, API clients, links,
   `project_mappings`, and directory paths all carry it, and a rename would
   break each of them.
@@ -245,15 +240,16 @@ into each project.
 
 ### Identity and references
 
-Each project has an ID, a random UUID assigned when the project is created or
-first discovered. A project deleted and created again under the same name
+Each project has an ID, a random UUID assigned when the project is created. A
+project deleted and created again under the same name
 gets a new ID, so its grants, audit trail, and Dagu Cloud history never mix
 with the old one's.
 
-- A server-wide registry holds each project's ID, name, display name,
-  creation time, and
-  [Dagu Cloud binding](002-dagu-cloud-connector.md#binding). Every write to
-  it holds one lock and checks the name rules before it stores. Writes are
+- A server-wide registry in `paths.data_dir` holds each project's ID, name,
+  display name, creation time, and
+  [Dagu Cloud binding](002-dagu-cloud-connector.md#binding). It is the only
+  list of projects: creating, deleting, and migration change it, and
+  nothing on disk adds to it. Every write to it holds one lock and checks the name rules before it stores. Writes are
   rare, so one lock costs nothing.
 - Records that outlive a request refer to a project by ID: grants, audit
   entries, dispatch tasks, leases, and status reports. Names are for people:
@@ -330,8 +326,7 @@ project seen from a checkout, not a second concept. Checkouts ship with spec
   new access.
 - State that no project owns, such as runs from a folder whose `dagu.json`
   names no project of the server, is listed on the projects page, where an
-  admin can delete it. A project created or discovered under that name
-  takes it over.
+  admin can delete it. A project created under that name takes it over.
 
 ### Library
 
@@ -401,10 +396,11 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 ### Lifecycle
 
 - **Create.** An admin creates a project in the UI or API, or with `dagu
-  project create`, which makes its DAG directory where [Layout](#layout)
-  puts it, or adds a directory that discovery finds. Either way the
-  registry assigns its ID, and the scheduler starts its unit without a
-  restart.
+  project create`. The registry assigns its ID, the scheduler starts its
+  unit without a restart, and Dagu uses `<projects_dir>/<name>/` as its DAG
+  directory, creating it when it does not exist. A directory that git
+  already brought, such as from a checkout used as `paths.projects_dir`,
+  becomes a project only when an admin creates a project of its name.
 - **No rename.** A project's name never changes; see [Names](#names). An
   admin changes the display name in the UI or API at any time, and only
   the registry changes.
@@ -421,8 +417,8 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 - **Changed on disk.** A project whose DAG directory disappears outside
   Dagu is listed as missing and is not scheduled. It keeps its registry
   entry, grants, binding, and state until the directory returns or an
-  admin deletes it. A directory that appears under another name is a new
-  project, since names never change.
+  admin deletes it. A directory renamed outside Dagu is not a project until
+  an admin creates one of its new name, since names never change.
 - **The default project** cannot be deleted. Its display name can change.
 
 ### Moving a DAG
@@ -723,7 +719,7 @@ Criteria 23 and 24 apply from the release that ships the feature.
 4. A user without a role in a project gets `404` for its DAGs, runs, logs, and
    wiki pages, and does not see the project in lists or search.
 5. `dag.run` to a DAG in another project fails at load.
-6. One scheduler process schedules every project. A new project directory
+6. One scheduler process schedules every project. A newly created project
    starts scheduling without a restart.
 7. A distributed run of a project DAG records its status in that project.
 8. The first v3.0 start migrates every workspace with no manual step,
@@ -746,8 +742,7 @@ Criteria 23 and 24 apply from the release that ships the feature.
 14. Migration leaves DAG files already at their v3 path in place, never
     moves a file inside a git checkout or writes one into a checkout, and
     still moves their runs and state.
-15. A project name that breaks the name rules is refused at creation and
-    skipped at discovery, and the server logs it.
+15. A project name that breaks the name rules is refused at creation.
 16. No UI, API, or CLI path changes a project's name. Delete is refused
     while the project has runs queued, running, or waiting, and for the
     default project.
@@ -784,9 +779,9 @@ Criteria 23 and 24 apply from the release that ships the feature.
 30. `/webhooks/{project}/{name}` reaches that project's DAG, including a
     DAG in a subdirectory, such as `/webhooks/billing/etl/daily`. Every v2
     webhook URL reaches the same DAG after migration.
-31. A directory under `paths.projects_dir` that holds no DAG file,
-    `base.yaml`, or `dagu.json`, or whose name starts with `.`, is not a
-    project, and the server does not log it.
+31. The server lists exactly the projects in its registry. A directory
+    under `paths.projects_dir` that no registered project uses is not a
+    project, whatever it holds.
 32. Each DAG file belongs to one project or the library: discovery skips a
     `dags_dir`, `projects_dir`, or `alt_dags_dir` nested in another, and
     never follows a symbolic link out of a project.
@@ -795,19 +790,17 @@ Criteria 23 and 24 apply from the release that ships the feature.
     user is not `manager`.
 34. An explicit start of a library DAG is refused in a project that has a
     DAG of the same name.
-35. Of two project directories whose names differ only in case, the one in
-    the registry stays the project on every start.
-36. A v2.28 server runs a DAG file moved in git to `<projects_dir>/X/` as
+35. A v2.28 server runs a DAG file moved in git to `<projects_dir>/X/` as
     workspace `X`'s, and the first v3.0 start holds none of those DAGs.
-37. A DAG that migration holds is not listed, scheduled, or startable in any
+36. A DAG that migration holds is not listed, scheduled, or startable in any
     project, and a user who could not see it on v2 cannot see it on v3.0.
-38. A secret, profile, or DAG state that a worker reads through the
+37. A secret, profile, or DAG state that a worker reads through the
     coordinator comes from the task's project, then the server layer, and
     the coordinator refuses a call without a project for a task of another
     project.
-39. A project DAG added under a library DAG's name starts with no runs,
+38. A project DAG added under a library DAG's name starts with no runs,
     even when the library DAG has run in that project.
-40. A `dagu` command inside a folder that holds `dagu.json` keeps the
+39. A `dagu` command inside a folder that holds `dagu.json` keeps the
     project's state in `<data_dir>/projects/<name>/` of its Dagu home and
     writes nothing inside the folder. State that no project owns is listed
     on the projects page, and a project created under its name takes it
