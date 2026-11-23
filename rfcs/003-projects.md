@@ -195,10 +195,11 @@ request, scheduler unit, or task ──▶ project ID ──▶ that project's s
 - **Paths in run records.** Run records store the paths of logs, step
   output, and artifacts inside the project's state directory relative to
   it, so moving a DAG, or the folder of a project on an existing folder,
-  leaves them valid. Records written before v3.0 hold absolute paths;
-  whatever moves them, migration included, rewrites those paths. A path a
-  DAG sets outside the project's directories stays absolute and does not
-  move.
+  leaves them valid. Records written before v3.0 hold absolute paths, and
+  migration does not rewrite them: a project maps a path under its v2
+  directories to the new place when it reads the record. A later move of
+  the DAG rewrites them. A path a DAG sets outside the project's
+  directories stays absolute and does not move.
 - **Other backends.** The state directories above are the file backend's.
   On a backend that is not file-based, a project on an existing folder
   keeps its state in the backend like every other project, and the folder
@@ -522,8 +523,11 @@ scheduler process   HA lock, health server, service registry, signals, license
   own lock and collide on the health port.
 - The pause flag and restart backoff also belong to the process. Pausing the
   scheduler pauses every unit.
-- Queues defined in `config.yaml` are shared across units through one limiter,
-  as they are shared across workspaces in v2. Other queues are per project.
+- The supervisor owns each queue defined in `config.yaml`. Items from every
+  project wait in one server-wide store, and the supervisor admits them
+  oldest first under the queue's limit, as v2's single queue did, then
+  hands each run to its project's unit. Other queues are per project, and
+  their unit processes them.
 - One file watcher covers `paths.projects_dir` and every existing folder a
   project uses, and routes events by path. A
   watcher per project would reach the Linux inotify instance limit (128 by
@@ -654,6 +658,23 @@ needs attention:
   git checkout   dags/etl.yaml is suspended until moved to projects/billing/
   dag.run        billing/report calls sim/score in another project
 ```
+
+## Performance
+
+Cost grows with the number of projects, so an idle project adds little.
+
+- **Periodic tasks.** The supervisor runs one timer for each periodic task,
+  such as the tick planner, retry scanner, and zombie detector, and visits
+  every unit on it. An idle project adds no timer of its own, only each
+  task's reads of that project's stores.
+- **File watching.** One watcher covers every project
+  ([Scheduler](#scheduler)).
+- **Reads across projects.** Search and the All projects view cost one
+  index read per visible project ([Storage](#storage)).
+- **Migration.** Run, log, and state directories move by rename, and a log
+  directory on another file system is copied. No run record is rewritten
+  ([Storage](#storage)), so the first start costs one rename per moved
+  directory, not one write per stored run.
 
 ## Compatibility and rollout
 
