@@ -50,7 +50,7 @@ type cleanupFile struct {
 // newCleaner creates and starts a cleaner that purges expired audit log files.
 // It runs purgeExpiredFiles immediately, then every 24 hours.
 // The appendFn records each cleanup in the audit log before its files are
-// removed.
+// removed, and must return only once the entry is on disk.
 func newCleaner(baseDir string, retentionDays int, fn appendFn) *cleaner {
 	c := &cleaner{
 		baseDir:       baseDir,

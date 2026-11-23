@@ -200,13 +200,13 @@ func TestStore_AppendMasksTheEntryOnDisk(t *testing.T) {
 	assert.Equal(t, `{"command":"export TOKEN=*******`+" && "+strings.Repeat("x", 300)+`"}`, stored.Details)
 }
 
-// The cleaner records its run through Append, so its entry is masked too.
+// The cleaner records its run through the store, so its entry is masked too.
 func TestStore_CleanupEntryIsMasked(t *testing.T) {
 	dir := t.TempDir()
 	store, err := New(dir, 0, WithMasker(audit.NewMasker(staticSecrets{})))
 	require.NoError(t, err)
 	createTestFile(t, dir, time.Now().UTC().AddDate(0, 0, -30).Format(dateFormat)+auditFileExtension)
-	c := &cleaner{baseDir: dir, retentionDays: 7, appendFn: store.Append, stopCh: make(chan struct{})}
+	c := &cleaner{baseDir: dir, retentionDays: 7, appendFn: store.appendDurable, stopCh: make(chan struct{})}
 
 	c.purgeExpiredFiles()
 
