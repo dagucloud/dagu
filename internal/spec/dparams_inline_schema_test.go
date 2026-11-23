@@ -321,6 +321,8 @@ params:
       default: 9007199254740993
     huge:
       enum: [9223372036854775809]
+    count:
+      type: integer
     region:
       type: string
   required: [region]
@@ -333,6 +335,10 @@ params:
 	dag, err = LoadYAML(context.Background(), yaml, WithoutEval(), WithParams("region=us serial=9007199254740993 huge=9223372036854775809"))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"huge=9223372036854775809", "limit=9007199254740993", "region=us", "serial=9007199254740993"}, dag.Params)
+
+	// A typed integer param keeps the int64 range.
+	_, err = LoadYAML(context.Background(), yaml, WithoutEval(), WithParams("region=us count=9223372036854775809"))
+	require.ErrorContains(t, err, `count: cannot coerce "9223372036854775809" to integer`)
 }
 
 func TestBuildInlineSchemaParamPlan_ParamDefTitle(t *testing.T) {

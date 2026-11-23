@@ -233,6 +233,13 @@ func coerceSchemaPairValue(name, raw string, schema *jsonschema.Schema, allowSch
 	paramType, ok := schemaScalarType(schema)
 	if ok {
 		value, err := coerceStringToType(raw, paramType)
+		if err != nil && paramType == ir.ParamDefTypeInteger && schema.Type == "" && len(schema.Types) == 0 {
+			// An untyped param takes its type from its enum, whose exact
+			// members above the int64 range are uint64.
+			if number, parseErr := strconv.ParseUint(strings.TrimSpace(raw), 10, 64); parseErr == nil {
+				return number, nil
+			}
+		}
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
