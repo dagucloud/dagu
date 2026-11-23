@@ -453,7 +453,8 @@ repeats would run it without pause until `--timeout`. Under test:
 - A `limit` that comes from a reference, such as `${params.n}`, is decided
   when it resolves. A positive number bounds the step as written. A value
   that leaves the step without a limit makes it continuous: a mock's results
-  bound it, and an unmocked one fails the case at run time with that reason.
+  bound it, a step in `real` keeps its real intervals, and any other one
+  fails the case at run time with that reason.
 
 ### Steps that wait for a person
 
