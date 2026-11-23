@@ -55,8 +55,8 @@ type runOptions struct {
 	// without --trigger-type.
 	reportNoTrigger bool
 	// testSideEffects, when non-nil, runs a test case without the run-level
-	// side effects of a real run, reports to Dagu Console with a run key
-	// included.
+	// side effects of a real run, among them a job-run report to Dagu
+	// Console with a run key.
 	testSideEffects *agent.TestSideEffects
 }
 

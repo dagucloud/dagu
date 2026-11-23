@@ -958,7 +958,7 @@ func newJobConsole(t *testing.T) *jobConsole {
 	transport := http.DefaultTransport
 	http.DefaultTransport = c.Client().Transport
 	t.Cleanup(func() { http.DefaultTransport = transport })
-	t.Setenv("DAGU_CLOUD_RUN_KEY", "drk_0123456789abcdef")
+	t.Setenv("DAGU_CLOUD_RUN_KEY", "drk_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
 	t.Setenv("DAGU_LICENSE_CLOUD_URL", c.URL)
 	return c
 }

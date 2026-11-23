@@ -114,5 +114,8 @@ func httpsLink(link string) string {
 	if err != nil || u.Scheme != "https" || u.Host == "" {
 		return ""
 	}
-	return link
+	// A user and password in the link would reach Dagu Console and show
+	// there.
+	u.User = nil
+	return u.String()
 }

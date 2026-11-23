@@ -6,6 +6,7 @@ package cloudreport
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -27,8 +28,10 @@ import (
 const (
 	jobReportPath = "/api/v1/runs/report"
 	jobProtocol   = 1
-	// runKeyPrefix starts every run key Dagu Console makes.
-	runKeyPrefix = "drk_"
+	// runKeyPrefix starts every run key Dagu Console makes, and
+	// runKeySecretLen hex characters, its 32 random bytes, follow it.
+	runKeyPrefix    = "drk_"
+	runKeySecretLen = 64
 
 	// jobMinInterval and jobMaxInterval bound the wait between a run's
 	// progress reports that Dagu Console asks for.
@@ -61,7 +64,12 @@ const (
 // ValidRunKey reports whether key has the form of a run key from Dagu
 // Console.
 func ValidRunKey(key string) bool {
-	return strings.HasPrefix(key, runKeyPrefix) && len(key) > len(runKeyPrefix)
+	secret, ok := strings.CutPrefix(key, runKeyPrefix)
+	if !ok || len(secret) != runKeySecretLen {
+		return false
+	}
+	_, err := hex.DecodeString(secret)
+	return err == nil
 }
 
 // JobReports reports one top-level run to Dagu Console with a run key, for a
@@ -210,8 +218,11 @@ type jobReporter struct {
 	finish   *jobRequest
 	finishBy time.Time
 	closing  bool
-	wake     chan struct{}
-	done     chan struct{}
+	// started is set once the run records a status to report, which starts
+	// the goroutine; an attempt the agent never runs starts none.
+	started bool
+	wake    chan struct{}
+	done    chan struct{}
 }
 
 func newJobReporter(ctx context.Context, reports *JobReports) *jobReporter {
@@ -241,8 +252,6 @@ func newJobReporter(ctx context.Context, reports *JobReports) *jobReporter {
 	if reports.random != nil {
 		r.random = reports.random
 	}
-	logger.Info(ctx, infoJobReporting)
-	go r.run()
 	return r
 }
 
@@ -261,6 +270,7 @@ func (r *jobReporter) record(status *ir.DAGRunStatus) {
 		if r.finish != nil || r.closing {
 			return
 		}
+		r.start()
 		r.latest = req
 		if req.Active.Status != r.status {
 			r.status, r.urgent = req.Active.Status, true
@@ -272,20 +282,36 @@ func (r *jobReporter) record(status *ir.DAGRunStatus) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.finish == nil && !r.closing {
+		r.start()
 		r.finish, r.finishBy = req, r.now().Add(finishBudget)
 		r.signal()
 	}
 }
 
+// start says the run reports to Dagu Console and starts sending, the first
+// time it records a status to report; r.mu is held.
+func (r *jobReporter) start() {
+	if r.started {
+		return
+	}
+	r.started = true
+	logger.Info(r.ctx, infoJobReporting)
+	go r.run()
+}
+
 // close stops the reporter once the run's finish was sent or given up on,
 // and returns then. Without a finish, it first sends a status change not
-// yet sent, such as to waiting, and otherwise returns at once.
+// yet sent, such as to waiting, and otherwise returns at once, as it does
+// for a run that recorded nothing to report.
 func (r *jobReporter) close() {
 	r.mu.Lock()
 	r.closing = true
+	started := r.started
 	r.signal()
 	r.mu.Unlock()
-	<-r.done
+	if started {
+		<-r.done
+	}
 }
 
 // signal wakes the reporter's goroutine; r.mu is held.

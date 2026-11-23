@@ -25,7 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 )
 
-const testRunKey = "drk_0123456789abcdef"
+const testRunKey = "drk_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 // jobCall is a job report Dagu Console received.
 type jobCall struct {
@@ -444,6 +444,22 @@ func TestJobFinishPastTheAllowanceSaysSo(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(logs.String(), infoJobReporting))
 }
 
+// An attempt the agent never runs, such as one of a run that already
+// finished, reports nothing and says nothing of reporting.
+func TestJobAttemptThatRecordsNothingReportsNothing(t *testing.T) {
+	t.Parallel()
+	var logs bytes.Buffer
+	ctx := logger.WithLogger(t.Context(), logger.NewLogger(
+		logger.WithFormat("text"), logger.WithWriter(&logs), logger.WithQuiet()))
+	console := newFakeJobConsole(t)
+	attempt := newJobAttempt(ctx, t, console, newJobClock(), nil)
+
+	require.NoError(t, attempt.RecordStatus(ctx, jobStatus(ir.NotStarted)))
+	require.NoError(t, attempt.Close(ctx))
+	assert.Empty(t, console.calls)
+	assert.NotContains(t, logs.String(), infoJobReporting)
+}
+
 // An attempt closed before its run ends sends nothing more.
 func TestJobAttemptClosedWithoutAFinish(t *testing.T) {
 	t.Parallel()
@@ -549,6 +565,10 @@ func TestJobPlace(t *testing.T) {
 		"jenkins over http": {
 			env:  map[string]string{"JENKINS_URL": "http://ci.internal/", "BUILD_URL": "http://ci.internal/job/etl/3/"},
 			want: jobPlace{Platform: "jenkins", Host: "host-1"},
+		},
+		"jenkins with a user in its address": {
+			env:  map[string]string{"JENKINS_URL": "https://bot:token@ci.example.com/", "BUILD_URL": "https://bot:token@ci.example.com/job/etl/3/"},
+			want: jobPlace{Platform: "jenkins", PlatformURL: "https://ci.example.com/job/etl/3/", Host: "host-1"},
 		},
 		"kubernetes":   {env: map[string]string{"KUBERNETES_SERVICE_HOST": "10.0.0.1"}, want: jobPlace{Platform: "kubernetes", Host: "host-1"}},
 		"cloud run":    {env: map[string]string{"CLOUD_RUN_JOB": "etl"}, want: jobPlace{Platform: "cloud_run", Host: "host-1"}},

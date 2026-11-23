@@ -17,7 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/license"
 )
 
-const testRunKey = "drk_0123456789abcdef"
+const testRunKey = "drk_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 // jobContext is a command's context with cloud, logging to logs.
 func jobContext(t *testing.T, cloud config.CloudConfig, logs *bytes.Buffer) *Context {
@@ -87,12 +87,22 @@ func TestJobReportsDespiteALicense(t *testing.T) {
 // A key that is not a run key warns, naming the setting and not the value.
 func TestJobReportsWarnOfAMalformedKey(t *testing.T) {
 	t.Parallel()
-	var logs bytes.Buffer
-	ctx := jobContext(t, config.CloudConfig{RunKey: "dsk_secret-value"}, &logs)
+	for name, key := range map[string]string{
+		"another kind of key": "dsk_secret-value",
+		"two keys pasted":     testRunKey + "\n" + testRunKey,
+		"cut short":           testRunKey[:20],
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			var logs bytes.Buffer
+			ctx := jobContext(t, config.CloudConfig{RunKey: key}, &logs)
 
-	assert.Nil(t, jobReports(ctx, localRun))
-	assert.Contains(t, logs.String(), warnRunKeyMalformed)
-	assert.NotContains(t, logs.String(), "secret-value")
+			assert.Nil(t, jobReports(ctx, localRun))
+			assert.Contains(t, logs.String(), warnRunKeyMalformed)
+			assert.NotContains(t, logs.String(), "secret-value")
+			assert.NotContains(t, logs.String(), "0123456789abcdef")
+		})
+	}
 }
 
 // Only a trigger given on the command line counts as passed.
