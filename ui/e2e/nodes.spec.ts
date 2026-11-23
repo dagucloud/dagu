@@ -181,7 +181,7 @@ test.describe('Nodes', () => {
     await dialog.getByRole('button', { name: 'Import' }).click();
     await expect(dialog).toHaveCount(0);
 
-    await page.getByRole('button', { name: 'Nodes' }).click();
+    await page.getByRole('button', { name: 'Nodes', exact: true }).click();
     await page.getByRole('textbox', { name: 'Search by name...' }).fill(id);
     await page.getByRole('cell', { name: web, exact: true }).click();
     const drawer = page.getByRole('dialog');
