@@ -1606,11 +1606,9 @@ function CanvasView({
         aria-describedby={hintId}
         tabIndex={0}
         data-testid="ve-canvas"
-        // The ring marks a canvas that Tab reached. A selected step wears its
-        // own ring: the canvas has none then.
         className={cn(
           'relative flex h-full min-h-0 w-full flex-col overflow-clip outline-none',
-          !selected && tabFocused && 'ring-2 ring-inset ring-ring'
+          tabFocused && 'ring-2 ring-inset ring-ring'
         )}
         onFocus={(event) => {
           if (event.target === event.currentTarget) {

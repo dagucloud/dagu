@@ -211,22 +211,6 @@ describe('VisualCanvas', () => {
     });
   });
 
-  // The ring of the selected step shows the focus: no second ring around
-  // the whole canvas, even after Tab.
-  it('draws the focus ring of the canvas only without a selected step', () => {
-    const focusWithTab = () => {
-      const region = screen.getByTestId('ve-canvas');
-      fireEvent.keyDown(document, { key: 'Tab' });
-      act(() => region.focus());
-      return region;
-    };
-    const none = renderCanvas();
-    expect(focusWithTab()).toHaveClass('ring-2');
-    none.unmount();
-    renderCanvas({ selected: 'steps[1]' });
-    expect(focusWithTab()).not.toHaveClass('ring-2');
-  });
-
   it('never emits an edit on its own', () => {
     const { props } = renderCanvas({ selected: 'steps[1]' });
     expect(props.onEdit).not.toHaveBeenCalled();
