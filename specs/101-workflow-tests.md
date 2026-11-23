@@ -71,7 +71,6 @@ instead of reaching a real system.
 
 ## Related Specs
 
-- Projects and workflow discovery: [Spec 001](001-project.md)
 - Value resolution: [Spec 003](003-value-resolution.md)
 - Step output references: [Spec 007](007-value-resolution-steps.md)
 - Step identity: [Spec 009](009-step-reference.md)
@@ -159,8 +158,7 @@ Rules:
   Directories whose names start with `.` are skipped, and symbolic links are
   not followed.
 - With no argument, `dagu test` selects every test file under the DAGs
-  directory of the loaded configuration, or under the workflow directory in
-  a project (Spec 001), by the same directory rule.
+  directory of the loaded configuration, by the same directory rule.
 - A test file that more than one argument selects runs once.
 - Test files run one at a time, in lexicographic order of their report paths
   (see [Report](#report)).
@@ -216,9 +214,9 @@ Rules:
 
 A test file is never a DAG:
 
-- DAG discovery in the DAGs directory and in a project's workflow directory
-  (Spec 001), the watcher on those directories, and DAG name lookup skip
-  every file whose name ends in `.test.yaml` or `.test.yml`.
+- DAG discovery in the DAGs directory, the watcher on that directory, and
+  DAG name lookup skip every file whose name ends in `.test.yaml` or
+  `.test.yml`.
 - The DAG list does not show a test file, the scheduler does not schedule
   one, and a change to one reloads nothing.
 - `dagu start release.test` fails, and its message names `dagu test`.
@@ -275,9 +273,8 @@ Rules:
 ### Loading the DAG
 
 The tested DAG loads as `dagu start` loads it: with the base config,
-`defaults`, and dotenv files, and in a project with the project's base config
-(Spec 001). A DAG that `dagu start` would fail to load makes the test file
-invalid.
+`defaults`, and dotenv files. A DAG that `dagu start` would fail to load
+makes the test file invalid.
 
 Rules:
 
