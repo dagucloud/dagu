@@ -24,6 +24,10 @@ const secretsMaxAge = time.Minute
 // again, so a broken record does not cost a full read on every entry.
 const secretsRetryInterval = 10 * time.Second
 
+// secretsLoadTimeout bounds a load of the secret values, which holds up every
+// entry written meanwhile.
+const secretsLoadTimeout = 5 * time.Second
+
 // controlFields are the JSON names of the entry fields Dagu generates or
 // picks from a fixed set. Mask leaves them as written, so no secret value
 // can rewrite them. Every other text field is masked, fields added later
@@ -81,8 +85,9 @@ type SecretSource interface {
 // Masker hides secret values and common token formats in audit entries.
 // It is safe for concurrent use.
 type Masker struct {
-	source SecretSource
-	now    func() time.Time
+	source      SecretSource
+	now         func() time.Time
+	loadTimeout time.Duration
 
 	mu        sync.Mutex
 	secrets   *masking.Masker
@@ -96,13 +101,14 @@ type Masker struct {
 // common token formats. A nil source hides the token formats only and marks
 // no entry masked.
 func NewMasker(source SecretSource) *Masker {
-	return &Masker{source: source, now: time.Now, secrets: tokenMasker}
+	return &Masker{source: source, now: time.Now, loadTimeout: secretsLoadTimeout, secrets: tokenMasker}
 }
 
 // Mask masks every field of entry but its control fields. Values are
 // replaced whole, no field is cut, and details stays JSON. The entry is
 // marked masked only when the secret values loaded; otherwise it keeps the
-// values loaded last and carries no marker.
+// values loaded last and carries no marker. The values load even once ctx is
+// cancelled, but not past its deadline.
 func (m *Masker) Mask(ctx context.Context, entry *Entry) {
 	secrets, loaded := m.current(ctx)
 	value := reflect.ValueOf(entry).Elem()
@@ -136,7 +142,16 @@ func (m *Masker) current(ctx context.Context) (*masking.Masker, bool) {
 	if !m.checkedAt.IsZero() && revision == m.revision && now.Sub(m.checkedAt) < maxAge {
 		return m.secrets, m.loaded
 	}
-	values, err := m.source.CurrentValues(ctx)
+	// An entry can be written for a request that has already ended, as when
+	// the server stops; the values load all the same, within their own time
+	// and by the caller's deadline.
+	timeout := m.loadTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		timeout = min(timeout, time.Until(deadline))
+	}
+	loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer cancel()
+	values, err := m.source.CurrentValues(loadCtx)
 	m.revision, m.checkedAt, m.loaded = revision, now, err == nil
 	if err != nil {
 		logger.Warn(ctx, "Failed to load secret values for audit masking", tag.Error(err))

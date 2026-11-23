@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/license"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -163,8 +165,9 @@ func TestStartCloudAudit(t *testing.T) {
 
 	t.Run("sends", func(t *testing.T) {
 		ctx := newContext(config.AuditChanges)
-		stop := startCloudAudit(ctx, nil)
-		defer stop()
+		shipper := startCloudAudit(ctx, nil)
+		require.NotNil(t, shipper)
+		defer shipper.Stop()
 		require.Eventually(t, func() bool {
 			_, err := os.Stat(stateFile(ctx))
 			return err == nil
@@ -182,11 +185,81 @@ func TestStartCloudAudit(t *testing.T) {
 		"no license": func() *Context { ctx := newContext(config.AuditAll); ctx.LicenseManager = nil; return ctx }(),
 	} {
 		t.Run(name, func(t *testing.T) {
-			startCloudAudit(ctx, nil)()
+			require.Nil(t, startCloudAudit(ctx, nil))
 			_, err := os.Stat(filepath.Dir(stateFile(ctx)))
 			require.ErrorIs(t, err, os.ErrNotExist)
 		})
 	}
+}
+
+// recordingShipper records how the command ended the audit shipper.
+type recordingShipper struct {
+	ended            chan string
+	sendUntil, endBy time.Time
+}
+
+func (s *recordingShipper) Drain(sendUntil, endBy time.Time) {
+	s.sendUntil, s.endBy = sendUntil, endBy
+	s.ended <- "drain"
+}
+
+func (s *recordingShipper) Stop() { s.ended <- "stop" }
+
+// A stop signal drains the audit shipper for the timeout, once the web server
+// has stopped or half the send time has passed; anything else stops it at
+// once.
+func TestWatchCloudAudit(t *testing.T) {
+	signal := func(cancel context.CancelCauseFunc) { cancel(shutdownSignalError{signal: syscall.SIGTERM}) }
+	// short leaves 20ms to send, so the drain starts 10ms after the signal.
+	short := cloudAuditGapTime + 20*time.Millisecond
+	watch := func(t *testing.T, webStopped <-chan struct{}, timeout time.Duration) (*recordingShipper, context.CancelCauseFunc, func()) {
+		ctx, cancel := context.WithCancelCause(t.Context())
+		shipper := &recordingShipper{ended: make(chan string, 1)}
+		return shipper, cancel, watchCloudAudit(ctx, webStopped, shipper, timeout)
+	}
+
+	t.Run("signal, then the web server stops", func(t *testing.T) {
+		webStopped, onWebStopped := closedOnce()
+		shipper, cancel, wait := watch(t, webStopped, time.Hour)
+
+		before := time.Now()
+		signal(cancel)
+		onWebStopped()
+		wait()
+
+		assert.Equal(t, "drain", <-shipper.ended)
+		assert.Less(t, time.Since(before), time.Second)
+		assert.WithinRange(t, shipper.endBy.Add(-time.Hour), before, time.Now())
+		assert.Equal(t, cloudAuditGapTime, shipper.endBy.Sub(shipper.sendUntil))
+	})
+
+	t.Run("signal, and the web server takes too long", func(t *testing.T) {
+		webStopped, _ := closedOnce()
+		shipper, cancel, wait := watch(t, webStopped, short)
+
+		signal(cancel)
+		wait()
+
+		assert.Equal(t, "drain", <-shipper.ended)
+	})
+
+	t.Run("no signal", func(t *testing.T) {
+		shipper, cancel, wait := watch(t, nil, short)
+
+		cancel(nil)
+		wait()
+
+		assert.Equal(t, "stop", <-shipper.ended)
+	})
+
+	t.Run("signal with no time to drain", func(t *testing.T) {
+		shipper, cancel, wait := watch(t, nil, 0)
+
+		signal(cancel)
+		wait()
+
+		assert.Equal(t, "stop", <-shipper.ended)
+	})
 }
 
 // The event store and the run history are prepared at every level: an

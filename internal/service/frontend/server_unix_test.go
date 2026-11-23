@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/signalctx"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -73,6 +74,48 @@ func TestShutdownPreservesSignalCause(t *testing.T) {
 	data, err := os.ReadFile(stopped)
 	require.NoError(t, err)
 	require.Equal(t, "TERM", string(data))
+}
+
+// The web server reports that it has stopped before it waits for DAG runs to
+// drain, so work that only needs requests to end can start then.
+func TestShutdownReportsStoppedBeforeRunsDrain(t *testing.T) {
+	reg := launcher.NewProcessRegistry()
+	ctx, cancel := context.WithCancelCause(signalctx.WithOSSignalsDisabled(launcher.ContextWithProcessRegistry(t.Context(), reg)))
+	defer cancel(nil)
+	release := filepath.Join(t.TempDir(), "release")
+	res, err := launcher.StartProcess(ctx, launcher.CmdSpec{
+		Executable: "sh",
+		Args:       []string{"-c", `while [ ! -e "$1" ]; do sleep 0.05; done`, "probe", release},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		select {
+		case <-res.Done:
+			return
+		default:
+		}
+		if proc, err := os.FindProcess(res.PID); err == nil {
+			_ = proc.Kill()
+		}
+	})
+
+	calls, runDrainingAtStop := 0, false
+	cfg := &config.Config{}
+	cfg.SignalHandling.DrainTimeout = 10 * time.Second
+	srv := &Server{config: cfg, onStopped: func() {
+		calls++
+		select {
+		case <-res.Done:
+		default:
+			runDrainingAtStop = true
+		}
+		require.NoError(t, os.WriteFile(release, nil, 0o600))
+	}}
+	cancel(shutdownSignalCause{signal: syscall.SIGTERM})
+	require.NoError(t, srv.setupGracefulShutdown(ctx, nil))
+
+	assert.Equal(t, 1, calls)
+	assert.True(t, runDrainingAtStop, "stopped is reported while the run still drains")
 }
 
 func TestShutdownWithoutSignalKeepsRuns(t *testing.T) {

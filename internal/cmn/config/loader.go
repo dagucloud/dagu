@@ -2013,6 +2013,14 @@ func (l *ConfigLoader) loadLicenseConfig(cfg *Config, def Definition) {
 	cfg.License.ServerName = def.License.ServerName
 }
 
+// defaultAuditDrainTimeout fits the audit drain in Kubernetes' default
+// 30-second termination grace period, with room for the rest of the stop.
+const defaultAuditDrainTimeout = 25 * time.Second
+
+// minAuditDrainTimeout leaves the audit drain time to send a batch before the
+// last seconds it keeps for a stopped gap.
+const minAuditDrainTimeout = 5 * time.Second
+
 func (l *ConfigLoader) loadCloudConfig(cfg *Config, def Definition) {
 	if def.Cloud != nil {
 		cfg.Cloud.Report = ReportLevel(strings.ToLower(strings.TrimSpace(def.Cloud.Report)))
@@ -2024,6 +2032,16 @@ func (l *ConfigLoader) loadCloudConfig(cfg *Config, def Definition) {
 		approvals := l.v.GetBool("cloud.remote_approvals")
 		cfg.Cloud.RemoteApprovals = &approvals
 	}
+	cfg.Cloud.AuditDrainTimeout = defaultAuditDrainTimeout
+	if def.Cloud == nil || def.Cloud.AuditDrainTimeout == "" {
+		return
+	}
+	timeout, err := time.ParseDuration(strings.TrimSpace(def.Cloud.AuditDrainTimeout))
+	if err != nil || timeout < 0 || timeout > 0 && timeout < minAuditDrainTimeout {
+		l.warnings = append(l.warnings, fmt.Sprintf("Invalid cloud.audit_drain_timeout value: %s (must be 0 or at least %s)", def.Cloud.AuditDrainTimeout, minAuditDrainTimeout))
+		return
+	}
+	cfg.Cloud.AuditDrainTimeout = timeout
 }
 
 func (l *ConfigLoader) loadExecutionModeConfig(cfg *Config, _ Definition) {
@@ -2670,6 +2688,7 @@ var envBindings = []envBinding{
 	// Dagu Console
 	{key: "cloud.report", env: "CLOUD_REPORT"},
 	{key: "cloud.audit", env: "CLOUD_AUDIT"},
+	{key: "cloud.audit_drain_timeout", env: "CLOUD_AUDIT_DRAIN_TIMEOUT"},
 	{key: "cloud.remote_access", env: "CLOUD_REMOTE_ACCESS"},
 	{key: "cloud.remote_approvals", env: "CLOUD_REMOTE_APPROVALS"},
 	{key: "cloud.run_key", env: "CLOUD_RUN_KEY", secret: true},
