@@ -127,7 +127,7 @@ func (w *file) cellValue(sheet string, col, row int, raw string, opts ReadOption
 		if formula == "" {
 			return nil, nil
 		}
-		calculated := w.uncachedFormulaValue(sheet, cell, formula, warn)
+		calculated := w.uncachedFormulaValue(sheet, cell, formula, opts.uncached, warn)
 		if calculated == "" {
 			return nil, nil
 		}
@@ -182,18 +182,71 @@ func (w *file) cellValue(sheet string, col, row int, raw string, opts ReadOption
 
 // uncachedFormulaValue resolves a missing cache for both data and headers. Keep
 // the raw result here: header names do not apply a cell's numeric/date style.
-func (w *file) uncachedFormulaValue(sheet, cell, formula string, warn func(string)) string {
+func (w *file) uncachedFormulaValue(sheet, cell, formula string, u *uncachedWarnings, warn func(string)) string {
 	calculated, err := w.f.CalcCellValue(sheet, cell, rawValues)
 	if err != nil {
-		warn(fmt.Sprintf("%s!%s: formula %s could not be evaluated: %v", sheet, cell, formula, err))
+		u.fail(fmt.Sprintf("%s!%s: formula %s could not be evaluated: %v", sheet, cell, formula, err), warn)
 		return ""
 	}
-	warn(fmt.Sprintf("%s!%s: formula had no cached value; evaluated", sheet, cell))
+	u.evaluate(sheet+"!"+cell, warn)
 	if excelErrors[calculated] {
-		warn(fmt.Sprintf("%s!%s: formula evaluated to %s", sheet, cell, calculated))
+		u.fail(fmt.Sprintf("%s!%s: formula evaluated to %s", sheet, cell, calculated), warn)
 		return ""
 	}
 	return calculated
+}
+
+// uncachedWarnings bounds what one read says about the formulas it
+// evaluated for want of a cached value, which would otherwise be a warning
+// per formula cell. A nil collector passes each warning on as it comes.
+type uncachedWarnings struct {
+	cells    []string
+	count    int
+	failures []string
+	failed   int
+}
+
+func (u *uncachedWarnings) evaluate(cell string, warn func(string)) {
+	if u == nil {
+		warn(cell + ": formula had no cached value; evaluated")
+		return
+	}
+	u.count++
+	if len(u.cells) < maxStaleCells {
+		u.cells = append(u.cells, cell)
+	}
+}
+
+func (u *uncachedWarnings) fail(msg string, warn func(string)) {
+	if u == nil {
+		warn(msg)
+		return
+	}
+	u.failed++
+	if len(u.failures) < maxStaleCells {
+		u.failures = append(u.failures, msg)
+	}
+}
+
+// report adds one warning naming the first evaluated cells, then the first
+// failures and a count of the rest.
+func (u *uncachedWarnings) report(warn func(string)) {
+	if u == nil {
+		return
+	}
+	if u.count > 0 {
+		names := strings.Join(u.cells, ", ")
+		if more := u.count - len(u.cells); more > 0 {
+			names += fmt.Sprintf(" and %d more cells", more)
+		}
+		warn(names + ": formula had no cached value; evaluated")
+	}
+	for _, msg := range u.failures {
+		warn(msg)
+	}
+	if more := u.failed - len(u.failures); more > 0 {
+		warn(fmt.Sprintf("%d more formulas could not be evaluated", more))
+	}
 }
 
 // calculatedNumber reports whether a CalcCellValue result came from a number.

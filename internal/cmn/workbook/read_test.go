@@ -129,6 +129,24 @@ func TestReadRawCellKinds(t *testing.T) {
 	assert.Equal(t, "=1+2", text.Rows[0]["nocache"])
 }
 
+// A sheet saved without formula caches yields bounded warnings, not one per
+// formula cell, so a large sheet stays within the step's output limit.
+func TestReadBoundsUncachedWarnings(t *testing.T) {
+	t.Parallel()
+	rows := `<row r="1">` + inline("A1", "row") + inline("B1", "bad") + `</row>`
+	for r := 2; r <= 8; r++ {
+		rows += fmt.Sprintf(`<row r="%d"><c r="A%d"><f>ROW()</f></c><c r="B%d"><f>UNSUPPORTED()</f></c></row>`, r, r, r)
+	}
+	result, err := Read(context.Background(), rawBook(t, `<sheetData>`+rows+`</sheetData>`), ReadOptions{})
+	require.NoError(t, err)
+	require.Len(t, result.Rows, 7)
+	assert.Equal(t, int64(8), result.Rows[6]["row"])
+	require.Len(t, result.Warnings, 7, "%q", result.Warnings)
+	assert.Equal(t, "Raw!A2, Raw!A3, Raw!A4, Raw!A5, Raw!A6 and 2 more cells: formula had no cached value; evaluated", result.Warnings[0])
+	assert.Contains(t, result.Warnings[1], "Raw!B2: formula UNSUPPORTED() could not be evaluated")
+	assert.Equal(t, "2 more formulas could not be evaluated", result.Warnings[6])
+}
+
 func TestRead1904DateSystem(t *testing.T) {
 	t.Parallel()
 	f := excelize.NewFile()

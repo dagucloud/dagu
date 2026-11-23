@@ -157,10 +157,12 @@ and standard encryption can be opened; any other mechanism fails with
 | Error such as `#N/A` | Null, with the warning `Sheet!B3: error cell #N/A`. |
 | Empty | Null. Trailing rows whose cells are all null are dropped unless `keep_empty_rows: true`. |
 
-A formula without a cached value is evaluated with the warning
-`Sheet!B2: formula had no cached value; evaluated`; one that cannot be
-evaluated is null with `Sheet!B3: formula NA() could not be evaluated:
-#N/A`. A cached read also evaluates the formulas of the cells it returns,
+A formula without a cached value is evaluated with one warning naming the
+first five such cells, `Sheet!B2, Sheet!B3: formula had no cached value;
+evaluated`, or `Sheet!B2, ..., Sheet!B6 and 7 more cells: ...` past five.
+One that cannot be evaluated is null with `Sheet!B3: formula NA() could not
+be evaluated: #N/A`. Past five such formulas, the rest are counted in one
+warning, `7 more formulas could not be evaluated`. A cached read also evaluates the formulas of the cells it returns,
 the read columns of the rows read, and when a value disagrees with its
 cache the cached value is still read, with one warning naming the first
 five such cells, `Sheet!D2, Sheet!D3, Sheet!D4: cached formula value is

@@ -275,7 +275,7 @@ func (w *file) headerNames(reg region, layout headerLayout, grid [][]string, mer
 				if raw == "" {
 					cell := cellName(oc, or)
 					if formula, _ := w.f.GetCellFormula(reg.Sheet, cell); formula != "" {
-						raw = w.uncachedFormulaValue(reg.Sheet, cell, formula, warn)
+						raw = w.uncachedFormulaValue(reg.Sheet, cell, formula, nil, warn)
 					}
 				}
 				text := cleanHeader(raw)
