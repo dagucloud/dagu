@@ -38,6 +38,14 @@ const (
 	// reads, so a backlog of large entries is sent in parts.
 	auditBatchBytes   = 4 << 20
 	auditStateVersion = 1
+	// auditDrainSend and auditDrainEnd bound a drain, from the stop signal:
+	// batches go until the first, and a stopped gap for what is left until
+	// the second, so a process fits a 30-second termination grace period.
+	auditDrainSend = 22 * time.Second
+	auditDrainEnd  = 25 * time.Second
+	// auditGapStopped is the reason of the gap for entries a stopping server
+	// could not send.
+	auditGapStopped = "stopped"
 )
 
 const (
@@ -49,6 +57,7 @@ const (
 	warnAuditLease     = "Failed to take the lease to send audit entries to Dagu Console"
 	warnAuditLeaseLost = "Lost the lease to send audit entries to Dagu Console"
 	warnAuditHeld      = "Holding audit entries for Dagu Console"
+	warnAuditStopped   = "Failed to tell Dagu Console which audit entries this stopping server did not send"
 )
 
 // auditGapNamespace scopes the IDs derived for gaps.
@@ -83,19 +92,19 @@ type AuditOptions struct {
 }
 
 // StartAudit sends the audit entries the feed holds to Dagu Console while the
-// server is connected with a license that includes audit logs, and returns a
-// function that stops it.
-func StartAudit(ctx context.Context, opts AuditOptions) (stop func()) {
+// server is connected with a license that includes audit logs, until Drain or
+// Stop; ctx only carries values.
+func StartAudit(ctx context.Context, opts AuditOptions) *AuditShipper {
 	s := newAuditShipper(opts.Feed, opts.State, opts.Lease, opts.Level, newAuditSender(opts.Secrets).send)
 	s.credentials, s.licensed = opts.Credentials, opts.Licensed
 	s.start(ctx)
-	return s.stop
+	return s
 }
 
-// auditShipper sends the audit entries a store holds, from the position its
+// AuditShipper sends the audit entries a store holds, from the position its
 // state saves, in batches. The process holding the lease sends; others stand
 // by.
-type auditShipper struct {
+type AuditShipper struct {
 	feed        AuditFeed
 	state       StateStore
 	lease       Lease
@@ -108,8 +117,12 @@ type auditShipper struct {
 	after func(time.Duration) <-chan time.Time
 	now   func() time.Time
 
-	cancel context.CancelFunc
-	done   chan struct{}
+	// base carries ctx's values without its cancellation; the loop ends only
+	// on cancel, which Stop calls, or after a drain.
+	base    context.Context
+	cancel  context.CancelFunc
+	done    chan struct{}
+	drainAt chan time.Time
 
 	// The fields below are owned by the loop.
 	held        bool
@@ -128,6 +141,9 @@ type auditShipper struct {
 	heldUntil time.Time
 	refusedBy *auditCredentials
 	backoff   time.Duration
+	// consoleHeld reports that Console asked for heldUntil, rather than a
+	// backoff after a failure.
+	consoleHeld bool
 	// waiting reports that the server lacks the connection or license to
 	// send, as last logged.
 	waiting bool
@@ -167,6 +183,19 @@ type auditBatch struct {
 	Gap     *auditGap
 }
 
+// auditOutcome is how a pass ended.
+type auditOutcome int
+
+const (
+	// auditBlocked: nothing could go: not connected, refused, held, failed,
+	// standing by, or out of time.
+	auditBlocked auditOutcome = iota
+	// auditSent: batches went, and entries may have come since.
+	auditSent
+	// auditIdle: everything on disk is stored.
+	auditIdle
+)
+
 // auditPass is a batch and the state to save once Console stores it.
 type auditPass struct {
 	batch auditBatch
@@ -182,8 +211,8 @@ func newAuditShipper(
 	lease Lease,
 	level config.AuditLevel,
 	send func(context.Context, license.CloudCredentials, auditBatch) error,
-) *auditShipper {
-	return &auditShipper{
+) *AuditShipper {
+	return &AuditShipper{
 		feed:  feed,
 		state: state,
 		lease: lease,
@@ -194,55 +223,151 @@ func newAuditShipper(
 	}
 }
 
-func (s *auditShipper) start(ctx context.Context) {
-	ctx, s.cancel = context.WithCancel(ctx)
-	s.done = make(chan struct{})
-	go s.run(ctx)
+func (s *AuditShipper) start(ctx context.Context) {
+	s.base = context.WithoutCancel(ctx)
+	var loop context.Context
+	loop, s.cancel = context.WithCancel(s.base)
+	s.done, s.drainAt = make(chan struct{}), make(chan time.Time, 1)
+	go s.run(loop)
 }
 
-// stop ends shipping, waits for a batch in flight, and releases the lease.
-func (s *auditShipper) stop() {
+// Stop ends shipping at once, and releases the lease.
+func (s *AuditShipper) Stop() {
 	s.cancel()
 	<-s.done
 }
 
-func (s *auditShipper) run(ctx context.Context) {
+// Drain sends what is left for a process that got its stop signal at
+// signaled: batches until auditDrainSend after it, then a stopped gap for
+// what still is, by auditDrainEnd. The entries stay on disk for the next
+// start. It returns once done, and is called at most once, instead of Stop.
+func (s *AuditShipper) Drain(signaled time.Time) {
+	s.drainAt <- signaled
+	// A batch in flight when the drain is asked for ends with its send time.
+	deadline := time.AfterFunc(time.Until(signaled.Add(auditDrainSend)), s.cancel)
+	<-s.done
+	deadline.Stop()
+	s.cancel()
+}
+
+func (s *AuditShipper) run(ctx context.Context) {
 	defer close(s.done)
 	defer s.release()
 	for {
 		s.ship(ctx)
 		select {
 		case <-ctx.Done():
+			// The drain's deadline also cancels ctx; the drain goes first.
+			select {
+			case signaled := <-s.drainAt:
+				s.drain(signaled)
+			default:
+			}
+			return
+		case signaled := <-s.drainAt:
+			s.drain(signaled)
 			return
 		case <-s.after(auditCheckInterval):
 		}
 	}
 }
 
-// ship sends batches while a full one, or a gap left over, calls for another.
-// Every audit file is checked on the first pass and once a minute after it;
-// today's file on the others. A check of every file stays due until all it
-// found is stored. A batch Console did not store goes again first, as built,
-// so a failing Console costs no reads.
-func (s *auditShipper) ship(ctx context.Context) {
+// drain sends batches back to back until everything is stored or nothing can
+// go, starting with a check of every file, and then reports what is left as
+// a stopped gap.
+func (s *AuditShipper) drain(signaled time.Time) {
+	logger.Info(s.base, "Sending the audit entries left to Dagu Console before stopping")
+	sendCtx, cancel := context.WithDeadline(s.base, signaled.Add(auditDrainSend))
+	defer cancel()
+	s.scannedAt = time.Time{}
+	if !s.consoleHeld {
+		// Draining is the last chance; a backoff after a failure gives way.
+		s.heldUntil = time.Time{}
+	}
+	outcome := auditBlocked
+	for sendCtx.Err() == nil {
+		if outcome = s.ship(sendCtx); outcome != auditSent {
+			break
+		}
+	}
+	if outcome == auditIdle {
+		return
+	}
+	gapCtx, cancelGap := context.WithDeadline(s.base, signaled.Add(auditDrainEnd))
+	defer cancelGap()
+	s.reportStopped(gapCtx)
+}
+
+// reportStopped tells Console, best effort, that entries from the first one
+// not stored until now may not arrive. It is not saved: if the disk survives,
+// the entries go after the next start. It sends nothing while another process
+// holds the lease, or while Console refuses this server or asked it to wait.
+func (s *AuditShipper) reportStopped(ctx context.Context) {
+	creds, ok := s.connected(ctx)
+	if !ok || !s.held || s.consoleHeld && s.now().Before(s.heldUntil) {
+		return
+	}
+	from, ok := s.firstUnsent(ctx)
+	if !ok {
+		return
+	}
+	gap := newAuditGap(auditGapStopped, from, s.now())
+	if err := s.send(ctx, creds, auditBatch{Gap: &gap}); err != nil {
+		s.warn(ctx, warnAuditStopped, err)
+	}
+}
+
+// firstUnsent returns when the first entry the level sends and Console has
+// not stored was written.
+func (s *AuditShipper) firstUnsent(ctx context.Context) (time.Time, bool) {
+	if s.pending != nil && len(s.pending.batch.Entries) > 0 {
+		return s.pending.batch.Entries[0].Timestamp, true
+	}
+	if !s.loaded {
+		return time.Time{}, false
+	}
+	position := s.saved.Position
+	for ctx.Err() == nil {
+		chunk, err := s.feed.Read(ctx, audit.FeedQuery{Position: position, Now: s.now(), Full: true, Keep: s.sends, Limit: 1})
+		if err != nil {
+			return time.Time{}, false
+		}
+		if len(chunk.Entries) > 0 {
+			return chunk.Entries[0].Timestamp, true
+		}
+		if !chunk.More {
+			break
+		}
+		position = chunk.Position
+	}
+	return time.Time{}, false
+}
+
+// ship sends batches while a full one, or a gap left over, calls for another,
+// and returns how it ended. Every audit file is checked on the first pass and
+// once a minute after it; today's file on the others. A check of every file
+// stays due until all it found is stored. A batch Console did not store goes
+// again first, as built, so a failing Console costs no reads.
+func (s *AuditShipper) ship(ctx context.Context) auditOutcome {
 	creds, ok := s.connected(ctx)
 	if !ok {
 		// No file I/O, and the lease goes to a process that can send.
 		s.release()
-		return
+		return auditBlocked
 	}
 	if !s.hold(ctx) || s.now().Before(s.heldUntil) || !s.load(ctx) {
-		return
+		return auditBlocked
 	}
 	startedAt := s.now()
 	full := s.scannedAt.IsZero() || startedAt.Sub(s.scannedAt) >= auditScanInterval
+	outcome := auditSent
 	for first := true; ; first = false {
 		// Each batch goes only while the server may still send, with the
 		// credentials it has then.
 		if !first {
 			if creds, ok = s.connected(ctx); !ok {
 				s.release()
-				return
+				return auditBlocked
 			}
 		}
 		pass, resend := s.pending, s.pending != nil
@@ -250,11 +375,11 @@ func (s *auditShipper) ship(ctx context.Context) {
 			built, err := s.build(ctx, full)
 			if ctx.Err() != nil {
 				// Stopping: what was read but not sent is read again later.
-				return
+				return auditBlocked
 			}
 			if err != nil {
 				s.warn(ctx, warnAuditRead, err)
-				return
+				return auditBlocked
 			}
 			s.recovered(warnAuditRead)
 			pass = &built
@@ -262,19 +387,20 @@ func (s *auditShipper) ship(ctx context.Context) {
 		if len(pass.batch.Entries) == 0 && pass.batch.Gap == nil {
 			// Entries the level skips still move the position.
 			if !bytes.Equal(pass.next.Position, s.saved.Position) && !s.save(ctx, pass.next) {
-				return
+				return auditBlocked
 			}
+			outcome = auditIdle
 			break
 		}
 		if err := s.send(ctx, creds, pass.batch); err != nil {
 			s.pending = pass
 			s.refused(ctx, creds, err)
-			return
+			return auditBlocked
 		}
-		s.pending, s.backoff = nil, 0
+		s.pending, s.backoff, s.consoleHeld = nil, 0, false
 		s.recovered(warnAuditSend, warnAuditHeld)
 		if !s.save(ctx, pass.next) {
-			return
+			return auditBlocked
 		}
 		// After a batch sent again, this pass still reads what came since.
 		if !pass.more && !resend {
@@ -284,12 +410,13 @@ func (s *auditShipper) ship(ctx context.Context) {
 	if full {
 		s.scannedAt = startedAt
 	}
+	return outcome
 }
 
 // connected returns the credentials to send with while the server is
 // connected to Dagu Console with a license that includes audit logs, and
 // Console has not refused that license.
-func (s *auditShipper) connected(ctx context.Context) (license.CloudCredentials, bool) {
+func (s *AuditShipper) connected(ctx context.Context) (license.CloudCredentials, bool) {
 	creds, ok := s.credentials()
 	ok = ok && s.licensed()
 	if ok && s.refusedBy != nil {
@@ -311,7 +438,7 @@ func (s *auditShipper) connected(ctx context.Context) (license.CloudCredentials,
 // refused holds sending after a failed batch: as long as Console asked, until
 // the license changes, or, after any other failure, for a backoff that grows
 // from a minute to five.
-func (s *auditShipper) refused(ctx context.Context, creds license.CloudCredentials, err error) {
+func (s *AuditShipper) refused(ctx context.Context, creds license.CloudCredentials, err error) {
 	var refusal *auditRefusal
 	switch {
 	case errors.As(err, &refusal) && refusal.until:
@@ -319,17 +446,17 @@ func (s *auditShipper) refused(ctx context.Context, creds license.CloudCredentia
 		s.refusedBy = &by
 		s.warn(ctx, warnAuditHeld, err)
 	case errors.As(err, &refusal):
-		s.heldUntil = s.now().Add(refusal.wait)
+		s.heldUntil, s.consoleHeld = s.now().Add(refusal.wait), true
 		s.warn(ctx, warnAuditHeld, err)
 	default:
 		s.backoff = min(max(2*s.backoff, initialBackoff), maxBackoff)
-		s.heldUntil = s.now().Add(s.backoff)
+		s.heldUntil, s.consoleHeld = s.now().Add(s.backoff), false
 		s.warn(ctx, warnAuditSend, err)
 	}
 }
 
 // build reads the next batch after the saved position.
-func (s *auditShipper) build(ctx context.Context, full bool) (auditPass, error) {
+func (s *AuditShipper) build(ctx context.Context, full bool) (auditPass, error) {
 	next := auditState{Version: auditStateVersion, Position: s.saved.Position, Gaps: s.saved.Gaps}
 	var entries []*audit.Entry
 	var size int64
@@ -373,7 +500,7 @@ func (s *auditShipper) build(ctx context.Context, full bool) (auditPass, error) 
 
 // sends reports whether the level sends entry. Only masked entries go. Of an
 // MCP call only its result goes, and at changes a successful read does not.
-func (s *auditShipper) sends(entry *audit.Entry) bool {
+func (s *AuditShipper) sends(entry *audit.Entry) bool {
 	if !entry.Masked {
 		return false
 	}
@@ -429,7 +556,7 @@ func newAuditGap(reason string, from, to time.Time) auditGap {
 }
 
 // hold takes or keeps the lease, and renews it every auditHeartbeatInterval.
-func (s *auditShipper) hold(ctx context.Context) bool {
+func (s *AuditShipper) hold(ctx context.Context) bool {
 	if s.held {
 		if s.now().Sub(s.heartbeatAt) < auditHeartbeatInterval {
 			return true
@@ -468,7 +595,7 @@ func (s *auditShipper) hold(ctx context.Context) bool {
 // with one it cannot read, the shipper starts at the oldest entry on disk,
 // and saves that start before it reads, so files removed after it count as
 // lost even while the first batch is not stored.
-func (s *auditShipper) load(ctx context.Context) bool {
+func (s *AuditShipper) load(ctx context.Context) bool {
 	if s.loaded {
 		return true
 	}
@@ -505,7 +632,7 @@ func (s *auditShipper) load(ctx context.Context) bool {
 }
 
 // save stores state as the shipper's position, while it holds the lease.
-func (s *auditShipper) save(ctx context.Context, state auditState) bool {
+func (s *AuditShipper) save(ctx context.Context, state auditState) bool {
 	s.heartbeatAt = time.Time{}
 	if !s.hold(ctx) {
 		return false
@@ -524,20 +651,20 @@ func (s *auditShipper) save(ctx context.Context, state auditState) bool {
 }
 
 // release gives up the lease when the shipper stops.
-func (s *auditShipper) release() {
+func (s *AuditShipper) release() {
 	if s.held {
 		_ = s.lease.Unlock()
 	}
 	s.drop()
 }
 
-func (s *auditShipper) drop() {
+func (s *AuditShipper) drop() {
 	s.held, s.loaded = false, false
 	s.saved, s.pending, s.scannedAt = auditState{}, nil, time.Time{}
 }
 
 // warn logs a failure unless it repeats the previous one.
-func (s *auditShipper) warn(ctx context.Context, msg string, err error) {
+func (s *AuditShipper) warn(ctx context.Context, msg string, err error) {
 	if s.warning == msg {
 		return
 	}
@@ -546,7 +673,7 @@ func (s *auditShipper) warn(ctx context.Context, msg string, err error) {
 }
 
 // recovered lets the failures in msgs be logged again.
-func (s *auditShipper) recovered(msgs ...string) {
+func (s *AuditShipper) recovered(msgs ...string) {
 	if slices.Contains(msgs, s.warning) {
 		s.warning = ""
 	}

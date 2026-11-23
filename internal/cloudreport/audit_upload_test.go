@@ -70,6 +70,12 @@ type auditFakeConsole struct {
 	t      *testing.T
 	srv    *httptest.Server
 	answer func(auditReceived) (status int, retryAfter string)
+	// unreachable keeps every request open until the client gives up, or the
+	// test ends.
+	unreachable atomic.Bool
+	released    chan struct{}
+	// hanging counts the requests kept open.
+	hanging atomic.Int32
 
 	mu       sync.Mutex
 	received []auditReceived
@@ -78,13 +84,24 @@ type auditFakeConsole struct {
 
 func newAuditFakeConsole(t *testing.T) *auditFakeConsole {
 	t.Helper()
-	c := &auditFakeConsole{t: t, secret: "hb-secret"}
+	c := &auditFakeConsole{t: t, secret: "hb-secret", released: make(chan struct{})}
 	c.srv = httptest.NewServer(http.HandlerFunc(c.serve))
 	t.Cleanup(c.srv.Close)
+	t.Cleanup(func() { close(c.released) })
 	return c
 }
 
 func (c *auditFakeConsole) serve(w http.ResponseWriter, r *http.Request) {
+	if c.unreachable.Load() {
+		// The server sees the client hang up only once the body is read.
+		_, _ = io.Copy(io.Discard, r.Body)
+		c.hanging.Add(1)
+		select {
+		case <-r.Context().Done():
+		case <-c.released:
+		}
+		return
+	}
 	got := auditReceived{path: r.URL.Path, header: r.Header.Clone()}
 	zr, err := gzip.NewReader(r.Body)
 	if err != nil {
@@ -305,7 +322,7 @@ func TestAuditSenderHoldsWhileSecretsFailToLoad(t *testing.T) {
 }
 
 // startSendingShipper runs a shipper over d that sends to console over HTTP.
-func startSendingShipper(t *testing.T, d *auditDir, console *auditFakeConsole) (*auditShipper, *fakeClock) {
+func startSendingShipper(t *testing.T, d *auditDir, console *auditFakeConsole) (*AuditShipper, *fakeClock) {
 	t.Helper()
 	s := newAuditShipper(fileaudit.NewFeed(d.dir), d.state, filemonitor.NewLease(d.stateFile, nil),
 		config.AuditAll, newAuditSender(noSecrets{}).send)
@@ -313,7 +330,7 @@ func startSendingShipper(t *testing.T, d *auditDir, console *auditFakeConsole) (
 	clock := &fakeClock{t: t, waits: make(chan time.Duration, 16), fire: make(chan time.Time), at: testClockStart}
 	s.after, s.now = clock.after, clock.now
 	s.start(t.Context())
-	t.Cleanup(s.stop)
+	t.Cleanup(s.Stop)
 	require.Equal(t, auditCheckInterval, clock.wait())
 	return s, clock
 }
@@ -413,7 +430,7 @@ func TestAuditShipperChecksTheConnectionBeforeEachBatch(t *testing.T) {
 	clock := &fakeClock{t: t, waits: make(chan time.Duration, 16), fire: make(chan time.Time), at: testClockStart}
 	s.after, s.now = clock.after, clock.now
 	s.start(t.Context())
-	t.Cleanup(s.stop)
+	t.Cleanup(s.Stop)
 	clock.wait()
 
 	assert.Equal(t, int32(1), batches.Load())
@@ -443,7 +460,7 @@ func TestAuditShipperIdlesWithoutConsole(t *testing.T) {
 			clock := &fakeClock{t: t, waits: make(chan time.Duration, 16), fire: make(chan time.Time), at: testClockStart}
 			s.after, s.now = clock.after, clock.now
 			s.start(t.Context())
-			t.Cleanup(s.stop)
+			t.Cleanup(s.Stop)
 			clock.wait()
 			require.Len(t, console.sent(), 1)
 
