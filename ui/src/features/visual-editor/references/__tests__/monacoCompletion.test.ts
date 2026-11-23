@@ -152,6 +152,42 @@ describe('computeReferenceCompletions', () => {
     expect(result?.to).toBe(offset + 1);
   });
 
+  // The caret is in the name of a reference that already has its '}'.
+  it('replaces the whole reference that holds the caret', () => {
+    const text = 'steps:\n  - name: a\n    run: curl ${params.API_URL}/x\n';
+    const offset = at(text, '${params.API', 12);
+    const result = computeReferenceCompletions(text, offset, state, {
+      explicit: false,
+    });
+    expect(result?.from).toBe(at(text, '${params.API'));
+    expect(result?.to).toBe(at(text, '}/x', 1));
+  });
+
+  // A later '}' of the line is not the end of the reference when text that
+  // no reference holds, a space or a quote, comes before it.
+  it.each([
+    ['in a JSON body', `    body: '{"q": "\${par"}'`, '"}'],
+    ['in a flow map', '    env: {URL: "${pa" }', '" }'],
+    ['before more words', '    run: echo ${par and more}', ' and more}'],
+  ])('keeps the caret as the end %s', (_name, line, after) => {
+    const text = `steps:\n  - name: a\n${line}\n`;
+    const offset = at(text, after);
+    const result = computeReferenceCompletions(text, offset, state, {
+      explicit: false,
+    });
+    expect(result?.to).toBe(offset);
+  });
+
+  it('keeps the caret as the end of a reference with no brace', () => {
+    const text = 'steps:\n  - name: a\n    run: echo ${env.HOME} ${par\n';
+    const offset = at(text, '${par', 5);
+    const result = computeReferenceCompletions(text, offset, state, {
+      explicit: false,
+    });
+    expect(result?.from).toBe(at(text, '${par'));
+    expect(result?.to).toBe(offset);
+  });
+
   it('leaves a lone dollar alone unless the request is explicit', () => {
     const text = `${yamlHttpJq.slice(0, filterOffset)}$${yamlHttpJq.slice(filterOffset)}`;
     const offset = filterOffset + 1;

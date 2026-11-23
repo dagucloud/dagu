@@ -165,6 +165,7 @@ export type EditErrorCode =
   | 'invalidName'
   | 'cycle'
   | 'invalidYaml'
+  | 'handlerStep'
   | 'noop';
 export type EditResult =
   | { ok: true; text: string; edits: TextEdit[]; select?: StepKey }
