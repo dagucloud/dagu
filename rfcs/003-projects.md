@@ -353,12 +353,18 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
 ### Access
 
 - A grant is a user or group, a project, and a role below `admin`. A
-  server-wide role applies to every project.
+  server-wide role applies to every project, and a user or API key may have
+  none.
 - A user's role in a project is the higher of the server-wide role and the
   project grant.
 - A user with neither gets `404` for the project's DAGs, runs, logs, and wiki
   pages. The project does not appear in lists or search.
 - `admin` is server-wide only.
+- API keys stay server-wide, since a request names its key before its
+  project. Grants limit a key to projects, as they limit a user. A user
+  with the `manager` role in a project creates, edits, and deletes keys
+  whose grants all name projects where that user is `manager`. A key with
+  a server-wide role, or a grant on another project, needs an admin.
 - Projects separate people who work through the UI, API, MCP, and CLI. They
   do not separate people who can write DAG files. Whoever can change a
   project's DAG directory can run code with that project's secrets, and
@@ -602,7 +608,7 @@ or a copy of one, before the upgrade.
 | Global secrets, profile defaults, notification routes, and incident policies | The server layer, which every project inherits |
 | Per-DAG wiki directory `<wiki>/X/<dag>`, pages under `<wiki>/X/` | Project `X`'s wiki in `<projects_dir>/X/wiki/` |
 | User or API key with roles in `X` | Grants on project `X` |
-| User or API key with `workspace_access.all: false` | Also `viewer` on the default project, which keeps v2 read access to unlabelled DAGs |
+| User or API key with `workspace_access.all: false` | No server-wide role, and `viewer` on the default project, which keeps v2 read access to unlabelled DAGs |
 | `workspace_mappings`, `default_workspace_access` | Read as `project_mappings`, `default_project_access` until v3.1 |
 | `workspace` label on a moved DAG | Kept as an ordinary label |
 
@@ -797,6 +803,9 @@ Criteria 23 and 24 apply from the release that ships the feature.
 39. Each DAG file belongs to one project or the library: discovery skips a
     `dags_dir`, `projects_dir`, or `alt_dags_dir` nested in another, and
     never follows a symbolic link out of a project.
+40. A `manager` of project X creates an API key limited to X, and cannot
+    create one with a server-wide role or a grant on a project where the
+    user is not `manager`.
 
 ## Alternatives considered
 
