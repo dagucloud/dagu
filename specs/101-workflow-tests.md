@@ -647,7 +647,7 @@ Rules:
 | A step action that is not side-effect free, or a `foreach` body step | The mock `{}` on the step, or on its `foreach` step. On a step with known outputs, the mock sets `outputs` with each known output as `""`, or `null` for a `type: json` output |
 | An object-form `output` with `from: file`, or a continuous step, on a step with a side-effect-free action | The mock `exit_code: 0`, with `outputs` as above |
 | A step precondition | `precondition: met` in the step's mock |
-| A command-check repeat condition | `results` with one result whose `condition` stops the step: `not_met` for `while`, and `met` for `until` |
+| A command-check repeat condition | A `condition` that stops the step, `not_met` for `while` and `met` for `until`, in every result. Each result of the step's `results` that lacks it gains it. An inline mock becomes a one-item `results`, with its inline result fields moved into that result. A mock with no result field gains one result |
 | A wait that needs values | `review` with `decision: approve` and a value for each required name. See below |
 | A secret or an SSH credential ref | Its name under `secrets`, with the value `""` |
 | A DAG-level precondition | The case's `precondition: met` |
@@ -711,14 +711,16 @@ without pause until `--timeout`. Under test:
   replace makes the case invalid, because nothing bounds it.
 - A continuous step in `real` keeps its retry and repeat intervals, as every
   real step does (see [Time](#time)). Only its own repeat decision,
-  `timeout_sec`, or `--timeout` ends it.
+  `timeout_sec`, or `--timeout` ends it, also when it became continuous at
+  run time.
 - A `limit` that comes from a reference, such as `${params.n}`, is decided
   when it resolves during the run. At load, the step is not continuous. A
   positive number bounds the step as written. A value that leaves the step
   without a limit, such as `0`, makes it continuous: a replaced step's
-  results bound it as above, and a step with a side-effect-free action that
-  its mock does not replace fails the case at run time with that reason.
-  See [Timeout, Limits, and Interrupt](#timeout-limits-and-interrupt).
+  results bound it as above, a real step follows the rule above, and a step
+  that is not real, with a side-effect-free action that its mock does not
+  replace, fails the case at run time with that reason. See
+  [Timeout, Limits, and Interrupt](#timeout-limits-and-interrupt).
 
 ### Steps That Wait for a Person
 
@@ -1188,8 +1190,11 @@ Rules:
 
 - The schema describes every field of this spec, with its type and allowed
   values, and allows no other field.
-- A test file that the schema rejects is a test file that `dagu test`
-  reports invalid.
+- A test file that the schema rejects for a field this spec does not define,
+  or for a field of the wrong type, is a test file that `dagu test` reports
+  invalid. A value that makes only one case invalid, such as an unknown
+  status token, leaves the file valid and its other cases running, whether
+  or not the schema rejects it.
 - `dagu test` stays the authority. A test file that the schema accepts can
   still be invalid, such as one with a mock for a step the DAG lacks.
 
@@ -1247,8 +1252,9 @@ a step it adds in the same shape:
 - The outputs that the case asserts take their published values, and no
   output assertion is added. For a `type: json` output asserted with an
   object, each key it lists takes its published value, recursively, and no
-  key is added. An asserted output that the step did not publish keeps its
-  expected value.
+  key is added. An asserted output that the step did not publish, and a
+  listed key that the published object lacks, keep their expected values,
+  and the case reports them as failures.
 - `stdout` and `stderr` assertions, `contains` and `matches`, stay as
   written.
 - A case that is invalid, or that does not reach a terminal status, keeps its
@@ -1343,8 +1349,10 @@ status with the assertions like any other status.
   evaluated. Its text line reads `timeout: did not finish within <timeout>`,
   with the limit as a duration such as `5m0s`.
 - A repeat `limit` that resolves during the run to a value that leaves a
-  side-effect-free step without a limit, when its mock does not replace the
-  step's action, stops the run as `--timeout` does. The case fails with one
+  side-effect-free step without a limit, when the step is not real and its
+  mock does not replace its action, stops the run as `--timeout` does. A
+  real step that becomes continuous this way runs on, as
+  [Continuous Steps](#continuous-steps) defines. The case fails with one
   `limit` failure for that step, and its assertions are not evaluated. Its
   text line reads
   `step <step>: repeat limit <value> leaves the step continuous; mock it with results`,
