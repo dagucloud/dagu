@@ -44,6 +44,7 @@ func nodesEnv(t *testing.T) []string {
 	inventories, err := store.NewInventoryStore(
 		backend.Collection(persis.CollectionInventories),
 		backend.Lock(persis.CollectionInventories),
+		nil,
 	)
 	require.NoError(t, err)
 	_, err = inventories.Create(context.Background(), inventory.Inventory{Name: "fleet", Nodes: fleet})

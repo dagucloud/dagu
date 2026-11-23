@@ -4665,7 +4665,11 @@ export interface paths {
          */
         get: operations["listInventories"];
         put?: never;
-        post?: never;
+        /**
+         * Create an inventory
+         * @description Creates an inventory from its record. The inventory is checked against every rule and the stored inventories. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403.
+         */
+        post: operations["createInventory"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4684,9 +4688,41 @@ export interface paths {
          * @description Returns one inventory as stored, with the version a change to it names. Credentials appear as secret references and key paths, never as values.
          */
         get: operations["getInventory"];
-        put?: never;
+        /**
+         * Replace an inventory
+         * @description Replaces an inventory as a whole, given the version the change is based on. The ID stays. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403.
+         */
+        put: operations["replaceInventory"];
         post?: never;
-        delete?: never;
+        /**
+         * Delete an inventory
+         * @description Deletes an inventory and its nodes, given the version the change is based on. The host keys trusted for its nodes are forgotten. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403.
+         */
+        delete: operations["deleteInventory"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/inventories/{inventoryId}/nodes/{nodeName}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Add or change a node
+         * @description Adds a node to an inventory, or replaces the node of this name, given the version of the inventory the change is based on. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403.
+         */
+        put: operations["putInventoryNode"];
+        post?: never;
+        /**
+         * Remove a node
+         * @description Removes a node from an inventory, given the version of the inventory the change is based on. The host key trusted for the node is forgotten. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403.
+         */
+        delete: operations["deleteInventoryNode"];
         options?: never;
         head?: never;
         patch?: never;
@@ -9695,6 +9731,12 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        /** @description A change based on a version that is no longer current, with the inventory as it is now */
+        InventoryConflict: {
+            code: components["schemas"]["ErrorCode"];
+            message: string;
+            inventory: components["schemas"]["Inventory"];
+        };
         /** @description An inventory without its nodes, as a list shows it */
         InventorySummary: {
             id: string;
@@ -9816,7 +9858,7 @@ export interface components {
             field?: string;
             message: string;
         };
-        /** @description An import that was refused, with every rule it breaks */
+        /** @description An import or a change that was refused, with every rule it breaks */
         InventoryImportError: {
             code: components["schemas"]["ErrorCode"];
             message: string;
@@ -9916,6 +9958,8 @@ export interface components {
         ArtifactPath: string & unknown & unknown & unknown;
         /** @description Whether to recursively expand nested artifact directories */
         ArtifactRecursive: boolean;
+        /** @description Version of the inventory the change is based on, as the inventory last read reports it */
+        InventoryVersion: number;
         /** @description name of the remote node */
         RemoteNode: string;
         /** @description Filter entries after this time (ISO 8601 format) */
@@ -25207,6 +25251,77 @@ export interface operations {
             };
         };
     };
+    createInventory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description The inventory created, at version 1 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inventory"];
+                };
+            };
+            /** @description The inventory breaks a rule, and nothing was stored. A body that is not JSON gets an `Error` without `errors` */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryImportError"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The request exceeds the 32 MiB request-body limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     getInventory: {
         parameters: {
             query?: never;
@@ -25243,6 +25358,354 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    replaceInventory: {
+        parameters: {
+            query: {
+                /** @description Version of the inventory the change is based on, as the inventory last read reports it */
+                version: components["parameters"]["InventoryVersion"];
+            };
+            header?: never;
+            path: {
+                inventoryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description The inventory as stored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inventory"];
+                };
+            };
+            /** @description The inventory breaks a rule, and nothing was stored. A body that is not JSON gets an `Error` without `errors` */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryImportError"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No inventory has this ID */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The inventory changed since `version`; the response carries the current inventory */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryConflict"];
+                };
+            };
+            /** @description The request exceeds the 32 MiB request-body limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteInventory: {
+        parameters: {
+            query: {
+                /** @description Version of the inventory the change is based on, as the inventory last read reports it */
+                version: components["parameters"]["InventoryVersion"];
+            };
+            header?: never;
+            path: {
+                inventoryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The inventory was deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No inventory has this ID */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The inventory changed since `version`; the response carries the current inventory */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryConflict"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    putInventoryNode: {
+        parameters: {
+            query: {
+                /** @description Version of the inventory the change is based on, as the inventory last read reports it */
+                version: components["parameters"]["InventoryVersion"];
+            };
+            header?: never;
+            path: {
+                inventoryId: string;
+                /** @description Node name, compared without case */
+                nodeName: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    [key: string]: unknown;
+                };
+            };
+        };
+        responses: {
+            /** @description The node was replaced; the inventory as stored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inventory"];
+                };
+            };
+            /** @description The node was added; the inventory as stored */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inventory"];
+                };
+            };
+            /** @description The node breaks a rule, and nothing was stored. A body that is not JSON gets an `Error` without `errors` */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryImportError"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No inventory has this ID */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The inventory changed since `version`; the response carries the current inventory */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryConflict"];
+                };
+            };
+            /** @description The request exceeds the 32 MiB request-body limit */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    deleteInventoryNode: {
+        parameters: {
+            query: {
+                /** @description Version of the inventory the change is based on, as the inventory last read reports it */
+                version: components["parameters"]["InventoryVersion"];
+            };
+            header?: never;
+            path: {
+                inventoryId: string;
+                /** @description Node name, compared without case */
+                nodeName: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The node was removed; the inventory as stored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inventory"];
+                };
+            };
+            /** @description Another node names this one as its bastion, and nothing was stored */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryImportError"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No inventory has this ID, or it holds no node of this name */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The inventory changed since `version`; the response carries the current inventory */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryConflict"];
                 };
             };
             /** @description Generic error response */

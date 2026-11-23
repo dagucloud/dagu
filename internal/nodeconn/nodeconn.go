@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/sshconn"
@@ -168,23 +170,9 @@ func (s *Service) trust(ctx context.Context, nodes []inventory.ResolvedNode, nod
 		return "", replaceRefusal(node.Name, *previous, request)
 	}
 
-	bastion, err := bastionOf(nodes, node)
+	key, err := s.readHostKey(ctx, nodes, node, request.Fingerprint, secrets)
 	if err != nil {
 		return "", err
-	}
-	cfg, err := sshconn.NodeConfig(node, bastion, s.hostKeys)
-	if err != nil {
-		return "", err
-	}
-	var values map[string]string
-	if bastion != nil {
-		if values, err = secrets.resolve(ctx, sshconn.NodeSecretRefs(*bastion, nil)); err != nil {
-			return "", err
-		}
-	}
-	key, err := sshconn.FindHostKey(sshconn.WithSecretValues(ctx, values), cfg, request.Fingerprint)
-	if err != nil {
-		return "", fmt.Errorf("failed to read the host key of node %q: %w", node.Name, err)
 	}
 	if _, err := s.hostKeys.Trust(ctx, node.Name, key, by, *previous); err != nil {
 		return "", fmt.Errorf("failed to trust the host key of node %q: %w", node.Name, err)
@@ -193,6 +181,42 @@ func (s *Service) trust(ctx context.Context, nodes []inventory.ResolvedNode, nod
 		return TrustOutcomeReplaced, nil
 	}
 	return TrustOutcomeTrusted, nil
+}
+
+// ReadHostKey returns the host key with fingerprint that the node named name
+// presents, finding it and its bastion among nodes. The node receives no
+// credential; a bastion is reached with its host key checked. Nothing is
+// trusted.
+func (s *Service) ReadHostKey(ctx context.Context, nodes []inventory.ResolvedNode, name, fingerprint string) (ssh.PublicKey, error) {
+	node, ok := findNode(nodes, name)
+	if !ok {
+		return nil, fmt.Errorf("node %q is not in the project's inventories", name)
+	}
+	ctx, cancel := context.WithTimeout(ctx, nodeTimeout)
+	defer cancel()
+	return s.readHostKey(ctx, nodes, node, fingerprint, s.newSecretCache())
+}
+
+func (s *Service) readHostKey(ctx context.Context, nodes []inventory.ResolvedNode, node inventory.ResolvedNode, fingerprint string, secrets *secretCache) (ssh.PublicKey, error) {
+	bastion, err := bastionOf(nodes, node)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := sshconn.NodeConfig(node, bastion, s.hostKeys)
+	if err != nil {
+		return nil, err
+	}
+	var values map[string]string
+	if bastion != nil {
+		if values, err = secrets.resolve(ctx, sshconn.NodeSecretRefs(*bastion, nil)); err != nil {
+			return nil, err
+		}
+	}
+	key, err := sshconn.FindHostKey(sshconn.WithSecretValues(ctx, values), cfg, fingerprint)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the host key of node %q: %w", node.Name, err)
+	}
+	return key, nil
 }
 
 // replaceRefusal says why request replaces nothing on node, whose trusted key

@@ -22,7 +22,8 @@ var (
 // Store keeps a project's inventories. Every change is checked against all of
 // the project's inventories before it is stored, and concurrent changes are
 // applied one at a time. A read that spans inventories sees no change in
-// progress.
+// progress. A change forgets the host key trusted for each node name it adds
+// or removes, so a renamed node is trusted again under its new name.
 type Store interface {
 	// List returns the inventories in name order.
 	List(ctx context.Context) ([]Stored, error)

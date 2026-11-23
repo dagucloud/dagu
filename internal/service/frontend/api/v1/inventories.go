@@ -171,15 +171,9 @@ func (a *API) ImportInventories(ctx context.Context, request api.ImportInventori
 	if request.Body == nil {
 		return importRefused("Request body is required", nil), nil
 	}
-	// The inventory decoder refuses unknown fields and data after the array,
-	// so it reads the body as the caller sent it. An in-process caller passes
-	// only the decoded JSON, which holds every field it sent.
-	raw, ok := ctx.Value(inventoryImportBodyKey{}).([]byte)
-	if !ok {
-		var err error
-		if raw, err = json.Marshal(*request.Body); err != nil {
-			return nil, fmt.Errorf("failed to read the imported inventories: %w", err)
-		}
+	raw, err := rawInventoryBody(ctx, *request.Body)
+	if err != nil {
+		return nil, err
 	}
 	invs, err := inventory.DecodeList(raw)
 	if err != nil {
@@ -222,31 +216,46 @@ func (a *API) ImportInventories(ctx context.Context, request api.ImportInventori
 	}, nil
 }
 
-type inventoryImportBodyKey struct{}
+type inventoryBodyKey struct{}
 
-// maxInventoryImportBytes bounds the body of an import, which is read whole
-// before the caller's role is checked.
-const maxInventoryImportBytes int64 = 32 << 20
+// maxInventoryBodyBytes bounds the body of an inventory import or change,
+// which is read whole before the caller's role is checked.
+const maxInventoryBodyBytes int64 = 32 << 20
 
-// inventoryImportBodyMiddleware keeps the body of an inventory import as it
-// arrived. The generated handler decodes only the first JSON value and drops
-// unknown fields, and an import must refuse both.
-func inventoryImportBodyMiddleware(mountedAPIPath string) func(http.Handler) http.Handler {
-	importPath := strings.TrimSuffix(mountedAPIPath, "/") + "/inventory-imports"
+// rawInventoryBody returns the body of an inventory import or change as the
+// caller sent it, since the inventory decoder refuses unknown fields and data
+// after the value. An in-process caller passes only the decoded JSON, which
+// holds every field it sent.
+func rawInventoryBody(ctx context.Context, decoded any) ([]byte, error) {
+	if raw, ok := ctx.Value(inventoryBodyKey{}).([]byte); ok {
+		return raw, nil
+	}
+	raw, err := json.Marshal(decoded)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the request body: %w", err)
+	}
+	return raw, nil
+}
+
+// inventoryBodyMiddleware keeps the body of an inventory import or change as
+// it arrived. The generated handler decodes only the first JSON value and
+// drops unknown fields, and these requests must refuse both.
+func inventoryBodyMiddleware(mountedAPIPath string) func(http.Handler) http.Handler {
+	base := strings.TrimSuffix(mountedAPIPath, "/")
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost || r.URL.Path != importPath {
+			if !isInventoryBodyRequest(r, base) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			body := http.MaxBytesReader(w, r.Body, maxInventoryImportBytes)
+			body := http.MaxBytesReader(w, r.Body, maxInventoryBodyBytes)
 			raw, err := io.ReadAll(body)
 			_ = body.Close()
 			if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 				WriteErrorResponse(w, &Error{
 					HTTPStatus: http.StatusRequestEntityTooLarge,
 					Code:       api.ErrorCodePayloadTooLarge,
-					Message:    fmt.Sprintf("an inventory import is at most %d bytes", maxInventoryImportBytes),
+					Message:    fmt.Sprintf("an inventory request is at most %d bytes", maxInventoryBodyBytes),
 				})
 				return
 			}
@@ -254,12 +263,12 @@ func inventoryImportBodyMiddleware(mountedAPIPath string) func(http.Handler) htt
 				WriteErrorResponse(w, &Error{
 					HTTPStatus: http.StatusBadRequest,
 					Code:       api.ErrorCodeBadRequest,
-					Message:    "failed to read the imported inventories",
+					Message:    "failed to read the request body",
 				})
 				return
 			}
 			r.Body = io.NopCloser(bytes.NewReader(raw))
-			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), inventoryImportBodyKey{}, raw)))
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), inventoryBodyKey{}, raw)))
 		})
 	}
 }
