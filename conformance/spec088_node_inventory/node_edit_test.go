@@ -76,6 +76,29 @@ func TestAddAndRemoveNode(t *testing.T) {
 	assert.Contains(t, readded.Stdout(), "is unknown: "+fingerprint, "a removed node's key is forgotten")
 }
 
+// A key the user accepts is only staged: when the node then fails to
+// authenticate, nothing is added and nothing is trusted.
+func TestAddNodeAcceptedKeyFailsAuthentication(t *testing.T) {
+	t.Parallel()
+
+	keyPEM, _ := harness.NewSSHKey(t)
+	keyFile := filepath.Join(t.TempDir(), "id_ed25519")
+	require.NoError(t, os.WriteFile(keyFile, keyPEM, 0o600))
+	_, otherKey := harness.NewSSHKey(t)
+	server := harness.StartSSHServer(t, harness.SSHServerOptions{User: "tester", AuthorizedKeys: []ssh.PublicKey{otherKey}})
+	dagu := harness.NewRunner(t)
+	env := fleetHome(t, dagu)
+	web01 := []string{"web01", "--host", "127.0.0.1", "--port", server.Port, "--user", "tester", "--key", keyFile}
+
+	refused := add(dagu, env, "y\n", web01...)
+	refused.ExpectNonZeroExitCode()
+	refused.ExpectStderrContains(`node "web01" not added: its connection test failed`)
+	assert.Empty(t, listNodes(t, dagu, env))
+
+	again := add(dagu, env, "n\n", web01...)
+	assert.Contains(t, again.Stdout(), "is unknown: "+ssh.FingerprintSHA256(server.HostKey), "the accepted key was not trusted")
+}
+
 // A node whose connection test fails is not added, unless --no-test skips
 // the test.
 func TestAddNodeThatCannotConnect(t *testing.T) {

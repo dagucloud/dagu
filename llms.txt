@@ -2401,7 +2401,7 @@ dagu nodes export [--inventory <name|id>]
 
 - `list` — Nodes the selector matches, in name order, with each inventory's defaults applied; every node without `--labels`. The selector takes the terms of `dagu history --labels`. Disabled nodes are listed with status `disabled`
 - `show` — One node with its inventory, labels, and connection settings. The name is compared without case
-- `add` — Adds a node, or replaces the node of that name. It first tests the connection (host key, authentication, `true`); when the host key is unknown it shows the fingerprint and asks before trusting it, and a node whose test fails is not added unless `--no-test`. `--inventory` may be left out when there is one inventory
+- `add` — Adds a node, or replaces the node of that name. It first tests the connection (host key, authentication, `true`); when the host key is unknown it shows the fingerprint and asks, then tests again with that key accepted and saves the node and trusts the key only if that test passes. A node whose test fails is not added unless `--no-test`. `--inventory` may be left out when there is one inventory
 - `remove` — Removes a node. Removing, renaming, or adding a node forgets the host key trusted for that name, so the next host of that name is trusted again
 - `import` — Reads a JSON array of inventories. A new name is created; an existing name is refused unless `--replace`, which replaces it and keeps its ID. When any inventory breaks a rule, nothing is stored and every broken rule is listed. `--dry-run` only checks. A record that sets `id` is refused
 - `export` — Prints inventories as a JSON array without IDs, which `import` reads back unchanged

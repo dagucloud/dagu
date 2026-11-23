@@ -176,7 +176,8 @@ A node's trusted host key belongs to its name. A change that removes or
 renames a node forgets the key trusted for that name, and a node that is
 added starts with none, so a host never inherits the key a user trusted for
 another host. A node that keeps its name keeps its key. An import and
-`dagu nodes remove` follow the same rule.
+`dagu nodes remove` follow the same rule. The keys are forgotten before the
+change is stored, so a key that cannot be forgotten stops the change.
 
 **`dagu nodes add`** builds a node from its flags: `--host`, `--port`,
 `--user`, `--key` (a path) or `--key-secret`, `--password-secret`,
@@ -189,8 +190,9 @@ inventory. Before it saves, `add` tests the connection as
   <inventory>`, or `replaced` for a node of that name.
 - When a hop's host key is unknown, `add` prints `The host key of <hop>
   "<node>" is unknown: <fingerprint>` and asks before it trusts the key. On
-  yes it saves the node, trusts the key, tests again, and prints each step.
-  Any other answer, or none, saves nothing.
+  yes it tests again with that key accepted for that hop only, and saves the
+  node and trusts the key only when that test passes. Any other answer, or
+  none, saves nothing.
 - A node whose test fails otherwise is not saved, unless `--no-test` skips
   the test.
 

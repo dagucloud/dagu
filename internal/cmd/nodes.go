@@ -185,11 +185,11 @@ nothing is stored and every broken rule is listed. --dry-run only checks.`,
 		if err != nil {
 			return err
 		}
-		stores, err := ctx.nodeStores()
+		store, err := ctx.inventoryStore()
 		if err != nil {
 			return err
 		}
-		result, err := stores.editor().Import(ctx, invs, inventory.ImportOptions{Replace: replace, DryRun: dryRun})
+		result, err := store.Import(ctx, invs, inventory.ImportOptions{Replace: replace, DryRun: dryRun})
 		if errors.Is(err, inventory.ErrInvalid) {
 			return fmt.Errorf("nothing imported:\n%w", err)
 		}

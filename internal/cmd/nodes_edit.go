@@ -12,12 +12,12 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/nodeconn"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
-	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 )
 
@@ -77,37 +77,27 @@ func runNodesAdd(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	editor, inventories := stores.editor(), stores.inventories
-	target, err := addTarget(ctx, inventories)
+	target, err := addTarget(ctx, stores.inventories)
 	if err != nil {
 		return err
 	}
 	// Check the node against every rule before it is tested.
-	candidate, nodes, err := resolveWithNode(ctx, inventories, target, node)
+	nodes, err := resolveWithNode(ctx, stores.inventories, target, node)
 	if err != nil {
 		return err
 	}
 
 	out := ctx.Command.OutOrStdout()
-	service := nodeconn.New(stores.hostKeys, ctx.secretResolver())
-	var trust *nodeconn.TrustRequest
+	var accepted []acceptedKey
 	if noTest, _ := ctx.Command.Flags().GetBool("no-test"); !noTest {
-		result := testNode(ctx, service, nodes, candidate)
-		switch {
-		case result.Err == nil:
-		case result.Refused != nil && len(result.Refused.Expected) == 0 && result.Refused.Presented != "":
-			refused := result.Refused
-			_, _ = fmt.Fprintf(out, "The host key of %s %q is unknown: %s\n", refused.Hop, refused.Node, refused.Presented)
-			if !confirmAction("Trust this key and add the node?") {
-				return fmt.Errorf("node %q not added", node.Name)
-			}
-			trust = &nodeconn.TrustRequest{Node: refused.Node, Fingerprint: refused.Presented}
-		default:
-			return fmt.Errorf("node %q not added: its connection test failed: %w", node.Name, result.Err)
+		service := nodeconn.New(stores.hostKeys, ctx.secretResolver())
+		if accepted, err = testBeforeSave(ctx, service, nodes, node.Name); err != nil {
+			return fmt.Errorf("node %q not added: %w", node.Name, err)
 		}
+		_, _ = fmt.Fprintf(out, "connection test of %s passed\n", node.Name)
 	}
 
-	stored, added, err := editor.PutNode(ctx, target.ID, node, target.Version)
+	stored, added, err := inventory.PutNode(ctx, stores.inventories, target.ID, node, target.Version)
 	if errors.Is(err, inventory.ErrInvalid) {
 		return fmt.Errorf("node %q not added:\n%w", node.Name, err)
 	}
@@ -119,19 +109,58 @@ func runNodesAdd(ctx *Context, args []string) error {
 		verb = "replaced"
 	}
 	_, _ = fmt.Fprintf(out, "%s %s in %s\n", verb, node.Name, stored.Name)
-	if trust == nil {
-		return nil
-	}
 
-	if err := trustKey(ctx, service, nodes, *trust); err != nil {
-		return err
+	// The keys are trusted once the node is stored, since storing a node
+	// forgets any key trusted before for its name.
+	by, _ := localOSSubject(user.Current)
+	for _, key := range accepted {
+		trusted, err := stores.hostKeys.Trust(ctx, key.node, key.key, by, "")
+		if err != nil {
+			return fmt.Errorf("node %q was added, but the host key of %q was not trusted: %w", node.Name, key.node, err)
+		}
+		_, _ = fmt.Fprintf(out, "trusted host key %s of %s\n", trusted.Fingerprint, key.node)
 	}
-	_, _ = fmt.Fprintf(out, "trusted host key %s of %s\n", trust.Fingerprint, trust.Node)
-	if result := testNode(ctx, service, nodes, candidate); result.Err != nil {
-		return fmt.Errorf("node %q was added, but its connection test failed: %w", node.Name, result.Err)
-	}
-	_, _ = fmt.Fprintf(out, "connection test of %s passed\n", node.Name)
 	return nil
+}
+
+// acceptedKey is a host key the user accepted for a node during a test.
+type acceptedKey struct {
+	node string
+	key  ssh.PublicKey
+}
+
+// testBeforeSave tests the node named name among nodes until the test passes
+// or fails for good. When a hop presents an unknown key, it asks the user,
+// and on yes tests again with that key accepted for that hop in memory only,
+// so the node is authenticated and runs true before anything is stored. It
+// returns the keys the user accepted, to trust once the node is stored.
+func testBeforeSave(ctx *Context, service *nodeconn.Service, nodes []inventory.ResolvedNode, name string) ([]acceptedKey, error) {
+	out := ctx.Command.OutOrStdout()
+	staged := slices.Clone(nodes)
+	var accepted []acceptedKey
+	for {
+		var result nodeconn.TestResult
+		service.Test(ctx, staged, []inventory.ResolvedNode{staged[nodeIndex(staged, name)]}, func(r nodeconn.TestResult) { result = r })
+		if result.Err == nil {
+			return accepted, nil
+		}
+		refused := result.Refused
+		unknown := refused != nil && len(refused.Expected) == 0 && refused.Presented != ""
+		if !unknown || slices.ContainsFunc(accepted, func(k acceptedKey) bool { return strings.EqualFold(k.node, refused.Node) }) {
+			return nil, fmt.Errorf("its connection test failed: %w", result.Err)
+		}
+		_, _ = fmt.Fprintf(out, "The host key of %s %q is unknown: %s\n", refused.Hop, refused.Node, refused.Presented)
+		if !confirmAction("Trust this key and add the node?") {
+			return nil, errors.New("its host key was not trusted")
+		}
+		key, err := service.ReadHostKey(ctx, staged, refused.Node, refused.Presented)
+		if err != nil {
+			return nil, err
+		}
+		hop := nodeIndex(staged, refused.Node)
+		staged[hop].HostKey = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+		accepted = append(accepted, acceptedKey{node: staged[hop].Name, key: key})
+	}
 }
 
 func nodesRemoveCommand() *cobra.Command {
@@ -161,7 +190,7 @@ again.`,
 		if err != nil {
 			return err
 		}
-		if _, err := stores.editor().DeleteNode(ctx, holder.ID, nodes[i].Name, holder.Version); err != nil {
+		if _, err := inventory.DeleteNode(ctx, inventories, holder.ID, nodes[i].Name, holder.Version); err != nil {
 			return err
 		}
 		_, _ = fmt.Fprintf(ctx.Command.OutOrStdout(), "removed %s from %s\n", nodes[i].Name, holder.Name)
@@ -170,24 +199,19 @@ again.`,
 }
 
 // nodeStores holds the inventories and the host keys trusted for their
-// nodes.
+// nodes. A change to the inventories forgets the keys of the node names it
+// adds or removes.
 type nodeStores struct {
 	inventories inventory.Store
 	hostKeys    inventory.HostKeyStore
 }
 
-// editor changes the inventories, forgetting the trusted keys of the nodes
-// a change adds or removes.
-func (s nodeStores) editor() *inventory.Editor {
-	return inventory.NewEditor(s.inventories, s.hostKeys)
-}
-
 func (c *Context) nodeStores() (nodeStores, error) {
-	inventories, err := c.inventoryStore()
+	hostKeys, err := c.hostKeyStore()
 	if err != nil {
 		return nodeStores{}, err
 	}
-	hostKeys, err := store.NewHostKeyStore(c.backend.Collection(persis.CollectionHostKeys))
+	inventories, err := c.inventoryStore()
 	if err != nil {
 		return nodeStores{}, err
 	}
@@ -256,11 +280,14 @@ func addTarget(ctx *Context, inventories inventory.Store) (inventory.Stored, err
 }
 
 // resolveWithNode resolves the inventories as they would be with node in
-// target, and returns the node with its inventory's defaults applied.
-func resolveWithNode(ctx *Context, inventories inventory.Store, target inventory.Stored, node inventory.Node) (inventory.ResolvedNode, []inventory.ResolvedNode, error) {
+// target, with each inventory's defaults applied.
+func resolveWithNode(ctx *Context, inventories inventory.Store, target inventory.Stored, node inventory.Node) ([]inventory.ResolvedNode, error) {
 	all, err := inventories.List(ctx)
 	if err != nil {
-		return inventory.ResolvedNode{}, nil, err
+		return nil, err
+	}
+	if !slices.ContainsFunc(all, func(s inventory.Stored) bool { return s.ID == target.ID }) {
+		return nil, fmt.Errorf("inventory %q was deleted", target.Name)
 	}
 	invs := make([]inventory.Inventory, 0, len(all))
 	for _, stored := range all {
@@ -273,24 +300,13 @@ func resolveWithNode(ctx *Context, inventories inventory.Store, target inventory
 	}
 	nodes, err := inventory.Resolve(invs)
 	if err != nil {
-		return inventory.ResolvedNode{}, nil, fmt.Errorf("node %q not added:\n%w", node.Name, err)
+		return nil, fmt.Errorf("node %q not added:\n%w", node.Name, err)
 	}
-	i := slices.IndexFunc(nodes, func(n inventory.ResolvedNode) bool { return strings.EqualFold(n.Name, node.Name) })
-	return nodes[i], nodes, nil
+	return nodes, nil
 }
 
-func testNode(ctx *Context, service *nodeconn.Service, nodes []inventory.ResolvedNode, node inventory.ResolvedNode) nodeconn.TestResult {
-	var result nodeconn.TestResult
-	service.Test(ctx, nodes, []inventory.ResolvedNode{node}, func(r nodeconn.TestResult) { result = r })
-	return result
-}
-
-func trustKey(ctx *Context, service *nodeconn.Service, nodes []inventory.ResolvedNode, request nodeconn.TrustRequest) error {
-	by, _ := localOSSubject(user.Current)
-	var result nodeconn.TrustResult
-	service.Trust(ctx, nodes, []nodeconn.TrustRequest{request}, by, func(r nodeconn.TrustResult) { result = r })
-	if result.Err != nil {
-		return fmt.Errorf("failed to trust the host key of %q: %w", request.Node, result.Err)
-	}
-	return nil
+// nodeIndex returns the index of the node named name, compared without case,
+// or -1.
+func nodeIndex(nodes []inventory.ResolvedNode, name string) int {
+	return slices.IndexFunc(nodes, func(n inventory.ResolvedNode) bool { return strings.EqualFold(n.Name, name) })
 }
