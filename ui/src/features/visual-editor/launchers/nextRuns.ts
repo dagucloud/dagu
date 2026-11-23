@@ -3,11 +3,32 @@
 
 import { CronExpressionParser } from 'cron-parser';
 
+/** A leading `TZ=` or `CRON_TZ=` field, as the scheduler reads it. */
+export const CRON_ZONE_PREFIX = /^(?:CRON_)?TZ=(\S+)\s+/;
+
+/**
+ * The zone that a `TZ=` field names: `Local` is the zone of the scheduler.
+ * null for a name that the time zone database does not have, which the
+ * server refuses.
+ */
+function prefixZone(name: string, tz: string | undefined): string | null {
+  if (name === 'Local') return tz ?? '';
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: name });
+    return name;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The next fire times of a cron expression, or null when the parser does not
  * read it. The server decides what is valid: a null is no error, only no
- * preview. `tz` is the time zone of the scheduler (`config.tz`); without it
- * the expression reads in the time zone of the browser.
+ * preview.
+ *
+ * The scheduler evaluates an expression in its own zone (`tz`, the zone that
+ * the server reports) unless the expression starts with `TZ=` or `CRON_TZ=`,
+ * which wins. Without `tz` the zone of the browser applies.
  */
 export function nextRuns(
   expression: string,
@@ -15,10 +36,14 @@ export function nextRuns(
   from: Date = new Date(),
   tz?: string
 ): Date[] | null {
+  const prefixed = CRON_ZONE_PREFIX.exec(expression);
+  const body = prefixed ? expression.slice(prefixed[0].length) : expression;
+  const zone = prefixed ? prefixZone(prefixed[1]!, tz) : (tz ?? '');
+  if (zone === null) return null;
   try {
-    return CronExpressionParser.parse(expression, {
+    return CronExpressionParser.parse(body, {
       currentDate: from,
-      ...(tz ? { tz } : {}),
+      ...(zone ? { tz: zone } : {}),
     })
       .take(count)
       .map((date) => date.toDate());
