@@ -87,7 +87,7 @@ func (a *API) Setup(ctx context.Context, request api.SetupRequestObject) (api.Se
 	if !a.setupGuard.allows(request.Body.SetupToken, time.Now()) {
 		return api.Setup401JSONResponse{
 			Code:    api.ErrorCodeUnauthorized,
-			Message: "Setup needs the setup token. Open the setup URL that the server printed when it started.",
+			Message: "Setup needs the setup token. Open the setup URL the server prints at startup, or read the token from auth/setup-token in the server's data directory.",
 		}, nil
 	}
 

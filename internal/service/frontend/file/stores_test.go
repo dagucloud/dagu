@@ -106,6 +106,23 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 		assert.Equal(t, result.setupToken, again.setupToken)
 	})
 
+	// A server started once without an admin left a setup token, and the
+	// next start provisions the admin from initial_admin.
+	t.Run("RemovesTheSetupTokenOnceAnAdminExists", func(t *testing.T) {
+		t.Parallel()
+		tmpDir := t.TempDir()
+		withoutAdmin := storesTestConfig(tmpDir, config.InitialAdmin{})
+		first, err := newBuiltinAuth(t.Context(), withoutAdmin, persisfile.NewBackend(withoutAdmin.Paths))
+		require.NoError(t, err)
+		require.FileExists(t, first.setupTokenFile)
+
+		cfg := storesTestConfig(tmpDir, config.InitialAdmin{Username: "testadmin", Password: "securepass123"})
+		result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
+		require.NoError(t, err)
+		assert.False(t, result.setupRequired)
+		assert.NoFileExists(t, first.setupTokenFile)
+	})
+
 	t.Run("FailsOnInvalidPassword", func(t *testing.T) {
 		t.Parallel()
 		cfg := storesTestConfig(t.TempDir(), config.InitialAdmin{

@@ -174,7 +174,7 @@ export const messages = {
     'setup.failed': 'Setup failed',
     'setup.token': 'Setup token',
     'setup.tokenRequired':
-      'This server needs its setup token. Open the setup URL from the server log, or paste the token from that URL here.',
+      'This server needs its setup token. Open the setup URL from the server log, or paste the token from auth/setup-token in the server\'s data directory.',
   },
   'zh-CN': {
     'language.english': 'English',
@@ -342,7 +342,7 @@ export const messages = {
     'setup.failed': '初始化失败',
     'setup.token': '设置令牌',
     'setup.tokenRequired':
-      '此服务器需要设置令牌。请打开服务器日志中的设置 URL，或将该 URL 中的令牌粘贴到此处。',
+      '此服务器需要设置令牌。请打开服务器日志中的设置 URL，或粘贴服务器数据目录中 auth/setup-token 的令牌。',
   },
   ja: {
     'language.english': '英語',
@@ -516,7 +516,7 @@ export const messages = {
     'setup.failed': '初期設定に失敗しました',
     'setup.token': 'セットアップトークン',
     'setup.tokenRequired':
-      'このサーバーにはセットアップトークンが必要です。サーバーのログにあるセットアップ URL を開くか、その URL のトークンをここに貼り付けてください。',
+      'このサーバーにはセットアップトークンが必要です。サーバーのログにあるセットアップ URL を開くか、サーバーのデータディレクトリにある auth/setup-token のトークンを貼り付けてください。',
   },
 } as const;
 

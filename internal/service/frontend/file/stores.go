@@ -6,7 +6,9 @@ package file
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
@@ -407,19 +410,25 @@ func newBuiltinAuth(ctx context.Context, cfg *config.Config, backend persis.Back
 
 	logger.Info(ctx, "Builtin auth initialized", slog.Bool("setupRequired", setupRequired))
 	result := builtinAuth{service: authSvc, userStore: userStore, setupRequired: setupRequired}
-	if setupRequired {
-		// Servers that share the data directory share the token, so the setup
-		// URL one of them prints works on any of them.
-		result.setupTokenFile = filepath.Join(cfg.Paths.DataDir, "auth", "setup-token")
-		token, err := crypto.LoadOrCreateToken(result.setupTokenFile)
-		if err != nil {
-			// Setup then accepts no token, as it did before setup tokens, so a
-			// read-only data directory does not block the first admin.
-			logger.Warn(ctx, "First-run setup runs without a setup token", tag.Error(err))
-		} else {
-			result.setupToken = token
+	tokenFile := filepath.Join(cfg.Paths.DataDir, "auth", "setup-token")
+	if !setupRequired {
+		// An admin exists, so a token left by an earlier start is of no use.
+		if err := fileutil.Remove(tokenFile); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			logger.Warn(ctx, "Failed to remove the setup token file", tag.Error(err))
 		}
+		return result, nil
 	}
+	// Servers that share the data directory share the token, so the setup URL
+	// one of them prints works on any of them.
+	token, err := crypto.LoadOrCreateToken(tokenFile)
+	if err != nil {
+		// Setup then accepts no token, as it did before setup tokens, so a
+		// read-only data directory does not block the first admin.
+		logger.Warn(ctx, "First-run setup runs without a setup token", tag.Error(err))
+		return result, nil
+	}
+	result.setupToken, result.setupTokenFile = token, tokenFile
+	logger.Info(ctx, "First-run setup needs the setup token after ten minutes", slog.String("file", tokenFile))
 	return result, nil
 }
 

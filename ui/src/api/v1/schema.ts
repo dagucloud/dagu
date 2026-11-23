@@ -8659,7 +8659,7 @@ export interface components {
             username: string;
             /** @description Admin password */
             password: string;
-            /** @description One-time setup token in the setup URL the server prints when it starts without an admin. Setup needs it once the server has run for 10 minutes without an admin. */
+            /** @description One-time setup token, in the setup URL the server prints when it starts without an admin and in auth/setup-token in its data directory. Setup needs it once the server has run for 10 minutes without an admin. If the server cannot store the token, setup does not need one. */
             setupToken?: string;
         };
         /** @description Request body for user login */
@@ -10010,7 +10010,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description Setup token missing or invalid. The server prints the setup URL with the token when it starts without an admin. */
+            /** @description Setup token missing or invalid. The server prints the setup URL with the token when it starts without an admin, and keeps the token in auth/setup-token in its data directory. */
             401: {
                 headers: {
                     [name: string]: unknown;
