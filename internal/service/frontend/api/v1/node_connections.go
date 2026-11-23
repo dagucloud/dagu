@@ -53,6 +53,12 @@ func (a *API) TestInventoryNodeConnections(ctx context.Context, request api.Test
 	if request.Body == nil {
 		return nodeTestRefused("the request names no nodes to test"), nil
 	}
+	if request.Body.Node != nil {
+		return a.testUnsavedNode(ctx, service, request.Body)
+	}
+	if len(valueOf(request.Body.Accept)) > 0 {
+		return nodeTestRefused("accept is allowed only with a node that is not stored"), nil
+	}
 	names := valueOf(request.Body.Nodes)
 	selector := strings.TrimSpace(valueOf(request.Body.Labels))
 	if (len(names) == 0) == (selector == "") {
@@ -95,9 +101,84 @@ func (a *API) TestInventoryNodeConnections(ctx context.Context, request api.Test
 	}
 	a.logAudit(ctx, audit.CategorySystem, "node_connection_test", details)
 
+	return testStream(ctx, func(ctx context.Context, emit func(nodeconn.TestResult)) {
+		service.Test(ctx, nodes, targets, emit)
+	}), nil
+}
+
+// testUnsavedNode tests a node that is not stored yet, as it would be in the
+// inventory the request names, with the host keys the user accepted pinned
+// in memory. Nothing is stored or trusted. The record decides which host
+// receives the inventory's credentials, so this takes the role that may
+// store it.
+func (a *API) testUnsavedNode(ctx context.Context, service *nodeconn.Service, body *api.InventoryNodeConnectionTestRequest) (api.TestInventoryNodeConnectionsResponseObject, error) {
+	if err := a.requireDeveloperOrAbove(ctx); err != nil {
+		return nil, err
+	}
+	if len(valueOf(body.Nodes)) > 0 || strings.TrimSpace(valueOf(body.Labels)) != "" {
+		return nodeTestRefused("the request must give only one of nodes, labels, and node"), nil
+	}
+	ref := strings.TrimSpace(valueOf(body.Inventory))
+	if ref == "" {
+		return nodeTestRefused("a node that is not stored needs the inventory it would join"), nil
+	}
+	raw, err := json.Marshal(*body.Node)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the node: %w", err)
+	}
+	node, err := inventory.DecodeNode(raw)
+	if err != nil {
+		return nodeTestRefused(err.Error()), nil
+	}
+	accepted := make([]nodeconn.Accepted, 0, len(valueOf(body.Accept)))
+	for _, key := range valueOf(body.Accept) {
+		if !strings.HasPrefix(key.Fingerprint, fingerprintPrefix) {
+			return nodeTestRefused(fmt.Sprintf("the accepted fingerprint for node %q is not a SHA256 fingerprint, such as %s…", key.Node, fingerprintPrefix)), nil
+		}
+		accepted = append(accepted, nodeconn.Accepted{Node: key.Node, Fingerprint: key.Fingerprint})
+	}
+
+	all, err := a.inventoryStore.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list inventories: %w", err)
+	}
+	target, ok := findInventoryIn(all, ref)
+	if !ok {
+		return nodeTestRefused(fmt.Sprintf("inventory %q not found", ref)), nil
+	}
+	invs, err := inventory.WithNode(all, target.ID, node)
+	if err != nil {
+		return nodeTestRefused(err.Error()), nil
+	}
+	nodes, err := inventory.Resolve(invs)
+	if err != nil {
+		return nodeTestRefused(err.Error()), nil
+	}
+	resolved, _ := findInventoryNode(nodes, node.Name)
+	a.logAudit(ctx, audit.CategorySystem, "node_connection_test", map[string]any{
+		"node":      resolved.Name,
+		"host":      resolved.Host,
+		"inventory": target.Name,
+		"stored":    false,
+	})
+
+	return testStream(ctx, func(ctx context.Context, emit func(nodeconn.TestResult)) {
+		staged, err := service.Stage(ctx, nodes, accepted)
+		if err != nil {
+			emit(nodeconn.TestResult{Node: resolved.Name, Err: err})
+			return
+		}
+		node, _ := findInventoryNode(staged, resolved.Name)
+		service.Test(ctx, staged, []inventory.ResolvedNode{node}, emit)
+	}), nil
+}
+
+// testStream answers a test with an event stream: a result event for each
+// result test emits, then a done event with their counts.
+func testStream(ctx context.Context, test func(ctx context.Context, emit func(nodeconn.TestResult))) nodeEventStream {
 	return nodeEventStream{ctx: ctx, run: func(ctx context.Context, send func(string, any)) {
 		var summary api.InventoryNodeConnectionTestSummary
-		service.Test(ctx, nodes, targets, func(result nodeconn.TestResult) {
+		test(ctx, func(result nodeconn.TestResult) {
 			if result.Err == nil {
 				summary.Passed++
 			} else {
@@ -106,7 +187,7 @@ func (a *API) TestInventoryNodeConnections(ctx context.Context, request api.Test
 			send(nodeEventResult, toNodeConnectionTest(result))
 		})
 		send(nodeEventDone, summary)
-	}}, nil
+	}}
 }
 
 // TrustInventoryNodeHostKeys trusts the host key of each node named, when

@@ -70,3 +70,24 @@ func TestNodeChangesRefuseStaleAndMissing(t *testing.T) {
 	_, err = inventory.DeleteNode(ctx, store, "inv_missing", "web01", 1)
 	require.ErrorIs(t, err, inventory.ErrNotFound)
 }
+
+// WithNode puts a node into a copy of the stored inventories, in place of
+// the node of that name, and leaves the stored ones as they were.
+func TestWithNode(t *testing.T) {
+	t.Parallel()
+	_, tokyo := newTokyo(t)
+	stored := []inventory.Stored{tokyo}
+
+	invs, err := inventory.WithNode(stored, tokyo.ID, inventory.Node{Name: "WEB02", Host: "10.0.1.99"})
+	require.NoError(t, err)
+	require.Len(t, invs[0].Nodes, 2)
+	assert.Equal(t, "10.0.1.99", invs[0].Nodes[1].Host)
+	assert.Equal(t, "10.0.1.12", tokyo.Nodes[1].Host, "the stored inventory is unchanged")
+
+	invs, err = inventory.WithNode(stored, tokyo.ID, inventory.Node{Name: "db01", Host: "10.0.2.11"})
+	require.NoError(t, err)
+	assert.Len(t, invs[0].Nodes, 3)
+
+	_, err = inventory.WithNode(stored, "inv_missing", inventory.Node{Name: "db01", Host: "h"})
+	require.ErrorIs(t, err, inventory.ErrNotFound)
+}

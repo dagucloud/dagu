@@ -242,6 +242,37 @@ func TestServiceTrustThroughBastion(t *testing.T) {
 	assert.Zero(t, db01Server.AuthAttempts(), "trusting sends the node no credential")
 }
 
+// Stage pins the keys the user accepted, a bastion's before the node's
+// behind it, so a node whose keys nobody trusted passes a test. Nothing is
+// trusted, and the nodes given are left as they were.
+func TestServiceStage(t *testing.T) {
+	t.Parallel()
+
+	jump, jumpServer := startNode(t, "jump", false)
+	db01, db01Server := startNode(t, "db01", false)
+	db01.Bastion = "jump"
+	nodes := []inventory.ResolvedNode{jump, db01}
+	hostKeys := newHostKeys(t)
+	service := nodeconn.New(hostKeys, newSecrets())
+	ctx := context.Background()
+
+	staged, err := service.Stage(ctx, nodes, []nodeconn.Accepted{
+		{Node: "DB01", Fingerprint: fingerprint(db01Server)},
+		{Node: "jump", Fingerprint: fingerprint(jumpServer)},
+	})
+	require.NoError(t, err)
+	assert.Zero(t, db01Server.AuthAttempts(), "staging sent the node a credential")
+	assert.Empty(t, nodes[1].HostKey, "the nodes given changed")
+
+	results := testNodes(t, service, staged, staged[1:])
+	require.NoError(t, results["db01"].Err)
+	_, err = hostKeys.Get(ctx, "db01")
+	require.ErrorIs(t, err, inventory.ErrNoTrustedHostKey, "staging trusted a key")
+
+	_, err = service.Stage(ctx, nodes, []nodeconn.Accepted{{Node: "jump", Fingerprint: "SHA256:not-the-key"}})
+	require.ErrorContains(t, err, fingerprint(jumpServer), "the error names the key the node presents")
+}
+
 func TestServiceTrustUnknownNode(t *testing.T) {
 	t.Parallel()
 

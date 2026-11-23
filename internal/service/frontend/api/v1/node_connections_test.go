@@ -169,6 +169,13 @@ func TestNodeConnectionAPI_RefusesBadRequests(t *testing.T) {
 		"UnknownNode":     {Nodes: &[]string{"web01", "web09"}},
 		"InvalidSelector": {Labels: new("role=")},
 		"NoMatch":         {Labels: new("db")},
+		"AcceptAlone":     {Nodes: &[]string{"web01"}, Accept: &[]apigen.InventoryAcceptedHostKey{{Node: "web01", Fingerprint: "SHA256:abc"}}},
+		"NodeAndNames":    {Node: unsavedNode("web02", "22"), Inventory: new("fleet"), Nodes: &[]string{"web01"}},
+		"NodeNoInventory": {Node: unsavedNode("web02", "22")},
+		"NodeInventory":   {Node: unsavedNode("web02", "22"), Inventory: new("osaka")},
+		"NodeField":       {Node: &map[string]any{"name": "web02", "host": "h", "hostname": "h"}, Inventory: new("fleet")},
+		"NodeRule":        {Node: unsavedNode("-web02", "22"), Inventory: new("fleet")},
+		"AcceptBadFormat": {Node: unsavedNode("web03", "22"), Inventory: new("fleet"), Accept: &[]apigen.InventoryAcceptedHostKey{{Node: "web03", Fingerprint: "MD5:ab"}}},
 	} {
 		t.Run("Test"+name, func(t *testing.T) {
 			resp, err := api.TestInventoryNodeConnections(ctx, apigen.TestInventoryNodeConnectionsRequestObject{Body: &body})
@@ -205,6 +212,77 @@ func TestNodeConnectionAPI_RefusesBadRequests(t *testing.T) {
 	require.NoError(t, err)
 	_, summary := trustResults(t, stream(t, trust))
 	assert.Equal(t, apigen.InventoryHostKeyTrustSummary{Failed: 1000}, summary)
+}
+
+// unsavedNode is the record of a node on a loopback port, as a request
+// sends one that is not stored.
+func unsavedNode(name, port string) *map[string]any {
+	n, err := strconv.Atoi(port)
+	if err != nil {
+		panic(err)
+	}
+	return &map[string]any{"name": name, "host": "127.0.0.1", "port": n}
+}
+
+// A node that is not stored is tested as it would be in its inventory, with
+// that inventory's credentials, and only by a developer. A key the user
+// accepts lets it pass, and nothing is stored or trusted.
+func TestNodeConnectionAPI_UnsavedNode(t *testing.T) {
+	fleet := newNodeFleet(t, "web01")
+	api := fleet.api(apiv1.WithAuthService(stubAuthService{}))
+	as := func(role auth.Role) context.Context {
+		return auth.WithUser(context.Background(), &auth.User{Username: "u", Role: role})
+	}
+	server := harness.StartSSHServer(t, harness.SSHServerOptions{User: fleetUser, Password: fleetPassword})
+	presented := ssh.FingerprintSHA256(server.HostKey)
+	test := func(role auth.Role, accept ...string) apigen.InventoryNodeConnectionTest {
+		t.Helper()
+		body := apigen.InventoryNodeConnectionTestRequest{Node: unsavedNode("web02", server.Port), Inventory: new("FLEET")}
+		if len(accept) > 0 {
+			body.Accept = &[]apigen.InventoryAcceptedHostKey{{Node: "web02", Fingerprint: accept[0]}}
+		}
+		resp, err := api.TestInventoryNodeConnections(as(role), apigen.TestInventoryNodeConnectionsRequestObject{Body: &body})
+		require.NoError(t, err)
+		tests, _ := results[apigen.InventoryNodeConnectionTest, apigen.InventoryNodeConnectionTestSummary](t, readEvents(t, stream(t, resp)),
+			func(r apigen.InventoryNodeConnectionTest) string { return r.Node })
+		require.Contains(t, tests, "web02")
+		return tests["web02"]
+	}
+
+	_, err := api.TestInventoryNodeConnections(as(auth.RoleOperator), apigen.TestInventoryNodeConnectionsRequestObject{
+		Body: &apigen.InventoryNodeConnectionTestRequest{Node: unsavedNode("web02", server.Port), Inventory: new("fleet")},
+	})
+	require.Error(t, err, "an operator tested a node that is not stored")
+
+	unknown := test(auth.RoleDeveloper)
+	assert.False(t, unknown.Ok)
+	require.NotNil(t, unknown.HostKey)
+	assert.Equal(t, presented, valueOf(unknown.HostKey.Presented))
+	assert.Zero(t, server.AuthAttempts(), "a credential reached a host whose key is unknown")
+
+	wrong := test(auth.RoleDeveloper, "SHA256:not-the-key")
+	assert.False(t, wrong.Ok)
+	assert.Contains(t, valueOf(wrong.Error), presented)
+
+	passed := test(auth.RoleDeveloper, presented)
+	assert.True(t, passed.Ok, "test error: %v", passed.Error)
+	assert.Len(t, server.Commands(), 1)
+
+	// Nothing was stored or trusted.
+	resp, err := api.TestInventoryNodeConnections(as(auth.RoleDeveloper), apigen.TestInventoryNodeConnectionsRequestObject{
+		Body: &apigen.InventoryNodeConnectionTestRequest{Nodes: &[]string{"web02"}},
+	})
+	require.NoError(t, err)
+	require.IsType(t, apigen.TestInventoryNodeConnections400JSONResponse{}, resp, "the node was stored")
+	assert.False(t, test(auth.RoleDeveloper).Ok, "the accepted key was trusted")
+}
+
+func valueOf[T any](ptr *T) T {
+	if ptr == nil {
+		var zero T
+		return zero
+	}
+	return *ptr
 }
 
 // trustEntries returns n entries for distinct nodes that do not exist.

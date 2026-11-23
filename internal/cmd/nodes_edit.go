@@ -137,7 +137,7 @@ type acceptedKey struct {
 // returns the keys the user accepted, to trust once the node is stored.
 func testBeforeSave(ctx *Context, service *nodeconn.Service, nodes []inventory.ResolvedNode, name string) ([]acceptedKey, error) {
 	out := ctx.Command.OutOrStdout()
-	staged := slices.Clone(nodes)
+	staged := nodes
 	var accepted []acceptedKey
 	for {
 		var result nodeconn.TestResult
@@ -154,13 +154,17 @@ func testBeforeSave(ctx *Context, service *nodeconn.Service, nodes []inventory.R
 		if !confirmAction("Trust this key and add the node?") {
 			return nil, errors.New("its host key was not trusted")
 		}
-		key, err := service.ReadHostKey(ctx, staged, refused.Node, refused.Presented)
+		var err error
+		staged, err = service.Stage(ctx, staged, []nodeconn.Accepted{{Node: refused.Node, Fingerprint: refused.Presented}})
 		if err != nil {
 			return nil, err
 		}
-		hop := nodeIndex(staged, refused.Node)
-		staged[hop].HostKey = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
-		accepted = append(accepted, acceptedKey{node: staged[hop].Name, key: key})
+		hop := staged[nodeIndex(staged, refused.Node)]
+		key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(hop.HostKey))
+		if err != nil {
+			return nil, err
+		}
+		accepted = append(accepted, acceptedKey{node: hop.Name, key: key})
 	}
 }
 
@@ -302,17 +306,12 @@ func resolveWithNode(ctx *Context, inventories inventory.Store, target inventory
 	if err != nil {
 		return nil, err
 	}
-	if !slices.ContainsFunc(all, func(s inventory.Stored) bool { return s.ID == target.ID }) {
+	invs, err := inventory.WithNode(all, target.ID, node)
+	if errors.Is(err, inventory.ErrNotFound) {
 		return nil, fmt.Errorf("inventory %q was deleted", target.Name)
 	}
-	invs := make([]inventory.Inventory, 0, len(all))
-	for _, stored := range all {
-		inv := stored.Inventory
-		if inv.ID == target.ID {
-			inv.Nodes = slices.DeleteFunc(slices.Clone(inv.Nodes), func(n inventory.Node) bool { return strings.EqualFold(n.Name, node.Name) })
-			inv.Nodes = append(inv.Nodes, node)
-		}
-		invs = append(invs, inv)
+	if err != nil {
+		return nil, err
 	}
 	nodes, err := inventory.Resolve(invs)
 	if err != nil {

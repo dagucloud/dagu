@@ -4759,7 +4759,7 @@ export interface paths {
         put?: never;
         /**
          * Test node connections
-         * @description Tests the named nodes, or the nodes a label selector matches, from the server. Each test checks the host key of each hop, authenticates, and runs `true`. A hop whose host key is unknown or has changed receives no credential, and the result names that hop. A node named twice is tested once. At most 16 nodes are tested at once. The response is a server-sent event stream: a `result` event per node as its test finishes, carrying an `InventoryNodeConnectionTest`, then a `done` event carrying an `InventoryNodeConnectionTestSummary`. A test never trusts a key. Requires the operator role or above.
+         * @description Tests the named nodes, the nodes a label selector matches, or one node that is not stored yet, from the server. Each test checks the host key of each hop, authenticates, and runs `true`. A hop whose host key is unknown or has changed receives no credential, and the result names that hop. A node named twice is tested once. At most 16 nodes are tested at once. The response is a server-sent event stream: a `result` event per node as its test finishes, carrying an `InventoryNodeConnectionTest`, then a `done` event carrying an `InventoryNodeConnectionTestSummary`. A test never trusts a key. Requires the operator role or above, and the developer role or above for a node that is not stored.
          */
         post: operations["testInventoryNodeConnections"];
         delete?: never;
@@ -9761,12 +9761,27 @@ export interface components {
             /** @description Whether the import only checked and stored nothing */
             dryRun: boolean;
         };
-        /** @description The nodes to test: either named, or matched by a label selector */
+        /** @description The nodes to test: named, matched by a label selector, or one node that is not stored yet. Exactly one of `nodes`, `labels`, and `node` is given */
         InventoryNodeConnectionTestRequest: {
             /** @description Names of the nodes to test, compared without case */
             nodes?: string[];
             /** @description Label selector of the nodes to test, as `GET /nodes` takes it */
             labels?: string;
+            /** @description A node that is not stored yet, in the record format of an inventory's nodes, tested as it would be in `inventory` with that inventory's defaults. An unknown field is refused. Nothing is stored. Testing a node that is not stored needs the developer role, since the record decides which host receives the inventory's credentials */
+            node?: {
+                [key: string]: unknown;
+            };
+            /** @description ID or name of the inventory that `node` would join. Required with `node` */
+            inventory?: string;
+            /** @description Host keys the user accepted for this test only, read again by fingerprint without sending a credential and accepted in memory. Allowed only with `node`; the keys are trusted only by `POST /node-host-keys` once the node is stored */
+            accept?: components["schemas"]["InventoryAcceptedHostKey"][];
+        };
+        /** @description A host key a user accepted for a node, by the fingerprint the user saw */
+        InventoryAcceptedHostKey: {
+            /** @description Name of the node, or of its bastion, compared without case */
+            node: string;
+            /** @description SHA256 fingerprint of the key, such as `SHA256:…` */
+            fingerprint: string;
         };
         /** @description The data of one event of a node test stream: a `result` event carries an `InventoryNodeConnectionTest`, and the `done` event an `InventoryNodeConnectionTestSummary` */
         InventoryNodeConnectionTestEvent: components["schemas"]["InventoryNodeConnectionTest"] | components["schemas"]["InventoryNodeConnectionTestSummary"];
@@ -25828,7 +25843,7 @@ export interface operations {
                     "text/event-stream": components["schemas"]["InventoryNodeConnectionTestEvent"];
                 };
             };
-            /** @description The request names no node, an unknown one, or more than 1,000, or its selector is invalid or matches no node */
+            /** @description The request names no node, an unknown one, or more than 1,000, or its selector is invalid or matches no node, or the node that is not stored breaks a rule or names no inventory */
             400: {
                 headers: {
                     [name: string]: unknown;

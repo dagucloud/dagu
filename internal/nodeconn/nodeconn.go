@@ -219,6 +219,52 @@ func (s *Service) readHostKey(ctx context.Context, nodes []inventory.ResolvedNod
 	return key, nil
 }
 
+// Accepted names a host key the user accepted for a node during a test, by
+// the fingerprint the user saw.
+type Accepted struct {
+	Node        string
+	Fingerprint string
+}
+
+// Stage returns a copy of nodes in which each accepted key is pinned as its
+// node's host key, in memory only, so a test of a node that is not stored
+// yet can authenticate through hops whose keys the user accepted but has not
+// trusted. Each key is read from its node without sending it a credential;
+// a node that presents no key with the accepted fingerprint fails the stage.
+func (s *Service) Stage(ctx context.Context, nodes []inventory.ResolvedNode, accepted []Accepted) ([]inventory.ResolvedNode, error) {
+	staged := slices.Clone(nodes)
+	// A node behind a bastion is read through it, so the keys of nodes that
+	// connect directly are pinned first.
+	order := slices.Clone(accepted)
+	slices.SortStableFunc(order, func(a, b Accepted) int {
+		return behindBastion(staged, a.Node) - behindBastion(staged, b.Node)
+	})
+	secrets := s.newSecretCache()
+	for _, key := range order {
+		i := slices.IndexFunc(staged, func(n inventory.ResolvedNode) bool { return strings.EqualFold(n.Name, key.Node) })
+		if i < 0 {
+			return nil, fmt.Errorf("node %q is not in the project's inventories", key.Node)
+		}
+		readCtx, cancel := context.WithTimeout(ctx, nodeTimeout)
+		read, err := s.readHostKey(readCtx, staged, staged[i], key.Fingerprint, secrets)
+		cancel()
+		if err != nil {
+			return nil, err
+		}
+		staged[i].HostKey = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(read)))
+	}
+	return staged, nil
+}
+
+// behindBastion is 1 when the node named name connects through a bastion,
+// and 0 otherwise.
+func behindBastion(nodes []inventory.ResolvedNode, name string) int {
+	if node, ok := findNode(nodes, name); ok && node.Bastion != "" {
+		return 1
+	}
+	return 0
+}
+
 // replaceRefusal says why request replaces nothing on node, whose trusted key
 // has fingerprint current, or none when current is empty.
 func replaceRefusal(node, current string, request TrustRequest) error {

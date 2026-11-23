@@ -23,15 +23,42 @@ func PutNode(ctx context.Context, store Store, id string, node Node, version int
 		return Stored{}, false, err
 	}
 	inv := current.Inventory
-	inv.Nodes = slices.Clone(inv.Nodes)
-	i := nodeIndex(inv.Nodes, node.Name)
-	if i < 0 {
-		inv.Nodes = append(inv.Nodes, node)
-	} else {
-		inv.Nodes[i] = node
-	}
+	var added bool
+	inv.Nodes, added = withNode(inv.Nodes, node)
 	stored, err := store.Replace(ctx, inv, version)
-	return stored, i < 0, err
+	return stored, added, err
+}
+
+// WithNode returns the inventories of stored as they would be with node in
+// the inventory inventoryID, in place of the node of that name there, so a
+// node can be checked against every rule before it is stored. It fails with
+// ErrNotFound when stored holds no such inventory.
+func WithNode(stored []Stored, inventoryID string, node Node) ([]Inventory, error) {
+	invs := make([]Inventory, 0, len(stored))
+	found := false
+	for _, s := range stored {
+		inv := s.Inventory
+		if inv.ID == inventoryID {
+			found = true
+			inv.Nodes, _ = withNode(inv.Nodes, node)
+		}
+		invs = append(invs, inv)
+	}
+	if !found {
+		return nil, fmt.Errorf("inventory %q: %w", inventoryID, ErrNotFound)
+	}
+	return invs, nil
+}
+
+// withNode returns a copy of nodes with node in place of the node of that
+// name, or added, and whether it was added.
+func withNode(nodes []Node, node Node) ([]Node, bool) {
+	nodes = slices.Clone(nodes)
+	if i := nodeIndex(nodes, node.Name); i >= 0 {
+		nodes[i] = node
+		return nodes, false
+	}
+	return append(nodes, node), true
 }
 
 // DeleteNode removes the node named name from inventory id, given the

@@ -246,8 +246,24 @@ fingerprint of the key the user saw. Two entries for one node are refused.
 - A key that is already trusted is reported as `unchanged`.
 - The response is a `result` event per entry, then a `done` event.
 
-A test needs the operator role, and a trust the developer role. Each test,
-and each key a trust stores, is written to the audit log.
+**Testing a node that is not stored.** `POST /node-connection-tests` with
+`node`, a node record, and `inventory`, the ID or name of the inventory it
+would join, tests that node as it would be there, with the inventory's
+defaults. The record is checked against every rule first, and a broken rule
+refuses the request. Nothing is stored.
+
+- `accept` lists keys the user accepted for this test only, each a node,
+  the node or its bastion, and the fingerprint the user saw. The server
+  reads each key again without sending a credential, and accepts it in
+  memory when the fingerprint matches; otherwise the test fails, naming the
+  fingerprint the node presents. A bastion's key is read first.
+- An accepted key is not trusted. Once the node is stored, a trust stores
+  it.
+
+A test needs the operator role, and a trust the developer role. A test of a
+node that is not stored needs the developer role, since the record decides
+which host receives the inventory's credentials. Each test, and each key a
+trust stores, is written to the audit log.
 
 **`dagu nodes test`** tests the named nodes, compared without case, the
 nodes `--labels` matches, or every node, as the server does, and prints a
