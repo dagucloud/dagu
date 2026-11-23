@@ -62,9 +62,9 @@ Promised:
   at the chosen level reaches Console, or is recorded as a `rejected` gap,
   provided the audit files and the shipper's state survive until Console
   accepts it. Delivery is at least once.
-- **Losses the server can see are reported while Console is reachable.**
-  Local retention deleting unsent entries, a stop with entries unsent, and a
-  line the server cannot parse or send each become a gap.
+- **Losses the server can see are reported while Console accepts its
+  requests.** Local retention deleting unsent entries, a stop with entries
+  unsent, and a line the server cannot parse or send each become a gap.
 - **Known secrets stay masked.** The value of a `dagu-managed` secret that is
   current when an entry is sent, and tokens in common formats, never reach
   Console. The local file holds them masked too, except in an entry written
@@ -75,7 +75,8 @@ Not promised:
 
 - **Entries on a disk that dies before Console accepts them.** A kill with no
   stop signal, an ephemeral disk, or a graceful stop while Console is
-  unreachable loses them, and no gap arrives.
+  unreachable, or holds the server back past the drain, loses them, and no
+  gap arrives.
 - **The `stopped` gap.** It is best effort.
 - **Other secrets.** Secrets from external providers, and values the store
   did not hold when the entry was written or sent, can still go out.
@@ -119,6 +120,12 @@ the fields that leave the server, and says where Console stores them.
 
 On one server used heavily through MCP, `changes` sent about 15% of the local
 entries, and `all` about 40%.
+
+`cloud.audit_drain_timeout` (`DAGU_CLOUD_AUDIT_DRAIN_TIMEOUT`) is how long a
+stopping server may spend sending what is left, from the stop signal. It
+defaults to `25s`, which fits Kubernetes' 30-second grace period. `0` stops
+at once, and other values are at least `5s`. Under `docker stop`, which kills
+after 10 seconds, `8s` leaves time for the `stopped` gap.
 
 ### Writers
 
@@ -237,19 +244,27 @@ Console's pace allows. Entries the level skips still move the offset.
   the license changes. `402` asks again hourly.
 
 **Stopping.** On a graceful stop the shipper drains the backlog, batch after
-batch within Console's burst.
+batch at Console's pace, for `cloud.audit_drain_timeout` after the signal.
 
 - The drain starts once the web server has stopped taking requests and the
-  requests in progress have ended, or 10 seconds after the stop signal,
-  whichever comes first, so the last entries are on disk before it reads.
-- It sends entries until 22 seconds after the signal, then uses its last 3
-  seconds to report what is left as one `stopped` gap, best effort. If
-  Console is unreachable, the gap is lost too.
+  requests in progress have ended, or once half its send time has passed, 10
+  seconds at most, whichever comes first, so the last entries are on disk
+  before it reads.
+- It sends entries until 3 seconds before its end, 22 seconds after the
+  signal by default, then uses the last 3 seconds to report what is left as
+  one `stopped` gap, best effort. If Console is unreachable, the gap is lost
+  too.
+- A `429` or `503` whose `Retry-After` ends before the send time is waited
+  out, and sending goes on. A longer hold, or a `401`, `410`, or `402`, ends
+  the drain with no `stopped` gap: a gap counts toward the same limits, so
+  Console would refuse it.
+- A backoff the shipper set itself after a failure gives way: the drain
+  sends at once.
 - It runs on its own deadline, not the server's context, which the signal
   cancels (`internal/cmd/server.go:116`). In `dagu start-all` it runs
   alongside the scheduler's and coordinator's shutdown instead of after it
-  (`internal/cmd/startall.go:238`), so the whole drain fits in a 30-second
-  termination grace period.
+  (`internal/cmd/startall.go:238`), so the whole drain fits in the
+  supervisor's termination grace period.
 - Unsent entries stay on disk and go out after the next start, if the disk
   survives.
 
@@ -356,7 +371,7 @@ A gap records entries that did not arrive:
 | Reason | Sent by | When |
 | --- | --- | --- |
 | `deleted` | Server | Local retention deleted unsent bytes, or a tracked file vanished with no record of its size. The gap runs from the last sent entry to the oldest entry still on disk |
-| `stopped` | Server | The server stopped with entries unsent. The gap covers their range |
+| `stopped` | Server | The server stopped with entries unsent. The gap covers their range. If the disk survives, the entries arrive after the next start, and Console shows the gap as filled |
 | `rejected` | Server, or Console | The server could not parse or send a line, or Console refused an entry |
 
 The server derives a gap's ID from the reason and the range, so a resend
@@ -402,7 +417,7 @@ so none is skipped. A PostgreSQL event store needs the same cursor.
 | A long secret is added after an entry that carries it was written | The entry was not cut on disk, so the upload mask matches it |
 | Entries written before this release | Not sent. They lack `"masked": true` |
 | `dagu secret` appends or starts a file while the web server is stopped, and retention deletes it before the shipper starts | The cleanup entry records the file's size, so the shipper sends a `deleted` gap |
-| A server on an ephemeral disk stops with entries held | It drains for 22 seconds and tries to send a `stopped` gap. The held entries die with the disk |
+| A server on an ephemeral disk stops with entries held | A hold that ends before the drain's send time is waited out, and the entries go. A longer one sends no `stopped` gap, which Console would refuse, and the held entries die with the disk |
 | A server is killed with no stop signal | No gap. The entries of the last 5 seconds, and anything held, are lost if the disk goes too |
 | MCP call ends without a result, as when the process crashes | Nothing is sent for it. The local log keeps `received` and `started` |
 | Distributed install | Every process appends to the shared audit files. Only the lease holder sends |
@@ -437,6 +452,7 @@ so none is skipped. A PostgreSQL event store needs the same cursor.
 - **The cleanup entry changes.** It is written before the deletion, and its
   `details` gains each file's size.
 - **Config.** `cloud.audit` is new and defaults to `off`.
+  `cloud.audit_drain_timeout` is new and defaults to `25s`.
 - **Report.** The `audit` object is a new field in the report. Console
   ignores it from older servers, and older Consoles ignore it.
 - **Downgrade.** An older binary reads the new entries and ignores the extra
@@ -476,10 +492,11 @@ Stopping:
 
 9. A stopping server with 8,000 unsent entries and a reachable Console sends
    them all before it exits.
-10. A stopping server over Console's quota keeps its entries, and on a
+10. A stopping server that Console holds for a few seconds waits it out and
+    sends its entries. One over Console's quota keeps its entries, and on a
     persistent disk they go out after the next start.
-11. With Console unreachable, a stopping server still exits 25 seconds after
-    the signal.
+11. With Console unreachable, a stopping server still exits
+    `cloud.audit_drain_timeout` after the signal, 25 seconds by default.
 12. A terminal command runs while `dagu start-all` stops, and its entry is
     sent.
 
