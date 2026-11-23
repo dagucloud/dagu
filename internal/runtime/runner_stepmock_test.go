@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/dag"
@@ -327,6 +328,23 @@ func (c *childRuns) Enqueue(_ context.Context, req executor.EnqueueRequest) (exe
 	return executor.EnqueueResult{Status: ir.Queued}, nil
 }
 
+// webNodes is an inventory in which every selector matches web01 and web02.
+type webNodes struct{}
+
+func (n webNodes) Select(ctx context.Context, _ string) ([]inventory.ResolvedNode, error) {
+	return n.Nodes(ctx)
+}
+
+func (webNodes) Nodes(context.Context) ([]inventory.ResolvedNode, error) {
+	return []inventory.ResolvedNode{{Name: "web01"}, {Name: "web02"}}, nil
+}
+
+func withNodes(selector string) stepOption {
+	return func(step *ir.Step) {
+		step.Nodes = &ir.NodeTargets{Selector: selector, MaxConcurrent: 1}
+	}
+}
+
 // A mock on a step that runs child DAGs replaces every child: the step takes
 // the mock's result, and no child run starts, is queued, or is recorded on
 // the step. Results count executions of the step, not children, so the
@@ -337,6 +355,11 @@ func TestStepMockReplacesChildRuns(t *testing.T) {
 
 	localDAGs := map[string]*ir.DAG{
 		"deploy": {Name: "deploy", YamlData: []byte("name: deploy\nsteps:\n  - run: ./deploy.sh\n")},
+		"deploy-one": {
+			Name:         "deploy-one",
+			NodeRequired: true,
+			YamlData:     []byte("name: deploy-one\nnode: required\nsteps:\n  - run: ./deploy.sh\n"),
+		},
 	}
 	subDAG := func(name string) stepOption {
 		return func(step *ir.Step) { step.SubDAG = &ir.SubDAG{Name: name, Params: "ENV=prod"} }
@@ -352,6 +375,8 @@ func TestStepMockReplacesChildRuns(t *testing.T) {
 		{name: "DAGRun", step: newStep("rollout", withExecutorType(ir.ExecutorTypeDAG), subDAG("deploy"))},
 		{name: "DAGEnqueue", step: newStep("rollout", withExecutorType(ir.ExecutorTypeDAGEnqueue), subDAG("deploy"))},
 		{name: "Parallel", step: newStep("rollout", withExecutorType(ir.ExecutorTypeParallel), subDAG("deploy"), parallel)},
+		{name: "NodesDAGRun", step: newStep("rollout", withExecutorType(ir.ExecutorTypeDAG), subDAG("deploy-one"), withNodes("web"))},
+		{name: "NodesCommand", step: newStep("rollout", withCommand("./deploy.sh"), withNodes("web"))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -367,6 +392,7 @@ func TestStepMockReplacesChildRuns(t *testing.T) {
 				ph.localDAGs = localDAGs
 				ph.contextOpts = []runtime.ContextOption{
 					runtime.WithRootDAGRun(runtime.NewDAGRunRef("test_dag", r.cfg.DAGRunID)),
+					runtime.WithNodeSelector(webNodes{}),
 				}
 				return ph.assertRun(t, ir.Succeeded).nodeByName(t, tc.step.Name), runs.started()
 			}
@@ -383,4 +409,13 @@ func TestStepMockReplacesChildRuns(t *testing.T) {
 			assert.Equal(t, "first\n", readLog(t, mocked.GetStdout()))
 		})
 	}
+}
+
+// A mocked step with nodes matches no nodes, so it takes its result in a run
+// without an inventory, where the real step would fail before any node.
+func TestStepMockNodesNeedNoInventory(t *testing.T) {
+	t.Parallel()
+
+	r := setupRunner(t, withStepMocks(map[string]stepmock.Step{"rollout": {}}))
+	r.newPlan(t, newStep("rollout", withCommand("./deploy.sh"), withNodes("web"))).assertRun(t, ir.Succeeded)
 }

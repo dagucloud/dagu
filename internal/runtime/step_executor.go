@@ -28,8 +28,8 @@ type ExecutorOverride interface {
 	// Executor returns the executor that runs in place of the step's action
 	// for one execution, or false when the step runs its own action. The
 	// step's fields are resolved as they are for its own action. On a step
-	// that runs child DAGs, such as dag.run or parallel, the executor
-	// replaces every child run, so none starts or is recorded.
+	// that runs child DAGs, such as dag.run, parallel, or a step with nodes,
+	// the executor replaces every child run, so none starts or is recorded.
 	Executor(ctx context.Context, step ir.Step) (executor.Executor, bool)
 }
 

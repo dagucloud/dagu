@@ -883,7 +883,7 @@ func (n *Node) setupExecutor(ctx context.Context, override ExecutorOverride) (co
 		return ctx, nil, err
 	}
 	if n.Step().Nodes != nil {
-		return n.setupNodesExecutor(ctx)
+		return n.setupNodesExecutor(ctx, override)
 	}
 
 	// Evaluate the command and args if not already evaluated
