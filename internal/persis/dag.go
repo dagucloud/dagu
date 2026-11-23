@@ -6,8 +6,11 @@ package persis
 import (
 	"context"
 	"errors"
+	"fmt"
+	"path/filepath"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/spec"
@@ -19,7 +22,19 @@ var (
 	ErrDAGAlreadyExists = errors.New("DAG already exists")
 	ErrDAGNotFound      = errors.New("DAG is not found")
 	ErrDAGReadOnly      = errors.New("DAG definition is read-only")
+	// ErrDAGNameReserved reports a DAG name whose file would be a workflow
+	// test file, which is never a DAG.
+	ErrDAGNameReserved = errors.New("the .test suffix is reserved for workflow test files")
 )
+
+// ValidateNewDAGName returns an error that wraps ErrDAGNameReserved when a
+// DAG created or renamed under name would be stored as a workflow test file.
+func ValidateNewDAGName(name string) error {
+	if spec.IsTestFile(fileutil.EnsureYAMLExtension(filepath.Base(name))) {
+		return fmt.Errorf("DAG name %s: %w", name, ErrDAGNameReserved)
+	}
+	return nil
+}
 
 // DAGDefinition is a stored DAG specification.
 type DAGDefinition struct {
@@ -44,6 +59,8 @@ type DAGCatalog struct {
 
 // DAGDefinitionStore persists definitions and exposes their listing projection.
 type DAGDefinitionStore interface {
+	// Create and Rename return an error that wraps ErrDAGNameReserved for an
+	// id that would name a workflow test file.
 	Create(ctx context.Context, id string, source []byte) error
 	Delete(ctx context.Context, id string) error
 	Get(ctx context.Context, id string) (DAGDefinition, error)

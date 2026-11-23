@@ -665,6 +665,25 @@ func TestCreateNewDAGPathTraversal(t *testing.T) {
 	})
 }
 
+// The .test suffix is reserved for test files, so a DAG is neither created
+// nor renamed under it, while its name field may end in .test.
+func TestDAGNameTestSuffixReserved(t *testing.T) {
+	server := test.SetupServer(t)
+	spec := "name: smoke.test\nsteps:\n  - command: echo test"
+
+	var created api.Error
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{Name: "release.test", Spec: &spec}).
+		ExpectStatus(http.StatusBadRequest).Send(t).Unmarshal(t, &created)
+	assert.Contains(t, created.Message, "reserved for workflow test files")
+
+	server.Client().Post("/api/v1/dags", api.CreateNewDAGJSONRequestBody{Name: "smoke", Spec: &spec}).
+		ExpectStatus(http.StatusCreated).Send(t)
+	var renamed api.Error
+	server.Client().Post("/api/v1/dags/smoke/rename", api.RenameDAGJSONRequestBody{NewFileName: "smoke.test"}).
+		ExpectStatus(http.StatusBadRequest).Send(t).Unmarshal(t, &renamed)
+	assert.Contains(t, renamed.Message, "reserved for workflow test files")
+}
+
 func TestDAGFileNameRejectsEncodedTraversal(t *testing.T) {
 	server := test.SetupServer(t)
 

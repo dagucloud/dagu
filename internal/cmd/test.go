@@ -200,7 +200,7 @@ func selectTestFiles(root string, args []string) ([]testFileRef, error) {
 			return nil, err
 		}
 		if !info.IsDir() {
-			if !dagtest.IsTestFile(arg) {
+			if !spec.IsTestFile(arg) {
 				return nil, fmt.Errorf("%s is not a test file; its name must end in .test.yaml or .test.yml", arg)
 			}
 			if err := add(arg); err != nil {
@@ -225,7 +225,7 @@ func walkTestFiles(dir string, add func(string) error) error {
 			return err
 		case entry.IsDir() && path != dir && strings.HasPrefix(entry.Name(), "."):
 			return filepath.SkipDir
-		case entry.Type().IsRegular() && dagtest.IsTestFile(path):
+		case entry.Type().IsRegular() && spec.IsTestFile(path):
 			return add(path)
 		default:
 			return nil

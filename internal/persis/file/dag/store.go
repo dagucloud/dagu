@@ -663,6 +663,9 @@ func (store *Store) write(ctx context.Context, resolved ResolvedFile, yamlSpec [
 
 // Create creates a new DAG with the given name and specification.
 func (store *Store) Create(ctx context.Context, name string, spec []byte) error {
+	if err := persis.ValidateNewDAGName(name); err != nil {
+		return err
+	}
 	if err := store.ensureDirExist(); err != nil {
 		return fmt.Errorf("failed to create DAGs directory %s: %w", store.baseDir, err)
 	}
@@ -796,6 +799,9 @@ func fileName(id string) string {
 
 // Rename renames a DAG from oldID to newID.
 func (store *Store) Rename(ctx context.Context, oldID, newID string) error {
+	if err := persis.ValidateNewDAGName(newID); err != nil {
+		return err
+	}
 	resolved, err := store.locateDAG(ctx, oldID)
 	if err != nil {
 		return fmt.Errorf("failed to locate DAG %s: %w", oldID, err)
@@ -1008,10 +1014,12 @@ func relativeToBase(baseDir, path string) (string, bool) {
 }
 
 func dagFileCandidates(name string) []string {
+	candidates := []string{name + ".yaml", name + ".yml"}
 	if fileutil.IsYAMLFile(name) {
-		return []string{name}
+		candidates = []string{name}
 	}
-	return []string{name + ".yaml", name + ".yml"}
+	// Lookup skips test files, as discovery does.
+	return slices.DeleteFunc(candidates, spec.IsTestFile)
 }
 
 // fileExists checks if a file exists.
