@@ -559,10 +559,11 @@ func TestStepMockResolvesFieldsByAction(t *testing.T) {
 }
 
 // childRuns records the child runs that steps start or queue. Each run it
-// starts succeeds.
+// starts succeeds and publishes outputs.
 type childRuns struct {
-	mu     sync.Mutex
-	runIDs []string
+	mu      sync.Mutex
+	runIDs  []string
+	outputs map[string]any
 }
 
 var (
@@ -586,7 +587,7 @@ func (*childRuns) ShouldRun(context.Context, executor.SubWorkflowRequest) bool {
 
 func (c *childRuns) Run(_ context.Context, req executor.SubWorkflowRequest) (*ir.RunStatus, error) {
 	c.record(req.RunID)
-	return &ir.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Status: ir.Succeeded}, nil
+	return &ir.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Status: ir.Succeeded, OutputValues: c.outputs}, nil
 }
 
 func (c *childRuns) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*ir.RunStatus, error) {
@@ -727,9 +728,10 @@ func TestStepMockNodes(t *testing.T) {
 }
 
 // A mocked step that runs child DAGs publishes any output names it is given,
-// and a later step resolves them. A real parallel step or step with nodes
-// publishes its children's outputs as a list, so the mock's outputs stay out
-// of the outputs the run collects.
+// and a later step resolves them. Only dag.run adds them to the outputs the
+// run collects: a real dag.enqueue step publishes no outputs, and a real
+// parallel step or step with nodes publishes its children's outputs as a
+// list.
 func TestStepMockChildRunOutputs(t *testing.T) {
 	t.Parallel()
 
@@ -747,9 +749,8 @@ func TestStepMockChildRunOutputs(t *testing.T) {
 			wantRunOutputs: true,
 		},
 		{
-			name:           "DAGEnqueue",
-			action:         []stepOption{withExecutorType(ir.ExecutorTypeDAGEnqueue), withSubDAG("deploy")},
-			wantRunOutputs: true,
+			name:   "DAGEnqueue",
+			action: []stepOption{withExecutorType(ir.ExecutorTypeDAGEnqueue), withSubDAG("deploy")},
 		},
 		{
 			name:   "Parallel",
@@ -778,6 +779,66 @@ func TestStepMockChildRunOutputs(t *testing.T) {
 				wantRunOutputs = map[string]string{"version": "v1.2.3", "replicas": "2"}
 			}
 			assert.Equal(t, wantRunOutputs, result.nodeByName(t, "rollout").NodeData().OutputsValueStringMap())
+		})
+	}
+}
+
+// A mocked step adds its outputs to the outputs the run collects, which feed
+// outputs.json and a parent's outputValues, exactly as a real run of the step
+// adds the outputs its action publishes. output_schema does not keep a
+// dag.run step's outputs out, and a dag.enqueue step publishes none.
+func TestStepMockCollectsOutputsAsRealRun(t *testing.T) {
+	t.Parallel()
+
+	localDAGs := map[string]*ir.DAG{
+		"deploy": {Name: "deploy", YamlData: []byte("name: deploy\nsteps:\n  - run: ./deploy.sh\n")},
+	}
+	outputs := map[string]any{"version": "v1.2.3"}
+	outputSchema := func(step *ir.Step) {
+		step.OutputSchema = map[string]any{"type": "object"}
+	}
+	for _, tc := range []struct {
+		name   string
+		action []stepOption
+		want   map[string]string
+	}{
+		{
+			name:   "DAGRun",
+			action: []stepOption{withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy")},
+			want:   map[string]string{"version": "v1.2.3"},
+		},
+		{
+			name:   "DAGRunOutputSchema",
+			action: []stepOption{withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy"), outputSchema},
+			want:   map[string]string{"version": "v1.2.3"},
+		},
+		{
+			name:   "DAGEnqueue",
+			action: []stepOption{withExecutorType(ir.ExecutorTypeDAGEnqueue), withSubDAG("deploy")},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			step := newStep("rollout", append(tc.action, withID("rollout"))...)
+			collected := func(t *testing.T, opts ...runnerOption) map[string]string {
+				t.Helper()
+
+				r := setupRunner(t, opts...)
+				r.Context = executor.WithSubWorkflowRunner(r.Context, &childRuns{outputs: outputs})
+				ph := r.newPlan(t, step)
+				ph.steps = []ir.Step{step}
+				ph.localDAGs = localDAGs
+				ph.contextOpts = []runtime.ContextOption{
+					runtime.WithRootDAGRun(runtime.NewDAGRunRef("test_dag", r.cfg.DAGRunID)),
+				}
+				return ph.assertRun(t, ir.Succeeded).nodeByName(t, step.Name).NodeData().OutputsValueStringMap()
+			}
+
+			assert.Equal(t, tc.want, collected(t))
+			assert.Equal(t, tc.want, collected(t, withStepMocks(map[string]stepmock.Step{
+				step.Name: {Results: []stepmock.Result{{Outputs: outputs}}},
+			})))
 		})
 	}
 }

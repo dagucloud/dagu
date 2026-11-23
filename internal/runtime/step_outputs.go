@@ -15,6 +15,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
@@ -218,17 +219,17 @@ func (n *Node) capturePublishedOutputs(ctx context.Context, outputs map[string]a
 
 // setsOutputsObject reports whether a real run of the step sets the outputs
 // object the run collects. Object-form output, stdout.outputs, and an action
-// that publishes outputs set it. output_schema alone does not, nor does a
-// parallel step or a step with nodes, which publish their children's outputs
-// as a list.
+// that publishes outputs set it, whether or not the step sets output_schema.
+// A parallel step and a step with nodes do not, since they publish their
+// children's outputs as a list.
 func setsOutputsObject(step ir.Step) bool {
 	switch {
 	case step.HasStructuredOutput(), step.HasStdoutOutputs():
 		return true
-	case step.HasOutputSchema():
+	case step.Parallel != nil, step.Nodes != nil:
 		return false
 	default:
-		return step.Parallel == nil && step.Nodes == nil
+		return registry.ExecutorCapabilitiesFor(step.ExecutorConfig.Type).PublishesOutputs
 	}
 }
 
