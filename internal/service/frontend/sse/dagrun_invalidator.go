@@ -175,8 +175,12 @@ func StartDAGRunEventInvalidation(
 // change, then wakes the topics that show the runs. changed hears first, so
 // that a topic it serves reads the changed runs when it wakes.
 func handleDAGRunEvents(mux *Multiplexer, events []*eventstore.Event, serviceDAGs ServiceDAGNames, changed DAGRunsChanged) {
+	names := changedDAGNames(events)
 	if changed != nil {
-		changed(changedDAGNames(events))
+		changed(names)
+	}
+	if len(names) > 0 {
+		mux.WakeTopicType(TopicTypeDAGListActivity)
 	}
 	if len(events) == 0 {
 		return
