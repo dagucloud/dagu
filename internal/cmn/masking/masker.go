@@ -5,8 +5,10 @@ package masking
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode/utf16"
@@ -25,30 +27,51 @@ type SourcedEnvVars struct {
 
 // Masker provides masking functionality for sensitive data
 type Masker struct {
-	sensitiveVals map[string]bool // Set of values to mask
+	// values finds the values to mask; nil when there are none.
+	values *valueTrie
+	// patterns match further text to mask, such as token formats.
+	patterns []*regexp.Regexp
+}
+
+// span is a range of text to mask, from start up to end.
+type span struct {
+	start, end int
+	// value reports that the span is a whole JSON value, so its mask is
+	// written as a JSON string.
+	value bool
 }
 
 // NewMasker creates a masker from sourced environment variables. Each value
 // is masked as written and as it appears inside a JSON string, so a secret
 // that JSON escaping rewrites is still hidden in JSON text.
 func NewMasker(sources SourcedEnvVars) *Masker {
-	sensitiveVals := make(map[string]bool)
-
+	values := make([]string, 0, len(sources.Secrets))
 	for _, env := range sources.Secrets {
 		_, val := splitEnv(env)
-		// Skip empty or invalid values to avoid masking everything
-		// (strings.ReplaceAll with empty string would insert mask between every character)
+		values = append(values, val)
+	}
+	return NewValueMasker(values)
+}
+
+// NewValueMasker creates a masker that hides each of values, as NewMasker
+// does for the values of environment variables, and every match of
+// patterns. Empty values are ignored.
+func NewValueMasker(values []string, patterns ...*regexp.Regexp) *Masker {
+	seen := make(map[string]bool)
+	forms := make([]string, 0, len(values))
+	for _, val := range values {
+		// An empty value would mask between every character.
 		if val == "" {
 			continue
 		}
 		for _, form := range jsonForms(val) {
-			sensitiveVals[form] = true
+			if !seen[form] {
+				seen[form] = true
+				forms = append(forms, form)
+			}
 		}
 	}
-
-	return &Masker{
-		sensitiveVals: sensitiveVals,
-	}
+	return &Masker{values: newValueTrie(forms), patterns: patterns}
 }
 
 // jsonForms returns val and its distinct spellings inside a JSON string:
@@ -97,33 +120,74 @@ func asciiOnly(body string) string {
 	return out.String()
 }
 
-// MaskString replaces sensitive values in the input string
+// MaskString replaces each value and pattern match in input with the mask.
+// Matches that overlap are masked as one span, so no match leaves part of
+// another visible.
 func (m *Masker) MaskString(input string) string {
-	if len(m.sensitiveVals) == 0 {
-		return input // Fast path
-	}
+	return writeSpans(input, m.spans(input))
+}
 
-	// Sort values by length (longest first) to avoid partial matches
-	values := make([]string, 0, len(m.sensitiveVals))
-	for val := range m.sensitiveVals {
-		values = append(values, val)
+// spans returns the ranges of text that values or patterns match, sorted,
+// with overlapping ranges joined.
+func (m *Masker) spans(text string) []span {
+	if m == nil {
+		return nil
 	}
-
-	// Simple sort by length (descending)
-	for i := 0; i < len(values); i++ {
-		for j := i + 1; j < len(values); j++ {
-			if len(values[j]) > len(values[i]) {
-				values[i], values[j] = values[j], values[i]
+	var spans []span
+	if m.values != nil {
+		for i := range len(text) {
+			if !m.values.starts(text[i]) {
+				continue
+			}
+			if n := m.values.longestPrefix(text[i:]); n > 0 {
+				spans = append(spans, span{start: i, end: i + n})
 			}
 		}
 	}
-
-	result := input
-	for _, val := range values {
-		result = strings.ReplaceAll(result, val, DefaultMaskString)
+	for _, pattern := range m.patterns {
+		for _, match := range pattern.FindAllStringIndex(text, -1) {
+			spans = append(spans, span{start: match[0], end: match[1]})
+		}
 	}
+	return joinSpans(spans)
+}
 
-	return result
+// joinSpans sorts spans and joins the ones that overlap. Spans that only
+// touch stay apart, each with its own mask.
+func joinSpans(spans []span) []span {
+	slices.SortFunc(spans, func(a, b span) int { return cmp.Compare(a.start, b.start) })
+	joined := spans[:0]
+	for _, s := range spans {
+		if last := len(joined) - 1; last >= 0 && s.start < joined[last].end {
+			joined[last].end = max(joined[last].end, s.end)
+			joined[last].value = joined[last].value || s.value
+			continue
+		}
+		joined = append(joined, s)
+	}
+	return joined
+}
+
+// writeSpans returns text with each of spans, which are sorted and apart,
+// replaced by the mask.
+func writeSpans(text string, spans []span) string {
+	if len(spans) == 0 {
+		return text
+	}
+	var out strings.Builder
+	out.Grow(len(text))
+	last := 0
+	for _, s := range spans {
+		out.WriteString(text[last:s.start])
+		if s.value {
+			out.WriteString(`"` + DefaultMaskString + `"`)
+		} else {
+			out.WriteString(DefaultMaskString)
+		}
+		last = s.end
+	}
+	out.WriteString(text[last:])
+	return out.String()
 }
 
 // MaskBytes replaces sensitive values in the input bytes

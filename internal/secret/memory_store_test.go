@@ -5,6 +5,8 @@ package secret
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -158,6 +160,15 @@ func (s *memoryStoreForTest) ResolveValue(_ context.Context, id string) (string,
 func (s *memoryStoreForTest) ReadValue(ctx context.Context, id string) (string, *VersionMetadata, error) {
 	return s.ResolveValue(ctx, id)
 }
+
+func (s *memoryStoreForTest) CurrentValues(context.Context) ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return slices.Collect(maps.Values(s.values)), nil
+}
+
+// Revision is unused by the tests of this package.
+func (s *memoryStoreForTest) Revision() uint64 { return 0 }
 
 func (s *memoryStoreForTest) writeValueLocked(id string, input WriteValueInput) {
 	sec := s.secrets[id]

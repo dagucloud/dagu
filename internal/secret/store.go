@@ -24,4 +24,10 @@ type Store interface {
 	// ReadValue returns the current plaintext value like ResolveValue, but
 	// leaves the secret's resolution metadata unchanged.
 	ReadValue(ctx context.Context, id string) (string, *VersionMetadata, error)
+	// CurrentValues returns the current value of every dagu-managed secret,
+	// disabled ones included, so text Dagu records can be masked.
+	CurrentValues(ctx context.Context) ([]string, error)
+	// Revision changes whenever a secret changes through this store.
+	// Changes made by other processes do not change it.
+	Revision() uint64
 }

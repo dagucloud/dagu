@@ -66,8 +66,10 @@ Promised:
   Local retention deleting unsent entries, a stop with entries unsent, and a
   line the server cannot parse or send each become a gap.
 - **Known secrets stay masked.** The value of a `dagu-managed` secret that is
-  current when an entry is written or sent, and tokens in common formats,
-  never reach Console or the local file.
+  current when an entry is sent, and tokens in common formats, never reach
+  Console. The local file holds them masked too, except in an entry written
+  within a minute of a change made by another process, or while the secret
+  values fail to load. An entry of the second kind lacks `"masked": true`.
 
 Not promised:
 
@@ -148,12 +150,21 @@ covers every producer, including the two that call `Append` without
 - **Values.** It replaces the values of the secrets in Dagu's own store
   (`dagu-managed`), with the masker run output already uses
   (`masking.Masker`), and common token formats, such as GitHub, AWS, and
-  Slack tokens. It reloads the values when the store changes.
-- **One pass.** The masker builds one `strings.Replacer` per reload, longer
-  values first, so a field takes one pass however many secrets there are.
+  Slack tokens. It reloads the values on the next entry after this process
+  changes a secret, and at most a minute after another process, such as
+  `dagu profile` or another server, does. After a failed load it tries
+  again 10 seconds later, or on the next entry after this process changes
+  a secret.
+- **One pass.** The masker builds a trie of the values once per reload and
+  finds the longest value at each offset, so a field takes one pass however
+  many secrets there are. Matches that overlap, token formats included, are
+  masked as one span, so no match leaves part of another in the entry.
   Today `MaskString` sorts the values with nested loops on every call
   (`internal/cmn/masking/masker.go:101`), about 35 ms for one entry with
   5,000 secrets, and an MCP call writes three entries.
+- **`details` stays JSON.** A match inside a string is masked in place. Any
+  other match, such as a secret that is a number or a whole object, masks
+  the smallest value that holds it, which becomes the masked string.
 - **Control fields stay.** It leaves as written only the fields Dagu
   generates or picks from a fixed set: `id`, `timestamp`, `category`,
   `action`, `source`, `surface`, `result`, `resource_type`,
@@ -387,6 +398,7 @@ so none is skipped. A PostgreSQL event store needs the same cursor.
 | An entry lands in an older file, as one made just before UTC midnight, or after the clock is set back | The shipper still holds that file's offset, and sends the entry within a minute |
 | A line does not parse, or is over 1 MiB | It becomes a `rejected` gap, and the shipper moves on |
 | A `dagu-managed` secret is rotated or deleted after an entry carries it | The entry was masked when written |
+| The secret values fail to load, or a secret record cannot be read | The entry is masked with the values loaded last and lacks `"masked": true`, so it is not sent. The values load again 10 seconds later, or after this server changes a secret |
 | A long secret is added after an entry that carries it was written | The entry was not cut on disk, so the upload mask matches it |
 | Entries written before this release | Not sent. They lack `"masked": true` |
 | `dagu secret` appends or starts a file while the web server is stopped, and retention deletes it before the shipper starts | The cleanup entry records the file's size, so the shipper sends a `deleted` gap |
@@ -412,8 +424,8 @@ so none is skipped. A PostgreSQL event store needs the same cursor.
   gzip.
 - **Stored.** The state file holds one offset per audit file, under 1 KB.
 - **Masking.** On every audit write, on or off, one pass per masked field
-  with a replacer built once per secret reload. With no `dagu-managed`
-  secrets, the token patterns alone.
+  with a trie built once per secret reload. With no `dagu-managed` secrets,
+  the token patterns alone.
 - **Upgrade.** Nothing changes until `cloud.audit` is turned on. Then the
   server sends its local history, 7 days by default, at Console's pace.
 
