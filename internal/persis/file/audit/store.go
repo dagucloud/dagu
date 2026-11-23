@@ -81,7 +81,7 @@ func New(baseDir string, retentionDays int, opts ...Option) (*Store, error) {
 	}
 
 	if retentionDays > 0 {
-		s.cleaner = newCleaner(baseDir, retentionDays, s.Append)
+		s.cleaner = newCleaner(baseDir, retentionDays, s.appendDurable)
 	}
 
 	return s, nil
@@ -103,6 +103,15 @@ func (s *Store) auditFilePath(date time.Time) string {
 // Append masks the entry and adds it to the store. The caller's entry is
 // left unchanged.
 func (s *Store) Append(ctx context.Context, entry *audit.Entry) error {
+	return s.append(ctx, entry, false)
+}
+
+// appendDurable is Append that returns only once the entry is on disk.
+func (s *Store) appendDurable(ctx context.Context, entry *audit.Entry) error {
+	return s.append(ctx, entry, true)
+}
+
+func (s *Store) append(ctx context.Context, entry *audit.Entry, durable bool) error {
 	if entry == nil {
 		return errors.New("fileaudit: entry cannot be nil")
 	}
@@ -132,7 +141,17 @@ func (s *Store) Append(ctx context.Context, entry *audit.Entry) error {
 	if _, err := f.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("fileaudit: failed to write entry: %w", err)
 	}
+	if !durable {
+		return nil
+	}
 
+	if err := f.Sync(); err != nil {
+		return fmt.Errorf("fileaudit: failed to sync file %s: %w", filePath, err)
+	}
+	// The write may have created the file, so its directory entry is synced too.
+	if err := fileutil.SyncDir(s.baseDir); err != nil {
+		return fmt.Errorf("fileaudit: failed to sync directory %s: %w", s.baseDir, err)
+	}
 	return nil
 }
 
