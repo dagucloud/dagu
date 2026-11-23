@@ -74,7 +74,7 @@ const NODES = [
 ];
 
 type Responses = {
-  nodes?: { data?: unknown; error?: unknown };
+  nodes?: { data?: unknown; error?: unknown; isValidating?: boolean };
   inventories?: unknown[];
   inventoriesError?: unknown;
   retryInventories?: () => void;
@@ -128,6 +128,7 @@ function respond({
                 },
               },
           error: nodes?.error,
+          isValidating: nodes?.isValidating ?? false,
           isLoading: false,
           mutate: vi.fn(),
         };
@@ -424,10 +425,14 @@ describe('NodesPage connection tests', () => {
     expect(drawer).toHaveTextContent('SHA256:web01');
   });
 
-  it('tests every matched node when none is checked', async () => {
-    clientGet.mockResolvedValue({
-      data: { nodes: NODES, pagination: pages(1, 1) },
-    });
+  it('tests every matched node when none is checked, reading them a page at a time', async () => {
+    clientGet
+      .mockResolvedValueOnce({
+        data: { nodes: [NODES[0]], pagination: pages(1, 2) },
+      })
+      .mockResolvedValueOnce({
+        data: { nodes: [NODES[1]], pagination: pages(2, 2) },
+      });
     fetchMock.mockResolvedValueOnce(finished(passed('web01'), passed('db01')));
     renderPage();
 
@@ -439,18 +444,73 @@ describe('NodesPage connection tests', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Test matched nodes' }));
 
     await screen.findByText('2 passed, 0 failed');
-    expect(clientGet).toHaveBeenCalledWith('/nodes', {
-      params: {
-        query: expect.objectContaining({
-          page: 1,
-          perPage: 1000,
-          labels: 'role=web',
-        }),
-      },
-    });
+    expect(clientGet.mock.calls.map(([, init]) => init.params.query)).toEqual([
+      expect.objectContaining({ page: 1, perPage: 200, labels: 'role=web' }),
+      expect.objectContaining({ page: 2, perPage: 200, labels: 'role=web' }),
+    ]);
     expect(bodiesTo(fetchMock, '/node-connection-tests')).toEqual([
       { nodes: ['web01', 'db01'] },
     ]);
+  });
+
+  it('starts one test when clicked again while the matched nodes load', async () => {
+    let listed!: (value: unknown) => void;
+    clientGet.mockReturnValue(new Promise((resolve) => (listed = resolve)));
+    fetchMock.mockResolvedValueOnce(finished(passed('web01')));
+    renderPage();
+
+    const button = screen.getByRole('button', { name: 'Test matched nodes' });
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    await act(async () =>
+      listed({ data: { nodes: [NODES[0]], pagination: pages(1, 1) } })
+    );
+
+    await screen.findByText('1 passed, 0 failed');
+    expect(clientGet).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks checking nodes while a new filter loads', () => {
+    respond({
+      nodes: {
+        data: { nodes: NODES, pagination: pages(1, 1) },
+        isValidating: true,
+      },
+    });
+    renderPage();
+
+    expect(
+      screen.getByRole('checkbox', { name: 'Check web01' })
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('checkbox', { name: 'Check the nodes of this page' })
+    ).toBeDisabled();
+  });
+
+  it('does not show an earlier result as the result of a run that failed', async () => {
+    fetchMock
+      .mockResolvedValueOnce(finished(passed('web01')))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: 'secret store unavailable' }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+    renderPage();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Check web01' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Test 1 checked' }));
+    await screen.findByText('1 passed, 0 failed');
+    fireEvent.click(screen.getByRole('button', { name: 'Test 1 checked' }));
+
+    const panel = screen.getByRole('region', { name: 'Connection test' });
+    expect(await within(panel).findByRole('alert')).toHaveTextContent(
+      'secret store unavailable'
+    );
+    expect(panel).toHaveTextContent('Not tested');
+    expect(panel).not.toHaveTextContent('SHA256:web01');
   });
 
   it('refuses to test more than 1,000 matched nodes', async () => {
@@ -581,6 +641,67 @@ describe('NodesPage connection tests', () => {
       },
     ]);
     await screen.findByText('1 passed, 0 failed');
+  });
+
+  it('keeps a trust that did not finish reported while its nodes are tested again', async () => {
+    fetchMock
+      .mockResolvedValueOnce(finished(unknownKey('web01'), unknownKey('db01')))
+      .mockResolvedValueOnce(
+        // The stream closes after the first result, before done.
+        new Response(
+          `event: result\ndata: ${JSON.stringify({ node: 'web01', fingerprint: 'SHA256:web01-new', outcome: 'trusted' })}\n\n`,
+          { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+        )
+      )
+      .mockResolvedValueOnce(finished(passed('web01')));
+    renderPage();
+
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: 'Check the nodes of this page' })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Test 2 checked' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Trust 2 unknown keys' })
+    );
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Trust' })
+    );
+
+    await screen.findByText('1 passed, 1 failed');
+    expect(bodiesTo(fetchMock, '/node-connection-tests')[1]).toEqual({
+      nodes: ['web01'],
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'The connection closed before every node finished.'
+    );
+  });
+
+  it('tests nothing again when the panel closes during a trust', async () => {
+    const trustStream = eventStream();
+    fetchMock
+      .mockResolvedValueOnce(finished(unknownKey('web01')))
+      .mockResolvedValueOnce(trustStream.response);
+    renderPage();
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Check web01' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Test 1 checked' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Trust key' }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Trust' })
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await trustStream.send('result', {
+      node: 'web01',
+      fingerprint: 'SHA256:web01-new',
+      outcome: 'trusted',
+    });
+    await trustStream.send('done', { trusted: 1, failed: 0 });
+
+    expect(
+      screen.queryByRole('region', { name: 'Connection test' })
+    ).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('offers no trust for a key that differs only from the pinned key', async () => {

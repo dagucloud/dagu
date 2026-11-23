@@ -50,6 +50,8 @@ const NAME_DEBOUNCE_MS = 300;
 const COLUMN_COUNT = 5;
 // The most nodes one test takes, as the API does.
 const MAX_TEST_NODES = 1000;
+// The most nodes GET /nodes returns per page.
+const MATCHED_PAGE_SIZE = 200;
 
 /**
  * Lists the nodes of this server's inventories, filtered by inventory,
@@ -93,6 +95,8 @@ function NodeList(): React.ReactElement {
   const [selected, setSelected] = useState<InventoryNode | null>(null);
   // Names of the nodes checked for a test.
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
+  // Whether the names of the matched nodes are being read for a test.
+  const [listingMatched, setListingMatched] = useState(false);
   const { ts } = useI18n();
   const config = useConfig();
   const client = useClient();
@@ -172,24 +176,48 @@ function NodeList(): React.ReactElement {
       await tests.test([...checked]);
       return;
     }
-    const matched = await client.GET('/nodes', {
-      params: { query: { page: 1, perPage: MAX_TEST_NODES, ...filter } },
-    });
-    if (!matched.data) {
-      tests.refuse(
-        matched.error?.message ?? ts("Couldn't list the matched nodes.")
-      );
-      return;
+    setListingMatched(true);
+    try {
+      const names = await listMatched();
+      if (names) {
+        await tests.test(names);
+      }
+    } finally {
+      setListingMatched(false);
     }
-    if (matched.data.pagination.totalRecords > MAX_TEST_NODES) {
-      tests.refuse(
-        ts(
-          'A test takes at most 1,000 nodes. Narrow the filters, or check the nodes to test.'
-        )
-      );
-      return;
+  };
+
+  /**
+   * Returns the names of every node the filters match, a page at a time, or
+   * null after it reports why they cannot be tested.
+   */
+  const listMatched = async (): Promise<string[] | null> => {
+    const names: string[] = [];
+    for (let next = 1; ; next++) {
+      const matched = await client.GET('/nodes', {
+        params: {
+          query: { page: next, perPage: MATCHED_PAGE_SIZE, ...filter },
+        },
+      });
+      if (!matched.data) {
+        tests.refuse(
+          matched.error?.message ?? ts("Couldn't list the matched nodes.")
+        );
+        return null;
+      }
+      if (matched.data.pagination.totalRecords > MAX_TEST_NODES) {
+        tests.refuse(
+          ts(
+            'A test takes at most 1,000 nodes. Narrow the filters, or check the nodes to test.'
+          )
+        );
+        return null;
+      }
+      names.push(...matched.data.nodes.map((node) => node.name));
+      if (!matched.data.pagination.hasNextPage || !matched.data.nodes.length) {
+        return names;
+      }
     }
-    await tests.test(matched.data.nodes.map((node) => node.name));
   };
 
   if (inventories.data && inventoryList.length === 0) {
@@ -279,6 +307,7 @@ function NodeList(): React.ReactElement {
             variant="outline"
             className={pagination ? 'h-8' : 'ml-auto h-8'}
             disabled={
+              listingMatched ||
               tests.running ||
               tests.trusting ||
               (checked.size === 0 && !pagination?.totalRecords)
@@ -313,7 +342,7 @@ function NodeList(): React.ReactElement {
       {tests.run && (
         <NodeTestPanel
           run={tests.run}
-          results={tests.results}
+          results={tests.runResults}
           trusts={tests.trusts}
           trusting={tests.trusting}
           canTrust={canTrust}
@@ -338,7 +367,7 @@ function NodeList(): React.ReactElement {
                             ? true
                             : 'indeterminate'
                       }
-                      disabled={nodes.length === 0}
+                      disabled={nodes.length === 0 || isValidating}
                       onCheckedChange={(value) =>
                         setPageChecked(value === true)
                       }
@@ -402,6 +431,9 @@ function NodeList(): React.ReactElement {
                       : tests.results[nodeKey(node.name)]
                   }
                   checked={canTest ? checked.has(node.name) : undefined}
+                  // The rows of the previous filter stay while a new one
+                  // loads; a node checked then would be tested unseen.
+                  checkDisabled={isValidating}
                   onCheckedChange={(value) => toggleChecked(node.name, value)}
                   onOpen={() => setSelected(node)}
                 />
@@ -473,6 +505,7 @@ function NodeRow({
   node,
   test,
   checked,
+  checkDisabled,
   onCheckedChange,
   onOpen,
 }: {
@@ -481,6 +514,7 @@ function NodeRow({
   test?: ConnectionTest | 'pending';
   /** Whether the node is checked, or undefined when nodes cannot be. */
   checked?: boolean;
+  checkDisabled: boolean;
   onCheckedChange: (checked: boolean) => void;
   onOpen: () => void;
 }): React.ReactElement {
@@ -506,6 +540,7 @@ function NodeRow({
           <Checkbox
             aria-label={ts('Check {name}', { name: node.name })}
             checked={checked}
+            disabled={checkDisabled}
             onCheckedChange={(value) => onCheckedChange(value === true)}
           />
         </TableCell>

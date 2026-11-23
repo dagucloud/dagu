@@ -64,19 +64,26 @@ export function keyOffers(
 }
 
 /**
- * Tests node connections from the server and trusts host keys, keeping the
- * last result of each node for the page's lifetime. After a trust, the
- * nodes the trusted keys stopped are tested again.
+ * Tests node connections from the server and trusts host keys. `results`
+ * keeps the last result of each node for the page's lifetime; `runResults`
+ * holds only the results of the current run. After a trust, the nodes the
+ * trusted keys stopped are tested again.
  */
 export function useNodeTests(apiURL: string) {
   const [results, setResults] = useState<Record<string, ConnectionTest>>({});
+  const [runResults, setRunResults] = useState<Record<string, ConnectionTest>>(
+    {}
+  );
   const [trusts, setTrusts] = useState<Record<string, HostKeyTrust>>({});
   const [run, setRun] = useState<NodeTestRun | null>(null);
   const [trusting, setTrusting] = useState(false);
-  // The results as the stream delivers them, for a trust to read which
-  // nodes its keys stopped.
-  const resultsRef = useRef<Record<string, ConnectionTest>>({});
+  // The current run's results as the stream delivers them, for a trust to
+  // read which nodes its keys stopped.
+  const runResultsRef = useRef<Record<string, ConnectionTest>>({});
   const abortRef = useRef<AbortController | null>(null);
+  // Changes when a run starts or closes, so a trust of an older run does
+  // not test again.
+  const generationRef = useRef(0);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -88,33 +95,43 @@ export function useNodeTests(apiURL: string) {
     setRun((prev) => prev && { ...prev, pending: new Set(), error: message });
   }, []);
 
+  /**
+   * Tests names. A new run replaces the last one. A retest keeps the run's
+   * other results and its error, such as a trust that did not finish.
+   */
   const testNodes = useCallback(
     async (names: string[], retest: boolean) => {
       const controller = new AbortController();
       abortRef.current = controller;
       const pending = new Set(names.map(nodeKey));
-      setRun((prev) =>
-        retest && prev
-          ? { ...prev, pending, error: undefined }
-          : { names, pending }
-      );
-      if (!retest) {
+      if (retest) {
+        for (const key of pending) {
+          delete runResultsRef.current[key];
+        }
+        setRun((prev) => prev && { ...prev, pending });
+      } else {
+        generationRef.current += 1;
+        runResultsRef.current = {};
+        setRun({ names, pending });
         setTrusts({});
       }
+      setRunResults({ ...runResultsRef.current });
       try {
         await postNodeEvents<ConnectionTest, ConnectionTestSummary>(
           apiURL,
           '/node-connection-tests',
           { nodes: names },
           (result) => {
-            resultsRef.current[nodeKey(result.node)] = result;
-            setResults((prev) => ({ ...prev, [nodeKey(result.node)]: result }));
+            const key = nodeKey(result.node);
+            runResultsRef.current[key] = result;
+            setRunResults({ ...runResultsRef.current });
+            setResults((prev) => ({ ...prev, [key]: result }));
             setRun((prev) => {
               if (!prev) {
                 return prev;
               }
               const rest = new Set(prev.pending);
-              rest.delete(nodeKey(result.node));
+              rest.delete(key);
               return { ...prev, pending: rest };
             });
           },
@@ -134,11 +151,17 @@ export function useNodeTests(apiURL: string) {
 
   /** Reports why a test could not start, as a run's error. */
   const refuse = useCallback((message: string) => {
+    generationRef.current += 1;
+    runResultsRef.current = {};
+    setRunResults({});
     setRun({ names: [], pending: new Set(), error: message });
   }, []);
 
   const trust = useCallback(
     async (offers: KeyOffer[], names: string[]) => {
+      const generation = generationRef.current;
+      const controller = new AbortController();
+      abortRef.current = controller;
       const trusted = new Set<string>();
       setTrusting(true);
       try {
@@ -159,15 +182,19 @@ export function useNodeTests(apiURL: string) {
             if (!result.error) {
               trusted.add(nodeKey(result.node));
             }
-          }
+          },
+          controller.signal
         );
       } catch (error) {
         fail(error);
       } finally {
         setTrusting(false);
       }
+      if (controller.signal.aborted || generation !== generationRef.current) {
+        return;
+      }
       const retest = names.filter((name) => {
-        const refused = resultsRef.current[nodeKey(name)]?.hostKey;
+        const refused = runResultsRef.current[nodeKey(name)]?.hostKey;
         return !!refused && trusted.has(nodeKey(refused.node));
       });
       if (retest.length > 0) {
@@ -178,12 +205,14 @@ export function useNodeTests(apiURL: string) {
   );
 
   const close = useCallback(() => {
+    generationRef.current += 1;
     abortRef.current?.abort();
     setRun(null);
   }, []);
 
   return {
     results,
+    runResults,
     trusts,
     run,
     running: !!run && run.pending.size > 0,
