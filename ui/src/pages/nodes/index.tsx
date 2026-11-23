@@ -38,7 +38,7 @@ import { I18nTemplate } from '@/i18n/I18nTemplate';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { Server } from 'lucide-react';
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AddNodeDialog } from './AddNodeDialog';
 import { InventoriesView } from './inventories/InventoriesView';
 import { ImportDialog } from './inventories/ImportDialog';
@@ -99,6 +99,8 @@ function NodeList(): React.ReactElement {
   const searchName = useDebouncedValue(name.trim(), NAME_DEBOUNCE_MS);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<InventoryNode | null>(null);
+  // Counts the reads of the drawer's node, so only the latest is kept.
+  const reloadsRef = useRef(0);
   // Names of the nodes checked for a test.
   const [checked, setChecked] = useState<ReadonlySet<string>>(new Set());
   // Whether the names of the matched nodes are being read for a test.
@@ -156,12 +158,19 @@ function NodeList(): React.ReactElement {
     if (!selected) {
       return;
     }
+    const reload = ++reloadsRef.current;
     try {
       const { data } = await client.GET('/nodes/{nodeName}', {
         params: { path: { nodeName: selected.name } },
       });
-      if (data) {
-        setSelected(data);
+      // A later reload, a closed drawer, or another node supersedes this
+      // read.
+      if (data && reload === reloadsRef.current) {
+        setSelected((current) =>
+          current && nodeKey(current.name) === nodeKey(data.name)
+            ? data
+            : current
+        );
       }
     } catch {
       // The drawer keeps the node as it was read before.
