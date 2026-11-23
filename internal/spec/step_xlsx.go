@@ -14,14 +14,18 @@ import (
 // xlsxAction maps an xlsx.<operation> action to the xlsx executor. The
 // reading operations publish fixed outputs, so output declarations on them
 // are rejected.
-func xlsxAction(operation string, fixedOutputs bool) actionNormalizer {
-	return func(normalized map[string]any, with map[string]any) error {
-		if fixedOutputs {
-			if err := validateFixedOutputs(normalized, "xlsx"); err != nil {
-				return err
+func xlsxAction(operation string, fixedOutputs bool) builtinAction {
+	return builtinAction{
+		executorType: ir.ExecutorTypeXlsx,
+		selects:      operationIs(operation),
+		normalize: func(normalized map[string]any, with map[string]any) error {
+			if fixedOutputs {
+				if err := validateFixedOutputs(normalized, "xlsx"); err != nil {
+					return err
+				}
 			}
-		}
-		return normalizeOperationAction(normalized, "xlsx", with, operation)
+			return normalizeOperationAction(normalized, "xlsx", with, operation)
+		},
 	}
 }
 
@@ -37,16 +41,20 @@ var xlsxExtractFixedOutputs = []string{"cells", "sheet", "source", "warnings"}
 // the step, where it replaces the DAG-level llm block as it does for browser
 // steps; the schema's properties become the step's outputs, so authored
 // outputs are rejected like those of every other xlsx action.
-func xlsxExtractAction() actionNormalizer {
-	return func(normalized map[string]any, with map[string]any) error {
-		if err := validateFixedOutputs(normalized, "xlsx"); err != nil {
-			return err
-		}
-		if err := validateXlsxExtractSchema(with); err != nil {
-			return err
-		}
-		moveActionLLM(normalized, with)
-		return normalizeOperationAction(normalized, "xlsx", with, xlsxExtractOperation)
+func xlsxExtractAction() builtinAction {
+	return builtinAction{
+		executorType: ir.ExecutorTypeXlsx,
+		selects:      operationIs(xlsxExtractOperation),
+		normalize: func(normalized map[string]any, with map[string]any) error {
+			if err := validateFixedOutputs(normalized, "xlsx"); err != nil {
+				return err
+			}
+			if err := validateXlsxExtractSchema(with); err != nil {
+				return err
+			}
+			moveActionLLM(normalized, with)
+			return normalizeOperationAction(normalized, "xlsx", with, xlsxExtractOperation)
+		},
 	}
 }
 
