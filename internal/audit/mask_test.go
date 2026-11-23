@@ -62,21 +62,19 @@ func TestMaskHidesSecretsOutsideControlFields(t *testing.T) {
 	assert.True(t, json.Valid([]byte(entry.Details)), "details stay JSON")
 }
 
-// A secret that is a whole JSON value, or spans several, still leaves
-// details JSON.
+// A secret that is a whole JSON value, even an object, becomes a masked
+// string, and the values around it keep their structure.
 func TestMaskKeepsDetailsJSON(t *testing.T) {
 	masker := NewMasker(&secretValues{values: []string{"1234", `{"token":"abc"}`}})
-	for _, details := range []string{
-		`{"pin":1234,"duration_ms":1234}`,
-		`{"response":{"token":"abc"}}`,
+	for details, want := range map[string]string{
+		`{"pin":1234,"duration_ms":1234}`:         `{"pin":"*******","duration_ms":"*******"}`,
+		`{"response":{"token":"abc"},"other":42}`: `{"response":"*******","other":42}`,
 	} {
 		entry := &Entry{Details: details}
 
 		masker.Mask(context.Background(), entry)
 
-		assert.True(t, json.Valid([]byte(entry.Details)), entry.Details)
-		assert.NotContains(t, entry.Details, "1234")
-		assert.NotContains(t, entry.Details, `"abc"`)
+		assert.JSONEq(t, want, entry.Details)
 	}
 }
 

@@ -114,9 +114,9 @@ func (m *Masker) Mask(ctx context.Context, entry *Entry) {
 	entry.Masked = loaded
 }
 
-// maskDetails masks details, a JSON document, keeping it JSON: a secret that
-// is a whole JSON value becomes a masked string, and the masked text of one
-// that spans values is kept as a JSON string.
+// maskDetails masks details, a JSON document, keeping it JSON: the smallest
+// value holding a secret becomes a masked string, and in the rare document
+// MaskJSON cannot keep JSON, the masked text is kept as a JSON string.
 func maskDetails(details string, mask func(string) string) string {
 	masked := masking.MaskJSON(details, mask)
 	if json.Valid([]byte(masked)) || !json.Valid([]byte(details)) {
