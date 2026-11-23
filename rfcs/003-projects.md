@@ -298,8 +298,9 @@ with the old one's.
   project.
 - `dag.run` resolves its target in the caller's project, then in the
   library. A path target must lie inside the caller's project DAG directory
-  or the library once symbolic links resolve. A target in another project
-  is a load error.
+  or the library once symbolic links resolve, or be a file that runs in
+  place as that project's ([Migration](#migration)). A target in another
+  project is a load error.
 - A CLI command addresses the project named by `--project`, else by
   `DAGU_PROJECT`, else the project whose DAG directory contains the
   current directory, else `default`.
@@ -448,11 +449,16 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   - When the DAG directory is in a git checkout, delete is refused while
     the directory exists: the checkout owns it, so it is removed there
     first.
+  - Delete is also refused while a file runs in place as the project's
+    ([Migration](#migration)). Left behind without its record, the file
+    would run in the default project.
 - **Changed on disk.** A project whose DAG directory disappears outside
   Dagu is listed as missing and is not scheduled. It keeps its registry
   entry, grants, binding, and state until the directory returns or an
   admin deletes it. A directory renamed outside Dagu is not a project until
-  an admin creates one of its new name, since names never change.
+  an admin creates one of its new name, since names never change. A
+  project with files that run in place is not missing while those files
+  exist, and keeps running them.
 - **The default project** cannot be deleted. Its display name can change.
 
 ### Moving a DAG
