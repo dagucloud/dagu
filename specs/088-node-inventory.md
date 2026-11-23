@@ -6,9 +6,9 @@ Partially implemented. The inventory record, its rules, selectors, import,
 export, and changes to one node are implemented through `dagu nodes list`,
 `show`, `add`, `remove`, `import`, and `export`, and conformance covers them
 through those commands. Testing connections and trusting host keys are
-implemented over the API, and conformance covers them through it. Worker
-nodes and the `dagu nodes test` command are not implemented yet, and further
-sections are added as they land ([RFC 012](../rfcs/012-node-inventory.md)).
+implemented over the API and through `dagu nodes test`, and conformance
+covers both. Worker nodes are not implemented yet, and further sections are
+added as they land ([RFC 012](../rfcs/012-node-inventory.md)).
 
 ## Scope
 
@@ -118,6 +118,7 @@ order, comparing bytes.
 | `dagu nodes show <name> [--format table\|json]` | Prints one node. The name is compared without case |
 | `dagu nodes add <name> --host <host> [--inventory <name or id>] [flags]` | Adds a node, or replaces the node of that name, as [Changing inventories](#changing-inventories) defines |
 | `dagu nodes remove <name>` | Removes a node from the inventory that holds it |
+| `dagu nodes test [<name>...] [--labels <selector>]` | Tests the named nodes, the nodes the selector matches, or every node, and trusts the host keys the user accepts, as [Host keys](#host-keys) defines |
 | `dagu nodes import <file> [--replace] [--dry-run]` | Imports a JSON array of inventories, as [Import](#import) defines |
 | `dagu nodes export [--inventory <name or id>]` | Prints inventories, as [Export](#export) defines |
 
@@ -226,7 +227,8 @@ not tests.
 - When a hop presents a key that is unknown or has changed, the test stops
   before any credential reaches that hop. The result names the hop, `node`
   or `bastion`, the node whose key it is, and the presented and expected
-  fingerprints.
+  fingerprints. When a key is trusted for that node, the result names it as
+  `trusted`, the key a trust of the presented key replaces.
 - A test never trusts a key.
 
 **Trusting a key.** `POST /node-host-keys` takes, for each node, the
@@ -247,6 +249,27 @@ fingerprint of the key the user saw. Two entries for one node are refused.
 A test needs the operator role, and a trust the developer role. Each test,
 and each key a trust stores, is written to the audit log.
 
+**`dagu nodes test`** tests the named nodes, compared without case, the
+nodes `--labels` matches, or every node, as the server does, and prints a
+line per node as its test ends: `<name>  passed  <fingerprint>  <time>` or
+`<name>  failed  <error>`.
+
+- When tests stop at keys that a trust can store, it lists them and asks:
+  `Unknown host keys:`, one `<node>  <fingerprint>` line each, then `Trust
+  these host keys?`; and `Changed host keys:`, one `<node>  trusted
+  <fingerprint>, presents <fingerprint>` line each, then `Replace the trusted
+  host keys?`. Each is asked once for all the keys it lists. Any answer but
+  yes, or none, trusts nothing.
+- A changed key is offered only when a key is trusted for the node. A key
+  that differs from the node's `host_key` alone is fixed in the inventory.
+- On yes it trusts the keys as a trust does, prints `trusted host key
+  <fingerprint> of <node>` or `replaced host key <old> of <node> with
+  <new>`, and tests again the nodes those keys stopped. A node behind a
+  bastion whose key is unknown is asked about twice: for the bastion, then
+  for the node. Each node's key is asked about once per command.
+- It ends with `<n> passed, <m> failed`, and exits non-zero when any node
+  failed its last test.
+
 ## Errors
 
 Each error below exits non-zero and changes nothing.
@@ -256,7 +279,9 @@ Each error below exits non-zero and changes nothing.
 | A selector term is invalid | `invalid label filter "<term>"`, as Spec 087 defines |
 | `--labels` is given without terms, such as `,` or a blank value | `node selector is empty` |
 | `--inventory` names no inventory | `inventory "<name or id>" not found` |
-| `show` names no node | `node "<name>" not found` |
+| `show` or `test` names no node | `node "<name>" not found` |
+| `test` is given names and `--labels` | `give node names or --labels, not both` |
+| `test --labels` matches no node | `selector matched no nodes` |
 | The import file is not JSON, or a record has an unknown field | `invalid inventory JSON: <reason>` |
 | An import breaks any rule | `nothing imported:`, then one line per broken rule: `inventory "<name>": node "<node>": <field>: <reason>`, without the node part for a rule of the inventory itself |
 | `--format` is neither `table` nor `json` | `invalid --format "<format>": use table or json` |
