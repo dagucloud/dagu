@@ -23,16 +23,18 @@ const defaultDAGRunInvalidationPollInterval = time.Second
 // that the runs of service DAGs cause. See specs/100-service-run-history.md.
 const serviceWakeWindow = 10 * time.Second
 
-// wakeLimiter lets one wake of each key pass in each window. A wake inside the
-// window stays pending and fires at the end of the window, so that the last
-// change shows. Later wakes of a pending key add nothing.
+// wakeLimiter lets one wake pass in each window. A wake inside the window
+// stays pending and fires at the end of the window, so that the last change
+// shows. Later wakes while one is pending add nothing.
 type wakeLimiter struct {
-	mu      sync.Mutex
-	window  time.Duration
-	now     func() time.Time
-	after   func(d time.Duration, f func()) (stop func() bool)
-	last    map[string]time.Time
-	pending map[string]func() bool
+	mu     sync.Mutex
+	window time.Duration
+	now    func() time.Time
+	after  func(d time.Duration, f func()) (stop func() bool)
+	last   time.Time
+	// pending stops the wake that waits for the end of the window, or is nil
+	// when none waits.
+	pending func() bool
 }
 
 func newWakeLimiter(window time.Duration) *wakeLimiter {
@@ -42,55 +44,53 @@ func newWakeLimiter(window time.Duration) *wakeLimiter {
 		after: func(d time.Duration, f func()) func() bool {
 			return time.AfterFunc(d, f).Stop
 		},
-		last:    make(map[string]time.Time),
-		pending: make(map[string]func() bool),
 	}
 }
 
-// wake calls fire now, or at the end of the window of key when the last call
-// is less than one window old.
-func (l *wakeLimiter) wake(key string, fire func()) {
+// wake calls fire now, or at the end of the window when the last call is less
+// than one window old.
+func (l *wakeLimiter) wake(fire func()) {
 	l.mu.Lock()
-	if _, waiting := l.pending[key]; waiting {
+	if l.pending != nil {
 		l.mu.Unlock()
 		return
 	}
 	now := l.now()
-	if wait := l.last[key].Add(l.window).Sub(now); wait > 0 {
-		l.pending[key] = l.after(wait, func() {
+	if wait := l.last.Add(l.window).Sub(now); wait > 0 {
+		l.pending = l.after(wait, func() {
 			l.mu.Lock()
-			if _, waiting := l.pending[key]; !waiting {
+			if l.pending == nil {
 				l.mu.Unlock()
 				return
 			}
-			delete(l.pending, key)
-			l.last[key] = l.now()
+			l.pending = nil
+			l.last = l.now()
 			l.mu.Unlock()
 			fire()
 		})
 		l.mu.Unlock()
 		return
 	}
-	l.last[key] = now
+	l.last = now
 	l.mu.Unlock()
 	fire()
 }
 
-// stop cancels the pending wakes.
+// stop cancels the pending wake.
 func (l *wakeLimiter) stop() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	for key, stop := range l.pending {
-		stop()
-		delete(l.pending, key)
+	if l.pending != nil {
+		l.pending()
+		l.pending = nil
 	}
 }
 
 // wakeOrLimit calls fire at once, or through the limiter of the multiplexer
 // when the event is of a service DAG.
-func wakeOrLimit(mux *Multiplexer, service bool, key string, fire func()) {
+func wakeOrLimit(mux *Multiplexer, service bool, fire func()) {
 	if service {
-		mux.serviceWakes.wake(key, fire)
+		mux.serviceWakes.wake(fire)
 		return
 	}
 	fire()
@@ -259,7 +259,7 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event, service
 		service = eventstore.IsServiceDAGEvent(event)
 	}
 	mux.WakeTopicType(TopicTypeQueues)
-	wakeOrLimit(mux, service, "dagslist", func() { mux.WakeTopicType(TopicTypeDAGsList) })
+	wakeOrLimit(mux, service, func() { mux.WakeTopicType(TopicTypeDAGsList) })
 	if serviceDAGs == nil || serviceDAGRun {
 		mux.WakeTopicType(TopicTypeServiceDAGs)
 	}
