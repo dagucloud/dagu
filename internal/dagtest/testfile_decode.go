@@ -128,12 +128,7 @@ func decodeFile(data []byte) (fileSpec, []Finding) {
 	if err := dec.Decode(&next); !errors.Is(err, io.EOF) {
 		return fileSpec{}, []Finding{{Message: "holds more than one YAML document"}}
 	}
-	// The walk below follows aliases, so an alias inside its own anchor, or
-	// aliases that expand without bound, are refused first, as a decode
-	// refuses them. A type error, such as a repeated key, is left to the
-	// walk, which labels it.
-	var value any
-	if err := root.Decode(&value); err != nil && !errors.As(err, new(*yaml.TypeError)) {
+	if err := checkAliases(&root); err != nil {
 		return fileSpec{}, []Finding{{Message: "not valid YAML: " + err.Error()}}
 	}
 	if len(root.Content) == 0 || resolve(root.Content[0]).Kind != yaml.MappingNode {
@@ -147,6 +142,44 @@ func decodeFile(data []byte) (fileSpec, []Finding) {
 	d := &decoder{}
 	f := d.file(top)
 	return f, d.errs
+}
+
+// maxExpandedNodes bounds the nodes of a test file with its aliases
+// expanded.
+const maxExpandedNodes = 1 << 20
+
+// checkAliases reports an alias inside the node its anchor names, and
+// aliases that expand the file past maxExpandedNodes. The decoder follows
+// aliases as it walks, so it walks only a tree that passes.
+func checkAliases(root *yaml.Node) error {
+	sizes := make(map[*yaml.Node]int)
+	open := make(map[*yaml.Node]bool)
+	var expand func(n *yaml.Node) (int, error)
+	expand = func(n *yaml.Node) (int, error) {
+		n = resolve(n)
+		if open[n] {
+			return 0, fmt.Errorf("anchor %q holds an alias of itself", n.Anchor)
+		}
+		if size, ok := sizes[n]; ok {
+			return size, nil
+		}
+		open[n] = true
+		size := 1
+		for _, child := range n.Content {
+			childSize, err := expand(child)
+			if err != nil {
+				return 0, err
+			}
+			if size += childSize; size > maxExpandedNodes {
+				return 0, errors.New("its aliases expand it too far")
+			}
+		}
+		delete(open, n)
+		sizes[n] = size
+		return size, nil
+	}
+	_, err := expand(root)
+	return err
 }
 
 func hasKey(mapping *yaml.Node, key string) bool {
@@ -482,9 +515,15 @@ func (d *decoder) fields(n *yaml.Node, path string) []field {
 	n = resolve(n)
 	var out []field
 	index := make(map[string]int)
+	hasMerge := false
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		key, value := resolve(n.Content[i]), n.Content[i+1]
 		if key.ShortTag() == "!!merge" {
+			if hasMerge {
+				d.fail(join(path, key.Value), "appears more than once; merge a list of maps instead")
+				continue
+			}
+			hasMerge = true
 			for _, f := range d.merged(value, path) {
 				if _, ok := index[f.key]; !ok {
 					index[f.key] = len(out)

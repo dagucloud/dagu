@@ -61,7 +61,13 @@ func TestLoadFileInvalid(t *testing.T) {
 				"cases[3].name: is required and must not be empty",
 			},
 		},
-		{file: "duplicate.test.yaml", want: []string{"mocks.check: appears more than once"}},
+		{
+			file: "duplicate.test.yaml",
+			want: []string{
+				"mocks.check: appears more than once",
+				"mocks.twice.<<: appears more than once; merge a list of maps instead",
+			},
+		},
 		{
 			file: "smoke.test.yaml",
 			want: []string{"reads as a DAG, with steps and no cases; rename it so its name does not end in .test.yaml or .test.yml"},
@@ -69,7 +75,8 @@ func TestLoadFileInvalid(t *testing.T) {
 		{file: "list.test.yaml", want: []string{"the top level must be a map"}},
 		{file: "syntax.test.yaml", want: []string{"not valid YAML: yaml: line 1: did not find expected node content"}},
 		{file: "two_docs.test.yaml", want: []string{"holds more than one YAML document"}},
-		{file: "alias_loop.test.yaml", want: []string{"not valid YAML: yaml: anchor 'loop' value contains itself"}},
+		{file: "alias_loop.test.yaml", want: []string{`not valid YAML: anchor "loop" holds an alias of itself`}},
+		{file: "alias_bomb.test.yaml", want: []string{"not valid YAML: its aliases expand it too far"}},
 		{
 			file: "orphan.test.yaml",
 			want: []string{"no DAG file " + testFilePath("invalid/orphan.yaml") + " or " + testFilePath("invalid/orphan.yml") + " beside the test file; set dag"},

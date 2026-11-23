@@ -2,6 +2,9 @@ dag: noop.yaml
 mocks:
   check: {}
   check: {}
+  twice:
+    <<: {stdout: first}
+    <<: {stderr: second}
 cases:
   - name: a key twice
     expect:
