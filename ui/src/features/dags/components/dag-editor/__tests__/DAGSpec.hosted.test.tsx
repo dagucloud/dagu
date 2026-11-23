@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => {
     useQuery: vi.fn(),
     copyText: vi.fn(),
     refresh: vi.fn(),
+    preloadEditor: vi.fn(),
   };
 });
 
@@ -111,6 +112,10 @@ vi.mock('@/components/ui/select', () => ({
 }));
 
 vi.mock('../ExternalChangeDialog', () => ({ default: () => null }));
+vi.mock('../loadDAGEditor', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../loadDAGEditor')>()),
+  preloadDAGEditor: mocks.preloadEditor,
+}));
 vi.mock('../../value-reference-notices', () => ({
   ValueReferenceNoticesButton: () => null,
 }));
@@ -1016,5 +1021,27 @@ describe('DAGSpec YAML section claim', () => {
       fireEvent.click(screen.getByText('Claim add-step'));
     });
     expect(onStateChange).toHaveBeenCalledWith(null);
+  });
+});
+
+// A host opens the node view on a double click, at once: the code editor
+// loads 1.5 s after the canvas of a host mounts, so the view never waits.
+describe('the code editor of a host', () => {
+  it.each([
+    ['a host', { chrome: { compactNotices: true } }, 1],
+    ['no host', {}, 0],
+  ])('loads after the canvas mounts with %s', async (_name, props, calls) => {
+    mocks.preloadEditor.mockClear();
+    vi.useFakeTimers();
+    try {
+      await renderSpec(props);
+      expect(mocks.preloadEditor).not.toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+      expect(mocks.preloadEditor).toHaveBeenCalledTimes(calls);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
