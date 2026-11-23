@@ -52,6 +52,10 @@ type runOptions struct {
 	// testCase is set for a workflow test's run, which never reports to
 	// Dagu Console with a run key.
 	testCase bool
+	// reportNoTrigger leaves the trigger out of a run's job-run reports, for
+	// a run dagu start begins as a retry, such as a selected-steps run,
+	// without --trigger-type.
+	reportNoTrigger bool
 }
 
 func dagDefinitionIDFromEnv() string {

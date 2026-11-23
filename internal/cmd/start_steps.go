@@ -271,6 +271,7 @@ func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts r
 		func(preparedAttempt dagrun.Attempt) error {
 			run := opts
 			run.preparedAttempt = preparedAttempt
+			run.reportNoTrigger = !triggerPassed(ctx)
 			return executeRetry(ctx, dag, status, run)
 		},
 	)
