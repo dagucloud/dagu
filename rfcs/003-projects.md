@@ -628,8 +628,10 @@ or a copy of one, before the upgrade.
   and the DAG directories before the upgrade, and restore them to go back
   to v2.
 - Migration waits while a v2 scheduler or coordinator is in the service
-  registry, or a run has a live process heartbeat, and logs what it waits
-  for. It never moves the files of a run that is still running.
+  registry, and logs what it waits for. It then cancels every run whose
+  process is still live, as `dagu stop` does, and moves a run's files
+  only after its process exits. A run on a worker is marked cancelled,
+  and the coordinator stops it when the worker next connects.
 - A process killed during migration resumes it on its next start. While
   migration waits or runs, the health endpoint of every v3.0 process,
   including one that waits for another to migrate, answers 200 and reports
@@ -708,6 +710,8 @@ or a copy of one, before the upgrade.
 
 The report lists these items, which migration cannot settle alone:
 
+- Each run that migration cancelled, so the operator can retry it. The
+  preview lists the runs that are live when it runs.
 - Each project's files that run in place, and whether it reads its base
   config in v2's order.
 - Each global entry copied into a workspace's project. Later changes to the
@@ -749,6 +753,7 @@ dagu: made 2 workspaces into projects
 needs attention:
   dag.run        billing/report calls sim/score in another project
   global copy    secret DB_PASS copied into billing and ops
+  cancelled      2 runs that were still running
 ```
 
 ## Performance
@@ -861,9 +866,10 @@ Criteria 23 and 24 apply from the release that ships the feature.
    starts scheduling without a restart.
 7. A distributed run of a project DAG records its status in that project.
 8. The first v3.0 start migrates every workspace with no manual step,
-   waits while a v2 process or a run is still live or space is short,
-   resumes after being killed, answers 200 on its health endpoint
-   throughout, and reports every item that needs attention.
+   waits while a v2 scheduler or coordinator is live or space is short,
+   cancels every run still running, resumes after being killed, answers
+   200 on its health endpoint throughout, and reports every item that
+   needs attention, each cancelled run included.
 9. `dagu migrate workspaces` changes nothing on disk and shows the names,
    display names, and moves that the first start would make, and every item
    its report would list as needing attention.
@@ -934,7 +940,7 @@ Criteria 23 and 24 apply from the release that ships the feature.
     its name and run history, and its record ends.
 36. A DAG file that runs in place is listed, scheduled, and started only in
     its project, and a user who could not see it on v2 cannot see it on
-    v3.0. No DAG stops running at the upgrade.
+    v3.0. No DAG stops being scheduled at the upgrade.
 37. A secret, profile, or DAG state that a worker reads through the
     coordinator comes from the task's project, and the coordinator refuses
     a call without a project for a task of another project.
@@ -992,6 +998,9 @@ Criteria 23 and 24 apply from the release that ships the feature.
   preview gives the same review without blocking.
 - **Refuse to start until migrated.** An image upgrade would leave the
   server restarting in a loop, with the reason only in its log.
+- **Wait for running runs to finish.** An earlier revision of this RFC.
+  One long run would keep every project unscheduled and every request
+  failing until it ended.
 - **Keep resolving moved DAGs for clients that omit `project`.** A second
   resolution path, with warnings and an admin page, for a one-time move. The
   error that names the DAG's projects shows the fix.
@@ -1068,7 +1077,8 @@ Criteria 23 and 24 apply from the release that ships the feature.
 - Upgrading needs no manual step, with or without workspaces, and a preview
   shows each change beforehand. Every install's state moves once, so tools
   that read v2's paths need the new ones. Migration moves and edits no
-  DAG file, so no workflow stops or changes at the upgrade.
+  DAG file, so no workflow changes at the upgrade. Runs still running at
+  the upgrade are cancelled.
 - Every project, the default one included, keeps its state in one layout,
   and `paths.data_dir` keeps server-wide state apart from it.
 - Project-scoped API paths, MCP tools, and CLI commands gain a project
