@@ -5,6 +5,7 @@ package runtime_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -351,6 +352,98 @@ steps:
 	result := r.newPlan(t, steps...).assertRun(t, ir.Succeeded)
 
 	assert.Equal(t, []string{"not json", "low"}, result.nodeByName(t, "deploy").Step().Commands[0].Args)
+}
+
+// A real run reads the step's stdin and the file an object-form output names,
+// so it fails when they are missing. A mocked step reads neither and
+// publishes its outputs.
+func TestStepMockReadsNoFiles(t *testing.T) {
+	t.Parallel()
+
+	missing := filepath.Join(t.TempDir(), "absent.txt")
+	for _, tc := range []struct {
+		name    string
+		plan    string
+		outputs map[string]any
+		// wantOutputs is the published outputs payload, when any.
+		wantOutputs string
+	}{
+		{
+			name: "Stdin",
+			plan: fmt.Sprintf(`
+  - id: plan
+    run: exit 0
+    stdin: %q`, missing),
+		},
+		{
+			name: "ObjectFormFile",
+			plan: fmt.Sprintf(`
+  - id: plan
+    run: exit 0
+    output:
+      report: {from: file, path: %q}`, missing),
+			outputs:     map[string]any{"report": "ok"},
+			wantOutputs: `{"report":"ok"}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			yaml := "steps:" + tc.plan
+			unmocked := setupRunner(t).newPlan(t, loadSteps(t, yaml)...).assertRun(t, ir.Failed)
+			assert.ErrorContains(t, unmocked.nodeByName(t, "plan").Error(), "absent.txt")
+
+			r := setupRunner(t, withStepMocks(map[string]stepmock.Step{
+				"plan": {Results: []stepmock.Result{{Outputs: tc.outputs}}},
+			}))
+			result := r.newPlan(t, loadSteps(t, yaml)...).assertRun(t, ir.Succeeded)
+
+			outputs := result.nodeByName(t, "plan").State().StepOutputsValue
+			if tc.wantOutputs == "" {
+				assert.Nil(t, outputs)
+				return
+			}
+			require.NotNil(t, outputs)
+			assert.JSONEq(t, tc.wantOutputs, *outputs)
+		})
+	}
+}
+
+// An unmocked router routes on a mocked output, and the targets it does not
+// match end skipped.
+func TestStepMockRoutesOnMockedOutput(t *testing.T) {
+	t.Parallel()
+
+	r := setupRunner(t, withStepMocks(map[string]stepmock.Step{
+		"plan":   {Results: []stepmock.Result{{Outputs: map[string]any{"risk": "low"}}}},
+		"merge":  {},
+		"review": {},
+	}))
+	steps := loadSteps(t, `
+type: graph
+steps:
+  - id: plan
+    run: ./plan.sh
+    stdout:
+      outputs:
+        field: risk
+  - id: route
+    action: router.route
+    with:
+      value: ${steps.plan.outputs.risk}
+      routes:
+        low: [merge]
+        high: [review]
+  - id: merge
+    run: ./merge.sh
+  - id: review
+    run: ./review.sh
+`)
+	result := r.newPlan(t, steps...).assertRun(t, ir.Succeeded)
+
+	result.assertNodeStatus(t, "route", ir.NodeSucceeded)
+	result.assertNodeStatus(t, "merge", ir.NodeSucceeded)
+	result.assertNodeStatus(t, "review", ir.NodeSkipped)
 }
 
 // A mocked step keeps its executor type, so its command and script resolve to
