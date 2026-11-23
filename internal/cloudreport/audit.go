@@ -32,6 +32,9 @@ const (
 	auditHeartbeatInterval = 20 * time.Second
 	// auditBatchEntries is the most entries one request to Console carries.
 	auditBatchEntries = 1000
+	// auditBatchBytes is the stored size past which a batch takes no more
+	// reads, so a backlog of large entries is sent in parts.
+	auditBatchBytes   = 4 << 20
 	auditStateVersion = 1
 )
 
@@ -39,6 +42,7 @@ const (
 	warnAuditRead      = "Failed to read the audit entries to send to Dagu Console"
 	warnAuditSend      = "Failed to send audit entries to Dagu Console"
 	warnAuditSave      = "Failed to save which audit entries Dagu Console has stored"
+	warnAuditLoad      = "Failed to read the audit shipping state; trying again"
 	warnAuditState     = "Unreadable audit shipping state; sending the audit entries on disk from the oldest"
 	warnAuditLease     = "Failed to take the lease to send audit entries to Dagu Console"
 	warnAuditLeaseLost = "Lost the lease to send audit entries to Dagu Console"
@@ -117,6 +121,15 @@ type auditBatch struct {
 	Gap     *auditGap
 }
 
+// auditPass is a batch and the state to save once Console stores it.
+type auditPass struct {
+	batch auditBatch
+	next  auditState
+	// more reports that another batch goes at once: this one is full, or a
+	// gap is left for another request.
+	more bool
+}
+
 func newAuditShipper(
 	feed auditFeed,
 	state StateStore,
@@ -162,48 +175,59 @@ func (s *auditShipper) run(ctx context.Context) {
 
 // ship sends batches while a full one, or a gap left over, calls for another.
 // Every audit file is checked on the first pass and once a minute after it;
-// today's file on the others.
+// today's file on the others. A check of every file stays due until all it
+// found is stored.
 func (s *auditShipper) ship(ctx context.Context) {
 	if !s.hold(ctx) || !s.load(ctx) {
 		return
 	}
-	full := s.scannedAt.IsZero() || s.now().Sub(s.scannedAt) >= auditScanInterval
-	for ctx.Err() == nil {
-		batch, next, err := s.build(ctx, full)
+	startedAt := s.now()
+	full := s.scannedAt.IsZero() || startedAt.Sub(s.scannedAt) >= auditScanInterval
+	for {
+		pass, err := s.build(ctx, full)
+		if ctx.Err() != nil {
+			// Stopping: what was read but not sent is read again later.
+			return
+		}
 		if err != nil {
 			s.warn(ctx, warnAuditRead, err)
 			return
 		}
 		s.recovered(warnAuditRead)
-		if full {
-			s.scannedAt = s.now()
-		}
-		if len(batch.Entries) == 0 && batch.Gap == nil {
+		if len(pass.batch.Entries) == 0 && pass.batch.Gap == nil {
 			// Entries the level skips still move the position.
-			if !bytes.Equal(next.Position, s.saved.Position) {
-				s.save(ctx, next)
+			if !bytes.Equal(pass.next.Position, s.saved.Position) && !s.save(ctx, pass.next) {
+				return
 			}
-			return
+			break
 		}
-		if err := s.send(ctx, batch); err != nil {
+		if err := s.send(ctx, pass.batch); err != nil {
 			s.warn(ctx, warnAuditSend, err)
 			return
 		}
 		s.recovered(warnAuditSend)
-		// A full batch, or a gap left for another request, goes on at once.
-		more := len(batch.Entries) >= auditBatchEntries || len(next.Gaps) > 0
-		if !s.save(ctx, next) || !more {
+		if !s.save(ctx, pass.next) {
 			return
 		}
+		if !pass.more {
+			break
+		}
+	}
+	if full {
+		s.scannedAt = startedAt
 	}
 }
 
-// build reads the next batch after the saved position, and returns it with
-// the state to save once Console stores it.
-func (s *auditShipper) build(ctx context.Context, full bool) (auditBatch, auditState, error) {
+// build reads the next batch after the saved position.
+func (s *auditShipper) build(ctx context.Context, full bool) (auditPass, error) {
 	next := auditState{Version: auditStateVersion, Position: s.saved.Position, Gaps: s.saved.Gaps}
 	var entries []*audit.Entry
-	for len(entries) < auditBatchEntries {
+	var size int64
+	filled := false
+	for {
+		if err := ctx.Err(); err != nil {
+			return auditPass{}, err
+		}
 		chunk, err := s.feed.Read(ctx, audit.FeedQuery{
 			Position: next.Position,
 			Now:      s.now(),
@@ -212,12 +236,17 @@ func (s *auditShipper) build(ctx context.Context, full bool) (auditBatch, auditS
 			Limit:    auditBatchEntries - len(entries),
 		})
 		if err != nil {
-			return auditBatch{}, auditState{}, err
+			return auditPass{}, err
 		}
 		entries = append(entries, chunk.Entries...)
+		size += chunk.Bytes
 		next.Gaps = mergeLosses(next.Gaps, chunk.Losses)
 		next.Position = chunk.Position
 		if !chunk.More {
+			break
+		}
+		if len(entries) >= auditBatchEntries || size >= auditBatchBytes {
+			filled = true
 			break
 		}
 	}
@@ -229,7 +258,7 @@ func (s *auditShipper) build(ctx context.Context, full bool) (auditBatch, auditS
 		batch.Gap = &gap
 		next.Gaps = next.Gaps[1:]
 	}
-	return batch, next, nil
+	return auditPass{batch: batch, next: next, more: filled || len(next.Gaps) > 0}, nil
 }
 
 // sends reports whether the level sends entry. Only masked entries go. Of an
@@ -326,29 +355,41 @@ func (s *auditShipper) hold(ctx context.Context) bool {
 }
 
 // load reads the saved state once per hold of the lease. Without one, or
-// with one it cannot read, the shipper starts at the oldest entry on disk.
+// with one it cannot read, the shipper starts at the oldest entry on disk,
+// and saves that start before it reads, so files removed after it count as
+// lost even while the first batch is not stored.
 func (s *auditShipper) load(ctx context.Context) bool {
 	if s.loaded {
 		return true
 	}
 	data, found, err := s.state.Load(ctx)
 	if err != nil {
-		s.warn(ctx, warnAuditState, err)
+		s.warn(ctx, warnAuditLoad, err)
 		return false
 	}
-	s.saved = auditState{Version: auditStateVersion}
+	s.recovered(warnAuditLoad)
+	state := auditState{Version: auditStateVersion}
 	if found {
-		var state auditState
 		if err := json.Unmarshal(data, &state); err != nil || state.Version != auditStateVersion {
 			if err == nil {
 				err = fmt.Errorf("unknown version %d", state.Version)
 			}
 			logger.Warn(ctx, warnAuditState, tag.Error(err))
-		} else {
-			s.saved = state
+			state = auditState{Version: auditStateVersion}
 		}
 	}
-	s.recovered(warnAuditState)
+	if len(state.Position) == 0 {
+		chunk, err := s.feed.Read(ctx, audit.FeedQuery{Now: s.now(), Full: true})
+		if err != nil {
+			s.warn(ctx, warnAuditRead, err)
+			return false
+		}
+		state.Position = chunk.Position
+		if !s.save(ctx, state) {
+			return false
+		}
+	}
+	s.saved = state
 	s.loaded = true
 	return true
 }

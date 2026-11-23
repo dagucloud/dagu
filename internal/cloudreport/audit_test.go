@@ -8,6 +8,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -220,13 +222,14 @@ func TestAuditShipperIdleWritesNothing(t *testing.T) {
 
 	clock := startShipper(t, d, auditChanges, console)
 	assert.Empty(t, console.sent())
-	assert.Equal(t, int32(1), state.saves.Load())
+	saves := state.saves.Load()
+	require.Positive(t, saves)
 
 	clock.next()
 	clock.shift(auditScanInterval)
 	clock.next()
 	assert.Empty(t, console.sent())
-	assert.Equal(t, int32(1), state.saves.Load())
+	assert.Equal(t, saves, state.saves.Load())
 }
 
 // After a full batch, the next one goes at once.
@@ -255,8 +258,6 @@ func TestAuditShipperResendsWhatConsoleDidNotStore(t *testing.T) {
 
 	clock := startShipper(t, d, auditAll, console)
 	require.Len(t, sentEntries(console.sent()), 1)
-	_, err := os.Stat(d.stateFile)
-	require.ErrorIs(t, err, os.ErrNotExist, "nothing is saved before Console stores the batch")
 
 	clock.next()
 	resent := sentEntries(console.sent())
@@ -265,6 +266,105 @@ func TestAuditShipperResendsWhatConsoleDidNotStore(t *testing.T) {
 
 	clock.next()
 	assert.Empty(t, console.sent())
+}
+
+// The start is saved before the first batch, so a file removed while that
+// batch is not stored yet is reported as lost.
+func TestAuditShipperKeepsItsStartWhenTheFirstSendFails(t *testing.T) {
+	d := newAuditDir(t)
+	yesterday := testClockStart.AddDate(0, 0, -1)
+	d.write(t, yesterday, audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
+	console := newAuditConsole()
+	console.fail <- errors.New("console unreachable")
+	clock := startShipper(t, d, auditAll, console)
+	require.Len(t, sentEntries(console.sent()), 1)
+
+	require.NoError(t, os.Remove(filepath.Join(d.dir, yesterday.Format("2006-01-02")+".jsonl")))
+	clock.shift(auditScanInterval)
+	clock.next()
+
+	batches := console.sent()
+	require.Len(t, batches, 1)
+	assert.Empty(t, batches[0].Entries)
+	require.NotNil(t, batches[0].Gap)
+	assert.Equal(t, audit.LossDeleted, batches[0].Gap.Reason)
+}
+
+// A check of every file whose batch Console did not store runs again on the
+// next pass, not a minute later.
+func TestAuditShipperRepeatsAFailedFullCheck(t *testing.T) {
+	d := newAuditDir(t)
+	console := newAuditConsole()
+	clock := startShipper(t, d, auditAll, console)
+
+	late := d.write(t, testClockStart.AddDate(0, 0, -1), audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
+	console.fail <- errors.New("console unreachable")
+	clock.shift(auditScanInterval)
+	clock.next()
+	require.Len(t, sentEntries(console.sent()), 1)
+
+	clock.next()
+	entries := sentEntries(console.sent())
+	require.Len(t, entries, 1)
+	assert.Equal(t, late.ID, entries[0].ID)
+}
+
+// Large entries end a batch before 1,000, and the rest go in the next one at
+// once.
+func TestAuditShipperBoundsBatchBytes(t *testing.T) {
+	d := newAuditDir(t)
+	for range 10 {
+		entry := audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops")
+		entry.Details = `{"command":"` + strings.Repeat("x", 600<<10) + `"}`
+		d.write(t, testClockStart, entry)
+	}
+	console := newAuditConsole()
+
+	startShipper(t, d, auditAll, console)
+
+	batches := console.sent()
+	require.Greater(t, len(batches), 1)
+	assert.Len(t, sentEntries(batches), 10)
+}
+
+// endlessFeed always has more to read and never an entry to send, as a long
+// backlog the level skips. reading closes once the shipper reads on from a
+// read that returned More.
+type endlessFeed struct {
+	reads   atomic.Int32
+	once    sync.Once
+	reading chan struct{}
+}
+
+func (f *endlessFeed) Read(context.Context, audit.FeedQuery) (audit.FeedChunk, error) {
+	if f.reads.Add(1) > 2 {
+		f.once.Do(func() { close(f.reading) })
+	}
+	return audit.FeedChunk{Position: []byte(`{}`), More: true}, nil
+}
+
+// Stopping does not wait for the shipper to read through a backlog.
+func TestAuditShipperStopsDuringALongRead(t *testing.T) {
+	d := newAuditDir(t)
+	feed := &endlessFeed{reading: make(chan struct{})}
+	s := newAuditShipper(feed, d.state, filemonitor.NewLease(d.stateFile, nil), auditChanges, newAuditConsole().send)
+	s.start(t.Context())
+	select {
+	case <-feed.reading:
+	case <-time.After(testTimeout):
+		t.Fatal("the shipper did not read")
+	}
+
+	stopped := make(chan struct{})
+	go func() {
+		s.stop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(testTimeout):
+		t.Fatal("the shipper did not stop")
+	}
 }
 
 // An entry stamped just before midnight lands in yesterday's file after the
