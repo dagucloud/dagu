@@ -183,20 +183,6 @@ func (s *Service) trust(ctx context.Context, nodes []inventory.ResolvedNode, nod
 	return TrustOutcomeTrusted, nil
 }
 
-// ReadHostKey returns the host key with fingerprint that the node named name
-// presents, finding it and its bastion among nodes. The node receives no
-// credential; a bastion is reached with its host key checked. Nothing is
-// trusted.
-func (s *Service) ReadHostKey(ctx context.Context, nodes []inventory.ResolvedNode, name, fingerprint string) (ssh.PublicKey, error) {
-	node, ok := findNode(nodes, name)
-	if !ok {
-		return nil, fmt.Errorf("node %q is not in the project's inventories", name)
-	}
-	ctx, cancel := context.WithTimeout(ctx, nodeTimeout)
-	defer cancel()
-	return s.readHostKey(ctx, nodes, node, fingerprint, s.newSecretCache())
-}
-
 func (s *Service) readHostKey(ctx context.Context, nodes []inventory.ResolvedNode, node inventory.ResolvedNode, fingerprint string, secrets *secretCache) (ssh.PublicKey, error) {
 	bastion, err := bastionOf(nodes, node)
 	if err != nil {
