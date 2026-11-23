@@ -42,25 +42,7 @@ func TestMonitoringChoice(t *testing.T) {
 	// A restarted server keeps the choice.
 	status, err = NewMonitoring("", filemonitor.NewStateStore(path)).Status(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, Status{Level: config.ReportRuns, Chosen: true, NoticeDismissed: true, ErrorsOffered: true}, status)
-}
-
-// A level chosen before servers could send error messages was chosen without
-// them, so they are offered until the notice is dismissed.
-func TestMonitoringOffersErrorsToAnEarlierChoice(t *testing.T) {
-	t.Parallel()
-
-	path := filepath.Join(t.TempDir(), "report-settings.json")
-	require.NoError(t, os.WriteFile(path, []byte(`{"level":"runs"}`), 0o600))
-	m := NewMonitoring("", filemonitor.NewStateStore(path))
-	status, err := m.Status(t.Context())
-	require.NoError(t, err)
-	assert.False(t, status.ErrorsOffered)
-
-	require.NoError(t, m.DismissErrorsNotice(t.Context()))
-	status, err = m.Status(t.Context())
-	require.NoError(t, err)
-	assert.Equal(t, Status{Level: config.ReportRuns, Chosen: true, ErrorsOffered: true}, status)
+	assert.Equal(t, Status{Level: config.ReportRuns, Chosen: true, NoticeDismissed: true}, status)
 }
 
 // A level set in configuration is fixed; the stored choice is never read, so
@@ -72,7 +54,6 @@ func TestMonitoringConfigured(t *testing.T) {
 
 	require.ErrorIs(t, m.SetLevel(t.Context(), config.ReportRuns), ErrLevelConfigured)
 	require.NoError(t, m.DismissNotice(t.Context()))
-	require.NoError(t, m.DismissErrorsNotice(t.Context()))
 	status, err := m.Status(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, Status{Level: config.ReportHealth, Configured: true}, status)

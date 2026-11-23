@@ -10318,41 +10318,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /license/monitoring/dismiss-errors-notice:
-    post:
-      summary: "Dismiss the notice that offers to send error messages"
-      description: "Stops offering administrators to have this server also send the error messages of failed runs to Dagu Console. Admin only."
-      operationId: "dismissLicenseMonitoringErrorsNotice"
-      tags:
-        - "system"
-      parameters:
-        - $ref: "#/components/parameters/RemoteNode"
-      responses:
-        "200":
-          description: "What this server reports"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LicenseMonitoring"
-        "400":
-          description: "License management is not available"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "403":
-          description: "Insufficient permissions"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        default:
-          description: "Unexpected error"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-
   /license/remote-access:
     get:
       summary: "Get how far calls from Dagu Cloud may go on this server"
@@ -21512,9 +21477,6 @@ components:
         noticeDismissed:
           type: boolean
           description: "Whether an administrator dismissed the notice that asks what to report"
-        errorsOffered:
-          type: boolean
-          description: "Whether an administrator was offered to send error messages: they chose a level on this server, or dismissed the notice that offers them"
         lastReportAt:
           type: string
           description: "When Dagu Console accepted the last report this server sent"
@@ -21530,7 +21492,6 @@ components:
         - configured
         - chosen
         - noticeDismissed
-        - errorsOffered
 
     LicenseRemoteAccessLevel:
       type: string

@@ -2799,8 +2799,6 @@ const baseEnglish = {
   'Choose what this server reports': 'Choose what this server reports',
   'Choose what to report': 'Choose what to report',
   'Dismiss monitoring notice': 'Dismiss monitoring notice',
-  'Show why runs fail in Dagu Console': 'Show why runs fail in Dagu Console',
-  'Send error messages': 'Send error messages',
   "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails.":
     "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails.",
   'What to report': 'What to report',
@@ -2812,8 +2810,7 @@ const baseEnglish = {
     'Every report also carries what identifies and authenticates this server, as its license check-in does: the protocol version, license ID, server ID, and heartbeat secret, and which choice it was sent under. With run status, it also carries the reporter’s cursor and, after events were lost, the time they were lost from. Turning reporting off sends one last report that carries only what identifies and authenticates this server and the choice Off, so that Dagu Console shows monitoring as off.',
   'Never sent: full logs, outputs, parameters, environment, step commands, DAG YAML, schedule expressions, and the values of workflow secrets.':
     'Never sent: full logs, outputs, parameters, environment, step commands, DAG YAML, schedule expressions, and the values of workflow secrets.',
-  'Health, run status, and error messages (recommended)':
-    'Health, run status, and error messages (recommended)',
+  'Health and run status (recommended)': 'Health and run status (recommended)',
   'Health, run status, and error messages':
     'Health, run status, and error messages',
   "Sends everything Health and run status sends, plus why each failed run failed: the error messages of up to 5 failed steps and handlers, or the run's own, each up to 2 KB from its end. A step's error can end with the last lines of its stderr, with the values of workflow secrets masked.":
@@ -6059,8 +6056,6 @@ const baseChinese = {
   'Choose what this server reports': '选择此服务器报告的内容',
   'Choose what to report': '选择报告内容',
   'Dismiss monitoring notice': '关闭监控通知',
-  'Show why runs fail in Dagu Console': '在 Dagu Console 中显示运行失败的原因',
-  'Send error messages': '发送错误消息',
   "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails.":
     'Dagu Console 会在“服务器”页面显示此服务器的健康状态。同时报告运行状态时，工作流失败会通过电子邮件通知工作区的所有者和管理员。',
   'What to report': '要报告的内容',
@@ -6072,8 +6067,7 @@ const baseChinese = {
     '每次报告还会像许可证签到一样，携带识别和验证此服务器的信息：协议版本、许可证 ID、服务器 ID 和心跳密钥，以及发送时所选的报告内容。报告运行状态时，还会携带报告器的游标；如有事件丢失，还会携带事件开始丢失的时间。关闭报告时，会再发送最后一次报告，仅携带识别和验证此服务器的信息以及所选的“关闭”，以便 Dagu Console 显示监控已关闭。',
   'Never sent: full logs, outputs, parameters, environment, step commands, DAG YAML, schedule expressions, and the values of workflow secrets.':
     '从不发送：完整日志、输出、参数、环境变量、步骤命令、DAG YAML、计划表达式以及工作流密钥的值。',
-  'Health, run status, and error messages (recommended)':
-    '健康状态、运行状态和错误消息（推荐）',
+  'Health and run status (recommended)': '健康状态和运行状态（推荐）',
   'Health, run status, and error messages': '健康状态、运行状态和错误消息',
   "Sends everything Health and run status sends, plus why each failed run failed: the error messages of up to 5 failed steps and handlers, or the run's own, each up to 2 KB from its end. A step's error can end with the last lines of its stderr, with the values of workflow secrets masked.":
     '发送“健康状态和运行状态”的全部内容，并附带每个失败运行的失败原因：最多 5 个失败步骤和处理程序的错误消息，或运行本身的错误消息，每条从末尾起最多 2 KB。步骤的错误消息末尾可能包含其 stderr 的最后几行，其中工作流密钥的值会被遮蔽。',
@@ -9396,9 +9390,6 @@ const baseJapanese = {
   'Choose what this server reports': 'このサーバーが報告する内容を選択',
   'Choose what to report': '報告する内容を選択',
   'Dismiss monitoring notice': '監視の通知を閉じる',
-  'Show why runs fail in Dagu Console':
-    'Dagu Console で実行が失敗した理由を表示する',
-  'Send error messages': 'エラーメッセージを送信する',
   "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails.":
     'Dagu Console の「サーバー」ページにこのサーバーの状態が表示されます。実行状況も報告すると、ワークフローが失敗したときにワークスペースのオーナーと管理者にメールが届きます。',
   'What to report': '報告する内容',
@@ -9410,8 +9401,7 @@ const baseJapanese = {
     'すべての報告には、ライセンスのチェックインと同じく、このサーバーを識別・認証する情報（プロトコルバージョン、ライセンス ID、サーバー ID、ハートビートのシークレット）と、送信時に選択されている報告内容も含まれます。実行状況を報告する場合は、報告の位置を示すカーソルと、イベントが失われたときはその開始時刻も含まれます。報告をオフにすると、このサーバーを識別・認証する情報と、選択された「オフ」だけを含む最後の報告を 1 回送信し、Dagu Console で監視がオフと表示されるようにします。',
   'Never sent: full logs, outputs, parameters, environment, step commands, DAG YAML, schedule expressions, and the values of workflow secrets.':
     '送信しないもの: ログ全体、出力、パラメータ、環境変数、ステップのコマンド、DAG の YAML、スケジュールの式、ワークフローのシークレットの値。',
-  'Health, run status, and error messages (recommended)':
-    'ヘルス、実行状況、エラーメッセージ（推奨）',
+  'Health and run status (recommended)': 'ヘルスと実行状況（推奨）',
   'Health, run status, and error messages':
     'ヘルス、実行状況、エラーメッセージ',
   "Sends everything Health and run status sends, plus why each failed run failed: the error messages of up to 5 failed steps and handlers, or the run's own, each up to 2 KB from its end. A step's error can end with the last lines of its stderr, with the values of workflow secrets masked.":

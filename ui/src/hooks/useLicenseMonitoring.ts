@@ -77,24 +77,12 @@ export function useLicenseMonitoring(
     await mutate(next, { revalidate: false });
   }, [client, mutate, remoteNode, ts]);
 
-  const dismissErrorsNotice = useCallback(async () => {
-    const { data: next, error: apiError } = await client.POST(
-      '/license/monitoring/dismiss-errors-notice',
-      { params: { query: { remoteNode } } }
-    );
-    if (apiError || !next) {
-      throw new Error(apiError?.message || ts('Could not dismiss the notice.'));
-    }
-    await mutate(next, { revalidate: false });
-  }, [client, mutate, remoteNode, ts]);
-
   return {
     monitoring: data,
     error,
     refresh: mutate,
     setLevel,
     dismissNotice,
-    dismissErrorsNotice,
   };
 }
 
@@ -104,18 +92,4 @@ export function useLicenseMonitoring(
  */
 export function shouldAskMonitoring(monitoring?: LicenseMonitoring): boolean {
   return Boolean(monitoring && !monitoring.configured && !monitoring.chosen);
-}
-
-/**
- * Reports whether an administrator should be offered to also send error
- * messages: they chose run status, and have not dismissed the offer.
- */
-export function shouldOfferErrors(monitoring?: LicenseMonitoring): boolean {
-  return Boolean(
-    monitoring &&
-      !monitoring.configured &&
-      monitoring.chosen &&
-      monitoring.level === LicenseMonitoringLevel.runs &&
-      !monitoring.errorsOffered
-  );
 }
