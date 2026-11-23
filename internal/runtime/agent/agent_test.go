@@ -604,15 +604,21 @@ func pwdCommand() string {
 }
 
 type statusContextObserver struct {
-	mu                          sync.Mutex
-	runningStatusWritesObserved chan struct{}
-	expectedDone                <-chan struct{}
-	runningNodeWrites           int
-	invalidContext              bool
+	mu sync.Mutex
+	// stepStarted closes on the first write with a running node, and
+	// snapshotWritten on the second.
+	stepStarted       chan struct{}
+	snapshotWritten   chan struct{}
+	expectedDone      <-chan struct{}
+	runningNodeWrites int
+	invalidContext    bool
 }
 
 func newStatusContextObserver() *statusContextObserver {
-	return &statusContextObserver{runningStatusWritesObserved: make(chan struct{})}
+	return &statusContextObserver{
+		stepStarted:     make(chan struct{}),
+		snapshotWritten: make(chan struct{}),
+	}
 }
 
 func (o *statusContextObserver) observe(ctx context.Context, status ir.DAGRunStatus) {
@@ -634,9 +640,11 @@ func (o *statusContextObserver) observe(ctx context.Context, status ir.DAGRunSta
 			continue
 		}
 		o.runningNodeWrites++
-		if o.runningNodeWrites == 2 {
-			// Two running-node writes confirm that progress and delayed snapshots both occurred.
-			close(o.runningStatusWritesObserved)
+		switch o.runningNodeWrites {
+		case 1:
+			close(o.stepStarted)
+		case 2:
+			close(o.snapshotWritten)
 		}
 		return
 	}
@@ -760,6 +768,8 @@ func TestAgent_Run(t *testing.T) {
 			RunStateStore:       stateStore,
 			SocketServerFactory: fakeSocketServerFactory(nil),
 		}))
+		snapshot := make(chan time.Time)
+		agent.SetRunningStatusSnapshotForTest(dagAgent.Agent, snapshot)
 
 		runDone := make(chan error, 1)
 		go func() {
@@ -767,7 +777,15 @@ func TestAgent_Run(t *testing.T) {
 		}()
 
 		select {
-		case <-observer.runningStatusWritesObserved:
+		case <-observer.stepStarted:
+		case <-time.After(agentRunStartTimeout()):
+			require.FailNow(t, "timed out waiting for the step to start")
+		}
+		// The snapshot fires only once the step runs, so it records a running
+		// node however long the runner takes to start the step.
+		close(snapshot)
+		select {
+		case <-observer.snapshotWritten:
 		case <-time.After(agentRunStartTimeout()):
 			require.FailNow(t, "timed out waiting for delayed running-status write")
 		}
