@@ -897,8 +897,6 @@ func TestCmdStart_Only(t *testing.T) {
 // of its steps. Not parallel: the run key comes from the environment.
 func TestCmdStart_JobRunTrigger(t *testing.T) {
 	console := newJobConsole(t)
-	t.Setenv("DAGU_CLOUD_RUN_KEY", "drk_0123456789abcdef")
-	t.Setenv("DAGU_LICENSE_CLOUD_URL", console.URL)
 
 	const twoSteps = `steps:
   - id: first
@@ -917,21 +915,13 @@ func TestCmdStart_JobRunTrigger(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			th := test.SetupCommand(t)
 			dag := th.DAG(t, twoSteps)
-			console.reset()
 
 			args := append(append([]string{"start"}, tc.flags...), dag.Location)
 			th.RunCommand(t, cmd.Start(), test.CmdTest{Args: args})
 
-			reports := console.reports()
-			require.NotEmpty(t, reports)
-			require.NotNil(t, reports[len(reports)-1].Finished, "the run's finish is reported last")
-			for _, report := range reports {
-				for _, run := range []map[string]any{report.Active, report.Finished} {
-					if run != nil {
-						require.Equal(t, tc.want, run["trigger_type"])
-					}
-				}
-			}
+			status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+			require.NoError(t, err)
+			console.requireAttemptReported(t, status.AttemptID, tc.want)
 		})
 	}
 }
@@ -948,7 +938,8 @@ type jobReport struct {
 	Finished map[string]any `json:"finished"`
 }
 
-// newJobConsole starts a fake Console. A run key goes only to an https
+// newJobConsole starts a fake Console that the commands the test runs report
+// to with a run key from the environment. A run key goes only to an https
 // Console, through Go's default transport, so that transport trusts this one
 // until the test ends; a test using it must not be parallel.
 func newJobConsole(t *testing.T) *jobConsole {
@@ -967,19 +958,40 @@ func newJobConsole(t *testing.T) *jobConsole {
 	transport := http.DefaultTransport
 	http.DefaultTransport = c.Client().Transport
 	t.Cleanup(func() { http.DefaultTransport = transport })
+	t.Setenv("DAGU_CLOUD_RUN_KEY", "drk_0123456789abcdef")
+	t.Setenv("DAGU_LICENSE_CLOUD_URL", c.URL)
 	return c
 }
 
-func (c *jobConsole) reset() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.runs = nil
+// requireAttemptReported checks that Console took reports on the attempt
+// attemptID, its finish last, and that each carries trigger.
+func (c *jobConsole) requireAttemptReported(t *testing.T, attemptID, trigger string) {
+	t.Helper()
+	var reports []jobReport
+	for _, report := range c.reports() {
+		if report.run()["attempt_id"] == attemptID {
+			reports = append(reports, report)
+		}
+	}
+	require.NotEmpty(t, reports, "attempt %s was not reported", attemptID)
+	require.NotNil(t, reports[len(reports)-1].Finished, "the attempt's finish is reported last")
+	for _, report := range reports {
+		require.Equal(t, trigger, report.run()["trigger_type"])
+	}
 }
 
 func (c *jobConsole) reports() []jobReport {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]jobReport(nil), c.runs...)
+}
+
+// run is the run a report carries, in progress or finished.
+func (r jobReport) run() map[string]any {
+	if r.Active != nil {
+		return r.Active
+	}
+	return r.Finished
 }
 
 func readRunStatus(t *testing.T, th test.Command, dagName, dagRunID string) *ir.DAGRunStatus {
