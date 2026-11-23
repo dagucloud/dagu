@@ -401,6 +401,8 @@ func (r *jobReporter) sendFinish(req *jobRequest, deadline time.Time) {
 		case res.status == http.StatusTooManyRequests, res.status == http.StatusServiceUnavailable:
 			if res.retryAfter > 0 {
 				wait = res.retryAfter
+			} else {
+				backoff *= 2
 			}
 		case res.status >= http.StatusInternalServerError:
 			backoff *= 2

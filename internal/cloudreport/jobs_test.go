@@ -322,6 +322,26 @@ func TestJobFinishIsTriedAgainWithinItsBudget(t *testing.T) {
 	require.NoError(t, attempt.Close(t.Context()))
 }
 
+// A busy Console that names no wait gets a growing one, as on a server
+// error, so a finish does not retry it every half second.
+func TestJobFinishBacksOffWhenBusy(t *testing.T) {
+	t.Parallel()
+	console := newFakeJobConsole(t)
+	clock := newJobClock()
+	attempt := newJobAttempt(t.Context(), t, console, clock, nil)
+	console.answer(jobReply{status: http.StatusServiceUnavailable}, jobReply{status: http.StatusTooManyRequests})
+
+	require.NoError(t, attempt.RecordStatus(t.Context(), jobStatus(ir.Failed)))
+	for _, want := range []time.Duration{finishBackoff, 2 * finishBackoff} {
+		console.next(t)
+		wait := clock.wait(t)
+		assert.Equal(t, want, wait.d)
+		clock.end(wait)
+	}
+	console.next(t)
+	require.NoError(t, attempt.Close(t.Context()))
+}
+
 // A finish Console keeps failing is given up after its budget with one
 // warning, and a refused key stops at once with one warning.
 func TestJobFinishGivesUpAndSaysSo(t *testing.T) {
