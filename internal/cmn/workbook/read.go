@@ -54,6 +54,9 @@ type ReadOptions struct {
 	quietLimit bool
 	// noLimit reads every row; Convert writes to a file, not an output.
 	noLimit bool
+	// uncached collects the warnings about formulas evaluated for want of
+	// a cached value; nil warns once per cell.
+	uncached *uncachedWarnings
 }
 
 // ReadResult is what a read publishes.
@@ -112,7 +115,7 @@ func (w *file) read(ctx context.Context, opts ReadOptions) (*ReadResult, error) 
 			return nil, err
 		}
 	}
-	headers := headerNames(reg, layout, grid, merges, warn)
+	headers := w.headerNames(reg, layout, grid, merges, warn)
 	plan, err := w.planColumns(sheet, headers, opts)
 	if err != nil {
 		return nil, err
@@ -130,6 +133,7 @@ func (w *file) read(ctx context.Context, opts ReadOptions) (*ReadResult, error) 
 	// the check cheap.
 	stale := w.staleChecker(sheet, opts.Formulas)
 	readCols := plan.readColumns(reg)
+	opts.uncached = &uncachedWarnings{}
 
 	// Empty rows are held back until a later row proves they are not
 	// trailing, so they do not survive at the end unless keep_empty_rows
@@ -173,6 +177,7 @@ func (w *file) read(ctx context.Context, opts ReadOptions) (*ReadResult, error) 
 		counted++
 		stale.checkRow(r, readCols, grid, merges)
 	}
+	opts.uncached.report(warn)
 	stale.report(warn)
 	result.Count = len(result.Rows)
 	result.Headers = plan.names()

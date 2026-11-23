@@ -157,10 +157,12 @@ and standard encryption can be opened; any other mechanism fails with
 | Error such as `#N/A` | Null, with the warning `Sheet!B3: error cell #N/A`. |
 | Empty | Null. Trailing rows whose cells are all null are dropped unless `keep_empty_rows: true`. |
 
-A formula without a cached value is evaluated with the warning
-`Sheet!B2: formula had no cached value; evaluated`; one that cannot be
-evaluated is null with `Sheet!B3: formula NA() could not be evaluated:
-#N/A`. A cached read also evaluates the formulas of the cells it returns,
+A formula without a cached value is evaluated with one warning naming the
+first five such cells, `Sheet!B2, Sheet!B3: formula had no cached value;
+evaluated`, or `Sheet!B2, ..., Sheet!B6 and 7 more cells: ...` past five.
+One that cannot be evaluated is null with `Sheet!B3: formula NA() could not
+be evaluated: #N/A`. Past five such formulas, the rest are counted in one
+warning, `7 more formulas could not be evaluated`. A cached read also evaluates the formulas of the cells it returns,
 the read columns of the rows read, and when a value disagrees with its
 cache the cached value is still read, with one warning naming the first
 five such cells, `Sheet!D2, Sheet!D3, Sheet!D4: cached formula value is
@@ -349,6 +351,36 @@ replaced sheet stays in place, as the underlying library offers no way to
 remove one. A replace rebuilds the sheet; to fill a formatted sheet or a
 form and keep its look, use `xlsx.write_cells`, `xlsx.update_rows`, or
 `xlsx.append`, which keep each cell's style.
+
+A writer that changes a cell clears the cached values of the formulas that
+can depend on the change and requests full recalculation on open. This
+applies to `xlsx.write_cells`, `xlsx.update_rows`, `xlsx.append`, and
+`xlsx.write` into an existing workbook. It also applies to `xlsx.sheet`,
+where an added, replaced, renamed, or deleted sheet counts as a change to
+every cell of that sheet. A formula depends on a change when one of its
+references covers a changed cell, directly, through a defined name, or
+through a structured reference, which covers the whole table. A formula that
+reads a formula already cleared also depends on the change, on any sheet.
+Some formulas are cleared by any change, because their text does not show
+what they read: those that call `INDIRECT`, `OFFSET`, `CELL`, `INFO`, `SHEET`,
+`SHEETS`, or a user-defined function, those with a 3-D or spill reference,
+and data tables. References to other workbooks never depend on a change.
+Other formulas keep their cached values. The cells an array or data-table
+formula fills lose their caches with it, except a cell the writer sets,
+which keeps the written value. Formula text, shared, array, and data-table
+attributes, styles, and other workbook metadata are retained, and so are
+the existing calculation settings, such as manual mode and iterative
+calculation.
+
+A later `xlsx.read` follows the normal no-cache rule. Supported formulas are
+evaluated, and formulas the calculation library cannot evaluate read as null
+with a warning. A cell filled by a cleared array formula reads as empty until
+a spreadsheet application recalculates the workbook. Formula-valued headers
+are evaluated before readers and writers match columns. If evaluation fails
+or returns an empty header, the usual column-letter fallback applies, with
+evaluation and empty-header warnings. A dry run does not save or clear
+caches. A write that makes no changes keeps caches and calculation settings,
+including when it saves a requested `output` copy.
 
 Values are written by type: numbers as numbers, booleans as booleans,
 `2026-10-01` and `2026-10-01T14:30:00` strings as dates, other strings as
