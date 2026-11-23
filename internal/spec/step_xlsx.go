@@ -17,7 +17,7 @@ import (
 func xlsxAction(operation string, fixedOutputs bool) builtinAction {
 	return builtinAction{
 		executorType: ir.ExecutorTypeXlsx,
-		selects:      operationIs(operation),
+		variant:      operationVariant,
 		normalize: func(normalized map[string]any, with map[string]any) error {
 			if fixedOutputs {
 				if err := validateFixedOutputs(normalized, "xlsx"); err != nil {
@@ -44,7 +44,7 @@ var xlsxExtractFixedOutputs = []string{"cells", "sheet", "source", "warnings"}
 func xlsxExtractAction() builtinAction {
 	return builtinAction{
 		executorType: ir.ExecutorTypeXlsx,
-		selects:      operationIs(xlsxExtractOperation),
+		variant:      operationVariant,
 		normalize: func(normalized map[string]any, with map[string]any) error {
 			if err := validateFixedOutputs(normalized, "xlsx"); err != nil {
 				return err

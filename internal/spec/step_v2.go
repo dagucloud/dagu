@@ -39,14 +39,15 @@ type actionNormalizer func(normalized map[string]any, with map[string]any) error
 
 // builtinAction is a builtin action: the normalizer that rewrites it into
 // step fields, and the loaded step that ActionName traces back to it. An
-// action with neither executorType nor selects loads as a run step or as
-// another action's step, so ActionName never returns it.
+// action without executorType loads as a run step, a human task, or another
+// action's step, so ActionName does not trace it through this table.
 type builtinAction struct {
 	// executorType is the executor type of the loaded step.
 	executorType string
-	// selects tells the loaded step apart from the steps of the other actions
-	// of executorType. Nil marks the default action of the type.
-	selects   stepSelector
+	// variant reads the part of the action name after executorType from the
+	// loaded step, as the operation copy names file.copy. Nil marks the
+	// default action of the type.
+	variant   stepVariant
 	normalize actionNormalizer
 }
 
@@ -90,18 +91,18 @@ var builtinActions = map[string]builtinAction{
 	"file.stat":           operationAction("file", "stat"),
 	"file.write":          operationAction("file", "write"),
 	"git.checkout":        operationAction("git", "checkout"),
-	"git.worktree.add":    {executorType: "git", selects: operationIs("worktree.add"), normalize: normalizeGitWorktreeAddAction},
-	"git.worktree.remove": {executorType: "git", selects: operationIs("worktree.remove"), normalize: normalizeGitWorktreeRemoveAction},
+	"git.worktree.add":    {executorType: "git", variant: operationVariant, normalize: normalizeGitWorktreeAddAction},
+	"git.worktree.remove": {executorType: "git", variant: operationVariant, normalize: normalizeGitWorktreeRemoveAction},
 	"harness.run":         {executorType: "harness", normalize: normalizeHarnessRunAction},
 	"http.request":        {executorType: "http", normalize: normalizeHTTPRequestAction},
-	"human.task":          {selects: isHumanTask, normalize: normalizeHumanTaskAction},
+	"human.task":          {normalize: normalizeHumanTaskAction},
 	"jq.filter":           {executorType: "jq", normalize: normalizeJQFilterAction},
 	"js.run":              {executorType: "js", normalize: normalizeJSRunAction},
 	"k8s.run":             optionalCommandAction("k8s", "command"),
 	"kubernetes.run":      optionalCommandAction("kubernetes", "command"),
 	"log.write":           {executorType: "log", normalize: normalizeLogAction},
-	"mail.organize":       {executorType: "mail", selects: operationIs("organize"), normalize: normalizeMailOrganizeAction},
-	"mail.search":         {executorType: "mail", selects: operationIs("search"), normalize: normalizeMailSearchAction},
+	"mail.organize":       {executorType: "mail", variant: operationVariant, normalize: normalizeMailOrganizeAction},
+	"mail.search":         {executorType: "mail", variant: operationVariant, normalize: normalizeMailSearchAction},
 	"mail.send":           typedAction("mail"),
 	"mcp.call":            typedAction("mcp"),
 	"noop":                {executorType: "noop", normalize: normalizeNoopAction},
@@ -693,7 +694,7 @@ func normalizeImportAction(normalized map[string]any, executorType string, with 
 func importAction(executorType string) builtinAction {
 	return builtinAction{
 		executorType: executorType,
-		selects:      configHas("import"),
+		variant:      configKeyVariant("import"),
 		normalize: func(normalized map[string]any, with map[string]any) error {
 			return normalizeImportAction(normalized, executorType, with)
 		},
@@ -714,7 +715,7 @@ func normalizeDirectionAction(normalized map[string]any, executorType string, wi
 func directionAction(executorType, direction string) builtinAction {
 	return builtinAction{
 		executorType: executorType,
-		selects:      configIs("direction", direction),
+		variant:      configValueVariant("direction"),
 		normalize: func(normalized map[string]any, with map[string]any) error {
 			return normalizeDirectionAction(normalized, executorType, with, direction)
 		},
@@ -729,7 +730,7 @@ func normalizeOperationAction(normalized map[string]any, executorType string, wi
 func operationAction(executorType, operation string) builtinAction {
 	return builtinAction{
 		executorType: executorType,
-		selects:      operationIs(operation),
+		variant:      operationVariant,
 		normalize: func(normalized map[string]any, with map[string]any) error {
 			return normalizeOperationAction(normalized, executorType, with, operation)
 		},

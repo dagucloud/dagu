@@ -14,13 +14,18 @@ import (
 // ActionName returns the action a loaded step runs, as written in a step's
 // action field, such as ssh.run, file.copy, or the name of a custom action.
 // An action whose step loads as another action's step, such as
-// browser.extract as browser.run, returns the other action's name. A step
+// browser.extract as browser.run, returns the other action's name. A legacy
+// step whose operation no action has, such as type archive with command
+// pack, returns the name that operation would have, archive.pack. A step
 // whose executor type no action names, such as a run step, returns its
 // executor type.
 func ActionName(step *ir.Step) string {
 	cfg := step.ExecutorConfig
 	if custom, _ := cfg.Metadata["custom_type"].(string); custom != "" {
 		return custom
+	}
+	if step.HumanTask != nil {
+		return "human.task"
 	}
 	executorType := cfg.Type
 	switch executorType {
@@ -37,65 +42,76 @@ func ActionName(step *ir.Step) string {
 		// the legacy name of the dag executor.
 		executorType = ir.ExecutorTypeDAG
 	}
-	var fallback string
-	for _, name := range builtinActionsByExecutor[executorType] {
-		selects := builtinActions[name].selects
-		switch {
-		case selects == nil:
-			fallback = name
-		case selects(step):
-			return name
+	actions := builtinActionsByExecutor[executorType]
+	if actions.variant != nil {
+		if variant := actions.variant(step); variant != "" {
+			return executorType + "." + variant
 		}
 	}
-	if fallback != "" {
-		return fallback
+	if actions.defaultName != "" {
+		return actions.defaultName
 	}
 	return cfg.Type
 }
 
-// builtinActionsByExecutor lists the builtin actions by the executor type of
-// their loaded steps, in name order so a lookup does not depend on map order.
+// executorActions are the builtin actions whose steps load as one executor
+// type.
+type executorActions struct {
+	// variant reads the variant of every action of the type but the default.
+	variant stepVariant
+	// defaultName names the action of a step with no variant.
+	defaultName string
+}
+
 var builtinActionsByExecutor = indexBuiltinActions()
 
-func indexBuiltinActions() map[string][]string {
-	index := make(map[string][]string)
+func indexBuiltinActions() map[string]executorActions {
+	index := make(map[string]executorActions)
+	// Name order keeps the index independent of map order.
 	for _, name := range slices.Sorted(maps.Keys(builtinActions)) {
 		action := builtinActions[name]
-		if action.executorType != "" || action.selects != nil {
-			index[action.executorType] = append(index[action.executorType], name)
+		if action.executorType == "" {
+			continue
 		}
+		actions := index[action.executorType]
+		if action.variant != nil {
+			actions.variant = action.variant
+		} else {
+			actions.defaultName = name
+		}
+		index[action.executorType] = actions
 	}
 	return index
 }
 
-// stepSelector reports whether a loaded step came from one builtin action.
-type stepSelector func(step *ir.Step) bool
+// stepVariant returns the part of a loaded step's action name after its
+// executor type, or "" when the step sets none.
+type stepVariant func(step *ir.Step) string
 
-// operationIs selects the step whose command is operation, as an operation
-// action writes it.
-func operationIs(operation string) stepSelector {
-	return func(step *ir.Step) bool {
-		return len(step.Commands) > 0 && step.Commands[0].Command == operation
+// operationVariant reads the operation an operation action writes as the
+// step's command.
+func operationVariant(step *ir.Step) string {
+	if len(step.Commands) == 0 {
+		return ""
+	}
+	return step.Commands[0].Command
+}
+
+// configValueVariant reads the string value of key in the step's executor
+// config.
+func configValueVariant(key string) stepVariant {
+	return func(step *ir.Step) string {
+		value, _ := step.ExecutorConfig.Config[key].(string)
+		return value
 	}
 }
 
-// configHas selects the step whose executor config sets key.
-func configHas(key string) stepSelector {
-	return func(step *ir.Step) bool {
-		_, ok := step.ExecutorConfig.Config[key]
-		return ok
+// configKeyVariant reads key itself when the step's executor config sets it.
+func configKeyVariant(key string) stepVariant {
+	return func(step *ir.Step) string {
+		if _, ok := step.ExecutorConfig.Config[key]; ok {
+			return key
+		}
+		return ""
 	}
-}
-
-// configIs selects the step whose executor config sets key to value.
-func configIs(key, value string) stepSelector {
-	return func(step *ir.Step) bool {
-		got, _ := step.ExecutorConfig.Config[key].(string)
-		return got == value
-	}
-}
-
-// isHumanTask selects the step that waits for a person to complete a task.
-func isHumanTask(step *ir.Step) bool {
-	return step.HumanTask != nil
 }

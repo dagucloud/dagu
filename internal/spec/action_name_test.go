@@ -159,6 +159,17 @@ func TestActionNameOutsideBuiltinTable(t *testing.T) {
 			want: "dag.run",
 		},
 		{
+			// The archive executor checks its operation only at run time.
+			name: "LegacyOperation",
+			yaml: "steps:\n  - id: step\n    type: archive\n    command: pack\n",
+			want: "archive.pack",
+		},
+		{
+			name: "LegacyDirection",
+			yaml: "steps:\n  - id: step\n    type: sftp\n    with: {host: app, source: a, destination: b, direction: sideways}\n",
+			want: "sftp.sideways",
+		},
+		{
 			name: "Run",
 			yaml: "steps:\n  - id: step\n    run: echo hi\n",
 			want: "",
