@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"math/rand/v2"
@@ -194,11 +193,14 @@ type jobReporter struct {
 	latest *jobRequest
 	status string
 	urgent bool
-	// finish is the run that ended, sent once.
-	finish  *jobRequest
-	closing bool
-	wake    chan struct{}
-	done    chan struct{}
+	// finish is the run that ended, sent once and tried until finishBy,
+	// which counts from when the run ended, not from when the report in
+	// flight then returned.
+	finish   *jobRequest
+	finishBy time.Time
+	closing  bool
+	wake     chan struct{}
+	done     chan struct{}
 }
 
 func newJobReporter(ctx context.Context, reports *JobReports) *jobReporter {
@@ -259,7 +261,7 @@ func (r *jobReporter) record(status *ir.DAGRunStatus) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.finish == nil && !r.closing {
-		r.finish = req
+		r.finish, r.finishBy = req, r.now().Add(finishBudget)
 		r.signal()
 	}
 }
@@ -318,7 +320,7 @@ func (r *jobReporter) run() {
 			tick, due = nil, true
 		}
 		r.mu.Lock()
-		finish, closing := r.finish, r.closing
+		finish, finishBy, closing := r.finish, r.finishBy, r.closing
 		var progress *jobRequest
 		if r.latest != nil && (r.urgent || due) {
 			progress, r.urgent = r.latest, false
@@ -326,7 +328,7 @@ func (r *jobReporter) run() {
 		r.mu.Unlock()
 		switch {
 		case finish != nil:
-			r.sendFinish(finish)
+			r.sendFinish(finish, finishBy)
 			return
 		case closing:
 			return
@@ -349,52 +351,51 @@ func (r *jobReporter) run() {
 func (r *jobReporter) sendProgress(req *jobRequest) (time.Duration, bool) {
 	ctx, cancel := context.WithTimeout(r.ctx, jobRequestTimeout)
 	defer cancel()
-	status, _, answer, err := r.post(ctx, req)
+	res, err := r.post(ctx, req)
 	switch {
 	case err != nil:
 		logger.Debug(r.ctx, "Failed to report this run's progress to Dagu Console", tag.Error(err))
-	case status == http.StatusUnauthorized:
+	case res.status == http.StatusUnauthorized:
 		logger.Warn(r.ctx, warnJobKeyRefused)
 		return 0, false
-	case status >= http.StatusOK && status < http.StatusMultipleChoices:
-		return answer.interval(), true
+	case res.ok():
+		return res.answer.interval(), true
 	default:
-		logger.Debug(r.ctx, "Dagu Console did not take this run's progress", slog.Int("http_status", status))
+		logger.Debug(r.ctx, "Dagu Console did not take this run's progress", slog.Int("http_status", res.status))
 	}
 	return 0, true
 }
 
-// sendFinish sends the run that ended, trying again for up to finishBudget
-// on a failure Dagu Console or the network may recover from.
-func (r *jobReporter) sendFinish(req *jobRequest) {
-	deadline := r.now().Add(finishBudget)
+// sendFinish sends the run that ended, trying again until deadline on a
+// failure Dagu Console or the network may recover from.
+func (r *jobReporter) sendFinish(req *jobRequest, deadline time.Time) {
 	backoff := finishBackoff
 	for {
 		remaining := deadline.Sub(r.now())
 		ctx, cancel := context.WithTimeout(r.ctx, min(jobRequestTimeout, remaining))
-		status, retryAfter, answer, err := r.post(ctx, req)
+		res, err := r.post(ctx, req)
 		cancel()
 		wait := backoff
 		switch {
 		case err != nil:
 			logger.Debug(r.ctx, "Failed to report this run's finish to Dagu Console", tag.Error(err))
 			backoff *= 2
-		case status >= http.StatusOK && status < http.StatusMultipleChoices:
-			if answer.Listed != nil && !*answer.Listed && answer.Why == "allowance" {
+		case res.ok():
+			if res.answer.Listed != nil && !*res.answer.Listed && res.answer.Why == "allowance" {
 				logger.Info(r.ctx, infoJobNotListed)
 			}
 			return
-		case status == http.StatusUnauthorized:
+		case res.status == http.StatusUnauthorized:
 			logger.Warn(r.ctx, warnJobKeyRefused)
 			return
-		case status == http.StatusTooManyRequests, status == http.StatusServiceUnavailable:
-			if retryAfter > 0 {
-				wait = retryAfter
+		case res.status == http.StatusTooManyRequests, res.status == http.StatusServiceUnavailable:
+			if res.retryAfter > 0 {
+				wait = res.retryAfter
 			}
-		case status >= http.StatusInternalServerError:
+		case res.status >= http.StatusInternalServerError:
 			backoff *= 2
 		default:
-			logger.Warn(r.ctx, warnJobRefused, slog.Int("http_status", status))
+			logger.Warn(r.ctx, warnJobRefused, slog.Int("http_status", res.status))
 			return
 		}
 		if !r.now().Add(wait).Before(deadline) {
@@ -405,34 +406,48 @@ func (r *jobReporter) sendFinish(req *jobRequest) {
 	}
 }
 
-// post sends req and returns Dagu Console's status, the wait its
-// Retry-After asks for, and its answer.
-func (r *jobReporter) post(ctx context.Context, req *jobRequest) (int, time.Duration, jobAnswer, error) {
+// jobResponse is how Dagu Console answered one report: its status, the
+// wait its Retry-After asks for, and, for a success, its answer.
+type jobResponse struct {
+	status     int
+	retryAfter time.Duration
+	answer     jobAnswer
+}
+
+func (res jobResponse) ok() bool {
+	return res.status >= http.StatusOK && res.status < http.StatusMultipleChoices
+}
+
+// post sends req and returns how Dagu Console answered, or an error when
+// it did not. An answer whose body cannot be read keeps its status.
+func (r *jobReporter) post(ctx context.Context, req *jobRequest) (jobResponse, error) {
 	body, err := encodeJob(req)
 	if err != nil {
-		return 0, 0, jobAnswer{}, err
+		return jobResponse{}, err
 	}
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, r.url, bytes.NewReader(body))
 	if err != nil {
-		return 0, 0, jobAnswer{}, err
+		return jobResponse{}, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+r.reports.RunKey)
 	httpReq.Header.Set("User-Agent", r.agent)
 	resp, err := r.client.Do(httpReq)
 	if err != nil {
-		return 0, 0, jobAnswer{}, err
+		return jobResponse{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	res := jobResponse{status: resp.StatusCode, retryAfter: r.retryAfter(resp.Header.Get("Retry-After"))}
+	if !res.ok() {
+		return res, nil
+	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxJobAnswerBytes))
 	if err != nil {
-		return 0, 0, jobAnswer{}, fmt.Errorf("reading Dagu Console's answer: %w", err)
+		logger.Debug(r.ctx, "Failed to read Dagu Console's answer", tag.Error(err))
+		return res, nil
 	}
-	var answer jobAnswer
-	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-		_ = json.Unmarshal(data, &answer)
-	}
-	return resp.StatusCode, jobRetryAfter(resp.Header.Get("Retry-After")), answer, nil
+	_ = json.Unmarshal(data, &res.answer)
+	return res, nil
 }
 
 // jitter varies d by up to intervalJitter either way, so the machines that
@@ -452,13 +467,17 @@ func (a jobAnswer) interval() time.Duration {
 	return min(max(d, jobMinInterval), jobMaxInterval)
 }
 
-// jobRetryAfter is the wait a Retry-After header in seconds asks for, or 0.
-func jobRetryAfter(header string) time.Duration {
-	seconds, err := strconv.Atoi(strings.TrimSpace(header))
-	if err != nil || seconds <= 0 {
-		return 0
+// retryAfter is the wait a Retry-After header asks for, in seconds or as
+// an HTTP date, or 0.
+func (r *jobReporter) retryAfter(header string) time.Duration {
+	header = strings.TrimSpace(header)
+	if seconds, err := strconv.Atoi(header); err == nil {
+		return max(time.Duration(seconds)*time.Second, 0)
 	}
-	return time.Duration(seconds) * time.Second
+	if at, err := http.ParseTime(header); err == nil {
+		return max(at.Sub(r.now()), 0)
+	}
+	return 0
 }
 
 // encodeJob encodes req within maxJobReportBytes, leaving out what matters

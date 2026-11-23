@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -32,11 +33,14 @@ type jobCall struct {
 	body        map[string]any
 }
 
-// jobReply is how the fake Console answers one report.
+// jobReply is how the fake Console answers one report: after hold closes
+// when it is set, and with a body cut short when incomplete.
 type jobReply struct {
 	status     int
 	retryAfter string
 	body       string
+	incomplete bool
+	hold       chan struct{}
 }
 
 // fakeJobConsole takes job reports, answering each with the next reply
@@ -58,12 +62,19 @@ func newFakeJobConsole(t *testing.T) *fakeJobConsole {
 		assert.NoError(t, json.Unmarshal(data, &body))
 		assert.LessOrEqual(t, len(data), maxJobReportBytes)
 		reply := c.reply()
+		c.calls <- jobCall{auth: r.Header.Get("Authorization"), agent: r.Header.Get("User-Agent"), body: body}
+		if reply.hold != nil {
+			<-reply.hold
+		}
 		if reply.retryAfter != "" {
 			w.Header().Set("Retry-After", reply.retryAfter)
 		}
+		if reply.incomplete {
+			// The server closes the connection after fewer bytes than declared.
+			w.Header().Set("Content-Length", strconv.Itoa(len(reply.body)+64))
+		}
 		w.WriteHeader(reply.status)
 		_, _ = io.WriteString(w, reply.body)
-		c.calls <- jobCall{auth: r.Header.Get("Authorization"), agent: r.Header.Get("User-Agent"), body: body}
 	}))
 	t.Cleanup(c.server.Close)
 	return c
@@ -142,11 +153,15 @@ func (c *jobClock) wait(t *testing.T) jobWait {
 
 // end ends w, moving the time on by it.
 func (c *jobClock) end(w jobWait) {
+	c.advance(w.d)
+	w.fire <- c.now()
+}
+
+// advance moves the time on by d, as a report in flight takes it.
+func (c *jobClock) advance(d time.Duration) {
 	c.mu.Lock()
-	c.at = c.at.Add(w.d)
-	now := c.at
-	c.mu.Unlock()
-	w.fire <- now
+	defer c.mu.Unlock()
+	c.at = c.at.Add(d)
 }
 
 // githubEnv is a GitHub Actions job's environment.
@@ -277,14 +292,16 @@ func TestJobRunReportsKeepTheLevelAndAPassedTrigger(t *testing.T) {
 }
 
 // A finish is tried again after the wait Console asks for while it is busy,
-// and after a growing wait on a server error, within its 10 seconds.
+// in seconds or as a date, even when its answer is cut short, and after a
+// growing wait on a server error, within its 10 seconds.
 func TestJobFinishIsTriedAgainWithinItsBudget(t *testing.T) {
 	t.Parallel()
 	console := newFakeJobConsole(t)
 	clock := newJobClock()
 	attempt := newJobAttempt(t.Context(), t, console, clock, nil)
 	console.answer(
-		jobReply{status: http.StatusServiceUnavailable, retryAfter: "2", body: `{}`},
+		jobReply{status: http.StatusServiceUnavailable, retryAfter: "2", body: `{}`, incomplete: true},
+		jobReply{status: http.StatusTooManyRequests, retryAfter: testRecordedAt.Add(5 * time.Second).Format(http.TimeFormat)},
 		jobReply{status: http.StatusInternalServerError, body: `{}`},
 	)
 
@@ -293,6 +310,10 @@ func TestJobFinishIsTriedAgainWithinItsBudget(t *testing.T) {
 	busy := clock.wait(t)
 	assert.Equal(t, 2*time.Second, busy.d)
 	clock.end(busy)
+	console.next(t)
+	limited := clock.wait(t)
+	assert.Equal(t, 3*time.Second, limited.d, "the date is 3 seconds on")
+	clock.end(limited)
 	console.next(t)
 	failed := clock.wait(t)
 	assert.Equal(t, finishBackoff, failed.d)
@@ -314,7 +335,11 @@ func TestJobFinishGivesUpAndSaysSo(t *testing.T) {
 			warning: warnJobFinishLost,
 		},
 		"refused key": {replies: []jobReply{{status: http.StatusUnauthorized}}, warning: warnJobKeyRefused},
-		"malformed":   {replies: []jobReply{{status: http.StatusBadRequest}}, warning: warnJobRefused},
+		"refused key, answer cut short": {
+			replies: []jobReply{{status: http.StatusUnauthorized, body: `{}`, incomplete: true}},
+			warning: warnJobKeyRefused,
+		},
+		"malformed": {replies: []jobReply{{status: http.StatusBadRequest}}, warning: warnJobRefused},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -344,6 +369,41 @@ func TestJobFinishGivesUpAndSaysSo(t *testing.T) {
 			assert.NotContains(t, logs.String(), testRunKey)
 		})
 	}
+}
+
+// A finish is tried for 10 seconds from when its run ended, however long
+// the report then in flight took.
+func TestJobFinishBudgetCountsFromTheRunsEnd(t *testing.T) {
+	t.Parallel()
+	var logs bytes.Buffer
+	ctx := logger.WithLogger(t.Context(), logger.NewLogger(
+		logger.WithFormat("text"), logger.WithWriter(&logs), logger.WithQuiet()))
+	console := newFakeJobConsole(t)
+	clock := newJobClock()
+	attempt := newJobAttempt(ctx, t, console, clock, nil)
+	inFlight := make(chan struct{})
+	console.answer(
+		jobReply{status: http.StatusOK, body: `{"stored":0,"next_report_seconds":60}`, hold: inFlight},
+		jobReply{status: http.StatusServiceUnavailable, retryAfter: "3"},
+	)
+
+	require.NoError(t, attempt.RecordStatus(ctx, jobStatus(ir.Running)))
+	console.next(t)
+	require.NoError(t, attempt.RecordStatus(ctx, jobStatus(ir.Failed)))
+	clock.advance(8 * time.Second)
+	close(inFlight)
+	clock.wait(t) // the next progress report's interval
+	console.next(t)
+
+	closed := make(chan error, 1)
+	go func() { closed <- attempt.Close(ctx) }()
+	select {
+	case err := <-closed:
+		require.NoError(t, err)
+	case w := <-clock.waits:
+		t.Fatalf("the finish waits %s more, past its 10 seconds", w.d)
+	}
+	assert.Equal(t, 1, strings.Count(logs.String(), warnJobFinishLost))
 }
 
 // A finish Console counted but does not list, past the month's allowance,
