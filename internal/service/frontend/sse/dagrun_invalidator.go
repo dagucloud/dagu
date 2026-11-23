@@ -186,7 +186,7 @@ func handleDAGRunEvents(mux *Multiplexer, events []*eventstore.Event, serviceDAG
 
 // changedDAGNames returns the names of the DAGs whose root runs the events
 // change, each once. A sub-DAG run is not a run of a DAG list, so its events
-// name no DAG.
+// name no DAG, and an update that keeps the state of a run changes no list.
 func changedDAGNames(events []*eventstore.Event) []string {
 	var names []string
 	for _, event := range events {
@@ -198,6 +198,9 @@ func changedDAGNames(events []*eventstore.Event) []string {
 			continue
 		}
 		if root := snapshot.Root; root.DAGRunID != "" && root.DAGRunID != snapshot.DAGRunID {
+			continue
+		}
+		if len(affectedDAGRunListStatuses(event.Type, snapshot.Status)) == 0 {
 			continue
 		}
 		if !slices.Contains(names, snapshot.Name) {

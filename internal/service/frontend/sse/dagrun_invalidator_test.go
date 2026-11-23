@@ -628,7 +628,8 @@ func TestDAGRunInvalidatorWakesServiceDAGListOnlyForItsDAGs(t *testing.T) {
 
 // After each read of events, the DAGs whose root runs changed are told, each
 // once, also when no event came, which tells that the events are read. A
-// sub-DAG run names no DAG.
+// sub-DAG run names no DAG, and neither does an update that keeps the state
+// of a run, such as a step change.
 func TestHandleDAGRunEventsTellsTheChangedDAGs(t *testing.T) {
 	mux := NewMultiplexer(StreamConfig{}, nil)
 	t.Cleanup(mux.Shutdown)
@@ -640,6 +641,7 @@ func TestHandleDAGRunEventsTellsTheChangedDAGs(t *testing.T) {
 		runEvent(eventstore.TypeDAGRunSucceeded, ir.Succeeded, "b", "root-run", "b"),
 		runEvent(eventstore.TypeDAGRunSucceeded, ir.Succeeded, "a", "r1", ""),
 		runEvent(eventstore.TypeDAGRunRunning, ir.Running, "child", "c1", "a"),
+		runEvent(eventstore.TypeDAGRunUpdated, ir.Running, "c", "r4", ""),
 	}, nil, changed)
 	handleDAGRunEvents(mux, nil, nil, changed)
 
