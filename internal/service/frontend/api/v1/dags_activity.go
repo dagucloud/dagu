@@ -205,28 +205,29 @@ func (a *API) dagActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStat
 	if before && !latest.Status.IsActive() {
 		return activity, nil
 	}
-	page, err := a.dagRunRepository.ListStatusesPage(ctx, persis.DAGRunListOptions{
-		ExactName: dag.Name,
-		From:      persis.NewUTC(since),
-		Statuses:  startedRunStatuses,
-		Limit:     activityRunLimit,
-		// The activity cache keeps what the list needs, and these reads would
-		// push out of the shared status cache what other pages read.
-		SkipStatusCache: true,
-		// A backfill run is not the latest run of its DAG either.
-		ExcludeBackfill: true,
-	})
+	runs, more, err := a.startedRuns(ctx, dag.Name, persis.NewUTC(since), persis.TimeInUTC{}, activityRunLimit, nil)
 	if err != nil {
 		return activity, fmt.Errorf("list recent runs of %s: %w", dag.Name, err)
 	}
-	for _, status := range page.Items {
-		if runTime(status.StartedAt).IsZero() {
-			// A queued run that is aborted ends without a start.
-			continue
+	if !more {
+		// A run created before the window starts in it after a wait in the
+		// queue. Runs leave a queue in the order they entered it, so the first
+		// older run that started before the window and ended ends the search.
+		// A retry of an older run enters the queue again, so it shows only
+		// while it is the latest run.
+		older, olderMore, err := a.startedRuns(ctx, dag.Name, persis.NewUTC(since.Add(-maxActivityWindow)), persis.NewUTC(since),
+			activityRunLimit-len(runs), func(status *ir.DAGRunStatus) bool {
+				return runTime(status.StartedAt).Before(since) && !status.Status.IsActive()
+			})
+		if err != nil {
+			return activity, fmt.Errorf("list waited runs of %s: %w", dag.Name, err)
 		}
-		activity.Runs = append(activity.Runs, toListActivityRun(*status))
+		runs, more = append(runs, older...), olderMore
 	}
-	activity.Truncated = page.NextCursor != ""
+	for _, run := range runs {
+		activity.Runs = append(activity.Runs, toListActivityRun(run))
+	}
+	activity.Truncated = more
 	// The list holds the runs created in the window. A latest run created
 	// before it, as a queued or retried run can be, shows when it started in
 	// the window or is still active. A retry in the queue keeps the start of
@@ -242,6 +243,49 @@ func (a *API) dagActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStat
 		return runTime(y.StartedAt).Compare(runTime(x.StartedAt))
 	})
 	return activity, nil
+}
+
+// startedRuns pages through the runs of a DAG created from `from` and before
+// `to`, newest created first, and keeps the runs that started, at most limit.
+// It ends at the first started run that stop reports true for. It reports
+// whether more started runs remain.
+func (a *API) startedRuns(ctx context.Context, dagName string, from, to persis.TimeInUTC, limit int, stop func(*ir.DAGRunStatus) bool) ([]ir.DAGRunStatus, bool, error) {
+	opts := persis.DAGRunListOptions{
+		ExactName: dagName,
+		From:      from,
+		To:        to,
+		Statuses:  startedRunStatuses,
+		Limit:     activityRunLimit,
+		// The activity cache keeps what the list needs, and these reads would
+		// push out of the shared status cache what other pages read.
+		SkipStatusCache: true,
+		// The list shows a backfill on its own.
+		ExcludeBackfill: true,
+	}
+	var runs []ir.DAGRunStatus
+	for {
+		page, err := a.dagRunRepository.ListStatusesPage(ctx, opts)
+		if err != nil {
+			return runs, false, err
+		}
+		for _, status := range page.Items {
+			if runTime(status.StartedAt).IsZero() {
+				// A run canceled in the queue ends without a start.
+				continue
+			}
+			if stop != nil && stop(status) {
+				return runs, false, nil
+			}
+			if len(runs) == limit {
+				return runs, true, nil
+			}
+			runs = append(runs, *status)
+		}
+		if page.NextCursor == "" {
+			return runs, false, nil
+		}
+		opts.Cursor = page.NextCursor
+	}
 }
 
 func toListActivityRun(status ir.DAGRunStatus) api.DAGListActivityRun {

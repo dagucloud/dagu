@@ -29,6 +29,9 @@ type activityRun struct {
 	// retried keeps the times of the previous attempt on a queued run, as a
 	// retry that waits in the queue does.
 	retried bool
+	// unstarted leaves the run without a start, as a run that is canceled in
+	// the queue ends.
+	unstarted bool
 }
 
 func createActivityDAG(t *testing.T, server test.Server, name string) *ir.DAG {
@@ -55,7 +58,7 @@ func seedActivityRun(t *testing.T, server test.Server, dag *ir.DAG, run activity
 		options = append(options, ir.WithFinishedAt(start.Add(run.took)))
 	}
 	startedAt := start
-	if run.status == ir.Queued && !run.retried {
+	if run.status == ir.Queued && !run.retried || run.unstarted {
 		startedAt = time.Time{}
 	}
 	status := ir.NewStatusBuilder(dag).Create(run.id, run.status, 0, startedAt, options...)
@@ -207,6 +210,39 @@ func TestDAGListActivityOfRunsQueuedBeforeTheyStarted(t *testing.T) {
 
 // A backfill run is not listed, as it is not the latest run of its DAG
 // either: the list shows a backfill on its own.
+// A run that waited in the queue from before the window and started in it
+// shows, also when a newer run is the latest. The search for such runs ends at
+// the first run that started before the window.
+func TestDAGListActivityOfRunsThatWaitedFromBeforeTheWindow(t *testing.T) {
+	server := test.SetupServer(t)
+	dag := createActivityDAG(t, server, "activity_waited")
+	seedActivityRun(t, server, dag, activityRun{id: "before", status: ir.Succeeded, startAgo: 40 * time.Hour, took: time.Minute})
+	seedActivityRun(t, server, dag, activityRun{id: "waited", status: ir.Succeeded, startAgo: 2 * time.Hour, queuedFor: 28 * time.Hour, took: time.Minute})
+	seedActivityRun(t, server, dag, activityRun{id: "newer", status: ir.Succeeded, startAgo: time.Hour, took: time.Minute})
+
+	for _, query := range []string{"?window=86400", "?window=86400&sort=lastRun"} {
+		assert.Equal(t, []string{"newer", "waited"}, activityRunIDs(listActivity(t, server, query)["activity_waited"]), query)
+	}
+}
+
+// Runs canceled in the queue take none of the 60 places, so they do not hide
+// the runs before them.
+func TestDAGListActivityLeavesOutRunsCanceledInTheQueue(t *testing.T) {
+	server := test.SetupServer(t)
+	dag := createActivityDAG(t, server, "activity_canceled")
+	seedActivityRun(t, server, dag, activityRun{id: "ran", status: ir.Succeeded, startAgo: 3 * time.Hour, took: time.Minute})
+	for i := range 60 {
+		seedActivityRun(t, server, dag, activityRun{
+			id: fmt.Sprintf("canceled-%02d", i), status: ir.Aborted, startAgo: time.Duration(i+1) * time.Minute, unstarted: true,
+		})
+	}
+
+	activity := listActivity(t, server, "?window=86400")["activity_canceled"]
+	require.NotNil(t, activity)
+	assert.Equal(t, []string{"ran"}, activityRunIDs(activity))
+	assert.False(t, activity.Truncated)
+}
+
 func TestDAGListActivityLeavesOutBackfillRuns(t *testing.T) {
 	server := test.SetupServer(t)
 	idle := createActivityDAG(t, server, "activity_backfill_idle")
