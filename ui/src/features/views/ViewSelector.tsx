@@ -231,13 +231,10 @@ export function ViewSelector({
     setPendingDelete(view);
   };
 
-  const afterDelete = () => {
+  const dismissDelete = () => {
     setPendingDelete(null);
     if (deleteFromManage) setManageDialogOpen(true);
-    else focusTrigger();
   };
-
-  const dismissDelete = afterDelete;
 
   const normalizedRename = renameName.trim();
   const renameTaken = views.some(
@@ -276,7 +273,9 @@ export function ViewSelector({
     }
     try {
       await runMutation(() => onDeleteView(pendingDelete.id));
-      afterDelete();
+      setPendingDelete(null);
+      if (deleteFromManage) setManageDialogOpen(true);
+      else focusTrigger();
     } catch {
       // Keep the confirmation open so the operation can be retried.
     }
@@ -397,7 +396,7 @@ export function ViewSelector({
         </DropdownMenu>
         {onRenameView && canManageViews && (
           <div
-            role="toolbar"
+            role="group"
             aria-label={ts('View actions')}
             className="flex items-center gap-1"
           >
@@ -416,7 +415,9 @@ export function ViewSelector({
               }
               onClick={() =>
                 activeView
-                  ? void runMutation(onUpdateView).catch(() => undefined)
+                  ? void runMutation(onUpdateView)
+                      .then(focusTrigger)
+                      .catch(() => undefined)
                   : openSaveDialog()
               }
             >
@@ -536,10 +537,7 @@ export function ViewSelector({
       </Dialog>
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-        <DialogContent
-          className="sm:max-w-[440px]"
-          onCloseAutoFocus={toFocusTrigger}
-        >
+        <DialogContent className="sm:max-w-[440px]">
           <form onSubmit={renameView}>
             <DialogHeader>
               <DialogTitle>

@@ -198,7 +198,7 @@ describe('ViewSelector', () => {
       onRenameView: vi.fn().mockResolvedValue(undefined),
     });
     const button = (name: string) =>
-      within(screen.getByRole('toolbar', { name: 'View actions' })).getByRole(
+      within(screen.getByRole('group', { name: 'View actions' })).getByRole(
         'button',
         { name }
       );
@@ -235,6 +235,27 @@ describe('ViewSelector', () => {
 
       await user.click(button('Save the changes of “Production operations”'));
       expect(props.onUpdateView).toHaveBeenCalledOnce();
+    });
+
+    // The update turns the Save button off: the focus goes back to the
+    // selector, not to the page.
+    it('focuses the selector after it saves the active view', async () => {
+      const user = userEvent.setup();
+      renderSelector({
+        ...toolbar(),
+        activeViewId: 'production',
+        isAllView: false,
+        isActiveViewEdited: true,
+      });
+
+      await user.click(button('Save the changes of “Production operations”'));
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', {
+            name: 'Run view: Production operations',
+          })
+        ).toHaveFocus()
+      );
     });
 
     it('turns off Save while the active view is not edited', () => {
