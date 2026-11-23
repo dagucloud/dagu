@@ -599,7 +599,7 @@ describe('StepNode issues and run', () => {
         expect(tokens).toContain('border-transparent');
         expect(tokens).toContain('hover:border-transparent');
         expect(tokens).toContain('focus-within:border-transparent');
-        expect(tokens).not.toContain('border-muted-foreground/60');
+        expect(tokens).not.toContain('border-node-line');
         // The spotlight of a host is a variant that only data-spotlit turns on.
         const own = tokens.filter(
           (t) => !t.startsWith('group-data-[spotlit]/node:')
@@ -1383,11 +1383,12 @@ describe('StepNode toolbar', () => {
     }
   );
 
-  // In dark mode the border of a card was close to the canvas.
-  it('has a brighter border in dark mode', () => {
+  // The node line token gives the border of a card 3:1 on the canvas in
+  // light and dark.
+  it('has the node line token as its border', () => {
     const { getByTestId } = renderHot(<StepNode {...nodeProps(makeNode())} />);
     expect(getByTestId('ve-canvas-node-steps[0]').className).toContain(
-      'dark:border-muted-foreground/40'
+      'border-node-line'
     );
   });
 
@@ -1473,7 +1474,7 @@ describe('HandlerNode border', () => {
       <HandlerNode {...nodeProps(makeNode({ kind: 'run' }))} />
     );
     expect(getByTestId('ve-canvas-node-steps[0]').className).toContain(
-      'border-muted-foreground/60'
+      'border-node-line'
     );
   });
 });

@@ -65,11 +65,11 @@ export const HANDLE_CLASS =
   '!h-2 !w-2 !rounded-full !border !border-border !bg-muted-foreground';
 
 /**
- * Outline of a node card. In the light theme it is slightly thicker and
- * darker; the dark theme keeps its 1 px outline.
+ * Outline of a node card, in the node line token (3:1 on the canvas in both
+ * themes). In the light theme it is slightly thicker; the dark theme keeps its
+ * 1 px outline.
  */
-export const CARD_OUTLINE =
-  'border-[1.5px] border-muted-foreground/60 dark:border dark:border-muted-foreground/40';
+export const CARD_OUTLINE = 'border-[1.5px] border-node-line dark:border';
 
 /**
  * The light of the cursor of the YAML, and the same light while a host
