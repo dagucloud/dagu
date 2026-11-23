@@ -214,6 +214,9 @@ func (d *decoder) cases(n *yaml.Node, path string) []caseSpec {
 	}
 	for i, item := range items {
 		itemPath := indexPath(path, i)
+		if !d.isMap(item, itemPath) {
+			continue
+		}
 		c := d.caseSpec(item, itemPath)
 		switch {
 		case c.name == "":
@@ -329,6 +332,9 @@ func (d *decoder) resultField(r *resultSpec, fd field) bool {
 
 func (d *decoder) review(n *yaml.Node, path string) *reviewSpec {
 	r := &reviewSpec{}
+	if !d.isMap(n, path) {
+		return r
+	}
 	hasDecision := false
 	for _, fd := range d.fields(n, path) {
 		switch fd.key {
@@ -457,14 +463,23 @@ type field struct {
 	merged bool
 }
 
+// isMap reports whether n is a map, and an error when it is not. A caller
+// checks it first when it would also report a missing field.
+func (d *decoder) isMap(n *yaml.Node, path string) bool {
+	if resolve(n).Kind != yaml.MappingNode {
+		d.fail(path, "must be a map")
+		return false
+	}
+	return true
+}
+
 // fields returns the entries of a map in order. Merge keys are expanded,
 // and an entry written in the map wins over a merged one.
 func (d *decoder) fields(n *yaml.Node, path string) []field {
-	n = resolve(n)
-	if n.Kind != yaml.MappingNode {
-		d.fail(path, "must be a map")
+	if !d.isMap(n, path) {
 		return nil
 	}
+	n = resolve(n)
 	var out []field
 	index := make(map[string]int)
 	for i := 0; i+1 < len(n.Content); i += 2 {

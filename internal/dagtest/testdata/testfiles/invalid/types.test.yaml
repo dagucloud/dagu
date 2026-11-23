@@ -8,7 +8,9 @@ mocks:
     exit_code: "0"
     stdout: 1
     results: {}
+    review: approve
 cases:
+  - a case that is not a map
   - name: wrong types
     expect:
       attempts: one

@@ -44,8 +44,10 @@ func TestLoadFileInvalid(t *testing.T) {
 				"mocks.check.exit_code: must be an integer",
 				"mocks.check.stdout: must be a string",
 				"mocks.check.results: must be a list",
-				"cases[0].expect.attempts: must be an integer",
-				"cases[0].expect.steps.check: must be a status token or a map",
+				"mocks.check.review: must be a map",
+				"cases[0]: must be a map",
+				"cases[1].expect.attempts: must be an integer",
+				"cases[1].expect.steps.check: must be a status token or a map",
 			},
 		},
 		{file: "no_cases.test.yaml", want: []string{"cases: is required"}},
@@ -70,10 +72,10 @@ func TestLoadFileInvalid(t *testing.T) {
 		{file: "alias_loop.test.yaml", want: []string{"not valid YAML: yaml: anchor 'loop' value contains itself"}},
 		{
 			file: "orphan.test.yaml",
-			want: []string{"no DAG file " + invalidPath("orphan.yaml") + " or " + invalidPath("orphan.yml") + " beside the test file; set dag"},
+			want: []string{"no DAG file " + testFilePath("invalid/orphan.yaml") + " or " + testFilePath("invalid/orphan.yml") + " beside the test file; set dag"},
 		},
 		{file: "names_test_file.test.yaml", want: []string{"dag: names a test file, not a DAG"}},
-		{file: "missing_dag.test.yaml", want: []string{"dag: DAG file " + invalidPath("nowhere.yaml") + " does not exist"}},
+		{file: "missing_dag.test.yaml", want: []string{"dag: DAG file " + testFilePath("invalid/nowhere.yaml") + " does not exist"}},
 		{
 			file: "broken.test.yaml",
 			want: []string{"the DAG fails to load: failed to process document 0: failed to build DAG: field 'depends': step a depends on non-existent step missing (value: missing)"},
@@ -88,7 +90,7 @@ func TestLoadFileInvalid(t *testing.T) {
 		t.Run(tt.file, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := dagtest.LoadFile(context.Background(), invalidPath(tt.file))
+			_, err := dagtest.LoadFile(context.Background(), testFilePath("invalid/"+tt.file))
 			var invalid *dagtest.InvalidFileError
 			require.ErrorAs(t, err, &invalid)
 			var got []string
@@ -98,10 +100,6 @@ func TestLoadFileInvalid(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
-}
-
-func invalidPath(name string) string {
-	return filepath.Join("testdata", "testfiles", "invalid", name)
 }
 
 func TestLoadFileDAGPath(t *testing.T) {
