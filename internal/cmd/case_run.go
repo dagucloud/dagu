@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,8 +31,9 @@ type caseOptions struct {
 	// keep leaves the case directory in place when the case is closed.
 	keep bool
 	// secrets holds the test value of each DAG secret by name, and of each
-	// SSH credential secret ref by ref. Every secret the DAG declares needs
-	// one, and no secret provider or store is called.
+	// SSH credential secret ref by ref. No secret provider or store is
+	// called. A case with a real step needs a value for every one of them,
+	// and a case without one fills in placeholders (see caseSecrets).
 	secrets map[string]string
 	// trigger is the run's context.trigger.type. The zero value is manual.
 	trigger ir.TriggerType
@@ -67,10 +69,11 @@ func openCase(ctx *Context, opts caseOptions) (*testCase, error) {
 
 // run runs dag through the local execution path of dagu start and returns
 // the status the run recorded. A run that fails or is aborted returns its
-// status and no error. A DAG secret without a test value is an error before
-// the run starts.
+// status and no error. In a case with a real step, a DAG secret without a
+// test value is an error before the run starts.
 func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
-	if err := checkCaseSecrets(dag, c.opts.secrets); err != nil {
+	secrets, err := caseSecrets(dag, c.opts.secrets, len(c.opts.real) > 0)
+	if err != nil {
 		return nil, err
 	}
 	trigger, err := caseTrigger(c.opts.trigger)
@@ -86,10 +89,6 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 	ctx := c.ctx
 	if err := ctx.DAGRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
 		return nil, err
-	}
-	secrets := c.opts.secrets
-	if secrets == nil {
-		secrets = map[string]string{}
 	}
 	opts := runOptions{
 		root:         ir.NewDAGRunRef(dag.Name, dagRunID),
@@ -214,6 +213,29 @@ func caseDAG(dag *ir.DAG) *ir.DAG {
 		clone.Artifacts.Dir = ""
 	}
 	return clone
+}
+
+// caseSecrets returns the values the secrets of a case resolve from, in
+// place of their providers. A case with a real step needs a test value for
+// every DAG secret, since the real step may read any of them. In a case without one, a DAG secret without a test value
+// resolves to the placeholder <secret:NAME>, masked as a value is. An SSH
+// credential ref takes no placeholder, since a run without a real step does
+// not resolve it (agent.TestSideEffects).
+func caseSecrets(dag *ir.DAG, values map[string]string, hasRealSteps bool) (map[string]string, error) {
+	resolved := make(map[string]string, len(values)+len(dag.Secrets))
+	maps.Copy(resolved, values)
+	if hasRealSteps {
+		if err := checkCaseSecrets(dag, resolved); err != nil {
+			return nil, err
+		}
+		return resolved, nil
+	}
+	for _, ref := range dag.Secrets {
+		if _, ok := resolved[ref.Name]; !ok {
+			resolved[ref.Name] = "<secret:" + ref.Name + ">"
+		}
+	}
+	return resolved, nil
 }
 
 // checkCaseSecrets requires a test value for every secret the DAG declares.

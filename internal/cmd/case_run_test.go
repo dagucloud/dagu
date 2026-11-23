@@ -142,7 +142,8 @@ steps:
 }
 
 // The env provider would fail on the unset variables, so a passing run
-// resolved its secrets from the test values.
+// resolved its secrets from the test values and placeholders. The step runs
+// only when its preconditions find the values the case expects.
 func TestCaseSecrets(t *testing.T) {
 	t.Parallel()
 
@@ -156,41 +157,92 @@ secrets:
     key: DAGU_CASE_TEST_UNSET_PASSWORD
 steps:
   - name: use
+    preconditions:
+      - condition: "${API_TOKEN}"
+        expected: %q
+      - condition: "${DB_PASSWORD}"
+        expected: %q
     run: echo token=$API_TOKEN
 `
 
-	t.Run("Missing", func(t *testing.T) {
-		t.Parallel()
+	for _, tt := range []struct {
+		name         string
+		secrets      map[string]string
+		real         []string
+		wantToken    string
+		wantPassword string
+	}{
+		{name: "Placeholders", wantToken: "<secret:API_TOKEN>", wantPassword: "<secret:DB_PASSWORD>"},
+		{
+			name:         "ValueOverPlaceholder",
+			secrets:      map[string]string{"API_TOKEN": "case-token"},
+			wantToken:    "case-token",
+			wantPassword: "<secret:DB_PASSWORD>",
+		},
+		{
+			name:         "RealStep",
+			secrets:      map[string]string{"API_TOKEN": "case-token", "DB_PASSWORD": "case-password"},
+			real:         []string{"use"},
+			wantToken:    "case-token",
+			wantPassword: "case-password",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-		ctx, _ := newCaseTestContext(t)
-		dag := writeCaseDAG(t, ctx, "secrets", yaml)
-		tc := openTestCase(t, ctx, caseOptions{
-			tempDir: t.TempDir(),
-			secrets: map[string]string{"API_TOKEN": "case-token"},
+			ctx, _ := newCaseTestContext(t)
+			dag := writeCaseDAG(t, ctx, "secrets", fmt.Sprintf(yaml, tt.wantToken, tt.wantPassword))
+			tc := openTestCase(t, ctx, caseOptions{tempDir: t.TempDir(), secrets: tt.secrets, real: tt.real})
+
+			status, err := tc.run(dag)
+			require.NoError(t, err)
+			require.Equal(t, ir.Succeeded, status.Status, status.Error)
+			require.Equal(t, ir.NodeSucceeded, status.Nodes[0].Status, "a secret does not hold the expected value")
+			assert.Equal(t, "token=*******", readOutput(t, status.Nodes[0].Stdout))
 		})
+	}
+}
 
-		_, err := tc.run(dag)
-		require.ErrorContains(t, err, "DB_PASSWORD")
-		runs, err := tc.ctx.Persistence.DAGRunRepository.RecentStatuses(tc.ctx, dag.Name, 1)
-		require.NoError(t, err)
-		assert.Empty(t, runs, "the case started a run")
-	})
+// A case with a real step needs a test value for every DAG secret, and
+// starts no run without one.
+func TestCaseSecretsMissing(t *testing.T) {
+	t.Parallel()
 
-	t.Run("Masked", func(t *testing.T) {
-		t.Parallel()
+	const yaml = `
+secrets:
+  - name: API_TOKEN
+    provider: env
+    key: DAGU_CASE_TEST_UNSET_TOKEN
+steps:
+  - name: remote
+    action: ssh.run
+    with:
+      host: app.invalid
+      command: "true"
+      password: {secret: ssh/password}
+`
 
-		ctx, _ := newCaseTestContext(t)
-		dag := writeCaseDAG(t, ctx, "secrets", yaml)
-		tc := openTestCase(t, ctx, caseOptions{
-			tempDir: t.TempDir(),
-			secrets: map[string]string{"API_TOKEN": "case-token", "DB_PASSWORD": "case-password"},
+	for _, tt := range []struct {
+		name    string
+		secrets map[string]string
+		missing string
+	}{
+		{name: "Secret", secrets: map[string]string{"ssh/password": "case-password"}, missing: "API_TOKEN"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, _ := newCaseTestContext(t)
+			dag := writeCaseDAG(t, ctx, "secrets", yaml)
+			tc := openTestCase(t, ctx, caseOptions{tempDir: t.TempDir(), secrets: tt.secrets, real: []string{"remote"}})
+
+			_, err := tc.run(dag)
+			require.ErrorContains(t, err, tt.missing)
+			runs, err := tc.ctx.Persistence.DAGRunRepository.RecentStatuses(tc.ctx, dag.Name, 1)
+			require.NoError(t, err)
+			assert.Empty(t, runs, "the case started a run")
 		})
-
-		status, err := tc.run(dag)
-		require.NoError(t, err)
-		require.Equal(t, ir.Succeeded, status.Status, status.Error)
-		assert.Equal(t, "token=*******", readOutput(t, status.Nodes[0].Stdout))
-	})
+	}
 }
 
 // A real dag.run step starts its child in the same case. The child takes its
