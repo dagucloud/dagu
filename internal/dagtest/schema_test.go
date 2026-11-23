@@ -298,7 +298,7 @@ func testdataFiles(t *testing.T) map[string][]byte {
 	dir := filepath.Join("testdata", "testfiles")
 	files := make(map[string][]byte)
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !isTestFile(path) {
+		if err != nil || d.IsDir() || !IsTestFile(path) {
 			return err
 		}
 		name, err := filepath.Rel(dir, path)

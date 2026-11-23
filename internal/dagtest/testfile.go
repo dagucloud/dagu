@@ -233,7 +233,7 @@ func testedDAGPath(testFile, dag string) (string, *Finding) {
 		if !filepath.IsAbs(dag) {
 			dag = filepath.Join(filepath.Dir(testFile), dag)
 		}
-		if isTestFile(dag) {
+		if IsTestFile(dag) {
 			return "", &Finding{Source: "dag", Message: "names a test file, not a DAG"}
 		}
 		if _, err := os.Stat(dag); err != nil {
@@ -256,7 +256,9 @@ func testedDAGPath(testFile, dag string) (string, *Finding) {
 	return "", &Finding{Message: "the file name does not end in .test.yaml or .test.yml; set dag"}
 }
 
-func isTestFile(path string) bool {
+// IsTestFile reports whether the name of the file at path ends in
+// .test.yaml or .test.yml, the endings of a test file's name.
+func IsTestFile(path string) bool {
 	return slices.ContainsFunc(testFileSuffixes, func(suffix string) bool { return strings.HasSuffix(path, suffix) })
 }
 

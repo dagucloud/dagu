@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	_ "time/tzdata" // Resolve named time zones on hosts without zoneinfo, such as Windows
 
@@ -25,8 +26,18 @@ operations, or remote commands.
 `,
 }
 
+// exitStatusError is an error of a command that chose an exit status other
+// than 1, such as dagu test for an invalid case.
+type exitStatusError interface {
+	error
+	ExitStatus() int
+}
+
 func main() {
 	if err := rootCmd.Execute(); err != nil {
+		if exit, ok := errors.AsType[exitStatusError](err); ok {
+			os.Exit(exit.ExitStatus())
+		}
 		os.Exit(1)
 	}
 }
@@ -40,6 +51,7 @@ func init() {
 	rootCmd.AddCommand(cmd.Stop())
 	rootCmd.AddCommand(cmd.Restart())
 	rootCmd.AddCommand(cmd.Dry())
+	rootCmd.AddCommand(cmd.Test())
 	rootCmd.AddCommand(cmd.Validate())
 	rootCmd.AddCommand(cmd.Calendar())
 	rootCmd.AddCommand(cmd.Backfill())
