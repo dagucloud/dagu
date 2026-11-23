@@ -67,6 +67,8 @@ func NewDraft(ctx context.Context, dagPath string, opts ...spec.LoadOption) (*Dr
 
 	d := &Draft{steps: indexSteps(dag)}
 	b := &caseBuilder{dag: dag, steps: d.steps}
+	// The draft lists no step under real, so no secret needs a value and
+	// the fix holds no secrets.
 	d.fix = b.fix(&Case{}, checkFailClosed(dag, Handling{}).sources, nil)
 	d.fix.params = b.draftParams(d.fix.params)
 	if beside, _ := testedDAGPath(path, ""); beside != dagPath {
