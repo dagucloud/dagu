@@ -4683,6 +4683,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/node-connection-tests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test node connections
+         * @description Tests the named nodes, or the nodes a label selector matches, from the server. Each test checks the host key of each hop, authenticates, and runs `true`. A hop whose host key is unknown or has changed receives no credential, and the result names that hop. A node named twice is tested once. At most 16 nodes are tested at once. The response is a server-sent event stream: a `result` event per node as its test finishes, carrying an `InventoryNodeConnectionTest`, then a `done` event carrying an `InventoryNodeConnectionTestSummary`. A test never trusts a key. Requires the operator role or above.
+         */
+        post: operations["testInventoryNodeConnections"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/node-host-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trust node host keys
+         * @description Trusts, for each node named, the host key whose fingerprint the user saw. The server reads the node's key again, sending the node no credential, and stores it only when its fingerprint matches. A node behind a bastion is reached through the bastion, whose own host key must be accepted. A node that already has another trusted key keeps it unless its entry's `replace` names that key's fingerprint. The response is a server-sent event stream: a `result` event per node as it finishes, carrying an `InventoryHostKeyTrust`, then a `done` event carrying an `InventoryHostKeyTrustSummary`. Requires the developer role or above.
+         */
+        post: operations["trustInventoryNodeHostKeys"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/secrets": {
         parameters: {
             query?: never;
@@ -9612,6 +9652,93 @@ export interface components {
             replaced: string[];
             /** @description Whether the import only checked and stored nothing */
             dryRun: boolean;
+        };
+        /** @description The nodes to test: either named, or matched by a label selector */
+        InventoryNodeConnectionTestRequest: {
+            /** @description Names of the nodes to test, compared without case */
+            nodes?: string[];
+            /** @description Label selector of the nodes to test, as `GET /nodes` takes it */
+            labels?: string;
+        };
+        /** @description The data of one event of a node test stream: a `result` event carries an `InventoryNodeConnectionTest`, and the `done` event an `InventoryNodeConnectionTestSummary` */
+        InventoryNodeConnectionTestEvent: components["schemas"]["InventoryNodeConnectionTest"] | components["schemas"]["InventoryNodeConnectionTestSummary"];
+        /** @description The outcome of testing one node, sent as a `result` event */
+        InventoryNodeConnectionTest: {
+            /** @description Name of the node */
+            node: string;
+            /** @description Whether the node passed: its host keys were accepted, it authenticated, and `true` ran */
+            ok: boolean;
+            /** @description SHA256 fingerprint of the host key the node presented, when the test reached it */
+            fingerprint?: string;
+            /** @description SHA256 fingerprint of the host key the bastion presented, when the node has one and the test reached it */
+            bastionFingerprint?: string;
+            /**
+             * Format: int64
+             * @description Time the test took, in milliseconds
+             */
+            durationMs: number;
+            /** @description Why the test failed */
+            error?: string;
+            hostKey?: components["schemas"]["InventoryHostKeyRefusal"];
+        };
+        /** @description A host key a hop refused, which ended the test before any credential reached that hop */
+        InventoryHostKeyRefusal: {
+            /**
+             * @description The hop that presented the key
+             * @enum {string}
+             */
+            hop: InventoryHostKeyRefusalHop;
+            /** @description Name of the node whose key was refused: the node tested, or the node that serves as its bastion */
+            node: string;
+            /**
+             * @description `unknown` when no key was pinned or trusted, `changed` when the presented key matches none of them
+             * @enum {string}
+             */
+            status: InventoryHostKeyRefusalStatus;
+            /** @description SHA256 fingerprint of the key the server presented. Empty when it holds no key of an expected type */
+            presented?: string;
+            /** @description SHA256 fingerprints of the pinned and trusted keys */
+            expected: string[];
+        };
+        /** @description Counts of a finished test, sent as the `done` event */
+        InventoryNodeConnectionTestSummary: {
+            passed: number;
+            failed: number;
+        };
+        InventoryHostKeyTrustRequest: {
+            keys: components["schemas"]["InventoryHostKeyTrustEntry"][];
+        };
+        /** @description A node and the fingerprint of the host key the user saw, as a test reported it */
+        InventoryHostKeyTrustEntry: {
+            /** @description Name of the node, compared without case */
+            node: string;
+            /** @description SHA256 fingerprint of the key to trust, such as `SHA256:…` */
+            fingerprint: string;
+            /** @description SHA256 fingerprint of the key trusted for the node that the user saw and agreed to replace. The entry stores nothing unless the node trusts exactly this key */
+            replace?: string;
+        };
+        /** @description The data of one event of a host key trust stream: a `result` event carries an `InventoryHostKeyTrust`, and the `done` event an `InventoryHostKeyTrustSummary` */
+        InventoryHostKeyTrustEvent: components["schemas"]["InventoryHostKeyTrust"] | components["schemas"]["InventoryHostKeyTrustSummary"];
+        /** @description The outcome of one trust entry, sent as a `result` event */
+        InventoryHostKeyTrust: {
+            node: string;
+            /** @description SHA256 fingerprint the entry asked to trust */
+            fingerprint: string;
+            /**
+             * @description `trusted` stored the key, `replaced` stored it in place of another, and `unchanged` found it trusted already. Absent when the entry failed
+             * @enum {string}
+             */
+            outcome?: InventoryHostKeyTrustOutcome;
+            /** @description SHA256 fingerprint of another key trusted for the node before */
+            previous?: string;
+            /** @description Why the key was not trusted */
+            error?: string;
+        };
+        /** @description Counts of a finished trust, sent as the `done` event */
+        InventoryHostKeyTrustSummary: {
+            /** @description Entries whose key is now trusted, including those trusted already */
+            trusted: number;
+            failed: number;
         };
         /** @description A rule an import breaks, located by inventory, node, and field */
         InventoryRuleError: {
@@ -24773,8 +24900,6 @@ export interface operations {
                 page?: components["parameters"]["Page"];
                 /** @description number of items per page (default is 30, max is 100) */
                 perPage?: components["parameters"]["PerPage"];
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Node selector: label filter terms separated by commas, as a step's `nodes` field takes them. A node is listed when it matches every term. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400 naming the term. */
                 labels?: string;
                 /** @description Lists only the nodes of one inventory, given by its ID or by its name compared without case. An inventory that does not exist returns HTTP 400. */
@@ -24828,10 +24953,7 @@ export interface operations {
     };
     getInventoryNode: {
         parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-            };
+            query?: never;
             header?: never;
             path: {
                 /** @description Node name, compared without case */
@@ -24881,10 +25003,7 @@ export interface operations {
     };
     listInventoryNodeLabels: {
         parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -24922,10 +25041,7 @@ export interface operations {
     };
     listInventories: {
         parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -24963,10 +25079,7 @@ export interface operations {
     };
     getInventory: {
         parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-            };
+            query?: never;
             header?: never;
             path: {
                 inventoryId: string;
@@ -25016,8 +25129,6 @@ export interface operations {
     importInventories: {
         parameters: {
             query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Replace an inventory whose name is taken, keeping its ID. */
                 replace?: boolean;
                 /** @description Check the import and store nothing. */
@@ -25082,6 +25193,126 @@ export interface operations {
             };
             /** @description The import exceeds the 32 MiB request-body limit */
             413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    testInventoryNodeConnections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryNodeConnectionTestRequest"];
+            };
+        };
+        responses: {
+            /** @description A server-sent event stream of one `result` event per node, then a `done` event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["InventoryNodeConnectionTestEvent"];
+                };
+            };
+            /** @description The request names no node, an unknown one, or more than 1,000, or its selector is invalid or matches no node */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    trustInventoryNodeHostKeys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryHostKeyTrustRequest"];
+            };
+        };
+        responses: {
+            /** @description A server-sent event stream of one `result` event per node, then a `done` event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["InventoryHostKeyTrustEvent"];
+                };
+            };
+            /** @description The request has no entry or more than 1,000, an entry lacks a node or a SHA256 fingerprint, its `replace` is not a SHA256 fingerprint, or two entries name one node */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -26528,6 +26759,19 @@ export enum ViewSpecType {
 }
 export enum InventoryNodeKind {
     ssh = "ssh"
+}
+export enum InventoryHostKeyRefusalHop {
+    node = "node",
+    bastion = "bastion"
+}
+export enum InventoryHostKeyRefusalStatus {
+    unknown = "unknown",
+    changed = "changed"
+}
+export enum InventoryHostKeyTrustOutcome {
+    trusted = "trusted",
+    replaced = "replaced",
+    unchanged = "unchanged"
 }
 export enum WorkspaceDeprecationItemKind {
     baseConfig = "baseConfig",

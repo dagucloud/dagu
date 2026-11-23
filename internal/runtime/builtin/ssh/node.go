@@ -12,14 +12,15 @@ import (
 	"github.com/go-viper/mapstructure/v2"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/sshconn"
 )
 
 type nodeConnectionCtxKey struct{}
 
 // nodeConnection is the inventory node that a bound run's SSH steps reach.
 type nodeConnection struct {
-	cfg    Config
-	client *Client
+	cfg    sshconn.Config
+	client *sshconn.Client
 }
 
 // WithNodeConnection returns a context whose SSH steps reach the inventory
@@ -27,8 +28,8 @@ type nodeConnection struct {
 // runs). The fields under a step's with override the node's, except that a
 // step that names a host connects to that host instead. Credentials given as
 // secret refs are read from the values resolved at run start.
-func WithNodeConnection(ctx context.Context, cfg Config) (context.Context, error) {
-	client, err := NewClient(ctx, &cfg)
+func WithNodeConnection(ctx context.Context, cfg sshconn.Config) (context.Context, error) {
+	client, err := sshconn.NewClient(ctx, &cfg)
 	if err != nil {
 		return ctx, err
 	}
@@ -53,29 +54,39 @@ func nodeConnectionFor(ctx context.Context, with map[string]any) *nodeConnection
 }
 
 // clientWith returns a client for the node with the fields set under with in
+// place of the node's.
+func (n *nodeConnection) clientWith(ctx context.Context, with map[string]any) (*sshconn.Client, error) {
+	cfg, err := n.configWith(with)
+	if err != nil {
+		return nil, err
+	}
+	return sshconn.NewClient(ctx, &cfg)
+}
+
+// configWith returns the node's connection with the fields set under with in
 // place of the node's. A key or a password replaces all of the node's
 // credentials.
-func (n *nodeConnection) clientWith(ctx context.Context, with map[string]any) (*Client, error) {
+func (n *nodeConnection) configWith(with map[string]any) (sshconn.Config, error) {
 	var def sshMapConfig
 	md, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{Result: &def, WeaklyTypedInput: true})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create decoder: %w", err)
+		return sshconn.Config{}, fmt.Errorf("failed to create decoder: %w", err)
 	}
 	if err := md.Decode(with); err != nil {
-		return nil, fmt.Errorf("failed to decode ssh config: %w", err)
+		return sshconn.Config{}, fmt.Errorf("failed to decode ssh config: %w", err)
 	}
 	has := func(field string) bool {
 		_, ok := with[field]
 		return ok
 	}
 	if has("known_host_file") {
-		return nil, errors.New("with.known_host_file does not apply to a node, whose host key is checked against its pinned and trusted keys")
+		return sshconn.Config{}, errors.New("with.known_host_file does not apply to a node, whose host key is checked against its pinned and trusted keys")
 	}
 	if has("strict_host_key") {
-		return nil, errors.New("with.strict_host_key does not apply to a node, whose inventory decides which host keys it accepts")
+		return sshconn.Config{}, errors.New("with.strict_host_key does not apply to a node, whose inventory decides which host keys it accepts")
 	}
 	if has("bastion") {
-		return nil, errors.New("with.bastion does not apply to a node, which connects through the bastion its inventory sets")
+		return sshconn.Config{}, errors.New("with.bastion does not apply to a node, which connects through the bastion its inventory sets")
 	}
 
 	cfg := n.cfg
@@ -88,14 +99,14 @@ func (n *nodeConnection) clientWith(ctx context.Context, with map[string]any) (*
 	if has("key") || has("password") || has("passphrase") {
 		auth, err := ir.ParseSSHAuth("with", def.Key, def.Password, def.Passphrase)
 		if err != nil {
-			return nil, err
+			return sshconn.Config{}, err
 		}
 		cfg.SSHAuth = overrideAuth(cfg.SSHAuth, auth)
 	}
 	switch {
 	case has("shell"):
 		if cfg.Shell, cfg.ShellArgs, err = parseShellConfig(def.Shell, def.ShellArgs); err != nil {
-			return nil, fmt.Errorf("failed to parse shell config: %w", err)
+			return sshconn.Config{}, fmt.Errorf("failed to parse shell config: %w", err)
 		}
 	case has("shell_args"):
 		// shell_args adds arguments to the node's shell.
@@ -103,10 +114,10 @@ func (n *nodeConnection) clientWith(ctx context.Context, with map[string]any) (*
 	}
 	if has("timeout") {
 		if cfg.Timeout, err = parseTimeout(def.Timeout); err != nil {
-			return nil, err
+			return sshconn.Config{}, err
 		}
 	}
-	return NewClient(ctx, &cfg)
+	return cfg, nil
 }
 
 // overrideAuth applies the credentials set in override to base. A key or a

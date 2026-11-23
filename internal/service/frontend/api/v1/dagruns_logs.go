@@ -204,6 +204,12 @@ func isStepLogDownload(r *http.Request, apiBasePath string) bool {
 		(len(parts) == 7 && parts[2] == "sub-dag-runs" && strings.Join(parts[4:], "/") == "steps/log/download")
 }
 
+// streamsResponse matches requests whose response streams with no total
+// time limit: log downloads and node event streams.
+func streamsResponse(r *http.Request, apiBasePath string) bool {
+	return isLogDownload(r, apiBasePath) || isNodeEventStream(r, apiBasePath)
+}
+
 // isLogDownload matches scheduler, step, and all-step log downloads.
 func isLogDownload(r *http.Request, apiBasePath string) bool {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
@@ -216,9 +222,9 @@ func isLogDownload(r *http.Request, apiBasePath string) bool {
 func logDownloadDeadline(apiBasePath string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if isLogDownload(r, apiBasePath) {
+			if streamsResponse(r, apiBasePath) {
 				if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
-					logger.Error(r.Context(), "Failed to clear log download deadline", tag.Error(err))
+					logger.Error(r.Context(), "Failed to clear streamed response deadline", tag.Error(err))
 				}
 			}
 			next.ServeHTTP(w, r)
