@@ -422,7 +422,7 @@ export function resolveStepNames(
     const server = sameCount ? serverSteps[i] : undefined;
     const name =
       details === undefined
-        ? step.explicitName
+        ? own
         : server &&
             (own === undefined || own === server.name) &&
             (id === undefined || id === server.id)
