@@ -104,10 +104,14 @@ exits with the run's own status
 - A key that does not start with `drk_` is a configuration error: the run
   starts, the sender stays off, and one warning says so. A run key is never
   a license key; `DAGU_LICENSE_KEY` keeps its meaning.
-- With a run key and no `cloud.report`, the sender reports at `errors`: a
-  machine that goes away leaves its error messages nowhere else. They are
-  masked as the server reporter masks them, and a workspace can still keep
-  none (`dagu_errors` in Console).
+- With a run key and no `cloud.report`, the sender reports at `errors`, the
+  level Dagu's monitoring dialog recommends for servers. A machine that goes
+  away leaves its error messages nowhere else, and a failure alert without
+  one says only which step failed. They are masked as the server reporter
+  masks them: known secret values and common token formats are replaced.
+  Masking cannot catch everything a program prints, such as hostnames or
+  row contents, so `cloud.report: runs` keeps error output on the machine,
+  and a workspace can keep none (`dagu_errors` in Console).
 
 ### Where it runs
 
@@ -209,8 +213,21 @@ reporter, which never blocks the agent.
 | A run key on a licensed server | The sender stays off; the server reporter reports the run. |
 | A malformed run key | The sender stays off and warns once; the run starts. |
 
-The sender logs to the run's log only once per run, and never the key. Its
-other messages go to the process's own log at debug level.
+### What the run prints
+
+What a job's process prints is what people read in CI and in
+`kubectl logs`, and those logs are often public, as in an open-source
+repository's CI. So the sender names neither the key nor the workspace:
+
+- When the sender turns on for a run, one line at info level:
+  `Reporting this run to Dagu Console`.
+- One warning when reporting stops short: the key was refused (`401`), or the
+  finish could not be sent within its budget. It says which, and what to
+  check: the key, or the route to Console.
+- One warning for a malformed key, as above.
+- Everything else, such as a progress report that failed, at debug level.
+
+Console's answer carries no workspace name, so the sender has none to print.
 
 ## Performance
 
@@ -260,7 +277,10 @@ Order:
   online license in the data directory, for a workflow test, or for a dry
   run.
 - At `cloud.report: runs` the finish carries no errors.
-- The key appears in no log line.
+- The key and the workspace appear in no log line.
+- A run with a key prints `Reporting this run to Dagu Console` once; a revoked
+  key, and a finish that cannot be sent, each print one warning; a failed
+  progress report prints nothing above debug level.
 - `retry` and `restart` report the new attempt as `start` does.
 - End to end against a local Console with `monitor.job_runs` on: a run key
   made on the Servers page, a failed `dagu start` in a container, and the
@@ -278,9 +298,10 @@ Order:
   bounded retry of the finish is the most that helps.
 - **Batch several runs per request.** A job's process has one top-level run.
 
-## Open questions
+## Decisions
 
-- Whether `cloud.report` should default to `runs` instead of `errors` for job
-  runs, so error messages leave the machine only when someone chooses that.
-- Whether the run's log should name the run key's workspace once, so a
-  person reading the log knows where its report went.
+- **Job runs send error messages by default** (`errors`), as servers are
+  recommended to. Failure alerts then say why a run failed after its machine
+  is gone. `cloud.report: runs` keeps error output on the machine.
+- **The run prints one neutral line and warnings,** naming neither the key
+  nor the workspace, since job logs are often public.
