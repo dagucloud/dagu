@@ -288,8 +288,9 @@ with the old one's.
   nothing on disk adds to it. Every write to it holds one lock and checks
   the name rules before it stores. Writes are rare, so one lock costs
   nothing.
-- Each state directory also records its project's ID and name. A state
-  directory whose ID the registry lacks, as after a registry restored
+- Each of a project's state directories, one under `paths.log_dir` or
+  another path set apart included, records the project's ID and name. A
+  state directory whose ID the registry lacks, as after a registry restored
   from an older backup, is listed on the projects page for an admin to
   restore or delete. It is never attached to a project by its name.
 - Records that outlive a request refer to a project by ID: grants, audit
@@ -331,9 +332,14 @@ with the old one's.
   writing only the default project's.
 - Local runs start their child process with `--project`. `DAGU_HOME` stays the
   server root, so the child still reads `config.yaml`.
-- Every step runs with `DAGU_PROJECT` set to its run's project, on the
-  server and on a worker, so a `dagu` command in a step addresses that
-  project whatever its working directory.
+- Every step that runs on the server runs with `DAGU_PROJECT` set to its
+  run's project, so a `dagu` command in a step addresses that project
+  whatever its working directory. A step on a worker does not get it: its
+  `dagu` commands read the worker's own Dagu home, as in v2, which has no
+  projects.
+- `dagu test` with no argument selects the test files under the addressed
+  project's DAG directory and beside its files that run in place. A test
+  file given by path runs in the project of the DAG it tests.
 - Audit entries record the project's ID and its name at the time. Old
   entries keep `workspace`.
 
@@ -447,7 +453,7 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
   in its own queues or a server-wide one, running, or waiting. The
   scheduler unit, the coordinator, and the server stop using the
   project's stores first, since Windows cannot remove a directory with
-  open files. Delete then removes the DAG directory, the state directory,
+  open files. Delete then removes the DAG directory, the state directories,
   the registry entry, grants, and Dagu Cloud binding.
   - When the DAG directory is in a git checkout, delete is refused while
     the directory exists: the checkout owns it, so it is removed there
@@ -903,9 +909,9 @@ Criteria 23 and 24 apply from the release that ships the feature.
     without `--project` or `DAGU_PROJECT`, addresses that project.
 26. After migration or a move, the logs, step output, and artifacts of every
     moved run open as before.
-27. Every step runs with `DAGU_PROJECT` set to its run's project, and a
-    `dagu` command in a step addresses that project from any working
-    directory.
+27. Every step that runs on the server runs with `DAGU_PROJECT` set to its
+    run's project, and a `dagu` command in it addresses that project from
+    any working directory. A step on a worker does not get the variable.
 28. A v3.0 coordinator gives an older worker only default-project tasks,
     and both say why it gets no project task.
 29. A default-project DAG whose `workspace` label names a migrated project
@@ -935,8 +941,9 @@ Criteria 23 and 24 apply from the release that ships the feature.
 38. A project DAG added under a library DAG's name starts with no runs,
     even when the library DAG has run in that project, and the library
     DAG's runs in that project stay reachable.
-39. Each state directory records its project's ID. A state directory whose
-    ID the registry lacks is listed on the projects page and is not
+39. Each of a project's state directories, one under `paths.log_dir`
+    included, records its project's ID. A state directory whose ID the
+    registry lacks is listed on the projects page and is not
     attached to a project by its name.
 40. After migration, the default project holds v2's global settings, and
     its base config is the file at `paths.base_config`. Each workspace's
@@ -957,7 +964,9 @@ Criteria 23 and 24 apply from the release that ships the feature.
     v2.
 46. When `paths.projects_dir` and `paths.dags_dir` are on different file
     systems, the server warns at startup and on the projects page.
-47. Notification channels and notification settings are server-wide, and
+47. `dagu test` with no argument inside a project's DAG directory runs
+    that project's test files and no other project's.
+48. Notification channels and notification settings are server-wide, and
     only admins change them. A project's routes name channels, and no
     project user sees a channel's URL or secret.
 
