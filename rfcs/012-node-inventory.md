@@ -200,10 +200,9 @@ Rules:
 - `host` is a DNS name, an IPv4 address, or an IPv6 address. `user` matches
   `^[A-Za-z0-9_][A-Za-z0-9._-]*$`. These fields and label values are
   therefore safe to insert into a command unquoted.
-- `{ "secret": <ref> }` names a secret, which resolves as
-  [RFC 003](003-projects.md#server-layer) defines: the project's secret of
-  that name, else the server's. Literal passwords are rejected, so an
-  exported inventory is safe to share.
+- `{ "secret": <ref> }` names a secret of the project, as
+  [RFC 003](003-projects.md#settings) defines. Literal passwords are
+  rejected, so an exported inventory is safe to share.
 - A key path is read on the host that opens the connection: the server, or
   the worker that runs the run.
 - A node that sets `key` takes no `passphrase` from `defaults`, as #3769

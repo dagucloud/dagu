@@ -156,9 +156,9 @@ never runs a file that discovery did not find.
 
 ## Base config
 
-A workflow's base config is the user's global base config, then `base.yaml` in
-`project_root` when it exists, then the workflow file. This is the order a
-server applies to a project's DAGs.
+A workflow's base config is `base.yaml` in `project_root` when it exists, then
+the workflow file. No other base config applies, as on a server
+([RFC 003](../rfcs/003-projects.md#base-config)).
 
 ## Working directory
 
@@ -225,10 +225,10 @@ Rules:
   settings.
 - Inside a project, the CLI uses the user's Dagu configuration, except that
   its DAG directory is the workflow directory.
-- A workflow uses the project's secrets, profiles, notification routes, and
-  incident policies, then those of the server layer of the user's Dagu home,
-  in the order [RFC 003](../rfcs/003-projects.md#server-layer) gives. Inside
-  a project, `dagu secret` and `dagu profile` act on the project's entries.
+- A workflow uses only the project's secrets, profiles, notification routes,
+  and incident policies, as [RFC 003](../rfcs/003-projects.md#settings)
+  defines. Inside a project, `dagu secret` and `dagu profile` act on the
+  project's entries.
 - Secrets are encrypted with the key of the user's Dagu home, as on a
   server.
 - A server project ([RFC 003](../rfcs/003-projects.md#layout)) keeps its
