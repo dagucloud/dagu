@@ -13,6 +13,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -161,6 +162,111 @@ func serializeDeclaredStepOutputs(ctx context.Context, values map[string]string)
 	}
 	if int64(len(data)) > maxOutputSize(ctx) {
 		return "", fmt.Errorf("step outputs exceeded maximum size limit of %d bytes", maxOutputSize(ctx))
+	}
+	return string(data), nil
+}
+
+// capturePublishedOutputs publishes the named outputs an executor published
+// itself to the channels the step's sources publish to, so neither the output
+// file nor stdout is read for them. String-form output still captures stdout,
+// also on a failed attempt, which publishes no named outputs.
+func (n *Node) capturePublishedOutputs(ctx context.Context, outputs map[string]any) error {
+	step := n.Step()
+	if step.Output != "" {
+		value, err := n.outputs.capturedOutput(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to capture output: %w", err)
+		}
+		n.setVariable(step.Output, value)
+		if !step.HasStructuredOutput() && !step.HasOutputSchema() && !step.HasStdoutOutputs() {
+			n.setOutputValue(value)
+		}
+	}
+	if n.Error() != nil || len(outputs) == 0 {
+		return nil
+	}
+
+	declared, captured, err := splitPublishedOutputs(step, outputs)
+	if err != nil {
+		return err
+	}
+	if len(declared) > 0 {
+		serialized, err := serializeDeclaredStepOutputs(ctx, declared)
+		if err != nil {
+			return err
+		}
+		n.setStepOutputsValue(serialized)
+	}
+	if len(captured) == 0 {
+		return nil
+	}
+
+	payload, err := serializeOutputsValue(ctx, captured)
+	if err != nil {
+		return err
+	}
+	// As in a real run, object-form output and output_schema set the step's
+	// output.
+	if step.HasStructuredOutput() || step.HasOutputSchema() {
+		n.setOutputValue(payload)
+	}
+	if setsOutputsObject(step) {
+		n.setOutputsValue(payload)
+	}
+	return n.publishCapturedStepOutputs(ctx, payload)
+}
+
+// setsOutputsObject reports whether a real run of the step sets the outputs
+// object the run collects. Object-form output, stdout.outputs, and an action
+// that publishes outputs set it. output_schema alone does not, nor does a
+// parallel step or a step with nodes, which publish their children's outputs
+// as a list.
+func setsOutputsObject(step ir.Step) bool {
+	switch {
+	case step.HasStructuredOutput(), step.HasStdoutOutputs():
+		return true
+	case step.HasOutputSchema():
+		return false
+	default:
+		return step.Parallel == nil && step.Nodes == nil
+	}
+}
+
+// splitPublishedOutputs separates the outputs the step declares under Spec
+// 012, as the text its output file would hold, from the outputs its other
+// sources publish.
+func splitPublishedOutputs(step ir.Step, outputs map[string]any) (map[string]string, map[string]any, error) {
+	declarations := make(map[string]ir.StepOutputDeclaration)
+	for _, declaration := range step.ValueOutputs() {
+		declarations[declaration.Name] = declaration
+	}
+	declared := make(map[string]string)
+	captured := make(map[string]any)
+	for name, value := range outputs {
+		declaration, ok := declarations[name]
+		if !ok {
+			captured[name] = value
+			continue
+		}
+		text, err := declaredOutputText(value, declaration.Type == ir.StepDeclaredOutputTypeJSON)
+		if err != nil {
+			return nil, nil, fmt.Errorf("output %q: %w", name, err)
+		}
+		declared[name] = text
+	}
+	return declared, captured, nil
+}
+
+// declaredOutputText returns the text a Spec 012 output publishes for value.
+// A json output publishes any value as its JSON text, so a string becomes a
+// JSON string. Any other output publishes a string as written.
+func declaredOutputText(value any, asJSON bool) (string, error) {
+	if text, ok := value.(string); ok && !asJSON {
+		return text, nil
+	}
+	data, err := jsonutil.MarshalUnescaped(value)
+	if err != nil {
+		return "", err
 	}
 	return string(data), nil
 }
