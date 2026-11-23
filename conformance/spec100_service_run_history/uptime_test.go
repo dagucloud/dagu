@@ -69,6 +69,28 @@ func TestUptimeOfRunInProgress(t *testing.T) {
 		assert.Positive(t, *b.UpMs)
 		assert.LessOrEqual(t, *b.UpMs, int64(series.ResolutionSeconds)*1000)
 	}
+
+	// The activity of a DAG list page gives it too.
+	resp := getJSON[api.DAGListActivityPage](p, 200, "/dag-list-activity", url.Values{"window": {"3600"}})
+	var activity *api.DAGListActivity
+	for _, entry := range resp.Dags {
+		if entry.FileName == "service_long" {
+			activity = &entry.Activity
+		}
+	}
+	require.NotNil(t, activity)
+	require.NotNil(t, activity.Uptime)
+	assert.GreaterOrEqual(t, *activity.Uptime, 0.99)
+
+	// The activity has the same buckets with up time: the strip is green
+	// where the service is up, and the run in progress shows.
+	require.NotNil(t, activity.Buckets)
+	require.NotEmpty(t, *activity.Buckets)
+	for _, b := range *activity.Buckets {
+		assert.Zero(t, b.Count)
+		require.NotNil(t, b.UpMs)
+		assert.Positive(t, *b.UpMs)
+	}
 }
 
 // A service DAG that restarts as designed is active all the time: a run of a

@@ -110,12 +110,22 @@ func (store *Store) RunHistoryDir(dagName string) string {
 	return filepath.Join(store.baseDir, existingDAGDirName(store.baseDir, dagName), runHistoryDirName)
 }
 
+// queryCache returns the status cache that a query reads through, or nil
+// when the query keeps its statuses out of it.
+func (store *Store) queryCache(opts persis.DAGRunStatusQuery) *fileutil.Cache[*ir.DAGRunStatus] {
+	if opts.SkipStatusCache {
+		return nil
+	}
+	return store.cache
+}
+
 // resolveStatus resolves and filters a DAGRunStatus for a single dagRun.
 // Uses the index summary for fast filtering when available, falling back to
-// reading status.jsonl directly.
+// reading status.jsonl through cache, or around any cache when it is nil.
 func (store *Store) resolveStatus(
 	ctx context.Context,
 	dagRun *DAGRun,
+	cache *fileutil.Cache[*ir.DAGRunStatus],
 	labelFilters []ir.LabelFilter,
 	workspaceFilter *workspace.WorkspaceFilter,
 	statusesFilter map[ir.Status]struct{},
@@ -171,7 +181,7 @@ func (store *Store) resolveStatus(
 	}
 
 	// Standard path: discover latest attempt and read status.
-	run, err := dagRun.LatestAttempt(ctx, store.cache)
+	run, err := dagRun.LatestAttempt(ctx, cache)
 	if err != nil {
 		if !errors.Is(err, dagrun.ErrNoStatusData) {
 			logger.Error(ctx, "Failed to get latest run", tag.Error(err))

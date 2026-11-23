@@ -304,12 +304,11 @@ func TestQueryStatusesSkipsExcludedDAGs(t *testing.T) {
 	})
 }
 
-// A lazy read lists finished runs from the day's index, so a page of them
-// reads no status from disk, including runs created in the same second.
-func TestQueryStatusesLazyReadUsesIndex(t *testing.T) {
-	th := setupTestRepository(t)
+// seedIndexedDay writes 40 finished runs of dag in one day, two created in
+// each minute, and lists them once, which writes the index of the day.
+func seedIndexedDay(t *testing.T, th RepositoryTest, dag *ir.DAG) {
+	t.Helper()
 	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
-	dag := &ir.DAG{Name: "indexed"}
 	for i := range 40 {
 		attempt, err := th.Backend.CreateAttempt(th.Context, persis.DAGRunCreateAttemptRequest{
 			DAG:       dag,
@@ -325,8 +324,14 @@ func TestQueryStatusesLazyReadUsesIndex(t *testing.T) {
 		require.NoError(t, attempt.Write(th.Context, status))
 		require.NoError(t, attempt.Close(th.Context))
 	}
-	// Reading the day whole writes its index.
 	listAll(t, th.Backend, persis.DAGRunStatusQuery{})
+}
+
+// A lazy read lists finished runs from the day's index, so a page of them
+// reads no status from disk, including runs created in the same second.
+func TestQueryStatusesLazyReadUsesIndex(t *testing.T) {
+	th := setupTestRepository(t)
+	seedIndexedDay(t, th, &ir.DAG{Name: "indexed"})
 
 	cache := fileutil.NewCache[*ir.DAGRunStatus]("test", 100, time.Hour)
 	store := NewStore(th.TmpDir, WithHistoryFileCache(cache))
@@ -335,6 +340,67 @@ func TestQueryStatusesLazyReadUsesIndex(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, page.Items, 10)
 	require.Equal(t, "run-39", page.Items[0].DAGRunID)
+	require.Zero(t, cache.Size())
+}
+
+// A page of whole statuses reads from disk only the statuses that it lists.
+// The index of the day orders and filters the other runs, and tells whether
+// a next page exists.
+func TestQueryStatusesFullStatusReadsThePage(t *testing.T) {
+	th := setupTestRepository(t)
+	seedIndexedDay(t, th, &ir.DAG{Name: "indexed", Steps: []ir.Step{{Name: "s"}}})
+
+	cache := fileutil.NewCache[*ir.DAGRunStatus]("test", 100, time.Hour)
+	store := NewStore(th.TmpDir, WithHistoryFileCache(cache))
+	page, err := store.QueryStatuses(th.Context, persis.DAGRunStatusQuery{
+		Limit: 10, FullStatus: true, Statuses: []ir.Status{ir.Succeeded},
+	})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 10)
+	require.NotEmpty(t, page.NextCursor)
+	require.Equal(t, "run-39", page.Items[0].DAGRunID)
+	for _, item := range page.Items {
+		require.Len(t, item.Nodes, 1, item.DAGRunID)
+	}
+	require.Equal(t, 10, cache.Size())
+}
+
+// A query that skips the status cache keeps none of the statuses that it
+// reads in the cache: neither the whole statuses of a page nor the runs that
+// no index covers.
+func TestQueryStatusesSkipStatusCache(t *testing.T) {
+	th := setupTestRepository(t)
+	seedIndexedDay(t, th, &ir.DAG{Name: "indexed", Steps: []ir.Step{{Name: "s"}}})
+	unindexed := &ir.DAG{Name: "unindexed", Steps: []ir.Step{{Name: "s"}}}
+	for i := range 2 {
+		attempt, err := th.Backend.CreateAttempt(th.Context, persis.DAGRunCreateAttemptRequest{
+			DAG:       unindexed,
+			Timestamp: time.Date(2026, 3, 1, 0, i, 0, 0, time.UTC),
+			DAGRunID:  fmt.Sprintf("small-%d", i),
+		})
+		require.NoError(t, err)
+		require.NoError(t, attempt.Open(th.Context))
+		status := ir.InitialStatus(unindexed)
+		status.DAGRunID = fmt.Sprintf("small-%d", i)
+		status.AttemptID = attempt.ID()
+		status.Status = ir.Succeeded
+		require.NoError(t, attempt.Write(th.Context, status))
+		require.NoError(t, attempt.Close(th.Context))
+	}
+
+	cache := fileutil.NewCache[*ir.DAGRunStatus]("test", 100, time.Hour)
+	store := NewStore(th.TmpDir, WithHistoryFileCache(cache))
+	for _, name := range []string{"indexed", "unindexed"} {
+		page, err := store.QueryStatuses(th.Context, persis.DAGRunStatusQuery{
+			ExactName: name, Limit: 10, FullStatus: true, SkipStatusCache: true,
+			Statuses: []ir.Status{ir.Succeeded},
+		})
+		require.NoError(t, err)
+		require.NotEmpty(t, page.Items, name)
+		for _, item := range page.Items {
+			require.Len(t, item.Nodes, 1, item.DAGRunID)
+		}
+	}
 	require.Zero(t, cache.Size())
 }
 

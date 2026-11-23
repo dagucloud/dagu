@@ -12,7 +12,6 @@ import (
 	"time"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/samples"
@@ -105,24 +104,33 @@ func (a *API) GetDAGRunHistorySamples(ctx context.Context, request api.GetDAGRun
 	if notFound != "" {
 		return api.GetDAGRunHistorySamples404JSONResponse{Code: api.ErrorCodeNotFound, Message: notFound}, nil
 	}
+	result, err := readRunHistorySamples(ctx, reader, query, a.serviceRunStart(ctx, dag))
+	if err != nil {
+		return nil, err
+	}
+	return api.GetDAGRunHistorySamples200JSONResponse(result), nil
+}
+
+// readRunHistorySamples reads the buckets of a run history for the query and
+// the uptime of its window. The run in progress since start counts in both.
+func readRunHistorySamples(ctx context.Context, reader samples.Reader, query samples.SampleQuery, start time.Time) (api.StepSamples, error) {
 	series, err := reader.Samples(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("error reading run history samples: %w", err)
+		return api.StepSamples{}, fmt.Errorf("error reading run history samples: %w", err)
 	}
 	uptime, err := reader.Uptime(ctx, query.From, query.To)
 	if err != nil {
-		return nil, fmt.Errorf("error reading run history uptime: %w", err)
+		return api.StepSamples{}, fmt.Errorf("error reading run history uptime: %w", err)
 	}
-	start := a.serviceRunStart(ctx, dag)
 	last, err := recordedEnd(ctx, reader, start, !uptime.Since.IsZero())
 	if err != nil {
-		return nil, err
+		return api.StepSamples{}, err
 	}
 	result := toStepSamples(series.WithActive(start, last, time.Now().UTC()), query.From, query.To)
 	if ratio, ok := uptime.WithActive(start, last).Ratio(); ok {
 		result.Uptime = &ratio
 	}
-	return api.GetDAGRunHistorySamples200JSONResponse(result), nil
+	return result, nil
 }
 
 func (a *API) GetDAGRunHistoryEvents(ctx context.Context, request api.GetDAGRunHistoryEventsRequestObject) (api.GetDAGRunHistoryEventsResponseObject, error) {
@@ -206,16 +214,6 @@ func (a *API) GetDAGRunHistoryAvailability(ctx context.Context, request api.GetD
 		}
 	}
 	return api.GetDAGRunHistoryAvailability200JSONResponse(toStepAvailability(availability)), nil
-}
-
-// runTime parses a run timestamp; the zero time stands for an empty or
-// unreadable value.
-func runTime(value string) time.Time {
-	t, err := stringutil.ParseTime(value)
-	if err != nil {
-		return time.Time{}
-	}
-	return t
 }
 
 // latestRunStatus reads the status of the latest run of a DAG, as the DAG
