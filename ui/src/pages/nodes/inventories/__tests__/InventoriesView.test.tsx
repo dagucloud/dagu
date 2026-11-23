@@ -24,7 +24,10 @@ const editor = vi.hoisted(() => ({
   onValidate: null as null | ((markers: unknown[]) => void),
 }));
 
+const download = vi.hoisted(() => ({ downloadBlob: vi.fn() }));
+
 vi.mock('@/hooks/api', () => ({ useClient: () => client }));
+vi.mock('@/lib/download', () => download);
 vi.mock('monaco-editor', () => ({
   languages: {
     json: {
@@ -97,6 +100,14 @@ function renderView(canEdit = true) {
   return onChanged;
 }
 
+function readBlob(blob: Blob): Promise<string> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.readAsText(blob);
+  });
+}
+
 function field(label: string) {
   return screen.getByLabelText(label);
 }
@@ -107,6 +118,7 @@ describe('InventoriesView', () => {
       fn.mockReset();
     }
     client.GET.mockResolvedValue({ data: TOKYO });
+    download.downloadBlob.mockReset();
     editor.setDiagnosticsOptions.mockReset();
     vi.stubGlobal(
       'fetch',
@@ -122,7 +134,7 @@ describe('InventoriesView', () => {
     vi.unstubAllGlobals();
   });
 
-  it('lists inventories with their node counts, and offers no change without the role', () => {
+  it('lists inventories with their node counts, and offers only Export without the role', () => {
     renderView(false);
 
     const row = screen.getByText('Tokyo production').closest('tr')!;
@@ -131,7 +143,36 @@ describe('InventoriesView', () => {
     expect(
       screen.queryByRole('button', { name: 'New inventory' })
     ).not.toBeInTheDocument();
-    expect(within(row).queryAllByRole('button')).toHaveLength(0);
+    expect(
+      screen.queryByRole('button', { name: 'Import' })
+    ).not.toBeInTheDocument();
+    expect(
+      within(row)
+        .queryAllByRole('button')
+        .map((button) => button.getAttribute('aria-label'))
+    ).toEqual(['Export Tokyo production']);
+  });
+
+  it('exports an inventory as dagu nodes export prints it', async () => {
+    renderView(false);
+
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole('button', { name: 'Export Tokyo production' })
+      );
+    });
+
+    expect(download.downloadBlob).toHaveBeenCalledTimes(1);
+    const [blob, filename] = download.downloadBlob.mock.calls[0]!;
+    expect(filename).toBe('Tokyo-production.json');
+    expect(JSON.parse(await readBlob(blob))).toEqual([
+      {
+        name: TOKYO.name,
+        description: TOKYO.description,
+        defaults: TOKYO.defaults,
+        nodes: TOKYO.nodes,
+      },
+    ]);
   });
 
   it('creates an inventory from its name and defaults', async () => {
