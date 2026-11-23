@@ -161,6 +161,47 @@ One run per request, at most 64 KiB, as RFC 020 sets:
   use, so a job run and a server run read alike in Console.
 - The workflow is the DAG name, as for a server. The same DAG under two run
   keys is two workflows in Console.
+- Both also carry where the run ran, below.
+
+### Where the run ran
+
+A job's machine and its logs are gone once the run ends, so the report says
+where the run happened, for a person to find its logs and what started it:
+
+```json
+"platform": "github_actions",
+"platform_url": "https://github.com/acme/etl/actions/runs/9876543210/attempts/2",
+"host": "etl-28911-x7k2p"
+```
+
+- **`platform`** is the system the machine says it runs in, from its
+  environment, the first that matches:
+
+  | Platform | Detected by | `platform_url` |
+  | --- | --- | --- |
+  | `github_actions` | `GITHUB_ACTIONS=true` | `$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT` |
+  | `gitlab_ci` | `GITLAB_CI=true` | `$CI_JOB_URL` |
+  | `buildkite` | `BUILDKITE=true` | `$BUILDKITE_BUILD_URL` |
+  | `circleci` | `CIRCLECI=true` | `$CIRCLE_BUILD_URL` |
+  | `azure_pipelines` | `TF_BUILD=True` | `$SYSTEM_COLLECTIONURI$SYSTEM_TEAMPROJECT/_build/results?buildId=$BUILD_BUILDID` |
+  | `jenkins` | `JENKINS_URL` set | `$BUILD_URL` |
+  | `cloud_run` | `CLOUD_RUN_JOB` set | none |
+  | `aws_batch` | `AWS_BATCH_JOB_ID` set | none |
+  | `kubernetes` | `KUBERNETES_SERVICE_HOST` set | none |
+
+  CI systems come before Kubernetes, since many CI runners run on it. A
+  machine none of them matches sends none.
+- **`platform_url`** links to the CI job or run, where its full log is. It is
+  sent only as an `https` URL of at most 2048 bytes.
+- **`host`** is the machine's hostname, which on Kubernetes is the pod's
+  name, cut to 253 bytes.
+- **What started the run.** `dagu start` records a run started from the
+  command line as `manual`, which on a job's machine is rarely a person. A
+  job report sends `trigger_type` empty unless `--trigger-type` was passed,
+  and Console shows the platform's name, such as "GitHub Actions" or
+  "Kubernetes", in its place. The run's own history on the machine keeps
+  what `dagu start` recorded.
+- These go only to the workspace's own Console, never into the run's log.
 
 ### When it sends
 
@@ -200,7 +241,14 @@ reporter, which never blocks the agent.
   pod stopped with SIGTERM aborts the run, writes its terminal status, and
   sends the finish within the default 30-second grace period.
 - The request carries `User-Agent: dagu-oss/<version>` and
-  `Authorization: Bearer <run key>`, and nothing else that names the machine.
+  `Authorization: Bearer <run key>`. Console shows the version beside the
+  key, so an owner sees which Dagu their machines run.
+- **Proxies and certificates.** The sender uses Go's default transport, as
+  the license client and the server reporter do: it honors `HTTPS_PROXY`,
+  `HTTP_PROXY`, and `NO_PROXY`, and trusts the system's certificates and
+  those `SSL_CERT_FILE` or `SSL_CERT_DIR` names. A cluster that reaches the
+  internet through a proxy needs nothing more. The only host it calls is
+  Console's, `console.dagu.sh:443` by default.
 
 ## Failure behavior
 
@@ -225,6 +273,11 @@ repository's CI. So the sender names neither the key nor the workspace:
   finish could not be sent within its budget. It says which, and what to
   check: the key, or the route to Console.
 - One warning for a malformed key, as above.
+- One line at info level when Console counted the finish but does not list
+  it because the workspace used this month's job runs: `Dagu Console counted
+  this run but does not list it: this month's job runs are used.` Console's
+  answer says so (`"listed": false, "why": "allowance"`); a finish sent again
+  says nothing.
 - Everything else, such as a progress report that failed, at debug level.
 
 Console's answer carries no workspace name, so the sender has none to print.
@@ -248,13 +301,22 @@ Console's answer carries no workspace name, so the sender has none to print.
 - Steps ride on the reports already: Console stores them as it does a
   server's (RFC 021 in `dagucloud/cloud`).
 
+- Console needs a few additions before it turns job runs on (RFC 020): to
+  take and show `platform`, `platform_url`, and `host`, to answer `listed`
+  and `why`, to show the Dagu version beside each key, and to tell an owner
+  whose key was never used which Dagu version it needs.
+
 Order:
 
 1. This change, released.
-2. Console's run key panel names the first Dagu version with the sender, and
-   `monitor.job_runs` is turned on in production.
+2. Console's additions, its run key panel and never-used keys naming the
+   first Dagu version with the sender, and `monitor.job_runs` turned on in
+   production.
 3. The docs page: monitoring Kubernetes Jobs and CI runs, with the Secret,
-   `envFrom`, and CI snippets Console's panel shows.
+   `envFrom`, and CI snippets Console's panel shows; the host to allow
+   through a firewall; and, for a Kubernetes Job or a CI run that retries,
+   passing `--run-id` its Job or run name, so its retries show in Console as
+   attempts of one run instead of unrelated runs.
 
 ## Verification and acceptance criteria
 
@@ -278,6 +340,15 @@ Order:
   run.
 - At `cloud.report: runs` the finish carries no errors.
 - The key and the workspace appear in no log line.
+- In GitHub Actions the reports carry `platform: github_actions` and a link to
+  the run's attempt; in a Kubernetes pod, `platform: kubernetes` and the
+  pod's name as `host`; in GitLab CI on Kubernetes, `gitlab_ci`; on a laptop,
+  no platform. A `platform_url` that is not `https` is left out.
+- Without `--trigger-type` the reports carry no trigger; with
+  `--trigger-type scheduler`, they carry `scheduler`.
+- Behind an `HTTPS_PROXY`, the reports go through it.
+- A finish Console counted but does not list prints its one line; the same
+  finish sent again prints nothing.
 - A run with a key prints `Reporting this run to Dagu Console` once; a revoked
   key, and a finish that cannot be sent, each print one warning; a failed
   progress report prints nothing above debug level.
@@ -305,3 +376,6 @@ Order:
   is gone. `cloud.report: runs` keeps error output on the machine.
 - **The run prints one neutral line and warnings,** naming neither the key
   nor the workspace, since job logs are often public.
+- **A job run names its platform, not a trigger.** Without `--trigger-type`,
+  Console shows the platform it ran in, such as "GitHub Actions" or
+  "Kubernetes", where a server's run shows "Manual" or "Scheduler".
