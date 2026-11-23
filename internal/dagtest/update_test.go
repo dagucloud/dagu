@@ -5,7 +5,6 @@ package dagtest
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -87,7 +86,7 @@ cases:
 		build.Outputs[0].Value = "v2"
 		build.Outputs[1].Value = "line one\nline two"
 		meta := build.Outputs[2].Value.(map[string]any)
-		build.Outputs[2].Value = map[string]any{"version": json.Number("2"), "labels": meta["labels"]}
+		build.Outputs[2].Value = map[string]any{"version": int64(2), "labels": meta["labels"]}
 		e.Steps[1].Status = "aborted"
 		e.Steps = append(e.Steps,
 			StepExpect{Key: "deploy", Step: "deploy", Status: "aborted"},
@@ -197,7 +196,7 @@ func TestUpdateRewrites(t *testing.T) {
 			name:   "ScalarToObject",
 			expect: "    expect:\n      steps:\n        build:\n          outputs:\n            meta: 3  # count\n",
 			edit: func(e *Expect) {
-				e.Steps[0].Outputs[0].Value = map[string]any{"files": json.Number("3")}
+				e.Steps[0].Outputs[0].Value = map[string]any{"files": int64(3)}
 			},
 			want: "    expect:\n      steps:\n        build:\n          outputs:\n            meta:  # count\n              files: 3\n",
 		},
@@ -213,7 +212,7 @@ func TestUpdateRewrites(t *testing.T) {
 			name:   "BigInteger",
 			expect: "    expect:\n      steps:\n        build:\n          outputs:\n            tag: 1\n",
 			edit: func(e *Expect) {
-				e.Steps[0].Outputs[0].Value = json.Number("9223372036854775809")
+				e.Steps[0].Outputs[0].Value = uint64(9223372036854775809)
 			},
 			want:   "    expect:\n      steps:\n        build:\n          outputs:\n            tag: 9223372036854775809\n",
 			output: uint64(9223372036854775809),

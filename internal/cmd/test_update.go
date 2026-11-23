@@ -4,7 +4,9 @@
 package cmd
 
 import (
+	"encoding/json"
 	"slices"
+	"strconv"
 
 	"github.com/dagucloud/dagu/v2/internal/dagtest"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -147,14 +149,18 @@ func updatedOutput(o dagtest.OutputExpect, text string) any {
 // mergeJSON returns actual in place of expected, except that an expected
 // object keeps its own keys, each with the actual value under it merged in,
 // and keeps its value where actual is not an object or lacks a key. A value
-// that already matches stays as written.
+// that already matches stays as written, and so does one in place of an
+// actual value that YAML cannot write exactly.
 func mergeJSON(expected, actual any) any {
 	if want, ok := jsonValue(expected); ok && jsonMatches(want, actual) {
 		return expected
 	}
 	object, ok := expected.(map[string]any)
 	if !ok {
-		return actual
+		if value, exact := yamlValue(actual); exact {
+			return value
+		}
+		return expected
 	}
 	got, ok := actual.(map[string]any)
 	if !ok {
@@ -168,4 +174,53 @@ func mergeJSON(expected, actual any) any {
 		}
 	}
 	return merged
+}
+
+// yamlValue returns a value decoded from JSON with each number as the
+// int64, uint64, or float64 that YAML writes it as, or false when a number
+// would read back as another, such as an integer beyond uint64 or a decimal
+// with more digits than a float64 holds.
+func yamlValue(v any) (any, bool) {
+	switch x := v.(type) {
+	case json.Number:
+		return yamlNumber(x)
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for key, value := range x {
+			converted, ok := yamlValue(value)
+			if !ok {
+				return nil, false
+			}
+			out[key] = converted
+		}
+		return out, true
+	case []any:
+		out := make([]any, len(x))
+		for i, value := range x {
+			converted, ok := yamlValue(value)
+			if !ok {
+				return nil, false
+			}
+			out[i] = converted
+		}
+		return out, true
+	}
+	return v, true
+}
+
+// yamlNumber returns n as the int64, uint64, or float64 that YAML writes it
+// as, and whether that reads back as a number of equal value.
+func yamlNumber(n json.Number) (any, bool) {
+	if i, err := n.Int64(); err == nil {
+		return i, true
+	}
+	if u, err := strconv.ParseUint(n.String(), 10, 64); err == nil {
+		return u, true
+	}
+	f, err := n.Float64()
+	if err != nil {
+		return nil, false
+	}
+	// yaml.v3 writes a float64 as its shortest decimal form.
+	return f, jsonEqual(n, json.Number(strconv.FormatFloat(f, 'g', -1, 64)))
 }

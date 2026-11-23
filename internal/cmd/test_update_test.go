@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/dagtest"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -257,6 +258,43 @@ func TestTestUpdateFileChanged(t *testing.T) {
 	assert.Contains(t, string(data), stale)
 	assert.Contains(t, string(data), "# edited")
 	assertFileContent(t, filepath.Join(dags, "b.test.yaml"), "cases:\n  - name: c\n    expect:\n      status: succeeded\n      steps:\n        note: succeeded\n")
+}
+
+// An output assertion takes the published value as YAML writes it exactly,
+// and keeps its value where the published one does not fit: an object keeps
+// its own keys, and a number that would read back as another number stays.
+func TestUpdatedOutput(t *testing.T) {
+	t.Parallel()
+
+	stats := map[string]any{"a": 1, "b": 2}
+	nested := map[string]any{"a": map[string]any{"x": 1}}
+	tests := []struct {
+		name     string
+		expected any
+		json     bool
+		text     string
+		want     any
+	}{
+		{"Text", "3", false, "4", "4"},
+		{"MatchingNumber", 7.0, false, "7", 7.0},
+		{"BeyondInt64", 1, false, "9223372036854775809", uint64(9223372036854775809)},
+		{"BeyondUint64", 1, false, "18446744073709551617", 1},
+		{"Decimal", 1, false, "0.1", 0.1},
+		{"LongDecimal", 1.5, false, "3.14159265358979323846", 1.5},
+		{"NotJSON", 3, false, "abc", "abc"},
+		{"ListedKeys", stats, true, `{"a": 5, "c": 3}`, map[string]any{"a": int64(5), "b": 2}},
+		{"NotAnObject", nested, true, `{"a": 3}`, nested},
+		{"ObjectNotJSON", stats, false, "abc", stats},
+		{"JSONOutputString", "x", true, `{"n": 1}`, map[string]any{"n": int64(1)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			o := dagtest.OutputExpect{Name: "out", Value: tt.expected, JSON: tt.json}
+			assert.Equal(t, tt.want, updatedOutput(o, tt.text))
+		})
+	}
 }
 
 // assertInOrder fails unless out holds each part, each after the one

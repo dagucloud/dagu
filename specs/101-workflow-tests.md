@@ -1281,9 +1281,12 @@ a step it adds in the same shape:
   lists takes its published value, recursively, and no key is added. An
   asserted output that the step did not publish, a listed key that the
   published object lacks, an expected object whose published value at that
-  place, at any depth, is not an object, and the value of a `type: json`
-  output whose text is not JSON keep their expected values, and the case
-  reports them as failures. Any other value whose text is not JSON takes
+  place, at any depth, is not an object, the value of a `type: json`
+  output whose text is not JSON, and a value in place of a published number
+  that YAML cannot write exactly, such as an integer above
+  18446744073709551615 or a decimal with more digits than a 64-bit float
+  holds, keep their expected values, and the case reports them as
+  failures. Any other value whose text is not JSON takes
   the text.
 - `stdout` and `stderr` assertions, `contains` and `matches`, stay as
   written.

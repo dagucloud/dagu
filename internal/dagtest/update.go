@@ -6,14 +6,12 @@ package dagtest
 import (
 	"bytes"
 	"cmp"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -64,8 +62,9 @@ func NewUpdate(f *File) (*Update, error) {
 
 // Set rewrites the expect of the named case to expect: the case's expect as
 // written, with its assertions in their order and some of their values
-// changed, followed by the step entries it adds. It reports whether the
-// file's text changes. A case that uses a YAML anchor, alias, or merge key,
+// changed, followed by the step entries it adds. An output value is written
+// as yaml.v3 writes it, so a number is an int64, uint64, or float64. Set
+// reports whether the file's text changes. A case that uses a YAML anchor, alias, or merge key,
 // or is written in flow style, keeps its expect, and Set returns why.
 func (u *Update) Set(name string, expect Expect) (bool, error) {
 	i := slices.IndexFunc(u.file.Cases, func(c Case) bool { return c.Name == name })
@@ -289,7 +288,7 @@ func (ed *expectEditor) value(at *slot, written, v any) {
 // set sets the value at to v. A scalar that stays a scalar keeps its node,
 // and its quotes when it stays a string on one line.
 func (ed *expectEditor) set(at *slot, v any) {
-	n, cur := valueNode(yamlValue(v)), at.value()
+	n, cur := valueNode(v), at.value()
 	if cur.Kind != yaml.ScalarNode || n.Kind != yaml.ScalarNode {
 		ed.replace(*at, n)
 		return
@@ -445,38 +444,6 @@ func blockCopy(n *yaml.Node) *yaml.Node {
 		c.Content[i] = blockCopy(child)
 	}
 	return &c
-}
-
-// yamlValue returns v, a value decoded from YAML or JSON, with each JSON
-// number as the integer or float it holds, which yaml.v3 writes as a number
-// rather than a string.
-func yamlValue(v any) any {
-	switch x := v.(type) {
-	case json.Number:
-		if i, err := x.Int64(); err == nil {
-			return i
-		}
-		if u, err := strconv.ParseUint(x.String(), 10, 64); err == nil {
-			return u
-		}
-		if f, err := x.Float64(); err == nil {
-			return f
-		}
-		return x.String()
-	case map[string]any:
-		out := make(map[string]any, len(x))
-		for key, value := range x {
-			out[key] = yamlValue(value)
-		}
-		return out
-	case []any:
-		out := make([]any, len(x))
-		for i, value := range x {
-			out[i] = yamlValue(value)
-		}
-		return out
-	}
-	return v
 }
 
 // textEdit replaces the text from start to end with text.
