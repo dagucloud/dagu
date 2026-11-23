@@ -1010,10 +1010,12 @@ export interface paths {
          * @description Gives the activity of each DAG of one page of `GET /dags` over a window
          *     that ends now. The paging, filters, and sort select the same DAGs in
          *     the same order as `GET /dags` with the same values, and a `perPage`
-         *     above 200 reads 200 DAGs, as `GET /dags` does. A plain DAG lists
-         *     its runs that started in the window, newest first, and its latest run
-         *     while it is active. A service DAG gives the buckets of its run history
-         *     instead.
+         *     above 200 reads 200 DAGs, as `GET /dags` does. A plain DAG lists its
+         *     runs that started in the window, the last started first, and its runs
+         *     still in progress. It finds them among the runs created since one
+         *     window before the window, so a run that waited in a queue for longer
+         *     shows only while it is the latest run. A service DAG gives the buckets
+         *     of its run history instead.
          *
          */
         get: operations["getDAGListActivity"];
@@ -7281,7 +7283,7 @@ export interface components {
         };
         /** @description The runs of a DAG that started in the window of the request, newest first, and its latest run while it is active. For a service DAG, the buckets of its run history instead. */
         DAGListActivity: {
-            /** @description Runs that started in the window, at most 60. Backfill runs are not listed. */
+            /** @description Runs that started in the window, the last started first, at most 60, and runs still in progress. Backfill runs and runs that never started are not listed. */
             runs: components["schemas"]["DAGListActivityRun"][];
             /** @description True when the DAG has more runs in the window than runs lists */
             truncated: boolean;

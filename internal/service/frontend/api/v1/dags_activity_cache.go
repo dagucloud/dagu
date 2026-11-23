@@ -39,7 +39,7 @@ func (a *API) cachedDAGActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGR
 	if activity, ok := a.activities.get(key, latest, now); ok {
 		return withRunsSince(activity, since), nil
 	}
-	activity, err := a.dagActivity(ctx, dag, latest, since)
+	activity, err := a.dagActivity(ctx, dag, latest, since, window)
 	if err == nil {
 		a.activities.put(key, latest, now, activity)
 	}

@@ -211,8 +211,8 @@ func TestDAGListActivityOfRunsQueuedBeforeTheyStarted(t *testing.T) {
 // A backfill run is not listed, as it is not the latest run of its DAG
 // either: the list shows a backfill on its own.
 // A run that waited in the queue from before the window and started in it
-// shows, also when a newer run is the latest. The search for such runs ends at
-// the first run that started before the window.
+// shows, also when a newer run is the latest. A run that started before the
+// window does not.
 func TestDAGListActivityOfRunsThatWaitedFromBeforeTheWindow(t *testing.T) {
 	server := test.SetupServer(t)
 	dag := createActivityDAG(t, server, "activity_waited")
@@ -223,6 +223,46 @@ func TestDAGListActivityOfRunsThatWaitedFromBeforeTheWindow(t *testing.T) {
 	for _, query := range []string{"?window=86400", "?window=86400&sort=lastRun"} {
 		assert.Equal(t, []string{"newer", "waited"}, activityRunIDs(listActivity(t, server, query)["activity_waited"]), query)
 	}
+}
+
+// A run can start after a run created after it, as a run started outside the
+// queue does. Such a run shows when it started in the window, whether the
+// newer run is the latest run or a run in the window follows it.
+func TestDAGListActivityDoesNotAssumeRunsStartInOrder(t *testing.T) {
+	server := test.SetupServer(t)
+	seed := func(name string, recent bool) {
+		dag := createActivityDAG(t, server, name)
+		seedActivityRun(t, server, dag, activityRun{id: "waited", status: ir.Succeeded, startAgo: 2 * time.Hour, queuedFor: 28 * time.Hour, took: time.Minute})
+		seedActivityRun(t, server, dag, activityRun{id: "direct", status: ir.Succeeded, startAgo: 26 * time.Hour, queuedFor: time.Hour, took: time.Minute})
+		if recent {
+			seedActivityRun(t, server, dag, activityRun{id: "recent", status: ir.Succeeded, startAgo: time.Hour, took: time.Minute})
+		}
+	}
+	seed("activity_order_latest", false)
+	seed("activity_order_recent", true)
+
+	dags := listActivity(t, server, "?window=86400")
+	assert.Equal(t, []string{"waited"}, activityRunIDs(dags["activity_order_latest"]))
+	assert.Equal(t, []string{"recent", "waited"}, activityRunIDs(dags["activity_order_recent"]))
+}
+
+// With more runs in the window than the activity lists, it lists the runs
+// that started last, also when one of them was created before the others.
+func TestDAGListActivityTruncatesByStart(t *testing.T) {
+	server := test.SetupServer(t)
+	dag := createActivityDAG(t, server, "activity_order_truncated")
+	seedActivityRun(t, server, dag, activityRun{id: "failed-late", status: ir.Failed, startAgo: 30 * time.Minute, queuedFor: 19 * time.Hour, took: time.Minute})
+	for i := range 60 {
+		seedActivityRun(t, server, dag, activityRun{
+			id: fmt.Sprintf("ok-%02d", i), status: ir.Succeeded, startAgo: 3*time.Hour + time.Duration(i)*time.Minute, took: time.Second,
+		})
+	}
+
+	activity := listActivity(t, server, "?window=86400")["activity_order_truncated"]
+	require.NotNil(t, activity)
+	require.Len(t, activity.Runs, 60)
+	assert.Equal(t, "failed-late", activity.Runs[0].DagRunId)
+	assert.True(t, activity.Truncated)
 }
 
 // Runs canceled in the queue take none of the 60 places, so they do not hide
