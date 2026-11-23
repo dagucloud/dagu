@@ -14,11 +14,6 @@ import { NoticeLine } from './NoticeLine';
 export interface DraftRecoveryCardProps {
   /** When the draft was stored, in milliseconds. */
   savedAt: number;
-  /**
-   * The file changed after the draft was stored: a restore and a save would
-   * replace the newer version.
-   */
-  stale?: boolean;
   onRestore(): void;
   onDiscard(): void;
 }
@@ -29,7 +24,6 @@ export interface DraftRecoveryCardProps {
  */
 export function DraftRecoveryCard({
   savedAt,
-  stale = false,
   onRestore,
   onDiscard,
 }: DraftRecoveryCardProps) {
@@ -46,12 +40,9 @@ export function DraftRecoveryCard({
             tone: 'warning',
             priority: 0,
             label: ts('Unsaved draft'),
-            message: ts(
-              stale
-                ? 'The file changed after the draft from {time}. Restoring it can overwrite the newer version.'
-                : 'Restore unsaved draft from {time}?',
-              { time: formatAbsoluteTime(savedAt) ?? '' }
-            ),
+            message: ts('Restore unsaved draft from {time}?', {
+              time: formatAbsoluteTime(savedAt) ?? '',
+            }),
             action: {
               label: (
                 <>

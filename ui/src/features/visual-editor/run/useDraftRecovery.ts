@@ -10,14 +10,9 @@ const STORE_DELAY_MS = 1000;
 interface DraftRecoveryInput {
   storageKey: string;
   serverText?: string;
-  /** Hash of the server version that the edited text is based on. */
-  serverSha256?: string;
   currentText?: string;
   isDirty: boolean;
-  /**
-   * Hash of the server version that the edits start from, stored with them.
-   * It wins over the hash that the hook tracks from `serverSha256`.
-   */
+  /** Hash of the server version that the edits start from, stored with them. */
   baseSha256?: string;
   /** Tells if two texts are the same content; default strict equality. */
   isSame?(a: string, b: string): boolean;
@@ -41,11 +36,6 @@ function initialState(key: string): RecoveryState {
 interface DraftRecovery {
   draft: StoredDraft | null;
   discard(): void;
-  /**
-   * Drops the offer. The host puts the draft text back; from then on the text
-   * is based on the version of the draft, not on the one of the server.
-   */
-  restore(): void;
 }
 
 interface PendingDraft {
@@ -63,16 +53,12 @@ function writePending(next: PendingDraft): void {
 }
 
 /**
- * Keeps unsaved editor text in browser storage and offers it back after a
- * reload. The stored draft carries the hash of the server version that it is
- * based on, so that the host can tell a draft of an older version. The hash is
- * `baseSha256` when the host gives it, else the one that the hook tracks from
- * `serverSha256`.
+ * Keeps unsaved editor text in browser storage, with `baseSha256`, and offers
+ * it back after a reload.
  */
 export function useDraftRecovery({
   storageKey,
   serverText,
-  serverSha256,
   currentText,
   isDirty,
   baseSha256,
@@ -95,20 +81,10 @@ export function useDraftRecovery({
     setState(current);
   }
 
-  // The server version that the text was edited from: a clean text follows
-  // the server, a dirty one keeps the version that it had when the edit began.
-  const trackedBase = useRef(serverSha256);
-
   const discard = useCallback(() => {
     removeDraft(storageKey);
     setState((prev) => ({ ...prev, stored: null, offered: null }));
   }, [storageKey]);
-
-  const offered = current.offered;
-  const restore = useCallback(() => {
-    trackedBase.current = offered?.baseSha256;
-    discard();
-  }, [offered, discard]);
 
   // The key for which this mount has seen dirty text. A clean mount must keep
   // the stored draft until the user can recover it.
@@ -136,23 +112,20 @@ export function useDraftRecovery({
       writePending(pending.current);
     }
     if (!isDirty || currentText === undefined) {
-      trackedBase.current = serverSha256;
       pending.current = null;
       return;
     }
-    const base = baseSha256 ?? trackedBase.current;
-    const next: PendingDraft = {
-      key: storageKey,
-      text: currentText,
-      baseSha256: base,
-    };
-    pending.current = next;
+    pending.current = { key: storageKey, text: currentText, baseSha256 };
     const timer = setTimeout(() => {
       pending.current = null;
-      writePending(next);
+      writeDraft(storageKey, {
+        text: currentText,
+        savedAt: Date.now(),
+        baseSha256,
+      });
     }, STORE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [storageKey, currentText, serverSha256, isDirty, baseSha256]);
+  }, [storageKey, currentText, isDirty, baseSha256]);
 
   useEffect(() => {
     const flush = () => {
@@ -168,5 +141,5 @@ export function useDraftRecovery({
     };
   }, []);
 
-  return { draft: current.offered, discard, restore };
+  return { draft: current.offered, discard };
 }
