@@ -7,7 +7,7 @@ import {
   rangeBounds,
   rangeFor,
 } from '../dock/runTimelineModel';
-import { POLLED_PRESETS, presetView } from '../continuous/sampleBars';
+import { presetView } from '../continuous/sampleBars';
 import { presetsFor, RANGE_PRESETS } from '../rangePresets';
 
 const ids = (use: Parameters<typeof presetsFor>[0]) =>
@@ -49,10 +49,6 @@ describe('range presets', () => {
         to: view.to,
       });
     }
-  });
-
-  it('polls the presets that end now and are short', () => {
-    expect(POLLED_PRESETS).toEqual(['1h', '6h', '24h']);
   });
 
   it('keeps a stored preset only where the DAG offers it', () => {

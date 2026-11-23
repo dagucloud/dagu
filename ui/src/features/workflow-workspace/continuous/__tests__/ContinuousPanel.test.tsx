@@ -47,16 +47,6 @@ function answer(data: unknown, path: string) {
 }
 
 vi.mock('@/hooks/api', () => ({
-  // The live window of the samples reads through the client, at the call time.
-  useClient: () => ({
-    GET: async (
-      path: string,
-      init: { params: { query: Record<string, unknown> } }
-    ) => {
-      h.calls.push({ path, query: init.params.query, config: undefined });
-      return { data: h.responses[path] };
-    },
-  }),
   useQuery: (
     path: string,
     init: { params: { query: Record<string, unknown> } } | null,
