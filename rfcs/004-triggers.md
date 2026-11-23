@@ -465,8 +465,9 @@ through Dagu Cloud.
 
 ### Hook set
 
-- The scheduler rereads the webhook store every 10 seconds and sends `hooks`
-  when the set changes, so turning a URL off takes effect within 10 seconds.
+- The scheduler sends the whole set on every new connection. It then
+  rereads the webhook store every 10 seconds and sends `hooks` when the set
+  changes, so turning a URL off takes effect within 10 seconds.
 - A new set makes Dagu Cloud delete every waiting delivery whose hook it
   leaves out. So the set is sent only from a complete read: never before the
   first read succeeds, and never from a read that failed or could not decode
@@ -512,7 +513,24 @@ through Dagu Cloud.
 - It also keeps the counts Dagu Cloud reports of deliveries that waited longer
   than 7 days or were refused while 1,000 waited, until an admin dismisses
   them.
-- Webhook bodies wait at Dagu Cloud for up to 7 days.
+- Webhook bodies wait at Dagu Cloud for up to 7 days, less when the server
+  is disconnected there.
+
+### Disconnecting in Dagu Cloud
+
+- Disconnecting the server, or revoking its activation or license, in Dagu
+  Cloud deletes its public URLs and the deliveries waiting for them. They
+  are not counted as missed. The URLs answer `404` from then on, so senders
+  see failures rather than a `202` that is never delivered.
+- The server keeps its webhooks, tokens, sender secrets, and delivery log,
+  and its local endpoint keeps working. Its tickets are refused, and once its
+  license heartbeat is refused too, it stops connecting.
+- Reconnecting the same server to the same workspace brings back the same
+  URLs at its next connection, since the relay names the server by workspace
+  and server ID. Deleted deliveries do not come back; GitHub needs a manual
+  redelivery, and Stripe's own retries reach the server if it returns within
+  3 days.
+- A suspended license or a lapsed plan deletes nothing.
 
 ## Compatibility and rollout
 
