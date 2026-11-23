@@ -124,7 +124,15 @@ func withPreparedLocalExecution(
 	ctx.Proc = prepared.Proc
 	defer func() {
 		ctx.Proc = prevProc
-		_ = prepared.Proc.Stop(ctx)
+		// A record left behind makes the run look alive until it goes stale,
+		// so the failure is logged. It does not change the run's result.
+		if err := prepared.Proc.Stop(ctx); err != nil {
+			logger.Warn(ctx, "Failed to release the process record of the dag-run",
+				tag.DAG(dag.Name),
+				tag.RunID(dagRunID),
+				tag.Error(err),
+			)
+		}
 	}()
 
 	return run(prepared.Attempt)
