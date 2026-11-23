@@ -78,26 +78,14 @@ func (a *API) serviceActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRun
 	if !ok {
 		return activity, nil
 	}
-	now := time.Now().UTC()
-	series, err := reader.Samples(ctx, samples.SampleQuery{From: since.UTC(), To: now, MaxPoints: activityBucketLimit})
+	query := samples.SampleQuery{From: since.UTC(), To: time.Now().UTC(), MaxPoints: activityBucketLimit}
+	result, err := readRunHistorySamples(ctx, reader, query, activeRunStart(latest))
 	if err != nil {
 		return activity, fmt.Errorf("read run history of %s: %w", dag.Name, err)
 	}
-	uptime, err := reader.Uptime(ctx, since.UTC(), now)
-	if err != nil {
-		return activity, fmt.Errorf("read uptime of %s: %w", dag.Name, err)
-	}
-	start := activeRunStart(latest)
-	last, err := recordedEnd(ctx, reader, start, !uptime.Since.IsZero())
-	if err != nil {
-		return activity, fmt.Errorf("read run history of %s: %w", dag.Name, err)
-	}
-	result := toStepSamples(series.WithActive(start, last, now), since, now)
 	activity.Buckets = &result.Buckets
 	activity.ResolutionSeconds = &result.ResolutionSeconds
-	if ratio, ok := uptime.WithActive(start, last).Ratio(); ok {
-		activity.Uptime = &ratio
-	}
+	activity.Uptime = result.Uptime
 	return activity, nil
 }
 
