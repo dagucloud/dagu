@@ -92,6 +92,16 @@ steps:
 	require.True(t, conflict.IsError)
 	require.Equal(t, changeErrorConflict, structuredMap(t, conflict)["code"])
 
+	// The preview refuses a name reserved for test files, as the API does.
+	reserved := callTool(t, ctx, session, toolChange, changeInput{
+		Type:    changeTypeRenameDAG,
+		Name:    "mcp-original",
+		NewName: "mcp-original.test",
+	})
+	require.True(t, reserved.IsError)
+	require.Equal(t, changeErrorInvalidToolInput, structuredMap(t, reserved)["code"])
+	require.Equal(t, persis.ValidateNewDAGName("mcp-original.test").Error(), structuredMap(t, reserved)["message"])
+
 	rename := changeInput{
 		Type:    changeTypeRenameDAG,
 		Name:    "mcp-original",
@@ -197,6 +207,16 @@ func TestDAGChangeInputValidation(t *testing.T) {
 			name:      "rename validates destination",
 			input:     `{"type":"rename_dag","name":"old","newName":"bad name"}`,
 			wantField: changeFieldNewName,
+		},
+		{
+			name:      "rename reserves the test suffix",
+			input:     `{"type":"rename_dag","name":"old","newName":"old.test"}`,
+			wantField: changeFieldNewName,
+		},
+		{
+			name:      "upsert reserves the test suffix",
+			input:     `{"type":"upsert_dag","name":"new.test","spec":"steps: []"}`,
+			wantField: changeFieldName,
 		},
 		{
 			name:      "delete rejects spec",

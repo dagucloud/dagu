@@ -1,0 +1,16 @@
+cases:
+  - name: current mocks
+    mocks:
+      build image:
+        stdout: built
+        outputs:
+          tag: v1
+    expect:
+      status: succeeded
+  - name: default mock
+    default_mock:
+      results:
+        - exit_code: 1
+        - {}
+    expect:
+      status: succeeded

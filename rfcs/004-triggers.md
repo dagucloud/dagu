@@ -3,55 +3,45 @@
 - **Status:** Proposed. Its first release, public URLs for per-DAG webhooks,
   shipped in v2.20 and is specified below.
 - **Date:** 2026-10-09, first release added 2026-10-14, revised 2026-11-23 to
-  define sources and absorb RFC 019
-- **Affected areas:** `spec`, `ir`, `eventstore`, `persis`, `schedulerstate`,
-  `service/scheduler`, `service/frontend` (API, UI), `auth` (webhooks),
-  `secret`, `tunnel`, `gitsync`, `cmd`, `cmn/config`, `specs`, and `docs`
+  absorb RFC 019 as a per-DAG poll
+- **Affected areas:** `persis` (store), `schedulerstate`,
+  `service/scheduler`, `service/notification`, `service/frontend` (API, UI),
+  `auth` (webhooks),
+  `tunnel`, `audit`, `specs`, and `docs`
 
 ## Summary
 
-Let a DAG start when something happens outside it: a command finds new work,
-another DAG finishes, or a service such as GitHub sends a webhook. A check that
-finds nothing, and an event no DAG takes, start no run.
+Let a DAG start when new work appears somewhere that sends no event. A user
+who may run commands on the scheduler host gives the DAG a poll: a command
+the scheduler runs on an interval. Each new line it prints starts one run. A
+check that finds nothing starts no run.
 
-Three parts do this:
+A poll is server state, like the per-DAG webhook. It is kept in the data
+directory, set in the DAG's page or through the API, and the DAG file does
+not change:
 
-- A **source** is where events come from. A source with settings is a YAML
-  file in `sources/`, beside the DAGs: a command the scheduler runs on an
-  interval to list work, or a URL that receives webhooks. DAG runs are a
-  built-in source.
-- A **trigger** in a DAG names a source, and says which of its events start
-  the DAG, on what condition, and with what params.
-- The **matcher** runs in the scheduler. It reads each new event and queues
-  one run for each trigger that takes it.
-
-```yaml
-# sources/feed-jobs.yaml
-type: command
-command: ssh cloud-vm 'ls ~/feed/jobs'
-interval: 1m
+```json
+{
+  "dagName": "feed",
+  "enabled": true,
+  "command": "ssh cloud-vm 'ls ~/feed/jobs'",
+  "interval": "1m",
+  "backlog": "run"
+}
 ```
 
 ```yaml
 # feed.yaml
-triggers:
-  - source: feed-jobs
 max_active_runs: 3
 steps:
   - id: feed
     command: ~/feed/feed-run.sh   # reads the job from $POLL_ITEM
 ```
 
-An event starts at most one run per trigger, however often it arrives. A
-source runs one check, or has one URL, however many DAGs subscribe to it.
+Work whose producer can send an HTTP request uses the per-DAG webhook, which
+needs nothing new.
 
-Definitions never refer to server state. The data directory keeps only a
-source's state, by its name: what a command source has seen, its log of
-checks, URL tokens, and whether its public URL is on. A DAG directory
-validates and loads alone.
-
-This RFC absorbs RFC 019, Poll for Work Without a Run, as the `command`
-source.
+This RFC absorbs RFC 019, Poll for Work Without a Run.
 
 ## What already ships
 
@@ -59,313 +49,239 @@ A DAG starts today on a schedule, by hand, from a parent DAG, when a file
 arrives in a folder it watches (`watch`, [Spec 082](../specs/082-watch.md)),
 or when its per-DAG webhook (`POST /webhooks/{fileName}`) is called.
 
+The per-DAG webhook is kept in the data directory, not in the DAG file. It is
+created and changed in the DAG's page or through
+`/api/v1/dags/{fileName}/webhook`, needs the developer role or above, and
+moves with the DAG when the DAG is renamed.
+
 Since v2.20, a per-DAG webhook can also have a public URL through Dagu Cloud
 ([First release](#first-release-public-urls-for-per-dag-webhooks)). That URL
-reaches a server behind a firewall, carries its token in the path so senders
-need no header, verifies GitHub, Stripe, Slack, and Standard Webhooks
-signatures, takes only the events it lists, hands large bodies over as a file,
-and keeps its latest deliveries.
+reaches a server behind a firewall, verifies GitHub, Stripe, Slack, and
+Standard Webhooks signatures, takes only the events it lists, and hands large
+bodies over as a file.
 
 ## Problem statement
 
-Three needs are still unmet.
-
-**Work that sends no event.** The usual way to react to it is a scheduled DAG
-that checks for work and exits when there is none. Every check is a full run:
-a process, a status record, logs, and a work directory.
+Some work sends no event, and nothing that creates it can call a webhook: an
+API without webhooks, a queue on another machine, a table, a channel's video
+list. The usual way to react to it is a scheduled DAG that checks for work
+and exits when there is none. Every check is a full run: a process, a status
+record, logs, and a work directory.
 
 One showcased setup runs a live video channel on a 1 GB VM
 (https://dagu.sh/showcase/live-channel-on-a-1-gb-vm). Five copies of a feed
-DAG run every 5 minutes. In 15 days the nine DAGs made 16,029 runs. The feed
-DAG made 15,166 of them, and 257 did real work. Most of the rest found no job
-and ended in about 2 seconds (RFC 006). Capacity grew by copying the DAG file,
-from one copy to five, because a schedule starts runs by the clock, not by
-the job.
-
-**Another DAG's outcome.** A DAG cannot start when another DAG reaches a
-status. The producer has to call it, as a sub-DAG or from a handler, which
-ties the two DAGs together.
-
-**What public URLs leave.**
-
-- A sender's own retry starts a second run. The run ID is Dagu Cloud's
-  delivery ID, not the sender's event ID, so GitHub redelivering an event is
-  a new delivery.
-- No condition on the payload. Taking only issues labelled `bug` costs a run
-  that exits early for every other issue.
-- No params from the payload. The run gets the whole body.
-- One URL starts one DAG. Three DAGs that react to one repository need three
-  webhooks set up in GitHub, each with its own secret.
-- The local endpoint, without Dagu Cloud, verifies only `X-Dagu-Signature`
-  and takes every event.
-
-Current options:
+DAG run every 5 minutes. In 14 days the feed DAG made 15,166 runs, and 257 did
+real work. The rest found no job and ended in about 2 seconds (RFC 006).
+Capacity grew by copying the DAG file, from one copy to five, because a
+schedule starts runs by the clock, not by the job.
 
 | Option | Fits when | Leaves |
 | --- | --- | --- |
 | `watch` (Spec 082) | Work arrives as files in a folder the scheduler can read | Nothing to fix |
-| Public URL (v2.20) | A service posts to one DAG | The gaps above |
+| Per-DAG webhook | Whatever creates the work can send an HTTP request | Nothing to fix |
 | `discard_run_on` (RFC 006) | Only the run can tell whether there was work, for example by claiming a job atomically | A process start per check, and one poller copy per concurrent job |
 | `hist_retention_runs` or `hist_retention_days` | Disk is the only concern | Empty runs in every list, and runs that did work removed with them |
-| None of the above | The source can be listed but sends no event: an API without webhooks, a remote queue, a table, a channel's video list | This RFC |
+| None of the above | The work can be listed but nothing announces it | This RFC |
 
 ## Prior art
 
-Most orchestrators and automation tools keep polling, but separate the cheap
-check from the run it may start.
+Most orchestrators keep polling, but separate the cheap check from the run it
+may start.
 
 | Tool | What a check that finds nothing leaves |
 | --- | --- |
-| Dagster sensors | A tick marked skipped, with an optional `SkipReason`. Ticks are stored apart from runs and purged on their own schedule, per outcome (`retention.sensor.purge_after_days.skipped`). |
+| Dagster sensors | A tick marked skipped, stored apart from runs and purged on its own schedule. |
 | Windmill trigger scripts | The script keeps state between checks; when it returns no new items, the flow is skipped. |
 | Zapier polling triggers | The trigger compares item IDs with those it has seen; a Zap runs only for a new ID. |
 | Jenkins `pollSCM` | A polling log entry, "No changes". A build starts only when changes are found. |
-| n8n polling triggers | No execution is logged when nothing new is found, according to n8n staff; some users report otherwise. |
 
-Event-driven tools remove the check where the source can push:
-
-- Airflow 3 schedules a DAG from a message queue through an `AssetWatcher`
-  wrapping a `MessageQueueTrigger` (SQS, Kafka, Redis, and others). Airflow's
-  sensor modes (`poke`, `reschedule`, deferrable) free worker slots while
-  waiting; they do not reduce the number of DAG runs.
-- Prefect deployment triggers start a flow run when an event arrives.
-- Temporal workers long-poll a task queue; an empty poll creates no workflow
-  execution.
-
-Tools that keep a record per check bound it instead. A Kubernetes CronJob
-creates a Job for every schedule and keeps the latest 3 successful and 1
-failed Job by default.
-
-The common choice is the first one: the poll is an evaluation, not a run, and
-only new items become runs.
+The common choice: the poll is an evaluation, not a run, and only new items
+become runs.
 
 ## Goals
 
-1. A check that finds no new work, and an event no trigger takes, leave no
-   run, no logs, and no work directory.
-2. An event starts at most one run per trigger, despite sender retries,
-   redelivery, restarts, and lost scheduler state.
-3. One check or one URL per source, however many DAGs subscribe.
-4. Concurrency comes from `max_active_runs` and queues, not from copies of a
+1. A check that finds no new work leaves no run, no logs, and no work
+   directory.
+2. A new item starts one run, despite restarts, while that run is in the
+   history.
+3. Concurrency comes from `max_active_runs` and queues, not from copies of a
    DAG.
-5. Every check and delivery stays visible: what it found, what it matched,
-   what it started, and why it failed.
-6. Bounded idle cost on the scheduler host.
-7. A DAG directory validates and loads without server state.
-8. Provider secrets stay on the server.
+4. Every check stays visible: what it listed, what it started, and why it
+   failed. A poll that keeps failing notifies, and one that stopped checking
+   says so.
+5. Bounded idle cost on the scheduler host.
+6. Only a user who may already run commands on the scheduler host can set or
+   try a poll, and the audit log records it.
+7. DAG files, their schema, and their validation do not change.
 
 ## Non-goals
 
-- Exactly-once execution. A run can still fail and be retried as today.
-- An event archive. Events follow the event store's retention.
-- Replacing RFC 006. A run that must claim work atomically still needs it.
+- Exactly-once execution. A failed run is retried by the DAG's retry policy
+  or by hand, not by the poll.
+- A poll in the DAG file, or carried by git sync. See
+  [Alternatives considered](#alternatives-considered).
+- More than one poll per DAG, or one poll shared by several DAGs.
+- Conditions and params. The command filters and shapes what it prints.
+- Changes to the per-DAG webhook, such as taking the sender's event ID as the
+  run ID, conditions and params over the payload, or one URL for several
+  DAGs. A later RFC can add them to the webhook.
+- Starting a DAG from another DAG's outcome.
 - Running checks on workers. See [Where the check runs](#where-the-check-runs).
 - Change detection for items whose key stays the same. A new version of an
   item needs a new key.
-- Incremental listing. A source too large to list whole, such as a feed read
-  from a cursor, needs a later option that passes the last cursor to the
-  check. Event IDs do not change with it.
-- Binary webhook bodies. Bodies are UTF-8 text, as most senders send.
-- Message brokers (Kafka, RabbitMQ) and an `http` pull type. Later RFCs can
-  add them as source types.
-- Folders. `watch` stays a DAG field. A `folder` source type can join when one
-  folder must feed several DAGs.
+- Incremental listing from a cursor, for a listing too large to read whole.
 
-## Model
+## The poll
 
-```text
- sources/feed-jobs.yaml  the scheduler runs its check ─┐
- sources/app-repo.yaml   a sender posts to its URL ────┼─▶ event store ─▶ matcher ─▶ runs
- dag (built-in)          a DAG run ends ───────────────┘                     ▲
- feed.yaml  triggers: [source: feed-jobs] ───────────────────────────────────┘
-```
+### Record
 
-References run one way: server state names definitions, never the reverse.
+A DAG has at most one poll. Polls are stored the way per-DAG webhooks are:
+JSON records in folders of the data directory, one folder per kind of data.
 
-### Source files
+| Folder | Holds | Written by | Like |
+| --- | --- | --- | --- |
+| `polls/` | Each poll's settings, one record per poll | The API | `webhooks/` |
+| `poll-state/` | Each poll's seen keys, check log, and next due time, and pending Check now requests | The scheduler | `public-webhooks/` |
 
-A source with settings is a YAML file named `<name>.yaml` in `sources/`,
-directly in the DAG directory, as `wiki/` is. Under
-[RFC 003](003-projects.md), each project's DAG directory has its own. Source
-files travel with the DAGs through git sync and deploys, as a git sync item
-of their own, and DAG discovery never reads them as DAGs.
+Settings and state are apart so that the API and the scheduler never write
+the same record. Under [RFC 003](003-projects.md) both folders are project
+data, as `webhooks/` is.
 
-| Field | Meaning |
-| --- | --- |
-| `type` | Required. `command`, `webhook`, `github`, `stripe`, or `slack`. |
-| `description` | Text shown in listings. |
-| `enabled` | Defaults to `true`. A disabled source checks and receives nothing. |
-
-Each type adds its own fields, given in its section below.
-
-- **Name.** The file name: letters, digits, `-`, and `_`. The server keeps a
-  source's state by its name, so renaming the file makes a new source, with a
-  new URL and no memory of the items it has seen.
-- **Built-in sources.** `dag` is reserved for DAG runs; a file with that name
-  is reported as invalid.
-- **Types.** Each type has a schema, a validator, and either a check or an
-  ingress, so a new type adds no field to DAGs or triggers. The JSON schema of
-  source files is served at `/assets/source.schema.json` and shown by
-  `dagu schema source`.
-- **Subscribers.** A `command` source that no enabled trigger of an
-  unsuspended DAG names is not checked. A webhook source with no subscriber
-  accepts deliveries and records them as unmatched.
-
-### Triggers
-
-A trigger lives in the DAG, so the DAG says what starts it:
-
-```yaml
-# triage.yaml
-triggers:
-  - name: bug-triage
-    source: app-repo
-    events: issues.opened
-    condition: '.issue.labels[]?.name == "bug"'
-    params:
-      TITLE: .issue.title
-      URL: .issue.html_url
-```
-
-| Field | Meaning |
-| --- | --- |
-| `name` | Unique within the DAG. Defaults to the source's name. |
-| `source` | A source file's name, or `dag`. |
-| `events` | Event name, or a list. A name also takes the events under it, so `issues` takes `issues.opened`. Omitted means every event of the source. |
-| `condition` | A gojq expression over the event payload; the trigger matches when it yields `true`. |
-| `params` | Param name to gojq expression over the payload. |
-| `enabled` | Defaults to `true`. |
-
-- **Validation.** An invalid trigger, including one that names a missing or
-  invalid source, is shown in the UI and `dagu validate`, and is ignored by
-  the matcher. The rest of the DAG is unaffected.
-- **Where it runs.** A triggered run is placed like any other run, including
-  `queue`, `max_active_runs`, and `worker_selector`.
-
-### What the run receives
-
-- Mapped `params`, as params.
-- `DAGU_EVENT_FILE`: the path to a JSON file with the source, event name,
-  event ID, receipt time, selected headers, and the full payload. This is how
-  large payloads reach a step.
-- The params a source type adds, such as `POLL_ITEM` for `command`.
-- Run metadata records the trigger name, source, event ID, and, for webhook
-  sources, the delivery ID. The run's trigger type is `trigger`, separate from
-  manual, schedule, and webhook.
-
-### Matching
-
-```text
-command check ──────────────────┐
-webhook ingress ─▶ verify ──────┼─▶ persist event ─▶ matcher ─▶ enqueue, one run
-dag.run.* ──────────────────────┘   (kind: trigger)  (scheduler)  per trigger
-```
-
-- **Persist first.** A command check writes an event for each new item it
-  finds. A webhook ingress verifies, then writes an event with the payload in
-  a file beside it; a delivery that fails verification is recorded as
-  rejected and never matched.
-- **One matcher.** It runs in the scheduler, reading the event store by cursor
-  like `chatbridge.NotificationMonitor`. It holds a cross-process lease and
-  persists its cursor.
-- **For each event,** the matcher finds the enabled triggers that name its
-  source and take its event name, evaluates each condition with a 100 ms
-  bound, maps params, and enqueues one run per matching trigger.
-- **The run ID is derived** from the event ID, DAG, and trigger. An event seen
-  twice, from a sender retry, a redelivery, or a command source that lost its
-  state, maps to a run that already exists, and nothing new starts.
-- **Waiting.** While a trigger's DAG is suspended or has 100 or more queued
-  runs, the matcher keeps the event waiting for that trigger, goes on with the
-  other triggers, and offers it again a minute later.
-- **Retention.** Triggers make the event store an input of execution. When
-  any trigger exists and `event_store.retention_days` is not set, retention is
-  7 days instead of 1. The matcher must stay within it; events older than
-  that, waiting ones included, are lost and counted as missed.
-
-## The `command` source
-
-A `command` source runs a command on the scheduler host at an interval and
-turns each new line it prints into one event.
-
-### Fields
+A poll's settings:
 
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
+| `dagName` | string | required | The DAG the poll starts |
+| `enabled` | bool | `true` | A disabled poll is not checked |
 | `command` | string | required | Command that prints one item per line on stdout |
-| `env` | map | none | Variables the command receives |
-| `working_dir` | path | the DAG directory | Where the command runs |
-| `interval` | duration | `1m` | Time between the end of one check and the start of the next; at least `10s` |
+| `env` | map | none | Variables the command receives; values are encrypted at rest, as webhook secrets are |
+| `interval` | duration | `1m` | Time between the end of one check and the start of the next, longer after failures; at least `10s` |
 | `timeout` | duration | `30s` | Longest a check may run; at most `5m` |
 | `key` | gojq expression | the whole line | When set, each line is parsed as JSON and the key is this expression's string result |
 | `backlog` | `skip` or `run` | `skip` | What the first check does with the items it lists |
 
-`dagu validate` rejects a missing command, an interval under `10s`, a timeout
-over `5m`, an invalid gojq expression, and an unknown `backlog`.
+The record also holds its ID and who created and last changed it, and when.
+A save that sets no command, an interval under `10s`, a timeout over `5m`, an
+invalid gojq expression, or an unknown `backlog` is rejected.
 
-`sources.allow_command` in `config.yaml` decides whether `command` sources
-run. It defaults to `true` when `default_execution_mode` is `local`, where DAG
-steps already run on the scheduler host, and to `false` when it is
-`distributed`, where DAG authors otherwise run nothing there. A `command`
-source that is not allowed is invalid.
+- **Managing.** The DAG's page has a Poll tab beside Webhook. The API is
+  `GET`, `PUT`, and `DELETE /api/v1/dags/{fileName}/poll`. Reading a poll
+  needs the role that reads the DAG; `env` values are never returned.
+- **Who may change it.** Creating, changing, deleting, or trying a poll
+  needs the developer role or above when `default_execution_mode` is
+  `local`, where DAG steps already run on the scheduler host, and an admin
+  when it is `distributed`, where DAG authors otherwise run nothing there.
+  The audit log records each.
+- **All polls.** `GET /api/v1/polls` and an admin page list every poll: its
+  DAG, command, interval, state (checking, failing, not running, suspended,
+  disabled, or no DAG), and last check. They show what runs on the
+  scheduler host without opening each DAG.
+- **Projects.** Under [RFC 003](003-projects.md), a poll is project data, as
+  a per-DAG webhook is. It names its DAG within the project and moves with
+  the DAG to another project.
+- **DAG rename and removal.** A rename or delete done in Dagu moves or
+  deletes the poll with the DAG, as for the webhook; a moved poll keeps its
+  record of seen keys. A DAG file renamed or deleted outside Dagu, by git
+  sync or on disk, leaves its poll with no DAG: it is not checked, and the
+  list of polls shows it. It can be pointed at the DAG's new name, keeping
+  its record, or deleted. A DAG that comes back under the old name takes it
+  back.
+- **Pickup.** The scheduler rereads `polls/` every 10 seconds, as
+  it rereads the webhook store for public URLs. A change takes effect within
+  10 seconds.
+- **A DAG that fails to load.** Its poll is not checked, and its page says
+  why.
 
 ### A check
 
 The scheduler runs `command` with the default shell, as a step without
-`shell` does, in `working_dir`, with `env`, as the scheduler's user.
+`shell` does, in the DAG file's directory, as the scheduler's user. It gets
+the filtered base environment that runs get, plus `env`; it does not inherit
+the rest of the scheduler's environment.
 
-- **Output.** Stdout is read up to 1 MiB; each non-empty line is an item, up
-  to 10,000 items. Output beyond either limit fails the check. Stderr is kept
-  up to 4 KiB for the check log.
+- **Output.** Stdout is read up to 1 MiB or 10,000 lines, whichever comes
+  first. The rest is not read, a cut last line is dropped, and the check log
+  marks the check as cut. Each non-empty line is an item; a line over 64 KiB
+  fails the check.
+- **Stderr.** Kept up to 4 KiB for the check log, with `env` values masked,
+  as secrets are in step logs.
 - **Exit code.** A non-zero exit or a timeout fails the check. A failed check
-  writes nothing and forgets nothing.
+  starts nothing and changes no record.
 - **Keys.** Each item's key is the line, or the result of `key`. A line that
   is not JSON, or a key that is not a non-empty string, fails the check.
-- **New items.** An item is new when its key was not printed by the previous
-  successful check. Each new item becomes one event, written to the event
-  store in the order printed.
-- **Overlap.** At most one check per source runs at a time. A check due while
-  the previous one runs waits for it.
+- **Overlap.** At most one check per poll runs at a time, and at most 4
+  across the scheduler. A due check waits.
+- **After a failure.** After n failed checks in a row, the next check waits
+  `interval` × 2^(n−1), at most 10 minutes, or `interval` when that is
+  longer. With the default interval: 1, 2, 4, 8, then every 10 minutes. A
+  successful check, saving the poll, and resuming the DAG return the wait to
+  `interval`.
 
-### The event of an item
+### New items
 
-- **Event ID.** A hash of the project, the source name, and the key. An item
-  listed again after the source's record was lost has the same event ID, so
-  the matcher derives the same run IDs and nothing new starts. This is the
-  rule `watch` uses for files.
-- **Event name.** `item`.
-- **Payload.** `{"key": <key>, "item": <item>}`. The item is the line, or,
-  when `key` is set, the line parsed as JSON.
-- **Run params.** Besides the trigger's params, a run receives `POLL_ITEM`,
-  the line, and `POLL_KEY`, the key. They come from the source, so steps read
-  them as environment variables rather than interpolating them into commands,
-  as Spec 082 says for `WATCH_FILE`.
-- **Once per key.** A key that disappears and comes back has the same event
-  ID, so it does not run again while that run is in the history. A source
-  whose items change under the same key puts a version in the key.
+The scheduler remembers the keys of the poll's last check. After a
+successful check:
 
-A trigger reads the payload in its condition and params:
+- An item whose key is remembered is skipped.
+- Any other item is new, and is queued as a run, in the order printed, up to
+  100 runs per check. None is queued while 100 or more runs wait on the DAG's
+  queue. The run ID is `poll-` and a hash of the poll ID and the key; if a
+  run with that ID exists, nothing starts.
+- The scheduler then remembers every listed key, except those of items it
+  did not queue. Those are new again at the next check.
+- A key that is no longer listed is forgotten.
 
-```yaml
-triggers:
-  - source: channel-videos      # with key: .id and one JSON object per line
-    condition: '.item.duration > 60'
-    params:
-      VIDEO_ID: .key
-```
+With 10,000 jobs listed at once and `backlog: run`, the poll queues 100 per
+check, about 6,000 an hour at the default interval, and none while the DAG's
+queue is full.
+
+Items past the output limit wait until earlier ones leave the listing, so a
+work queue prints its oldest jobs first. A remembered item pushed past the
+limit is forgotten; when it is listed again, its derived run ID keeps it
+from running twice while its run is in the history.
+
+So an item that stays listed runs once. An item that leaves the listing and
+comes back derives the same run ID, and runs again only after its earlier run
+has left the history (`hist_retention_days`, `hist_retention_runs`, or an RFC
+006 discard). A listing whose items change under the same key puts a version
+in the key.
+
+A failed run is not started again by the poll. A work queue whose jobs should
+be retried sets the DAG's retry policy, or removes a job from the listing only
+when it is done and retries by hand.
+
+### What the run receives
+
+- `POLL_ITEM`, the line, and `POLL_KEY`, the key, as runtime params, as
+  `watch` passes `WATCH_FILE`.
+- The run's trigger type is `poll`. It uses the DAG's default profile.
+
+Both are chosen by whatever the command lists. A step reads them as
+environment variables and does not interpolate them into its command, as Spec
+082 says for `WATCH_FILE`. With `key`, a step parses `$POLL_ITEM` as JSON.
 
 ### The first check
 
-With `backlog: skip`, the first check remembers what it lists and writes no
-event, as `watch` and Zapier do. Changing `command` or `key` counts as a first
-check again, and so does renaming the source, which makes a new source. With
-`backlog: run`, every listed item is new on the first check. A work queue
-wants `run`; a listing of an archive, such as a channel's past videos, wants
-`skip`.
+The first check is the first after the poll is created, or after its
+`command` or `key` changes. With `backlog: skip`, it remembers what it lists
+and starts nothing, as `watch` and Zapier do. With `backlog: run`, every
+listed item is new. A work queue wants `run`; a listing of an archive, such as
+a channel's past videos, wants `skip`.
+
+If a poll's record in `poll-state/` is lost, its next check is a first
+check again.
+With `backlog: run`, items whose runs have left the history run again.
 
 ### Where the check runs
 
 The check runs on the scheduler host, in the scheduler that holds the
-scheduler lock. Only the run that does the work is placed on a worker.
+scheduler lock. Only the run that does the work is placed on a worker,
+through the DAG's `worker_selector` as usual.
+
+With several schedulers for failover, the one that takes the lock runs the
+checks. Every scheduler host needs what the commands need: their tools,
+`ssh` keys, and network access. A host that lacks them fails the checks, and
+the alerts below say so.
 
 RFC 006 rejected a guard command in the scheduler because the check would run
 on the wrong host for distributed workers. A check differs in what it does:
@@ -373,272 +289,136 @@ it lists work from a source the scheduler can reach, such as an API, a remote
 queue over `ssh`, or a database, and does no work itself. A source only a
 worker can read still needs RFC 006.
 
-### Subscribers and suspension
+### Suspension
 
-A `command` source is checked while some enabled trigger of an unsuspended DAG
-names it. When the last such trigger goes, checks stop. When one comes back,
-the next check compares against the last successful check, so items listed
-meanwhile become events once. A disabled source is not checked. A source
-removed for good keeps its record until the scheduler's state is pruned, as
-`watch` records are.
+A suspended DAG's poll is not checked, and its record of keys stays as it
+was. Items listed when the DAG resumes, and not remembered, run then. This is
+what `watch` does.
 
 ### The check log
 
-Each source keeps its latest 50 checks: start time, duration, exit code,
-number of items, the event IDs of new items, which link to the runs they
-started, and the stderr excerpt. The log is kept with the scheduler's state,
-not in the run history. It is shown on the source's page, and each
-subscribing DAG's page links to it.
+Each poll keeps its latest 50 checks that started a run, failed, or were
+cut: start time, duration, exit code, number of items, number of new items,
+links to up to 20 runs started, and the stderr excerpt. Checks that found
+nothing new are not listed one by one; the log keeps their count since the
+last listed check and when the latest ended. So a log of a quiet poll still
+reaches back to its last real work. The log is kept in `poll-state/`, not in
+the run history, and is shown in the DAG's Poll tab with when the last check
+ended and when the next is due.
 
-After 3 failed checks in a row, the source's page and the pages of its
-subscribing DAGs show the latest error. A successful check clears it.
+### Alerts
+
+- **Failing.** At the third failed check in a row, the DAG's page shows the
+  latest error, and one notification goes to the targets a failed run of the
+  DAG notifies, as a backfill's summary does; a command target is left out.
+  It names the DAG, the number of failed checks, the exit code, and the
+  stderr excerpt. No further notification is sent while the checks keep
+  failing.
+- **Recovered.** The first successful check after that clears the error and
+  sends one notification to the same targets.
+- **Not running.** The scheduler records when the poll's next check is due.
+  When that time is more than the interval plus the timeout past, for an
+  enabled poll of an unsuspended DAG, the DAG's page shows that the poll is
+  not running and when its last check ended. This is shown, not notified:
+  what stops checks, such as a stopped scheduler, also stops the process
+  that would send the notification.
 
 ### Trying a check
 
-`dagu source check <name>`, and **Check now** on the source's page, run the
-check once and show the items it lists, which of them are new, and which
-triggers would start a run. They write no event and change no state, so a
-command can be tried before any DAG subscribes.
+**Check now** in the Poll tab, and `POST /api/v1/dags/{fileName}/poll/check`,
+run the command once with the settings being edited and show the items it
+lists and which of them are new. They start no run and leave the poll's
+keys and check log as they were, so a command can be tried before it is
+saved.
+
+The scheduler runs it, so it runs where real checks do. The server writes a
+request to `poll-state/`; the scheduler that holds the lock takes it at its
+next pickup, within 10 seconds, runs it in one of the 4 check slots, and
+writes back the result. The call waits up to the timeout plus 20 seconds,
+and says so if no scheduler took the request. The audit log records each
+try. A request is removed once answered, or after 10 minutes.
 
 ### What is stored
 
 | Record | Size bound | Location |
 | --- | --- | --- |
-| Keys from the last successful check | 10,000 keys, stored as 16-byte hashes | Scheduler state, per source |
-| Check log | 50 entries, 4 KiB of stderr each | Scheduler state, per source |
-| Events | One per new item, holding its line | Event store, within its retention |
-| Runs | One per new item and subscribing trigger | Run history, as today |
+| Poll settings | One small record per poll | `polls/` |
+| Keys of the last check | 10,000 keys as 16-byte hashes, 160 KiB per poll; written only when it changes | `poll-state/` |
+| Check log | 50 entries, about 5 KiB each, and a counter of quiet checks | `poll-state/` |
+| Check now requests | Removed when answered or after 10 minutes | `poll-state/` |
+| Runs | One per new item | Run history, as today |
 
 ### Example: the feed DAG
 
-The five copies become one source and one DAG. The check lists job files on
-the machine that holds the queue; each job runs once, at most three at a time:
-
-```yaml
-# sources/feed-jobs.yaml
-type: command
-command: ssh cloud-vm 'ls ~/feed/jobs'
-interval: 1m
-backlog: run
-```
-
-```yaml
-# feed.yaml
-triggers:
-  - source: feed-jobs
-max_active_runs: 3
-steps:
-  - id: feed
-    action: exec
-    timeout_sec: 10800
-    with:
-      command: /bin/sh
-      args: ["~/feed/feed-run.sh"]   # takes the job named in $POLL_ITEM
-```
-
-Over the same 15 days the history would hold about 257 feed runs instead of
-15,166, and the check log would hold the latest 50 checks. A second DAG that
-reports each job subscribes to `feed-jobs` and adds no check.
+The five copies become one DAG, `feed.yaml` above, with one poll whose
+command lists job files on the machine that holds the queue. Each job runs
+once, at most three at a time. Over the same 14 days the history would hold
+about 257 feed runs instead of 15,166, and the check log the latest 50
+checks that started them.
 
 If the jobs were files on the scheduler host, `watch` would already do this.
-
-## Webhook sources
-
-`webhook`, `github`, `stripe`, and `slack` sources receive HTTP requests.
-
-```yaml
-# sources/app-repo.yaml
-type: github
-secret:
-  ref: github/app-repo
-```
-
-| Field | Meaning |
-| --- | --- |
-| `secret` | The sender's signing secret, as a [Spec 069](../specs/069-secrets-providers.md) secret entry without `name`: `ref`, or `provider` and `key`. Required except for `webhook`, where an HMAC is optional. |
-
-| Type | Verification | Event ID (for duplicates) | Event name |
-| --- | --- | --- | --- |
-| `github` | `X-Hub-Signature-256`, HMAC-SHA256 of the raw body | `X-GitHub-Delivery` | `X-GitHub-Event` plus `.action`, e.g. `issues.opened` |
-| `stripe` | `Stripe-Signature`, HMAC over `t.body`, 5-minute tolerance | `.id` | `.type`, e.g. `invoice.paid` |
-| `slack` | `X-Slack-Signature`, `v0` HMAC over `v0:ts:body`, 5-minute tolerance | `.event_id` | `.event.type` |
-| `webhook` | Token in the URL path, or `Authorization`; optional HMAC: `X-Dagu-Signature` or Standard Webhooks | `Idempotency-Key` or `webhook-id` header when present; otherwise the delivery ID | `webhook` |
-
-- **The sender's event ID is the event ID,** so a sender's own retry maps to
-  the run it already started, whichever way it arrives.
-- **Timestamps are checked against receipt time,** not the time the server
-  processes the event, because a delivery through Dagu Cloud can wait days.
-- **Handshakes.** Slack's `url_verification` and a `GET` with `hub.challenge`
-  are answered at once with the challenge, and start nothing.
-- **Public URLs.** An admin turns a source's public URL on in the UI, as for
-  per-DAG webhooks today. It is server state, not a field, so a file that
-  arrives through git never exposes a URL by itself.
-- **Credentials stay out of YAML.** Inbound URL tokens are generated by the
-  server, stored hashed by source name, and rotated from the UI.
-
-### Local ingress
-
-```text
-POST {base}/api/v1/sources/{source}/{token}
-```
-
-- The endpoint needs no login. The token in the path and the source's
-  signature authenticate it. Under RFC 003, the path names the project before
-  the source, as per-DAG webhook URLs do.
-- It answers `202 {"id": "<delivery id>"}` once the event is persisted, before
-  matching. Senders want a fast answer.
-- Body limit: `webhooks.max_payload_size`. Each source allows 60 requests a
-  minute.
-
-### Dagu Cloud
-
-```text
-Sender ── POST https://hooks.dagu.sh/<object id>/<token> ──▶ Dagu Cloud relay
-          ◀── 202 at once; the raw request is kept up to 7 days
-Relay ─── delivery frame over the server's outbound WebSocket ──▶ Dagu server
-          ◀── delivered, once the event is persisted
-```
-
-- **Same connection as remote access** (RFC 002). The `dagucloud` tunnel
-  provider runs when remote access is on, or when any source has its public
-  URL on. With remote access off, the server answers every proxied request
-  with `403` and handles only delivery frames.
-- **Frames:** `hooks`, `hooked`, `delivery`, and `delivered`, unchanged from
-  the relay's existing webhook contract. `hooks` replaces the whole set. A
-  hook ID names the source; the built-in webhook source keeps
-  `webhook/<webhook ID>`.
-- **The token is made by the server** (32 random bytes). The relay keeps only
-  its SHA-256.
-- **Raw bytes and headers pass through unchanged,** so the server verifies
-  the sender's signature with a secret only the server holds.
-- **Relay limits** (enforced by the relay today): 512 KiB bodies, UTF-8 only,
-  16 KiB of headers, 60 requests a minute per URL, and 1,000 waiting
-  deliveries per server. Senders get `413`, `415`, `431`, `429`, or `503`
-  past them.
-
-### Deliveries view
-
-Each webhook source shows its recent deliveries:
-
-| Column | Content |
-| --- | --- |
-| Received | Receipt time, and whether it came through Dagu Cloud |
-| Verified | Yes, or the reason it was rejected |
-| Triggers | Each subscribing trigger: matched, waiting, or which check failed (event name or condition) |
-| Runs | Links to the runs it started |
-
-- A DAG's page shows the deliveries of the sources its triggers name.
-- **Replay** re-enqueues a delivery for one trigger with a new run ID and
-  marks the run as a replay.
-- **Send test** posts the source's sample payload.
-- **Editing YAML by hand** shows the result of the condition and params
-  against the last delivery as they are typed.
-
-## The `dag` source
-
-DAG runs are a built-in source named `dag`; it needs no file. Its events are
-the event store's `dag.run.*` types, such as `dag.run.succeeded` and
-`dag.run.failed`, and its event ID is the DAG-run event's ID. The payload
-names the DAG as `.dag`, the run as `.run_id`, and the status as `.status`.
-
-```yaml
-# report.yaml
-triggers:
-  - source: dag
-    events: dag.run.succeeded
-    condition: '.dag == "etl-daily"'
-```
-
-## Building a trigger in the UI
-
-Writing gojq is not required. On a DAG, **Add trigger**:
-
-1. Pick a source, or create one: its type, then its settings. For a
-   `command` source, **Check now** shows what the command lists.
-2. Pick events from a list: the sender's documented events for `github`,
-   `stripe`, and `slack`; the events seen in recent deliveries for `webhook`;
-   `item` for `command`; the `dag.run.*` types for `dag`.
-3. For a new webhook source, copy its URL: the local one, and the public one
-   once an admin turns it on. For a preset type, Dagu generates the signing
-   secret to paste into the sender, stores it in the secret registry, and
-   writes its `ref` into the source file.
-4. Click **Send test**, or wait for a real delivery or check.
-5. Click a field in the event to add a condition (equals, contains, exists)
-   or to map it to a param. The result against that event shows as each one
-   is added.
-
-The UI writes a new source into `sources/` and the trigger into the DAG's
-YAML. Both stay editable for anything the builder does not cover.
-
-## Existing per-DAG webhooks
-
-In v3.0, the per-DAG webhook becomes a built-in `webhook` source that belongs
-to its DAG. It needs no source file, and only its DAG subscribes to it:
-
-- `POST /webhooks/{fileName}`, its tokens, HMAC modes, and profile tokens keep
-  working unchanged.
-- Its requests go through the event store and appear in Deliveries.
-- Runs get `DAGU_EVENT_FILE`. `WEBHOOK_PAYLOAD` and `WEBHOOK_HEADERS` remain
-  set while the body fits in an environment variable.
+If the script that creates a job could call the DAG's webhook, the webhook
+would.
 
 ## Security
 
-- Payload-derived params are untrusted: anyone who can open a GitHub issue
-  controls `TITLE` above, and whatever a `command` source lists controls
-  `POLL_ITEM`.
-  - **To verify before shipping:** how `${PARAM}` in a step's `command` is
-    expanded today. If Dagu substitutes the value into the command text
-    before a shell parses it, payload-derived params allow command injection.
-  - In that case, triggered params must reach steps only as environment
-    variables, and the docs and the UI must say so.
-- Provider secrets live in the server's secret registry or provider. Neither
-  Dagu Cloud nor the relay ever sees them.
-- Conditions run in gojq with a time bound and no I/O.
-- Inbound endpoints are rate limited per source, locally and at the relay.
-- A `command` source runs on the scheduler host. `sources.allow_command`
-  keeps it off where DAG authors otherwise run nothing there.
-- A public URL is turned on by an admin on the server, never by a file, so a
-  source that arrives through git sync is reachable only locally until then.
+- A poll runs a command on the scheduler host as the scheduler's user. Only
+  a user who may already run commands there can create, change, or try one:
+  the developer role or above in local mode, an admin in distributed mode.
+  Each is audited, and the list of polls shows every command that runs
+  there. A DAG file that arrives through git sync cannot add a poll.
+- `POLL_ITEM` and `POLL_KEY` are controlled by whatever the command lists. A
+  value interpolated into a step's command can inject a command, so steps
+  read them as environment variables. The docs say so, as Spec 082 does for
+  `WATCH_FILE`.
+- The check gets the base environment that runs get, plus `env`, not the
+  scheduler's own. `env` values are encrypted at rest, never returned by the
+  API, and masked in the stderr excerpt, so a token the command needs stays
+  out of git, responses, and the check log.
 
 ## Failure behavior
 
 | Situation | Behavior |
 | --- | --- |
-| Server offline, public URL on | The relay answers `202` and keeps deliveries up to 7 days; the server takes them in order on reconnect. |
-| Offline longer than 7 days | The relay drops expired deliveries and reports their count, which Deliveries and Dagu Cloud show. |
-| Scheduler down | Events persist; the matcher catches up within event store retention. The next check compares against the last successful one. |
-| Signature invalid | `401` locally. Through Dagu Cloud: `202` from the relay, then a rejected delivery on the server. |
-| Check fails, times out, or prints too much | It writes nothing and keeps the previous keys; after 3 in a row, the source's page and its DAGs' pages show the error. |
-| Condition errors or times out | The event shows the error; nothing starts. |
-| Same event twice | The derived run ID already exists; nothing new starts. |
-| Trigger names a missing or invalid source | The trigger is invalid; nothing starts from it. |
-| Subscribing DAG suspended, or 100 runs queued | The event waits for that trigger; other triggers go on. |
+| Scheduler down | No checks run, and the DAG's page shows the poll is not running. The next check offers every item not remembered. |
+| Check fails or times out | It starts nothing and changes no record, and the next check waits longer, up to 10 minutes. At 3 in a row, the DAG's page shows the error and one notification is sent; the first success sends another. |
+| Output over 1 MiB or 10,000 lines | The rest is not read; the check goes on with what it read and is marked as cut. |
+| Over 100 new items, or 100 runs waiting on the DAG's queue | Items not queued are not remembered and are new again at the next check. |
+| DAG file renamed or deleted outside Dagu | The poll has no DAG and is not checked; the list of polls shows it. |
+| Scheduler fails over to a host that cannot run the command | Checks fail and alert as above. |
+| Scheduler stops between queuing runs and saving its record | The next check derives the same run IDs; nothing new starts. |
+| DAG suspended | Not checked; items still listed when it resumes run then. |
+| DAG fails to load | Not checked; the DAG's page says why. |
+| `polls/` cannot be read | The scheduler keeps the polls from its last complete read. |
 
 ## Performance
 
-- **Checks.** One process per `command` source per interval, however many
-  DAGs subscribe. With 100 sources at the default 1 minute, about 100
-  processes a minute. Each replaces a full run today, which starts a process
-  and writes a status record, logs, and a work directory.
-- **Bound.** At most 4 checks run at once across the scheduler; a due check
-  waits for a slot.
-- **Idle cost.** Proportional to the number of `command` sources with an
-  active subscriber. The matcher reads only events after its cursor; with no
-  new events and none waiting, it does no work.
-- **Storage.** Under 400 KiB of scheduler state per `command` source. One
-  event per new item or delivery, with a webhook payload of up to 512 KiB
-  beside it, kept for the event store's retention: 7 days instead of 1 once
-  any trigger exists.
-- **Run history.** Not read on the check or match path. Runs are enqueued by
-  derived ID.
-- **Upgrade.** None. State is created on the first check or delivery.
+- **Checks.** One process per enabled poll per interval, at most 4 at once.
+  With 100 polls at the default 1 minute, about 100 processes a minute. Each
+  replaces a full run today, which starts a process and writes a status
+  record, logs, and a work directory. A failing poll slows to one check
+  every 10 minutes.
+- **Runs queued.** At most 100 per check, and none while 100 wait on the
+  DAG's queue.
+- **Notifications.** At most two per run of failures: one when it starts,
+  one when it ends.
+- **Pickup.** One read of `polls/` and one of pending Check now requests in
+  `poll-state/` every 10 seconds. Both grow with the number of polls, not with
+  DAGs or runs.
+- **Idle cost.** Proportional to the number of enabled polls of unsuspended
+  DAGs, plus the pickup read.
+- **Writes.** A check that finds nothing new updates one small state
+  record: its quiet-check counter, its end time, and when the next check is
+  due.
+- **Storage.** Under 450 KiB in `poll-state/` per poll. Event store
+  retention does not change.
+- **Run history.** Looked up by derived run ID on enqueue; never listed.
+- **Upgrade.** None. `polls/` and `poll-state/` are created on first use.
 
 ## First release: public URLs for per-DAG webhooks
 
-A public URL is useful on its own, before sources, conditions, the matcher,
-and the builder. The first release gives each existing per-DAG webhook an
-optional public URL through Dagu Cloud. The trigger model follows with the
-first source type that needs it.
+The first release gives each existing per-DAG webhook an optional public URL
+through Dagu Cloud.
 
 ### Turning it on
 
@@ -651,8 +431,7 @@ first source type that needs it.
   them.
 - The hook ID is `webhook/<webhook ID>`, so it stays the same when the DAG
   is renamed: the webhook moves with the DAG, and its URL and anything
-  waiting for it survive the rename. The built-in webhook source keeps
-  this ID when triggers arrive, so URLs survive that move too.
+  waiting for it survive the rename.
 - The local endpoint keeps its token and `X-Dagu-Signature` checks.
 
 ### Sender and events
@@ -740,162 +519,106 @@ first source type that needs it.
 | Release | Ships |
 | --- | --- |
 | v2.20 | Public URLs for per-DAG webhooks (above). |
-| Next | Source files, triggers, the matcher, `DAGU_EVENT_FILE`, and 7-day event retention when triggers exist, with the `command` source, its check log, and `dagu source check`. |
-| Later | The `dag` source; the `webhook` type with local and public ingress; the UI builder and Deliveries. |
-| Later | `github`, `stripe`, and `slack` types. |
-| v3.0 | The per-DAG webhook becomes a built-in `webhook` source. |
+| Next | Polls: `polls/` and `poll-state/`, the API, the Poll tab, the list of polls, the check log, alerts, and Check now. |
 
-The model ships with `command` because work that sends no event leaves the
-most empty runs today, and public URLs already cover the common webhook
-cases. Documentation explains choosing between `watch`, `command` sources,
-webhook sources, and `discard_run_on`.
+Documentation explains choosing between `watch`, a poll, the per-DAG webhook,
+and `discard_run_on`.
 
-`sources/` is a new folder in the DAG directory. An older binary ignores it
-with flat discovery, and with recursive discovery lists its files as invalid
-DAGs. A DAG directory that already keeps DAGs in a `sources/` folder must
-rename it; the new binary reports those files as invalid sources.
+DAG files do not change. An older binary ignores `polls/` and `poll-state/`,
+and reads the run trigger type `poll` as unknown
+(`ir.ParseTriggerType`). A downgrade is safe: polls stop until the newer
+binary returns.
 
-An older binary fails to load a DAG with `triggers`, as it does any unknown
-field, ignores the scheduler state sources add, and reads the run trigger
-type `trigger` as unknown (`ir.ParseTriggerType`).
+A poll does not travel with the DAG through git sync or to another server. It
+is backed up and restored with the data directory, as webhooks are.
 
 ## Verification and acceptance criteria
 
-`command` sources:
-
-1. 100 checks that print nothing leave no run, no event, no log file, and no
-   work directory, and 50 entries in the check log.
-2. A check that prints three new keys writes three events and starts three
-   runs in a subscribing DAG; the next check with the same output writes none.
-3. Two DAGs subscribe to one source: one check runs per interval, and each new
-   item starts one run in each DAG.
-4. With `max_active_runs: 3`, ten new items run at most three at a time.
-5. Killing the scheduler after writing events and before saving its state,
+1. 100 checks that print nothing leave no run, no log file, and no work
+   directory; the check log counts them and keeps its earlier entries.
+2. A check that prints three new keys starts three runs; the next check with
+   the same output starts none.
+3. With `max_active_runs: 3`, ten new items run at most three at a time.
+4. With `backlog: run` and 1,000 items listed, the first check queues 100
+   runs and later checks queue the rest, 100 at a time; none is queued while
+   100 runs wait on the DAG's queue.
+5. Killing the scheduler after queuing runs and before saving its record,
    then restarting it, starts no second run for the same key.
-6. A failing or timed-out check writes nothing, keeps the previous keys, and
-   shows its stderr in the check log; after three in a row, the source's page
-   and the subscribing DAG's page show the error.
-7. With `backlog: skip`, the first check writes nothing; with `backlog: run`,
-   it writes one event per item.
-8. A source whose only subscriber is suspended is not checked; after resume,
-   items listed during the suspension each run once.
-9. Output over 1 MiB or 10,000 lines fails the check and writes nothing.
-10. With 100 queued runs on the DAG, new items wait and start as the queue
-    drains.
-11. `dagu source check` lists the items and the runs they would start, and a
-    check right after it still finds the same items new.
-12. With `default_execution_mode: distributed` and `sources.allow_command`
-    unset, a `command` source is invalid and never checked.
-
-Webhook and `dag` sources:
-
-13. A GitHub `issues` event with the label `bug` starts one run with `TITLE`
-    and `URL` set; one without the label starts nothing and shows
-    "condition false".
-14. GitHub redelivering the same event, with the same `X-GitHub-Delivery`,
-    starts nothing new, locally and through Dagu Cloud.
-15. A bad signature is rejected and never matched.
-16. With the server offline for an hour, public deliveries arrive in order on
-    reconnect, each starting one run.
-17. Two DAGs subscribe to one `github` source: GitHub is set up with one URL,
-    and one delivery starts one run in each DAG.
-18. A 400 KiB payload reaches a step through `DAGU_EVENT_FILE` on Linux,
-    macOS, and Windows.
-19. An existing per-DAG webhook URL keeps working after the upgrade to v3.0.
-20. A `github` source that arrives through git sync has no public URL until
-    an admin turns it on.
-21. A trigger on `dag.run.succeeded` with a condition naming another DAG
-    starts one run for each successful run of that DAG.
-
-All sources:
-
-22. `dagu validate` on a DAG directory, with no data directory, reports a
-    trigger that names a missing source, and the trigger starts nothing.
-23. With one of two subscribing DAGs suspended, an event starts a run in the
-    other at once, and in the suspended one when it resumes.
-24. An item or payload crafted with shell metacharacters runs no command
-    beyond the step's own.
+6. A failing or timed-out check starts nothing, keeps the record, and shows
+   its stderr in the check log, with `env` values masked.
+7. With a 1-minute interval and a command that always fails, checks start
+   1, 2, 4, 8, and then 10 minutes apart; saving the poll returns them to 1
+   minute.
+8. At the third failure in a row, the DAG's page shows the error and the
+   DAG's failure targets get one notification; later failures send none, and
+   the next success sends one more.
+9. With the scheduler stopped, the DAG's page shows the poll is not running
+   once its due time is more than the interval plus the timeout past.
+10. With `backlog: skip`, the first check starts nothing; with
+    `backlog: run`, it starts runs for the items listed.
+11. A suspended DAG is not checked; after resume, items still listed each
+    run once.
+12. Output over 1 MiB or 10,000 lines is cut: runs are queued for the items
+    read, the check log marks the check as cut, and later items run as
+    earlier ones leave the listing.
+13. Check now runs on the scheduler host, lists the items and which are new,
+    and is in the audit log; a check right after it still finds the same
+    items new.
+14. In distributed mode a developer cannot create, change, delete, or try a
+    poll, and an admin can; in local mode a developer can. The audit log
+    records each. `env` values are never in an API response.
+15. Renaming a DAG in Dagu keeps its poll and its record of keys; no item
+    runs again. Deleting or renaming the DAG file through git sync leaves
+    the poll unchecked and listed as having no DAG; pointing it at the new
+    name keeps its record.
+16. A poll saved through the API is checked within 10 seconds, without a
+    scheduler restart.
+17. A check does not see a variable of the scheduler's environment that the
+    base environment leaves out.
+18. A step that reads an item crafted with shell metacharacters from its
+    environment runs no command beyond its own.
 
 ## Alternatives considered
 
-- **Keep empty runs and bound them.** The Kubernetes CronJob and Dagster
-  retention approach. Dagu has it already (`hist_retention_runs`). It bounds
-  disk, but lists stay full of empty runs and runs that did work are removed
-  with them.
+- **A `poll` field in the DAG file** (the previous draft). It would travel
+  with the DAG through git sync, as `schedule` and `watch` do. But anyone who
+  can change a DAG file could run a command on the scheduler host, which in
+  distributed mode DAG authors otherwise cannot; it needed a config switch
+  to keep it off there, and a token for the command would sit in git. Unlike
+  `schedule` and `watch`, a poll runs user code in the scheduler, so it
+  follows the per-DAG webhook: server state that an authorized user sets.
+- **Sources and triggers.** A source file in `sources/` that several DAGs
+  subscribe to, with conditions, params, and webhook source types. It shares
+  one check, or one URL, between DAGs, but adds a new kind of file with state
+  kept by name, a second webhook beside the per-DAG one, and a model to
+  learn.
+- **Persist every event, and match in the scheduler.** Made the event store
+  an input of execution, with longer retention for every event kind and
+  unbounded state for events that wait.
+- **Keep empty runs and bound them.** Dagu has it already
+  (`hist_retention_runs`). It bounds disk, but lists stay full of empty runs
+  and runs that did work are removed with them.
 - **Discard empty runs after they end** (RFC 006). Needed when only the run
   can tell, but each check still starts a process and five concurrent jobs
   still need five pollers.
-- **Extend only the per-DAG webhook.** It would close the webhook gaps, but
-  work that sends no event and another DAG's outcome would each need a
-  mechanism of their own.
-- **Webhooks only** (Airflow 3, Prefect). Right when the source pushes. Many
-  sources do not: an API without webhooks, a channel's video list, a queue on
-  another machine.
-- **A sensor as a special run.** A run that is hidden or pruned when it finds
-  nothing. Every check would still write and delete a run record and its
-  logs, and every run list would need to filter them.
-- **Airflow-style sensor modes.** They free worker slots during a wait, which
-  Dagu does not spend. They do not remove runs.
-- **A `poll` field on the DAG** (RFC 019's first draft). The check and its
-  state would belong to one DAG: two DAGs that react to one listing would run
-  two checks against the same API.
-- **Extending `watch` with a `command`.** One concept instead of two, but a
-  folder and a command differ in arrival detection, first-check behavior, and
-  keys. They share the ledger code.
-- **Source settings inside each trigger** (the first draft of this RFC). A
-  repository that three DAGs react to would need three URLs and three secrets
-  in GitHub, and three DAGs reading one listing would run three checks.
-- **Sources that name the DAGs they start.** Adding a DAG would edit a shared
-  file, and a DAG would no longer say what starts it.
-- **Sources kept in the data directory and edited in the UI.** Triggers would
-  name server state, while that state depends on the DAGs that subscribe to
-  it. A DAG directory would no longer validate or load alone, and git sync,
-  copies, and restores would change what starts a DAG.
-- **A `kind` field that marks source files anywhere in the tree.** Discovery
-  would parse every file to tell sources from DAGs; a folder needs no parse.
-- **A separate relay service with long polling** (the earlier
-  `DESIGN_EVENT_TRIGGER.md` draft): a second relay, a cluster to run it in,
-  and webhook bodies in Cloud SQL. The existing relay already stores and
-  delivers webhooks over a socket the server holds.
-- **Triggers in a store, edited only in the UI.** They would not travel with
-  the DAG through git sync or deploys.
-- **Verifying signatures in Dagu Cloud.** Requires giving Dagu Cloud every
-  provider secret.
-- **Keeping the per-DAG webhook separate.** Two concepts for one job, and its
-  requests would stay out of Deliveries.
+- **Webhooks only.** Right when the producer can call one. An API without
+  webhooks, a channel's video list, or a queue on another machine cannot.
+- **A sensor as a special run.** Every check would still write and delete a
+  run record and its logs, and every run list would need to filter them.
 
 ## Consequences
 
-- One `command` source replaces N copies of a poller, and the history holds
-  only runs that did work.
-- Several DAGs share one webhook URL, and conditions and params replace runs
-  that exit early.
-- The event store becomes an input of execution, not only a record of it.
-  Its retention, 7 days by default once triggers exist, bounds how long the
-  scheduler can be down, or a DAG saturated, without missing events.
-- The scheduler runs user commands outside runs. A slow or hung check costs a
-  scheduler slot until its timeout.
-- A check's output decides what runs, so a bug in the command that prints
-  stale keys starts nothing, and one that prints new keys every time starts a
-  run every time. The check log shows both.
-- Debugging a check means reading the source's check log, not a run's logs.
-- A source is a new kind of file with its own page and state. Renaming it
-  makes a new source, with a new URL and no memory of the items it has seen.
-- Dagu Cloud's relay carries deliveries for servers that never enable remote
-  access.
-
-## Open questions
-
-1. Is 512 KiB enough? Large GitHub `push` payloads can exceed it.
-2. Should replay need a separate permission from running the DAG?
-3. Should a DAG be able to subscribe to a source in another project?
-4. Is `command` the right type name, or `poll`?
-5. Should a `command` source take `worker_selector`, to run its check on a
-   worker for sources only a worker can reach?
-6. Should `backlog` default to `run`, since a work queue is the motivating
-   case?
-7. Should three failed checks in a row notify, and through what: the
-   subscribing DAGs' failure notification, or the source's own?
-8. Should a `command` source take `secrets`, as a DAG does, or only `env`?
-9. Should a key be allowed to run again after its run leaves the history, or
-   once per key forever, using the remembered hashes?
+- One polling DAG replaces N copies of a poller, and the history holds only
+  runs that did work.
+- A job that fails is not picked up again by the next check, as it was with a
+  poller DAG. Retries are the DAG's.
+- "Once" lasts as long as the run's history. A short retention shortens it.
+- A poll is set per server. Moving DAGs to another server, or deploying them
+  through git sync, does not bring their polls.
+- The scheduler runs user commands outside runs. A slow or hung check
+  costs one of 4 slots until its timeout.
+- Every scheduler host that can take the scheduler lock needs what the
+  commands need.
+- A large backlog drains at 100 runs per check.
+- Debugging a check means reading the DAG's check log, not a run's logs.
+- Two DAGs that react to one listing run two checks.

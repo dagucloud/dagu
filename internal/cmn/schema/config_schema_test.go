@@ -149,6 +149,19 @@ cloud:
 `)))
 }
 
+func TestConfigSchemaCloudAudit(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveConfigSchema(t)
+	for _, level := range []string{"off", "changes", "all"} {
+		require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, "cloud:\n  audit: "+level+"\n")), level)
+	}
+	require.Error(t, resolved.Validate(mustParseYAMLDocument(t, `
+cloud:
+  audit: runs
+`)))
+}
+
 func TestConfigSchemaSecretFiles(t *testing.T) {
 	t.Parallel()
 

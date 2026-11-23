@@ -39,6 +39,7 @@ import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { Server } from 'lucide-react';
 import React, { useContext, useEffect, useMemo, useState } from 'react';
+import { AddNodeDialog } from './AddNodeDialog';
 import { InventoriesView } from './inventories/InventoriesView';
 import { InventoryDialog } from './inventories/InventoryDialog';
 import { NodeDetailsDrawer } from './NodeDetailsDrawer';
@@ -110,6 +111,7 @@ function NodeList(): React.ReactElement {
   const tests = useNodeTests(config.apiURL);
   const [view, setView] = useState<'nodes' | 'inventories'>('nodes');
   const [creating, setCreating] = useState(false);
+  const [addingNode, setAddingNode] = useState(false);
 
   // A change of filter starts again from the first page, with no node
   // checked.
@@ -388,6 +390,11 @@ function NodeList(): React.ReactElement {
             )}
           </Button>
         )}
+        {canEdit && inventoryList.length > 0 && (
+          <Button size="sm" className="h-8" onClick={() => setAddingNode(true)}>
+            <I18nText text={'Add node'} />
+          </Button>
+        )}
       </div>
       {inventories.error && (
         <FilterLoadError
@@ -537,6 +544,13 @@ function NodeList(): React.ReactElement {
         </div>
       )}
 
+      {addingNode && (
+        <AddNodeDialog
+          inventories={inventoryList}
+          onClose={() => setAddingNode(false)}
+          onAdded={refresh}
+        />
+      )}
       <NodeDetailsDrawer
         node={selected}
         lastTest={selected ? tests.results[nodeKey(selected.name)] : undefined}

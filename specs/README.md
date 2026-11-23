@@ -12,7 +12,6 @@ It must not be treated as product behavior until implementation catches up.
 
 | Spec | Status |
 | --- | --- |
-| [001: Project](001-project.md) | Not implemented |
 | [002: YAML Schema](002-yaml-schema.md) | Implemented |
 | [003: Value Resolution and Field Evaluation](003-value-resolution.md) | Implemented |
 | [004: Value Resolution Consts](004-value-resolution-consts.md) | Implemented |

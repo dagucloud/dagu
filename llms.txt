@@ -2533,7 +2533,9 @@ cases:
 
 A mock also takes `stdout`, `stderr`, `precondition: met|not_met` for preconditions that run a command, `condition` per result for a command-check repeat condition, and `review: {decision: approve|reject, values: {...}}` for `human.task` and approval steps. A case can set `params`, `env`, `secrets` (needed only with a `real` step), `trigger`, `scheduled_at`, and `precondition` for DAG-level preconditions. Name a handler as `handler_on.failure`.
 
-The report prints `PASS`, `FAIL`, or `INVALID` per case, every failed assertion, and the unhandled sources of an invalid case. Exit status: 0 all passed, 1 a case failed, 2 a file or case is invalid. `expect` currently checks run `status` and step `status` and `attempts`.
+`expect` checks the run's `status` and `attempts` (DAG-level `retry_policy` retries count), and per step `status`, `attempts` (executions in every run attempt), `outputs`, and `stdout`/`stderr` with `contains` and `matches` (RE2) on the step's last execution. A text output matches a string exactly; a `type: json` output, or any expected value that is not a string, matches when each listed key matches, recursively, with arrays and scalars exact. `notifications: [{kind: mail_on.failure, to: [oncall@example.com]}]` compares the mail the run would have sent in any order (`kind`, optional `step` and `to`); `[]` asserts none.
+
+The report prints `PASS`, `FAIL`, or `INVALID` per case, every failed assertion, and the unhandled sources of an invalid case. An invalid case ends with `fix, ready to paste:`, the `params`, `precondition`, and `mocks` that handle every listed source, and `fix for the test file, ready to paste:` for missing `secrets` (`fix` and `file_fix` in JSON); paste them into the case and the test file. Under each case that ran, it lists the steps that took the default mock, the waits approved automatically, and the notifications the run would have sent (`default_mocked`, `auto_approved`, and `notifications` in JSON). Exit status: 0 all passed, 1 a case failed, 2 a file or case is invalid.
 
 ### dagu validate
 

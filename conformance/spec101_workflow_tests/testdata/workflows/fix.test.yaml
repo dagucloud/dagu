@@ -1,0 +1,9 @@
+# The case handles no source, and its real step needs every secret.
+mocks:
+  lint:
+    stderr: linted
+cases:
+  - name: every source is unhandled
+    real: [say]
+    expect:
+      status: succeeded

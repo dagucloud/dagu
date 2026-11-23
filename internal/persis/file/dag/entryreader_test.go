@@ -505,6 +505,65 @@ func TestEntryReaderWatchesMixedCaseYAML(t *testing.T) {
 	expect(persis.DAGChangeUpdated, "mixed")
 }
 
+// A test file beside a DAG is not loaded at start, and creating or changing
+// one reloads nothing, even when it holds a valid DAG. The add of a later DAG
+// shows that the watcher handled the earlier events.
+func TestEntryReaderSkipsTestFiles(t *testing.T) {
+	for _, recursive := range []bool{false, true} {
+		t.Run(fmt.Sprintf("recursive=%t", recursive), func(t *testing.T) {
+			dir := t.TempDir()
+			writeDAGFile(t, dir, "release.yaml", "release")
+			writeDAGFile(t, dir, "release.test.yaml", "release-test")
+			store := newRepository(dir, WithSkipExamples(true), WithRecursiveDiscovery(recursive))
+			er := NewFileEntryReader(dir, store, recursive, "", "")
+			events := make(chan persis.DAGChangeEvent, 10)
+			er.events = events
+
+			ctx, cancel := context.WithCancel(context.Background())
+			require.NoError(t, er.Init(ctx))
+			go er.Start(ctx)
+			t.Cleanup(func() {
+				cancel()
+				er.Stop()
+			})
+			names := func() []string {
+				var names []string
+				for _, entry := range er.Entries() {
+					names = append(names, entry.DAG.Name)
+				}
+				sort.Strings(names)
+				return names
+			}
+			require.Equal(t, []string{"release"}, names())
+
+			writeDAGFile(t, dir, "release.test.yaml", "release-test")
+			writeDAGFile(t, dir, "release.test.yml", "release-yml")
+			writeDAGFile(t, dir, "other.yaml", "other")
+
+			event := nextEvent(t, events)
+			assert.Equal(t, persis.DAGChangeAdded, event.Type)
+			assert.Equal(t, "other", event.DAG.Name)
+			assert.Equal(t, []string{"other", "release"}, names())
+		})
+	}
+}
+
+// Only files are test files: a directory named like one holds DAGs, so its
+// creation refreshes a recursive reader. The event is sent by hand, since a
+// platform watcher may report the directory's contents on its own.
+func TestRecursiveEntryReaderRefreshesTestNamedDirectory(t *testing.T) {
+	dir := t.TempDir()
+	watcher := &silentWatcher{events: make(chan fsnotify.Event), errors: make(chan error)}
+	_, events := startSilentEntryReader(t, dir, true,
+		withWatcherFactory(func() filenotify.FileWatcher { return watcher }))
+
+	jobs := filepath.Join(dir, "jobs.test.yaml")
+	require.NoError(t, os.MkdirAll(jobs, 0750))
+	writeDAGFile(t, jobs, "daily.yaml", "daily")
+	watcher.events <- fsnotify.Event{Name: jobs, Op: fsnotify.Create}
+	expectEvent(t, events, persis.DAGChangeAdded, "daily")
+}
+
 func TestBaseWatchLifecycle(t *testing.T) {
 	for _, scope := range []string{"global", "workspace"} {
 		t.Run(scope, func(t *testing.T) {

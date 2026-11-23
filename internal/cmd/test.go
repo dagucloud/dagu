@@ -200,7 +200,7 @@ func selectTestFiles(root string, args []string) ([]testFileRef, error) {
 			return nil, err
 		}
 		if !info.IsDir() {
-			if !dagtest.IsTestFile(arg) {
+			if !spec.IsTestFile(arg) {
 				return nil, fmt.Errorf("%s is not a test file; its name must end in .test.yaml or .test.yml", arg)
 			}
 			if err := add(arg); err != nil {
@@ -225,7 +225,7 @@ func walkTestFiles(dir string, add func(string) error) error {
 			return err
 		case entry.IsDir() && path != dir && strings.HasPrefix(entry.Name(), "."):
 			return filepath.SkipDir
-		case entry.Type().IsRegular() && dagtest.IsTestFile(path):
+		case entry.Type().IsRegular() && spec.IsTestFile(path):
 			return add(path)
 		default:
 			return nil
@@ -287,8 +287,8 @@ func testLoadOptions(ctx *Context) []spec.LoadOption {
 func runTestCase(ctx *Context, file *dagtest.File, c dagtest.Case, opts testOptions) (result caseResult) {
 	result.name = c.Name
 	result.errors = append(slices.Clone(c.Errors), dagtest.CheckRealChildren(file.DAG, c, childResolver(ctx, file.DAG))...)
-	result.errors = append(result.errors, unsupportedAssertions(c.Expect)...)
 	if len(result.errors) > 0 {
+		result.fix, result.fileFix = c.Fix, c.FileFix
 		return result
 	}
 
@@ -317,13 +317,16 @@ func runTestCase(ctx *Context, file *dagtest.File, c dagtest.Case, opts testOpti
 		}
 	}()
 	status, err := tc.run(dag)
+	result.defaultMocked = c.DefaultMocked
+	result.autoApproved = stepLabels(dag, tc.autoApproved)
+	result.notifications = sentNotifications(dag, tc.notifications)
 	switch {
 	case errors.Is(context.Cause(caseCtx), context.DeadlineExceeded):
 		result.failures = []caseFailure{{field: failureTimeout, expected: opts.timeout}}
 	case err != nil:
 		result.failures = []caseFailure{{field: failureError, actual: err.Error()}}
 	default:
-		result.failures = checkCase(c.Expect, status, tc.waited)
+		result.failures = tc.check(c.Expect, status)
 	}
 	return result
 }

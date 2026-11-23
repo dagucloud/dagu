@@ -4,7 +4,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RestartPolicy } from '@/api/v1/schema';
+import { RestartPolicy, Status } from '@/api/v1/schema';
 import {
   WorkspaceDataContext,
   type WorkspaceDataValue,
@@ -26,6 +26,7 @@ const h = vi.hoisted(() => ({
   histRetentionRuns: undefined as number | undefined,
   retained: undefined as unknown,
   chartWindow: { from: 0, to: 0 },
+  latest: undefined as unknown,
 }));
 
 vi.mock('../../data', () => ({
@@ -74,6 +75,8 @@ vi.mock('../../continuous/SamplesPanel', () => ({
       has(id: string, time: string): boolean;
       open(id: string): void;
     };
+    liveRun: { id: string } | null;
+    onOpenRun(id: string): void;
   }) => (
     <div data-testid={props.testId}>
       <span data-testid="stub-source">{JSON.stringify(props.source)}</span>
@@ -88,6 +91,15 @@ vi.mock('../../continuous/SamplesPanel', () => ({
         open
       </button>
       {props.notice?.(h.chartWindow) as never}
+      <span data-testid="stub-live">{JSON.stringify(props.liveRun)}</span>
+      {props.liveRun && (
+        <button
+          type="button"
+          onClick={() => props.onOpenRun(props.liveRun!.id)}
+        >
+          open live run
+        </button>
+      )}
     </div>
   ),
 }));
@@ -119,6 +131,7 @@ function renderDock() {
         restartPolicy: h.restartPolicy,
         histRetentionRuns: h.histRetentionRuns,
       },
+      latestDAGRun: h.latest,
     },
   } as unknown as WorkspaceDataValue;
   return render(
@@ -137,6 +150,7 @@ beforeEach(() => {
   h.histRetentionRuns = undefined;
   h.retained = undefined;
   h.chartWindow = { from: NOW - 7 * 86_400_000, to: NOW };
+  h.latest = undefined;
   h.select.mockReset();
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(NOW);
@@ -222,6 +236,37 @@ describe('the Activity panel of a service DAG', () => {
     choose('Custom range');
     expect(screen.getByTestId('stub-range')).toHaveTextContent('"from"');
     expect(screen.getByTestId('stub-range')).not.toHaveTextContent('preset');
+  });
+
+  // A service that runs for days has no sample in a short window until its
+  // run ends: the latest run, while it runs, goes to the history.
+  it('gives the history the run in progress, which opens', () => {
+    h.latest = {
+      dagRunId: 'run-1',
+      status: Status.Running,
+      startedAt: '2026-11-05T12:00:00Z',
+      finishedAt: '',
+    };
+    renderDock();
+    expect(screen.getByTestId('stub-live')).toHaveTextContent(
+      JSON.stringify({
+        id: 'run-1',
+        startedAt: Date.parse('2026-11-05T12:00:00Z'),
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'open live run' }));
+    expect(h.select).toHaveBeenCalledWith('run-1', { replace: true });
+  });
+
+  it('gives the history no run in progress after the latest run ended', () => {
+    h.latest = {
+      dagRunId: 'run-1',
+      status: Status.Failed,
+      startedAt: '2026-11-05T12:00:00Z',
+      finishedAt: '2026-11-08T11:00:00Z',
+    };
+    renderDock();
+    expect(screen.getByTestId('stub-live')).toHaveTextContent('null');
   });
 
   // The view menu filters the runs of the timeline: the history has none.

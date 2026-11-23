@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"os/user"
@@ -71,6 +72,8 @@ type testCase struct {
 	ctx  *Context
 	dir  string
 	opts caseOptions
+	// dag is the DAG the case runs, set when its run starts.
+	dag *ir.DAG
 	// notifications lists the mail notifications the case's runs would have
 	// sent, in the order the runs reached them. A case sends no mail.
 	notifications []agent.Notification
@@ -86,6 +89,13 @@ type testCase struct {
 	// waited before it resumed. A handler that ran before a resume, such as
 	// handler_on.wait, shows only there.
 	waited []*ir.DAGRunStatus
+	// ended holds, in order, every status at which an attempt or a resume
+	// of the run stopped: waiting, failed with a retry left, or finished.
+	// The executions of every attempt show only across them.
+	ended []*ir.DAGRunStatus
+	// streamStarts maps a step log file to where the latest execution that
+	// wrote it starts, as the attempt that ran the execution recorded it.
+	streamStarts map[string]int64
 }
 
 // openCase creates a case directory and the stores rooted in it. The case
@@ -137,6 +147,7 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 		return nil, fmt.Errorf("failed to generate dag-run ID: %w", err)
 	}
 	dag = caseDAG(dag)
+	c.dag = dag
 
 	ctx := c.ctx
 	if err := ctx.DAGRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
@@ -184,6 +195,7 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 	}
 	c.attempts = 1
 	for {
+		c.ended = append(c.ended, status)
 		switch {
 		case status.Status == ir.Waiting:
 			c.waited = append(c.waited, status)
@@ -250,8 +262,47 @@ func (c *testCase) runAgent(ag *agent.Agent, logFile *os.File) error {
 		ag.Signal(context.WithoutCancel(agentCtx), os.Interrupt)
 	})
 	defer stop()
-	defer func() { c.notifications = append(c.notifications, ag.Notifications()...) }()
+	defer func() {
+		c.notifications = append(c.notifications, ag.Notifications()...)
+		c.noteStreamStarts(ag.Status(agentCtx))
+	}()
 	return ag.Run(agentCtx)
+}
+
+// noteStreamStarts records where the latest execution of each node of an
+// attempt starts in its logs. A node the attempt carried over without
+// running it holds no start, so the one recorded before stays.
+func (c *testCase) noteStreamStarts(status ir.DAGRunStatus) {
+	if c.streamStarts == nil {
+		c.streamStarts = make(map[string]int64)
+	}
+	nodes := append(slices.Clone(status.Nodes), status.OnInit, status.OnSuccess, status.OnFailure, status.OnAbort, status.OnExit, status.OnWait)
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		if node.StdoutStart > 0 {
+			c.streamStarts[node.Stdout] = node.StdoutStart
+		}
+		if node.StderrStart > 0 {
+			c.streamStarts[node.Stderr] = node.StderrStart
+		}
+	}
+}
+
+// lastExecution returns what the log file at path holds from the start of
+// the latest execution that wrote to it.
+func (c *testCase) lastExecution(path string) (string, error) {
+	file, err := fileutil.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+	if _, err := file.Seek(c.streamStarts[path], io.SeekStart); err != nil {
+		return "", err
+	}
+	data, err := io.ReadAll(file)
+	return string(data), err
 }
 
 // latestStatus returns the status of the latest attempt of the run.

@@ -2034,6 +2034,7 @@ func (l *ConfigLoader) loadLicenseConfig(cfg *Config, def Definition) {
 func (l *ConfigLoader) loadCloudConfig(cfg *Config, def Definition) {
 	if def.Cloud != nil {
 		cfg.Cloud.Report = ReportLevel(strings.ToLower(strings.TrimSpace(def.Cloud.Report)))
+		cfg.Cloud.Audit = AuditLevel(strings.ToLower(strings.TrimSpace(def.Cloud.Audit)))
 		cfg.Cloud.RemoteAccess = RemoteAccessLevel(strings.ToLower(strings.TrimSpace(def.Cloud.RemoteAccess)))
 		cfg.Cloud.RunKey = strings.TrimSpace(def.Cloud.RunKey)
 	}
@@ -2686,6 +2687,7 @@ var envBindings = []envBinding{
 
 	// Dagu Console
 	{key: "cloud.report", env: "CLOUD_REPORT"},
+	{key: "cloud.audit", env: "CLOUD_AUDIT"},
 	{key: "cloud.remote_access", env: "CLOUD_REMOTE_ACCESS"},
 	{key: "cloud.remote_approvals", env: "CLOUD_REMOTE_APPROVALS"},
 	{key: "cloud.run_key", env: "CLOUD_RUN_KEY", secret: true},

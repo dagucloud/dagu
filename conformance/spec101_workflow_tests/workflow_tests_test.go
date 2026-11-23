@@ -57,6 +57,17 @@ func TestWorkflowTests(t *testing.T) {
 			"  step lint: command ",
 			"  step lint: precondition ",
 			"  handler_on.failure: action mail.send ",
+			`  fix, ready to paste:
+    params:
+      build_date: ""
+    mocks:
+      deploy: {}
+      hook: {}
+      summary: {}
+      lint:
+        precondition: met
+      handler_on.failure: {}
+`,
 			"PASS workflows/ship.test.yaml: handling every source ships (",
 			"2 cases: 1 passed, 0 failed, 1 invalid\n",
 		}},
@@ -65,6 +76,8 @@ func TestWorkflowTests(t *testing.T) {
 			"3 cases: 2 passed, 0 failed, 1 invalid\n",
 		}},
 		{"default.test.yaml", 2, []string{
+			"PASS workflows/default.test.yaml: every step succeeds by default (",
+			"  default mock: build, deploy\n",
 			"INVALID workflows/default.test.yaml: a mock without its declared output is invalid\n  mocks.build.outputs: ",
 			"3 cases: 2 passed, 0 failed, 1 invalid\n",
 		}},
@@ -86,6 +99,8 @@ func TestWorkflowTests(t *testing.T) {
 			"3 cases: 2 passed, 0 failed, 1 invalid\n",
 		}},
 		{"gate.test.yaml", 2, []string{
+			"PASS workflows/gate.test.yaml: an approved release is announced (",
+			"  approved automatically: release\n",
 			"  step announce: approval waits for required values; set review",
 			"3 cases: 2 passed, 0 failed, 1 invalid\n",
 		}},
@@ -103,7 +118,26 @@ func TestWorkflowTests(t *testing.T) {
 			"INVALID workflows/publish.test.yaml: a real step needs every secret\n  secret API_TOKEN: ",
 		}},
 		{"nightly.test.yaml", 0, []string{"PASS workflows/nightly.test.yaml: the second run attempt succeeds ("}},
-		{"uploader.test.yaml", 0, []string{"PASS workflows/uploader.test.yaml: failing tests send mail ("}},
+		{"uploader.test.yaml", 0, []string{
+			"PASS workflows/uploader.test.yaml: failing tests send mail (",
+			"  notification mail_on.failure: oncall@example.com\n",
+		}},
+		// A stream assertion reads the last execution, so the first try of
+		// the retried check is not in its stdout.
+		{"report.test.yaml", 1, []string{
+			"PASS workflows/report.test.yaml: the summary reports the count (",
+			"PASS workflows/report.test.yaml: a failed check sends one mail (",
+			"  notification mail_on.failure: oncall@example.com\n",
+			"FAIL workflows/report.test.yaml: every failed assertion is reported (",
+			"  attempts: expected 2, got 1\n",
+			"  step count output files: expected \"03\", got \"3\"\n",
+			"  step count output stats: expected {\"lines\":41}, got {\"files\":3,\"lines\":40}\n",
+			"  step summary stdout: does not contain \"4 files\"\n",
+			"  step summary stderr: does not match \"error\"\n",
+			"  notifications: expected none, got mail_on.failure to oncall@example.com\n",
+			"  notification mail_on.failure: oncall@example.com\n",
+			"3 cases: 2 passed, 1 failed\n",
+		}},
 		{"smoke.test.yaml", 2, []string{"INVALID workflows/smoke.test.yaml\n", "rename", "0 cases: 0 passed, 0 failed, 1 invalid file\n"}},
 		{"compile.test.yaml", 2, []string{"INVALID workflows/compile.test.yaml\n", "Spec 033"}},
 	}
@@ -123,6 +157,40 @@ func TestWorkflowTests(t *testing.T) {
 				require.Empty(t, matches)
 			}
 		})
+	}
+}
+
+// The fix an invalid case prints, pasted into its test file, makes the case
+// valid (RFC 020 criterion 42). The case is the file's last entry, so its
+// fields end the file. The JSON report holds the same fix.
+func TestWorkflowTestFix(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("test", "workflows/fix.test.yaml")
+	result.ExpectExitCode(2)
+	fix := pastedBlock(t, result.Stdout(), "  fix, ready to paste:\n")
+	fileFix := pastedBlock(t, result.Stdout(), "  fix for the test file, ready to paste:\n")
+
+	report := decodeReport(t, dagu.Run("test", "--format", "json", "workflows/fix.test.yaml").Stdout())
+	require.Equal(t, fix, report.Cases[0].Fix)
+	require.Equal(t, fileFix, report.Cases[0].FileFix)
+
+	original, err := os.ReadFile(dagu.ProjectPath("workflows/fix.test.yaml"))
+	require.NoError(t, err)
+	var caseFields strings.Builder
+	for line := range strings.Lines(fix) {
+		caseFields.WriteString("    " + line)
+	}
+	dagu.WriteFile("workflows/fix.test.yaml", fileFix+string(original)+caseFields.String())
+
+	result = dagu.Run("test", "workflows/fix.test.yaml")
+	result.ExpectExitCode(0)
+	expectLines(t, result.Stdout(), "PASS workflows/fix.test.yaml: every source is unhandled (")
+	for _, pattern := range leftovers {
+		matches, err := filepath.Glob(dagu.ProjectPath(pattern))
+		require.NoError(t, err)
+		require.Empty(t, matches)
 	}
 }
 
@@ -266,6 +334,24 @@ func expectLines(t *testing.T, out string, parts ...string) {
 		require.GreaterOrEqual(t, i, 0, "missing %q after the earlier lines in:\n%s", part, out)
 		rest = rest[i+len(part):]
 	}
+}
+
+// pastedBlock returns the lines indented by four spaces that follow title
+// in out, without that indent.
+func pastedBlock(t *testing.T, out, title string) string {
+	t.Helper()
+
+	_, rest, ok := strings.Cut(out, title)
+	require.True(t, ok, "missing %q in:\n%s", title, out)
+	var block strings.Builder
+	for line := range strings.Lines(rest) {
+		text, ok := strings.CutPrefix(line, "    ")
+		if !ok {
+			break
+		}
+		block.WriteString(text)
+	}
+	return block.String()
 }
 
 // snapshot maps each file under root to its content, and each directory to

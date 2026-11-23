@@ -684,6 +684,9 @@ func validateChangeInput(input changeInput, fields map[string]json.RawMessage) *
 		if input.Name == "" {
 			return changeInputError(input, "The name field is required.", changeFieldName)
 		}
+		if err := persis.ValidateNewDAGName(input.Name); err != nil {
+			return changeInputError(input, err.Error(), changeFieldName)
+		}
 		if strings.TrimSpace(input.Spec) == "" {
 			return changeInputError(input, "The spec field is required.", changeFieldSpec)
 		}
@@ -700,6 +703,9 @@ func validateChangeInput(input changeInput, fields map[string]json.RawMessage) *
 			}
 			if err := ir.ValidateDAGName(input.NewName); err != nil {
 				return changeInputError(input, "Invalid destination DAG name: "+err.Error(), changeFieldNewName)
+			}
+			if err := persis.ValidateNewDAGName(input.NewName); err != nil {
+				return changeInputError(input, err.Error(), changeFieldNewName)
 			}
 			if input.Name == input.NewName {
 				return changeInputError(input, "The newName field must differ from name.", changeFieldNewName)

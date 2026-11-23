@@ -5,6 +5,7 @@ import { useMemo, useSyncExternalStore } from 'react';
 import {
   adjacentVisibleRunId,
   cachedMsOf,
+  dagRange,
   HISTORY_LIMIT,
   isTestRun,
   parseStoredCount,
@@ -16,7 +17,6 @@ import {
   parseStoredShowTests,
   RANGE_DEFAULT,
   rangeBounds,
-  rangeFor,
   runInRange,
   runTimeMs,
   timelineRuns,
@@ -47,7 +47,6 @@ export const RUN_RANGE_KEY = 'dagu.workspace.runTimelineRange';
  * later visit. While it is set, it is the range.
  */
 export const CUSTOM_RANGE_KEY = 'dagu.workspace.runTimelineCustomRange';
-/** Whether the timeline counts the cached time: "1" (the default) or "0". */
 /**
  * The time range of a service DAG, apart from that of the other DAGs: it
  * offers longer presets, and its choice does not change theirs.
@@ -55,6 +54,7 @@ export const CUSTOM_RANGE_KEY = 'dagu.workspace.runTimelineCustomRange';
 export const SERVICE_RANGE_KEY = 'dagu.workspace.serviceRunRange';
 /** The custom range of a service DAG, for the tab. */
 export const SERVICE_CUSTOM_RANGE_KEY = 'dagu.workspace.serviceRunCustomRange';
+/** Whether the timeline counts the cached time: "1" (the default) or "0". */
 export const SHOW_CACHED_KEY = 'dagu.workspace.runTimelineCached';
 /** The trigger types that the timeline hides, as a JSON list. */
 export const HIDDEN_TYPES_KEY = 'dagu.workspace.runTimelineHiddenTypes';
@@ -311,14 +311,42 @@ function useMinuteClock(live: boolean): number {
   return useClockNow(live ? MINUTE_MS : null);
 }
 
+const NO_HIDDEN_TYPES: readonly TriggerType[] = [];
+
+/**
+ * The choices that apply to the DAG of the page, and whether it is a service
+ * DAG. A service DAG has its own range and no count mode: its run history is
+ * always a time range. It has no view menu, so it hides no run. A range that
+ * a normal DAG does not offer gives way to the default.
+ */
+function useDagSettings(): { settings: RunViewSettings; service: boolean } {
+  const [stored] = useRunViewSettings();
+  const service = useIsServiceDag();
+  const settings = useMemo((): RunViewSettings => {
+    if (service) {
+      return {
+        ...stored,
+        mode: 'range',
+        range: stored.serviceRange,
+        showTests: true,
+        hiddenTypes: NO_HIDDEN_TYPES,
+      };
+    }
+    const range = dagRange(stored.range);
+    return range === stored.range ? stored : { ...stored, range };
+  }, [stored, service]);
+  return { settings, service };
+}
+
 /**
  * The runs that the run timeline shows, and the ones that the arrows of the
  * run chip and the keys `[` and `]` go through. The timeline and the
  * navigation both read this hook, so they never differ. The runs are the
  * history with the test runs, kept when the test runs are shown, and cut by
- * the count of the newest runs or by the time range. `enabled: false` reads
- * nothing. `pollTestRuns` reads the history again while a test run can
- * change it (the timeline only).
+ * the count of the newest runs or by the time range. A service DAG keeps
+ * every retained run: its timeline draws the run history, not the runs.
+ * `enabled: false` reads nothing. `pollTestRuns` reads the history again
+ * while a test run can change it (the timeline only).
  */
 export function useVisibleRuns({
   enabled,
@@ -328,18 +356,7 @@ export function useVisibleRuns({
   pollTestRuns?: boolean;
 }): VisibleRuns {
   const run = useWorkspaceRun();
-  const [stored] = useRunViewSettings();
-  // A service DAG has its own range and no count mode: its run history is
-  // always a time range. A range that a normal DAG does not offer gives way
-  // to the default.
-  const service = useIsServiceDag();
-  const settings = useMemo(() => {
-    if (service) {
-      return { ...stored, mode: 'range' as const, range: stored.serviceRange };
-    }
-    const range = rangeFor(stored.range, false);
-    return range === stored.range ? stored : { ...stored, range };
-  }, [stored, service]);
+  const { settings, service } = useDagSettings();
   const history = useRunHistory({
     enabled,
     includeEphemeral: true,
@@ -356,6 +373,8 @@ export function useVisibleRuns({
     () => (mode === 'range' ? rangeBounds(range, rangeNow) : null),
     [mode, range, rangeNow]
   );
+  // The range of a service DAG is the window of its run history only.
+  const cut = service ? null : bounds;
   const hasTestRuns = useMemo(
     () => history.runs.some(isTestRun),
     [history.runs]
@@ -374,24 +393,16 @@ export function useVisibleRuns({
     // A preset ends now, but its clock ticks once a minute: a run that
     // started after the last tick is in it too.
     const within =
-      bounds !== null && preset !== 'custom'
-        ? { from: bounds.from, to: Infinity }
-        : bounds;
+      cut !== null && preset !== 'custom'
+        ? { from: cut.from, to: Infinity }
+        : cut;
     const kept = history.runs.filter(
       (r) =>
         shownByView(r, { showTests, hiddenTypes }) &&
         (within === null || runInRange(r, rangeNow, within, showCached))
     );
     return timelineRuns(kept);
-  }, [
-    history.runs,
-    showTests,
-    hiddenTypes,
-    bounds,
-    preset,
-    rangeNow,
-    showCached,
-  ]);
+  }, [history.runs, showTests, hiddenTypes, cut, preset, rangeNow, showCached]);
 
   const selectedId = selectedRunId(run, pool);
   const runs = useMemo(
@@ -439,11 +450,12 @@ export interface HistoryRuns {
 /**
  * The runs of the History tab: the latest page of the history and the older
  * pages read since. The choices of the run timeline about test runs and
- * trigger types apply; its count and its time range do not.
+ * trigger types apply; its count and its time range do not. A service DAG
+ * has no such choice: it shows every run.
  */
 export function useHistoryRuns(): HistoryRuns {
   const run = useWorkspaceRun();
-  const [{ showTests, hiddenTypes, showBackfill }] = useRunViewSettings();
+  const { showTests, hiddenTypes, showBackfill } = useDagSettings().settings;
   const history = useRunHistory({
     enabled: true,
     includeEphemeral: true,

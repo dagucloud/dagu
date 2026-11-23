@@ -12,7 +12,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { useClient } from '@/hooks/api';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -26,6 +25,7 @@ import {
   type InventoryDefaults,
   type InventoryRecord,
 } from './inventoryChanges';
+import { Field } from './FormField';
 import { RefusalNotice } from './RefusalNotice';
 
 /** The fields the form shows. Other defaults are kept as they are. */
@@ -212,28 +212,6 @@ export function InventoryDialog({
         </form>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function Field({
-  label,
-  className,
-  children,
-}: {
-  label: string;
-  className?: string;
-  children: React.ReactElement;
-}): React.ReactElement {
-  const id = `inventory-${label.toLowerCase().replace(/\s+/g, '-')}`;
-  return (
-    <div className={className}>
-      <Label htmlFor={id} className="mb-1 block text-xs">
-        <I18nText text={label} />
-      </Label>
-      {React.cloneElement(children as React.ReactElement<{ id?: string }>, {
-        id,
-      })}
-    </div>
   );
 }
 

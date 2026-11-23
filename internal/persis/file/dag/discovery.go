@@ -93,7 +93,7 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 		}
 
 		if path != walkRoot && entry.Type()&os.ModeSymlink != 0 {
-			if !fileutil.IsYAMLFile(entry.Name()) {
+			if !isDAGFile(entry.Name()) {
 				return nil
 			}
 			resolved, err := ResolveFile(root, relPath)
@@ -127,7 +127,7 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 			result.Dirs = append(result.Dirs, dir)
 			return nil
 		}
-		if !fileutil.IsYAMLFile(entry.Name()) {
+		if !isDAGFile(entry.Name()) {
 			return nil
 		}
 
@@ -155,7 +155,7 @@ func scanRoot(root string, symlinks bool) (DiscoveryResult, error) {
 
 	result := DiscoveryResult{Dirs: []string{root}}
 	for _, entry := range entries {
-		if entry.IsDir() || !fileutil.IsYAMLFile(entry.Name()) {
+		if entry.IsDir() || !isDAGFile(entry.Name()) {
 			continue
 		}
 		resolved, err := ResolveFile(root, entry.Name())
@@ -172,6 +172,12 @@ func scanRoot(root string, symlinks bool) (DiscoveryResult, error) {
 
 	sortResult(&result)
 	return result, nil
+}
+
+// isDAGFile reports whether a file name can hold a DAG: a YAML file that is
+// not a test file.
+func isDAGFile(name string) bool {
+	return fileutil.IsYAMLFile(name) && !spec.IsTestFile(name)
 }
 
 // ResolveFile resolves one lexically contained DAG entry without allowing

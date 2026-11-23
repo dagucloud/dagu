@@ -249,6 +249,13 @@ func (a *API) CreateNewDAG(ctx context.Context, request api.CreateNewDAGRequestO
 				Code:       api.ErrorCodeAlreadyExists,
 			}
 		}
+		if errors.Is(err, persis.ErrDAGNameReserved) {
+			return nil, &Error{
+				HTTPStatus: http.StatusBadRequest,
+				Code:       api.ErrorCodeBadRequest,
+				Message:    err.Error(),
+			}
+		}
 		return nil, fmt.Errorf("error creating DAG: %w", err)
 	}
 
@@ -489,6 +496,14 @@ func (a *API) RenameDAG(ctx context.Context, request api.RenameDAGRequestObject)
 		return nil, errDAGWritesDisabled
 	}
 	if err := ir.ValidateDAGName(request.Body.NewFileName); err != nil {
+		return nil, &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    err.Error(),
+		}
+	}
+	// Checked before anything moves; the store refuses the name as well.
+	if err := persis.ValidateNewDAGName(request.Body.NewFileName); err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusBadRequest,
 			Code:       api.ErrorCodeBadRequest,

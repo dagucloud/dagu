@@ -1,0 +1,23 @@
+mail_on:
+  failure: true
+error_mail:
+  from: dagu@example.com
+  to: oncall@example.com
+steps:
+  - id: count
+    run: touch count.ran
+    outputs:
+      - name: files
+      - name: stats
+        type: json
+  - id: summary
+    depends: count
+    action: log.write
+    with:
+      message: ${steps.count.outputs.files} files changed
+  - id: check
+    depends: summary
+    run: touch check.ran
+    retry_policy:
+      limit: 1
+      interval_sec: 60

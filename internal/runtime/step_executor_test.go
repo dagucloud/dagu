@@ -6,6 +6,7 @@ package runtime_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"sync"
@@ -18,6 +19,8 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -265,6 +268,38 @@ func TestStepExecutorCapturesExecutorSideChannels(t *testing.T) {
 	require.Equal(t, []ir.ToolDefinition{{Name: "lookup", Description: "look up data"}}, node.GetToolDefinitions())
 	require.NotNil(t, state.OutputsValue)
 	require.JSONEq(t, `{"answer":42}`, *state.OutputsValue)
+}
+
+// A failed attempt publishes no outputs, including those its executor reports
+// when it fails: a dag.run step whose child run fails adds none of the
+// child's outputs to the outputs the run collects, and a later reference
+// keeps its text. The later step is mocked so that no shell runs that text.
+func TestFailedChildRunPublishesNoOutputs(t *testing.T) {
+	t.Parallel()
+
+	r := setupRunner(t, withStepMocks(map[string]stepmock.Step{"verify": {}}))
+	r.Context = runtimeexec.WithSubWorkflowRunner(r.Context, &childRuns{
+		outputs: map[string]any{"version": "v1.2.3"},
+		err:     errors.New("child run failed"),
+	})
+	rollout := newStep("rollout", withID("rollout"), withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy"),
+		withContinueOn(ir.ContinueOn{Failure: true}))
+	verify := newStep("verify", withDepends("rollout"),
+		withCommand("./verify.sh ${rollout.outputs.version} ${steps.rollout.outputs.version}"))
+	ph := r.newPlan(t, rollout, verify)
+	ph.steps = []ir.Step{rollout, verify}
+	ph.localDAGs = map[string]*ir.DAG{
+		"deploy": {Name: "deploy", YamlData: []byte("name: deploy\nsteps:\n  - run: ./deploy.sh\n")},
+	}
+	ph.contextOpts = []runtime.ContextOption{
+		runtime.WithRootDAGRun(runtime.NewDAGRunRef("test_dag", r.cfg.DAGRunID)),
+	}
+	result := ph.assertRun(t, ir.PartiallySucceeded)
+
+	result.assertNodeStatus(t, "rollout", ir.NodeFailed)
+	assert.Nil(t, result.nodeByName(t, "rollout").NodeData().OutputsValueStringMap())
+	assert.Equal(t, []string{"${rollout.outputs.version}", "${steps.rollout.outputs.version}"},
+		result.nodeByName(t, "verify").Step().Commands[0].Args)
 }
 
 // Push-back-aware executors receive the inputs the step may see: an approval

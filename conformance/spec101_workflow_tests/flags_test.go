@@ -19,13 +19,18 @@ import (
 // jsonReport holds the fields of the JSON report that the tests read.
 type jsonReport struct {
 	Cases []struct {
-		File       string           `json:"file"`
-		Name       string           `json:"name"`
-		Result     string           `json:"result"`
-		DurationMS *int64           `json:"duration_ms"`
-		Failures   []map[string]any `json:"failures"`
-		Errors     []map[string]any `json:"errors"`
-		CaseDir    string           `json:"case_dir"`
+		File          string           `json:"file"`
+		Name          string           `json:"name"`
+		Result        string           `json:"result"`
+		DurationMS    *int64           `json:"duration_ms"`
+		Failures      []map[string]any `json:"failures"`
+		Errors        []map[string]any `json:"errors"`
+		Fix           string           `json:"fix"`
+		FileFix       string           `json:"file_fix"`
+		DefaultMocked []string         `json:"default_mocked"`
+		AutoApproved  []string         `json:"auto_approved"`
+		Notifications []map[string]any `json:"notifications"`
+		CaseDir       string           `json:"case_dir"`
 	} `json:"cases"`
 	InvalidFiles []struct {
 		File   string           `json:"file"`
@@ -72,6 +77,38 @@ func TestWorkflowTestJSON(t *testing.T) {
 	require.Len(t, report.InvalidFiles, 1)
 	require.Equal(t, "workflows/smoke.test.yaml", report.InvalidFiles[0].File)
 	require.Contains(t, report.InvalidFiles[0].Errors[0]["message"], "rename")
+}
+
+// Each failed assertion and each list of a case that ran is in the JSON
+// report too. Files run in the order default, gate, report.
+func TestWorkflowTestJSONAssertions(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("test", "--format", "json", "workflows/report.test.yaml", "workflows/default.test.yaml", "workflows/gate.test.yaml")
+	result.ExpectExitCode(2)
+	report := decodeReport(t, result.Stdout())
+	require.Len(t, report.Cases, 9)
+
+	require.Equal(t, []string{"build", "deploy"}, report.Cases[0].DefaultMocked)
+	require.Equal(t, []string{"release"}, report.Cases[3].AutoApproved)
+	mail := map[string]any{"kind": "mail_on.failure", "to": []any{"oncall@example.com"}}
+	require.Equal(t, []map[string]any{mail}, report.Cases[7].Notifications)
+
+	failed := report.Cases[8]
+	require.Equal(t, "every failed assertion is reported", failed.Name)
+	require.Equal(t, []map[string]any{
+		{"field": "attempts", "expected": float64(2), "actual": float64(1)},
+		{"step": "count", "field": "outputs.files", "expected": "03", "actual": "3"},
+		{
+			"step": "count", "field": "outputs.stats",
+			"expected": map[string]any{"lines": float64(41)},
+			"actual":   map[string]any{"files": float64(3), "lines": float64(40)},
+		},
+		{"step": "summary", "field": "stdout.contains", "expected": "4 files"},
+		{"step": "summary", "field": "stderr.matches", "expected": "error"},
+		{"field": "notifications", "expected": []any{}, "actual": []any{mail}},
+	}, failed.Failures)
 }
 
 func TestWorkflowTestJSONTimeout(t *testing.T) {

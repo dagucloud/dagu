@@ -41,6 +41,11 @@ type NodeState struct {
 	Stdout string
 	// Stderr is the log file path for the error log (stderr).
 	Stderr string
+	// StdoutStart and StderrStart are the sizes of the Stdout and Stderr logs
+	// when the latest execution started, where its output begins. They are
+	// kept in memory only.
+	StdoutStart int64
+	StderrStart int64
 	// WorkingDir is the effective working directory used for this node execution.
 	WorkingDir string
 	// StepOutputFile is the DAGU_OUTPUT_FILE path for the current step attempt.
@@ -295,6 +300,14 @@ func (d *Data) SetStatusDetails(details []ir.NodeStatusDetail) {
 	defer d.mu.Unlock()
 
 	d.inner.State.StatusDetails = append([]ir.NodeStatusDetail(nil), details...)
+}
+
+// setExecutionStart records where the latest execution's output begins in
+// the step's logs.
+func (d *Data) setExecutionStart(stdout, stderr int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.inner.State.StdoutStart, d.inner.State.StderrStart = stdout, stderr
 }
 
 // SetPreconditionResults replaces the latest precondition evaluation results.

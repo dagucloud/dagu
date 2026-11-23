@@ -235,6 +235,10 @@ func WithBuildEnvSnapshot(snapshot buildenv.Snapshot) LoadOption {
 //   - Resolved against the DAGsDir specified in options
 //   - If DAGsDir is not provided, the current working directory is used
 //   - For YAML files, the extension is optional
+//   - A name that resolves to a test file fails with ErrTestFile
+//
+// A test file given by path loads as a DAG, and when that fails, the error
+// also wraps ErrTestFile.
 //
 // This approach provides a flexible way to load ir.DAG definitions from multiple sources
 // while supporting customization through the LoadOptions.
@@ -445,7 +449,13 @@ func loadDAG(ctx buildContext, nameOrPath string) (*ir.DAG, error) {
 	if err != nil {
 		return loadDAGFailure(ctx, filePath, fmt.Errorf("failed to read file %q: %w", filePath, err))
 	}
-	return loadDAGData(ctx, data, filePath)
+	dag, err := loadDAGData(ctx, data, filePath)
+	// An explicit path loads as given, so a test file can reach here. When it
+	// fails to load as a DAG, the error points at the command that runs it.
+	if err != nil && IsTestFile(filePath) {
+		return nil, fmt.Errorf("%s: %w: %w", filePath, ErrTestFile, err)
+	}
+	return dag, err
 }
 
 func loadDAGData(ctx buildContext, data []byte, filePath string) (*ir.DAG, error) {
@@ -1101,6 +1111,10 @@ func resolveYamlFilePath(ctx buildContext, file string) (string, error) {
 	}
 
 	file = fileutil.EnsureYAMLExtension(file)
+	// A name lookup never yields a test file, even one written as a DAG.
+	if IsTestFile(file) {
+		return "", fmt.Errorf("%s: %w", file, ErrTestFile)
+	}
 
 	return filepath.Abs(file)
 }

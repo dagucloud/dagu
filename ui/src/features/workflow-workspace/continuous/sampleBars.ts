@@ -237,6 +237,27 @@ export function barModel(input: BarModelInput): BarModel {
 }
 
 /**
+ * The place of the run in progress on the time axis, in px: from its start,
+ * or from the left end when it started before the window, to the right end.
+ * It is at least BAR_MIN_PX wide. null when it starts at or after the end of
+ * the window.
+ */
+export function liveBand(
+  startedAt: number,
+  from: number,
+  to: number,
+  width: number
+): { x: number; width: number } | null {
+  if (!(startedAt < to)) return null;
+  const span = Math.max(1, to - from);
+  const x = Math.min(
+    Math.max(0, ((startedAt - from) / span) * width),
+    Math.max(0, width - BAR_MIN_PX)
+  );
+  return { x, width: width - x };
+}
+
+/**
  * The bar under the pixel `x`: the one whose centre is the nearest, when it
  * is within half its width or 3 px. null when none is near.
  */

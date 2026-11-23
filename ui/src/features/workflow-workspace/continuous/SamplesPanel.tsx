@@ -19,7 +19,7 @@ import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import type { RangePreset } from '../rangePresets';
 import { AvailabilityStrip } from './AvailabilityStrip';
 import { EventsList, type RunLinks } from './EventsList';
-import { AXIS_PX, SamplesChart } from './SamplesChart';
+import { AXIS_PX, SamplesChart, type LiveRun } from './SamplesChart';
 import {
   bucketWindow,
   panView,
@@ -111,6 +111,13 @@ export interface SamplesPanelProps {
   links?: RunLinks;
   /** A note above the chart, for the window that the chart shows. */
   notice?(window: { from: number; to: number }): ReactNode;
+  /**
+   * The run in progress of a run history, or null when none is. A step has
+   * none: its samples come while it runs.
+   */
+  liveRun?: LiveRun | null;
+  /** Opens the run in progress. */
+  onOpenRun?(runId: string): void;
   testId?: string;
   /** The `data-step` of the root, for a step. */
   step?: string;
@@ -133,6 +140,8 @@ export function SamplesPanel({
   range,
   links,
   notice,
+  liveRun,
+  onOpenRun,
   testId = 'continuous-panel',
   step,
   className = 'h-full min-h-0 space-y-3 overflow-auto p-3',
@@ -212,6 +221,10 @@ export function SamplesPanel({
       : { from: asked.from, to: asked.to };
   }, [samples.data, asked]);
 
+  // A run in progress has no bar until it ends: the window is not empty while
+  // that run is in it.
+  const liveInWindow = !!liveRun && liveRun.startedAt < shown.to;
+
   const eventsWindow = selected
     ? bucketWindow(selected.time, selected.resolutionSeconds)
     : null;
@@ -277,7 +290,8 @@ export function SamplesPanel({
             <PanelMessage tone="muted" align="start" className="p-0">
               {ts('Loading samples...')}
             </PanelMessage>
-          ) : samples.data.buckets.every((b) => b.count <= 0) ? (
+          ) : samples.data.buckets.every((b) => b.count <= 0) &&
+            !liveInWindow ? (
             <div data-testid="continuous-empty">
               <PanelMessage tone="muted" align="center" className="py-8">
                 {ts(subject.empty)}
@@ -293,6 +307,8 @@ export function SamplesPanel({
               onSelect={setSelected}
               onZoom={zoom}
               onPan={pan}
+              live={liveRun}
+              onOpenRun={onOpenRun}
             />
           )}
         </div>

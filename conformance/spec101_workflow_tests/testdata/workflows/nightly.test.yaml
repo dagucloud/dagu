@@ -7,5 +7,8 @@ cases:
           - exit_code: 0
     expect:
       status: succeeded
+      attempts: 2
       steps:
-        sync: succeeded
+        sync:
+          status: succeeded
+          attempts: 2

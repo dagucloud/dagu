@@ -1454,11 +1454,9 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
   const backfillToggle = dagData.dag?.schedule?.length
     ? actions.setShowBackfill
     : undefined;
-  const setCount = actions.setCount;
-  const setRange = actions.setRange;
 
-  // A service DAG always shows its run history, not the retained runs: the
-  // view menu has nothing to filter, so it is not offered. It has no count.
+  // A service DAG always shows its run history, not the retained runs. It
+  // has no count and no view menu: the History tab lists every retained run.
   if (service) {
     return (
       <ServiceHistory
@@ -1468,7 +1466,7 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
           <RunTimelineControls
             count={settings.count}
             counts={[]}
-            onCountChange={setCount}
+            onCountChange={actions.setCount}
             range={settings.range}
             onRangeChange={actions.setServiceRange}
             presets={presets}
@@ -1487,9 +1485,9 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
           <RunTimelineControls
             count={settings.count}
             counts={countOptions(inRange ? 0 : visible.pool.length)}
-            onCountChange={setCount}
+            onCountChange={actions.setCount}
             range={inRange ? settings.range : null}
-            onRangeChange={setRange}
+            onRangeChange={actions.setRange}
             presets={presets}
             hasTestRuns={visible.hasTestRuns}
             showTests={settings.showTests}
@@ -1527,10 +1525,10 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
       count={inRange ? visible.pool.length : settings.count}
       statusTextOf={statusTextOf}
       onSelect={select}
-      onCountChange={setCount}
+      onCountChange={actions.setCount}
       range={inRange ? settings.range : null}
       rangeBounds={visible.range}
-      onRangeChange={setRange}
+      onRangeChange={actions.setRange}
       presets={presets}
       truncated={visible.truncated}
       canStart={start.canStart}

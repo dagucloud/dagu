@@ -17,6 +17,7 @@ export default defineMessages({
     '{failures} failed of {count} runs': '{failures} failed of {count} runs',
     Gap: 'Gap',
     'no run for {length}': 'no run for {length}',
+    'Running since {time}': 'Running since {time}',
     'Open run {id}': 'Open run {id}',
     'The runs before {time} are not kept.':
       'The runs before {time} are not kept.',
@@ -36,6 +37,7 @@ export default defineMessages({
     '{failures} failed of {count} runs': '{count} 次运行中失败 {failures} 次',
     Gap: '空档',
     'no run for {length}': '{length} 内没有运行',
+    'Running since {time}': '自 {time} 起运行中',
     'Open run {id}': '打开运行 {id}',
     'The runs before {time} are not kept.': '{time} 之前的运行未保留。',
     'Runs in the last {window}': '过去 {window}内的运行',
@@ -54,6 +56,7 @@ export default defineMessages({
     '{failures} failed of {count} runs': '{count} 件中 {failures} 件が失敗',
     Gap: '空白',
     'no run for {length}': '{length} の間、実行なし',
+    'Running since {time}': '{time} から実行中',
     'Open run {id}': '実行 {id} を開く',
     'The runs before {time} are not kept.':
       '{time} より前の実行は保持されていません。',

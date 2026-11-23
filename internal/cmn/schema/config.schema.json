@@ -2058,6 +2058,11 @@
           "enum": ["off", "health", "runs", "errors"],
           "description": "What this server reports to Dagu Console beyond its license check-in. off (default) reports nothing but one report saying so after health, runs, or errors; health reports the Dagu version, OS, architecture, start time, and how many schedulers and coordinators run; runs also reports each reportable status change of a top-level DAG run (events without a valid status snapshot, or with names or IDs longer than Dagu Console keeps, are left out): DAG name, run and attempt IDs, status, times, and up to 50 failed step names; errors also reports why a run failed: the error messages of up to 5 failed steps, or the run's own, each up to 2 KB from its end. A step's error can end with the last lines of its stderr; the values of workflow secrets are masked in it. Full logs, outputs, parameters, commands, DAG files, and the values of workflow secrets are never sent. Every report also carries the license and server IDs and the heartbeat secret, as the license check-in does."
         },
+        "audit": {
+          "type": "string",
+          "enum": ["off", "changes", "all"],
+          "description": "Which audit entries this server sends to Dagu Console, which keeps them for the workspace's retention. It takes effect only with audit.enabled and a license with the audit feature that connects to Dagu Console. off (default) sends nothing; changes sends every entry but successful reads, which are MCP resource reads and read-only tool calls; all sends every entry. Of an MCP call, only its result is sent. Entries are masked before they are written and again before they are sent: values of dagu-managed secrets and common token formats are replaced. Local audit files and the Audit page are unchanged."
+        },
         "remote_access": {
           "type": "string",
           "enum": ["off", "viewer", "operator", "developer"],

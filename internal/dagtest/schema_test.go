@@ -22,6 +22,7 @@ import (
 	"unicode"
 
 	cmnschema "github.com/dagucloud/dagu/v2/internal/cmn/schema"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -298,7 +299,7 @@ func testdataFiles(t *testing.T) map[string][]byte {
 	dir := filepath.Join("testdata", "testfiles")
 	files := make(map[string][]byte)
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !IsTestFile(path) {
+		if err != nil || d.IsDir() || !spec.IsTestFile(path) {
 			return err
 		}
 		name, err := filepath.Rel(dir, path)
