@@ -216,9 +216,11 @@ type DeclaredOutputsProvider interface {
 // NamedOutputsPublisher is implemented by executors that publish every named
 // output of their step, such as a mocked action. Their outputs replace what
 // the step's output file, output_schema, object-form output, stdout.outputs,
-// and action would publish. String-form output still captures stdout.
+// and action would publish, and reach the references and run outputs those
+// sources reach. An output declared under Spec 012 publishes as text, and a
+// json one as its JSON text. String-form output still captures stdout.
 type NamedOutputsPublisher interface {
-	// NamedOutputs returns the text of each named output, by name, that a
+	// NamedOutputs returns the value of each named output, by name, that a
 	// successful execution publishes.
-	NamedOutputs() map[string]string
+	NamedOutputs() map[string]any
 }

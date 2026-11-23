@@ -10,12 +10,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"slices"
 	"sync"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -33,9 +31,10 @@ type Result struct {
 	// Outputs holds every named output the step publishes, whatever its
 	// source: the output file, output_schema, object-form output,
 	// stdout.outputs, or the action. They are published only when the
-	// execution succeeds. An output declared with type json (Spec 012)
-	// publishes any value as its JSON text. Any other output publishes a
-	// string as written and any other value as its JSON text.
+	// execution succeeds, and reach the references and run outputs that
+	// their source reaches in a real run. An output declared with type json
+	// (Spec 012) publishes any value as its JSON text. Any other output
+	// publishes a string as written and any other value as its JSON text.
 	Outputs map[string]any
 }
 
@@ -74,22 +73,10 @@ func (s *Set) Executor(_ context.Context, step ir.Step) (executor.Executor, bool
 		return nil, false
 	}
 	return &mockExecutor{
-		script:      script,
-		jsonOutputs: jsonOutputs(step),
-		stdout:      io.Discard,
-		stderr:      io.Discard,
+		script: script,
+		stdout: io.Discard,
+		stderr: io.Discard,
 	}, true
-}
-
-// jsonOutputs returns the names of the step's outputs declared with type json.
-func jsonOutputs(step ir.Step) map[string]bool {
-	names := make(map[string]bool)
-	for _, declaration := range step.ValueOutputs() {
-		if declaration.Type == ir.StepDeclaredOutputTypeJSON {
-			names[declaration.Name] = true
-		}
-	}
-	return names
 }
 
 // script holds the results of one mocked step and how many executions took
@@ -116,13 +103,12 @@ func (s *script) next() Result {
 // mockExecutor runs one execution of a mocked step. It starts no process and
 // reads no file.
 type mockExecutor struct {
-	script      *script
-	jsonOutputs map[string]bool
-	stdout      io.Writer
-	stderr      io.Writer
-	exitCode    int
-	// outputs holds the text of each output the execution publishes.
-	outputs map[string]string
+	script   *script
+	stdout   io.Writer
+	stderr   io.Writer
+	exitCode int
+	// outputs holds the outputs the execution publishes.
+	outputs map[string]any
 }
 
 var (
@@ -138,7 +124,7 @@ func (*mockExecutor) Kill(os.Signal) error      { return nil }
 func (e *mockExecutor) ExitCode() int { return e.exitCode }
 
 // NamedOutputs returns the outputs of the result the execution took.
-func (e *mockExecutor) NamedOutputs() map[string]string { return e.outputs }
+func (e *mockExecutor) NamedOutputs() map[string]any { return e.outputs }
 
 func (e *mockExecutor) Run(context.Context) error {
 	result := e.script.next()
@@ -152,39 +138,6 @@ func (e *mockExecutor) Run(context.Context) error {
 	if result.ExitCode != 0 {
 		return fmt.Errorf("exit status %d", result.ExitCode)
 	}
-	outputs, err := outputTexts(result.Outputs, e.jsonOutputs)
-	if err != nil {
-		return err
-	}
-	e.outputs = outputs
+	e.outputs = result.Outputs
 	return nil
-}
-
-// outputTexts returns the text each output publishes.
-func outputTexts(outputs map[string]any, jsonOutputs map[string]bool) (map[string]string, error) {
-	if len(outputs) == 0 {
-		return nil, nil
-	}
-	texts := make(map[string]string, len(outputs))
-	for _, name := range slices.Sorted(maps.Keys(outputs)) {
-		text, err := outputText(outputs[name], jsonOutputs[name])
-		if err != nil {
-			return nil, fmt.Errorf("output %q: %w", name, err)
-		}
-		texts[name] = text
-	}
-	return texts, nil
-}
-
-// outputText returns the text an output value publishes. A json output
-// publishes a string as a JSON string, as Spec 101 defines.
-func outputText(value any, asJSON bool) (string, error) {
-	if text, ok := value.(string); ok && !asJSON {
-		return text, nil
-	}
-	data, err := jsonutil.MarshalUnescaped(value)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
 }

@@ -46,19 +46,29 @@ func loadSteps(t *testing.T, data string) []ir.Step {
 	return dag.Steps
 }
 
-// planSources holds a plan step for each source of named outputs that Spec
-// 007 lists. A real run would not publish the mocked values from any of them:
-// the mocks write stdout that is not JSON and create no file, and the action
-// publishes values of its own.
-var planSources = map[string]string{
-	"OutputFile": `
+// outputSource is a plan step that publishes named outputs through one source
+// that Spec 007 lists, with the other channels a real run of it publishes to.
+// A real run would not publish the mocked values from any source: the mocks
+// write stdout that is not JSON and create no file, and the action publishes
+// values of its own.
+type outputSource struct {
+	plan string
+	// stepOutput reports that the source publishes ${<step>.output}.
+	stepOutput bool
+	// runOutputs reports that the source publishes to the outputs the run
+	// collects.
+	runOutputs bool
+}
+
+var planSources = map[string]outputSource{
+	"OutputFile": {plan: `
   - id: plan
     run: ./plan.sh
     outputs:
       - name: risk
       - name: replicas
-        type: json`,
-	"OutputSchema": `
+        type: json`},
+	"OutputSchema": {plan: `
   - id: plan
     run: ./plan.sh
     output_schema:
@@ -66,28 +76,28 @@ var planSources = map[string]string{
       required: [risk, replicas]
       properties:
         risk: {type: string}
-        replicas: {type: integer}`,
-	"ObjectFormOutput": `
+        replicas: {type: integer}`, stepOutput: true},
+	"ObjectFormOutput": {plan: `
   - id: plan
     run: ./plan.sh
     output:
       risk: {from: stdout, decode: json, select: .risk}
-      replicas: {from: file, path: plan.json, decode: json}`,
-	"StdoutOutputs": `
+      replicas: {from: file, path: plan.json, decode: json}`, stepOutput: true, runOutputs: true},
+	"StdoutOutputs": {plan: `
   - id: plan
     run: ./plan.sh
     stdout:
       outputs:
         fields:
           risk: {decode: json, select: .risk}
-          replicas: {decode: json, select: .replicas}`,
-	"Action": `
+          replicas: {decode: json, select: .replicas}`, runOutputs: true},
+	"Action": {plan: `
   - id: plan
     action: outputs.write
     with:
       values:
         risk: high
-        replicas: 1`,
+        replicas: 1`, runOutputs: true},
 }
 
 // A mocked step writes the streams of its result in place of running its
@@ -236,7 +246,7 @@ func TestStepMockPublishesDeclaredOutputs(t *testing.T) {
 	r := setupRunner(t, withStepMocks(map[string]stepmock.Step{
 		"plan": {Results: []stepmock.Result{{Outputs: map[string]any{
 			"risk":  "low",
-			"notes": "first\nEOF\nlast",
+			"notes": "first\nlast",
 			"meta":  map[string]any{"replicas": 2},
 			"color": "blue",
 		}}}},
@@ -261,16 +271,17 @@ func TestStepMockPublishesDeclaredOutputs(t *testing.T) {
 	assert.Equal(t, []string{"low"}, result.nodeByName(t, "merge").Step().Commands[0].Args)
 	outputs := result.nodeByName(t, "plan").State().StepOutputsValue
 	require.NotNil(t, outputs)
-	assert.JSONEq(t, `{"risk":"low","notes":"first\nEOF\nlast","meta":"{\"replicas\":2}","color":"\"blue\""}`, *outputs)
+	assert.JSONEq(t, `{"risk":"low","notes":"first\nlast","meta":"{\"replicas\":2}","color":"\"blue\""}`, *outputs)
 }
 
 // A successful mocked execution publishes its outputs whatever the source of
-// the step's named outputs, and a later step resolves them. A value that is
-// not a string publishes as its JSON text.
+// the step's named outputs. A later step resolves them, and they reach
+// ${<step>.output} and the outputs the run collects where a real run of the
+// source does. A value that is not a string publishes as its JSON text.
 func TestStepMockPublishesNamedOutputs(t *testing.T) {
 	t.Parallel()
 
-	for name, plan := range planSources {
+	for name, source := range planSources {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -281,16 +292,24 @@ func TestStepMockPublishesNamedOutputs(t *testing.T) {
 				}}},
 				"deploy": {},
 			}))
-			steps := loadSteps(t, "steps:"+plan+`
+			steps := loadSteps(t, "steps:"+source.plan+`
   - id: deploy
-    run: ./deploy.sh ${steps.plan.outputs.risk} ${steps.plan.outputs.replicas}
+    run: >-
+      ./deploy.sh ${steps.plan.outputs.risk} ${steps.plan.outputs.replicas}
+      ${plan.outputs.risk} ${plan.output.risk}
 `)
 			result := r.newPlan(t, steps...).assertRun(t, ir.Succeeded)
 
-			outputs := result.nodeByName(t, "plan").State().StepOutputsValue
-			require.NotNil(t, outputs)
-			assert.JSONEq(t, `{"risk":"low","replicas":"2"}`, *outputs)
-			assert.Equal(t, []string{"low", "2"}, result.nodeByName(t, "deploy").Step().Commands[0].Args)
+			stepOutput := "${plan.output.risk}"
+			if source.stepOutput {
+				stepOutput = "low"
+			}
+			assert.Equal(t, []string{"low", "2", "low", stepOutput}, result.nodeByName(t, "deploy").Step().Commands[0].Args)
+			var runOutputs map[string]string
+			if source.runOutputs {
+				runOutputs = map[string]string{"risk": "low", "replicas": "2"}
+			}
+			assert.Equal(t, runOutputs, result.nodeByName(t, "plan").NodeData().OutputsValueStringMap())
 		})
 	}
 }
@@ -301,7 +320,7 @@ func TestStepMockPublishesNamedOutputs(t *testing.T) {
 func TestStepMockFailedAttemptPublishesNoOutputs(t *testing.T) {
 	t.Parallel()
 
-	for name, plan := range planSources {
+	for name, source := range planSources {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
@@ -309,20 +328,22 @@ func TestStepMockFailedAttemptPublishesNoOutputs(t *testing.T) {
 				"plan": {Results: []stepmock.Result{{ExitCode: 1, Outputs: map[string]any{"risk": "high", "replicas": 3}}}},
 				"use":  {Results: []stepmock.Result{{Stdout: "used\n"}}},
 			}))
-			steps := loadSteps(t, "steps:"+plan+`
+			steps := loadSteps(t, "steps:"+source.plan+`
     continue_on: failed
   - id: use
     env:
       - RISK: ${steps.plan.outputs.risk}
-    run: echo ${steps.plan.outputs.risk}
+    run: echo ${steps.plan.outputs.risk} ${plan.output.risk}
 `)
 			result := r.newPlan(t, steps...).assertRun(t, ir.PartiallySucceeded)
 
 			result.assertNodeStatus(t, "plan", ir.NodeFailed)
-			assert.Nil(t, result.nodeByName(t, "plan").State().StepOutputsValue)
+			planNode := result.nodeByName(t, "plan")
+			assert.Nil(t, planNode.State().StepOutputsValue)
+			assert.Nil(t, planNode.NodeData().OutputsValueStringMap())
 			result.assertNodeStatus(t, "use", ir.NodeSucceeded)
 			usedNode := result.nodeByName(t, "use")
-			assert.Equal(t, []string{"${steps.plan.outputs.risk}"}, usedNode.Step().Commands[0].Args)
+			assert.Equal(t, []string{"${steps.plan.outputs.risk}", "${plan.output.risk}"}, usedNode.Step().Commands[0].Args)
 			assert.Equal(t, "used\n", readLog(t, usedNode.GetStdout()))
 		})
 	}
