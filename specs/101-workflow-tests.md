@@ -13,6 +13,7 @@ automatic approvals, and notifications of each case that ran.
 The authoring flags `--init` and `--update` (see
 [Authoring Flags](#authoring-flags)) ship after the first release of
 `dagu test`. Everything else in this spec ships together in that release.
+`--init` is implemented; `--update` is not yet.
 
 ## Scope
 
@@ -1226,23 +1227,33 @@ a step it adds in the same shape:
   `wait`, each keyed by its label. Each is its status token, or a map with
   `status` and `attempts` when its attempts are more than one.
 - `notifications`: the notifications the run would have sent, each with
-  `kind`, `step` for `mail_on_error`, and `to`, when there is any.
+  `kind`, `step` for `mail_on_error` as the step's label, and `to`, when
+  there is any.
 
 `dagu test --init <dag file>`:
 
 - Takes exactly one argument, a DAG file, and writes its test file beside
   it: `<name>.test.yaml` for `<name>.yaml`, and `<name>.test.yml` for
-  `<name>.yml`.
+  `<name>.yml`. When `<name>.yaml` sits beside `<name>.yml`, the test file
+  of `<name>.yml` sets `dag: <name>.yml`, since without `dag` it would test
+  `<name>.yaml`.
 - The test file holds `params` and `mocks` with an entry for every source of
   the fail-closed rule that the DAG has, as [The Fix](#the-fix) writes them,
   and a `params` entry for every required param without a default, with its
   first `enum` value or `""`. It holds one case named `initial`, with the
   case's `precondition: met` when the DAG has a DAG-level precondition that
-  needs it, and an `expect` written from a run of that case.
+  needs it, and an `expect` written from a run of that case. `--timeout`
+  bounds that run.
 - It prints the path of the file it wrote and exits with status 0. When the
   case it wrote is still invalid, such as with a value marked for
-  replacement, the case's `expect` is `status: succeeded`, and it exits with
-  status 2 after writing the file.
+  replacement, the case's `expect` is `status: succeeded`, the case's
+  report as `dagu test` writes it follows the path, and it exits with
+  status 2 after writing the file. A run of the case that does not finish,
+  such as one that times out or has a repeat limit that leaves a step
+  without a limit, does the same with exit status 1, and its report ends
+  with the line
+  `the run did not finish, so the written expect is status: succeeded, not the run's result`.
+- An interrupt before the file is written writes nothing.
 - It writes nothing and exits with status 2 when a test file for the DAG
   already exists beside it, under either suffix, or when the argument is
   not one DAG file that loads.
@@ -1298,7 +1309,8 @@ stderr when:
 
 - a path argument does not exist;
 - without `--init`, a file argument is not a test file;
-- `--init` has other than one argument, or is set together with `--update`;
+- `--init` has other than one argument, or is set together with `--update`,
+  `--run`, `--keep`, or `--format json`;
 - `--run` is not a valid regular expression;
 - `--format` is neither `text` nor `json`;
 - `--timeout` is not a duration greater than zero;
