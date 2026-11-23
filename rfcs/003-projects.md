@@ -552,7 +552,8 @@ server reports its projects and binds them; this RFC fixes what that needs:
 
 v3.0 moves each workspace into a project on its first start, before it
 schedules or serves anything. `dagu migrate workspaces` prints what that
-start would do and changes nothing, so it can run against a live v2 install,
+start would do, including each item that needs attention, and changes
+nothing, so it can run against a live v2 install,
 or a copy of one, before the upgrade.
 
 - Stop every v2 process before the first v3.0 start. The first v3.0
@@ -582,7 +583,7 @@ or a copy of one, before the upgrade.
 | User or API key with roles in `X` | Grants on project `X` |
 | User or API key with `workspace_access.all: false` | Also `viewer` on the default project, which keeps v2 read access to unlabelled DAGs |
 | `workspace_mappings`, `default_workspace_access` | Read as `project_mappings`, `default_project_access` until v3.1 |
-| `workspace` label on a moved DAG | Kept as an ordinary label; the file is not rewritten |
+| `workspace` label on a moved DAG | Kept as an ordinary label |
 
 - Per-DAG webhook URLs keep their paths and tokens, and reach the DAG in its
   new project, as [Identity and references](#identity-and-references)
@@ -592,10 +593,19 @@ or a copy of one, before the upgrade.
   back. Such a DAG stays in the default project, suspended, until its file
   is moved in git to `<projects_dir>/X/`; its runs and state move at once.
   Operators who keep DAG files in git can move them before upgrading.
+- Migration keeps the directory each moved DAG runs in. On v2, a DAG that
+  sets no `working_dir` runs in its file's directory, and a relative
+  `working_dir` resolves from there. Migration writes the directory the DAG
+  ran in on v2, as an absolute `working_dir`, into each moved file that
+  sets none or a relative one, and changes nothing else in the file. Paths
+  that resolve from the working directory, such as `dependencies`
+  ([spec 035](../specs/035-file-dependencies.md)), then resolve as on v2.
 
 The report lists these items, which migration cannot settle alone:
 
-- A DAG file in a git checkout, as above.
+- A DAG file in a git checkout, as above. When it sets no `working_dir`, or
+  a relative one, the report names the directory to set before the file
+  moves, since migration does not edit it.
 - A DAG or base file at both its v2 and v3 paths. The v3 file is used, and
   the v2 file stays in the default project, suspended.
 - A workspace name that breaks the [name rules](#names), including
@@ -659,8 +669,9 @@ Criteria 23 and 24 apply from the release that ships the feature.
 1. A v2 data directory with no workspaces starts on v3.0 unchanged, as the
    default project.
 2. After migration, each DAG outside the library runs with the same base
-   config, secrets, profile, notification routes, and incident policies as on
-   v2. The report lists every library DAG whose base config changes.
+   config, secrets, profile, notification routes, and incident policies, and
+   in the same working directory, as on v2. The report lists every library
+   DAG whose base config changes.
 3. After migration, each user and API key can see and do what it could on v2,
    and no more.
 4. A user without a role in a project gets `404` for its DAGs, runs, logs, and
@@ -674,7 +685,8 @@ Criteria 23 and 24 apply from the release that ships the feature.
    killed, keeps its health endpoint up, and reports every item that needs
    attention.
 9. `dagu migrate workspaces` changes nothing on disk and shows the names,
-   display names, and moves that the first start would make.
+   display names, and moves that the first start would make, and every item
+   its report would list as needing attention.
 10. A library DAG called from project X runs with X's base config, secrets,
     and profiles, and only users with a role in X see its run.
 11. Library DAGs are not listed among a project's DAGs or scheduled.
