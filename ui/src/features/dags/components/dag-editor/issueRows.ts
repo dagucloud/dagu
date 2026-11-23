@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { ValidationIssueSeverity, type components } from '@/api/v1/schema';
-import { plainIssueMessage } from '@/features/visual-editor/inspector/issues';
 
 type ValidationIssue = components['schemas']['ValidationIssue'];
 
@@ -16,7 +15,7 @@ export interface IssueRow {
 const POSITION_PREFIX = /^\[\d+:\d+\]\s*/;
 
 function plain(message: string): string {
-  return plainIssueMessage(message.replace(POSITION_PREFIX, ''));
+  return message.replace(POSITION_PREFIX, '');
 }
 
 // Two messages with positions match only at the same position.
