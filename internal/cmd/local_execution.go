@@ -53,6 +53,9 @@ type runOptions struct {
 	// testSideEffects, when non-nil, runs a test case without the run-level
 	// side effects of a real run.
 	testSideEffects *agent.TestSideEffects
+	// executorOverride replaces the actions of the mocked steps of a test
+	// case.
+	executorOverride runtime.ExecutorOverride
 }
 
 func dagDefinitionIDFromEnv() string {

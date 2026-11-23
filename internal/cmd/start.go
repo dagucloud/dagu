@@ -784,6 +784,7 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 			ExpandSubRuns:            opts.recursiveOutput,
 			RedirectRoot:             opts.redirectRoot,
 			TestSideEffects:          opts.testSideEffects,
+			ExecutorOverride:         opts.executorOverride,
 		},
 	)
 
