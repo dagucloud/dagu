@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/dag"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/foreach"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 	"github.com/stretchr/testify/assert"
@@ -418,4 +419,57 @@ func TestStepMockNodesNeedNoInventory(t *testing.T) {
 
 	r := setupRunner(t, withStepMocks(map[string]stepmock.Step{"rollout": {}}))
 	r.newPlan(t, newStep("rollout", withCommand("./deploy.sh"), withNodes("web"))).assertRun(t, ir.Succeeded)
+}
+
+// A mock on a foreach step replaces the whole construct: no item body runs,
+// string-form output captures the mock's stdout in place of the aggregate,
+// and the exit code alone decides between succeeded and failed. Results
+// count executions of the step, not items.
+func TestStepMockReplacesForeach(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name       string
+		results    []stepmock.Result
+		wantRun    ir.Status
+		wantStatus ir.NodeStatus
+		wantOutput string
+	}{
+		{
+			name:       "Succeeded",
+			results:    []stepmock.Result{{ExitCode: 1, Stdout: "retry"}, {Stdout: "mocked"}},
+			wantRun:    ir.Succeeded,
+			wantStatus: ir.NodeSucceeded,
+			wantOutput: "mocked",
+		},
+		{
+			name:       "Failed",
+			results:    []stepmock.Result{{ExitCode: 1, Stdout: "failed"}},
+			wantRun:    ir.Failed,
+			wantStatus: ir.NodeFailed,
+			wantOutput: "failed",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			marker := filepath.Join(t.TempDir(), "body")
+			r := setupRunner(t, withStepMocks(map[string]stepmock.Step{"each": {Results: tc.results}}))
+			each := newStep("each", withExecutorType(ir.ExecutorTypeForeach), withOutput("RESULT"), withRetryPolicy(1, 0))
+			each.Foreach = &ir.ForeachConfig{
+				Items: []any{"one", "two", "three"},
+				Steps: []ir.Step{newStep("body", withCommand(createEmptyFileCommand(marker)))},
+			}
+			result := r.newPlan(t, each).assertRun(t, tc.wantRun)
+
+			assert.NoFileExists(t, marker)
+			node := result.nodeByName(t, "each")
+			state := node.State()
+			assert.Equal(t, tc.wantStatus, state.Status)
+			assert.Equal(t, 2, state.RetryCount+state.DoneCount)
+			output, ok := node.NodeData().StringFormOutputValue()
+			require.True(t, ok)
+			assert.Equal(t, tc.wantOutput, output)
+		})
+	}
 }
