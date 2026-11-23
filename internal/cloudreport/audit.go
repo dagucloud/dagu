@@ -92,8 +92,11 @@ type auditShipper struct {
 	heartbeatAt time.Time
 	loaded      bool
 	saved       auditState
-	scannedAt   time.Time
-	warning     string
+	// pending is a batch Console did not store, sent again before anything
+	// is read.
+	pending   *auditPass
+	scannedAt time.Time
+	warning   string
 }
 
 // auditState is what the shipper saves once Console stores a batch.
@@ -176,7 +179,8 @@ func (s *auditShipper) run(ctx context.Context) {
 // ship sends batches while a full one, or a gap left over, calls for another.
 // Every audit file is checked on the first pass and once a minute after it;
 // today's file on the others. A check of every file stays due until all it
-// found is stored.
+// found is stored. A batch Console did not store goes again first, as built,
+// so a failing Console costs no reads.
 func (s *auditShipper) ship(ctx context.Context) {
 	if !s.hold(ctx) || !s.load(ctx) {
 		return
@@ -184,16 +188,20 @@ func (s *auditShipper) ship(ctx context.Context) {
 	startedAt := s.now()
 	full := s.scannedAt.IsZero() || startedAt.Sub(s.scannedAt) >= auditScanInterval
 	for {
-		pass, err := s.build(ctx, full)
-		if ctx.Err() != nil {
-			// Stopping: what was read but not sent is read again later.
-			return
+		pass, resend := s.pending, s.pending != nil
+		if !resend {
+			built, err := s.build(ctx, full)
+			if ctx.Err() != nil {
+				// Stopping: what was read but not sent is read again later.
+				return
+			}
+			if err != nil {
+				s.warn(ctx, warnAuditRead, err)
+				return
+			}
+			s.recovered(warnAuditRead)
+			pass = &built
 		}
-		if err != nil {
-			s.warn(ctx, warnAuditRead, err)
-			return
-		}
-		s.recovered(warnAuditRead)
 		if len(pass.batch.Entries) == 0 && pass.batch.Gap == nil {
 			// Entries the level skips still move the position.
 			if !bytes.Equal(pass.next.Position, s.saved.Position) && !s.save(ctx, pass.next) {
@@ -202,14 +210,17 @@ func (s *auditShipper) ship(ctx context.Context) {
 			break
 		}
 		if err := s.send(ctx, pass.batch); err != nil {
+			s.pending = pass
 			s.warn(ctx, warnAuditSend, err)
 			return
 		}
+		s.pending = nil
 		s.recovered(warnAuditSend)
 		if !s.save(ctx, pass.next) {
 			return
 		}
-		if !pass.more {
+		// After a batch sent again, this pass still reads what came since.
+		if !pass.more && !resend {
 			break
 		}
 	}
@@ -423,7 +434,7 @@ func (s *auditShipper) release() {
 
 func (s *auditShipper) drop() {
 	s.held, s.loaded = false, false
-	s.saved, s.scannedAt = auditState{}, time.Time{}
+	s.saved, s.pending, s.scannedAt = auditState{}, nil, time.Time{}
 }
 
 // warn logs a failure unless it repeats the previous one.

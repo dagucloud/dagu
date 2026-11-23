@@ -248,6 +248,48 @@ func TestAuditShipperSendsFullBatchesAtOnce(t *testing.T) {
 	assert.Len(t, batches[1].Entries, 500)
 }
 
+// countingFeed counts the reads of a feed.
+type countingFeed struct {
+	auditFeed
+	reads atomic.Int32
+}
+
+func (f *countingFeed) Read(ctx context.Context, q audit.FeedQuery) (audit.FeedChunk, error) {
+	f.reads.Add(1)
+	return f.auditFeed.Read(ctx, q)
+}
+
+// A batch Console did not store goes again as built: a line past the read
+// budget behind it is not read again while Console fails.
+func TestAuditShipperResendsWithoutReadingAgain(t *testing.T) {
+	d := newAuditDir(t)
+	entry := d.write(t, testClockStart, audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
+	appendRaw(t, d, strings.Repeat("x", 10<<20))
+	console := newAuditConsole()
+	console.fail <- errors.New("console unreachable")
+	console.fail <- errors.New("console unreachable")
+	feed := &countingFeed{auditFeed: fileaudit.NewFeed(d.dir)}
+	s := newAuditShipper(feed, d.state, filemonitor.NewLease(d.stateFile, nil), auditAll, console.send)
+	clock := &fakeClock{t: t, waits: make(chan time.Duration, 16), fire: make(chan time.Time), at: testClockStart}
+	s.after, s.now = clock.after, clock.now
+	s.start(t.Context())
+	t.Cleanup(s.stop)
+	clock.wait()
+	require.Len(t, sentEntries(console.sent()), 1)
+	reads := feed.reads.Load()
+
+	clock.next()
+	resent := sentEntries(console.sent())
+	require.Len(t, resent, 1)
+	assert.Equal(t, entry.ID, resent[0].ID)
+	assert.Equal(t, reads, feed.reads.Load(), "a failed batch goes again without a read")
+
+	clock.next()
+	require.Len(t, sentEntries(console.sent()), 1)
+	clock.next()
+	assert.Empty(t, console.sent())
+}
+
 // A batch Console did not store moves nothing, and goes again on the next
 // pass.
 func TestAuditShipperResendsWhatConsoleDidNotStore(t *testing.T) {
@@ -268,20 +310,20 @@ func TestAuditShipperResendsWhatConsoleDidNotStore(t *testing.T) {
 	assert.Empty(t, console.sent())
 }
 
-// The start is saved before the first batch, so a file removed while that
-// batch is not stored yet is reported as lost.
+// The start is saved before the first batch, so a file removed before that
+// batch is stored counts as lost, even after a restart.
 func TestAuditShipperKeepsItsStartWhenTheFirstSendFails(t *testing.T) {
 	d := newAuditDir(t)
 	yesterday := testClockStart.AddDate(0, 0, -1)
 	d.write(t, yesterday, audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
 	console := newAuditConsole()
 	console.fail <- errors.New("console unreachable")
-	clock := startShipper(t, d, auditAll, console)
+	first, _ := runShipper(t, d, auditAll, console)
 	require.Len(t, sentEntries(console.sent()), 1)
+	first.stop()
 
 	require.NoError(t, os.Remove(filepath.Join(d.dir, yesterday.Format("2006-01-02")+".jsonl")))
-	clock.shift(auditScanInterval)
-	clock.next()
+	startShipper(t, d, auditAll, console)
 
 	batches := console.sent()
 	require.Len(t, batches, 1)
