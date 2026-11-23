@@ -24,9 +24,9 @@ const (
 	// testFileInfix sits between a DAG file's name and its extension in
 	// the name of the DAG's test file.
 	testFileInfix = ".test"
-	// draftPerm is the mode of a written draft, as the DAG store writes a
-	// DAG file.
-	draftPerm os.FileMode = 0o600
+	// draftPerm is the mode of a written draft before the umask. A test
+	// file is committed source, not private state.
+	draftPerm os.FileMode = 0o644
 )
 
 // draftExpect is the expect a draft's case holds until a run replaces it.
@@ -62,11 +62,7 @@ func NewDraft(ctx context.Context, dagPath string, opts ...spec.LoadOption) (*Dr
 	}
 	dag, findings := loadTestedDAG(ctx, dagPath, opts)
 	if len(findings) > 0 {
-		lines := make([]string, 0, len(findings))
-		for _, finding := range findings {
-			lines = append(lines, finding.String())
-		}
-		return nil, fmt.Errorf("%s: %s", dagPath, strings.Join(lines, "; "))
+		return nil, fmt.Errorf("%s: %s", dagPath, joinFindings(findings))
 	}
 
 	d := &Draft{steps: indexSteps(dag)}
@@ -90,7 +86,7 @@ func NewDraft(ctx context.Context, dagPath string, opts ...spec.LoadOption) (*Dr
 // only when there is any. It fails, and changes nothing, when the file
 // already exists.
 func (d *Draft) Write(expect Expect) error {
-	file, err := os.OpenFile(d.File.Path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, draftPerm) //nolint:gosec // the path is the DAG file's path with a test suffix.
+	file, err := os.OpenFile(d.File.Path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, draftPerm) //nolint:gosec // the path is the DAG file's path with a test suffix, and a test file is readable source.
 	if err != nil {
 		return err
 	}

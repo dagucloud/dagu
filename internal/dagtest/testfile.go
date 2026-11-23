@@ -192,11 +192,16 @@ type InvalidFileError struct {
 }
 
 func (e *InvalidFileError) Error() string {
-	lines := make([]string, 0, len(e.Errors))
-	for _, finding := range e.Errors {
+	return fmt.Sprintf("invalid test file %s: %s", e.Path, joinFindings(e.Errors))
+}
+
+// joinFindings writes findings on one line, separated by semicolons.
+func joinFindings(findings []Finding) string {
+	lines := make([]string, 0, len(findings))
+	for _, finding := range findings {
 		lines = append(lines, finding.String())
 	}
-	return fmt.Sprintf("invalid test file %s: %s", e.Path, strings.Join(lines, "; "))
+	return strings.Join(lines, "; ")
 }
 
 // LoadFile reads the test file at path, loads the DAG it tests with opts and
