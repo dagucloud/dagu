@@ -29,6 +29,8 @@ type File struct {
 	// Cases holds the cases in file order, each with the file's fields
 	// merged in.
 	Cases []Case
+	// data holds the text the file decoded from.
+	data []byte
 }
 
 // Case is one case of a test file, with the file's fields merged in.
@@ -227,7 +229,9 @@ func LoadFile(ctx context.Context, path string, opts ...spec.LoadOption) (*File,
 	if len(findings) > 0 {
 		return nil, invalid(findings...)
 	}
-	return newFile(path, dagPath, dag, decoded), nil
+	file := newFile(path, dagPath, dag, decoded)
+	file.data = data
+	return file, nil
 }
 
 // loadTestedDAG loads the DAG a test file tests with opts and with every
