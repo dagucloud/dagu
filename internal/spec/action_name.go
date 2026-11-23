@@ -25,7 +25,7 @@ func ActionName(step *ir.Step) string {
 		return custom
 	}
 	if step.HumanTask != nil {
-		return "human.task"
+		return humanTaskAction
 	}
 	executorType := cfg.Type
 	switch executorType {

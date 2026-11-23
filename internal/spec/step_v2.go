@@ -95,7 +95,7 @@ var builtinActions = map[string]builtinAction{
 	"git.worktree.remove": {executorType: "git", variant: operationVariant, normalize: normalizeGitWorktreeRemoveAction},
 	"harness.run":         {executorType: "harness", normalize: normalizeHarnessRunAction},
 	"http.request":        {executorType: "http", normalize: normalizeHTTPRequestAction},
-	"human.task":          {normalize: normalizeHumanTaskAction},
+	humanTaskAction:       {normalize: normalizeHumanTaskAction},
 	"jq.filter":           {executorType: "jq", normalize: normalizeJQFilterAction},
 	"js.run":              {executorType: "js", normalize: normalizeJSRunAction},
 	"k8s.run":             optionalCommandAction("k8s", "command"),
