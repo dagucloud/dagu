@@ -359,8 +359,9 @@ Rules:
   reads 200 DAGs, as `GET /dags` does.
 - For a DAG that is not a service DAG, the activity lists the runs that started in the window, the
   last started first, at most 60, and the runs still in progress. It finds them among the runs
-  created since one window before the window, so a run that waited in a queue for longer shows only
-  while it is the latest run. A run can start after runs created after it, so the order in which
+  created since one window before the window, at most the 1000 created last, so a run that waited
+  in a queue for longer shows only while it is the latest run. When more runs were created, the
+  activity is truncated. A run can start after runs created after it, so the order in which
   runs were created does not decide which runs it lists.
 - `GET /dags` does not read the activity.
 

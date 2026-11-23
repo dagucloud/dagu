@@ -29,6 +29,10 @@ const (
 	// maxActivityPageSize is the most DAGs whose activity one request reads,
 	// the size of the largest DAG list page.
 	maxActivityPageSize = 200
+	// activityScanLimit bounds the runs that the activity of one DAG reads to
+	// find the runs that started last: the runs created last since one window
+	// before the window.
+	activityScanLimit = 1000
 )
 
 // startedRunStatuses are the statuses of a run that can have started. A
@@ -190,8 +194,9 @@ func (a *API) serviceActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRun
 
 // dagActivity lists the runs of a DAG that started since `since`, the last
 // started first, at most activityRunLimit, and the runs still in progress. It
-// looks for them among the runs created since one window before `since`, so a
-// run that waited in a queue for longer shows only while it is the latest run.
+// looks for them among the runs created since one window before `since`, at
+// most activityScanLimit created last, so a run that waited in a queue for
+// longer shows only while it is the latest run.
 // Backfill runs are left out, and so are runs that never started. A service
 // DAG gets the buckets of its run history instead. `latest` is the latest
 // status that the list already read; it may be empty when the server keeps
@@ -213,9 +218,9 @@ func (a *API) dagActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStat
 		From:      persis.NewUTC(from),
 		Statuses:  startedRunStatuses,
 		// A run can start after runs created after it, as a run started outside
-		// the queue does, so every run created since `from` is read to find the
+		// the queue does, so the runs created since `from` are read to find the
 		// runs that started last.
-		Unbounded: true,
+		Limit: activityScanLimit,
 		// The activity cache keeps what the list needs, and these reads would
 		// push out of the shared status cache what other pages read.
 		SkipStatusCache: true,
@@ -243,7 +248,8 @@ func (a *API) dagActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStat
 	slices.SortStableFunc(runs, func(x, y ir.DAGRunStatus) int {
 		return runTime(y.StartedAt).Compare(runTime(x.StartedAt))
 	})
-	activity.Truncated = len(runs) > activityRunLimit
+	// With more runs created than it reads, the activity may miss runs.
+	activity.Truncated = len(runs) > activityRunLimit || page.NextCursor != ""
 	for _, run := range runs[:min(len(runs), activityRunLimit)] {
 		activity.Runs = append(activity.Runs, toListActivityRun(run))
 	}

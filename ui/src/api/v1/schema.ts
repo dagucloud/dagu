@@ -1013,8 +1013,8 @@ export interface paths {
          *     above 200 reads 200 DAGs, as `GET /dags` does. A plain DAG lists its
          *     runs that started in the window, the last started first, and its runs
          *     still in progress. It finds them among the runs created since one
-         *     window before the window, so a run that waited in a queue for longer
-         *     shows only while it is the latest run. A service DAG gives the buckets
+         *     window before the window, at most the 1000 created last, so a run that
+         *     waited in a queue for longer shows only while it is the latest run. A service DAG gives the buckets
          *     of its run history instead.
          *
          */
