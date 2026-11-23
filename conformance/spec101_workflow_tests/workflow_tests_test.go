@@ -57,6 +57,17 @@ func TestWorkflowTests(t *testing.T) {
 			"  step lint: command ",
 			"  step lint: precondition ",
 			"  handler_on.failure: action mail.send ",
+			`  fix, ready to paste:
+    params:
+      build_date: ""
+    mocks:
+      deploy: {}
+      hook: {}
+      summary: {}
+      lint:
+        precondition: met
+      handler_on.failure: {}
+`,
 			"PASS workflows/ship.test.yaml: handling every source ships (",
 			"2 cases: 1 passed, 0 failed, 1 invalid\n",
 		}},
@@ -146,6 +157,40 @@ func TestWorkflowTests(t *testing.T) {
 				require.Empty(t, matches)
 			}
 		})
+	}
+}
+
+// The fix an invalid case prints, pasted into its test file, makes the case
+// valid (RFC 020 criterion 42). The case is the file's last entry, so its
+// fields end the file. The JSON report holds the same fix.
+func TestWorkflowTestFix(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("test", "workflows/fix.test.yaml")
+	result.ExpectExitCode(2)
+	fix := pastedBlock(t, result.Stdout(), "  fix, ready to paste:\n")
+	fileFix := pastedBlock(t, result.Stdout(), "  fix for the test file, ready to paste:\n")
+
+	report := decodeReport(t, dagu.Run("test", "--format", "json", "workflows/fix.test.yaml").Stdout())
+	require.Equal(t, fix, report.Cases[0].Fix)
+	require.Equal(t, fileFix, report.Cases[0].FileFix)
+
+	original, err := os.ReadFile(dagu.ProjectPath("workflows/fix.test.yaml"))
+	require.NoError(t, err)
+	var caseFields strings.Builder
+	for line := range strings.Lines(fix) {
+		caseFields.WriteString("    " + line)
+	}
+	dagu.WriteFile("workflows/fix.test.yaml", fileFix+string(original)+caseFields.String())
+
+	result = dagu.Run("test", "workflows/fix.test.yaml")
+	result.ExpectExitCode(0)
+	expectLines(t, result.Stdout(), "PASS workflows/fix.test.yaml: every source is unhandled (")
+	for _, pattern := range leftovers {
+		matches, err := filepath.Glob(dagu.ProjectPath(pattern))
+		require.NoError(t, err)
+		require.Empty(t, matches)
 	}
 }
 
@@ -289,6 +334,24 @@ func expectLines(t *testing.T, out string, parts ...string) {
 		require.GreaterOrEqual(t, i, 0, "missing %q after the earlier lines in:\n%s", part, out)
 		rest = rest[i+len(part):]
 	}
+}
+
+// pastedBlock returns the lines indented by four spaces that follow title
+// in out, without that indent.
+func pastedBlock(t *testing.T, out, title string) string {
+	t.Helper()
+
+	_, rest, ok := strings.Cut(out, title)
+	require.True(t, ok, "missing %q in:\n%s", title, out)
+	var block strings.Builder
+	for line := range strings.Lines(rest) {
+		text, ok := strings.CutPrefix(line, "    ")
+		if !ok {
+			break
+		}
+		block.WriteString(text)
+	}
+	return block.String()
 }
 
 // snapshot maps each file under root to its content, and each directory to

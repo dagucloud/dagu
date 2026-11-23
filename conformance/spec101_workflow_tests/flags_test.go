@@ -25,6 +25,8 @@ type jsonReport struct {
 		DurationMS    *int64           `json:"duration_ms"`
 		Failures      []map[string]any `json:"failures"`
 		Errors        []map[string]any `json:"errors"`
+		Fix           string           `json:"fix"`
+		FileFix       string           `json:"file_fix"`
 		DefaultMocked []string         `json:"default_mocked"`
 		AutoApproved  []string         `json:"auto_approved"`
 		Notifications []map[string]any `json:"notifications"`
