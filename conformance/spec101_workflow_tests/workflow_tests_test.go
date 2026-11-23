@@ -65,6 +65,8 @@ func TestWorkflowTests(t *testing.T) {
 			"3 cases: 2 passed, 0 failed, 1 invalid\n",
 		}},
 		{"default.test.yaml", 2, []string{
+			"PASS workflows/default.test.yaml: every step succeeds by default (",
+			"  default mock: build, deploy\n",
 			"INVALID workflows/default.test.yaml: a mock without its declared output is invalid\n  mocks.build.outputs: ",
 			"3 cases: 2 passed, 0 failed, 1 invalid\n",
 		}},
@@ -86,6 +88,8 @@ func TestWorkflowTests(t *testing.T) {
 			"3 cases: 2 passed, 0 failed, 1 invalid\n",
 		}},
 		{"gate.test.yaml", 2, []string{
+			"PASS workflows/gate.test.yaml: an approved release is announced (",
+			"  approved automatically: release\n",
 			"  step announce: approval waits for required values; set review",
 			"3 cases: 2 passed, 0 failed, 1 invalid\n",
 		}},
@@ -103,7 +107,26 @@ func TestWorkflowTests(t *testing.T) {
 			"INVALID workflows/publish.test.yaml: a real step needs every secret\n  secret API_TOKEN: ",
 		}},
 		{"nightly.test.yaml", 0, []string{"PASS workflows/nightly.test.yaml: the second run attempt succeeds ("}},
-		{"uploader.test.yaml", 0, []string{"PASS workflows/uploader.test.yaml: failing tests send mail ("}},
+		{"uploader.test.yaml", 0, []string{
+			"PASS workflows/uploader.test.yaml: failing tests send mail (",
+			"  notification mail_on.failure: oncall@example.com\n",
+		}},
+		// A stream assertion reads the last execution, so the first try of
+		// the retried check is not in its stdout.
+		{"report.test.yaml", 1, []string{
+			"PASS workflows/report.test.yaml: the summary reports the count (",
+			"PASS workflows/report.test.yaml: a failed check sends one mail (",
+			"  notification mail_on.failure: oncall@example.com\n",
+			"FAIL workflows/report.test.yaml: every failed assertion is reported (",
+			"  attempts: expected 2, got 1\n",
+			"  step count output files: expected \"03\", got \"3\"\n",
+			"  step count output stats: expected {\"lines\":41}, got {\"files\":3,\"lines\":40}\n",
+			"  step summary stdout: does not contain \"4 files\"\n",
+			"  step summary stderr: does not match \"error\"\n",
+			"  notifications: expected none, got mail_on.failure to oncall@example.com\n",
+			"  notification mail_on.failure: oncall@example.com\n",
+			"3 cases: 2 passed, 1 failed\n",
+		}},
 		{"smoke.test.yaml", 2, []string{"INVALID workflows/smoke.test.yaml\n", "rename", "0 cases: 0 passed, 0 failed, 1 invalid file\n"}},
 		{"compile.test.yaml", 2, []string{"INVALID workflows/compile.test.yaml\n", "Spec 033"}},
 	}
