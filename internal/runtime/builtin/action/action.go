@@ -368,7 +368,7 @@ func init() {
 	registry.RegisterExecutorConfigSchema(executorType, configSchema)
 	runtimeexec.RegisterExecutor(executorType, newAction, validateStep, registry.ExecutorCapabilities{
 		SubDAG:                 true,
-		ActionPublishesOutputs: true,
+		ActionPublishesOutputs: func(ir.Step) bool { return true },
 	})
 }
 

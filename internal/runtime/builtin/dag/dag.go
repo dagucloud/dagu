@@ -259,7 +259,7 @@ func init() {
 	caps := registry.ExecutorCapabilities{
 		SubDAG:                 true,
 		WorkerSelector:         true,
-		ActionPublishesOutputs: true,
+		ActionPublishesOutputs: func(ir.Step) bool { return true },
 	}
 	executor.RegisterExecutor(ir.ExecutorTypeSubworkflow, newDAGExecutor, nil, caps)
 	executor.RegisterExecutor(ir.ExecutorTypeDAG, newDAGExecutor, nil, caps)

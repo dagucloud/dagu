@@ -49,7 +49,7 @@ func init() {
 		LLM:                    true,
 		DryRunCheck:            dryRunCheck,
 		PathInputs:             []string{"path", "input", "output"},
-		ActionPublishesOutputs: true,
+		ActionPublishesOutputs: func(ir.Step) bool { return true },
 	})
 }
 
