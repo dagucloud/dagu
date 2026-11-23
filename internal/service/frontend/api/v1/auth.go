@@ -24,22 +24,30 @@ import (
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 )
 
-// setupGuard holds the one-time token that first-run setup needs.
+// setupTokenlessWindow is how long after startup first-run setup accepts no
+// setup token, so scripts that create the admin as the server starts keep
+// working.
+const setupTokenlessWindow = 10 * time.Minute
+
+// setupGuard holds the one-time token that first-run setup needs once the
+// tokenless window has passed.
 type setupGuard struct {
-	token string
-	file  string
+	token          string
+	file           string
+	tokenlessUntil time.Time
 }
 
 // allows reports whether setup may proceed with the given token.
-func (g setupGuard) allows(given *string) bool {
-	if g.token == "" {
+func (g setupGuard) allows(given *string, now time.Time) bool {
+	if g.token == "" || now.Before(g.tokenlessUntil) {
 		return true
 	}
 	return given != nil && subtle.ConstantTimeCompare([]byte(strings.TrimSpace(*given)), []byte(g.token)) == 1
 }
 
 // Setup creates the initial admin user during first-run setup.
-// Returns 403 if users already exist, and 401 without the setup token.
+// Returns 403 if users already exist, and 401 without the setup token once the
+// tokenless window has passed.
 func (a *API) Setup(ctx context.Context, request api.SetupRequestObject) (api.SetupResponseObject, error) {
 	if a.authService == nil {
 		return api.Setup403JSONResponse{
@@ -76,7 +84,7 @@ func (a *API) Setup(ctx context.Context, request api.SetupRequestObject) (api.Se
 			Message: "Setup has already been completed",
 		}, nil
 	}
-	if !a.setupGuard.allows(request.Body.SetupToken) {
+	if !a.setupGuard.allows(request.Body.SetupToken, time.Now()) {
 		return api.Setup401JSONResponse{
 			Code:    api.ErrorCodeUnauthorized,
 			Message: "Setup needs the setup token. Open the setup URL the server prints at startup, or read the token from auth/setup-token in the server's data directory.",

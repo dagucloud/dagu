@@ -196,41 +196,22 @@ describe('SetupPage', () => {
     );
   });
 
-  // Visitors who reach setup through another page arrive without the token.
-  it('asks for the setup token when the URL has none', async () => {
-    renderPage();
-
-    fireEvent.change(screen.getByLabelText('Setup token'), {
-      target: { value: ' abc123 ' },
-    });
-    createAdmin();
-
-    await waitFor(() =>
-      expect(setupMock).toHaveBeenCalledWith(
-        'admin-user',
-        'password123',
-        'abc123'
-      )
-    );
-  });
-
-  // A setup URL from an earlier data directory carries a token the server
-  // rejects.
-  it('asks for another setup token when the server rejects it', async () => {
+  // A server that has run for a while without an admin needs the token.
+  it('asks for the setup token when the server needs it', async () => {
     setupMock.mockRejectedValueOnce(
       Object.assign(new Error('Setup needs the setup token.'), { status: 401 })
     );
-    renderPage('/setup?token=stale');
+    renderPage();
 
     createAdmin();
 
     const tokenInput = await screen.findByLabelText('Setup token');
     expect(
-      screen.getByText('The setup token is missing or wrong.')
+      screen.getByText(/This server needs its setup token/)
     ).toBeTruthy();
     expect(completeSetupMock).not.toHaveBeenCalled();
 
-    fireEvent.change(tokenInput, { target: { value: 'abc123' } });
+    fireEvent.change(tokenInput, { target: { value: ' abc123 ' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
 
     await waitFor(() =>

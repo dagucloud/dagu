@@ -47,9 +47,8 @@ func setupBuiltinAuthServer(t *testing.T, configMutators ...func(*config.Config)
 
 	// Create admin via setup endpoint
 	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-		Username:   "admin",
-		Password:   "adminpass",
-		SetupToken: server.SetupToken(),
+		Username: "admin",
+		Password: "adminpass",
 	}).ExpectStatus(http.StatusOK).Send(t)
 
 	return server
@@ -78,9 +77,8 @@ func setupBuiltinAuthTestServer(t *testing.T, opts ...frontend.ServerOption) tes
 
 	// Create admin via setup endpoint
 	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-		Username:   "admin",
-		Password:   "adminpass",
-		SetupToken: server.SetupToken(),
+		Username: "admin",
+		Password: "adminpass",
 	}).ExpectStatus(http.StatusOK).Send(t)
 
 	return server

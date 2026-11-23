@@ -479,7 +479,7 @@ func TestRenameLicenseServer_Audit(t *testing.T) {
 		}),
 		test.WithServerOptions(frontend.WithLicenseManager(renamingConsole(t, renameAsConsole(t)))),
 	)
-	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{Username: "admin", Password: "adminpass", SetupToken: server.SetupToken()}).
+	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{Username: "admin", Password: "adminpass"}).
 		ExpectStatus(http.StatusOK).Send(t)
 	adminToken := getAdminToken(t, server)
 	server.Client().Post("/api/v1/license/activate", map[string]string{"key": "DAGU-TEST"}).
@@ -515,7 +515,7 @@ func TestLicenseEndpoints_RequireAdmin(t *testing.T) {
 			frontend.WithAPIOption(apiv1.WithCloudAccess(newRemoteAccess(t, config.CloudConfig{}))),
 		),
 	)
-	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{Username: "admin", Password: "adminpass", SetupToken: server.SetupToken()}).
+	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{Username: "admin", Password: "adminpass"}).
 		ExpectStatus(http.StatusOK).Send(t)
 	adminToken := getAdminToken(t, server)
 	server.Client().Post("/api/v1/users", api.CreateUserRequest{
@@ -654,9 +654,8 @@ func TestActivateLicense_RequiresAuth_BuiltinMode(t *testing.T) {
 
 	// Create admin so the server is fully initialized.
 	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-		Username:   "admin",
-		Password:   "adminpass",
-		SetupToken: server.SetupToken(),
+		Username: "admin",
+		Password: "adminpass",
 	}).ExpectStatus(http.StatusOK).Send(t)
 
 	// No bearer token — must be rejected.
@@ -682,9 +681,8 @@ func TestActivateLicense_RequiresAdmin_BuiltinMode(t *testing.T) {
 
 	// Bootstrap admin.
 	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-		Username:   "admin",
-		Password:   "adminpass",
-		SetupToken: server.SetupToken(),
+		Username: "admin",
+		Password: "adminpass",
 	}).ExpectStatus(http.StatusOK).Send(t)
 
 	adminToken := getAdminToken(t, server)
@@ -727,9 +725,8 @@ func TestActivateLicense_AdminToken_NoLicenseManager(t *testing.T) {
 	}))
 
 	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-		Username:   "admin",
-		Password:   "adminpass",
-		SetupToken: server.SetupToken(),
+		Username: "admin",
+		Password: "adminpass",
 	}).ExpectStatus(http.StatusOK).Send(t)
 
 	adminToken := getAdminToken(t, server)
@@ -829,9 +826,8 @@ func TestDeactivateLicense_RequiresAdmin_BuiltinMode(t *testing.T) {
 
 	// Bootstrap admin.
 	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-		Username:   "admin",
-		Password:   "adminpass",
-		SetupToken: server.SetupToken(),
+		Username: "admin",
+		Password: "adminpass",
 	}).ExpectStatus(http.StatusOK).Send(t)
 
 	adminToken := getAdminToken(t, server)
@@ -871,9 +867,8 @@ func TestDeactivateLicense_AdminToken_NoLicenseManager(t *testing.T) {
 	}))
 
 	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-		Username:   "admin",
-		Password:   "adminpass",
-		SetupToken: server.SetupToken(),
+		Username: "admin",
+		Password: "adminpass",
 	}).ExpectStatus(http.StatusOK).Send(t)
 
 	adminToken := getAdminToken(t, server)
@@ -1020,7 +1015,7 @@ func TestLicenseMonitoring_Audit(t *testing.T) {
 			frontend.WithAPIOption(apiv1.WithCloudReport(newMonitoring(t, ""))),
 		),
 	)
-	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{Username: "admin", Password: "adminpass", SetupToken: server.SetupToken()}).
+	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{Username: "admin", Password: "adminpass"}).
 		ExpectStatus(http.StatusOK).Send(t)
 	adminToken := getAdminToken(t, server)
 

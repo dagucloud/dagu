@@ -480,7 +480,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		setupRequired = stores.AuthSetupRequired
 		apiOpts = append(apiOpts,
 			apiv1.WithAuthService(stores.AuthService),
-			apiv1.WithSetupToken(stores.AuthSetupToken, stores.AuthSetupTokenFile),
+			apiv1.WithSetupToken(stores.AuthSetupToken, stores.AuthSetupTokenFile, time.Now()),
 		)
 
 		trustedProxy := cfg.Server.Auth.Proxy

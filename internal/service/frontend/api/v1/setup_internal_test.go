@@ -38,20 +38,27 @@ func (s *setupAuthService) GenerateToken(*auth.User) (*authservice.TokenResult, 
 	return &authservice.TokenResult{Token: "jwt", ExpiresAt: time.Now().Add(time.Hour)}, nil
 }
 
-// Setup needs the setup token, and the token file is removed once the admin
-// exists. A server that could not prepare a token leaves setup open.
+// For a while after startup, setup works without the setup token, so scripts
+// that create the admin as the server starts keep working. After that, setup
+// needs the token, and the token file is removed once the admin exists.
 func TestSetupToken(t *testing.T) {
 	const token = "0123456789abcdef"
+	started := map[string]time.Time{
+		"now":      time.Now(),
+		"long ago": time.Now().Add(-2 * setupTokenlessWindow),
+	}
 	tests := []struct {
 		name      string
+		started   string
 		token     string
 		given     *string
 		wantSetup bool
 	}{
-		{name: "no token", token: token},
-		{name: "wrong token", token: token, given: new("other")},
-		{name: "setup token", token: token, given: new(" " + token + "\n"), wantSetup: true},
-		{name: "no token prepared", wantSetup: true},
+		{name: "no token right after start", started: "now", token: token, wantSetup: true},
+		{name: "no token after the window", started: "long ago", token: token},
+		{name: "wrong token after the window", started: "long ago", token: token, given: new("other")},
+		{name: "setup token after the window", started: "long ago", token: token, given: new(" " + token + "\n"), wantSetup: true},
+		{name: "no token prepared", started: "long ago", wantSetup: true},
 	}
 
 	for _, test := range tests {
@@ -64,7 +71,7 @@ func TestSetupToken(t *testing.T) {
 				config:      &config.Config{Paths: config.PathsConfig{UsersDir: filepath.Join(dir, "users")}},
 				authService: &setupAuthService{},
 			}
-			WithSetupToken(test.token, tokenFile)(a)
+			WithSetupToken(test.token, tokenFile, started[test.started])(a)
 
 			resp, err := a.Setup(context.Background(), api.SetupRequestObject{Body: &api.SetupRequest{
 				Username:   "admin",

@@ -173,9 +173,8 @@ export const messages = {
     'setup.passwordsDoNotMatch': 'Passwords do not match',
     'setup.failed': 'Setup failed',
     'setup.token': 'Setup token',
-    'setup.tokenHint':
+    'setup.tokenRequired':
       'This server needs its setup token. Open the setup URL from the server log, or paste the token from auth/setup-token in the server\'s data directory.',
-    'setup.tokenInvalid': 'The setup token is missing or wrong.',
   },
   'zh-CN': {
     'language.english': 'English',
@@ -342,9 +341,8 @@ export const messages = {
     'setup.passwordsDoNotMatch': '两次输入的密码不一致',
     'setup.failed': '初始化失败',
     'setup.token': '设置令牌',
-    'setup.tokenHint':
+    'setup.tokenRequired':
       '此服务器需要设置令牌。请打开服务器日志中的设置 URL，或粘贴服务器数据目录中 auth/setup-token 的令牌。',
-    'setup.tokenInvalid': '设置令牌缺失或不正确。',
   },
   ja: {
     'language.english': '英語',
@@ -517,9 +515,8 @@ export const messages = {
     'setup.passwordsDoNotMatch': 'パスワードが一致しません',
     'setup.failed': '初期設定に失敗しました',
     'setup.token': 'セットアップトークン',
-    'setup.tokenHint':
+    'setup.tokenRequired':
       'このサーバーにはセットアップトークンが必要です。サーバーのログにあるセットアップ URL を開くか、サーバーのデータディレクトリにある auth/setup-token のトークンを貼り付けてください。',
-    'setup.tokenInvalid': 'セットアップトークンがないか、正しくありません。',
   },
 } as const;
 
