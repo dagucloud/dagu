@@ -163,6 +163,21 @@ describe('computeReferenceCompletions', () => {
     expect(result?.to).toBe(at(text, '}/x', 1));
   });
 
+  // A later '}' of the line is not the end of the reference when text that
+  // no reference holds, a space or a quote, comes before it.
+  it.each([
+    ['in a JSON body', `    body: '{"q": "\${par"}'`, '"}'],
+    ['in a flow map', '    env: {URL: "${pa" }', '" }'],
+    ['before more words', '    run: echo ${par and more}', ' and more}'],
+  ])('keeps the caret as the end %s', (_name, line, after) => {
+    const text = `steps:\n  - name: a\n${line}\n`;
+    const offset = at(text, after);
+    const result = computeReferenceCompletions(text, offset, state, {
+      explicit: false,
+    });
+    expect(result?.to).toBe(offset);
+  });
+
   it('keeps the caret as the end of a reference with no brace', () => {
     const text = 'steps:\n  - name: a\n    run: echo ${env.HOME} ${par\n';
     const offset = at(text, '${par', 5);
