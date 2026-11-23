@@ -625,4 +625,7 @@ type CloudDef struct {
 	RemoteAccess string `mapstructure:"remote_access"`
 	// RemoteApprovals is unset to choose in the UI.
 	RemoteApprovals *bool `mapstructure:"remote_approvals"`
+	// RunKey is a run key from Dagu Console; with it, runs on a machine
+	// without an online license report themselves as job runs.
+	RunKey string `mapstructure:"run_key"`
 }
