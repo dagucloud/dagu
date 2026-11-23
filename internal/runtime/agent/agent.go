@@ -241,6 +241,15 @@ type Agent struct {
 	// executorOverride supplies the executors of mocked steps.
 	executorOverride runtime.ExecutorOverride
 
+	// conditionOverride scripts the conditions of mocked steps that would run
+	// a command.
+	conditionOverride runtime.ConditionOverride
+
+	// skipWaits and keepWaits are passed to the runner as runtime.Config
+	// SkipWaits and KeepWaits.
+	skipWaits bool
+	keepWaits []string
+
 	// statusPusher is used to push status updates to a remote coordinator.
 	// When nil, status is written to local filesystem via the run-state attempt.
 	statusPusher StatusPusher
@@ -503,6 +512,15 @@ type Options struct {
 	// covers in place of their actions, for a workflow test. Nil runs every
 	// action.
 	ExecutorOverride runtime.ExecutorOverride
+	// ConditionOverride scripts the conditions that would run a command and
+	// bounds the steps that repeat without a limit, for a workflow test. Nil
+	// runs every condition as written.
+	ConditionOverride runtime.ConditionOverride
+	// SkipWaits runs the steps without waiting for retry and repeat
+	// intervals or the start delay, for a workflow test.
+	SkipWaits bool
+	// KeepWaits names the steps that still wait when SkipWaits is set.
+	KeepWaits []string
 }
 
 // TestSideEffects configures a workflow test run. The run sends no mail
@@ -594,6 +612,9 @@ func New(
 		remoteDAGLoader:          opts.RemoteDAGLoader,
 		testSideEffects:          opts.TestSideEffects,
 		executorOverride:         opts.ExecutorOverride,
+		conditionOverride:        opts.ConditionOverride,
+		skipWaits:                opts.SkipWaits,
+		keepWaits:                opts.KeepWaits,
 	}
 	if a.socketServerFactory == nil {
 		a.socketServerFactory = defaultSocketServerFactory
@@ -2395,6 +2416,9 @@ func (a *Agent) newRunner(attempt runstate.Attempt) *runtime.Runner {
 		DAGRunIsRoot:         a.parentDAGRun.Zero(),
 		SkipHandlers:         a.retryTarget != nil && a.retryTarget.SkipHandlers,
 		ExecutorOverride:     a.executorOverride,
+		ConditionOverride:    a.conditionOverride,
+		SkipWaits:            a.skipWaits,
+		KeepWaits:            a.keepWaits,
 	}
 	return runtime.New(cfg)
 }
