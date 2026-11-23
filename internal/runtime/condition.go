@@ -51,8 +51,9 @@ type ConditionOverride interface {
 	// command are met, or nil when they run as written.
 	DAGPrecondition() *bool
 	// Precondition returns whether the step's preconditions that run a
-	// command are met, or nil when they run as written.
-	Precondition(step ir.Step) *bool
+	// command are met, or nil when they run as written. LifecycleHandler
+	// reports from ctx whether the step is a lifecycle handler.
+	Precondition(ctx context.Context, step ir.Step) *bool
 	// RepeatCondition returns whether the step's repeat condition, when it
 	// runs a command, is met after the step's latest execution, or nil when
 	// it runs as written.

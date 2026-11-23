@@ -66,6 +66,9 @@ type Node struct {
 	outputSchemaOnce sync.Once
 	outputSchema     *jsonschema.Resolved
 	outputSchemaErr  error
+
+	// handler is the lifecycle handler the node runs, or empty for a step.
+	handler ir.HandlerType
 }
 
 func NewNode(step ir.Step, state NodeState) *Node {
