@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -90,15 +91,18 @@ cases:
 
 // A written case that does not pass expects status: succeeded, and its
 // report follows the path: an invalid case exits with status 2, and a run
-// that fails before its assertions with status 1.
+// that does not finish with status 1 and a line saying no run observed the
+// written expect.
 func TestTestInitNotPassing(t *testing.T) {
 	t.Parallel()
 
+	const unfinished = "  the run did not finish, so the written expect is status: succeeded, not the run's result\n"
 	tests := []struct {
-		name string
-		dag  string
-		code int
-		// report is the case's first report line after its result.
+		name   string
+		dag    string
+		code   int
+		result string
+		// report starts the lines that follow the case's result line.
 		report string
 		file   string
 	}{
@@ -119,6 +123,7 @@ steps:
             pattern: "^[A-Z]{3}$"
 `,
 			code:   testExitInvalid,
+			result: "INVALID",
 			report: "  mocks.ask.review.values: the task's form rejects them",
 			file: `mocks:
   ask:
@@ -148,7 +153,8 @@ steps:
       limit: ${params.n}
 `,
 			code:   testExitFailed,
-			report: "  step tick: repeat limit 0 leaves the step continuous; mock it with results\n",
+			result: "FAIL",
+			report: "  step tick: repeat limit 0 leaves the step continuous; mock it with results\n" + unfinished,
 			file: `cases:
   - name: initial
     expect:
@@ -167,9 +173,14 @@ steps:
 			require.ErrorAs(t, err, &exit)
 			assert.Equal(t, tt.code, exit.code)
 			reported := testReportPath(testPath)
-			result := map[int]string{testExitInvalid: "INVALID", testExitFailed: "FAIL"}[tt.code]
-			assert.Contains(t, stdout, reported+"\n"+result+" "+reported+": initial")
-			assert.Contains(t, stdout, tt.report)
+			path, rest, _ := strings.Cut(stdout, "\n")
+			assert.Equal(t, reported, path)
+			resultLine, report, _ := strings.Cut(rest, "\n")
+			assert.True(t, strings.HasPrefix(resultLine, tt.result+" "+reported+": initial"), resultLine)
+			assert.True(t, strings.HasPrefix(report, tt.report), report)
+			if tt.code == testExitInvalid {
+				assert.NotContains(t, report, unfinished)
+			}
 			assertFileContent(t, testPath, tt.file)
 		})
 	}

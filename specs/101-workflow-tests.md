@@ -1248,9 +1248,11 @@ a step it adds in the same shape:
   case it wrote is still invalid, such as with a value marked for
   replacement, the case's `expect` is `status: succeeded`, the case's
   report as `dagu test` writes it follows the path, and it exits with
-  status 2 after writing the file. A run of the case that fails before its
-  assertions, such as by timing out or with a repeat limit that leaves a
-  step without a limit, does the same with exit status 1.
+  status 2 after writing the file. A run of the case that does not finish,
+  such as one that times out or has a repeat limit that leaves a step
+  without a limit, does the same with exit status 1, and its report ends
+  with the line
+  `the run did not finish, so the written expect is status: succeeded, not the run's result`.
 - An interrupt before the file is written writes nothing.
 - It writes nothing and exits with status 2 when a test file for the DAG
   already exists beside it, under either suffix, or when the argument is

@@ -31,6 +31,9 @@ type caseResult struct {
 	// an invalid case: case fields, and the test file's secrets.
 	fix     string
 	fileFix string
+	// expect holds the assertions that the run was checked against, set
+	// when the run ended without a timeout or an error.
+	expect dagtest.Expect
 	// failures lists every failed assertion, or what kept the run from its
 	// assertions.
 	failures []caseFailure

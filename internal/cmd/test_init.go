@@ -30,28 +30,34 @@ func checkInitArgs(opts testOptions, args []string) error {
 	return nil
 }
 
+// initUnfinished ends the report of a written case whose run did not
+// finish, since no run observed its expect.
+const initUnfinished = "the run did not finish, so the written expect is status: succeeded, not the run's result"
+
+// factsOfRun checks a case's run against the run's own facts, which pass
+// once the run finishes.
+func factsOfRun(_ dagtest.Expect, tc *testCase, status *ir.DAGRunStatus) dagtest.Expect {
+	return tc.expectFromRun(status)
+}
+
 // runTestInit writes the test file of the DAG file at dagPath (Spec 101,
 // Authoring Flags) and prints its path. Its case expects the facts of a run
-// with its mocks. A case that is still invalid, or whose run fails before
-// its assertions, expects status: succeeded, and its report follows the
-// path. An interrupted run writes nothing.
+// with its mocks. A case that is still invalid, or whose run does not
+// finish, expects status: succeeded, and its report follows the path. An
+// interrupted run writes nothing.
 func runTestInit(ctx *Context, dagPath string, opts testOptions) error {
 	draft, err := dagtest.NewDraft(ctx, dagPath, testLoadOptions(ctx)...)
 	if err != nil {
 		return &exitStatusError{code: testExitInvalid, err: err}
 	}
 	c := draft.File.Cases[0]
-	var actual dagtest.Expect
-	result := runTestCase(ctx, draft.File, c, opts, func(tc *testCase, status *ir.DAGRunStatus) dagtest.Expect {
-		actual = tc.expectFromRun(status)
-		return actual
-	})
+	result := runTestCase(ctx, draft.File, c, opts, factsOfRun)
 	if ctx.Err() != nil {
 		return context.Cause(ctx)
 	}
 	expect := c.Expect
 	if result.result() == resultPass {
-		expect = actual
+		expect = result.expect
 	}
 	if err := draft.Write(expect); err != nil {
 		return err
@@ -61,13 +67,16 @@ func runTestInit(ctx *Context, dagPath string, opts testOptions) error {
 	if err != nil {
 		return err
 	}
+	result.file = testReportPath(abs)
 	report := &testReport{out: ctx.Command.OutOrStdout()}
-	report.printf("%s\n", testReportPath(abs))
+	report.printf("%s\n", result.file)
 	if result.result() == resultPass {
 		return nil
 	}
-	result.file = testReportPath(abs)
 	report.writeCase(result)
+	if result.result() == resultFail {
+		report.printf("  %s\n", initUnfinished)
+	}
 	// The report already names why the written case does not pass.
 	ctx.Command.SilenceErrors = true
 	return &exitStatusError{code: report.exitStatus(), err: errors.New("the written test case does not pass")}

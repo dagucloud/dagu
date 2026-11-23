@@ -284,7 +284,7 @@ func runTestFile(ctx *Context, file testFileRef, opts testOptions, report *testR
 		if opts.run != nil && !opts.run.MatchString(c.Name) {
 			continue
 		}
-		result := runTestCase(ctx, loaded, c, opts, func(*testCase, *ir.DAGRunStatus) dagtest.Expect { return c.Expect })
+		result := runTestCase(ctx, loaded, c, opts, asWritten)
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
 		}
@@ -304,9 +304,15 @@ func testLoadOptions(ctx *Context) []spec.LoadOption {
 	}
 }
 
-// caseExpect returns the assertions that the run of a case is checked
-// against, given the case's run and the status of its last attempt.
-type caseExpect func(tc *testCase, status *ir.DAGRunStatus) dagtest.Expect
+// caseExpect returns the assertions that a case's run is checked against,
+// from the case's expect as written, its run, and the status of the run's
+// last attempt.
+type caseExpect func(written dagtest.Expect, tc *testCase, status *ir.DAGRunStatus) dagtest.Expect
+
+// asWritten checks a case's run against its expect as written.
+func asWritten(written dagtest.Expect, _ *testCase, _ *ir.DAGRunStatus) dagtest.Expect {
+	return written
+}
 
 // runTestCase runs one case in its own case directory and checks the
 // assertions that expect returns. An invalid case runs nothing.
@@ -352,7 +358,8 @@ func runTestCase(ctx *Context, file *dagtest.File, c dagtest.Case, opts testOpti
 	case err != nil:
 		result.failures = []caseFailure{{field: failureError, actual: err.Error()}}
 	default:
-		result.failures = tc.check(expect(tc, status), status)
+		result.expect = expect(c.Expect, tc, status)
+		result.failures = tc.check(result.expect, status)
 	}
 	return result
 }
