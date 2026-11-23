@@ -583,7 +583,9 @@ func (d *decoder) entries(n *yaml.Node, path string) []entry {
 			d.fail(fd.path, "must be a scalar")
 			continue
 		}
-		out = append(out, entry{name: fd.key, value: scalarText(value)})
+		if d.tagged(value, fd.path) {
+			out = append(out, entry{name: fd.key, value: scalarText(value)})
+		}
 	}
 	return out
 }
@@ -608,7 +610,19 @@ func (d *decoder) str(n *yaml.Node, path string) string {
 		d.fail(path, "must be a string")
 		return ""
 	}
+	d.tagged(n, path)
 	return n.Value
+}
+
+// tagged reports whether a scalar that is kept as its text holds a value of
+// its tag, such as an explicit !!int, and an error when it does not.
+func (d *decoder) tagged(n *yaml.Node, path string) bool {
+	var v any
+	if err := n.Decode(&v); err != nil {
+		d.fail(path, "is not a valid %s", n.ShortTag())
+		return false
+	}
+	return true
 }
 
 func (d *decoder) int(n *yaml.Node, path string) int {

@@ -39,6 +39,7 @@ func TestLoadFileInvalid(t *testing.T) {
 			file: "types.test.yaml",
 			want: []string{
 				"params.list: must be a scalar",
+				"params.count: is not a valid !!int",
 				"env: must be a map",
 				"real: must be a list",
 				"mocks.check.exit_code: must be an integer",
@@ -46,6 +47,7 @@ func TestLoadFileInvalid(t *testing.T) {
 				"mocks.check.results: must be a list",
 				"mocks.check.review: must be a map",
 				"cases[0]: must be a map",
+				"cases[1].scheduled_at: is not a valid !!timestamp",
 				"cases[1].expect.attempts: must be an integer",
 				"cases[1].expect.steps.check: must be a status token or a map",
 			},
