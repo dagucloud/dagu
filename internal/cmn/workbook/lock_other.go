@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//go:build !windows && !darwin
+//go:build !windows
 
 package workbook
 
@@ -19,6 +19,3 @@ func lockFileHeld(string) bool { return false }
 // renameRefusedByHolder is always false where a rename over an open file
 // succeeds.
 func renameRefusedByHolder(string, error) bool { return false }
-
-// workbookHeld is unavailable on this platform.
-func workbookHeld(string) bool { return false }

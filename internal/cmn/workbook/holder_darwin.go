@@ -12,14 +12,6 @@ import (
 	"time"
 )
 
-// An owner file alone cannot distinguish a live workbook from a leftover
-// on macOS. Keep the advisory warning when the process probe is inconclusive.
-const lockProbeSupported = false
-
-func isSharingViolation(error) bool            { return false }
-func lockFileHeld(string) bool                 { return false }
-func renameRefusedByHolder(string, error) bool { return false }
-
 // workbookHeld checks the workbook itself because Excel need not keep the
 // owner file open on macOS. This is best-effort detection, not a file lock.
 func workbookHeld(path string) bool {
