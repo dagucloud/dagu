@@ -204,6 +204,8 @@ func runStartAll(ctx *Context, _ []string) error {
 		serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithCloudAccess(cloudAccess)))
 	}
 	serverOpts = append(serverOpts, frontend.WithOnReady(printStartupBanner(serviceCtx, stores.AuthSetupRequired)))
+	webStopped, onWebStopped := closedOnce()
+	serverOpts = append(serverOpts, frontend.WithOnStopped(onWebStopped))
 
 	// Use serviceCtx so auth initialization can respond to termination signals
 	server, err := newServer(serviceCtx, resourceService, stores, serverOpts...)
@@ -237,7 +239,8 @@ func runStartAll(ctx *Context, _ []string) error {
 	if cloudReporter := startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService); cloudReporter != nil {
 		defer cloudReporter.Stop()
 	}
-	defer startCloudAudit(serviceCtx, stores.Secret)()
+	// The drain runs alongside the scheduler's and coordinator's shutdown.
+	defer watchCloudAudit(signalCtx, webStopped, startCloudAudit(serviceCtx, stores.Secret), cloudAuditDrainStart)()
 	defer startCloudAccess(serviceCtx, cloudAccess, server)()
 
 	// WaitGroup to track all services
