@@ -33,16 +33,8 @@ const (
 // repeats without a limit, and a run that ended without a terminal status,
 // fail before any assertion.
 func (c *testCase) check(expect dagtest.Expect, status *ir.DAGRunStatus) []caseFailure {
-	if node := unboundedStep(status); node != nil {
-		return []caseFailure{{
-			step:    stepLabel(node.Step),
-			field:   failureLimit,
-			actual:  fmt.Sprint(node.Step.RepeatPolicy.Limit),
-			message: node.Error,
-		}}
-	}
-	if !status.Status.IsTerminal() {
-		return []caseFailure{{field: failureError, actual: fmt.Sprintf("the run ended %s, which is not a terminal status", status.Status)}}
+	if failure := unfinishedRun(status); failure != nil {
+		return []caseFailure{*failure}
 	}
 
 	var failures []caseFailure
@@ -63,6 +55,25 @@ func (c *testCase) check(expect dagtest.Expect, status *ir.DAGRunStatus) []caseF
 		})
 	}
 	return failures
+}
+
+// unfinishedRun returns the failure of a run that did not finish: one
+// stopped by a step that repeats without a limit, or one that ended without
+// a terminal status. status is the status of the run's last attempt. It
+// returns nil for a run that finished.
+func unfinishedRun(status *ir.DAGRunStatus) *caseFailure {
+	if node := unboundedStep(status); node != nil {
+		return &caseFailure{
+			step:    stepLabel(node.Step),
+			field:   failureLimit,
+			actual:  fmt.Sprint(node.Step.RepeatPolicy.Limit),
+			message: node.Error,
+		}
+	}
+	if !status.Status.IsTerminal() {
+		return &caseFailure{field: failureError, actual: fmt.Sprintf("the run ended %s, which is not a terminal status", status.Status)}
+	}
+	return nil
 }
 
 // expectFromRun returns the exact facts of the case's run as assertions:
@@ -308,15 +319,12 @@ func outputMatches(o dagtest.OutputExpect, text string) bool {
 	if expected, ok := o.Value.(string); ok && !o.JSON {
 		return text == expected
 	}
-	var actual, expected any
+	var actual any
 	if decodeJSON(text, &actual) != nil {
 		return false
 	}
-	data, err := json.Marshal(o.Value)
-	if err != nil || decodeJSON(string(data), &expected) != nil {
-		return false
-	}
-	return jsonMatches(expected, actual)
+	expected, ok := jsonValue(o.Value)
+	return ok && jsonMatches(expected, actual)
 }
 
 // jsonMatches applies the JSON rule: an object matches when every key it
@@ -368,6 +376,17 @@ func jsonEqual(a, b any) bool {
 	default:
 		return a == b
 	}
+}
+
+// jsonValue returns a value decoded from YAML as JSON decodes it, with
+// numbers as json.Number, or false when it has no JSON form.
+func jsonValue(v any) (any, bool) {
+	var out any
+	data, err := json.Marshal(v)
+	if err != nil || decodeJSON(string(data), &out) != nil {
+		return nil, false
+	}
+	return out, true
 }
 
 // decodeJSON decodes exactly one JSON value from text, keeping numbers as

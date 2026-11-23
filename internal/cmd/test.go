@@ -58,9 +58,14 @@ var (
 		usage:  "Write a test file for the DAG file given as the one argument",
 		isBool: true,
 	}
+	testUpdateFlag = commandLineFlag{
+		name:   "update",
+		usage:  "Rewrite the expect of each case from its run",
+		isBool: true,
+	}
 )
 
-var testFlags = []commandLineFlag{testRunFlag, testTimeoutFlag, testFormatFlag, testKeepFlag, testInitFlag}
+var testFlags = []commandLineFlag{testRunFlag, testTimeoutFlag, testFormatFlag, testKeepFlag, testInitFlag, testUpdateFlag}
 
 // Test returns the cobra command that runs workflow tests.
 func Test() *cobra.Command {
@@ -85,6 +90,11 @@ a mock for every step that needs one and one case that expects the result
 of a run with those mocks, and prints its path. It never replaces a test
 file.
 
+--update runs the selected cases and rewrites the expect of each from its
+run, so a change in behavior shows as a diff to review. It never removes an
+assertion, keeps stdout and stderr assertions as written, and leaves
+invalid cases and runs that do not finish as they are.
+
 Exit status: 0 when every case passed, 1 when a case failed, and 2 when a
 test file or case is invalid or the arguments are.
 
@@ -93,6 +103,7 @@ Example:
   dagu test --run 'failed build' --timeout 30s workflows/release.test.yaml
   dagu test --format json --keep workflows/
   dagu test --init workflows/release.yaml
+  dagu test --update workflows/release.test.yaml
 `,
 		}, testFlags, runTest,
 	)
@@ -114,6 +125,8 @@ type testOptions struct {
 	keep bool
 	// init writes the test file of the one DAG file argument.
 	init bool
+	// update rewrites the expect of each case from its run.
+	update bool
 }
 
 func runTest(ctx *Context, args []string) error {
@@ -182,7 +195,10 @@ func testOptionsFromFlags(ctx *Context) (testOptions, error) {
 	if opts.keep, err = ctx.Command.Flags().GetBool(testKeepFlag.name); err != nil {
 		return opts, err
 	}
-	opts.init, err = ctx.Command.Flags().GetBool(testInitFlag.name)
+	if opts.init, err = ctx.Command.Flags().GetBool(testInitFlag.name); err != nil {
+		return opts, err
+	}
+	opts.update, err = ctx.Command.Flags().GetBool(testUpdateFlag.name)
 	return opts, err
 }
 
@@ -267,8 +283,9 @@ func testReportPath(abs string) string {
 	return filepath.ToSlash(abs)
 }
 
-// runTestFile runs the cases of one test file and reports each. It returns
-// an error only when dagu test is interrupted.
+// runTestFile runs the cases of one test file and reports each. With
+// --update, it then writes the expects the runs updated. It returns an error
+// only when dagu test is interrupted, or when the file cannot be updated.
 func runTestFile(ctx *Context, file testFileRef, opts testOptions, report *testReport) error {
 	loaded, err := dagtest.LoadFile(ctx, file.path, testLoadOptions(ctx)...)
 	if err != nil {
@@ -279,17 +296,36 @@ func runTestFile(ctx *Context, file testFileRef, opts testOptions, report *testR
 		report.writeInvalidFile(file.report, invalid.Errors)
 		return nil
 	}
+	var update *dagtest.Update
+	if opts.update {
+		if update, err = dagtest.NewUpdate(loaded); err != nil {
+			return err
+		}
+	}
 	for _, c := range loaded.Cases {
 		// A case that --run does not select is neither checked nor reported.
 		if opts.run != nil && !opts.run.MatchString(c.Name) {
 			continue
 		}
-		result := runTestCase(ctx, loaded, c, opts, asWritten)
+		expect := caseExpect(asWritten)
+		var outcome *caseUpdate
+		if update != nil {
+			outcome = &caseUpdate{outcome: updateKept, reason: keptUnfinished}
+			expect = updateExpect(update, c.Name, outcome)
+		}
+		result := runTestCase(ctx, loaded, c, opts, expect)
 		if ctx.Err() != nil {
 			return context.Cause(ctx)
 		}
 		result.file = file.report
+		if outcome != nil && result.result() == resultInvalid {
+			outcome.reason = keptInvalid
+		}
+		result.update = outcome
 		report.writeCase(result)
+	}
+	if update != nil {
+		return update.Write()
 	}
 	return nil
 }
