@@ -38,13 +38,54 @@ const (
 	ErrMsgOtherConditionFailed = "other condition failed to evaluate"
 )
 
+// errScriptedNotMet is the outcome of a condition that a ConditionOverride
+// scripts as not met.
+var errScriptedNotMet = fmt.Errorf("%w: scripted as not met", ErrConditionNotMet)
+
+// ConditionOverride scripts, for a workflow test, the conditions that would
+// run a command (see ir.Condition.RunsCommand), and bounds the steps that
+// repeat without a limit. Each scripted outcome holds after negate applies.
+// Every other condition evaluates as written.
+type ConditionOverride interface {
+	// DAGPrecondition returns whether the DAG-level preconditions that run a
+	// command are met, or false when they run as written.
+	DAGPrecondition() (met, ok bool)
+	// Precondition returns whether the step's preconditions that run a
+	// command are met, or false when they run as written.
+	Precondition(step ir.Step) (met, ok bool)
+	// RepeatCondition returns whether the step's repeat condition, when it
+	// runs a command, is met after the step's latest execution, or false
+	// when it runs as written.
+	RepeatCondition(step ir.Step) (met, ok bool)
+	// ContinuousLimit returns how many executions a step that repeats
+	// without a limit runs before it stops, or false when it repeats as
+	// written. A limit of 0 stops the run with an UnboundedRepeatError
+	// before the step starts.
+	ContinuousLimit(step ir.Step) (limit int, ok bool)
+}
+
+// scriptedOutcome returns the outcome an override scripts, or nil when it
+// scripts none.
+func scriptedOutcome(met, ok bool) *bool {
+	if !ok {
+		return nil
+	}
+	return &met
+}
+
 // EvaluateConditions evaluates conditions and returns their runtime results.
 func EvaluateConditions(ctx context.Context, shell []string, conditions []*ir.Condition) ([]ir.ConditionResult, error) {
+	return evaluateConditions(ctx, shell, conditions, nil)
+}
+
+// evaluateConditions is EvaluateConditions with every condition that runs a
+// command taking the outcome scripted holds, when it is not nil.
+func evaluateConditions(ctx context.Context, shell []string, conditions []*ir.Condition, scripted *bool) ([]ir.ConditionResult, error) {
 	results := conditionResults(conditions)
 	var lastErr, evalErr error
 
 	for i := range conditions {
-		if err := EvalCondition(ctx, shell, conditions[i]); err != nil {
+		if err := evalScriptedCondition(ctx, shell, conditions[i], scripted); err != nil {
 			results[i].Error = err.Error()
 			lastErr = err
 			if evalErr == nil && !errors.Is(err, ErrConditionNotMet) {
@@ -122,6 +163,19 @@ func conditionResults(conditions []*ir.Condition) []ir.ConditionResult {
 // returned error.
 func EvalCondition(ctx context.Context, shell []string, c *ir.Condition) error {
 	return maskConditionError(ctx, evalCondition(ctx, shell, c))
+}
+
+// evalScriptedCondition returns the outcome scripted holds for a condition
+// that runs a command, without running it, and evaluates any other
+// condition.
+func evalScriptedCondition(ctx context.Context, shell []string, c *ir.Condition, scripted *bool) error {
+	if scripted == nil || !c.RunsCommand() {
+		return EvalCondition(ctx, shell, c)
+	}
+	if *scripted {
+		return nil
+	}
+	return errScriptedNotMet
 }
 
 func evalCondition(ctx context.Context, shell []string, c *ir.Condition) error {

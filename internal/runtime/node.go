@@ -1950,7 +1950,9 @@ func (n *Node) BypassPreconditions() bool {
 	return n.bypassPreconditions
 }
 
-func (node *Node) evalPreconditions(ctx context.Context) error {
+// evalPreconditions checks the node's preconditions. A non-nil scripted is
+// the outcome of each one that runs a command, which then does not run.
+func (node *Node) evalPreconditions(ctx context.Context, scripted *bool) error {
 	conditions := node.Step().Preconditions
 	if len(conditions) == 0 {
 		return nil
@@ -1963,7 +1965,7 @@ func (node *Node) evalPreconditions(ctx context.Context) error {
 	env := GetEnv(ctx)
 	shell := env.Shell(ctx)
 	checkCtx, stopCheck := node.watchPreconditionStop(ctx)
-	results, err := EvaluateConditions(checkCtx, shell, conditions)
+	results, err := evaluateConditions(checkCtx, shell, conditions, scripted)
 	stopCheck()
 	node.SetPreconditionResults(results)
 	if err != nil {

@@ -11,7 +11,9 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -24,9 +26,25 @@ import (
 )
 
 func withStepMocks(steps map[string]stepmock.Step) runnerOption {
+	return withStepMockSet(stepmock.New(steps))
+}
+
+// withStepMockSet scripts the run with set, as a workflow test does.
+func withStepMockSet(set *stepmock.Set) runnerOption {
 	return func(cfg *runtime.Config) {
-		cfg.ExecutorOverride = stepmock.New(steps)
+		cfg.ExecutorOverride = set
+		cfg.ConditionOverride = set
 	}
+}
+
+// executions returns how many times the step's action ran.
+func executions(t *testing.T, plan *runtime.Plan, name string) int {
+	t.Helper()
+
+	node := plan.GetNodeByName(name)
+	require.NotNil(t, node)
+	state := node.State()
+	return state.RetryCount + state.DoneCount
 }
 
 func readLog(t *testing.T, path string) string {
@@ -793,6 +811,445 @@ func TestStepMockReplacesForeach(t *testing.T) {
 			output, ok := node.NodeData().StringFormOutputValue()
 			require.True(t, ok)
 			assert.Equal(t, tc.wantOutput, output)
+		})
+	}
+}
+
+// A scripted precondition decides each condition that runs a command, which
+// then does not run, and leaves the other conditions to evaluate. Each case
+// gates a step whose own action creates a marker, and records whether a
+// command of a condition ran.
+func TestStepMockPrecondition(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		mock stepmock.Step
+		// conditions builds the step's preconditions. A command of one that
+		// runs creates ranPath.
+		conditions func(ranPath string) []*ir.Condition
+		wantStatus ir.NodeStatus
+		wantAction bool
+		wantRan    bool
+	}{
+		{
+			name: "NotMetSkips",
+			mock: stepmock.Step{Precondition: stepmock.NotMet},
+			conditions: func(ran string) []*ir.Condition {
+				return []*ir.Condition{{Condition: createEmptyFileCommand(ran)}}
+			},
+			wantStatus: ir.NodeSkipped,
+		},
+		{
+			name: "MetPassesNegated",
+			mock: stepmock.Step{Precondition: stepmock.Met},
+			conditions: func(ran string) []*ir.Condition {
+				return []*ir.Condition{{Condition: createEmptyFileCommand(ran), Negate: true}}
+			},
+			wantStatus: ir.NodeSucceeded,
+		},
+		{
+			name: "SubstitutingEval",
+			mock: stepmock.Step{Precondition: stepmock.NotMet},
+			conditions: func(ran string) []*ir.Condition {
+				return []*ir.Condition{{Eval: "$(" + createEmptyFileCommand(ran) + ")ready", Expected: "ready"}}
+			},
+			wantStatus: ir.NodeSkipped,
+		},
+		{
+			name: "ValueMatchEvaluates",
+			mock: stepmock.Step{Precondition: stepmock.Met},
+			conditions: func(ran string) []*ir.Condition {
+				return []*ir.Condition{
+					{Condition: createEmptyFileCommand(ran)},
+					{Condition: "${MODE}", Expected: "prod"},
+				}
+			},
+			wantStatus: ir.NodeSkipped,
+		},
+		{
+			name: "EvalWithoutSubstitutionEvaluates",
+			mock: stepmock.Step{Precondition: stepmock.NotMet},
+			conditions: func(string) []*ir.Condition {
+				return []*ir.Condition{{Eval: "${MODE}", Expected: "dev"}}
+			},
+			wantStatus: ir.NodeSucceeded,
+		},
+		{
+			name: "KeptAction",
+			mock: stepmock.Step{Precondition: stepmock.Met, KeepAction: true},
+			conditions: func(ran string) []*ir.Condition {
+				return []*ir.Condition{{Condition: createEmptyFileCommand(ran), Negate: true}}
+			},
+			wantStatus: ir.NodeSucceeded,
+			wantAction: true,
+		},
+		{
+			name: "UnscriptedRuns",
+			mock: stepmock.Step{Real: true},
+			conditions: func(ran string) []*ir.Condition {
+				return []*ir.Condition{{Condition: createEmptyFileCommand(ran)}}
+			},
+			wantStatus: ir.NodeSucceeded,
+			wantAction: true,
+			wantRan:    true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			ran := filepath.Join(dir, "ran")
+			action := filepath.Join(dir, "action")
+			r := setupRunner(t, withStepMocks(map[string]stepmock.Step{
+				"gate":  tc.mock,
+				"after": {},
+			}))
+			gate := newStep("gate", withEnvVars("MODE=dev"), withCommand(createEmptyFileCommand(action)))
+			gate.Preconditions = tc.conditions(ran)
+			wantAfter := ir.NodeSucceeded
+			if tc.wantStatus == ir.NodeSkipped {
+				wantAfter = ir.NodeSkipped
+			}
+			result := r.newPlan(t, gate, successStep("after", "gate")).assertRun(t, ir.Succeeded)
+
+			result.assertNodeStatus(t, "gate", tc.wantStatus)
+			result.assertNodeStatus(t, "after", wantAfter)
+			assert.Equal(t, tc.wantAction, fileutil.FileExists(action), "action ran")
+			assert.Equal(t, tc.wantRan, fileutil.FileExists(ran), "condition command ran")
+		})
+	}
+
+	// The precondition is decided once for the step start, and each retry
+	// takes the next result.
+	t.Run("OncePerStart", func(t *testing.T) {
+		t.Parallel()
+
+		ran := filepath.Join(t.TempDir(), "ran")
+		r := setupRunner(t, withStepMocks(map[string]stepmock.Step{
+			"deploy": {
+				Precondition: stepmock.Met,
+				Results:      []stepmock.Result{{ExitCode: 1}, {}},
+			},
+		}))
+		deploy := newStep("deploy", withCommand("exit 0"), withRetryPolicy(1, 0),
+			withPrecondition(&ir.Condition{Condition: createEmptyFileCommand(ran), Negate: true}))
+		result := r.newPlan(t, deploy).assertRun(t, ir.Succeeded)
+
+		result.assertNodeStatus(t, "deploy", ir.NodeSucceeded)
+		assert.Equal(t, 2, executions(t, result.Plan, "deploy"))
+		assert.NoFileExists(t, ran)
+	})
+
+	t.Run("Handler", func(t *testing.T) {
+		t.Parallel()
+
+		ran := filepath.Join(t.TempDir(), "ran")
+		handler := newHandlerStep(t, "onFailure", "", "exit 0")
+		handler.Preconditions = []*ir.Condition{{Condition: createEmptyFileCommand(ran)}}
+		r := setupRunner(t, withOnFailure(handler), withStepMocks(map[string]stepmock.Step{
+			"build":     {Results: []stepmock.Result{{ExitCode: 1}}},
+			"onFailure": {Precondition: stepmock.NotMet},
+		}))
+		r.newPlan(t, successStep("build")).assertRun(t, ir.Failed)
+
+		assert.Equal(t, ir.NodeSkipped, r.runner.HandlerNode(ir.HandlerOnFailure).State().Status)
+		assert.NoFileExists(t, ran)
+	})
+}
+
+// The scripted DAG-level precondition decides the DAG-level conditions that
+// run a command. Not met aborts the run before any step starts.
+func TestStepMockDAGPrecondition(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		outcome stepmock.Outcome
+		// conditions builds the DAG's preconditions. A command of one that
+		// runs creates ranPath.
+		conditions func(ranPath string) []*ir.Condition
+		wantRun    ir.Status
+	}{
+		{
+			name:    "NotMetAborts",
+			outcome: stepmock.NotMet,
+			conditions: func(ran string) []*ir.Condition {
+				return []*ir.Condition{{Condition: createEmptyFileCommand(ran)}}
+			},
+			wantRun: ir.Aborted,
+		},
+		{
+			name:    "MetPassesNegated",
+			outcome: stepmock.Met,
+			conditions: func(ran string) []*ir.Condition {
+				return []*ir.Condition{{Condition: createEmptyFileCommand(ran), Negate: true}}
+			},
+			wantRun: ir.Succeeded,
+		},
+		{
+			name:    "ValueMatchEvaluates",
+			outcome: stepmock.Met,
+			conditions: func(ran string) []*ir.Condition {
+				return []*ir.Condition{
+					{Condition: createEmptyFileCommand(ran)},
+					{Condition: "staging", Expected: "production"},
+				}
+			},
+			wantRun: ir.Aborted,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ran := filepath.Join(t.TempDir(), "ran")
+			set := stepmock.New(map[string]stepmock.Step{"main": {}})
+			set.SetDAGPrecondition(tc.outcome)
+			r := setupRunner(t, withStepMockSet(set))
+			plan := r.newPlan(t, successStep("main"))
+			ctx := dagPreconditionContext(r, plan, tc.conditions(ran)...)
+
+			require.NoError(t, r.runner.Run(ctx, plan.Plan, nil))
+
+			assert.Equal(t, tc.wantRun, r.runner.Status(ctx, plan.Plan))
+			wantMain := ir.NodeSucceeded
+			if tc.wantRun == ir.Aborted {
+				wantMain = ir.NodeNotStarted
+			}
+			assert.Equal(t, wantMain, plan.GetNodeByName("main").State().Status)
+			assert.NoFileExists(t, ran)
+		})
+	}
+}
+
+// A repeat condition that runs a command takes the condition of the result
+// each execution used, and its command does not run. A value-match repeat
+// condition evaluates as written. The limits keep a regression from looping
+// without end.
+func TestStepMockRepeatCondition(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		// policy builds the step's repeat policy. A condition command that
+		// runs creates ranPath.
+		policy         func(ranPath string) ir.RepeatPolicy
+		results        []stepmock.Result
+		wantRun        ir.Status
+		wantStatus     ir.NodeStatus
+		wantExecutions int
+	}{
+		{
+			name: "While",
+			policy: func(ran string) ir.RepeatPolicy {
+				return ir.RepeatPolicy{RepeatMode: ir.RepeatModeWhile, Limit: 10,
+					Condition: &ir.Condition{Condition: createEmptyFileCommand(ran)}}
+			},
+			results: []stepmock.Result{
+				{Condition: stepmock.Met}, {Condition: stepmock.Met}, {Condition: stepmock.NotMet},
+			},
+			wantRun:        ir.Succeeded,
+			wantStatus:     ir.NodeSucceeded,
+			wantExecutions: 3,
+		},
+		{
+			name: "Until",
+			policy: func(ran string) ir.RepeatPolicy {
+				return ir.RepeatPolicy{RepeatMode: ir.RepeatModeUntil, Limit: 10,
+					Condition: &ir.Condition{Condition: createEmptyFileCommand(ran)}}
+			},
+			results:        []stepmock.Result{{Condition: stepmock.NotMet}, {Condition: stepmock.Met}},
+			wantRun:        ir.Succeeded,
+			wantStatus:     ir.NodeSucceeded,
+			wantExecutions: 2,
+		},
+		{
+			// The final check at the limit takes the last execution's result.
+			name: "OnLimitFail",
+			policy: func(ran string) ir.RepeatPolicy {
+				return ir.RepeatPolicy{RepeatMode: ir.RepeatModeUntil, Limit: 2, OnLimit: ir.RepeatOnLimitFail,
+					Condition: &ir.Condition{Condition: createEmptyFileCommand(ran)}}
+			},
+			results:        []stepmock.Result{{Condition: stepmock.NotMet}},
+			wantRun:        ir.Failed,
+			wantStatus:     ir.NodeFailed,
+			wantExecutions: 2,
+		},
+		{
+			name: "ValueMatchEvaluates",
+			policy: func(string) ir.RepeatPolicy {
+				return ir.RepeatPolicy{RepeatMode: ir.RepeatModeWhile, Limit: 3,
+					Condition: &ir.Condition{Condition: "pending", Expected: "pending"}}
+			},
+			results:        []stepmock.Result{{Condition: stepmock.NotMet}},
+			wantRun:        ir.Succeeded,
+			wantStatus:     ir.NodeSucceeded,
+			wantExecutions: 3,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ran := filepath.Join(t.TempDir(), "ran")
+			r := setupRunner(t, withStepMocks(map[string]stepmock.Step{"poll": {Results: tc.results}}))
+			poll := newStep("poll", withCommand("exit 0"))
+			poll.RepeatPolicy = tc.policy(ran)
+			result := r.newPlan(t, poll).assertRun(t, tc.wantRun)
+
+			result.assertNodeStatus(t, "poll", tc.wantStatus)
+			assert.Equal(t, tc.wantExecutions, executions(t, result.Plan, "poll"))
+			assert.NoFileExists(t, ran)
+		})
+	}
+}
+
+// A mocked step that repeats without a limit runs one execution per result
+// and then neither repeats nor retries, unless its own repeat decision stops
+// it first. It ends with the status of its last execution. The run timeout
+// ends a regression that repeats without end.
+func TestStepMockContinuous(t *testing.T) {
+	t.Parallel()
+
+	failed := stepmock.Result{ExitCode: 1}
+	for _, tc := range []struct {
+		name           string
+		mode           ir.RepeatMode
+		retries        int
+		results        []stepmock.Result
+		wantRun        ir.Status
+		wantStatus     ir.NodeStatus
+		wantExecutions int
+	}{
+		{
+			name:           "StopsAfterResults",
+			mode:           ir.RepeatModeWhile,
+			results:        []stepmock.Result{{}, {}, {}},
+			wantRun:        ir.Succeeded,
+			wantStatus:     ir.NodeSucceeded,
+			wantExecutions: 3,
+		},
+		{
+			name:           "NoResults",
+			mode:           ir.RepeatModeWhile,
+			wantRun:        ir.Succeeded,
+			wantStatus:     ir.NodeSucceeded,
+			wantExecutions: 1,
+		},
+		{
+			name:           "RepeatDecisionFirst",
+			mode:           ir.RepeatModeWhile,
+			results:        []stepmock.Result{{}, failed, {}},
+			wantRun:        ir.Failed,
+			wantStatus:     ir.NodeFailed,
+			wantExecutions: 2,
+		},
+		{
+			name:           "LastStatus",
+			mode:           ir.RepeatModeUntil,
+			results:        []stepmock.Result{failed, failed},
+			wantRun:        ir.Failed,
+			wantStatus:     ir.NodeFailed,
+			wantExecutions: 2,
+		},
+		{
+			name:           "NoRetryAfterResults",
+			mode:           ir.RepeatModeWhile,
+			retries:        3,
+			results:        []stepmock.Result{{}, failed},
+			wantRun:        ir.Failed,
+			wantStatus:     ir.NodeFailed,
+			wantExecutions: 2,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := setupRunner(t, withTimeout(time.Minute),
+				withStepMocks(map[string]stepmock.Step{"beat": {Results: tc.results}}))
+			beat := newStep("beat", withCommand("exit 0"), withRetryPolicy(tc.retries, 0))
+			beat.RepeatPolicy.RepeatMode = tc.mode
+			result := r.newPlan(t, beat).assertRun(t, tc.wantRun)
+
+			result.assertNodeStatus(t, "beat", tc.wantStatus)
+			assert.Equal(t, tc.wantExecutions, executions(t, result.Plan, "beat"))
+		})
+	}
+}
+
+// A repeat limit from a reference is decided when it resolves. A positive
+// value bounds the step as written. A value that leaves the step without a
+// limit makes it continuous: a mock's results bound it, a real step repeats
+// as written, and any other step stops the run before it starts.
+func TestStepMockRepeatLimitReference(t *testing.T) {
+	t.Parallel()
+
+	repeatLimit := func(value string) stepOption {
+		return func(step *ir.Step) {
+			step.Env = append(step.Env, "N="+value)
+			step.RepeatPolicy.RepeatMode = ir.RepeatModeWhile
+			step.RepeatPolicy.LimitStr = "${N}"
+		}
+	}
+
+	t.Run("PositiveBoundsAsWritten", func(t *testing.T) {
+		t.Parallel()
+
+		r := setupRunner(t, withStepMocks(map[string]stepmock.Step{"poll": {}}))
+		result := r.newPlan(t, newStep("poll", withCommand("exit 0"), repeatLimit("3"))).assertRun(t, ir.Succeeded)
+
+		assert.Equal(t, 3, executions(t, result.Plan, "poll"))
+	})
+
+	t.Run("ZeroBoundsByResults", func(t *testing.T) {
+		t.Parallel()
+
+		r := setupRunner(t, withTimeout(time.Minute), withStepMocks(map[string]stepmock.Step{
+			"poll": {Results: []stepmock.Result{{}, {}}},
+		}))
+		result := r.newPlan(t, newStep("poll", withCommand("exit 0"), repeatLimit("0"))).assertRun(t, ir.Succeeded)
+
+		assert.Equal(t, 2, executions(t, result.Plan, "poll"))
+	})
+
+	// The real step fails on its third execution, which ends its while loop.
+	t.Run("ZeroRealRepeatsAsWritten", func(t *testing.T) {
+		t.Parallel()
+
+		counter := filepath.Join(t.TempDir(), "count")
+		r := setupRunner(t, withTimeout(time.Minute), withStepMocks(map[string]stepmock.Step{
+			"poll": {Real: true},
+		}))
+		poll := newStep("poll", withScript(counterThresholdExitScript(counter, 2, 0, 1)), repeatLimit("0"))
+		result := r.newPlan(t, poll).assertRun(t, ir.Failed)
+
+		assert.Equal(t, 3, executions(t, result.Plan, "poll"))
+	})
+
+	for _, tc := range []struct {
+		name  string
+		steps map[string]stepmock.Step
+	}{
+		{name: "ZeroStopsUnmocked"},
+		{name: "ZeroStopsKeptAction", steps: map[string]stepmock.Step{"tick": {KeepAction: true}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			marker := filepath.Join(t.TempDir(), "ran")
+			r := setupRunner(t, withTimeout(time.Minute), withStepMocks(tc.steps))
+			tick := newStep("tick", withCommand(createEmptyFileCommand(marker)), repeatLimit("0"))
+			plan := r.newPlan(t, tick, successStep("after", "tick"))
+			ctx := dagPreconditionContext(r, plan)
+
+			err := r.runner.Run(ctx, plan.Plan, nil)
+
+			var unbounded *runtime.UnboundedRepeatError
+			require.ErrorAs(t, err, &unbounded)
+			assert.Equal(t, runtime.UnboundedRepeatError{Step: "tick", Limit: 0}, *unbounded)
+			assert.EqualError(t, unbounded, "repeat limit 0 leaves the step continuous; mock it with results")
+			assert.Equal(t, ir.Aborted, r.runner.Status(ctx, plan.Plan))
+			assert.Equal(t, ir.NodeFailed, plan.GetNodeByName("tick").State().Status)
+			assert.NoFileExists(t, marker)
 		})
 	}
 }
