@@ -106,6 +106,56 @@ func TestFeed_RejectsBadLines(t *testing.T) {
 	}
 }
 
+// An oversized line still being written is passed over as it grows, not read
+// again on every check, and reported once its newline arrives.
+func TestFeed_PassesOverAGrowingOversizedLine(t *testing.T) {
+	dir := t.TempDir()
+	before, after := feedNow.Add(-time.Minute), feedNow
+	appendText(t, dir, feedNow, feedLine(t, "a", before)+strings.Repeat("x", 2*feedMaxLineBytes))
+
+	first := readFeed(t, dir, nil, feedNow, true)
+	assert.Equal(t, []string{"a"}, entryIDs(first))
+	assert.Empty(t, first.Losses)
+	var pos feedPosition
+	require.NoError(t, json.Unmarshal(first.Position, &pos))
+	assert.Greater(t, pos.Files[feedNow.Format(dateFormat)+auditFileExtension].Offset, int64(2*feedMaxLineBytes),
+		"the oversized part read is not read again")
+
+	appendText(t, dir, feedNow, "\n"+feedLine(t, "b", after))
+	second := readFeed(t, dir, first.Position, feedNow, false)
+	assert.Equal(t, []string{"b"}, entryIDs(second))
+	assert.Equal(t, []audit.FeedLoss{{Reason: audit.LossRejected, From: before, To: after}}, second.Losses)
+}
+
+// A run of bad lines that fills one read's byte budget stays open, and the
+// next read closes it at the entry after it.
+func TestFeed_KeepsARejectedRunOpenAcrossReads(t *testing.T) {
+	dir := t.TempDir()
+	before, after := feedNow.Add(-time.Minute), feedNow
+	bad := strings.Repeat("x", feedMaxLineBytes+feedMaxLineBytes/2) + "\n"
+	appendText(t, dir, feedNow, feedLine(t, "a", before)+bad+bad+bad+feedLine(t, "b", after))
+
+	first := readFeed(t, dir, nil, feedNow, true)
+	assert.Equal(t, []string{"a"}, entryIDs(first))
+	assert.True(t, first.More)
+	assert.Empty(t, first.Losses)
+
+	second := readFeed(t, dir, first.Position, feedNow, true)
+	assert.Equal(t, []string{"b"}, entryIDs(second))
+	assert.Equal(t, []audit.FeedLoss{{Reason: audit.LossRejected, From: before, To: after}}, second.Losses)
+}
+
+// Entries in a file need not be in time order; a loss still runs forward.
+func TestFeed_OrdersTheEndsOfARejectedRun(t *testing.T) {
+	dir := t.TempDir()
+	later, earlier := feedNow.Add(time.Minute), feedNow
+	appendText(t, dir, feedNow, feedLine(t, "a", later)+"garbage\n"+feedLine(t, "b", earlier))
+
+	chunk := readFeed(t, dir, nil, feedNow, true)
+
+	assert.Equal(t, []audit.FeedLoss{{Reason: audit.LossRejected, From: earlier, To: later}}, chunk.Losses)
+}
+
 // The store picks a file by the entry's timestamp, so an entry stamped just
 // before midnight can land in yesterday's file after it; a full read finds it.
 func TestFeed_FullReadFindsLateEntriesInOlderFiles(t *testing.T) {

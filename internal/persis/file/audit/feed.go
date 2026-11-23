@@ -53,6 +53,11 @@ type feedFile struct {
 	// Recorded is the size a cleanup record gave the file before removing
 	// it. Bytes past the offset and within it were lost.
 	Recorded *int64 `json:"recorded,omitempty"`
+	// RejectedFrom starts a run of bad lines that no entry has closed yet.
+	RejectedFrom *time.Time `json:"rejected_from,omitempty"`
+	// Oversized reports that the offset is inside a line longer than
+	// feedMaxLineBytes, whose rest is passed over.
+	Oversized bool `json:"oversized,omitempty"`
 }
 
 // feedRead is the state of one Read.
@@ -89,6 +94,11 @@ func (f *Feed) Read(_ context.Context, q audit.FeedQuery) (audit.FeedChunk, erro
 	}
 	if err != nil {
 		return audit.FeedChunk{}, err
+	}
+	for name := range sizes {
+		if pos.Files[name] == nil {
+			pos.Files[name] = &feedFile{}
+		}
 	}
 
 	// Today's file goes last, so the cleanup records it holds are read
@@ -153,9 +163,12 @@ func (f *Feed) list() (map[string]int64, error) {
 			continue
 		}
 		info, err := entry.Info()
-		if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
 			// Removed since the listing.
 			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("fileaudit: stat audit file: %w", err)
 		}
 		sizes[entry.Name()] = info.Size()
 	}
@@ -189,6 +202,7 @@ func (r *feedRead) readFile(name string, size int64) (bool, error) {
 		*file = feedFile{}
 	}
 	if size == file.Offset {
+		r.closeRejected(file, day)
 		return false, nil
 	}
 
@@ -206,24 +220,39 @@ func (r *feedRead) readFile(name string, size int64) (bool, error) {
 	}
 	reader := bufio.NewReaderSize(io.LimitReader(fh, size-file.Offset), feedBufferBytes)
 
-	// A run of bad lines is one loss, from the entry before it to the entry
-	// after it.
-	var rejected *audit.FeedLoss
-	defer func() {
-		if rejected != nil {
-			rejected.To = day.AddDate(0, 0, 1)
-			r.chunk.Losses = append(r.chunk.Losses, *rejected)
-		}
-	}()
 	for {
 		if r.kept >= r.limit || r.bytes >= feedMaxReadBytes {
 			return true, nil
 		}
-		line, n, err := readLine(reader)
-		if errors.Is(err, io.EOF) {
-			return false, nil
+		if file.Oversized {
+			n, done, err := skipLine(reader, feedMaxReadBytes-r.bytes)
+			file.Offset += n
+			r.bytes += n
+			if done {
+				file.Oversized = false
+				r.reject(file, day)
+			}
+			if errors.Is(err, io.EOF) {
+				r.closeRejected(file, day)
+				return false, nil
+			}
+			if err != nil {
+				return false, fmt.Errorf("fileaudit: read audit file: %w", err)
+			}
+			continue
 		}
-		if err != nil {
+
+		line, n, err := readLine(reader)
+		switch {
+		case errors.Is(err, errLineTooLong):
+			file.Offset += n
+			r.bytes += n
+			file.Oversized = true
+			continue
+		case errors.Is(err, io.EOF):
+			r.closeRejected(file, day)
+			return false, nil
+		case err != nil:
 			return false, fmt.Errorf("fileaudit: read audit file: %w", err)
 		}
 		file.Offset += n
@@ -231,54 +260,91 @@ func (r *feedRead) readFile(name string, size int64) (bool, error) {
 
 		entry, ok := parseEntry(line)
 		if !ok {
-			if rejected == nil {
-				rejected = &audit.FeedLoss{Reason: audit.LossRejected, From: file.since(day)}
-			}
+			r.reject(file, day)
 			continue
 		}
-		if rejected != nil {
-			rejected.To = entry.Timestamp
-			r.chunk.Losses = append(r.chunk.Losses, *rejected)
-			rejected = nil
+		if file.RejectedFrom != nil {
+			r.lose(audit.LossRejected, *file.RejectedFrom, entry.Timestamp)
+			file.RejectedFrom = nil
 		}
 		file.LastAt = entry.Timestamp
 		r.applyCleanup(entry)
 		if r.keep == nil || r.keep(entry) {
 			r.chunk.Entries = append(r.chunk.Entries, entry)
+			r.chunk.Bytes += n
 			r.kept++
 		}
 	}
 }
 
+// reject opens a run of bad lines, from the entry before it, unless one is
+// open. The entry after the run closes it.
+func (r *feedRead) reject(file *feedFile, day time.Time) {
+	if file.RejectedFrom == nil {
+		from := file.since(day)
+		file.RejectedFrom = &from
+	}
+}
+
+// closeRejected reports an open run of bad lines that ends the file, as
+// running to the end of its day.
+func (r *feedRead) closeRejected(file *feedFile, day time.Time) {
+	if file.RejectedFrom != nil {
+		r.lose(audit.LossRejected, *file.RejectedFrom, day.AddDate(0, 0, 1))
+		file.RejectedFrom = nil
+	}
+}
+
+// errLineTooLong reports a line that passed feedMaxLineBytes before its
+// newline.
+var errLineTooLong = errors.New("audit line too long")
+
 // readLine reads one line that ends in a newline and returns it without the
-// newline, or nil when it is longer than feedMaxLineBytes, with the bytes it
-// consumed. A line without a newline yet returns io.EOF.
+// newline, with the bytes it consumed; a complete line longer than
+// feedMaxLineBytes returns nil. A line without a newline yet returns io.EOF
+// and consumes nothing, unless it has passed feedMaxLineBytes: then it
+// returns errLineTooLong with the bytes it consumed.
 func readLine(reader *bufio.Reader) ([]byte, int64, error) {
 	var line []byte
-	var n int64
-	tooLong := false
 	for {
 		part, err := reader.ReadSlice('\n')
-		n += int64(len(part))
-		if !tooLong {
-			if len(line)+len(part) > feedMaxLineBytes+1 {
-				tooLong, line = true, nil
-			} else {
-				line = append(line, part...)
-			}
-		}
+		line = append(line, part...)
+		n := int64(len(line))
+		tooLong := len(line) > feedMaxLineBytes+1
 		switch {
+		case err == nil && tooLong:
+			return nil, n, nil
 		case err == nil:
-			if tooLong {
-				return nil, n, nil
-			}
 			return line[:len(line)-1], n, nil
+		case errors.Is(err, bufio.ErrBufferFull) && tooLong:
+			return nil, n, errLineTooLong
 		case errors.Is(err, bufio.ErrBufferFull):
 			continue
+		case errors.Is(err, io.EOF) && len(line) > feedMaxLineBytes:
+			return nil, n, errLineTooLong
 		default:
 			return nil, 0, err
 		}
 	}
+}
+
+// skipLine passes over the rest of a line, reading at most about budget
+// bytes. It returns the bytes it read and whether it reached the newline.
+func skipLine(reader *bufio.Reader, budget int64) (int64, bool, error) {
+	var n int64
+	for n < budget {
+		part, err := reader.ReadSlice('\n')
+		n += int64(len(part))
+		switch {
+		case err == nil:
+			return n, true, nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		default:
+			return n, false, err
+		}
+	}
+	return n, false, nil
 }
 
 // parseEntry decodes a line, which must be an entry with an ID and a
@@ -338,7 +404,12 @@ func (r *feedRead) reportRemoved(onDisk map[string]int64) {
 	}
 }
 
+// lose reports a loss. Entries in a file need not be in time order, so the
+// ends are ordered here.
 func (r *feedRead) lose(reason string, from, to time.Time) {
+	if to.Before(from) {
+		from, to = to, from
+	}
 	r.chunk.Losses = append(r.chunk.Losses, audit.FeedLoss{Reason: reason, From: from, To: to})
 }
 

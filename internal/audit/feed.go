@@ -22,18 +22,22 @@ type FeedQuery struct {
 	// Now decides the store's current day.
 	Now time.Time
 	// Full checks every day the store holds, not only the current one, and
-	// reports days removed since the last full read.
+	// reports days removed since the last full read. A read that returned
+	// More continues with the same Full.
 	Full bool
 	// Keep selects the entries to return; nil returns every entry. The rest
 	// are passed over, and Position still moves past them.
 	Keep func(*Entry) bool
-	// Limit caps the entries one read returns.
+	// Limit caps the entries one read returns. A Limit of 0 returns no
+	// entries, only a Position to start from.
 	Limit int
 }
 
 // FeedChunk is what one feed read returns, in stored order.
 type FeedChunk struct {
 	Entries []*Entry
+	// Bytes is the stored size of Entries.
+	Bytes int64
 	// Losses are entries the store lost, or lines it could not read, after
 	// the query's position.
 	Losses []FeedLoss
