@@ -121,11 +121,6 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"GetSyncStatus":                   remoteNodeAccessRead,
 	"ListViews":                       remoteNodeAccessRead,
 	"GetView":                         remoteNodeAccessRead,
-	"ListInventoryNodes":              remoteNodeAccessRead,
-	"GetInventoryNode":                remoteNodeAccessRead,
-	"ListInventoryNodeLabels":         remoteNodeAccessRead,
-	"ListInventories":                 remoteNodeAccessRead,
-	"GetInventory":                    remoteNodeAccessRead,
 	"ListWikiPages":                   remoteNodeAccessRead,
 	"ListWikiPageBacklinks":           remoteNodeAccessRead,
 	"GetWikiPage":                     remoteNodeAccessRead,
@@ -198,8 +193,7 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"EditRetryDAGRun":        remoteNodeAccessWriteAndRun,
 	"PreviewEditRetryDAGRun": remoteNodeAccessWriteAndRun,
 
-	// System status, workspace changes, and inventory imports, open to
-	// developers and above.
+	// System status and workspace changes, open to developers and above.
 	"GetCoordinatorStatus": remoteNodeAccessDeveloper,
 	"GetResourceHistory":   remoteNodeAccessDeveloper,
 	"GetSchedulerStatus":   remoteNodeAccessDeveloper,
@@ -208,7 +202,6 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"CreateWorkspace":      remoteNodeAccessDeveloper,
 	"DeleteWorkspace":      remoteNodeAccessDeveloper,
 	"UpdateWorkspace":      remoteNodeAccessDeveloper,
-	"ImportInventories":    remoteNodeAccessDeveloper,
 
 	// Audit and event logs, open to managers and above.
 	"ListAuditLogs": remoteNodeAccessManager,
@@ -222,8 +215,14 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"GetMetrics":     remoteNodeAccessDenied,
 	"TriggerWebhook": remoteNodeAccessDenied,
 
-	// Node connection tests and host key trust, which remote nodes do not
-	// support.
+	// Node inventories, host key trust, and node connection tests, which
+	// remote nodes do not support.
+	"ListInventoryNodes":           remoteNodeAccessDenied,
+	"GetInventoryNode":             remoteNodeAccessDenied,
+	"ListInventoryNodeLabels":      remoteNodeAccessDenied,
+	"ListInventories":              remoteNodeAccessDenied,
+	"GetInventory":                 remoteNodeAccessDenied,
+	"ImportInventories":            remoteNodeAccessDenied,
 	"TestInventoryNodeConnections": remoteNodeAccessDenied,
 	"TrustInventoryNodeHostKeys":   remoteNodeAccessDenied,
 }

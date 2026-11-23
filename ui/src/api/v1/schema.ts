@@ -24903,8 +24903,6 @@ export interface operations {
                 page?: components["parameters"]["Page"];
                 /** @description number of items per page (default is 30, max is 100) */
                 perPage?: components["parameters"]["PerPage"];
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Node selector: label filter terms separated by commas, as a step's `nodes` field takes them. A node is listed when it matches every term. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400 naming the term. */
                 labels?: string;
                 /** @description Lists only the nodes of one inventory, given by its ID or by its name compared without case. An inventory that does not exist returns HTTP 400. */
@@ -24958,10 +24956,7 @@ export interface operations {
     };
     getInventoryNode: {
         parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-            };
+            query?: never;
             header?: never;
             path: {
                 /** @description Node name, compared without case */
@@ -25011,10 +25006,7 @@ export interface operations {
     };
     listInventoryNodeLabels: {
         parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -25052,10 +25044,7 @@ export interface operations {
     };
     listInventories: {
         parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-            };
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;
@@ -25093,10 +25082,7 @@ export interface operations {
     };
     getInventory: {
         parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-            };
+            query?: never;
             header?: never;
             path: {
                 inventoryId: string;
@@ -25146,8 +25132,6 @@ export interface operations {
     importInventories: {
         parameters: {
             query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
                 /** @description Replace an inventory whose name is taken, keeping its ID. */
                 replace?: boolean;
                 /** @description Check the import and store nothing. */

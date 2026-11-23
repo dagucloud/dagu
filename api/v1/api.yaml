@@ -12258,7 +12258,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
-        - $ref: "#/components/parameters/RemoteNode"
         - name: "labels"
           in: "query"
           required: false
@@ -12317,7 +12316,6 @@ paths:
           description: "Node name, compared without case"
           schema:
             type: string
-        - $ref: "#/components/parameters/RemoteNode"
       responses:
         "200":
           description: "The node"
@@ -12351,8 +12349,6 @@ paths:
       operationId: "listInventoryNodeLabels"
       tags:
         - "nodes"
-      parameters:
-        - $ref: "#/components/parameters/RemoteNode"
       responses:
         "200":
           description: "The labels, sorted"
@@ -12380,8 +12376,6 @@ paths:
       operationId: "listInventories"
       tags:
         - "nodes"
-      parameters:
-        - $ref: "#/components/parameters/RemoteNode"
       responses:
         "200":
           description: "The inventories"
@@ -12415,7 +12409,6 @@ paths:
           required: true
           schema:
             type: string
-        - $ref: "#/components/parameters/RemoteNode"
       responses:
         "200":
           description: "The inventory"
@@ -12450,7 +12443,6 @@ paths:
       tags:
         - "nodes"
       parameters:
-        - $ref: "#/components/parameters/RemoteNode"
         - name: "replace"
           in: "query"
           required: false
