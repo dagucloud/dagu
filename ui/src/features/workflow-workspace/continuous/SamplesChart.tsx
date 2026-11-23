@@ -14,9 +14,11 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import { formatExactCount } from '@/lib/formatCompactCount';
 import { toneClasses } from '@/lib/statusPalette';
+import { cn, FOCUS_RING } from '@/lib/utils';
 import { layoutLabels, timeTicks } from '../dock/runTimelineModel';
 import { formatResolution, formatSpanMs } from './format';
-import { barAt, barModel, p50Path, type Bar } from './sampleBars';
+import { barAt, barModel, liveBand, p50Path, type Bar } from './sampleBars';
+import type { SampleUnit } from './sampleSource';
 
 type StepSamples = components['schemas']['StepSamples'];
 
@@ -25,8 +27,21 @@ export const PLOT_HEIGHT_PX = 96;
 /** The width that the latency labels take at the left of the plot. */
 export const AXIS_PX = 44;
 const LABEL_ROW_PX = 28;
+/** The lane of the run in progress, under the plot, and its band. */
+const LIVE_LANE_PX = 6;
+const LIVE_BAND_PX = 4;
 /** A drag of less than this many px is a click. */
 const CLICK_SLOP_PX = 4;
+
+/**
+ * The run in progress of a run history. Its sample comes only when it ends,
+ * so no bar shows it.
+ */
+export interface LiveRun {
+  id: string;
+  /** The start of the run, in ms. */
+  startedAt: number;
+}
 
 export interface SamplesChartProps {
   /** The response for the window. */
@@ -35,6 +50,8 @@ export interface SamplesChartProps {
   window: { from: number; to: number };
   /** The width of the whole chart, in px. */
   width: number;
+  /** What a sample counts. The default is the executions of a step. */
+  unit?: SampleUnit;
   /** The start (ms) of the selected bucket, or null. */
   selected: number | null;
   onSelect(bucket: { time: number; resolutionSeconds: number } | null): void;
@@ -42,26 +59,48 @@ export interface SamplesChartProps {
   onZoom(factor: number, ratio: number): void;
   /** The window moves by this many ms. */
   onPan(deltaMs: number): void;
+  /**
+   * The run in progress, as a band in a lane under the plot. undefined: the
+   * chart has no lane, as for a step. null: no run is in progress.
+   */
+  live?: LiveRun | null;
+  /** Opens the run in progress, from its band. */
+  onOpenRun?(runId: string): void;
 }
 
 /**
- * The chart of the samples of a continuous step: one bar for each bucket of
+ * The chart of the samples of a continuous step or of a run history: one bar for each bucket of
  * the response, as tall as the p95 latency, with a thin p50 line and a red
- * part for the failures. It draws the buckets of the response and nothing
- * else, so the page weight does not follow the count of samples. The wheel
- * zooms, a drag moves the window, a click on a bar selects its bucket.
+ * part for the failures. A run history also has a lane for its run in
+ * progress. It draws the buckets of the response and that run only, so the
+ * page weight does not follow the count of samples. The wheel zooms, a drag
+ * moves the window, a click on a bar selects its bucket.
  */
 export function SamplesChart({
   samples,
   window: view,
   width,
+  unit = 'executions',
   selected,
   onSelect,
   onZoom,
   onPan,
+  live,
+  onOpenRun,
 }: SamplesChartProps): ReactElement {
   const { ts, locale } = useI18n();
   const plotWidth = Math.max(40, width - AXIS_PX);
+  // The lane stays while no run is in progress, so that the chart does not
+  // move each time a run ends and the next one starts.
+  const lane = live === undefined ? 0 : LIVE_LANE_PX;
+  const band = live
+    ? liveBand(live.startedAt, view.from, view.to, plotWidth)
+    : null;
+  const liveLabel = live
+    ? ts('Running since {time}', {
+        time: formatAbsoluteTime(live.startedAt) ?? '',
+      })
+    : '';
   const model = useMemo(
     () =>
       barModel({
@@ -169,7 +208,7 @@ export function SamplesChart({
       data-testid="continuous-chart"
       data-buckets={model.bars.length}
       className="relative select-none"
-      style={{ height: PLOT_HEIGHT_PX + LABEL_ROW_PX }}
+      style={{ height: PLOT_HEIGHT_PX + lane + LABEL_ROW_PX }}
     >
       <div
         aria-hidden="true"
@@ -258,12 +297,32 @@ export function SamplesChart({
               />
             ))}
       </svg>
+      {live && band && (
+        <button
+          type="button"
+          data-testid="continuous-live-run"
+          aria-label={liveLabel}
+          title={liveLabel}
+          onClick={() => onOpenRun?.(live.id)}
+          className={cn(
+            'absolute rounded-sm',
+            toneClasses('running').dot,
+            FOCUS_RING
+          )}
+          style={{
+            left: AXIS_PX + band.x,
+            top: PLOT_HEIGHT_PX + (LIVE_LANE_PX - LIVE_BAND_PX) / 2,
+            width: band.width,
+            height: LIVE_BAND_PX,
+          }}
+        />
+      )}
       <div
         aria-hidden="true"
         className="absolute text-[10px] leading-3 text-muted-foreground"
         style={{
           left: AXIS_PX,
-          top: PLOT_HEIGHT_PX + 2,
+          top: PLOT_HEIGHT_PX + lane + 2,
           width: plotWidth,
           height: LABEL_ROW_PX - 2,
         }}
@@ -290,6 +349,7 @@ export function SamplesChart({
       {hover && (
         <BucketTooltip
           bar={hover.bar}
+          unit={unit}
           resolutionSeconds={samples.resolutionSeconds}
           left={Math.min(Math.max(0, AXIS_PX + hover.x - 80), width - 216)}
         />
@@ -300,10 +360,12 @@ export function SamplesChart({
 
 function BucketTooltip({
   bar,
+  unit,
   resolutionSeconds,
   left,
 }: {
   bar: Bar;
+  unit: SampleUnit;
   resolutionSeconds: number;
   left: number;
 }): ReactElement {
@@ -311,7 +373,10 @@ function BucketTooltip({
   const { bucket } = bar;
   const rows: Array<[string, string]> = [
     [ts('Resolution'), formatResolution(resolutionSeconds)],
-    [ts('Executions'), formatExactCount(bucket.count, locale)],
+    [
+      ts(unit === 'runs' ? 'Runs' : 'Executions'),
+      formatExactCount(bucket.count, locale),
+    ],
     [ts('Failed'), formatExactCount(bucket.failures, locale)],
     [ts('Min'), formatSpanMs(bucket.minMs)],
     [ts('Median (p50)'), formatSpanMs(bucket.p50Ms)],

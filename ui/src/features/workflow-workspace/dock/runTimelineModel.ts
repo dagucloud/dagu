@@ -422,12 +422,24 @@ export type RunRange =
 /** The range that the timeline starts with. */
 export const RANGE_DEFAULT: RunRange = { preset: '24h' };
 
+/**
+ * The range that a normal DAG shows: the stored range when a normal DAG
+ * offers it, else the default. The storage can hold a preset that only a
+ * service DAG offers.
+ */
+export function dagRange(range: RunRange): RunRange {
+  return range.preset === 'custom' ||
+    presetsFor('dag').some((p) => p.id === range.preset)
+    ? range
+    : RANGE_DEFAULT;
+}
+
 /** The stored preset of the time range; the default for any other text. */
 export function parseStoredRange(raw: string | null): RunRange {
   if (raw === null) return RANGE_DEFAULT;
   try {
     const preset = (JSON.parse(raw) as { preset?: unknown } | null)?.preset;
-    if (presetsFor('dag').some((p) => p.id === preset)) {
+    if (presetById(preset)) {
       return { preset: preset as RangePresetId };
     }
   } catch {

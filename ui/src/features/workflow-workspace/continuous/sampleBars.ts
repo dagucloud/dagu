@@ -44,7 +44,7 @@ const DAY_MS = 24 * HOUR_MS;
 export type RangePresetId = PresetId | 'all';
 
 /** The presets whose window ends now and that the page polls while the run is active. */
-export const POLLED_PRESETS: readonly RangePresetId[] = ['1h', '24h'];
+export const POLLED_PRESETS: readonly RangePresetId[] = ['1h', '6h', '24h'];
 
 /** The shortest and the longest window that a zoom reaches. */
 export const MIN_SPAN_MS = 10_000;
@@ -177,8 +177,8 @@ const BAR_GAP_PX = 1;
  * axis, with a gap of one pixel when it is 3 px or wider. Its height is the
  * p95 latency against the greatest p95 of the set; the failed part is the
  * share of the failures of the bucket, at least BAR_MIN_PX. A bucket that is
- * wholly outside the window has no bar. The count of bars is the count of
- * buckets, whatever the count of samples.
+ * wholly outside the window has no bar, and neither has a bucket with no
+ * sample. The count of bars does not grow with the count of samples.
  */
 export function barModel(input: BarModelInput): BarModel {
   const { buckets, resolutionSeconds, from, to, width, height } = input;
@@ -194,6 +194,8 @@ export function barModel(input: BarModelInput): BarModel {
       : BAR_MIN_PX;
   const bars: Bar[] = [];
   for (const bucket of buckets) {
+    // A bucket with up time only has no latency to draw.
+    if (bucket.count <= 0) continue;
     const time = Date.parse(bucket.time);
     if (!Number.isFinite(time)) continue;
     const left = ((time - from) / span) * width;
@@ -232,6 +234,27 @@ export function barModel(input: BarModelInput): BarModel {
         ]
       : [];
   return { bars, pitch: (bucketMs / span) * width, maxMs, ticks };
+}
+
+/**
+ * The place of the run in progress on the time axis, in px: from its start,
+ * or from the left end when it started before the window, to the right end.
+ * It is at least BAR_MIN_PX wide. null when it starts at or after the end of
+ * the window.
+ */
+export function liveBand(
+  startedAt: number,
+  from: number,
+  to: number,
+  width: number
+): { x: number; width: number } | null {
+  if (!(startedAt < to)) return null;
+  const span = Math.max(1, to - from);
+  const x = Math.min(
+    Math.max(0, ((startedAt - from) / span) * width),
+    Math.max(0, width - BAR_MIN_PX)
+  );
+  return { x, width: width - x };
 }
 
 /**

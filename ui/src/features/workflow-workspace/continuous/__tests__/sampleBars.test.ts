@@ -7,6 +7,7 @@ import {
   barAt,
   barModel,
   bucketWindow,
+  liveBand,
   MIN_SPAN_MS,
   p50Path,
   panView,
@@ -123,6 +124,21 @@ describe('barModel', () => {
     expect(model.bars).toHaveLength(1);
   });
 
+  it('draws no bar for a bucket with up time and no sample', () => {
+    const model = barModel({
+      buckets: [
+        bucket(NOW - 30 * 60_000),
+        bucket(NOW - 20 * 60_000, { count: 0, upMs: 60_000, p95Ms: 0 }),
+      ],
+      resolutionSeconds: 60,
+      from: NOW - HOUR,
+      to: NOW,
+      width: 600,
+      height: 96,
+    });
+    expect(model.bars).toHaveLength(1);
+  });
+
   // The red part is the share of the failures, with a floor so that it shows.
   it('sets the failed part to the share of failures', () => {
     const model = barModel({
@@ -156,6 +172,38 @@ describe('barModel', () => {
     expect(model.bars).toEqual([]);
     expect(model.ticks).toEqual([]);
     expect(p50Path(model, 96)).toBe('');
+  });
+});
+
+describe('liveBand', () => {
+  const from = NOW - DAY;
+
+  it('starts at the left end for a run that started before the window', () => {
+    expect(liveBand(NOW - 3 * DAY, from, NOW, 600)).toEqual({
+      x: 0,
+      width: 600,
+    });
+  });
+
+  it('starts at the start of a run in the window', () => {
+    expect(liveBand(NOW - 6 * HOUR, from, NOW, 600)).toEqual({
+      x: 450,
+      width: 150,
+    });
+  });
+
+  // A run that started a moment ago stays visible at the right end.
+  it('keeps a band that just started at least 2 px wide', () => {
+    expect(liveBand(NOW - 1000, from, NOW, 600)).toEqual({
+      x: 598,
+      width: 2,
+    });
+  });
+
+  // A window in the past ends before the run started.
+  it('has no band for a run that starts at or after the end', () => {
+    expect(liveBand(NOW, from, NOW, 600)).toBeNull();
+    expect(liveBand(NOW + HOUR, from, NOW, 600)).toBeNull();
   });
 });
 

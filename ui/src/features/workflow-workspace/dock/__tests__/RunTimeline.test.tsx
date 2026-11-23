@@ -64,7 +64,8 @@ vi.mock('../../data', () => ({ useWorkspaceRun: () => h.workspaceRun() }));
 vi.mock('../../data/useWorkspaceRun', () => ({
   useWorkspaceRun: () => h.workspaceRun(),
 }));
-vi.mock('../../data/context', () => ({
+vi.mock('../../data/context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../data/context')>()),
   useWorkspaceData: () => ({
     fileName: 'demo.yaml',
     dagData: { dag: { name: 'demo' } },

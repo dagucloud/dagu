@@ -382,19 +382,27 @@ For a service DAG, the Activity panel shows the run history:
   years, or zooms in the chart. A bar is a bucket of the tier of the window. The height of a bar
   shows the duration of the runs. A bucket with failed runs shows them in red. A click on a bucket
   lists the events of its window.
+- the run in progress, as a band under the bars, from its start to now. It starts at the left end
+  of the window when the run started before the window. A click on the band opens the run.
 - the list of the events, with the cursor of the API. A `gap` event shows the time with no run.
-- the retained runs. When the user chooses a count of runs instead of a time window, the chart
-  shows the retained runs as for any other DAG. The user opens a retained run as for any other DAG.
+
+The panel has no count of runs for a service DAG: its chart always shows a time window. The History
+tab lists the retained runs, and the user opens one there as for any other DAG.
 
 Rules:
 
-- The panel opens on the run history with a window of 24 hours. A service DAG keeps its own choice of
-  a window or of a count of runs. The choice for the other DAGs does not change it.
-- The History tab of the panel shows the run history of a service DAG above its retained runs. It
-  has its own period buttons, from one hour to three years, and starts with 24 hours. It does this
-  only when the user chose a count of runs. With a time window, the history of the panel is already
-  above the tab, so the tab shows the retained runs only.
+- The panel opens on the run history with a window of 24 hours. The service DAGs keep their own
+  choice of a window. It does not change the count of runs or the window that the other DAGs show,
+  and their choice does not change it.
+- The History tab of the panel shows the retained runs only: the run history is already above the
+  tab.
+- A service DAG has no view menu. The History tab lists all its retained runs, whatever another DAG
+  hides, and the move to the previous or the next run goes through them, whatever the window of
+  the chart.
 - The chart of a time window shows the buckets of the run history, not the retained runs.
+- The run in progress is the latest run of the DAG while it runs or waits. Its sample is recorded
+  in the bucket of its start only when it ends, so no bar shows it while it runs.
+- The chart tells that the window has no run only when it has no bar and no run in progress.
 - When a time window starts before the oldest retained run, the panel tells that the runs before
   that time are not kept. It gives the time of the oldest retained run.
 - The chart draws at most the `points` buckets of the response. It never draws one element for each
