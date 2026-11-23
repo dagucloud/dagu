@@ -397,6 +397,13 @@ func UnblockedNodeReady(status *ir.DAGRunStatus) bool {
 	return !hasRetryableNode(status.Nodes) && hasRunnableNode(status.Nodes)
 }
 
+// ApprovalResumeReady reports whether a waiting run resumes once an approval
+// gate is approved: no step waits, a completed human task awaits its resume,
+// or the approval unblocked a step that a resumed attempt can run.
+func ApprovalResumeReady(status *ir.DAGRunStatus) bool {
+	return status != nil && (!hasWaitingNodes(status.Nodes) || ResumePending(status) || UnblockedNodeReady(status))
+}
+
 func hasRunnableNode(nodes []*ir.Node) bool {
 	byName := nodesByName(nodes)
 	return slices.ContainsFunc(nodes, func(node *ir.Node) bool {
