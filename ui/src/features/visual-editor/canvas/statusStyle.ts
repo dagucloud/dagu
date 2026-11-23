@@ -12,9 +12,8 @@ interface CanvasColor {
 }
 
 // The colours of the graph, from the --graph-* tokens: one bright set in both
-// themes, since a line or a tint reads by its hue. The border repeats under
-// dark: so that it wins over the dark outline of the card. A step that did
-// not run has no tint. Literal strings, so that Tailwind finds them.
+// themes, since a line or a tint reads by its hue. A step that did not run
+// has no tint. Literal strings, so that Tailwind finds them.
 const CANVAS_COLOR: Record<StatusTone, CanvasColor> = {
   success: {
     border: 'border-[var(--graph-success)] dark:border-[var(--graph-success)]',
