@@ -67,7 +67,8 @@ type activityCache struct {
 	once    sync.Once
 	entries *lru.Cache[activityKey, keptActivity]
 	// changedAt holds when the runs of each DAG last changed, so that an
-	// activity whose read began before that change is not reused.
+	// activity whose read began before that change and ended after it is not
+	// reused.
 	changedAt *lru.Cache[string, time.Time]
 	// followedAt is when the run events were last read, in Unix nanoseconds,
 	// or 0 before the first read.
@@ -162,13 +163,25 @@ func (c *activityCache) put(key activityKey, latest ir.DAGRunStatus, now time.Ti
 }
 
 // changed records that the run events were read at, and that the runs of the
-// DAGs of names changed then, so that get no longer returns the activity of a
-// plain DAG among them that was read before.
+// DAGs of names changed then. It drops the activity kept for those DAGs,
+// except the activity of a service DAG, which lasts by age only. The time of
+// the change keeps out an activity whose read began before it.
 func (c *activityCache) changed(names []string, at time.Time) {
 	c.followedAt.Store(at.UnixNano())
+	if len(names) == 0 {
+		return
+	}
 	changedAt := c.changes()
+	changedDAGs := make(map[string]struct{}, len(names))
 	for _, name := range names {
 		changedAt.Add(name, at)
+		changedDAGs[name] = struct{}{}
+	}
+	entries := c.store()
+	for _, key := range entries.Keys() {
+		if _, ok := changedDAGs[key.dag]; ok && !key.service {
+			entries.Remove(key)
+		}
 	}
 }
 

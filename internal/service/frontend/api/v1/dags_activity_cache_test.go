@@ -4,6 +4,7 @@
 package api
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -138,6 +139,27 @@ func TestActivityCacheFollowsRunChanges(t *testing.T) {
 	cache.changed(nil, end)
 	_, ok = cache.get(other, running, end)
 	assert.False(t, ok, "older than one bucket of the window")
+}
+
+// A change of a DAG drops its kept activity also when the changes of more DAGs
+// than the cache holds come after it.
+func TestActivityCacheKeepsAChangePastManyOthers(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	latest := ir.DAGRunStatus{DAGRunID: "r1", AttemptID: "a1", Status: ir.Succeeded}
+	activity := &openapiv1.DAGListActivity{Runs: []openapiv1.DAGListActivityRun{}}
+	key := activityKey{dag: "d", window: 24 * time.Hour}
+
+	var cache activityCache
+	cache.changed(nil, at)
+	cache.put(key, latest, at, activity)
+	cache.changed([]string{"d"}, at.Add(time.Second))
+	for i := range activityCacheSize {
+		cache.changed([]string{fmt.Sprintf("other-%d", i)}, at.Add(2*time.Second))
+	}
+
+	_, ok := cache.get(key, latest, at.Add(3*time.Second))
+	assert.False(t, ok)
 }
 
 // When the run events are no longer read, a list reuses the activity of a
