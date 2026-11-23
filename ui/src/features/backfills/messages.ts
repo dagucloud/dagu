@@ -537,7 +537,7 @@ export const backfillMessages = defineMessages({
     'Fill gaps': 'Lücken füllen',
     'Fill gaps and redo failed':
       'Lücken füllen und Fehlgeschlagene wiederholen',
-    'Redo everything': 'Alles wiederherstellen',
+    'Redo everything': 'Alles erneut ausführen',
     'Named slots': 'Benannte Termine',
     '{count} at a time': '{count} gleichzeitig',
     'Stops after a slot fails': 'Hält nach einem fehlgeschlagenen Termin an',

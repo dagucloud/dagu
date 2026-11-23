@@ -590,5 +590,6 @@ export const workspaceMessages = {
     ...ux1.de,
     ...hp1.de,
     ...rc1.de,
+    ...sv1.de,
   },
 } as const;

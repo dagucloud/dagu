@@ -42,7 +42,7 @@ export default defineMessages({
   },
   de: {
     'Run summary': 'Zusammenfassung',
-    'Run steps': 'Schritte ausführen',
+    'Run steps': 'Schritte des Laufs',
     'not in current definition': 'nicht in der aktuellen Definition',
     '{count} sub-runs': '{count} Unterläufe',
     reused: 'übernommen',

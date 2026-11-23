@@ -10450,7 +10450,7 @@ const baseGerman = {
   'Custom range': 'Eigener Zeitraum',
   'Custom run IDs are disabled.': 'Eigene Lauf-IDs sind abgeschaltet.',
   'Customize events': 'Ereignisse anpassen',
-  D: 'T',
+  D: 'D',
   DAG: 'DAG',
   'DAG default': 'DAG-Standard',
   'Workflow incidents': 'Ablauf-Störungen',
@@ -12206,9 +12206,9 @@ const baseGerman = {
   'Delete "{id}" from the remote repository? The file is already missing locally.':
     '"{id}" im entfernten Repository löschen? Lokal fehlt die Datei bereits.',
   'Delete "{id}"? The file has local modifications that will be lost. This removes it from both remote and local.':
-    '"{id}" löschen? Die lokalen Änderungen gehen verloren. Die Datei wird entfernt und lokal gelöscht.',
+    '"{id}" löschen? Die lokalen Änderungen gehen verloren. Die Datei wird aus dem entfernten Repository und von der lokalen Platte gelöscht.',
   'Delete "{id}"? The file has unresolved conflicts. This removes it from both remote and local.':
-    '"{id}" löschen? Die Datei hat ungelöste Konflikte. Sie wird entfernt und lokal gelöscht.',
+    '"{id}" löschen? Die Datei hat ungelöste Konflikte. Sie wird aus dem entfernten Repository und von der lokalen Platte gelöscht.',
   'Delete "{id}"? This cannot be undone.':
     '"{id}" löschen? Das lässt sich nicht rückgängig machen.',
   'Discard & Close All': 'Verwerfen & alle schließen',
@@ -12741,9 +12741,6 @@ const baseGerman = {
   'Choose what this server reports': 'Wählen, was dieser Server meldet',
   'Choose what to report': 'Wählen, was gemeldet wird',
   'Dismiss monitoring notice': 'Überwachungshinweis ausblenden',
-  'Show why runs fail in Dagu Console':
-    'In der Dagu Console zeigen, warum Läufe scheitern',
-  'Send error messages': 'Fehlermeldungen senden',
   "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails.":
     'Dagu Console zeigt den Zustand dieses Servers auf der Seite Server. Mit Laufstatus schickt sie bei einem gescheiterten Ablauf auch Besitzern und Admins des Arbeitsbereichs eine E-Mail.',
   'What to report': 'Was gemeldet wird',
@@ -12755,8 +12752,7 @@ const baseGerman = {
     'Jede Meldung enthält auch, was diesen Server ausweist und anmeldet, wie bei der Lizenzprüfung: Protokollversion, Lizenz-ID, Server-ID, Heartbeat-Geheimnis und die gewählte Stufe. Mit Laufstatus enthält sie außerdem die Position des Melders und, falls Ereignisse verloren gingen, den Zeitpunkt des Verlusts. Beim Abschalten geht eine letzte Meldung nur mit Ausweis, Anmeldung und der Wahl Aus raus, damit die Dagu Console die Überwachung als aus zeigt.',
   'Never sent: full logs, outputs, parameters, environment, step commands, DAG YAML, schedule expressions, and the values of workflow secrets.':
     'Nie gesendet: vollständige Protokolle, Ausgaben, Parameter, Umgebung, Schrittbefehle, DAG-YAML, Zeitplan-Ausdrücke und die Werte von Ablauf-Geheimnissen.',
-  'Health, run status, and error messages (recommended)':
-    'Zustand, Laufstatus und Fehlermeldungen (empfohlen)',
+  'Health and run status (recommended)': 'Zustand und Laufstatus (empfohlen)',
   'Health, run status, and error messages':
     'Zustand, Laufstatus und Fehlermeldungen',
   "Sends everything Health and run status sends, plus why each failed run failed: the error messages of up to 5 failed steps and handlers, or the run's own, each up to 2 KB from its end. A step's error can end with the last lines of its stderr, with the values of workflow secrets masked.":
@@ -13208,7 +13204,7 @@ const baseGerman = {
   'used by {count} DAG': 'verwendet von {count} DAG',
   'used by {count} DAGs': 'verwendet von {count} DAGs',
   'via {calendar}': 'über {calendar}',
-  'weekdays {changes}': 'werktags {changes}',
+  'weekdays {changes}': 'montags bis freitags {changes}',
   '{count} date changes': '{count} Datum ändert sich',
   '{count} dates change': '{count} Daten ändern sich',
   '{count} problem': '{count} Problem',

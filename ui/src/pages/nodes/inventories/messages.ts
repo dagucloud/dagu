@@ -221,5 +221,39 @@ export const inventoryMessages = defineMessages({
     'Inventory JSON': 'Inventar-JSON',
     'The text is not valid JSON.': 'Der Text ist kein gültiges JSON.',
     'An inventory is one JSON object.': 'Ein Inventar ist ein JSON-Objekt.',
+    'The server tests the connection before the node is added. An unknown host key is trusted only once the node is added.':
+      'Der Server testet die Verbindung, bevor der Knoten hinzugefügt wird. Einem unbekannten Host-Schlüssel wird erst vertraut, wenn der Knoten hinzugefügt ist.',
+    'The host key of {hop} {node} is unknown: {fingerprint}':
+      'Der Host-Schlüssel von {hop} {node} ist unbekannt: {fingerprint}',
+    'Trust this key and test again':
+      'Diesem Schlüssel vertrauen und erneut testen',
+    'Add without testing': 'Ohne Test hinzufügen',
+    'The port must be a whole number.': 'Der Port muss eine ganze Zahl sein.',
+    'Adding...': 'Wird hinzugefügt …',
+    Import: 'Importieren',
+    Export: 'Exportieren',
+    Check: 'Prüfen',
+    'Import inventories': 'Inventare importieren',
+    'Paste the JSON that dagu nodes export prints, or choose a file. The import is checked before it is stored.':
+      'Das JSON von dagu nodes export einfügen oder eine Datei wählen. Der Import wird vor dem Speichern geprüft.',
+    'Inventories JSON': 'Inventare als JSON',
+    'Choose file': 'Datei wählen',
+    'Replace inventories with the same name':
+      'Inventare mit gleichem Namen ersetzen',
+    'Nothing to import.': 'Nichts zu importieren.',
+    'Would create: {names}': 'Würde anlegen: {names}',
+    'Would replace: {names}': 'Würde ersetzen: {names}',
+    'An import is a JSON array of inventories, as dagu nodes export prints it.':
+      'Ein Import ist eine JSON-Liste von Inventaren, wie sie dagu nodes export ausgibt.',
+    'Edit node': 'Knoten bearbeiten',
+    'Node labels': 'Knoten-Labels',
+    "The inventory's default labels are added to these.":
+      'Die Standard-Labels des Inventars kommen hinzu.',
+    'Save labels': 'Labels speichern',
+    'Remove node': 'Knoten entfernen',
+    'Remove {name} from {inventory}? Its trusted host key is forgotten, and steps no longer run on it.':
+      '{name} aus {inventory} entfernen? Sein vertrauter Host-Schlüssel wird vergessen, und Schritte laufen nicht mehr darauf.',
+    'The node is no longer in its inventory.':
+      'Der Knoten ist nicht mehr in seinem Inventar.',
   },
 });

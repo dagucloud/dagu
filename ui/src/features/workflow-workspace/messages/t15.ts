@@ -120,7 +120,7 @@ export default defineMessages({
     'Clear the selection': 'Auswahl aufheben',
     'Open the menu of the selection': 'Menü der Auswahl öffnen',
     'Show the keyboard shortcuts': 'Tastenkürzel anzeigen',
-    Keys: 'Schlüssel',
+    Keys: 'Tasten',
     Pointer: 'Zeiger',
     Click: 'Klick',
     'Double-click': 'Doppelklick',

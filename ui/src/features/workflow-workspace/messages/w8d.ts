@@ -55,7 +55,7 @@ export default defineMessages({
     hourly: 'stündlich',
     'hourly at :{minute}': 'stündlich um :{minute}',
     'daily at {time}': 'täglich um {time}',
-    'weekdays at {time}': 'werktags um {time}',
+    'weekdays at {time}': 'montags bis freitags um {time}',
     once: 'einmal',
     'Show all {count} schedules': 'Alle {count} Zeitpläne anzeigen',
     'profile {name}': 'Profil {name}',

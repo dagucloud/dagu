@@ -21,8 +21,8 @@ export default defineMessages({
     'the run {runId}': '実行 {runId}',
   },
   de: {
-    'Could not load {thing}': '{thing} konnte nicht geladen werden',
+    'Could not load {thing}': 'Laden fehlgeschlagen: {thing}',
     'the outputs of this step': 'die Ausgaben dieses Schritts',
-    'the run {runId}': 'den Lauf {runId}',
+    'the run {runId}': 'der Lauf {runId}',
   },
 });

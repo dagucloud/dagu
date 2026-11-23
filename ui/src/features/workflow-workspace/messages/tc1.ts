@@ -28,6 +28,6 @@ export default defineMessages({
     'Step only': 'Nur Schritt',
     'Run the step {name} with its previous steps?':
       'Schritt {name} mit seinen vorherigen Schritten ausführen?',
-    'Steps that run: {steps}': 'Ausgeführte Schritte: {steps}',
+    'Steps that run: {steps}': 'Auszuführende Schritte: {steps}',
   },
 });

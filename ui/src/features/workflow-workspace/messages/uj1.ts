@@ -218,7 +218,7 @@ export default defineMessages({
     'No preview for this expression': 'Keine Vorschau für diesen Ausdruck',
     Hourly: 'Stündlich',
     'Daily at 09:00': 'Täglich um 09:00',
-    'Weekdays at 09:00': 'Werktags um 09:00',
+    'Weekdays at 09:00': 'Montags bis freitags um 09:00',
     'Edit with the form': 'Im Formular bearbeiten',
     Frequency: 'Häufigkeit',
     'Choose a frequency': 'Häufigkeit wählen',

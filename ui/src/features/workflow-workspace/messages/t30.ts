@@ -14,6 +14,6 @@ export default defineMessages({
     '{step} run': '{step} の実行',
   },
   de: {
-    '{step} run': '{step} gelaufen',
+    '{step} run': 'Lauf von {step}',
   },
 });

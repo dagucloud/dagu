@@ -120,6 +120,10 @@ export default defineMessages({
   de: {
     Continuous: 'Fortlaufend',
     'Availability {window}': 'Verfügbarkeit {window}',
+    'Uptime {window}': 'Verfügbarkeit {window}',
+    'Success rate {window}': 'Erfolgsquote {window}',
+    'The share of the window in which a run was active':
+      'Anteil des Zeitraums, in dem ein Lauf aktiv war',
     '{failures} failed of {count} executions':
       '{failures} von {count} Ausführungen fehlgeschlagen',
     'Current streak': 'Aktuelle Serie',
