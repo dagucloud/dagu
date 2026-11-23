@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/dagrunindex"
@@ -30,6 +31,9 @@ type dagRunListKey struct {
 type dagRunListItem struct {
 	Key    dagRunListKey
 	Status *ir.DAGRunStatus
+	// whole is the run whose whole status replaces Status, a summary of the
+	// run index, once the item is in a page.
+	whole *DAGRun
 }
 
 // compareDagRunListKeys orders runs newest first. The timestamp of a run
@@ -116,8 +120,12 @@ func (store *Store) listStatusesOrdered(
 	for pq.Len() > 0 && len(statuses) < target {
 		current := heap.Pop(&pq).(dagRunHeapItem)
 		if opts.Cursor == "" || compareDagRunListKeys(current.Item.Key, cursorKey) > 0 {
-			statuses = append(statuses, current.Item.Status)
-			keys = append(keys, current.Item.Key)
+			// The item past the limit only tells that a next page exists.
+			beyondPage := limit > 0 && len(statuses) == limit
+			if status := store.pageStatus(ctx, current.Item, beyondPage, store.queryCache(opts)); status != nil {
+				statuses = append(statuses, status)
+				keys = append(keys, current.Item.Key)
+			}
 		}
 
 		nextItem, err := current.Iterator.Next(ctx)
@@ -139,6 +147,16 @@ func (store *Store) listStatusesOrdered(
 		return nil, "", err
 	}
 	return statuses[:limit], nextCursor, nil
+}
+
+// pageStatus returns the status that a page lists for an item, or nil when
+// its whole status cannot be read. An item beyond the page keeps its summary,
+// since no page lists it.
+func (store *Store) pageStatus(ctx context.Context, item dagRunListItem, beyondPage bool, cache *fileutil.Cache[*ir.DAGRunStatus]) *ir.DAGRunStatus {
+	if item.whole == nil || beyondPage {
+		return item.Status
+	}
+	return store.resolveStatus(ctx, item.whole, cache, nil, nil, nil, false)
 }
 
 // statusIterOptions tunes how the iterators of one list call read days.
@@ -481,13 +499,15 @@ func (it *dagRunStatusIterator) toListItem(ctx context.Context, run *DAGRun) (da
 	if it.opts.DAGRunID != "" && !strings.Contains(run.dagRunID, it.opts.DAGRunID) {
 		return dagRunListItem{}, false
 	}
+	var whole *DAGRun
 	if it.opts.FullStatus && run.summary != nil {
-		// A summary of the run index has no nodes: read the status itself.
-		whole := *run
-		whole.summary = nil
-		run = &whole
+		// A summary of the run index has no nodes. It filters and orders the
+		// run, and the status itself is read only when the run is in a page.
+		copied := *run
+		copied.summary = nil
+		whole = &copied
 	}
-	status := it.store.resolveStatus(ctx, run, it.labelFilters, it.opts.WorkspaceFilter, it.statusesFilter, it.hasStatusFilter)
+	status := it.store.resolveStatus(ctx, run, it.store.queryCache(it.opts), it.labelFilters, it.opts.WorkspaceFilter, it.statusesFilter, it.hasStatusFilter)
 	if status == nil || (it.opts.ExcludeBackfill && status.BackfillID != "") ||
 		(it.opts.OnlyBackfill && status.BackfillID == "") ||
 		(it.opts.BackfillID != "" && status.BackfillID != it.opts.BackfillID) {
@@ -503,6 +523,7 @@ func (it *dagRunStatusIterator) toListItem(ctx context.Context, run *DAGRun) (da
 			DAGRunID:  status.DAGRunID,
 		},
 		Status: status,
+		whole:  whole,
 	}, true
 }
 

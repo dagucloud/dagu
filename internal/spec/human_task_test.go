@@ -777,3 +777,38 @@ func TestValidateHumanTaskInputs(t *testing.T) {
 	_, err = ValidateHumanTaskInputs(form, map[string]any{"window": json.Number("4")}, false)
 	require.Error(t, err)
 }
+
+// Spec 031 applies form defaults before it enforces required, so a required
+// property with a default may be left out.
+func TestHumanTaskInputsFillRequiredDefaults(t *testing.T) {
+	t.Parallel()
+
+	form, _, err := buildHumanTaskForm(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"channel": map[string]any{"type": "string", "default": "stable"},
+			"count":   map[string]any{"type": "integer", "default": 2},
+			// Above 2^53, so a float64 would round it.
+			"serial": map[string]any{"type": "integer", "default": int64(9007199254740993)},
+			"note":   map[string]any{"type": "string"},
+		},
+		"required": []any{"channel", "count", "serial", "note"},
+	})
+	require.NoError(t, err)
+
+	result, err := ValidateHumanTaskInputs(form, map[string]any{"note": "ok"}, false)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"channel":"stable","count":2,"serial":9007199254740993,"note":"ok"}`, string(result.Canonical))
+	assert.Contains(t, string(result.Canonical), `"serial":9007199254740993`)
+	assert.Equal(t, map[string]string{
+		"channel": "stable", "count": "2", "serial": "9007199254740993", "note": "ok",
+	}, result.Outputs)
+
+	result, err = ValidateHumanTaskInputs(form, map[string]any{"channel": "beta", "note": "ok"}, false)
+	require.NoError(t, err)
+	assert.Equal(t, "beta", result.Outputs["channel"])
+
+	_, err = ValidateHumanTaskInputs(form, nil, false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "note")
+}

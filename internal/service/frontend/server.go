@@ -88,6 +88,14 @@ const (
 	// when no run event wakes it, such as when a queued run records why it
 	// cannot start or the data disk fills.
 	dagRunActivityMaxInterval = 30 * time.Second
+	// dagListActivityMinInterval is the shortest gap between two refetches of
+	// the activity of one DAG list page. The strip of a list may lag behind
+	// the list, so bursts of run and DAG changes are merged.
+	dagListActivityMinInterval = 10 * time.Second
+	// dagListActivityMaxInterval bounds how stale the activity of a list page
+	// gets when nothing wakes it, as while a service run is in progress and
+	// its up time grows. It is one bucket of a window of an hour.
+	dagListActivityMaxInterval = 60 * time.Second
 	// dagRunsMaxInterval bounds how stale a live run list gets when no run
 	// event wakes it, such as when a DAG gains or loses a restart policy and
 	// its runs move in or out of the lists that leave service DAG runs out.
@@ -772,6 +780,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 			return
 		}
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGListActivity)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 		srv.sseMultiplexer.WakeTopic(sse.TopicTypeDAG, fileName)
 	}))
@@ -1481,7 +1490,7 @@ func (srv *Server) setupSSERoute(ctx context.Context, r *chi.Mux, apiV1BasePath 
 		if srv.dagRepository != nil {
 			serviceDAGs = srv.dagRepository.SavedServiceDAGNames
 		}
-		sse.StartDAGRunEventInvalidation(srv.sseMultiplexer.Context(), srv.eventService, srv.sseMultiplexer, serviceDAGs, slog.Default(), time.Second)
+		sse.StartDAGRunEventInvalidation(srv.sseMultiplexer.Context(), srv.eventService, srv.sseMultiplexer, serviceDAGs, srv.apiV1.DAGRunsChanged, slog.Default(), time.Second)
 	}
 
 	multiplexHandler := sse.NewMultiplexHandler(srv.sseMultiplexer, srv.remoteNodeResolver)
@@ -1534,6 +1543,7 @@ func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
 	switch event.Type {
 	case sse.AppEventTypeDAGChanged:
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGListActivity)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAG)
 		srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGHistory)
@@ -1564,6 +1574,7 @@ func (srv *Server) wakeAllMultiplexedFileBackedTopics() {
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueueItems)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGListActivity)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 	srv.wakeWikiTopics()
 }
@@ -1633,6 +1644,10 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 	registrar.SetMaxInterval(sse.TopicTypeDAGRuns, dagRunsMaxInterval)
 	registrar.RegisterFetcher(sse.TopicTypeQueues, srv.apiV1.GetQueuesListData)
 	registrar.RegisterFetcher(sse.TopicTypeDAGsList, srv.apiV1.GetDAGsListData)
+	registrar.RegisterFetcher(sse.TopicTypeDAGListActivity, srv.apiV1.GetDAGListActivityData)
+	registrar.RegisterValidator(sse.TopicTypeDAGListActivity, srv.apiV1.ValidateDAGListActivityQuery)
+	registrar.SetMinInterval(sse.TopicTypeDAGListActivity, dagListActivityMinInterval)
+	registrar.SetMaxInterval(sse.TopicTypeDAGListActivity, dagListActivityMaxInterval)
 	registrar.RegisterFetcher(sse.TopicTypeServiceDAGs, srv.apiV1.GetServiceDAGsData)
 	// A service DAG restarts all the time, and a refetch reads the latest run
 	// of every service DAG, so bursts of run events are merged into one refetch.
@@ -1666,6 +1681,7 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 			sse.TopicTypeDAGHistory,
 			sse.TopicTypeDAGRuns,
 			sse.TopicTypeDAGRunActivity,
+			sse.TopicTypeDAGListActivity,
 			sse.TopicTypeQueues,
 			sse.TopicTypeBackfill,
 		} {

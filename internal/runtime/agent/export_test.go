@@ -5,10 +5,18 @@ package agent
 
 import (
 	"context"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
+
+// SetRunningStatusSnapshotForTest makes the agent write its delayed
+// running-status snapshot when snapshot is closed, instead of after a fixed
+// delay.
+func SetRunningStatusSnapshotForTest(a *Agent, snapshot <-chan time.Time) {
+	a.runningStatusSnapshot = snapshot
+}
 
 // RetryNodesForTest returns runtime retry nodes for the supplied DAG and status.
 func RetryNodesForTest(dag *ir.DAG, status *ir.DAGRunStatus) ([]*runtime.Node, error) {

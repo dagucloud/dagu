@@ -7,8 +7,10 @@ import (
 	"context"
 	"log/slog"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
@@ -18,19 +20,103 @@ import (
 
 const defaultDAGRunInvalidationPollInterval = time.Second
 
+// serviceWakeWindow is the shortest time between two wakes of the DAG list
+// that the runs of service DAGs cause. See specs/100-service-run-history.md.
+const serviceWakeWindow = 10 * time.Second
+
+// wakeLimiter lets one wake pass in each window. A wake inside the window
+// stays pending and fires at the end of the window, so that the last change
+// shows. Later wakes while one is pending add nothing.
+type wakeLimiter struct {
+	mu     sync.Mutex
+	window time.Duration
+	now    func() time.Time
+	after  func(d time.Duration, f func()) (stop func() bool)
+	last   time.Time
+	// pending stops the wake that waits for the end of the window, or is nil
+	// when none waits.
+	pending func() bool
+}
+
+func newWakeLimiter(window time.Duration) *wakeLimiter {
+	return &wakeLimiter{
+		window: window,
+		now:    time.Now,
+		after: func(d time.Duration, f func()) func() bool {
+			return time.AfterFunc(d, f).Stop
+		},
+	}
+}
+
+// wake calls fire now, or at the end of the window when the last call is less
+// than one window old.
+func (l *wakeLimiter) wake(fire func()) {
+	l.mu.Lock()
+	if l.pending != nil {
+		l.mu.Unlock()
+		return
+	}
+	now := l.now()
+	if wait := l.last.Add(l.window).Sub(now); wait > 0 {
+		l.pending = l.after(wait, func() {
+			l.mu.Lock()
+			if l.pending == nil {
+				l.mu.Unlock()
+				return
+			}
+			l.pending = nil
+			l.last = l.now()
+			l.mu.Unlock()
+			fire()
+		})
+		l.mu.Unlock()
+		return
+	}
+	l.last = now
+	l.mu.Unlock()
+	fire()
+}
+
+// stop cancels the pending wake.
+func (l *wakeLimiter) stop() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.pending != nil {
+		l.pending()
+		l.pending = nil
+	}
+}
+
+// wakeOrLimit calls fire at once, or through the limiter of the multiplexer
+// when the event is of a service DAG.
+func wakeOrLimit(mux *Multiplexer, service bool, fire func()) {
+	if service {
+		mux.serviceWakes.wake(fire)
+		return
+	}
+	fire()
+}
+
 // ServiceDAGNames returns the names of the DAGs that set a restart policy,
 // or false when they are not known without building a DAG listing. It is
 // called for each batch of events, so it must not wait on such a build.
 type ServiceDAGNames func() ([]string, bool)
 
+// DAGRunsChanged is told, after each read of DAG-run events, the names of the
+// DAGs whose root runs changed in them, possibly none. It hears of a change
+// before the topics that show the run wake.
+type DAGRunsChanged func(dagNames []string)
+
 // StartDAGRunEventInvalidation wakes the topics that show the runs of new
 // DAG-run events. serviceDAGs tells which events concern a service DAG;
 // when it is nil or does not know them, every event counts as one that may.
+// changed, when set, is told the DAGs whose runs changed after each read.
 func StartDAGRunEventInvalidation(
 	ctx context.Context,
 	service *eventstore.Service,
 	mux *Multiplexer,
 	serviceDAGs ServiceDAGNames,
+	changed DAGRunsChanged,
 	logger *slog.Logger,
 	pollInterval time.Duration,
 ) {
@@ -80,13 +166,52 @@ func StartDAGRunEventInvalidation(
 				continue
 			}
 			cursor = nextCursor
-			if len(events) == 0 {
-				continue
-			}
-
-			wakeTopicsForDAGRunEvents(mux, events, readServiceDAGs(serviceDAGs))
+			handleDAGRunEvents(mux, events, serviceDAGs, changed)
 		}
 	}()
+}
+
+// handleDAGRunEvents tells changed the DAGs whose root runs the events
+// change, then wakes the topics that show the runs. changed hears first, so
+// that a topic it serves reads the changed runs when it wakes.
+func handleDAGRunEvents(mux *Multiplexer, events []*eventstore.Event, serviceDAGs ServiceDAGNames, changed DAGRunsChanged) {
+	names := changedDAGNames(events)
+	if changed != nil {
+		changed(names)
+	}
+	if len(names) > 0 {
+		mux.WakeTopicType(TopicTypeDAGListActivity)
+	}
+	if len(events) == 0 {
+		return
+	}
+	wakeTopicsForDAGRunEvents(mux, events, readServiceDAGs(serviceDAGs))
+}
+
+// changedDAGNames returns the names of the DAGs whose root runs the events
+// change, each once. A sub-DAG run is not a run of a DAG list, so its events
+// name no DAG, and an update that keeps the state of a run changes no list.
+func changedDAGNames(events []*eventstore.Event) []string {
+	var names []string
+	for _, event := range events {
+		if event == nil {
+			continue
+		}
+		snapshot, err := eventstore.DAGRunSnapshotFromEvent(event)
+		if err != nil || snapshot == nil || snapshot.Name == "" {
+			continue
+		}
+		if root := snapshot.Root; root.DAGRunID != "" && root.DAGRunID != snapshot.DAGRunID {
+			continue
+		}
+		if len(affectedDAGRunListStatuses(event.Type, snapshot.Status)) == 0 {
+			continue
+		}
+		if !slices.Contains(names, snapshot.Name) {
+			names = append(names, snapshot.Name)
+		}
+	}
+	return names
 }
 
 // readServiceDAGs returns the set of service DAG names, or nil when they are
@@ -173,8 +298,15 @@ func wakeTopicsForDAGRunEvent(mux *Multiplexer, event *eventstore.Event, service
 		mux.WakeTopic(TopicTypeBackfill, snapshot.BackfillID)
 	}
 
+	// The current set of service DAGs wins over the flag of the event, which
+	// the DAG of the run had when it started. The flag of a sub-DAG run tells
+	// about the sub-DAG, not the DAG of its root run, so it is not read.
+	service := serviceDAGRun
+	if serviceDAGs == nil && (root.DAGRunID == "" || root.DAGRunID == snapshot.DAGRunID) {
+		service = eventstore.IsServiceDAGEvent(event)
+	}
 	mux.WakeTopicType(TopicTypeQueues)
-	mux.WakeTopicType(TopicTypeDAGsList)
+	wakeOrLimit(mux, service, func() { mux.WakeTopicType(TopicTypeDAGsList) })
 	if serviceDAGs == nil || serviceDAGRun {
 		mux.WakeTopicType(TopicTypeServiceDAGs)
 	}

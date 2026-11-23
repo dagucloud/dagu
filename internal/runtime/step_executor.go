@@ -161,7 +161,10 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		return captureErr
 	}
 
-	if err == nil {
+	// An executor that publishes every named output of its step replaces the
+	// output file and the step's output fields as their source.
+	publisher, publishesOutputs := cmd.(executor.NamedOutputsPublisher)
+	if err == nil && !publishesOutputs {
 		if err := node.captureDeclaredStepOutputs(ctx); err != nil {
 			node.SetError(err)
 			return err
@@ -172,8 +175,14 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 	}
 
 	// An output field is resolved after the run and can read a masked value.
-	if err := node.captureOutput(ctx); err != nil {
-		return preferMaskedRead(ctx, node, err)
+	var outputErr error
+	if publishesOutputs {
+		outputErr = node.capturePublishedOutputs(ctx, publisher.NamedOutputs())
+	} else {
+		outputErr = node.captureOutput(ctx)
+	}
+	if outputErr != nil {
+		return preferMaskedRead(ctx, node, outputErr)
 	}
 	// An executor can resolve a field while it runs.
 	if err := maskedReadError(ctx, node); err != nil {

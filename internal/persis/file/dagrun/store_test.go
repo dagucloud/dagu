@@ -1242,7 +1242,7 @@ func TestResolveStatus_FastPath(t *testing.T) {
 		},
 	}
 
-	status := store.resolveStatus(ctx, dagRun, nil, nil, nil, false)
+	status := store.resolveStatus(ctx, dagRun, store.cache, nil, nil, nil, false)
 	require.NotNil(t, status)
 	assert.Equal(t, "test-dag", status.Name)
 	assert.Equal(t, "test-run", status.DAGRunID)
@@ -1270,7 +1270,7 @@ func TestResolveStatus_FastPath_StatusFilterReject(t *testing.T) {
 
 	// Filter only for Failed — should reject Succeeded.
 	statusesFilter := map[ir.Status]struct{}{ir.Failed: {}}
-	status := store.resolveStatus(ctx, dagRun, nil, nil, statusesFilter, true)
+	status := store.resolveStatus(ctx, dagRun, store.cache, nil, nil, statusesFilter, true)
 	assert.Nil(t, status)
 }
 
@@ -1286,7 +1286,7 @@ func TestResolveStatus_FastPath_LabelFilterReject(t *testing.T) {
 	}
 
 	labelFilters := mustParseLabelFilters(t, "env=prod")
-	status := store.resolveStatus(ctx, dagRun, labelFilters, nil, nil, false)
+	status := store.resolveStatus(ctx, dagRun, store.cache, labelFilters, nil, nil, false)
 	assert.Nil(t, status)
 }
 
@@ -1309,22 +1309,22 @@ func TestResolveStatus_StandardPath(t *testing.T) {
 
 	// Standard path (no summary) with matching label filter.
 	labelFilters := mustParseLabelFilters(t, "env=prod")
-	status := store.resolveStatus(ctx, dagRuns[0], labelFilters, nil, nil, false)
+	status := store.resolveStatus(ctx, dagRuns[0], store.cache, labelFilters, nil, nil, false)
 	require.NotNil(t, status, "should resolve status via standard path with matching label")
 
 	// Standard path with non-matching label filter.
 	labelFilters = mustParseLabelFilters(t, "env=staging")
-	status = store.resolveStatus(ctx, dagRuns[0], labelFilters, nil, nil, false)
+	status = store.resolveStatus(ctx, dagRuns[0], store.cache, labelFilters, nil, nil, false)
 	assert.Nil(t, status, "should reject via standard path when label doesn't match")
 
 	// Standard path with matching status filter.
 	statusFilter := map[ir.Status]struct{}{ir.Succeeded: {}}
-	status = store.resolveStatus(ctx, dagRuns[0], nil, nil, statusFilter, true)
+	status = store.resolveStatus(ctx, dagRuns[0], store.cache, nil, nil, statusFilter, true)
 	require.NotNil(t, status, "should resolve via standard path with matching status")
 
 	// Standard path with non-matching status filter.
 	statusFilter = map[ir.Status]struct{}{ir.Failed: {}}
-	status = store.resolveStatus(ctx, dagRuns[0], nil, nil, statusFilter, true)
+	status = store.resolveStatus(ctx, dagRuns[0], store.cache, nil, nil, statusFilter, true)
 	assert.Nil(t, status, "should reject via standard path when status doesn't match")
 }
 
@@ -1340,7 +1340,7 @@ func TestResolveStatus_StandardPath_NoAttempt(t *testing.T) {
 	dagRun, err := NewDAGRun(dagRunDir)
 	require.NoError(t, err)
 
-	status := store.resolveStatus(ctx, dagRun, nil, nil, nil, false)
+	status := store.resolveStatus(ctx, dagRun, store.cache, nil, nil, nil, false)
 	assert.Nil(t, status, "should return nil when no attempts exist")
 }
 

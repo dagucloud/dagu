@@ -381,6 +381,135 @@ func TestDAGRunInvalidatorBatchesAndTargetsLifecycleListRefreshes(t *testing.T) 
 	}, 200*time.Millisecond, 20*time.Millisecond)
 }
 
+// fakeWakeClock drives a wakeLimiter by hand.
+type fakeWakeClock struct {
+	mu     sync.Mutex
+	now    time.Time
+	timers []*fakeWakeTimer
+}
+
+type fakeWakeTimer struct {
+	at      time.Time
+	fire    func()
+	stopped bool
+}
+
+func (c *fakeWakeClock) time() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeWakeClock) after(d time.Duration, f func()) func() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	timer := &fakeWakeTimer{at: c.now.Add(d), fire: f}
+	c.timers = append(c.timers, timer)
+	return func() bool { timer.stopped = true; return true }
+}
+
+// advance moves the time and fires the timers that are due, in order.
+func (c *fakeWakeClock) advance(d time.Duration) {
+	c.mu.Lock()
+	target := c.now.Add(d)
+	c.mu.Unlock()
+	for {
+		c.mu.Lock()
+		var next *fakeWakeTimer
+		for _, timer := range c.timers {
+			if !timer.stopped && !timer.at.After(target) && (next == nil || timer.at.Before(next.at)) {
+				next = timer
+			}
+		}
+		if next == nil {
+			c.now = target
+			c.mu.Unlock()
+			return
+		}
+		next.stopped = true
+		c.now = next.at
+		c.mu.Unlock()
+		next.fire()
+	}
+}
+
+// The runs of a service DAG wake the DAG list at most once in a window. A
+// wake inside the window fires at its end. The DAG topics, and the list for a
+// normal DAG, wake at once.
+func TestDAGRunInvalidatorLimitsServiceDAGWakes(t *testing.T) {
+	mux := NewMultiplexer(StreamConfig{}, nil)
+	t.Cleanup(mux.Shutdown)
+	clock := &fakeWakeClock{now: time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)}
+	mux.serviceWakes.now = clock.time
+	mux.serviceWakes.after = clock.after
+
+	var lists, dags, histories atomic.Int64
+	for topicType, counter := range map[TopicType]*atomic.Int64{
+		TopicTypeDAGsList: &lists, TopicTypeDAG: &dags, TopicTypeDAGHistory: &histories,
+	} {
+		mux.RegisterFetcher(topicType, func(_ context.Context, _ string) (any, error) {
+			counter.Add(1)
+			return nil, nil
+		})
+		mux.SetRefreshMode(topicType, TopicRefreshModeOnDemand)
+	}
+	result, err := mux.createSession(context.Background(), httptest.NewRecorder(),
+		[]string{"dagslist:page=1", "dag:svc.yaml", "daghistory:svc.yaml"}, 0)
+	require.NoError(t, err)
+	require.NotNil(t, result.session)
+	defer mux.removeSession(result.session)
+	newEvent := func(runID string, data map[string]any) *eventstore.Event {
+		return eventstore.NewDAGRunEvent(
+			eventstore.Source{Service: eventstore.SourceServiceServer},
+			eventstore.TypeDAGRunSucceeded,
+			&ir.DAGRunStatus{Name: "svc", DAGRunID: runID, AttemptID: "a", Status: ir.Succeeded},
+			data,
+		)
+	}
+	service := map[string]any{eventstore.DAGFileNameDataKey: "svc", eventstore.ServiceDAGDataKey: true}
+	normal := map[string]any{eventstore.DAGFileNameDataKey: "svc"}
+	// Each event wakes the DAG topics; the list counts as given.
+	waitCounts := func(list, events int64) {
+		t.Helper()
+		require.Eventually(t, func() bool {
+			return lists.Load() == list && dags.Load() == events && histories.Load() == events
+		}, time.Second, 10*time.Millisecond)
+	}
+	holdList := func(want int64) {
+		t.Helper()
+		require.Never(t, func() bool { return lists.Load() != want }, 150*time.Millisecond, 20*time.Millisecond)
+	}
+
+	// The first wake passes. The two next ones stay pending, as one wake.
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r1", service)}, nil)
+	waitCounts(1, 1)
+	clock.advance(3 * time.Second)
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r2", service)}, nil)
+	waitCounts(1, 2)
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r3", service)}, nil)
+	waitCounts(1, 3)
+	holdList(1)
+
+	// The pending wake fires at the end of the window of the first wake.
+	clock.advance(6 * time.Second)
+	holdList(1)
+	clock.advance(time.Second)
+	waitCounts(2, 3)
+
+	// A wake after the window passes at once.
+	clock.advance(10 * time.Second)
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r4", service)}, nil)
+	waitCounts(3, 4)
+
+	// A normal DAG wakes at once, also inside the window.
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r5", normal)}, nil)
+	waitCounts(4, 5)
+
+	// A known set of service DAGs without svc wins over the flag of the event.
+	wakeTopicsForDAGRunEvents(mux, []*eventstore.Event{newEvent("r6", service)}, map[string]struct{}{})
+	waitCounts(5, 6)
+}
+
 // countingTopics subscribes to the topics, all of one type, and returns the
 // multiplexer with a count of the refetches of each topic.
 func countingTopics(t *testing.T, topicType TopicType, topics ...string) (*Multiplexer, func(topic string) int64) {
@@ -495,4 +624,46 @@ func TestDAGRunInvalidatorWakesServiceDAGListOnlyForItsDAGs(t *testing.T) {
 
 	wakeTopicsForDAGRunEvents(mux, running("job", ""), nil)
 	require.Eventually(t, func() bool { return refreshes(topic) == 3 }, time.Second, 10*time.Millisecond)
+}
+
+// After each read of events, the DAGs whose root runs changed are told, each
+// once, also when no event came, which tells that the events are read. A
+// sub-DAG run names no DAG, and neither does an update that keeps the state
+// of a run, such as a step change.
+func TestHandleDAGRunEventsTellsTheChangedDAGs(t *testing.T) {
+	mux := NewMultiplexer(StreamConfig{}, nil)
+	t.Cleanup(mux.Shutdown)
+	var told [][]string
+	changed := func(names []string) { told = append(told, names) }
+
+	handleDAGRunEvents(mux, []*eventstore.Event{
+		runEvent(eventstore.TypeDAGRunRunning, ir.Running, "a", "r1", ""),
+		runEvent(eventstore.TypeDAGRunSucceeded, ir.Succeeded, "b", "root-run", "b"),
+		runEvent(eventstore.TypeDAGRunSucceeded, ir.Succeeded, "a", "r1", ""),
+		runEvent(eventstore.TypeDAGRunRunning, ir.Running, "child", "c1", "a"),
+		runEvent(eventstore.TypeDAGRunUpdated, ir.Running, "c", "r4", ""),
+	}, nil, changed)
+	handleDAGRunEvents(mux, nil, nil, changed)
+
+	require.Equal(t, [][]string{{"a", "b"}, nil}, told)
+}
+
+// A batch with a lifecycle event of a root run wakes the DAG list activity
+// topics. A batch with no event, or with only updates that keep the state of
+// runs or only sub-DAG runs, wakes none.
+func TestHandleDAGRunEventsWakesListActivity(t *testing.T) {
+	const topic = "daglistactivity:page=1&window=86400"
+	mux, refreshes := countingTopics(t, TopicTypeDAGListActivity, topic)
+
+	for _, events := range [][]*eventstore.Event{
+		nil,
+		{runEvent(eventstore.TypeDAGRunUpdated, ir.Running, "a", "r1", "")},
+		{runEvent(eventstore.TypeDAGRunRunning, ir.Running, "child", "c1", "a")},
+	} {
+		handleDAGRunEvents(mux, events, nil, nil)
+	}
+	require.Never(t, func() bool { return refreshes(topic) != 0 }, 200*time.Millisecond, 20*time.Millisecond)
+
+	handleDAGRunEvents(mux, []*eventstore.Event{runEvent(eventstore.TypeDAGRunSucceeded, ir.Succeeded, "a", "r1", "")}, nil, nil)
+	require.Eventually(t, func() bool { return refreshes(topic) == 1 }, time.Second, 10*time.Millisecond)
 }
