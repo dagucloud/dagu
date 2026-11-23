@@ -1249,6 +1249,8 @@ function DAGSpec({
 
   // The editor hides the text, so a save from it shows the diff first.
   const [reviewOpen, setReviewOpen] = React.useState(false);
+  // True from the click on Save until the diff dialog renders.
+  const [reviewPending, setReviewPending] = React.useState(false);
   // The server cannot read a text with a YAML syntax error: the save waits.
   const syntaxError = React.useMemo(
     () =>
@@ -1314,11 +1316,17 @@ function DAGSpec({
     if (showSaveBlocker()) {
       return;
     }
-    if (!localHasUnsavedChanges || isSaving) {
+    if (!localHasUnsavedChanges || isSaving || reviewPending) {
       return;
     }
+    // The dialog renders in one long task. Let the spinner paint first.
+    setReviewPending(true);
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    );
     setReviewOpen(true);
-  }, [isSaving, localHasUnsavedChanges, showSaveBlocker]);
+    setReviewPending(false);
+  }, [isSaving, reviewPending, localHasUnsavedChanges, showSaveBlocker]);
 
   // A caller that saves in order to run has confirmed the save: the text is
   // sent without the review of the diff.
@@ -2128,6 +2136,7 @@ function DAGSpec({
                           size="xs"
                           aria-label={ts('Save')}
                           aria-describedby="save-status"
+                          aria-busy={reviewPending || undefined}
                           title={saveButtonTitle}
                           // Icon only, with one size in every state. The issues
                           // button beside it tells the warnings.
@@ -2146,7 +2155,11 @@ function DAGSpec({
                           }}
                         >
                           <SaveStatusIcon
-                            busy={isSaving || saveState === 'validating'}
+                            busy={
+                              isSaving ||
+                              reviewPending ||
+                              saveState === 'validating'
+                            }
                           />
                           {saveLabeled && (
                             <span aria-hidden="true">{ts('Save')}</span>
