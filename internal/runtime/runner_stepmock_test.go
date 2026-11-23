@@ -888,7 +888,8 @@ steps:
 	})
 
 	// A real mail step needs a mail server, so only the mocked side runs.
-	// mail.search publishes its outputs, and mail.send publishes none.
+	// mail.search and mail.organize publish their outputs, and mail.send
+	// publishes none.
 	for _, tc := range []struct {
 		name string
 		step string
@@ -897,6 +898,12 @@ steps:
 		{
 			name: "MailSearch",
 			step: "action: mail.search\n    with: {mailbox: ops@example.com}",
+			want: map[string]string{"version": "v1.2.3"},
+		},
+		{
+			name: "MailOrganize",
+			step: `action: mail.organize
+    with: {mailbox: ops@example.com, emails: ["1"], mark: read}`,
 			want: map[string]string{"version": "v1.2.3"},
 		},
 		{
