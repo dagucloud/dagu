@@ -1302,17 +1302,19 @@ a step it adds in the same shape:
   such as a stream assertion or an output that the step did not publish, and
   then it reports that failure.
 - The last line of each case in the text report, and `update` in the JSON
-  report, say what happened to its `expect`: `expect updated` (`updated`)
-  when its text changed, `expect unchanged` (`unchanged`) when every
-  assertion already held and no step gained one, and
-  `expect kept: <reason>` (`kept`) when it stays as written. `<reason>` is
-  `the case is invalid`, `the run did not finish`, or
-  `the case uses a YAML anchor, alias, merge key, or flow style`.
+  report, say what happened to its `expect`, whether or not the case
+  passes: `expect updated` (`updated`) when its text changed,
+  `expect unchanged` (`unchanged`) when the run left its text as it was, and
+  `expect kept: <reason>` (`kept`) when it stays as written whatever the run
+  did. `<reason>` is `the case is invalid`, `the run did not finish`, or
+  `the case is written in flow style or uses a YAML anchor, alias, or merge key`.
 - A test file is written once its selected cases have run, and only when an
   `expect` changed, through a temporary file in its directory renamed over
   it, keeping its mode. A test file that changed while its cases ran is not
-  written, and `dagu test` stops with an error and exit status 1. An
-  interrupt leaves the test file whose cases were running as it was.
+  written. `dagu test` then writes an error that names it to stderr, goes on
+  with the other test files, ends the report, and exits with status 1, or 2
+  when that status applies. An interrupt leaves the test file whose cases
+  were running as it was.
 
 ### Exit Status
 
