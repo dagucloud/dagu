@@ -219,7 +219,7 @@ func TestUpdateRewrites(t *testing.T) {
 		},
 		{
 			name:   "Tagged",
-			expect: "    expect:\n      status: !!str \"succeeded\"  # tagged\n      steps:\n        build:\n          outputs:\n            tag: !!str 3  # plain\n",
+			expect: "    expect:\n      status: !!str\t\"succeeded\"  # tagged\n      steps:\n        build:\n          outputs:\n            tag: !!str 3  # plain\n",
 			edit: func(e *Expect) {
 				e.Status = "failed"
 				e.Steps[0].Outputs[0].Value = "4"

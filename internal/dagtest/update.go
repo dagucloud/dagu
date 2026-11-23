@@ -551,11 +551,11 @@ func (t *yamlText) span(n *yaml.Node) (start, end int, ok bool) {
 // rest, its explicit tag included, when it ends there.
 func scalarEnd(rest []byte, n *yaml.Node) (int, bool) {
 	if n.Style&yaml.TaggedStyle != 0 {
-		tag := bytes.IndexByte(rest, ' ')
+		tag := bytes.IndexAny(rest, " \t")
 		if tag < 0 {
 			return 0, false
 		}
-		skip := len(rest) - len(bytes.TrimLeft(rest[tag:], " "))
+		skip := len(rest) - len(bytes.TrimLeft(rest[tag:], " \t"))
 		untagged := *n
 		untagged.Style &^= yaml.TaggedStyle
 		end, ok := scalarEnd(rest[skip:], &untagged)
@@ -635,7 +635,7 @@ func (t *yamlText) colonEnd(key *yaml.Node) (int, bool) {
 	if !ok {
 		return 0, false
 	}
-	rest := bytes.TrimLeft(t.data[end:t.lineEnd(key.Line)], " ")
+	rest := bytes.TrimLeft(t.data[end:t.lineEnd(key.Line)], " \t")
 	if len(rest) == 0 || rest[0] != ':' {
 		return 0, false
 	}
