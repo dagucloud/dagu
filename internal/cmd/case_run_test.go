@@ -931,10 +931,12 @@ handler_on:
 steps:
   - name: sync
     run: ./sync.sh
-`, caseOptions{mocks: map[string]stepmock.Step{
-		"sync":      {Results: []stepmock.Result{{ExitCode: 1}}},
-		"onFailure": {Results: []stepmock.Result{{Stdout: "first\n"}, {Stdout: "second\n"}}},
-	}})
+`, caseOptions{
+		mocks: map[string]stepmock.Step{"sync": {Results: []stepmock.Result{{ExitCode: 1}}}},
+		handlers: map[ir.HandlerType]stepmock.Step{
+			ir.HandlerOnFailure: {Results: []stepmock.Result{{Stdout: "first\n"}, {Stdout: "second\n"}}},
+		},
+	})
 	require.NoError(t, err)
 	require.Equal(t, ir.Failed, status.Status)
 

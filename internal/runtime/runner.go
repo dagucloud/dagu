@@ -204,6 +204,8 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 	// A run started by a step, such as a sub-DAG run in process, checks its
 	// own reads instead of the step's.
 	ctx = cmnvalue.UntrackMaskedReads(ctx)
+	// The steps of a run that a handler starts in process are not handlers.
+	ctx = context.WithValue(ctx, lifecycleHandlerKey{}, ir.HandlerType(""))
 	if r.skipWaits {
 		ctx = context.WithValue(ctx, skipWaitsKey{}, true)
 	}
@@ -1707,6 +1709,7 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 	// A handler reports on the run, so it reads outputs stored masked as they
 	// are instead of failing on them.
 	ctx = logger.WithValues(ctx, tag.Step(node.Name()))
+	ctx = context.WithValue(ctx, lifecycleHandlerKey{}, node.handler)
 	var err error
 	ctx, err = r.setupEnvironEventHandler(ctx, plan, node, extraEnvs)
 	if err != nil {
@@ -1726,7 +1729,7 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 	}
 	defer func() { _ = node.Teardown() }()
 
-	if err := node.evalPreconditions(ctx, r.scriptedPrecondition(node)); err != nil {
+	if err := node.evalPreconditions(ctx, r.scriptedPrecondition(ctx, node)); err != nil {
 		if errors.Is(err, ErrConditionNotMet) {
 			node.SetStatus(ir.NodeSkipped)
 			return nil
@@ -1773,7 +1776,7 @@ func (r *Runner) setup(ctx context.Context) (err error) {
 			continue
 		}
 		if step != nil {
-			r.handlers[handlerType] = &Node{Data: newSafeData(NodeData{Step: *step})}
+			r.handlers[handlerType] = &Node{Data: newSafeData(NodeData{Step: *step}), handler: handlerType}
 		}
 	}
 
@@ -2095,11 +2098,11 @@ func (r *Runner) scriptedDAGPrecondition() *bool {
 
 // scriptedPrecondition returns the outcome the condition override scripts
 // for the node's preconditions that run a command, or nil.
-func (r *Runner) scriptedPrecondition(node *Node) *bool {
+func (r *Runner) scriptedPrecondition(ctx context.Context, node *Node) *bool {
 	if r.conditions == nil {
 		return nil
 	}
-	return r.conditions.Precondition(node.Step())
+	return r.conditions.Precondition(ctx, node.Step())
 }
 
 // maskedReadError returns the error for an output restored masked that the
@@ -2142,7 +2145,7 @@ func isMaskedRead(err error) bool {
 
 // checkPreconditions evaluates the preconditions for a node and updates its status accordingly.
 func (r *Runner) meetsPreconditions(ctx context.Context, node *Node, progressCh chan ProgressUpdate) (bool, error) {
-	err, readErr := evalPreconditions(ctx, node, r.scriptedPrecondition(node))
+	err, readErr := evalPreconditions(ctx, node, r.scriptedPrecondition(ctx, node))
 	if readErr != nil && !errors.Is(err, errConditionInterrupted) {
 		node.SetStatus(ir.NodeFailed)
 		node.MarkError(readErr)
@@ -2484,6 +2487,17 @@ func (r *Runner) waitForStep(ctx context.Context, node *Node, duration time.Dura
 // skipWaitsKey marks the context of a run that skips waits, so that a run a
 // step starts in process, such as a foreach body, skips them too.
 type skipWaitsKey struct{}
+
+// lifecycleHandlerKey marks the context in which a lifecycle handler runs.
+type lifecycleHandlerKey struct{}
+
+// LifecycleHandler returns the type of the lifecycle handler that runs under
+// ctx, or "" for a step. An override uses it to tell a handler apart from a
+// step of the same name.
+func LifecycleHandler(ctx context.Context) ir.HandlerType {
+	kind, _ := ctx.Value(lifecycleHandlerKey{}).(ir.HandlerType)
+	return kind
+}
 
 // waitForExecution waits for duration before the next execution, or not at
 // all when the run skips waits. It reports false when ctx ends first.

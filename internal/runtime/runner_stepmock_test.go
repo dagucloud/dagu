@@ -26,7 +26,12 @@ import (
 )
 
 func withStepMocks(steps map[string]stepmock.Step) runnerOption {
-	return withStepMockSet(stepmock.New(steps))
+	return withStepMockSet(stepmock.New(steps, nil))
+}
+
+// withFailureHandlerMock scripts the steps and the failure handler.
+func withFailureHandlerMock(steps map[string]stepmock.Step, handler stepmock.Step) runnerOption {
+	return withStepMockSet(stepmock.New(steps, map[ir.HandlerType]stepmock.Step{ir.HandlerOnFailure: handler}))
 }
 
 // withStepMockSet scripts the run with set, as a workflow test does.
@@ -226,11 +231,10 @@ func TestStepMockFailure(t *testing.T) {
 		marker := filepath.Join(t.TempDir(), "notified")
 		r := setupRunner(t,
 			withOnFailure(newHandlerStep(t, "onFailure", "", createEmptyFileCommand(marker))),
-			withStepMocks(map[string]stepmock.Step{
-				"build":     failed,
-				"deploy":    {},
-				"onFailure": {},
-			}),
+			withFailureHandlerMock(map[string]stepmock.Step{
+				"build":  failed,
+				"deploy": {},
+			}, stepmock.Step{}),
 		)
 		result := r.newPlan(t, successStep("build"), successStep("deploy", "build")).assertRun(t, ir.Failed)
 
@@ -238,6 +242,22 @@ func TestStepMockFailure(t *testing.T) {
 		result.assertNodeStatus(t, "deploy", ir.NodeAborted)
 		result.assertNodeStatus(t, "onFailure", ir.NodeSucceeded)
 		assert.NoFileExists(t, marker)
+	})
+
+	// A step named like the failure handler takes only its own mock, and
+	// the unmocked handler runs its own action.
+	t.Run("StepNamedLikeHandler", func(t *testing.T) {
+		t.Parallel()
+
+		marker := filepath.Join(t.TempDir(), "notified")
+		r := setupRunner(t,
+			withOnFailure(newHandlerStep(t, "onFailure", "", createEmptyFileCommand(marker))),
+			withStepMocks(map[string]stepmock.Step{"onFailure": failed}),
+		)
+		r.newPlan(t, successStep("onFailure")).assertRun(t, ir.Failed)
+
+		assert.Equal(t, ir.NodeSucceeded, r.runner.HandlerNode(ir.HandlerOnFailure).State().Status)
+		assert.FileExists(t, marker)
 	})
 
 	t.Run("ContinueOnFailure", func(t *testing.T) {
@@ -947,10 +967,9 @@ func TestStepMockPrecondition(t *testing.T) {
 		ran := filepath.Join(t.TempDir(), "ran")
 		handler := newHandlerStep(t, "onFailure", "", "exit 0")
 		handler.Preconditions = []*ir.Condition{{Condition: createEmptyFileCommand(ran)}}
-		r := setupRunner(t, withOnFailure(handler), withStepMocks(map[string]stepmock.Step{
-			"build":     {Results: []stepmock.Result{{ExitCode: 1}}},
-			"onFailure": {Precondition: new(false)},
-		}))
+		r := setupRunner(t, withOnFailure(handler), withFailureHandlerMock(map[string]stepmock.Step{
+			"build": {Results: []stepmock.Result{{ExitCode: 1}}},
+		}, stepmock.Step{Precondition: new(false)}))
 		r.newPlan(t, successStep("build")).assertRun(t, ir.Failed)
 
 		assert.Equal(t, ir.NodeSkipped, r.runner.HandlerNode(ir.HandlerOnFailure).State().Status)
@@ -1003,7 +1022,7 @@ func TestStepMockDAGPrecondition(t *testing.T) {
 			t.Parallel()
 
 			ran := filepath.Join(t.TempDir(), "ran")
-			set := stepmock.New(map[string]stepmock.Step{"main": {}})
+			set := stepmock.New(map[string]stepmock.Step{"main": {}}, nil)
 			set.SetDAGPrecondition(tc.met)
 			r := setupRunner(t, withStepMockSet(set))
 			plan := r.newPlan(t, successStep("main"))

@@ -83,6 +83,7 @@ type Review struct {
 // depends on its earlier executions, so a Set serves a single run.
 type Set struct {
 	steps           map[string]*script
+	handlers        map[ir.HandlerType]*script
 	dagPrecondition *bool
 }
 
@@ -91,14 +92,32 @@ var (
 	_ runtime.ConditionOverride = (*Set)(nil)
 )
 
-// New returns a Set holding the given steps, keyed by step name.
-func New(steps map[string]Step) *Set {
-	set := &Set{steps: make(map[string]*script, len(steps))}
+// New returns a Set holding the given steps, keyed by step name, and the
+// given lifecycle handlers, keyed by handler type. A step named like a
+// handler takes only its own script.
+func New(steps map[string]Step, handlers map[ir.HandlerType]Step) *Set {
+	set := &Set{
+		steps:    make(map[string]*script, len(steps)),
+		handlers: make(map[ir.HandlerType]*script, len(handlers)),
+	}
 	for name, step := range steps {
-		step.Results = slices.Clone(step.Results)
 		set.steps[name] = newScript(step)
 	}
+	for kind, step := range handlers {
+		set.handlers[kind] = newScript(step)
+	}
 	return set
+}
+
+// lookup returns the script of the step or lifecycle handler that runs
+// under ctx.
+func (s *Set) lookup(ctx context.Context, step ir.Step) (*script, bool) {
+	if kind := runtime.LifecycleHandler(ctx); kind != "" {
+		script, ok := s.handlers[kind]
+		return script, ok
+	}
+	script, ok := s.steps[step.Name]
+	return script, ok
 }
 
 // SetDAGPrecondition scripts whether the DAG-level preconditions that run a
@@ -112,9 +131,9 @@ func (s *Set) DAGPrecondition() *bool {
 	return s.dagPrecondition
 }
 
-// Precondition returns the step's Precondition.
-func (s *Set) Precondition(step ir.Step) *bool {
-	script, ok := s.steps[step.Name]
+// Precondition returns the Precondition of the step or handler.
+func (s *Set) Precondition(ctx context.Context, step ir.Step) *bool {
+	script, ok := s.lookup(ctx, step)
 	if !ok {
 		return nil
 	}
@@ -123,7 +142,8 @@ func (s *Set) Precondition(step ir.Step) *bool {
 
 // RepeatCondition returns the Condition of the result that the step's
 // latest execution took, or of its first result before any. A step whose
-// action the set does not replace scripts none.
+// action the set does not replace scripts none. A lifecycle handler does not
+// repeat, so the step is never one.
 func (s *Set) RepeatCondition(step ir.Step) *bool {
 	script, ok := s.steps[step.Name]
 	if !ok || !script.replaces() {
@@ -150,10 +170,10 @@ func (s *Set) ContinuousLimit(step ir.Step) (limit int, ok bool) {
 	}
 }
 
-// Executor returns an executor that runs the step's next result, or false
-// when the set does not replace the step's action.
-func (s *Set) Executor(_ context.Context, step ir.Step) (executor.Executor, bool) {
-	script, ok := s.steps[step.Name]
+// Executor returns an executor that runs the next result of the step or
+// handler, or false when the set does not replace its action.
+func (s *Set) Executor(ctx context.Context, step ir.Step) (executor.Executor, bool) {
+	script, ok := s.lookup(ctx, step)
 	if !ok || !script.replaces() {
 		return nil, false
 	}
@@ -175,6 +195,7 @@ type script struct {
 }
 
 func newScript(step Step) *script {
+	step.Results = slices.Clone(step.Results)
 	s := &script{step: step}
 	if len(step.Results) > 0 {
 		s.last = step.Results[0]

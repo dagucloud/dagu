@@ -51,6 +51,9 @@ type caseOptions struct {
 	// real keeps its own action and takes only its step fields, such as its
 	// review.
 	mocks map[string]stepmock.Step
+	// handlers holds the scripted lifecycle handlers of the case by handler
+	// type. A handler marked Real runs for real.
+	handlers map[ir.HandlerType]stepmock.Step
 }
 
 // testCase is one run of a DAG that keeps its run history, logs, artifacts,
@@ -248,10 +251,10 @@ func (c *testCase) executorOverride() runtime.ExecutorOverride {
 			replaced[name] = step
 		}
 	}
-	if len(replaced) == 0 {
+	if len(replaced) == 0 && len(c.opts.handlers) == 0 {
 		return nil
 	}
-	return stepmock.New(replaced)
+	return stepmock.New(replaced, c.opts.handlers)
 }
 
 // runQueued runs the attempt of a retry queued for the run, such as the
