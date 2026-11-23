@@ -15,15 +15,16 @@ import (
 )
 
 // Schema creates the 'schema' CLI command that displays JSON schema
-// documentation for DAG definitions, configuration, or calendar files.
+// documentation for DAG definitions, configuration, calendar files, or
+// workflow test files.
 func Schema() *cobra.Command {
 	return &cobra.Command{
-		Use:   "schema <dag|config|calendar> [path]",
-		Short: "Display schema documentation for DAG, config, or calendar files",
-		Long: `Browse the JSON schema for DAG definitions, configuration, or business
-calendar files.
+		Use:   "schema <dag|config|calendar|test> [path]",
+		Short: "Display schema documentation for DAG, config, calendar, or test files",
+		Long: `Browse the JSON schema for DAG definitions, configuration, business
+calendar files, or workflow test files (*.test.yaml).
 
-Available schemas: dag, config, calendar
+Available schemas: dag, config, calendar, test
 
 Call without a path to see all root-level fields. Use a dot-separated
 path to drill into nested sections.`,
@@ -32,8 +33,10 @@ path to drill into nested sections.`,
   dagu schema dag steps.container  Show container configuration
   dagu schema config               Show all config root-level fields
   dagu schema config auth          Show authentication configuration
-  dagu schema calendar holidays    Show the forms of a calendar holiday`,
-		ValidArgs: []string{"dag", "config", "calendar"},
+  dagu schema calendar holidays    Show the forms of a calendar holiday
+  dagu schema test                 Show all test file root-level fields
+  dagu schema test cases.expect    Show the assertions of a test case`,
+		ValidArgs: []string{"dag", "config", "calendar", "test"},
 		Args:      cobra.RangeArgs(1, 2),
 		RunE:      runSchema,
 	}
@@ -63,6 +66,7 @@ func navigateSchema(schemaName, path string) (string, error) {
 		"calendar": schemapkg.CalendarSchemaJSON,
 		"config":   schemapkg.ConfigSchemaJSON,
 		"dag":      schemapkg.DAGSchemaJSON,
+		"test":     schemapkg.WorkflowTestSchemaJSON,
 	}
 	data, ok := schemas[schemaName]
 	if !ok {
