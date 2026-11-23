@@ -1197,8 +1197,8 @@ Rules:
 
 `--init` and `--update` ship after the first release of `dagu test`.
 
-`--init` writes an `expect` from a run in this shape, and `--update` adds
-facts in the same shape:
+`--init` writes an `expect` from a run in this shape, and `--update` writes
+a step it adds in the same shape:
 
 - `status`: the run status.
 - `attempts`: the run attempts, when there are more than one.
@@ -1236,14 +1236,14 @@ facts in the same shape:
   change in behavior shows as a diff to review. It never removes an
   assertion the author wrote. Every other part of the file, comments
   included, stays as it was.
-- Exact facts take the run's values: the run `status` and `attempts`, each
-  step's and handler's `status` and `attempts`, and `notifications`. A fact
-  that the case asserts keeps its place with the run's value. A fact that it
-  does not assert is added as the shape above writes it, so a step with no
-  assertion gains `status`, and `attempts` when its attempts are more than
-  one.
-- A step entry written as a status token stays a token, unless the step
-  gains `attempts`. A step entry written as a map keeps its other fields.
+- The exact facts that the case asserts take the run's values: the run
+  `status` and `attempts`, each step's and handler's `status` and
+  `attempts`, and `notifications`.
+- A step or handler with no assertion gains `status`, and `attempts` when
+  its attempts are more than one, as the shape above writes them. No other
+  assertion is added.
+- A step entry keeps its form: a status token stays a token, and a map keeps
+  its fields.
 - The outputs that the case asserts take their published values, and no
   output assertion is added. For a `type: json` output asserted with an
   object, each key it lists takes its published value, recursively, and no
