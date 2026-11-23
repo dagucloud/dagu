@@ -234,6 +234,9 @@ func (a *API) dagActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunStat
 		// The cached time comes from the reused inputs, which the run index
 		// does not keep.
 		FullStatus: true,
+		// The activity cache keeps what the list needs, and these reads would
+		// push out of the shared status cache what other pages read.
+		SkipStatusCache: true,
 		// A backfill run is not the latest run of its DAG either.
 		ExcludeBackfill: true,
 	})

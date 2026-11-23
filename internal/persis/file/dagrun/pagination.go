@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/dagrunindex"
@@ -121,7 +122,7 @@ func (store *Store) listStatusesOrdered(
 		if opts.Cursor == "" || compareDagRunListKeys(current.Item.Key, cursorKey) > 0 {
 			// The item past the limit only tells that a next page exists.
 			beyondPage := limit > 0 && len(statuses) == limit
-			if status := store.pageStatus(ctx, current.Item, beyondPage); status != nil {
+			if status := store.pageStatus(ctx, current.Item, beyondPage, store.queryCache(opts)); status != nil {
 				statuses = append(statuses, status)
 				keys = append(keys, current.Item.Key)
 			}
@@ -151,11 +152,11 @@ func (store *Store) listStatusesOrdered(
 // pageStatus returns the status that a page lists for an item, or nil when
 // its whole status cannot be read. An item beyond the page keeps its summary,
 // since no page lists it.
-func (store *Store) pageStatus(ctx context.Context, item dagRunListItem, beyondPage bool) *ir.DAGRunStatus {
+func (store *Store) pageStatus(ctx context.Context, item dagRunListItem, beyondPage bool, cache *fileutil.Cache[*ir.DAGRunStatus]) *ir.DAGRunStatus {
 	if item.whole == nil || beyondPage {
 		return item.Status
 	}
-	return store.resolveStatus(ctx, item.whole, nil, nil, nil, false)
+	return store.resolveStatus(ctx, item.whole, cache, nil, nil, nil, false)
 }
 
 // statusIterOptions tunes how the iterators of one list call read days.
@@ -506,7 +507,7 @@ func (it *dagRunStatusIterator) toListItem(ctx context.Context, run *DAGRun) (da
 		copied.summary = nil
 		whole = &copied
 	}
-	status := it.store.resolveStatus(ctx, run, it.labelFilters, it.opts.WorkspaceFilter, it.statusesFilter, it.hasStatusFilter)
+	status := it.store.resolveStatus(ctx, run, it.store.queryCache(it.opts), it.labelFilters, it.opts.WorkspaceFilter, it.statusesFilter, it.hasStatusFilter)
 	if status == nil || (it.opts.ExcludeBackfill && status.BackfillID != "") ||
 		(it.opts.OnlyBackfill && status.BackfillID == "") ||
 		(it.opts.BackfillID != "" && status.BackfillID != it.opts.BackfillID) {

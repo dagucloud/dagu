@@ -54,6 +54,9 @@ type DAGRunStatusQuery struct {
 	// FullStatus returns each status whole, with its nodes, where a run
 	// index would serve a summary.
 	FullStatus bool
+	// SkipStatusCache keeps the statuses that the query reads out of the
+	// shared status cache.
+	SkipStatusCache bool
 	// ExcludeDAGNames drops the runs of these DAGs. A cursor records only
 	// whether it is set, so a page stays valid when the names change.
 	ExcludeDAGNames []string
@@ -219,6 +222,9 @@ type DAGRunListOptions struct {
 	Unbounded bool
 	// FullStatus returns each status whole, with its nodes.
 	FullStatus bool
+	// SkipStatusCache keeps the statuses that the query reads out of the
+	// shared status cache, for a caller that keeps what it needs itself.
+	SkipStatusCache bool
 	// ExcludeBackfill drops backfill runs.
 	ExcludeBackfill bool
 	// OnlyBackfill keeps only backfill runs.
