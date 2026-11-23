@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
@@ -27,6 +28,8 @@ type SecretStore struct {
 
 	mu    sync.RWMutex
 	byRef map[string]string // refKey(workspace,ref) → secretID
+
+	revision atomic.Uint64
 }
 
 type secretStoredRecord struct {
@@ -126,6 +129,7 @@ func (s *SecretStore) Create(ctx context.Context, sec *secret.Secret, initialVal
 		return err
 	}
 	s.byRef[rk] = sec.ID
+	s.revision.Add(1)
 	return nil
 }
 
@@ -273,6 +277,7 @@ func (s *SecretStore) Update(ctx context.Context, sec *secret.Secret) error {
 		delete(s.byRef, oldRef)
 		s.byRef[newRef] = sec.ID
 	}
+	s.revision.Add(1)
 	return nil
 }
 
@@ -303,6 +308,7 @@ func (s *SecretStore) Delete(ctx context.Context, id string) error {
 	if sr.Secret != nil {
 		delete(s.byRef, secretRefKey(sr.Secret.Workspace, sr.Secret.Ref))
 	}
+	s.revision.Add(1)
 	return nil
 }
 
@@ -339,6 +345,7 @@ func (s *SecretStore) WriteValue(ctx context.Context, id string, input secret.Wr
 	}); err != nil {
 		return nil, err
 	}
+	s.revision.Add(1)
 	return sr.Secret.Clone(), nil
 }
 
@@ -407,6 +414,39 @@ func (s *SecretStore) ReadValue(ctx context.Context, id string) (string, *secret
 		return "", nil, err
 	}
 	return plaintext, secretVersionMetadata(v), nil
+}
+
+// CurrentValues returns the current value of every dagu-managed secret,
+// disabled ones included. A record that cannot be decoded or decrypted is
+// skipped: Dagu cannot read its value, so no run can carry it.
+func (s *SecretStore) CurrentValues(ctx context.Context) ([]string, error) {
+	recs, err := listAll(ctx, s.col, persis.ListQuery{})
+	if err != nil {
+		return nil, err
+	}
+	values := make([]string, 0, len(recs))
+	for _, rec := range recs {
+		var sr secretStoredRecord
+		if err := persis.Decode(rec, &sr); err != nil || sr.Secret == nil ||
+			sr.Secret.ProviderType != secret.ProviderDaguManaged {
+			continue
+		}
+		v, ok := secretCurrentVersion(&sr)
+		if !ok {
+			continue
+		}
+		plaintext, err := s.encryptor.Decrypt(v.EncryptedValue)
+		if err != nil {
+			continue
+		}
+		values = append(values, plaintext)
+	}
+	return values, nil
+}
+
+// Revision changes whenever a secret changes through this store.
+func (s *SecretStore) Revision() uint64 {
+	return s.revision.Load()
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

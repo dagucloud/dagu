@@ -334,3 +334,34 @@ func TestSecretIndexRebuiltOnStartup(t *testing.T) {
 	dup := newSecret("ws", "ref-a")
 	assert.ErrorIs(t, s2.Create(ctx, dup, nil), secret.ErrAlreadyExists)
 }
+
+// The masker reads every dagu-managed secret's current value, disabled ones
+// included, and the revision tells it when a value changed.
+func TestSecretCurrentValues(t *testing.T) {
+	ctx := context.Background()
+	s := newSecretStore(t)
+	first := newSecret("payments", "prod/db-pass")
+	require.NoError(t, s.Create(ctx, first, &secret.WriteValueInput{Value: "old", CreatedBy: "alice"}))
+	disabled := newSecret(secret.GlobalWorkspace, "ci/token")
+	require.NoError(t, s.Create(ctx, disabled, &secret.WriteValueInput{Value: "ci-token", CreatedBy: "alice"}))
+	stored, err := s.GetByID(ctx, disabled.ID)
+	require.NoError(t, err)
+	stored.Status = secret.StatusDisabled
+	require.NoError(t, s.Update(ctx, stored))
+	before := s.Revision()
+
+	_, err = s.WriteValue(ctx, first.ID, secret.WriteValueInput{Value: "new", CreatedBy: "alice"})
+	require.NoError(t, err)
+
+	values, err := s.CurrentValues(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"new", "ci-token"}, values)
+	assert.NotEqual(t, before, s.Revision())
+
+	before = s.Revision()
+	require.NoError(t, s.Delete(ctx, disabled.ID))
+	values, err = s.CurrentValues(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"new"}, values)
+	assert.NotEqual(t, before, s.Revision())
+}
