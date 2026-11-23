@@ -100,8 +100,9 @@ func openCase(ctx *Context, opts caseOptions) (*testCase, error) {
 // the case accepts the retry the scheduler would, at once instead of after
 // the policy's interval. It runs each resume or retry that is queued, under
 // the same run ID, and returns the last attempt's status. A settled step
-// that queues no resume leaves the next waiting step to settle. Canceling
-// the case's context starts no further retry.
+// that queues no resume leaves the next waiting step to settle. Once the
+// case's context is canceled, the case accepts no further retry, and an
+// attempt that starts after the cancellation is interrupted at once.
 //
 //	attempt --> status
 //	   ^          |-- waiting ------------> settle one step --+
@@ -201,8 +202,10 @@ func (c *testCase) acceptRetry(dag *ir.DAG, failed *ir.DAGRunStatus) error {
 	if err != nil {
 		return err
 	}
+	// A failed run is not queued, so a nil admission means its last attempt
+	// still has a live process record.
 	if admission == nil {
-		return fmt.Errorf("dag-run %s: the retry was not accepted", failed.DAGRun())
+		return fmt.Errorf("dag-run %s: the retry was not accepted because the process record of attempt %s was not released", failed.DAGRun(), failed.AttemptID)
 	}
 	c.attempts++
 	return nil
