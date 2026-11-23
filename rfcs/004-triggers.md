@@ -334,9 +334,9 @@ saved.
 The scheduler runs it, so it runs where real checks do. The server writes a
 request to `poll-state/`; the scheduler that holds the lock takes it at its
 next pickup, within 10 seconds, runs it in one of the 4 check slots, and
-writes back the result. The call waits up to the timeout plus 20 seconds, and says so if no
-scheduler took the request. The audit log records each try. A request is
-removed once answered, or after 10 minutes.
+writes back the result. The call waits up to the timeout plus 20 seconds,
+and says so if no scheduler took the request. The audit log records each
+try. A request is removed once answered, or after 10 minutes.
 
 ### What is stored
 
