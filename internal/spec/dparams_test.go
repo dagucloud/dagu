@@ -556,7 +556,8 @@ steps:
 }
 
 // The schema library decodes enum members and defaults as float64, which
-// rounds integers above 2^53.
+// rounds integers above 2^53. A boolean property schema, a number param, and
+// an object default, where the library's float64 values must stay, still load.
 func TestExternalSchemaParams_KeepLargeIntegers(t *testing.T) {
 	t.Parallel()
 
@@ -566,17 +567,31 @@ params:
   schema:
     type: object
     properties:
+      unused: false
       serial:
         type: integer
         enum: [9007199254740993]
       limit:
         type: integer
+        enum: [9007199254740993]
         default: 9007199254740993
+      weight:
+        type: number
+        enum: [9007199254740993]
+      config:
+        type: object
+        properties:
+          id:
+            type: integer
+            enum: [9007199254740993]
+        default:
+          id: 9007199254740993
 `)
 
-	dag, err := LoadYAML(context.Background(), yaml, WithoutEval(), WithParams("serial=9007199254740993"))
+	dag, err := LoadYAML(context.Background(), yaml, WithoutEval(), WithParams("serial=9007199254740993 weight=9007199254740993"))
 	require.NoError(t, err)
-	assert.Equal(t, []string{"limit=9007199254740993", "serial=9007199254740993"}, dag.Params)
+	assert.Contains(t, dag.Params, "serial=9007199254740993")
+	assert.Contains(t, dag.Params, "limit=9007199254740993")
 }
 
 func TestExternalSchemaParamDefs_MetadataAndExecution(t *testing.T) {
@@ -608,7 +623,7 @@ func TestExternalSchemaParamDefs_MetadataAndExecution(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, dag.ParamDefs, 2)
 	assert.Equal(t, "count", dag.ParamDefs[0].Name)
-	assert.Equal(t, int64(3), dag.ParamDefs[0].Default)
+	assert.Equal(t, float64(3), dag.ParamDefs[0].Default)
 	assert.Equal(t, "region", dag.ParamDefs[1].Name)
 	assert.True(t, dag.ParamDefs[1].Required)
 	assert.Nil(t, dag.ParamDefs[1].Default)

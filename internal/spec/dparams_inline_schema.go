@@ -153,7 +153,7 @@ func explicitInlineSchemaDefaults(root *jsonschema.Schema) map[string]any {
 		if _, ok := schemaScalarType(property); !ok {
 			continue
 		}
-		value, ok := exactJSONValue(string(property.Default))
+		value, ok := decodeDefault(property.Default)
 		if !ok {
 			continue
 		}

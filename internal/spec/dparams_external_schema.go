@@ -484,9 +484,40 @@ func exactJSONValue(text string) (any, bool) {
 	return validationNumbers(decoded)
 }
 
+// maxExactFloatInteger bounds the integers float64 holds exactly: every
+// integer of smaller magnitude has an exact float64.
+const maxExactFloatInteger = 1 << 53
+
+// largeInteger reports whether value is an int64 or uint64 that float64 would
+// round.
+func largeInteger(value any) bool {
+	switch v := value.(type) {
+	case int64:
+		return v > maxExactFloatInteger || v < -maxExactFloatInteger
+	case uint64:
+		return v > maxExactFloatInteger
+	default:
+		return false
+	}
+}
+
+// decodeDefault decodes a schema default as the schema library does, with
+// float64 numbers, except that an integer float64 would round stays exact.
+func decodeDefault(raw json.RawMessage) (any, bool) {
+	if exact, ok := exactJSONValue(string(raw)); ok && largeInteger(exact) {
+		return exact, true
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, false
+	}
+	return value, true
+}
+
 // fillDefaults sets each top-level property that values omits to its default,
-// keeping integers exact, which the schema library's float64 defaults do not.
-// Like the library, it skips required properties unless withRequired is set.
+// decoded by decodeDefault, since the schema library's own filling would round
+// a large integer. Like the library, it skips required properties unless
+// withRequired is set.
 func fillDefaults(values map[string]any, schema *jsonschema.Schema, withRequired bool) error {
 	for name, property := range schema.Properties {
 		if _, supplied := values[name]; supplied || property == nil || len(property.Default) == 0 {
@@ -495,7 +526,7 @@ func fillDefaults(values map[string]any, schema *jsonschema.Schema, withRequired
 		if !withRequired && slices.Contains(schema.Required, name) {
 			continue
 		}
-		value, ok := exactJSONValue(string(property.Default))
+		value, ok := decodeDefault(property.Default)
 		if !ok {
 			return fmt.Errorf("%s: invalid default %s", name, property.Default)
 		}
@@ -513,38 +544,42 @@ type schemaNumbers struct {
 	AnyOf []schemaNumbers `json:"anyOf"`
 }
 
-// keepExactEnums replaces the enum and const members of each top-level
-// property of schema, and of its oneOf and anyOf members, with the exact
-// numbers in data, the JSON that schema was decoded from. Call it after
+// keepExactEnums replaces each enum and const member that float64 rounds, in
+// each top-level property of schema and its oneOf and anyOf members, with the
+// exact integer in data, the JSON that schema was decoded from. Call it after
 // Resolve, which checks defaults as float64 against those members.
 func keepExactEnums(schema *jsonschema.Schema, data []byte) {
 	var root struct {
-		Properties map[string]schemaNumbers `json:"properties"`
+		Properties map[string]json.RawMessage `json:"properties"`
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.UseNumber()
-	if decoder.Decode(&root) != nil {
-		// A boolean schema has no properties.
+	if json.Unmarshal(data, &root) != nil {
 		return
 	}
-	for name, numbers := range root.Properties {
-		numbers.apply(schema.Properties[name])
+	for name, raw := range root.Properties {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		var numbers schemaNumbers
+		// A boolean property schema has no members to keep.
+		if decoder.Decode(&numbers) == nil {
+			numbers.apply(schema.Properties[name])
+		}
 	}
 }
 
 func (n schemaNumbers) apply(schema *jsonschema.Schema) {
-	if schema == nil {
+	// A number value is coerced to float64, so its members stay float64.
+	if schema == nil || schema.Type == "number" || slices.Contains(schema.Types, "number") {
 		return
 	}
-	if len(n.Enum) > 0 && len(n.Enum) == len(schema.Enum) {
-		if enum, ok := validationNumbers(n.Enum); ok {
-			schema.Enum = enum.([]any)
+	if len(n.Enum) == len(schema.Enum) {
+		for i, member := range n.Enum {
+			if exact, ok := exactLargeInteger(member); ok {
+				schema.Enum[i] = exact
+			}
 		}
 	}
-	if number, ok := n.Const.(json.Number); ok && schema.Const != nil {
-		if value, ok := validationNumbers(number); ok {
-			schema.Const = &value
-		}
+	if exact, ok := exactLargeInteger(n.Const); ok && schema.Const != nil {
+		schema.Const = &exact
 	}
 	for i, member := range n.OneOf {
 		if i < len(schema.OneOf) {
@@ -556,6 +591,17 @@ func (n schemaNumbers) apply(schema *jsonschema.Schema) {
 			member.apply(schema.AnyOf[i])
 		}
 	}
+}
+
+// exactLargeInteger returns member as an exact integer when it is an integer
+// literal that float64 would round.
+func exactLargeInteger(member any) (any, bool) {
+	number, ok := member.(json.Number)
+	if !ok {
+		return nil, false
+	}
+	exact, ok := validationNumbers(number)
+	return exact, ok && largeInteger(exact)
 }
 
 // parseJSONNumberValue decodes value like parseJSONLikeValue but keeps each

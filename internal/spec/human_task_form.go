@@ -493,12 +493,8 @@ func ValidateHumanTaskInputs(form json.RawMessage, inputs map[string]any, coerce
 		}
 		switch typed := value.(type) {
 		case json.Number:
-			if integer, err := typed.Int64(); err == nil {
-				values[name] = integer
-				continue
-			}
-			number, err := typed.Float64()
-			if err != nil {
+			number, ok := validationNumbers(typed)
+			if !ok {
 				return nil, fmt.Errorf("%s: invalid number %q", name, typed)
 			}
 			values[name] = number

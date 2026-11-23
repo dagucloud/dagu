@@ -193,7 +193,7 @@ params:
 
 	assert.Equal(t, "batch_size", dag.ParamDefs[0].Name)
 	assert.Equal(t, ir.ParamDefTypeInteger, dag.ParamDefs[0].Type)
-	assert.Equal(t, int64(10), dag.ParamDefs[0].Default)
+	assert.Equal(t, float64(10), dag.ParamDefs[0].Default)
 
 	assert.Equal(t, "debug", dag.ParamDefs[1].Name)
 	assert.Equal(t, ir.ParamDefTypeBoolean, dag.ParamDefs[1].Type)
