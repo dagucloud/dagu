@@ -459,6 +459,24 @@ func TestJobAttemptClosedWithoutAFinish(t *testing.T) {
 	assert.Empty(t, console.calls)
 }
 
+// A run that stops to wait for an approval records waiting as its last
+// status and closes its attempt at once; the close still sends it.
+func TestJobAttemptClosedWhileWaiting(t *testing.T) {
+	t.Parallel()
+	console := newFakeJobConsole(t)
+	clock := newJobClock()
+	attempt := newJobAttempt(t.Context(), t, console, clock, nil)
+
+	require.NoError(t, attempt.RecordStatus(t.Context(), jobStatus(ir.Running)))
+	console.next(t)
+	clock.wait(t)
+	require.NoError(t, attempt.RecordStatus(t.Context(), jobStatus(ir.Waiting)))
+	require.NoError(t, attempt.Close(t.Context()))
+
+	assert.Equal(t, "waiting", console.next(t).entry(t, "active")["status"])
+	assert.Empty(t, console.calls)
+}
+
 // dirRunState begins attempts that live in a directory, as the file store's
 // do.
 type dirRunState struct{ runstate.Store }

@@ -240,7 +240,9 @@ reporter, which never blocks the agent.
 - **The process waits for the finish.** The wrapped attempt's `Close` waits
   for the finish to be sent or its budget to end, then returns. A Kubernetes
   pod stopped with SIGTERM aborts the run, writes its terminal status, and
-  sends the finish within the default 30-second grace period.
+  sends the finish within the default 30-second grace period. Without a
+  finish, as when the run stops to wait for an approval, `Close` waits only
+  for a status change not yet sent: one request of at most 5 seconds.
 - The request carries `User-Agent: dagu-oss/<version>` and
   `Authorization: Bearer <run key>`. Console shows the version beside the
   key, so an owner sees which Dagu their machines run.

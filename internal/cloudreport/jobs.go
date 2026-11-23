@@ -182,7 +182,8 @@ type jobAnswer struct {
 
 // jobReporter sends one run's reports, one at a time, from its own
 // goroutine. The agent's calls never wait on Dagu Console, except closing
-// the attempt, which waits for the finish.
+// the attempt, which waits for the finish, or for a status change not yet
+// sent.
 type jobReporter struct {
 	reports *JobReports
 	// ctx outlives the run's cancellation, so a run stopped by SIGTERM
@@ -277,7 +278,8 @@ func (r *jobReporter) record(status *ir.DAGRunStatus) {
 }
 
 // close stops the reporter once the run's finish was sent or given up on,
-// and returns then; without a finish it returns at once.
+// and returns then. Without a finish, it first sends a status change not
+// yet sent, such as to waiting, and otherwise returns at once.
 func (r *jobReporter) close() {
 	r.mu.Lock()
 	r.closing = true
@@ -317,7 +319,8 @@ func (r *jobReporter) finishedRequest(status *ir.DAGRunStatus) *jobRequest {
 
 // run sends the reports: the run in progress when it changes and at each
 // interval, then the finish. It ends after the finish, on a refused key,
-// or when the attempt closes without a finish.
+// or when the attempt closes without a finish, after sending a status
+// change not yet sent.
 func (r *jobReporter) run() {
 	defer close(r.done)
 	interval := defaultInterval
@@ -340,13 +343,14 @@ func (r *jobReporter) run() {
 		case finish != nil:
 			r.sendFinish(finish, finishBy)
 			return
+		case progress != nil:
 		case closing:
 			return
-		case progress == nil:
+		default:
 			continue
 		}
 		next, ok := r.sendProgress(progress)
-		if !ok {
+		if !ok || closing {
 			return
 		}
 		if next > 0 {
