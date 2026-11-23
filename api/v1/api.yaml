@@ -23285,7 +23285,7 @@ components:
           description: "`unknown` when no key was pinned or trusted, `changed` when the presented key matches none of them"
         presented:
           type: string
-          description: "SHA256 fingerprint of the key the server presented. Empty when it holds no key of an expected type"
+          description: "SHA256 fingerprint of the key the server presented. Empty when it presented none"
         expected:
           type: array
           description: "SHA256 fingerprints of the pinned and trusted keys"

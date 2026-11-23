@@ -400,11 +400,12 @@ func TestNodeHostKeyServerWithSeveralKeysThroughBastion(t *testing.T) {
 }
 
 // A server that holds no key of an expected type is refused as changed,
-// naming the node and the algorithms it offers, before any credential.
+// naming the node and the key it presents, before any credential.
 func TestNodeHostKeyServerHoldsNoExpectedType(t *testing.T) {
 	t.Parallel()
 
-	server := startHandshakeServer(t, newECDSASigner(t))
+	hostKey := newECDSASigner(t)
+	server := startHandshakeServer(t, hostKey)
 	trusted := newPublicKey(t)
 
 	err := connect(t, &Config{
@@ -414,8 +415,7 @@ func TestNodeHostKeyServerHoldsNoExpectedType(t *testing.T) {
 
 	hostKeyErr := requireHostKeyError(t, err)
 	assert.Equal(t, "web01", hostKeyErr.node)
-	assert.Empty(t, hostKeyErr.presented)
-	assert.Equal(t, []string{gossh.KeyAlgoECDSA256}, hostKeyErr.offered)
+	assert.Equal(t, gossh.FingerprintSHA256(hostKey.PublicKey()), hostKeyErr.presented, "the refusal names the key to trust in place of the old one")
 	assert.Equal(t, []string{gossh.FingerprintSHA256(trusted)}, hostKeyErr.expected)
 	assert.Zero(t, server.authAttempts.Load(), "no credential may reach the host")
 }

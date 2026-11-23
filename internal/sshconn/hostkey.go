@@ -68,7 +68,9 @@ type hostKeyPolicy struct {
 // whose expected keys differ in type is tried once per type. A handshake
 // that fails on the host key has sent no credential, so the next type is
 // safe to try. When a later type is accepted, the expected keys of the types
-// before it are reported as out of date.
+// before it are reported as out of date. A server that holds no key of any
+// expected type gets one more handshake offering every algorithm, so the
+// refusal names the key it presents and a user can trust that key.
 func (p hostKeyPolicy) handshake(ctx context.Context, cfg *ssh.ClientConfig, dial func(*ssh.ClientConfig) (*ssh.Client, error)) (*ssh.Client, error) {
 	var sets [][]string
 	if p.check != nil {
@@ -104,6 +106,13 @@ func (p hostKeyPolicy) handshake(ctx context.Context, cfg *ssh.ClientConfig, dia
 	}
 	if refused != nil {
 		return nil, refused
+	}
+	client, err := dial(cfg)
+	if err == nil {
+		return client, nil
+	}
+	if _, ok := errors.AsType[*hostKeyError](err); ok {
+		return nil, err
 	}
 	return nil, p.check.refusal("", offered)
 }
@@ -224,8 +233,8 @@ type hostKeyError struct {
 	hop  string
 	node string
 	// presented is the fingerprint of the key the server presented. It is
-	// empty when the server holds no key of an expected type, and offered
-	// lists the host key algorithms it offers instead.
+	// empty when the server presented none, and offered lists the host key
+	// algorithms it offers instead.
 	presented string
 	offered   []string
 	// expected are the fingerprints of the keys the node may present. None
