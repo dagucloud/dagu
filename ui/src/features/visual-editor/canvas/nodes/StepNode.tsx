@@ -231,7 +231,7 @@ function StepNodeComponent({
       )}
       {!compact && !plan && sourceHandle}
       {!compact && !plan && stalk}
-      {/* The arcs sit where the step starts: on the upper edge in a vertical graph, on the left side in a horizontal one. */}
+      {/* The arcs sit on the upper edge, which has no handle at its corners. */}
       <LoopArcs node={node} compact={compact} />
     </div>
   );
