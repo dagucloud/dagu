@@ -663,13 +663,13 @@ func (store *Store) write(ctx context.Context, resolved ResolvedFile, yamlSpec [
 
 // Create creates a new DAG with the given name and specification.
 func (store *Store) Create(ctx context.Context, name string, spec []byte) error {
-	filePath := store.generateFilePath(name)
-	if err := rejectTestFileName(name, filePath); err != nil {
+	if err := persis.ValidateNewDAGName(name); err != nil {
 		return err
 	}
 	if err := store.ensureDirExist(); err != nil {
 		return fmt.Errorf("failed to create DAGs directory %s: %w", store.baseDir, err)
 	}
+	filePath := store.generateFilePath(name)
 	if fileExists(filePath) || store.recursive && store.stemExists(name, "") {
 		return persis.ErrDAGAlreadyExists
 	}
@@ -799,6 +799,9 @@ func fileName(id string) string {
 
 // Rename renames a DAG from oldID to newID.
 func (store *Store) Rename(ctx context.Context, oldID, newID string) error {
+	if err := persis.ValidateNewDAGName(newID); err != nil {
+		return err
+	}
 	resolved, err := store.locateDAG(ctx, oldID)
 	if err != nil {
 		return fmt.Errorf("failed to locate DAG %s: %w", oldID, err)
@@ -814,9 +817,6 @@ func (store *Store) Rename(ctx context.Context, oldID, newID string) error {
 			newFilePath = fileutil.EnsureYAMLExtension(filepath.Join(filepath.Dir(oldFilePath), filepath.Base(newID)))
 			exceptPath = relPath
 		}
-	}
-	if err := rejectTestFileName(newID, newFilePath); err != nil {
-		return err
 	}
 	if fileExists(newFilePath) || store.recursive && store.stemExists(newID, exceptPath) {
 		return persis.ErrDAGAlreadyExists
@@ -1011,15 +1011,6 @@ func relativeToBase(baseDir, path string) (string, bool) {
 		return "", false
 	}
 	return filepath.ToSlash(rel), true
-}
-
-// rejectTestFileName fails when the file of a new DAG name would be a test
-// file, which discovery and lookup skip.
-func rejectTestFileName(name, filePath string) error {
-	if spec.IsTestFile(filePath) {
-		return fmt.Errorf("DAG name %s: %w", name, persis.ErrDAGNameReserved)
-	}
-	return nil
 }
 
 func dagFileCandidates(name string) []string {

@@ -501,6 +501,14 @@ func (a *API) RenameDAG(ctx context.Context, request api.RenameDAGRequestObject)
 			Message:    err.Error(),
 		}
 	}
+	// Checked before anything moves; the store refuses the name as well.
+	if err := persis.ValidateNewDAGName(request.Body.NewFileName); err != nil {
+		return nil, &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    err.Error(),
+		}
+	}
 
 	dag, err := a.dagRepository.GetMetadata(ctx, request.FileName)
 	if err != nil {
@@ -538,13 +546,6 @@ func (a *API) RenameDAG(ctx context.Context, request api.RenameDAGRequestObject)
 	if err := a.dagRepository.Rename(ctx, request.FileName, request.Body.NewFileName); err != nil {
 		if webhookMoved {
 			a.restoreWebhookAfterFailedRename(ctx, request.FileName, request.Body.NewFileName)
-		}
-		if errors.Is(err, persis.ErrDAGNameReserved) {
-			return nil, &Error{
-				HTTPStatus: http.StatusBadRequest,
-				Code:       api.ErrorCodeBadRequest,
-				Message:    err.Error(),
-			}
 		}
 		return nil, fmt.Errorf("failed to move DAG: %w", err)
 	}
