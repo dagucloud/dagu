@@ -275,4 +275,22 @@ describe('AddNodeDialog', () => {
     expect(onAdded).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it('says the node is being added, not tested, while it is added', async () => {
+    let finish: (value: { data: object }) => void = () => {};
+    client.POST.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+    );
+    renderDialog();
+
+    fill('Name', 'web01');
+    fill('Host', '10.0.1.11');
+    await click('Add without testing');
+
+    expect(screen.getByText('Adding...')).toBeInTheDocument();
+    expect(screen.queryByText('Testing...')).not.toBeInTheDocument();
+    await act(async () => finish({ data: {} }));
+  });
 });

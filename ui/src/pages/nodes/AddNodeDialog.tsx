@@ -88,7 +88,8 @@ export function AddNodeDialog({
     inventoryId: inventories[0]?.id ?? '',
   }));
   const [tested, setTested] = useState<Tested | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [activity, setActivity] = useState<'testing' | 'adding' | null>(null);
+  const busy = activity !== null;
   const [problem, setProblem] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<ChangeRefusal | null>(null);
   // An inventory's version as loaded after a change refused as stale.
@@ -118,7 +119,7 @@ export function AddNodeDialog({
       return;
     }
     setProblem(null);
-    setBusy(true);
+    setActivity('testing');
     let result: ConnectionTest | undefined;
     try {
       await postNodeEvents<ConnectionTest, unknown>(
@@ -133,7 +134,7 @@ export function AddNodeDialog({
     } catch (error) {
       setTested({ fields: fieldsKey, accept, error: messageOf(error) });
     } finally {
-      setBusy(false);
+      setActivity(null);
     }
   }
 
@@ -148,7 +149,7 @@ export function AddNodeDialog({
     }
     setProblem(null);
     setRefusal(null);
-    setBusy(true);
+    setActivity('adding');
     try {
       const { refusal } = await addNode(
         client,
@@ -164,7 +165,7 @@ export function AddNodeDialog({
       onAdded();
       onClose();
     } finally {
-      setBusy(false);
+      setActivity(null);
     }
   }
 
@@ -265,9 +266,11 @@ export function AddNodeDialog({
         </div>
 
         <div aria-live="polite" className="space-y-2 text-xs">
-          {busy && (
+          {activity && (
             <p className="text-muted-foreground">
-              <I18nText text={'Testing...'} />
+              <I18nText
+                text={activity === 'testing' ? 'Testing...' : 'Adding...'}
+              />
             </p>
           )}
           {test?.result && <TestOutcome result={test.result} />}
