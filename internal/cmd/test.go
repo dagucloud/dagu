@@ -287,7 +287,6 @@ func testLoadOptions(ctx *Context) []spec.LoadOption {
 func runTestCase(ctx *Context, file *dagtest.File, c dagtest.Case, opts testOptions) (result caseResult) {
 	result.name = c.Name
 	result.errors = append(slices.Clone(c.Errors), dagtest.CheckRealChildren(file.DAG, c, childResolver(ctx, file.DAG))...)
-	result.errors = append(result.errors, unsupportedAssertions(c.Expect)...)
 	if len(result.errors) > 0 {
 		return result
 	}
@@ -317,13 +316,16 @@ func runTestCase(ctx *Context, file *dagtest.File, c dagtest.Case, opts testOpti
 		}
 	}()
 	status, err := tc.run(dag)
+	result.defaultMocked = c.DefaultMocked
+	result.autoApproved = stepLabels(dag, tc.autoApproved)
+	result.notifications = sentNotifications(dag, tc.notifications)
 	switch {
 	case errors.Is(context.Cause(caseCtx), context.DeadlineExceeded):
 		result.failures = []caseFailure{{field: failureTimeout, expected: opts.timeout}}
 	case err != nil:
 		result.failures = []caseFailure{{field: failureError, actual: err.Error()}}
 	default:
-		result.failures = checkCase(c.Expect, status, tc.waited)
+		result.failures = tc.check(c.Expect, status)
 	}
 	return result
 }

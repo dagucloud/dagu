@@ -14,10 +14,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -26,6 +28,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 )
 
@@ -71,6 +74,8 @@ type testCase struct {
 	ctx  *Context
 	dir  string
 	opts caseOptions
+	// dag is the DAG the case runs, set when its run starts.
+	dag *ir.DAG
 	// notifications lists the mail notifications the case's runs would have
 	// sent, in the order the runs reached them. A case sends no mail.
 	notifications []agent.Notification
@@ -86,6 +91,12 @@ type testCase struct {
 	// waited before it resumed. A handler that ran before a resume, such as
 	// handler_on.wait, shows only there.
 	waited []*ir.DAGRunStatus
+	// ended holds, in order, every status at which an attempt or a resume
+	// of the run stopped: waiting, failed with a retry left, or finished.
+	// The executions of every attempt show only across them.
+	ended []*ir.DAGRunStatus
+	// streams notes where each execution's output starts in the step logs.
+	streams *streamMarks
 }
 
 // openCase creates a case directory and the stores rooted in it. The case
@@ -137,12 +148,14 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 		return nil, fmt.Errorf("failed to generate dag-run ID: %w", err)
 	}
 	dag = caseDAG(dag)
+	c.dag = dag
 
 	ctx := c.ctx
 	if err := ctx.DAGRunMgr.CheckServiceRun(ctx, dag, dagRunID); err != nil {
 		return nil, err
 	}
 	scripts := c.scripts()
+	c.streams = &streamMarks{override: scripts}
 	opts := runOptions{
 		root:           ir.NewDAGRunRef(dag.Name, dagRunID),
 		workerID:       "local",
@@ -157,7 +170,7 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 			Keep: c.opts.real,
 		},
 		testSideEffects:   &agent.TestSideEffects{HasRealSteps: c.hasRealSteps()},
-		executorOverride:  scripts,
+		executorOverride:  c.streams,
 		conditionOverride: scripts,
 		skipWaits:         true,
 		keepWaits:         c.opts.real,
@@ -184,6 +197,7 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 	}
 	c.attempts = 1
 	for {
+		c.ended = append(c.ended, status)
 		switch {
 		case status.Status == ir.Waiting:
 			c.waited = append(c.waited, status)
@@ -212,6 +226,60 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 			return nil, queuedErr
 		}
 	}
+}
+
+// streamMarks supplies the executors its override supplies, and notes, as
+// each execution of a step or handler starts, the size of the step's log
+// files, so the case reads the streams of a step's last execution. The
+// runner asks for an execution's executor once the output of the step's
+// earlier executions is written.
+type streamMarks struct {
+	override runtime.ExecutorOverride
+
+	mu sync.Mutex
+	// starts maps a log file to its size when the latest execution that
+	// writes to it started.
+	starts map[string]int64
+}
+
+var _ runtime.ExecutorOverride = (*streamMarks)(nil)
+
+// Executor notes where the execution's output starts in the step's log
+// files, and returns what override returns.
+func (m *streamMarks) Executor(ctx context.Context, step ir.Step) (executor.Executor, bool) {
+	scope := runtime.GetEnv(ctx).Scope
+	for _, key := range []string{runenv.EnvKeyDAGRunStepStdoutFile, runenv.EnvKeyDAGRunStepStderrFile} {
+		if path, _ := scope.Get(key); path != "" {
+			m.mark(path)
+		}
+	}
+	return m.override.Executor(ctx, step)
+}
+
+func (m *streamMarks) mark(path string) {
+	var size int64
+	if info, err := os.Stat(path); err == nil {
+		size = info.Size()
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.starts == nil {
+		m.starts = make(map[string]int64)
+	}
+	m.starts[path] = size
+}
+
+// lastExecution returns what the log file at path holds from the start of
+// the latest execution that wrote to it.
+func (m *streamMarks) lastExecution(path string) (string, error) {
+	data, err := fileutil.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	m.mu.Lock()
+	start := min(m.starts[path], int64(len(data)))
+	m.mu.Unlock()
+	return string(data[start:]), nil
 }
 
 // acceptRetry accepts the DAG-level retry of a failed run as the scheduler

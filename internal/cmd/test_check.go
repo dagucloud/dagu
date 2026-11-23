@@ -4,51 +4,35 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"math/big"
 	"slices"
+	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
 	"github.com/dagucloud/dagu/v2/internal/dagtest"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 )
 
 // notStartedToken is the status of a step or handler that never started.
 const notStartedToken = "not_started"
 
-// unsupportedAssertions reports the assertions that this version of dagu
-// test does not check yet, so a case never passes without checking one.
-func unsupportedAssertions(expect dagtest.Expect) []dagtest.Finding {
-	var errs []dagtest.Finding
-	unsupported := func(label string) {
-		errs = append(errs, dagtest.Finding{Source: label, Message: "is not supported by this version of dagu test"})
-	}
-	if expect.Attempts != nil {
-		unsupported("expect.attempts")
-	}
-	for _, s := range expect.Steps {
-		label := "expect.steps." + s.Key
-		if len(s.Outputs) > 0 {
-			unsupported(label + ".outputs")
-		}
-		if s.Stdout != nil {
-			unsupported(label + ".stdout")
-		}
-		if s.Stderr != nil {
-			unsupported(label + ".stderr")
-		}
-	}
-	if expect.Notifications != nil {
-		unsupported("expect.notifications")
-	}
-	return errs
-}
+// Streams a step assertion reads.
+const (
+	streamStdout = "stdout"
+	streamStderr = "stderr"
+)
 
-// checkCase returns every assertion of expect that the run's final status
-// fails. waited holds the statuses at which the run's last attempt waited
-// before it resumed, where a handler that ran before a resume shows. A run
-// stopped by a step that repeats without a limit, and a run that ended
-// without a terminal status, fail before any assertion.
-func checkCase(expect dagtest.Expect, status *ir.DAGRunStatus, waited []*ir.DAGRunStatus) []caseFailure {
+// check returns every assertion of expect that the case's run fails. status
+// is the status of the run's last attempt. A run stopped by a step that
+// repeats without a limit, and a run that ended without a terminal status,
+// fail before any assertion.
+func (c *testCase) check(expect dagtest.Expect, status *ir.DAGRunStatus) []caseFailure {
 	if node := unboundedStep(status); node != nil {
 		return []caseFailure{{
 			step:    stepLabel(node.Step),
@@ -65,16 +49,68 @@ func checkCase(expect dagtest.Expect, status *ir.DAGRunStatus, waited []*ir.DAGR
 	if expect.Status != "" && expect.Status != status.Status.String() {
 		failures = append(failures, caseFailure{field: failureStatus, expected: expect.Status, actual: status.Status.String()})
 	}
+	if expect.Attempts != nil && *expect.Attempts != c.attempts {
+		failures = append(failures, caseFailure{field: failureAttempts, expected: *expect.Attempts, actual: c.attempts})
+	}
 	for _, s := range expect.Steps {
-		node := expectedNode(status, waited, s)
-		if actual := nodeStatusToken(node); s.Status != "" && s.Status != actual {
-			failures = append(failures, caseFailure{step: s.Key, field: failureStatus, expected: s.Status, actual: actual})
-		}
-		if actual := nodeAttempts(node, s.Handler != ""); s.Attempts != nil && *s.Attempts != actual {
-			failures = append(failures, caseFailure{step: s.Key, field: failureAttempts, expected: *s.Attempts, actual: actual})
-		}
+		failures = append(failures, c.checkStep(s, status)...)
+	}
+	if expect.Notifications != nil && !pairNotifications(expect.Notifications, c.notifications) {
+		failures = append(failures, caseFailure{
+			field:    failureNotifications,
+			expected: expectedNotifications(c.dag, expect.Notifications),
+			actual:   sentNotifications(c.dag, c.notifications),
+		})
 	}
 	return failures
+}
+
+// checkStep returns the failed assertions on one step or handler: status,
+// attempts, outputs in the order listed, stdout, then stderr.
+func (c *testCase) checkStep(s dagtest.StepExpect, status *ir.DAGRunStatus) []caseFailure {
+	var failures []caseFailure
+	node := expectedNode(status, c.waited, s)
+	if actual := nodeStatusToken(node); s.Status != "" && s.Status != actual {
+		failures = append(failures, caseFailure{step: s.Key, field: failureStatus, expected: s.Status, actual: actual})
+	}
+	if actual := c.stepAttempts(s); s.Attempts != nil && *s.Attempts != actual {
+		failures = append(failures, caseFailure{step: s.Key, field: failureAttempts, expected: *s.Attempts, actual: actual})
+	}
+	published := publishedOutputs(node)
+	for _, o := range s.Outputs {
+		if failure, ok := checkOutput(s.Key, o, published); !ok {
+			failures = append(failures, failure)
+		}
+	}
+	// A step with no execution has no stream.
+	var stdout, stderr string
+	if nodeAttempts(node, s.Handler != "") > 0 {
+		stdout, stderr = node.Stdout, node.Stderr
+	}
+	failures = append(failures, c.checkStream(s.Key, streamStdout, s.Stdout, stdout)...)
+	failures = append(failures, c.checkStream(s.Key, streamStderr, s.Stderr, stderr)...)
+	return failures
+}
+
+// stepAttempts counts the executions of a step or handler in every attempt
+// of the run. A retry or resume carries over the nodes it does not run
+// again, log files included, so each node counts once by its stdout log.
+func (c *testCase) stepAttempts(s dagtest.StepExpect) int {
+	counts := make(map[string]int)
+	for _, status := range c.ended {
+		node := handlerNode(status, s.Handler)
+		if s.Handler == "" {
+			node = stepNode(status, s.Step)
+		}
+		if node != nil && node.Stdout != "" {
+			counts[node.Stdout] = nodeAttempts(node, s.Handler != "")
+		}
+	}
+	total := 0
+	for _, n := range counts {
+		total += n
+	}
+	return total
 }
 
 // unboundedStep returns the step that stopped the run because it repeats
@@ -95,16 +131,21 @@ func unboundedStep(status *ir.DAGRunStatus) *ir.Node {
 // shows only in the latest of the waited statuses in which it started.
 func expectedNode(status *ir.DAGRunStatus, waited []*ir.DAGRunStatus, s dagtest.StepExpect) *ir.Node {
 	if s.Handler == "" {
-		if i := slices.IndexFunc(status.Nodes, func(n *ir.Node) bool { return n.Step.Name == s.Step }); i >= 0 {
-			return status.Nodes[i]
-		}
-		return nil
+		return stepNode(status, s.Step)
 	}
 	node := handlerNode(status, s.Handler)
 	for i := len(waited) - 1; i >= 0 && nodeStatusToken(node) == notStartedToken; i-- {
 		node = handlerNode(waited[i], s.Handler)
 	}
 	return node
+}
+
+// stepNode returns the node of the named step in status, or nil.
+func stepNode(status *ir.DAGRunStatus, name string) *ir.Node {
+	if i := slices.IndexFunc(status.Nodes, func(n *ir.Node) bool { return n.Step.Name == name }); i >= 0 {
+		return status.Nodes[i]
+	}
+	return nil
 }
 
 // handlerNode returns the node of a lifecycle handler in status.
@@ -133,10 +174,10 @@ func nodeStatusToken(node *ir.Node) string {
 	return node.Status.String()
 }
 
-// nodeAttempts returns how many times the action of a step or handler ran,
-// counting retries and repeat iterations. A human.task has no action. A
-// handler runs its action at most once and records no count, so one that
-// started counts once.
+// nodeAttempts returns how many times the action of a step or handler ran
+// in one attempt, counting retries and repeat iterations. A human.task has
+// no action. A handler runs its action at most once and records no count,
+// so one that started counts once.
 func nodeAttempts(node *ir.Node, handler bool) int {
 	switch {
 	case node == nil || node.Step.HumanTask != nil:
@@ -150,6 +191,228 @@ func nodeAttempts(node *ir.Node, handler bool) int {
 	}
 }
 
+// publishedOutputs returns the named outputs a step published, as
+// ${steps.<id>.outputs.<name>} reads them, or nil.
+func publishedOutputs(node *ir.Node) map[string]any {
+	if node == nil {
+		return nil
+	}
+	for _, raw := range []*string{node.StepOutputsValue, node.OutputsValue} {
+		var outputs map[string]any
+		if raw != nil && decodeJSON(*raw, &outputs) == nil && outputs != nil {
+			return outputs
+		}
+	}
+	return nil
+}
+
+// checkOutput returns the failure of an output assertion, or false when
+// the step published a matching value. Both values of a failure are
+// compact JSON: the published one as a JSON string for a text output, and
+// as its JSON text for a type: json output. A failure has no actual value
+// when the step published no such output.
+func checkOutput(key string, o dagtest.OutputExpect, published map[string]any) (caseFailure, bool) {
+	expected, err := jsonutil.MarshalUnescaped(o.Value)
+	if err != nil {
+		expected, _ = jsonutil.MarshalUnescaped(fmt.Sprint(o.Value))
+	}
+	failure := caseFailure{step: key, field: failureOutputPrefix + o.Name, expected: json.RawMessage(expected)}
+	value, ok := published[o.Name]
+	if !ok {
+		return failure, false
+	}
+	text := outputText(value)
+	if outputMatches(o, text) {
+		return caseFailure{}, true
+	}
+	var compact bytes.Buffer
+	if !o.JSON || json.Compact(&compact, []byte(text)) != nil {
+		compact.Reset()
+		data, _ := jsonutil.MarshalUnescaped(text)
+		compact.Write(data)
+	}
+	failure.actual = json.RawMessage(compact.Bytes())
+	return failure, false
+}
+
+// outputText returns the text a published output resolves to: a string as
+// written, and any other value as its JSON text.
+func outputText(value any) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	data, err := jsonutil.MarshalUnescaped(value)
+	if err != nil {
+		return fmt.Sprint(value)
+	}
+	return string(data)
+}
+
+// outputMatches reports whether the text of a published output matches the
+// expected value (Spec 101, Assertions). A type: json output, and any
+// expected value but a string, match by the JSON rule against the text read
+// as JSON. Text that is not JSON matches no such value.
+func outputMatches(o dagtest.OutputExpect, text string) bool {
+	if expected, ok := o.Value.(string); ok && !o.JSON {
+		return text == expected
+	}
+	var actual, expected any
+	if decodeJSON(text, &actual) != nil {
+		return false
+	}
+	data, err := json.Marshal(o.Value)
+	if err != nil || decodeJSON(string(data), &expected) != nil {
+		return false
+	}
+	return jsonMatches(expected, actual)
+}
+
+// jsonMatches applies the JSON rule: an object matches when every key it
+// lists has a matching value, recursively, and an array or a scalar matches
+// only an equal value.
+func jsonMatches(expected, actual any) bool {
+	object, ok := expected.(map[string]any)
+	if !ok {
+		return jsonEqual(expected, actual)
+	}
+	got, ok := actual.(map[string]any)
+	if !ok {
+		return false
+	}
+	for key, value := range object {
+		if v, ok := got[key]; !ok || !jsonMatches(value, v) {
+			return false
+		}
+	}
+	return true
+}
+
+// jsonEqual reports whether two decoded JSON values are equal. Numbers
+// compare by value.
+func jsonEqual(a, b any) bool {
+	switch x := a.(type) {
+	case json.Number:
+		y, ok := b.(json.Number)
+		if !ok {
+			return false
+		}
+		rx, okx := new(big.Rat).SetString(x.String())
+		ry, oky := new(big.Rat).SetString(y.String())
+		return okx && oky && rx.Cmp(ry) == 0
+	case []any:
+		y, ok := b.([]any)
+		return ok && slices.EqualFunc(x, y, jsonEqual)
+	case map[string]any:
+		y, ok := b.(map[string]any)
+		if !ok || len(x) != len(y) {
+			return false
+		}
+		for key, value := range x {
+			if v, ok := y[key]; !ok || !jsonEqual(value, v) {
+				return false
+			}
+		}
+		return true
+	default:
+		return a == b
+	}
+}
+
+// decodeJSON decodes exactly one JSON value from text, keeping numbers as
+// json.Number.
+func decodeJSON(text string, target any) error {
+	decoder := json.NewDecoder(strings.NewReader(text))
+	decoder.UseNumber()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if decoder.Decode(new(any)) != io.EOF {
+		return fmt.Errorf("more than one JSON value")
+	}
+	return nil
+}
+
+// checkStream returns the failed parts of a stream assertion on the stream
+// of the step's last execution: contains, then matches. path is the step's
+// log of the stream, or empty for a step with no execution, which fails
+// every part.
+func (c *testCase) checkStream(key, stream string, expect *dagtest.StreamExpect, path string) []caseFailure {
+	if expect == nil {
+		return nil
+	}
+	var text string
+	if path != "" {
+		var err error
+		if text, err = c.streams.lastExecution(path); err != nil {
+			return []caseFailure{{field: failureError, actual: fmt.Sprintf("step %s %s: %v", key, stream, err)}}
+		}
+	}
+	ran := path != ""
+	var failures []caseFailure
+	if expect.Contains != nil && (!ran || !strings.Contains(text, *expect.Contains)) {
+		failures = append(failures, caseFailure{step: key, field: stream + failureContains, expected: *expect.Contains})
+	}
+	if expect.Matches != nil && (!ran || !expect.Matches.MatchString(text)) {
+		failures = append(failures, caseFailure{step: key, field: stream + failureMatches, expected: expect.Matches.String()})
+	}
+	return failures
+}
+
+// pairNotifications reports whether the run sent as many notifications as
+// expected lists, and each expected one pairs with a different sent one,
+// in any order.
+func pairNotifications(expected []dagtest.Notification, sent []agent.Notification) bool {
+	if len(expected) != len(sent) {
+		return false
+	}
+	// owner holds, for each sent notification, the index of the expected
+	// one paired with it, or -1. Pairs move along augmenting paths, since an
+	// item without step or to may take a notification a stricter item needs.
+	owner := make([]int, len(sent))
+	for i := range owner {
+		owner[i] = -1
+	}
+	var pair func(i int, seen []bool) bool
+	pair = func(i int, seen []bool) bool {
+		for j := range sent {
+			if seen[j] || !notificationMatches(expected[i], sent[j]) {
+				continue
+			}
+			seen[j] = true
+			if owner[j] < 0 || pair(owner[j], seen) {
+				owner[j] = i
+				return true
+			}
+		}
+		return false
+	}
+	for i := range expected {
+		if !pair(i, make([]bool, len(sent))) {
+			return false
+		}
+	}
+	return true
+}
+
+// notificationMatches reports whether a sent notification has the expected
+// kind, and the step and the set of recipients when the item sets them.
+func notificationMatches(expected dagtest.Notification, sent agent.Notification) bool {
+	if expected.Kind != string(sent.Kind) || expected.Step != "" && expected.Step != sent.Step {
+		return false
+	}
+	if expected.To == nil {
+		return true
+	}
+	return sameSet(expected.To, sent.To)
+}
+
+func sameSet(a, b []string) bool {
+	x, y := slices.Clone(a), slices.Clone(b)
+	slices.Sort(x)
+	slices.Sort(y)
+	return slices.Equal(slices.Compact(x), slices.Compact(y))
+}
+
 // stepLabel names a step in the report: its id, or its name when it has
 // none.
 func stepLabel(step ir.Step) string {
@@ -157,4 +420,25 @@ func stepLabel(step ir.Step) string {
 		return step.ID
 	}
 	return step.Name
+}
+
+// stepLabelOf returns the label of the named step of dag, or the name of a
+// step dag does not declare.
+func stepLabelOf(dag *ir.DAG, name string) string {
+	if i := slices.IndexFunc(dag.Steps, func(s ir.Step) bool { return s.Name == name }); i >= 0 {
+		return stepLabel(dag.Steps[i])
+	}
+	return name
+}
+
+// stepLabels returns the labels of the named steps in the order dag
+// declares them.
+func stepLabels(dag *ir.DAG, names []string) []string {
+	var labels []string
+	for _, step := range dag.Steps {
+		if slices.Contains(names, step.Name) {
+			labels = append(labels, stepLabel(step))
+		}
+	}
+	return labels
 }

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/dagtest"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/proc"
@@ -1004,6 +1006,55 @@ steps:
 	runs, err := tc.ctx.Persistence.DAGRunRepository.RecentStatuses(tc.ctx, status.Name, 10)
 	require.NoError(t, err)
 	assert.Len(t, runs, 1, "the retry started another run")
+	// The last attempt's status holds one execution of sync; the case counts
+	// the executions of both attempts.
+	assert.Empty(t, tc.check(dagtest.Expect{Attempts: new(2), Steps: []dagtest.StepExpect{
+		{Key: "sync", Step: "sync", Attempts: new(2)},
+		{Key: "report", Step: "report", Attempts: new(1)},
+	}}, status))
+}
+
+// A stream assertion reads the step's last execution: the last retry of a
+// mocked step and the last repeat of a real one, not their whole logs.
+func TestCaseLastExecutionStream(t *testing.T) {
+	t.Parallel()
+
+	tc, status, err := runCase(t, `
+steps:
+  - name: flaky
+    run: ./flaky.sh
+    retry_policy:
+      limit: 1
+      interval_sec: 60
+  - name: tick
+    action: log.write
+    with:
+      message: tick ${context.step.repeat_index}
+    repeat_policy:
+      repeat: while
+      limit: 3
+`, caseOptions{mocks: map[string]stepmock.Step{"flaky": {Results: []stepmock.Result{
+		{ExitCode: 1, Stdout: "first\n", Stderr: "boom\n"},
+		{Stdout: "second\n"},
+	}}}})
+	require.NoError(t, err)
+	require.Equal(t, ir.Succeeded, status.Status, status.Error)
+
+	failures := tc.check(dagtest.Expect{Steps: []dagtest.StepExpect{
+		{Key: "flaky", Step: "flaky", Stdout: &dagtest.StreamExpect{
+			Contains: new("first"),
+			Matches:  regexp.MustCompile(`^second\n$`),
+		}, Stderr: &dagtest.StreamExpect{Contains: new("boom")}},
+		{Key: "tick", Step: "tick", Stdout: &dagtest.StreamExpect{
+			Contains: new("tick 1"),
+			Matches:  regexp.MustCompile(`^tick 2\s*$`),
+		}},
+	}}, status)
+	assert.Equal(t, []string{
+		`step flaky stdout: does not contain "first"`,
+		`step flaky stderr: does not contain "boom"`,
+		`step tick stdout: does not contain "tick 1"`,
+	}, failureLines(failures))
 }
 
 // A run that fails every attempt ends failed after limit+1 attempts. As in a
@@ -1077,6 +1128,15 @@ steps:
 	assert.Equal(t, 3, tc.attempts)
 	assert.Equal(t, "second", readOutput(t, caseNode(t, status, "deploy").Stdout))
 	assert.Equal(t, []string{"gate"}, tc.autoApproved)
+}
+
+// failureLines returns each failure as the text report writes it.
+func failureLines(failures []caseFailure) []string {
+	var lines []string
+	for _, f := range failures {
+		lines = append(lines, f.String())
+	}
+	return lines
 }
 
 // newCaseTestContext returns the context of dagu start with every configured

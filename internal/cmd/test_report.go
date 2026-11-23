@@ -7,9 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
 	"github.com/dagucloud/dagu/v2/internal/dagtest"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 )
 
 // caseResult is the outcome of one case: invalid when it has errors, failed
@@ -26,19 +30,36 @@ type caseResult struct {
 	// failures lists every failed assertion, or what kept the run from its
 	// assertions.
 	failures []caseFailure
+	// defaultMocked lists the labels of the steps and handlers that took
+	// the default mock: steps in DAG order, then handlers.
+	defaultMocked []string
+	// autoApproved lists the labels of the steps whose waits the case
+	// approved automatically, in DAG order.
+	autoApproved []string
+	// notifications lists the notifications the run would have sent, in
+	// the order it would have sent them.
+	notifications []testNotification
 	// caseDir is the absolute path of the case directory that --keep kept.
 	caseDir string
 }
 
 // Fields of a case failure (Spec 101, JSON Report).
 const (
-	failureStatus   = "status"
-	failureAttempts = "attempts"
-	failureTimeout  = "timeout"
-	failureLimit    = "limit"
+	failureStatus        = "status"
+	failureAttempts      = "attempts"
+	failureNotifications = "notifications"
+	failureTimeout       = "timeout"
+	failureLimit         = "limit"
 	// failureError is a run that could not complete, such as one with a
 	// wait the case cannot settle.
 	failureError = "error"
+	// failureOutputPrefix starts the field of an output assertion, which
+	// ends with the output's name.
+	failureOutputPrefix = "outputs."
+	// failureContains and failureMatches end the field of a stream
+	// assertion, which starts with the stream's name.
+	failureContains = ".contains"
+	failureMatches  = ".matches"
 )
 
 // caseFailure is one failed assertion of a case, or what kept its run from
@@ -49,9 +70,12 @@ type caseFailure struct {
 	step string
 	// field is one of the failure fields above.
 	field string
-	// expected and actual are the asserted and the actual token or number,
-	// the --timeout limit of a timeout, the resolved limit of a limit
-	// failure, and the reason of an error.
+	// expected and actual are the asserted and the actual value: a token or
+	// number, the compact JSON of an output, the text or expression of a
+	// stream assertion, the lists of notifications, the --timeout limit of
+	// a timeout, the resolved limit of a limit failure, or the reason of an
+	// error. A stream failure, and an output the step did not publish, have
+	// no actual.
 	expected any
 	actual   any
 	// message is the reason of a limit failure, as the step's error states
@@ -68,6 +92,19 @@ func (f caseFailure) String() string {
 		return fmt.Sprintf("timeout: did not finish within %v", f.expected)
 	case f.field == failureLimit:
 		return fmt.Sprintf("step %s: %s", f.step, f.message)
+	case f.field == failureNotifications:
+		return fmt.Sprintf("notifications: expected %s, got %s",
+			notificationList(f.expected.([]testNotification)), notificationList(f.actual.([]testNotification)))
+	case strings.HasPrefix(f.field, failureOutputPrefix):
+		actual := "nothing"
+		if f.actual != nil {
+			actual = fmt.Sprintf("%s", f.actual)
+		}
+		return fmt.Sprintf("step %s output %s: expected %s, got %s", f.step, strings.TrimPrefix(f.field, failureOutputPrefix), f.expected, actual)
+	case strings.HasSuffix(f.field, failureContains):
+		return fmt.Sprintf("step %s %s: does not contain %s", f.step, strings.TrimSuffix(f.field, failureContains), quoteJSON(f.expected))
+	case strings.HasSuffix(f.field, failureMatches):
+		return fmt.Sprintf("step %s %s: does not match %s", f.step, strings.TrimSuffix(f.field, failureMatches), quoteJSON(f.expected))
 	case f.step == "":
 		return fmt.Sprintf("%s: expected %v, got %v", f.field, f.expected, f.actual)
 	case f.field == failureStatus:
@@ -147,6 +184,15 @@ func (r *testReport) writeCase(c caseResult) {
 	default:
 		r.printf("PASS %s: %s (%.2fs)\n", c.file, c.name, c.duration.Seconds())
 	}
+	if len(c.defaultMocked) > 0 {
+		r.printf("  default mock: %s\n", strings.Join(c.defaultMocked, ", "))
+	}
+	if len(c.autoApproved) > 0 {
+		r.printf("  approved automatically: %s\n", strings.Join(c.autoApproved, ", "))
+	}
+	for _, n := range c.notifications {
+		r.printf("  %s\n", n.line())
+	}
 	if c.caseDir != "" {
 		r.printf("  case directory %s\n", c.caseDir)
 	}
@@ -192,4 +238,85 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// testNotification is a notification as the report writes it.
+type testNotification struct {
+	Kind string `json:"kind"`
+	// Step is the label of the step whose mail_on_error sends it.
+	Step string `json:"step,omitempty"`
+	// To lists the recipients. An expected notification without to
+	// matches any.
+	To []string `json:"to,omitempty"`
+}
+
+// String writes the notification as an item of a notifications failure.
+func (n testNotification) String() string {
+	text := n.Kind
+	if n.Step != "" {
+		text += " step " + n.Step
+	}
+	if n.To != nil {
+		text += " to " + strings.Join(n.To, ", ")
+	}
+	return text
+}
+
+// line writes the notification as a line of a case that ran.
+func (n testNotification) line() string {
+	to := strings.Join(n.To, ", ")
+	if n.Step != "" {
+		return fmt.Sprintf("notification %s, step %s: %s", n.Kind, n.Step, to)
+	}
+	return fmt.Sprintf("notification %s: %s", n.Kind, to)
+}
+
+// notificationList writes the notifications of a notifications failure,
+// or none.
+func notificationList(list []testNotification) string {
+	if len(list) == 0 {
+		return "none"
+	}
+	items := make([]string, 0, len(list))
+	for _, n := range list {
+		items = append(items, n.String())
+	}
+	return strings.Join(items, "; ")
+}
+
+// sentNotifications returns the notifications a run would have sent, as
+// the report writes them.
+func sentNotifications(dag *ir.DAG, sent []agent.Notification) []testNotification {
+	out := make([]testNotification, 0, len(sent))
+	for _, n := range sent {
+		item := testNotification{Kind: string(n.Kind), To: n.To}
+		if n.Step != "" {
+			item.Step = stepLabelOf(dag, n.Step)
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+// expectedNotifications returns the notifications a case expects, as the
+// report writes them.
+func expectedNotifications(dag *ir.DAG, expected []dagtest.Notification) []testNotification {
+	out := make([]testNotification, 0, len(expected))
+	for _, n := range expected {
+		item := testNotification{Kind: n.Kind, To: n.To}
+		if n.Step != "" {
+			item.Step = stepLabelOf(dag, n.Step)
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+// quoteJSON writes text as a JSON string.
+func quoteJSON(text any) string {
+	data, err := jsonutil.MarshalUnescaped(text)
+	if err != nil {
+		return fmt.Sprint(text)
+	}
+	return string(data)
 }
