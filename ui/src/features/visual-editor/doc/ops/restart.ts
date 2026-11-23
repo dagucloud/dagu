@@ -6,10 +6,8 @@ import { parseAllDocumentsAsServer } from '../serverYaml';
 
 export type RestartPolicy = 'no' | 'always' | 'unless-stopped';
 
-/** The restart policy of the DAG and what it cannot go with (spec 080). */
+/** What a service DAG cannot define in its file (spec 080). */
 export interface RestartView {
-  /** `no` when the key is absent, empty or not a known value. The case and the spaces do not count. */
-  policy: RestartPolicy;
   /** True when the schedule has a start, a stop or a restart entry. A service DAG cannot have one. */
   schedule: boolean;
   /** True when the file sets a DAG-level `retry_policy`. A service DAG cannot have one. */
@@ -17,7 +15,6 @@ export interface RestartView {
 }
 
 const NO_RESTART: RestartView = {
-  policy: 'no',
   schedule: false,
   retryPolicy: false,
 };
@@ -37,14 +34,6 @@ export function parseRestartPolicy(value: string): RestartPolicy | null {
   return policy === 'no' || policy === 'always' || policy === 'unless-stopped'
     ? policy
     : null;
-}
-
-function readPolicy(node: unknown): RestartPolicy {
-  const policy =
-    isScalar(node) && typeof node.value === 'string'
-      ? parseRestartPolicy(node.value)
-      : null;
-  return policy ?? 'no';
 }
 
 /** True for a key with no value: absent, `null`, or empty. */
@@ -82,7 +71,7 @@ function scheduleEntries(node: unknown): number {
   );
 }
 
-/** Reads the restart keys of document 0. Never throws. */
+/** Reads the schedule and retry policy of document 0. Never throws. */
 export function readRestart(text: string): RestartView {
   try {
     const doc = parseAllDocumentsAsServer(text)[0];
@@ -91,7 +80,6 @@ export function readRestart(text: string): RestartView {
     }
     const root = doc.contents;
     return {
-      policy: readPolicy(root.get('restart_policy', true)),
       schedule: scheduleEntries(root.get('schedule', true)) > 0,
       retryPolicy: !isEmpty(root.get('retry_policy', true)),
     };

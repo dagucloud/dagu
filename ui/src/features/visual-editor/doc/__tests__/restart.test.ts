@@ -11,40 +11,12 @@ steps:
     run: echo a
 `;
 
-const SERVICE = `name: demo
-restart_policy: always
-restart_wait_sec: 5 # seconds
-hist_retention_runs: 20
-steps:
-  - name: a
-    run: echo a
-`;
-
 describe('readRestart', () => {
-  it('reads no policy', () => {
+  it('reads no schedule and no retry policy', () => {
     expect(readRestart(BASE)).toEqual({
-      policy: 'no',
       schedule: false,
       retryPolicy: false,
     });
-  });
-
-  it('reads the policy', () => {
-    expect(readRestart(SERVICE).policy).toBe('always');
-  });
-
-  // Spec 080: the case and the spaces of the value do not count.
-  it('ignores the case and the spaces of the value', () => {
-    expect(readRestart('restart_policy: " Unless-Stopped "\n').policy).toBe(
-      'unless-stopped'
-    );
-    expect(readRestart('restart_policy: ALWAYS\n').policy).toBe('always');
-  });
-
-  it('reads an empty, a null and an unknown value as no', () => {
-    for (const value of ['""', 'null', '', 'sometimes', 'on-failure']) {
-      expect(readRestart(`restart_policy: ${value}\n`).policy).toBe('no');
-    }
   });
 
   it('tells a schedule of any form and a retry_policy', () => {
@@ -76,8 +48,10 @@ describe('readRestart', () => {
 
   it('reads document 0 and does not throw on a broken text', () => {
     expect(
-      readRestart(`${SERVICE}---\nname: sub\nrestart_policy: no\n`).policy
-    ).toBe('always');
-    expect(readRestart('a: [\n').policy).toBe('no');
+      readRestart(`${BASE}---\nname: sub\nschedule: "* * * * *"\n`).schedule
+    ).toBe(false);
+    expect(readRestart('schedule: "* * * * *"\nsteps: [\n').schedule).toBe(
+      false
+    );
   });
 });
