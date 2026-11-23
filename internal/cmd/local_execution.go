@@ -50,8 +50,13 @@ type runOptions struct {
 	// redirectRoot moves the step redirect files of a test case into its case
 	// directory.
 	redirectRoot runtime.RedirectRoot
+	// reportNoTrigger leaves the trigger out of a run's job-run reports, for
+	// a run dagu start begins as a retry, such as a selected-steps run,
+	// without --trigger-type.
+	reportNoTrigger bool
 	// testSideEffects, when non-nil, runs a test case without the run-level
-	// side effects of a real run.
+	// side effects of a real run, among them a job-run report to Dagu
+	// Console with a run key.
 	testSideEffects *agent.TestSideEffects
 	// executorOverride replaces the actions of the mocked steps of a test
 	// case.

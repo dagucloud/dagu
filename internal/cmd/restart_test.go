@@ -191,6 +191,42 @@ func TestRestartCommand_NotRunningWithoutSnapshot(t *testing.T) {
 	require.ErrorContains(t, err, "is not running")
 }
 
+// With a run key, a restarted run reports its trigger: manual for a slot
+// named with --scheduled-at, which dagu start would leave out. Not parallel:
+// the run key comes from the environment.
+func TestRestartCommand_JobRunTrigger(t *testing.T) {
+	console := newJobConsole(t)
+	th := test.SetupCommand(t)
+	release := newHoldFile(t)
+	dag := th.DAG(t, fmt.Sprintf(`steps:
+  - name: hold
+    run: %q
+`, holdUntilFileExistsCommand(release)))
+
+	done1 := make(chan struct{})
+	go func() {
+		th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
+		close(done1)
+	}()
+	dag.AssertCurrentStatus(t, ir.Running)
+
+	done2 := make(chan struct{})
+	go func() {
+		args := []string{"restart", "--scheduled-at=2026-03-13T10:00:00Z", dag.Location}
+		th.RunCommand(t, cmd.Restart(), test.CmdTest{Args: args})
+		close(done2)
+	}()
+	releaseDone := releaseHoldFileWhenRecentStatusCountAtLeast(t, th, dag.Name, 2, release)
+	require.NoError(t, <-releaseDone)
+	<-done1
+	<-done2
+
+	restarted, err := th.DAGRunRepository.RecentStatuses(th.Context, dag.Name, 1)
+	require.NoError(t, err)
+	require.Len(t, restarted, 1)
+	console.requireAttemptReported(t, restarted[0].AttemptID, "manual")
+}
+
 func TestRestartCommand_BuiltExecutableRestoresExplicitEnv(t *testing.T) {
 	th := test.SetupCommand(t, test.WithBuiltExecutable())
 	t.Setenv("CMD_RESTART_EXPLICIT_ENV", "from-host")

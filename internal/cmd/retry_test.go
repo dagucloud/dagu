@@ -712,6 +712,29 @@ func TestRetryCommand_DownstreamRequiresStep(t *testing.T) {
 	require.Contains(t, err.Error(), "--downstream requires --step")
 }
 
+// With a run key, a retry reports its trigger, retry, which a run dagu start
+// begins without --trigger-type leaves out. Not parallel: the run key comes
+// from the environment.
+func TestRetryCommand_JobRunTrigger(t *testing.T) {
+	console := newJobConsole(t)
+	th := test.SetupCommand(t)
+	dag := th.DAG(t, `steps:
+  - name: "1"
+    run: echo ok
+`)
+	th.RunCommand(t, cmd.Start(), test.CmdTest{Args: []string{"start", dag.Location}})
+	first, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+
+	th.RunCommand(t, cmd.Retry(), test.CmdTest{
+		Args: []string{"retry", "--run-id=" + first.DAGRunID, dag.Location},
+	})
+
+	retried, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+	console.requireAttemptReported(t, retried.AttemptID, "retry")
+}
+
 func writeStatus(t *testing.T, ctx context.Context, attempt dagrun.Attempt, status ir.DAGRunStatus) {
 	t.Helper()
 
