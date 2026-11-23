@@ -19,6 +19,7 @@ const MESSAGES: Record<Exclude<EditErrorCode, 'noop'>, string> = {
   invalidName: 'This step name is not valid.',
   cycle: 'This dependency makes a cycle.',
   invalidYaml: 'The step YAML is not valid.',
+  handlerStep: 'A handler cannot be duplicated.',
 };
 
 /**
