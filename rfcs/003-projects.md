@@ -120,12 +120,20 @@ has `paths.dags_dir` and `paths.data_dir`.
   directory, and its state lives in the folder's `.dagu/`. See
   [Lifecycle](#lifecycle).
 - `dag_discovery` settings in `config.yaml` apply to every project's DAG
-  directory, as they do to the default project.
+  directory, as they do to the default project. Discovery never follows a
+  symbolic link out of a project's DAG directory, whatever
+  `dag_discovery.symlinks` says, so one project never reads another's DAGs.
+- When one of `paths.dags_dir`, `paths.projects_dir`, and
+  `paths.alt_dags_dir` lies inside another, discovery in the outer one
+  skips the inner one, so each DAG file belongs to one project or the
+  library.
 - The default project is the existing home. Its paths, including any set in
   `config.yaml`, do not change.
 - Project names follow [Names](#names).
-- A new directory under `paths.projects_dir` is a new project. Admins can
-  also create one in the UI or API.
+- A new directory under `paths.projects_dir` that holds a DAG file,
+  `base.yaml`, or `.dagu.json` is a new project. Discovery ignores other
+  directories, so a checkout's `scripts/` or `docs/` never becomes one.
+  Admins can also create a project in the UI or API.
 
 ### Names
 
@@ -254,7 +262,8 @@ with the old one's.
   project.
 - `dag.run` resolves its target in the caller's project, then in the
   library. A path target must lie inside the caller's project DAG directory
-  or the library. A target in another project is a load error.
+  or the library once symbolic links resolve. A target in another project
+  is a load error.
 - A CLI command addresses the project named by `--project`, else by
   `DAGU_PROJECT`, else the project whose DAG directory contains the current
   directory, else `default`, as [Checkouts](#checkouts) details.
@@ -392,6 +401,14 @@ projects/day-ahead   day-ahead DAG ──dag.run──┘
     secrets, and profiles made in project mode before it was added are the
     project's from the start. Dagu must be able to read and write the
     folder and its `.dagu/`.
+  - `.dagu/` then holds the project's run history and secrets, so
+    `git clean -x` or a fresh clone deletes them. The UI says so before it
+    creates the project.
+  - A Dagu process that cannot reach the folder at its path, such as a
+    scheduler or coordinator on another host, lists the project as
+    missing. `.dagu/` is readable only by Dagu's user, so the CLI shares
+    the project's history only when run as that user, as on a desktop
+    install. Other users run its workflows through the server.
   - Secrets set in project mode are encrypted with the key of that user's
     Dagu home. When the server's key differs, the projects page lists the
     secrets it cannot decrypt, for an admin to enter again.
@@ -754,6 +771,11 @@ Criteria 23 and 24 apply from the release that ships the feature.
     webhook URL reaches the same DAG after migration and after a move.
 37. A CLI command run as a user other than the owner of a server project's
     state refuses to write to it and names the user to run as.
+38. A directory under `paths.projects_dir` that holds no DAG file,
+    `base.yaml`, or `.dagu.json` is not a project.
+39. Each DAG file belongs to one project or the library: discovery skips a
+    `dags_dir`, `projects_dir`, or `alt_dags_dir` nested in another, and
+    never follows a symbolic link out of a project.
 
 ## Alternatives considered
 
