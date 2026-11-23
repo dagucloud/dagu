@@ -151,6 +151,8 @@ type ValidationIssue = components['schemas']['ValidationIssue'];
 // The second pass of the validation loads with the editor, not before.
 type ClientIssuesModule =
   typeof import('@/features/visual-editor/doc/clientIssues');
+/** Time in ms after the canvas of a host mounts, before the code editor loads. */
+const EDITOR_PRELOAD_DELAY_MS = 1500;
 const SaveDiffDialog = React.lazy(() =>
   import('@/features/visual-editor/run/SaveDiffDialog').then((module) => ({
     default: module.SaveDiffDialog,
@@ -1605,6 +1607,13 @@ function DAGSpec({
   // and for the tools of the step YAML.
   const ndvStepName =
     selectedStepName !== undefined ? selectedStepName : visualStepName;
+  // A host opens the node view on a double click, at once: the code editor
+  // loads soon after the canvas, so that the view never waits for it.
+  React.useEffect(() => {
+    if (!hostMode) return;
+    const timer = window.setTimeout(preloadDAGEditor, EDITOR_PRELOAD_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [hostMode]);
   // The YAML that shows one step alone has the tools of that step: the quick
   // fixes and the format act inside its range and leave the rest of the text.
   const yamlStep = React.useMemo(() => {
