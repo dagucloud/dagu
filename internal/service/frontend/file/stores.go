@@ -134,19 +134,20 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 
 	stores.View = store.NewViewStore(backend.Collection(persis.CollectionViews))
 
-	inventoryStore, err := store.NewInventoryStore(
-		backend.Collection(persis.CollectionInventories),
-		backend.Lock(persis.CollectionInventories),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to create inventory store: %w", err)
-	}
-	stores.Inventory = inventoryStore
 	hostKeyStore, err := store.NewHostKeyStore(backend.Collection(persis.CollectionHostKeys))
 	if err != nil {
 		return fmt.Errorf("failed to create host key store: %w", err)
 	}
 	stores.HostKeys = hostKeyStore
+	inventoryStore, err := store.NewInventoryStore(
+		backend.Collection(persis.CollectionInventories),
+		backend.Lock(persis.CollectionInventories),
+		hostKeyStore,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create inventory store: %w", err)
+	}
+	stores.Inventory = inventoryStore
 
 	dagPinStore, err := store.NewDAGPinStore(backend.Collection(persis.CollectionDAGPins))
 	if err != nil {

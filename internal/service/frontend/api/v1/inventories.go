@@ -184,7 +184,7 @@ func (a *API) ImportInventories(ctx context.Context, request api.ImportInventori
 		Replace: valueOf(request.Params.Replace),
 		DryRun:  valueOf(request.Params.DryRun),
 	}
-	result, err := a.inventoryEditor().Import(ctx, invs, opts)
+	result, err := a.inventoryStore.Import(ctx, invs, opts)
 	// An import that fails partway keeps what it stored, so that is audited
 	// too.
 	if !opts.DryRun && len(result.Created)+len(result.Replaced) > 0 {

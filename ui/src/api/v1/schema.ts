@@ -4667,7 +4667,7 @@ export interface paths {
         put?: never;
         /**
          * Create an inventory
-         * @description Creates an inventory from its record. The inventory is checked against every rule and the stored inventories. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited.
+         * @description Creates an inventory from its record. The inventory is checked against every rule and the stored inventories. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403.
          */
         post: operations["createInventory"];
         delete?: never;
@@ -4690,13 +4690,13 @@ export interface paths {
         get: operations["getInventory"];
         /**
          * Replace an inventory
-         * @description Replaces an inventory as a whole, given the version the change is based on. The ID stays. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited.
+         * @description Replaces an inventory as a whole, given the version the change is based on. The ID stays. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403.
          */
         put: operations["replaceInventory"];
         post?: never;
         /**
          * Delete an inventory
-         * @description Deletes an inventory and its nodes, given the version the change is based on. The host keys trusted for its nodes are forgotten. Requires the developer role or above, and is audited.
+         * @description Deletes an inventory and its nodes, given the version the change is based on. The host keys trusted for its nodes are forgotten. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403.
          */
         delete: operations["deleteInventory"];
         options?: never;
@@ -4714,13 +4714,13 @@ export interface paths {
         get?: never;
         /**
          * Add or change a node
-         * @description Adds a node to an inventory, or replaces the node of this name, given the version of the inventory the change is based on. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited.
+         * @description Adds a node to an inventory, or replaces the node of this name, given the version of the inventory the change is based on. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403.
          */
         put: operations["putInventoryNode"];
         post?: never;
         /**
          * Remove a node
-         * @description Removes a node from an inventory, given the version of the inventory the change is based on. The host key trusted for the node is forgotten. Requires the developer role or above, and is audited.
+         * @description Removes a node from an inventory, given the version of the inventory the change is based on. The host key trusted for the node is forgotten. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403.
          */
         delete: operations["deleteInventoryNode"];
         options?: never;
@@ -25275,7 +25275,7 @@ export interface operations {
                     "application/json": components["schemas"]["Inventory"];
                 };
             };
-            /** @description The inventory breaks a rule, and nothing was stored */
+            /** @description The inventory breaks a rule, and nothing was stored. A body that is not JSON gets an `Error` without `errors` */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -25400,7 +25400,7 @@ export interface operations {
                     "application/json": components["schemas"]["Inventory"];
                 };
             };
-            /** @description The inventory breaks a rule, and nothing was stored */
+            /** @description The inventory breaks a rule, and nothing was stored. A body that is not JSON gets an `Error` without `errors` */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -25573,7 +25573,7 @@ export interface operations {
                     "application/json": components["schemas"]["Inventory"];
                 };
             };
-            /** @description The node breaks a rule, and nothing was stored */
+            /** @description The node breaks a rule, and nothing was stored. A body that is not JSON gets an `Error` without `errors` */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -25661,6 +25661,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Inventory"];
+                };
+            };
+            /** @description Another node names this one as its bastion, and nothing was stored */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryImportError"];
                 };
             };
             /** @description Not authenticated */

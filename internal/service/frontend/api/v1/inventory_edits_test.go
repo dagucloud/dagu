@@ -42,12 +42,17 @@ const tokyoRecord = `{
   ]
 }`
 
+// newEditTestAPI returns an API whose inventory changes forget the host keys
+// they free.
 func newEditTestAPI(t *testing.T, opts ...apiv1.APIOption) (*apiv1.API, inventory.HostKeyStore) {
 	t.Helper()
-	hostKeys, err := persiststore.NewHostKeyStore(testutil.NewMemoryBackend().Collection(persis.CollectionHostKeys))
+	backend := testutil.NewMemoryBackend()
+	hostKeys, err := persiststore.NewHostKeyStore(backend.Collection(persis.CollectionHostKeys))
 	require.NoError(t, err)
-	opts = append([]apiv1.APIOption{apiv1.WithHostKeyStore(hostKeys)}, opts...)
-	return newInventoryTestAPI(t, opts...), hostKeys
+	inventories, err := persiststore.NewInventoryStore(backend.Collection(persis.CollectionInventories), backend.Lock(persis.CollectionInventories), hostKeys)
+	require.NoError(t, err)
+	opts = append([]apiv1.APIOption{apiv1.WithInventoryStore(inventories), apiv1.WithHostKeyStore(hostKeys)}, opts...)
+	return apiv1.New(nil, nil, nil, nil, runtime.Manager{}, &config.Config{}, nil, nil, prometheus.NewRegistry(), nil, opts...), hostKeys
 }
 
 // record decodes raw as the body of a request of type T.
@@ -183,17 +188,25 @@ func TestInventoryEditAPI_Nodes(t *testing.T) {
 		"an unknown field is refused")
 	assert.IsType(t, apigen.PutInventoryNode400JSONResponse{}, put("web03", 3, apigen.PutInventoryNodeJSONRequestBody{"host": "10.0.1.13", "bastion": "nowhere"}),
 		"a rule is broken")
+	_, ok = put("web03", 3, apigen.PutInventoryNodeJSONRequestBody{"host": "10.0.1.13", "bastion": "web01"}).(apigen.PutInventoryNode201JSONResponse)
+	require.True(t, ok)
+	inUse, err := api.DeleteInventoryNode(ctx, apigen.DeleteInventoryNodeRequestObject{
+		InventoryId: created.Id, NodeName: "web01", Params: apigen.DeleteInventoryNodeParams{Version: 4},
+	})
+	require.NoError(t, err)
+	assert.IsType(t, apigen.DeleteInventoryNode400JSONResponse{}, inUse, "a node another node goes through stays")
+	put("web03", 4, apigen.PutInventoryNodeJSONRequestBody{"host": "10.0.1.13"})
 
 	resp, err := api.DeleteInventoryNode(ctx, apigen.DeleteInventoryNodeRequestObject{
-		InventoryId: created.Id, NodeName: "web01", Params: apigen.DeleteInventoryNodeParams{Version: 3},
+		InventoryId: created.Id, NodeName: "web01", Params: apigen.DeleteInventoryNodeParams{Version: 5},
 	})
 	require.NoError(t, err)
 	removed, ok := resp.(apigen.DeleteInventoryNode200JSONResponse)
 	require.True(t, ok, "expected 200, got %#v", resp)
-	assert.Equal(t, []string{"web02", "db01"}, nodeNamesOf(apigen.Inventory(removed)))
+	assert.Equal(t, []string{"web02", "db01", "web03"}, nodeNamesOf(apigen.Inventory(removed)))
 
 	missing, err := api.DeleteInventoryNode(ctx, apigen.DeleteInventoryNodeRequestObject{
-		InventoryId: created.Id, NodeName: "web01", Params: apigen.DeleteInventoryNodeParams{Version: 4},
+		InventoryId: created.Id, NodeName: "web01", Params: apigen.DeleteInventoryNodeParams{Version: 6},
 	})
 	require.NoError(t, err)
 	assert.IsType(t, apigen.DeleteInventoryNode404JSONResponse{}, missing)

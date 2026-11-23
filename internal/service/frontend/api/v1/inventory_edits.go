@@ -30,7 +30,7 @@ func (a *API) CreateInventory(ctx context.Context, request api.CreateInventoryRe
 	if refused != nil {
 		return api.CreateInventory400JSONResponse(*refused), nil
 	}
-	stored, err := a.inventoryEditor().Create(ctx, inv)
+	stored, err := a.inventoryStore.Create(ctx, inv)
 	if errors.Is(err, inventory.ErrInvalid) {
 		return api.CreateInventory400JSONResponse(ruleViolation(err)), nil
 	}
@@ -61,14 +61,17 @@ func (a *API) ReplaceInventory(ctx context.Context, request api.ReplaceInventory
 		return api.ReplaceInventory400JSONResponse(changeRefused(fmt.Sprintf("the record's id %q is not the inventory's ID %q", inv.ID, request.InventoryId))), nil
 	}
 	inv.ID = request.InventoryId
-	stored, err := a.inventoryEditor().Replace(ctx, inv, request.Params.Version)
+	stored, err := a.inventoryStore.Replace(ctx, inv, request.Params.Version)
 	switch {
 	case errors.Is(err, inventory.ErrInvalid):
 		return api.ReplaceInventory400JSONResponse(ruleViolation(err)), nil
 	case errors.Is(err, inventory.ErrNotFound):
 		return api.ReplaceInventory404JSONResponse(inventoryNotFound(request.InventoryId)), nil
 	case errors.Is(err, inventory.ErrStale):
-		conflict, err := a.inventoryConflict(ctx, request.InventoryId, err)
+		conflict, found, err := a.inventoryConflict(ctx, request.InventoryId, err)
+		if !found {
+			return api.ReplaceInventory404JSONResponse(inventoryNotFound(request.InventoryId)), err
+		}
 		return api.ReplaceInventory409JSONResponse(conflict), err
 	case err != nil:
 		return nil, fmt.Errorf("failed to replace inventory %q: %w", request.InventoryId, err)
@@ -90,12 +93,15 @@ func (a *API) DeleteInventory(ctx context.Context, request api.DeleteInventoryRe
 	if err != nil {
 		return nil, fmt.Errorf("failed to read inventory %q: %w", request.InventoryId, err)
 	}
-	err = a.inventoryEditor().Delete(ctx, request.InventoryId, request.Params.Version)
+	err = a.inventoryStore.Delete(ctx, request.InventoryId, request.Params.Version)
 	switch {
 	case errors.Is(err, inventory.ErrNotFound):
 		return api.DeleteInventory404JSONResponse(inventoryNotFound(request.InventoryId)), nil
 	case errors.Is(err, inventory.ErrStale):
-		conflict, err := a.inventoryConflict(ctx, request.InventoryId, err)
+		conflict, found, err := a.inventoryConflict(ctx, request.InventoryId, err)
+		if !found {
+			return api.DeleteInventory404JSONResponse(inventoryNotFound(request.InventoryId)), err
+		}
 		return api.DeleteInventory409JSONResponse(conflict), err
 	case err != nil:
 		return nil, fmt.Errorf("failed to delete inventory %q: %w", request.InventoryId, err)
@@ -128,14 +134,17 @@ func (a *API) PutInventoryNode(ctx context.Context, request api.PutInventoryNode
 		return api.PutInventoryNode400JSONResponse(changeRefused(fmt.Sprintf("the record's name %q is not the node name %q of the path", node.Name, request.NodeName))), nil
 	}
 
-	stored, added, err := a.inventoryEditor().PutNode(ctx, request.InventoryId, node, request.Params.Version)
+	stored, added, err := inventory.PutNode(ctx, a.inventoryStore, request.InventoryId, node, request.Params.Version)
 	switch {
 	case errors.Is(err, inventory.ErrInvalid):
 		return api.PutInventoryNode400JSONResponse(ruleViolation(err)), nil
 	case errors.Is(err, inventory.ErrNotFound):
 		return api.PutInventoryNode404JSONResponse(inventoryNotFound(request.InventoryId)), nil
 	case errors.Is(err, inventory.ErrStale):
-		conflict, err := a.inventoryConflict(ctx, request.InventoryId, err)
+		conflict, found, err := a.inventoryConflict(ctx, request.InventoryId, err)
+		if !found {
+			return api.PutInventoryNode404JSONResponse(inventoryNotFound(request.InventoryId)), err
+		}
 		return api.PutInventoryNode409JSONResponse(conflict), err
 	case err != nil:
 		return nil, fmt.Errorf("failed to change node %q: %w", node.Name, err)
@@ -155,17 +164,20 @@ func (a *API) DeleteInventoryNode(ctx context.Context, request api.DeleteInvento
 	if err := a.requireInventoryWrite(ctx); err != nil {
 		return nil, err
 	}
-	stored, err := a.inventoryEditor().DeleteNode(ctx, request.InventoryId, request.NodeName, request.Params.Version)
+	stored, err := inventory.DeleteNode(ctx, a.inventoryStore, request.InventoryId, request.NodeName, request.Params.Version)
 	switch {
 	case errors.Is(err, inventory.ErrNotFound):
 		return api.DeleteInventoryNode404JSONResponse(inventoryNotFound(request.InventoryId)), nil
 	case errors.Is(err, inventory.ErrNodeNotFound):
 		return api.DeleteInventoryNode404JSONResponse{Code: api.ErrorCodeNotFound, Message: err.Error()}, nil
 	case errors.Is(err, inventory.ErrInvalid):
-		// Another node may name the removed one as its bastion.
-		return nil, &Error{HTTPStatus: http.StatusBadRequest, Code: api.ErrorCodeBadRequest, Message: err.Error()}
+		// Another node names the removed one as its bastion.
+		return api.DeleteInventoryNode400JSONResponse(ruleViolation(err)), nil
 	case errors.Is(err, inventory.ErrStale):
-		conflict, err := a.inventoryConflict(ctx, request.InventoryId, err)
+		conflict, found, err := a.inventoryConflict(ctx, request.InventoryId, err)
+		if !found {
+			return api.DeleteInventoryNode404JSONResponse(inventoryNotFound(request.InventoryId)), err
+		}
 		return api.DeleteInventoryNode409JSONResponse(conflict), err
 	case err != nil:
 		return nil, fmt.Errorf("failed to remove node %q: %w", request.NodeName, err)
@@ -174,12 +186,6 @@ func (a *API) DeleteInventoryNode(ctx context.Context, request api.DeleteInvento
 		"inventory": stored.Name, "node": request.NodeName,
 	})
 	return api.DeleteInventoryNode200JSONResponse(toInventory(stored)), nil
-}
-
-// inventoryEditor returns the editor that changes inventories and forgets
-// the trusted keys of the nodes a change adds or removes.
-func (a *API) inventoryEditor() *inventory.Editor {
-	return inventory.NewEditor(a.inventoryStore, a.hostKeyStore)
 }
 
 // requireInventoryWrite checks that inventories can be changed by the
@@ -208,17 +214,21 @@ func (a *API) decodeInventoryChange(ctx context.Context, body any) (inventory.In
 }
 
 // inventoryConflict answers a change based on an old version with the
-// inventory as it is now.
-func (a *API) inventoryConflict(ctx context.Context, id string, stale error) (api.InventoryConflict, error) {
+// inventory as it is now. found is false when the inventory was deleted
+// since.
+func (a *API) inventoryConflict(ctx context.Context, id string, stale error) (api.InventoryConflict, bool, error) {
 	current, err := a.inventoryStore.Get(ctx, id)
+	if errors.Is(err, inventory.ErrNotFound) {
+		return api.InventoryConflict{}, false, nil
+	}
 	if err != nil {
-		return api.InventoryConflict{}, fmt.Errorf("failed to read inventory %q: %w", id, err)
+		return api.InventoryConflict{}, true, fmt.Errorf("failed to read inventory %q: %w", id, err)
 	}
 	return api.InventoryConflict{
 		Code:      api.ErrorCodeConflict,
 		Message:   stale.Error(),
 		Inventory: toInventory(current),
-	}, nil
+	}, true, nil
 }
 
 func ruleViolation(err error) api.InventoryImportError {

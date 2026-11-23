@@ -12488,7 +12488,7 @@ paths:
                 $ref: "#/components/schemas/Error"
     post:
       summary: "Create an inventory"
-      description: "Creates an inventory from its record. The inventory is checked against every rule and the stored inventories. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited."
+      description: "Creates an inventory from its record. The inventory is checked against every rule and the stored inventories. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403."
       operationId: "createInventory"
       tags:
         - "nodes"
@@ -12508,7 +12508,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Inventory"
         "400":
-          description: "The inventory breaks a rule, and nothing was stored"
+          description: "The inventory breaks a rule, and nothing was stored. A body that is not JSON gets an `Error` without `errors`"
           content:
             application/json:
               schema:
@@ -12578,7 +12578,7 @@ paths:
                 $ref: "#/components/schemas/Error"
     put:
       summary: "Replace an inventory"
-      description: "Replaces an inventory as a whole, given the version the change is based on. The ID stays. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited."
+      description: "Replaces an inventory as a whole, given the version the change is based on. The ID stays. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403."
       operationId: "replaceInventory"
       tags:
         - "nodes"
@@ -12605,7 +12605,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Inventory"
         "400":
-          description: "The inventory breaks a rule, and nothing was stored"
+          description: "The inventory breaks a rule, and nothing was stored. A body that is not JSON gets an `Error` without `errors`"
           content:
             application/json:
               schema:
@@ -12648,7 +12648,7 @@ paths:
                 $ref: "#/components/schemas/Error"
     delete:
       summary: "Delete an inventory"
-      description: "Deletes an inventory and its nodes, given the version the change is based on. The host keys trusted for its nodes are forgotten. Requires the developer role or above, and is audited."
+      description: "Deletes an inventory and its nodes, given the version the change is based on. The host keys trusted for its nodes are forgotten. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403."
       operationId: "deleteInventory"
       tags:
         - "nodes"
@@ -12696,7 +12696,7 @@ paths:
   /inventories/{inventoryId}/nodes/{nodeName}:
     put:
       summary: "Add or change a node"
-      description: "Adds a node to an inventory, or replaces the node of this name, given the version of the inventory the change is based on. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited."
+      description: "Adds a node to an inventory, or replaces the node of this name, given the version of the inventory the change is based on. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403."
       operationId: "putInventoryNode"
       tags:
         - "nodes"
@@ -12735,7 +12735,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Inventory"
         "400":
-          description: "The node breaks a rule, and nothing was stored"
+          description: "The node breaks a rule, and nothing was stored. A body that is not JSON gets an `Error` without `errors`"
           content:
             application/json:
               schema:
@@ -12778,7 +12778,7 @@ paths:
                 $ref: "#/components/schemas/Error"
     delete:
       summary: "Remove a node"
-      description: "Removes a node from an inventory, given the version of the inventory the change is based on. The host key trusted for the node is forgotten. Requires the developer role or above, and is audited."
+      description: "Removes a node from an inventory, given the version of the inventory the change is based on. The host key trusted for the node is forgotten. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403."
       operationId: "deleteInventoryNode"
       tags:
         - "nodes"
@@ -12802,6 +12802,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Inventory"
+        "400":
+          description: "Another node names this one as its bastion, and nothing was stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryImportError"
         "404":
           description: "No inventory has this ID, or it holds no node of this name"
           content:

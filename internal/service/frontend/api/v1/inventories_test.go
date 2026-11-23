@@ -86,6 +86,7 @@ func newInventoryTestStore(t *testing.T) inventory.Store {
 	store, err := persiststore.NewInventoryStore(
 		backend.Collection(persis.CollectionInventories),
 		backend.Lock(persis.CollectionInventories),
+		nil,
 	)
 	require.NoError(t, err)
 	return store
