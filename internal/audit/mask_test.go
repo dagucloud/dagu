@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 )
@@ -79,15 +80,25 @@ func TestMaskKeepsDetailsJSON(t *testing.T) {
 	}
 }
 
-// A stored value inside a token does not split the token, which would leave
-// the rest of it unmatched.
-func TestMaskHidesTokensHoldingStoredValues(t *testing.T) {
-	body := strings.Repeat("a", 16) + "pin1" + strings.Repeat("b", 16)
-	entry := &Entry{Details: `{"command":"echo ghp_` + body + `"}`}
+// A token and a stored value that overlap are masked as one span, so
+// neither leaves part of the other in the entry.
+func TestMaskHidesOverlappingTokensAndStoredValues(t *testing.T) {
+	token := "ghp_" + strings.Repeat("a", 16) + "pin1" + strings.Repeat("b", 16)
+	credential := `{"aws_access_key_id":"AKIA` + strings.Repeat("Z", 16) +
+		`","aws_secret_access_key":"wJalrXUtnFEMI/K7MDENG"}`
+	for name, tc := range map[string]struct{ stored, command string }{
+		"a stored value inside a token":     {stored: "pin1", command: "echo " + token},
+		"a token inside a stored value":     {stored: credential, command: "echo " + credential},
+		"a stored value past a token's end": {stored: strings.Repeat("b", 16) + "-tail", command: "echo " + token + "-tail"},
+	} {
+		details, err := json.Marshal(map[string]string{"command": tc.command})
+		require.NoError(t, err)
+		entry := &Entry{Details: string(details)}
 
-	NewMasker(&secretValues{values: []string{"pin1"}}).Mask(context.Background(), entry)
+		NewMasker(&secretValues{values: []string{tc.stored}}).Mask(context.Background(), entry)
 
-	assert.Equal(t, `{"command":"echo `+masking.DefaultMaskString+`"}`, entry.Details)
+		assert.Equal(t, `{"command":"echo `+masking.DefaultMaskString+`"}`, entry.Details, name)
+	}
 }
 
 // An entry masked without the secret values carries no marker, so it is

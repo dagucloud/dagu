@@ -64,6 +64,9 @@ var tokenPattern = regexp.MustCompile(
 		`|\bxox[abposr]-[A-Za-z0-9-]{10,}`,
 )
 
+// tokenMasker masks the token formats alone, until secret values load.
+var tokenMasker = masking.NewValueMasker(nil, tokenPattern)
+
 // SecretSource supplies the secret values a Masker hides.
 type SecretSource interface {
 	// CurrentValues returns the current value of every secret to hide.
@@ -87,7 +90,7 @@ type Masker struct {
 // NewMasker returns a masker that hides the values source supplies and
 // common token formats. A nil source hides the token formats only.
 func NewMasker(source SecretSource) *Masker {
-	return &Masker{source: source, now: time.Now}
+	return &Masker{source: source, now: time.Now, secrets: tokenMasker}
 }
 
 // Mask masks every field of entry but its control fields. Values are
@@ -96,20 +99,15 @@ func NewMasker(source SecretSource) *Masker {
 // values loaded last, carries no marker, and the next entry tries again.
 func (m *Masker) Mask(ctx context.Context, entry *Entry) {
 	secrets, loaded := m.current(ctx)
-	// Token formats go first, so a stored value inside a token cannot
-	// split the token and leave its rest unmatched.
-	mask := func(text string) string {
-		return secrets.MaskString(tokenPattern.ReplaceAllLiteralString(text, masking.DefaultMaskString))
-	}
 	value := reflect.ValueOf(entry).Elem()
 	for _, index := range maskedFields() {
 		field := value.FieldByIndex(index)
 		if text := field.String(); text != "" {
-			field.SetString(mask(text))
+			field.SetString(secrets.MaskString(text))
 		}
 	}
 	if entry.Details != "" {
-		entry.Details = maskDetails(entry.Details, mask)
+		entry.Details = maskDetails(entry.Details, secrets.MaskString)
 	}
 	entry.Masked = loaded
 }
@@ -127,12 +125,12 @@ func maskDetails(details string, mask func(string) string) string {
 	return string(quoted)
 }
 
-// current returns the masker of the secret values and whether they loaded,
-// reloading them when this process changed a secret or they are older than
-// secretsMaxAge.
+// current returns the masker of the secret values and token formats, and
+// whether the values loaded, reloading them when this process changed a
+// secret or they are older than secretsMaxAge.
 func (m *Masker) current(ctx context.Context) (*masking.Masker, bool) {
 	if m == nil || m.source == nil {
-		return nil, true
+		return tokenMasker, true
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -145,7 +143,7 @@ func (m *Masker) current(ctx context.Context) (*masking.Masker, bool) {
 		logger.Warn(ctx, "Failed to load secret values for audit masking", tag.Error(err))
 		return m.secrets, false
 	}
-	m.secrets = masking.NewValueMasker(values)
+	m.secrets = masking.NewValueMasker(values, tokenPattern)
 	m.revision, m.loadedAt = revision, m.now()
 	return m.secrets, true
 }
