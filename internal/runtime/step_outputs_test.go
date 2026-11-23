@@ -18,7 +18,10 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/outputs"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
+	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -205,6 +208,34 @@ func TestStepExecutorDoesNotPublishDeclaredOutputsFromFailedAttempt(t *testing.T
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "executor failed")
 	require.Nil(t, node.State().StepOutputsValue)
+}
+
+// An action publishes its outputs before output_schema checks stdout. A
+// failed check fails the attempt, so the action's outputs reach neither a
+// later reference nor the outputs the run collects. The later step is mocked
+// so that no shell runs the reference it keeps as text.
+func TestFailedOutputSchemaPublishesNoOutputs(t *testing.T) {
+	t.Parallel()
+
+	r := setupRunner(t, withStepMocks(map[string]stepmock.Step{"use": {}}))
+	steps := loadSteps(t, `
+steps:
+  - id: plan
+    action: outputs.write
+    with:
+      values:
+        risk: high
+    output_schema:
+      type: object
+    continue_on: failed
+  - id: use
+    run: echo ${steps.plan.outputs.risk}
+`)
+	result := r.newPlan(t, steps...).assertRun(t, ir.PartiallySucceeded)
+
+	result.assertNodeStatus(t, "plan", ir.NodeFailed)
+	assert.Nil(t, result.nodeByName(t, "plan").NodeData().OutputsValueStringMap())
+	assert.Equal(t, []string{"${steps.plan.outputs.risk}"}, result.nodeByName(t, "use").Step().Commands[0].Args)
 }
 
 func TestNewPlanEnvForNodeIncludesOnlyPredecessorStepReferences(t *testing.T) {

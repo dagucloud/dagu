@@ -182,6 +182,10 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		outputErr = node.captureOutput(ctx)
 	}
 	if outputErr != nil {
+		// The attempt fails, so it publishes nothing, including the outputs
+		// its action published before output capture failed.
+		node.clearOutputsValue()
+		node.clearStepOutputsValue()
 		return preferMaskedRead(ctx, node, outputErr)
 	}
 	// An executor can resolve a field while it runs.
