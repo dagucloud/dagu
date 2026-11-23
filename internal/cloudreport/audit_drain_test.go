@@ -39,6 +39,14 @@ func sentIDs(requests []auditReceived) (map[string]bool, []*auditGap) {
 	return ids, gaps
 }
 
+// drainFor drains s, sending batches for send and ending by end from now, and
+// returns when the drain must end.
+func drainFor(s *AuditShipper, send, end time.Duration) time.Time {
+	now := time.Now()
+	s.Drain(now.Add(send), now.Add(end))
+	return now.Add(end)
+}
+
 // A stopping server with a backlog and a reachable Console sends all of it
 // before it exits (RFC 021 Verification 9).
 func TestAuditDrainSendsTheBacklog(t *testing.T) {
@@ -47,7 +55,7 @@ func TestAuditDrainSendsTheBacklog(t *testing.T) {
 	s, _ := startSendingShipper(t, d, console)
 	writeCommands(t, d, 8000)
 
-	s.Drain(time.Now())
+	drainFor(s, 22*time.Second, 25*time.Second)
 
 	ids, gaps := sentIDs(console.requests())
 	assert.Len(t, ids, 8000)
@@ -71,15 +79,14 @@ func TestAuditDrainRetriesAfterAFailure(t *testing.T) {
 	s, _ := startSendingShipper(t, d, console)
 	require.Len(t, console.requests(), 1)
 
-	s.Drain(time.Now())
+	drainFor(s, 22*time.Second, 25*time.Second)
 
 	ids, _ := sentIDs(console.requests())
 	assert.Len(t, ids, 1)
 }
 
-// With Console unreachable, a stopping server still exits 25 seconds after
-// the signal (RFC 021 Verification 11). The signal is put 21 seconds back so
-// that the test waits about 4.
+// With Console unreachable, a stopping server still ends its drain in time
+// (RFC 021 Verification 11).
 func TestAuditDrainEndsInTime(t *testing.T) {
 	d := newAuditDir(t)
 	console := newAuditFakeConsole(t)
@@ -87,15 +94,13 @@ func TestAuditDrainEndsInTime(t *testing.T) {
 	writeCommands(t, d, 1)
 	console.unreachable.Store(true)
 
-	signaled := time.Now().Add(-21 * time.Second)
-	s.Drain(signaled)
+	end := drainFor(s, time.Second, 4*time.Second)
 
-	assert.WithinDuration(t, signaled.Add(auditDrainEnd), time.Now(), time.Second)
+	assert.WithinDuration(t, end, time.Now(), time.Second)
 }
 
 // A batch already in flight when the drain starts ends with the drain's send
-// time, not the request timeout, so the exit still comes 25 seconds after the
-// signal.
+// time, not the request timeout, so the drain still ends in time.
 func TestAuditDrainEndsABatchInFlight(t *testing.T) {
 	d := newAuditDir(t)
 	writeCommands(t, d, 1)
@@ -110,10 +115,9 @@ func TestAuditDrainEndsABatchInFlight(t *testing.T) {
 	t.Cleanup(s.Stop)
 	require.Eventually(t, func() bool { return console.hanging.Load() > 0 }, testTimeout, 10*time.Millisecond)
 
-	signaled := time.Now().Add(-21 * time.Second)
-	s.Drain(signaled)
+	end := drainFor(s, time.Second, 4*time.Second)
 
-	assert.WithinDuration(t, signaled.Add(auditDrainEnd), time.Now(), time.Second)
+	assert.WithinDuration(t, end, time.Now(), time.Second)
 }
 
 // What a stopping server could not send goes as one stopped gap, which is not
@@ -126,7 +130,7 @@ func TestAuditDrainReportsWhatIsLeft(t *testing.T) {
 	writeCommands(t, d, 1)
 
 	// No time is left to send.
-	s.Drain(time.Now().Add(-auditDrainSend))
+	drainFor(s, 0, 3*time.Second)
 
 	ids, gaps := sentIDs(console.requests())
 	assert.Empty(t, ids)
@@ -157,7 +161,7 @@ func TestAuditDrainKeepsEntriesOverQuota(t *testing.T) {
 	require.Len(t, console.requests(), 1)
 
 	started := time.Now()
-	s.Drain(started)
+	drainFor(s, 22*time.Second, 25*time.Second)
 
 	assert.Less(t, time.Since(started), time.Second)
 	assert.Empty(t, console.requests())

@@ -218,7 +218,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	}
 
 	cloudReporter = startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService)
-	waitCloudAudit = watchCloudAudit(signalCtx, webStopped, startCloudAudit(serviceCtx, stores.Secret), cloudAuditDrainStart)
+	waitCloudAudit = watchCloudAudit(signalCtx, webStopped, startCloudAudit(serviceCtx, stores.Secret), ctx.Config.Cloud.AuditDrainTimeout)
 	stopCloudAccess = startCloudAccess(serviceCtx, cloudAccess, server)
 
 	err = restartExit(server.Serve(serviceCtx))
@@ -351,13 +351,17 @@ func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring, access *
 // shipper's lease heartbeats: a batch sent as several requests.
 const cloudAuditLeaseStaleThreshold = 2 * time.Minute
 
-// cloudAuditDrainStart is how long after a stop signal the audit shipper
-// starts draining while the web server has not stopped yet.
+// cloudAuditDrainStart is the longest the audit drain waits for the web
+// server to stop before it starts.
 const cloudAuditDrainStart = 10 * time.Second
+
+// cloudAuditGapTime is the end of the audit drain kept to report the entries
+// left as a stopped gap.
+const cloudAuditGapTime = 3 * time.Second
 
 // cloudAuditShipper is the audit shipper as stopping sees it.
 type cloudAuditShipper interface {
-	Drain(signaled time.Time)
+	Drain(sendUntil, endBy time.Time)
 	Stop()
 }
 
@@ -384,11 +388,12 @@ func startCloudAudit(ctx *Context, secrets secret.Store) cloudAuditShipper {
 }
 
 // watchCloudAudit ends the audit shipper with the command. After a stop
-// signal it drains, from when the web server has stopped, or startAfter after
-// the signal, whichever comes first, so the last entries are on disk.
-// Otherwise, as after an upgrade restart or a failure to start, it stops at
-// once. The returned function waits for it.
-func watchCloudAudit(signalCtx context.Context, webStopped <-chan struct{}, shipper cloudAuditShipper, startAfter time.Duration) func() {
+// signal it drains for timeout: from when the web server has stopped, so the
+// last entries are on disk, or once half the send time has passed, at most
+// cloudAuditDrainStart; batches go until cloudAuditGapTime before the end.
+// Otherwise, as after an upgrade restart or a failure to start, or with a
+// zero timeout, it stops at once. The returned function waits for it.
+func watchCloudAudit(signalCtx context.Context, webStopped <-chan struct{}, shipper cloudAuditShipper, timeout time.Duration) func() {
 	if shipper == nil {
 		return func() {}
 	}
@@ -397,16 +402,18 @@ func watchCloudAudit(signalCtx context.Context, webStopped <-chan struct{}, ship
 		defer close(done)
 		<-signalCtx.Done()
 		var sig os.Signal
-		if !errors.As(context.Cause(signalCtx), &sig) {
+		if timeout <= 0 || !errors.As(context.Cause(signalCtx), &sig) {
 			shipper.Stop()
 			return
 		}
 		signaled := time.Now()
+		endBy := signaled.Add(timeout)
+		sendUntil := endBy.Add(-cloudAuditGapTime)
 		select {
 		case <-webStopped:
-		case <-time.After(startAfter):
+		case <-time.After(min(cloudAuditDrainStart, sendUntil.Sub(signaled)/2)):
 		}
-		shipper.Drain(signaled)
+		shipper.Drain(sendUntil, endBy)
 	}()
 	return func() { <-done }
 }

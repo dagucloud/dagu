@@ -240,7 +240,7 @@ func runStartAll(ctx *Context, _ []string) error {
 		defer cloudReporter.Stop()
 	}
 	// The drain runs alongside the scheduler's and coordinator's shutdown.
-	defer watchCloudAudit(signalCtx, webStopped, startCloudAudit(serviceCtx, stores.Secret), cloudAuditDrainStart)()
+	defer watchCloudAudit(signalCtx, webStopped, startCloudAudit(serviceCtx, stores.Secret), ctx.Config.Cloud.AuditDrainTimeout)()
 	defer startCloudAccess(serviceCtx, cloudAccess, server)()
 
 	// WaitGroup to track all services

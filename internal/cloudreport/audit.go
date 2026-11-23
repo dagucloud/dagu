@@ -38,11 +38,6 @@ const (
 	// reads, so a backlog of large entries is sent in parts.
 	auditBatchBytes   = 4 << 20
 	auditStateVersion = 1
-	// auditDrainSend and auditDrainEnd bound a drain, from the stop signal:
-	// batches go until the first, and a stopped gap for what is left until
-	// the second, so a process fits a 30-second termination grace period.
-	auditDrainSend = 22 * time.Second
-	auditDrainEnd  = 25 * time.Second
 	// auditGapStopped is the reason of the gap for entries a stopping server
 	// could not send.
 	auditGapStopped = "stopped"
@@ -122,7 +117,7 @@ type AuditShipper struct {
 	base    context.Context
 	cancel  context.CancelFunc
 	done    chan struct{}
-	drainAt chan time.Time
+	drainAt chan auditDrain
 
 	// The fields below are owned by the loop.
 	held        bool
@@ -183,6 +178,12 @@ type auditBatch struct {
 	Gap     *auditGap
 }
 
+// auditDrain bounds a drain: batches go until sendUntil, and a stopped gap
+// for what is left until endBy.
+type auditDrain struct {
+	sendUntil, endBy time.Time
+}
+
 // auditOutcome is how a pass ended.
 type auditOutcome int
 
@@ -227,7 +228,7 @@ func (s *AuditShipper) start(ctx context.Context) {
 	s.base = context.WithoutCancel(ctx)
 	var loop context.Context
 	loop, s.cancel = context.WithCancel(s.base)
-	s.done, s.drainAt = make(chan struct{}), make(chan time.Time, 1)
+	s.done, s.drainAt = make(chan struct{}), make(chan auditDrain, 1)
 	go s.run(loop)
 }
 
@@ -237,14 +238,14 @@ func (s *AuditShipper) Stop() {
 	<-s.done
 }
 
-// Drain sends what is left for a process that got its stop signal at
-// signaled: batches until auditDrainSend after it, then a stopped gap for
-// what still is, by auditDrainEnd. The entries stay on disk for the next
-// start. It returns once done, and is called at most once, instead of Stop.
-func (s *AuditShipper) Drain(signaled time.Time) {
-	s.drainAt <- signaled
+// Drain sends what is left before the process stops: batches until
+// sendUntil, then a stopped gap for what still is, by endBy. The entries stay
+// on disk for the next start. It returns once done, and is called at most
+// once, instead of Stop.
+func (s *AuditShipper) Drain(sendUntil, endBy time.Time) {
+	s.drainAt <- auditDrain{sendUntil: sendUntil, endBy: endBy}
 	// A batch in flight when the drain is asked for ends with its send time.
-	deadline := time.AfterFunc(time.Until(signaled.Add(auditDrainSend)), s.cancel)
+	deadline := time.AfterFunc(time.Until(sendUntil), s.cancel)
 	<-s.done
 	deadline.Stop()
 	s.cancel()
@@ -259,13 +260,13 @@ func (s *AuditShipper) run(ctx context.Context) {
 		case <-ctx.Done():
 			// The drain's deadline also cancels ctx; the drain goes first.
 			select {
-			case signaled := <-s.drainAt:
-				s.drain(signaled)
+			case d := <-s.drainAt:
+				s.drain(d)
 			default:
 			}
 			return
-		case signaled := <-s.drainAt:
-			s.drain(signaled)
+		case d := <-s.drainAt:
+			s.drain(d)
 			return
 		case <-s.after(auditCheckInterval):
 		}
@@ -275,9 +276,9 @@ func (s *AuditShipper) run(ctx context.Context) {
 // drain sends batches back to back until everything is stored or nothing can
 // go, starting with a check of every file, and then reports what is left as
 // a stopped gap.
-func (s *AuditShipper) drain(signaled time.Time) {
+func (s *AuditShipper) drain(d auditDrain) {
 	logger.Info(s.base, "Sending the audit entries left to Dagu Console before stopping")
-	sendCtx, cancel := context.WithDeadline(s.base, signaled.Add(auditDrainSend))
+	sendCtx, cancel := context.WithDeadline(s.base, d.sendUntil)
 	defer cancel()
 	s.scannedAt = time.Time{}
 	if !s.consoleHeld {
@@ -293,7 +294,7 @@ func (s *AuditShipper) drain(signaled time.Time) {
 	if outcome == auditIdle {
 		return
 	}
-	gapCtx, cancelGap := context.WithDeadline(s.base, signaled.Add(auditDrainEnd))
+	gapCtx, cancelGap := context.WithDeadline(s.base, d.endBy)
 	defer cancelGap()
 	s.reportStopped(gapCtx)
 }

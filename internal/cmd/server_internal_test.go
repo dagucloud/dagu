@@ -194,27 +194,33 @@ func TestStartCloudAudit(t *testing.T) {
 
 // recordingShipper records how the command ended the audit shipper.
 type recordingShipper struct {
-	ended    chan string
-	signaled time.Time
+	ended            chan string
+	sendUntil, endBy time.Time
 }
 
-func (s *recordingShipper) Drain(signaled time.Time) {
-	s.signaled = signaled
+func (s *recordingShipper) Drain(sendUntil, endBy time.Time) {
+	s.sendUntil, s.endBy = sendUntil, endBy
 	s.ended <- "drain"
 }
 
 func (s *recordingShipper) Stop() { s.ended <- "stop" }
 
-// A stop signal drains the audit shipper once the web server has stopped, or
-// after the start delay; anything else stops it at once.
+// A stop signal drains the audit shipper for the timeout, once the web server
+// has stopped or half the send time has passed; anything else stops it at
+// once.
 func TestWatchCloudAudit(t *testing.T) {
 	signal := func(cancel context.CancelCauseFunc) { cancel(shutdownSignalError{signal: syscall.SIGTERM}) }
+	// short leaves 20ms to send, so the drain starts 10ms after the signal.
+	short := cloudAuditGapTime + 20*time.Millisecond
+	watch := func(t *testing.T, webStopped <-chan struct{}, timeout time.Duration) (*recordingShipper, context.CancelCauseFunc, func()) {
+		ctx, cancel := context.WithCancelCause(t.Context())
+		shipper := &recordingShipper{ended: make(chan string, 1)}
+		return shipper, cancel, watchCloudAudit(ctx, webStopped, shipper, timeout)
+	}
 
 	t.Run("signal, then the web server stops", func(t *testing.T) {
-		ctx, cancel := context.WithCancelCause(t.Context())
 		webStopped, onWebStopped := closedOnce()
-		shipper := &recordingShipper{ended: make(chan string, 1)}
-		wait := watchCloudAudit(ctx, webStopped, shipper, time.Hour)
+		shipper, cancel, wait := watch(t, webStopped, time.Hour)
 
 		before := time.Now()
 		signal(cancel)
@@ -222,14 +228,14 @@ func TestWatchCloudAudit(t *testing.T) {
 		wait()
 
 		assert.Equal(t, "drain", <-shipper.ended)
-		assert.WithinRange(t, shipper.signaled, before, time.Now())
+		assert.Less(t, time.Since(before), time.Second)
+		assert.WithinRange(t, shipper.endBy.Add(-time.Hour), before, time.Now())
+		assert.Equal(t, cloudAuditGapTime, shipper.endBy.Sub(shipper.sendUntil))
 	})
 
 	t.Run("signal, and the web server takes too long", func(t *testing.T) {
-		ctx, cancel := context.WithCancelCause(t.Context())
 		webStopped, _ := closedOnce()
-		shipper := &recordingShipper{ended: make(chan string, 1)}
-		wait := watchCloudAudit(ctx, webStopped, shipper, 10*time.Millisecond)
+		shipper, cancel, wait := watch(t, webStopped, short)
 
 		signal(cancel)
 		wait()
@@ -238,11 +244,18 @@ func TestWatchCloudAudit(t *testing.T) {
 	})
 
 	t.Run("no signal", func(t *testing.T) {
-		ctx, cancel := context.WithCancelCause(t.Context())
-		shipper := &recordingShipper{ended: make(chan string, 1)}
-		wait := watchCloudAudit(ctx, nil, shipper, time.Hour)
+		shipper, cancel, wait := watch(t, nil, short)
 
 		cancel(nil)
+		wait()
+
+		assert.Equal(t, "stop", <-shipper.ended)
+	})
+
+	t.Run("signal with no time to drain", func(t *testing.T) {
+		shipper, cancel, wait := watch(t, nil, 0)
+
+		signal(cancel)
 		wait()
 
 		assert.Equal(t, "stop", <-shipper.ended)

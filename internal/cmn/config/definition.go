@@ -622,6 +622,9 @@ type LicenseDef struct {
 type CloudDef struct {
 	Report string `mapstructure:"report"` // off, health, or runs; unset reports nothing
 	Audit  string `mapstructure:"audit"`  // off, changes, or all; unset sends nothing
+	// AuditDrainTimeout is a duration string such as "25s"; "0" stops sending
+	// at once. Default: 25s.
+	AuditDrainTimeout string `mapstructure:"audit_drain_timeout"`
 	// RemoteAccess is off, viewer, operator, or developer; unset is chosen in the UI.
 	RemoteAccess string `mapstructure:"remote_access"`
 	// RemoteApprovals is unset to choose in the UI.
