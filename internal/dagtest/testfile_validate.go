@@ -4,6 +4,7 @@
 package dagtest
 
 import (
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -13,9 +14,21 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
-// validate reports the case fields that the tested DAG rejects.
-func (b *caseBuilder) validate(c *Case, file fileSpec) {
-	for _, e := range file.secrets {
+// caseSources holds the merged fields of a case that validate checks against
+// the tested DAG.
+type caseSources struct {
+	file        fileSpec
+	params      []entry
+	mocks       []keyedMock
+	real        []*stepTarget
+	defaultMock *mockSpec
+}
+
+// validate reports the case fields the tested DAG rejects, applies the
+// default mock, and returns the sources the case leaves unhandled under the
+// fail-closed rule.
+func (b *caseBuilder) validate(c *Case, src caseSources) []Finding {
+	for _, e := range src.file.secrets {
 		known := slices.ContainsFunc(b.dag.Secrets, func(s secretref.Ref) bool { return s.Name == e.name }) ||
 			slices.ContainsFunc(b.dag.CredentialRefs, func(s secretref.Ref) bool { return s.Ref == e.name })
 		if !known {
@@ -25,6 +38,27 @@ func (b *caseBuilder) validate(c *Case, file fileSpec) {
 	if c.Precondition != nil && !slices.ContainsFunc(b.dag.Preconditions, runsCommand) {
 		b.fail("precondition", "the DAG has no precondition that runs a command")
 	}
+
+	handling := Handling{
+		Mocks:        make(map[string]MockFields, len(src.mocks)),
+		Precondition: c.Precondition != nil,
+		Secrets:      slices.Collect(maps.Keys(c.Secrets)),
+	}
+	for _, e := range src.params {
+		handling.Params = append(handling.Params, e.name)
+	}
+	for _, t := range src.real {
+		handling.Real = append(handling.Real, t.label)
+	}
+	for _, m := range src.mocks {
+		handling.Mocks[m.target.label] = mockFields(m.mock)
+	}
+	if src.defaultMock != nil {
+		fields := mockFields(*src.defaultMock)
+		handling.DefaultMock = &fields
+		b.applyDefaultMock(c, *src.defaultMock, src)
+	}
+	return CheckFailClosed(b.dag, handling)
 }
 
 // checkReal reports a step that real cannot take.
@@ -100,6 +134,89 @@ func (b *caseBuilder) checkReview(label string, step *ir.Step, r *reviewSpec, re
 			b.fail(values, "leaves out required inputs %s", strings.Join(missing, ", "))
 		}
 	}
+}
+
+// applyDefaultMock validates the default mock and sets it as the script of
+// each step and handler that needs handling and that mocks and real do not
+// name.
+func (b *caseBuilder) applyDefaultMock(c *Case, m mockSpec, src caseSources) {
+	b.checkShape("default_mock", m)
+	results := b.results("default_mock", m)
+	for _, r := range results {
+		if r.spec.outputs != nil {
+			b.fail(r.label+".outputs", "the default mock sets no outputs; mock the step under mocks to set them")
+		}
+	}
+	// Its values are checked once here, and its review again against each
+	// waiting step it settles.
+	b.met("default_mock.precondition", m.precondition)
+	b.review("default_mock.review", &ir.Step{}, m.review)
+	for _, t := range b.steps.all {
+		mocked := slices.ContainsFunc(src.mocks, func(m keyedMock) bool { return m.target == t })
+		if mocked || slices.Contains(src.real, t) {
+			continue
+		}
+		if s, ok := b.defaultScript(t, m, results); ok {
+			c.setScript(t, s)
+		}
+	}
+}
+
+// defaultScript returns how the default mock handles a step that needs
+// handling, with only the fields that handle one of its sources. It reports
+// false for a step with no source, which runs as it would without a mock.
+func (b *caseBuilder) defaultScript(t *stepTarget, m mockSpec, results []labeledResult) (Script, bool) {
+	step := *t.step
+	if len(stepOffenses(step, MockFields{}, false, false)) == 0 {
+		return Script{}, false
+	}
+	s := Script{DefaultMock: true}
+	repeatCommand := runsCommand(step.RepeatPolicy.Condition)
+	// On a side-effect-free action, results replace it only where a replaced
+	// action handles a source.
+	resultSource := isContinuous(step) || readsOutputFile(step) || repeatCommand
+	if step.HumanTask == nil && (!sideEffectFree(step) || len(results) > 0 && resultSource) {
+		s.ReplacesAction = true
+		s.Results = defaultOutputs(step, resultsOf(results))
+		if !repeatCommand {
+			for i := range s.Results {
+				s.Results[i].Condition = nil
+			}
+		}
+	}
+	if slices.ContainsFunc(step.Preconditions, runsCommand) {
+		s.Precondition = b.met("default_mock.precondition", m.precondition)
+	}
+	if waitNeedingValues(step) != "" {
+		s.Review = b.review("default_mock.review", &step, m.review)
+	}
+	return s, true
+}
+
+// defaultOutputs makes each successful result of the default mock publish
+// every known output of the step, as an empty string or as null for a json
+// output. A step with runtime outputs publishes none.
+func defaultOutputs(step ir.Step, results []Result) []Result {
+	known, runtime := stepOutputs(step)
+	if runtime || len(known) == 0 {
+		return results
+	}
+	if len(results) == 0 {
+		results = []Result{{}}
+	}
+	for i := range results {
+		if results[i].ExitCode != 0 {
+			continue
+		}
+		results[i].Outputs = make(map[string]any, len(known))
+		for name, decl := range known {
+			results[i].Outputs[name] = ""
+			if decl.Type == ir.StepDeclaredOutputTypeJSON {
+				results[i].Outputs[name] = nil
+			}
+		}
+	}
+	return results
 }
 
 // outputNamePattern is the form of an output name on a step with runtime
@@ -188,4 +305,16 @@ func stepOutputs(step ir.Step) (map[string]ir.StepOutputDeclaration, bool) {
 		}
 	}
 	return known, runtime
+}
+
+// mockFields reports the fields of a mock to the fail-closed checker.
+func mockFields(m mockSpec) MockFields {
+	fields := MockFields{Precondition: m.precondition != nil, Review: m.review != nil}
+	if m.inline != nil {
+		fields.Results = append(fields.Results, ResultFields{Condition: m.inline.condition != nil})
+	}
+	for _, r := range m.results {
+		fields.Results = append(fields.Results, ResultFields{Condition: r.condition != nil})
+	}
+	return fields
 }

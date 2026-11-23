@@ -69,9 +69,10 @@ type keyedMock struct {
 
 func buildCase(dag *ir.DAG, steps *stepIndex, file fileSpec, cs caseSpec) Case {
 	b := &caseBuilder{dag: dag, steps: steps}
+	params := mergeEntries(file.params, cs.params)
 	c := Case{
 		Name:         cs.name,
-		Params:       assignments(mergeEntries(file.params, cs.params)),
+		Params:       assignments(params),
 		Env:          assignments(mergeEntries(file.env, cs.env)),
 		Secrets:      make(map[string]string, len(file.secrets)),
 		ScheduledAt:  cs.scheduledAt,
@@ -92,12 +93,18 @@ func buildCase(dag *ir.DAG, steps *stepIndex, file fileSpec, cs caseSpec) Case {
 		c.setScript(m.target, b.mockScript(m, slices.Contains(real, m.target)))
 	}
 	c.Expect = b.expect(cs.expect)
-	b.validate(&c, file)
+	findings := b.validate(&c, caseSources{
+		file:        file,
+		params:      params,
+		mocks:       mocks,
+		real:        real,
+		defaultMock: cmp.Or(cs.defaultMock, file.defaultMock),
+	})
 
 	slices.SortFunc(b.errs, func(x, y Finding) int {
 		return cmp.Or(cmp.Compare(x.Source, y.Source), cmp.Compare(x.Message, y.Message))
 	})
-	c.Errors = slices.Compact(b.errs)
+	c.Errors = append(slices.Compact(b.errs), findings...)
 	return c
 }
 

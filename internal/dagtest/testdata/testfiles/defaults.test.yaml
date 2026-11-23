@@ -1,0 +1,17 @@
+default_mock:
+  exit_code: 0
+  precondition: met
+  review:
+    decision: approve
+    values:
+      ticket: T-1
+cases:
+  - name: the default mock handles every source
+    precondition: met
+    expect:
+      status: succeeded
+  - name: an empty default mock replaces only actions with side effects
+    precondition: met
+    default_mock: {}
+    expect:
+      status: succeeded

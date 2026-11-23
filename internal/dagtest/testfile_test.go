@@ -160,11 +160,15 @@ func TestLoadFileCaseErrors(t *testing.T) {
 			"mocks.untitled.outputs: the step has no id, so no reference can read its outputs; give the step an id",
 		},
 		"runtime outputs": {"mocks.child.outputs.bad-name: is not a valid output name"},
+		// Field errors come first, sorted by label, then the unhandled
+		// sources of the fail-closed rule.
 		"real steps": {
 			"mocks.build: sets a result field on a step that runs for real; set only precondition and review",
 			`real[0]: "fanout" is a foreach step, which cannot run for real; mock it`,
 			`real[2]: "deplooy" names no step or handler of the DAG`,
 			`real[4]: "gate" names the same step as real[3]`,
+			"secret API_TOKEN: a real step may read it; give it a value under secrets",
+			"step fanout, body step one: command has side effects; mock the whole foreach step",
 		},
 		"human task result": {
 			"mocks.sign_off: sets a result field on a human.task step, which has no action to replace",
@@ -185,6 +189,9 @@ func TestLoadFileCaseErrors(t *testing.T) {
 			"mocks.ship.review.values: leaves out required inputs ticket",
 			"mocks.ship.review.values.links: must be a scalar",
 			"mocks.sign_off.review.decision: a human.task cannot be rejected; approve it with values",
+		},
+		"default mock outputs": {
+			"default_mock.results[0].outputs: the default mock sets no outputs; mock the step under mocks to set them",
 		},
 		"bad expect": {
 			"expect.attempts: must not be negative",
@@ -273,6 +280,49 @@ func TestLoadFileMerge(t *testing.T) {
 		},
 		Notifications: []dagtest.Notification{{Kind: "mail_on_error", Step: "build image", To: []string{"oncall@example.com"}}},
 	}, c.Expect)
+}
+
+// The default mock applies to each step and handler with a source that the
+// case does not name, with only the fields that handle its sources.
+func TestLoadFileDefaultMock(t *testing.T) {
+	t.Parallel()
+
+	file := loadTestFile(t, "defaults.test.yaml")
+	require.Len(t, file.Cases, 2)
+	emptyOutputs := map[string]any{"image_tag": "", "manifest": nil}
+	succeeds := []dagtest.Result{{}}
+
+	full := file.Cases[0]
+	assert.Empty(t, full.Errors)
+	assert.Equal(t, map[string]dagtest.Script{
+		"build": {DefaultMock: true, ReplacesAction: true, Results: []dagtest.Result{{Outputs: emptyOutputs}}},
+		"tick":  {DefaultMock: true, ReplacesAction: true, Results: succeeds},
+		"gate":  {DefaultMock: true, Precondition: ptr(true)},
+		"child": {DefaultMock: true, ReplacesAction: true, Results: succeeds},
+		"ship": {
+			DefaultMock: true, ReplacesAction: true, Results: succeeds,
+			Review: &dagtest.Review{Values: map[string]any{"ticket": "T-1"}},
+		},
+	}, full.Steps)
+	assert.Equal(t, map[ir.HandlerType]dagtest.Script{
+		ir.HandlerOnExit: {DefaultMock: true, ReplacesAction: true, Results: succeeds},
+	}, full.Handlers)
+
+	// {} keeps side-effect-free actions and leaves conditions and waits
+	// unhandled.
+	empty := file.Cases[1]
+	assert.Equal(t, []string{
+		"step tick: repeat policy has no limit; mock it with a result or list it under real",
+		"step gate: precondition runs a command; set precondition in its mock or list it under real",
+		"step ship: approval waits for required values; set review in its mock",
+	}, findingStrings(empty.Errors))
+	assert.Equal(t, map[string]dagtest.Script{
+		"build": {DefaultMock: true, ReplacesAction: true, Results: []dagtest.Result{{Outputs: emptyOutputs}}},
+		"tick":  {DefaultMock: true},
+		"gate":  {DefaultMock: true},
+		"child": {DefaultMock: true, ReplacesAction: true},
+		"ship":  {DefaultMock: true, ReplacesAction: true},
+	}, empty.Steps)
 }
 
 // A handler_on.<event> key names the handler of that event, and a step whose

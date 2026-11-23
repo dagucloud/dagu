@@ -159,6 +159,14 @@ cases:
     expect:
       status: succeeded
 
+  - name: default mock outputs
+    default_mock:
+      results:
+        - outputs:
+            image_tag: v1
+    expect:
+      status: succeeded
+
   - name: bad expect
     expect:
       status: done

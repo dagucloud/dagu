@@ -53,14 +53,16 @@ type Case struct {
 	// command, or nil when the case sets none.
 	Precondition *bool
 	// Steps holds how the case handles each step it mocks or runs for real,
-	// by step name. A step that is not in it runs its own action.
+	// by step name, the default mock included. A step that is not in it runs
+	// its own action.
 	Steps map[string]Script
 	// Handlers holds the same for lifecycle handlers, by handler type.
 	Handlers map[ir.HandlerType]Script
 	// Expect holds the case's assertions.
 	Expect Expect
-	// Errors lists the field errors that make the case invalid, sorted by
-	// label. An invalid case runs none of its steps. Empty for a valid case.
+	// Errors lists what makes the case invalid: field errors sorted by label,
+	// then the unhandled sources of the fail-closed rule. An invalid case
+	// runs none of its steps. Empty for a valid case.
 	Errors []Finding
 }
 
@@ -68,6 +70,8 @@ type Case struct {
 type Script struct {
 	// Real reports that the step runs its real action.
 	Real bool
+	// DefaultMock reports that the step took the case's default mock.
+	DefaultMock bool
 	// ReplacesAction reports that Results run in place of the step's action,
 	// or one successful result with no output when Results is empty. False
 	// keeps the action, and Results is then empty.
