@@ -80,7 +80,8 @@ func (b *caseBuilder) buildFix(c *Case, sources []source, mocks []keyedMock) {
 			fix.secrets = append(fix.secrets, s.name)
 		case sourceDAGPrecondition:
 			fix.precondition = true
-		default:
+		case sourceAction, sourcePrecondition, sourceRepeatCondition, sourceOutputFile,
+			sourceContinuous, sourceForeachBody, sourceWait:
 			if m := b.fixMockOf(&fix, s.target, c, mocks); m != nil {
 				m.handle(s.kind)
 			}
@@ -204,6 +205,8 @@ func (m *fixMock) handle(kind sourceKind) {
 		})
 	case sourceWait:
 		m.review = &fixReview{decision: fixApprove, values: waitValues(step)}
+	case sourceParam, sourceSecret, sourceDAGPrecondition:
+		// Not on a step; buildFix handles them.
 	}
 }
 
