@@ -162,6 +162,29 @@ func TestMaskMarksNothingWithoutSource(t *testing.T) {
 	assert.False(t, entry.Masked)
 }
 
+// contextSecrets is a SecretSource that, like a store read, fails once its
+// context is done.
+type contextSecrets []string
+
+func (s contextSecrets) CurrentValues(ctx context.Context) ([]string, error) {
+	return s, ctx.Err()
+}
+
+func (contextSecrets) Revision() uint64 { return 0 }
+
+// A request's context ends when the server stops, while its handler can still
+// write an entry; the values still load, so the entry is masked and sent.
+func TestMaskLoadsSecretsForARequestThatEnded(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	entry := &Entry{Username: "s3cr3t"}
+
+	NewMasker(contextSecrets{"s3cr3t"}).Mask(ctx, entry)
+
+	assert.Equal(t, masking.DefaultMaskString, entry.Username)
+	assert.True(t, entry.Masked)
+}
+
 // A secret changed in this process is masked in the next entry; one changed
 // elsewhere is masked once the values are a minute old.
 func TestMaskReloadsChangedSecrets(t *testing.T) {

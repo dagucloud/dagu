@@ -136,7 +136,9 @@ func (m *Masker) current(ctx context.Context) (*masking.Masker, bool) {
 	if !m.checkedAt.IsZero() && revision == m.revision && now.Sub(m.checkedAt) < maxAge {
 		return m.secrets, m.loaded
 	}
-	values, err := m.source.CurrentValues(ctx)
+	// An entry can be written for a request that has already ended, as when
+	// the server stops; the values load all the same.
+	values, err := m.source.CurrentValues(context.WithoutCancel(ctx))
 	m.revision, m.checkedAt, m.loaded = revision, now, err == nil
 	if err != nil {
 		logger.Warn(ctx, "Failed to load secret values for audit masking", tag.Error(err))
