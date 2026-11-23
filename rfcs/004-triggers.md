@@ -5,8 +5,8 @@
 - **Date:** 2026-10-09, first release added 2026-10-14, sources split from
   triggers 2026-11-23
 - **Affected areas:** `spec`, `eventstore`, `persis`, `service/scheduler`,
-  `service/frontend` (API, UI), `auth` (webhooks, sources), `secret`,
-  `tunnel`, `cmd`, and `cmn/config`
+  `service/frontend` (API, UI), `auth` (webhooks), `secret`, `tunnel`,
+  `gitsync`, `cmd`, and `cmn/config`
 
 ## Summary
 
@@ -15,13 +15,16 @@ is paid, another DAG finishes, any system posts to a URL, or a command finds
 new work.
 
 Events come from sources. A source that needs settings, such as a webhook URL
-with its signing secret or a command that checks for work, is a named object
-the server keeps, as it keeps webhooks and profiles, edited in the UI, the
-API, or the CLI. A DAG subscribes with a trigger that names the source, the
-events it takes, an optional condition, and the params it maps from the event.
-Every event, whatever its source, goes through the event store and one
-matcher. The matcher starts at most one run per event and trigger, so one
-event starts one run in each DAG that subscribes.
+with its signing secret or a command that checks for work, is a YAML file in
+`sources/`, beside the DAGs. A DAG subscribes with a trigger that names the
+source, the events it takes, an optional condition, and the params it maps
+from the event. Every event, whatever its source, goes through the event store
+and one matcher. The matcher starts at most one run per event and trigger, so
+one event starts one run in each DAG that subscribes.
+
+Definitions never refer to server state. The data directory keeps only a
+source's state, by its name: URL tokens, whether its public URL is on, and
+what a pull source has seen. A DAG directory validates and loads alone.
 
 Push sources receive webhooks. A server can receive them on its own URL. A
 server connected to Dagu Cloud can also get a public URL that works behind a
@@ -85,53 +88,57 @@ A source produces events. A trigger in a DAG names a source and starts runs
 from its events. A source does not know which DAGs subscribe to it.
 
 ```text
-source app-repo ──▶ event ──┬─▶ triage.yaml     triggers: [source: app-repo]
-                            └─▶ changelog.yaml  triggers: [source: app-repo]
+sources/app-repo.yaml ──▶ event ──┬─▶ triage.yaml     triggers: [source: app-repo]
+                                  └─▶ changelog.yaml  triggers: [source: app-repo]
 ```
 
-### Sources
+References run one way: server state names definitions, never the reverse.
 
-The server keeps sources as it keeps webhooks, profiles, and notification
-routes: a JSON collection in the data directory, and under
-[RFC 003](003-projects.md), in each project's state directory. They are
-edited in the UI, through `/api/v1/sources`, and with `dagu source`, and the
-audit log records every change.
+```text
+ definitions (DAG directory, git)          server state (data directory)
+ DAG ──trigger──▶ sources/<name>.yaml  ◀── by name: URL tokens, public on/off,
+                                           seen keys, check log
+```
 
-```json
-{
-  "name": "app-repo",
-  "type": "github",
-  "secret": "GITHUB_WEBHOOK_SECRET",
-  "public": true
-}
+### Source files
+
+A source that needs settings is a YAML file named `<name>.yaml` in `sources/`,
+directly in the DAG directory, as `wiki/` is. Under
+[RFC 003](003-projects.md), each project's DAG directory has its own. Source
+files travel with the DAGs through git sync and deploys, as a git sync item
+of their own, and DAG discovery never reads them as DAGs.
+
+```yaml
+# sources/app-repo.yaml
+type: github
+secret: GITHUB_WEBHOOK_SECRET
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `name` | Required. Letters, digits, `-`, and `_`, unique in the project. |
 | `type` | Required. Push: `webhook`, `github`, `stripe`, or `slack`. Pull: `command` ([RFC 019](019-poll-for-work.md)). |
 | `description` | Text shown in listings. |
 | `enabled` | Defaults to `true`. A disabled source receives and checks nothing. |
 | `secret` | Push types. The name of a Dagu secret holding the sender's signing secret. |
-| `public` | Push types. Also receive through Dagu Cloud. Ignored when the server is not connected. |
 
-- **Identity.** A source's name never changes. Its URL and state follow an ID
-  the server makes, so a source deleted and created again under the same name
-  is new: it has a new URL and no memory of the items it has seen.
+- **Name.** The file name: letters, digits, `-`, and `_`. The server keeps a
+  source's state by its name, so renaming the file makes a new source, with a
+  new URL and no memory of the items it has seen.
 - **Implicit sources.** Dagu produces some events itself. Their names, `dag`
-  today, are reserved, and no source can take them.
+  today, are reserved, and a file with such a name is reported as invalid.
 - **Types.** Each type has a schema, a validator, and either an ingress
   (push) or a check (pull), so a new type adds no field to DAGs or triggers.
-  The JSON schema of sources is served at `/assets/source.schema.json` and
-  shown by `dagu schema source`.
-- **Not in git.** Git sync carries DAGs, not sources. A DAG synced to another
-  server starts nothing from a source until that server has one of that name,
-  as a DAG that names a Dagu secret needs the secret there.
-- **Who edits them.** Developers and above create and change push sources, as
-  they do per-DAG webhooks; making one `public` needs an admin, as public
-  webhook URLs do today. Only an admin creates or changes a `command` source,
-  since its command runs on the scheduler host, where a DAG author under
-  `default_execution_mode: distributed` otherwise runs nothing.
+  The JSON schema of source files is served at `/assets/source.schema.json`
+  and shown by `dagu schema source`.
+- **Public URLs.** An admin turns a push source's public URL on in the UI, as
+  for per-DAG webhooks today. It is server state, not a field, so a file that
+  arrives through git never exposes a URL by itself.
+- **Command sources.** `sources.allow_command` in `config.yaml` decides
+  whether `command` sources run, since their checks run on the scheduler host.
+  It defaults to `true` when `default_execution_mode` is `local`, where DAG
+  steps already run there, and to `false` when it is `distributed`, where DAG
+  authors otherwise run nothing there. A `command` source that is not allowed
+  is invalid.
 - **Subscribers.** A push source has one URL and a pull source runs one check,
   however many triggers name it. A pull source that no enabled trigger of an
   unsuspended DAG names is not checked. A push source with no subscriber
@@ -139,8 +146,7 @@ audit log records every change.
 
 ### Triggers
 
-A trigger lives in the DAG, so the DAG says what starts it, and the trigger
-travels with the DAG through git sync and deploys:
+A trigger lives in the DAG, so the DAG says what starts it:
 
 ```yaml
 # triage.yaml
@@ -157,7 +163,7 @@ triggers:
 | Field | Meaning |
 | --- | --- |
 | `name` | Unique within the DAG. Defaults to the source's name. |
-| `source` | A source's name, or an implicit source. |
+| `source` | A source file's name, or an implicit source. |
 | `events` | Event name, or a list. A name also takes the events under it, so `issues` takes `issues.opened`. Omitted means every event of the source. |
 | `condition` | A gojq expression over the event payload; the trigger matches when it yields `true`. |
 | `params` | Param name to gojq expression over the payload. |
@@ -225,12 +231,12 @@ Relay ─── delivery frame over the server's outbound WebSocket ──▶ Da
 ```
 
 - **Same connection as remote access** (RFC 002). The `dagucloud` tunnel
-  provider runs when remote access is on, or when any source is `public`.
-  With remote access off, the server answers every proxied request with `403`
-  and handles only delivery frames.
+  provider runs when remote access is on, or when any source has its public
+  URL on. With remote access off, the server answers every proxied request
+  with `403` and handles only delivery frames.
 - **Frames:** `hooks`, `hooked`, `delivery`, and `delivered`, unchanged from
   the relay's existing webhook contract. `hooks` replaces the whole set. A
-  hook ID names the source by its ID; the built-in webhook source keeps
+  hook ID names the source; the built-in webhook source keeps
   `webhook/<webhook ID>`.
 - **The token is made by the server** (32 random bytes). The relay keeps only
   its SHA-256.
@@ -279,16 +285,15 @@ Writing gojq is not required. On a DAG, **Add trigger**:
 2. Pick events from a list: the sender's documented events for `github`,
    `stripe`, and `slack`; the events seen in recent deliveries for `webhook`.
 3. For a new push source, copy its URL: the local one, and the public one
-   when the server is connected to Dagu Cloud. For a preset type, Dagu
-   generates the signing secret to paste into the sender and stores it as a
-   Dagu secret.
+   once an admin turns it on. For a preset type, Dagu generates the signing
+   secret to paste into the sender and stores it as a Dagu secret.
 4. Click **Send test**, or wait for a real delivery.
 5. Click a field in the delivery to add a condition (equals, contains,
    exists) or to map it to a param. The result against that delivery shows as
    each one is added.
 
-The UI saves a new source on the server and writes the trigger into the DAG's
-YAML, which stays editable for anything the builder does not cover.
+The UI writes a new source into `sources/` and the trigger into the DAG's
+YAML. Both stay editable for anything the builder does not cover.
 
 ## Deliveries view
 
@@ -312,8 +317,7 @@ Each push source shows its recent deliveries:
 ## Existing per-DAG webhooks
 
 In v3.0, the per-DAG webhook becomes a built-in `webhook` source that belongs
-to its DAG. It stays in the webhook store, not the source collection, and
-only its DAG subscribes to it:
+to its DAG. It needs no source file, and only its DAG subscribes to it:
 
 - `POST /webhooks/{fileName}`, its tokens, HMAC modes, and profile tokens keep
   working unchanged.
@@ -334,14 +338,16 @@ only its DAG subscribes to it:
   relay ever sees them.
 - Conditions run in gojq with a time bound and no I/O.
 - Inbound endpoints are rate limited per source, locally and at the relay.
-- A `command` source runs on the scheduler host, so only an admin creates or
-  changes one ([Who edits them](#sources)).
+- A `command` source runs on the scheduler host. `sources.allow_command`
+  keeps it off where DAG authors otherwise run nothing there.
+- A public URL is turned on by an admin on the server, never by a file, so a
+  source that arrives through git sync is reachable only locally until then.
 
 ## Failure behavior
 
 | Situation | Behavior |
 | --- | --- |
-| Server offline, `public` source | The relay answers `202` and keeps deliveries up to 7 days; the server takes them in order on reconnect. |
+| Server offline, public URL on | The relay answers `202` and keeps deliveries up to 7 days; the server takes them in order on reconnect. |
 | Offline longer than 7 days | The relay drops expired deliveries and reports their count, which Deliveries and Dagu Cloud show. |
 | Scheduler down | Events persist; the matcher catches up within event store retention. |
 | Signature invalid | `401` locally. Through Dagu Cloud: `202` from the relay, then a rejected delivery on the server. |
@@ -457,7 +463,7 @@ first source type that needs it.
 | Release | Ships |
 | --- | --- |
 | v2.20 | Public URLs for per-DAG webhooks (above). |
-| Next | Sources, triggers, the matcher, `DAGU_EVENT_FILE`, and 7-day event retention when triggers exist, with `command` ([RFC 019](019-poll-for-work.md)) as the first source type. |
+| Next | Source files, triggers, the matcher, `DAGU_EVENT_FILE`, and 7-day event retention when triggers exist, with `command` ([RFC 019](019-poll-for-work.md)) as the first source type. |
 | Later | The `webhook` type and the `dag` source; local and public ingress per source; the UI builder and Deliveries. |
 | Later | `github`, `stripe`, and `slack` types. |
 | v3.0 | The per-DAG webhook becomes a built-in `webhook` source. |
@@ -467,9 +473,11 @@ useful to a single server; it does not wait for remote access. The model
 ships with `command` because work that sends no event has the most empty runs
 today.
 
-Sources are a new collection in the data directory, which an older binary
-ignores. An older binary fails to load a DAG with `triggers`, as it does any
-unknown field.
+`sources/` is a new folder in the DAG directory. An older binary ignores it
+with flat discovery, and with recursive discovery lists its files as invalid
+DAGs. A DAG directory that already keeps DAGs in a `sources/` folder must
+rename it; the new binary reports those files as invalid sources. An older
+binary fails to load a DAG with `triggers`, as it does any unknown field.
 
 ## Verification and acceptance criteria
 
@@ -478,7 +486,7 @@ unknown field.
    "condition false".
 2. GitHub redelivering the same event starts nothing new.
 3. A bad signature is rejected and never matched.
-4. With the server offline for an hour, `public` deliveries arrive in order on
+4. With the server offline for an hour, public deliveries arrive in order on
    reconnect, each starting one run.
 5. Two DAGs subscribe to one `github` source: GitHub is set up with one URL,
    and one delivery starts one run in each DAG.
@@ -486,14 +494,14 @@ unknown field.
    and Windows.
 7. An existing per-DAG webhook URL keeps working after the upgrade to v3.0.
 8. A payload crafted with shell metacharacters runs no command.
-9. A trigger that names a missing source fails `dagu validate` and starts
-   nothing; once a source of that name is created, the trigger takes its next
-   event.
+9. `dagu validate` on a DAG directory, with no data directory, reports a
+   trigger that names a missing source, and the trigger starts nothing.
 10. With one of two subscribing DAGs suspended, a delivery starts a run in the
     other at once, and in the suspended one when it resumes.
-11. A developer can create a `github` source but not make it `public`, and
-    cannot create a `command` source; the audit log records each change an
-    admin makes.
+11. With `default_execution_mode: distributed` and `sources.allow_command`
+    unset, a `command` source is invalid and never checked.
+12. A `github` source that arrives through git sync has no public URL until
+    an admin turns it on.
 
 ## Alternatives considered
 
@@ -512,11 +520,13 @@ unknown field.
   in GitHub, and three DAGs reading one listing would run three checks.
 - **Sources that name the DAGs they start.** Adding a DAG would edit a shared
   file, and a DAG would no longer say what starts it.
-- **Source files in the DAG directory, kept in git** (the previous revision
-  of this RFC). Sources would travel with the DAGs, but anyone who can write a
-  DAG file could make the scheduler host run a command, a push source's URL
-  and tokens would still live on the server, and an older binary would list
-  the files as invalid DAGs.
+- **Sources kept in the data directory and edited in the UI** (a previous
+  revision of this RFC). Triggers would name server state, while that state
+  depends on the DAGs that subscribe to it. A DAG directory would no longer
+  validate or load alone, and git sync, copies, and restores would change
+  what starts a DAG.
+- **A `kind` field that marks source files anywhere in the tree.** Discovery
+  would parse every file to tell sources from DAGs; a folder needs no parse.
 
 ## Consequences
 
@@ -526,16 +536,11 @@ unknown field.
   scheduler can be down without missing events.
 - Dagu Cloud's relay carries deliveries for servers that never enable remote
   access.
-- A source is a new server object with its own page and state. Each server
-  needs its own sources; git sync carries the triggers that name them, not
-  the sources.
+- A source is a new kind of file with its own page and state. Renaming it
+  makes a new source, with a new URL and no memory of the items it has seen.
 
 ## Open questions
 
 1. Is 512 KiB enough? Large GitHub `push` payloads can exceed it.
-2. Should `public` default to `true` on connected servers?
-3. Should replay need a separate permission from running the DAG?
-4. Should the server layer of RFC 003 hold sources that every project can
-   subscribe to?
-5. Should sources be exported and imported, for teams that deploy DAGs from
-   git to several servers?
+2. Should replay need a separate permission from running the DAG?
+3. Should a DAG be able to subscribe to a source in another project?
