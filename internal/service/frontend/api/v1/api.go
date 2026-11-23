@@ -256,12 +256,11 @@ func WithAuthService(as AuthService) APIOption {
 	}
 }
 
-// WithSetupToken makes first-run setup need token, kept in file, once the
-// server has run without an admin for a while after startedAt. An empty token
-// leaves setup open, as before setup tokens.
-func WithSetupToken(token, file string, startedAt time.Time) APIOption {
+// WithSetupToken makes first-run setup need token, kept in file until the
+// admin exists. An empty token leaves setup open.
+func WithSetupToken(token, file string) APIOption {
 	return func(a *API) {
-		a.setupGuard = setupGuard{token: token, file: file, tokenlessUntil: startedAt.Add(setupTokenlessWindow)}
+		a.setupGuard = setupGuard{token: token, file: file}
 	}
 }
 

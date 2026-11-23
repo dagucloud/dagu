@@ -133,8 +133,9 @@ func setupBuiltinAuthServer(t *testing.T) (test.Server, string) {
 	)
 
 	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-		Username: "admin",
-		Password: "adminpass",
+		Username:   "admin",
+		Password:   "adminpass",
+		SetupToken: server.SetupToken(),
 	}).ExpectStatus(http.StatusOK).Send(t)
 
 	loginResp := server.Client().Post("/api/v1/auth/login", api.LoginRequest{

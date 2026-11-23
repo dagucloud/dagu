@@ -8725,7 +8725,7 @@ export interface components {
             username: string;
             /** @description Admin password */
             password: string;
-            /** @description One-time setup token, in the setup URL the server prints when it starts without an admin and in auth/setup-token in its data directory. Setup needs it once the server has run for 10 minutes without an admin. If the server cannot store the token, setup does not need one. */
+            /** @description One-time setup token, in the setup URL the server prints when it starts without an admin and in auth/setup-token in its data directory. Setup needs it unless the server cannot store a token. */
             setupToken?: string;
         };
         /** @description Request body for user login */

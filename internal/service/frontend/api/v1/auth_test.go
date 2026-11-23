@@ -161,8 +161,9 @@ func TestAuth_BuiltinMode(t *testing.T) {
 
 		// Create admin via setup
 		server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-			Username: "admin",
-			Password: "adminpass",
+			Username:   "admin",
+			Password:   "adminpass",
+			SetupToken: server.SetupToken(),
 		}).ExpectStatus(http.StatusOK).Send(t)
 
 		// Without auth - should fail
@@ -202,8 +203,9 @@ func TestAuth_PublicPaths(t *testing.T) {
 
 	// Create admin via setup
 	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-		Username: "admin",
-		Password: "adminpass",
+		Username:   "admin",
+		Password:   "adminpass",
+		SetupToken: server.SetupToken(),
 	}).ExpectStatus(http.StatusOK).Send(t)
 
 	// Health endpoint - public
@@ -240,8 +242,9 @@ func TestAuth_ProxyHeadersAreScopedToProxyLogin(t *testing.T) {
 	)
 
 	setupResp := server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-		Username: "admin",
-		Password: "adminpass",
+		Username:   "admin",
+		Password:   "adminpass",
+		SetupToken: server.SetupToken(),
 	}).ExpectStatus(http.StatusOK).Send(t)
 	var setupResult api.LoginResponse
 	setupResp.Unmarshal(t, &setupResult)
@@ -371,8 +374,9 @@ func builtinServer(t *testing.T) test.Server {
 
 	// Create admin via setup endpoint
 	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-		Username: "admin",
-		Password: "adminpass",
+		Username:   "admin",
+		Password:   "adminpass",
+		SetupToken: server.SetupToken(),
 	}).ExpectStatus(http.StatusOK).Send(t)
 
 	return server
@@ -401,8 +405,9 @@ func TestSetup(t *testing.T) {
 		server := setupServer(t)
 
 		resp := server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-			Username: "myadmin",
-			Password: "securepass1",
+			Username:   "myadmin",
+			Password:   "securepass1",
+			SetupToken: server.SetupToken(),
 		}).ExpectStatus(http.StatusOK).Send(t)
 
 		var result api.LoginResponse
@@ -419,8 +424,9 @@ func TestSetup(t *testing.T) {
 		server := setupServer(t)
 
 		resp := server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-			Username: "myadmin",
-			Password: "securepass1",
+			Username:   "myadmin",
+			Password:   "securepass1",
+			SetupToken: server.SetupToken(),
 		}).ExpectStatus(http.StatusOK).Send(t)
 
 		var result api.LoginResponse
@@ -439,14 +445,16 @@ func TestSetup(t *testing.T) {
 
 		// First setup succeeds
 		server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-			Username: "myadmin",
-			Password: "securepass1",
+			Username:   "myadmin",
+			Password:   "securepass1",
+			SetupToken: server.SetupToken(),
 		}).ExpectStatus(http.StatusOK).Send(t)
 
 		// Second setup fails
 		server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-			Username: "another",
-			Password: "securepass2",
+			Username:   "another",
+			Password:   "securepass2",
+			SetupToken: server.SetupToken(),
 		}).ExpectStatus(http.StatusForbidden).Send(t)
 	})
 
@@ -456,9 +464,21 @@ func TestSetup(t *testing.T) {
 		server := setupServer(t)
 
 		server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-			Username: "myadmin",
-			Password: "short",
+			Username:   "myadmin",
+			Password:   "short",
+			SetupToken: server.SetupToken(),
 		}).ExpectStatus(http.StatusBadRequest).Send(t)
+	})
+
+	t.Run("needs_setup_token", func(t *testing.T) {
+		t.Parallel()
+
+		server := setupServer(t)
+
+		server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
+			Username: "myadmin",
+			Password: "securepass1",
+		}).ExpectStatus(http.StatusUnauthorized).Send(t)
 	})
 
 	t.Run("setup_is_public_path", func(t *testing.T) {
@@ -469,8 +489,9 @@ func TestSetup(t *testing.T) {
 		server := setupServer(t)
 
 		server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-			Username: "myadmin",
-			Password: "securepass1",
+			Username:   "myadmin",
+			Password:   "securepass1",
+			SetupToken: server.SetupToken(),
 		}).ExpectStatus(http.StatusOK).Send(t)
 	})
 }
@@ -524,8 +545,9 @@ func TestLogin_DisabledUser(t *testing.T) {
 
 	// Create admin via setup
 	setupResp := server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-		Username: "admin",
-		Password: "adminpass1",
+		Username:   "admin",
+		Password:   "adminpass1",
+		SetupToken: server.SetupToken(),
 	}).ExpectStatus(http.StatusOK).Send(t)
 
 	var setupResult api.LoginResponse

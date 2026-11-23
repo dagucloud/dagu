@@ -26,11 +26,14 @@ export default function SetupPage() {
   const { state, search } = useLocation();
 
   const [setupDone, setSetupDone] = useState(false);
-  // The setup URL the server prints carries the token setup may need.
+  // The setup URL the server prints carries the token setup needs. Without
+  // it, the page asks for the token.
   const [setupToken, setSetupToken] = useState(
     () => new URLSearchParams(search).get('token') ?? ''
   );
-  const [tokenRequired, setTokenRequired] = useState(false);
+  const [showTokenField, setShowTokenField] = useState(
+    () => setupToken === ''
+  );
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -84,8 +87,8 @@ export default function SetupPage() {
         return;
       }
       if (status === 401) {
-        setTokenRequired(true);
-        setError(t('setup.tokenRequired'));
+        setShowTokenField(true);
+        setError(t('setup.tokenInvalid'));
         return;
       }
       setError(err instanceof Error ? err.message : t('setup.failed'));
@@ -153,7 +156,7 @@ export default function SetupPage() {
           />
         </div>
 
-        {tokenRequired && (
+        {showTokenField && (
           <div className="space-y-1.5">
             <Label htmlFor="setupToken" className="text-sm">
               {t('setup.token')}
@@ -163,11 +166,13 @@ export default function SetupPage() {
               type="text"
               value={setupToken}
               onChange={(e) => setSetupToken(e.target.value)}
-              required
               autoComplete="off"
               spellCheck={false}
               className="h-9 font-mono"
             />
+            <p className="text-xs text-muted-foreground">
+              {t('setup.tokenHint')}
+            </p>
           </div>
         )}
 

@@ -422,13 +422,13 @@ func newBuiltinAuth(ctx context.Context, cfg *config.Config, backend persis.Back
 	// one of them prints works on any of them.
 	token, err := crypto.LoadOrCreateToken(tokenFile)
 	if err != nil {
-		// Setup then accepts no token, as it did before setup tokens, so a
-		// read-only data directory does not block the first admin.
+		// Setup then needs no token, so a read-only data directory does not
+		// block the first admin.
 		logger.Warn(ctx, "First-run setup runs without a setup token", tag.Error(err))
 		return result, nil
 	}
 	result.setupToken, result.setupTokenFile = token, tokenFile
-	logger.Info(ctx, "First-run setup needs the setup token after ten minutes", slog.String("file", tokenFile))
+	logger.Info(ctx, "First-run setup needs the setup token", slog.String("file", tokenFile))
 	return result, nil
 }
 

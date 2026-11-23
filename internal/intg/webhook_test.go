@@ -260,8 +260,9 @@ func setupWebhookBuiltinAuthServer(t *testing.T) test.Server {
 	)
 
 	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-		Username: "admin",
-		Password: "adminpass",
+		Username:   "admin",
+		Password:   "adminpass",
+		SetupToken: server.SetupToken(),
 	}).ExpectStatus(http.StatusOK).Send(t)
 
 	return server

@@ -28,6 +28,7 @@ import (
 // Server represents a test HTTP server instance
 type Server struct {
 	Helper
+	setupToken string
 }
 
 // ReserveServerListener binds a loopback listener and closes it during test cleanup.
@@ -107,6 +108,7 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize server stores: %w", err)
 	}
+	srv.setupToken = stores.AuthSetupToken
 	pauses := store.NewSchedulerPauseStore(srv.Backend.Collection(persis.CollectionSchedulerState))
 	server, err := frontend.NewServer(frontend.ServerConfig{
 		Context:              srv.Context,
@@ -140,6 +142,11 @@ func (srv *Server) healthURL() string {
 		"health",
 	)
 	return fmt.Sprintf("http://%s:%d%s", srv.Config.Server.Host, srv.Config.Server.Port, healthPath)
+}
+
+// SetupToken returns the one-time token that first-run setup needs.
+func (srv *Server) SetupToken() *string {
+	return new(srv.setupToken)
 }
 
 // Client returns an HTTP client for the server

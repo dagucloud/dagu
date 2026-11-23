@@ -117,8 +117,9 @@ func setupWebhookTestServerWithLicense(t *testing.T, licenseManager *license.Man
 
 	// Create admin via setup endpoint
 	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-		Username: "admin",
-		Password: "adminpass",
+		Username:   "admin",
+		Password:   "adminpass",
+		SetupToken: server.SetupToken(),
 	}).ExpectStatus(http.StatusOK).Send(t)
 
 	return server

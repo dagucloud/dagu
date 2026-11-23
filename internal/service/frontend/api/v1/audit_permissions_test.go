@@ -25,8 +25,9 @@ func setupAuditTestServer(t *testing.T) test.Server {
 		cfg.Server.Audit.Enabled = true
 	}))
 	server.Client().Post("/api/v1/auth/setup", api.SetupRequest{
-		Username: "admin",
-		Password: "adminpass",
+		Username:   "admin",
+		Password:   "adminpass",
+		SetupToken: server.SetupToken(),
 	}).ExpectStatus(http.StatusOK).Send(t)
 	return server
 }
