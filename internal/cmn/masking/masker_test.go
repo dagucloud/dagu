@@ -4,6 +4,7 @@
 package masking
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -44,6 +45,30 @@ func TestMasker_MaskString(t *testing.T) {
 			},
 			input:    "Value: abcdef",
 			expected: "Value: *******",
+		},
+		{
+			name: "values overlapping at different offsets",
+			sources: SourcedEnvVars{
+				Secrets: []string{"USER_PASS=x-t", "TOKEN=token-password"},
+			},
+			input:    "x-token-password",
+			expected: "*******",
+		},
+		{
+			name: "shorter value starting first",
+			sources: SourcedEnvVars{
+				Secrets: []string{"OLD=db-pass", "NEW=pass-2026-rotated"},
+			},
+			input:    "PGPASSWORD=db-pass-2026-rotated psql",
+			expected: "PGPASSWORD=******* psql",
+		},
+		{
+			name: "values that only touch",
+			sources: SourcedEnvVars{
+				Secrets: []string{"A=abc", "B=def"},
+			},
+			input:    "abcdef",
+			expected: "**************",
 		},
 		{
 			name: "no match",
@@ -140,6 +165,15 @@ func TestMasker_MaskString(t *testing.T) {
 			assert.Equal(t, tt.expected, output)
 		})
 	}
+}
+
+// A pattern match and a value that overlap are masked as one span.
+func TestNewValueMasker_JoinsPatternMatches(t *testing.T) {
+	t.Parallel()
+
+	m := NewValueMasker([]string{"key-tok_"}, regexp.MustCompile(`tok_[a-z]+`))
+
+	assert.Equal(t, "use *******!", m.MaskString("use key-tok_abc!"))
 }
 
 func TestMasker_MaskBytes(t *testing.T) {

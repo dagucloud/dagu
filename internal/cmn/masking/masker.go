@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode/utf16"
@@ -26,8 +27,15 @@ type SourcedEnvVars struct {
 
 // Masker provides masking functionality for sensitive data
 type Masker struct {
-	// replacer masks every value in one pass; nil when there are none.
-	replacer *strings.Replacer
+	// values finds the values to mask; nil when there are none.
+	values *valueTrie
+	// patterns match further text to mask, such as token formats.
+	patterns []*regexp.Regexp
+}
+
+// span is a range of text to mask, from start up to end.
+type span struct {
+	start, end int
 }
 
 // NewMasker creates a masker from sourced environment variables. Each value
@@ -43,8 +51,9 @@ func NewMasker(sources SourcedEnvVars) *Masker {
 }
 
 // NewValueMasker creates a masker that hides each of values, as NewMasker
-// does for the values of environment variables. Empty values are ignored.
-func NewValueMasker(values []string) *Masker {
+// does for the values of environment variables, and every match of
+// patterns. Empty values are ignored.
+func NewValueMasker(values []string, patterns ...*regexp.Regexp) *Masker {
 	seen := make(map[string]bool)
 	forms := make([]string, 0, len(values))
 	for _, val := range values {
@@ -59,22 +68,7 @@ func NewValueMasker(values []string) *Masker {
 			}
 		}
 	}
-	if len(forms) == 0 {
-		return &Masker{}
-	}
-	// The replacer prefers earlier values at a position, so a longer value
-	// wins over a shorter one it contains.
-	slices.SortFunc(forms, func(a, b string) int {
-		if c := cmp.Compare(len(b), len(a)); c != 0 {
-			return c
-		}
-		return strings.Compare(a, b)
-	})
-	pairs := make([]string, 0, 2*len(forms))
-	for _, form := range forms {
-		pairs = append(pairs, form, DefaultMaskString)
-	}
-	return &Masker{replacer: strings.NewReplacer(pairs...)}
+	return &Masker{values: newValueTrie(forms), patterns: patterns}
 }
 
 // jsonForms returns val and its distinct spellings inside a JSON string:
@@ -123,12 +117,69 @@ func asciiOnly(body string) string {
 	return out.String()
 }
 
-// MaskString replaces sensitive values in the input string
+// MaskString replaces each value and pattern match in input with the mask.
+// Matches that overlap are masked as one span, so no match leaves part of
+// another visible.
 func (m *Masker) MaskString(input string) string {
-	if m == nil || m.replacer == nil {
-		return input
+	return writeSpans(input, m.spans(input))
+}
+
+// spans returns the ranges of text that values or patterns match, sorted,
+// with overlapping ranges joined.
+func (m *Masker) spans(text string) []span {
+	if m == nil {
+		return nil
 	}
-	return m.replacer.Replace(input)
+	var spans []span
+	if m.values != nil {
+		for i := range len(text) {
+			if !m.values.starts(text[i]) {
+				continue
+			}
+			if n := m.values.longestPrefix(text[i:]); n > 0 {
+				spans = append(spans, span{start: i, end: i + n})
+			}
+		}
+	}
+	for _, pattern := range m.patterns {
+		for _, match := range pattern.FindAllStringIndex(text, -1) {
+			spans = append(spans, span{start: match[0], end: match[1]})
+		}
+	}
+	return joinSpans(spans)
+}
+
+// joinSpans sorts spans and joins the ones that overlap. Spans that only
+// touch stay apart, each with its own mask.
+func joinSpans(spans []span) []span {
+	slices.SortFunc(spans, func(a, b span) int { return cmp.Compare(a.start, b.start) })
+	joined := spans[:0]
+	for _, s := range spans {
+		if last := len(joined) - 1; last >= 0 && s.start < joined[last].end {
+			joined[last].end = max(joined[last].end, s.end)
+			continue
+		}
+		joined = append(joined, s)
+	}
+	return joined
+}
+
+// writeSpans returns text with each of spans, which are sorted and apart,
+// replaced by the mask.
+func writeSpans(text string, spans []span) string {
+	if len(spans) == 0 {
+		return text
+	}
+	var out strings.Builder
+	out.Grow(len(text))
+	last := 0
+	for _, s := range spans {
+		out.WriteString(text[last:s.start])
+		out.WriteString(DefaultMaskString)
+		last = s.end
+	}
+	out.WriteString(text[last:])
+	return out.String()
 }
 
 // MaskBytes replaces sensitive values in the input bytes
