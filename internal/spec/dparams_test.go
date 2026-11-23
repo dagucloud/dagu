@@ -555,6 +555,56 @@ steps:
 	require.Equal(t, []string{"region=us-west-2", "count=5", "debug=true"}, reloaded.Params)
 }
 
+// The schema library decodes enum members and defaults as float64, which
+// rounds integers above 2^53. A number param keeps float64 members and
+// defaults, an integer param keeps exact ones in every branch, and a boolean
+// property schema and an object default still load.
+func TestExternalSchemaParams_KeepLargeIntegers(t *testing.T) {
+	t.Parallel()
+
+	yaml := []byte(`
+name: schema-large-integers
+params:
+  schema:
+    type: object
+    properties:
+      unused: false
+      serial:
+        type: integer
+        enum: [9007199254740993]
+      limit:
+        type: integer
+        enum: [9007199254740993]
+        default: 9007199254740993
+      weight:
+        type: number
+        enum: [9007199254740993]
+      scale:
+        type: number
+        enum: [9007199254740993]
+        default: 9007199254740993
+      level:
+        type: integer
+        default: 9007199254740993
+        oneOf:
+          - type: number
+            const: 9007199254740993
+      config:
+        type: object
+        properties:
+          id:
+            type: integer
+            enum: [9007199254740993]
+        default:
+          id: 9007199254740993
+`)
+
+	dag, err := LoadYAML(context.Background(), yaml, WithoutEval(), WithParams("serial=9007199254740993 weight=9007199254740993"))
+	require.NoError(t, err)
+	assert.Contains(t, dag.Params, "serial=9007199254740993")
+	assert.Contains(t, dag.Params, "limit=9007199254740993")
+}
+
 func TestExternalSchemaParamDefs_MetadataAndExecution(t *testing.T) {
 	t.Parallel()
 

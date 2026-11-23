@@ -39,6 +39,7 @@ const STATIC_ROUTE_LABELS: Record<string, TranslationKey> = {
   '/base-config': 'navigation.baseConfig',
   '/ai': 'navigation.ai',
   '/calendars': 'navigation.calendars',
+  '/nodes': 'navigation.nodes',
   '/wiki': 'navigation.wiki',
   '/queues': 'navigation.queues',
   '/dag-runs': 'navigation.executions',

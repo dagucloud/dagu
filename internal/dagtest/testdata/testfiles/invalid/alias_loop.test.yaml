@@ -1,0 +1,12 @@
+dag: noop.yaml
+# With a repeated key, a YAML decode reports only that key and misses the
+# loop, so the loop is found without one.
+dag: noop.yaml
+mocks:
+  check: &loop
+    outputs:
+      self: *loop
+cases:
+  - name: an alias inside its own anchor
+    expect:
+      status: succeeded

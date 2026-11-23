@@ -1,0 +1,20 @@
+dag: noop.yaml
+params:
+  list: [a, b]
+  count: !!int nope
+env: [A=1]
+real: check
+mocks:
+  check:
+    exit_code: "0"
+    stdout: 1
+    results: {}
+    review: approve
+cases:
+  - a case that is not a map
+  - name: wrong types
+    scheduled_at: !!timestamp soon
+    expect:
+      attempts: one
+      steps:
+        check: [succeeded]

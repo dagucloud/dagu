@@ -5,6 +5,8 @@ package audit
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -23,9 +25,11 @@ func createTestFile(t *testing.T, dir, name string) {
 	require.NoError(t, err)
 }
 
-// newTestCleaner creates a cleaner for testing without starting the background goroutine.
+// newTestCleaner creates a cleaner for testing without starting the background
+// goroutine. Its cleanup entries are discarded.
 func newTestCleaner(baseDir string, retentionDays int) *cleaner {
-	return &cleaner{baseDir: baseDir, retentionDays: retentionDays, stopCh: make(chan struct{})}
+	discard := func(context.Context, *audit.Entry) error { return nil }
+	return &cleaner{baseDir: baseDir, retentionDays: retentionDays, appendFn: discard, stopCh: make(chan struct{})}
 }
 
 // fileExists returns true if the named file exists in the directory.
@@ -198,10 +202,53 @@ func TestPurgeExpiredFiles_LogsCleanupAuditEntry(t *testing.T) {
 	assert.Equal(t, "audit_cleanup", entries[0].Action)
 	assert.Equal(t, "", entries[0].UserID)
 	assert.Equal(t, "system", entries[0].Username)
-	assert.Contains(t, entries[0].Details, `"files_removed":2`)
 	assert.Contains(t, entries[0].Details, `"retention_days":7`)
-	assert.Contains(t, entries[0].Details, `"purged_from"`)
-	assert.Contains(t, entries[0].Details, `"purged_to"`)
+	assert.Contains(t, entries[0].Details, `"expired_from"`)
+	assert.Contains(t, entries[0].Details, `"expired_to"`)
+}
+
+// The entry lists each file and its size while the files are still on disk,
+// so a reader that tracks byte offsets can tell what the deletion took.
+func TestPurgeExpiredFiles_RecordsSizesFirst(t *testing.T) {
+	dir := t.TempDir()
+	olderDate := time.Now().UTC().AddDate(0, 0, -31).Format(dateFormat)
+	oldDate := time.Now().UTC().AddDate(0, 0, -30).Format(dateFormat)
+	older, old := olderDate+auditFileExtension, oldDate+auditFileExtension
+	require.NoError(t, os.WriteFile(filepath.Join(dir, older), []byte("a\n"), 0640))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, old), []byte("bbbb\n"), 0640))
+
+	var details string
+	fn := func(_ context.Context, entry *audit.Entry) error {
+		assert.True(t, fileExists(t, dir, older), "file deleted before its record")
+		assert.True(t, fileExists(t, dir, old), "file deleted before its record")
+		details = entry.Details
+		return nil
+	}
+	c := &cleaner{baseDir: dir, retentionDays: 7, appendFn: fn, stopCh: make(chan struct{})}
+	c.purgeExpiredFiles()
+
+	assert.JSONEq(t, fmt.Sprintf(`{
+		"expired_from": %q,
+		"expired_to": %q,
+		"files": [{"name": %q, "bytes": 2}, {"name": %q, "bytes": 5}],
+		"retention_days": 7
+	}`, olderDate, oldDate, older, old), details)
+	assert.False(t, fileExists(t, dir, older))
+	assert.False(t, fileExists(t, dir, old))
+}
+
+// Without its entry, deleting a file the shipper never read would go
+// unnoticed, so the cleaner keeps the files until an entry is written.
+func TestPurgeExpiredFiles_KeepsFilesWhenRecordFails(t *testing.T) {
+	dir := t.TempDir()
+	expired := time.Now().UTC().AddDate(0, 0, -30).Format(dateFormat) + auditFileExtension
+	createTestFile(t, dir, expired)
+	fn := func(context.Context, *audit.Entry) error { return errors.New("disk full") }
+
+	c := &cleaner{baseDir: dir, retentionDays: 7, appendFn: fn, stopCh: make(chan struct{})}
+	c.purgeExpiredFiles()
+
+	assert.True(t, fileExists(t, dir, expired))
 }
 
 func TestPurgeExpiredFiles_NoEntryWhenNothingPurged(t *testing.T) {

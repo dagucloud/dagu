@@ -715,6 +715,15 @@ func retrySourceMayStillBeFinalizing(status *ir.DAGRunStatus) bool {
 // executeRetry runs a retry of a DAG run using the original run's log file.
 // Queued catchup runs reuse this path but preserve their catchup trigger type.
 func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOptions) error {
+	return withRetryAgent(ctx, dag, status, opts, func(agentInstance *agent.Agent, logFile *os.File) error {
+		logger.Info(ctx, "Dag-run retry initiated", tag.File(logFile.Name()))
+		return ExecuteAgent(ctx, agentInstance, dag, status.DAGRunID, logFile)
+	})
+}
+
+// withRetryAgent builds the agent of a retry of a DAG run, which writes to the
+// original run's log file, and calls run with it.
+func withRetryAgent(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOptions, run func(*agent.Agent, *os.File) error) error {
 	if opts.step != "" {
 		ctx.Context = logger.WithValues(ctx.Context, tag.Step(opts.step))
 	}
@@ -727,8 +736,6 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOp
 	defer func() {
 		_ = logFile.Close()
 	}()
-
-	logger.Info(ctx, "Dag-run retry initiated", tag.File(logFile.Name()))
 
 	artifactDir := status.ArchiveDir
 	if artifactDir == "" && dag.ArtifactsEnabled() {
@@ -755,7 +762,7 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOp
 		}
 	}
 	triggerType := queue.ExecutionTriggerType(status)
-	extraEnvs, err := prepareDAGTools(ctx, dag)
+	extraEnvs, err := opts.prepareTools(ctx, dag)
 	if err != nil {
 		return err
 	}
@@ -767,7 +774,7 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOp
 		logFile.Name(),
 		ctx.DAGRunMgr,
 		dr,
-		agent.Options{
+		opts.withTestOptions(agent.Options{
 			RetryTarget:              status,
 			ParentDAGRun:             status.Parent,
 			ProgressDisplay:          shouldEnableProgress(ctx),
@@ -798,9 +805,8 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOp
 			ArtifactDir:              artifactDir,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
-		},
+		}),
 	)
 
-	// Use the shared agent execution function
-	return ExecuteAgent(ctx, agentInstance, dag, status.DAGRunID, logFile)
+	return run(agentInstance, logFile)
 }

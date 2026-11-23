@@ -1,0 +1,6 @@
+mocks:
+  compile: {}
+cases:
+  - name: compiles
+    expect:
+      status: succeeded

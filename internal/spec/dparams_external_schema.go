@@ -4,6 +4,7 @@
 package spec
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -151,6 +152,9 @@ func resolveExternalSchemaEntries(plan *dagParamPlan, rawParams string, paramsLi
 
 func validateSchemaMap(values map[string]any, schema *jsonschema.Resolved, metadataMode bool) (map[string]any, error) {
 	working := maps.Clone(values)
+	if err := fillDefaults(working, schema.Schema(), false); err != nil {
+		return nil, fmt.Errorf("failed to apply schema defaults: %w", err)
+	}
 	if err := schema.ApplyDefaults(&working); err != nil {
 		return nil, fmt.Errorf("failed to apply schema defaults: %w", err)
 	}
@@ -160,7 +164,9 @@ func validateSchemaMap(values map[string]any, schema *jsonschema.Resolved, metad
 		if !hasAllRequiredKeys(working, schema.Schema().Required) {
 			clone := schema.Schema().CloneSchemas()
 			clone.Required = nil
-			resolved, err := clone.Resolve(&jsonschema.ResolveOptions{ValidateDefaults: true})
+			// The defaults were checked when schema resolved. Checking them
+			// again would compare float64 defaults with exact enum members.
+			resolved, err := clone.Resolve(nil)
 			if err != nil {
 				return nil, fmt.Errorf("failed to prepare parameter schema: %w", err)
 			}
@@ -227,6 +233,13 @@ func coerceSchemaPairValue(name, raw string, schema *jsonschema.Schema, allowSch
 	paramType, ok := schemaScalarType(schema)
 	if ok {
 		value, err := coerceStringToType(raw, paramType)
+		if err != nil && paramType == ir.ParamDefTypeInteger && schema.Type == "" && len(schema.Types) == 0 {
+			// An untyped param takes its type from its enum, whose exact
+			// members above the int64 range are uint64.
+			if number, parseErr := strconv.ParseUint(strings.TrimSpace(raw), 10, 64); parseErr == nil {
+				return number, nil
+			}
+		}
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", name, err)
 		}
@@ -462,14 +475,151 @@ func stringifyUntypedValue(value any) string {
 // as is when it is not JSON. Integers that fit in 64 bits keep their exact
 // value, so bounds are checked against the number the run receives.
 func parseJSONLikeValue(value string) any {
-	decoded, ok := decodeJSONNumbers(value)
+	if decoded, ok := exactJSONValue(value); ok {
+		return decoded
+	}
+	return value
+}
+
+// exactJSONValue decodes text as one JSON value, keeping each integer that
+// fits in 64 bits exact.
+func exactJSONValue(text string) (any, bool) {
+	decoded, ok := decodeJSONNumbers(text)
 	if !ok {
-		return value
+		return nil, false
 	}
-	if decoded, ok = validationNumbers(decoded); !ok {
-		return value
+	return validationNumbers(decoded)
+}
+
+// maxExactFloatInteger bounds the integers float64 holds exactly: every
+// integer of smaller magnitude has an exact float64.
+const maxExactFloatInteger = 1 << 53
+
+// largeInteger reports whether value is an int64 or uint64 that float64 would
+// round.
+func largeInteger(value any) bool {
+	switch v := value.(type) {
+	case int64:
+		return v > maxExactFloatInteger || v < -maxExactFloatInteger
+	case uint64:
+		return v > maxExactFloatInteger
+	default:
+		return false
 	}
-	return decoded
+}
+
+// numberTyped reports whether schema declares type number. Its values are
+// coerced to float64, so its enum members and default stay float64 too.
+func numberTyped(schema *jsonschema.Schema) bool {
+	return schema.Type == "number" || slices.Contains(schema.Types, "number")
+}
+
+// decodeDefault decodes the default of property as the schema library does,
+// with float64 numbers, except that an integer float64 would round stays exact
+// unless property is number typed.
+func decodeDefault(property *jsonschema.Schema) (any, bool) {
+	if !numberTyped(property) {
+		if exact, ok := exactJSONValue(string(property.Default)); ok && largeInteger(exact) {
+			return exact, true
+		}
+	}
+	var value any
+	if err := json.Unmarshal(property.Default, &value); err != nil {
+		return nil, false
+	}
+	return value, true
+}
+
+// fillDefaults sets each top-level property that values omits to its default,
+// decoded by decodeDefault, since the schema library's own filling would round
+// a large integer. Like the library, it skips required properties unless
+// withRequired is set.
+func fillDefaults(values map[string]any, schema *jsonschema.Schema, withRequired bool) error {
+	for name, property := range schema.Properties {
+		if _, supplied := values[name]; supplied || property == nil || len(property.Default) == 0 {
+			continue
+		}
+		if !withRequired && slices.Contains(schema.Required, name) {
+			continue
+		}
+		value, ok := decodeDefault(property)
+		if !ok {
+			return fmt.Errorf("%s: invalid default %s", name, property.Default)
+		}
+		values[name] = value
+	}
+	return nil
+}
+
+// schemaNumbers holds the members of a schema that the schema library decodes
+// as float64.
+type schemaNumbers struct {
+	Enum  []any           `json:"enum"`
+	Const any             `json:"const"`
+	OneOf []schemaNumbers `json:"oneOf"`
+	AnyOf []schemaNumbers `json:"anyOf"`
+}
+
+// keepExactEnums replaces each enum and const member that float64 rounds, in
+// each top-level property of schema that is not number typed and in its oneOf
+// and anyOf members, with the exact integer in data, the JSON that schema was
+// decoded from. The property's type decides for its members, as it decides
+// how its values and default decode. Call it after Resolve, which checks
+// defaults as float64 against those members.
+func keepExactEnums(schema *jsonschema.Schema, data []byte) {
+	var root struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if json.Unmarshal(data, &root) != nil {
+		return
+	}
+	for name, raw := range root.Properties {
+		decoder := json.NewDecoder(bytes.NewReader(raw))
+		decoder.UseNumber()
+		property := schema.Properties[name]
+		var numbers schemaNumbers
+		// A boolean property schema has no members to keep.
+		if property != nil && !numberTyped(property) && decoder.Decode(&numbers) == nil {
+			numbers.apply(property)
+		}
+	}
+}
+
+func (n schemaNumbers) apply(schema *jsonschema.Schema) {
+	if schema == nil {
+		return
+	}
+	if len(n.Enum) == len(schema.Enum) {
+		for i, member := range n.Enum {
+			if exact, ok := exactLargeInteger(member); ok {
+				schema.Enum[i] = exact
+			}
+		}
+	}
+	if exact, ok := exactLargeInteger(n.Const); ok && schema.Const != nil {
+		schema.Const = &exact
+	}
+	for i, member := range n.OneOf {
+		if i < len(schema.OneOf) {
+			member.apply(schema.OneOf[i])
+		}
+	}
+	for i, member := range n.AnyOf {
+		if i < len(schema.AnyOf) {
+			member.apply(schema.AnyOf[i])
+		}
+	}
+}
+
+// exactLargeInteger returns member as an exact integer when it is an integer
+// literal that float64 would round.
+func exactLargeInteger(member any) (any, bool) {
+	number, ok := member.(json.Number)
+	if !ok {
+		return nil, false
+	}
+	exact, ok := validationNumbers(number)
+	return exact, ok && largeInteger(exact)
 }
 
 // parseJSONNumberValue decodes value like parseJSONLikeValue but keeps each

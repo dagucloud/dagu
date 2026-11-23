@@ -1,0 +1,11 @@
+dag: noop.yaml
+cases:
+  - expect:
+      status: succeeded
+  - name: twice
+    expect:
+      status: succeeded
+  - name: twice
+  - name: ""
+    expect:
+      status: succeeded

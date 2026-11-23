@@ -61,8 +61,12 @@ type Finding struct {
 	Message string
 }
 
-// String returns the finding as "<source>: <message>".
+// String returns the finding as "<source>: <message>", or as its message
+// when it has no source.
 func (f Finding) String() string {
+	if f.Source == "" {
+		return f.Message
+	}
 	return f.Source + ": " + f.Message
 }
 
@@ -363,25 +367,27 @@ func flattenBody(steps []ir.Step) []ir.Step {
 // by.
 type lifecycleHandler struct {
 	key  string
+	kind ir.HandlerType
 	step ir.Step
 }
 
 func lifecycleHandlers(on ir.HandlerOn) []lifecycleHandler {
 	events := []struct {
 		name string
+		kind ir.HandlerType
 		step *ir.Step
 	}{
-		{"init", on.Init},
-		{"success", on.Success},
-		{"failure", on.Failure},
-		{"abort", on.Abort},
-		{"exit", on.Exit},
-		{"wait", on.Wait},
+		{"init", ir.HandlerOnInit, on.Init},
+		{"success", ir.HandlerOnSuccess, on.Success},
+		{"failure", ir.HandlerOnFailure, on.Failure},
+		{"abort", ir.HandlerOnAbort, on.Abort},
+		{"exit", ir.HandlerOnExit, on.Exit},
+		{"wait", ir.HandlerOnWait, on.Wait},
 	}
 	var handlers []lifecycleHandler
 	for _, event := range events {
 		if event.step != nil {
-			handlers = append(handlers, lifecycleHandler{key: handlerKeyPrefix + event.name, step: *event.step})
+			handlers = append(handlers, lifecycleHandler{key: handlerKeyPrefix + event.name, kind: event.kind, step: *event.step})
 		}
 	}
 	return handlers

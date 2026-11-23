@@ -76,6 +76,8 @@ type Runner struct {
 	materializations build.MaterializationStore
 	noReuse          bool
 	skipHandlers     bool
+	skipWaits        bool
+	keepWaits        []string
 
 	// now and openRecorder are set by tests; nil uses the real ones.
 	now          func() time.Time
@@ -139,6 +141,8 @@ func New(cfg *Config) *Runner {
 		materializations:     cfg.MaterializationStore,
 		noReuse:              cfg.NoReuse,
 		skipHandlers:         cfg.SkipHandlers,
+		skipWaits:            cfg.SkipWaits,
+		keepWaits:            cfg.KeepWaits,
 		openRecorder:         samples.OpenRecorder,
 		dagRunAutoRetryCount: cfg.DAGRunAutoRetryCount,
 		dagRunAutoRetryLimit: cfg.DAGRunAutoRetryLimit,
@@ -173,6 +177,15 @@ type Config struct {
 	// ExecutorOverride supplies the executors of the steps and handlers it
 	// covers in place of their actions. Nil runs every action.
 	ExecutorOverride ExecutorOverride
+	// SkipWaits runs retries, repeats, and steps without waiting for retry
+	// and repeat intervals, their backoff, or the DAG start delay. The order
+	// and number of executions are unchanged, and timeouts still apply. Runs
+	// that a step starts in process, such as foreach bodies, skip them too.
+	SkipWaits bool
+	// KeepWaits names the steps that keep their retry and repeat intervals
+	// when SkipWaits is set. Runs that such a step starts in process still
+	// skip their waits.
+	KeepWaits []string
 
 	DAGRunAutoRetryCount int
 	DAGRunAutoRetryLimit int
@@ -184,6 +197,9 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 	// A run started by a step, such as a sub-DAG run in process, checks its
 	// own reads instead of the step's.
 	ctx = cmnvalue.UntrackMaskedReads(ctx)
+	if r.skipWaits {
+		ctx = context.WithValue(ctx, skipWaitsKey{}, true)
+	}
 	if err := r.setup(ctx); err != nil {
 		return err
 	}
@@ -2003,7 +2019,7 @@ func (r *Runner) waitForRetry(ctx context.Context, node *Node, execErr error) bo
 		node.Step().RetryPolicy.MaxInterval,
 		node.GetRetryCount()-1, // -1 because the count includes this retry
 	)
-	if !waitForExecution(ctx, interval) || r.isCanceled() {
+	if !r.waitForStep(ctx, node, interval) || r.isCanceled() {
 		node.SetStatus(ir.NodeAborted)
 		r.setLastError(execErr)
 		return false
@@ -2452,7 +2468,7 @@ func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressC
 	if cont != nil && cont.writeDue && cont.reportDue() {
 		r.report(ctx, progressCh, node)
 	}
-	if !waitForExecution(ctx, interval) {
+	if !r.waitForStep(ctx, node, interval) {
 		node.SetStatus(ir.NodeAborted)
 		return
 	}
@@ -2466,7 +2482,25 @@ func (r *Runner) prepareNodeForRepeat(ctx context.Context, node *Node, progressC
 	}
 }
 
+// waitForStep waits before the next retry or repeat of node. A step named in
+// KeepWaits waits even when the run skips waits.
+func (r *Runner) waitForStep(ctx context.Context, node *Node, duration time.Duration) bool {
+	if slices.Contains(r.keepWaits, node.Name()) {
+		ctx = context.WithValue(ctx, skipWaitsKey{}, false)
+	}
+	return waitForExecution(ctx, duration)
+}
+
+// skipWaitsKey marks the context of a run that skips waits, so that a run a
+// step starts in process, such as a foreach body, skips them too.
+type skipWaitsKey struct{}
+
+// waitForExecution waits for duration before the next execution, or not at
+// all when the run skips waits. It reports false when ctx ends first.
 func waitForExecution(ctx context.Context, duration time.Duration) bool {
+	if skip, _ := ctx.Value(skipWaitsKey{}).(bool); skip {
+		return ctx.Err() == nil
+	}
 	timer := time.NewTimer(duration)
 	defer timer.Stop()
 	select {

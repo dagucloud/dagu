@@ -1,0 +1,100 @@
+# The file's fields handle every source of release.yaml, so each case
+# reports only what it changes.
+params:
+  stamp: "2026-11-23"
+mocks:
+  build: &build
+    outputs:
+      image_tag: v1
+      manifest: {files: 3}
+  gate:
+    precondition: met
+  poll:
+    results:
+      - condition: not_met
+  ship:
+    review:
+      decision: approve
+      values:
+        ticket: REL-1
+  sign_off:
+    review:
+      decision: approve
+      values:
+        reason: looks good
+  fanout: {}
+  child: {}
+  untitled: {}
+  handler_on.failure: {}
+cases:
+  - name: valid
+    expect:
+      status: succeeded
+
+  - name: unknown keys
+    mocks:
+      deplooy: {}
+      handler_on.success: {}
+      # A handler's runtime name is no key.
+      onFailure: {}
+    expect:
+      status: succeeded
+
+  - name: one step twice
+    mocks:
+      build: *build
+      build image: *build
+    expect:
+      status: succeeded
+
+  - name: real steps
+    real: [fanout, build, deplooy, gate, gate]
+    expect:
+      status: succeeded
+
+  - name: bad values
+    trigger: subdag
+    precondition: met
+    mocks:
+      gate:
+        precondition: maybe
+      poll:
+        results:
+          - condition: sometimes
+      ship:
+        review:
+          decision: later
+          values:
+            ticket: REL-1
+    expect:
+      status: succeeded
+
+  - name: bad expect
+    expect:
+      status: done
+      attempts: -1
+      steps:
+        deplooy: succeeded
+        build:
+          status: skippedd
+          outputs:
+            image_tag: v1
+            nope: x
+        build image: failed
+        gate: {}
+        route:
+          attempts: -2
+          stdout:
+            matches: "("
+        child:
+          outputs:
+            anything: 1
+      notifications:
+        - kind: mail
+        - kind: mail_on.failure
+          step: build
+        - kind: mail_on_error
+          step: nope
+
+  - name: empty expect
+    expect: {}

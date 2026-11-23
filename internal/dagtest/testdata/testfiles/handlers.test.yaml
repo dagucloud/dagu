@@ -1,0 +1,9 @@
+mocks:
+  onFailure:
+    exit_code: 1
+  handler_on.failure:
+    stdout: paged
+cases:
+  - name: a handler key names the handler, not the step of its runtime name
+    expect:
+      status: failed

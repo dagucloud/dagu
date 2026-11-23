@@ -1,0 +1,31 @@
+dag: noop.yaml
+schedule: "0 * * * *"
+mocks:
+  check:
+    exit_code: 0
+    retries: 1
+    review:
+      decision: approve
+      comment: fine
+  other:
+    results:
+      - exit_code: 0
+        precondition: met
+cases:
+  - name: unknown fields at every level
+    timeout: 5s
+    # A name map takes any key, including one that reads as a field.
+    params:
+      dag: x
+    expect:
+      status: succeeded
+      duration: 1s
+      steps:
+        check:
+          status: succeeded
+          exit_code: 0
+          stdout:
+            equals: ok
+      notifications:
+        - kind: mail_on.failure
+          subject: failed

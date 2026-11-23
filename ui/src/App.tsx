@@ -113,6 +113,7 @@ const NotificationChannelsPage = React.lazy(
 const NotificationRulesPage = React.lazy(
   () => import('./pages/notification-rules')
 );
+const NodesPage = React.lazy(() => import('./pages/nodes'));
 const NotificationsPage = React.lazy(() => import('./pages/notifications'));
 const OverviewPage = React.lazy(() => import('./pages/overview'));
 const ViewPage = React.lazy(() => import('./pages/views'));
@@ -148,6 +149,7 @@ const STATIC_PAGE_TITLES = new Set([
   'Incident Routing',
   'Incidents',
   'License',
+  'Nodes',
   'Notification Channels',
   'Notification Rules',
   'Notifications',
@@ -1161,6 +1163,10 @@ function AppInner({ config: initialConfig }: Props): React.ReactElement {
                                         <Route
                                           path="/calendars"
                                           element={<CalendarsPage />}
+                                        />
+                                        <Route
+                                          path="/nodes"
+                                          element={<NodesPage />}
                                         />
                                         <Route
                                           path="/calendars/:name"

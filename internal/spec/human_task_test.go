@@ -812,3 +812,37 @@ func TestHumanTaskInputsFillRequiredDefaults(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "note")
 }
+
+// The schema library decodes enum members, oneOf constants, and defaults as
+// float64, which rounds integers above 2^53. An enum of an integer and a
+// fraction stays one number field.
+func TestHumanTaskFormKeepsLargeIntegers(t *testing.T) {
+	t.Parallel()
+
+	form, _, err := buildHumanTaskForm(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"serial": map[string]any{"type": "integer", "enum": []any{int64(9007199254740993)}},
+			"pick": map[string]any{"oneOf": []any{
+				map[string]any{"const": int64(9007199254740993), "title": "Large"},
+			}},
+			"limit": map[string]any{"type": "integer", "default": int64(9007199254740993)},
+			// Above the int64 range.
+			"huge":  map[string]any{"type": "integer", "enum": []any{uint64(9223372036854775809)}},
+			"ratio": map[string]any{"enum": []any{1, 1.5}},
+		},
+	})
+	require.NoError(t, err)
+
+	result, err := ValidateHumanTaskInputs(form, map[string]any{
+		"serial": json.Number("9007199254740993"),
+		"pick":   json.Number("9007199254740993"),
+		"huge":   json.Number("9223372036854775809"),
+		"ratio":  json.Number("1.5"),
+	}, false)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{
+		"serial": "9007199254740993", "pick": "9007199254740993", "limit": "9007199254740993",
+		"huge": "9223372036854775809", "ratio": "1.5",
+	}, result.Outputs)
+}

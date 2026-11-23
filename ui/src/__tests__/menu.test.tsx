@@ -309,6 +309,7 @@ describe('sidebar menu', () => {
       ['Profiles & Secrets', '/profiles'],
       ['Base Config', '/base-config'],
       ['AI', '/ai'],
+      ['Nodes', '/nodes'],
       ['Webhooks', '/webhooks'],
       ['Git Sync', '/git-sync'],
       ['API Reference', '/api-docs'],

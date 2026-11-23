@@ -16,6 +16,7 @@ import {
   Network,
   Package,
   ScrollText,
+  Server,
   Settings,
   SlidersHorizontal,
   SquareTerminal,
@@ -164,6 +165,11 @@ export function useNavigationSections(): {
           to: '/calendars',
           text: t('navigation.calendars'),
           icon: <CalendarDays size={16} />,
+        },
+        {
+          to: '/nodes',
+          text: t('navigation.nodes'),
+          icon: <Server size={16} />,
         },
         canManageWebhooks && {
           to: '/webhooks',
