@@ -212,3 +212,13 @@ type DeclaredOutputsProvider interface {
 	OutputsProvider
 	PublishesDeclaredOutputs() bool
 }
+
+// NamedOutputsPublisher is implemented by executors that publish every named
+// output of their step, such as a mocked action. Their outputs replace what
+// the step's output file, output_schema, object-form output, stdout.outputs,
+// and action would publish. String-form output still captures stdout.
+type NamedOutputsPublisher interface {
+	// NamedOutputs returns the text of each named output, by name, that a
+	// successful execution publishes.
+	NamedOutputs() map[string]string
+}

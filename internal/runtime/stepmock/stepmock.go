@@ -13,11 +13,9 @@ import (
 	"maps"
 	"os"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/jsonutil"
-	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -32,11 +30,12 @@ type Result struct {
 	Stdout string
 	// Stderr is written to the step's stderr.
 	Stderr string
-	// Outputs holds the step's named outputs, published only when the
-	// execution succeeds. They are subject to the step's declared outputs
-	// (Spec 012). An output declared with type json publishes any value as
-	// its JSON text. Any other output publishes a string as written and any
-	// other value as its JSON text.
+	// Outputs holds every named output the step publishes, whatever its
+	// source: the output file, output_schema, object-form output,
+	// stdout.outputs, or the action. They are published only when the
+	// execution succeeds. An output declared with type json (Spec 012)
+	// publishes any value as its JSON text. Any other output publishes a
+	// string as written and any other value as its JSON text.
 	Outputs map[string]any
 }
 
@@ -122,9 +121,14 @@ type mockExecutor struct {
 	stdout      io.Writer
 	stderr      io.Writer
 	exitCode    int
+	// outputs holds the text of each output the execution publishes.
+	outputs map[string]string
 }
 
-var _ executor.ExitCoder = (*mockExecutor)(nil)
+var (
+	_ executor.ExitCoder             = (*mockExecutor)(nil)
+	_ executor.NamedOutputsPublisher = (*mockExecutor)(nil)
+)
 
 func (e *mockExecutor) SetStdout(out io.Writer) { e.stdout = out }
 func (e *mockExecutor) SetStderr(out io.Writer) { e.stderr = out }
@@ -133,7 +137,10 @@ func (*mockExecutor) Kill(os.Signal) error      { return nil }
 // ExitCode returns the exit code of the result the execution took.
 func (e *mockExecutor) ExitCode() int { return e.exitCode }
 
-func (e *mockExecutor) Run(ctx context.Context) error {
+// NamedOutputs returns the outputs of the result the execution took.
+func (e *mockExecutor) NamedOutputs() map[string]string { return e.outputs }
+
+func (e *mockExecutor) Run(context.Context) error {
 	result := e.script.next()
 	e.exitCode = result.ExitCode
 	if _, err := io.WriteString(e.stdout, result.Stdout); err != nil {
@@ -145,52 +152,28 @@ func (e *mockExecutor) Run(ctx context.Context) error {
 	if result.ExitCode != 0 {
 		return fmt.Errorf("exit status %d", result.ExitCode)
 	}
-	return e.writeOutputs(ctx, result.Outputs)
+	outputs, err := outputTexts(result.Outputs, e.jsonOutputs)
+	if err != nil {
+		return err
+	}
+	e.outputs = outputs
+	return nil
 }
 
-// writeOutputs appends outputs to the step's DAGU_OUTPUT_FILE as an action
-// does, so the runtime parses and checks them as it does for any step.
-func (e *mockExecutor) writeOutputs(ctx context.Context, outputs map[string]any) error {
+// outputTexts returns the text each output publishes.
+func outputTexts(outputs map[string]any, jsonOutputs map[string]bool) (map[string]string, error) {
 	if len(outputs) == 0 {
-		return nil
+		return nil, nil
 	}
-	path, ok := runtime.GetEnv(ctx).Scope.Get(runenv.EnvKeyDAGUOutputFile)
-	if !ok || path == "" {
-		return fmt.Errorf("%s is not set", runenv.EnvKeyDAGUOutputFile)
-	}
-	records, err := outputRecords(outputs, e.jsonOutputs)
-	if err != nil {
-		return err
-	}
-	// #nosec G304 -- the runtime creates DAGU_OUTPUT_FILE for this execution.
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
-	if err != nil {
-		return err
-	}
-	if _, err := file.WriteString(records); err != nil {
-		_ = file.Close()
-		return err
-	}
-	return file.Close()
-}
-
-// outputRecords encodes outputs as DAGU_OUTPUT_FILE records, in name order.
-// A value that spans lines takes a multiline record.
-func outputRecords(outputs map[string]any, jsonOutputs map[string]bool) (string, error) {
-	var b strings.Builder
+	texts := make(map[string]string, len(outputs))
 	for _, name := range slices.Sorted(maps.Keys(outputs)) {
-		value, err := outputText(outputs[name], jsonOutputs[name])
+		text, err := outputText(outputs[name], jsonOutputs[name])
 		if err != nil {
-			return "", fmt.Errorf("output %q: %w", name, err)
+			return nil, fmt.Errorf("output %q: %w", name, err)
 		}
-		if !strings.ContainsAny(value, "\r\n") {
-			fmt.Fprintf(&b, "%s=%s\n", name, value)
-			continue
-		}
-		delimiter := multilineDelimiter(value)
-		fmt.Fprintf(&b, "%s<<%s\n%s\n%s\n", name, delimiter, value, delimiter)
+		texts[name] = text
 	}
-	return b.String(), nil
+	return texts, nil
 }
 
 // outputText returns the text an output value publishes. A json output
@@ -204,15 +187,4 @@ func outputText(value any, asJSON bool) (string, error) {
 		return "", err
 	}
 	return string(data), nil
-}
-
-// multilineDelimiter returns a delimiter that no line of value equals, so the
-// record ends after the whole value. The reader also splits lines at "\r".
-func multilineDelimiter(value string) string {
-	lines := strings.Split(strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(value), "\n")
-	delimiter := "EOF"
-	for i := 1; slices.Contains(lines, delimiter); i++ {
-		delimiter = fmt.Sprintf("EOF_%d", i)
-	}
-	return delimiter
 }

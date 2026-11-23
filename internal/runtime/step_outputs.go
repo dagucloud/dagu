@@ -165,6 +165,31 @@ func serializeDeclaredStepOutputs(ctx context.Context, values map[string]string)
 	return string(data), nil
 }
 
+// capturePublishedOutputs publishes the named outputs an executor published
+// itself, so neither the output file nor stdout is read for them. String-form
+// output still captures stdout, also on a failed attempt, which publishes no
+// named outputs.
+func (n *Node) capturePublishedOutputs(ctx context.Context, outputs map[string]string) error {
+	if variable := n.Step().Output; variable != "" {
+		value, err := n.outputs.capturedOutput(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to capture output: %w", err)
+		}
+		n.setVariable(variable, value)
+		n.setOutputValue(value)
+	}
+	if n.Error() != nil || len(outputs) == 0 {
+		return nil
+	}
+
+	serialized, err := serializeDeclaredStepOutputs(ctx, outputs)
+	if err != nil {
+		return err
+	}
+	n.setStepOutputsValue(serialized)
+	return nil
+}
+
 func (n *Node) captureDeclaredStepOutputs(ctx context.Context) error {
 	declarations := n.Step().ValueOutputs()
 	path := n.stepOutputFile()

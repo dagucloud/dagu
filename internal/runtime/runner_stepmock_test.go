@@ -17,6 +17,7 @@ import (
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/dag"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,6 +34,59 @@ func readLog(t *testing.T, path string) string {
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	return string(data)
+}
+
+// loadSteps builds the steps of a DAG from YAML, as a run of the DAG does.
+func loadSteps(t *testing.T, data string) []ir.Step {
+	t.Helper()
+
+	dag, err := spec.LoadYAML(t.Context(), []byte(data))
+	require.NoError(t, err)
+	return dag.Steps
+}
+
+// planSources holds a plan step for each source of named outputs that Spec
+// 007 lists. A real run would not publish the mocked values from any of them:
+// the mocks write stdout that is not JSON and create no file, and the action
+// publishes values of its own.
+var planSources = map[string]string{
+	"OutputFile": `
+  - id: plan
+    run: ./plan.sh
+    outputs:
+      - name: risk
+      - name: replicas
+        type: json`,
+	"OutputSchema": `
+  - id: plan
+    run: ./plan.sh
+    output_schema:
+      type: object
+      required: [risk, replicas]
+      properties:
+        risk: {type: string}
+        replicas: {type: integer}`,
+	"ObjectFormOutput": `
+  - id: plan
+    run: ./plan.sh
+    output:
+      risk: {from: stdout, decode: json, select: .risk}
+      replicas: {from: file, path: plan.json, decode: json}`,
+	"StdoutOutputs": `
+  - id: plan
+    run: ./plan.sh
+    stdout:
+      outputs:
+        fields:
+          risk: {decode: json, select: .risk}
+          replicas: {decode: json, select: .replicas}`,
+	"Action": `
+  - id: plan
+    action: outputs.write
+    with:
+      values:
+        risk: high
+        replicas: 1`,
 }
 
 // A mocked step writes the streams of its result in place of running its
@@ -209,28 +263,94 @@ func TestStepMockPublishesDeclaredOutputs(t *testing.T) {
 	assert.JSONEq(t, `{"risk":"low","notes":"first\nEOF\nlast","meta":"{\"replicas\":2}","color":"\"blue\""}`, *outputs)
 }
 
-// A failed mocked execution publishes no outputs. A later mocked step that
-// reads one keeps the reference as text and still takes its result.
+// A successful mocked execution publishes its outputs whatever the source of
+// the step's named outputs, and a later step resolves them. A value that is
+// not a string publishes as its JSON text.
+func TestStepMockPublishesNamedOutputs(t *testing.T) {
+	t.Parallel()
+
+	for name, plan := range planSources {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			r := setupRunner(t, withStepMocks(map[string]stepmock.Step{
+				"plan": {Results: []stepmock.Result{{
+					Stdout:  "not json\n",
+					Outputs: map[string]any{"risk": "low", "replicas": 2},
+				}}},
+				"deploy": {},
+			}))
+			steps := loadSteps(t, "steps:"+plan+`
+  - id: deploy
+    run: ./deploy.sh ${steps.plan.outputs.risk} ${steps.plan.outputs.replicas}
+`)
+			result := r.newPlan(t, steps...).assertRun(t, ir.Succeeded)
+
+			outputs := result.nodeByName(t, "plan").State().StepOutputsValue
+			require.NotNil(t, outputs)
+			assert.JSONEq(t, `{"risk":"low","replicas":"2"}`, *outputs)
+			assert.Equal(t, []string{"low", "2"}, result.nodeByName(t, "deploy").Step().Commands[0].Args)
+		})
+	}
+}
+
+// A failed mocked execution publishes no outputs, whatever their source. A
+// later mocked step that reads one keeps the reference as text and still
+// takes its result.
 func TestStepMockFailedAttemptPublishesNoOutputs(t *testing.T) {
 	t.Parallel()
 
-	r := setupRunner(t, withStepMocks(map[string]stepmock.Step{
-		"plan": {Results: []stepmock.Result{{ExitCode: 1, Outputs: map[string]any{"risk": "high"}}}},
-		"use":  {Results: []stepmock.Result{{Stdout: "used\n"}}},
-	}))
-	plan := newStep("plan", withID("plan"), withCommand("exit 0"), withContinueOn(ir.ContinueOn{Failure: true}))
-	plan.Outputs = []ir.StepOutputDeclaration{{Name: "risk", Type: ir.StepDeclaredOutputTypeString}}
-	use := newStep("use", withDepends("plan"),
-		withEnvVars("RISK=${steps.plan.outputs.risk}"),
-		withCommand("echo ${steps.plan.outputs.risk}"))
-	result := r.newPlan(t, plan, use).assertRun(t, ir.PartiallySucceeded)
+	for name, plan := range planSources {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 
-	result.assertNodeStatus(t, "plan", ir.NodeFailed)
-	assert.Nil(t, result.nodeByName(t, "plan").State().StepOutputsValue)
-	result.assertNodeStatus(t, "use", ir.NodeSucceeded)
-	usedNode := result.nodeByName(t, "use")
-	assert.Equal(t, []string{"${steps.plan.outputs.risk}"}, usedNode.Step().Commands[0].Args)
-	assert.Equal(t, "used\n", readLog(t, usedNode.GetStdout()))
+			r := setupRunner(t, withStepMocks(map[string]stepmock.Step{
+				"plan": {Results: []stepmock.Result{{ExitCode: 1, Outputs: map[string]any{"risk": "high", "replicas": 3}}}},
+				"use":  {Results: []stepmock.Result{{Stdout: "used\n"}}},
+			}))
+			steps := loadSteps(t, "steps:"+plan+`
+    continue_on: failed
+  - id: use
+    env:
+      - RISK: ${steps.plan.outputs.risk}
+    run: echo ${steps.plan.outputs.risk}
+`)
+			result := r.newPlan(t, steps...).assertRun(t, ir.PartiallySucceeded)
+
+			result.assertNodeStatus(t, "plan", ir.NodeFailed)
+			assert.Nil(t, result.nodeByName(t, "plan").State().StepOutputsValue)
+			result.assertNodeStatus(t, "use", ir.NodeSucceeded)
+			usedNode := result.nodeByName(t, "use")
+			assert.Equal(t, []string{"${steps.plan.outputs.risk}"}, usedNode.Step().Commands[0].Args)
+			assert.Equal(t, "used\n", readLog(t, usedNode.GetStdout()))
+		})
+	}
+}
+
+// String-form output captures the stdout of a mocked step as in a real run,
+// beside a source of named outputs that would decode it.
+func TestStepMockCapturesOutputVariable(t *testing.T) {
+	t.Parallel()
+
+	r := setupRunner(t, withStepMocks(map[string]stepmock.Step{
+		"plan":   {Results: []stepmock.Result{{Stdout: "not json\n", Outputs: map[string]any{"risk": "low"}}}},
+		"deploy": {},
+	}))
+	steps := loadSteps(t, `
+steps:
+  - id: plan
+    run: ./plan.sh
+    output: PLAN
+    stdout:
+      outputs:
+        field: risk
+        decode: json
+  - id: deploy
+    run: ./deploy.sh "${PLAN}" ${steps.plan.outputs.risk}
+`)
+	result := r.newPlan(t, steps...).assertRun(t, ir.Succeeded)
+
+	assert.Equal(t, []string{"not json", "low"}, result.nodeByName(t, "deploy").Step().Commands[0].Args)
 }
 
 // A mocked step keeps its executor type, so its command and script resolve to
