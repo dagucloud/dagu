@@ -232,9 +232,8 @@ Rules:
 - Secrets are encrypted with the key of the user's Dagu home, as on a
   server.
 - A server project ([RFC 003](../rfcs/003-projects.md#layout)) keeps its
-  state the same way, in the server's data directory, wherever its DAG
-  directory is. A folder used from the CLI keeps its history when a server
-  on the same Dagu home adds it.
+  state the same way, in the server's data directory, so a folder whose
+  `dagu.json` names it shares its history on that Dagu home.
 - `dagu start` prints where the run's logs are when it finishes, and
   `dagu history` lists past runs.
 - Project loading and workflow discovery do not write workflow events, run
