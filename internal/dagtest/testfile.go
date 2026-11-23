@@ -59,8 +59,9 @@ type Case struct {
 	Steps map[string]Script
 	// Handlers holds the same for lifecycle handlers, by handler type.
 	Handlers map[ir.HandlerType]Script
-	// DefaultMocked lists the labels of the steps and handlers that took
-	// the default mock: steps in DAG order, then handlers.
+	// DefaultMocked lists the labels of the steps and handlers the default
+	// mock applies to, whether or not a run reaches them: steps in DAG
+	// order, then handlers.
 	DefaultMocked []string
 	// Expect holds the case's assertions.
 	Expect Expect

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"os/user"
@@ -292,12 +293,16 @@ func (c *testCase) noteStreamStarts(status ir.DAGRunStatus) {
 // lastExecution returns what the log file at path holds from the start of
 // the latest execution that wrote to it.
 func (c *testCase) lastExecution(path string) (string, error) {
-	data, err := fileutil.ReadFile(path)
+	file, err := fileutil.Open(path)
 	if err != nil {
 		return "", err
 	}
-	start := min(c.streamStarts[path], int64(len(data)))
-	return string(data[start:]), nil
+	defer func() { _ = file.Close() }()
+	if _, err := file.Seek(c.streamStarts[path], io.SeekStart); err != nil {
+		return "", err
+	}
+	data, err := io.ReadAll(file)
+	return string(data), err
 }
 
 // latestStatus returns the status of the latest attempt of the run.

@@ -34,8 +34,9 @@ type caseResult struct {
 	// failures lists every failed assertion, or what kept the run from its
 	// assertions.
 	failures []caseFailure
-	// defaultMocked lists the labels of the steps and handlers that took
-	// the default mock: steps in DAG order, then handlers.
+	// defaultMocked lists the labels of the steps and handlers the default
+	// mock applies to in the case, whether or not the run reached them:
+	// steps in DAG order, then handlers.
 	defaultMocked []string
 	// autoApproved lists the labels of the steps whose waits the case
 	// approved automatically, in DAG order.
