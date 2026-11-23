@@ -6,11 +6,10 @@ Partially implemented.
 
 `dagu test` runs test files with `--run`, `--timeout`, `--format`, and
 `--keep`, writes the text and JSON reports, and exits with the statuses
-below. It checks run status, step status, and step `attempts`. A case with
-another assertion is reported invalid. Not implemented yet: the other
-assertions, the fix of an invalid case, the report's lists of default
-mocks, automatic approvals, and notifications, and skipping test files in
-DAG discovery.
+below. It checks every assertion of [Assertions](#assertions), and the
+report lists the default mocks, automatic approvals, and notifications of
+each case that ran. Not implemented yet: the fix of an invalid case, and
+skipping test files in DAG discovery.
 
 The authoring flags `--init` and `--update` (see
 [Authoring Flags](#authoring-flags)) ship after the first release of
