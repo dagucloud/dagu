@@ -195,3 +195,27 @@ func TestCondition_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestCondition_RunsCommand(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name      string
+		condition *ir.Condition
+		want      bool
+	}{
+		{name: "CommandCheck", condition: &ir.Condition{Condition: "test -f ready"}, want: true},
+		{name: "ValueMatch", condition: &ir.Condition{Condition: "$(printf ready)", Expected: "ready"}},
+		{name: "ExpectedAny", condition: &ir.Condition{Condition: "ready", ExpectedAny: []string{"ready"}}},
+		{name: "EvalSubstitution", condition: &ir.Condition{Eval: "$(date +%H)", Expected: "00"}, want: true},
+		{name: "EvalBacktick", condition: &ir.Condition{Eval: "`date +%H`", Expected: "00"}, want: true},
+		{name: "EvalReference", condition: &ir.Condition{Eval: "${params.hour}", Expected: "00"}},
+		{name: "Nil"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, tt.condition.RunsCommand())
+		})
+	}
+}
