@@ -221,6 +221,18 @@ func TestLoadFileCaseErrors(t *testing.T) {
 	}
 }
 
+// Loading the tested DAG runs no eval, also when a worker_selector reads the
+// param, so the eval still needs a value from the test. The eval would
+// create the marker file.
+func TestLoadFileRunsNoEval(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "eval-ran")
+	t.Setenv("DAGU_TEST_EVAL_MARKER", marker)
+
+	c := loadCase(t, "selector.test.yaml", "the eval waits for a test value")
+	assert.NoFileExists(t, marker)
+	assert.Equal(t, []string{"param region: eval runs a command; give it a value under params"}, findingStrings(c.Errors))
+}
+
 // A secrets key is checked against the DAG in every case of the file.
 func TestLoadFileUnknownSecret(t *testing.T) {
 	t.Parallel()

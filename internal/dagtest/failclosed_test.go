@@ -475,12 +475,12 @@ func TestCheckFailClosed(t *testing.T) {
 	}
 }
 
-// loadDAG loads a DAG from testdata as dagu loads it, without running the
-// eval of any param.
+// loadDAG loads a DAG from testdata as LoadFile loads it, without running
+// the eval of any param.
 func loadDAG(t *testing.T, name, base string) *ir.DAG {
 	t.Helper()
 
-	opts := []spec.LoadOption{spec.DeferParamEvals()}
+	opts := []spec.LoadOption{spec.DeferAllParamEvals()}
 	if base != "" {
 		opts = append(opts, spec.WithBaseConfig(filepath.Join("testdata", base)))
 	}

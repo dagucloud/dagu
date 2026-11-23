@@ -46,8 +46,10 @@ type dagParamEntry struct {
 func buildDAGParamsResult(ctx buildContext, d *dag) (*paramsResult, error) {
 	// A map-form worker selector resolves as the DAG loads and routes the
 	// run, so it needs the params' values: a load that would defer every eval
-	// keeps evaluating when the selector reads a value.
-	if ctx.opts.Has(buildFlagDeferParamEval) && workerSelectorReadsValues(ctx, d) {
+	// keeps evaluating when the selector reads a value, unless it leaves the
+	// selector unresolved.
+	if ctx.opts.Has(buildFlagDeferParamEval) && !ctx.opts.Has(buildFlagDeferAllParamEvals) &&
+		workerSelectorReadsValues(ctx, d) {
 		opts := ctx.opts
 		opts.Flags &^= buildFlagDeferParamEval
 		ctx = ctx.WithOpts(opts)

@@ -23,7 +23,8 @@ type File struct {
 	Path string
 	// DAGPath is the path of the tested DAG file.
 	DAGPath string
-	// DAG is the tested DAG. Every params[].eval of it waits for the run.
+	// DAG is the tested DAG. Every params[].eval of it waits for the run,
+	// and a map-form worker_selector stays as written.
 	DAG *ir.DAG
 	// Cases holds the cases in file order, each with the file's fields
 	// merged in.
@@ -205,7 +206,7 @@ func LoadFile(ctx context.Context, path string, opts ...spec.LoadOption) (*File,
 	if finding != nil {
 		return nil, invalid(*finding)
 	}
-	dag, err := spec.Load(ctx, dagPath, append(slices.Clip(opts), spec.DeferParamEvals())...)
+	dag, err := spec.Load(ctx, dagPath, append(slices.Clip(opts), spec.DeferAllParamEvals())...)
 	if err != nil {
 		return nil, invalid(loadFindings(err)...)
 	}
