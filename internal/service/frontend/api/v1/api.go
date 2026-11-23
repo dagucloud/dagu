@@ -91,6 +91,7 @@ type API struct {
 	subCmdBuilder        *launcher.SubCmdBuilder
 	resourceService      resourceMonitor
 	authService          AuthService
+	setupGuard           setupGuard
 	auditService         *audit.Service
 	eventService         *eventstore.Service
 	incidentService      IncidentService
@@ -251,6 +252,15 @@ type APIOption func(*API)
 func WithAuthService(as AuthService) APIOption {
 	return func(a *API) {
 		a.authService = as
+	}
+}
+
+// WithSetupToken makes first-run setup need token, kept in file, once the
+// server has run without an admin for a while after startedAt. An empty token
+// leaves setup open, as before setup tokens.
+func WithSetupToken(token, file string, startedAt time.Time) APIOption {
+	return func(a *API) {
+		a.setupGuard = setupGuard{token: token, file: file, tokenlessUntil: startedAt.Add(setupTokenlessWindow)}
 	}
 }
 

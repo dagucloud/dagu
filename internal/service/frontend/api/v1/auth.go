@@ -6,22 +6,48 @@ package api
 import (
 	"cmp"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
 )
 
+// setupTokenlessWindow is how long after startup first-run setup accepts no
+// setup token, so scripts that create the admin as the server starts keep
+// working.
+const setupTokenlessWindow = 10 * time.Minute
+
+// setupGuard holds the one-time token that first-run setup needs once the
+// tokenless window has passed.
+type setupGuard struct {
+	token          string
+	file           string
+	tokenlessUntil time.Time
+}
+
+// allows reports whether setup may proceed with the given token.
+func (g setupGuard) allows(given *string, now time.Time) bool {
+	if g.token == "" || now.Before(g.tokenlessUntil) {
+		return true
+	}
+	return given != nil && subtle.ConstantTimeCompare([]byte(strings.TrimSpace(*given)), []byte(g.token)) == 1
+}
+
 // Setup creates the initial admin user during first-run setup.
-// Returns 403 if users already exist.
+// Returns 403 if users already exist, and 401 without the setup token once the
+// tokenless window has passed.
 func (a *API) Setup(ctx context.Context, request api.SetupRequestObject) (api.SetupResponseObject, error) {
 	if a.authService == nil {
 		return api.Setup403JSONResponse{
@@ -56,6 +82,12 @@ func (a *API) Setup(ctx context.Context, request api.SetupRequestObject) (api.Se
 		return api.Setup403JSONResponse{
 			Code:    api.ErrorCodeForbidden,
 			Message: "Setup has already been completed",
+		}, nil
+	}
+	if !a.setupGuard.allows(request.Body.SetupToken, time.Now()) {
+		return api.Setup401JSONResponse{
+			Code:    api.ErrorCodeUnauthorized,
+			Message: "Setup needs the setup token. Open the setup URL that the server printed when it started.",
 		}, nil
 	}
 
@@ -95,6 +127,11 @@ func (a *API) Setup(ctx context.Context, request api.SetupRequestObject) (api.Se
 	}
 
 	a.logAudit(ctx, audit.CategoryUser, "setup_admin", nil)
+	if a.setupGuard.file != "" {
+		if err := fileutil.Remove(a.setupGuard.file); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			logger.Warn(ctx, "Failed to remove the setup token file", tag.Error(err))
+		}
+	}
 
 	return api.Setup200JSONResponse{
 		Token:     tokenResult.Token,

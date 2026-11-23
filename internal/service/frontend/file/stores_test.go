@@ -55,6 +55,7 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 		result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
 		require.NoError(t, err)
 		assert.False(t, result.setupRequired, "setup should not be required after auto-provisioning")
+		assert.Empty(t, result.setupToken, "no setup token without setup")
 
 		count, err := result.service.CountUsers(t.Context())
 		require.NoError(t, err)
@@ -95,6 +96,14 @@ func TestNewBuiltinAuthServiceAutoProvision(t *testing.T) {
 		result, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
 		require.NoError(t, err)
 		assert.True(t, result.setupRequired, "setup should be required when initial_admin is not configured")
+
+		// Setup needs a token kept in the data directory, which a second
+		// server on the same directory reads instead of making its own.
+		require.NotEmpty(t, result.setupToken)
+		assert.FileExists(t, result.setupTokenFile)
+		again, err := newBuiltinAuth(t.Context(), cfg, persisfile.NewBackend(cfg.Paths))
+		require.NoError(t, err)
+		assert.Equal(t, result.setupToken, again.setupToken)
 	})
 
 	t.Run("FailsOnInvalidPassword", func(t *testing.T) {

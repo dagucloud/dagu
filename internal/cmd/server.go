@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -182,7 +183,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	if cloudAccess != nil {
 		serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithCloudAccess(cloudAccess)))
 	}
-	serverOpts = append(serverOpts, frontend.WithOnReady(printStartupBanner(serviceCtx, stores.AuthSetupRequired)))
+	serverOpts = append(serverOpts, frontend.WithOnReady(printStartupBanner(serviceCtx, stores.AuthSetupRequired, stores.AuthSetupToken)))
 
 	// Initialize server (includes auth setup). Use serviceCtx so auth providers can
 	// respond to termination signals during potentially slow network operations.
@@ -458,20 +459,26 @@ type startupBanner struct {
 	url           string
 	dagsDir       string
 	setupRequired bool
+	// setupToken is the one-time token first-run setup needs; empty when
+	// there is none.
+	setupToken string
 	// license is nil when no license manager runs.
 	license *license.Status
 }
 
 // printStartupBanner returns a frontend.WithOnReady hook that prints the
 // startup banner to stdout. When stdout is not a terminal, as in a container,
-// the hook logs the free monitoring offer instead. It returns nil in quiet
-// mode or when the server has no web UI.
-func printStartupBanner(ctx *Context, setupRequired bool) func(url string) {
+// the hook logs the setup URL and the free monitoring offer instead. It returns
+// nil in quiet mode or when the server has no web UI.
+func printStartupBanner(ctx *Context, setupRequired bool, setupToken string) func(url string) {
 	if ctx.Quiet || ctx.Config.Server.Headless {
 		return nil
 	}
 	if !isTerminal(os.Stdout) {
 		return func(url string) {
+			if setupRequired {
+				logger.Info(ctx, "Create the admin account", tag.URL(setupURL(url, setupToken)))
+			}
 			if ctx.LicenseManager == nil {
 				return
 			}
@@ -487,6 +494,7 @@ func printStartupBanner(ctx *Context, setupRequired bool) func(url string) {
 			url:           url,
 			dagsDir:       ctx.Config.Paths.DAGsDir,
 			setupRequired: setupRequired,
+			setupToken:    setupToken,
 		}
 		if ctx.LicenseManager != nil {
 			status := ctx.LicenseManager.Status()
@@ -494,6 +502,15 @@ func printStartupBanner(ctx *Context, setupRequired bool) func(url string) {
 		}
 		banner.write(os.Stdout)
 	}
+}
+
+// setupURL returns the first-run setup page of the server at url, carrying the
+// setup token when there is one.
+func setupURL(url, token string) string {
+	if token == "" {
+		return url + "/setup"
+	}
+	return url + "/setup?token=" + neturl.QueryEscape(token)
 }
 
 // monitoringOffer returns the page that connects the server at url to Dagu
@@ -514,7 +531,7 @@ func (b startupBanner) write(w io.Writer) {
 	fmt.Fprintf(&out, "\nDagu %s is ready\n", b.version)
 	fmt.Fprintf(&out, "  Web UI:  %s\n", b.url)
 	if b.setupRequired {
-		fmt.Fprintf(&out, "  Setup:   create the admin account at %s/setup\n", b.url)
+		fmt.Fprintf(&out, "  Setup:   create the admin account at %s\n", setupURL(b.url, b.setupToken))
 	}
 	fmt.Fprintf(&out, "  DAGs:    %s\n", b.dagsDir)
 	if link, ok := monitoringOffer(b.url, b.license); ok {

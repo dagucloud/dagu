@@ -61,6 +61,11 @@ func TestStartupBanner(t *testing.T) {
 			notContains: []string{"Setup:"},
 		},
 		{
+			name:     "FirstRunWithSetupToken",
+			banner:   startupBanner{url: url, setupRequired: true, setupToken: "abc123"},
+			contains: []string{"create the admin account at " + url + "/setup?token=abc123\n"},
+		},
+		{
 			name:   "BasePath",
 			banner: startupBanner{url: url + "/dagu", setupRequired: true, license: community},
 			contains: []string{

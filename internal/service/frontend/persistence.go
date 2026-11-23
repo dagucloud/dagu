@@ -27,12 +27,17 @@ import (
 
 // Stores contains the persistence dependencies used by the frontend server.
 type Stores struct {
-	WorkspaceBaseConfig  dagsettings.BaseConfigProvider
-	BaseConfig           dagsettings.BaseConfigStore
-	Calendar             persis.CalendarStore
-	AuthService          *authservice.Service
-	UserStore            authmodel.UserStore
-	AuthSetupRequired    bool
+	WorkspaceBaseConfig dagsettings.BaseConfigProvider
+	BaseConfig          dagsettings.BaseConfigStore
+	Calendar            persis.CalendarStore
+	AuthService         *authservice.Service
+	UserStore           authmodel.UserStore
+	AuthSetupRequired   bool
+	// AuthSetupToken is the one-time token that first-run setup accepts, kept
+	// in AuthSetupTokenFile. It is empty when setup is not required or the
+	// token could not be prepared.
+	AuthSetupToken       string
+	AuthSetupTokenFile   string
 	RemoteNode           remotenode.Store
 	Secret               secret.Store
 	Profile              profile.Store

@@ -141,6 +141,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "401":
+          description: "Setup token missing or invalid. The server prints the setup URL with the token when it starts without an admin."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "403":
           description: "Setup already completed (users exist)"
           content:
@@ -20745,6 +20751,9 @@ components:
           type: string
           description: "Admin password"
           minLength: 8
+        setupToken:
+          type: string
+          description: "One-time setup token in the setup URL the server prints when it starts without an admin. Setup needs it once the server has run for 10 minutes without an admin."
       required:
         - username
         - password

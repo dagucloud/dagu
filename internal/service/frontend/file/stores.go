@@ -103,6 +103,8 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 		stores.AuthService = builtinAuth.service
 		stores.UserStore = builtinAuth.userStore
 		stores.AuthSetupRequired = builtinAuth.setupRequired
+		stores.AuthSetupToken = builtinAuth.setupToken
+		stores.AuthSetupTokenFile = builtinAuth.setupTokenFile
 		stores.PublicWebhooks = store.NewPublicWebhookStore(backend.Collection(persis.CollectionPublicWebhooks))
 	}
 
@@ -317,9 +319,11 @@ func newMonitorLease(stateFile string) func() chatbridge.Lease {
 }
 
 type builtinAuth struct {
-	service       *authservice.Service
-	userStore     authmodel.UserStore
-	setupRequired bool
+	service        *authservice.Service
+	userStore      authmodel.UserStore
+	setupRequired  bool
+	setupToken     string
+	setupTokenFile string
 }
 
 func newBuiltinAuth(ctx context.Context, cfg *config.Config, backend persis.Backend) (builtinAuth, error) {
@@ -402,7 +406,21 @@ func newBuiltinAuth(ctx context.Context, cfg *config.Config, backend persis.Back
 	}
 
 	logger.Info(ctx, "Builtin auth initialized", slog.Bool("setupRequired", setupRequired))
-	return builtinAuth{service: authSvc, userStore: userStore, setupRequired: setupRequired}, nil
+	result := builtinAuth{service: authSvc, userStore: userStore, setupRequired: setupRequired}
+	if setupRequired {
+		// Servers that share the data directory share the token, so the setup
+		// URL one of them prints works on any of them.
+		result.setupTokenFile = filepath.Join(cfg.Paths.DataDir, "auth", "setup-token")
+		token, err := crypto.LoadOrCreateToken(result.setupTokenFile)
+		if err != nil {
+			// Setup then accepts no token, as it did before setup tokens, so a
+			// read-only data directory does not block the first admin.
+			logger.Warn(ctx, "First-run setup runs without a setup token", tag.Error(err))
+		} else {
+			result.setupToken = token
+		}
+	}
+	return result, nil
 }
 
 func resolveTokenSecret(ctx context.Context, cfg *config.Config) (authmodel.TokenSecret, error) {
