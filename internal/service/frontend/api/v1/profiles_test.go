@@ -423,6 +423,53 @@ steps:
 	}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
 }
 
+// A backfill runs every slot with its profile, so a protected profile needs
+// an administrator, as it does for a single run.
+func TestRuntimeProfilesAPI_ProtectedProfileBackfillRequiresAdmin(t *testing.T) {
+	server := setupBuiltinAuthServer(t)
+	adminToken := getAdminToken(t, server)
+	operatorToken := createRuntimeProfileUserToken(
+		t, server, adminToken, "backfill-operator", "operatorpass1", apigen.UserRoleOperator,
+	)
+
+	dagName := "protected_profile_backfill_dag"
+	spec := `
+schedule: "0 2 * * *"
+steps:
+  - name: main
+    run: echo backfill
+`
+	server.Client().Post("/api/v1/dags", apigen.CreateNewDAGJSONRequestBody{
+		Name: dagName,
+		Spec: &spec,
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
+		Name: "local",
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
+		Name:      "prod",
+		Protected: new(true),
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+
+	backfill := func(token, profile string, status int) {
+		t.Helper()
+		from, to := "2025-10-01T00:00:00Z", "2025-10-02T23:00:00Z"
+		override := apigen.RuntimeProfileOverride(profile)
+		server.Client().Post(fmt.Sprintf("/api/v1/dags/%s/backfills", dagName), apigen.BackfillRequest{
+			From:    &from,
+			To:      &to,
+			DryRun:  new(true),
+			Profile: &override,
+		}).WithBearerToken(token).ExpectStatus(status).Send(t)
+	}
+
+	backfill(operatorToken, "", http.StatusOK)
+	backfill(operatorToken, "local", http.StatusOK)
+	backfill(operatorToken, "prod", http.StatusForbidden)
+	backfill(adminToken, "prod", http.StatusOK)
+	backfill(operatorToken, "missing", http.StatusNotFound)
+}
+
 func TestRuntimeProfilesAPI_DAGDefaultProfile(t *testing.T) {
 	server := setupBuiltinAuthServer(t)
 	adminToken := getAdminToken(t, server)
