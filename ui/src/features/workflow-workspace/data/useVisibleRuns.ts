@@ -48,6 +48,13 @@ export const RUN_RANGE_KEY = 'dagu.workspace.runTimelineRange';
  */
 export const CUSTOM_RANGE_KEY = 'dagu.workspace.runTimelineCustomRange';
 /** Whether the timeline counts the cached time: "1" (the default) or "0". */
+/**
+ * The time range of a service DAG, apart from that of the other DAGs: it
+ * offers longer presets, and its choice does not change theirs.
+ */
+export const SERVICE_RANGE_KEY = 'dagu.workspace.serviceRunRange';
+/** The custom range of a service DAG, for the tab. */
+export const SERVICE_CUSTOM_RANGE_KEY = 'dagu.workspace.serviceRunCustomRange';
 export const SHOW_CACHED_KEY = 'dagu.workspace.runTimelineCached';
 /** The trigger types that the timeline hides, as a JSON list. */
 export const HIDDEN_TYPES_KEY = 'dagu.workspace.runTimelineHiddenTypes';
@@ -61,6 +68,8 @@ export interface RunViewSettings {
   count: number;
   /** The time range, in the 'range' mode. */
   range: RunRange;
+  /** The time range of a service DAG, which has no count mode. */
+  serviceRange: RunRange;
   showTests: boolean;
   showCached: boolean;
   /** The trigger types whose runs the timeline hides. */
@@ -77,6 +86,8 @@ export interface RunViewActions {
   setCount(count: number): void;
   /** Shows the runs of a time range. */
   setRange(range: RunRange): void;
+  /** Sets the time range of a service DAG; the other DAGs keep their choice. */
+  setServiceRange(range: RunRange): void;
   setShowTests(show: boolean): void;
   setShowCached(show: boolean): void;
   setHiddenTypes(types: readonly TriggerType[]): void;
@@ -91,6 +102,7 @@ const STORAGE_KEYS = [
   SHOW_CACHED_KEY,
   HIDDEN_TYPES_KEY,
   SHOW_BACKFILL_KEY,
+  SERVICE_RANGE_KEY,
 ] as const;
 
 const browserStorage = () => window.localStorage;
@@ -131,6 +143,7 @@ function snapshot(): RunViewSettings {
   const raws = [
     ...STORAGE_KEYS.map((key) => readKey(key)),
     readKey(CUSTOM_RANGE_KEY, tabStorage),
+    readKey(SERVICE_CUSTOM_RANGE_KEY, tabStorage),
   ];
   const sign = raws
     .map((raw) => (raw === null ? '\u0000' : `1${raw}`))
@@ -141,7 +154,9 @@ function snapshot(): RunViewSettings {
     count: parseStoredCount(raws[0]!),
     showTests: parseStoredShowTests(raws[1]!),
     mode: parseStoredMode(raws[2]!),
-    range: parseStoredCustomRange(raws[7]!) ?? parseStoredRange(raws[3]!),
+    range: parseStoredCustomRange(raws[8]!) ?? parseStoredRange(raws[3]!),
+    serviceRange:
+      parseStoredCustomRange(raws[9]!) ?? parseStoredRange(raws[7]!),
     showCached: parseStoredShowCached(raws[4]!),
     hiddenTypes: parseStoredHiddenTypes(raws[5]!),
     showBackfill: raws[6] === '1',
@@ -167,6 +182,17 @@ function update(patch: Partial<RunViewSettings>): void {
     );
     if (!custom) writeKey(RUN_RANGE_KEY, JSON.stringify(patch.range));
   }
+  if (patch.serviceRange !== undefined) {
+    const custom = patch.serviceRange.preset === 'custom';
+    writeKey(
+      SERVICE_CUSTOM_RANGE_KEY,
+      custom ? JSON.stringify(patch.serviceRange) : null,
+      tabStorage
+    );
+    if (!custom) {
+      writeKey(SERVICE_RANGE_KEY, JSON.stringify(patch.serviceRange));
+    }
+  }
   if (patch.showCached !== undefined) {
     writeKey(SHOW_CACHED_KEY, patch.showCached ? '1' : '0');
   }
@@ -183,6 +209,7 @@ const SERVER_SETTINGS: RunViewSettings = {
   mode: 'count',
   count: 30,
   range: RANGE_DEFAULT,
+  serviceRange: RANGE_DEFAULT,
   showTests: true,
   showCached: true,
   hiddenTypes: [],
@@ -192,6 +219,7 @@ const SERVER_SETTINGS: RunViewSettings = {
 const ACTIONS: RunViewActions = {
   setCount: (count) => update({ mode: 'count', count }),
   setRange: (range) => update({ mode: 'range', range }),
+  setServiceRange: (serviceRange) => update({ serviceRange }),
   setShowTests: (showTests) => update({ showTests }),
   setShowCached: (showCached) => update({ showCached }),
   setShowBackfill: (showBackfill) => update({ showBackfill }),
@@ -301,16 +329,16 @@ export function useVisibleRuns({
 }): VisibleRuns {
   const run = useWorkspaceRun();
   const [stored] = useRunViewSettings();
-  // A service DAG offers more presets: a range that the DAG does not offer
-  // gives way to the default. It has no count mode: the run history is
-  // always a time range.
+  // A service DAG has its own range and no count mode: its run history is
+  // always a time range. A range that a normal DAG does not offer gives way
+  // to the default.
   const service = useIsServiceDag();
   const settings = useMemo(() => {
-    const range = rangeFor(stored.range, service);
-    const mode = service ? 'range' : stored.mode;
-    return range === stored.range && mode === stored.mode
-      ? stored
-      : { ...stored, range, mode };
+    if (service) {
+      return { ...stored, mode: 'range' as const, range: stored.serviceRange };
+    }
+    const range = rangeFor(stored.range, false);
+    return range === stored.range ? stored : { ...stored, range };
   }, [stored, service]);
   const history = useRunHistory({
     enabled,

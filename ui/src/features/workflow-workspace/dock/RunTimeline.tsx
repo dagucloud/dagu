@@ -1470,7 +1470,7 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
             counts={[]}
             onCountChange={setCount}
             range={settings.range}
-            onRangeChange={setRange}
+            onRangeChange={actions.setServiceRange}
             presets={presets}
           />
         }

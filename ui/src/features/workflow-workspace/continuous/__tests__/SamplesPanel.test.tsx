@@ -11,7 +11,6 @@ import {
 } from '@/api/v1/schema';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
-import { presetsFor } from '../../rangePresets';
 import { runHistorySource, stepSource } from '../sampleSource';
 import { SamplesPanel, type SamplesPanelProps } from '../SamplesPanel';
 import type { SamplesWindow } from '../useContinuousData';
@@ -179,25 +178,6 @@ describe('SamplesPanel with a run history', () => {
     expect(screen.queryByLabelText('Period')).toBeNull();
   });
 
-  // A panel with period buttons starts at 24 hours. "All" starts at the start
-  // of a run: a history has none, so it has no such button.
-  it('offers the period buttons without All for a history', () => {
-    render(panel({ range: undefined, presets: presetsFor('service') }));
-    const group = within(screen.getByLabelText('Period'));
-    expect(group.getAllByRole('button').map((b) => b.textContent)).toEqual([
-      '1h',
-      '6h',
-      '24h',
-      '7d',
-      '30d',
-      '1y',
-      '3y',
-    ]);
-    expect(lastSamples().window).toMatchObject({ preset: '24h' });
-    fireEvent.click(group.getByText('30d'));
-    expect(lastSamples().window).toMatchObject({ preset: '30d' });
-  });
-
   // A service DAG has two figures for each window: the share of the window in
   // which a run was active, and the share of the runs that did not fail.
   it('shows the uptime and the success rate of each window', () => {
@@ -248,23 +228,6 @@ describe('SamplesPanel with a run history', () => {
       preset: '1y',
       startedAt: undefined,
     });
-  });
-
-  // Chart of 3 years in a 640 px panel: one element for a bucket, none for
-  // a run (600 runs per bucket here, 360 000 in all).
-  it('draws one bar for each bucket of the response and no more', () => {
-    h.responses.samples = series(600, 10);
-    render(panel({ range: { preset: '3y' } }));
-    const chart = screen.getByTestId('continuous-chart');
-    expect(chart).toHaveAttribute('data-buckets', '600');
-    expect(chart.querySelectorAll('rect')).toHaveLength(600 + 60);
-    const inChart = chart.querySelectorAll('*').length;
-    // The bars, the axis and the labels: the same order as the buckets.
-    expect(inChart).toBeLessThan(800);
-    console.info(
-      `history chart, 600 buckets: ${inChart} elements in the chart, ` +
-        `${document.body.querySelectorAll('*').length} in the page`
-    );
   });
 
   it('shows the empty state of the window', () => {

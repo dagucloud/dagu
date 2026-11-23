@@ -11,6 +11,7 @@ import {
   CUSTOM_RANGE_KEY,
   RUN_MODE_KEY,
   RUN_RANGE_KEY,
+  SERVICE_RANGE_KEY,
   SHOW_BACKFILL_KEY,
   SHOW_TESTS_KEY,
   useHistoryRuns,
@@ -261,11 +262,7 @@ describe('useVisibleRuns', () => {
     expect(h.args[0]).toMatchObject({ enabled: false });
   });
 
-  // A service DAG offers the presets up to three years; another DAG does
-  // not, and the stored one of a service DAG gives way to the default.
-  it('keeps a long preset for a service DAG only', () => {
-    window.localStorage.setItem(RUN_MODE_KEY, 'range');
-    window.localStorage.setItem(RUN_RANGE_KEY, '{"preset":"1y"}');
+  describe('with a service DAG', () => {
     const onPage =
       (restartPolicy?: string) =>
       ({ children }: { children: ReactNode }) => (
@@ -279,54 +276,36 @@ describe('useVisibleRuns', () => {
           {children}
         </WorkspaceDataContext.Provider>
       );
-    const service = renderHook(() => useVisibleRuns({ enabled: true }), {
-      wrapper: onPage('always'),
-    });
-    expect(service.result.current.settings.range).toEqual({ preset: '1y' });
-    const { from, to } = service.result.current.range!;
-    expect(to).toBe(NOW);
-    expect(to - from).toBe(365 * 86_400_000);
+    const visible = (restartPolicy?: string) =>
+      renderHook(() => useVisibleRuns({ enabled: true }), {
+        wrapper: onPage(restartPolicy),
+      }).result.current;
 
-    const other = renderHook(() => useVisibleRuns({ enabled: true }), {
-      wrapper: onPage(),
-    });
-    expect(other.result.current.settings.range).toEqual({ preset: '24h' });
-    const span = other.result.current.range!;
-    expect(span.to - span.from).toBe(86_400_000);
-  });
+    // A service DAG keeps its own range, up to three years. The range of the
+    // other DAGs is another choice.
+    it('reads the range of a service DAG apart from the other DAGs', () => {
+      window.localStorage.setItem(RUN_MODE_KEY, 'range');
+      window.localStorage.setItem(RUN_RANGE_KEY, '{"preset":"6h"}');
+      window.localStorage.setItem(SERVICE_RANGE_KEY, '{"preset":"1y"}');
+      const service = visible('always');
+      expect(service.settings.range).toEqual({ preset: '1y' });
+      expect(service.range!.to).toBe(NOW);
+      expect(service.range!.to - service.range!.from).toBe(365 * 86_400_000);
 
-  // A service DAG has no count mode: a stored count, or a stored mode of an
-  // older version, does not apply to it. The stored mode stays for a normal DAG.
-  it('uses the range mode for a service DAG whatever is stored', () => {
-    window.localStorage.setItem(RUN_MODE_KEY, 'count');
-    window.localStorage.setItem(
-      'dagu.workspace.runTimelineServiceMode',
-      'count'
-    );
-    const onPage =
-      (restartPolicy?: string) =>
-      ({ children }: { children: ReactNode }) => (
-        <WorkspaceDataContext.Provider
-          value={
-            {
-              dagData: { dag: { name: 'demo', restartPolicy } },
-            } as unknown as WorkspaceDataValue
-          }
-        >
-          {children}
-        </WorkspaceDataContext.Provider>
-      );
-    const service = renderHook(() => useVisibleRuns({ enabled: true }), {
-      wrapper: onPage('always'),
+      expect(visible().settings.range).toEqual({ preset: '6h' });
     });
-    expect(service.result.current.settings.mode).toBe('range');
-    expect(service.result.current.range).not.toBeNull();
 
-    const other = renderHook(() => useVisibleRuns({ enabled: true }), {
-      wrapper: onPage(),
+    // A service DAG has no count mode: a stored count does not apply to it.
+    it('uses the range mode whatever the other DAGs chose', () => {
+      window.localStorage.setItem(RUN_MODE_KEY, 'count');
+      const service = visible('always');
+      expect(service.settings.mode).toBe('range');
+      expect(service.range).not.toBeNull();
+
+      const other = visible();
+      expect(other.settings.mode).toBe('count');
+      expect(other.range).toBeNull();
     });
-    expect(other.result.current.settings.mode).toBe('count');
-    expect(other.result.current.range).toBeNull();
   });
 });
 

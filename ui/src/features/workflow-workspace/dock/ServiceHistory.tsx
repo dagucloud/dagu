@@ -11,7 +11,6 @@ import { SamplesPanel, type PanelRange } from '../continuous/SamplesPanel';
 import { useWorkspaceRun } from '../data';
 import { useWorkspaceData } from '../data/context';
 import { useRetainedRuns } from '../data/useServiceDag';
-import { useDock } from './DockContext';
 import type { RunRange } from './runTimelineModel';
 
 /**
@@ -32,7 +31,6 @@ export function ServiceHistory({
   const { ts } = useI18n();
   const { fileName } = useWorkspaceData('ServiceHistory');
   const run = useWorkspaceRun();
-  const dock = useDock();
   const retained = useRetainedRuns(
     true,
     range.preset === 'custom' ? `${range.from}-${range.to}` : range.preset
@@ -83,7 +81,9 @@ export function ServiceHistory({
         : controlsHost && createPortal(controls, controlsHost)}
       <SamplesPanel
         source={source}
-        active={dock.open}
+        // The dock stops the polls of a closed panel: the panel itself is
+        // always live, so closing it reads nothing again.
+        active
         range={panelRange}
         links={links}
         notice={notice}

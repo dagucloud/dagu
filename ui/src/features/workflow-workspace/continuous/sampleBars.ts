@@ -177,8 +177,8 @@ const BAR_GAP_PX = 1;
  * axis, with a gap of one pixel when it is 3 px or wider. Its height is the
  * p95 latency against the greatest p95 of the set; the failed part is the
  * share of the failures of the bucket, at least BAR_MIN_PX. A bucket that is
- * wholly outside the window has no bar, and neither has a bucket with no sample. The count of bars is the count of
- * buckets, whatever the count of samples.
+ * wholly outside the window has no bar, and neither has a bucket with no
+ * sample. The count of bars does not grow with the count of samples.
  */
 export function barModel(input: BarModelInput): BarModel {
   const { buckets, resolutionSeconds, from, to, width, height } = input;

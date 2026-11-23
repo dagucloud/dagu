@@ -13,6 +13,7 @@ import {
   CUSTOM_RANGE_KEY,
   RUN_MODE_KEY,
   RUN_RANGE_KEY,
+  SERVICE_RANGE_KEY,
 } from '../../data/useVisibleRuns';
 import { RunTimeline } from '../RunTimeline';
 
@@ -163,21 +164,31 @@ describe('the Activity panel of a service DAG', () => {
     expect(screen.getByTestId('stub-range')).toHaveTextContent(
       '{"preset":"7d"}'
     );
-    expect(window.localStorage.getItem(RUN_MODE_KEY)).toBe('range');
   });
 
-  // A count that a user chose for a normal DAG, or a stored count mode of a
-  // service DAG from an older version, does not hide the history.
-  it('ignores a stored count mode', () => {
+  // The choice of a service DAG is its own: the other DAGs keep their count
+  // of runs and their range.
+  it('keeps its range apart from that of the other DAGs', () => {
     window.localStorage.setItem(RUN_MODE_KEY, 'count');
+    window.localStorage.setItem(RUN_RANGE_KEY, '{"preset":"6h"}');
     renderDock();
-    expect(screen.getByTestId('ww-service-history-panel')).toBeInTheDocument();
+    choose('Last year');
+    expect(window.localStorage.getItem(SERVICE_RANGE_KEY)).toBe(
+      '{"preset":"1y"}'
+    );
+    expect(window.localStorage.getItem(RUN_MODE_KEY)).toBe('count');
+    expect(window.localStorage.getItem(RUN_RANGE_KEY)).toBe('{"preset":"6h"}');
     cleanup();
 
-    window.localStorage.setItem(
-      'dagu.workspace.runTimelineServiceMode',
-      'count'
-    );
+    h.restartPolicy = undefined;
+    renderDock();
+    expect(screen.getByTestId('ww-run-timeline')).toBeInTheDocument();
+    expect(runsButton()).not.toHaveAttribute('data-value', 'range:1y');
+  });
+
+  // A count that a user chose for a normal DAG does not hide the history.
+  it('ignores a stored count mode', () => {
+    window.localStorage.setItem(RUN_MODE_KEY, 'count');
     renderDock();
     expect(screen.getByTestId('ww-service-history-panel')).toBeInTheDocument();
     cleanup();
@@ -215,8 +226,7 @@ describe('the Activity panel of a service DAG', () => {
 
   // The view menu filters the runs of the timeline: the history has none.
   it('offers no view menu while it shows the history', () => {
-    window.localStorage.setItem(RUN_MODE_KEY, 'range');
-    window.localStorage.setItem(RUN_RANGE_KEY, '{"preset":"30d"}');
+    window.localStorage.setItem(SERVICE_RANGE_KEY, '{"preset":"30d"}');
     renderDock();
     expect(screen.getByTestId('ww-service-history')).toBeInTheDocument();
     expect(screen.queryByTestId('ww-run-timeline-view')).toBeNull();
@@ -229,8 +239,7 @@ describe('the Activity panel of a service DAG', () => {
     });
 
     beforeEach(() => {
-      window.localStorage.setItem(RUN_MODE_KEY, 'range');
-      window.localStorage.setItem(RUN_RANGE_KEY, '{"preset":"7d"}');
+      window.localStorage.setItem(SERVICE_RANGE_KEY, '{"preset":"7d"}');
     });
 
     it('says when the window starts before the oldest retained run', () => {

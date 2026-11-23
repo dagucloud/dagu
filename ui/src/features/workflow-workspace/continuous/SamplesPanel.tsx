@@ -101,8 +101,8 @@ export interface SamplesPanelProps {
   /** The start of the streak when no sample failed. */
   since?: string;
   /**
-   * The periods that the panel offers as buttons, and "All". Without them
-   * the host chooses the window with `range`.
+   * The periods that the panel offers as buttons, and "All", for a step.
+   * Without them the host chooses the window with `range`.
    */
   presets?: readonly RangePreset[];
   /** The window of the host. The panel starts again at it when it changes. */
@@ -253,10 +253,7 @@ export function SamplesPanel({
                 id: p.id as RangePresetId,
                 label: p.short,
               })),
-              // "All" starts at the start of the run: a history has none.
-              ...(startedAt === undefined
-                ? []
-                : [{ id: 'all' as RangePresetId, label: ts('All') }]),
+              { id: 'all' as RangePresetId, label: ts('All') },
             ].map((p) => (
               <ToggleButton
                 key={p.id}

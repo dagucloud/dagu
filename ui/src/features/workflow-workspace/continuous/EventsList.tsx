@@ -23,7 +23,7 @@ import { useEventsPage, useReadAtEnd } from './useContinuousData';
 type Window = { from: number; to: number } | null;
 
 /** What the list says when it has no event, or cannot load: names the source. */
-export interface EventsSubject {
+interface EventsSubject {
   /** The English text of "the events of ...", for the error message. */
   events: string;
 }

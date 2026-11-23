@@ -3,9 +3,8 @@
 
 import { defineMessages } from './define';
 
-// The run history of a service DAG in the Activity panel (spec 100): the
-// time ranges from 30 days to 3 years, the gap event, and the retention note.
-// Also the row of a service DAG in the Runs list: its state and its failures.
+// The run history of a service DAG (spec 100): its panel, its events and
+// its rows in the lists.
 export default defineMessages({
   en: {
     'Last year': 'Last year',
