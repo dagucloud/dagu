@@ -1442,8 +1442,8 @@ describe('StepNode toolbar', () => {
     }
   );
 
-  // The border of a card was close to the canvas in both themes. The node
-  // line token has 3:1 on the canvas in light and dark.
+  // The node line token gives the border of a card 3:1 on the canvas in
+  // light and dark.
   it('has the node line token as its border', () => {
     const { getByTestId } = renderHot(<StepNode {...nodeProps(makeNode())} />);
     expect(getByTestId('ve-canvas-node-steps[0]').className).toContain(

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { NodeStatus } from '@/api/v1/schema';
+import { GRAPH_TONE_COLORS, type StatusTone } from '@/lib/statusPalette';
 import type {
   CanvasDirection,
   CanvasEdge,
@@ -61,22 +62,17 @@ const LOOP_REACH = 42;
 const LOOP_TOP_REACH = 38;
 const SMALL_MONO_CHAR_PX = 6.1;
 
-interface Palette {
+/** The colours of a theme, with the status colours that the canvas shows. */
+interface Palette extends Record<StatusTone, string> {
   background: string;
   card: string;
   border: string;
-  /** Outline of a node card: the node line token. */
+  /** Outline of a node card that has not run: the node line token. */
   line: string;
   text: string;
   muted: string;
   edge: string;
   edgeMuted: string;
-  success: string;
-  failed: string;
-  running: string;
-  warning: string;
-  aborted: string;
-  neutral: string;
 }
 
 const LIGHT: Palette = {
@@ -88,36 +84,21 @@ const LIGHT: Palette = {
   muted: '#6b6b76',
   edge: '#80808b',
   edgeMuted: '#b0b0ba',
-  success: '#178a44',
-  failed: '#c8382f',
-  running: '#5d4fe0',
-  warning: '#9a5d0b',
-  aborted: '#a8208a',
-  neutral: '#80808b',
+  ...GRAPH_TONE_COLORS.light,
 };
 
 const DARK: Palette = {
   background: '#15151a',
   card: '#1f1f26',
   border: '#3b3b46',
-  line: '#66666f',
+  // 3:1 on the card of the export; the page token is darker on its card.
+  line: '#6e6e78',
   text: '#ececf1',
   muted: '#9a9aa6',
   edge: '#8b8b97',
   edgeMuted: '#5a5a66',
-  success: '#22c55e',
-  failed: '#ef5350',
-  running: '#a89ff8',
-  warning: '#d9a03c',
-  aborted: '#e57ac8',
-  neutral: '#8a8d99',
+  ...GRAPH_TONE_COLORS.dark,
 };
-
-/** The status colours of both palettes, for the test of the --graph-* tokens. */
-export const EXPORT_STATUS_COLORS = {
-  light: LIGHT,
-  dark: DARK,
-} as const;
 
 /** Same grouping as `statusStrokeClass`. */
 function statusColor(status: NodeStatus, palette: Palette): string {
@@ -132,7 +113,7 @@ function statusColor(status: NodeStatus, palette: Palette): string {
       return palette.warning;
     case NodeStatus.Failed:
     case NodeStatus.Rejected:
-      return palette.failed;
+      return palette.error;
     case NodeStatus.Aborted:
       return palette.aborted;
     default:
