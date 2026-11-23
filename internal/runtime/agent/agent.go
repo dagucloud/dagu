@@ -316,6 +316,11 @@ type Agent struct {
 	evaluatedRegistryAuths map[string]*ir.AuthConfig
 	evaluatedWorkingDir    string
 	evaluatedS3            *ir.S3Config
+
+	// runningStatusSnapshot, when set, triggers the delayed running-status
+	// snapshot in place of its timer, so a test can order it after a step
+	// starts.
+	runningStatusSnapshot <-chan time.Time
 }
 
 type stopRequest struct {
@@ -1343,11 +1348,15 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 
 		timer := time.NewTimer(waitForRunning)
 		defer timer.Stop()
+		snapshot := timer.C
+		if a.runningStatusSnapshot != nil {
+			snapshot = a.runningStatusSnapshot
+		}
 
 		select {
 		case <-runningStatusCtx.Done():
 			return
-		case <-timer.C:
+		case <-snapshot:
 		}
 
 		_, _ = a.recordCurrentStatus(ctx, attempt)
