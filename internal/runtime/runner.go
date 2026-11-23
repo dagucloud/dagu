@@ -77,7 +77,8 @@ type Runner struct {
 	skipHandlers     bool
 	skipWaits        bool
 	keepWaits        []string
-	// conditions scripts the conditions that run a command; nil runs them.
+	// conditions scripts the conditions that run a command and bounds the
+	// continuous steps; nil does neither.
 	conditions ConditionOverride
 
 	// now and openRecorder are set by tests; nil uses the real ones.
@@ -2089,7 +2090,7 @@ func (r *Runner) scriptedDAGPrecondition() *bool {
 	if r.conditions == nil {
 		return nil
 	}
-	return scriptedOutcome(r.conditions.DAGPrecondition())
+	return r.conditions.DAGPrecondition()
 }
 
 // scriptedPrecondition returns the outcome the condition override scripts
@@ -2098,7 +2099,7 @@ func (r *Runner) scriptedPrecondition(node *Node) *bool {
 	if r.conditions == nil {
 		return nil
 	}
-	return scriptedOutcome(r.conditions.Precondition(node.Step()))
+	return r.conditions.Precondition(node.Step())
 }
 
 // maskedReadError returns the error for an output restored masked that the
@@ -2337,7 +2338,7 @@ func (r *Runner) reloadNodeOutputs(ctx context.Context, node *Node) context.Cont
 func (r *Runner) evalRepeatCondition(ctx context.Context, shell []string, node *Node, c *ir.Condition) error {
 	var scripted *bool
 	if r.conditions != nil {
-		scripted = scriptedOutcome(r.conditions.RepeatCondition(node.Step()))
+		scripted = r.conditions.RepeatCondition(node.Step())
 	}
 	return evalScriptedCondition(ctx, shell, c, scripted)
 }

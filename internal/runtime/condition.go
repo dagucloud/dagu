@@ -48,29 +48,20 @@ var errScriptedNotMet = fmt.Errorf("%w: scripted as not met", ErrConditionNotMet
 // Every other condition evaluates as written.
 type ConditionOverride interface {
 	// DAGPrecondition returns whether the DAG-level preconditions that run a
-	// command are met, or false when they run as written.
-	DAGPrecondition() (met, ok bool)
+	// command are met, or nil when they run as written.
+	DAGPrecondition() *bool
 	// Precondition returns whether the step's preconditions that run a
-	// command are met, or false when they run as written.
-	Precondition(step ir.Step) (met, ok bool)
+	// command are met, or nil when they run as written.
+	Precondition(step ir.Step) *bool
 	// RepeatCondition returns whether the step's repeat condition, when it
-	// runs a command, is met after the step's latest execution, or false
-	// when it runs as written.
-	RepeatCondition(step ir.Step) (met, ok bool)
+	// runs a command, is met after the step's latest execution, or nil when
+	// it runs as written.
+	RepeatCondition(step ir.Step) *bool
 	// ContinuousLimit returns how many executions a step that repeats
 	// without a limit runs before it stops, or false when it repeats as
 	// written. A limit of 0 stops the run with an UnboundedRepeatError
 	// before the step starts.
 	ContinuousLimit(step ir.Step) (limit int, ok bool)
-}
-
-// scriptedOutcome returns the outcome an override scripts, or nil when it
-// scripts none.
-func scriptedOutcome(met, ok bool) *bool {
-	if !ok {
-		return nil
-	}
-	return &met
 }
 
 // EvaluateConditions evaluates conditions and returns their runtime results.

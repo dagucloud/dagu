@@ -834,7 +834,7 @@ func TestStepMockPrecondition(t *testing.T) {
 	}{
 		{
 			name: "NotMetSkips",
-			mock: stepmock.Step{Precondition: stepmock.NotMet},
+			mock: stepmock.Step{Precondition: new(false)},
 			conditions: func(ran string) []*ir.Condition {
 				return []*ir.Condition{{Condition: createEmptyFileCommand(ran)}}
 			},
@@ -842,7 +842,7 @@ func TestStepMockPrecondition(t *testing.T) {
 		},
 		{
 			name: "MetPassesNegated",
-			mock: stepmock.Step{Precondition: stepmock.Met},
+			mock: stepmock.Step{Precondition: new(true)},
 			conditions: func(ran string) []*ir.Condition {
 				return []*ir.Condition{{Condition: createEmptyFileCommand(ran), Negate: true}}
 			},
@@ -850,7 +850,7 @@ func TestStepMockPrecondition(t *testing.T) {
 		},
 		{
 			name: "SubstitutingEval",
-			mock: stepmock.Step{Precondition: stepmock.NotMet},
+			mock: stepmock.Step{Precondition: new(false)},
 			conditions: func(ran string) []*ir.Condition {
 				return []*ir.Condition{{Eval: "$(" + createEmptyFileCommand(ran) + ")ready", Expected: "ready"}}
 			},
@@ -858,7 +858,7 @@ func TestStepMockPrecondition(t *testing.T) {
 		},
 		{
 			name: "ValueMatchEvaluates",
-			mock: stepmock.Step{Precondition: stepmock.Met},
+			mock: stepmock.Step{Precondition: new(true)},
 			conditions: func(ran string) []*ir.Condition {
 				return []*ir.Condition{
 					{Condition: createEmptyFileCommand(ran)},
@@ -869,7 +869,7 @@ func TestStepMockPrecondition(t *testing.T) {
 		},
 		{
 			name: "EvalWithoutSubstitutionEvaluates",
-			mock: stepmock.Step{Precondition: stepmock.NotMet},
+			mock: stepmock.Step{Precondition: new(false)},
 			conditions: func(string) []*ir.Condition {
 				return []*ir.Condition{{Eval: "${MODE}", Expected: "dev"}}
 			},
@@ -877,7 +877,7 @@ func TestStepMockPrecondition(t *testing.T) {
 		},
 		{
 			name: "KeptAction",
-			mock: stepmock.Step{Precondition: stepmock.Met, KeepAction: true},
+			mock: stepmock.Step{Precondition: new(true), KeepAction: true},
 			conditions: func(ran string) []*ir.Condition {
 				return []*ir.Condition{{Condition: createEmptyFileCommand(ran), Negate: true}}
 			},
@@ -928,7 +928,7 @@ func TestStepMockPrecondition(t *testing.T) {
 		ran := filepath.Join(t.TempDir(), "ran")
 		r := setupRunner(t, withStepMocks(map[string]stepmock.Step{
 			"deploy": {
-				Precondition: stepmock.Met,
+				Precondition: new(true),
 				Results:      []stepmock.Result{{ExitCode: 1}, {}},
 			},
 		}))
@@ -949,7 +949,7 @@ func TestStepMockPrecondition(t *testing.T) {
 		handler.Preconditions = []*ir.Condition{{Condition: createEmptyFileCommand(ran)}}
 		r := setupRunner(t, withOnFailure(handler), withStepMocks(map[string]stepmock.Step{
 			"build":     {Results: []stepmock.Result{{ExitCode: 1}}},
-			"onFailure": {Precondition: stepmock.NotMet},
+			"onFailure": {Precondition: new(false)},
 		}))
 		r.newPlan(t, successStep("build")).assertRun(t, ir.Failed)
 
@@ -964,32 +964,32 @@ func TestStepMockDAGPrecondition(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
-		name    string
-		outcome stepmock.Outcome
+		name string
+		met  bool
 		// conditions builds the DAG's preconditions. A command of one that
 		// runs creates ranPath.
 		conditions func(ranPath string) []*ir.Condition
 		wantRun    ir.Status
 	}{
 		{
-			name:    "NotMetAborts",
-			outcome: stepmock.NotMet,
+			name: "NotMetAborts",
+			met:  false,
 			conditions: func(ran string) []*ir.Condition {
 				return []*ir.Condition{{Condition: createEmptyFileCommand(ran)}}
 			},
 			wantRun: ir.Aborted,
 		},
 		{
-			name:    "MetPassesNegated",
-			outcome: stepmock.Met,
+			name: "MetPassesNegated",
+			met:  true,
 			conditions: func(ran string) []*ir.Condition {
 				return []*ir.Condition{{Condition: createEmptyFileCommand(ran), Negate: true}}
 			},
 			wantRun: ir.Succeeded,
 		},
 		{
-			name:    "ValueMatchEvaluates",
-			outcome: stepmock.Met,
+			name: "ValueMatchEvaluates",
+			met:  true,
 			conditions: func(ran string) []*ir.Condition {
 				return []*ir.Condition{
 					{Condition: createEmptyFileCommand(ran)},
@@ -1004,7 +1004,7 @@ func TestStepMockDAGPrecondition(t *testing.T) {
 
 			ran := filepath.Join(t.TempDir(), "ran")
 			set := stepmock.New(map[string]stepmock.Step{"main": {}})
-			set.SetDAGPrecondition(tc.outcome)
+			set.SetDAGPrecondition(tc.met)
 			r := setupRunner(t, withStepMockSet(set))
 			plan := r.newPlan(t, successStep("main"))
 			ctx := dagPreconditionContext(r, plan, tc.conditions(ran)...)
@@ -1046,7 +1046,7 @@ func TestStepMockRepeatCondition(t *testing.T) {
 					Condition: &ir.Condition{Condition: createEmptyFileCommand(ran)}}
 			},
 			results: []stepmock.Result{
-				{Condition: stepmock.Met}, {Condition: stepmock.Met}, {Condition: stepmock.NotMet},
+				{Condition: new(true)}, {Condition: new(true)}, {Condition: new(false)},
 			},
 			wantRun:        ir.Succeeded,
 			wantStatus:     ir.NodeSucceeded,
@@ -1058,7 +1058,7 @@ func TestStepMockRepeatCondition(t *testing.T) {
 				return ir.RepeatPolicy{RepeatMode: ir.RepeatModeUntil, Limit: 10,
 					Condition: &ir.Condition{Condition: createEmptyFileCommand(ran)}}
 			},
-			results:        []stepmock.Result{{Condition: stepmock.NotMet}, {Condition: stepmock.Met}},
+			results:        []stepmock.Result{{Condition: new(false)}, {Condition: new(true)}},
 			wantRun:        ir.Succeeded,
 			wantStatus:     ir.NodeSucceeded,
 			wantExecutions: 2,
@@ -1070,7 +1070,7 @@ func TestStepMockRepeatCondition(t *testing.T) {
 				return ir.RepeatPolicy{RepeatMode: ir.RepeatModeUntil, Limit: 2, OnLimit: ir.RepeatOnLimitFail,
 					Condition: &ir.Condition{Condition: createEmptyFileCommand(ran)}}
 			},
-			results:        []stepmock.Result{{Condition: stepmock.NotMet}},
+			results:        []stepmock.Result{{Condition: new(false)}},
 			wantRun:        ir.Failed,
 			wantStatus:     ir.NodeFailed,
 			wantExecutions: 2,
@@ -1081,7 +1081,7 @@ func TestStepMockRepeatCondition(t *testing.T) {
 				return ir.RepeatPolicy{RepeatMode: ir.RepeatModeWhile, Limit: 3,
 					Condition: &ir.Condition{Condition: "pending", Expected: "pending"}}
 			},
-			results:        []stepmock.Result{{Condition: stepmock.NotMet}},
+			results:        []stepmock.Result{{Condition: new(false)}},
 			wantRun:        ir.Succeeded,
 			wantStatus:     ir.NodeSucceeded,
 			wantExecutions: 3,

@@ -36,27 +36,9 @@ type Result struct {
 	// (Spec 012) publishes any value as its JSON text. Any other output
 	// publishes a string as written and any other value as its JSON text.
 	Outputs map[string]any
-	// Condition is the outcome of the step's repeat condition after this
-	// execution, when that condition runs a command.
-	Condition Outcome
-}
-
-// Outcome is the scripted outcome of a condition. The zero Outcome scripts
-// none, so the condition runs as written.
-type Outcome int
-
-const (
-	_ Outcome = iota
-	// Met passes the condition.
-	Met
-	// NotMet fails the condition.
-	NotMet
-)
-
-// scripted returns whether the outcome passes, or false when it scripts
-// none.
-func (o Outcome) scripted() (met, ok bool) {
-	return o == Met, o != 0
+	// Condition is whether the step's repeat condition, when it runs a
+	// command, is met after this execution. Nil leaves it to run.
+	Condition *bool
 }
 
 // Step scripts one step of a workflow test: its action, the conditions that
@@ -68,10 +50,10 @@ type Step struct {
 	// which then stops. With no results, every execution succeeds with no
 	// output, unless the step keeps its action.
 	Results []Result
-	// Precondition is the outcome of the step's preconditions that run a
-	// command, for each start of the step, whether or not its action is
-	// replaced.
-	Precondition Outcome
+	// Precondition is whether the step's preconditions that run a command
+	// are met, for each start of the step, whether or not its action is
+	// replaced. Nil leaves them to run.
+	Precondition *bool
 	// KeepAction runs the step's own action when it has no Results. Results
 	// always replace the action, since each execution takes its repeat
 	// condition from its result.
@@ -101,7 +83,7 @@ type Review struct {
 // depends on its earlier executions, so a Set serves a single run.
 type Set struct {
 	steps           map[string]*script
-	dagPrecondition Outcome
+	dagPrecondition *bool
 }
 
 var (
@@ -119,35 +101,35 @@ func New(steps map[string]Step) *Set {
 	return set
 }
 
-// SetDAGPrecondition scripts the outcome of the DAG-level preconditions that
-// run a command. It must be called before the run starts.
-func (s *Set) SetDAGPrecondition(outcome Outcome) {
-	s.dagPrecondition = outcome
+// SetDAGPrecondition scripts whether the DAG-level preconditions that run a
+// command are met. It must be called before the run starts.
+func (s *Set) SetDAGPrecondition(met bool) {
+	s.dagPrecondition = &met
 }
 
-// DAGPrecondition returns the outcome that SetDAGPrecondition scripts.
-func (s *Set) DAGPrecondition() (met, ok bool) {
-	return s.dagPrecondition.scripted()
+// DAGPrecondition returns what SetDAGPrecondition scripts, or nil.
+func (s *Set) DAGPrecondition() *bool {
+	return s.dagPrecondition
 }
 
 // Precondition returns the step's Precondition.
-func (s *Set) Precondition(step ir.Step) (met, ok bool) {
+func (s *Set) Precondition(step ir.Step) *bool {
 	script, ok := s.steps[step.Name]
 	if !ok {
-		return false, false
+		return nil
 	}
-	return script.step.Precondition.scripted()
+	return script.step.Precondition
 }
 
 // RepeatCondition returns the Condition of the result that the step's
 // latest execution took, or of its first result before any. A step whose
 // action the set does not replace scripts none.
-func (s *Set) RepeatCondition(step ir.Step) (met, ok bool) {
+func (s *Set) RepeatCondition(step ir.Step) *bool {
 	script, ok := s.steps[step.Name]
 	if !ok || !script.replaces() {
-		return false, false
+		return nil
 	}
-	return script.latest().Condition.scripted()
+	return script.latest().Condition
 }
 
 // ContinuousLimit bounds a step that repeats without a limit. A step whose
