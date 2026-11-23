@@ -5,7 +5,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AddNodeDialog } from '../AddNodeDialog';
 
-const client = vi.hoisted(() => ({ PUT: vi.fn() }));
+const client = vi.hoisted(() => ({ POST: vi.fn() }));
 
 vi.mock('@/hooks/api', () => ({ useClient: () => client }));
 vi.mock('@/contexts/ConfigContext', async (importOriginal) => ({
@@ -72,6 +72,8 @@ async function click(name: string) {
   });
 }
 
+const TESTS = `/inventories/${FLEET.id}/node-tests`;
+
 /** The parsed body of each request to path. */
 function bodiesTo(fetchMock: ReturnType<typeof vi.fn>, path: string) {
   return fetchMock.mock.calls
@@ -83,7 +85,7 @@ describe('AddNodeDialog', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    client.PUT.mockReset();
+    client.POST.mockReset();
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
   });
@@ -92,18 +94,11 @@ describe('AddNodeDialog', () => {
     vi.unstubAllGlobals();
   });
 
-  it('tests the node, accepts an unknown key on request, adds the node, and then trusts the key', async () => {
+  it('tests the node, accepts an unknown key on request, and adds the node with that key', async () => {
     fetchMock
       .mockResolvedValueOnce(stream(UNKNOWN))
-      .mockResolvedValueOnce(stream(PASSED))
-      .mockResolvedValueOnce(
-        stream({
-          node: 'web01',
-          fingerprint: 'SHA256:web01',
-          outcome: 'trusted',
-        })
-      );
-    client.PUT.mockResolvedValue({ data: {} });
+      .mockResolvedValueOnce(stream(PASSED));
+    client.POST.mockResolvedValue({ data: {} });
     const { onClose, onAdded } = renderDialog();
 
     fill('Name', 'web01');
@@ -128,62 +123,23 @@ describe('AddNodeDialog', () => {
       key: { secret: 'ssh/web' },
       labels: ['role=web', 'canary'],
     };
-    expect(bodiesTo(fetchMock, '/node-connection-tests')).toEqual([
-      { node, inventory: FLEET.id },
+    const accept = [{ node: 'web01', fingerprint: 'SHA256:web01' }];
+    expect(bodiesTo(fetchMock, TESTS)).toEqual([{ node }, { node, accept }]);
+    expect(client.POST).toHaveBeenCalledWith(
+      '/inventories/{inventoryId}/nodes',
       {
-        node,
-        inventory: FLEET.id,
-        accept: [{ node: 'web01', fingerprint: 'SHA256:web01' }],
-      },
-    ]);
-    expect(client.PUT).toHaveBeenCalledWith(
-      '/inventories/{inventoryId}/nodes/{nodeName}',
-      {
-        params: {
-          path: { inventoryId: FLEET.id, nodeName: 'web01' },
-          query: { version: 4 },
-        },
-        body: node,
+        params: { path: { inventoryId: FLEET.id }, query: { version: 4 } },
+        body: { node, trust: accept },
       }
     );
-    expect(bodiesTo(fetchMock, '/node-host-keys')).toEqual([
-      { keys: [{ node: 'web01', fingerprint: 'SHA256:web01' }] },
-    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(onAdded).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('trusts the accepted key only once the node is stored', async () => {
-    let stored!: (value: unknown) => void;
-    fetchMock
-      .mockResolvedValueOnce(stream(UNKNOWN))
-      .mockResolvedValueOnce(stream(PASSED))
-      .mockResolvedValueOnce(
-        stream({
-          node: 'web01',
-          fingerprint: 'SHA256:web01',
-          outcome: 'trusted',
-        })
-      );
-    client.PUT.mockReturnValue(new Promise((resolve) => (stored = resolve)));
-    renderDialog();
-
-    fill('Name', 'web01');
-    fill('Host', '10.0.1.11');
-    await click('Test connection');
-    await click('Trust this key and test again');
-    await click('Add node');
-    expect(bodiesTo(fetchMock, '/node-host-keys')).toEqual([]);
-
-    await act(async () => stored({ data: {} }));
-    expect(bodiesTo(fetchMock, '/node-host-keys')).toHaveLength(1);
-  });
-
-  it('trusts nothing when the node is refused, and needs a new test after loading the current inventory', async () => {
-    fetchMock
-      .mockResolvedValueOnce(stream(UNKNOWN))
-      .mockResolvedValueOnce(stream(PASSED));
-    client.PUT.mockResolvedValue({
+  it('needs a new test after loading the current inventory', async () => {
+    fetchMock.mockResolvedValueOnce(stream(PASSED));
+    client.POST.mockResolvedValue({
       error: {
         code: 'conflict',
         message: 'inventory changed',
@@ -195,11 +151,9 @@ describe('AddNodeDialog', () => {
     fill('Name', 'web01');
     fill('Host', '10.0.1.11');
     await click('Test connection');
-    await click('Trust this key and test again');
     await click('Add node');
-    expect(bodiesTo(fetchMock, '/node-host-keys')).toEqual([]);
-
     await click('Load current version');
+
     expect(screen.getByRole('button', { name: 'Add node' })).toBeDisabled();
   });
 
@@ -219,18 +173,11 @@ describe('AddNodeDialog', () => {
 
   // Changing a field back makes the earlier test current again, together
   // with the keys accepted for it.
-  it('trusts the accepted key after a field is changed back', async () => {
+  it('adds with the accepted key after a field is changed back', async () => {
     fetchMock
       .mockResolvedValueOnce(stream(UNKNOWN))
-      .mockResolvedValueOnce(stream(PASSED))
-      .mockResolvedValueOnce(
-        stream({
-          node: 'web01',
-          fingerprint: 'SHA256:web01',
-          outcome: 'trusted',
-        })
-      );
-    client.PUT.mockResolvedValue({ data: {} });
+      .mockResolvedValueOnce(stream(PASSED));
+    client.POST.mockResolvedValue({ data: {} });
     renderDialog();
 
     fill('Name', 'web01');
@@ -241,8 +188,32 @@ describe('AddNodeDialog', () => {
     fill('Description', '');
     await click('Add node');
 
-    expect(bodiesTo(fetchMock, '/node-host-keys')).toEqual([
-      { keys: [{ node: 'web01', fingerprint: 'SHA256:web01' }] },
+    expect(client.POST.mock.calls[0][1].body.trust).toEqual([
+      { node: 'web01', fingerprint: 'SHA256:web01' },
+    ]);
+  });
+
+  // A host may present another key by the time it is tested again; a new
+  // test then reports that key instead of sending the old one.
+  it('starts a new test with no key accepted', async () => {
+    fetchMock
+      .mockResolvedValueOnce(stream(UNKNOWN))
+      .mockResolvedValueOnce(
+        stream({ ...PASSED, ok: false, error: 'presents SHA256:other' })
+      )
+      .mockResolvedValueOnce(stream(UNKNOWN));
+    renderDialog();
+
+    fill('Name', 'web01');
+    fill('Host', '10.0.1.11');
+    await click('Test connection');
+    await click('Trust this key and test again');
+    await click('Test connection');
+
+    expect(bodiesTo(fetchMock, TESTS).map((body) => body.accept)).toEqual([
+      undefined,
+      [{ node: 'web01', fingerprint: 'SHA256:web01' }],
+      undefined,
     ]);
   });
 
@@ -261,7 +232,7 @@ describe('AddNodeDialog', () => {
   });
 
   it('adds without testing, and retries at the current version after a stale one', async () => {
-    client.PUT.mockResolvedValueOnce({
+    client.POST.mockResolvedValueOnce({
       error: {
         code: 'conflict',
         message: 'inventory changed',
@@ -276,38 +247,32 @@ describe('AddNodeDialog', () => {
     await click('Load current version');
     await click('Add without testing');
 
-    expect(client.PUT.mock.calls.map(([, init]) => init.params.query)).toEqual([
-      { version: 4 },
-      { version: 5 },
-    ]);
+    expect(client.POST.mock.calls.map(([, init]) => init.params.query)).toEqual(
+      [{ version: 4 }, { version: 5 }]
+    );
+    expect(client.POST.mock.calls[1][1].body.trust).toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('keeps the dialog open when the node is added but its key is not trusted', async () => {
-    fetchMock
-      .mockResolvedValueOnce(stream(UNKNOWN))
-      .mockResolvedValueOnce(stream(PASSED))
-      .mockResolvedValueOnce(
-        stream({
-          node: 'web01',
-          fingerprint: 'SHA256:web01',
-          error: 'node "web01" presents SHA256:other',
-        })
-      );
-    client.PUT.mockResolvedValue({ data: {} });
+  it('keeps the dialog open with the reason when the add is refused', async () => {
+    client.POST.mockResolvedValue({
+      error: {
+        code: 'bad_request',
+        message: 'inventory "fleet" already has a node "web01"',
+        errors: [],
+      },
+    });
     const { onClose, onAdded } = renderDialog();
 
     fill('Name', 'web01');
     fill('Host', '10.0.1.11');
-    await click('Test connection');
-    await click('Trust this key and test again');
-    await click('Add node');
+    await click('Add without testing');
 
-    expect(onAdded).toHaveBeenCalled();
-    expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'The node was added, but a host key was not trusted'
+      'already has a node "web01"'
     );
+    expect(onAdded).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

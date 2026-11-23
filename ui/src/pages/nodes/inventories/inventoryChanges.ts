@@ -8,6 +8,7 @@ export type Inventory = components['schemas']['Inventory'];
 export type InventoryDefaults = components['schemas']['InventoryDefaults'];
 export type InventoryNodeSpec = components['schemas']['InventoryNodeSpec'];
 type RuleError = components['schemas']['InventoryRuleError'];
+type AcceptedKey = components['schemas']['InventoryAcceptedHostKey'];
 type Client = ReturnType<typeof useClient>;
 
 /** An inventory as `dagu nodes export` prints it and a change sends it. */
@@ -98,20 +99,21 @@ export function replaceInventory(
   );
 }
 
-/** Adds node to the inventory id, based on version, or replaces the node of that name. */
-export function putNode(
+/**
+ * Adds node to the inventory id, based on version, and then trusts the keys
+ * accepted in its test. A name the inventory holds is refused.
+ */
+export function addNode(
   client: Client,
   id: string,
   version: number,
-  node: InventoryNodeSpec
+  node: InventoryNodeSpec,
+  trust: AcceptedKey[]
 ): Promise<Outcome> {
   return outcomeOf(
-    client.PUT('/inventories/{inventoryId}/nodes/{nodeName}', {
-      params: {
-        path: { inventoryId: id, nodeName: node.name },
-        query: { version },
-      },
-      body: node,
+    client.POST('/inventories/{inventoryId}/nodes', {
+      params: { path: { inventoryId: id }, query: { version } },
+      body: { node, trust: trust.length > 0 ? trust : undefined },
     })
   );
 }

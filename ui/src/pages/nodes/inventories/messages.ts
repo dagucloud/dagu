@@ -41,8 +41,6 @@ export const inventoryMessages = defineMessages({
     'Trust this key and test again': 'Trust this key and test again',
     'Add without testing': 'Add without testing',
     'The port must be a whole number.': 'The port must be a whole number.',
-    'The node was added, but a host key was not trusted: {errors}':
-      'The node was added, but a host key was not trusted: {errors}',
   },
   'zh-CN': {
     Inventories: '清单',
@@ -79,8 +77,6 @@ export const inventoryMessages = defineMessages({
     'Trust this key and test again': '信任此密钥并重新测试',
     'Add without testing': '不测试直接添加',
     'The port must be a whole number.': '端口必须是整数。',
-    'The node was added, but a host key was not trusted: {errors}':
-      '节点已添加，但主机密钥未被信任：{errors}',
   },
   ja: {
     Inventories: 'インベントリ',
@@ -119,7 +115,5 @@ export const inventoryMessages = defineMessages({
     'Trust this key and test again': 'この鍵を信頼して再テスト',
     'Add without testing': 'テストせずに追加',
     'The port must be a whole number.': 'ポートは整数で指定してください。',
-    'The node was added, but a host key was not trusted: {errors}':
-      'ノードは追加されましたが、ホスト鍵は信頼されませんでした：{errors}',
   },
 });

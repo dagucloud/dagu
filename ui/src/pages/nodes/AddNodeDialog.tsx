@@ -28,7 +28,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import React, { useState } from 'react';
 import { Field } from './inventories/FormField';
 import {
-  putNode,
+  addNode,
   type ChangeRefusal,
   type InventoryNodeSpec,
 } from './inventories/inventoryChanges';
@@ -38,7 +38,6 @@ import { TestOutcome } from './NodeTestPanel';
 
 type InventorySummary = components['schemas']['InventorySummary'];
 type ConnectionTest = components['schemas']['InventoryNodeConnectionTest'];
-type HostKeyTrust = components['schemas']['InventoryHostKeyTrust'];
 type AcceptedKey = components['schemas']['InventoryAcceptedHostKey'];
 
 type Fields = {
@@ -124,12 +123,8 @@ export function AddNodeDialog({
     try {
       await postNodeEvents<ConnectionTest, unknown>(
         apiURL,
-        '/node-connection-tests',
-        {
-          node: built,
-          inventory: fields.inventoryId,
-          accept: accept.length > 0 ? accept : undefined,
-        },
+        `/inventories/${encodeURIComponent(fields.inventoryId)}/node-tests`,
+        { node: built, accept: accept.length > 0 ? accept : undefined },
         (event) => {
           result = event;
         }
@@ -155,44 +150,18 @@ export function AddNodeDialog({
     setRefusal(null);
     setBusy(true);
     try {
-      const { refusal } = await putNode(
+      const { refusal } = await addNode(
         client,
         inventory.id,
         loaded?.id === inventory.id ? loaded.version : inventory.version,
-        built
+        built,
+        trust
       );
       if (refusal) {
         setRefusal(refusal);
         return;
       }
       onAdded();
-      // Storing the node forgot any key trusted for its name, so the keys
-      // are trusted now, one at a time, a bastion's before the node's.
-      const failures: string[] = [];
-      for (const key of trust) {
-        try {
-          await postNodeEvents<HostKeyTrust, unknown>(
-            apiURL,
-            '/node-host-keys',
-            { keys: [key] },
-            (result) => {
-              if (result.error) {
-                failures.push(result.error);
-              }
-            }
-          );
-        } catch (error) {
-          failures.push(messageOf(error));
-        }
-      }
-      if (failures.length > 0) {
-        setProblem(
-          ts('The node was added, but a host key was not trusted: {errors}', {
-            errors: failures.join('; '),
-          })
-        );
-        return;
-      }
       onClose();
     } finally {
       setBusy(false);
@@ -372,11 +341,13 @@ export function AddNodeDialog({
             <Button type="button" variant="outline" onClick={onClose}>
               <I18nText text={'Cancel'} />
             </Button>
+            {/* A new test starts with no key accepted, so a key the host
+                no longer presents is not sent again. */}
             <Button
               type="button"
               variant="outline"
               disabled={busy}
-              onClick={() => void runTest(accepted)}
+              onClick={() => void runTest([])}
             >
               <I18nText text={'Test connection'} />
             </Button>
