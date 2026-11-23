@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -113,8 +114,10 @@ type connectionTest struct {
 
 // run tests targets. After each round it offers to trust the keys that
 // stopped a test, each at most once, and tests again the targets that a
-// trusted key stopped. It fails when any target fails its last test.
+// trusted key stopped. It fails when any target fails its last test, or has
+// no result because the command was cancelled.
 func (t connectionTest) run(targets []inventory.ResolvedNode) error {
+	all := targets
 	last := map[string]nodeconn.TestResult{}
 	asked := map[string]bool{}
 	for len(targets) > 0 {
@@ -135,6 +138,20 @@ func (t connectionTest) run(targets []inventory.ResolvedNode) error {
 				targets = append(targets, t.nodes[nodeIndex(t.nodes, result.Node)])
 			}
 		}
+	}
+
+	var untested []string
+	for _, node := range all {
+		if _, ok := last[strings.ToLower(node.Name)]; !ok {
+			untested = append(untested, node.Name)
+		}
+	}
+	if len(untested) > 0 {
+		stopped := fmt.Errorf("the test stopped before %s finished", strings.Join(untested, ", "))
+		if cause := context.Cause(t.ctx); cause != nil {
+			return fmt.Errorf("%w: %w", stopped, cause)
+		}
+		return stopped
 	}
 
 	failed := 0

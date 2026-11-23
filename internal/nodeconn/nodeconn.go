@@ -233,7 +233,8 @@ func replaceRefusal(node, current string, request TrustRequest) error {
 }
 
 // forEach runs do for each item, at most maxConnections at once and each
-// within nodeTimeout, and passes each result to emit as it comes.
+// within nodeTimeout, and passes each result to emit as it comes. Once ctx
+// ends, no more items start, and those items emit nothing.
 func forEach[T, R any](ctx context.Context, items []T, emit func(R), do func(context.Context, T) R) {
 	var (
 		wg    sync.WaitGroup
@@ -242,6 +243,10 @@ func forEach[T, R any](ctx context.Context, items []T, emit func(R), do func(con
 	)
 	defer wg.Wait()
 	for _, item := range items {
+		// select picks at random when a slot is free too.
+		if ctx.Err() != nil {
+			return
+		}
 		select {
 		case slots <- struct{}{}:
 		case <-ctx.Done():
