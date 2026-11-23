@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-package ssh
+package sshconn
 
 import (
 	"context"
@@ -121,7 +121,9 @@ func TestKeySigner(t *testing.T) {
 	}
 }
 
-func TestFromMapConfigReadsSecretCredentials(t *testing.T) {
+// A client reads credentials given as secret refs from the values resolved
+// at run start, for the target and for its bastion.
+func TestNewClientReadsSecretCredentials(t *testing.T) {
 	t.Parallel()
 
 	key := newTestKey(t)
@@ -131,32 +133,22 @@ func TestFromMapConfigReadsSecretCredentials(t *testing.T) {
 		"ssh/jump-pw": "jump-password",
 	})
 
-	client, err := FromMapConfig(ctx, map[string]any{
-		"host":            "app.example.com",
-		"user":            "deploy",
-		"strict_host_key": false,
-		"key":             map[string]any{"secret": "ssh/key"},
-		"passphrase":      map[string]any{"secret": "ssh/phrase"},
-		"bastion": map[string]any{
-			"host":     "jump.example.com",
-			"user":     "ops",
-			"password": map[string]any{"secret": "ssh/jump-pw"},
+	client, err := NewClient(ctx, &Config{
+		Host:    "app.example.com",
+		User:    "deploy",
+		SSHAuth: ir.SSHAuth{KeySecret: "ssh/key", PassphraseSecret: "ssh/phrase"},
+		Bastion: &BastionConfig{
+			Host:    "jump.example.com",
+			User:    "ops",
+			SSHAuth: ir.SSHAuth{PasswordSecret: "ssh/jump-pw"},
 		},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, client.bastionCfg)
 
-	_, err = FromMapConfig(context.Background(), map[string]any{
-		"host":            "app.example.com",
-		"strict_host_key": false,
-		"password":        map[string]any{"secret": "ssh/password"},
+	_, err = NewClient(context.Background(), &Config{
+		Host:    "app.example.com",
+		SSHAuth: ir.SSHAuth{PasswordSecret: "ssh/password"},
 	})
 	require.EqualError(t, err, `password: secret "ssh/password" was not resolved at run start`)
-
-	_, err = FromMapConfig(ctx, map[string]any{
-		"host":            "app.example.com",
-		"strict_host_key": false,
-		"bastion":         map[string]any{"host": "jump", "key": map[string]any{"secret": "Bad"}},
-	})
-	require.ErrorContains(t, err, "field 'with.bastion.key.secret'")
 }

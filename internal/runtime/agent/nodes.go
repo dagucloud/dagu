@@ -10,13 +10,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/ssh"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/sshconn"
 )
 
 // localWorkerID is the worker ID of a run on the Dagu host itself.
@@ -145,49 +144,12 @@ func (b *nodeBinding) credentialRefs() []secretref.Ref {
 	if b == nil || !b.connects {
 		return nil
 	}
-	cfg := ir.SSHConfig{SSHAuth: b.node.Auth}
-	if b.bastion != nil {
-		cfg.Bastion = &ir.BastionConfig{SSHAuth: b.bastion.Auth}
-	}
-	return cfg.SecretRefs("nodes." + b.node.Name)
+	return sshconn.NodeSecretRefs(b.node, b.bastion)
 }
 
-// sshConfig returns the connection to the node, through its bastion. Each hop
-// accepts only its own node's pinned or trusted host key.
-func (b *nodeBinding) sshConfig(trusted ssh.TrustedHostKeys) (ssh.Config, error) {
-	shell, shellArgs, err := splitShell(b.node.Shell)
-	if err != nil {
-		return ssh.Config{}, fmt.Errorf("node %q: invalid shell: %w", b.node.Name, err)
-	}
-	cfg := ssh.Config{
-		User:        b.node.User,
-		Host:        b.node.Host,
-		Port:        nodePort(b.node),
-		SSHAuth:     b.node.Auth,
-		Shell:       shell,
-		ShellArgs:   shellArgs,
-		Timeout:     b.node.Timeout,
-		NodeHostKey: nodeHostKey(b.node, trusted),
-	}
-	if b.bastion != nil {
-		cfg.Bastion = &ssh.BastionConfig{
-			Host:        b.bastion.Host,
-			Port:        nodePort(*b.bastion),
-			User:        b.bastion.User,
-			SSHAuth:     b.bastion.Auth,
-			NodeHostKey: nodeHostKey(*b.bastion, trusted),
-		}
-	}
-	return cfg, nil
-}
-
-func nodeHostKey(node inventory.ResolvedNode, trusted ssh.TrustedHostKeys) *ssh.NodeHostKey {
-	return &ssh.NodeHostKey{
-		Node:         node.Name,
-		Pinned:       node.HostKey,
-		AcceptAnyKey: !node.StrictHostKey,
-		Trusted:      trusted,
-	}
+// sshConfig returns the connection to the node, through its bastion.
+func (b *nodeBinding) sshConfig(trusted sshconn.TrustedHostKeys) (sshconn.Config, error) {
+	return sshconn.NodeConfig(b.node, b.bastion, trusted)
 }
 
 // nodePort returns the node's SSH port, or empty for the default.
@@ -196,15 +158,6 @@ func nodePort(node inventory.ResolvedNode) string {
 		return ""
 	}
 	return strconv.Itoa(node.Port)
-}
-
-// splitShell splits a node's shell, such as "bash -e", into the shell and
-// its arguments.
-func splitShell(shell string) (string, []string, error) {
-	if strings.TrimSpace(shell) == "" {
-		return "", nil, nil
-	}
-	return cmdutil.SplitCommand(shell)
 }
 
 // reachesNode reports whether a step of a run bound to an SSH node runs on

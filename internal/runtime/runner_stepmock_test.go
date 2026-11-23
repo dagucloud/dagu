@@ -4,12 +4,18 @@
 package runtime_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/dag"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -276,6 +282,227 @@ func TestStepMockResolvesFieldsByAction(t *testing.T) {
 			if tc.wantCommand != "" {
 				assert.Equal(t, tc.wantCommand, mocked.Commands[0].CmdWithArgs)
 			}
+		})
+	}
+}
+
+// childRuns records the child runs that steps start or queue. Each run it
+// starts succeeds.
+type childRuns struct {
+	mu     sync.Mutex
+	runIDs []string
+}
+
+var (
+	_ executor.SubWorkflowRunner = (*childRuns)(nil)
+	_ executor.Enqueuer          = (*childRuns)(nil)
+)
+
+func (c *childRuns) started() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.runIDs)
+}
+
+func (c *childRuns) record(runID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.runIDs = append(c.runIDs, runID)
+}
+
+func (*childRuns) ShouldRun(context.Context, executor.SubWorkflowRequest) bool { return true }
+
+func (c *childRuns) Run(_ context.Context, req executor.SubWorkflowRequest) (*ir.RunStatus, error) {
+	c.record(req.RunID)
+	return &ir.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Status: ir.Succeeded}, nil
+}
+
+func (c *childRuns) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*ir.RunStatus, error) {
+	return c.Run(ctx, req.SubWorkflowRequest)
+}
+
+func (*childRuns) Cancel(context.Context, executor.SubWorkflowCancelRequest) error { return nil }
+
+func (c *childRuns) Enqueue(_ context.Context, req executor.EnqueueRequest) (executor.EnqueueResult, error) {
+	c.record(req.RunID)
+	return executor.EnqueueResult{Status: ir.Queued}, nil
+}
+
+// webNodes is an inventory in which every selector matches web01 and web02.
+type webNodes struct{}
+
+func (n webNodes) Select(ctx context.Context, _ string) ([]inventory.ResolvedNode, error) {
+	return n.Nodes(ctx)
+}
+
+func (webNodes) Nodes(context.Context) ([]inventory.ResolvedNode, error) {
+	return []inventory.ResolvedNode{{Name: "web01"}, {Name: "web02"}}, nil
+}
+
+func withNodes(selector string) stepOption {
+	return func(step *ir.Step) {
+		step.Nodes = &ir.NodeTargets{Selector: selector, MaxConcurrent: 1}
+	}
+}
+
+func withSubDAG(name string) stepOption {
+	return func(step *ir.Step) {
+		step.SubDAG = &ir.SubDAG{Name: name, Params: "ENV=prod"}
+	}
+}
+
+// A mock on a step that runs child DAGs replaces every child: the step takes
+// the mock's result, and no child run starts, is queued, or is recorded on
+// the step. Results count executions of the step, not children, so the
+// second result is never taken. Unmocked, the same step starts its children
+// in the same run context.
+func TestStepMockReplacesChildRuns(t *testing.T) {
+	t.Parallel()
+
+	localDAGs := map[string]*ir.DAG{
+		"deploy": {Name: "deploy", YamlData: []byte("name: deploy\nsteps:\n  - run: ./deploy.sh\n")},
+		"deploy-one": {
+			Name:         "deploy-one",
+			NodeRequired: true,
+			YamlData:     []byte("name: deploy-one\nnode: required\nsteps:\n  - run: ./deploy.sh\n"),
+		},
+	}
+	parallel := func(step *ir.Step) {
+		step.Parallel = &ir.ParallelConfig{Items: []ir.ParallelItem{{Value: "a"}, {Value: "b"}}}
+	}
+
+	for _, tc := range []struct {
+		name string
+		step ir.Step
+	}{
+		{name: "DAGRun", step: newStep("rollout", withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy"))},
+		{name: "DAGEnqueue", step: newStep("rollout", withExecutorType(ir.ExecutorTypeDAGEnqueue), withSubDAG("deploy"))},
+		{name: "Parallel", step: newStep("rollout", withExecutorType(ir.ExecutorTypeParallel), withSubDAG("deploy"), parallel)},
+		{name: "NodesDAGRun", step: newStep("rollout", withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy-one"), withNodes("web"))},
+		{name: "NodesCommand", step: newStep("rollout", withCommand("./deploy.sh"), withNodes("web"))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := func(t *testing.T, opts ...runnerOption) (*runtime.Node, []string) {
+				t.Helper()
+
+				runs := &childRuns{}
+				r := setupRunner(t, opts...)
+				r.Context = executor.WithSubWorkflowRunner(r.Context, runs)
+				ph := r.newPlan(t, tc.step)
+				ph.steps = []ir.Step{tc.step}
+				ph.localDAGs = localDAGs
+				ph.contextOpts = []runtime.ContextOption{
+					runtime.WithRootDAGRun(runtime.NewDAGRunRef("test_dag", r.cfg.DAGRunID)),
+					runtime.WithNodeSelector(webNodes{}),
+				}
+				return ph.assertRun(t, ir.Succeeded).nodeByName(t, tc.step.Name), runs.started()
+			}
+
+			unmocked, started := run(t)
+			assert.NotEmpty(t, started)
+			assert.NotEmpty(t, unmocked.State().SubRuns)
+
+			mocked, started := run(t, withStepMocks(map[string]stepmock.Step{
+				tc.step.Name: {Results: []stepmock.Result{{Stdout: "first\n"}, {Stdout: "second\n"}}},
+			}))
+			assert.Empty(t, started)
+			assert.Empty(t, mocked.State().SubRuns)
+			assert.Equal(t, "first\n", readLog(t, mocked.GetStdout()))
+		})
+	}
+}
+
+// A mocked step with nodes matches no nodes, so it takes its results in a run
+// without an inventory, where the real step would fail before any node. A
+// command step with nodes retries each node's child run (Spec 089), so its
+// mock takes one result per step start. A dag.run step with nodes retries as
+// a step and takes the next result.
+func TestStepMockNodes(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name           string
+		action         []stepOption
+		wantRun        ir.Status
+		wantExecutions int
+	}{
+		{
+			name:           "Command",
+			action:         []stepOption{withCommand("./deploy.sh")},
+			wantRun:        ir.Failed,
+			wantExecutions: 1,
+		},
+		{
+			name:           "DAGRun",
+			action:         []stepOption{withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy-one")},
+			wantRun:        ir.Succeeded,
+			wantExecutions: 2,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := setupRunner(t, withStepMocks(map[string]stepmock.Step{
+				"rollout": {Results: []stepmock.Result{{ExitCode: 1}, {}}},
+			}))
+			step := newStep("rollout", append(tc.action, withNodes("web"), withRetryPolicy(1, 0))...)
+			state := r.newPlan(t, step).assertRun(t, tc.wantRun).nodeByName(t, "rollout").State()
+			assert.Equal(t, tc.wantExecutions, state.RetryCount+state.DoneCount)
+		})
+	}
+}
+
+// A mock on a foreach step replaces the whole construct: no item body runs,
+// string-form output captures the mock's stdout in place of the aggregate,
+// and the exit code alone decides between succeeded and failed. Results
+// count executions of the step, not items.
+func TestStepMockReplacesForeach(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name       string
+		results    []stepmock.Result
+		wantRun    ir.Status
+		wantStatus ir.NodeStatus
+		wantOutput string
+	}{
+		{
+			name:       "Succeeded",
+			results:    []stepmock.Result{{ExitCode: 1, Stdout: "retry"}, {Stdout: "mocked"}},
+			wantRun:    ir.Succeeded,
+			wantStatus: ir.NodeSucceeded,
+			wantOutput: "mocked",
+		},
+		{
+			name:       "Failed",
+			results:    []stepmock.Result{{ExitCode: 1, Stdout: "failed"}},
+			wantRun:    ir.Failed,
+			wantStatus: ir.NodeFailed,
+			wantOutput: "failed",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			marker := filepath.Join(t.TempDir(), "body")
+			r := setupRunner(t, withStepMocks(map[string]stepmock.Step{"each": {Results: tc.results}}))
+			each := newStep("each", withExecutorType(ir.ExecutorTypeForeach), withOutput("RESULT"), withRetryPolicy(1, 0))
+			each.Foreach = &ir.ForeachConfig{
+				Items: []any{"one", "two", "three"},
+				Steps: []ir.Step{newStep("body", withCommand(createEmptyFileCommand(marker)))},
+			}
+			result := r.newPlan(t, each).assertRun(t, tc.wantRun)
+
+			assert.NoFileExists(t, marker)
+			node := result.nodeByName(t, "each")
+			state := node.State()
+			assert.Equal(t, tc.wantStatus, state.Status)
+			assert.Equal(t, 2, state.RetryCount+state.DoneCount)
+			output, ok := node.NodeData().StringFormOutputValue()
+			require.True(t, ok)
+			assert.Equal(t, tc.wantOutput, output)
 		})
 	}
 }

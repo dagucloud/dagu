@@ -2865,21 +2865,20 @@ func TestInterruptRootSparesDescendants(t *testing.T) {
 			t.Parallel()
 			host := subagentHost(t, func(h *managedTestHost) { h.busy["session-child"] = true })
 			client := &openCodeClient{host: host.config, http: newOpenCodeHTTPClient(time.Second)}
-			ctx, cancel := context.WithTimeout(t.Context(), 400*time.Millisecond)
-			defer cancel()
-
-			var err error
-			if owned {
-				err = client.interruptAndAwaitIdle(ctx, "session-1")
-			} else {
-				err = client.interruptRootAndAwaitIdle(ctx, "session-1")
-			}
 
 			if owned {
-				require.NoError(t, err)
+				// Settling takes several polls, so the deadline only bounds a
+				// hang and is not part of the outcome.
+				ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+				defer cancel()
+				require.NoError(t, client.interruptAndAwaitIdle(ctx, "session-1"))
 				assert.True(t, host.wasInterrupted("session-child"))
 				return
 			}
+			// The child stays busy, so waiting ends only at the deadline.
+			ctx, cancel := context.WithTimeout(t.Context(), 400*time.Millisecond)
+			defer cancel()
+			err := client.interruptRootAndAwaitIdle(ctx, "session-1")
 			require.ErrorIs(t, err, context.DeadlineExceeded)
 			assert.NotContains(t, host.requestLog(), "POST /session/session-child/abort")
 		})

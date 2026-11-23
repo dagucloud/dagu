@@ -165,6 +165,7 @@ func (a *API) ValidateDAGSpecData(ctx context.Context, name, source string) (*ap
 	}
 
 	details := toDAGDetails(dag)
+	a.redactDAGEnvValues(ctx, details)
 	if details != nil {
 		details.UpcomingRuns, details.ScheduleCoincidences = a.scheduleFires(ctx, name, dag)
 		details.UpcomingRunsHold = a.upcomingRunsHold(ctx, name, details.UpcomingRuns)
@@ -343,6 +344,7 @@ func (a *API) GetDAGSpec(ctx context.Context, request api.GetDAGSpecRequestObjec
 	}
 
 	details := toDAGDetails(dag)
+	a.redactDAGEnvValues(ctx, details)
 	if details != nil {
 		projectionDAG := dag
 		if dag != nil {
@@ -660,6 +662,7 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 	}
 
 	details := toDAGDetails(dag)
+	a.redactDAGEnvValues(ctx, details)
 	if details != nil {
 		details.NextRun = a.projectNextRun(ctx, dag)
 		details.UpcomingRuns, details.ScheduleCoincidences = a.scheduleFires(ctx, fileName, dag)
@@ -669,7 +672,9 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 
 	localDAGs := make([]api.LocalDag, 0, len(dag.LocalDAGs))
 	for _, localDAG := range dag.LocalDAGs {
-		localDAGs = append(localDAGs, toLocalDAG(localDAG))
+		local := toLocalDAG(localDAG)
+		a.redactDAGEnvValues(ctx, local.Dag)
+		localDAGs = append(localDAGs, local)
 	}
 
 	sort.Slice(localDAGs, func(i, j int) bool {
@@ -691,6 +696,21 @@ func (a *API) getDAGDetailsData(ctx context.Context, fileName string) (api.GetDA
 		Spec:         &yamlSpec,
 		EditorHints:  a.buildDAGEditorHints(ctx, dag, fileName),
 	}, nil
+}
+
+// redactDAGEnvValues hides env values from callers below developer. A DAG's
+// env includes the env of the global base config, which only developers and
+// above may read.
+func (a *API) redactDAGEnvValues(ctx context.Context, details *api.DAGDetails) {
+	if details == nil || details.Env == nil || a.requireDeveloperOrAbove(ctx) == nil {
+		return
+	}
+	redacted := make([]string, len(*details.Env))
+	for i, entry := range *details.Env {
+		name, _, _ := strings.Cut(entry, "=")
+		redacted[i] = name + "=" + config.MaskedValue
+	}
+	details.Env = &redacted
 }
 
 func (a *API) buildDAGEditorHints(ctx context.Context, dag *ir.DAG, fileName string) *api.DAGEditorHints {

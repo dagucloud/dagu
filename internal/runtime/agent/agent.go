@@ -62,6 +62,7 @@ import (
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/sshconn"
 	"github.com/dagucloud/dagu/v2/internal/telemetry"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 
@@ -961,7 +962,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	ctx = runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
 	// Set even when empty, so an in-process child never reads its parent's.
-	ctx = ssh.WithSecretValues(ctx, credentials)
+	ctx = sshconn.WithSecretValues(ctx, credentials)
 	ctx = runtimeexec.WithSubWorkflowRunner(ctx, subWorkflowRunner)
 	if a.workspaceSeed != nil {
 		ctx = runtimeexec.WithWorkspaceSeed(ctx, *a.workspaceSeed)
@@ -1200,9 +1201,9 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		}
 
 		// Build bastion config if present
-		var bastionCfg *ssh.BastionConfig
+		var bastionCfg *sshconn.BastionConfig
 		if a.dag.SSH.Bastion != nil {
-			bastionCfg = &ssh.BastionConfig{
+			bastionCfg = &sshconn.BastionConfig{
 				Host:    a.dag.SSH.Bastion.Host,
 				Port:    a.dag.SSH.Bastion.Port,
 				User:    a.dag.SSH.Bastion.User,
@@ -1210,7 +1211,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			}
 		}
 
-		sshConfig, err := evalSSHConfig(initializationCtx, ssh.Config{
+		sshConfig, err := evalSSHConfig(initializationCtx, sshconn.Config{
 			User:          a.dag.SSH.User,
 			Host:          a.dag.SSH.Host,
 			Port:          a.dag.SSH.Port,
@@ -1226,7 +1227,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			initErr = fmt.Errorf("failed to evaluate ssh config: %w", err)
 			return initErr
 		}
-		cli, err := ssh.NewClient(ctx, &sshConfig)
+		cli, err := sshconn.NewClient(ctx, &sshConfig)
 		if err != nil {
 			initErr = fmt.Errorf("failed to create ssh client: %w", err)
 			return initErr
@@ -2664,7 +2665,7 @@ func evalHostConfigObject[T any](ctx context.Context, obj T, vars map[string]str
 
 // evalSSHConfig resolves the DAG-level SSH config with the steps[].with rules,
 // because it supplies the connection defaults for SSH steps.
-func evalSSHConfig(ctx context.Context, cfg ssh.Config, vars map[string]string) (ssh.Config, error) {
+func evalSSHConfig(ctx context.Context, cfg sshconn.Config, vars map[string]string) (sshconn.Config, error) {
 	resolver := runtime.ValueResolverWithScope(ctx, hostConfigScope(ctx, vars))
 	return resolveConfigObject(ctx, resolver, cfg, cmnvalue.ExecutorConfigField("ssh"))
 }

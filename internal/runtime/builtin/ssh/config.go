@@ -14,41 +14,10 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/sshconn"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/jsonschema-go/jsonschema"
 )
-
-const defaultSSHTimeout = 30 * time.Second
-
-// Config represents SSH connection info
-type Config struct {
-	User string
-	Host string
-	Port string
-	// SSHAuth holds the key, password, and passphrase, each a literal or a
-	// secret ref resolved at run start.
-	ir.SSHAuth
-	StrictHostKey bool           // Enable strict host key checking (defaults to true)
-	KnownHostFile string         // Path to known_hosts file (defaults to ~/.ssh/known_hosts)
-	Shell         string         // Shell for remote command execution (e.g., "/bin/bash")
-	ShellArgs     []string       // Additional shell arguments (e.g., -e, -o pipefail)
-	Timeout       time.Duration  // Connection timeout (defaults to 30s)
-	Bastion       *BastionConfig // Optional bastion/jump host configuration
-	// NodeHostKey, when set, checks the host key against an inventory
-	// node's keys in place of StrictHostKey and KnownHostFile.
-	NodeHostKey *NodeHostKey
-}
-
-// BastionConfig represents bastion/jump host connection info
-type BastionConfig struct {
-	Host string
-	Port string
-	User string
-	ir.SSHAuth
-	// NodeHostKey checks the bastion's host key against its node's keys. A
-	// connection to a node sets it, since each hop is a node of its own.
-	NodeHostKey *NodeHostKey
-}
 
 // sshMapConfig is the structure for decoding SSH config from a map.
 type sshMapConfig struct {
@@ -79,39 +48,48 @@ type sshMapBastion struct {
 
 // FromMapConfig creates a client from a step's with block. Credentials given
 // as secret refs are read from the values resolved at run start.
-func FromMapConfig(ctx context.Context, mapCfg map[string]any) (*Client, error) {
+func FromMapConfig(ctx context.Context, mapCfg map[string]any) (*sshconn.Client, error) {
+	cfg, err := configFromMap(mapCfg)
+	if err != nil {
+		return nil, err
+	}
+	return sshconn.NewClient(ctx, &cfg)
+}
+
+// configFromMap reads the connection a step or DAG sets in mapCfg.
+func configFromMap(mapCfg map[string]any) (sshconn.Config, error) {
 	def := sshMapConfig{StrictHostKey: true}
 	md, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		Result:           &def,
 		WeaklyTypedInput: true,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create decoder: %w", err)
+		return sshconn.Config{}, fmt.Errorf("failed to create decoder: %w", err)
 	}
 	if err := md.Decode(mapCfg); err != nil {
-		return nil, fmt.Errorf("failed to decode ssh config: %w", err)
+		return sshconn.Config{}, fmt.Errorf("failed to decode ssh config: %w", err)
 	}
 
 	shell, shellArgs, err := parseShellConfig(def.Shell, def.ShellArgs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse shell config: %w", err)
+		return sshconn.Config{}, fmt.Errorf("failed to parse shell config: %w", err)
 	}
 
 	timeout, err := parseTimeout(def.Timeout)
 	if err != nil {
-		return nil, err
+		return sshconn.Config{}, err
 	}
 
 	auth, err := ir.ParseSSHAuth("with", def.Key, def.Password, def.Passphrase)
 	if err != nil {
-		return nil, err
+		return sshconn.Config{}, err
 	}
 	bastion, err := buildBastionFromMap(def.Bastion)
 	if err != nil {
-		return nil, err
+		return sshconn.Config{}, err
 	}
 
-	cfg := &Config{
+	return sshconn.Config{
 		User:          def.User,
 		Host:          coalesce(def.Host, def.IP),
 		Port:          def.Port,
@@ -122,15 +100,13 @@ func FromMapConfig(ctx context.Context, mapCfg map[string]any) (*Client, error) 
 		ShellArgs:     shellArgs,
 		Timeout:       timeout,
 		Bastion:       bastion,
-	}
-
-	return NewClient(ctx, cfg)
+	}, nil
 }
 
 // parseTimeout parses a timeout string or returns the default.
 func parseTimeout(s string) (time.Duration, error) {
 	if s == "" {
-		return defaultSSHTimeout, nil
+		return sshconn.DefaultTimeout, nil
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil {
@@ -140,7 +116,7 @@ func parseTimeout(s string) (time.Duration, error) {
 }
 
 // buildBastionFromMap converts a bastion map config to BastionConfig.
-func buildBastionFromMap(b *sshMapBastion) (*BastionConfig, error) {
+func buildBastionFromMap(b *sshMapBastion) (*sshconn.BastionConfig, error) {
 	if b == nil {
 		return nil, nil
 	}
@@ -152,7 +128,7 @@ func buildBastionFromMap(b *sshMapBastion) (*BastionConfig, error) {
 	if port == "" {
 		port = "22"
 	}
-	return &BastionConfig{
+	return &sshconn.BastionConfig{
 		Host:    b.Host,
 		Port:    port,
 		User:    b.User,

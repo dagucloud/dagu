@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package netutil holds helpers for network errors.
+// Package netutil holds helpers for network errors and addresses.
 package netutil
 
 import (

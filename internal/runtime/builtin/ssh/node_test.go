@@ -4,12 +4,12 @@
 package ssh
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/sshconn"
 )
 
 // Fields under a step's with replace the node's, except shell_args alone,
@@ -17,14 +17,14 @@ import (
 func TestNodeConnectionWithOverrides(t *testing.T) {
 	t.Parallel()
 
-	node := &nodeConnection{cfg: Config{
+	node := &nodeConnection{cfg: sshconn.Config{
 		User:        "deploy",
 		Host:        "127.0.0.1",
 		Port:        "2222",
 		SSHAuth:     ir.SSHAuth{Password: "node-password"},
 		Shell:       "bash",
 		ShellArgs:   []string{"-e"},
-		NodeHostKey: &NodeHostKey{Node: "web01"},
+		NodeHostKey: &sshconn.NodeHostKey{Node: "web01"},
 	}}
 
 	for _, tc := range []struct {
@@ -42,16 +42,17 @@ func TestNodeConnectionWithOverrides(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			client, err := node.clientWith(context.Background(), tc.with)
+			cfg, err := node.configWith(tc.with)
 			require.NoError(t, err)
-			require.Equal(t, tc.user, client.cfg.User)
-			require.Equal(t, "127.0.0.1:2222", client.hostPort)
-			require.Equal(t, tc.shell, client.Shell)
-			require.Equal(t, tc.shellArgs, client.ShellArgs)
+			require.Equal(t, tc.user, cfg.User)
+			require.Equal(t, "127.0.0.1", cfg.Host)
+			require.Equal(t, "2222", cfg.Port)
+			require.Equal(t, tc.shell, cfg.Shell)
+			require.Equal(t, tc.shellArgs, cfg.ShellArgs)
 		})
 	}
 	require.Equal(t, []string{"-e"}, node.cfg.ShellArgs, "the node's own arguments are unchanged")
 
-	_, err := node.clientWith(context.Background(), map[string]any{"known_host_file": "/tmp/known_hosts"})
+	_, err := node.configWith(map[string]any{"known_host_file": "/tmp/known_hosts"})
 	require.ErrorContains(t, err, "with.known_host_file does not apply to a node")
 }

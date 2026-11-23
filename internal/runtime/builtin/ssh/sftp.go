@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/sshconn"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
@@ -29,7 +30,7 @@ var _ executor.Executor = (*sftpExecutor)(nil)
 
 type sftpExecutor struct {
 	executorLifecycle
-	client      *Client
+	client      *sshconn.Client
 	direction   string // "upload" or "download"
 	source      string
 	destination string
@@ -79,7 +80,7 @@ func NewSFTPExecutor(ctx context.Context, step ir.Step) (executor.Executor, erro
 }
 
 // resolveSSHClient resolves the SSH client from step config or context.
-func resolveSSHClient(ctx context.Context, step ir.Step) (*Client, error) {
+func resolveSSHClient(ctx context.Context, step ir.Step) (*sshconn.Client, error) {
 	if len(step.ExecutorConfig.Config) > 0 {
 		if node := nodeConnectionFor(ctx, step.ExecutorConfig.Config); node != nil {
 			return node.clientWith(ctx, step.ExecutorConfig.Config)
@@ -121,7 +122,7 @@ func (e *sftpExecutor) Run(ctx context.Context) error {
 	}()
 
 	// Dial SSH connection directly - SFTP doesn't need a session, just the connection
-	conn, err := e.client.dial(runCtx)
+	conn, err := e.client.Dial(runCtx)
 	if err != nil {
 		return fmt.Errorf("failed to connect to SSH server: %w", err)
 	}

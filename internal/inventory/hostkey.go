@@ -13,17 +13,25 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// ErrNoTrustedHostKey reports a node for which no host key is trusted.
-var ErrNoTrustedHostKey = errors.New("no trusted host key")
+var (
+	// ErrNoTrustedHostKey reports a node for which no host key is trusted.
+	ErrNoTrustedHostKey = errors.New("no trusted host key")
+	// ErrTrustedHostKeyChanged reports a node whose trusted key is not the
+	// one a caller expected to replace.
+	ErrTrustedHostKeyChanged = errors.New("the trusted host key changed")
+)
 
 // HostKeyStore keeps a project's trusted host keys, at most one per node.
 // Node names are compared without case.
 type HostKeyStore interface {
 	// Get returns the key trusted for node, or ErrNoTrustedHostKey.
 	Get(ctx context.Context, node string) (TrustedHostKey, error)
-	// Trust stores key as the trusted key of node, replacing the key trusted
-	// before. by names the user who trusts it.
-	Trust(ctx context.Context, node string, key ssh.PublicKey, by string) (TrustedHostKey, error)
+	// Trust stores key as the trusted key of node. replacing is the
+	// fingerprint of the key trusted for node before, or empty when none is.
+	// When the trusted key is another, Trust stores nothing and fails with
+	// ErrTrustedHostKeyChanged, so a key is replaced only by a caller that
+	// saw it. by names the user who trusts the key.
+	Trust(ctx context.Context, node string, key ssh.PublicKey, by, replacing string) (TrustedHostKey, error)
 }
 
 // TrustedHostKey is a host key a user trusted for a node, which a connection

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/sshconn"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
@@ -27,57 +28,13 @@ var _ executor.Executor = (*sshExecutor)(nil)
 type sshClientCtxKey struct{}
 
 // WithSSHClient creates a new context with client
-func WithSSHClient(ctx context.Context, cli *Client) context.Context {
+func WithSSHClient(ctx context.Context, cli *sshconn.Client) context.Context {
 	return context.WithValue(ctx, sshClientCtxKey{}, cli)
 }
 
-type runCredentialsCtxKey struct{}
-
-// runCredentials holds what one run's SSH connections share: the values of
-// the secret refs resolved at run start, and the keys already parsed.
-type runCredentials struct {
-	values  map[string]string
-	signers signerCache
-}
-
-// WithSecretValues returns a context for one run whose SSH connections read
-// credentials given as secret refs from values, keyed by ref. Connections
-// made under it also share parsed private keys, so an encrypted key is
-// decrypted once per run rather than once per step or foreach item.
-func WithSecretValues(ctx context.Context, values map[string]string) context.Context {
-	return context.WithValue(ctx, runCredentialsCtxKey{}, &runCredentials{values: values})
-}
-
-func credentialsFromContext(ctx context.Context) *runCredentials {
-	creds, _ := ctx.Value(runCredentialsCtxKey{}).(*runCredentials)
-	return creds
-}
-
-// secretValue returns the value of the secret ref that the credential at
-// field names.
-func secretValue(ctx context.Context, field, ref string) (string, error) {
-	var values map[string]string
-	if creds := credentialsFromContext(ctx); creds != nil {
-		values = creds.values
-	}
-	value, ok := values[ref]
-	if !ok {
-		return "", fmt.Errorf("%s: secret %q was not resolved at run start", field, ref)
-	}
-	return value, nil
-}
-
-// credentialValue returns a credential given as a literal or a secret ref.
-func credentialValue(ctx context.Context, field, literal, ref string) (string, error) {
-	if ref == "" {
-		return literal, nil
-	}
-	return secretValue(ctx, field, ref)
-}
-
 // getSSHClientFromContext retrieves the Client from the context.
-func getSSHClientFromContext(ctx context.Context) *Client {
-	if cli, ok := ctx.Value(sshClientCtxKey{}).(*Client); ok {
+func getSSHClientFromContext(ctx context.Context) *sshconn.Client {
+	if cli, ok := ctx.Value(sshClientCtxKey{}).(*sshconn.Client); ok {
 		return cli
 	}
 	return nil
@@ -86,7 +43,7 @@ func getSSHClientFromContext(ctx context.Context) *Client {
 type sshExecutor struct {
 	executorLifecycle
 	step      ir.Step
-	client    *Client
+	client    *sshconn.Client
 	stdout    io.Writer
 	stderr    io.Writer
 	shell     string
@@ -197,10 +154,7 @@ func (e *sshExecutor) runWithCancellation(ctx context.Context, session *ssh.Sess
 
 // buildShellCommand constructs the shell command string with arguments.
 func (e *sshExecutor) buildShellCommand() string {
-	if len(e.shellArgs) == 0 {
-		return e.shell
-	}
-	return e.shell + " " + strings.Join(e.shellArgs, " ")
+	return sshconn.ShellCommand(e.shell, e.shellArgs)
 }
 
 // buildScript constructs a complete script for SSH execution, wrapped in a function.
@@ -236,7 +190,7 @@ func (e *sshExecutor) buildScript() string {
 	}
 
 	// Wrap in function - shell MUST read entire body before executing
-	return fmt.Sprintf("__dagu_exec(){\n%s}\n__dagu_exec\n", body.String())
+	return sshconn.Script(body.String())
 }
 
 // buildCommandString constructs a command string from a CommandEntry.
@@ -259,15 +213,14 @@ func (e *sshExecutor) buildCommandString(cmd ir.CommandEntry) string {
 // 2. Shell specified in the step's Shell field.
 // 3. /bin/sh as POSIX-compliant fallback.
 // Note: DAG-level shell (dag.Shell) is NOT used as it's configured for local execution.
-func resolveShell(step ir.Step, client *Client) (string, []string) {
+func resolveShell(step ir.Step, client *sshconn.Client) (string, []string) {
 	if client != nil && client.Shell != "" {
 		return client.Shell, slices.Clone(client.ShellArgs)
 	}
 	if step.Shell != "" {
 		return step.Shell, slices.Clone(step.ShellArgs)
 	}
-	// Fallback to /bin/sh - POSIX standard, available on all Unix systems
-	return "/bin/sh", nil
+	return sshconn.DefaultShell, nil
 }
 
 func init() {
