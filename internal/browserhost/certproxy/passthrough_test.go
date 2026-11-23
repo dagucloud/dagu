@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -319,6 +320,9 @@ func TestGuardListsPassedConnectionWaitingForAnswer(t *testing.T) {
 	assert.Equal(t, "127.0.0.1", pending[0].Host)
 }
 
+// pageLoadWait is how long a case waits for Chrome to load its page.
+const pageLoadWait = time.Minute
+
 // Chrome loads every page through the guard. Its own handshake reaches a
 // site the guard passes, including one that asks Chrome to retry its hello,
 // and never one that asks for a client certificate.
@@ -361,7 +365,7 @@ func TestGuardPassesChromesOwnHandshake(t *testing.T) {
 			}
 			require.Eventually(t, func() bool {
 				return site.count(&site.served, loaded) > 0
-			}, time.Minute, 100*time.Millisecond, "the page never loaded the expected way")
+			}, pageLoadWait, 100*time.Millisecond, "the page never loaded the expected way")
 			assert.Zero(t, site.count(&site.served, other))
 			if tc.retries {
 				assert.Positive(t, site.count(&site.served, func(seen seenHello) bool { return loaded(seen) && seen.retried }))
@@ -409,6 +413,11 @@ func runChrome(t *testing.T, chrome string, ready Ready, url string) {
 		"--user-data-dir="+profile,
 		"--proxy-pac-url="+pacDataURLPrefix+base64.StdEncoding.EncodeToString([]byte(pac)),
 		"--ignore-certificate-errors-spki-list="+ready.SPKI,
+		// A child process that the browser has not connected to within 15
+		// seconds ends itself, and the page load in flight ends with the
+		// network service. A start that slow happens on a loaded CI runner,
+		// so the children wait as long as the case does.
+		"--ipc-connection-timeout="+strconv.Itoa(int(pageLoadWait/time.Second)),
 		url,
 	)
 	cmd.Stdout = &output
