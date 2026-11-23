@@ -90,7 +90,7 @@ func activityRunIDs(activity *api.DAGListActivity) []string {
 	return ids
 }
 
-func TestListDAGsActivityLimitedToTheWindow(t *testing.T) {
+func TestDAGListActivityLimitedToTheWindow(t *testing.T) {
 	server := test.SetupServer(t)
 	dag := createActivityDAG(t, server, "activity_window")
 	seedActivityRun(t, server, dag, activityRun{id: "older", status: ir.Succeeded, startAgo: 72 * time.Hour, took: time.Minute})
@@ -109,7 +109,7 @@ func TestListDAGsActivityLimitedToTheWindow(t *testing.T) {
 
 }
 
-func TestListDAGsActivityOfAnIdleDAGIsEmpty(t *testing.T) {
+func TestDAGListActivityOfAnIdleDAGIsEmpty(t *testing.T) {
 	server := test.SetupServer(t)
 	idle := createActivityDAG(t, server, "activity_idle")
 	createActivityDAG(t, server, "activity_never")
@@ -123,7 +123,7 @@ func TestListDAGsActivityOfAnIdleDAGIsEmpty(t *testing.T) {
 	}
 }
 
-func TestListDAGsActivityIsBounded(t *testing.T) {
+func TestDAGListActivityIsBounded(t *testing.T) {
 	server := test.SetupServer(t)
 	dag := createActivityDAG(t, server, "activity_busy")
 	const total = 65
@@ -162,7 +162,7 @@ func TestListDAGsActivityIsBounded(t *testing.T) {
 // before it. A retry in the queue is not listed either, though it keeps the
 // start of its previous attempt. A run that started before the window and is
 // still active, here waiting on a person, is listed.
-func TestListDAGsActivityAroundQueuedAndLongRuns(t *testing.T) {
+func TestDAGListActivityAroundQueuedAndLongRuns(t *testing.T) {
 	server := test.SetupServer(t)
 	dag := createActivityDAG(t, server, "activity_queue")
 	seedActivityRun(t, server, dag, activityRun{id: "done", status: ir.Succeeded, startAgo: time.Hour, took: time.Minute})
@@ -187,7 +187,7 @@ func TestListDAGsActivityAroundQueuedAndLongRuns(t *testing.T) {
 // A run keeps the time it was created, when it was queued, which can be before
 // the window it starts in. Such a latest run is listed whether it still runs
 // or has ended, and the runs are in the order they started.
-func TestListDAGsActivityOfRunsQueuedBeforeTheyStarted(t *testing.T) {
+func TestDAGListActivityOfRunsQueuedBeforeTheyStarted(t *testing.T) {
 	server := test.SetupServer(t)
 	running := createActivityDAG(t, server, "activity_late_running")
 	seedActivityRun(t, server, running, activityRun{id: "running", status: ir.Running, startAgo: 2 * time.Hour, queuedFor: 28 * time.Hour})
@@ -207,7 +207,7 @@ func TestListDAGsActivityOfRunsQueuedBeforeTheyStarted(t *testing.T) {
 
 // A backfill run is not listed, as it is not the latest run of its DAG
 // either: the list shows a backfill on its own.
-func TestListDAGsActivityLeavesOutBackfillRuns(t *testing.T) {
+func TestDAGListActivityLeavesOutBackfillRuns(t *testing.T) {
 	server := test.SetupServer(t)
 	idle := createActivityDAG(t, server, "activity_backfill_idle")
 	seedActivityRun(t, server, idle, activityRun{id: "live", status: ir.Succeeded, startAgo: 72 * time.Hour, took: time.Minute})
@@ -228,7 +228,7 @@ func TestListDAGsActivityLeavesOutBackfillRuns(t *testing.T) {
 
 // A list keeps the activity of a DAG, and the next list shows a new run of
 // the DAG at once.
-func TestListDAGsActivityShowsANewRunAtOnce(t *testing.T) {
+func TestDAGListActivityShowsANewRunAtOnce(t *testing.T) {
 	server := test.SetupServer(t)
 	dag := createActivityDAG(t, server, "activity_new")
 	seedActivityRun(t, server, dag, activityRun{id: "first", status: ir.Succeeded, startAgo: time.Hour, took: time.Minute})
@@ -238,7 +238,7 @@ func TestListDAGsActivityShowsANewRunAtOnce(t *testing.T) {
 	assert.Equal(t, []string{"second", "first"}, activityRunIDs(listActivity(t, server, "?window=86400")["activity_new"]))
 }
 
-func TestListDAGsActivityRejectsAWindowOutOfRange(t *testing.T) {
+func TestDAGListActivityRejectsAWindowOutOfRange(t *testing.T) {
 	server := test.SetupServer(t)
 	for _, query := range []string{"?window=10", "?window=604801", ""} {
 		server.Client().Get("/api/v1/dag-list-activity" + query).
@@ -248,7 +248,7 @@ func TestListDAGsActivityRejectsAWindowOutOfRange(t *testing.T) {
 
 // The activity covers the DAGs of the list page with the same paging and
 // sort, in the order of the list.
-func TestListDAGsActivityFollowsTheListPage(t *testing.T) {
+func TestDAGListActivityFollowsTheListPage(t *testing.T) {
 	server := test.SetupServer(t)
 	for _, name := range []string{"page_a", "page_b", "page_c"} {
 		createActivityDAG(t, server, name)
