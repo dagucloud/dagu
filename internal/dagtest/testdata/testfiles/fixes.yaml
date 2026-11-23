@@ -41,3 +41,20 @@ steps:
     action: noop
     preconditions:
       - condition: test -f ready
+  - id: watch
+    action: log.write
+    with:
+      message: watching
+    outputs:
+      - name: seen
+    repeat_policy:
+      repeat: until
+      condition: test -f done
+      limit: 3
+  - name: publish
+    run: ./publish.sh
+    output:
+      url:
+        from: stdout
+    preconditions:
+      - condition: test -f ready

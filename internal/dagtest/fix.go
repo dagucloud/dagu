@@ -137,12 +137,16 @@ func (c *Case) script(t *stepTarget) Script {
 }
 
 // setScript copies the fields of a script. A single result is written
-// inline.
+// inline. A step without an id takes no outputs under mocks, so the ones the
+// default mock publishes for it are left out.
 func (m *fixMock) setScript(s Script) {
 	for _, r := range s.Results {
 		result := fixResult{stdout: r.Stdout, stderr: r.Stderr, outputs: r.Outputs, condition: metText(r.Condition)}
 		if r.ExitCode != 0 {
 			result.exitCode = &r.ExitCode
+		}
+		if m.target.step.ID == "" {
+			result.outputs = nil
 		}
 		m.results = append(m.results, result)
 	}
@@ -203,6 +207,9 @@ func (m *fixMock) handle(kind sourceKind) {
 				r.condition = stop
 			}
 		})
+		// The results replace the action, so a successful one publishes the
+		// known outputs.
+		m.addOutputs()
 	case sourceWait:
 		m.review = &fixReview{decision: fixApprove, values: waitValues(step)}
 	case sourceParam, sourceSecret, sourceDAGPrecondition:

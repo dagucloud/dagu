@@ -349,8 +349,8 @@ func TestLoadFileDefaultMock(t *testing.T) {
 // The fix holds each step's current mock, by the key it is written under,
 // with the fields its sources need: an inline mock becomes one result to
 // take a stopping condition, a successful result publishes the known
-// outputs, and a form value the form still rejects is marked. The default
-// mock is the current mock where it applies.
+// outputs of a step with an id, and a form value the form still rejects is
+// marked. The default mock is the current mock where it applies.
 func TestLoadFileFix(t *testing.T) {
 	t.Parallel()
 
@@ -375,6 +375,13 @@ func TestLoadFileFix(t *testing.T) {
 `+review+`  fanout: {}
   gate:
     precondition: met
+  watch:
+    results:
+      - outputs:
+          seen: ""
+        condition: met
+  publish:
+    precondition: met
 `, file.Cases[0].Fix)
 	assert.Equal(t, `mocks:
   build:
@@ -385,6 +392,18 @@ func TestLoadFileFix(t *testing.T) {
           tag: ""
         condition: not_met
 `+review+`  gate:
+    precondition: met
+  watch:
+    results:
+      - exit_code: 1
+        condition: met
+      - outputs:
+          seen: ""
+        condition: met
+  publish:
+    results:
+      - exit_code: 1
+      - exit_code: 0
     precondition: met
 `, file.Cases[1].Fix)
 	assert.Empty(t, file.Cases[1].FileFix)

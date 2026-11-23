@@ -25,6 +25,8 @@ steps:
     action: log.write
     with:
       message: polled
+    outputs:
+      - name: seen
     repeat_policy:
       repeat: until
       condition: touch poll-check.ran
