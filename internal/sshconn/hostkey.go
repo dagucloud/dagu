@@ -68,7 +68,9 @@ type hostKeyPolicy struct {
 // whose expected keys differ in type is tried once per type. A handshake
 // that fails on the host key has sent no credential, so the next type is
 // safe to try. When a later type is accepted, the expected keys of the types
-// before it are reported as out of date.
+// before it are reported as out of date. A server that holds no key of any
+// expected type gets one more handshake offering every algorithm, so the
+// refusal names the key it presents and a user can trust that key.
 func (p hostKeyPolicy) handshake(ctx context.Context, cfg *ssh.ClientConfig, dial func(*ssh.ClientConfig) (*ssh.Client, error)) (*ssh.Client, error) {
 	var sets [][]string
 	if p.check != nil {
@@ -105,6 +107,13 @@ func (p hostKeyPolicy) handshake(ctx context.Context, cfg *ssh.ClientConfig, dia
 	if refused != nil {
 		return nil, refused
 	}
+	client, err := dial(cfg)
+	if err == nil {
+		return client, nil
+	}
+	if _, ok := errors.AsType[*hostKeyError](err); ok {
+		return nil, err
+	}
 	return nil, p.check.refusal("", offered)
 }
 
@@ -136,6 +145,7 @@ func (k *NodeHostKey) policy(ctx context.Context, hop string) (hostKeyPolicy, er
 				return hostKeyPolicy{}, fmt.Errorf("%s %q: %w", hop, k.Node, err)
 			}
 			check.expected = append(check.expected, key)
+			check.trusted = ssh.FingerprintSHA256(key)
 		}
 	}
 	return hostKeyPolicy{callback: check.verify, check: check}, nil
@@ -146,6 +156,9 @@ type hostKeyCheck struct {
 	hop      string
 	node     string
 	expected []ssh.PublicKey
+	// trusted is the fingerprint of the expected key that the node's
+	// trusted host key holds, or empty.
+	trusted string
 }
 
 func (c hostKeyCheck) verify(_ string, _ net.Addr, presented ssh.PublicKey) error {
@@ -160,7 +173,7 @@ func (c hostKeyCheck) verify(_ string, _ net.Addr, presented ssh.PublicKey) erro
 // refusal reports the key the server presented, or, when it presented
 // none, the host key algorithms it offers.
 func (c hostKeyCheck) refusal(presented string, offered []string) error {
-	err := &hostKeyError{hop: c.hop, node: c.node, presented: presented, offered: offered}
+	err := &hostKeyError{hop: c.hop, node: c.node, presented: presented, offered: offered, trusted: c.trusted}
 	for _, key := range c.expected {
 		err.expected = append(err.expected, ssh.FingerprintSHA256(key))
 	}
@@ -220,13 +233,15 @@ type hostKeyError struct {
 	hop  string
 	node string
 	// presented is the fingerprint of the key the server presented. It is
-	// empty when the server holds no key of an expected type, and offered
-	// lists the host key algorithms it offers instead.
+	// empty when the server presented none, and offered lists the host key
+	// algorithms it offers instead.
 	presented string
 	offered   []string
 	// expected are the fingerprints of the keys the node may present. None
 	// means the key is unknown, and some means it has changed.
 	expected []string
+	// trusted is the one of expected that is trusted for the node, or empty.
+	trusted string
 }
 
 func (e *hostKeyError) Error() string {

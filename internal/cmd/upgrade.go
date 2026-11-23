@@ -4,9 +4,9 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -258,7 +258,7 @@ func confirm(prompt string, defaultYes bool) bool {
 	}
 	fmt.Printf("%s %s: ", prompt, choices)
 
-	response, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	response, err := readLine(os.Stdin)
 	if err != nil {
 		return false
 	}
@@ -270,5 +270,25 @@ func confirm(prompt string, defaultYes bool) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// readLine reads one line from r, without its newline. It reads a byte at a
+// time, so the input after the line stays for the next prompt. A line that
+// ends without a newline is an error.
+func readLine(r io.Reader) (string, error) {
+	var line []byte
+	b := make([]byte, 1)
+	for {
+		n, err := r.Read(b)
+		if n > 0 {
+			if b[0] == '\n' {
+				return string(line), nil
+			}
+			line = append(line, b[0])
+		}
+		if err != nil {
+			return string(line), err
+		}
 	}
 }

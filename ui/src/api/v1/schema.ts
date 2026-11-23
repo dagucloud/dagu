@@ -9803,10 +9803,12 @@ export interface components {
              * @enum {string}
              */
             status: InventoryHostKeyRefusalStatus;
-            /** @description SHA256 fingerprint of the key the server presented. Empty when it holds no key of an expected type */
+            /** @description SHA256 fingerprint of the key the server presented. Empty when it presented none */
             presented?: string;
             /** @description SHA256 fingerprints of the pinned and trusted keys */
             expected: string[];
+            /** @description SHA256 fingerprint of the key trusted for the node, one of `expected`. A trust of the presented key names it as `replace`. Absent when no key is trusted for the node */
+            trusted?: string;
         };
         /** @description Counts of a finished test, sent as the `done` event */
         InventoryNodeConnectionTestSummary: {

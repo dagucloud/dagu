@@ -69,18 +69,21 @@ func TestHostKeysOverAPI(t *testing.T) {
 	fingerprint := ssh.FingerprintSHA256(node.HostKey)
 
 	server := test.SetupServer(t)
-	server.Client().Post("/api/v1/inventory-imports", []map[string]any{{
-		"name":  "fleet",
-		"nodes": []map[string]any{{"name": "web01", "host": "127.0.0.1", "port": port, "user": "tester", "key": keyFile, "labels": []string{"web"}}},
-	}}).ExpectStatus(http.StatusOK).Send(t)
+	importNode := func(port int) {
+		server.Client().Post("/api/v1/inventory-imports?replace=true", []map[string]any{{
+			"name":  "fleet",
+			"nodes": []map[string]any{{"name": "web01", "host": "127.0.0.1", "port": port, "user": "tester", "key": keyFile, "labels": []string{"web"}}},
+		}}).ExpectStatus(http.StatusOK).Send(t)
+	}
+	importNode(port)
 	testNode := func() map[string]any {
 		resp := server.Client().Post("/api/v1/node-connection-tests", map[string]any{"labels": "web"}).
 			ExpectStatus(http.StatusOK).Send(t)
 		return result(t, readStream(t, resp.Body))
 	}
-	trust := func(fingerprint string) map[string]any {
+	trust := func(fingerprint, replace string) map[string]any {
 		resp := server.Client().Post("/api/v1/node-host-keys", map[string]any{
-			"keys": []map[string]any{{"node": "web01", "fingerprint": fingerprint}},
+			"keys": []map[string]any{{"node": "web01", "fingerprint": fingerprint, "replace": replace}},
 		}).ExpectStatus(http.StatusOK).Send(t)
 		return result(t, readStream(t, resp.Body))
 	}
@@ -92,15 +95,32 @@ func TestHostKeysOverAPI(t *testing.T) {
 	}, unknown["hostKey"])
 	assert.Zero(t, node.AuthAttempts(), "a credential reached a host whose key is unknown")
 
-	wrong := trust("SHA256:not-the-key")
+	wrong := trust("SHA256:not-the-key", "")
 	assert.Contains(t, wrong["error"], fingerprint, "the error names the key the node presents")
 	assert.Equal(t, "unknown", testNode()["hostKey"].(map[string]any)["status"], "a wrong fingerprint trusts nothing")
 
-	assert.Equal(t, "trusted", trust(fingerprint)["outcome"])
+	assert.Equal(t, "trusted", trust(fingerprint, "")["outcome"])
 	assert.Zero(t, node.AuthAttempts(), "trusting sent the node a credential")
 
 	passed := testNode()
 	assert.Equal(t, true, passed["ok"], passed["error"])
 	assert.Equal(t, fingerprint, passed["fingerprint"])
 	assert.Len(t, node.Commands(), 1)
+
+	// web01 keeps its name and trusted key, and moves to a host with another
+	// key. The refusal names the trusted key, which a trust must replace.
+	moved := harness.StartSSHServer(t, harness.SSHServerOptions{User: "tester", AuthorizedKeys: []ssh.PublicKey{publicKey}})
+	movedPort, err := strconv.Atoi(moved.Port)
+	require.NoError(t, err)
+	importNode(movedPort)
+	movedFingerprint := ssh.FingerprintSHA256(moved.HostKey)
+	assert.Equal(t, map[string]any{
+		"hop": "node", "node": "web01", "status": "changed", "presented": movedFingerprint,
+		"expected": []any{fingerprint}, "trusted": fingerprint,
+	}, testNode()["hostKey"])
+	assert.Contains(t, trust(movedFingerprint, "")["error"], "must be asked for", "a changed key is replaced only when asked")
+	replaced := trust(movedFingerprint, fingerprint)
+	assert.Equal(t, "replaced", replaced["outcome"])
+	assert.Equal(t, fingerprint, replaced["previous"])
+	assert.Equal(t, true, testNode()["ok"])
 }

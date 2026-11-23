@@ -23285,12 +23285,15 @@ components:
           description: "`unknown` when no key was pinned or trusted, `changed` when the presented key matches none of them"
         presented:
           type: string
-          description: "SHA256 fingerprint of the key the server presented. Empty when it holds no key of an expected type"
+          description: "SHA256 fingerprint of the key the server presented. Empty when it presented none"
         expected:
           type: array
           description: "SHA256 fingerprints of the pinned and trusted keys"
           items:
             type: string
+        trusted:
+          type: string
+          description: "SHA256 fingerprint of the key trusted for the node, one of `expected`. A trust of the presented key names it as `replace`. Absent when no key is trusted for the node"
       required:
         - hop
         - node
