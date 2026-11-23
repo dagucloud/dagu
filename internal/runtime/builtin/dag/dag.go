@@ -257,9 +257,9 @@ func (e *dagExecutor) Kill(sig os.Signal) error {
 
 func init() {
 	caps := registry.ExecutorCapabilities{
-		SubDAG:           true,
-		WorkerSelector:   true,
-		PublishesOutputs: true,
+		SubDAG:                 true,
+		WorkerSelector:         true,
+		ActionPublishesOutputs: true,
 	}
 	executor.RegisterExecutor(ir.ExecutorTypeSubworkflow, newDAGExecutor, nil, caps)
 	executor.RegisterExecutor(ir.ExecutorTypeDAG, newDAGExecutor, nil, caps)

@@ -229,7 +229,7 @@ func setsOutputsObject(step ir.Step) bool {
 	case step.Parallel != nil, step.Nodes != nil:
 		return false
 	default:
-		return registry.ExecutorCapabilitiesFor(step.ExecutorConfig.Type).PublishesOutputs
+		return registry.ExecutorCapabilitiesFor(step.ExecutorConfig.Type).ActionPublishesOutputs
 	}
 }
 
