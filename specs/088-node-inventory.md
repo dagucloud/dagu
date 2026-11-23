@@ -183,8 +183,9 @@ change is stored, so a key that cannot be forgotten stops the change.
 `--user`, `--key` (a path) or `--key-secret`, `--password-secret`,
 `--passphrase-secret`, `--bastion`, `--labels` (comma-separated), and
 `--description`. `--inventory` may be left out when there is one
-inventory. Before it saves, `add` tests the connection as
-[Host keys](#host-keys) defines.
+inventory. A relative `--key` path is stored as an absolute path, since
+the node is later connected from other working directories. Before it
+saves, `add` tests the connection as [Host keys](#host-keys) defines.
 
 - A node that passes is saved, and `add` prints `added <name> in
   <inventory>`, or `replaced` for a node of that name.

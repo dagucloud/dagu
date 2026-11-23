@@ -125,3 +125,16 @@ func TestAddNodeThatCannotConnect(t *testing.T) {
 
 	dagu.RunWithEnv(env, "nodes", "remove", "db09").ExpectStderrContains(`node "db09" not found`)
 }
+
+// A relative --key is stored as an absolute path, since the node is later
+// connected from processes with other working directories.
+func TestAddNodeRelativeKeyPath(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := fleetHome(t, dagu)
+	keyFile := filepath.Join("keys", "id_ed25519")
+
+	add(dagu, env, "", "db01", "--host", "127.0.0.1", "--key", keyFile, "--no-test").ExpectExitCode(0)
+	assert.Equal(t, map[string]string{"file": dagu.ProjectPath(keyFile)}, findNode(t, listNodes(t, dagu, env), "db01").Key)
+}

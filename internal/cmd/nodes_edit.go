@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/user"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -242,7 +243,11 @@ func nodeFromFlags(ctx *Context, name string) (inventory.Node, error) {
 	case key != "" && keySecret != "":
 		return inventory.Node{}, errors.New("--key and --key-secret cannot be combined")
 	case key != "":
-		node.Key = map[string]any{"file": key}
+		path, err := keyFilePath(key)
+		if err != nil {
+			return inventory.Node{}, fmt.Errorf("invalid --key %q: %w", key, err)
+		}
+		node.Key = map[string]any{"file": path}
 	case keySecret != "":
 		node.Key = map[string]any{"secret": keySecret}
 	}
@@ -258,6 +263,17 @@ func nodeFromFlags(ctx *Context, name string) (inventory.Node, error) {
 		}
 	}
 	return node, nil
+}
+
+// keyFilePath returns the --key path as the node stores it. The node is
+// later connected from processes with other working directories, so a
+// relative path is made absolute here. A path that starts with ~ or $ is
+// kept for each connecting process to expand.
+func keyFilePath(path string) (string, error) {
+	if filepath.IsAbs(path) || strings.HasPrefix(path, "~") || strings.HasPrefix(path, "$") {
+		return path, nil
+	}
+	return filepath.Abs(path)
 }
 
 // addTarget returns the inventory --inventory names, or the only one.
