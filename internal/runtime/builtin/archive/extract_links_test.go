@@ -263,6 +263,38 @@ func TestExtractRefusesExistingLinksOut(t *testing.T) {
 	}
 }
 
+// Without overwrite, an existing link counts as an existing path, even one
+// that leads outside the destination, so a link entry of the same name does
+// not replace it.
+func TestExtractKeepsExistingLinkWithoutOverwrite(t *testing.T) {
+	requireSymlinks(t)
+	want := filepath.Join("..", "outside")
+	for _, format := range testArchiveFormats {
+		t.Run(format, func(t *testing.T) {
+			tempDir := t.TempDir()
+			dest := filepath.Join(tempDir, "out")
+			if err := os.MkdirAll(dest, 0o755); err != nil {
+				t.Fatalf("mkdir: %v", err)
+			}
+			if err := os.Symlink(want, filepath.Join(dest, "ext")); err != nil {
+				t.Fatalf("symlink: %v", err)
+			}
+			source := filepath.Join(tempDir, "replace."+format)
+			writeTestArchive(t, source, format, []archiveEntry{{name: "ext", link: "."}})
+
+			err := extractTestArchive(t, source, dest)
+
+			if !errors.Is(err, ErrDestination) {
+				t.Fatalf("expected ErrDestination, got %v", err)
+			}
+			got, err := os.Readlink(filepath.Join(dest, "ext"))
+			if err != nil || got != want {
+				t.Fatalf("ext links to %q (%v), want %q", got, err, want)
+			}
+		})
+	}
+}
+
 // A link is stored with its target in clean form, so an entry extracted
 // later cannot redirect it. Kept as written, "b/../x" would resolve outside
 // once "b" becomes a link to the destination.

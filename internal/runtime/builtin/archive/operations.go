@@ -166,7 +166,7 @@ func (e *executorImpl) runExtract(ctx context.Context) error {
 		}
 
 		if !e.cfg.Overwrite {
-			if _, err := root.Stat(rel); err == nil {
+			if _, err := root.Lstat(rel); err == nil {
 				return fmt.Errorf("%w: destination %q exists (overwrite disabled)", ErrDestination, targetPath)
 			}
 		}
