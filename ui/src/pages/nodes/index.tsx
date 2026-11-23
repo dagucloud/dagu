@@ -388,7 +388,7 @@ function NodeRow({
 }
 
 /** The node's host, with its port when it is not the SSH default. */
-export function hostOf(node: InventoryNode): string {
+function hostOf(node: InventoryNode): string {
   return node.port && node.port !== 22
     ? `${node.host}:${node.port}`
     : node.host;
