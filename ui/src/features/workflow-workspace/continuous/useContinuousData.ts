@@ -5,14 +5,9 @@ import { useEffect, useRef } from 'react';
 import useSWR from 'swr';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient, useQuery } from '@/hooks/api';
+import { isAbortLikeError, shouldRetryQueryError } from '@/lib/requestTimeout';
 import { presetView, type RangePresetId } from './sampleBars';
-
-/** The step that the panel reads, in a root run. */
-export interface ContinuousTarget {
-  name: string;
-  runId: string;
-  step: string;
-}
+import type { SampleSource } from './sampleSource';
 
 /**
  * The polling periods while the run is active. The server scans about a day
@@ -39,33 +34,77 @@ export function useReadAtEnd(active: boolean, read: () => unknown): void {
   }, [active, read]);
 }
 
-function pathOf(target: ContinuousTarget) {
+const STEP_AVAILABILITY =
+  '/dag-runs/{name}/{dagRunId}/steps/{stepName}/availability';
+const STEP_EVENTS = '/dag-runs/{name}/{dagRunId}/steps/{stepName}/events';
+
+function stepPathOf(source: SampleSource) {
   return {
-    name: target.name,
-    dagRunId: target.runId,
-    stepName: target.step,
+    name: source.name,
+    dagRunId: source.runId,
+    stepName: source.step,
   };
 }
 
-/** The availability and the streak of the step. Polled while `poll` is set. */
-export function useStepAvailability(target: ContinuousTarget, poll: boolean) {
+/** The availability and the streak of the source. Polled while `poll` is set. */
+export function useSampleAvailability(source: SampleSource, poll: boolean) {
   const remoteNode = useRemoteNode();
   return useQuery(
-    '/dag-runs/{name}/{dagRunId}/steps/{stepName}/availability',
-    { params: { path: pathOf(target), query: { remoteNode } } },
+    STEP_AVAILABILITY,
+    { params: { path: stepPathOf(source), query: { remoteNode } } },
     { refreshInterval: poll ? AVAILABILITY_POLL_MS : 0 }
   );
 }
+
+const SAMPLES_PATH = '/dag-runs/{name}/{dagRunId}/steps/{stepName}/samples';
 
 /** The window of the samples: fixed times, or a preset that ends now. */
 export type SamplesWindow =
   | { from: number; to: number }
   | { preset: RangePresetId; startedAt?: number };
 
+/** The ends of a window at `now`, in ms. */
+function windowAt(window: SamplesWindow, now: number) {
+  if ('preset' in window) {
+    return presetView(window.preset, now, window.startedAt);
+  }
+  return window;
+}
+
 function samplesPollMs(window: SamplesWindow): number {
   return 'preset' in window && window.preset === '1h'
     ? SHORT_WINDOW_POLL_MS
     : LONG_WINDOW_POLL_MS;
+}
+
+type RetryOptions = { retryCount: number; dedupe: boolean };
+
+// The retry that waits for each samples key. A key has one at a time, so a
+// read that the host asks for during an error starts no second chain.
+const pendingRetries = new Map<string, () => void>();
+
+/**
+ * Calls `retry` once after `ms`, or once the tab shows again when it is
+ * hidden then. It replaces the retry that waits for the same key.
+ */
+function retryWhenShown(key: string, ms: number, retry: () => void): void {
+  pendingRetries.get(key)?.();
+  const run = () => {
+    pendingRetries.delete(key);
+    retry();
+  };
+  const timer = setTimeout(() => {
+    if (document.visibilityState !== 'hidden') {
+      run();
+      return;
+    }
+    document.addEventListener('visibilitychange', run, { once: true });
+  }, ms);
+  pendingRetries.set(key, () => {
+    clearTimeout(timer);
+    document.removeEventListener('visibilitychange', run);
+    pendingRetries.delete(key);
+  });
 }
 
 /**
@@ -76,48 +115,62 @@ function samplesPollMs(window: SamplesWindow): number {
  * window has its times in the key. The old buckets stay on the screen until
  * the new ones come.
  */
-export function useStepSamples(
-  target: ContinuousTarget,
+export function useSamples(
+  source: SampleSource,
   window: SamplesWindow,
   points: number,
   poll: boolean
 ) {
   const remoteNode = useRemoteNode();
   const client = useClient();
+  const path = stepPathOf(source);
   const at =
     'preset' in window
       ? [window.preset, window.startedAt ?? null]
       : [window.from, window.to];
+  const pollMs = samplesPollMs(window);
+  // The key has the samples path at [1], like a swr-openapi key, so that the
+  // workspace revalidation of App.tsx (isWorkspaceScopedSWRKey) reaches it.
   return useSWR(
     [
       'continuous-samples',
-      target.name,
-      target.runId,
-      target.step,
-      remoteNode,
-      points,
-      ...at,
-    ],
+      SAMPLES_PATH,
+      { path, remoteNode, points, at },
+    ] as const,
     async () => {
-      const { from, to } =
-        'preset' in window
-          ? presetView(window.preset, Date.now(), window.startedAt)
-          : window;
-      const { data, error } = await client.GET(
-        '/dag-runs/{name}/{dagRunId}/steps/{stepName}/samples',
-        {
-          params: {
-            path: pathOf(target),
-            query: { remoteNode, from: iso(from), to: iso(to), points },
-          },
-        }
-      );
+      const { from, to } = windowAt(window, Date.now());
+      const query = { remoteNode, from: iso(from), to: iso(to), points };
+      const { data, error } = await client.GET(SAMPLES_PATH, {
+        params: { path, query },
+      });
       if (error) throw error;
       return data;
     },
     {
       keepPreviousData: true,
-      refreshInterval: poll ? samplesPollMs(window) : 0,
+      refreshInterval: poll ? pollMs : 0,
+      ...(poll
+        ? {
+            // SWR does not poll a key that holds an error, and the app does
+            // not retry a timeout. A polled window retries at each period,
+            // whatever the error, except an expired session. A hidden tab
+            // retries once it shows again. A host that stops the poll, such
+            // as a closed dock, stops the retries too.
+            shouldRetryOnError: (error: unknown) =>
+              isAbortLikeError(error) || shouldRetryQueryError(error),
+            onErrorRetry: (
+              _error: unknown,
+              key: string,
+              config: { refreshInterval?: unknown },
+              revalidate: (opts: RetryOptions) => unknown,
+              opts: RetryOptions
+            ) => {
+              const ms = config.refreshInterval;
+              if (typeof ms !== 'number' || ms <= 0) return;
+              retryWhenShown(key, ms, () => void revalidate(opts));
+            },
+          }
+        : {}),
     }
   );
 }
@@ -127,8 +180,8 @@ export function useStepSamples(
  * limits the times. The old events stay on the screen until the new ones
  * come.
  */
-export function useStepEventsPage(
-  target: ContinuousTarget,
+export function useEventsPage(
+  source: SampleSource,
   page: {
     before?: string;
     window: { from: number; to: number } | null;
@@ -138,10 +191,10 @@ export function useStepEventsPage(
 ) {
   const remoteNode = useRemoteNode();
   return useQuery(
-    '/dag-runs/{name}/{dagRunId}/steps/{stepName}/events',
+    STEP_EVENTS,
     {
       params: {
-        path: pathOf(target),
+        path: stepPathOf(source),
         query: {
           remoteNode,
           limit: page.limit,

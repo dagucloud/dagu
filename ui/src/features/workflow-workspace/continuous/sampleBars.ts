@@ -7,6 +7,7 @@
 // bar is a bucket.
 
 import type { components } from '@/api/v1/schema';
+import { presetById, type PresetId } from '../rangePresets';
 
 type SampleBucket = components['schemas']['SampleBucket'];
 
@@ -36,21 +37,11 @@ export function pointsForWindow(widthPx: number, spanMs: number): number {
   return days > base ? Math.min(POINTS_MAX, days) : base;
 }
 
-const MINUTE_MS = 60_000;
-const HOUR_MS = 60 * MINUTE_MS;
+const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
 
-/** The presets of the window, shortest first. */
-export const RANGE_PRESETS = [
-  { id: '1h', ms: HOUR_MS, label: '1h' },
-  { id: '24h', ms: DAY_MS, label: '24h' },
-  { id: '7d', ms: 7 * DAY_MS, label: '7d' },
-  { id: '30d', ms: 30 * DAY_MS, label: '30d' },
-  { id: '1y', ms: 365 * DAY_MS, label: '1y' },
-  { id: '3y', ms: 3 * 365 * DAY_MS, label: '3y' },
-] as const;
-
-export type RangePresetId = (typeof RANGE_PRESETS)[number]['id'] | 'all';
+/** A preset of the shared list, or 'all' (since the start of the run). */
+export type RangePresetId = PresetId | 'all';
 
 /** The presets whose window ends now and that the page polls while the run is active. */
 export const POLLED_PRESETS: readonly RangePresetId[] = ['1h', '24h'];
@@ -85,7 +76,7 @@ export function presetView(
         : now - HOUR_MS;
     return { from: Math.min(from, now - HOUR_MS), to: now, preset: 'all' };
   }
-  const preset = RANGE_PRESETS.find((p) => p.id === id)!;
+  const preset = presetById(id)!;
   return { from: now - preset.ms, to: now, preset: id };
 }
 

@@ -12,11 +12,8 @@ import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import { formatExactCount } from '@/lib/formatCompactCount';
 import { sameContent } from '../data/sameContent';
 import { formatSpanMs } from './format';
-import {
-  useReadAtEnd,
-  useStepEventsPage,
-  type ContinuousTarget,
-} from './useContinuousData';
+import type { SampleSource } from './sampleSource';
+import { useEventsPage, useReadAtEnd } from './useContinuousData';
 
 type StepEvent = components['schemas']['StepEvent'];
 type Window = { from: number; to: number } | null;
@@ -107,20 +104,20 @@ const EventRow = memo(
  * Each page is its own query, so a page that polls does not move the others.
  */
 function EventsPage({
-  target,
+  source,
   window,
   before,
   poll,
 }: {
-  target: ContinuousTarget;
+  source: SampleSource;
   window: Window;
   before?: string;
   poll: boolean;
 }): ReactElement {
   const { ts } = useI18n();
   const [more, setMore] = useState(false);
-  const { data, error, mutate } = useStepEventsPage(
-    target,
+  const { data, error, mutate } = useEventsPage(
+    source,
     { before, window, limit: EVENTS_PAGE },
     poll
   );
@@ -156,7 +153,7 @@ function EventsPage({
       {data.nextCursor &&
         (more ? (
           <EventsPage
-            target={target}
+            source={source}
             window={window}
             before={data.nextCursor}
             poll={false}
@@ -181,11 +178,11 @@ function EventsPage({
  * `window` limits the list to the times of a bucket of the chart.
  */
 export function EventsList({
-  target,
+  source,
   window,
   poll,
 }: {
-  target: ContinuousTarget;
+  source: SampleSource;
   window: Window;
   poll: boolean;
 }): ReactElement {
@@ -193,7 +190,7 @@ export function EventsList({
   const key = window ? `${window.from}-${window.to}` : 'all';
   return (
     <div data-testid="continuous-events">
-      <EventsPage key={key} target={target} window={window} poll={poll} />
+      <EventsPage key={key} source={source} window={window} poll={poll} />
     </div>
   );
 }

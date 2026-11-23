@@ -21,6 +21,7 @@ import {
   type RunSpan,
 } from './runExtents';
 import { isLiveRunStatus } from '@/lib/status-utils';
+import { presetById, presetsFor, type PresetId } from '../rangePresets';
 
 /** The numbers of runs that the user can choose; the server sends 30 at the most. */
 export const TIMELINE_COUNTS: readonly number[] = [5, 10, 20, 30];
@@ -410,17 +411,8 @@ export function parseStoredMode(raw: string | null): RunViewMode {
   return raw === 'range' ? 'range' : 'count';
 }
 
-const HOUR_MS_PRESET = 60 * 60_000;
-
-/** The presets of the time range, shortest first. */
-export const RANGE_PRESETS = [
-  { id: '1h', ms: HOUR_MS_PRESET, label: 'Last hour' },
-  { id: '6h', ms: 6 * HOUR_MS_PRESET, label: 'Last 6 hours' },
-  { id: '24h', ms: 24 * HOUR_MS_PRESET, label: 'Last 24 hours' },
-  { id: '7d', ms: 7 * 24 * HOUR_MS_PRESET, label: 'Last 7 days' },
-] as const;
-
-export type RangePresetId = (typeof RANGE_PRESETS)[number]['id'];
+/** A preset of the time range menu. */
+export type RangePresetId = PresetId;
 
 /** A time range: a preset that ends now, or a custom range with its ends. */
 export type RunRange =
@@ -435,7 +427,7 @@ export function parseStoredRange(raw: string | null): RunRange {
   if (raw === null) return RANGE_DEFAULT;
   try {
     const preset = (JSON.parse(raw) as { preset?: unknown } | null)?.preset;
-    if (RANGE_PRESETS.some((p) => p.id === preset)) {
+    if (presetsFor('dag').some((p) => p.id === preset)) {
       return { preset: preset as RangePresetId };
     }
   } catch {
@@ -475,7 +467,7 @@ export function rangeBounds(
   now: number
 ): { from: number; to: number } {
   if (range.preset === 'custom') return { from: range.from, to: range.to };
-  const ms = RANGE_PRESETS.find((p) => p.id === range.preset)!.ms;
+  const ms = presetById(range.preset)!.ms;
   return { from: now - ms, to: now };
 }
 

@@ -28,11 +28,8 @@ import { useI18n } from '@/i18n/I18nProvider';
 import dayjs from '@/lib/dayjs';
 import { cn } from '@/lib/utils';
 import { Z } from '../zLayers';
-import {
-  RANGE_PRESETS,
-  type RangePresetId,
-  type RunRange,
-} from './runTimelineModel';
+import { presetsFor } from '../rangePresets';
+import { type RangePresetId, type RunRange } from './runTimelineModel';
 
 const INPUT_FORMAT = 'YYYY-MM-DDTHH:mm';
 const PANEL_WIDTH = 248;
@@ -41,6 +38,7 @@ const MARGIN = 8;
 const CUSTOM_VALUE = 'range:custom';
 const MENU_LABEL = 'px-2 py-1 text-[11px] text-muted-foreground';
 const MENU_ITEM = 'py-1 text-xs';
+const DAG_PRESETS = presetsFor('dag');
 
 const toInput = (ms: number) => dayjs(ms).format(INPUT_FORMAT);
 /** The time of a datetime-local text, in local time; null when it is not complete. */
@@ -385,7 +383,7 @@ export const RunTimelineControls = memo(function RunTimelineControls({
   const shownCounts =
     range || counts.includes(count) ? counts : [...counts, count];
   const value = range ? `range:${range.preset}` : String(count);
-  const shownPreset = RANGE_PRESETS.find((p) => p.id === range?.preset);
+  const shownPreset = DAG_PRESETS.find((p) => p.id === range?.preset);
   const valueLabel = shownPreset
     ? ts(shownPreset.label)
     : range
@@ -493,7 +491,7 @@ export const RunTimelineControls = memo(function RunTimelineControls({
                 <DropdownMenuLabel className={MENU_LABEL}>
                   {ts('Time range')}
                 </DropdownMenuLabel>
-                {RANGE_PRESETS.map((preset) => (
+                {DAG_PRESETS.map((preset) => (
                   <DropdownMenuRadioItem
                     key={preset.id}
                     value={`range:${preset.id}`}

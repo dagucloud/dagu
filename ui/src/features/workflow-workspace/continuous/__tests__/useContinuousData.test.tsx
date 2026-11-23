@@ -3,18 +3,27 @@
 
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
-import { SWRConfig } from 'swr';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SWRConfig, type Middleware } from 'swr';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from 'vitest';
 import {
   AVAILABILITY_POLL_MS,
   EVENTS_POLL_MS,
   LONG_WINDOW_POLL_MS,
   SHORT_WINDOW_POLL_MS,
-  useStepAvailability,
-  useStepEventsPage,
-  useStepSamples,
+  useSampleAvailability,
+  useEventsPage,
+  useSamples,
   type SamplesWindow,
 } from '../useContinuousData';
+import { stepSource } from '../sampleSource';
 
 const h = vi.hoisted(() => ({ GET: vi.fn() }));
 
@@ -30,7 +39,7 @@ vi.mock('@/contexts/RemoteNodeContext', () => ({
 }));
 
 const DAY = 86_400_000;
-const target = { name: 'demo', runId: 'run-1', step: 'heartbeat' };
+const target = stepSource('demo', 'run-1', 'heartbeat');
 
 type Query = { remoteNode: string; from: string; to: string; points: number };
 
@@ -40,19 +49,28 @@ function requests(): Query[] {
   );
 }
 
-function renderWithCache(hook: () => unknown) {
+function renderWithCache<T>(hook: () => T, use: Middleware[] = []) {
   const cache = new Map();
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <SWRConfig value={{ provider: () => cache, dedupingInterval: 0 }}>
+    <SWRConfig value={{ provider: () => cache, dedupingInterval: 0, use }}>
       {children}
     </SWRConfig>
   );
   const view = renderHook(hook, { wrapper });
-  return { cache, rerender: view.rerender, unmount: view.unmount };
+  return {
+    cache,
+    result: view.result,
+    rerender: view.rerender,
+    unmount: view.unmount,
+  };
 }
 
-function renderSamples(window: SamplesWindow, poll: boolean) {
-  return renderWithCache(() => useStepSamples(target, window, 100, poll));
+function renderSamples(
+  window: SamplesWindow,
+  poll: boolean,
+  use: Middleware[] = []
+) {
+  return renderWithCache(() => useSamples(target, window, 100, poll), use);
 }
 
 const tick = async (ms: number) => {
@@ -73,7 +91,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('useStepSamples', () => {
+describe('useSamples', () => {
   // A live preset has one cache key: a tab left open on a running step keeps
   // one entry, and each poll asks for the 24 hours that end at its own time.
   it('polls a preset under one key, with the window that ends at each read', async () => {
@@ -112,6 +130,63 @@ describe('useStepSamples', () => {
     await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(2));
   });
 
+  // A polled window that fails retries at each period while the tab shows,
+  // and waits for the tab to show again while it is hidden.
+  it('retries a failed poll only while the tab shows', async () => {
+    const visibility = vi.spyOn(document, 'visibilityState', 'get');
+    onTestFinished(() => visibility.mockRestore());
+    visibility.mockReturnValue('visible');
+    h.GET.mockResolvedValue({ error: { message: 'unavailable' } });
+    renderSamples({ preset: '1h' }, true);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(1));
+    await tick(SHORT_WINDOW_POLL_MS);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(2));
+
+    visibility.mockReturnValue('hidden');
+    await tick(SHORT_WINDOW_POLL_MS * 5);
+    expect(h.GET).toHaveBeenCalledTimes(2);
+
+    visibility.mockReturnValue('visible');
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(3));
+  });
+
+  // A closed dock stops the poll of the hooks in it (FreezeWhenHidden): a
+  // failed read there waits for the dock to read again.
+  it('does not retry a failed poll that the host stops', async () => {
+    const visibility = vi.spyOn(document, 'visibilityState', 'get');
+    onTestFinished(() => visibility.mockRestore());
+    visibility.mockReturnValue('visible');
+    h.GET.mockResolvedValue({ error: { message: 'unavailable' } });
+    const noPolling: Middleware = (useSWRNext) => (key, fetcher, config) =>
+      useSWRNext(key, fetcher, { ...config, refreshInterval: 0 });
+    renderSamples({ preset: '1h' }, true, [noPolling]);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(1));
+    await tick(SHORT_WINDOW_POLL_MS * 5);
+    expect(h.GET).toHaveBeenCalledTimes(1);
+  });
+
+  // A read that the host asks for during an error, such as a dock that
+  // opens again, starts no second chain of retries.
+  it('keeps one retry for a failed key', async () => {
+    const visibility = vi.spyOn(document, 'visibilityState', 'get');
+    onTestFinished(() => visibility.mockRestore());
+    visibility.mockReturnValue('visible');
+    h.GET.mockResolvedValue({ error: { message: 'unavailable' } });
+    const view = renderSamples({ preset: '1h' }, true);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await view.result.current.mutate();
+    });
+    expect(h.GET).toHaveBeenCalledTimes(2);
+    await tick(SHORT_WINDOW_POLL_MS);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(3));
+    await tick(SHORT_WINDOW_POLL_MS - 1000);
+    expect(h.GET).toHaveBeenCalledTimes(3);
+  });
+
   it('asks for the times of a fixed window and does not poll it', async () => {
     const from = Date.parse('2026-10-20T00:00:00Z');
     const to = from + DAY;
@@ -131,9 +206,9 @@ describe('useStepSamples', () => {
 
 // The server reads about a day of raw samples for the availability: an
 // active run asks for it once a minute.
-describe('useStepAvailability', () => {
+describe('useSampleAvailability', () => {
   it('polls the availability once a minute', async () => {
-    renderWithCache(() => useStepAvailability(target, true));
+    renderWithCache(() => useSampleAvailability(target, true));
     await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(1));
     await tick(AVAILABILITY_POLL_MS - 1000);
     expect(h.GET).toHaveBeenCalledTimes(1);
@@ -142,10 +217,10 @@ describe('useStepAvailability', () => {
   });
 });
 
-describe('useStepEventsPage', () => {
+describe('useEventsPage', () => {
   it('polls the first page every 30 s', async () => {
     renderWithCache(() =>
-      useStepEventsPage(target, { window: null, limit: 50 }, true)
+      useEventsPage(target, { window: null, limit: 50 }, true)
     );
     await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(1));
     await tick(EVENTS_POLL_MS - 1000);
@@ -169,7 +244,7 @@ describe('useStepEventsPage', () => {
     );
     const view = renderHook(
       ({ before }) =>
-        useStepEventsPage(target, { before, window: null, limit: 50 }, false),
+        useEventsPage(target, { before, window: null, limit: 50 }, false),
       {
         initialProps: { before: 'c1' },
         wrapper: ({ children }: { children: ReactNode }) => (
