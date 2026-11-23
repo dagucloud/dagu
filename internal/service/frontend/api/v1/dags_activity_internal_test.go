@@ -84,6 +84,24 @@ func TestActivityCacheReusesWhileTheLatestRunIsTheSame(t *testing.T) {
 	}
 }
 
+// A service DAG starts a run each few seconds, so a list reuses its activity
+// whatever its latest run, for at most serviceActivityMaxAge.
+func TestActivityCacheReusesServiceActivityByAge(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	service := activityKey{dag: "s", window: 24 * time.Hour, service: true}
+	activity := &openapiv1.DAGListActivity{Runs: []openapiv1.DAGListActivityRun{}}
+	restarted := ir.DAGRunStatus{DAGRunID: "r2", AttemptID: "a2", Status: ir.Running}
+
+	var cache activityCache
+	cache.put(service, ir.DAGRunStatus{DAGRunID: "r1", AttemptID: "a1", Status: ir.Running}, at, activity)
+	kept, ok := cache.get(service, restarted, at.Add(serviceActivityMaxAge-time.Second))
+	assert.True(t, ok, "a new run of the service")
+	assert.Same(t, activity, kept)
+	_, ok = cache.get(service, restarted, at.Add(serviceActivityMaxAge))
+	assert.False(t, ok, "older than the max age of a service DAG")
+}
+
 // The activity of a plain DAG is not kept when it can change while the
 // latest run stays the same.
 func TestActivityCacheSkipsActivitiesThatChangeUnseen(t *testing.T) {

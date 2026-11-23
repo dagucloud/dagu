@@ -32,6 +32,9 @@ const (
 	activityCacheSize = 1000
 	// activityCacheMaxAge bounds how long lists reuse a kept activity.
 	activityCacheMaxAge = 30 * time.Second
+	// serviceActivityMaxAge bounds how long lists reuse the activity of a
+	// service DAG, whose runs update the list at most once in 10 seconds.
+	serviceActivityMaxAge = 10 * time.Second
 )
 
 // startedRunStatuses are the statuses of a run that can have started. A
@@ -115,7 +118,9 @@ func (a *API) listActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGRunSta
 // activityCache keeps the activity of each listed DAG with the latest run
 // that it was read for. A kept activity is reused for at most one bucket of
 // its window, and at most activityCacheMaxAge. That bounds the changes that
-// the latest run does not show, such as the retry of an older run.
+// the latest run does not show, such as the retry of an older run. A service
+// DAG starts a run each few seconds, so its activity is reused whatever its
+// latest run, for at most serviceActivityMaxAge.
 type activityCache struct {
 	once    sync.Once
 	entries *lru.Cache[activityKey, keptActivity]
@@ -159,18 +164,28 @@ func (c *activityCache) store() *lru.Cache[activityKey, keptActivity] {
 	return c.entries
 }
 
-// get returns the activity kept for key when it was read for the same latest
-// run and is still recent at now.
+// get returns the activity kept for key when it is still recent at now and,
+// for a plain DAG, was read for the same latest run.
 func (c *activityCache) get(key activityKey, latest ir.DAGRunStatus, now time.Time) (*api.DAGListActivity, bool) {
 	kept, ok := c.store().Get(key)
-	if !ok || kept.latest != latestRunKeyOf(latest) {
+	if !ok || (!key.service && kept.latest != latestRunKeyOf(latest)) {
 		return nil, false
 	}
-	maxAge := min(activityCacheMaxAge, key.window/activityBucketLimit)
-	if age := now.Sub(kept.readAt); age < 0 || age >= maxAge {
+	if age := now.Sub(kept.readAt); age < 0 || age >= key.maxAge() {
 		return nil, false
 	}
 	return kept.activity, true
+}
+
+// maxAge is how long lists reuse the activity of the key: one bucket of its
+// window, and at most activityCacheMaxAge, or serviceActivityMaxAge for a
+// service DAG.
+func (key activityKey) maxAge() time.Duration {
+	limit := activityCacheMaxAge
+	if key.service {
+		limit = serviceActivityMaxAge
+	}
+	return min(limit, key.window/activityBucketLimit)
 }
 
 // put keeps an activity read for the latest run at now, unless it is the
