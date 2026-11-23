@@ -42,8 +42,11 @@ type UpdateOptions struct {
 	Header   HeaderSpec
 	// Key names the column that identifies a row, or RowNumberKey to
 	// address rows by the _row each input row carries.
-	Key  string
-	Rows []Row
+	Key string
+	// KeyField names the input field carrying the key; empty defaults to Key.
+	// It is only valid when Key names a worksheet column, not _row.
+	KeyField string
+	Rows     []Row
 	// Set maps sheet columns to values. Nil writes every field of each row
 	// other than the key and _row to the column of the same name.
 	Set     map[string]SetValue
@@ -161,9 +164,24 @@ func UpdateRows(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 	if strings.TrimSpace(opts.Key) == "" {
 		return nil, fmt.Errorf("%s: key is required", Base(path))
 	}
+	if opts.KeyField != "" {
+		if strings.TrimSpace(opts.KeyField) == "" {
+			return nil, fmt.Errorf("%s: key_field must not be blank", Base(path))
+		}
+		if opts.Key == RowNumberKey {
+			return nil, fmt.Errorf("%s: key_field needs a key column; key: _row always uses _row", Base(path))
+		}
+	}
 	return withLock(ctx, path, opts.Lock, func() (*WriteResult, error) {
 		return updateOnce(ctx, path, opts)
 	}, opts.Output)
+}
+
+func (opts UpdateOptions) inputKey() string {
+	if opts.KeyField != "" {
+		return opts.KeyField
+	}
+	return opts.Key
 }
 
 type updatePlan struct {
@@ -278,10 +296,10 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 			if _, _, err := w.mergedTarget(plan, plan.keyCol, lastRow, plan.headers[plan.keyCol-plan.reg.C1]); err != nil {
 				return nil, err
 			}
-			if err := w.setCell(plan.sheet, plan.keyCol, lastRow, target.input[opts.Key]); err != nil {
+			if err := w.setCell(plan.sheet, plan.keyCol, lastRow, target.input[opts.inputKey()]); err != nil {
 				return nil, err
 			}
-			w.styleWrittenCell(plan.sheet, plan.keyCol, lastRow, w.styleAt(plan.sheet, plan.keyCol, plan.appendBase()), target.input[opts.Key], "")
+			w.styleWrittenCell(plan.sheet, plan.keyCol, lastRow, w.styleAt(plan.sheet, plan.keyCol, plan.appendBase()), target.input[opts.inputKey()], "")
 			result.Changes.CellsChanged++
 		}
 		changed, err := w.applyRow(plan, target, true)
@@ -299,6 +317,9 @@ func updateOnce(ctx context.Context, path string, opts UpdateOptions) (*WriteRes
 	unchanged := result.Changes.CellsChanged == 0 && result.Changes.ColumnsAdded == 0
 	if opts.DryRun || (unchanged && opts.Output == "") {
 		return result, nil
+	}
+	if err := w.invalidateFormulaCaches(); err != nil {
+		return nil, err
 	}
 	if opts.Output != "" {
 		if err := ensureParentDir(opts.Output); err != nil {
@@ -334,7 +355,7 @@ func (w *file) planUpdate(opts UpdateOptions, warn func(string)) (*updatePlan, e
 	if err != nil {
 		return nil, err
 	}
-	headers := headerNames(reg, layout, grid, merges, warn)
+	headers := w.headerNames(reg, layout, grid, merges, warn)
 	plan := &updatePlan{
 		sheet: sheet, reg: reg, layout: layout, headers: headers, grid: grid, merges: merges,
 		headerRow: layout.rows[len(layout.rows)-1], mergedWrites: map[region]mergedWrite{},
@@ -353,7 +374,7 @@ func (w *file) planUpdate(opts UpdateOptions, warn func(string)) (*updatePlan, e
 	}
 	set := opts.Set
 	if set == nil {
-		set = defaultSet(opts.Rows, opts.Key)
+		set = defaultSet(opts.Rows, opts.Key, opts.inputKey())
 		if len(set) == 0 && len(opts.Rows) > 0 {
 			return nil, w.sheetError(sheet, "rows carry no fields to write; set is empty")
 		}
@@ -383,11 +404,11 @@ func (w *file) planUpdate(opts UpdateOptions, warn func(string)) (*updatePlan, e
 	return plan, nil
 }
 
-func defaultSet(rows []Row, key string) map[string]SetValue {
+func defaultSet(rows []Row, key, keyField string) map[string]SetValue {
 	set := map[string]SetValue{}
 	for _, row := range rows {
 		for field := range row {
-			if field == key || field == RowNumberKey {
+			if field == key || field == keyField || field == RowNumberKey {
 				continue
 			}
 			set[field] = SetValue{Field: field}
@@ -439,7 +460,10 @@ func (w *file) locateRows(plan *updatePlan, opts UpdateOptions, warn func(string
 		rowNum, hasRow := input[RowNumberKey].(int)
 		want := ""
 		if plan.keyCol > 0 {
-			want = keyText(input[opts.Key])
+			if _, ok := input[opts.inputKey()]; !ok && opts.KeyField != "" {
+				return nil, nil, fmt.Errorf("%s %s: rows[%d] has no %s", w.base, plan.sheet, i, opts.inputKey())
+			}
+			want = keyText(input[opts.inputKey()])
 		}
 		switch {
 		case hasRow:
@@ -461,7 +485,7 @@ func (w *file) locateRows(plan *updatePlan, opts UpdateOptions, warn func(string
 		case opts.Key == RowNumberKey:
 			return nil, nil, fmt.Errorf("%s %s: rows[%d] has no _row to address with key _row", w.base, plan.sheet, i)
 		case want == "":
-			return nil, nil, fmt.Errorf("%s %s: rows[%d] has no %s", w.base, plan.sheet, i, opts.Key)
+			return nil, nil, fmt.Errorf("%s %s: rows[%d] has no %s", w.base, plan.sheet, i, opts.inputKey())
 		default:
 			matches := byKey[want]
 			switch {
@@ -595,6 +619,7 @@ func (w *file) applyRow(plan *updatePlan, target rowTarget, appended bool) (int,
 				if err := w.f.SetCellStr(plan.sheet, cell, ""); err != nil {
 					return 0, w.cellError(plan.sheet, col, cellRow, err.Error())
 				}
+				w.editCell(plan.sheet, col, cellRow)
 				changed++
 			}
 			continue

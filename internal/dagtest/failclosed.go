@@ -31,6 +31,9 @@ type Handling struct {
 	Precondition bool
 	// Params lists the names of the params the case gives a value.
 	Params []string
+	// Secrets lists the DAG secret names and SSH credential refs the case
+	// gives a value. A case with a real step needs a value for each.
+	Secrets []string
 }
 
 // MockFields reports which fields a step's mock sets.
@@ -74,9 +77,10 @@ func (f Finding) String() string {
 // a file, wait for values from a person, or repeat without end, and that
 // handling leaves unhandled, as the fail-closed rule of Spec 101 defines. It
 // covers every step and lifecycle handler, whether or not a run reaches it.
-// Findings come in the order Spec 101 lists them: params, the DAG-level
-// preconditions, steps in DAG order, then handlers, and the sources of one
-// step in the order of the rule's table. A case with no finding may run.
+// Findings come in the order Spec 101 lists them: params, secrets in a case
+// with a real step, the DAG-level preconditions, steps in DAG order, then
+// handlers, and the sources of one step in the order of the rule's table. A
+// case with no finding may run.
 func CheckFailClosed(dag *ir.DAG, handling Handling) []Finding {
 	c := checker{
 		mocks:       handling.Mocks,
@@ -85,7 +89,10 @@ func CheckFailClosed(dag *ir.DAG, handling Handling) []Finding {
 		params:      toSet(handling.Params),
 	}
 	c.checkParams(dag.ParamDefs)
-	if !handling.Precondition && slices.ContainsFunc(dag.Preconditions, runsCommand) {
+	if len(handling.Real) > 0 {
+		c.checkSecrets(dag, toSet(handling.Secrets))
+	}
+	if !handling.Precondition && slices.ContainsFunc(dag.Preconditions, (*ir.Condition).RunsCommand) {
 		c.add("precondition", "command check or substituting eval runs a command; set precondition in the case")
 	}
 	for _, step := range dag.Steps {
@@ -124,6 +131,27 @@ func (c *checker) checkParams(defs []ir.ParamDef) {
 			continue
 		}
 		c.add("param "+def.Name, "eval runs a command; give it a value under params")
+	}
+}
+
+// checkSecrets reports each DAG secret and SSH credential ref without a
+// value, since a real step may read any of them. Refs come in lexicographic
+// order.
+func (c *checker) checkSecrets(dag *ir.DAG, values map[string]struct{}) {
+	for _, secret := range dag.Secrets {
+		if _, ok := values[secret.Name]; !ok {
+			c.add("secret "+secret.Name, "a real step may read it; give it a value under secrets")
+		}
+	}
+	refs := make([]string, 0, len(dag.CredentialRefs))
+	for _, ref := range dag.CredentialRefs {
+		refs = append(refs, ref.Ref)
+	}
+	slices.Sort(refs)
+	for _, ref := range slices.Compact(refs) {
+		if _, ok := values[ref]; !ok {
+			c.add("secret "+ref, "a real step may read this SSH credential; give it a value under secrets")
+		}
 	}
 }
 
@@ -253,10 +281,10 @@ func ownOffenses(step ir.Step, mock MockFields, replaced, real bool) []offense {
 	if step.HumanTask == nil && step.Foreach == nil && !sideEffectFree(step) && runsUnnamed {
 		add(sourceAction, describeAction(step), "has side effects", fixMockOrReal)
 	}
-	if !real && !mock.Precondition && slices.ContainsFunc(step.Preconditions, runsCommand) {
+	if !real && !mock.Precondition && slices.ContainsFunc(step.Preconditions, (*ir.Condition).RunsCommand) {
 		add(sourcePrecondition, "precondition", "runs a command", "set precondition in its mock or list it under real")
 	}
-	if !real && runsCommand(step.RepeatPolicy.Condition) && !scriptsEveryCondition(mock) {
+	if !real && step.RepeatPolicy.Condition.RunsCommand() && !scriptsEveryCondition(mock) {
 		add(sourceRepeatCondition, "repeat condition", "runs a command",
 			"set condition in every result of its mock or list it under real")
 	}
@@ -284,18 +312,6 @@ func sideEffectFree(step ir.Step) bool {
 	default:
 		return registry.ExecutorCapabilitiesFor(step.ExecutorConfig.Type).SideEffectFree
 	}
-}
-
-// runsCommand reports whether a condition is a command check (Spec 023) or
-// an eval with command substitution.
-func runsCommand(cond *ir.Condition) bool {
-	if cond == nil {
-		return false
-	}
-	if cond.Eval != "" {
-		return hasCommandSubstitution(cond.Eval)
-	}
-	return len(cond.ExpectedPatterns()) == 0
 }
 
 // hasCommandSubstitution reports whether an eval holds backtick or $()

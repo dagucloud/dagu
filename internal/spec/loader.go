@@ -126,6 +126,15 @@ func DeferParamEvals() LoadOption {
 	}
 }
 
+// DeferAllParamEvals makes every param's eval wait for the run, as
+// DeferParamEvals does, also when a map-form worker_selector reads a value.
+// The selector then stays as written, so the load runs no eval command.
+func DeferAllParamEvals() LoadOption {
+	return func(o *buildOpts) {
+		o.Flags |= buildFlagDeferParamEval | buildFlagDeferAllParamEvals | buildFlagDeferWorkerSelector
+	}
+}
+
 // OnlyMetadata sets the flag to load only metadata.
 func OnlyMetadata() LoadOption {
 	return func(o *buildOpts) {

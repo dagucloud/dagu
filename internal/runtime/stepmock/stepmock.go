@@ -36,16 +36,31 @@ type Result struct {
 	// (Spec 012) publishes any value as its JSON text. Any other output
 	// publishes a string as written and any other value as its JSON text.
 	Outputs map[string]any
+	// Condition is whether the step's repeat condition, when it runs a
+	// command, is met after this execution. Nil leaves it to run.
+	Condition *bool
 }
 
-// Step scripts one mocked step: the results of its action, and how its wait
-// for a person is settled.
+// Step scripts one step of a workflow test: its action, the conditions that
+// would run a command, and how its wait for a person is settled.
 type Step struct {
 	// Results holds one result for each execution of the action: the first
 	// attempt, each retry, and each repeat iteration. After the last result,
-	// the last one repeats. With no results, every execution succeeds with no
-	// output.
+	// the last one repeats, except on a step that repeats without a limit,
+	// which then stops. With no results, every execution succeeds with no
+	// output, unless the step keeps its action.
 	Results []Result
+	// Precondition is whether the step's preconditions that run a command
+	// are met, for each start of the step, whether or not its action is
+	// replaced. Nil leaves them to run.
+	Precondition *bool
+	// KeepAction runs the step's own action when it has no Results. Results
+	// always replace the action, since each execution takes its repeat
+	// condition from its result.
+	KeepAction bool
+	// Real marks a step that the test runs for real. It keeps its action as
+	// KeepAction does, and repeats as written when it has no repeat limit.
+	Real bool
 	// Review settles each wait of the step for a person. Nil approves each
 	// wait with no values. A Set does not read it; the caller that settles
 	// the run's waits does.
@@ -62,29 +77,84 @@ type Review struct {
 	Values map[string]any
 }
 
-// Set replaces the actions of the steps it holds with their scripted
-// results. A step's next result depends on its earlier executions, so a Set
-// serves a single run.
+// Set scripts the steps it holds in place of their actions and of the
+// conditions that would run a command. A step that is not in the set runs
+// its own action and must not repeat without a limit. A step's next result
+// depends on its earlier executions, so a Set serves a single run.
 type Set struct {
-	steps map[string]*script
+	steps           map[string]*script
+	dagPrecondition *bool
 }
 
-var _ runtime.ExecutorOverride = (*Set)(nil)
+var (
+	_ runtime.ExecutorOverride  = (*Set)(nil)
+	_ runtime.ConditionOverride = (*Set)(nil)
+)
 
 // New returns a Set holding the given steps, keyed by step name.
 func New(steps map[string]Step) *Set {
 	set := &Set{steps: make(map[string]*script, len(steps))}
 	for name, step := range steps {
-		set.steps[name] = &script{results: slices.Clone(step.Results)}
+		step.Results = slices.Clone(step.Results)
+		set.steps[name] = newScript(step)
 	}
 	return set
 }
 
-// Executor returns an executor that runs the step's next result, or false
-// when the step is not in the set.
-func (s *Set) Executor(_ context.Context, step ir.Step) (executor.Executor, bool) {
+// SetDAGPrecondition scripts whether the DAG-level preconditions that run a
+// command are met. It must be called before the run starts.
+func (s *Set) SetDAGPrecondition(met bool) {
+	s.dagPrecondition = &met
+}
+
+// DAGPrecondition returns what SetDAGPrecondition scripts, or nil.
+func (s *Set) DAGPrecondition() *bool {
+	return s.dagPrecondition
+}
+
+// Precondition returns the step's Precondition.
+func (s *Set) Precondition(step ir.Step) *bool {
 	script, ok := s.steps[step.Name]
 	if !ok {
+		return nil
+	}
+	return script.step.Precondition
+}
+
+// RepeatCondition returns the Condition of the result that the step's
+// latest execution took, or of its first result before any. A step whose
+// action the set does not replace scripts none.
+func (s *Set) RepeatCondition(step ir.Step) *bool {
+	script, ok := s.steps[step.Name]
+	if !ok || !script.replaces() {
+		return nil
+	}
+	return script.latest().Condition
+}
+
+// ContinuousLimit bounds a step that repeats without a limit. A step whose
+// action the set replaces stops after one execution for each result, or
+// after one when it has no results. A Real step repeats as written. Any
+// other step gets no execution.
+func (s *Set) ContinuousLimit(step ir.Step) (limit int, ok bool) {
+	script, ok := s.steps[step.Name]
+	switch {
+	case !ok:
+		return 0, true
+	case script.replaces():
+		return max(1, len(script.step.Results)), true
+	case script.step.Real:
+		return 0, false
+	default:
+		return 0, true
+	}
+}
+
+// Executor returns an executor that runs the step's next result, or false
+// when the set does not replace the step's action.
+func (s *Set) Executor(_ context.Context, step ir.Step) (executor.Executor, bool) {
+	script, ok := s.steps[step.Name]
+	if !ok || !script.replaces() {
 		return nil, false
 	}
 	return &mockExecutor{
@@ -94,12 +164,27 @@ func (s *Set) Executor(_ context.Context, step ir.Step) (executor.Executor, bool
 	}, true
 }
 
-// script holds the results of one mocked step and how many executions took
-// one.
+// script holds one scripted step and how many executions took a result.
 type script struct {
+	step Step
+
 	mu         sync.Mutex
-	results    []Result
 	executions int
+	// last is the result the latest execution took.
+	last Result
+}
+
+func newScript(step Step) *script {
+	s := &script{step: step}
+	if len(step.Results) > 0 {
+		s.last = step.Results[0]
+	}
+	return s
+}
+
+// replaces reports whether the step's results run in place of its action.
+func (s *script) replaces() bool {
+	return len(s.step.Results) > 0 || !s.step.KeepAction && !s.step.Real
 }
 
 // next returns the result of the next execution.
@@ -107,12 +192,22 @@ func (s *script) next() Result {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	results := s.step.Results
 	var result Result
-	if len(s.results) > 0 {
-		result = s.results[min(s.executions, len(s.results)-1)]
+	if len(results) > 0 {
+		result = results[min(s.executions, len(results)-1)]
 	}
 	s.executions++
+	s.last = result
 	return result
+}
+
+// latest returns the result the latest execution took, or the first result
+// before any execution.
+func (s *script) latest() Result {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.last
 }
 
 // mockExecutor runs one execution of a mocked step. It starts no process and

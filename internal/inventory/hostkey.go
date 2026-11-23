@@ -32,6 +32,9 @@ type HostKeyStore interface {
 	// ErrTrustedHostKeyChanged, so a key is replaced only by a caller that
 	// saw it. by names the user who trusts the key.
 	Trust(ctx context.Context, node string, key ssh.PublicKey, by, replacing string) (TrustedHostKey, error)
+	// Forget removes the key trusted for node. A node with none is not an
+	// error.
+	Forget(ctx context.Context, node string) error
 }
 
 // TrustedHostKey is a host key a user trusted for a node, which a connection

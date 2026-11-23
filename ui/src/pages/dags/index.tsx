@@ -1007,24 +1007,20 @@ function DAGsContent() {
     viewId: string,
     name: string
   ): Promise<void> => {
-    const view = scopedWorkflowViews.find((item) => item.id === viewId);
-    if (!view) {
-      return;
-    }
-    // The saved filters stay as they are: a rename does not save the edits.
-    const saved = workflowViews.find((item) => item.id === viewId);
-    if (!saved) {
+    const target = scopedWorkflowViews.find((view) => view.id === viewId);
+    if (!target) {
       return;
     }
     setWorkflowViewError(null);
     try {
+      // The saved filters stay as they are: a rename does not save the edits.
       await updateView(
-        viewId,
+        target.id,
         buildWorkflowViewSpec(
           name,
-          cloneFilters(saved.filters),
-          view.isDefault ?? false,
-          view.pinned ?? false
+          workflowFilterViewFromView(target).filters,
+          target.isDefault ?? false,
+          target.pinned ?? false
         )
       );
     } catch (error) {

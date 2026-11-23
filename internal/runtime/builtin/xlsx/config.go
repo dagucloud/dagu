@@ -49,6 +49,7 @@ type config struct {
 	DryRun        bool              `mapstructure:"dry_run"`
 	WaitForUnlock string            `mapstructure:"wait_for_unlock"`
 	Key           string            `mapstructure:"key"`
+	KeyField      string            `mapstructure:"key_field"`
 	Set           map[string]any    `mapstructure:"set"`
 	Missing       string            `mapstructure:"missing"`
 	Artifact      bool              `mapstructure:"artifact"`
@@ -175,7 +176,7 @@ var fieldsByOperation = map[string][]string{
 		"mode", "style", "types", "formats", "atomic", "dry_run", "wait_for_unlock", "artifact"},
 	opAppend: {"path", "password", "sheet", "rows", "input", "format", "encoding", "delimiter", "columns", "header",
 		"types", "formats", "output", "atomic", "dry_run", "wait_for_unlock", "artifact"},
-	opUpdateRows: {"path", "password", "sheet", "header", "rows", "key", "set", "missing", "output", "atomic",
+	opUpdateRows: {"path", "password", "sheet", "header", "rows", "key", "key_field", "set", "missing", "output", "atomic",
 		"dry_run", "wait_for_unlock", "artifact"},
 	opValidate: {"path", "password", "sheet", "range", "header", "columns", "merged", "skip_hidden", "trim", "formulas",
 		"required", "not_blank", "unique", "types", "allowed", "on_problem", "max_problems"},
@@ -472,6 +473,14 @@ func validateWriterConfig(operation string, cfg *config) error {
 		if !cfg.present["rows"] {
 			return fmt.Errorf("%w: update_rows requires with.rows", errConfig)
 		}
+		if cfg.provided("key_field") {
+			if strings.TrimSpace(cfg.KeyField) == "" {
+				return fmt.Errorf("%w: key_field must not be blank", errConfig)
+			}
+			if strings.TrimSpace(cfg.Key) == workbook.RowNumberKey {
+				return fmt.Errorf("%w: key_field needs a key column; key: _row always uses _row", errConfig)
+			}
+		}
 		if cfg.header.Mode == workbook.HeaderNone {
 			return fmt.Errorf("%w: update_rows needs a header row; header: false is not supported", errConfig)
 		}
@@ -751,6 +760,7 @@ func (cfg config) updateOptions(rows []workbook.Row, output string, log func(str
 		Sheet:    cfg.Sheet,
 		Header:   cfg.header,
 		Key:      strings.TrimSpace(cfg.Key),
+		KeyField: strings.TrimSpace(cfg.KeyField),
 		Rows:     rows,
 		Set:      cfg.set,
 		Missing:  workbook.MissingMode(cfg.Missing),
@@ -808,8 +818,9 @@ var configSchema = &jsonschema.Schema{
 			"Retries start at two seconds and double to one minute. Without it a locked workbook fails at once."},
 		"key": {Type: "string", Description: "Column that identifies a row for xlsx.update_rows, or _row to address rows by the _row each row carries. " +
 			"A key column that is no longer in the header row fails the step before any cell changes."},
+		"key_field": {Type: "string", Description: "Input field carrying the worksheet key for xlsx.update_rows; defaults to key. Not valid with key: _row."},
 		"set": {Type: "object", Description: "Columns to write for xlsx.update_rows: {Status: status} takes the status field of each row, " +
-			"{Reviewed: {value: yes}} writes one literal to every row; a literal that is text in the canonical form of a number is written as a number unless type: string pins it. Omitted: every field other than the key and _row goes to the column of the same name. " +
+			"{Reviewed: {value: yes}} writes one literal to every row; a literal that is text in the canonical form of a number is written as a number unless type: string pins it. Omitted: every field other than the key, key_field, and _row goes to the column of the same name. " +
 			"A column missing from the header is added at the right."},
 		"missing": {Type: "string", Enum: []any{"fail", "skip", "append"},
 			Description: "What xlsx.update_rows does with a row whose key is not in the sheet: fail (default), skip it with a warning, or append it below the last row."},

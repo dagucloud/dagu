@@ -1,0 +1,272 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "description": "Schema for Dagu workflow test files (*.test.yaml, *.test.yml). Each case runs the tested DAG once, with step actions replaced by mocks, and dagu test checks its assertions. dagu test stays the authority: a file this schema accepts can still be invalid, such as one that mocks a step the DAG lacks.",
+  "additionalProperties": false,
+  "required": ["cases"],
+  "properties": {
+    "dag": {
+      "type": "string",
+      "description": "Path of the tested DAG file. A relative path resolves against the directory that holds the test file. Defaults to the DAG file beside the test file: release.test.yaml tests release.yaml, or release.yml when there is no release.yaml."
+    },
+    "params": {
+      "$ref": "#/definitions/scalars",
+      "description": "Run parameters for every case, by name. Each entry is one name=value assignment, as dagu start -- name=value takes it. A param given a value does not run its params[].eval."
+    },
+    "env": {
+      "$ref": "#/definitions/scalars",
+      "description": "DAG-level env entries for every case, by name. Each value is used literally. It replaces the DAG's entry of the same name, or follows the DAG's last entry."
+    },
+    "secrets": {
+      "$ref": "#/definitions/scalars",
+      "description": "Values for the DAG's secrets entries, by name, and for SSH credential refs, by ref. Needed only in a case with a real step. Otherwise each secret resolves to the placeholder <secret:NAME>."
+    },
+    "mocks": {
+      "$ref": "#/definitions/mocks",
+      "description": "Mocks for every case, by step key. A case's mock of a step replaces the file's mock of that step as a whole."
+    },
+    "default_mock": {
+      "$ref": "#/definitions/mock",
+      "description": "A mock for every step and handler that needs handling under the fail-closed rule and that mocks and real do not name. Its fields apply only where they handle a source. It must not set outputs."
+    },
+    "real": {
+      "$ref": "#/definitions/stepKeys",
+      "description": "Step keys of the steps that run their real action in every case. Only a step listed here runs an action that is not side-effect free."
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/definitions/case" },
+      "description": "The cases, each one run of the tested DAG. They run one at a time, in file order."
+    }
+  },
+  "definitions": {
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "expect"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the case, unique inside the file. dagu test --run selects cases by it."
+        },
+        "params": {
+          "$ref": "#/definitions/scalars",
+          "description": "Run parameters merged over the file's params, by name."
+        },
+        "env": {
+          "$ref": "#/definitions/scalars",
+          "description": "DAG-level env entries merged over the file's env, by name."
+        },
+        "scheduled_at": {
+          "type": "string",
+          "description": "Schedule slot of the run, in a form dagu dry --scheduled-at takes. The run gets the schedule time and window of that slot."
+        },
+        "trigger": {
+          "type": "string",
+          "enum": ["manual", "scheduler", "webhook", "retry", "catchup", "restart", "backfill", "file"],
+          "description": "context.trigger.type of the run. Defaults to manual. It changes nothing else: retry retries no run, and backfill starts no backfill."
+        },
+        "precondition": {
+          "$ref": "#/definitions/met",
+          "description": "Outcome of the DAG-level preconditions that run a command: a command check, or an eval with command substitution. not_met aborts the run before any step starts."
+        },
+        "mocks": {
+          "$ref": "#/definitions/mocks",
+          "description": "Mocks by step key. Each replaces the file's mock of the step it names as a whole."
+        },
+        "default_mock": {
+          "$ref": "#/definitions/mock",
+          "description": "Replaces the file's default_mock as a whole. It must not set outputs."
+        },
+        "real": {
+          "$ref": "#/definitions/stepKeys",
+          "description": "Step keys added to the file's real."
+        },
+        "expect": { "$ref": "#/definitions/expect" }
+      }
+    },
+    "scalars": {
+      "type": "object",
+      "description": "Values by name. Each value is a scalar, used as its text as written.",
+      "additionalProperties": { "type": ["string", "number", "boolean", "null"] }
+    },
+    "stepKeys": {
+      "type": "array",
+      "description": "Step keys: a step's name or id, or handler_on.<event> for a lifecycle handler (init, success, failure, abort, exit, or wait).",
+      "items": { "type": "string" }
+    },
+    "met": {
+      "type": "string",
+      "enum": ["met", "not_met"]
+    },
+    "mocks": {
+      "type": "object",
+      "description": "Mocks by step key: a step's name or id, or handler_on.<event> for a lifecycle handler (init, success, failure, abort, exit, or wait).",
+      "additionalProperties": { "$ref": "#/definitions/mock" }
+    },
+    "mock": {
+      "type": "object",
+      "description": "Result fields script what the action returns, once per execution. Step fields (precondition, review) script what happens around the action, once for the step. {} replaces an action that is not side-effect free with exit code 0 and no output.",
+      "additionalProperties": false,
+      "properties": {
+        "exit_code": { "$ref": "#/definitions/result/properties/exit_code" },
+        "stdout": { "$ref": "#/definitions/result/properties/stdout" },
+        "stderr": { "$ref": "#/definitions/result/properties/stderr" },
+        "outputs": { "$ref": "#/definitions/result/properties/outputs" },
+        "condition": { "$ref": "#/definitions/result/properties/condition" },
+        "results": {
+          "type": "array",
+          "description": "One result per execution: the first attempt takes the first, and each retry and repeat iteration takes the next. After the last, each later execution takes the last again. Must not be empty, and excludes the inline result fields.",
+          "items": { "$ref": "#/definitions/result" }
+        },
+        "precondition": {
+          "$ref": "#/definitions/met",
+          "description": "Outcome of the step's preconditions that run a command, after negate applies, decided once per step start. not_met skips the step."
+        },
+        "review": { "$ref": "#/definitions/review" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "description": "What one execution of the replaced action returns. A field left out takes its default.",
+      "additionalProperties": false,
+      "properties": {
+        "exit_code": {
+          "type": "integer",
+          "description": "Exit code of the execution. Defaults to 0. A non-zero code fails the attempt."
+        },
+        "stdout": {
+          "type": "string",
+          "description": "Written to the step's stdout exactly as given. Defaults to empty."
+        },
+        "stderr": {
+          "type": "string",
+          "description": "Written to the step's stderr exactly as given. Defaults to empty."
+        },
+        "outputs": {
+          "type": "object",
+          "description": "Named outputs the execution publishes when its exit code is 0, by name. A successful result under mocks sets every known output of the step and no other name."
+        },
+        "condition": {
+          "$ref": "#/definitions/met",
+          "description": "Outcome of the step's command-check repeat_policy.condition after this execution, read as Spec 075 reads met and not_met for while and until."
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "description": "Decision for each wait of a human.task step or an approval gate. A wait that needs no values is approved automatically without it.",
+      "additionalProperties": false,
+      "required": ["decision"],
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": ["approve", "reject"],
+          "description": "How each wait of the step is settled. A human.task cannot be rejected."
+        },
+        "values": {
+          "type": "object",
+          "description": "Completion input of a human.task, typed as --inputs-json types it, or the inputs of an approval gate, each a scalar given as its text."
+        }
+      }
+    },
+    "expect": {
+      "type": "object",
+      "description": "Assertions. Holds at least one of status, attempts, a steps entry, or notifications.",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["succeeded", "failed", "aborted", "partially_succeeded", "rejected"],
+          "description": "Run status."
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Run attempts, counting the retries of a DAG-level retry_policy."
+        },
+        "steps": {
+          "type": "object",
+          "description": "Assertions by step key. A step without an entry is not checked.",
+          "additionalProperties": { "$ref": "#/definitions/stepExpect" }
+        },
+        "notifications": {
+          "type": "array",
+          "description": "The notifications the run would have sent, compared without regard to order. [] asserts that none would be sent.",
+          "items": { "$ref": "#/definitions/notification" }
+        }
+      }
+    },
+    "stepExpect": {
+      "description": "A status token, or a map with one or more assertions.",
+      "anyOf": [
+        { "$ref": "#/definitions/nodeStatus" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "status": { "$ref": "#/definitions/nodeStatus" },
+            "attempts": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Executions of the step's action in every run attempt, counting retries and repeat iterations."
+            },
+            "outputs": {
+              "type": "object",
+              "description": "Expected named outputs, by name. A string matches a text output exactly. Any other value, and any value for a type: json output, matches by JSON: an object matches when every key it lists matches, recursively."
+            },
+            "stdout": {
+              "$ref": "#/definitions/stream",
+              "description": "Assertions on the stdout of the step's last execution."
+            },
+            "stderr": {
+              "$ref": "#/definitions/stream",
+              "description": "Assertions on the stderr of the step's last execution."
+            }
+          }
+        }
+      ]
+    },
+    "nodeStatus": {
+      "type": "string",
+      "enum": ["succeeded", "failed", "aborted", "partially_succeeded", "rejected", "skipped", "not_started"],
+      "description": "Step status. A step or handler that never started is not_started."
+    },
+    "stream": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contains": {
+          "type": "string",
+          "description": "Text the stream contains."
+        },
+        "matches": {
+          "type": "string",
+          "description": "An RE2 regular expression that matches somewhere in the stream."
+        }
+      }
+    },
+    "notification": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["mail_on.failure", "mail_on.success", "mail_on.wait", "mail_on_error"],
+          "description": "Kind of the notification."
+        },
+        "step": {
+          "type": "string",
+          "description": "Step key of the step whose mail_on_error sends it. Valid only with kind mail_on_error."
+        },
+        "to": {
+          "type": "array",
+          "description": "Recipients, compared as a set. Left out, any recipients match.",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

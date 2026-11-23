@@ -773,7 +773,7 @@ steps:
 
 // A map-form worker selector resolves as the DAG loads and routes the run,
 // so a load that defers evals still evaluates them when the selector reads
-// a value.
+// a value, unless it defers all of them and leaves the selector unresolved.
 func TestInlineParamDefs_WorkerSelectorKeepsEvalsAtLoad(t *testing.T) {
 	t.Parallel()
 
@@ -791,4 +791,10 @@ params:
 	assert.Equal(t, []string{"region=us-east-1"}, dag.Params)
 	assert.Empty(t, dag.DeferredParams)
 	assert.Equal(t, map[string]string{"region": "us-east-1"}, dag.WorkerSelector)
+
+	// DeferAllParamEvals keeps the eval waiting and the selector as written.
+	dag, err = LoadYAML(context.Background(), yaml, WithParams(""), DeferAllParamEvals())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"region"}, dag.DeferredParams)
+	assert.Equal(t, map[string]string{"region": "${params.region}"}, dag.WorkerSelector)
 }

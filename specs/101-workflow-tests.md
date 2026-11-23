@@ -419,7 +419,9 @@ runtime outputs.
 
 Rules:
 
-- `outputs` on a step without `id` makes the case invalid.
+- `outputs` on a step without `id` makes the case invalid. A mock of such a
+  step sets no `outputs`, so the rule below that a result sets every known
+  output applies only to a step with `id`.
 - On a step without runtime outputs, a result of a mock under `mocks` with
   exit code 0 sets every known output and no other name. When the step has
   no known outputs, the result sets no `outputs`.
@@ -493,9 +495,11 @@ Rules:
   - On a step whose action is not side-effect free, it replaces the action
     as `{}` does, with its result fields when it sets any.
   - On a step with a side-effect-free action, it replaces the action only
-    when it sets a result field and the action is a source: a continuous
-    step, or an object-form `output` entry with `from: file`. Otherwise the
-    real action runs, as under `{}`.
+    when it sets a result field and the step has a source that a replaced
+    action handles: a continuous step, an object-form `output` entry with
+    `from: file`, or a command-check repeat condition that its results
+    script with `condition` (see [Repeat Conditions](#repeat-conditions)).
+    Otherwise the real action runs, as under `{}`.
   - `precondition` applies to a step with a command-check or substituting
     `eval` precondition. `condition` in its results applies to a step with a
     command-check repeat condition. `review` applies to a waiting step whose
@@ -697,6 +701,9 @@ Rules:
 - The final check that `on_limit: fail` makes at `limit` takes the
   `condition` of the last execution's result.
 - The command-check repeat condition of a real step runs as in a real run.
+- A mock whose results set `condition` replaces the step's action, also on
+  a step with a side-effect-free action and under the default mock, since
+  each execution takes its `condition` from the result it used.
 
 ### Continuous Steps
 

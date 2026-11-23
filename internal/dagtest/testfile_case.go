@@ -69,9 +69,10 @@ type keyedMock struct {
 
 func buildCase(dag *ir.DAG, steps *stepIndex, file fileSpec, cs caseSpec) Case {
 	b := &caseBuilder{dag: dag, steps: steps}
+	params := mergeEntries(file.params, cs.params)
 	c := Case{
 		Name:         cs.name,
-		Params:       assignments(mergeEntries(file.params, cs.params)),
+		Params:       assignments(params),
 		Env:          assignments(mergeEntries(file.env, cs.env)),
 		Secrets:      make(map[string]string, len(file.secrets)),
 		ScheduledAt:  cs.scheduledAt,
@@ -92,11 +93,18 @@ func buildCase(dag *ir.DAG, steps *stepIndex, file fileSpec, cs caseSpec) Case {
 		c.setScript(m.target, b.mockScript(m, slices.Contains(real, m.target)))
 	}
 	c.Expect = b.expect(cs.expect)
+	findings := b.validate(&c, caseSources{
+		file:        file,
+		params:      params,
+		mocks:       mocks,
+		real:        real,
+		defaultMock: cmp.Or(cs.defaultMock, file.defaultMock),
+	})
 
 	slices.SortFunc(b.errs, func(x, y Finding) int {
 		return cmp.Or(cmp.Compare(x.Source, y.Source), cmp.Compare(x.Message, y.Message))
 	})
-	c.Errors = slices.Compact(b.errs)
+	c.Errors = append(slices.Compact(b.errs), findings...)
 	return c
 }
 
@@ -210,6 +218,7 @@ func (b *caseBuilder) mergeReal(file, own []string) []*stepTarget {
 				b.fail(label, "%q names the same step as %s", key, seen[t])
 				continue
 			}
+			b.checkReal(label, key, t)
 			seen[t] = label
 			merged = append(merged, t)
 		}
@@ -260,6 +269,7 @@ func (b *caseBuilder) mockScript(m keyedMock, real bool) Script {
 	if s.ReplacesAction {
 		s.Results = resultsOf(results)
 	}
+	b.checkMock(label, step, m.mock, results, real)
 	return s
 }
 
@@ -301,6 +311,7 @@ func (b *caseBuilder) review(label string, step *ir.Step, r *reviewSpec) *Review
 			review.Values[v.name] = v.text
 		}
 	}
+	b.checkReview(label, step, r, review)
 	return review
 }
 
@@ -362,6 +373,7 @@ func (b *caseBuilder) stepExpect(label string, t *stepTarget, s stepExpectSpec) 
 	if t.handler == "" {
 		out.Step = t.step.Name
 	}
+	b.checkOutputAssertions(label, *t.step, s.outputs)
 	return out
 }
 

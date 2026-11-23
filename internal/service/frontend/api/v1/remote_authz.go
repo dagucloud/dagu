@@ -234,6 +234,11 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"ListInventories":              remoteNodeAccessDenied,
 	"GetInventory":                 remoteNodeAccessDenied,
 	"ImportInventories":            remoteNodeAccessDenied,
+	"CreateInventory":              remoteNodeAccessDenied,
+	"ReplaceInventory":             remoteNodeAccessDenied,
+	"DeleteInventory":              remoteNodeAccessDenied,
+	"PutInventoryNode":             remoteNodeAccessDenied,
+	"DeleteInventoryNode":          remoteNodeAccessDenied,
 	"TestInventoryNodeConnections": remoteNodeAccessDenied,
 	"TrustInventoryNodeHostKeys":   remoteNodeAccessDenied,
 }

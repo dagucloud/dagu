@@ -375,6 +375,7 @@ func TestNodeSteps_StartReadsInventory(t *testing.T) {
 	inventories, err := store.NewInventoryStore(
 		backend.Collection(persis.CollectionInventories),
 		backend.Lock(persis.CollectionInventories),
+		nil,
 	)
 	require.NoError(t, err)
 	web01, server := sshNode(t, "web01")

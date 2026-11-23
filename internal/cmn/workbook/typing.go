@@ -127,20 +127,17 @@ func (w *file) cellValue(sheet string, col, row int, raw string, opts ReadOption
 		if formula == "" {
 			return nil, nil
 		}
-		calculated, err := w.f.CalcCellValue(sheet, cell, rawValues)
-		if err != nil {
-			warn(fmt.Sprintf("%s!%s: formula %s could not be evaluated: %v", sheet, cell, formula, err))
-			return nil, nil
-		}
-		warn(fmt.Sprintf("%s!%s: formula had no cached value; evaluated", sheet, cell))
+		calculated := w.uncachedFormulaValue(sheet, cell, formula, opts.uncached, warn)
 		if calculated == "" {
 			return nil, nil
 		}
-		if excelErrors[calculated] {
-			warn(fmt.Sprintf("%s!%s: formula evaluated to %s", sheet, cell, calculated))
-			return nil, nil
+		switch calculated {
+		case "TRUE":
+			return true, nil
+		case "FALSE":
+			return false, nil
 		}
-		if f, err := strconv.ParseFloat(calculated, 64); err == nil {
+		if f, ok := calculatedNumber(calculated); ok {
 			return w.numericValue(sheet, cell, f), nil
 		}
 		return w.text(calculated, opts), nil
@@ -181,6 +178,87 @@ func (w *file) cellValue(sheet string, col, row int, raw string, opts ReadOption
 	default:
 		return w.text(raw, opts), nil
 	}
+}
+
+// uncachedFormulaValue resolves a missing cache for both data and headers. Keep
+// the raw result here: header names do not apply a cell's numeric/date style.
+func (w *file) uncachedFormulaValue(sheet, cell, formula string, u *uncachedWarnings, warn func(string)) string {
+	calculated, err := w.f.CalcCellValue(sheet, cell, rawValues)
+	if err != nil {
+		u.fail(fmt.Sprintf("%s!%s: formula %s could not be evaluated: %v", sheet, cell, formula, err), warn)
+		return ""
+	}
+	u.evaluate(sheet+"!"+cell, warn)
+	if excelErrors[calculated] {
+		u.fail(fmt.Sprintf("%s!%s: formula evaluated to %s", sheet, cell, calculated), warn)
+		return ""
+	}
+	return calculated
+}
+
+// uncachedWarnings bounds what one read says about the formulas it
+// evaluated for want of a cached value, which would otherwise be a warning
+// per formula cell. A nil collector passes each warning on as it comes.
+type uncachedWarnings struct {
+	cells    []string
+	count    int
+	failures []string
+	failed   int
+}
+
+func (u *uncachedWarnings) evaluate(cell string, warn func(string)) {
+	if u == nil {
+		warn(cell + ": formula had no cached value; evaluated")
+		return
+	}
+	u.count++
+	if len(u.cells) < maxStaleCells {
+		u.cells = append(u.cells, cell)
+	}
+}
+
+func (u *uncachedWarnings) fail(msg string, warn func(string)) {
+	if u == nil {
+		warn(msg)
+		return
+	}
+	u.failed++
+	if len(u.failures) < maxStaleCells {
+		u.failures = append(u.failures, msg)
+	}
+}
+
+// report adds one warning naming the first evaluated cells, then the first
+// failures and a count of the rest.
+func (u *uncachedWarnings) report(warn func(string)) {
+	if u == nil {
+		return
+	}
+	if u.count > 0 {
+		names := strings.Join(u.cells, ", ")
+		if more := u.count - len(u.cells); more > 0 {
+			names += fmt.Sprintf(" and %d more cells", more)
+		}
+		warn(names + ": formula had no cached value; evaluated")
+	}
+	for _, msg := range u.failures {
+		warn(msg)
+	}
+	if more := u.failed - len(u.failures); more > 0 {
+		warn(fmt.Sprintf("%d more formulas could not be evaluated", more))
+	}
+}
+
+// calculatedNumber reports whether a CalcCellValue result came from a number.
+// The API returns only a string, but Excelize renders numbers in one of two
+// canonical forms (calc.go, CalcCellValue), so text such as "001" or "1e3"
+// that merely parses as a number stays text.
+func calculatedNumber(s string) (float64, bool) {
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, false
+	}
+	return f, s == strconv.FormatFloat(f, 'f', -1, 64) || s == strings.ToUpper(strconv.FormatFloat(f, 'G', 15, 64))
 }
 
 // numericValue applies the cell's number format: dates become ISO strings,

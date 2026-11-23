@@ -324,6 +324,28 @@ func TestCheckFailClosed(t *testing.T) {
 			},
 		},
 		{
+			// A real step may read any secret, so each needs a value. Refs
+			// follow the secrets, in lexicographic order.
+			name: "SecretsWithRealStep",
+			dag:  "secrets.yaml",
+			handling: dagtest.Handling{
+				Real:    []string{"remote"},
+				Secrets: []string{"DB_PASSWORD"},
+			},
+			want: []string{
+				"secret API_TOKEN: a real step may read it; give it a value under secrets",
+				"secret ssh/deploy-key: a real step may read this SSH credential; give it a value under secrets",
+				"secret ssh/password: a real step may read this SSH credential; give it a value under secrets",
+			},
+		},
+		{
+			name: "SecretsWithoutRealStep",
+			dag:  "secrets.yaml",
+			handling: dagtest.Handling{
+				Mocks: map[string]dagtest.MockFields{"remote": {}},
+			},
+		},
+		{
 			name: "BaseConfigHandler",
 			dag:  "base_handler/dag.yaml",
 			base: "base_handler/base.yaml",
@@ -453,12 +475,12 @@ func TestCheckFailClosed(t *testing.T) {
 	}
 }
 
-// loadDAG loads a DAG from testdata as dagu loads it, without running the
-// eval of any param.
+// loadDAG loads a DAG from testdata as LoadFile loads it, without running
+// the eval of any param.
 func loadDAG(t *testing.T, name, base string) *ir.DAG {
 	t.Helper()
 
-	opts := []spec.LoadOption{spec.DeferParamEvals()}
+	opts := []spec.LoadOption{spec.DeferAllParamEvals()}
 	if base != "" {
 		opts = append(opts, spec.WithBaseConfig(filepath.Join("testdata", base)))
 	}

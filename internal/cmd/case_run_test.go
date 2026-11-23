@@ -866,6 +866,121 @@ steps:
 	})
 }
 
+// A failed run with a DAG-level retry left is retried at once under the same
+// run ID, as the scheduler retries it. The mocked step takes its next result
+// in the retry, and the step the first attempt left not started sees the
+// retry's trigger type. The failure handler waits for the last attempt, so
+// it never runs.
+func TestCaseRunRetry(t *testing.T) {
+	t.Parallel()
+
+	const interval = time.Hour
+	start := time.Now()
+	tc, status, err := runCase(t, fmt.Sprintf(`
+retry_policy:
+  limit: 2
+  interval_sec: %d
+handler_on:
+  failure:
+    run: echo failure
+    stdout: failure.txt
+steps:
+  - name: sync
+    run: ./sync.sh
+  - name: report
+    depends: sync
+    run: echo ${context.trigger.type}
+`, int(interval.Seconds())), caseOptions{
+		trigger: ir.TriggerTypeScheduler,
+		mocks: map[string]stepmock.Step{"sync": {Results: []stepmock.Result{
+			{ExitCode: 1, Stdout: "first\n"},
+			{Stdout: "second\n"},
+		}}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, ir.Succeeded, status.Status, status.Error)
+
+	assert.Less(t, time.Since(start), interval, "the retry waited for its interval")
+	assert.Equal(t, 2, tc.attempts)
+	assert.Equal(t, "second", readOutput(t, caseNode(t, status, "sync").Stdout))
+	assert.Equal(t, "retry", readOutput(t, caseNode(t, status, "report").Stdout))
+	assert.Empty(t, findFile(t, tc.dir, "failure.txt"), "the failure handler ran while a retry remained")
+	runs, err := tc.ctx.Persistence.DAGRunRepository.RecentStatuses(tc.ctx, status.Name, 10)
+	require.NoError(t, err)
+	assert.Len(t, runs, 1, "the retry started another run")
+}
+
+// A run that fails every attempt ends failed after limit+1 attempts. As in a
+// real run, the failure handler runs once, in the last attempt, and every
+// failed attempt sends its failure mail, so the case records each one.
+func TestCaseRunRetryExhausted(t *testing.T) {
+	t.Parallel()
+
+	tc, status, err := runCase(t, `
+retry_policy:
+  limit: 2
+  interval_sec: 300
+mail_on:
+  failure: true
+error_mail:
+  from: dagu@example.com
+  to: ops@example.com
+handler_on:
+  failure:
+    run: echo failure
+steps:
+  - name: sync
+    run: ./sync.sh
+`, caseOptions{mocks: map[string]stepmock.Step{
+		"sync":      {Results: []stepmock.Result{{ExitCode: 1}}},
+		"onFailure": {Results: []stepmock.Result{{Stdout: "first\n"}, {Stdout: "second\n"}}},
+	}})
+	require.NoError(t, err)
+	require.Equal(t, ir.Failed, status.Status)
+
+	assert.Equal(t, 3, tc.attempts)
+	require.NotNil(t, status.OnFailure)
+	assert.Equal(t, ir.NodeSucceeded, status.OnFailure.Status)
+	assert.Equal(t, "first", readOutput(t, status.OnFailure.Stdout))
+	failure := agent.Notification{Kind: agent.NotificationMailOnFailure, To: []string{"ops@example.com"}}
+	assert.Equal(t, []agent.Notification{failure, failure, failure}, tc.notifications)
+}
+
+// Retries and waits combine: the first attempt fails before the gate, the
+// retry reaches the gate and is settled, the resumed attempt fails after it,
+// and the second retry succeeds. A resume is part of the attempt it resumes,
+// so the run has three attempts.
+func TestCaseRunRetryWait(t *testing.T) {
+	t.Parallel()
+
+	failThenPass := stepmock.Step{Results: []stepmock.Result{
+		{ExitCode: 1, Stdout: "first\n"},
+		{Stdout: "second\n"},
+	}}
+	tc, status, err := runCase(t, `
+retry_policy:
+  limit: 2
+  interval_sec: 300
+steps:
+  - name: sync
+    run: ./sync.sh
+  - name: gate
+    depends: sync
+    run: echo built
+    approval:
+      prompt: Ship it?
+  - name: deploy
+    depends: gate
+    run: ./deploy.sh
+`, caseOptions{mocks: map[string]stepmock.Step{"sync": failThenPass, "deploy": failThenPass}})
+	require.NoError(t, err)
+	require.Equal(t, ir.Succeeded, status.Status, status.Error)
+
+	assert.Equal(t, 3, tc.attempts)
+	assert.Equal(t, "second", readOutput(t, caseNode(t, status, "deploy").Stdout))
+	assert.Equal(t, []string{"gate"}, tc.autoApproved)
+}
+
 // newCaseTestContext returns the context of dagu start with every configured
 // path under the returned home directory.
 func newCaseTestContext(t *testing.T) (*Context, string) {

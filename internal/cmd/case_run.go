@@ -69,6 +69,10 @@ type testCase struct {
 	// waits the case approved automatically because their mocks set no
 	// review.
 	autoApproved []string
+	// attempts counts the run attempts the case started: the first and each
+	// retry of its DAG-level retry_policy. A resume after a wait is part of
+	// the attempt it resumes.
+	attempts int
 }
 
 // openCase creates a case directory and the stores rooted in it. The case
@@ -91,12 +95,21 @@ func openCase(ctx *Context, opts caseOptions) (*testCase, error) {
 // credential ref without a test value is an error before the run starts.
 //
 // Each time the run reaches a waiting checkpoint, the case settles its
-// waiting steps one at a time through the completion path a person uses, and
-// runs each resume that a completion queues, under the same run ID:
+// waiting steps one at a time through the completion path a person uses.
+// While the run has failed and its DAG-level retry_policy has a retry left,
+// the case accepts the retry the scheduler would, at once instead of after
+// the policy's interval. It runs each resume or retry that is queued, under
+// the same run ID, and returns the last attempt's status. A settled step
+// that queues no resume leaves the next waiting step to settle. Once the
+// case's context is canceled, the case accepts no further retry, and an
+// attempt that starts after the cancellation is interrupted at once.
 //
-//	attempt --> waiting --> settle one step --> resume queued? --yes--> attempt
-//	               ^                                  |
-//	               +----------------no----------------+
+//	attempt --> status
+//	   ^          |-- waiting ------------> settle one step --+
+//	   |          |-- failed, retry left -> accept retry -----+
+//	   |          +-- otherwise ----------> return status     |
+//	   |                                                      v
+//	   +------------------ yes ------------------------ queued?
 func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 	secrets, err := caseSecrets(dag, c.opts.secrets, c.hasRealSteps())
 	if err != nil {
@@ -148,8 +161,18 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 	if err != nil {
 		return nil, errors.Join(runErr, err)
 	}
-	for status.Status == ir.Waiting {
-		if err := c.settle(dag, status); err != nil {
+	c.attempts = 1
+	for {
+		switch {
+		case status.Status == ir.Waiting:
+			err = c.settle(dag, status)
+		// A failed root run with retries left is what the scheduler retries.
+		case ctx.Err() == nil && dagrun.CanCancelFailedAutoRetryPendingRun(status):
+			err = c.acceptRetry(dag, status)
+		default:
+			return status, nil
+		}
+		if err != nil {
 			return nil, err
 		}
 		if status, err = c.latestStatus(ref); err != nil {
@@ -158,15 +181,34 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 		if status.Status != ir.Queued {
 			continue
 		}
-		resumeErr := c.runQueued(dag, status, opts)
+		queuedErr := c.runQueued(dag, status, opts)
 		if status, err = c.latestStatus(ref); err != nil {
-			return nil, errors.Join(resumeErr, err)
+			return nil, errors.Join(queuedErr, err)
 		}
-		if status.Status == ir.Queued && resumeErr != nil {
-			return nil, resumeErr
+		if status.Status == ir.Queued && queuedErr != nil {
+			return nil, queuedErr
 		}
 	}
-	return status, nil
+}
+
+// acceptRetry accepts the DAG-level retry of a failed run as the scheduler
+// does, which queues the retry, and counts its attempt.
+func (c *testCase) acceptRetry(dag *ir.DAG, failed *ir.DAGRunStatus) error {
+	ctx := c.ctx
+	admission, err := queue.PrepareRetry(ctx, ctx.Persistence.DAGRunRepository, dag, failed, queue.EnqueueRetryOptions{
+		AutoRetry: true,
+		Processes: ctx.Persistence.ProcRepository,
+	})
+	if err != nil {
+		return err
+	}
+	// A failed run is not queued, so a nil admission means its last attempt
+	// still has a live process record.
+	if admission == nil {
+		return fmt.Errorf("dag-run %s: the retry was not accepted because the process record of attempt %s was not released", failed.DAGRun(), failed.AttemptID)
+	}
+	c.attempts++
+	return nil
 }
 
 // hasRealSteps reports whether the case runs a step for real.
@@ -198,7 +240,7 @@ func (c *testCase) latestStatus(ref ir.DAGRunRef) (*ir.DAGRunStatus, error) {
 
 // executorOverride returns the override that runs the case's mocked steps, or
 // nil when the case replaces no action. Every attempt of the run shares it,
-// so the results of a step keep counting after a resume.
+// so the results of a step keep counting after a resume or a retry.
 func (c *testCase) executorOverride() runtime.ExecutorOverride {
 	replaced := make(map[string]stepmock.Step, len(c.opts.mocks))
 	for name, step := range c.opts.mocks {

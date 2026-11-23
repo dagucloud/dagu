@@ -1,0 +1,4 @@
+cases:
+  - name: the eval waits for a test value
+    expect:
+      status: succeeded

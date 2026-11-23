@@ -132,8 +132,14 @@ permutations are outside this partial conformance scope.
 Extracting an archive containing an entry whose name would resolve
 outside `with.destination` (a "zip-slip" entry, such as one named
 `../escape.txt`) is rejected without writing that entry outside the
-destination. This contract does not require transactional extraction or
-rollback of entries already extracted.
+destination. The same holds for an entry that reaches outside through a
+symbolic link, whether an earlier entry of the archive created it or the
+destination already held it, and for a symbolic link entry whose target,
+read from the directory the link is created in and followed through the
+links on disk, lies outside the destination. An absolute symbolic link
+counts as leading outside. Symbolic links whose targets stay inside the
+destination are extracted. This contract does not require transactional
+extraction or rollback of entries already extracted.
 
 ## Errors
 
