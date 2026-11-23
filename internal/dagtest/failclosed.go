@@ -92,7 +92,7 @@ func CheckFailClosed(dag *ir.DAG, handling Handling) []Finding {
 	if len(handling.Real) > 0 {
 		c.checkSecrets(dag, toSet(handling.Secrets))
 	}
-	if !handling.Precondition && slices.ContainsFunc(dag.Preconditions, runsCommand) {
+	if !handling.Precondition && slices.ContainsFunc(dag.Preconditions, (*ir.Condition).RunsCommand) {
 		c.add("precondition", "command check or substituting eval runs a command; set precondition in the case")
 	}
 	for _, step := range dag.Steps {
@@ -281,10 +281,10 @@ func ownOffenses(step ir.Step, mock MockFields, replaced, real bool) []offense {
 	if step.HumanTask == nil && step.Foreach == nil && !sideEffectFree(step) && runsUnnamed {
 		add(sourceAction, describeAction(step), "has side effects", fixMockOrReal)
 	}
-	if !real && !mock.Precondition && slices.ContainsFunc(step.Preconditions, runsCommand) {
+	if !real && !mock.Precondition && slices.ContainsFunc(step.Preconditions, (*ir.Condition).RunsCommand) {
 		add(sourcePrecondition, "precondition", "runs a command", "set precondition in its mock or list it under real")
 	}
-	if !real && runsCommand(step.RepeatPolicy.Condition) && !scriptsEveryCondition(mock) {
+	if !real && step.RepeatPolicy.Condition.RunsCommand() && !scriptsEveryCondition(mock) {
 		add(sourceRepeatCondition, "repeat condition", "runs a command",
 			"set condition in every result of its mock or list it under real")
 	}
@@ -312,18 +312,6 @@ func sideEffectFree(step ir.Step) bool {
 	default:
 		return registry.ExecutorCapabilitiesFor(step.ExecutorConfig.Type).SideEffectFree
 	}
-}
-
-// runsCommand reports whether a condition is a command check (Spec 023) or
-// an eval with command substitution.
-func runsCommand(cond *ir.Condition) bool {
-	if cond == nil {
-		return false
-	}
-	if cond.Eval != "" {
-		return hasCommandSubstitution(cond.Eval)
-	}
-	return len(cond.ExpectedPatterns()) == 0
 }
 
 // hasCommandSubstitution reports whether an eval holds backtick or $()

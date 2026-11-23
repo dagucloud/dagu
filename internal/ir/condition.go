@@ -31,6 +31,20 @@ func (c *Condition) ExpectedPatterns() []string {
 	return nil
 }
 
+// RunsCommand reports whether checking the condition runs a command: it is a
+// command check (Spec 023), or an eval with backtick or $() command
+// substitution (Spec 011). Escaped and unclosed forms count too. A nil
+// condition runs none.
+func (c *Condition) RunsCommand() bool {
+	if c == nil {
+		return false
+	}
+	if c.Eval != "" {
+		return strings.Contains(c.Eval, "`") || strings.Contains(c.Eval, "$(")
+	}
+	return len(c.ExpectedPatterns()) == 0
+}
+
 func (c *Condition) Validate() error {
 	hasCondition := strings.TrimSpace(c.Condition) != ""
 	hasEval := strings.TrimSpace(c.Eval) != ""

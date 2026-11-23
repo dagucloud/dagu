@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -42,6 +43,38 @@ func isContinuousStep(step ir.Step) bool {
 	return rp.RepeatMode != "" && rp.Limit <= 0
 }
 
+// UnboundedRepeatError reports a step that repeats without a limit and that
+// the ConditionOverride gives a limit of 0. The step fails with it before it
+// starts, and the run stops.
+type UnboundedRepeatError struct {
+	// Step is the name of the step.
+	Step string
+	// Limit is the step's resolved repeat limit.
+	Limit int
+}
+
+func (e *UnboundedRepeatError) Error() string {
+	return fmt.Sprintf("repeat limit %d leaves the step continuous; mock it with results", e.Limit)
+}
+
+// continuousLimit returns how many executions the condition override lets a
+// continuous node run, or 0 when nothing bounds the node. A node that the
+// override gives no execution is an UnboundedRepeatError.
+func (r *Runner) continuousLimit(node *Node) (int, error) {
+	if r.conditions == nil || r.dry || !isContinuousStep(node.Step()) {
+		return 0, nil
+	}
+	limit, ok := r.conditions.ContinuousLimit(node.Step())
+	switch {
+	case !ok:
+		return 0, nil
+	case limit <= 0:
+		return 0, &UnboundedRepeatError{Step: node.Name(), Limit: node.Step().RepeatPolicy.Limit}
+	default:
+		return limit, nil
+	}
+}
+
 // sampleRecorderOpener opens the store of samples of one step.
 type sampleRecorderOpener func(ctx context.Context, dir string, opts samples.Options) (samples.Recorder, error)
 
@@ -59,6 +92,10 @@ type continuousStep struct {
 
 	// execStart is the start of the execution that is running.
 	execStart time.Time
+	// limit, when positive, is the count of executions after which the node
+	// neither retries nor repeats. executions counts them.
+	limit      int
+	executions int
 
 	// lastWrite is the time of the last status write for this node.
 	lastWrite time.Time
@@ -88,13 +125,14 @@ const (
 )
 
 // newContinuousStep returns the state of a continuous node, or nil when the
-// node does not repeat without a limit.
-func (r *Runner) newContinuousStep(ctx context.Context, node *Node) *continuousStep {
+// node does not repeat without a limit. A positive limit ends the node after
+// that many executions.
+func (r *Runner) newContinuousStep(ctx context.Context, node *Node, limit int) *continuousStep {
 	if r.dry || !isContinuousStep(node.Step()) {
 		return nil
 	}
 	node.SetContinuous(true)
-	c := &continuousStep{runner: r, name: node.Name(), summaryAt: r.clock()}
+	c := &continuousStep{runner: r, name: node.Name(), summaryAt: r.clock(), limit: limit}
 	if r.attemptDir != "" {
 		c.dir = samples.Dir(r.attemptDir, node.Name())
 	}
@@ -109,10 +147,16 @@ func (c *continuousStep) beforeExecution(node *Node) {
 	if c == nil {
 		return
 	}
+	c.executions++
 	c.execStart = c.runner.clock()
 	// The output of an execution that succeeded does not stay once the next
 	// one has started. Executions that failed stay.
 	c.logs.begin(node.outputs.localLogPaths(), c.seen && !c.failed)
+}
+
+// spent reports whether the node ran every execution its limit allows.
+func (c *continuousStep) spent() bool {
+	return c != nil && c.limit > 0 && c.executions >= c.limit
 }
 
 // afterExecution records the sample of an execution that ended, and decides

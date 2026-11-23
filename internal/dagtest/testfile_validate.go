@@ -35,7 +35,7 @@ func (b *caseBuilder) validate(c *Case, src caseSources) []Finding {
 			b.fail("secrets."+e.name, "names no DAG secret or SSH credential ref")
 		}
 	}
-	if c.Precondition != nil && !slices.ContainsFunc(b.dag.Preconditions, runsCommand) {
+	if c.Precondition != nil && !slices.ContainsFunc(b.dag.Preconditions, (*ir.Condition).RunsCommand) {
 		b.fail("precondition", "the DAG has no precondition that runs a command")
 	}
 
@@ -89,11 +89,11 @@ func (b *caseBuilder) checkMock(label string, step *ir.Step, m mockSpec, results
 	case len(results) > 0 && step.HumanTask != nil:
 		b.fail(label, "sets a result field on a human.task step, which has no action to replace")
 	}
-	if m.precondition != nil && !slices.ContainsFunc(step.Preconditions, runsCommand) {
+	if m.precondition != nil && !slices.ContainsFunc(step.Preconditions, (*ir.Condition).RunsCommand) {
 		b.fail(label+".precondition", "the step has no precondition that runs a command")
 	}
 	for _, r := range results {
-		if r.spec.condition != nil && !runsCommand(step.RepeatPolicy.Condition) {
+		if r.spec.condition != nil && !step.RepeatPolicy.Condition.RunsCommand() {
 			b.fail(r.label+".condition", "the step has no repeat condition that runs a command")
 		}
 	}
@@ -171,7 +171,7 @@ func (b *caseBuilder) defaultScript(t *stepTarget, m mockSpec, results []labeled
 		return Script{}, false
 	}
 	s := Script{DefaultMock: true}
-	repeatCommand := runsCommand(step.RepeatPolicy.Condition)
+	repeatCommand := step.RepeatPolicy.Condition.RunsCommand()
 	// On a side-effect-free action, results replace it only where a replaced
 	// action handles a source.
 	resultSource := isContinuous(step) || readsOutputFile(step) || repeatCommand
@@ -184,7 +184,7 @@ func (b *caseBuilder) defaultScript(t *stepTarget, m mockSpec, results []labeled
 			}
 		}
 	}
-	if slices.ContainsFunc(step.Preconditions, runsCommand) {
+	if slices.ContainsFunc(step.Preconditions, (*ir.Condition).RunsCommand) {
 		s.Precondition = b.met("default_mock.precondition", m.precondition)
 	}
 	if waitNeedingValues(step) != "" {
