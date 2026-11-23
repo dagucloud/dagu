@@ -18,12 +18,14 @@ import {
   mergeQuickFixes,
   missingEndpointMessage,
   planQuickFixes,
-  RESTART_WAIT_MISSING_MESSAGE,
-  RESTART_WITH_RETRY_MESSAGE,
-  RESTART_WITH_SCHEDULE_MESSAGE,
   SECRETS_UNTRUSTED_MESSAGE,
   type ClientIssueInput,
 } from '../clientIssues';
+import {
+  RESTART_WAIT_MISSING_MESSAGE,
+  RESTART_WITH_RETRY_MESSAGE,
+  RESTART_WITH_SCHEDULE_MESSAGE,
+} from '../issueMessages';
 import { parseDagDocLenient, resolveStepNames } from '../parse';
 import { applyTextEdits } from '../patch';
 
@@ -770,7 +772,9 @@ describe('collectClientIssues: restart_policy', () => {
   const WAIT_ALWAYS =
     'restart_wait_sec must be at least 1 when restart_policy is "always"';
 
-  it('gives nothing for the valid files of the conformance suite', () => {
+  // The server takes these: an empty schedule or retry_policy defines none,
+  // and an alias gives the value of its anchor.
+  it('gives nothing for restart settings that the server takes', () => {
     for (const text of [
       dag('restart_policy: always', 'restart_wait_sec: 5'),
       dag('restart_policy: " Unless-Stopped "', 'restart_wait_sec: 10'),
@@ -778,7 +782,9 @@ describe('collectClientIssues: restart_policy', () => {
       dag('restart_policy: ""'),
       dag('restart_policy: always', 'restart_wait_sec: 5', 'schedule: []'),
       dag('restart_policy: always', 'restart_wait_sec: 5', 'schedule: ""'),
-      dag('restart_policy: always', 'restart_wait_sec: ${WAIT}'),
+      dag('restart_policy: always', 'restart_wait_sec: 5', 'schedule: {}'),
+      dag('restart_policy: always', 'restart_wait_sec: 5', 'retry_policy:'),
+      dag('delay_sec: &w 5', 'restart_policy: always', 'restart_wait_sec: *w'),
       dag('schedule: "* * * * *"', 'retry_policy:', '  limit: 2'),
     ]) {
       expect(restartIssues(text)).toEqual([]);
@@ -825,26 +831,29 @@ describe('collectClientIssues: restart_policy', () => {
     expect(shape(text)).toEqual([[error, RESTART_WITH_RETRY_MESSAGE, 2]]);
   });
 
-  it('reports a wait of 0 or less on the restart_wait_sec line', () => {
-    for (const wait of ['0', '-3']) {
-      const text = dag('restart_policy: Always', `restart_wait_sec: ${wait}`);
-      expect(shape(text)).toEqual([[error, WAIT_ALWAYS, 2]]);
-    }
+  it('reports a negative wait on the restart_wait_sec line', () => {
+    const text = dag('restart_policy: Always', 'restart_wait_sec: -3');
+    expect(shape(text)).toEqual([[error, WAIT_ALWAYS, 2]]);
   });
 
-  it('warns about a missing wait: the base configuration can give it', () => {
-    const text = dag('restart_policy: always');
-    expect(shape(text)).toEqual([[warning, RESTART_WAIT_MISSING_MESSAGE, 1]]);
-    expect(restartIssues(text)[0]?.source).toBe(ValidationIssueSource.warning);
-    expect(RESTART_WAIT_MISSING_MESSAGE).toContain(
-      'or set it in the base configuration'
-    );
+  // The server merges the file over the base configuration, and a 0 does not
+  // replace the wait of the base: only the server knows the result.
+  it('warns about a missing or zero wait: the base configuration can give it', () => {
+    for (const text of [
+      dag('restart_policy: always'),
+      dag('restart_policy: always', 'restart_wait_sec: 0'),
+    ]) {
+      expect(shape(text)).toEqual([[warning, RESTART_WAIT_MISSING_MESSAGE, 1]]);
+      expect(restartIssues(text)[0]?.source).toBe(
+        ValidationIssueSource.warning
+      );
+    }
   });
 
   it('keeps one issue when the server says the same errors', () => {
     const text = dag(
       'restart_policy: always',
-      'restart_wait_sec: 0',
+      'restart_wait_sec: -3',
       'schedule: "* * * * *"'
     );
     const model = parseDagDocLenient(text);
@@ -853,7 +862,7 @@ describe('collectClientIssues: restart_policy', () => {
         message: `field 'restart_policy': ${RESTART_WITH_SCHEDULE_MESSAGE} (value: always)`,
       }),
       serverIssue({
-        message: `field 'restart_wait_sec': ${WAIT_ALWAYS} (value: 0s)`,
+        message: `field 'restart_wait_sec': ${WAIT_ALWAYS} (value: -3s)`,
       }),
     ];
     const merged = mergeIssues(

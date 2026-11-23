@@ -18,7 +18,7 @@ import {
   opSetStepField,
   opSetStepId,
 } from './ops/fields';
-import { opSetRestartPolicy } from './ops/restart';
+import { opSetRestartPolicy } from './ops/setRestart';
 import { opSetSchedule, opSetScheduleParam } from './ops/schedule';
 import { editStepSkills, editStepTools } from '../tools/edit';
 import {
@@ -35,6 +35,8 @@ export { parseDagDoc, parseDagDocLenient, resolveStepNames } from './parse';
 export { parseAllDocumentsAsServer, parseDocumentAsServer } from './serverYaml';
 export { isServicePolicy, readRestart } from './ops/restart';
 export type { RestartPolicy, RestartView } from './ops/restart';
+export { readRestartSettings } from './ops/setRestart';
+export type { RestartSettings } from './ops/setRestart';
 export { readSchedule, scheduleParamIssueIndex } from './ops/schedule';
 export type { ScheduleEntryView, ScheduleView } from './ops/schedule';
 

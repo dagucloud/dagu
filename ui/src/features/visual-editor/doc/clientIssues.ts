@@ -64,9 +64,6 @@ export {
   missingEndpointMessage,
   NO_ID_MESSAGE,
   OUTPUTS_ID_MESSAGE,
-  RESTART_WAIT_MISSING_MESSAGE,
-  RESTART_WITH_RETRY_MESSAGE,
-  RESTART_WITH_SCHEDULE_MESSAGE,
   SECRETS_UNTRUSTED_MESSAGE,
 } from './issueMessages';
 export {
@@ -670,8 +667,10 @@ function restartDrafts(model: DagDocModel): Draft[] {
   if (restart.retryPolicy) {
     drafts.push(at('error', RESTART_WITH_RETRY_MESSAGE, 'restart_policy'));
   }
+  // No wait in the file leaves the one of the base configuration: only the
+  // server knows it.
   const wait = scalarAtField(model, 'restart_wait_sec')?.value;
-  if (wait === undefined || wait === null) {
+  if (!restart.waitGiven) {
     drafts.push(at('warning', RESTART_WAIT_MISSING_MESSAGE, 'restart_policy'));
   } else if (typeof wait === 'number' && Number.isInteger(wait) && wait < 1) {
     drafts.push(

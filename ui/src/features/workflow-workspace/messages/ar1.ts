@@ -20,12 +20,6 @@ export default defineMessages({
       'Trusted: the key untrusted is false.',
     'step lists secrets but is untrusted by default in a DAG that has an agent.run step; add untrusted: false to run it as the process user, or remove the secrets':
       'step lists secrets but is untrusted by default in a DAG that has an agent.run step; add untrusted: false to run it as the process user, or remove the secrets',
-    'restart_policy cannot be combined with schedule':
-      'restart_policy cannot be combined with schedule',
-    'restart_policy cannot be combined with retry_policy':
-      'restart_policy cannot be combined with retry_policy',
-    'restart_wait_sec is missing: set it to 1 or more in the file, or set it in the base configuration':
-      'restart_wait_sec is missing: set it to 1 or more in the file, or set it in the base configuration',
     Security: 'Security',
     'No secret yet': 'No secret yet',
     'Remove secret {name}': 'Remove secret {name}',
@@ -46,12 +40,6 @@ export default defineMessages({
     'Trusted: the key untrusted is false.': '受信任：键 untrusted 为 false。',
     'step lists secrets but is untrusted by default in a DAG that has an agent.run step; add untrusted: false to run it as the process user, or remove the secrets':
       '步骤列出了密钥，但在含有 agent.run 步骤的 DAG 中默认不受信任；请添加 untrusted: false 以便以进程用户身份运行，或删除 secrets',
-    'restart_policy cannot be combined with schedule':
-      'restart_policy 不能与 schedule 同时使用',
-    'restart_policy cannot be combined with retry_policy':
-      'restart_policy 不能与 retry_policy 同时使用',
-    'restart_wait_sec is missing: set it to 1 or more in the file, or set it in the base configuration':
-      '缺少 restart_wait_sec：请在文件中将其设为 1 或更大，或在基础配置中设置',
     Security: '安全',
     'No secret yet': '尚无密钥',
     'Remove secret {name}': '移除密钥 {name}',
@@ -73,12 +61,6 @@ export default defineMessages({
       '信頼されます: キー untrusted は false です。',
     'step lists secrets but is untrusted by default in a DAG that has an agent.run step; add untrusted: false to run it as the process user, or remove the secrets':
       'ステップが secrets を列挙していますが、agent.run ステップを持つ DAG では既定で信頼されません。プロセスのユーザーとして実行するには untrusted: false を追加するか、secrets を削除してください',
-    'restart_policy cannot be combined with schedule':
-      'restart_policy は schedule と併用できません',
-    'restart_policy cannot be combined with retry_policy':
-      'restart_policy は retry_policy と併用できません',
-    'restart_wait_sec is missing: set it to 1 or more in the file, or set it in the base configuration':
-      'restart_wait_sec がありません。ファイルで 1 以上を設定するか、ベース設定で設定してください',
     Security: 'セキュリティ',
     'No secret yet': 'シークレットはまだありません',
     'Remove secret {name}': 'シークレット {name} を削除',

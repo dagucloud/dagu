@@ -73,7 +73,7 @@ import {
   groupIssues,
   parseDagDoc,
   parseDagDocLenient,
-  readRestart,
+  readRestartSettings,
   readSchedule,
   resolveStepNames,
 } from './doc';
@@ -731,7 +731,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     [launcherHost, text]
   );
   const restart = useMemo(
-    () => (launcherHost ? readRestart(text) : null),
+    () => (launcherHost ? readRestartSettings(text) : null),
     [launcherHost, text]
   );
   const launcherAlive = useAlive({

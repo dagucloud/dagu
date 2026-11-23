@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
-import type { RestartView, ScheduleView } from '../../doc';
+import type { RestartSettings, ScheduleView } from '../../doc';
 import { AlwaysOnLauncherPanel, CronLauncherPanel } from '../LauncherPanel';
 
 // The Cron panel reads the time zone of the scheduler.
@@ -14,21 +14,22 @@ vi.mock('@/contexts/ConfigContext', () => ({
   useConfig: () => ({ tz: 'UTC' }),
 }));
 
-const OFF: RestartView = {
+const OFF: RestartSettings = {
   policy: 'no',
   waitSec: null,
   histRetentionRuns: null,
   schedule: false,
   retryPolicy: false,
+  waitGiven: false,
 };
-const ON: RestartView = {
+const ON: RestartSettings = {
   ...OFF,
   policy: 'always',
   waitSec: 5,
   histRetentionRuns: 20,
 };
 
-function renderPanel(restart: RestartView, editable = true) {
+function renderPanel(restart: RestartSettings, editable = true) {
   const onChange = vi.fn();
   render(
     <UserPreferencesProvider>

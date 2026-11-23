@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { ScheduleKind } from '@/api/v1/schema';
 import { I18nProvider } from '@/i18n/I18nProvider';
-import type { RestartView, ScheduleView } from '../../doc';
+import type { RestartSettings, ScheduleView } from '../../doc';
 import { SlotLauncherPanel } from '../LauncherPanel';
 
 vi.mock('@/contexts/ConfigContext', () => ({
@@ -32,24 +32,25 @@ const SCHEDULED: ScheduleView = {
     },
   ],
 };
-const OFF: RestartView = {
+const OFF: RestartSettings = {
   policy: 'no',
   waitSec: null,
   histRetentionRuns: null,
   schedule: false,
   retryPolicy: false,
+  waitGiven: false,
 };
-const ON: RestartView = { ...OFF, policy: 'always', waitSec: 5 };
+const ON: RestartSettings = { ...OFF, policy: 'always', waitSec: 5 };
 
 function renderPanel(
   open: 'schedule' | 'cron' | 'always',
   schedule: ScheduleView,
-  restart: RestartView,
+  restart: RestartSettings,
   editable = true
 ) {
   const onSchedule = vi.fn();
   const onRestart = vi.fn();
-  const view = (s: ScheduleView, r: RestartView) => (
+  const view = (s: ScheduleView, r: RestartSettings) => (
     <UserPreferencesProvider>
       <I18nProvider>
         <SlotLauncherPanel
@@ -68,7 +69,7 @@ function renderPanel(
   return {
     onSchedule,
     onRestart,
-    rerender: (s: ScheduleView, r: RestartView) => utils.rerender(view(s, r)),
+    rerender: (s: ScheduleView, r: RestartSettings) => utils.rerender(view(s, r)),
   };
 }
 

@@ -35,7 +35,7 @@ import {
   isServicePolicy,
   scheduleParamIssueIndex,
   type RestartPolicy,
-  type RestartView,
+  type RestartSettings,
   type ScheduleEntryView,
   type ScheduleView,
 } from '../doc';
@@ -656,7 +656,7 @@ function CountField({
  * retry_policy, so the panel does not turn it on while the file has one.
  */
 interface AlwaysProps {
-  restart: RestartView;
+  restart: RestartSettings;
   editable: boolean;
   /** A field that is left out stays; `null` removes the key. */
   onChange(change: {
@@ -855,7 +855,7 @@ export function SlotLauncherPanel({
   /** The node of the slot that opened the panel. */
   open: 'schedule' | 'cron' | 'always';
   schedule: ScheduleView;
-  restart: RestartView;
+  restart: RestartSettings;
   editable: boolean;
   upcomingRuns?: UpcomingRun[];
   upcomingRunsHold?: UpcomingRunsHold;
