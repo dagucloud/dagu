@@ -706,7 +706,7 @@ steps:
 `, caseOptions{mocks: map[string]stepmock.Step{
 			"pick": {Review: &stepmock.Review{Values: map[string]any{"replicas": "3"}}},
 		}})
-		require.ErrorContains(t, err, "step pick: ")
+		require.ErrorContains(t, err, `step pick: invalid input for human task step "pick"`)
 	})
 }
 

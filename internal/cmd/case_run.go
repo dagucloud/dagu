@@ -159,7 +159,7 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 		if status.Status != ir.Queued {
 			continue
 		}
-		resumeErr := c.resume(dag, status, opts)
+		resumeErr := c.runQueued(dag, status, opts)
 		if status, err = c.latestStatus(ref); err != nil {
 			return nil, errors.Join(resumeErr, err)
 		}
@@ -213,11 +213,12 @@ func (c *testCase) executorOverride() runtime.ExecutorOverride {
 	return stepmock.New(replaced)
 }
 
-// resume runs the attempt that resumes a run a completion queued, as the
-// queue's dispatch of a retry runs it, with the options of the case. It runs
-// the case's DAG instead of rebuilding the DAG from its YAML, which would
-// restore its log and artifact directories outside the case directory.
-func (c *testCase) resume(dag *ir.DAG, queued *ir.DAGRunStatus, opts runOptions) error {
+// runQueued runs the attempt of a retry queued for the run, such as the
+// resume a completion queues, as the queue's dispatch runs it, with the
+// options of the case. It runs the case's DAG instead of rebuilding the DAG
+// from its YAML, which would restore its log and artifact directories
+// outside the case directory.
+func (c *testCase) runQueued(dag *ir.DAG, queued *ir.DAGRunStatus, opts runOptions) error {
 	ctx := c.ctx
 	opts.triggerType = queue.PreservedQueueTriggerType(queued)
 	opts.triggerActor = queued.TriggerActor
@@ -308,14 +309,15 @@ func (c *testCase) completeHumanTask(status *ir.DAGRunStatus, node *ir.Node, rev
 func (c *testCase) settleApproval(dag *ir.DAG, status *ir.DAGRunStatus, node *ir.Node, review *stepmock.Review) error {
 	reject := review != nil && review.Reject
 	var inputs map[string]string
-	if review != nil && !reject {
-		var err error
-		if inputs, err = approvalInputs(review.Values); err != nil {
-			return err
-		}
-	}
 	if !reject {
-		if err := dagrun.CheckRequiredInputs(node.Step.Approval.Required, inputs); err != nil {
+		var err error
+		if review != nil {
+			inputs, err = approvalInputs(review.Values)
+		}
+		if err == nil {
+			err = dagrun.CheckRequiredInputs(node.Step.Approval.Required, inputs)
+		}
+		if err != nil {
 			return err
 		}
 	}

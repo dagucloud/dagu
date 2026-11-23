@@ -47,7 +47,8 @@ type Step struct {
 	// output.
 	Results []Result
 	// Review settles each wait of the step for a person. Nil approves each
-	// wait with no values.
+	// wait with no values. A Set does not read it; the caller that settles
+	// the run's waits does.
 	Review *Review
 }
 
