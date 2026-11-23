@@ -565,17 +565,36 @@ export function AnchoredPopover({
       }
       onClose();
     };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        anchorRef.current?.focus();
-        onClose();
+    const close = () => {
+      anchorRef.current?.focus();
+      onClose();
+    };
+    // An Esc in this layer closes it only, not the panel under it. An Esc of
+    // another control, such as the find box of the code editor, goes on to
+    // that control first.
+    const onOwnEscape = (event: KeyboardEvent) => {
+      const target = event.target as Node | null;
+      const own =
+        !target ||
+        target === document ||
+        target === document.body ||
+        panelRef.current?.contains(target) ||
+        anchorRef.current?.contains(target);
+      if (event.key === 'Escape' && own) {
+        event.stopPropagation();
+        close();
       }
     };
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') close();
+    };
     document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keydown', onOwnEscape, true);
+    document.addEventListener('keydown', onEscape);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('keydown', onOwnEscape, true);
+      document.removeEventListener('keydown', onEscape);
     };
   }, [anchorRef, onClose, open]);
 
