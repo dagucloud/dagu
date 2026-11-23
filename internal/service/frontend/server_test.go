@@ -565,17 +565,17 @@ func TestAssetRouteCachesCurrentVersionedMainBundle(t *testing.T) {
 	assert.Equal(t, "max-age=31536000, immutable", recorder.Header().Get("Cache-Control"))
 }
 
-func TestAssetRouteServesTestSchema(t *testing.T) {
+func TestAssetRouteServesWorkflowTestSchema(t *testing.T) {
 	router := chi.NewMux()
 	srv := &Server{}
 	srv.setupAssetRoutesWithFS(router, "", fstest.MapFS{})
 
 	recorder := httptest.NewRecorder()
-	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/assets/test.schema.json", nil))
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/assets/workflow-test.schema.json", nil))
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	assert.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
-	assert.Equal(t, cmnschema.TestSchemaJSON, recorder.Body.Bytes())
+	assert.Equal(t, cmnschema.WorkflowTestSchemaJSON, recorder.Body.Bytes())
 }
 
 func TestCacheControlForAssetCachesContentHashedJavaScriptChunks(t *testing.T) {

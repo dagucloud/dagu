@@ -1363,9 +1363,9 @@ func (srv *Server) setupAssetRoutesWithFS(r *chi.Mux, basePath string, assetFS f
 			_, _ = w.Write(cmnschema.CalendarSchemaJSON)
 			return
 		}
-		if strings.HasSuffix(r.URL.Path, "test.schema.json") {
+		if strings.HasSuffix(r.URL.Path, "workflow-test.schema.json") {
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write(cmnschema.TestSchemaJSON)
+			_, _ = w.Write(cmnschema.WorkflowTestSchemaJSON)
 			return
 		}
 

@@ -12,14 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTestSchemaRepoCopyMatchesEmbeddedSchema(t *testing.T) {
+func TestWorkflowTestSchemaRepoCopyMatchesEmbeddedSchema(t *testing.T) {
 	t.Parallel()
 
 	_, thisFile, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 
-	repoSchemaPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "..", "schemas", "test.schema.json")
+	repoSchemaPath := filepath.Join(filepath.Dir(thisFile), "..", "..", "..", "schemas", "workflow-test.schema.json")
 	repoSchemaJSON, err := os.ReadFile(repoSchemaPath)
 	require.NoError(t, err)
-	require.Equal(t, string(TestSchemaJSON), string(repoSchemaJSON))
+	require.Equal(t, string(WorkflowTestSchemaJSON), string(repoSchemaJSON))
 }

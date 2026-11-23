@@ -15,5 +15,5 @@ var ConfigSchemaJSON []byte
 //go:embed calendar.schema.json
 var CalendarSchemaJSON []byte
 
-//go:embed test.schema.json
-var TestSchemaJSON []byte
+//go:embed workflow-test.schema.json
+var WorkflowTestSchemaJSON []byte

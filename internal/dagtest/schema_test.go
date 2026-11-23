@@ -38,7 +38,7 @@ import (
 func TestSchemaAccepts(t *testing.T) {
 	t.Parallel()
 
-	full, fieldsAndTypes := resolveTestSchemas(t)
+	full, fieldsAndTypes := resolveSchemas(t)
 	for name, data := range specExamples(t) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -109,7 +109,7 @@ func TestSchemaRejects(t *testing.T) {
 		{name: "NegativeAttempts", yaml: "{cases: [{name: c, expect: {steps: {build: {attempts: -1}}}}]}", caseError: true},
 		{name: "UnknownNotificationKind", yaml: "{cases: [{name: c, expect: {notifications: [{kind: mail}]}}]}", caseError: true},
 	}
-	full, fieldsAndTypes := resolveTestSchemas(t)
+	full, fieldsAndTypes := resolveSchemas(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -133,7 +133,7 @@ func TestSchemaRejects(t *testing.T) {
 func TestSchemaFields(t *testing.T) {
 	t.Parallel()
 
-	root := parseTestSchema(t)
+	root := parseSchema(t)
 	tests := []struct {
 		spec   any
 		schema *jsonschema.Schema
@@ -160,7 +160,7 @@ func TestSchemaFields(t *testing.T) {
 func TestSchemaValues(t *testing.T) {
 	t.Parallel()
 
-	root := parseTestSchema(t)
+	root := parseSchema(t)
 	assert.Equal(t, runStatuses, enumOf(root.Definitions["expect"].Properties["status"]))
 	assert.Equal(t, nodeStatuses, enumOf(root.Definitions["nodeStatus"]))
 	assert.Equal(t, notificationKinds, enumOf(root.Definitions["notification"].Properties["kind"]))
@@ -175,19 +175,19 @@ func TestSchemaValues(t *testing.T) {
 	assert.Empty(t, b.errs)
 }
 
-func parseTestSchema(t *testing.T) *jsonschema.Schema {
+func parseSchema(t *testing.T) *jsonschema.Schema {
 	t.Helper()
 
 	var schema jsonschema.Schema
-	require.NoError(t, json.Unmarshal(cmnschema.TestSchemaJSON, &schema))
+	require.NoError(t, json.Unmarshal(cmnschema.WorkflowTestSchemaJSON, &schema))
 	return &schema
 }
 
-// resolveTestSchemas returns the full schema, and the schema of fields and
+// resolveSchemas returns the full schema, and the schema of fields and
 // types alone: without enum and minimum, the keywords that state allowed
 // values. Spec 101 makes a value outside them a case error, while an
 // unknown field or a wrong type makes the file invalid.
-func resolveTestSchemas(t *testing.T) (full, fieldsAndTypes *jsonschema.Resolved) {
+func resolveSchemas(t *testing.T) (full, fieldsAndTypes *jsonschema.Resolved) {
 	t.Helper()
 
 	resolve := func(schema *jsonschema.Schema) *jsonschema.Resolved {
@@ -195,9 +195,9 @@ func resolveTestSchemas(t *testing.T) (full, fieldsAndTypes *jsonschema.Resolved
 		require.NoError(t, err)
 		return resolved
 	}
-	reduced := parseTestSchema(t)
+	reduced := parseSchema(t)
 	dropAllowedValues(reduced)
-	return resolve(parseTestSchema(t)), resolve(reduced)
+	return resolve(parseSchema(t)), resolve(reduced)
 }
 
 func dropAllowedValues(s *jsonschema.Schema) {
