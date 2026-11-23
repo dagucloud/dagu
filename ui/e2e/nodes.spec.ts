@@ -90,7 +90,9 @@ test.describe('Nodes', () => {
 
     await loginViaUI(page, stack.auth.adminUsername, stack.auth.adminPassword);
     await page.goto('/nodes');
-    await page.getByRole('button', { name: 'Inventories' }).click();
+    await page
+      .getByRole('button', { name: 'Inventories', exact: true })
+      .click();
     await page.getByRole('button', { name: 'New inventory' }).click();
     const form = page.getByRole('dialog');
     await form.getByLabel('Name').fill(name);
@@ -154,20 +156,30 @@ test.describe('Nodes', () => {
 
   test('imports an inventory, then disables a node from its drawer', async ({
     page,
+    request,
   }) => {
     const stack = await loadStack();
+    const token = await loginViaAPI(
+      request,
+      stack.auth.adminUsername,
+      stack.auth.adminPassword
+    );
     const id = uniqueName('e2e');
     const web = `${id}-web`;
+    // An inventory makes the page show its tabs rather than the empty state,
+    // whichever specs ran before.
+    const seeded = await request.post('/api/v1/inventory-imports', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: [{ name: `${id} existing`, nodes: [] }],
+    });
+    expect(seeded.ok(), await seeded.text()).toBeTruthy();
 
     await loginViaUI(page, stack.auth.adminUsername, stack.auth.adminPassword);
     await page.goto('/nodes');
-    // With no inventory yet the page shows its empty state, which offers
-    // Import without tabs.
-    const inventoriesTab = page.getByRole('button', { name: 'Inventories' });
-    if (await inventoriesTab.isVisible()) {
-      await inventoriesTab.click();
-    }
-    await page.getByRole('button', { name: 'Import' }).click();
+    await page
+      .getByRole('button', { name: 'Inventories', exact: true })
+      .click();
+    await page.getByRole('button', { name: 'Import', exact: true }).click();
     const dialog = page.getByRole('dialog');
     await dialog
       .getByLabel('Inventories JSON')
