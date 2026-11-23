@@ -157,6 +157,7 @@ function renderTable(
               activeWorkflowViewId={options.activeWorkflowViewId ?? null}
               isAllWorkflowsView={options.isAllWorkflowsView ?? true}
               isWorkflowViewEdited={false}
+              areWorkflowFiltersSaved={false}
               canManageWorkflowViews={true}
               canDeleteDAGs={options.canDeleteDAGs ?? true}
               onSelectWorkflowView={vi.fn()}
@@ -167,6 +168,7 @@ function renderTable(
               onSetDefaultWorkflowView={vi.fn()}
               onSetPinnedWorkflowView={vi.fn()}
               onDeleteWorkflowView={vi.fn()}
+              onRenameWorkflowView={vi.fn()}
               onDeleteDAGs={onDeleteDAGs}
               canEditDAG={options.canEditDAG ?? (() => true)}
               canPinDAG={options.canPinDAG ?? (() => true)}

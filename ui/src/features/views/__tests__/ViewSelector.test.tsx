@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ComponentProps } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -189,5 +189,187 @@ describe('ViewSelector', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Delete view' }));
     expect(props.onDeleteView).toHaveBeenCalledWith('failed-runs');
+  });
+
+  // With onRenameView, a toolbar next to the selector saves, renames and
+  // deletes the active view. The menu keeps all its items.
+  describe('with the view toolbar', () => {
+    const toolbar = () => ({
+      onRenameView: vi.fn().mockResolvedValue(undefined),
+    });
+    const button = (name: string) =>
+      within(screen.getByRole('group', { name: 'View actions' })).getByRole(
+        'button',
+        { name }
+      );
+
+    it('keeps the save, update and manage items of the menu', async () => {
+      const user = userEvent.setup();
+      renderSelector({
+        ...toolbar(),
+        activeViewId: 'production',
+        isAllView: false,
+        isActiveViewEdited: true,
+      });
+
+      await user.click(
+        screen.getByRole('button', { name: 'Run view: Production operations' })
+      );
+      for (const name of [
+        'Update “Production operations”',
+        'Save current filters as view…',
+        'Manage views…',
+      ]) {
+        expect(screen.getByRole('menuitem', { name })).toBeVisible();
+      }
+    });
+
+    it('saves the changes of the active view from the Save button', async () => {
+      const user = userEvent.setup();
+      const props = renderSelector({
+        ...toolbar(),
+        activeViewId: 'production',
+        isAllView: false,
+        isActiveViewEdited: true,
+      });
+
+      await user.click(button('Save the changes of “Production operations”'));
+      expect(props.onUpdateView).toHaveBeenCalledOnce();
+    });
+
+    // The update turns the Save button off: the focus goes back to the
+    // selector, not to the page.
+    it('focuses the selector after it saves the active view', async () => {
+      const user = userEvent.setup();
+      renderSelector({
+        ...toolbar(),
+        activeViewId: 'production',
+        isAllView: false,
+        isActiveViewEdited: true,
+      });
+
+      await user.click(button('Save the changes of “Production operations”'));
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', {
+            name: 'Run view: Production operations',
+          })
+        ).toHaveFocus()
+      );
+    });
+
+    it('turns off Save while the active view is not edited', () => {
+      renderSelector({
+        ...toolbar(),
+        activeViewId: 'production',
+        isAllView: false,
+        isActiveViewEdited: false,
+      });
+
+      expect(
+        button('Save the changes of “Production operations”')
+      ).toBeDisabled();
+    });
+
+    it.each([
+      ['on All runs', { isAllView: true }],
+      [
+        'on the filters of a saved view',
+        { isAllView: false, filtersAlreadySaved: true },
+      ],
+    ])('turns off Save without an active view %s', (_name, extra) => {
+      renderSelector({ ...toolbar(), activeViewId: null, ...extra });
+
+      expect(button('Save current filters as view…')).toBeDisabled();
+    });
+
+    it('saves new filters as a view from the Save button', async () => {
+      const user = userEvent.setup();
+      const props = renderSelector({
+        ...toolbar(),
+        activeViewId: null,
+        isAllView: false,
+      });
+
+      await user.click(button('Save current filters as view…'));
+      await user.type(
+        screen.getByRole('textbox', { name: 'Name' }),
+        'Slow runs'
+      );
+      await user.click(screen.getByRole('button', { name: 'Save view' }));
+
+      expect(props.onSaveView).toHaveBeenCalledWith('Slow runs', false, false);
+    });
+
+    it('turns off Rename and Delete without an active view', () => {
+      renderSelector({ ...toolbar() });
+
+      expect(button('Rename view')).toBeDisabled();
+      expect(button('Delete view')).toBeDisabled();
+    });
+
+    // Delete is destructive: Cancel has the focus first. The toolbar button
+    // turns off once the view is gone, so the focus goes back to the selector.
+    it('asks before it deletes the active view, then focuses the selector', async () => {
+      const user = userEvent.setup();
+      const props = renderSelector({
+        ...toolbar(),
+        activeViewId: 'failed-runs',
+        isAllView: false,
+      });
+
+      await user.click(button('Delete view'));
+      expect(props.onDeleteView).not.toHaveBeenCalled();
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog).toHaveTextContent('Failed runs');
+      await waitFor(() =>
+        expect(
+          within(dialog).getByRole('button', { name: 'Cancel' })
+        ).toHaveFocus()
+      );
+
+      await user.click(
+        within(dialog).getByRole('button', { name: 'Delete view' })
+      );
+      expect(props.onDeleteView).toHaveBeenCalledWith('failed-runs');
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Run view: Failed runs' })
+        ).toHaveFocus()
+      );
+    });
+
+    it('renames the active view and refuses a name that is taken', async () => {
+      const user = userEvent.setup();
+      const props = renderSelector({
+        ...toolbar(),
+        activeViewId: 'failed-runs',
+        isAllView: false,
+      });
+
+      await user.click(button('Rename view'));
+      const dialog = await screen.findByRole('dialog');
+      const input = within(dialog).getByRole('textbox', { name: 'Name' });
+      const submit = within(dialog).getByRole('button', { name: 'Rename' });
+      expect(input).toHaveValue('Failed runs');
+      // The name is unchanged: nothing to rename.
+      expect(submit).toBeDisabled();
+
+      await user.clear(input);
+      await user.type(input, 'production operations');
+      expect(
+        within(dialog).getByText('A view with this name already exists.')
+      ).toBeVisible();
+      expect(submit).toBeDisabled();
+
+      await user.clear(input);
+      await user.type(input, '  Broken runs ');
+      await user.click(submit);
+
+      expect(props.onRenameView).toHaveBeenCalledWith(
+        'failed-runs',
+        'Broken runs'
+      );
+    });
   });
 });

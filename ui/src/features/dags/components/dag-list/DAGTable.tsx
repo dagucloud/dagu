@@ -476,6 +476,7 @@ type Props = {
   isAllWorkflowsView: boolean;
   /** Whether the selected saved view differs from its stored filters */
   isWorkflowViewEdited: boolean;
+  areWorkflowFiltersSaved: boolean;
   /** Whether the current user can mutate shared views in this scope */
   canManageWorkflowViews: boolean;
   /** Whether the current user can delete workflows in this scope */
@@ -494,6 +495,7 @@ type Props = {
   onSetDefaultWorkflowView: (viewId: string | undefined) => Promise<void>;
   onSetPinnedWorkflowView: (viewId: string, pinned: boolean) => Promise<void>;
   onDeleteWorkflowView: (viewId: string) => Promise<void>;
+  onRenameWorkflowView: (viewId: string, name: string) => Promise<void>;
   onDeleteDAGs: (fileNames: string[]) => Promise<DAGDeleteResult[]>;
   /** Whether the current user can edit a workflow */
   canEditDAG: (dag: components['schemas']['DAGFile']) => boolean;
@@ -1148,6 +1150,7 @@ function DAGTable({
   defaultWorkflowViewId,
   isAllWorkflowsView,
   isWorkflowViewEdited,
+  areWorkflowFiltersSaved,
   canManageWorkflowViews,
   canDeleteDAGs,
   workflowViewError,
@@ -1159,6 +1162,7 @@ function DAGTable({
   onSetDefaultWorkflowView,
   onSetPinnedWorkflowView,
   onDeleteWorkflowView,
+  onRenameWorkflowView,
   onDeleteDAGs,
   canEditDAG,
   canPinDAG,
@@ -1568,6 +1572,7 @@ function DAGTable({
             defaultViewId={defaultWorkflowViewId}
             isAllView={isAllWorkflowsView}
             isActiveViewEdited={isWorkflowViewEdited}
+            filtersAlreadySaved={areWorkflowFiltersSaved}
             canManageViews={canManageWorkflowViews}
             error={workflowViewError}
             onSelectView={onSelectWorkflowView}
@@ -1578,6 +1583,7 @@ function DAGTable({
             onSetDefault={onSetDefaultWorkflowView}
             onSetPinned={onSetPinnedWorkflowView}
             onDeleteView={onDeleteWorkflowView}
+            onRenameView={onRenameWorkflowView}
           />
 
           {/* Search input */}

@@ -44,6 +44,11 @@ type ConfirmDialogProps = {
    * dialog opened, if that element is still on the page.
    */
   restoreFocus?: boolean;
+  /**
+   * Runs when the dialog closes, before the focus moves. Preventing the
+   * event's default keeps the focus where the handler put it.
+   */
+  onCloseAutoFocus?: (event: Event) => void;
 };
 
 function ConfirmDialog({
@@ -63,6 +68,7 @@ function ConfirmDialog({
   secondary,
   initialFocus = 'confirm',
   restoreFocus = false,
+  onCloseAutoFocus,
 }: ConfirmDialogProps) {
   const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
   const submitButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -137,7 +143,8 @@ function ConfirmDialog({
           target.current?.focus();
         }}
         onCloseAutoFocus={(event) => {
-          if (!restoreFocus) return;
+          onCloseAutoFocus?.(event);
+          if (event.defaultPrevented || !restoreFocus) return;
           event.preventDefault();
           if (returnTo.current?.isConnected) returnTo.current.focus();
           returnTo.current = null;

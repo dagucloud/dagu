@@ -760,13 +760,11 @@ describe('DAGRuns page', () => {
       expect(locationSearchParams().get('name')).toBe('nightly');
     });
 
-    await user.click(
+    expect(
       screen.getByRole('button', { name: 'Run view: Custom view' })
-    );
+    ).toBeVisible();
     await user.click(
-      screen.getByRole('menuitem', {
-        name: 'Save current filters as view…',
-      })
+      screen.getByRole('button', { name: 'Save current filters as view…' })
     );
     await user.type(
       screen.getByRole('textbox', { name: 'Name' }),
@@ -1064,13 +1062,7 @@ describe('DAGRuns page', () => {
       ).toBeVisible();
     });
 
-    await user.click(
-      screen.getByRole('button', { name: 'Run view: Failed runs' })
-    );
-    await user.click(screen.getByRole('menuitem', { name: 'Manage views…' }));
-    await user.click(
-      screen.getByRole('button', { name: 'Delete Failed runs' })
-    );
+    await user.click(screen.getByRole('button', { name: 'Delete view' }));
     await user.click(
       await screen.findByRole('button', { name: 'Delete view' })
     );

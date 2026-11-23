@@ -1202,6 +1202,34 @@ function DAGRuns() {
     }
   };
 
+  const handleRenameRunView = async (
+    viewId: string,
+    name: string
+  ): Promise<void> => {
+    const target = scopedRunViews.find((view) => view.id === viewId);
+    if (!target) {
+      return;
+    }
+    setRunViewError(null);
+    try {
+      await updateView(
+        target.id,
+        buildRunViewSpec(
+          name,
+          dagRunsFilterSetFromView(target),
+          target.isDefault ?? false,
+          target.pinned ?? false,
+          runViewScope
+        )
+      );
+    } catch (error) {
+      setRunViewError(
+        error instanceof Error ? error.message : 'Failed to rename run view'
+      );
+      throw error;
+    }
+  };
+
   const handleDeleteRunView = async (viewId: string): Promise<void> => {
     const deletingActiveView = viewId === activeRunViewId;
     setRunViewError(null);
@@ -1370,6 +1398,10 @@ function DAGRuns() {
   const isAllRunsView =
     activeRunViewId === null && areFiltersEqual(currentFilters, defaultFilters);
 
+  const areRunFiltersSaved = runViews.some((view) =>
+    areFiltersEqual(resolveRunViewFilters(view.filters), currentFilters)
+  );
+
   return (
     <div>
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -1395,6 +1427,8 @@ function DAGRuns() {
               onSetDefault={handleSetDefaultRunView}
               onSetPinned={handleSetPinnedRunView}
               onDeleteView={handleDeleteRunView}
+              onRenameView={handleRenameRunView}
+              filtersAlreadySaved={areRunFiltersSaved}
             />
           )}
         </div>
