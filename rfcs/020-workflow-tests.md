@@ -128,8 +128,8 @@ dagu test [flags] <test file or directory>...
 ```
 
 A directory argument runs every test file under it, recursively. With no
-argument, `dagu test` runs every test file under the DAGs directory, or under
-the workflow directory in a project (Spec 001). Files run in path order.
+argument, `dagu test` runs every test file under the DAGs directory. Files
+run in path order.
 Cases run one at a time, in file order.
 
 | Flag | Default | Meaning |
@@ -176,11 +176,11 @@ workflows/
 - Moving or renaming a DAG together with its test file keeps the test
   working.
 
-A test file is never a DAG. DAG discovery in the DAGs directory and in a
-project's workflow directory (Spec 001), the watcher on those directories,
-and DAG name lookup all skip files ending in `.test.yaml` or `.test.yml`. The
-DAG list does not show them, the scheduler does not schedule them, and
-`dagu start release.test` fails with a message that names `dagu test`.
+A test file is never a DAG. DAG discovery in the DAGs directory, the watcher
+on that directory, and DAG name lookup all skip files ending in `.test.yaml`
+or `.test.yml`. The DAG list does not show them, the scheduler does not
+schedule them, and `dagu start release.test` fails with a message that names
+`dagu test`.
 
 ### The test file
 

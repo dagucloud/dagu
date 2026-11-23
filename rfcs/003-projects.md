@@ -82,9 +82,8 @@ workspaces without a replacement would keep those installs on v2.
 - Users or authentication configured per project.
 - `dag.run` across projects.
 - Spreading projects across several scheduler processes.
-- Projects found from a `dagu.json` file
-  ([spec 001](../specs/001-project.md)). The registry is the only list of
-  projects, and a `dagu.json` in a DAG directory changes nothing.
+- Projects found from a `dagu.json` file. The registry is the only list
+  of projects, and a `dagu.json` in a DAG directory changes nothing.
 - Renaming `internal/runtime/workspacebundle`, which packs directories for
   distributed runs and is unrelated.
 
@@ -1046,7 +1045,7 @@ Criteria 23 and 24 apply from the release that ships the feature.
   this RFC. A server project would have two rules for DAG names,
   discovery, and working directories, chosen by a file in its directory,
   and the CLI would keep state for projects that no server registers.
-  Spec 001 stays a separate proposal.
+  Spec 001, which defined them, is removed.
 - **Hold a file that migration cannot move.** An earlier revision of this
   RFC. Workspace DAGs kept in a git checkout or on a host mount would
   stop being listed, scheduled, and started at the upgrade, until someone
