@@ -113,33 +113,40 @@ func (r *formulaRefs) addOperand(text string) {
 // column or row is not a reference, and neither is text such as a name.
 func parseCellRef(text string) (cellRef, bool) {
 	start, end, ranged := strings.Cut(text, ":")
-	c1, r1, abs1, ok := parseRefEnd(start)
+	first, ok := parseRefEnd(start)
 	if !ok {
 		return cellRef{}, false
 	}
-	c2, r2, abs2 := c1, r1, abs1
+	last := first
 	if ranged {
-		if c2, r2, abs2, ok = parseRefEnd(end); !ok {
+		if last, ok = parseRefEnd(end); !ok {
 			return cellRef{}, false
 		}
 	}
-	if (c1 == 0) != (c2 == 0) || (r1 == 0) != (r2 == 0) || (!ranged && (c1 == 0 || r1 == 0)) {
+	if (first.col == 0) != (last.col == 0) || (first.row == 0) != (last.row == 0) ||
+		!ranged && (first.col == 0 || first.row == 0) {
 		return cellRef{}, false
 	}
-	ref := cellRef{abs: [4]bool{abs1[0], abs1[1], abs2[0], abs2[1]}}
-	if c1 == 0 {
-		c1, c2, ref.abs[0], ref.abs[2] = 1, excelize.MaxColumns, true, true
+	ref := cellRef{abs: [4]bool{first.abs[0], first.abs[1], last.abs[0], last.abs[1]}}
+	ref.reg = region{C1: first.col, R1: first.row, C2: last.col, R2: last.row}
+	if first.col == 0 {
+		ref.reg.C1, ref.reg.C2, ref.abs[0], ref.abs[2] = 1, excelize.MaxColumns, true, true
 	}
-	if r1 == 0 {
-		r1, r2, ref.abs[1], ref.abs[3] = 1, excelize.TotalRows, true, true
+	if first.row == 0 {
+		ref.reg.R1, ref.reg.R2, ref.abs[1], ref.abs[3] = 1, excelize.TotalRows, true, true
 	}
-	ref.reg = region{C1: c1, R1: r1, C2: c2, R2: r2}
 	return ref, true
 }
 
-// parseRefEnd reads one end of a reference: "$A$1", "A", or "1". A part
-// that is absent is zero.
-func parseRefEnd(text string) (col, row int, abs [2]bool, ok bool) {
+// refEnd is one end of a reference: "$A$1", "A", or "1". A part that is
+// absent is zero; abs marks a "$" before the column and before the row.
+type refEnd struct {
+	col, row int
+	abs      [2]bool
+}
+
+func parseRefEnd(text string) (refEnd, bool) {
+	var end refEnd
 	s := text
 	dollar := strings.HasPrefix(s, "$")
 	if dollar {
@@ -152,25 +159,26 @@ func parseRefEnd(text string) (col, row int, abs [2]bool, ok bool) {
 	if letters > 0 {
 		n, err := excelize.ColumnNameToNumber(s[:letters])
 		if letters > 3 || err != nil {
-			return 0, 0, abs, false
+			return refEnd{}, false
 		}
-		col, abs[0] = n, dollar
+		end.col, end.abs[0] = n, dollar
 		s = s[letters:]
 		if dollar = strings.HasPrefix(s, "$"); dollar {
 			s = s[1:]
 		}
 	}
 	if s == "" {
-		return col, 0, abs, col > 0 && !dollar
+		return end, end.col > 0 && !dollar
 	}
 	if strings.ContainsFunc(s, func(r rune) bool { return r < '0' || r > '9' }) {
-		return 0, 0, abs, false
+		return refEnd{}, false
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil || n < 1 || n > excelize.TotalRows {
-		return 0, 0, abs, false
+		return refEnd{}, false
 	}
-	return col, n, [2]bool{abs[0], dollar}, true
+	end.row, end.abs[1] = n, dollar
+	return end, true
 }
 
 // at returns the region the reference covers in a formula filled dc
