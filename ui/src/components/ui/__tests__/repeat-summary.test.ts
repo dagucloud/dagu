@@ -87,6 +87,13 @@ describe('readRepeatPolicy', () => {
       readRepeatPolicy({ repeat: 'while', interval_sec: 0, limit: -1 })
     ).toEqual({ mode: 'while' });
   });
+
+  // The server reads "0" as the number 0: no limit, not a reference.
+  it('reads a limit of "0" as no limit', () => {
+    expect(readRepeatPolicy({ repeat: 'while', limit: '0' })).toEqual({
+      mode: 'while',
+    });
+  });
 });
 
 describe('repeatSummary', () => {

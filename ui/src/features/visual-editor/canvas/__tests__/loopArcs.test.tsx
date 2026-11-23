@@ -124,6 +124,14 @@ describe('loopArcs', () => {
       'Waits 5s before the second attempt, then longer each time.'
     );
   });
+
+  // "0" is the number 0, so the repeat has no limit.
+  it('draws the sign of no limit for a repeat whose limit is "0"', () => {
+    const repeat = readRepeatPolicy({ repeat: 'while', limit: '0' });
+    const [arc] = loopArcs(ts, plain({ repeat: repeat! }));
+    expect(arc).toMatchObject({ kind: 'repeat', label: '∞' });
+    expect(arc?.title).toContain('no limit');
+  });
 });
 
 describe('the retry of a step in the graph of the canvas', () => {
