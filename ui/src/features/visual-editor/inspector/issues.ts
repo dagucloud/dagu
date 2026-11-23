@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { StepKey, StepView, ValidationIssue } from '../contracts';
+import {
+  RESTART_WITH_RETRY_MESSAGE,
+  RESTART_WITH_SCHEDULE_MESSAGE,
+} from '../doc/issueMessages';
 import type { StepIssues } from './types';
 
 /**
@@ -70,6 +74,12 @@ export function refineIssue(
   issue: ValidationIssue,
   translate: IssueTranslate
 ): ValidationIssue {
+  if (
+    issue.message === RESTART_WITH_SCHEDULE_MESSAGE ||
+    issue.message === RESTART_WITH_RETRY_MESSAGE
+  ) {
+    return { ...issue, message: translate(issue.message) };
+  }
   const required = requiredFieldOf(issue);
   if (!required) return issue;
   return {

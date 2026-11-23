@@ -16,16 +16,22 @@ import type {
   ValidationIssue,
 } from '../contracts';
 import { builtinActionNames } from '../inspector/actionRules';
+import { plainIssueMessage } from '../inspector/issues';
 import { checkStepSchemaErrors } from '../inspector/stepSchemaCheck';
 import { CRON_ZONE_PREFIX, nextRuns } from '../launchers/nextRuns';
 import { findReferenceTokens } from '../references/tokens';
 import {
+  invalidRestartPolicyMessage,
   mustBeMessage,
   NO_ID_MESSAGE,
   OUTPUTS_ID_MESSAGE,
+  RESTART_WITH_RETRY_MESSAGE,
+  RESTART_WITH_SCHEDULE_MESSAGE,
+  restartWaitMessage,
 } from './issueMessages';
-import { locateIssue, rangeFromOffsets } from './issues';
+import { locateIssue, rangeFromOffsets, scalarAtField } from './issues';
 import { validateStepId, validateStepName } from './names';
+import { isServicePolicy, readRestart } from './ops/restart';
 import { readSchedule } from './ops/schedule';
 
 /*
@@ -517,6 +523,45 @@ function scheduleDrafts(model: DagDocModel): Draft[] {
   return drafts;
 }
 
+const RESTART_POLICIES = new Set(['', 'no', 'always', 'unless-stopped']);
+
+/**
+ * The rules of `restart_policy` that the loader checks in the file (Spec 080).
+ * The base configuration can give `restart_wait_sec`: a missing one is a
+ * warning, and the server error confirms it.
+ */
+function restartDrafts(model: DagDocModel): Draft[] {
+  const raw = scalarAtField(model, 'restart_policy')?.value;
+  if (typeof raw !== 'string') return [];
+  const at = (severity: Draft['severity'], message: string, field: string) => ({
+    step: null,
+    severity,
+    message,
+    fieldPath: field,
+  });
+  if (!RESTART_POLICIES.has(raw.trim().toLowerCase())) {
+    return [at('error', invalidRestartPolicyMessage(raw), 'restart_policy')];
+  }
+  const restart = readRestart(model.text);
+  if (!isServicePolicy(restart.policy)) return [];
+  const drafts: Draft[] = [];
+  if (restart.schedule) {
+    drafts.push(at('error', RESTART_WITH_SCHEDULE_MESSAGE, 'restart_policy'));
+  }
+  if (restart.retryPolicy) {
+    drafts.push(at('error', RESTART_WITH_RETRY_MESSAGE, 'restart_policy'));
+  }
+  // No wait and a wait of 0 leave the one of the base configuration, which
+  // only the server knows: it reports them. A negative wait is an error.
+  const wait = scalarAtField(model, 'restart_wait_sec')?.value;
+  if (typeof wait === 'number' && Number.isInteger(wait) && wait < 0) {
+    drafts.push(
+      at('error', restartWaitMessage(restart.policy), 'restart_wait_sec')
+    );
+  }
+  return drafts;
+}
+
 function toIssue(draft: Draft, input: ClientIssueInput): ValidationIssue {
   const { model, names } = input;
   const issue: ValidationIssue = {
@@ -579,7 +624,8 @@ export function collectClientIssues(
     ...identityDrafts(model),
     ...dependencyDrafts(model),
     ...referenceDrafts(model, scope),
-    ...scheduleDrafts(model)
+    ...scheduleDrafts(model),
+    ...restartDrafts(model)
   );
   return drafts.map((draft) => toIssue(draft, input));
 }
@@ -644,7 +690,9 @@ function coveredByServerReference(
 
 /**
  * The issues of the server and the issues of the client in one list. A
- * client issue that the server has said already is dropped. The list is
+ * client issue that the server has said already is dropped, and a server
+ * issue of no step that a client issue says with its line gives way to it.
+ * The list is
  * sorted by line; an issue without a line comes first (it is about the
  * whole file), and errors come before warnings on one line.
  */
@@ -652,11 +700,21 @@ export function mergeIssues(
   model: DagDocModel,
   names: StepNameMap,
   server: ValidationIssue[],
-  client: ValidationIssue[]
+  found: ValidationIssue[]
 ): ValidationIssue[] {
-  if (client.length === 0) return server;
-  const taken = new Set(server.map(signatureOf));
-  const merged = [...server];
+  if (found.length === 0) return server;
+  const client = found;
+  // A server error that names no step ("Workflow-level") and that a client
+  // issue says again, with its step and its line, gives way to that issue.
+  const clientMessages = new Set(client.map((issue) => issue.message));
+  const kept = server.filter(
+    (issue) =>
+      issue.stepPath !== undefined ||
+      issue.stepName !== undefined ||
+      !clientMessages.has(plainIssueMessage(issue.message))
+  );
+  const taken = new Set(kept.map(signatureOf));
+  const merged = [...kept];
   for (const issue of client) {
     const signature = signatureOf(issue);
     if (taken.has(signature) || coveredByServerReference(issue, server)) {
