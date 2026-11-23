@@ -23,6 +23,7 @@ func TestActionNameRoundTrip(t *testing.T) {
 	withFields := map[string]string{
 		"a2a.get_task":        "{agent_url: https://agents.example.com/a, task_id: t}",
 		"a2a.send":            "{agent_url: https://agents.example.com/a, message: m}",
+		"agent.run":           "{provider: codex, prompt: review}",
 		"artifact.list":       "",
 		"artifact.read":       "{path: a.txt}",
 		"artifact.write":      "{path: a.txt, content: x}",
@@ -106,6 +107,7 @@ func TestActionNameRoundTrip(t *testing.T) {
 	// These actions load as another action's step, or as a run step, which
 	// has no action name.
 	loadsAs := map[string]string{
+		"agent.run":        "harness.run",
 		"browser.extract":  "browser.run",
 		"computer.extract": "computer.run",
 		"exec":             "",
