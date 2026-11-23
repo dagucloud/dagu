@@ -273,6 +273,9 @@ func specExamples(t *testing.T) map[string][]byte {
 	path := filepath.Join("..", "..", "specs", "101-workflow-tests.md")
 	data, err := os.ReadFile(path)
 	require.NoError(t, err, "read Spec 101")
+	// A checkout ends the spec's lines with CRLF on Windows (.gitattributes
+	// text=auto); the blocks and their lines are matched by LF.
+	data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
 	lineOf := func(offset int) int { return bytes.Count(data[:offset], []byte("\n")) + 1 }
 
 	blocks := yamlBlock.FindAllSubmatchIndex(data, -1)
