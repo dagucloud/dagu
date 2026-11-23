@@ -346,6 +346,50 @@ func TestLoadFileDefaultMock(t *testing.T) {
 	}, empty.Steps)
 }
 
+// The fix holds each step's current mock, by the key it is written under,
+// with the fields its sources need: an inline mock becomes one result to
+// take a stopping condition, a successful result publishes the known
+// outputs, and a form value the form still rejects is marked. The default
+// mock is the current mock where it applies.
+func TestLoadFileFix(t *testing.T) {
+	t.Parallel()
+
+	file := loadTestFile(t, "fixes.test.yaml")
+	require.Len(t, file.Cases, 2)
+	review := `  form:
+    review:
+      decision: approve
+      values:
+        code: "" # replace with a value the form accepts
+        tier: gold
+        urgent: false
+        count: 0
+`
+	assert.Equal(t, `mocks:
+  build image:
+    results:
+      - stdout: built
+        outputs:
+          tag: v1
+        condition: not_met
+`+review+`  fanout: {}
+  gate:
+    precondition: met
+`, file.Cases[0].Fix)
+	assert.Equal(t, `mocks:
+  build:
+    results:
+      - exit_code: 1
+        condition: not_met
+      - outputs:
+          tag: ""
+        condition: not_met
+`+review+`  gate:
+    precondition: met
+`, file.Cases[1].Fix)
+	assert.Empty(t, file.Cases[1].FileFix)
+}
+
 // A handler_on.<event> key names the handler of that event, and a step whose
 // name equals the handler's runtime name takes only its own mock.
 func TestLoadFileHandlerKeys(t *testing.T) {

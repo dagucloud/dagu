@@ -58,7 +58,9 @@ func (b *caseBuilder) validate(c *Case, src caseSources) []Finding {
 		handling.DefaultMock = &fields
 		b.applyDefaultMock(c, *src.defaultMock, src)
 	}
-	return CheckFailClosed(b.dag, handling)
+	check := checkFailClosed(b.dag, handling)
+	b.buildFix(c, check.sources, src)
+	return check.findings
 }
 
 // checkReal reports a step that real cannot take.

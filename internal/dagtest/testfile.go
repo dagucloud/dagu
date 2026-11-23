@@ -68,6 +68,11 @@ type Case struct {
 	// then the unhandled sources of the fail-closed rule. An invalid case
 	// runs none of its steps. Empty for a valid case.
 	Errors []Finding
+	// Fix holds the case fields that handle every unhandled source of
+	// Errors, as YAML to paste into the case, or "" when there is none.
+	Fix string
+	// FileFix holds the same for the test file's secrets, or "".
+	FileFix string
 }
 
 // Script is how a case handles one step or lifecycle handler.
