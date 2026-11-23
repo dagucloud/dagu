@@ -5,6 +5,7 @@ package masking
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -25,30 +26,55 @@ type SourcedEnvVars struct {
 
 // Masker provides masking functionality for sensitive data
 type Masker struct {
-	sensitiveVals map[string]bool // Set of values to mask
+	// replacer masks every value in one pass; nil when there are none.
+	replacer *strings.Replacer
 }
 
 // NewMasker creates a masker from sourced environment variables. Each value
 // is masked as written and as it appears inside a JSON string, so a secret
 // that JSON escaping rewrites is still hidden in JSON text.
 func NewMasker(sources SourcedEnvVars) *Masker {
-	sensitiveVals := make(map[string]bool)
-
+	values := make([]string, 0, len(sources.Secrets))
 	for _, env := range sources.Secrets {
 		_, val := splitEnv(env)
-		// Skip empty or invalid values to avoid masking everything
-		// (strings.ReplaceAll with empty string would insert mask between every character)
+		values = append(values, val)
+	}
+	return NewValueMasker(values)
+}
+
+// NewValueMasker creates a masker that hides each of values, as NewMasker
+// does for the values of environment variables. Empty values are ignored.
+func NewValueMasker(values []string) *Masker {
+	seen := make(map[string]bool)
+	forms := make([]string, 0, len(values))
+	for _, val := range values {
+		// An empty value would mask between every character.
 		if val == "" {
 			continue
 		}
 		for _, form := range jsonForms(val) {
-			sensitiveVals[form] = true
+			if !seen[form] {
+				seen[form] = true
+				forms = append(forms, form)
+			}
 		}
 	}
-
-	return &Masker{
-		sensitiveVals: sensitiveVals,
+	if len(forms) == 0 {
+		return &Masker{}
 	}
+	// The replacer prefers earlier values at a position, so a longer value
+	// wins over a shorter one it contains.
+	slices.SortFunc(forms, func(a, b string) int {
+		if c := cmp.Compare(len(b), len(a)); c != 0 {
+			return c
+		}
+		return strings.Compare(a, b)
+	})
+	pairs := make([]string, 0, 2*len(forms))
+	for _, form := range forms {
+		pairs = append(pairs, form, DefaultMaskString)
+	}
+	return &Masker{replacer: strings.NewReplacer(pairs...)}
 }
 
 // jsonForms returns val and its distinct spellings inside a JSON string:
@@ -99,31 +125,10 @@ func asciiOnly(body string) string {
 
 // MaskString replaces sensitive values in the input string
 func (m *Masker) MaskString(input string) string {
-	if len(m.sensitiveVals) == 0 {
-		return input // Fast path
+	if m == nil || m.replacer == nil {
+		return input
 	}
-
-	// Sort values by length (longest first) to avoid partial matches
-	values := make([]string, 0, len(m.sensitiveVals))
-	for val := range m.sensitiveVals {
-		values = append(values, val)
-	}
-
-	// Simple sort by length (descending)
-	for i := 0; i < len(values); i++ {
-		for j := i + 1; j < len(values); j++ {
-			if len(values[j]) > len(values[i]) {
-				values[i], values[j] = values[j], values[i]
-			}
-		}
-	}
-
-	result := input
-	for _, val := range values {
-		result = strings.ReplaceAll(result, val, DefaultMaskString)
-	}
-
-	return result
+	return m.replacer.Replace(input)
 }
 
 // MaskBytes replaces sensitive values in the input bytes
