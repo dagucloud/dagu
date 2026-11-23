@@ -47,17 +47,21 @@ test.describe('Nodes', () => {
     ).toBeVisible();
 
     await page.getByRole('textbox', { name: 'Search by name...' }).fill(id);
-    await expect(page.getByRole('cell', { name: web })).toBeVisible();
     await expect(
-      page.getByRole('cell', { name: new RegExp(db) })
+      page.getByRole('cell', { name: web, exact: true })
+    ).toBeVisible();
+    await expect(
+      page.getByRole('cell', { name: new RegExp(`^${db}`) })
     ).toBeVisible();
 
     const labels = page.getByRole('combobox', { name: 'Filter by labels...' });
     await labels.fill('role=db');
     await labels.press('Enter');
-    await expect(page.getByRole('cell', { name: web })).toHaveCount(0);
+    await expect(
+      page.getByRole('cell', { name: web, exact: true })
+    ).toHaveCount(0);
 
-    await page.getByRole('cell', { name: new RegExp(db) }).click();
+    await page.getByRole('cell', { name: new RegExp(`^${db}`) }).click();
     const drawer = page.getByRole('dialog');
     await expect(drawer).toContainText('db.internal');
     await expect(drawer).toContainText('2222');
