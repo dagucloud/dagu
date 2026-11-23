@@ -17,3 +17,6 @@ var CalendarSchemaJSON []byte
 
 //go:embed workflow-test.schema.json
 var WorkflowTestSchemaJSON []byte
+
+//go:embed inventory.schema.json
+var InventorySchemaJSON []byte
