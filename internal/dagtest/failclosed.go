@@ -5,6 +5,7 @@ package dagtest
 
 import (
 	"cmp"
+	"encoding/json"
 	"slices"
 	"strings"
 
@@ -61,12 +62,12 @@ func (f Finding) String() string {
 }
 
 // CheckFailClosed returns every source of dag that would run a command, read
-// a file, wait for a person, or repeat without end, and that handling leaves
-// unhandled, as the fail-closed rule of Spec 101 defines. It covers every
-// step and lifecycle handler, whether or not a run reaches it. Findings come
-// in the order Spec 101 lists them: params, the DAG-level preconditions,
-// steps in DAG order, then handlers, and the sources of one step in the
-// order of the rule's table. A case with no finding may run.
+// a file, wait for values from a person, or repeat without end, and that
+// handling leaves unhandled, as the fail-closed rule of Spec 101 defines. It
+// covers every step and lifecycle handler, whether or not a run reaches it.
+// Findings come in the order Spec 101 lists them: params, the DAG-level
+// preconditions, steps in DAG order, then handlers, and the sources of one
+// step in the order of the rule's table. A case with no finding may run.
 func CheckFailClosed(dag *ir.DAG, handling Handling) []Finding {
 	c := checker{
 		mocks:  handling.Mocks,
@@ -247,8 +248,8 @@ func ownOffenses(step ir.Step, mock MockFields, replaced, real bool) []offense {
 	if runsUnnamed && isContinuous(step) && sideEffectFree(step) {
 		add(sourceContinuous, "repeat policy", "has no limit", "mock it with a result or list it under real")
 	}
-	if waiting := waitKind(step); waiting != "" && !mock.Review {
-		add(sourceWait, waiting, "waits for a person", "set review in its mock")
+	if waiting := waitNeedingValues(step); waiting != "" && !mock.Review {
+		add(sourceWait, waiting, "waits for required values", "set review in its mock")
 	}
 	return offenses
 }
@@ -302,17 +303,41 @@ func readsOutputFile(step ir.Step) bool {
 	return false
 }
 
-// waitKind names what makes the step wait for a person, or returns "" when
-// it does not wait.
-func waitKind(step ir.Step) string {
+// waitNeedingValues names what makes the step wait for values from a
+// person, or returns "" when its wait completes with no values, as Spec 101
+// defines a wait that needs values.
+func waitNeedingValues(step ir.Step) string {
 	switch {
-	case step.HumanTask != nil:
+	case step.HumanTask != nil && formNeedsValues(step.HumanTask.Form):
 		return "human.task"
-	case step.Approval != nil:
+	case step.Approval != nil && len(step.Approval.Required) > 0:
 		return "approval"
 	default:
 		return ""
 	}
+}
+
+// formNeedsValues reports whether a human.task form has a required property
+// without a default. A default fills an omitted property before required is
+// enforced (Spec 031), so only such a property needs a value.
+func formNeedsValues(form json.RawMessage) bool {
+	if len(form) == 0 {
+		return false
+	}
+	var schema struct {
+		Required   []string `json:"required"`
+		Properties map[string]struct {
+			Default json.RawMessage `json:"default"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(form, &schema); err != nil {
+		// A form that cannot be read counts as needing values, so the rule
+		// stays closed.
+		return true
+	}
+	return slices.ContainsFunc(schema.Required, func(name string) bool {
+		return len(schema.Properties[name].Default) == 0
+	})
 }
 
 // isContinuous reports whether the step repeats with no limit (Spec 083). A

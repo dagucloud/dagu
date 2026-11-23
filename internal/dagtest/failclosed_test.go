@@ -205,7 +205,7 @@ func TestCheckFailClosed(t *testing.T) {
 			want: []string{
 				"step upload_all, body step check: precondition runs a command; mock the whole foreach step",
 				"step upload_all, body step upload: action s3.upload has side effects; mock the whole foreach step",
-				"step upload_all: approval waits for a person; set review in its mock",
+				"step upload_all: approval waits for required values; set review in its mock",
 				"step poll_all: repeat policy has no limit; mock it with a result or list it under real",
 			},
 		},
@@ -250,12 +250,14 @@ func TestCheckFailClosed(t *testing.T) {
 			},
 		},
 		{
+			// A wait that completes with no values is approved automatically,
+			// so acknowledge, confirm, and announce need no review.
 			name: "UnhandledWaits",
 			dag:  "waits.yaml",
 			want: []string{
-				"step sign_off: human.task waits for a person; set review in its mock",
+				"step sign_off: human.task waits for required values; set review in its mock",
 				"step release: command has side effects; mock it or list it under real",
-				"step release: approval waits for a person; set review in its mock",
+				"step release: approval waits for required values; set review in its mock",
 			},
 		},
 		{
@@ -266,7 +268,7 @@ func TestCheckFailClosed(t *testing.T) {
 				Real:  []string{"sign_off", "release"},
 			},
 			want: []string{
-				"step release: approval waits for a person; set review in its mock",
+				"step release: approval waits for required values; set review in its mock",
 			},
 		},
 		{

@@ -2,6 +2,8 @@ steps:
   - id: upload_all
     approval:
       prompt: Approve the upload.
+      input: [ticket]
+      required: [ticket]
     foreach:
       items: [a, b]
       as: file
