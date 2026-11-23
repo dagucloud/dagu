@@ -216,9 +216,9 @@ describe('buildExportSvg', () => {
 
   // The canvas draws the arcs on step cards only.
   it('draws no arc on a handler card', () => {
-    const handler = node('h', { ...LOOPS, lane: 'handler' });
+    const handler = node('a', { ...LOOPS, lane: 'handler' });
     const doc = parse(buildExportSvg(graphOf([handler]), ONE, 'TB').svg);
-    expect(nodeEl(doc, 'h').querySelectorAll('[data-loop]')).toHaveLength(0);
+    expect(nodeEl(doc, 'a').querySelectorAll('[data-loop]')).toHaveLength(0);
   });
 
   it('grows the margin for the arcs and their labels', () => {

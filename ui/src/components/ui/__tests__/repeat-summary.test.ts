@@ -79,10 +79,10 @@ describe('readRepeatPolicy', () => {
     expect(readRepeatPolicy({ interval_sec: 5 })).toBeNull();
   });
 
-  it('keeps only fixed whole numbers for the interval and the limit', () => {
+  it('keeps whole numbers, and a reference as the text of the limit', () => {
     expect(
       readRepeatPolicy({ repeat: 'while', interval_sec: '15', limit: '${N}' })
-    ).toEqual({ mode: 'while', intervalSec: 15 });
+    ).toEqual({ mode: 'while', intervalSec: 15, limitRef: '${N}' });
     expect(
       readRepeatPolicy({ repeat: 'while', interval_sec: 0, limit: -1 })
     ).toEqual({ mode: 'while' });
