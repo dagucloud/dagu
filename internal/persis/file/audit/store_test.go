@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/audit"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -213,4 +214,24 @@ func TestStore_CleanupEntryIsMasked(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Entries, 1)
 	assert.True(t, result.Entries[0].Masked)
+}
+
+// Entries keep their fields whole, so a line can outgrow the reader's buffer;
+// it is skipped like a malformed line and the entries around it still read.
+func TestStore_QuerySkipsOversizedLines(t *testing.T) {
+	store, err := New(t.TempDir(), 0)
+	require.NoError(t, err)
+	ctx := context.Background()
+	require.NoError(t, store.Append(ctx, audit.NewEntry(audit.CategoryUser, "before", "u", "alice")))
+	require.NoError(t, store.Append(ctx, audit.NewEntry(audit.CategoryUser, "login_failed", "",
+		strings.Repeat("<", fileutil.ScannerMaxTokenSize/6+1))))
+	require.NoError(t, store.Append(ctx, audit.NewEntry(audit.CategoryUser, "after", "u", "alice")))
+
+	result, err := store.Query(ctx, audit.QueryFilter{})
+	require.NoError(t, err)
+	actions := make([]string, 0, len(result.Entries))
+	for _, e := range result.Entries {
+		actions = append(actions, e.Action)
+	}
+	assert.ElementsMatch(t, []string{"before", "after"}, actions)
 }

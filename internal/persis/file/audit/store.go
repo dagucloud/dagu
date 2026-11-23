@@ -6,6 +6,7 @@ package audit
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -225,6 +226,7 @@ func (s *Store) readEntriesFromFile(filePath string, filter audit.QueryFilter) (
 	var entries []*audit.Entry
 	scanner := bufio.NewScanner(f)
 	fileutil.ConfigureScanner(scanner)
+	scanner.Split(skipLongLines(fileutil.ScannerMaxTokenSize))
 	lineNum := 0
 
 	for scanner.Scan() {
@@ -296,4 +298,31 @@ func (s *Store) readEntriesFromFile(filePath string, filter audit.QueryFilter) (
 	}
 
 	return entries, nil
+}
+
+// skipLongLines splits lines as bufio.ScanLines does, except that a line of
+// limit bytes or more becomes an empty token, which reads as a malformed
+// entry, instead of stopping the scan. Entries keep their fields whole, so
+// one oversized entry must not hide the rest of its day.
+func skipLongLines(limit int) bufio.SplitFunc {
+	skipping := false
+	return func(data []byte, atEOF bool) (int, []byte, error) {
+		if !skipping {
+			advance, token, err := bufio.ScanLines(data, atEOF)
+			if advance == 0 && token == nil && err == nil && len(data) >= limit {
+				skipping = true
+				return len(data), nil, nil
+			}
+			return advance, token, err
+		}
+		if i := bytes.IndexByte(data, '\n'); i >= 0 {
+			skipping = false
+			return i + 1, []byte{}, nil
+		}
+		if atEOF {
+			skipping = false
+			return len(data), []byte{}, nil
+		}
+		return len(data), nil, nil
+	}
 }
