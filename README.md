@@ -1114,7 +1114,7 @@ The embedded API is experimental and may change. See the [embedded API documenta
 
 - [Discord](https://discord.gg/gpahPUjGRk): Questions and discussion
 - [GitHub Issues](https://github.com/dagucloud/dagu/issues): Bug reports and feature requests
-- [Bluesky](https://bsky.app/profile/dagu-sh.bsky.social)
+- [X](https://x.com/dagucockpit)
 
 ## Development
 
