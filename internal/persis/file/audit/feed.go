@@ -61,6 +61,10 @@ type feedFile struct {
 	// Oversized reports that the offset is inside a line longer than
 	// feedMaxLineBytes, whose rest is passed over.
 	Oversized bool `json:"oversized,omitempty"`
+	// Seen is the size the file had when a read last reached its end. Past
+	// the offset, it holds a line without its newline yet, which is read
+	// again only once the file grows.
+	Seen int64 `json:"seen,omitempty"`
 }
 
 // feedRead is the state of one Read.
@@ -207,7 +211,7 @@ func (r *feedRead) readFile(name string, size int64) (bool, error) {
 		r.lose(audit.LossDeleted, file.since(day), day.AddDate(0, 0, 1))
 		*file = feedFile{}
 	}
-	if size == file.Offset {
+	if size == file.Offset || size == file.Seen {
 		r.closeRejected(file, day)
 		return false, nil
 	}
@@ -239,6 +243,7 @@ func (r *feedRead) readFile(name string, size int64) (bool, error) {
 				r.reject(file, day)
 			}
 			if errors.Is(err, io.EOF) {
+				file.Seen = size
 				r.closeRejected(file, day)
 				return false, nil
 			}
@@ -256,6 +261,10 @@ func (r *feedRead) readFile(name string, size int64) (bool, error) {
 			file.Oversized = true
 			continue
 		case errors.Is(err, io.EOF):
+			// The start of a line without its newline yet: read, but not
+			// consumed.
+			r.bytes += n
+			file.Seen = size
 			r.closeRejected(file, day)
 			return false, nil
 		case err != nil:
@@ -308,8 +317,8 @@ var errLineTooLong = errors.New("audit line too long")
 // readLine reads one line that ends in a newline and returns it without the
 // newline, with the bytes it consumed; a complete line longer than
 // feedMaxLineBytes returns nil. A line without a newline yet returns io.EOF
-// and consumes nothing, unless it has passed feedMaxLineBytes: then it
-// returns errLineTooLong with the bytes it consumed.
+// with the bytes it read, which stay unconsumed, unless it has passed
+// feedMaxLineBytes: then it returns errLineTooLong with the bytes it consumed.
 func readLine(reader *bufio.Reader) ([]byte, int64, error) {
 	var line []byte
 	for {
@@ -328,6 +337,8 @@ func readLine(reader *bufio.Reader) ([]byte, int64, error) {
 			continue
 		case errors.Is(err, io.EOF) && len(line) > feedMaxLineBytes:
 			return nil, n, errLineTooLong
+		case errors.Is(err, io.EOF):
+			return nil, n, io.EOF
 		default:
 			return nil, 0, err
 		}
@@ -402,9 +413,12 @@ func (r *feedRead) reportRemoved(onDisk map[string]int64) {
 	slices.Sort(names)
 	for _, name := range names {
 		file := r.pos.Files[name]
+		day, _ := fileDay(name)
 		if file.Recorded == nil || *file.Recorded > file.Offset {
-			day, _ := fileDay(name)
+			// Covers a run of bad lines still open in it too.
 			r.lose(audit.LossDeleted, file.since(day), day.AddDate(0, 0, 1))
+		} else {
+			r.closeRejected(file, day)
 		}
 		delete(r.pos.Files, name)
 	}

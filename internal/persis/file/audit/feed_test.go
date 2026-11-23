@@ -6,6 +6,7 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -143,6 +144,40 @@ func TestFeed_KeepsARejectedRunOpenAcrossReads(t *testing.T) {
 	second := readFeed(t, dir, first.Position, feedNow, true)
 	assert.Equal(t, []string{"b"}, entryIDs(second))
 	assert.Equal(t, []audit.FeedLoss{{Reason: audit.LossRejected, From: before, To: after}}, second.Losses)
+}
+
+// Lines still being written count toward a read's byte budget, are read
+// again only once their file grows, and do not keep a read from later files.
+func TestFeed_ReadsPartialLinesOnlyOnceTheyGrow(t *testing.T) {
+	dir := t.TempDir()
+	var want []string
+	var partial string
+	for i := range 6 {
+		day := feedNow.AddDate(0, 0, i-6)
+		huge, err := json.Marshal(audit.Entry{ID: fmt.Sprintf("big%d", i), Timestamp: day, Username: strings.Repeat("x", 900<<10)})
+		require.NoError(t, err)
+		partial = string(huge)
+		id := fmt.Sprintf("e%d", i)
+		appendText(t, dir, day, feedLine(t, id, day)+partial)
+		want = append(want, id)
+	}
+	appendText(t, dir, feedNow, feedLine(t, "today", feedNow))
+	want = append(want, "today")
+
+	first := readFeed(t, dir, nil, feedNow, true)
+	assert.True(t, first.More, "partial lines count toward the byte budget")
+	got := entryIDs(first)
+	pos := first.Position
+	for range 3 {
+		chunk := readFeed(t, dir, pos, feedNow, false)
+		got = append(got, entryIDs(chunk)...)
+		pos = chunk.Position
+	}
+	assert.Equal(t, want, got)
+
+	last := feedNow.AddDate(0, 0, -1)
+	appendText(t, dir, last, "\n")
+	assert.Equal(t, []string{"big5"}, entryIDs(readFeed(t, dir, pos, feedNow, true)))
 }
 
 // Entries in a file need not be in time order; a loss still runs forward.
@@ -304,6 +339,25 @@ func TestFeed_Retention(t *testing.T) {
 
 		assert.Equal(t, []string{cleanupAction}, actions(chunk))
 		assert.Empty(t, chunk.Losses)
+	})
+
+	// A read can stop at its byte budget right after the file's last, bad
+	// line; the run stays open, and is reported when the file goes.
+	t.Run("file ending in bad lines", func(t *testing.T) {
+		d := newRetentionDir(t)
+		d.write(t, "old", 1)
+		bad := strings.Repeat("x", 900<<10) + "\n"
+		appendText(t, d.dir, d.expired, strings.Repeat(bad, 5))
+		first := d.read(t, nil)
+		require.True(t, first.More)
+		require.Empty(t, first.Losses)
+
+		d.cleaner.purgeExpiredFiles()
+		chunk := d.read(t, first.Position)
+
+		assert.Equal(t, []audit.FeedLoss{{
+			Reason: audit.LossRejected, From: d.expired.Add(time.Hour), To: d.expired.AddDate(0, 0, 1),
+		}}, chunk.Losses)
 	})
 
 	t.Run("file deleted by hand", func(t *testing.T) {
