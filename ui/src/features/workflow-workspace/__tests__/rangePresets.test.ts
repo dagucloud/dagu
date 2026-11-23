@@ -3,9 +3,9 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  dagRange,
   parseStoredRange,
   rangeBounds,
-  rangeFor,
 } from '../dock/runTimelineModel';
 import { presetView } from '../continuous/sampleBars';
 import { presetsFor, RANGE_PRESETS } from '../rangePresets';
@@ -51,12 +51,11 @@ describe('range presets', () => {
     }
   });
 
-  it('keeps a stored preset only where the DAG offers it', () => {
-    expect(rangeFor({ preset: '3y' }, true)).toEqual({ preset: '3y' });
-    expect(rangeFor({ preset: '3y' }, false)).toEqual({ preset: '24h' });
-    expect(rangeFor({ preset: '7d' }, false)).toEqual({ preset: '7d' });
+  it('keeps a stored preset only where a normal DAG offers it', () => {
+    expect(dagRange({ preset: '3y' })).toEqual({ preset: '24h' });
+    expect(dagRange({ preset: '7d' })).toEqual({ preset: '7d' });
     const custom = { preset: 'custom' as const, from: 1, to: 2 };
-    expect(rangeFor(custom, false)).toBe(custom);
+    expect(dagRange(custom)).toBe(custom);
   });
 
   it('reads any preset of the list from the storage', () => {

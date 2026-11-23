@@ -423,12 +423,13 @@ export type RunRange =
 export const RANGE_DEFAULT: RunRange = { preset: '24h' };
 
 /**
- * The range that a DAG shows: the stored range when this kind of DAG offers
- * it, else the default. A service DAG offers more presets than a normal one.
+ * The range that a normal DAG shows: the stored range when a normal DAG
+ * offers it, else the default. The storage can hold a preset that only a
+ * service DAG offers.
  */
-export function rangeFor(range: RunRange, service: boolean): RunRange {
+export function dagRange(range: RunRange): RunRange {
   return range.preset === 'custom' ||
-    presetsFor(service ? 'service' : 'dag').some((p) => p.id === range.preset)
+    presetsFor('dag').some((p) => p.id === range.preset)
     ? range
     : RANGE_DEFAULT;
 }

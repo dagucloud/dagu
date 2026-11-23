@@ -5,6 +5,7 @@ import { useMemo, useSyncExternalStore } from 'react';
 import {
   adjacentVisibleRunId,
   cachedMsOf,
+  dagRange,
   HISTORY_LIMIT,
   isTestRun,
   parseStoredCount,
@@ -16,7 +17,6 @@ import {
   parseStoredShowTests,
   RANGE_DEFAULT,
   rangeBounds,
-  rangeFor,
   runInRange,
   runTimeMs,
   timelineRuns,
@@ -337,7 +337,7 @@ export function useVisibleRuns({
     if (service) {
       return { ...stored, mode: 'range' as const, range: stored.serviceRange };
     }
-    const range = rangeFor(stored.range, false);
+    const range = dagRange(stored.range);
     return range === stored.range ? stored : { ...stored, range };
   }, [stored, service]);
   const history = useRunHistory({
