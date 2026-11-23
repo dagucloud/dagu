@@ -167,6 +167,35 @@ describe('AddNodeDialog', () => {
     expect(add).toBeDisabled();
   });
 
+  // Changing a field back makes the earlier test current again, together
+  // with the keys accepted for it.
+  it('trusts the accepted key after a field is changed back', async () => {
+    fetchMock
+      .mockResolvedValueOnce(stream(UNKNOWN))
+      .mockResolvedValueOnce(stream(PASSED))
+      .mockResolvedValueOnce(
+        stream({
+          node: 'web01',
+          fingerprint: 'SHA256:web01',
+          outcome: 'trusted',
+        })
+      );
+    client.PUT.mockResolvedValue({ data: {} });
+    renderDialog();
+
+    fill('Name', 'web01');
+    fill('Host', '10.0.1.11');
+    await click('Test connection');
+    await click('Trust this key and test again');
+    fill('Description', 'x');
+    fill('Description', '');
+    await click('Add node');
+
+    expect(bodiesTo(fetchMock, '/node-host-keys')).toEqual([
+      { keys: [{ node: 'web01', fingerprint: 'SHA256:web01' }] },
+    ]);
+  });
+
   it('refuses a key file and a key secret together, before testing', async () => {
     renderDialog();
 

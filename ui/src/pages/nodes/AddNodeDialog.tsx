@@ -54,8 +54,16 @@ type Fields = {
   description: string;
 };
 
-/** A test, and the fields it ran with. A change to them makes it stale. */
-type Tested = { fields: string; result?: ConnectionTest; error?: string };
+/**
+ * A test, the fields it ran with, and the keys accepted for it, a bastion's
+ * first. A change to the fields makes it stale.
+ */
+type Tested = {
+  fields: string;
+  accept: AcceptedKey[];
+  result?: ConnectionTest;
+  error?: string;
+};
 
 /**
  * Adds an SSH node to an inventory, as `dagu nodes add` does. The server
@@ -80,8 +88,6 @@ export function AddNodeDialog({
     ...EMPTY,
     inventoryId: inventories[0]?.id ?? '',
   }));
-  // Keys the user accepted for the current fields, a bastion's first.
-  const [accepted, setAccepted] = useState<AcceptedKey[]>([]);
   const [tested, setTested] = useState<Tested | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -92,6 +98,7 @@ export function AddNodeDialog({
   const built = nodeOf(fields);
   const fieldsKey = JSON.stringify(fields);
   const test = tested?.fields === fieldsKey ? tested : null;
+  const accepted = test?.accept ?? [];
   const refused = test?.result?.hostKey;
   const unknownKey =
     refused?.status === 'unknown' &&
@@ -102,7 +109,6 @@ export function AddNodeDialog({
 
   const set = (name: keyof Fields) => (value: string) => {
     setFields((prev) => ({ ...prev, [name]: value }));
-    setAccepted([]);
   };
 
   async function runTest(accept: AcceptedKey[]) {
@@ -126,9 +132,9 @@ export function AddNodeDialog({
           result = event;
         }
       );
-      setTested({ fields: fieldsKey, result });
+      setTested({ fields: fieldsKey, accept, result });
     } catch (error) {
-      setTested({ fields: fieldsKey, error: messageOf(error) });
+      setTested({ fields: fieldsKey, accept, error: messageOf(error) });
     } finally {
       setBusy(false);
     }
@@ -319,17 +325,15 @@ export function AddNodeDialog({
                 size="sm"
                 variant="outline"
                 disabled={busy}
-                onClick={() => {
-                  const next = [
+                onClick={() =>
+                  void runTest([
                     ...accepted,
                     {
                       node: unknownKey.node,
                       fingerprint: unknownKey.fingerprint,
                     },
-                  ];
-                  setAccepted(next);
-                  void runTest(next);
-                }}
+                  ])
+                }
               >
                 <I18nText text={'Trust this key and test again'} />
               </Button>
