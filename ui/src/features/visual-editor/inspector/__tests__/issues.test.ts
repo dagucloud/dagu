@@ -2,17 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
-import { translateStatic } from '@/i18n/translateStatic';
 import {
   ValidationIssueSeverity,
   ValidationIssueSource,
 } from '@/api/v1/schema';
 import type { StepView, ValidationIssue } from '../../contracts';
-import {
-  RESTART_WITH_RETRY_MESSAGE,
-  RESTART_WITH_SCHEDULE_MESSAGE,
-  SECRETS_UNTRUSTED_MESSAGE,
-} from '../../doc/issueMessages';
+import { SECRETS_UNTRUSTED_MESSAGE } from '../../doc/issueMessages';
 import { issuesSample, modelArraySteps } from '../../testing/fixtures';
 import {
   issuesUnder,
@@ -182,19 +177,6 @@ describe('required field issues', () => {
       fieldPath: 'steps[1].secrets',
       message: 'traduit',
     });
-  });
-
-  // The catalog has each of them: a Japanese user reads Japanese.
-  it('translates the fixed errors of a service DAG', () => {
-    for (const message of [
-      RESTART_WITH_SCHEDULE_MESSAGE,
-      RESTART_WITH_RETRY_MESSAGE,
-    ]) {
-      const japanese = refineIssue(issue({ message }), (text, values) =>
-        translateStatic('ja', text, values)
-      ).message;
-      expect(japanese).not.toBe(message);
-    }
   });
 
   it('leaves other issues alone', () => {

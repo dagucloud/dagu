@@ -18,7 +18,7 @@ func TestEverySettingThatNamesACredentialIsHiddenFromWorkflows(t *testing.T) {
 
 	// Matched against a setting's last segment: "secrets.vault.address" is
 	// about secrets but carries none, and "client_key" names a file.
-	credential := regexp.MustCompile(`^(password|passphrase|ssh_passphrase|secret|client_secret|token|auth_key)$`)
+	credential := regexp.MustCompile(`^(password|passphrase|ssh_passphrase|secret|client_secret|token|auth_key|run_key)$`)
 	prefix := strings.ToUpper(AppSlug) + "_"
 	for _, binding := range envBindings {
 		name := binding.key[strings.LastIndex(binding.key, ".")+1:]

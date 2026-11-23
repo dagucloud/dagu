@@ -597,6 +597,36 @@ describe.skipIf(realSchema === null)('mergeIssues', () => {
     expect(mergeIssues(model, names, server, client)).toContain(server[0]);
   });
 
+  // Only a server issue of no step gives way to the client issue that says
+  // it again; a server issue of a step keeps its place.
+  it('keeps a server issue of a step that a client issue says again', () => {
+    const repeated = client.find((i) =>
+      i.message.startsWith('The step "title" has no output')
+    )!;
+    const server = [
+      serverIssue({
+        message: repeated.message,
+        stepName: repeated.stepName,
+        stepPath: repeated.stepPath,
+        fieldPath: repeated.fieldPath,
+      }),
+    ];
+    const merged = mergeIssues(model, names, server, client);
+    const same = merged.filter((i) => i.message === repeated.message);
+    expect(same).toHaveLength(1);
+    expect(same[0]).toBe(server[0]);
+  });
+
+  // A client warning cannot stand for a server error: the error would read
+  // as a warning.
+  it('keeps a server error of no step that a client warning says again', () => {
+    const warning = client.find(
+      (i) => i.severity === ValidationIssueSeverity.warning
+    )!;
+    const server = [serverIssue({ message: warning.message })];
+    expect(mergeIssues(model, names, server, client)).toContain(server[0]);
+  });
+
   it('drops a client reference that the server has said as a value reference', () => {
     const server = [
       serverIssue({

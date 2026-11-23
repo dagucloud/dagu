@@ -6,8 +6,6 @@ import {
   AGENT_NEEDS_ENDPOINT_MESSAGE,
   AGENT_NEEDS_PROVIDER_MESSAGE,
   missingEndpointName,
-  RESTART_WITH_RETRY_MESSAGE,
-  RESTART_WITH_SCHEDULE_MESSAGE,
   SECRETS_UNTRUSTED_MESSAGE,
 } from '../doc/issueMessages';
 import type { StepIssues } from './types';
@@ -81,9 +79,7 @@ export function refineIssue(
   if (
     issue.message === SECRETS_UNTRUSTED_MESSAGE ||
     issue.message === AGENT_NEEDS_ENDPOINT_MESSAGE ||
-    issue.message === AGENT_NEEDS_PROVIDER_MESSAGE ||
-    issue.message === RESTART_WITH_SCHEDULE_MESSAGE ||
-    issue.message === RESTART_WITH_RETRY_MESSAGE
+    issue.message === AGENT_NEEDS_PROVIDER_MESSAGE
   ) {
     return { ...issue, message: translate(issue.message) };
   }

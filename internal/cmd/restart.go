@@ -238,6 +238,8 @@ func executeDAGWithRunID(
 	if err != nil {
 		return err
 	}
+	runState := withJobReports(ctx, persis.NewRunStateStore(ctx.Persistence.DAGRunRepository, preparedAttempt),
+		jobRun{workerID: "local", keepTrigger: true})
 
 	agentInstance := agent.New(
 		dagRunID,
@@ -250,7 +252,7 @@ func executeDAGWithRunID(
 			Dry:                      false,
 			ExtraEnvs:                extraEnvs,
 			AttemptID:                agentAttemptID("", preparedAttempt),
-			RunStateStore:            persis.NewRunStateStore(ctx.Persistence.DAGRunRepository, preparedAttempt),
+			RunStateStore:            runState,
 			StateStore:               ctx.Persistence.StateStore,
 			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  opts.noReuse,

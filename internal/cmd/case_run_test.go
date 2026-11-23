@@ -6,8 +6,11 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -317,6 +320,30 @@ steps:
 	assert.Equal(t, []agent.Notification{
 		{Kind: agent.NotificationMailOnSuccess, To: []string{"ops@example.com"}},
 	}, tc.notifications)
+}
+
+// A case reports nothing to Dagu Console, even with a run key set. The
+// config is set directly, so the fake Console need not be https.
+func TestCaseSendsNoJobReport(t *testing.T) {
+	t.Parallel()
+
+	var reports atomic.Int32
+	console := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		reports.Add(1)
+		_, _ = io.WriteString(w, `{"stored":1}`)
+	}))
+	t.Cleanup(console.Close)
+
+	ctx, _ := newCaseTestContext(t)
+	ctx.Config.Cloud.RunKey = testRunKey
+	ctx.Config.License.CloudURL = console.URL
+	dag := writeCaseDAG(t, ctx, "job", "steps:\n  - run: echo ok\n")
+	tc := openTestCase(t, ctx, caseOptions{tempDir: t.TempDir()})
+
+	status, err := tc.run(dag)
+	require.NoError(t, err)
+	require.Equal(t, ir.Succeeded, status.Status, status.Error)
+	assert.Zero(t, reports.Load(), "job run reported")
 }
 
 // A real dag.run step starts its child in the same case. The child takes its

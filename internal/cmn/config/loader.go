@@ -129,7 +129,7 @@ var serviceRequirements = map[Service]ConfigSection{
 	ServiceScheduler:   SectionScheduler | SectionCoordinator | SectionQueues | SectionProc,
 	ServiceWorker:      SectionWorker | SectionCoordinator | SectionProc,
 	ServiceCoordinator: SectionCoordinator | SectionProc,
-	ServiceAgent:       SectionQueues | SectionProc,
+	ServiceAgent:       SectionQueues | SectionProc | SectionLicense,
 }
 
 // requires checks if the loader's service requires the given config section.
@@ -2035,6 +2035,7 @@ func (l *ConfigLoader) loadCloudConfig(cfg *Config, def Definition) {
 	if def.Cloud != nil {
 		cfg.Cloud.Report = ReportLevel(strings.ToLower(strings.TrimSpace(def.Cloud.Report)))
 		cfg.Cloud.RemoteAccess = RemoteAccessLevel(strings.ToLower(strings.TrimSpace(def.Cloud.RemoteAccess)))
+		cfg.Cloud.RunKey = strings.TrimSpace(def.Cloud.RunKey)
 	}
 	if l.v.IsSet("cloud.remote_approvals") {
 		approvals := l.v.GetBool("cloud.remote_approvals")
@@ -2687,6 +2688,7 @@ var envBindings = []envBinding{
 	{key: "cloud.report", env: "CLOUD_REPORT"},
 	{key: "cloud.remote_access", env: "CLOUD_REMOTE_ACCESS"},
 	{key: "cloud.remote_approvals", env: "CLOUD_REMOTE_APPROVALS"},
+	{key: "cloud.run_key", env: "CLOUD_RUN_KEY", secret: true},
 
 	// GitSync
 	{key: "git_sync.enabled", env: "GITSYNC_ENABLED"},

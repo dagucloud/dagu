@@ -2066,6 +2066,11 @@
         "remote_approvals": {
           "type": "boolean",
           "description": "Whether calls from Dagu Cloud may approve, reject, or push back steps waiting for a person, at operator or above. Omit it to choose in the UI, where it starts off."
+        },
+        "run_key": {
+          "type": "string",
+          "pattern": "^drk_[0-9a-f]{64}$",
+          "description": "A run key from Dagu Console, starting with drk_. With it, a top-level run of dagu start, exec, retry, or restart, such as one in a Kubernetes Job or a CI step, reports itself to Dagu Console as a job run: when it starts, about each minute while it runs, when its status changes, and when it finishes, with the platform it ran in, a link to its CI run, and the machine's hostname. It reports at the report level, errors when that is unset. A run's status and exit code never depend on Dagu Console. Workflow steps never inherit it."
         }
       }
     }

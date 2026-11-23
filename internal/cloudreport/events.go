@@ -188,27 +188,37 @@ func newReportedEvent(event *eventstore.Event) (reportedEvent, bool) {
 	run := newActiveRun(status)
 	reported := reportedEvent{change: runChange{run: run, ended: traits.finished}, urgent: traits.urgent}
 	if traits.finished {
-		finishedAt := snapshotTime(status.FinishedAt)
-		if finishedAt == "" {
-			finishedAt = formatTime(event.OccurredAt)
-		}
-		reported.finished = &finishedRun{
-			Workflow:    run.Workflow,
-			DAGRunID:    run.DAGRunID,
-			AttemptID:   run.AttemptID,
-			Status:      run.Status,
-			TriggerType: run.TriggerType,
-			QueuedAt:    run.QueuedAt,
-			StartedAt:   run.StartedAt,
-			FinishedAt:  finishedAt,
-			FailedSteps: failedSteps(status),
-		}
-		reported.finished.Steps, reported.finished.StepsTotal = runSteps(status)
-		if runFailed(status.Status) {
-			reported.finished.Errors = runErrors(status)
-		}
+		finished := newFinishedRun(status, event.OccurredAt)
+		reported.finished = &finished
 	}
 	return reported, true
+}
+
+// newFinishedRun is the run that status ended, as a report carries it, with
+// its errors when it failed. A status without a finish time takes
+// occurredAt.
+func newFinishedRun(status *ir.DAGRunStatus, occurredAt time.Time) finishedRun {
+	run := newActiveRun(status)
+	finishedAt := snapshotTime(status.FinishedAt)
+	if finishedAt == "" {
+		finishedAt = formatTime(occurredAt)
+	}
+	finished := finishedRun{
+		Workflow:    run.Workflow,
+		DAGRunID:    run.DAGRunID,
+		AttemptID:   run.AttemptID,
+		Status:      run.Status,
+		TriggerType: run.TriggerType,
+		QueuedAt:    run.QueuedAt,
+		StartedAt:   run.StartedAt,
+		FinishedAt:  finishedAt,
+		FailedSteps: failedSteps(status),
+	}
+	finished.Steps, finished.StepsTotal = runSteps(status)
+	if runFailed(status.Status) {
+		finished.Errors = runErrors(status)
+	}
+	return finished
 }
 
 // failedSteps names the failed steps of status, handlers included.

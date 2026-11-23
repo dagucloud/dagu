@@ -42,6 +42,9 @@ func NewCloudClient(baseURL string) *CloudClient {
 	}
 }
 
+// BaseURL is the Dagu Console address the client calls.
+func (c *CloudClient) BaseURL() string { return c.baseURL }
+
 // ActivateRequest is the request body for license activation.
 type ActivateRequest struct {
 	Key           string `json:"key"`

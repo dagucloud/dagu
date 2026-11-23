@@ -743,6 +743,12 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 	if err != nil {
 		return err
 	}
+	runState := persis.NewRunStateStore(ctx.Persistence.DAGRunRepository, opts.preparedAttempt)
+	if opts.testSideEffects == nil {
+		runState = withJobReports(ctx, runState, jobRun{
+			parent: opts.parent, workerID: opts.workerID, keepTrigger: triggerPassed(ctx),
+		})
+	}
 
 	agentInstance := agent.New(
 		dagRunID,
@@ -758,7 +764,7 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 			WorkerID:                 opts.workerID,
 			AttemptID:                agentAttemptID(opts.attemptID, opts.preparedAttempt),
 			QueuedRun:                queuedRun,
-			RunStateStore:            persis.NewRunStateStore(ctx.Persistence.DAGRunRepository, opts.preparedAttempt),
+			RunStateStore:            runState,
 			StateStore:               ctx.Persistence.StateStore,
 			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  opts.noReuse,
