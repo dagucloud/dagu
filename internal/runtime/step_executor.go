@@ -23,12 +23,29 @@ var errNodeExecutionAborted = errors.New("node execution aborted before start")
 // shorten it.
 var liveModelUsageInterval = 5 * time.Second
 
+// ExecutorOverride supplies executors that run in place of step actions.
+type ExecutorOverride interface {
+	// Executor returns the executor that runs in place of the step's action
+	// for one execution, or false when the step runs its own action. It
+	// answers the same way for every execution of a step, since a step's
+	// state, such as its child runs, assumes one kind of action. The
+	// step's fields are resolved as they are for its own action. On a step
+	// that starts child runs, such as dag.run, parallel, or a step with
+	// nodes, the executor replaces every child run, so none starts or is
+	// recorded.
+	Executor(ctx context.Context, step ir.Step) (executor.Executor, bool)
+}
+
 // StepExecutor owns a single step execution attempt.
 //
 // The scheduler-facing Runner decides when a node should run. StepExecutor owns
 // the executor-specific protocol for setting up one run, passing executor
 // context, collecting executor side channels, and capturing outputs.
-type StepExecutor struct{}
+type StepExecutor struct {
+	// override supplies executors in place of step actions. Nil builds each
+	// step's own.
+	override ExecutorOverride
+}
 
 // NewStepExecutor creates a StepExecutor.
 func NewStepExecutor() *StepExecutor {
@@ -68,7 +85,7 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		return recordPreRunAbort(ctx, node, err, stepTimeout, attemptStarted)
 	}
 
-	ctx, cmd, err := node.setupExecutor(ctx)
+	ctx, cmd, err := node.setupExecutor(ctx, e.override)
 	defer func() {
 		if cleanupErr := node.cleanupStepOutputFile(); cleanupErr != nil {
 			logger.Warn(ctx, "Failed to remove step output file",

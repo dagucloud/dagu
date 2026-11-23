@@ -117,25 +117,16 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 				return
 			}
 
-			var reader io.Reader = resp.Body
-			switch resp.Header.Get("Content-Encoding") {
-			case "gzip":
-				gzReader, err := gzip.NewReader(resp.Body)
-				if err != nil {
-					WriteErrorResponse(w, &Error{
-						Code:       api.ErrorCodeBadGateway,
-						HTTPStatus: http.StatusBadGateway,
-						Message:    fmt.Sprintf("failed to create gzip reader: %s", err.Error()),
-					})
-					return
-				}
-				defer func() {
-					_ = gzReader.Close()
-				}()
-				reader = gzReader
-			case "deflate":
-				reader = flate.NewReader(resp.Body)
+			reader, closeReader, err := remoteNodeResponseReader(resp)
+			if err != nil {
+				WriteErrorResponse(w, &Error{
+					Code:       api.ErrorCodeBadGateway,
+					HTTPStatus: http.StatusBadGateway,
+					Message:    fmt.Sprintf("failed to create gzip reader: %s", err.Error()),
+				})
+				return
 			}
+			defer closeReader()
 
 			respData, err := io.ReadAll(reader)
 			if err != nil {
@@ -175,6 +166,23 @@ func WithRemoteNode(resolver *remotenode.Resolver, apiBasePath string) func(next
 
 		return http.HandlerFunc(fn)
 	}
+}
+
+// remoteNodeResponseReader returns resp's body with its Content-Encoding
+// removed, and a function that releases the decoder.
+func remoteNodeResponseReader(resp *http.Response) (io.Reader, func(), error) {
+	switch resp.Header.Get("Content-Encoding") {
+	case "gzip":
+		gzReader, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil, nil, err
+		}
+		return gzReader, func() { _ = gzReader.Close() }, nil
+	case "deflate":
+		flateReader := flate.NewReader(resp.Body)
+		return flateReader, func() { _ = flateReader.Close() }, nil
+	}
+	return resp.Body, func() {}, nil
 }
 
 type remoteNodeProxy struct {
@@ -264,7 +272,7 @@ func (h *remoteNodeProxy) doRequest(body io.Reader, r *http.Request) (*http.Resp
 	q := r.URL.Query()
 	q.Del("remoteNode")
 
-	remoteURL, err := buildRemoteNodeProxyURL(h.remoteNode.APIBaseURL, r.URL.Path, h.apiBasePath, q)
+	remoteURL, err := buildRemoteNodeProxyURL(h.remoteNode.APIBaseURL, r.URL.EscapedPath(), h.apiBasePath, q)
 	if err != nil {
 		return nil, &Error{
 			Code:       api.ErrorCodeBadRequest,
@@ -360,18 +368,25 @@ func isCleanPath(p string) bool {
 	return clean == p
 }
 
-func buildRemoteNodeProxyURL(baseURL, requestPath, apiBasePath string, query url.Values) (string, error) {
-	suffix, ok := strings.CutPrefix(requestPath, apiBasePath)
+// buildRemoteNodeProxyURL joins the remote node's API base URL and the part of
+// escapedPath after the local API base path. The path stays escaped as
+// received, so the remote node routes it to the operation that the local
+// permission check named.
+func buildRemoteNodeProxyURL(baseURL, escapedPath, apiBasePath string, query url.Values) (string, error) {
+	escapedBase := (&url.URL{Path: apiBasePath}).EscapedPath()
+	suffix, ok := strings.CutPrefix(escapedPath, escapedBase)
 	if !ok {
-		return "", fmt.Errorf("invalid URL path: %s", requestPath)
+		return "", fmt.Errorf("invalid URL path: %s", escapedPath)
 	}
 
 	u, err := remotenode.ParseAPIBaseURL(baseURL)
 	if err != nil {
 		return "", err
 	}
-	u.Path = strings.TrimRight(u.Path, "/") + "/" + strings.TrimLeft(suffix, "/")
-	u.RawPath = ""
+	u.RawPath = strings.TrimRight(u.EscapedPath(), "/") + "/" + strings.TrimLeft(suffix, "/")
+	if u.Path, err = url.PathUnescape(u.RawPath); err != nil {
+		return "", fmt.Errorf("invalid URL path: %s", escapedPath)
+	}
 	u.RawQuery = query.Encode()
 	return u.String(), nil
 }

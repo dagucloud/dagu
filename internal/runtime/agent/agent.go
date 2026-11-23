@@ -62,6 +62,7 @@ import (
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/sshconn"
 	"github.com/dagucloud/dagu/v2/internal/telemetry"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 
@@ -234,6 +235,9 @@ type Agent struct {
 	// tracer is the OpenTelemetry tracer for the agent.
 	tracer *telemetry.Tracer
 
+	// testSideEffects turns off run-level side effects for a workflow test.
+	testSideEffects *TestSideEffects
+
 	// statusPusher is used to push status updates to a remote coordinator.
 	// When nil, status is written to local filesystem via the run-state attempt.
 	statusPusher StatusPusher
@@ -295,6 +299,10 @@ type Agent struct {
 	secretReferenceResolver providers.ReferenceResolver
 	// secretMasker redacts resolved secret values from status/history snapshots.
 	secretMasker *masking.Masker
+	// secretValues, when non-nil, replaces the providers of DAG secrets.
+	secretValues map[string]string
+	// redirectRoot is where the run writes step redirect files.
+	redirectRoot runtime.RedirectRoot
 
 	// remoteDAGLoader loads a DAG from a remote source when local store misses.
 	remoteDAGLoader RemoteDAGLoader
@@ -416,6 +424,15 @@ type Options struct {
 	// SecretReferenceResolver resolves DAG-level registry refs.
 	// When nil, SecretStore supplies the local resolver.
 	SecretReferenceResolver providers.ReferenceResolver
+	// SecretValues, when non-nil, holds the value of each DAG secrets entry
+	// by name and of each SSH credential secret ref by ref, and no secret
+	// provider, store, or resolver is called. A secret without a value fails
+	// the run before any step starts. Values are masked as resolved secrets
+	// are.
+	SecretValues map[string]string
+	// RedirectRoot moves step redirect files under a directory. The zero
+	// value writes them at their configured paths.
+	RedirectRoot runtime.RedirectRoot
 	// ProfileStore resolves named runtime profiles.
 	ProfileStore profilepkg.Store
 	// ProfileResolver resolves inherited and selected runtime profile layers.
@@ -471,6 +488,21 @@ type Options struct {
 	// SocketServerFactory creates the local status/control transport.
 	// When nil, the default Unix socket transport is used.
 	SocketServerFactory SocketServerFactory
+	// TestSideEffects turns off the run-level side effects of a real run for
+	// a workflow test. When nil, the run has all of them.
+	TestSideEffects *TestSideEffects
+}
+
+// TestSideEffects configures a workflow test run. The run sends no mail
+// notification and records each one instead (see Agent.Notifications), and
+// it exports no OpenTelemetry trace.
+type TestSideEffects struct {
+	// HasRealSteps reports that the test runs a step for real. The run then
+	// creates its working directory, DAG-level container, and DAG-level SSH
+	// client, resolves SSH credentials given as secret references, and
+	// applies native resource limits, as a real run does. Without it, the
+	// run does none of these.
+	HasRealSteps bool
 }
 
 // New creates a new Agent.
@@ -508,6 +540,8 @@ func New(
 		materializationStore:     opts.MaterializationStore,
 		secretStore:              opts.SecretStore,
 		secretReferenceResolver:  secretReferenceResolverForDAG(dag, opts),
+		secretValues:             opts.SecretValues,
+		redirectRoot:             opts.RedirectRoot,
 		profileStore:             opts.ProfileStore,
 		profileResolver:          opts.ProfileResolver,
 		registry:                 opts.ServiceRegistry,
@@ -546,6 +580,7 @@ func New(
 		dagRunArtifactDir:        opts.DAGRunArtifactDir,
 		socketServerFactory:      opts.SocketServerFactory,
 		remoteDAGLoader:          opts.RemoteDAGLoader,
+		testSideEffects:          opts.TestSideEffects,
 	}
 	if a.socketServerFactory == nil {
 		a.socketServerFactory = defaultSocketServerFactory
@@ -564,6 +599,9 @@ func New(
 }
 
 func secretReferenceResolverForDAG(dag *ir.DAG, opts Options) providers.ReferenceResolver {
+	if opts.SecretValues != nil {
+		return secretValuesResolver(opts.SecretValues)
+	}
 	if opts.SecretReferenceResolver != nil {
 		return opts.SecretReferenceResolver
 	}
@@ -571,6 +609,22 @@ func secretReferenceResolverForDAG(dag *ir.DAG, opts Options) providers.Referenc
 		return nil
 	}
 	return secretpkg.NewReferenceResolver(opts.SecretStore, workspaceNameFromDAG(dag))
+}
+
+// secretValuesResolver resolves each secret ref to the value given for it.
+type secretValuesResolver map[string]string
+
+func (v secretValuesResolver) ResolveReference(_ context.Context, ref secretref.Ref) (string, error) {
+	value, ok := v[ref.Ref]
+	if !ok {
+		return "", errors.New("no value given")
+	}
+	return value, nil
+}
+
+func (v secretValuesResolver) CheckReferenceAccessibility(ctx context.Context, ref secretref.Ref) error {
+	_, err := v.ResolveReference(ctx, ref)
+	return err
 }
 
 func workspaceNameFromDAG(dag *ir.DAG) string {
@@ -694,18 +748,20 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		ctx = telemetry.ExtractTraceContext(ctx)
 	}
 
-	// Initialize OpenTelemetry tracer
-	tracer, err := telemetry.NewTracer(ctx, a.dag, configVars)
-	if err != nil {
-		logger.Warn(ctx, "Failed to initialize OpenTelemetry tracer", tag.Error(err))
-		// Continue without tracing
-	} else {
-		a.tracer = tracer
-		defer func() {
-			if err := tracer.Shutdown(ctx); err != nil {
-				logger.Warn(ctx, "Failed to shutdown OpenTelemetry tracer", tag.Error(err))
-			}
-		}()
+	// Initialize OpenTelemetry tracer. A test run exports no trace.
+	if a.testSideEffects == nil {
+		tracer, err := telemetry.NewTracer(ctx, a.dag, configVars)
+		if err != nil {
+			logger.Warn(ctx, "Failed to initialize OpenTelemetry tracer", tag.Error(err))
+			// Continue without tracing
+		} else {
+			a.tracer = tracer
+			defer func() {
+				if err := tracer.Shutdown(ctx); err != nil {
+					logger.Warn(ctx, "Failed to shutdown OpenTelemetry tracer", tag.Error(err))
+				}
+			}()
+		}
 	}
 
 	// Start root span for DAG execution
@@ -889,6 +945,12 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	if a.noReuse {
 		contextOpts = append(contextOpts, runtime.WithNoReuse(true))
 	}
+	if a.redirectRoot.Dir != "" {
+		contextOpts = append(contextOpts, runtime.WithRedirectRoot(a.redirectRoot))
+	}
+	if a.secretValues != nil {
+		contextOpts = append(contextOpts, runtime.WithSecretValues(a.secretValues))
+	}
 	if a.dagRunLogDir != "" {
 		contextOpts = append(contextOpts, runtime.WithDAGRunLogDir(a.dagRunLogDir))
 	}
@@ -900,7 +962,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	ctx = runtime.NewContext(ctx, a.dag, a.dagRunID, a.logFile, contextOpts...)
 	// Set even when empty, so an in-process child never reads its parent's.
-	ctx = ssh.WithSecretValues(ctx, credentials)
+	ctx = sshconn.WithSecretValues(ctx, credentials)
 	ctx = runtimeexec.WithSubWorkflowRunner(ctx, subWorkflowRunner)
 	if a.workspaceSeed != nil {
 		ctx = runtimeexec.WithWorkspaceSeed(ctx, *a.workspaceSeed)
@@ -1062,9 +1124,11 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 
 	// Ensure working directory exists
-	if err := os.MkdirAll(a.evaluatedWorkingDir, 0o755); err != nil {
-		initErr = fmt.Errorf("failed to create working directory: %w", err)
-		return initErr
+	if a.preparesForRealSteps() {
+		if err := os.MkdirAll(a.evaluatedWorkingDir, 0o755); err != nil {
+			initErr = fmt.Errorf("failed to create working directory: %w", err)
+			return initErr
+		}
 	}
 
 	// Do not change the process working directory here. Agent runs can execute
@@ -1072,7 +1136,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	// through the runtime context and set per-command working directories.
 
 	// Create a new container if the DAG has a container configuration.
-	if a.dag.Container != nil {
+	if a.dag.Container != nil && a.preparesForRealSteps() {
 		// Expand environment variables in container fields
 		expandedContainer, err := docker.EvalContainerFields(initializationCtx, *a.dag.Container)
 		if err != nil {
@@ -1125,7 +1189,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 
 	// Create SSH Client if the DAG has SSH configuration.
-	if a.dag.SSH != nil {
+	if a.dag.SSH != nil && a.preparesForRealSteps() {
 		var sshTimeout time.Duration
 		if a.dag.SSH.Timeout != "" {
 			parsed, err := time.ParseDuration(a.dag.SSH.Timeout)
@@ -1137,9 +1201,9 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		}
 
 		// Build bastion config if present
-		var bastionCfg *ssh.BastionConfig
+		var bastionCfg *sshconn.BastionConfig
 		if a.dag.SSH.Bastion != nil {
-			bastionCfg = &ssh.BastionConfig{
+			bastionCfg = &sshconn.BastionConfig{
 				Host:    a.dag.SSH.Bastion.Host,
 				Port:    a.dag.SSH.Bastion.Port,
 				User:    a.dag.SSH.Bastion.User,
@@ -1147,7 +1211,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			}
 		}
 
-		sshConfig, err := evalSSHConfig(initializationCtx, ssh.Config{
+		sshConfig, err := evalSSHConfig(initializationCtx, sshconn.Config{
 			User:          a.dag.SSH.User,
 			Host:          a.dag.SSH.Host,
 			Port:          a.dag.SSH.Port,
@@ -1163,7 +1227,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 			initErr = fmt.Errorf("failed to evaluate ssh config: %w", err)
 			return initErr
 		}
-		cli, err := ssh.NewClient(ctx, &sshConfig)
+		cli, err := sshconn.NewClient(ctx, &sshConfig)
 		if err != nil {
 			initErr = fmt.Errorf("failed to create ssh client: %w", err)
 			return initErr
@@ -1317,7 +1381,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		ctx = s3.WithS3Config(ctx, a.evaluatedS3)
 	}
 
-	if a.dag.Container == nil && a.dag.Resources.HasLimits() {
+	if a.dag.Container == nil && a.dag.Resources.HasLimits() && a.preparesForRealSteps() {
 		guard := resourcelimit.Start(ctx, resourcelimit.Options{
 			DAGName:  a.dag.Name,
 			DAGRunID: a.dagRunID,
@@ -1483,8 +1547,10 @@ func (a *Agent) shouldDelayTerminalStatus(status ir.Status) bool {
 		if a.statusPusher == nil {
 			return true
 		}
-		if a.reporter != nil && a.reporter.selectMailConfig(a.dag, ir.DAGRunStatus{Status: status}, nil) != nil {
-			return true
+		if a.reporter != nil {
+			if mailConfig, _ := a.reporter.selectMailConfig(a.dag, ir.DAGRunStatus{Status: status}, nil); mailConfig != nil {
+				return true
+			}
 		}
 		if a.artifactFinalizer != nil && a.artifactDir != "" {
 			return true
@@ -2241,11 +2307,29 @@ func (a *Agent) setupReporter(ctx context.Context) error {
 	}
 
 	a.reporter = newReporter(senderFn, reporterConfig{
-		ErrorMail: a.evaluatedErrorMail,
-		InfoMail:  a.evaluatedInfoMail,
-		WaitMail:  a.evaluatedWaitMail,
+		ErrorMail:  a.evaluatedErrorMail,
+		InfoMail:   a.evaluatedInfoMail,
+		WaitMail:   a.evaluatedWaitMail,
+		RecordOnly: a.testSideEffects != nil,
 	})
 	return nil
+}
+
+// Notifications returns the mail notifications a run with TestSideEffects
+// would have sent, in the order the run reached them. It returns nil for any
+// other run.
+func (a *Agent) Notifications() []Notification {
+	a.lock.RLock()
+	defer a.lock.RUnlock()
+	return a.reporter.notifications()
+}
+
+// preparesForRealSteps reports whether the run sets up what real steps need:
+// the working directory, the DAG-level container and SSH client, SSH
+// credentials, and native resource limits. A workflow test run sets them up
+// only when it has a real step.
+func (a *Agent) preparesForRealSteps() bool {
+	return a.testSideEffects == nil || a.testSideEffects.HasRealSteps
 }
 
 func mailerConfigFromSMTP(config *ir.SMTPConfig) (mailer.Config, error) {
@@ -2420,6 +2504,9 @@ func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfil
 	if len(a.dag.Secrets) == 0 {
 		return nil, nil
 	}
+	if a.secretValues != nil {
+		return secretsFromValues(a.dag.Secrets, a.secretValues)
+	}
 
 	logger.Info(ctx, "Resolving secrets", tag.Count(len(a.dag.Secrets)))
 
@@ -2443,12 +2530,25 @@ func (a *Agent) resolveSecrets(ctx context.Context, profileValues resolvedProfil
 	return resolvedSecrets, nil
 }
 
+// secretsFromValues returns each secret as NAME=value from values, by name.
+func secretsFromValues(refs []secretref.Ref, values map[string]string) ([]string, error) {
+	envs := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		value, ok := values[ref.Name]
+		if !ok {
+			return nil, fmt.Errorf("failed to resolve secrets: no value for secret %q", ref.Name)
+		}
+		envs = append(envs, ref.Name+"="+value)
+	}
+	return envs, nil
+}
+
 // resolveCredentialRefs resolves the secret refs that SSH connections read
 // credentials from, the DAG's and those of the node a bound run reaches, once
 // each, and returns the values keyed by ref.
 func (a *Agent) resolveCredentialRefs(ctx context.Context, nodeRefs []secretref.Ref) (map[string]string, error) {
 	refs := append(slices.Clone(a.dag.CredentialRefs), nodeRefs...)
-	if len(refs) == 0 {
+	if len(refs) == 0 || !a.preparesForRealSteps() {
 		return nil, nil
 	}
 	if a.secretReferenceResolver == nil {
@@ -2565,7 +2665,7 @@ func evalHostConfigObject[T any](ctx context.Context, obj T, vars map[string]str
 
 // evalSSHConfig resolves the DAG-level SSH config with the steps[].with rules,
 // because it supplies the connection defaults for SSH steps.
-func evalSSHConfig(ctx context.Context, cfg ssh.Config, vars map[string]string) (ssh.Config, error) {
+func evalSSHConfig(ctx context.Context, cfg sshconn.Config, vars map[string]string) (sshconn.Config, error) {
 	resolver := runtime.ValueResolverWithScope(ctx, hostConfigScope(ctx, vars))
 	return resolveConfigObject(ctx, resolver, cfg, cmnvalue.ExecutorConfigField("ssh"))
 }

@@ -24,6 +24,17 @@ func prepareDAGTools(ctx *Context, dag *ir.DAG) ([]string, error) {
 	}, dagToolsBasePath(ctx))
 }
 
+// prepareTestDAGTools prepares the DAG tools for a workflow test run. It
+// installs them only when the test has a real step, since no other step runs
+// a command that needs them. Without one, it only checks that the DAG can use
+// tools.
+func prepareTestDAGTools(ctx *Context, dag *ir.DAG, hasRealSteps bool) ([]string, error) {
+	if hasRealSteps {
+		return prepareDAGTools(ctx, dag)
+	}
+	return nil, dagutools.ValidateDAGSupported(dag)
+}
+
 func dagToolsBasePath(ctx *Context) string {
 	if ctx != nil && ctx.Config != nil {
 		for _, env := range ctx.Config.Core.BaseEnv.AsSlice() {

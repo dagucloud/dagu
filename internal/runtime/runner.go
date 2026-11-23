@@ -131,7 +131,7 @@ func New(cfg *Config) *Runner {
 		onAbort:              cfg.OnAbort,
 		dagRunID:             cfg.DAGRunID,
 		messagesHandler:      cfg.MessagesHandler,
-		stepExecutor:         NewStepExecutor(),
+		stepExecutor:         &StepExecutor{override: cfg.ExecutorOverride},
 		onWait:               cfg.OnWait,
 		forcedStatus:         cfg.ForcedStatus,
 		materializations:     cfg.MaterializationStore,
@@ -168,6 +168,9 @@ type Config struct {
 	// the steps: on wait, on success, on failure, on abort, and on exit. The
 	// init handler runs before the steps and is not affected.
 	SkipHandlers bool
+	// ExecutorOverride supplies the executors of the steps and handlers it
+	// covers in place of their actions. Nil runs every action.
+	ExecutorOverride ExecutorOverride
 
 	DAGRunAutoRetryCount int
 	DAGRunAutoRetryLimit int

@@ -265,7 +265,7 @@ func TestQueryStatusesSkipsExcludedDAGs(t *testing.T) {
 		for _, name := range []string{"my.svc", "plain"} {
 			seed.write(t, seededRun{
 				name:    name,
-				id:      fmt.Sprintf("%s-%d", name, i),
+				id:      fmt.Sprintf("%s-%d", strings.ReplaceAll(name, ".", "-"), i),
 				created: base.Add(time.Duration(i) * time.Minute),
 				status:  ir.Succeeded,
 			}, false)

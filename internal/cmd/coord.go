@@ -177,6 +177,15 @@ func newCoordinator(
 		grpc.MaxSendMsgSize(grpcMaxMsgSize),
 	)
 
+	peerAuth, err := coordinatorPeerAuth(ctx, cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	serverOpts = append(serverOpts,
+		grpc.ChainUnaryInterceptor(peerAuth.UnaryInterceptor()),
+		grpc.ChainStreamInterceptor(peerAuth.StreamInterceptor()),
+	)
+
 	// Configure TLS using global peer config
 	if cfg.Core.Peer.CertFile != "" && cfg.Core.Peer.KeyFile != "" {
 		// Load server certificates
@@ -231,6 +240,30 @@ func newCoordinator(
 
 	// Create and return service with advertise address for service registry
 	return coordinator.NewService(grpcServer, handler, listener, healthServer, httpHealthServer, persistence.ServiceRegistry, cfg, instanceID, advertiseAddr), handler, nil
+}
+
+// coordinatorPeerAuth checks the peer token on coordinator calls: the
+// configured peer.token, or the token generated in the data directory. When the
+// generated token cannot be prepared and no token is required, the coordinator
+// still starts and accepts calls with a warning, as it did before peer tokens.
+func coordinatorPeerAuth(ctx *Context, cfg *config.Config) (*coordinator.PeerTokenAuth, error) {
+	require := cfg.Coordinator.RequireToken
+	if token := cfg.Core.Peer.Token; token != "" {
+		return coordinator.NewPeerTokenAuth(token, true, require), nil
+	}
+	token, err := coordinator.LoadOrCreatePeerToken(cfg.Core.Peer.TokenFile)
+	if err != nil {
+		if require {
+			return nil, fmt.Errorf("coordinator.require_token is set, but the peer token could not be prepared: %w", err)
+		}
+		logger.Warn(ctx, "Coordinator runs without a peer token", tag.Error(err))
+		return coordinator.NewPeerTokenAuth("", false, false), nil
+	}
+	logger.Info(ctx, "Coordinator peer token",
+		slog.String("file", cfg.Core.Peer.TokenFile),
+		slog.Bool("required", require),
+	)
+	return coordinator.NewPeerTokenAuth(token, false, require), nil
 }
 
 // loadCoordinatorTLSCredentials loads TLS credentials for the coordinator server.

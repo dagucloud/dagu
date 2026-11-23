@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"context"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -53,4 +54,31 @@ func TestDAGToolsBasePathUsesConfiguredBaseEnv(t *testing.T) {
 	}
 
 	assert.Equal(t, "/configured/bin", dagToolsBasePath(ctx))
+}
+
+// A test run installs the declared tools only when it has a real step. The
+// installer refuses the provider, so its error shows that it ran.
+func TestPrepareTestDAGTools(t *testing.T) {
+	t.Parallel()
+
+	ctx := &Context{
+		Context: context.Background(),
+		Config: &config.Config{Paths: config.PathsConfig{
+			ToolsDir: t.TempDir(),
+			DataDir:  t.TempDir(),
+		}},
+	}
+	dag := &ir.DAG{Tools: &ir.ToolConfig{Provider: "unknown"}}
+
+	envs, err := prepareTestDAGTools(ctx, dag, false)
+	require.NoError(t, err)
+	assert.Empty(t, envs)
+
+	_, err = prepareTestDAGTools(ctx, dag, true)
+	require.ErrorContains(t, err, `unsupported tools provider "unknown"`)
+
+	// A DAG that cannot use tools fails as in a real run.
+	dag.Container = &ir.Container{Image: "alpine"}
+	_, err = prepareTestDAGTools(ctx, dag, false)
+	require.ErrorContains(t, err, "container")
 }

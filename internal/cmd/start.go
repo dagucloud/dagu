@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -695,6 +696,14 @@ func handleSubDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, params string, 
 
 // executeDAGRun initializes execution state for a DAG run and invokes the shared agent executor.
 func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) error {
+	return withDAGRunAgent(ctx, d, dagRunID, opts, func(agentInstance *agent.Agent, logFile *os.File) error {
+		return ExecuteAgent(ctx, agentInstance, d, dagRunID, logFile)
+	})
+}
+
+// withDAGRunAgent opens the log file of a DAG run, builds the agent that runs
+// it, and calls run with both.
+func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, run func(*agent.Agent, *os.File) error) error {
 	logFile, err := ctx.OpenLogFile(d, dagRunID)
 	if err != nil {
 		return fmt.Errorf("failed to initialize log file for DAG %s: %w", d.Name, err)
@@ -722,7 +731,12 @@ func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) er
 	queuedRun := opts.workerID != "local"
 
 	as := ctx.runtimeStores()
-	extraEnvs, err := prepareDAGTools(ctx, d)
+	var extraEnvs []string
+	if opts.testSideEffects != nil {
+		extraEnvs, err = prepareTestDAGTools(ctx, d, opts.testSideEffects.HasRealSteps)
+	} else {
+		extraEnvs, err = prepareDAGTools(ctx, d)
+	}
 	if err != nil {
 		return err
 	}
@@ -746,6 +760,7 @@ func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) er
 			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  opts.noReuse,
 			SecretStore:              as.SecretStore,
+			SecretValues:             opts.secretValues,
 			ProfileStore:             as.ProfileStore,
 			NodeSelector:             as.Inventory,
 			HostKeys:                 as.HostKeys,
@@ -767,10 +782,12 @@ func executeDAGRun(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions) er
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
 			ExpandSubRuns:            opts.recursiveOutput,
+			RedirectRoot:             opts.redirectRoot,
+			TestSideEffects:          opts.testSideEffects,
 		},
 	)
 
-	return ExecuteAgent(ctx, agentInstance, d, dagRunID, logFile)
+	return run(agentInstance, logFile)
 }
 
 // subRunStatusLookupTimeout bounds one recursive sub-run status lookup so an

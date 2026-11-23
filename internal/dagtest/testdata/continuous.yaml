@@ -1,0 +1,32 @@
+params:
+  - name: rounds
+    default: "3"
+steps:
+  - id: heartbeat
+    action: log.write
+    with:
+      message: alive
+    repeat_policy:
+      repeat: while
+      interval_sec: 1
+  - id: probe
+    run: ./probe.sh
+    repeat_policy:
+      repeat: while
+      interval_sec: 1
+  - id: retry_log
+    action: log.write
+    with:
+      message: bounded
+    repeat_policy:
+      repeat: while
+      interval_sec: 1
+      limit: 3
+  - id: rounds_log
+    action: log.write
+    with:
+      message: deferred
+    repeat_policy:
+      repeat: while
+      interval_sec: 1
+      limit: ${params.rounds}

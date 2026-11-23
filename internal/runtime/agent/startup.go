@@ -46,6 +46,8 @@ func (a *Agent) resolveStartup(ctx context.Context) (startupResolution, error) {
 		secretReferenceResolver: a.secretReferenceResolver,
 		boundNode:               a.boundNode,
 		nodeSelector:            a.nodeSelector,
+		secretValues:            a.secretValues,
+		testSideEffects:         a.testSideEffects,
 	}
 	resolved := make(chan startupResolution, 1)
 	go func() {

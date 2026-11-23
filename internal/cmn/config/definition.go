@@ -388,6 +388,10 @@ type PeerDef struct {
 	Insecure      bool   `mapstructure:"insecure"`       // Use h2c instead of TLS
 	MaxRetries    int    `mapstructure:"max_retries"`    // Default: 10
 	RetryInterval string `mapstructure:"retry_interval"` // Default: 1s
+	// Token is the shared token that peers send to the coordinator. When
+	// empty, peers use the token the coordinator generates in the data
+	// directory.
+	Token string `mapstructure:"token"`
 }
 
 // RemoteNodeDef configures a remote node connection.
@@ -419,6 +423,8 @@ type CoordinatorDef struct {
 	// WorkerWaitTimeout is a duration string such as "2m". Default: 2m; "0"
 	// refuses a dispatch with no healthy matching worker at once.
 	WorkerWaitTimeout string `mapstructure:"worker_wait_timeout"`
+	// RequireToken rejects calls that do not carry the peer token.
+	RequireToken bool `mapstructure:"require_token"`
 }
 
 // WorkerDef configures the worker.

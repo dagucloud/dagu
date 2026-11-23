@@ -4,9 +4,14 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
@@ -122,11 +127,6 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"GetSyncStatus":                   remoteNodeAccessRead,
 	"ListViews":                       remoteNodeAccessRead,
 	"GetView":                         remoteNodeAccessRead,
-	"ListInventoryNodes":              remoteNodeAccessRead,
-	"GetInventoryNode":                remoteNodeAccessRead,
-	"ListInventoryNodeLabels":         remoteNodeAccessRead,
-	"ListInventories":                 remoteNodeAccessRead,
-	"GetInventory":                    remoteNodeAccessRead,
 	"ListWikiPages":                   remoteNodeAccessRead,
 	"ListWikiPageBacklinks":           remoteNodeAccessRead,
 	"GetWikiPage":                     remoteNodeAccessRead,
@@ -199,8 +199,7 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"EditRetryDAGRun":        remoteNodeAccessWriteAndRun,
 	"PreviewEditRetryDAGRun": remoteNodeAccessWriteAndRun,
 
-	// System status, workspace changes, and inventory imports, open to
-	// developers and above.
+	// System status and workspace changes, open to developers and above.
 	"GetCoordinatorStatus": remoteNodeAccessDeveloper,
 	"GetResourceHistory":   remoteNodeAccessDeveloper,
 	"GetSchedulerStatus":   remoteNodeAccessDeveloper,
@@ -209,7 +208,6 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"CreateWorkspace":      remoteNodeAccessDeveloper,
 	"DeleteWorkspace":      remoteNodeAccessDeveloper,
 	"UpdateWorkspace":      remoteNodeAccessDeveloper,
-	"ImportInventories":    remoteNodeAccessDeveloper,
 
 	// Audit and event logs, open to managers and above.
 	"ListAuditLogs": remoteNodeAccessManager,
@@ -222,11 +220,37 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"Setup":          remoteNodeAccessDenied,
 	"GetMetrics":     remoteNodeAccessDenied,
 	"TriggerWebhook": remoteNodeAccessDenied,
+
+	// Node inventories, host key trust, and node connection tests, which
+	// remote nodes do not support.
+	"ListInventoryNodes":           remoteNodeAccessDenied,
+	"GetInventoryNode":             remoteNodeAccessDenied,
+	"ListInventoryNodeLabels":      remoteNodeAccessDenied,
+	"ListInventories":              remoteNodeAccessDenied,
+	"GetInventory":                 remoteNodeAccessDenied,
+	"ImportInventories":            remoteNodeAccessDenied,
+	"TestInventoryNodeConnections": remoteNodeAccessDenied,
+	"TrustInventoryNodeHostKeys":   remoteNodeAccessDenied,
 }
+
+// remoteNodeProfileOperations take a runtime profile in the request body.
+// Running with a protected profile needs an administrator, and only the remote
+// node knows which of its profiles are protected.
+var remoteNodeProfileOperations = map[string]bool{
+	"ExecuteDAG":            true,
+	"ExecuteDAGSync":        true,
+	"EnqueueDAGDAGRun":      true,
+	"ExecuteDAGRunFromSpec": true,
+	"EnqueueDAGRunFromSpec": true,
+}
+
+// maxRemoteNodeProfileProbeBody bounds how much of a run request body is read
+// to find the runtime profile it names.
+const maxRemoteNodeProfileProbeBody = 10 << 20
 
 // remoteNodeAuthorization rejects remote node requests the caller could not
 // make locally.
-func (a *API) remoteNodeAuthorization(swagger *openapi3.T) (func(http.Handler) http.Handler, error) {
+func (a *API) remoteNodeAuthorization(swagger *openapi3.T, apiBasePath string) (func(http.Handler) http.Handler, error) {
 	router, err := gorillamux.NewRouter(swagger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build the remote node operation router: %w", err)
@@ -237,9 +261,16 @@ func (a *API) remoteNodeAuthorization(swagger *openapi3.T) (func(http.Handler) h
 				next.ServeHTTP(w, r)
 				return
 			}
-			if err := a.requireRemoteNodeAccess(r.Context(), remoteNodeAccessFor(router, r)); err != nil {
+			operationID := remoteNodeOperationFor(router, r)
+			if err := a.requireRemoteNodeAccess(r.Context(), remoteNodeOperationAccess[operationID]); err != nil {
 				WriteErrorResponse(w, err)
 				return
+			}
+			if remoteNodeProfileOperations[operationID] {
+				if err := a.requireRemoteNodeProfileAccess(r, apiBasePath); err != nil {
+					WriteErrorResponse(w, err)
+					return
+				}
 			}
 			next.ServeHTTP(w, r)
 		})
@@ -265,14 +296,140 @@ func isRemoteNodeRequest(r *http.Request) bool {
 	return remoteNode != "" && remoteNode != "local"
 }
 
-// remoteNodeAccessFor returns the access the request's operation needs. A
-// request that matches no operation needs an administrator.
-func remoteNodeAccessFor(router routers.Router, r *http.Request) remoteNodeAccess {
+// remoteNodeOperationFor returns the request's OpenAPI operation ID, or an
+// empty string, which needs an administrator, when it matches none.
+func remoteNodeOperationFor(router routers.Router, r *http.Request) string {
 	route, _, err := router.FindRoute(r)
 	if err != nil {
-		return remoteNodeAccessAdmin
+		return ""
 	}
-	return remoteNodeOperationAccess[route.Operation.OperationID]
+	return route.Operation.OperationID
+}
+
+// requireRemoteNodeProfileAccess rejects a run request that names a protected
+// runtime profile of the remote node unless the caller is an administrator.
+func (a *API) requireRemoteNodeProfileAccess(r *http.Request, apiBasePath string) error {
+	if a.requireAdmin(r.Context()) == nil {
+		return nil
+	}
+	profile, err := requestedRunProfile(r)
+	if err != nil || profile == "" {
+		return err
+	}
+	protected, err := a.remoteNodeProfileProtected(r, apiBasePath, profile)
+	if err != nil {
+		return err
+	}
+	if protected {
+		return errInsufficientPermissions
+	}
+	return nil
+}
+
+// requestedRunProfile returns the runtime profile a run request body names and
+// leaves the body in place for the proxy to forward.
+func requestedRunProfile(r *http.Request) (string, error) {
+	if r.Body == nil {
+		return "", nil
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRemoteNodeProfileProbeBody+1))
+	if err != nil {
+		return "", fmt.Errorf("failed to read request body: %w", err)
+	}
+	if len(body) > maxRemoteNodeProfileProbeBody {
+		return "", &Error{
+			HTTPStatus: http.StatusRequestEntityTooLarge,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    "request body is too large to forward to a remote node",
+		}
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	if len(bytes.TrimSpace(body)) == 0 {
+		return "", nil
+	}
+
+	var request struct {
+		Profile *string `json:"profile"`
+	}
+	if err := json.Unmarshal(body, &request); err != nil {
+		return "", &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    "invalid request body",
+		}
+	}
+	if request.Profile == nil {
+		return "", nil
+	}
+	return strings.TrimSpace(*request.Profile), nil
+}
+
+// remoteNodeProfileProtected asks the remote node of r whether its runtime
+// profile name is protected, as far as the node's stored credential matters.
+func (a *API) remoteNodeProfileProtected(r *http.Request, apiBasePath, name string) (bool, error) {
+	ctx := r.Context()
+	if a.remoteNodeResolver == nil {
+		return false, errRemoteNodeProfileCheck(name)
+	}
+	node, err := a.remoteNodeResolver.GetByName(ctx, r.URL.Query().Get("remoteNode"))
+	if err != nil {
+		return false, errRemoteNodeProfileCheck(name)
+	}
+
+	profilePath := strings.TrimRight(apiBasePath, "/") + "/profiles/" + url.PathEscape(name)
+	probe, err := http.NewRequestWithContext(ctx, http.MethodGet, profilePath, nil)
+	if err != nil {
+		return false, errRemoteNodeProfileCheck(name)
+	}
+	// The probe carries the headers the run is forwarded with, so a proxy in
+	// front of the remote node authenticates both the same way.
+	probe.Header = r.Header.Clone()
+	probe.Header.Del("Content-Length")
+	probe.Header.Del("Transfer-Encoding")
+	proxy := &remoteNodeProxy{remoteNode: node, apiBasePath: apiBasePath}
+	resp, err := proxy.doRequest(nil, probe)
+	if err != nil {
+		return false, errRemoteNodeProfileCheck(name)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusUnauthorized, http.StatusForbidden:
+		// A 403 means the credential is below administrator, and the remote node
+		// refuses a protected profile to such a credential itself. A 401 means
+		// the node does not accept the credential, so it refuses the run too.
+		return false, nil
+	case http.StatusNotFound:
+		return false, &Error{
+			HTTPStatus: http.StatusNotFound,
+			Code:       api.ErrorCodeNotFound,
+			Message:    fmt.Sprintf("runtime profile %s not found", name),
+		}
+	default:
+		return false, errRemoteNodeProfileCheck(name)
+	}
+
+	reader, closeReader, err := remoteNodeResponseReader(resp)
+	if err != nil {
+		return false, errRemoteNodeProfileCheck(name)
+	}
+	defer closeReader()
+	var profile struct {
+		Protected bool `json:"protected"`
+	}
+	if err := json.NewDecoder(io.LimitReader(reader, 1<<20)).Decode(&profile); err != nil {
+		return false, errRemoteNodeProfileCheck(name)
+	}
+	return profile.Protected, nil
+}
+
+func errRemoteNodeProfileCheck(name string) error {
+	return &Error{
+		HTTPStatus: http.StatusBadGateway,
+		Code:       api.ErrorCodeBadGateway,
+		Message:    fmt.Sprintf("could not check runtime profile %s on the remote node", name),
+	}
 }
 
 // requireRemoteNodeAccess checks the caller against access. Server permissions

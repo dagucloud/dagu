@@ -34,8 +34,17 @@ func runsOnEachNode(step ir.Step) bool {
 // setupNodesExecutor prepares a step with nodes (RFC 013). It matches the
 // step's selector against the project's nodes and gives each enabled node a
 // child run bound to it. A command step's command resolves in each child run,
-// so the parent resolves none of it.
-func (n *Node) setupNodesExecutor(ctx context.Context) (context.Context, executor.Executor, error) {
+// so the parent resolves none of it. An executor from override replaces every
+// node's child run, so the selector is not matched and no child is recorded.
+func (n *Node) setupNodesExecutor(ctx context.Context, override ExecutorOverride) (context.Context, executor.Executor, error) {
+	if cmd, ok := replacementExecutor(ctx, override, n.Step()); ok {
+		n.cmd = cmd
+		if err := n.outputs.setupExecutorIO(ctx, cmd, n.NodeData()); err != nil {
+			return ctx, nil, fmt.Errorf("failed to set up step output: %w", err)
+		}
+		return ctx, cmd, nil
+	}
+
 	matched, err := matchStepNodes(ctx, n.Step().Nodes.Selector)
 	if err != nil {
 		return ctx, nil, err

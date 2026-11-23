@@ -1,0 +1,10 @@
+steps:
+  - id: sign_off
+    action: human.task
+    with:
+      prompt: Sign off the release.
+  - id: release
+    run: ./release.sh
+    approval:
+      prompt: Approve the release.
+    depends: [sign_off]

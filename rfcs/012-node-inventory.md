@@ -436,6 +436,12 @@ trusts answer with a server-sent event stream, one event per node. The
 schemas are named `InventoryNode` and so on, since the API's `Node` schema is
 a step's status.
 
+Remote nodes do not support inventory management. A server answers these
+paths only for its own inventories: a request whose `remoteNode` names
+another Dagu server is refused, not forwarded to that server. The CLI
+reaches another server's inventories through a context that points at that
+server.
+
 #### CLI
 
 ```sh
@@ -631,3 +637,5 @@ design above without changing it.
 - **Other transports**, such as WinRM.
 - **Renaming "Remote Nodes"** to "Remote servers" in the UI, so two pages are
   not both called nodes.
+- **Inventories through remote nodes,** so one server's UI lists, imports,
+  tests, and trusts the nodes of another server.

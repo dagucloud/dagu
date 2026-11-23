@@ -512,6 +512,10 @@ func (r *Local) newAgent(
 	if r.secretResolver != nil {
 		opts.SecretReferenceResolver = r.secretResolver(dag)
 	}
+	// A child of a test case run stays in the case. Only the parent's steps
+	// can be real, so the child keeps no redirect at its configured path.
+	opts.SecretValues = rCtx.SecretValues
+	opts.RedirectRoot = runtime.RedirectRoot{Dir: rCtx.RedirectRoot.Dir}
 	opts.ProfileStore = r.profileStore
 	if r.profileResolver != nil {
 		opts.ProfileResolver = r.profileResolver(dag)

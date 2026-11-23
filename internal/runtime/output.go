@@ -347,7 +347,7 @@ func (oc *OutputCoordinator) setupStdoutRedirect(ctx context.Context, data NodeD
 		return nil
 	}
 
-	file, err := oc.setupFile(ctx, data.Step.Stdout, data.Step.StdoutArtifact != "")
+	file, err := oc.setupFile(ctx, data.Step.Name, data.Step.Stdout, data.Step.StdoutArtifact != "")
 	if err != nil {
 		return fmt.Errorf("failed to setup stdout file: %w", err)
 	}
@@ -366,7 +366,7 @@ func (oc *OutputCoordinator) setupStderrRedirect(ctx context.Context, data NodeD
 		return nil
 	}
 
-	file, err := oc.setupFile(ctx, data.Step.Stderr, data.Step.StderrArtifact != "")
+	file, err := oc.setupFile(ctx, data.Step.Name, data.Step.Stderr, data.Step.StderrArtifact != "")
 	if err != nil {
 		return fmt.Errorf("failed to setup stderr file: %w", err)
 	}
@@ -517,12 +517,19 @@ func (oc *OutputCoordinator) setupLocalWriters(_ context.Context, data NodeData)
 	return nil
 }
 
-func (oc *OutputCoordinator) setupFile(ctx context.Context, filePath string, artifact bool) (*os.File, error) {
+func (oc *OutputCoordinator) setupFile(ctx context.Context, stepName, filePath string, artifact bool) (*os.File, error) {
 	absFilePath := filePath
 	if !filepath.IsAbs(absFilePath) {
 		dir := GetEnv(ctx).WorkingDir
 		absFilePath = filepath.Join(dir, absFilePath)
 		absFilePath = filepath.Clean(absFilePath)
+	}
+	if rCtx, ok := LookupDAGContext(ctx); ok && !artifact {
+		moved, err := moveRedirect(rCtx.RedirectRoot, stepName, absFilePath)
+		if err != nil {
+			return nil, err
+		}
+		absFilePath = moved
 	}
 
 	open := fileutil.OpenOrCreateFile
@@ -544,6 +551,33 @@ func (oc *OutputCoordinator) setupFile(ctx context.Context, filePath string, art
 	}
 
 	return file, nil
+}
+
+// moveRedirect returns where the redirect of the named step to path, an
+// absolute path, is written under root. A parent directory that exists at the
+// configured path is created below the root, so only a missing parent takes
+// the checks of createRedirectParent, as at the configured path.
+func moveRedirect(root runctx.RedirectRoot, stepName, path string) (string, error) {
+	if root.Dir == "" || slices.Contains(root.Keep, stepName) {
+		return path, nil
+	}
+	// A .. left in the path would climb out of the root once joined to it.
+	path = filepath.Clean(path)
+	volume := filepath.VolumeName(path)
+	// A volume such as C: or \\host\share becomes one directory name.
+	volumeDir := strings.Map(func(r rune) rune {
+		if r == ':' || r == '\\' || r == '/' {
+			return -1
+		}
+		return r
+	}, volume)
+	moved := filepath.Join(root.Dir, volumeDir, path[len(volume):])
+	if info, err := fileutil.Stat(filepath.Dir(path)); err == nil && info.IsDir() {
+		if err := fileutil.MkdirAll(filepath.Dir(moved), 0o750); err != nil {
+			return "", fmt.Errorf("failed to create parent directories for %q: %w", moved, err)
+		}
+	}
+	return moved, nil
 }
 
 // createRedirectParent creates the missing parent directories of a plain

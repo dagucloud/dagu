@@ -42,6 +42,24 @@ func TestDAGRun(t *testing.T) {
 
 		require.Equal(t, ir.Failed.String(), dagRunStatus.Status.String())
 	})
+
+	// Run and attempt IDs can come from remote callers, such as a worker
+	// reporting to the coordinator, and become directory names.
+	t.Run("RejectsIDsThatLeaveTheRunDirectory", func(t *testing.T) {
+		root := setupTestDataRoot(t)
+		ts := persis.NewUTC(time.Now())
+		// Both IDs climb out of the dated run layout to <dagRunsDir>/escaped.
+		escaped := filepath.Join(root.dagRunsDir, "escaped")
+
+		_, err := root.CreateDAGRun(ts, "x/../../../../escaped")
+		require.Error(t, err)
+		require.NoDirExists(t, escaped)
+
+		run := root.CreateTestDAGRun(t, "test-id-1", ts)
+		_, err = run.CreateAttempt(run.Context, ts, nil, "a/../../../../../escaped")
+		require.Error(t, err)
+		require.NoDirExists(t, escaped)
+	})
 }
 
 type DAGRunTest struct {
