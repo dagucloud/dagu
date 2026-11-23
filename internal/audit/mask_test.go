@@ -6,6 +6,7 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -16,16 +17,18 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 )
 
-// secretValues is a SecretSource whose values and revision a test sets.
+// secretValues is a SecretSource whose values, revision, and load error a
+// test sets.
 type secretValues struct {
 	values   []string
 	revision uint64
+	err      error
 	loads    int
 }
 
 func (s *secretValues) CurrentValues(context.Context) ([]string, error) {
 	s.loads++
-	return s.values, nil
+	return s.values, s.err
 }
 
 func (s *secretValues) Revision() uint64 { return s.revision }
@@ -57,6 +60,53 @@ func TestMaskHidesSecretsOutsideControlFields(t *testing.T) {
 		assert.Contains(t, field, masking.DefaultMaskString, name)
 	}
 	assert.True(t, json.Valid([]byte(entry.Details)), "details stay JSON")
+}
+
+// A secret that is a whole JSON value, or spans several, still leaves
+// details JSON.
+func TestMaskKeepsDetailsJSON(t *testing.T) {
+	masker := NewMasker(&secretValues{values: []string{"1234", `{"token":"abc"}`}})
+	for _, details := range []string{
+		`{"pin":1234,"duration_ms":1234}`,
+		`{"response":{"token":"abc"}}`,
+	} {
+		entry := &Entry{Details: details}
+
+		masker.Mask(context.Background(), entry)
+
+		assert.True(t, json.Valid([]byte(entry.Details)), entry.Details)
+		assert.NotContains(t, entry.Details, "1234")
+		assert.NotContains(t, entry.Details, `"abc"`)
+	}
+}
+
+// A stored value inside a token does not split the token, which would leave
+// the rest of it unmatched.
+func TestMaskHidesTokensHoldingStoredValues(t *testing.T) {
+	body := strings.Repeat("a", 16) + "pin1" + strings.Repeat("b", 16)
+	entry := &Entry{Details: `{"command":"echo ghp_` + body + `"}`}
+
+	NewMasker(&secretValues{values: []string{"pin1"}}).Mask(context.Background(), entry)
+
+	assert.Equal(t, `{"command":"echo `+masking.DefaultMaskString+`"}`, entry.Details)
+}
+
+// An entry masked without the secret values carries no marker, so it is
+// never sent, and the next entry loads them again.
+func TestMaskMarksNothingWhenSecretsFailToLoad(t *testing.T) {
+	source := &secretValues{values: []string{"s3cr3t"}, err: errors.New("store unavailable")}
+	masker := NewMasker(source)
+	failed := &Entry{Username: "s3cr3t"}
+
+	masker.Mask(context.Background(), failed)
+
+	assert.False(t, failed.Masked)
+	source.err = nil
+	next := &Entry{Username: "s3cr3t"}
+	masker.Mask(context.Background(), next)
+	assert.True(t, next.Masked)
+	assert.Equal(t, masking.DefaultMaskString, next.Username)
+	assert.Equal(t, 2, source.loads)
 }
 
 func TestMaskHidesCommonTokenFormats(t *testing.T) {

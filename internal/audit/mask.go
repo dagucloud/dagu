@@ -5,6 +5,7 @@ package audit
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"regexp"
 	"strings"
@@ -38,12 +39,16 @@ var controlFields = map[string]bool{
 	"correlation_id":  true,
 }
 
-// maskedFields holds the indexes of the Entry text fields Mask masks.
+// detailsField is the JSON name of Entry.Details, which Mask keeps JSON.
+const detailsField = "details"
+
+// maskedFields holds the indexes of the Entry text fields Mask masks as
+// plain text: all but the control fields and details.
 var maskedFields = sync.OnceValue(func() [][]int {
 	var fields [][]int
 	for _, field := range reflect.VisibleFields(reflect.TypeFor[Entry]()) {
 		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
-		if field.Type.Kind() == reflect.String && !controlFields[name] {
+		if field.Type.Kind() == reflect.String && !controlFields[name] && name != detailsField {
 			fields = append(fields, field.Index)
 		}
 	}
@@ -85,39 +90,62 @@ func NewMasker(source SecretSource) *Masker {
 	return &Masker{source: source, now: time.Now}
 }
 
-// Mask masks every field of entry but its control fields and marks the entry
-// masked. Values are replaced whole, and no field is cut.
+// Mask masks every field of entry but its control fields. Values are
+// replaced whole, no field is cut, and details stays JSON. The entry is
+// marked masked only when the secret values loaded; otherwise it keeps the
+// values loaded last, carries no marker, and the next entry tries again.
 func (m *Masker) Mask(ctx context.Context, entry *Entry) {
-	secrets := m.current(ctx)
+	secrets, loaded := m.current(ctx)
+	// Token formats go first, so a stored value inside a token cannot
+	// split the token and leave its rest unmatched.
+	mask := func(text string) string {
+		return secrets.MaskString(tokenPattern.ReplaceAllLiteralString(text, masking.DefaultMaskString))
+	}
 	value := reflect.ValueOf(entry).Elem()
 	for _, index := range maskedFields() {
 		field := value.FieldByIndex(index)
 		if text := field.String(); text != "" {
-			field.SetString(tokenPattern.ReplaceAllLiteralString(secrets.MaskString(text), masking.DefaultMaskString))
+			field.SetString(mask(text))
 		}
 	}
-	entry.Masked = true
+	if entry.Details != "" {
+		entry.Details = maskDetails(entry.Details, mask)
+	}
+	entry.Masked = loaded
 }
 
-// current returns the masker of the secret values, reloading them when this
-// process changed a secret or they are older than secretsMaxAge. A failed
-// reload keeps the previous values until the next change or secretsMaxAge.
-func (m *Masker) current(ctx context.Context) *masking.Masker {
+// maskDetails masks details, a JSON document, keeping it JSON: a secret that
+// is a whole JSON value becomes a masked string, and the masked text of one
+// that spans values is kept as a JSON string.
+func maskDetails(details string, mask func(string) string) string {
+	masked := masking.MaskJSON(details, mask)
+	if json.Valid([]byte(masked)) || !json.Valid([]byte(details)) {
+		return masked
+	}
+	// Encoding a string cannot fail.
+	quoted, _ := json.Marshal(masked)
+	return string(quoted)
+}
+
+// current returns the masker of the secret values and whether they loaded,
+// reloading them when this process changed a secret or they are older than
+// secretsMaxAge.
+func (m *Masker) current(ctx context.Context) (*masking.Masker, bool) {
 	if m == nil || m.source == nil {
-		return nil
+		return nil, true
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	revision := m.source.Revision()
 	if !m.loadedAt.IsZero() && revision == m.revision && m.now().Sub(m.loadedAt) < secretsMaxAge {
-		return m.secrets
+		return m.secrets, true
 	}
 	values, err := m.source.CurrentValues(ctx)
-	m.revision, m.loadedAt = revision, m.now()
 	if err != nil {
 		logger.Warn(ctx, "Failed to load secret values for audit masking", tag.Error(err))
-		return m.secrets
+		return m.secrets, false
 	}
 	m.secrets = masking.NewValueMasker(values)
-	return m.secrets
+	m.revision, m.loadedAt = revision, m.now()
+	return m.secrets, true
 }
