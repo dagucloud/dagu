@@ -69,8 +69,17 @@ type fixValue struct {
 }
 
 // buildFix sets the fix of c from the unhandled sources of the fail-closed
-// rule. A source that no field handles adds nothing.
+// rule.
 func (b *caseBuilder) buildFix(c *Case, sources []source, mocks []keyedMock) {
+	fix := b.fix(c, sources, mocks)
+	c.Fix = renderYAML(fix.caseNode())
+	c.FileFix = renderYAML(fix.fileNode())
+}
+
+// fix returns the fix that handles the unhandled sources of c, which
+// scripts its steps with mocks. A source that no field handles adds
+// nothing.
+func (b *caseBuilder) fix(c *Case, sources []source, mocks []keyedMock) caseFix {
 	var fix caseFix
 	for _, s := range sources {
 		switch s.kind {
@@ -87,8 +96,7 @@ func (b *caseBuilder) buildFix(c *Case, sources []source, mocks []keyedMock) {
 			}
 		}
 	}
-	c.Fix = renderFix(fix.caseNode())
-	c.FileFix = renderFix(fix.fileNode())
+	return fix
 }
 
 // paramValue returns the value the fix gives a param: its default, else its
@@ -324,24 +332,36 @@ func propertyForm(name string, property map[string]any) json.RawMessage {
 // mocks.
 func (f caseFix) caseNode() *yaml.Node {
 	root := mappingNode()
-	if len(f.params) > 0 {
-		params := mappingNode()
-		for _, p := range f.params {
-			addEntry(params, p.name, valueNode(p.value))
-		}
-		addEntry(root, "params", params)
-	}
+	f.addParams(root)
 	if f.precondition {
 		addEntry(root, "precondition", valueNode(fixMet))
 	}
-	if len(f.mocks) > 0 {
-		mocks := mappingNode()
-		for _, m := range f.mocks {
-			addEntry(mocks, m.key, m.node())
-		}
-		addEntry(root, "mocks", mocks)
-	}
+	f.addMocks(root)
 	return root
+}
+
+// addParams adds the params of the fix to n, if any.
+func (f caseFix) addParams(n *yaml.Node) {
+	if len(f.params) == 0 {
+		return
+	}
+	params := mappingNode()
+	for _, p := range f.params {
+		addEntry(params, p.name, valueNode(p.value))
+	}
+	addEntry(n, "params", params)
+}
+
+// addMocks adds the mocks of the fix to n, if any.
+func (f caseFix) addMocks(n *yaml.Node) {
+	if len(f.mocks) == 0 {
+		return
+	}
+	mocks := mappingNode()
+	for _, m := range f.mocks {
+		addEntry(mocks, m.key, m.node())
+	}
+	addEntry(n, "mocks", mocks)
 }
 
 // fileNode returns the test file fields of the fix: secrets.
@@ -443,9 +463,9 @@ func flowIfEmpty(n *yaml.Node) *yaml.Node {
 	return n
 }
 
-// renderFix writes the fields of n as YAML indented by two spaces, or ""
+// renderYAML writes the fields of n as YAML indented by two spaces, or ""
 // when n has none.
-func renderFix(n *yaml.Node) string {
+func renderYAML(n *yaml.Node) string {
 	if len(n.Content) == 0 {
 		return ""
 	}
