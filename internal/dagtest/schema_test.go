@@ -30,11 +30,12 @@ import (
 
 // TestSchemaAccepts checks Spec 101's rule that the schema rejects a file for
 // a field or a type only when the file does not decode. Spec examples hold
-// only allowed values, so the full schema accepts them. Testdata also holds
-// values that make only a case invalid, which Spec 101 lets the schema
-// reject, so those files are checked for fields and types alone. A file that
-// does not decode is not checked: the decoder also enforces rules a schema
-// cannot state, such as unique case names.
+// only allowed values, so the full schema accepts exactly the ones that
+// decode. Testdata also holds values that make only a case invalid, which
+// Spec 101 lets the schema reject, so those files are checked for fields and
+// types alone. A testdata file that does not decode is not checked: the
+// decoder also enforces rules a schema cannot state, such as unique case
+// names.
 func TestSchemaAccepts(t *testing.T) {
 	t.Parallel()
 
@@ -42,17 +43,18 @@ func TestSchemaAccepts(t *testing.T) {
 	for name, data := range specExamples(t) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			if _, errs := decodeFile(data); len(errs) == 0 {
-				require.NoError(t, validateYAML(full, data))
-			}
+			_, errs := decodeFile(data)
+			err := validateYAML(full, data)
+			require.Equal(t, len(errs) == 0, err == nil, "decoder: %v\nschema: %v", errs, err)
 		})
 	}
 	for name, data := range testdataFiles(t) {
+		if _, errs := decodeFile(data); len(errs) > 0 {
+			continue
+		}
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			if _, errs := decodeFile(data); len(errs) == 0 {
-				require.NoError(t, validateYAML(fieldsAndTypes, data))
-			}
+			require.NoError(t, validateYAML(fieldsAndTypes, data))
 		})
 	}
 }
@@ -256,27 +258,32 @@ func datesAsText(v any) any {
 }
 
 var (
-	yamlBlock     = regexp.MustCompile("(?ms)^```yaml\n(.*?)^```")
-	testFileLabel = regexp.MustCompile(`\A# \S+\.test\.ya?ml\n`)
-	topLevelCases = regexp.MustCompile(`(?m)^cases:`)
+	yamlBlock = regexp.MustCompile("(?ms)^```yaml\n(.*?)^```")
+	// testFileLine matches a line that only a test file holds: a label that
+	// names a test file, or top-level cases.
+	testFileLine = regexp.MustCompile(`(?m)^(?:# \S+\.test\.ya?ml$|cases:)`)
 )
 
-// specExamples returns the test files among the YAML blocks of Spec 101 by
-// the line each starts on: the blocks labeled with a test file's name, and
-// the unlabeled ones with top-level cases.
+// specExamples returns the YAML blocks of Spec 101 that hold a test file, by
+// the line each starts on. A test file line outside a yaml block fails the
+// test, so a change to the spec's format cannot leave an example unchecked.
 func specExamples(t *testing.T) map[string][]byte {
 	t.Helper()
 
-	data, err := os.ReadFile(filepath.Join("..", "..", "specs", "101-workflow-tests.md"))
-	require.NoError(t, err)
+	path := filepath.Join("..", "..", "specs", "101-workflow-tests.md")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err, "read Spec 101")
+	lineOf := func(offset int) int { return bytes.Count(data[:offset], []byte("\n")) + 1 }
+
+	blocks := yamlBlock.FindAllSubmatchIndex(data, -1)
 	examples := make(map[string][]byte)
-	for _, m := range yamlBlock.FindAllSubmatchIndex(data, -1) {
-		block := data[m[2]:m[3]]
-		if testFileLabel.Match(block) || topLevelCases.Match(block) {
-			examples[fmt.Sprintf("Spec101Line%d", bytes.Count(data[:m[2]], []byte("\n"))+1)] = block
-		}
+	for _, line := range testFileLine.FindAllIndex(data, -1) {
+		i := slices.IndexFunc(blocks, func(b []int) bool { return b[2] <= line[0] && line[0] < b[3] })
+		require.GreaterOrEqual(t, i, 0, "%s:%d holds a test file outside a ```yaml block; update specExamples to read it", path, lineOf(line[0]))
+		start, end := blocks[i][2], blocks[i][3]
+		examples[fmt.Sprintf("Spec101Line%d", lineOf(start))] = data[start:end]
 	}
-	require.NotEmpty(t, examples)
+	require.NotEmpty(t, examples, "%s holds no test file example; update specExamples to read them", path)
 	return examples
 }
 
@@ -299,6 +306,7 @@ func testdataFiles(t *testing.T) map[string][]byte {
 		return err
 	})
 	require.NoError(t, err)
+	require.NotEmpty(t, files, "%s holds no test file", dir)
 	return files
 }
 
