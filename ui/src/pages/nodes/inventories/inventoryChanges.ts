@@ -6,7 +6,7 @@ import type { useClient } from '@/hooks/api';
 
 export type Inventory = components['schemas']['Inventory'];
 export type InventoryDefaults = components['schemas']['InventoryDefaults'];
-type InventoryNodeSpec = components['schemas']['InventoryNodeSpec'];
+export type InventoryNodeSpec = components['schemas']['InventoryNodeSpec'];
 type RuleError = components['schemas']['InventoryRuleError'];
 type Client = ReturnType<typeof useClient>;
 
@@ -94,6 +94,24 @@ export function replaceInventory(
     client.PUT('/inventories/{inventoryId}', {
       params: { path: { inventoryId: id }, query: { version } },
       body: record,
+    })
+  );
+}
+
+/** Adds node to the inventory id, based on version, or replaces the node of that name. */
+export function putNode(
+  client: Client,
+  id: string,
+  version: number,
+  node: InventoryNodeSpec
+): Promise<Outcome> {
+  return outcomeOf(
+    client.PUT('/inventories/{inventoryId}/nodes/{nodeName}', {
+      params: {
+        path: { inventoryId: id, nodeName: node.name },
+        query: { version },
+      },
+      body: node,
     })
   );
 }
