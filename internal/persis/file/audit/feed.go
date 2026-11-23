@@ -73,6 +73,8 @@ type feedRead struct {
 	pos   *feedPosition
 	keep  func(*audit.Entry) bool
 	limit int
+	// today is the start of the current day.
+	today time.Time
 	kept  int
 	bytes int64
 	chunk audit.FeedChunk
@@ -90,8 +92,9 @@ func NewFeed(dir string) *Feed {
 // that stopped at its limit, are full.
 func (f *Feed) Read(_ context.Context, q audit.FeedQuery) (audit.FeedChunk, error) {
 	pos, fresh := decodeFeedPosition(q.Position, q.Now)
-	r := &feedRead{dir: f.dir, pos: pos, keep: q.Keep, limit: q.Limit}
 	today := q.Now.UTC().Format(dateFormat) + auditFileExtension
+	todayStart, _ := fileDay(today)
+	r := &feedRead{dir: f.dir, pos: pos, keep: q.Keep, limit: q.Limit, today: todayStart}
 	full := q.Full || fresh || pos.Listing
 
 	var sizes map[string]int64
@@ -302,9 +305,10 @@ func (r *feedRead) reject(file *feedFile, day time.Time) {
 }
 
 // closeRejected reports an open run of bad lines that ends the file, as
-// running to the end of its day.
+// running to the end of its day. A run in today's file stays open, since the
+// entry after it may still arrive.
 func (r *feedRead) closeRejected(file *feedFile, day time.Time) {
-	if file.RejectedFrom != nil {
+	if file.RejectedFrom != nil && day.Before(r.today) {
 		r.lose(audit.LossRejected, *file.RejectedFrom, day.AddDate(0, 0, 1))
 		file.RejectedFrom = nil
 	}

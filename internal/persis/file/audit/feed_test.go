@@ -146,6 +146,28 @@ func TestFeed_KeepsARejectedRunOpenAcrossReads(t *testing.T) {
 	assert.Equal(t, []audit.FeedLoss{{Reason: audit.LossRejected, From: before, To: after}}, second.Losses)
 }
 
+// A run of bad lines at the end of today's file stays open, since the entry
+// after it may still arrive. Once the day is over, a run no entry closed ends
+// at midnight.
+func TestFeed_KeepsTodaysRejectedRunOpen(t *testing.T) {
+	dir := t.TempDir()
+	before, after := feedNow.Add(-time.Minute), feedNow.Add(5*time.Second)
+	appendText(t, dir, feedNow, feedLine(t, "a", before)+"garbage\n")
+
+	first := readFeed(t, dir, nil, feedNow, true)
+	assert.Equal(t, []string{"a"}, entryIDs(first))
+	assert.Empty(t, first.Losses)
+
+	appendText(t, dir, feedNow, feedLine(t, "b", after)+"garbage\n")
+	second := readFeed(t, dir, first.Position, after, false)
+	assert.Equal(t, []string{"b"}, entryIDs(second))
+	assert.Equal(t, []audit.FeedLoss{{Reason: audit.LossRejected, From: before, To: after}}, second.Losses)
+
+	midnight := time.Date(feedNow.Year(), feedNow.Month(), feedNow.Day()+1, 0, 0, 0, 0, time.UTC)
+	third := readFeed(t, dir, second.Position, midnight.Add(time.Minute), true)
+	assert.Equal(t, []audit.FeedLoss{{Reason: audit.LossRejected, From: after, To: midnight}}, third.Losses)
+}
+
 // Lines still being written count toward a read's byte budget, are read
 // again only once their file grows, and do not keep a read from later files.
 func TestFeed_ReadsPartialLinesOnlyOnceTheyGrow(t *testing.T) {
