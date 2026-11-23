@@ -8,10 +8,18 @@ import { DAG_KEY_ORDER } from '../format';
 import { editDocument } from '../patch';
 import type { MutateOutcome } from '../patch';
 import { parseAllDocumentsAsServer } from '../serverYaml';
-import { isServicePolicy, readRestart, type RestartView } from './restart';
+import {
+  isServicePolicy,
+  parseRestartPolicy,
+  readRestart,
+  type RestartPolicy,
+  type RestartView,
+} from './restart';
 
 /** The restart keys of the DAG that the Always on launcher shows and sets. */
 export interface RestartSettings extends RestartView {
+  /** `no` when the key is absent, empty or not a known value. */
+  policy: RestartPolicy;
   /** The `restart_wait_sec` of the file, when it is an integer. */
   waitSec: number | null;
   /** The `hist_retention_runs` of the file, when it is an integer. */
@@ -23,6 +31,14 @@ const RESTART_KEYS = [
   'restart_wait_sec',
   'hist_retention_runs',
 ] as const;
+
+function readPolicy(node: unknown): RestartPolicy {
+  const policy =
+    isScalar(node) && typeof node.value === 'string'
+      ? parseRestartPolicy(node.value)
+      : null;
+  return policy ?? 'no';
+}
 
 function readInteger(node: unknown): number | null {
   return isScalar(node) &&
@@ -36,12 +52,14 @@ function readInteger(node: unknown): number | null {
 export function readRestartSettings(text: string): RestartSettings {
   const settings: RestartSettings = {
     ...readRestart(text),
+    policy: 'no',
     waitSec: null,
     histRetentionRuns: null,
   };
   try {
     const doc = parseAllDocumentsAsServer(text)[0];
     if (doc && doc.errors.length === 0 && isMap(doc.contents)) {
+      settings.policy = readPolicy(doc.contents.get('restart_policy', true));
       settings.waitSec = readInteger(
         doc.contents.get('restart_wait_sec', true)
       );
@@ -109,7 +127,7 @@ function setRestart(
     };
   }
   const { policy, waitSec, histRetentionRuns } = op;
-  const before = readRestart(text);
+  const before = readRestartSettings(text);
   if (
     policy !== undefined &&
     isServicePolicy(policy) &&
