@@ -12486,6 +12486,57 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+    post:
+      summary: "Create an inventory"
+      description: "Creates an inventory from its record. The inventory is checked against every rule and the stored inventories. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited."
+      operationId: "createInventory"
+      tags:
+        - "nodes"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: "The inventory in the record format that `Inventory` describes, without `id`, `version`, `createdAt`, and `updatedAt`. An unknown field is refused."
+              additionalProperties: true
+      responses:
+        "201":
+          description: "The inventory created, at version 1"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Inventory"
+        "400":
+          description: "The inventory breaks a rule, and nothing was stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryImportError"
+        "413":
+          description: "The request exceeds the 32 MiB request-body limit"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /inventories/{inventoryId}:
     get:
@@ -12515,6 +12566,262 @@ paths:
                 $ref: "#/components/schemas/Error"
         "404":
           description: "No inventory has this ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      summary: "Replace an inventory"
+      description: "Replaces an inventory as a whole, given the version the change is based on. The ID stays. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited."
+      operationId: "replaceInventory"
+      tags:
+        - "nodes"
+      parameters:
+        - name: inventoryId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/InventoryVersion"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: "The inventory in the record format that `Inventory` describes, without `id`, `version`, `createdAt`, and `updatedAt`. An unknown field is refused."
+              additionalProperties: true
+      responses:
+        "200":
+          description: "The inventory as stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Inventory"
+        "400":
+          description: "The inventory breaks a rule, and nothing was stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryImportError"
+        "404":
+          description: "No inventory has this ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The inventory changed since `version`; the response carries the current inventory"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryConflict"
+        "413":
+          description: "The request exceeds the 32 MiB request-body limit"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: "Delete an inventory"
+      description: "Deletes an inventory and its nodes, given the version the change is based on. The host keys trusted for its nodes are forgotten. Requires the developer role or above, and is audited."
+      operationId: "deleteInventory"
+      tags:
+        - "nodes"
+      parameters:
+        - name: inventoryId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/InventoryVersion"
+      responses:
+        "204":
+          description: "The inventory was deleted"
+        "404":
+          description: "No inventory has this ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The inventory changed since `version`; the response carries the current inventory"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryConflict"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /inventories/{inventoryId}/nodes/{nodeName}:
+    put:
+      summary: "Add or change a node"
+      description: "Adds a node to an inventory, or replaces the node of this name, given the version of the inventory the change is based on. Removing or renaming a node, or adding one, forgets the host key trusted for that node name. Requires the developer role or above, and is audited."
+      operationId: "putInventoryNode"
+      tags:
+        - "nodes"
+      parameters:
+        - name: inventoryId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: nodeName
+          in: path
+          required: true
+          description: "Node name, compared without case"
+          schema:
+            type: string
+        - $ref: "#/components/parameters/InventoryVersion"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: "The node in the record format that `InventoryNodeSpec` describes. `name` may be left out; when set, it must be the node name of the path. An unknown field is refused."
+              additionalProperties: true
+      responses:
+        "200":
+          description: "The node was replaced; the inventory as stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Inventory"
+        "201":
+          description: "The node was added; the inventory as stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Inventory"
+        "400":
+          description: "The node breaks a rule, and nothing was stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryImportError"
+        "404":
+          description: "No inventory has this ID"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The inventory changed since `version`; the response carries the current inventory"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryConflict"
+        "413":
+          description: "The request exceeds the 32 MiB request-body limit"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      summary: "Remove a node"
+      description: "Removes a node from an inventory, given the version of the inventory the change is based on. The host key trusted for the node is forgotten. Requires the developer role or above, and is audited."
+      operationId: "deleteInventoryNode"
+      tags:
+        - "nodes"
+      parameters:
+        - name: inventoryId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: nodeName
+          in: path
+          required: true
+          description: "Node name, compared without case"
+          schema:
+            type: string
+        - $ref: "#/components/parameters/InventoryVersion"
+      responses:
+        "200":
+          description: "The node was removed; the inventory as stored"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Inventory"
+        "404":
+          description: "No inventory has this ID, or it holds no node of this name"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "The inventory changed since `version`; the response carries the current inventory"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryConflict"
+        "401":
+          description: "Not authenticated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: "Not authorized"
           content:
             application/json:
               schema:
@@ -13536,6 +13843,14 @@ components:
         type: boolean
         default: false
 
+    InventoryVersion:
+      name: version
+      in: query
+      required: true
+      description: "Version of the inventory the change is based on, as the inventory last read reports it"
+      schema:
+        type: integer
+        format: int64
     RemoteNode:
       name: remoteNode
       in: query
@@ -22818,6 +23133,21 @@ components:
         - createdAt
         - updatedAt
 
+    InventoryConflict:
+      type: object
+      description: "A change based on a version that is no longer current, with the inventory as it is now"
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        message:
+          type: string
+        inventory:
+          $ref: "#/components/schemas/Inventory"
+      required:
+        - code
+        - message
+        - inventory
+
     InventorySummary:
       type: object
       description: "An inventory without its nodes, as a list shows it"
@@ -23067,7 +23397,7 @@ components:
 
     InventoryImportError:
       type: object
-      description: "An import that was refused, with every rule it breaks"
+      description: "An import or a change that was refused, with every rule it breaks"
       properties:
         code:
           $ref: "#/components/schemas/ErrorCode"
