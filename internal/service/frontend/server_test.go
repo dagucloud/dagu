@@ -28,6 +28,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	cmnschema "github.com/dagucloud/dagu/v2/internal/cmn/schema"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
@@ -562,6 +563,19 @@ func TestAssetRouteCachesCurrentVersionedMainBundle(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 	assert.Equal(t, "max-age=31536000, immutable", recorder.Header().Get("Cache-Control"))
+}
+
+func TestAssetRouteServesTestSchema(t *testing.T) {
+	router := chi.NewMux()
+	srv := &Server{}
+	srv.setupAssetRoutesWithFS(router, "", fstest.MapFS{})
+
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/assets/test.schema.json", nil))
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Equal(t, "application/json", recorder.Header().Get("Content-Type"))
+	assert.Equal(t, cmnschema.TestSchemaJSON, recorder.Body.Bytes())
 }
 
 func TestCacheControlForAssetCachesContentHashedJavaScriptChunks(t *testing.T) {
