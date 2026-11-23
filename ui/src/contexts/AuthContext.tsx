@@ -46,7 +46,11 @@ type AuthContextType = {
   isLoading: boolean;
   setupRequired: boolean;
   login: (username: string, password: string) => Promise<void>;
-  setup: (username: string, password: string) => Promise<SetupResult>;
+  setup: (
+    username: string,
+    password: string,
+    setupToken?: string
+  ) => Promise<SetupResult>;
   logout: () => void;
   refreshUser: () => Promise<void>;
   completeSetup: (result: SetupResult) => void;
@@ -135,13 +139,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const setup = useCallback(
-    async (username: string, password: string): Promise<SetupResult> => {
+    async (
+      username: string,
+      password: string,
+      setupToken?: string
+    ): Promise<SetupResult> => {
       const response = await fetch(
         `${config.apiURL}/auth/setup?remoteNode=local`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
+          body: JSON.stringify({ username, password, setupToken }),
         }
       );
 

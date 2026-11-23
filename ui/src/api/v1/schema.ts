@@ -8659,6 +8659,8 @@ export interface components {
             username: string;
             /** @description Admin password */
             password: string;
+            /** @description One-time setup token in the setup URL the server prints when it starts without an admin. Setup needs it once the server has run for 10 minutes without an admin. */
+            setupToken?: string;
         };
         /** @description Request body for user login */
         LoginRequest: {
@@ -10001,6 +10003,15 @@ export interface operations {
             };
             /** @description Invalid request (e.g., weak password) */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Setup token missing or invalid. The server prints the setup URL with the token when it starts without an admin. */
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

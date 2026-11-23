@@ -172,6 +172,9 @@ export const messages = {
     'setup.usernameMinLength': 'Username must be at least 3 characters',
     'setup.passwordsDoNotMatch': 'Passwords do not match',
     'setup.failed': 'Setup failed',
+    'setup.token': 'Setup token',
+    'setup.tokenRequired':
+      'This server needs its setup token. Open the setup URL from the server log, or paste the token from that URL here.',
   },
   'zh-CN': {
     'language.english': 'English',
@@ -337,6 +340,9 @@ export const messages = {
     'setup.usernameMinLength': '用户名必须至少包含 3 个字符',
     'setup.passwordsDoNotMatch': '两次输入的密码不一致',
     'setup.failed': '初始化失败',
+    'setup.token': '设置令牌',
+    'setup.tokenRequired':
+      '此服务器需要设置令牌。请打开服务器日志中的设置 URL，或将该 URL 中的令牌粘贴到此处。',
   },
   ja: {
     'language.english': '英語',
@@ -508,6 +514,9 @@ export const messages = {
     'setup.usernameMinLength': 'ユーザー名は 3 文字以上にしてください',
     'setup.passwordsDoNotMatch': 'パスワードが一致しません',
     'setup.failed': '初期設定に失敗しました',
+    'setup.token': 'セットアップトークン',
+    'setup.tokenRequired':
+      'このサーバーにはセットアップトークンが必要です。サーバーのログにあるセットアップ URL を開くか、その URL のトークンをここに貼り付けてください。',
   },
 } as const;
 

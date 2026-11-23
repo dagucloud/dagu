@@ -167,7 +167,11 @@ describe('SetupPage', () => {
     createAdmin();
 
     await waitFor(() => {
-      expect(setupMock).toHaveBeenCalledWith('admin-user', 'password123');
+      expect(setupMock).toHaveBeenCalledWith(
+        'admin-user',
+        'password123',
+        undefined
+      );
     });
 
     expect(completeSetupMock).toHaveBeenCalledWith({
@@ -175,6 +179,49 @@ describe('SetupPage', () => {
       user: { id: '1', username: 'admin-user', role: 'admin' },
     });
     expect(navigateMock).toHaveBeenCalledWith('/', { replace: true });
+  });
+
+  // The setup URL the server prints carries the setup token.
+  it('sends the setup token from the setup URL', async () => {
+    renderPage('/setup?token=abc123');
+
+    createAdmin();
+
+    await waitFor(() =>
+      expect(setupMock).toHaveBeenCalledWith(
+        'admin-user',
+        'password123',
+        'abc123'
+      )
+    );
+  });
+
+  // A server that has run for a while without an admin needs the token.
+  it('asks for the setup token when the server needs it', async () => {
+    setupMock.mockRejectedValueOnce(
+      Object.assign(new Error('Setup needs the setup token.'), { status: 401 })
+    );
+    renderPage();
+
+    createAdmin();
+
+    const tokenInput = await screen.findByLabelText('Setup token');
+    expect(
+      screen.getByText(/This server needs its setup token/)
+    ).toBeTruthy();
+    expect(completeSetupMock).not.toHaveBeenCalled();
+
+    fireEvent.change(tokenInput, { target: { value: ' abc123 ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
+
+    await waitFor(() =>
+      expect(setupMock).toHaveBeenLastCalledWith(
+        'admin-user',
+        'password123',
+        'abc123'
+      )
+    );
+    expect(completeSetupMock).toHaveBeenCalled();
   });
 
   // Links such as the startup banner's point at a section of a page.

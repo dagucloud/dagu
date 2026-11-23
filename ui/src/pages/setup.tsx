@@ -23,9 +23,14 @@ export default function SetupPage() {
   const { setupRequired, setup, completeSetup } = useAuth();
   const navigate = useNavigate();
   // Where the visitor was going, which the login page also returns to.
-  const { state } = useLocation();
+  const { state, search } = useLocation();
 
   const [setupDone, setSetupDone] = useState(false);
+  // The setup URL the server prints carries the token setup may need.
+  const [setupToken, setSetupToken] = useState(
+    () => new URLSearchParams(search).get('token') ?? ''
+  );
+  const [tokenRequired, setTokenRequired] = useState(false);
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -64,13 +69,23 @@ export default function SetupPage() {
     setLoading(true);
 
     try {
-      const result = await setup(trimmedUsername, password);
+      const result = await setup(
+        trimmedUsername,
+        password,
+        setupToken.trim() || undefined
+      );
       setSetupDone(true);
       completeSetup(result);
       navigate(requestedPath(state), { replace: true });
     } catch (err) {
-      if (getErrorStatus(err) === 403) {
+      const status = getErrorStatus(err);
+      if (status === 403) {
         navigate('/login', { replace: true, state });
+        return;
+      }
+      if (status === 401) {
+        setTokenRequired(true);
+        setError(t('setup.tokenRequired'));
         return;
       }
       setError(err instanceof Error ? err.message : t('setup.failed'));
@@ -137,6 +152,24 @@ export default function SetupPage() {
             className="h-9"
           />
         </div>
+
+        {tokenRequired && (
+          <div className="space-y-1.5">
+            <Label htmlFor="setupToken" className="text-sm">
+              {t('setup.token')}
+            </Label>
+            <Input
+              id="setupToken"
+              type="text"
+              value={setupToken}
+              onChange={(e) => setSetupToken(e.target.value)}
+              required
+              autoComplete="off"
+              spellCheck={false}
+              className="h-9 font-mono"
+            />
+          </div>
+        )}
 
         <Button
           type="submit"
