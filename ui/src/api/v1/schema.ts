@@ -3975,26 +3975,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/license/monitoring/dismiss-errors-notice": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Dismiss the notice that offers to send error messages
-         * @description Stops offering administrators to have this server also send the error messages of failed runs to Dagu Console. Admin only.
-         */
-        post: operations["dismissLicenseMonitoringErrorsNotice"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/license/remote-access": {
         parameters: {
             query?: never;
@@ -8852,8 +8832,6 @@ export interface components {
             chosen: boolean;
             /** @description Whether an administrator dismissed the notice that asks what to report */
             noticeDismissed: boolean;
-            /** @description Whether an administrator was offered to send error messages: they chose a level on this server, or dismissed the notice that offers them */
-            errorsOffered: boolean;
             /** @description When Dagu Console accepted the last report this server sent */
             lastReportAt?: string;
             /** @description JSON body of the last report, as sent, with heartbeat_secret replaced by "[redacted]" */
@@ -22489,56 +22467,6 @@ export interface operations {
         };
     };
     dismissLicenseMonitoringNotice: {
-        parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description What this server reports */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LicenseMonitoring"];
-                };
-            };
-            /** @description License management is not available */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient permissions */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unexpected error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
-    dismissLicenseMonitoringErrorsNotice: {
         parameters: {
             query?: {
                 /** @description name of the remote node */

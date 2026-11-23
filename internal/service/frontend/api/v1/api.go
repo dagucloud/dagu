@@ -185,7 +185,6 @@ type CloudReportService interface {
 	Status(ctx context.Context) (cloudreport.Status, error)
 	SetLevel(ctx context.Context, level config.ReportLevel) error
 	DismissNotice(ctx context.Context) error
-	DismissErrorsNotice(ctx context.Context) error
 }
 
 // CloudAccessService lets administrators see and choose how far calls from

@@ -2799,8 +2799,6 @@ const baseEnglish = {
   'Choose what this server reports': 'Choose what this server reports',
   'Choose what to report': 'Choose what to report',
   'Dismiss monitoring notice': 'Dismiss monitoring notice',
-  'Show why runs fail in Dagu Console': 'Show why runs fail in Dagu Console',
-  'Send error messages': 'Send error messages',
   "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails.":
     "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails.",
   'What to report': 'What to report',
@@ -6058,8 +6056,6 @@ const baseChinese = {
   'Choose what this server reports': '选择此服务器报告的内容',
   'Choose what to report': '选择报告内容',
   'Dismiss monitoring notice': '关闭监控通知',
-  'Show why runs fail in Dagu Console': '在 Dagu Console 中显示运行失败的原因',
-  'Send error messages': '发送错误消息',
   "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails.":
     'Dagu Console 会在“服务器”页面显示此服务器的健康状态。同时报告运行状态时，工作流失败会通过电子邮件通知工作区的所有者和管理员。',
   'What to report': '要报告的内容',
@@ -9394,9 +9390,6 @@ const baseJapanese = {
   'Choose what this server reports': 'このサーバーが報告する内容を選択',
   'Choose what to report': '報告する内容を選択',
   'Dismiss monitoring notice': '監視の通知を閉じる',
-  'Show why runs fail in Dagu Console':
-    'Dagu Console で実行が失敗した理由を表示する',
-  'Send error messages': 'エラーメッセージを送信する',
   "Dagu Console shows this server's health on its Servers page. With run status, it also emails the workspace's owners and admins when a workflow fails.":
     'Dagu Console の「サーバー」ページにこのサーバーの状態が表示されます。実行状況も報告すると、ワークフローが失敗したときにワークスペースのオーナーと管理者にメールが届きます。',
   'What to report': '報告する内容',
