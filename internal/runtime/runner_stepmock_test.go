@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -786,7 +787,9 @@ func TestStepMockChildRunOutputs(t *testing.T) {
 // A mocked step adds its outputs to the outputs the run collects, which feed
 // outputs.json and a parent's outputValues, exactly as a real run of the step
 // adds the outputs its action publishes. output_schema does not keep a
-// dag.run step's outputs out, and a dag.enqueue step publishes none.
+// dag.run step's outputs out, and a dag.enqueue step publishes none. A
+// command step publishes its output_schema and output file outputs to
+// references only, so the run collects neither.
 func TestStepMockCollectsOutputsAsRealRun(t *testing.T) {
 	t.Parallel()
 
@@ -796,6 +799,9 @@ func TestStepMockCollectsOutputsAsRealRun(t *testing.T) {
 	outputs := map[string]any{"version": "v1.2.3"}
 	outputSchema := func(step *ir.Step) {
 		step.OutputSchema = map[string]any{"type": "object"}
+	}
+	outputFile := func(step *ir.Step) {
+		step.Outputs = []ir.StepOutputDeclaration{{Name: "version", Type: ir.StepDeclaredOutputTypeString}}
 	}
 	for _, tc := range []struct {
 		name   string
@@ -815,6 +821,17 @@ func TestStepMockCollectsOutputsAsRealRun(t *testing.T) {
 		{
 			name:   "DAGEnqueue",
 			action: []stepOption{withExecutorType(ir.ExecutorTypeDAGEnqueue), withSubDAG("deploy")},
+		},
+		{
+			name:   "CommandOutputSchema",
+			action: []stepOption{withCommand(`echo '{"version":"v1.2.3"}'`), outputSchema},
+		},
+		{
+			name: "CommandOutputFile",
+			action: []stepOption{withCommand(test.ForOS(
+				`printf 'version=v1.2.3\n' >> "$DAGU_OUTPUT_FILE"`,
+				`Add-Content -LiteralPath $env:DAGU_OUTPUT_FILE -Value 'version=v1.2.3'`,
+			)), outputFile},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
