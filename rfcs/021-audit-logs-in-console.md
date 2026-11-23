@@ -148,7 +148,9 @@ covers every producer, including the two that call `Append` without
 - **Values.** It replaces the values of the secrets in Dagu's own store
   (`dagu-managed`), with the masker run output already uses
   (`masking.Masker`), and common token formats, such as GitHub, AWS, and
-  Slack tokens. It reloads the values when the store changes.
+  Slack tokens. It reloads the values on the next entry after this process
+  changes a secret, and at most a minute after another process, such as
+  `dagu profile` or another server, does.
 - **One pass.** The masker builds one `strings.Replacer` per reload, longer
   values first, so a field takes one pass however many secrets there are.
   Today `MaskString` sorts the values with nested loops on every call
