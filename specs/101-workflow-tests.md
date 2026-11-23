@@ -647,7 +647,7 @@ Rules:
 | A step action that is not side-effect free, or a `foreach` body step | The mock `{}` on the step, or on its `foreach` step. On a step with known outputs, the mock sets `outputs` with each known output as `""`, or `null` for a `type: json` output |
 | An object-form `output` with `from: file`, or a continuous step, on a step with a side-effect-free action | The mock `exit_code: 0`, with `outputs` as above |
 | A step precondition | `precondition: met` in the step's mock |
-| A command-check repeat condition | A `condition` that stops the step, `not_met` for `while` and `met` for `until`, in every result. Each result of the step's `results` that lacks it gains it. An inline mock becomes a one-item `results`, with its inline result fields moved into that result. A mock with no result field gains one result |
+| A command-check repeat condition | A `condition` that stops the step, `not_met` for `while` and `met` for `until`, in each result that has none. A `condition` that a result already sets stays. An inline mock becomes a one-item `results`, with its inline result fields moved into that result. A mock with no result field gains one result |
 | A wait that needs values | `review` with `decision: approve` and a value for each required name. See below |
 | A secret or an SSH credential ref | Its name under `secrets`, with the value `""` |
 | A DAG-level precondition | The case's `precondition: met` |
@@ -1252,9 +1252,10 @@ a step it adds in the same shape:
 - The outputs that the case asserts take their published values, and no
   output assertion is added. For a `type: json` output asserted with an
   object, each key it lists takes its published value, recursively, and no
-  key is added. An asserted output that the step did not publish, and a
-  listed key that the published object lacks, keep their expected values,
-  and the case reports them as failures.
+  key is added. An asserted output that the step did not publish, a listed
+  key that the published object lacks, and an expected object whose
+  published value at that place, at any depth, is not an object, keep their
+  expected values, and the case reports them as failures.
 - `stdout` and `stderr` assertions, `contains` and `matches`, stay as
   written.
 - A case that is invalid, or that does not reach a terminal status, keeps its
