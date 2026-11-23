@@ -502,13 +502,24 @@ func TestCasePaths(t *testing.T) {
 	}
 }
 
-// The run reaches its waiting checkpoint as a real run does, so
-// handler_on.wait runs while the gate waits. The case then settles the gate,
-// and the run resumes under the same run ID.
+// The run reaches its waiting checkpoint as a real run does: handler_on.wait
+// runs while the gate waits, and the wait notification is recorded. The case
+// then settles the gate, and the run resumes under the same run ID. The
+// success notification comes from the resumed attempt, so the case records
+// the notifications of every attempt.
 func TestCaseWaitCheckpoint(t *testing.T) {
 	t.Parallel()
 
 	tc, status, err := runCase(t, `
+mail_on:
+  wait: true
+  success: true
+wait_mail:
+  from: dagu@example.com
+  to: approvers@example.com
+info_mail:
+  from: dagu@example.com
+  to: ops@example.com
 handler_on:
   wait:
     run: echo waiting=${DAG_WAITING_STEPS}
@@ -526,6 +537,10 @@ steps:
 	require.Equal(t, ir.Succeeded, status.Status, status.Error)
 
 	assert.Equal(t, "waiting=gate", readOutput(t, findFile(t, tc.dir, "wait.txt")))
+	assert.Equal(t, []agent.Notification{
+		{Kind: agent.NotificationMailOnWait, To: []string{"approvers@example.com"}},
+		{Kind: agent.NotificationMailOnSuccess, To: []string{"ops@example.com"}},
+	}, tc.notifications)
 	assert.Equal(t, ir.NodeSucceeded, caseNode(t, status, "after").Status)
 	runs, err := tc.ctx.Persistence.DAGRunRepository.RecentStatuses(tc.ctx, status.Name, 10)
 	require.NoError(t, err)

@@ -750,7 +750,7 @@ func withRetryAgent(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts run
 
 	as := ctx.runtimeStores()
 	triggerType := queue.ExecutionTriggerType(status)
-	extraEnvs, err := prepareDAGTools(ctx, dag)
+	extraEnvs, err := opts.prepareTools(ctx, dag)
 	if err != nil {
 		return err
 	}
@@ -762,7 +762,7 @@ func withRetryAgent(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts run
 		logFile.Name(),
 		ctx.DAGRunMgr,
 		dr,
-		agent.Options{
+		opts.withTestOptions(agent.Options{
 			RetryTarget:              status,
 			ParentDAGRun:             status.Parent,
 			ProgressDisplay:          shouldEnableProgress(ctx),
@@ -793,10 +793,7 @@ func withRetryAgent(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts run
 			ArtifactDir:              artifactDir,
 			DAGRunLogDir:             ctx.Config.Paths.LogDir,
 			DAGRunArtifactDir:        ctx.Config.Paths.ArtifactDir,
-			SecretValues:             opts.secretValues,
-			RedirectRoot:             opts.redirectRoot,
-			ExecutorOverride:         opts.executorOverride,
-		},
+		}),
 	)
 
 	return run(agentInstance, logFile)

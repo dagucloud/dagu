@@ -126,7 +126,7 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 			Dir:  filepath.Join(c.dir, "redirects"),
 			Keep: c.opts.real,
 		},
-		testSideEffects: &agent.TestSideEffects{HasRealSteps: c.hasRealSteps()},
+		testSideEffects:  &agent.TestSideEffects{HasRealSteps: c.hasRealSteps()},
 		executorOverride: c.executorOverride(),
 	}
 	runErr := withPreparedLocalExecution(
