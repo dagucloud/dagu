@@ -697,25 +697,66 @@ func mkdirInRoot(root *os.Root, dir string) error {
 	return nil
 }
 
-// linkTargetWithin returns linkTarget relative to linkDir, the directory a link
-// is created in, and fails when the target leaves destReal. linkDir is resolved
-// on disk, because an earlier entry can make one of its components a link: a
-// target that stays inside when read from the path as written can leave it
-// from where the link really lands.
+// linkTargetWithin returns linkTarget in clean form relative to linkDir, the
+// directory a link is created in, and fails when the target leaves destReal.
+// linkDir and the links the target passes through are resolved on disk, so
+// neither a link an earlier entry created nor one the destination already held
+// can carry the target outside. In clean form, ".." elements only lead, so
+// entries extracted later cannot redirect the link.
 func linkTargetWithin(destReal, linkDir, linkTarget string) (string, error) {
 	dirReal, err := filepath.EvalSymlinks(linkDir)
 	if err != nil {
 		return "", wrapError(ErrDestination, err)
 	}
-	resolved := filepath.Clean(filepath.Join(dirReal, linkTarget))
-	if !pathWithin(destReal, resolved) {
-		return "", fmt.Errorf("%w: symlink target %q escapes destination", ErrCorrupted, linkTarget)
-	}
-	rel, err := filepath.Rel(dirReal, resolved)
+	rel, err := filepath.Rel(dirReal, filepath.Join(dirReal, linkTarget))
 	if err != nil {
 		return "", wrapError(ErrExtract, err)
 	}
+	if !resolvesWithin(destReal, dirReal, rel) {
+		return "", fmt.Errorf("%w: symlink target %q escapes destination", ErrCorrupted, linkTarget)
+	}
 	return rel, nil
+}
+
+// maxLinkHops bounds the links resolvesWithin follows, so a cycle of links ends.
+const maxLinkHops = 40
+
+// resolvesWithin reports whether target, read from dir, stays inside root at
+// every step when the links on disk are followed. Elements that do not exist
+// are taken as written. Like os.Root, it treats an absolute link as leaving
+// root. root and dir are resolved paths.
+func resolvesWithin(root, dir, target string) bool {
+	cur := dir
+	parts := strings.Split(filepath.ToSlash(target), "/")
+	for hops := 0; len(parts) > 0; {
+		part := parts[0]
+		parts = parts[1:]
+		switch part {
+		case "", ".":
+			continue
+		case "..":
+			cur = filepath.Dir(cur)
+		default:
+			next := filepath.Join(cur, part)
+			link, err := os.Readlink(next)
+			if err != nil {
+				// next is not a link, or does not exist yet.
+				cur = next
+				break
+			}
+			// On Windows, a link with a volume name or a leading separator
+			// is absolute even when filepath.IsAbs reports false.
+			link = filepath.ToSlash(link)
+			if hops++; hops > maxLinkHops || filepath.VolumeName(link) != "" || strings.HasPrefix(link, "/") {
+				return false
+			}
+			parts = append(strings.Split(link, "/"), parts...)
+		}
+		if !pathWithin(root, cur) {
+			return false
+		}
+	}
+	return true
 }
 
 // fileModeFor returns the permission bits to create an entry's file with.

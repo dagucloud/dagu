@@ -218,3 +218,78 @@ func TestExtractKeepsLinksInsideDestination(t *testing.T) {
 		})
 	}
 }
+
+// A link the destination already holds may point outside it. Neither a file
+// written through that link nor a link entry whose target passes through it
+// may reach outside.
+func TestExtractRefusesExistingLinksOut(t *testing.T) {
+	requireSymlinks(t)
+	cases := map[string]struct {
+		entry archiveEntry
+		want  error
+	}{
+		"file through the link": {archiveEntry{name: "ext/escaped.txt", body: "outside"}, ErrDestination},
+		"link through the link": {archiveEntry{name: "escaped.txt", link: "ext/escaped.txt"}, ErrCorrupted},
+	}
+	for name, tc := range cases {
+		for _, format := range testArchiveFormats {
+			t.Run(name+"/"+format, func(t *testing.T) {
+				tempDir := t.TempDir()
+				dest := filepath.Join(tempDir, "out")
+				outside := filepath.Join(tempDir, "outside")
+				for _, dir := range []string{dest, outside} {
+					if err := os.MkdirAll(dir, 0o755); err != nil {
+						t.Fatalf("mkdir %s: %v", dir, err)
+					}
+				}
+				if err := os.Symlink(filepath.Join("..", "outside"), filepath.Join(dest, "ext")); err != nil {
+					t.Fatalf("symlink: %v", err)
+				}
+				source := filepath.Join(tempDir, "evil."+format)
+				writeTestArchive(t, source, format, []archiveEntry{tc.entry})
+
+				err := extractTestArchive(t, source, dest)
+
+				if !errors.Is(err, tc.want) {
+					t.Fatalf("expected %v, got %v", tc.want, err)
+				}
+				for _, path := range []string{filepath.Join(outside, "escaped.txt"), filepath.Join(dest, "escaped.txt")} {
+					if _, err := os.Lstat(path); err == nil {
+						t.Fatalf("%s was created", path)
+					}
+				}
+			})
+		}
+	}
+}
+
+// A link is stored with its target in clean form, so an entry extracted
+// later cannot redirect it. Kept as written, "b/../x" would resolve outside
+// once "b" becomes a link to the destination.
+func TestExtractLinksCannotBeRedirected(t *testing.T) {
+	requireSymlinks(t)
+	entries := []archiveEntry{
+		{name: "x", body: "inside"},
+		{name: "a", link: "b/../x"},
+		{name: "b", link: "."},
+	}
+	for _, format := range testArchiveFormats {
+		t.Run(format, func(t *testing.T) {
+			tempDir := t.TempDir()
+			dest := filepath.Join(tempDir, "out")
+			if err := os.WriteFile(filepath.Join(tempDir, "x"), []byte("outside"), 0o600); err != nil {
+				t.Fatalf("write outside file: %v", err)
+			}
+			source := filepath.Join(tempDir, "late."+format)
+			writeTestArchive(t, source, format, entries)
+
+			if err := extractTestArchive(t, source, dest); err != nil {
+				t.Fatalf("extract: %v", err)
+			}
+			got, err := os.ReadFile(filepath.Join(dest, "a"))
+			if err != nil || string(got) != "inside" {
+				t.Fatalf("read through a: %q (%v), want inside", got, err)
+			}
+		})
+	}
+}
