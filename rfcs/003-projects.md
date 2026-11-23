@@ -146,8 +146,9 @@ A project has a DAG directory and a state directory.
 - The default project's DAG directory is `paths.dags_dir`, its wiki stays
   in `dags_dir/wiki`, and its base config is the file at
   `paths.base_config`, which v2 applied to every DAG as the global base
-  config. Its DAG files, names, and URLs do not change; its state lives in
-  `<data_dir>/projects/default/` like every project's.
+  config, also when `dags_dir` holds `dagu.json`. Its DAG files, names, and
+  URLs do not change; its state lives in `<data_dir>/projects/default/`
+  like every project's.
 - Settings that place another per-project store, such as `paths.queue_dir`,
   `paths.suspend_flags_dir`, or `paths.proc_dir`, only tell migration
   where v2 kept that data. v3.0 warns about them and does not use them
@@ -349,17 +350,20 @@ project seen from a checkout, not a second concept. Checkouts ship with spec
   it, then `default`.
 - A command keeps a project's state in `<data_dir>/projects/<name>/` of its
   Dagu home and writes nothing inside the folder.
-- A command in a folder outside a registered project's DAG directory whose
-  `dagu.json` names that project fails, and the error names the project's
-  DAG directory. A working copy elsewhere never writes runs into the
-  project's history, and a project has one DAG directory for its
+- A command in a folder outside every registered project's DAG directory
+  whose `dagu.json` names a registered project fails, and the error names
+  that project's DAG directory. A working copy elsewhere never writes runs
+  into the project's history, and a project has one DAG directory for its
   scheduler, retries, and `dag.run` to read. Adding a folder to a project
   follows v3.0 ([Compatibility and rollout](#compatibility-and-rollout)).
 - A folder whose `dagu.json` names no registered project keeps its state
   under that name. Its runs have no project ID: audit entries record the
-  name, and Dagu Cloud reports leave them out. The projects page lists
-  that state, and an admin who creates a project of that name chooses to
-  take it over or delete it.
+  name, and Dagu Cloud reports leave them out. The project has no scheduler
+  unit and no ID for a worker task, so `dagu start` runs its workflows in
+  the CLI's process, `dagu enqueue` and a dispatch to a worker fail with an
+  error that says only a registered project can, and no `schedule` runs. The
+  projects page lists that state, and an admin who creates a project of
+  that name chooses to take it over or delete it.
 
 ### Library
 
@@ -608,7 +612,8 @@ or a copy of one, before the upgrade.
   registry, or a run has a live process heartbeat, and logs what it waits
   for. It never moves the files of a run that is still running.
 - A process killed during migration resumes it on its next start. While
-  migration waits or runs, the health endpoint answers 200 and reports
+  migration waits or runs, the health endpoint of every v3.0 process,
+  including one that waits for another to migrate, answers 200 and reports
   progress, and other requests get 503. An orchestrator then neither
   restarts a large install midway nor holds a rolling update, in which the
   v2 process stops only once its v3.0 replacement reports healthy.
@@ -784,10 +789,20 @@ These specs define workspace behavior, and v3.0 rewrites them for projects:
   `defaults.max_concurrent` is the DAG's, then its project base config's.
 - [Spec 034](../specs/034-wiki-page-format.md): a wiki link resolves in the
   page's project.
+- [Spec 042](../specs/042-ssh-run.md): a `{ secret: <ref> }` resolves in the
+  DAG's project only.
+- [Spec 069](../specs/069-secrets-providers.md): provider settings that
+  come from workspace configuration come from the project's.
 - [Spec 070](../specs/070-runtime-profiles.md): global and workspace profile
   defaults become one set of project defaults, applied to every DAG of the
   project instead of by `workspace` label, and named profiles belong to a
   project.
+- [Spec 086](../specs/086-backfill.md): a backfill summary goes to the
+  project's routes, and dismissing its notice needs the operator role in
+  the DAG's project.
+- [Spec 089](../specs/089-node-targeting.md): the rule that a DAG with a
+  `workspace` label cannot target nodes is dropped, since each project has
+  its own inventories.
 
 ## Verification and acceptance criteria
 
@@ -901,9 +916,11 @@ Criteria 23 and 24 apply from the release that ships the feature.
     its base config is the file at `paths.base_config`. Each workspace's
     project holds a copy of every global entry and base config setting its
     DAGs inherited on v2, and the report lists each copied entry.
-41. A command in a folder outside a registered project's DAG directory
-    whose `dagu.json` names that project fails, and the error names that
-    directory.
+41. A command in a folder outside every registered project's DAG
+    directory whose `dagu.json` names a registered project fails, and the
+    error names that project's DAG directory. In a folder whose `dagu.json`
+    names no registered project, `dagu start` runs the workflow, and
+    `dagu enqueue` fails.
 42. A project with no restart policy and no open backfill runs neither the
     restart scanner nor the backfill dispatcher.
 43. A user who can see a queue defined in `config.yaml` sees only the runs

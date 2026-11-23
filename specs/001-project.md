@@ -234,8 +234,13 @@ Rules:
   server.
 - A server project ([RFC 003](../rfcs/003-projects.md#layout)) keeps its
   state the same way, in the server's data directory. Only its DAG
-  directory may use its name: a command in another folder whose
-  `dagu.json` names it fails, and the error names that DAG directory.
+  directory may use its name: a command outside every server project's DAG
+  directory whose `dagu.json` names it fails, and the error names that DAG
+  directory.
+- A project that no server project of the Dagu home registers has no
+  scheduler: `dagu start` runs its workflows, `dagu enqueue` and a dispatch
+  to a worker fail with an error that says only a registered project can,
+  and no `schedule` runs.
 - `dagu start` prints where the run's logs are when it finishes, and
   `dagu history` lists past runs.
 - Project loading and workflow discovery do not write workflow events, run
