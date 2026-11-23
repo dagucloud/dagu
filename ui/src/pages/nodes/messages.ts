@@ -1,0 +1,105 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+import { defineMessages } from '@/features/workflow-workspace/messages/define';
+
+/** The static messages of the Nodes page's connection tests. */
+export const nodeTestMessages = defineMessages({
+  en: {
+    'Connection test': 'Connection test',
+    'Tested {done} of {total}': 'Tested {done} of {total}',
+    '{passed} passed, {failed} failed': '{passed} passed, {failed} failed',
+    'Trust {count} unknown keys': 'Trust {count} unknown keys',
+    'Replace key': 'Replace key',
+    'Trust key': 'Trust key',
+    Passed: 'Passed',
+    'Changed key': 'Changed key',
+    'Unknown key': 'Unknown key',
+    'Key replaced': 'Key replaced',
+    'Key trusted': 'Key trusted',
+    'Replace trusted host key': 'Replace trusted host key',
+    'The host key of {node} has changed. A host that was reinstalled presents a new key, and so does a connection someone intercepts. Replace the key only if you know why it changed.':
+      'The host key of {node} has changed. A host that was reinstalled presents a new key, and so does a connection someone intercepts. Replace the key only if you know why it changed.',
+    Trusted: 'Trusted',
+    Presented: 'Presented',
+    'Trust host keys': 'Trust host keys',
+    Trust: 'Trust',
+    'Runs and tests will accept these keys. Trust them only if they are the keys of these hosts.':
+      'Runs and tests will accept these keys. Trust them only if they are the keys of these hosts.',
+    "Couldn't list the matched nodes.": "Couldn't list the matched nodes.",
+    'A test takes at most 1,000 nodes. Narrow the filters, or check the nodes to test.':
+      'A test takes at most 1,000 nodes. Narrow the filters, or check the nodes to test.',
+    'Test {count} checked': 'Test {count} checked',
+    'Test matched nodes': 'Test matched nodes',
+    'Check the nodes of this page': 'Check the nodes of this page',
+    'Check {name}': 'Check {name}',
+    'Last test': 'Last test',
+    'Bastion key': 'Bastion key',
+    'Not tested': 'Not tested',
+  },
+  'zh-CN': {
+    'Connection test': '连接测试',
+    'Tested {done} of {total}': '已测试 {done}/{total}',
+    '{passed} passed, {failed} failed': '{passed} 个通过，{failed} 个失败',
+    'Trust {count} unknown keys': '信任 {count} 个未知密钥',
+    'Replace key': '替换密钥',
+    'Trust key': '信任密钥',
+    Passed: '通过',
+    'Changed key': '密钥已变更',
+    'Unknown key': '未知密钥',
+    'Key replaced': '密钥已替换',
+    'Key trusted': '密钥已信任',
+    'Replace trusted host key': '替换已信任的主机密钥',
+    'The host key of {node} has changed. A host that was reinstalled presents a new key, and so does a connection someone intercepts. Replace the key only if you know why it changed.':
+      '{node} 的主机密钥已变更。重装的主机会提供新密钥，被拦截的连接也会如此。仅在清楚变更原因时才替换密钥。',
+    Trusted: '已信任',
+    Presented: '当前提供',
+    'Trust host keys': '信任主机密钥',
+    Trust: '信任',
+    'Runs and tests will accept these keys. Trust them only if they are the keys of these hosts.':
+      '运行和测试将接受这些密钥。仅在确认它们是这些主机的密钥时才信任。',
+    "Couldn't list the matched nodes.": '无法列出匹配的节点。',
+    'A test takes at most 1,000 nodes. Narrow the filters, or check the nodes to test.':
+      '一次测试最多 1,000 个节点。请缩小筛选范围，或勾选要测试的节点。',
+    'Test {count} checked': '测试已勾选的 {count} 个',
+    'Test matched nodes': '测试匹配的节点',
+    'Check the nodes of this page': '勾选本页的节点',
+    'Check {name}': '勾选 {name}',
+    'Last test': '上次测试',
+    'Bastion key': '跳板机密钥',
+    'Not tested': '未测试',
+  },
+  ja: {
+    'Connection test': '接続テスト',
+    'Tested {done} of {total}': '{total} 件中 {done} 件をテスト済み',
+    '{passed} passed, {failed} failed': '成功 {passed} 件、失敗 {failed} 件',
+    'Trust {count} unknown keys': '不明な鍵 {count} 件を信頼',
+    'Replace key': '鍵を置き換え',
+    'Trust key': '鍵を信頼',
+    Passed: '成功',
+    'Changed key': '鍵の変更',
+    'Unknown key': '不明な鍵',
+    'Key replaced': '鍵を置き換えました',
+    'Key trusted': '鍵を信頼しました',
+    'Replace trusted host key': '信頼済みのホスト鍵を置き換え',
+    'The host key of {node} has changed. A host that was reinstalled presents a new key, and so does a connection someone intercepts. Replace the key only if you know why it changed.':
+      '{node} のホスト鍵が変わりました。再インストールしたホストは新しい鍵を提示しますが、傍受された接続も同じように見えます。変わった理由がわかる場合にのみ置き換えてください。',
+    Trusted: '信頼済み',
+    Presented: '提示された鍵',
+    'Trust host keys': 'ホスト鍵を信頼',
+    Trust: '信頼',
+    'Runs and tests will accept these keys. Trust them only if they are the keys of these hosts.':
+      '実行とテストはこれらの鍵を受け入れます。これらのホストの鍵であると確かめられる場合にのみ信頼してください。',
+    "Couldn't list the matched nodes.":
+      '一致するノードを取得できませんでした。',
+    'A test takes at most 1,000 nodes. Narrow the filters, or check the nodes to test.':
+      '一度にテストできるのは 1,000 ノードまでです。フィルターで絞り込むか、テストするノードを選択してください。',
+    'Test {count} checked': '選択した {count} 件をテスト',
+    'Test matched nodes': '一致するノードをテスト',
+    'Check the nodes of this page': 'このページのノードを選択',
+    'Check {name}': '{name} を選択',
+    'Last test': '前回のテスト',
+    'Bastion key': '踏み台の鍵',
+    'Not tested': '未テスト',
+  },
+});

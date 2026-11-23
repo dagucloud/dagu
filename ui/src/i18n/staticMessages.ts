@@ -4,6 +4,7 @@
 import type { Locale } from '@/contexts/UserPreference';
 import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
+import { nodeTestMessages } from '@/pages/nodes/messages';
 
 const baseEnglish = {
   'Plan & features': 'Plan & features',
@@ -3335,6 +3336,7 @@ type BaseStaticMessage = keyof typeof baseEnglish;
 const english = {
   ...workspaceMessages.en,
   ...backfillMessages.en,
+  ...nodeTestMessages.en,
   ...baseEnglish,
 } as const;
 
@@ -9929,12 +9931,14 @@ const baseJapanese = {
 const chinese = {
   ...workspaceMessages['zh-CN'],
   ...backfillMessages['zh-CN'],
+  ...nodeTestMessages['zh-CN'],
   ...baseChinese,
 } as const satisfies Record<StaticMessage, string>;
 
 const japanese = {
   ...workspaceMessages.ja,
   ...backfillMessages.ja,
+  ...nodeTestMessages.ja,
   ...baseJapanese,
 } as const satisfies Record<StaticMessage, string>;
 
