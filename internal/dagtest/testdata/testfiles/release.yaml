@@ -1,0 +1,70 @@
+params:
+  - name: env
+    default: prod
+  # Evaluating this at load fails the load, so the file loads only while
+  # every eval waits for the run.
+  - name: stamp
+    eval: $(exit 1)
+secrets:
+  - name: API_TOKEN
+    provider: env
+    key: DAGU_TEST_UNSET_TOKEN
+steps:
+  - name: build image
+    id: build
+    run: ./build.sh
+    outputs:
+      - name: image_tag
+      - name: manifest
+        type: json
+  - id: gate
+    run: ./gate.sh
+    preconditions:
+      - condition: test -f ready
+  - id: poll
+    run: ./poll.sh
+    repeat_policy:
+      repeat: while
+      condition: test -f pending
+      limit: 3
+  - id: route
+    action: router.route
+    with:
+      value: ${steps.build.outputs.image_tag}
+      routes:
+        v1: [ship]
+  - id: ship
+    run: ./ship.sh
+    approval:
+      prompt: Ship it?
+      input: [ticket]
+      required: [ticket]
+  - id: sign_off
+    action: human.task
+    with:
+      prompt: Sign off the release.
+      form:
+        type: object
+        properties:
+          reason:
+            type: string
+        required: [reason]
+  - id: fanout
+    foreach:
+      items: [a, b]
+      steps:
+        - id: one
+          run: ./one.sh
+  - id: child
+    action: dag.run
+    with:
+      dag: other
+  - name: untitled
+    run: ./untitled.sh
+handler_on:
+  failure:
+    action: mail.send
+    with:
+      to: oncall@example.com
+      subject: release failed
+      message: see the run

@@ -1,0 +1,4 @@
+steps:
+  - id: a
+    depends: [missing]
+    run: ./a.sh
