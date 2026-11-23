@@ -1197,7 +1197,8 @@ Rules:
 
 `--init` and `--update` ship after the first release of `dagu test`.
 
-Both write an `expect` from a run, in this shape:
+`--init` writes an `expect` from a run in this shape, and `--update` adds
+facts in the same shape:
 
 - `status`: the run status.
 - `attempts`: the run attempts, when there are more than one.
@@ -1231,13 +1232,31 @@ Both write an `expect` from a run, in this shape:
 
 - Selects test files and cases as `dagu test` does without it, `--run`
   included.
-- Runs each selected case and replaces its `expect` with one written from
-  its run, so a change in behavior shows as a diff to review. Every other
-  part of the file, comments included, stays as it was.
+- Runs each selected case and rewrites its `expect` from its run, so a
+  change in behavior shows as a diff to review. It never removes an
+  assertion the author wrote. Every other part of the file, comments
+  included, stays as it was.
+- Exact facts take the run's values: the run `status` and `attempts`, each
+  step's and handler's `status` and `attempts`, and `notifications`. A fact
+  that the case asserts keeps its place with the run's value. A fact that it
+  does not assert is added as the shape above writes it, so a step with no
+  assertion gains `status`, and `attempts` when its attempts are more than
+  one.
+- A step entry written as a status token stays a token, unless the step
+  gains `attempts`. A step entry written as a map keeps its other fields.
+- The outputs that the case asserts take their published values, and no
+  output assertion is added. For a `type: json` output asserted with an
+  object, each key it lists takes its published value, recursively, and no
+  key is added. An asserted output that the step did not publish keeps its
+  expected value.
+- `stdout` and `stderr` assertions, `contains` and `matches`, stay as
+  written.
 - A case that is invalid, or that does not reach a terminal status, keeps its
   `expect`.
-- The report and the exit status are those of a run without `--update`, with
-  each rewritten case reported as passed.
+- The report and the exit status are those of a run of the rewritten cases.
+  A rewritten case passes unless an assertion that stays as written fails,
+  such as a stream assertion or an output that the step did not publish, and
+  then it reports that failure.
 
 ### Exit Status
 
