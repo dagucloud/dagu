@@ -41,8 +41,6 @@ failures.
    once when its status changes, such as to waiting for an approval.
 3. Reporting never changes the run: not its status, its exit code, or its
    start time, and it adds at most a few seconds to the process's exit.
-4. A machine that is a server, with an online license, reports through the
-   server reporter only, never twice.
 
 ## Non-goals
 
@@ -130,17 +128,17 @@ It is on only when all of these hold:
 - The run is top-level: no parent run.
 - The run executes here, not on a distributed worker (`workerID` is
   `local`). A worker's runs belong to the server that dispatched them.
-- The data directory has no online license: no stored activation that
-  verifies (`license.StoredCloudCredentials`,
-  `internal/license/manager.go:216`). A server reports its own runs; a run
-  key on a licensed server does nothing, and says so once at debug level.
 - The command is not a workflow test (`internal/cmd/case_run.go`) or a dry
   run.
 
+The machine's license plays no part: a run key is how a machine without a
+server reports, and an activation left in an image or a volume can outlive
+the server it belonged to.
+
 A Dagu scheduler starts each run as a `dagu start` child with its own
-environment, so a scheduler without an online license and with a run key
-reports every run it starts as a job run. RFC 020 allows this: such a
-machine is measured as job runs and gets nothing a server gets.
+environment, so a scheduler with a run key reports every run it starts as
+a job run. RFC 020 allows this: such a machine is measured as job runs and
+gets nothing a server gets.
 
 ### What it sends
 
@@ -258,7 +256,7 @@ reporter, which never blocks the agent.
 | Console answers `503` because the workspace is busy | The finish waits `Retry-After` and tries again within its budget. |
 | The key is revoked mid-run | The next report gets `401`; the sender stops. |
 | The process is killed with SIGKILL | Nothing more is sent. Console sees the run as it last reported. |
-| A run key on a licensed server | The sender stays off; the server reporter reports the run. |
+| A run key on a licensed server | The run reports as a job run too, besides the server reporter. |
 | A malformed run key | The sender stays off and warns once; the run starts. |
 
 ### What the run prints
@@ -335,9 +333,9 @@ Order:
   without a key, and the process exits within 10 seconds of the run's end.
 - SIGTERM aborts the run and its finish still reaches the fake Console.
 - No report is sent: without a key, with a key not starting with `drk_`, at
-  `cloud.report: off`, for a sub-DAG run, on a distributed worker, with an
-  online license in the data directory, for a workflow test, or for a dry
-  run.
+  `cloud.report: off`, for a sub-DAG run, on a distributed worker, for a
+  workflow test, or for a dry run.
+- A run key reports with an online license in the data directory.
 - At `cloud.report: runs` the finish carries no errors.
 - The key and the workspace appear in no log line.
 - In GitHub Actions the reports carry `platform: github_actions` and a link to

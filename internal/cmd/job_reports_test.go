@@ -48,32 +48,40 @@ func TestJobReportsForALocalRun(t *testing.T) {
 	assert.Equal(t, config.ReportRuns, jobReports(ctx, localRun).Level)
 }
 
-// A run reports no job run without a key, at a level that sends no runs, as
-// a sub-DAG or a worker's run, or on a server whose license reports it.
+// A run reports no job run without a key, at a level that sends no runs, or
+// as a sub-DAG or a worker's run.
 func TestJobReportsSkipRunsThatDoNotReport(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
-		cloud   config.CloudConfig
-		run     jobRun
-		license *license.Manager
+		cloud config.CloudConfig
+		run   jobRun
 	}{
-		"no key":         {run: localRun},
-		"health only":    {cloud: config.CloudConfig{RunKey: testRunKey, Report: config.ReportHealth}, run: localRun},
-		"reports off":    {cloud: config.CloudConfig{RunKey: testRunKey, Report: config.ReportOff}, run: localRun},
-		"sub-DAG run":    {cloud: config.CloudConfig{RunKey: testRunKey}, run: jobRun{parent: ir.NewDAGRunRef("etl", "run-1"), workerID: "local"}},
-		"worker's run":   {cloud: config.CloudConfig{RunKey: testRunKey}, run: jobRun{workerID: "worker-1"}},
-		"online license": {cloud: config.CloudConfig{RunKey: testRunKey}, run: localRun, license: license.NewConnectedTestManager()},
+		"no key":       {run: localRun},
+		"health only":  {cloud: config.CloudConfig{RunKey: testRunKey, Report: config.ReportHealth}, run: localRun},
+		"reports off":  {cloud: config.CloudConfig{RunKey: testRunKey, Report: config.ReportOff}, run: localRun},
+		"sub-DAG run":  {cloud: config.CloudConfig{RunKey: testRunKey}, run: jobRun{parent: ir.NewDAGRunRef("etl", "run-1"), workerID: "local"}},
+		"worker's run": {cloud: config.CloudConfig{RunKey: testRunKey}, run: jobRun{workerID: "worker-1"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			var logs bytes.Buffer
 			ctx := jobContext(t, tc.cloud, &logs)
-			ctx.LicenseManager = tc.license
 
 			assert.Nil(t, jobReports(ctx, tc.run))
 			assert.NotContains(t, logs.String(), "WARN")
 		})
 	}
+}
+
+// A run key reports whatever license this machine holds: the key is how a
+// machine without a server reports, and an activation can outlive its server.
+func TestJobReportsDespiteALicense(t *testing.T) {
+	t.Parallel()
+	var logs bytes.Buffer
+	ctx := jobContext(t, config.CloudConfig{RunKey: testRunKey}, &logs)
+	ctx.LicenseManager = license.NewConnectedTestManager()
+
+	assert.NotNil(t, jobReports(ctx, localRun))
 }
 
 // A key that is not a run key warns, naming the setting and not the value.

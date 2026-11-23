@@ -256,9 +256,8 @@ type CloudConfig struct {
 	// waiting for a person. Nil means it is not set, and an administrator
 	// chooses it; until then they cannot.
 	RemoteApprovals *bool
-	// RunKey is a run key from Dagu Console. With it, a top-level run on a
-	// machine without an online license reports itself to Dagu Console as a
-	// job run. Empty reports nothing.
+	// RunKey is a run key from Dagu Console. With it, a top-level run
+	// reports itself to Dagu Console as a job run. Empty reports nothing.
 	RunKey string
 }
 

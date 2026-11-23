@@ -8,9 +8,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/license"
-	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/runtime/runstate"
 )
 
@@ -39,9 +36,8 @@ func withJobReports(ctx *Context, store runstate.Store, run jobRun) runstate.Sto
 }
 
 // jobReports returns how the run reports itself to Dagu Console, or nil when
-// it does not: without a run key, at a level that sends no runs, for a
-// sub-DAG run or one a worker runs, and on a machine with an online
-// license, whose server reports its runs.
+// it does not: without a run key, at a level that sends no runs, and for a
+// sub-DAG run or one a worker runs.
 func jobReports(ctx *Context, run jobRun) *cloudreport.JobReports {
 	key := ctx.Config.Cloud.RunKey
 	if key == "" {
@@ -58,10 +54,6 @@ func jobReports(ctx *Context, run jobRun) *cloudreport.JobReports {
 	if !level.ReportsRuns() || !run.parent.Zero() || run.workerID != "local" {
 		return nil
 	}
-	if licensedHere(ctx) {
-		logger.Debug(ctx, "This machine has an online license, so its server reports this run, not the run key")
-		return nil
-	}
 	return &cloudreport.JobReports{
 		RunKey:      key,
 		CloudURL:    ctx.Config.License.CloudURL,
@@ -69,25 +61,6 @@ func jobReports(ctx *Context, run jobRun) *cloudreport.JobReports {
 		KeepTrigger: run.keepTrigger,
 		Version:     config.Version,
 	}
-}
-
-// licensedHere reports whether the data directory holds an online license
-// whose activation verifies.
-func licensedHere(ctx *Context) bool {
-	if ctx.LicenseManager != nil {
-		_, ok := ctx.LicenseManager.CloudCredentials()
-		return ok
-	}
-	if ctx.backend == nil {
-		return false
-	}
-	pubKey, err := license.PublicKey()
-	if err != nil {
-		return false
-	}
-	activations := file.NewLicenseStore(ctx, ctx.backend.Collection(persis.CollectionLicense))
-	_, ok := license.StoredCloudCredentials(activations, pubKey, ctx.Config.License.CloudURL)()
-	return ok
 }
 
 // triggerPassed reports whether --trigger-type was given on the command
