@@ -548,8 +548,19 @@ func (t *yamlText) span(n *yaml.Node) (start, end int, ok bool) {
 }
 
 // scalarEnd returns the length of the text of the scalar n at the start of
-// rest, when it ends there.
+// rest, its explicit tag included, when it ends there.
 func scalarEnd(rest []byte, n *yaml.Node) (int, bool) {
+	if n.Style&yaml.TaggedStyle != 0 {
+		tag := bytes.IndexByte(rest, ' ')
+		if tag < 0 {
+			return 0, false
+		}
+		skip := len(rest) - len(bytes.TrimLeft(rest[tag:], " "))
+		untagged := *n
+		untagged.Style &^= yaml.TaggedStyle
+		end, ok := scalarEnd(rest[skip:], &untagged)
+		return skip + end, ok
+	}
 	switch {
 	case n.Style&yaml.DoubleQuotedStyle != 0:
 		for i := 1; i < len(rest); i++ {
@@ -571,7 +582,7 @@ func scalarEnd(rest []byte, n *yaml.Node) (int, bool) {
 			}
 			return i + 1, true
 		}
-	case n.Style&(yaml.LiteralStyle|yaml.FoldedStyle|yaml.TaggedStyle) == 0 && n.Value != "" && bytes.HasPrefix(rest, []byte(n.Value)):
+	case n.Style&(yaml.LiteralStyle|yaml.FoldedStyle) == 0 && n.Value != "" && bytes.HasPrefix(rest, []byte(n.Value)):
 		return len(n.Value), true
 	}
 	return 0, false

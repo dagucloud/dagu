@@ -218,6 +218,15 @@ func TestUpdateRewrites(t *testing.T) {
 			output: uint64(9223372036854775809),
 		},
 		{
+			name:   "Tagged",
+			expect: "    expect:\n      status: !!str \"succeeded\"  # tagged\n      steps:\n        build:\n          outputs:\n            tag: !!str 3  # plain\n",
+			edit: func(e *Expect) {
+				e.Status = "failed"
+				e.Steps[0].Outputs[0].Value = "4"
+			},
+			want: "    expect:\n      status: !!str \"failed\"  # tagged\n      steps:\n        build:\n          outputs:\n            tag: \"4\"  # plain\n",
+		},
+		{
 			name:   "CRLF",
 			expect: "    expect:\r\n      status: succeeded\r\n      steps:\r\n        build: succeeded\r\n",
 			edit: func(e *Expect) {
