@@ -7,12 +7,48 @@ import { CronExpressionParser } from 'cron-parser';
 export const CRON_ZONE_PREFIX = /^(?:CRON_)?TZ=(\S+)\s+/;
 
 /**
+ * Zone IDs that the browser takes and the time zone database of the server
+ * lacks: the three-letter IDs that ICU keeps from Java.
+ */
+const BROWSER_ONLY_ZONES = new Set([
+  'ACT',
+  'AET',
+  'AGT',
+  'ART',
+  'AST',
+  'BET',
+  'BST',
+  'CAT',
+  'CNT',
+  'CST',
+  'CTT',
+  'EAT',
+  'ECT',
+  'IET',
+  'IST',
+  'JST',
+  'MIT',
+  'NET',
+  'NST',
+  'PLT',
+  'PNT',
+  'PRT',
+  'PST',
+  'SST',
+  'VST',
+]);
+
+/** A UTC offset such as `+09:00`, which the browser takes as a zone. */
+const UTC_OFFSET_ZONE = /^[+-]/;
+
+/**
  * The zone that a `TZ=` field names: `Local` is the zone of the scheduler.
- * null for a name that the time zone database does not have, which the
- * server refuses.
+ * null for a name that the server refuses: one that the browser does not
+ * know, a legacy ID of the browser or a UTC offset.
  */
 function prefixZone(name: string, tz: string | undefined): string | null {
   if (name === 'Local') return tz ?? '';
+  if (BROWSER_ONLY_ZONES.has(name) || UTC_OFFSET_ZONE.test(name)) return null;
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: name });
     return name;
