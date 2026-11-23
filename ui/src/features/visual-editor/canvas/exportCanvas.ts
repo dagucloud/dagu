@@ -48,6 +48,8 @@ interface Palette extends Record<StatusTone, string> {
   background: string;
   card: string;
   border: string;
+  /** Outline of a node card that has not run: the node line token. */
+  line: string;
   text: string;
   muted: string;
   edge: string;
@@ -58,6 +60,7 @@ const LIGHT: Palette = {
   background: '#ffffff',
   card: '#ffffff',
   border: '#d3d3da',
+  line: '#85858f',
   text: '#1c1c22',
   muted: '#6b6b76',
   edge: '#80808b',
@@ -69,6 +72,8 @@ const DARK: Palette = {
   background: '#15151a',
   card: '#1f1f26',
   border: '#3b3b46',
+  // 3:1 on the card of the export; the page token is darker on its card.
+  line: '#6e6e78',
   text: '#ececf1',
   muted: '#9a9aa6',
   edge: '#8b8b97',
@@ -156,7 +161,7 @@ function boxOf(
 }
 
 function nodeStroke(node: CanvasNode, palette: Palette): string {
-  return node.run ? statusColor(node.run.status, palette) : palette.border;
+  return node.run ? statusColor(node.run.status, palette) : palette.line;
 }
 
 function text(

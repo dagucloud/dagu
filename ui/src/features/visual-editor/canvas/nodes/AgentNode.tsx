@@ -15,6 +15,7 @@ import {
   type StepFlowNode,
 } from '../types';
 import {
+  CARD_OUTLINE,
   HANDLE_CLASS,
   RunStatus,
   cardStateClass,
@@ -117,7 +118,8 @@ function AgentNodeComponent({ data, selected }: NodeProps<StepFlowNode>) {
       data-testid={`ve-canvas-node-${node.key}`}
       data-shape="agent"
       className={cn(
-        'group relative flex h-full w-full flex-col gap-1 rounded-xl border-2 border-primary/40 bg-primary/5 px-3 py-2 text-card-foreground',
+        'group relative flex h-full w-full flex-col gap-1 rounded-xl bg-primary/5 px-3 py-2 text-card-foreground',
+        CARD_OUTLINE,
         cardStateClass(node, selected, data.highlighted)
       )}
     >

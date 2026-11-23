@@ -38,7 +38,7 @@ export const PENDING_W5: readonly TokenViolation[] = [];
  * variables do not resolve, so its palette is literal.
  */
 export const BASELINE: Readonly<Record<string, number>> = {
-  'features/visual-editor/canvas/exportCanvas.ts': 14,
+  'features/visual-editor/canvas/exportCanvas.ts': 16,
 };
 
 /** The one place each of these literals may appear. */

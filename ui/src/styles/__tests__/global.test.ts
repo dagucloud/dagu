@@ -26,6 +26,8 @@ const semanticUtilities = [
   ['text-text-secondary', 'color', '--text-secondary'],
   ['bg-sidebar-active', 'background-color', '--sidebar-active'],
   ['bg-sidebar-primary', 'background-color', '--sidebar-primary'],
+  ['border-node-line', 'border-color', '--node-line'],
+  ['stroke-node-line', 'stroke', '--node-line'],
 ] as const;
 
 function selector(utility: string): string {
@@ -130,6 +132,22 @@ describe('global styles', () => {
       expect(order.indexOf(layer), layer).toBeLessThan(order.indexOf('theme'));
     }
   });
+  // The outline of a node card is a boundary of the UI: 3:1 on the canvas
+  // and on a card, in both themes.
+  it.each([':root', '.dark'] as const)(
+    'keeps the node line visible in %s',
+    async (theme) => {
+      const colors = await themeColors(theme);
+      for (const surface of ['--background', '--card']) {
+        const ratio = contrast(
+          colors.get('--node-line')!,
+          colors.get(surface)!
+        );
+        expect(ratio, surface).toBeGreaterThanOrEqual(3);
+      }
+    }
+  );
+
   // The error and warning counts of a step card are text on these fills.
   it.each([':root', '.dark'] as const)(
     'keeps the text of an issue count readable in %s',
