@@ -220,8 +220,8 @@ function hasLoopArcs(node: CanvasNode): boolean {
 
 /**
  * The arcs of the retry and the repeat of a step as `drawCard` draws them:
- * on the upper edge, the retry at the right corner and the repeat at the
- * left one, with each label growing away from the middle of the edge.
+ * side by side at the left of the upper edge, as on the canvas. A compact
+ * card draws none.
  */
 function drawLoops(
   node: CanvasNode,
