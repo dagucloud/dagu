@@ -1140,11 +1140,6 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     if (!result) return;
     if (!stay || !result.ok || !result.select) {
       afterEdit(result);
-      // The list closes under the focus, and the "+" that opened it may
-      // be gone: the canvas keeps the focus.
-      rootRef.current
-        ?.querySelector<HTMLElement>('[data-testid="ve-canvas"]')
-        ?.focus();
       return;
     }
     // Shift+Enter: the list stays open for a step after the new one.

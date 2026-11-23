@@ -285,8 +285,6 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
       url: https://example.com
 `
     );
-    // The list closes under the focus: the canvas keeps it.
-    expect(screen.getByTestId('ve-canvas')).toHaveFocus();
   });
 
   it('adds a step at the end of a chain workflow with no depends', () => {
