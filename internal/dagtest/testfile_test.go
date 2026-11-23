@@ -309,7 +309,7 @@ func TestLoadFileDefaultMock(t *testing.T) {
 	assert.Equal(t, map[string]dagtest.Script{
 		"build": {DefaultMock: true, ReplacesAction: true, Results: []dagtest.Result{{Outputs: emptyOutputs}}},
 		"tick":  {DefaultMock: true, ReplacesAction: true, Results: succeeds},
-		"gate":  {DefaultMock: true, Precondition: ptr(true)},
+		"gate":  {DefaultMock: true, Precondition: new(true)},
 		"child": {DefaultMock: true, ReplacesAction: true, Results: succeeds},
 		"ship": {
 			DefaultMock: true, ReplacesAction: true, Results: succeeds,
