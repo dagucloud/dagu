@@ -346,8 +346,10 @@ func captureExecutorOutputs(ctx context.Context, cmd executor.Executor, node *No
 			hasDeclaredOutputs = declared.PublishesDeclaredOutputs()
 		}
 		// An executor that published nothing declares nothing, so the step
-		// output channels stay empty rather than holding a null payload.
-		if len(outputs) == 0 {
+		// output channels stay empty rather than holding a null payload. A
+		// failed attempt publishes nothing, even outputs a failed executor
+		// reports, such as those of a failed child run.
+		if len(outputs) == 0 || node.Error() != nil {
 			node.clearOutputsValue()
 			return "", false, nil
 		}
