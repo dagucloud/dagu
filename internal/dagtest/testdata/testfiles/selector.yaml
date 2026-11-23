@@ -1,0 +1,10 @@
+# Resolving the selector at load needs region's value, so a load that
+# resolves it runs region's eval.
+worker_selector:
+  region: ${params.region}
+params:
+  - name: region
+    eval: $(touch "$DAGU_TEST_EVAL_MARKER" && echo us-east-1)
+steps:
+  - id: check
+    action: noop

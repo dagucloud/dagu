@@ -146,15 +146,55 @@ func TestLoadFileCaseErrors(t *testing.T) {
 			"mocks.onFailure: names no step or handler of the DAG",
 		},
 		"one step twice": {"mocks.build image: names the same step as mocks.build"},
+		"inline fields and results": {
+			"mocks.child.results: must hold at least one result",
+			"mocks.untitled: sets results together with inline result fields",
+		},
+		"missing outputs": {"mocks.build.outputs: leaves out declared outputs image_tag, manifest"},
+		"wrong outputs": {
+			"mocks.build.outputs.extra: is not an output the step declares",
+			"mocks.build.outputs.image_tag: must be a string, as the step declares it with type string",
+		},
+		"outputs per result": {
+			"mocks.build.results[0].outputs.image_tag: must be a string, as the step declares it with type string",
+			"mocks.build.results[1].outputs: leaves out declared outputs manifest",
+		},
+		"outputs without id": {
+			"mocks.untitled.outputs: the step has no id, so no reference can read its outputs; give the step an id",
+		},
+		"runtime outputs": {"mocks.child.outputs.bad-name: is not a valid output name"},
+		// Field errors come first, sorted by label, then the unhandled
+		// sources of the fail-closed rule.
 		"real steps": {
+			"mocks.build: sets a result field on a step that runs for real; set only precondition and review",
+			`real[0]: "fanout" is a foreach step, which cannot run for real; mock it`,
 			`real[2]: "deplooy" names no step or handler of the DAG`,
 			`real[4]: "gate" names the same step as real[3]`,
+			"secret API_TOKEN: a real step may read it; give it a value under secrets",
+			"step fanout, body step one: command has side effects; mock the whole foreach step",
+		},
+		"human task result": {
+			"mocks.sign_off: sets a result field on a human.task step, which has no action to replace",
+		},
+		"fields without a source": {
+			"mocks.route.precondition: the step has no precondition that runs a command",
+			"mocks.route.results[0].condition: the step has no repeat condition that runs a command",
+			"mocks.route.review: the step does not wait for a person",
 		},
 		"bad values": {
 			`mocks.gate.precondition: "maybe" must be met or not_met`,
 			`mocks.poll.results[0].condition: "sometimes" must be met or not_met`,
 			`mocks.ship.review.decision: "later" must be approve or reject`,
+			"precondition: the DAG has no precondition that runs a command",
 			`trigger: "subdag" is not a trigger type a case can set; use manual, scheduler, webhook, retry, catchup, restart, backfill, or file`,
+		},
+		"review values": {
+			"mocks.ship.review.values: leaves out required inputs ticket",
+			"mocks.ship.review.values.links: must be a scalar",
+			"mocks.sign_off.review.decision: a human.task cannot be rejected; approve it with values",
+		},
+		"default mock outputs": {
+			"default_mock.results[0].outputs: the default mock sets no outputs; mock the step under mocks to set them",
 		},
 		"bad expect": {
 			"expect.attempts: must not be negative",
@@ -163,6 +203,7 @@ func TestLoadFileCaseErrors(t *testing.T) {
 			`expect.notifications[2].step: "nope" names no step or handler of the DAG`,
 			`expect.status: "done" must be one of succeeded, failed, aborted, partially_succeeded, rejected`,
 			"expect.steps.build image: names the same step as expect.steps.build",
+			"expect.steps.build.outputs.nope: is not an output the step declares",
 			`expect.steps.build.status: "skippedd" must be one of succeeded, failed, aborted, partially_succeeded, rejected, skipped, not_started`,
 			"expect.steps.deplooy: names no step or handler of the DAG",
 			"expect.steps.gate: holds no assertion",
@@ -181,6 +222,26 @@ func TestLoadFileCaseErrors(t *testing.T) {
 			assert.Equal(t, want[c.Name], findingStrings(c.Errors))
 		})
 	}
+}
+
+// Loading the tested DAG runs no eval, also when a worker_selector reads the
+// param, so the eval still needs a value from the test. The eval would
+// create the marker file.
+func TestLoadFileRunsNoEval(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "eval-ran")
+	t.Setenv("DAGU_TEST_EVAL_MARKER", marker)
+
+	c := loadCase(t, "selector.test.yaml", "the eval waits for a test value")
+	assert.NoFileExists(t, marker)
+	assert.Equal(t, []string{"param region: eval runs a command; give it a value under params"}, findingStrings(c.Errors))
+}
+
+// A secrets key is checked against the DAG in every case of the file.
+func TestLoadFileUnknownSecret(t *testing.T) {
+	t.Parallel()
+
+	c := loadCase(t, "secrets.test.yaml", "a secrets key names no secret")
+	assert.Equal(t, []string{"secrets.NOPE: names no DAG secret or SSH credential ref"}, findingStrings(c.Errors))
 }
 
 func TestLoadFileMerge(t *testing.T) {
@@ -234,6 +295,49 @@ func TestLoadFileMerge(t *testing.T) {
 		},
 		Notifications: []dagtest.Notification{{Kind: "mail_on_error", Step: "build image", To: []string{"oncall@example.com"}}},
 	}, c.Expect)
+}
+
+// The default mock applies to each step and handler with a source that the
+// case does not name, with only the fields that handle its sources.
+func TestLoadFileDefaultMock(t *testing.T) {
+	t.Parallel()
+
+	file := loadTestFile(t, "defaults.test.yaml")
+	require.Len(t, file.Cases, 2)
+	emptyOutputs := map[string]any{"image_tag": "", "manifest": nil}
+	succeeds := []dagtest.Result{{}}
+
+	full := file.Cases[0]
+	assert.Empty(t, full.Errors)
+	assert.Equal(t, map[string]dagtest.Script{
+		"build": {DefaultMock: true, ReplacesAction: true, Results: []dagtest.Result{{Outputs: emptyOutputs}}},
+		"tick":  {DefaultMock: true, ReplacesAction: true, Results: succeeds},
+		"gate":  {DefaultMock: true, Precondition: new(true)},
+		"child": {DefaultMock: true, ReplacesAction: true, Results: succeeds},
+		"ship": {
+			DefaultMock: true, ReplacesAction: true, Results: succeeds,
+			Review: &dagtest.Review{Values: map[string]any{"ticket": "T-1"}},
+		},
+	}, full.Steps)
+	assert.Equal(t, map[ir.HandlerType]dagtest.Script{
+		ir.HandlerOnExit: {DefaultMock: true, ReplacesAction: true, Results: succeeds},
+	}, full.Handlers)
+
+	// {} keeps side-effect-free actions and leaves conditions and waits
+	// unhandled.
+	empty := file.Cases[1]
+	assert.Equal(t, []string{
+		"step tick: repeat policy has no limit; mock it with a result or list it under real",
+		"step gate: precondition runs a command; set precondition in its mock or list it under real",
+		"step ship: approval waits for required values; set review in its mock",
+	}, findingStrings(empty.Errors))
+	assert.Equal(t, map[string]dagtest.Script{
+		"build": {DefaultMock: true, ReplacesAction: true, Results: []dagtest.Result{{Outputs: emptyOutputs}}},
+		"tick":  {DefaultMock: true},
+		"gate":  {DefaultMock: true},
+		"child": {DefaultMock: true, ReplacesAction: true},
+		"ship":  {DefaultMock: true, ReplacesAction: true},
+	}, empty.Steps)
 }
 
 // A handler_on.<event> key names the handler of that event, and a step whose

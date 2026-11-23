@@ -23,7 +23,8 @@ type File struct {
 	Path string
 	// DAGPath is the path of the tested DAG file.
 	DAGPath string
-	// DAG is the tested DAG. Every params[].eval of it waits for the run.
+	// DAG is the tested DAG. Every params[].eval of it waits for the run,
+	// and a map-form worker_selector stays as written.
 	DAG *ir.DAG
 	// Cases holds the cases in file order, each with the file's fields
 	// merged in.
@@ -53,14 +54,16 @@ type Case struct {
 	// command, or nil when the case sets none.
 	Precondition *bool
 	// Steps holds how the case handles each step it mocks or runs for real,
-	// by step name. A step that is not in it runs its own action.
+	// by step name, the default mock included. A step that is not in it runs
+	// its own action.
 	Steps map[string]Script
 	// Handlers holds the same for lifecycle handlers, by handler type.
 	Handlers map[ir.HandlerType]Script
 	// Expect holds the case's assertions.
 	Expect Expect
-	// Errors lists the field errors that make the case invalid, sorted by
-	// label. An invalid case runs none of its steps. Empty for a valid case.
+	// Errors lists what makes the case invalid: field errors sorted by label,
+	// then the unhandled sources of the fail-closed rule. An invalid case
+	// runs none of its steps. Empty for a valid case.
 	Errors []Finding
 }
 
@@ -68,6 +71,8 @@ type Case struct {
 type Script struct {
 	// Real reports that the step runs its real action.
 	Real bool
+	// DefaultMock reports that the step took the case's default mock.
+	DefaultMock bool
 	// ReplacesAction reports that Results run in place of the step's action,
 	// or one successful result with no output when Results is empty. False
 	// keeps the action, and Results is then empty.
@@ -201,7 +206,7 @@ func LoadFile(ctx context.Context, path string, opts ...spec.LoadOption) (*File,
 	if finding != nil {
 		return nil, invalid(*finding)
 	}
-	dag, err := spec.Load(ctx, dagPath, append(slices.Clip(opts), spec.DeferParamEvals())...)
+	dag, err := spec.Load(ctx, dagPath, append(slices.Clip(opts), spec.DeferAllParamEvals())...)
 	if err != nil {
 		return nil, invalid(loadFindings(err)...)
 	}
