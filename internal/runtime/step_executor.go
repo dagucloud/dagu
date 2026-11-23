@@ -26,7 +26,9 @@ var liveModelUsageInterval = 5 * time.Second
 // ExecutorOverride supplies executors that run in place of step actions.
 type ExecutorOverride interface {
 	// Executor returns the executor that runs in place of the step's action
-	// for one execution, or false when the step runs its own action. The
+	// for one execution, or false when the step runs its own action. It
+	// answers the same way for every execution of a step, since a step's
+	// state, such as its child runs, assumes one kind of action. The
 	// step's fields are resolved as they are for its own action. On a step
 	// that starts child runs, such as dag.run, parallel, or a step with
 	// nodes, the executor replaces every child run, so none starts or is
