@@ -125,8 +125,12 @@ function Content({ navbarColor, children }: LayoutProps) {
     value: layoutChrome,
   } = useLayoutChromeState();
 
-  const bleed = fullBleed;
-  const noBreadcrumb = hideBreadcrumb;
+  // The workflow page draws its own first row and fills the area. The frame
+  // takes that shape from the address, before the page has loaded, so that a
+  // reload shows no breadcrumb strip and no padding that then go away.
+  const workspaceRoute = /^\/dags\/[^/]+/.test(location.pathname);
+  const bleed = fullBleed || workspaceRoute;
+  const noBreadcrumb = hideBreadcrumb || workspaceRoute;
 
   const hasCustomColor: boolean = Boolean(
     navbarColor && navbarColor.trim() !== ''
@@ -317,9 +321,7 @@ function Content({ navbarColor, children }: LayoutProps) {
           <div
             className={cn(
               'min-h-0 flex-1 w-full',
-              bleed
-                ? 'overflow-hidden'
-                : 'overflow-auto p-4 [scrollbar-gutter:stable] md:p-6'
+              bleed ? 'overflow-hidden' : 'overflow-auto p-4 md:p-6'
             )}
           >
             <LayoutChromeProvider value={layoutChrome}>

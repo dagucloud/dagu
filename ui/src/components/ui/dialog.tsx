@@ -7,39 +7,29 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 import { I18nText } from '@/i18n/I18nText';
 
-/** The element that had the focus when the dialog opened, and the dialog mode. */
-type OpenerState = { opener: HTMLElement | null; modal: boolean };
-
-const OpenerContext = React.createContext<OpenerState>({
-  opener: null,
-  modal: true,
+/** The element that had the focus when the dialog opened. */
+const OpenerContext = React.createContext<React.RefObject<HTMLElement | null>>({
+  current: null,
 });
-
-function focusedElement(): HTMLElement | null {
-  const active = document.activeElement;
-  return active instanceof HTMLElement && active !== document.body
-    ? active
-    : null;
-}
 
 /**
  * A dialog that a button opens by state has no DialogTrigger: it gives the
  * focus back to the element that had it when it opened. The render that opens
  * the dialog still sees that element: a field that autofocuses takes the focus
- * at the commit. The opener is state of that render, so a render that React
- * discards, such as an interrupted close, leaves it as it was.
+ * at the commit.
  */
-function Dialog({ open, modal = true, ...props }: DialogPrimitive.DialogProps) {
-  const [shownOpen, setShownOpen] = React.useState(false);
-  const [opener, setOpener] = React.useState<HTMLElement | null>(null);
-  if (!!open !== shownOpen) {
-    setShownOpen(!!open);
-    if (open) setOpener(focusedElement());
+function Dialog({ open, ...props }: DialogPrimitive.DialogProps) {
+  const opener = React.useRef<HTMLElement | null>(null);
+  const wasOpen = React.useRef(false);
+  if (open && !wasOpen.current) {
+    const active = document.activeElement;
+    opener.current =
+      active instanceof HTMLElement && active !== document.body ? active : null;
   }
-  const state = React.useMemo(() => ({ opener, modal }), [opener, modal]);
+  wasOpen.current = !!open;
   return (
-    <OpenerContext.Provider value={state}>
-      <DialogPrimitive.Root open={open} modal={modal} {...props} />
+    <OpenerContext.Provider value={opener}>
+      <DialogPrimitive.Root open={open} {...props} />
     </OpenerContext.Provider>
   );
 }
@@ -114,9 +104,8 @@ const DialogContent = React.forwardRef<
   ) => {
     const inherited = React.useContext(DialogLayerContext);
     const raised = (layer ?? inherited) === 'raised';
-    const { opener, modal } = React.useContext(OpenerContext);
-    const interactedOutside = React.useRef(false);
-    const { onCloseAutoFocus, onInteractOutside } = props;
+    const opener = React.useContext(OpenerContext);
+    const { onCloseAutoFocus } = props;
     return (
       <DialogPortal>
         <DialogOverlay className={raised ? RAISED_LAYER : undefined} />
@@ -130,21 +119,12 @@ const DialogContent = React.forwardRef<
             className
           )}
           {...props}
-          onInteractOutside={(event) => {
-            onInteractOutside?.(event);
-            if (!event.defaultPrevented) interactedOutside.current = true;
-          }}
           onCloseAutoFocus={(event) => {
             onCloseAutoFocus?.(event);
-            // A non-modal dialog that an outside click or focus closed leaves
-            // the focus where that interaction put it.
-            const leftOutside = !modal && interactedOutside.current;
-            interactedOutside.current = false;
-            if (event.defaultPrevented || leftOutside || !opener?.isConnected) {
-              return;
-            }
+            const target = opener.current;
+            if (event.defaultPrevented || !target?.isConnected) return;
             event.preventDefault();
-            opener.focus();
+            target.focus();
           }}
         >
           <DialogLayerContext.Provider value={raised ? 'raised' : 'default'}>

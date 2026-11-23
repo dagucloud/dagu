@@ -24,23 +24,6 @@ function Host() {
   );
 }
 
-// A non-modal dialog beside a field of the page.
-function NonModalHost() {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button onClick={() => setOpen(true)}>Opener</button>
-      <input aria-label="Outside" />
-      <Dialog open={open} onOpenChange={setOpen} modal={false}>
-        <DialogContent aria-describedby={undefined}>
-          <DialogTitle>Beside</DialogTitle>
-          <input aria-label="Name" autoFocus />
-        </DialogContent>
-      </Dialog>
-    </>
-  );
-}
-
 describe('dialog focus', () => {
   it('gives the focus back to the element that opened it', async () => {
     const user = userEvent.setup();
@@ -51,16 +34,5 @@ describe('dialog focus', () => {
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await waitFor(() => expect(opener).toHaveFocus());
-  });
-
-  it('leaves the focus outside a non-modal dialog that a click outside closed', async () => {
-    const user = userEvent.setup();
-    render(<NonModalHost />);
-    await user.click(screen.getByRole('button', { name: 'Opener' }));
-    await screen.findByRole('dialog');
-    const outside = screen.getByRole('textbox', { name: 'Outside' });
-    await user.click(outside);
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(outside).toHaveFocus();
   });
 });

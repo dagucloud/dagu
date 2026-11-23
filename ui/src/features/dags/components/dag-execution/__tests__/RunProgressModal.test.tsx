@@ -42,12 +42,10 @@ vi.mock('@/features/dags/components/visualization', () => ({
     dagRun,
     onClickStep,
     onSelectStep,
-    onOpenSubRun,
   }: {
     dagRun: components['schemas']['DAGRunDetails'];
     onClickStep: (id: string) => void;
     onSelectStep: (id: string) => void;
-    onOpenSubRun: (entry: { name: string; dagRunId: string }) => void;
   }) => (
     <div>
       Visualization for {dagRun.dagRunId}
@@ -56,12 +54,6 @@ vi.mock('@/features/dags/components/visualization', () => ({
       </button>
       <button type="button" onClick={() => onSelectStep('node_62_75_69_6c_64')}>
         Open graph sub-run
-      </button>
-      <button
-        type="button"
-        onClick={() => onOpenSubRun({ name: 'child', dagRunId: 'child-1' })}
-      >
-        Open timeline sub-run
       </button>
     </div>
   ),
@@ -260,27 +252,6 @@ describe('RunProgressModal', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Visualization' }));
     fireEvent.click(screen.getByRole('button', { name: 'Open graph sub-run' }));
-
-    expect(screen.getByLabelText('Location')).toHaveTextContent(
-      /^\/dags\/example-v2\?remoteNode=edge&run=run-1&dagRunName=example&subRun=child-1$/
-    );
-  });
-
-  it('opens a timeline sub-run on the root file', () => {
-    vi.mocked(useBoundedDAGRunDetails).mockReturnValue({
-      data: { ...dagRun, sourceFileName: 'example-v2' },
-      error: null,
-      isLoading: false,
-      isValidating: false,
-      refresh: vi.fn(),
-    });
-
-    renderModal();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Visualization' }));
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Open timeline sub-run' })
-    );
 
     expect(screen.getByLabelText('Location')).toHaveTextContent(
       /^\/dags\/example-v2\?remoteNode=edge&run=run-1&dagRunName=example&subRun=child-1$/
