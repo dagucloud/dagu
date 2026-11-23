@@ -24,6 +24,7 @@ export default defineMessages({
     'Runs only if:': 'Runs only if:',
     'Retries the step up to {limit} times.':
       'Retries the step up to {limit} times.',
+    'Retries the step once.': 'Retries the step once.',
     'Retries the step.': 'Retries the step.',
     'Waits {interval} between the attempts.':
       'Waits {interval} between the attempts.',
@@ -48,6 +49,7 @@ export default defineMessages({
     'The step then counts as a success.': '此步骤随后视为成功。',
     'Runs only if:': '仅在以下条件成立时运行：',
     'Retries the step up to {limit} times.': '此步骤最多重试 {limit} 次。',
+    'Retries the step once.': '此步骤最多重试 1 次。',
     'Retries the step.': '此步骤会重试。',
     'Waits {interval} between the attempts.': '两次尝试之间等待 {interval}。',
     'Waits {interval} before the second attempt, then longer each time.':
@@ -74,6 +76,7 @@ export default defineMessages({
     'Runs only if:': '次の条件のときだけ実行:',
     'Retries the step up to {limit} times.':
       'このステップを最大 {limit} 回再試行します。',
+    'Retries the step once.': 'このステップを最大 1 回再試行します。',
     'Retries the step.': 'このステップを再試行します。',
     'Waits {interval} between the attempts.':
       '試行の間に {interval} 待ちます。',
