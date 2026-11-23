@@ -114,6 +114,17 @@ steps:
 	})
 }
 
+// A test file is never started by name, even when it holds a DAG, and the
+// error points at dagu test.
+func TestStartRejectsTestFile(t *testing.T) {
+	th := test.SetupCommand(t)
+	th.CreateDAGFile(t, "release.test.yaml", "steps:\n  - run: \"true\"\n")
+
+	err := th.RunCommandWithError(t, cmd.Start(), test.CmdTest{Args: []string{"start", "release.test"}})
+	require.ErrorIs(t, err, spec.ErrTestFile)
+	require.ErrorContains(t, err, "dagu test")
+}
+
 func TestStartCommand_BuiltExecutablePreservesExplicitEnv(t *testing.T) {
 	t.Parallel()
 

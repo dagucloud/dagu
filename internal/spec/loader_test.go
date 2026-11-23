@@ -3020,6 +3020,26 @@ func TestLoadYAMLCase(t *testing.T) {
 	}
 }
 
+// A name never resolves to a test file, even one that holds a DAG. An
+// absolute path loads as given, since the server starts runs from temporary
+// files named after the DAG, and a DAG name may end in .test.
+func TestLoadTestFileName(t *testing.T) {
+	t.Parallel()
+
+	dagsDir := t.TempDir()
+	path := filepath.Join(dagsDir, "release.test.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("steps:\n  - run: \"true\"\n"), 0600))
+
+	for _, name := range []string{"release.test", "release.test.yaml"} {
+		_, err := spec.Load(context.Background(), name, spec.WithDAGsDir(dagsDir))
+		require.ErrorIs(t, err, spec.ErrTestFile, name)
+	}
+
+	dag, err := spec.Load(context.Background(), path)
+	require.NoError(t, err)
+	assert.Equal(t, "release.test", dag.Name)
+}
+
 // TestLoadWithoutEval tests the WithoutEval loader option
 // This test cannot be parallel because it uses t.Setenv
 func TestLoadWithoutEval(t *testing.T) {

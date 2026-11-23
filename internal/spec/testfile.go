@@ -3,7 +3,13 @@
 
 package spec
 
-import "strings"
+import (
+	"errors"
+	"strings"
+)
+
+// ErrTestFile reports that a DAG name or path resolves to a test file.
+var ErrTestFile = errors.New("a test file is not a DAG; run it with dagu test")
 
 // testFileSuffixes end the name of a test file. DAG names may contain dots,
 // so only a full suffix marks a test file.

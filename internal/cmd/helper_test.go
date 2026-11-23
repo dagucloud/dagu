@@ -139,6 +139,20 @@ func TestExtractDAGNameYAMLCase(t *testing.T) {
 	}
 }
 
+// A path to a test file names no DAG, even when the file holds one.
+func TestExtractDAGNameTestFile(t *testing.T) {
+	t.Parallel()
+
+	dagsDir := t.TempDir()
+	path := filepath.Join(dagsDir, "release.test.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("steps: []\n"), 0600))
+	cfg := &config.Config{}
+	cfg.Paths.DAGsDir = dagsDir
+
+	_, err := extractDAGName(&Context{Context: context.Background(), Config: cfg}, path)
+	require.ErrorIs(t, err, spec.ErrTestFile)
+}
+
 func TestRestoreLegacyChildSMTP(t *testing.T) {
 	t.Parallel()
 

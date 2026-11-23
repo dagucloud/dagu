@@ -235,6 +235,7 @@ func WithBuildEnvSnapshot(snapshot buildenv.Snapshot) LoadOption {
 //   - Resolved against the DAGsDir specified in options
 //   - If DAGsDir is not provided, the current working directory is used
 //   - For YAML files, the extension is optional
+//   - A name that resolves to a test file fails with ErrTestFile
 //
 // This approach provides a flexible way to load ir.DAG definitions from multiple sources
 // while supporting customization through the LoadOptions.
@@ -1092,6 +1093,10 @@ func resolveYamlFilePath(ctx buildContext, file string) (string, error) {
 	}
 
 	file = fileutil.EnsureYAMLExtension(file)
+	// A name lookup never yields a test file, even one written as a DAG.
+	if IsTestFile(file) {
+		return "", fmt.Errorf("%s: %w", file, ErrTestFile)
+	}
 
 	return filepath.Abs(file)
 }
