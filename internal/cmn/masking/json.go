@@ -5,6 +5,7 @@ package masking
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 )
 
@@ -59,8 +60,7 @@ func closeBefore(open []jsonValue, offset int) []jsonValue {
 // widen returns s when it can be masked inside its string, and otherwise
 // the smallest of open that holds it, or the whole document.
 func widen(document string, open []jsonValue, s span) span {
-	for i := len(open) - 1; i >= 0; i-- {
-		v := open[i]
+	for _, v := range slices.Backward(open) {
 		if v.end < s.end {
 			continue
 		}
