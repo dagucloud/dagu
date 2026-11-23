@@ -23,6 +23,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
@@ -501,6 +502,311 @@ func TestCasePaths(t *testing.T) {
 	}
 }
 
+// The run reaches its waiting checkpoint as a real run does, so
+// handler_on.wait runs while the gate waits. The case then settles the gate,
+// and the run resumes under the same run ID.
+func TestCaseWaitCheckpoint(t *testing.T) {
+	t.Parallel()
+
+	tc, status, err := runCase(t, `
+handler_on:
+  wait:
+    run: echo waiting=${DAG_WAITING_STEPS}
+    stdout: wait.txt
+steps:
+  - name: gate
+    run: echo built
+    approval:
+      prompt: Ship it?
+  - name: after
+    depends: gate
+    run: echo after
+`, caseOptions{})
+	require.NoError(t, err)
+	require.Equal(t, ir.Succeeded, status.Status, status.Error)
+
+	assert.Equal(t, "waiting=gate", readOutput(t, findFile(t, tc.dir, "wait.txt")))
+	assert.Equal(t, ir.NodeSucceeded, caseNode(t, status, "after").Status)
+	runs, err := tc.ctx.Persistence.DAGRunRepository.RecentStatuses(tc.ctx, status.Name, 10)
+	require.NoError(t, err)
+	assert.Len(t, runs, 1, "the resume started another run")
+}
+
+// A wait that needs no values and has no review is approved automatically
+// with no values, and listed in the order it was settled. A form property's
+// default still becomes its output.
+func TestCaseAutoApproval(t *testing.T) {
+	t.Parallel()
+
+	tc, status, err := runCase(t, `
+steps:
+  - id: ack
+    action: human.task
+    with:
+      prompt: Acknowledge
+  - id: defaults
+    action: human.task
+    with:
+      prompt: Pick a size
+      form:
+        type: object
+        properties:
+          size:
+            type: string
+            default: small
+  - name: gate
+    run: echo built
+    approval:
+      prompt: Ship it?
+      input: [NOTE]
+  - name: done
+    depends: [ack, defaults, gate]
+    run: echo size=${steps.defaults.outputs.size}
+`, caseOptions{})
+	require.NoError(t, err)
+	require.Equal(t, ir.Succeeded, status.Status, status.Error)
+
+	assert.Equal(t, []string{"ack", "defaults", "gate"}, tc.autoApproved)
+	assert.Equal(t, "size=small", readOutput(t, caseNode(t, status, "done").Stdout))
+}
+
+// A wait that needs values fails without a review, through the same
+// validation a person's completion takes.
+func TestCaseWaitNeedsReview(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name string
+		yaml string
+		want string
+	}{
+		{
+			name: "HumanTask",
+			yaml: `
+steps:
+  - id: pick
+    action: human.task
+    with:
+      prompt: Pick a window
+      form:
+        type: object
+        properties:
+          window:
+            type: string
+        required: [window]
+`,
+			want: "step pick: approving its wait with no values failed; give it a review",
+		},
+		{
+			name: "Approval",
+			yaml: `
+steps:
+  - name: announce
+    run: echo announce
+    approval:
+      prompt: Announce it?
+      input: [CHANNEL]
+      required: [CHANNEL]
+`,
+			want: "missing required inputs: [CHANNEL]",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tc, _, err := runCase(t, tt.yaml, caseOptions{})
+			require.ErrorContains(t, err, tt.want)
+			assert.Empty(t, tc.autoApproved)
+		})
+	}
+}
+
+// approve completes a human task with the review's values as its typed
+// outputs, and approves a gate with them as its inputs.
+func TestCaseReviewApprove(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name   string
+		yaml   string
+		values map[string]any
+		want   string
+	}{
+		{
+			name: "HumanTask",
+			yaml: `
+steps:
+  - id: pick
+    action: human.task
+    with:
+      prompt: Pick a window
+      form:
+        type: object
+        properties:
+          window:
+            type: string
+            enum: [morning, evening]
+          replicas:
+            type: integer
+        required: [window, replicas]
+  - name: after
+    depends: pick
+    run: echo ${steps.pick.outputs.window} ${steps.pick.outputs.replicas}
+`,
+			values: map[string]any{"window": "evening", "replicas": 3},
+			want:   "evening 3",
+		},
+		{
+			name: "Approval",
+			yaml: `
+steps:
+  - name: pick
+    run: echo built
+    approval:
+      prompt: Ship it?
+      input: [CHANNEL, COUNT]
+      required: [CHANNEL]
+  - name: after
+    depends: pick
+    run: echo ${CHANNEL} ${COUNT}
+`,
+			values: map[string]any{"CHANNEL": "releases", "COUNT": 3},
+			want:   "releases 3",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tc, status, err := runCase(t, tt.yaml, caseOptions{
+				mocks: map[string]stepmock.Step{"pick": {Review: &stepmock.Review{Values: tt.values}}},
+			})
+			require.NoError(t, err)
+			require.Equal(t, ir.Succeeded, status.Status, status.Error)
+			assert.Equal(t, tt.want, readOutput(t, caseNode(t, status, "after").Stdout))
+			assert.Empty(t, tc.autoApproved)
+		})
+	}
+
+	// Values are typed as --inputs-json types them, so a string does not
+	// satisfy an integer property.
+	t.Run("HumanTaskTyped", func(t *testing.T) {
+		t.Parallel()
+
+		_, _, err := runCase(t, `
+steps:
+  - id: pick
+    action: human.task
+    with:
+      prompt: How many?
+      form:
+        type: object
+        properties:
+          replicas:
+            type: integer
+`, caseOptions{mocks: map[string]stepmock.Step{
+			"pick": {Review: &stepmock.Review{Values: map[string]any{"replicas": "3"}}},
+		}})
+		require.ErrorContains(t, err, "step pick: ")
+	})
+}
+
+// reject rejects a gate as a person does: the step and the run end rejected,
+// and its dependent never starts. A human task cannot be rejected.
+func TestCaseReviewReject(t *testing.T) {
+	t.Parallel()
+
+	reject := &stepmock.Review{Reject: true}
+	t.Run("Approval", func(t *testing.T) {
+		t.Parallel()
+
+		_, status, err := runCase(t, `
+steps:
+  - name: release
+    run: echo built
+    approval:
+      prompt: Ship it?
+  - name: announce
+    depends: release
+    run: echo announce
+`, caseOptions{mocks: map[string]stepmock.Step{"release": {Review: reject}}})
+		require.NoError(t, err)
+		assert.Equal(t, ir.Rejected, status.Status)
+		assert.Equal(t, ir.NodeRejected, caseNode(t, status, "release").Status)
+		assert.Equal(t, ir.NodeNotStarted, caseNode(t, status, "announce").Status)
+	})
+
+	t.Run("HumanTask", func(t *testing.T) {
+		t.Parallel()
+
+		_, _, err := runCase(t, `
+steps:
+  - id: ack
+    action: human.task
+    with:
+      prompt: Acknowledge
+`, caseOptions{mocks: map[string]stepmock.Step{"ack": {Review: reject}}})
+		require.ErrorContains(t, err, "step ack: a human task cannot be rejected")
+	})
+}
+
+// A gate takes its review after its action, whether the action is real or
+// mocked. A mocked action retries as its results script and reaches the gate
+// once. A mocked dependent stays mocked in the resumed attempt.
+func TestCaseReviewAfterAction(t *testing.T) {
+	t.Parallel()
+
+	const yaml = `
+steps:
+  - name: release
+    run: echo released
+    retry_policy:
+      limit: 1
+      interval_sec: 0
+    approval:
+      prompt: Ship it?
+  - name: announce
+    depends: release
+    run: echo announced
+`
+	approve := &stepmock.Review{}
+	announce := stepmock.Step{Results: []stepmock.Result{{Stdout: "mocked\n"}}}
+
+	t.Run("Real", func(t *testing.T) {
+		t.Parallel()
+
+		tc, status, err := runCase(t, yaml, caseOptions{
+			mocks: map[string]stepmock.Step{"release": {Review: approve}, "announce": announce},
+			real:  []string{"release"},
+		})
+		require.NoError(t, err)
+		require.Equal(t, ir.Succeeded, status.Status, status.Error)
+		release := caseNode(t, status, "release")
+		assert.Equal(t, "released", readOutput(t, release.Stdout))
+		assert.NotEmpty(t, release.ApprovedAt)
+		assert.Equal(t, "mocked", readOutput(t, caseNode(t, status, "announce").Stdout))
+		assert.Empty(t, tc.autoApproved)
+	})
+
+	t.Run("Mocked", func(t *testing.T) {
+		t.Parallel()
+
+		_, status, err := runCase(t, yaml, caseOptions{mocks: map[string]stepmock.Step{
+			"release": {
+				Results: []stepmock.Result{{ExitCode: 1, Stdout: "first\n"}, {Stdout: "second\n"}},
+				Review:  approve,
+			},
+			"announce": announce,
+		}})
+		require.NoError(t, err)
+		require.Equal(t, ir.Succeeded, status.Status, status.Error)
+		release := caseNode(t, status, "release")
+		assert.Equal(t, "first\nsecond", readOutput(t, release.Stdout))
+		assert.Equal(t, 1, release.RetryCount)
+		assert.NotEmpty(t, release.ApprovedAt)
+		assert.Equal(t, "mocked", readOutput(t, caseNode(t, status, "announce").Stdout))
+	})
+}
+
 // newCaseTestContext returns the context of dagu start with every configured
 // path under the returned home directory.
 func newCaseTestContext(t *testing.T) (*Context, string) {
@@ -539,6 +845,28 @@ func openTestCase(t *testing.T, ctx *Context, opts caseOptions) *testCase {
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, tc.close()) })
 	return tc
+}
+
+// runCase runs the DAG of yaml in a new case with opts and returns the case
+// and what its run returned.
+func runCase(t *testing.T, yaml string, opts caseOptions) (*testCase, *ir.DAGRunStatus, error) {
+	t.Helper()
+
+	ctx, _ := newCaseTestContext(t)
+	dag := writeCaseDAG(t, ctx, "case", yaml)
+	opts.tempDir = t.TempDir()
+	tc := openTestCase(t, ctx, opts)
+	status, err := tc.run(dag)
+	return tc, status, err
+}
+
+// caseNode returns the node of the step named name.
+func caseNode(t *testing.T, status *ir.DAGRunStatus, name string) *ir.Node {
+	t.Helper()
+
+	idx := slices.IndexFunc(status.Nodes, func(node *ir.Node) bool { return node.Step.Name == name })
+	require.GreaterOrEqual(t, idx, 0, "no step %s", name)
+	return status.Nodes[idx]
 }
 
 // dirSnapshot maps each path under root to the content of its file, or to

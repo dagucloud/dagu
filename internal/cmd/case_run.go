@@ -5,22 +5,29 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
+	"os/user"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/humantask"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
+	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 )
 
 // caseOptions configures one workflow-test case.
@@ -41,6 +48,10 @@ type caseOptions struct {
 	// files are written at their configured paths, and a case with one sets
 	// up what a real step needs, as a real run does.
 	real []string
+	// mocks holds the scripted steps of the case by step name. A step in
+	// real keeps its own action and takes only its step fields, such as its
+	// review.
+	mocks map[string]stepmock.Step
 }
 
 // testCase is one run of a DAG that keeps its run history, logs, artifacts,
@@ -55,6 +66,10 @@ type testCase struct {
 	// notifications lists the mail notifications the case's runs would have
 	// sent, in the order the runs reached them. A case sends no mail.
 	notifications []agent.Notification
+	// autoApproved names, in the order the run settled them, the steps whose
+	// waits the case approved automatically because their mocks set no
+	// review.
+	autoApproved []string
 }
 
 // openCase creates a case directory and the stores rooted in it. The case
@@ -75,6 +90,14 @@ func openCase(ctx *Context, opts caseOptions) (*testCase, error) {
 // the status the run recorded. A run that fails or is aborted returns its
 // status and no error. In a case with a real step, a DAG secret or SSH
 // credential ref without a test value is an error before the run starts.
+//
+// Each time the run reaches a waiting checkpoint, the case settles its
+// waiting steps one at a time through the completion path a person uses, and
+// runs each resume that a completion queues, under the same run ID:
+//
+//	attempt --> waiting --> settle one step --> resume queued? --yes--> attempt
+//	               ^                                  |
+//	               +----------------no----------------+
 func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 	secrets, err := caseSecrets(dag, c.opts.secrets, c.hasRealSteps())
 	if err != nil {
@@ -104,6 +127,7 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 			Keep: c.opts.real,
 		},
 		testSideEffects: &agent.TestSideEffects{HasRealSteps: c.hasRealSteps()},
+		executorOverride: c.executorOverride(),
 	}
 	runErr := withPreparedLocalExecution(
 		ctx,
@@ -116,26 +140,32 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 		func(preparedAttempt dagrun.Attempt) error {
 			prepared := opts
 			prepared.preparedAttempt = preparedAttempt
-			return withDAGRunAgent(ctx, dag, dagRunID, prepared, func(ag *agent.Agent, logFile *os.File) error {
-				agentCtx := ctx.WithContext(ctx.Context)
-				agentCtx.LogToFile(logFile)
-				stop := context.AfterFunc(agentCtx, func() {
-					ag.Signal(context.WithoutCancel(agentCtx), os.Interrupt)
-				})
-				defer stop()
-				defer func() { c.notifications = append(c.notifications, ag.Notifications()...) }()
-				return ag.Run(agentCtx)
-			})
+			return withDAGRunAgent(ctx, dag, dagRunID, prepared, c.runAgent)
 		},
 	)
 
-	attempt, err := ctx.Persistence.DAGRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, dagRunID))
+	ref := ir.NewDAGRunRef(dag.Name, dagRunID)
+	status, err := c.latestStatus(ref)
 	if err != nil {
 		return nil, errors.Join(runErr, err)
 	}
-	status, err := attempt.ReadStatus(ctx)
-	if err != nil {
-		return nil, errors.Join(runErr, err)
+	for status.Status == ir.Waiting {
+		if err := c.settle(dag, status); err != nil {
+			return nil, err
+		}
+		if status, err = c.latestStatus(ref); err != nil {
+			return nil, err
+		}
+		if status.Status != ir.Queued {
+			continue
+		}
+		resumeErr := c.resume(dag, status, opts)
+		if status, err = c.latestStatus(ref); err != nil {
+			return nil, errors.Join(resumeErr, err)
+		}
+		if status.Status == ir.Queued && resumeErr != nil {
+			return nil, resumeErr
+		}
 	}
 	return status, nil
 }
@@ -143,6 +173,213 @@ func (c *testCase) run(dag *ir.DAG) (*ir.DAGRunStatus, error) {
 // hasRealSteps reports whether the case runs a step for real.
 func (c *testCase) hasRealSteps() bool {
 	return len(c.opts.real) > 0
+}
+
+// runAgent runs one attempt of the case's run. Canceling the case's context
+// interrupts the attempt.
+func (c *testCase) runAgent(ag *agent.Agent, logFile *os.File) error {
+	agentCtx := c.ctx.WithContext(c.ctx.Context)
+	agentCtx.LogToFile(logFile)
+	stop := context.AfterFunc(agentCtx, func() {
+		ag.Signal(context.WithoutCancel(agentCtx), os.Interrupt)
+	})
+	defer stop()
+	defer func() { c.notifications = append(c.notifications, ag.Notifications()...) }()
+	return ag.Run(agentCtx)
+}
+
+// latestStatus returns the status of the latest attempt of the run.
+func (c *testCase) latestStatus(ref ir.DAGRunRef) (*ir.DAGRunStatus, error) {
+	attempt, err := c.ctx.Persistence.DAGRunRepository.FindAttempt(c.ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	return attempt.ReadStatus(c.ctx)
+}
+
+// executorOverride returns the override that runs the case's mocked steps, or
+// nil when the case replaces no action. Every attempt of the run shares it,
+// so the results of a step keep counting after a resume.
+func (c *testCase) executorOverride() runtime.ExecutorOverride {
+	replaced := make(map[string]stepmock.Step, len(c.opts.mocks))
+	for name, step := range c.opts.mocks {
+		if !slices.Contains(c.opts.real, name) {
+			replaced[name] = step
+		}
+	}
+	if len(replaced) == 0 {
+		return nil
+	}
+	return stepmock.New(replaced)
+}
+
+// resume runs the attempt that resumes a run a completion queued, as the
+// queue's dispatch of a retry runs it, with the options of the case. It runs
+// the case's DAG instead of rebuilding the DAG from its YAML, which would
+// restore its log and artifact directories outside the case directory.
+func (c *testCase) resume(dag *ir.DAG, queued *ir.DAGRunStatus, opts runOptions) error {
+	ctx := c.ctx
+	opts.triggerType = queue.PreservedQueueTriggerType(queued)
+	opts.triggerActor = queued.TriggerActor
+	return withPreparedLocalExecution(
+		ctx,
+		dag,
+		queued.DAGRunID,
+		opts,
+		func(execCtx context.Context) (dagrun.Attempt, error) {
+			return ctx.Persistence.DAGRunRepository.CreateAttempt(execCtx, dag, time.Now(), queued.DAGRunID, persis.DAGRunCreateAttemptOptions{Retry: true})
+		},
+		func(preparedAttempt dagrun.Attempt) error {
+			prepared := opts
+			prepared.preparedAttempt = preparedAttempt
+			return withRetryAgent(ctx, dag, queued, prepared, c.runAgent)
+		},
+	)
+}
+
+// settle settles the first waiting step of a run at its waiting checkpoint,
+// as its review decides, through the completion path a person uses. A step
+// whose mock sets no review is approved with no values, which fails when its
+// wait needs values.
+func (c *testCase) settle(dag *ir.DAG, status *ir.DAGRunStatus) error {
+	idx := slices.IndexFunc(status.Nodes, func(node *ir.Node) bool {
+		return node != nil && node.Status == ir.NodeWaiting
+	})
+	if idx < 0 {
+		return fmt.Errorf("dag-run %s is waiting with no waiting step", status.DAGRun())
+	}
+	node := status.Nodes[idx]
+	name := node.Step.Name
+	review := c.opts.mocks[name].Review
+	var err error
+	switch {
+	case node.Step.HumanTask != nil:
+		err = c.completeHumanTask(status, node, review)
+	case node.Step.Approval != nil:
+		err = c.settleApproval(dag, status, node, review)
+	default:
+		return fmt.Errorf("step %s waits for input that a test cannot give", name)
+	}
+	switch {
+	case err != nil && review == nil:
+		return fmt.Errorf("step %s: approving its wait with no values failed; give it a review: %w", name, err)
+	case err != nil:
+		return fmt.Errorf("step %s: %w", name, err)
+	case review == nil && !slices.Contains(c.autoApproved, name):
+		c.autoApproved = append(c.autoApproved, name)
+	}
+	return nil
+}
+
+// completeHumanTask completes a waiting human task as dagu human-task complete
+// does, with the review's values typed as --inputs-json types them. The
+// completion requests the resume when the run can make progress.
+func (c *testCase) completeHumanTask(status *ir.DAGRunStatus, node *ir.Node, review *stepmock.Review) error {
+	var input humantask.Input
+	if review != nil && review.Reject {
+		return errors.New("a human task cannot be rejected")
+	}
+	if review != nil && review.Values != nil {
+		data, err := json.Marshal(review.Values)
+		if err != nil {
+			return fmt.Errorf("invalid review values: %w", err)
+		}
+		if input, err = humantask.ParseJSONInput(data); err != nil {
+			return err
+		}
+	}
+	deps := defaultHumanTaskCompleteDeps()
+	service := newLocalHumanTaskService(c.ctx, deps)
+	completedBy, completedByID := localOSSubject(deps.currentUser)
+	_, err := service.Complete(c.ctx, humantask.CompleteRequest{
+		DAGName:       status.Name,
+		DAGRunID:      status.DAGRunID,
+		StepID:        node.Step.ID,
+		Input:         input,
+		CompletedBy:   completedBy,
+		CompletedByID: completedByID,
+	})
+	return err
+}
+
+// settleApproval approves or rejects a waiting approval gate as the approve
+// and reject endpoints do. An approval that lets the run make progress
+// accepts its resume, as the approve endpoint does for a DAG outside a queue.
+func (c *testCase) settleApproval(dag *ir.DAG, status *ir.DAGRunStatus, node *ir.Node, review *stepmock.Review) error {
+	reject := review != nil && review.Reject
+	var inputs map[string]string
+	if review != nil && !reject {
+		var err error
+		if inputs, err = approvalInputs(review.Values); err != nil {
+			return err
+		}
+	}
+	if !reject {
+		if err := dagrun.CheckRequiredInputs(node.Step.Approval.Required, inputs); err != nil {
+			return err
+		}
+	}
+
+	ctx := c.ctx
+	by, byID := localOSSubject(user.Current)
+	repository := ctx.Persistence.DAGRunRepository
+	updated, swapped, err := repository.CompareAndSwapLatestAttemptStatus(ctx, status.DAGRun(), status.AttemptID, ir.Waiting,
+		func(latest *ir.DAGRunStatus) error {
+			idx := slices.IndexFunc(latest.Nodes, func(n *ir.Node) bool { return n != nil && n.Step.Name == node.Step.Name })
+			if idx < 0 || latest.Nodes[idx].Status != ir.NodeWaiting {
+				return fmt.Errorf("step %s is not waiting for approval", node.Step.Name)
+			}
+			if reject {
+				dagrun.RejectStep(latest, latest.Nodes[idx], nil, by, byID)
+			} else {
+				dagrun.ApproveStep(latest.Nodes[idx], inputs, by, byID)
+			}
+			return nil
+		}, persis.DAGRunCompareAndSwapOptions{})
+	if err != nil {
+		return err
+	}
+	if !swapped {
+		return errors.New("the dag-run changed before the step could be settled")
+	}
+	if reject || !humantask.ApprovalResumeReady(updated) {
+		return nil
+	}
+	_, err = queue.PrepareRetry(ctx, repository, dag, updated, queue.EnqueueRetryOptions{
+		Processes: ctx.Persistence.ProcRepository,
+		Resume:    true,
+	})
+	return err
+}
+
+// approvalInputs returns the inputs of an approval gate. Each value is a
+// scalar, given as its text. A null value is empty, so it counts as left out.
+func approvalInputs(values map[string]any) (map[string]string, error) {
+	if values == nil {
+		return nil, nil
+	}
+	inputs := make(map[string]string, len(values))
+	for name, value := range values {
+		if value == nil {
+			inputs[name] = ""
+			continue
+		}
+		switch reflect.ValueOf(value).Kind() {
+		case reflect.String:
+			inputs[name] = fmt.Sprint(value)
+		case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+			reflect.Float32, reflect.Float64:
+			text, err := json.Marshal(value)
+			if err != nil {
+				return nil, fmt.Errorf("value %s: %w", name, err)
+			}
+			inputs[name] = string(text)
+		default:
+			return nil, fmt.Errorf("value %s is not a scalar", name)
+		}
+	}
+	return inputs, nil
 }
 
 // close removes the case directory unless the case keeps it.

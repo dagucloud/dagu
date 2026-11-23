@@ -38,13 +38,27 @@ type Result struct {
 	Outputs map[string]any
 }
 
-// Step scripts the action of one mocked step.
+// Step scripts one mocked step: the results of its action, and how its wait
+// for a person is settled.
 type Step struct {
 	// Results holds one result for each execution of the action: the first
 	// attempt, each retry, and each repeat iteration. After the last result,
 	// the last one repeats. With no results, every execution succeeds with no
 	// output.
 	Results []Result
+	// Review settles each wait of the step for a person. Nil approves each
+	// wait with no values.
+	Review *Review
+}
+
+// Review is the decision a workflow test makes for a step that waits for a
+// person.
+type Review struct {
+	// Reject rejects the wait. False approves it.
+	Reject bool
+	// Values holds the completion input of a human task, or the inputs of an
+	// approval gate.
+	Values map[string]any
 }
 
 // Set replaces the actions of the steps it holds with their scripted
