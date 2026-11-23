@@ -1,7 +1,8 @@
 # RFC 020: Workflow Tests
 
-- **Status:** Draft
+- **Status:** Accepted
 - **Date:** 2026-11-22
+- **Accepted:** 2026-11-23
 - **Issue:** https://github.com/dagucloud/dagu/issues/2864
 - **Affected areas:** `cmd`, a new `dagtest` package, `executor/registry`,
   `runtime` (mock injection at executor construction, skipped waits),
@@ -137,6 +138,8 @@ Cases run one at a time, in file order.
 | `--timeout` | `5m` | Longest a case may run. A case that exceeds it is stopped and fails |
 | `--format` | `text` | `text` or `json` |
 | `--keep` | off | Keep each case's data directory and print its path |
+| `--init` | off | Write a test file for the DAG file given as the one argument. See [Writing tests faster](#writing-tests-faster) |
+| `--update` | off | Rewrite each case's `expect` from its actual run. See [Writing tests faster](#writing-tests-faster) |
 
 Exit status:
 
@@ -186,8 +189,9 @@ DAG list does not show them, the scheduler does not schedule them, and
 | `dag` | path | no | DAG file, relative to the test file. Defaults to the DAG beside it |
 | `params` | map | no | Run parameters for every case, as `dagu start -- name=value` takes them |
 | `env` | map | no | Replaces DAG-level `env` entries of the same name. Values are literal |
-| `secrets` | map | no | Value for each DAG `secrets` entry, by name |
+| `secrets` | map | no | Values for DAG `secrets` entries and SSH credential references, by name. Needed only in a case with a `real` step. See [Isolation](#isolation) |
 | `mocks` | map | no | Mocks for every case, keyed by step |
+| `default_mock` | map | no | A mock for every step and handler that needs one and that `mocks` and `real` do not name. See [The default mock](#the-default-mock) |
 | `real` | list | no | Steps that run their real action in every case |
 | `cases` | list | yes | Non-empty list of cases |
 
@@ -202,6 +206,7 @@ Case fields:
 | `trigger` | trigger type | no | `context.trigger.type` of the run (Spec 017). Defaults to `manual` |
 | `precondition` | `met` or `not_met` | no | Result of the DAG-level preconditions that run a command: command checks and `eval` with command substitution |
 | `mocks` | map | no | Replaces the file's mock for each step it names |
+| `default_mock` | map | no | Replaces the file's `default_mock` |
 | `real` | list | no | Added to the file's `real` |
 | `expect` | map | yes | Assertions |
 
@@ -312,6 +317,38 @@ mock at load reports the authoring mistake directly.
 replaces the action with exit code 0 and no output. On a side-effect-free
 step, it sets nothing and the real action runs.
 
+### The default mock
+
+`default_mock` is a mock, with the same fields, that counts as the mock of
+every step and handler that needs handling under
+[the fail-closed rule](#the-fail-closed-rule) and that `mocks` and `real` do
+not name. It never runs anything real, so it keeps the rule's guarantee and
+removes the per-step `{}` lines, including those for handlers from the base
+config:
+
+```yaml
+default_mock: {}
+mocks:
+  build:
+    exit_code: 1
+cases:
+  - name: a failed build stops the deploy
+    expect:
+      steps:
+        deploy: aborted
+```
+
+- Its fields apply where they handle a source. Result fields replace the
+  action; `precondition`, `condition`, and `review` handle their rows of the
+  table. A source that none of its fields handles stays unhandled.
+- It follows the rules of an ordinary mock: on a side-effect-free step, `{}`
+  sets nothing, and the real action runs.
+- On a step that declares named outputs, a successful default result
+  publishes each with an empty string, or `null` for a `json` output. An
+  explicit mock must still list its declared outputs.
+- The report lists the steps and handlers that took the default mock, so an
+  author sees which steps the test never scripted.
+
 ### Side-effect-free actions run for real
 
 An executor may register itself as side-effect free in
@@ -339,17 +376,20 @@ following and the test does not handle it as the table says:
 
 | Source | Handled by |
 | --- | --- |
-| A step action that is not side-effect free | A mock that replaces the action, including `{}`, or the step in `real` |
+| A step action that is not side-effect free | A mock that replaces the action, including `{}` and the default mock, or the step in `real` |
 | A step precondition with a command check, or an `eval` with command substitution (Spec 023) | `precondition` in the step's mock, or the step in `real` |
 | A command-check `repeat_policy.condition` (Spec 075) | `condition` in every result of the step's mock, or the step in `real` |
-| A file named by an object-form `output` of an unmocked step | A mock that replaces the action, or the step in `real` |
+| A file named by an object-form `output` of an unmocked step | A mock that replaces the action, including the default mock, or the step in `real` |
 | A `foreach` body step that is not side-effect free | A mock of the whole `foreach` step |
-| A step that waits for a person (`human.task`, `approval`) | `review` in the step's mock, also for a step in `real` |
+| A step that waits for a person (`human.task`, `approval`) and needs required values | `review` in the step's mock, also for a step in `real` |
+| A DAG `secrets` entry or an SSH credential given as a secret reference, in a case with a `real` step | A value in `secrets` |
 | A DAG-level precondition with a command check, or an `eval` with command substitution | The case's `precondition` |
 | A `params[].eval` with command substitution (Spec 011) | A value for that param in `params` |
 
-No person answers in a test, so a waiting step needs `review` even when its
-action is real. An `eval` without backtick or `$()` command substitution runs
+`default_mock` counts as the mock of every source it covers. No person
+answers in a test: a wait with no required values is approved automatically
+(see [Steps that wait for a person](#steps-that-wait-for-a-person)), and a
+wait that needs values takes `review`, even when the step's action is real. An `eval` without backtick or `$()` command substitution runs
 no command (Spec 011), so it evaluates as in a real run and needs nothing
 from the test. Spec 003 allows command substitution only in
 `params[].eval` and precondition `eval`, and command checks run only in
@@ -365,9 +405,17 @@ INVALID workflows/release.test.yaml: a failed build stops the deploy
   param build_date: eval runs a command; give it a value under params
   step deploy: action ssh.run has side effects; mock it or list it under real
   handler_on.failure: action mail.send has side effects; mock it or list it under real
+  fix, ready to paste:
+    params:
+      build_date: ""
+    mocks:
+      deploy: {}
+      handler_on.failure: {}
 ```
 
-A test cannot reach a real system by forgetting a mock. Running a real action
+Each invalid case ends with the YAML that would handle every listed source,
+ready to paste into the test file. A test cannot reach a real system by
+forgetting a mock. Running a real action
 takes a line in `real`.
 
 ### Preconditions
@@ -402,11 +450,23 @@ repeats would run it without pause until `--timeout`. Under test:
   invalid, because nothing bounds it. Mock it with `results`.
 - A continuous step in `real` keeps its real intervals, and only `--timeout`
   ends it.
+- A `limit` that comes from a reference, such as `${params.n}`, is decided
+  when it resolves. A positive number bounds the step as written. A value
+  that leaves the step without a limit makes it continuous: a mock's results
+  bound it, and an unmocked one fails the case at run time with that reason.
 
 ### Steps that wait for a person
 
-`review` settles the wait as soon as the step reaches `waiting`, through the
-same completion path that `dagu` uses for a person:
+The run reaches the waiting checkpoint as a real run does: its status
+becomes `waiting`, `handler_on.wait` runs, and the wait notification is
+recorded. The test then settles each waiting step through the same
+completion path that `dagu` uses for a person, and the run resumes.
+
+A wait with no required values, a `human.task` whose form requires no field
+or an `approval` gate with no `required` inputs, is approved automatically
+with no values when its mock sets no `review`. The report lists each wait it
+approved this way. A wait that needs values, or that the test rejects, takes
+`review`:
 
 ```yaml
 mocks:
@@ -474,6 +534,17 @@ like any other action. `timeout_sec` applies as in a real
 run, and a mocked action returns immediately, so only a real step can reach
 it.
 
+### Run retries
+
+A DAG-level `retry_policy` retries a failed run. In a real run the scheduler
+starts each retry; a test has no scheduler, so `dagu test` starts the
+retries itself, in the same case directory, without waiting for the
+interval, up to the policy's limit. Each retry runs as the scheduler's retry
+would. Mock results keep counting across run attempts: a step's executions
+in every attempt take its results in order. Handlers and notifications
+follow the rule a real run follows while a retry remains. The run-level
+`attempts` assertion counts the run attempts.
+
 ### Isolation
 
 Each case runs in a new temporary case directory. Its data directory holds
@@ -525,11 +596,20 @@ set up as in a real run. A case without one runs on a CI host that has none of t
 install into the configured tools directory, the one write outside the case
 directory that only `real` causes.
 
-**Secrets.** Secrets resolve only from the test's `secrets` map, and every
-DAG `secrets` entry needs a value there. SSH credentials given as secret
-references resolve from the same map, and only when the case has a `real`
-step, since no SSH client exists without one. Values are masked in logs and
-reports, as in a real run.
+**Secrets.** Secrets never resolve through their providers under test.
+
+- A case without a `real` step needs no secret values, because a mocked
+  step never uses them. Each DAG `secrets` entry resolves to a placeholder,
+  `<secret:NAME>`, unless `secrets` gives a value. SSH credentials given as
+  secret references are not resolved at all, since no SSH client exists.
+- A case with a `real` step needs a value in `secrets` for every DAG
+  `secrets` entry and every SSH credential reference, because Dagu cannot
+  tell which of them the real step reads. A missing one makes the case
+  invalid.
+- Values and placeholders are masked in logs and reports, as in a real run.
+
+Committed test files therefore hold no credentials, and a case does not
+depend on the CI machine's environment.
 
 ### Assertions
 
@@ -542,7 +622,15 @@ expect:
     implement:
       status: succeeded
       attempts: 3
+    route:
+      outputs:
+        target: merge
+    report:
+      stdout:
+        contains: 3 files changed
     handler_on.failure: succeeded
+  notifications:
+    - kind: mail_on.failure
 ```
 
 | Field | Meaning |
@@ -551,9 +639,16 @@ expect:
 | `steps.<step>` | A step status token, or an object with `status` and `attempts` |
 | `status` (step) | A node status: `succeeded`, `failed`, `aborted`, `skipped`, `partially_succeeded`, `rejected`, or `not_started` |
 | `attempts` | Times the step's action ran, counting retries and repeat iterations |
+| `attempts` (run) | Run attempts, counting DAG-level retries (see [Run retries](#run-retries)) |
+| `outputs` (step) | Expected named outputs. A `string` output matches exactly. A `json` output matches when every listed key has an equal value, recursively; unlisted keys are ignored, and arrays and scalars match exactly |
+| `stdout`, `stderr` (step) | `contains` (text) and `matches` (RE2 regular expression) on the stream of the step's last execution. Both may be set |
+| `notifications` | The notifications the run would have sent, compared without regard to order. Each item has `kind` (`mail_on.failure`, `mail_on.success`, `mail_on.wait`, or `mail_on_error`), and optional `step` and `to`. `[]` asserts that none would be sent |
 
 A step or handler that never started is `not_started`. A step that has no
-assertion is not checked. `expect` must hold at least one assertion. An
+assertion is not checked, and neither are notifications without
+`notifications`. An output assertion on a mocked step checks only what the
+test supplied; it is allowed, and is most useful on side-effect-free steps,
+which run for real. `expect` must hold at least one assertion. An
 assertion on an unknown step or an unknown status token makes the case
 invalid.
 
@@ -569,11 +664,27 @@ FAIL workflows/release.test.yaml: a failed build stops the deploy (0.06s)
 2 cases: 1 passed, 1 failed
 ```
 
+Under each case, the report also lists the steps that took the default mock,
+the waits approved automatically, and the notifications the run would have
+sent.
+
 `--format json` writes one JSON object to stdout:
 
 ```json
 {"cases": [{"file": "workflows/release.test.yaml", "name": "a failed build stops the deploy", "result": "fail", "duration_ms": 61, "failures": [{"step": "deploy", "field": "status", "expected": "skipped", "actual": "aborted"}]}]}
 ```
+
+### Writing tests faster
+
+- **`dagu test --init <dag file>`** writes the DAG's test file beside it, with
+  a mock for every source the fail-closed rule needs and one case whose
+  `expect` holds the result of a run with those mocks. It refuses to replace
+  an existing file.
+- **`dagu test --update`** runs the cases and rewrites each case's `expect`
+  from its actual run, so a change in behavior shows as a diff to review.
+  It rewrites only `expect` blocks.
+- **Editor support.** Dagu publishes a JSON Schema for test files beside the
+  DAG schema, so editors validate and complete `*.test.yaml`.
 
 ### How it runs
 
@@ -762,8 +873,10 @@ Rollout:
 4. **Preconditions, repeat conditions, `params[].eval`, redirects, reviews,
    and sub-DAG and `foreach` mocks.**
 5. **Documentation**: writing tests, and running them in CI.
+6. **Authoring tools**, after the first release: `--init` and `--update`.
 
-Steps 1 to 4 ship together. A release with only part of the rule would let a
+Steps 1 to 4 ship together, with the default mock, automatic approval,
+placeholder secrets, run retries, the assertions, and the JSON Schema. A release with only part of the rule would let a
 test start a real command its author thought was mocked.
 
 ## Security
@@ -854,6 +967,34 @@ test start a real command its author thought was mocked.
     no SSH credential given as a secret reference.
 32. A `real` `dag.run` step whose child has an unmocked `run` step makes the
     case invalid.
+33. A case with `default_mock: {}` and no `mocks`, on a DAG whose steps all
+    run commands, starts no process and lists every step that took the
+    default mock.
+34. Under `default_mock: {}`, a step that declares outputs publishes each
+    with an empty value.
+35. A case with no `real` step passes on a DAG with `secrets` and no test
+    values, and a step that prints a secret shows it masked. A case with a
+    `real` step and a missing secret value is invalid.
+36. A `human.task` with no required field and an approval gate with no
+    required input are approved automatically and listed in the report. A
+    form with a required field and no `review` makes the case invalid.
+37. A run reaches `waiting` and runs `handler_on.wait` before the test
+    settles the waiting step.
+38. A DAG with a DAG-level `retry_policy.limit: 2`, whose first attempt
+    fails and second succeeds, ends `succeeded` with run-level `attempts: 2`
+    and no wait.
+39. A `string` output assertion matches exactly. A `json` output assertion
+    that lists a subset of the keys matches. `stdout` `contains` and
+    `matches` check the last execution's stream.
+40. `notifications: [{kind: mail_on.failure}]` passes for a failing run with
+    `mail_on.failure`, and `notifications: []` fails it.
+41. With `repeat_policy.limit: ${params.n}`, a mocked step stops after its
+    results when `n` leaves it without a limit, and runs three times when
+    `n` is 3.
+42. The YAML an invalid case prints, pasted into the test file, makes the
+    case valid.
+43. `dagu test --init` writes a valid test file whose case passes, and
+    `--update` rewrites `expect` to the actual results.
 
 ## Alternatives considered
 
@@ -870,9 +1011,12 @@ test start a real command its author thought was mocked.
 - **Run unmocked steps for real**, as the issue's example does: it asserts
   `review` succeeded without mocking it, so `agent review` would run. One
   missing line would call a real agent, deploy, or send mail from CI.
-- **Unmocked steps succeed, as in `dagu dry`.** Safe, but a missing mock goes
-  unnoticed and the test asserts behavior it never set up. Writing `{}` costs
-  one line and states the intent.
+- **Unmocked steps succeed implicitly, as in `dagu dry`.** A missing mock
+  would go unnoticed. `default_mock` gives the same brevity only when the
+  test asks for it, and the report lists the steps that took it.
+- **Every secret needs a test value.** Committed test files would carry fake
+  credentials, and nothing gains in safety: only a `real` step can use a
+  secret, and a case with one still needs every value.
 - **Run real steps in a sandbox**, such as a container per step. It costs a
   container runtime and still calls the APIs the steps reach.
 - **A `tests/` directory at the project root.** A project root is often a
@@ -894,8 +1038,8 @@ test start a real command its author thought was mocked.
 - Mocks can drift from what the real commands do. A test shows that the
   orchestration is right for the given results, not that the commands
   produce them.
-- Handlers from the base config must be mocked in every test file. File-level
-  `mocks` keep this to one entry per file.
+- `default_mock` covers handlers from the base config, so a test file need
+  not name them.
 - A DAG whose params use `eval` needs those params in every test file.
 - The runtime gains a skipped-waits option that only `dagu test` sets.
 
@@ -904,19 +1048,13 @@ test start a real command its author thought was mocked.
 1. Mocks for individual `foreach` body steps, and per-item results for
    `foreach` and `parallel`, keyed by item.
 2. Mocks for the steps of a child run started by a `real` `dag.run` step.
-3. Should assertions on outputs and stdout ship in the first version, given
-   that side-effect-free steps run for real and produce outputs worth
-   checking?
-4. Should a case assert the notifications the run would have sent, which
-   the report already lists?
-5. Push-back for waiting steps, which reruns upstream steps and would take
+3. Push-back for waiting steps, which reruns upstream steps and would take
    their next results.
-6. Should the MCP server expose `dagu test`, so an agent that writes a DAG
+4. Should the MCP server expose `dagu test`, so an agent that writes a DAG
    can test it?
-7. Should a test seed `state` (Spec 068) values?
-8. Should `secrets` from the `env` provider resolve without a test value?
-9. Should a case assert the samples and events a continuous step records
+5. Should a test seed `state` (Spec 068) values?
+6. Should a case assert the samples and events a continuous step records
    (Spec 083)?
-10. How should a test of a `type: build` DAG supply path outputs, such as
-    file content in the mock, staged and committed inside the case
-    directory?
+7. How should a test of a `type: build` DAG supply path outputs, such as
+   file content in the mock, staged and committed inside the case
+   directory?
