@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -260,6 +261,32 @@ func TestExtractRefusesExistingLinksOut(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// On Windows, a link target with a volume name but no leading separator, such
+// as "C:foo", is not absolute to filepath.IsAbs, yet resolves from the working
+// directory of that volume, outside the destination.
+func TestExtractRejectsVolumeRelativeLinkTarget(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("volume names exist only on Windows")
+	}
+	for _, format := range testArchiveFormats {
+		t.Run(format, func(t *testing.T) {
+			tempDir := t.TempDir()
+			dest := filepath.Join(tempDir, "out")
+			source := filepath.Join(tempDir, "volume."+format)
+			writeTestArchive(t, source, format, []archiveEntry{{name: "escaped", link: "C:foo"}})
+
+			err := extractTestArchive(t, source, dest)
+
+			if !errors.Is(err, ErrCorrupted) {
+				t.Fatalf("expected ErrCorrupted, got %v", err)
+			}
+			if _, err := os.Lstat(filepath.Join(dest, "escaped")); err == nil {
+				t.Fatal("a link was created")
+			}
+		})
 	}
 }
 

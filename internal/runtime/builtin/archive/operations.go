@@ -176,7 +176,9 @@ func (e *executorImpl) runExtract(ctx context.Context) error {
 			if linkTarget == "" {
 				return fmt.Errorf("%w: empty symlink target", ErrCorrupted)
 			}
-			if filepath.IsAbs(linkTarget) {
+			// On Windows, a target with a volume name, such as C:foo, resolves
+			// from that volume even when filepath.IsAbs reports false.
+			if filepath.IsAbs(linkTarget) || filepath.VolumeName(linkTarget) != "" {
 				return fmt.Errorf("%w: symlink target %q is absolute", ErrCorrupted, linkTarget)
 			}
 
