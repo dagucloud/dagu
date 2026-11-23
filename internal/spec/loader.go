@@ -450,8 +450,8 @@ func loadDAG(ctx buildContext, nameOrPath string) (*ir.DAG, error) {
 		return loadDAGFailure(ctx, filePath, fmt.Errorf("failed to read file %q: %w", filePath, err))
 	}
 	dag, err := loadDAGData(ctx, data, filePath)
-	// An explicit path loads as given, so a test file reaches here and fails
-	// the DAG schema; the error then points at the command that runs it.
+	// An explicit path loads as given, so a test file can reach here. When it
+	// fails to load as a DAG, the error points at the command that runs it.
 	if err != nil && IsTestFile(filePath) {
 		return nil, fmt.Errorf("%s: %w: %w", filePath, ErrTestFile, err)
 	}
