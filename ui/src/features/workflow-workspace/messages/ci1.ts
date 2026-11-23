@@ -50,6 +50,8 @@ export default defineMessages({
     'Retries the step.': 'Retries the step.',
     'Waits {interval} between the attempts.':
       'Waits {interval} between the attempts.',
+    'Waits {interval} before the second attempt, then longer each time.':
+      'Waits {interval} before the second attempt, then longer each time.',
     'Retries only after the exit code {codes}.':
       'Retries only after the exit code {codes}.',
     'timeout {time}': 'timeout {time}',
@@ -102,6 +104,8 @@ export default defineMessages({
     'Retries the step up to {limit} times.': '此步骤最多重试 {limit} 次。',
     'Retries the step.': '此步骤会重试。',
     'Waits {interval} between the attempts.': '两次尝试之间等待 {interval}。',
+    'Waits {interval} before the second attempt, then longer each time.':
+      '第二次尝试前等待 {interval}，之后每次更长。',
     'Retries only after the exit code {codes}.':
       '仅在退出码为 {codes} 时重试。',
     'timeout {time}': '超时 {time}',
@@ -161,6 +165,8 @@ export default defineMessages({
     'Retries the step.': 'このステップを再試行します。',
     'Waits {interval} between the attempts.':
       '試行の間に {interval} 待ちます。',
+    'Waits {interval} before the second attempt, then longer each time.':
+      '2 回目の試行の前に {interval} 待ち、その後は毎回長くなります。',
     'Retries only after the exit code {codes}.':
       '終了コードが {codes} のときだけ再試行します。',
     'timeout {time}': 'タイムアウト {time}',

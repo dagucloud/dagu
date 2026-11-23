@@ -13,9 +13,9 @@ import {
   AGENT_CARD_PAD,
   AGENT_CARD_PARTS,
   agentChips,
-  retryTitle,
   type ChipKind,
 } from '../agentCard';
+import { retryTitle } from '../retryPolicy';
 import { useToolRun } from '../toolRun';
 import type { CanvasNodeWithRoutes } from '../types';
 import { ConditionMarks } from './ConditionMarks';

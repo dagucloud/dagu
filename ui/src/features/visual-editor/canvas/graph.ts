@@ -25,12 +25,7 @@ import {
 import { previousOfExecuted } from '../run/upstreamSteps';
 import { CHAT_ACTION } from '../tools/model';
 import { readBuiltinTools, readStepTools } from '../tools/parse';
-import {
-  AGENT_CHIPS_WIDTH,
-  chipRows,
-  readAgentFacts,
-  readRetry,
-} from './agentCard';
+import { AGENT_CHIPS_WIDTH, chipRows, readAgentFacts } from './agentCard';
 import { readAgentHeader } from './agentHeader';
 import {
   carriesCondition,
@@ -39,6 +34,7 @@ import {
   readPreconditions,
 } from './conditions';
 import { readAgentRunInfo, readChatInfo } from './chatModel';
+import { readRetry } from './retryPolicy';
 import {
   AGENT_NODE_KEY,
   type AgentTaskView,

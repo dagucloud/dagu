@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { readRepeatPolicy } from '@/components/ui/repeat-summary';
 import { translateStatic } from '@/i18n/translateStatic';
 import type { CanvasNode } from '../../contracts';
-import { readRetry } from '../agentCard';
+import { readRetry } from '../retryPolicy';
 import { buildCanvasGraph } from '../graph';
 import { loopArcs } from '../loopArcs';
 import { LoopArcs } from '../nodes/LoopArcs';
@@ -34,10 +34,14 @@ describe('loopArcs', () => {
     expect(loopArcs(ts, plain())).toEqual([]);
   });
 
-  it('draws the retry on the right with its number of tries', () => {
+  it('draws the retry on the right with its most tries', () => {
     const retry = readRetry({ limit: 12, interval_sec: 5 });
     const [arc] = loopArcs(ts, plain({ retry }));
-    expect(arc).toMatchObject({ kind: 'retry', side: 'right', label: '×12' });
+    expect(arc).toMatchObject({
+      kind: 'retry',
+      side: 'right',
+      label: 'max 12',
+    });
     expect(arc?.title).toBe(
       'Retries the step up to 12 times.\nWaits 5s between the attempts.'
     );
@@ -50,7 +54,11 @@ describe('loopArcs', () => {
       interval_sec: 10,
     });
     const [until] = loopArcs(ts, plain({ repeat: limited! }));
-    expect(until).toMatchObject({ kind: 'repeat', side: 'left', label: '×8' });
+    expect(until).toMatchObject({
+      kind: 'repeat',
+      side: 'left',
+      label: 'max 8',
+    });
     const endless = readRepeatPolicy({ repeat: true, interval_sec: 30 });
     const [forever] = loopArcs(ts, plain({ repeat: endless! }));
     expect(forever).toMatchObject({ kind: 'repeat', label: '∞' });
@@ -65,8 +73,8 @@ describe('loopArcs', () => {
       })
     );
     expect(arcs.map((arc) => [arc.kind, arc.side, arc.label])).toEqual([
-      ['retry', 'right', '×3'],
-      ['repeat', 'left', '×5'],
+      ['retry', 'right', 'max 3'],
+      ['repeat', 'left', 'max 5'],
     ]);
   });
 
@@ -79,7 +87,37 @@ describe('loopArcs', () => {
 
   it('writes a large number of tries in the short form', () => {
     const [arc] = loopArcs(ts, plain({ retry: readRetry({ limit: 1200 })! }));
-    expect(arc?.label).toBe('×1.2k');
+    expect(arc?.label).toBe('max 1.2k');
+  });
+
+  // The server takes a limit and a wait as text and resolves them when the
+  // step runs: digits are a number, anything else is a reference.
+  it('reads a limit and a wait that the YAML gives as text', () => {
+    expect(readRetry({ limit: '3', interval_sec: '10' })).toEqual({
+      limit: 3,
+      intervalSec: 10,
+    });
+    const [arc] = loopArcs(
+      ts,
+      plain({ retry: readRetry({ limit: '$TRIES', interval_sec: '$WAIT' })! })
+    );
+    expect(arc).toMatchObject({ kind: 'retry', label: '' });
+    expect(arc?.title).toContain('up to $TRIES times');
+  });
+
+  // A limit of 0 never retries.
+  it('has no arc for a retry with a limit of 0', () => {
+    expect(loopArcs(ts, plain({ retry: readRetry({ limit: 0 })! }))).toEqual(
+      []
+    );
+  });
+
+  it('says that the wait grows when the policy backs off', () => {
+    const retry = readRetry({ limit: 3, interval_sec: 5, backoff: 2 });
+    const [arc] = loopArcs(ts, plain({ retry: retry! }));
+    expect(arc?.title).toContain(
+      'Waits 5s before the second attempt, then longer each time.'
+    );
   });
 });
 
@@ -96,7 +134,7 @@ describe('the retry of a step in the graph of the canvas', () => {
     return graph.nodes[0] as CanvasNodeWithRoutes;
   }
 
-  it('reads the retry policy of every step, not only of an agent step', () => {
+  it('reads the retry policy of a step', () => {
     const node = nodeOf({
       run: 'echo',
       retry_policy: { limit: 4, interval_sec: 2 },
@@ -112,17 +150,20 @@ describe('the arcs on a card', () => {
     repeat: readRepeatPolicy({ repeat: 'while', limit: 8 })!,
   });
 
-  it('draws each arc with its label, its tooltip and its place', () => {
+  it('draws each arc with its label and its tooltip', () => {
     render(<LoopArcs node={withBoth as CanvasNode} />);
     const arcs = screen.getAllByTestId('ve-loop-arc');
     expect(
       arcs.map((arc) => [arc.dataset.kind, arc.dataset.side, arc.textContent])
     ).toEqual([
-      ['retry', 'right', '×12'],
-      ['repeat', 'left', '×8'],
+      ['retry', 'right', 'max 12'],
+      ['repeat', 'left', 'max 8'],
     ]);
     expect(arcs[0]).toHaveAccessibleName(/Retries the step up to 12 times/);
-    expect(arcs[0]).toHaveAttribute('data-placement', 'side');
+    expect(arcs[0]).toHaveAttribute(
+      'title',
+      expect.stringContaining('Retries the step up to 12 times')
+    );
     // The repeat is dashed: it loops after a run, the retry after a failure.
     expect(arcs[0]!.querySelector('svg')).not.toHaveAttribute(
       'stroke-dasharray'
@@ -130,45 +171,26 @@ describe('the arcs on a card', () => {
     expect(arcs[1]!.querySelector('svg')).toHaveAttribute('stroke-dasharray');
   });
 
-  // The arcs sit where the step starts: the upper edge of a vertical graph.
-  it('hangs the arcs on the upper edge, the retry at the right corner and the repeat at the left one', () => {
-    render(<LoopArcs node={withBoth as CanvasNode} placement="top" />);
-    const arcs = screen.getAllByTestId('ve-loop-arc');
-    expect(arcs.map((arc) => arc.dataset.placement)).toEqual(['top', 'top']);
-    expect(arcs[0]).toHaveClass('top-0');
+  // The tooltip is the only place that says the whole policy.
+  it('lets a hover reach the tooltip of an arc', () => {
+    render(<LoopArcs node={withBoth as CanvasNode} />);
+    for (const arc of screen.getAllByTestId('ve-loop-arc')) {
+      expect(arc.closest('.pointer-events-none')).toBeNull();
+      expect(arc.querySelector('.pointer-events-none')).toBeNull();
+    }
+  });
+
+  // The upper edge has no handle at its corners, in either direction of the
+  // graph. A compact card is narrow: its arcs hug the corners.
+  it('hangs the arcs at the corners of the upper edge', () => {
+    const view = render(<LoopArcs node={withBoth as CanvasNode} />);
+    let arcs = screen.getAllByTestId('ve-loop-arc');
     expect(arcs[0]!.style.right).toBe('22px');
     expect(arcs[1]!.style.left).toBe('22px');
-  });
-
-  // An arc is easy to see at full zoom: 1.4 times its drawing box.
-  it('draws the arc larger than its drawing box', () => {
-    render(<LoopArcs node={withBoth as CanvasNode} />);
-    const svg = screen.getAllByTestId('ve-loop-arc')[0]!.querySelector('svg')!;
-    expect(svg).toHaveAttribute('width', '22.4');
-    expect(svg).toHaveAttribute('viewBox', '0 0 16 14');
-  });
-
-  // The left side of a horizontal graph: both arcs, clear of the handle in the middle.
-  it('hangs both arcs on the left side, the retry low and the repeat high', () => {
-    render(<LoopArcs node={withBoth as CanvasNode} placement="side" />);
-    const arcs = screen.getAllByTestId('ve-loop-arc');
-    expect(arcs[0]).toHaveClass('left-0');
-    expect(arcs[1]).toHaveClass('left-0');
-    expect(arcs[0]!.style.bottom).toBe('8px');
-    expect(arcs[1]!.style.top).toBe('8px');
-  });
-
-  // The caption of a compact card lies under it: its arcs hug the corners.
-  it('hangs the arcs of a compact step close to the corners of its upper edge', () => {
-    render(<LoopArcs node={withBoth as CanvasNode} placement="top" compact />);
-    const arcs = screen.getAllByTestId('ve-loop-arc');
-    expect(arcs.map((arc) => arc.dataset.placement)).toEqual(['top', 'top']);
-    expect(arcs[0]).toHaveClass('top-0');
-    expect(arcs[0]).not.toHaveClass('bottom-0');
+    view.rerender(<LoopArcs node={withBoth as CanvasNode} compact />);
+    arcs = screen.getAllByTestId('ve-loop-arc');
     expect(arcs[0]!.style.right).toBe('2px');
     expect(arcs[1]!.style.left).toBe('2px');
-    expect(arcs[0]!.querySelector('svg')).toHaveClass('-scale-y-100');
-    expect(arcs[0]).toHaveTextContent('×12');
   });
 
   // Only the theme tokens: a literal colour breaks the dark theme.

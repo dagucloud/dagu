@@ -1,28 +1,20 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {
-  repeatInterval,
-  type RepeatPolicyView,
+import type {
+  RepeatPolicyView,
+  Translate,
 } from '@/components/ui/repeat-summary';
 import type { TrustSource } from '../agentRun/agentRun';
 import type { CanvasNode, ContinueOnView } from '../contracts';
 import { continueLabel } from './conditions';
 import { isRecord, type Rec } from '../record';
-
-/** Translates an English source text, with `{name}` values. */
-export type Translate = (
-  text: string,
-  values?: Record<string, string | number>
-) => string;
-
-/** A number, or the text of a `${...}` reference: the two things a limit can be. */
-function numberOrReference(value: unknown): number | string | undefined {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  return typeof value === 'string' && value.includes('${')
-    ? value.trim()
-    : undefined;
-}
+import {
+  numberOrReference,
+  readRetry,
+  secondsText,
+  type RetryFacts,
+} from './retryPolicy';
 
 function firstLine(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -30,13 +22,6 @@ function firstLine(value: unknown): string | undefined {
     .split('\n')
     .map((line) => line.trim())
     .find((line) => line !== '');
-}
-
-/** The retry policy of a step, as the card shows it. */
-export interface RetryFacts {
-  limit?: number | string;
-  intervalSec?: number | string;
-  exitCodes?: number[];
 }
 
 /**
@@ -58,22 +43,6 @@ export interface AgentFacts {
   trust: TrustSource;
   /** Rows of chips under the header: the layout reserves their room. */
   chipRows: number;
-}
-
-/** Reads the `retry_policy` of a step. Undefined when the step has none that says anything. */
-export function readRetry(value: unknown): RetryFacts | undefined {
-  if (!isRecord(value)) return undefined;
-  const retry: RetryFacts = {};
-  const limit = numberOrReference(value.limit);
-  if (limit !== undefined) retry.limit = limit;
-  const interval = numberOrReference(value.interval_sec);
-  if (interval !== undefined) retry.intervalSec = interval;
-  const raw = value.exit_code;
-  const codes = (Array.isArray(raw) ? raw : [raw]).filter(
-    (code): code is number => typeof code === 'number'
-  );
-  if (codes.length > 0) retry.exitCodes = codes;
-  return Object.keys(retry).length === 0 ? undefined : retry;
 }
 
 function readSecretNames(value: unknown): string[] | undefined {
@@ -116,11 +85,6 @@ export function readAgentFacts(
   return facts;
 }
 
-/** A duration in seconds as the UI reads it: "5m"; a reference stays as written. */
-function seconds(value: number | string): string {
-  return typeof value === 'number' ? repeatInterval(value) : value;
-}
-
 /** The chips of an agent card, in this order. */
 export type ChipKind =
   | 'untrusted'
@@ -158,37 +122,16 @@ export function retryLabel(
         ? ts('retry ×{limit}', { limit })
         : ts('retry');
   const parts = [head];
-  if (retry.intervalSec !== undefined) parts.push(seconds(retry.intervalSec));
+  if (retry.intervalSec !== undefined)
+    parts.push(secondsText(retry.intervalSec));
   if (retry.exitCodes) {
     parts.push(ts('exit {codes}', { codes: retry.exitCodes.join(', ') }));
   }
   return parts.join(' · ');
 }
 
-/** The tooltip of the retry chip: the whole policy as a sentence. */
-export function retryTitle(ts: Translate, retry: RetryFacts): string {
-  return [
-    retry.limit !== undefined
-      ? ts('Retries the step up to {limit} times.', { limit: retry.limit })
-      : ts('Retries the step.'),
-    retry.intervalSec !== undefined
-      ? ts('Waits {interval} between the attempts.', {
-          interval: seconds(retry.intervalSec),
-        })
-      : '',
-    retry.exitCodes
-      ? ts('Retries only after the exit code {codes}.', {
-          codes: retry.exitCodes.join(', '),
-        })
-      : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-/** The text of the timeout chip: `timeout 30m`. */
 export function timeoutLabel(ts: Translate, value: number | string): string {
-  return ts('timeout {time}', { time: seconds(value) });
+  return ts('timeout {time}', { time: secondsText(value) });
 }
 
 /** The text of the secrets chip: `2 secrets`. */

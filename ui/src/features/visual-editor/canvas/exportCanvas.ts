@@ -11,14 +11,10 @@ import type {
 } from '../contracts';
 import { routedCurve, type Obstacle } from './edgeRouting';
 import {
-  LOOP_BOTTOM_HEAD,
-  LOOP_BOTTOM_INSET,
-  LOOP_BOTTOM_PATH,
-  LOOP_TOP_INSET,
-  LOOP_FOOT,
-  LOOP_HEAD,
-  LOOP_HEIGHT,
-  LOOP_PATH,
+  LOOP_ARC_HEAD,
+  LOOP_ARC_PATH,
+  LOOP_COMPACT_INSET,
+  LOOP_INSET,
   LOOP_SCALE,
   LOOP_WIDTH,
   loopArcs,
@@ -56,10 +52,8 @@ const CAPTION_CHAR_PX = 6.4;
 const MONO_CHAR_PX = 6.7;
 /** Width in px that a character of the 10 px label of a loop arc takes. */
 const LOOP_LABEL_CHAR_PX = 5.8;
-/** How far the arc of a loop and its label hang out of a side of the card, in px. */
-const LOOP_REACH = 42;
-/** The same, above the upper edge of the card. */
-const LOOP_TOP_REACH = 38;
+/** How far the arc of a loop and its label rise above the card, in px. */
+const LOOP_REACH = 38;
 const SMALL_MONO_CHAR_PX = 6.1;
 
 /** The colours of a theme, with the status colours that the canvas shows. */
@@ -206,62 +200,50 @@ function initials(label: string): string {
 }
 
 /**
- * The arcs of the retry and the repeat of a step, where the step starts, as
- * `drawCard` draws them: on the upper edge in a vertical graph (retry at the
- * right corner, repeat at the left one), on the left side in a horizontal
- * graph (retry low, repeat high).
+ * Whether a card has loop arcs: the card of a step. A handler and a router
+ * draw none on the canvas, so the picture draws none either.
+ */
+function hasLoopArcs(node: CanvasNode): boolean {
+  return (
+    node.lane !== 'handler' &&
+    !isRouter(node) &&
+    loopArcs((source) => source, node).length > 0
+  );
+}
+
+/**
+ * The arcs of the retry and the repeat of a step as `drawCard` draws them:
+ * on the upper edge, the retry at the right corner and the repeat at the
+ * left one, with each label growing away from the middle of the edge.
  */
 function drawLoops(
   node: CanvasNode,
   size: { width: number; height: number },
   palette: Palette,
-  direction: CanvasDirection,
   compact: boolean
 ): string {
-  const lr = direction === 'LR';
+  if (!hasLoopArcs(node)) return '';
+  const inset = compact ? LOOP_COMPACT_INSET : LOOP_INSET;
   return loopArcs((source) => source, node)
     .map((arc) => {
       const dash = arc.kind === 'repeat' ? ' stroke-dasharray="3 2.5"' : '';
       const stroke = `fill="none" stroke="${palette.edge}" stroke-width="1.5" stroke-linecap="round"${dash}`;
-      const parts: string[] = [];
-      let label: { x: number; y: number; width: number } | null = null;
-      const width = Math.max(20, arc.label.length * LOOP_LABEL_CHAR_PX + 10);
-      if (lr) {
-        const top =
-          arc.kind === 'repeat'
-            ? LOOP_FOOT
-            : size.height - LOOP_FOOT - LOOP_HEIGHT;
-        parts.push(
-          `<g data-loop="${arc.kind}" transform="translate(0 ${num(top)}) scale(${-LOOP_SCALE} ${LOOP_SCALE})">` +
-            `<path d="${LOOP_PATH}" ${stroke}/>` +
-            `<path d="${LOOP_HEAD}" fill="${palette.edge}"/>` +
-            `</g>`
-        );
-        label = {
-          x: -12 * LOOP_SCALE - width,
-          y: top + LOOP_HEIGHT / 2,
-          width,
-        };
-      } else {
-        const inset = compact ? LOOP_TOP_INSET : LOOP_BOTTOM_INSET;
-        const left =
-          arc.side === 'right' ? size.width - inset - LOOP_WIDTH : inset;
-        parts.push(
-          `<g data-loop="${arc.kind}" transform="translate(${num(left)} 0) scale(${LOOP_SCALE} ${-LOOP_SCALE})">` +
-            `<path d="${LOOP_BOTTOM_PATH}" ${stroke}/>` +
-            `<path d="${LOOP_BOTTOM_HEAD}" fill="${palette.edge}"/>` +
-            `</g>`
-        );
-        label = {
-          x: left + LOOP_WIDTH / 2 - width / 2,
-          y: -18 * LOOP_SCALE,
-          width,
-        };
-      }
+      const right = arc.side === 'right';
+      const left = right ? size.width - inset - LOOP_WIDTH : inset;
+      const parts = [
+        `<g data-loop="${arc.kind}" transform="translate(${num(left)} 0) scale(${LOOP_SCALE} ${-LOOP_SCALE})">` +
+          `<path d="${LOOP_ARC_PATH}" ${stroke}/>` +
+          `<path d="${LOOP_ARC_HEAD}" fill="${palette.edge}"/>` +
+          `</g>`,
+      ];
       if (arc.label) {
+        const width = Math.max(20, arc.label.length * LOOP_LABEL_CHAR_PX + 10);
+        const middle = left + LOOP_WIDTH / 2;
+        const x = right ? middle : middle - width;
+        const y = -18 * LOOP_SCALE;
         parts.push(
-          `<rect x="${num(label.x)}" y="${num(label.y - 8)}" width="${num(label.width)}" height="16" rx="4" ry="4" fill="${palette.card}" stroke="${palette.border}" stroke-width="1"/>`,
-          text(label.x + label.width / 2, label.y + 3.5, arc.label, {
+          `<rect x="${num(x)}" y="${num(y - 8)}" width="${num(width)}" height="16" rx="4" ry="4" fill="${palette.card}" stroke="${palette.border}" stroke-width="1"/>`,
+          text(x + width / 2, y + 3.5, arc.label, {
             size: 10,
             fill: palette.muted,
             family: SANS,
@@ -357,7 +339,7 @@ function drawCard(
       );
     }
   }
-  parts.push(drawLoops(node, box, palette, direction, compact));
+  parts.push(drawLoops(node, box, palette, compact));
   if (handler) {
     const caption = 'Handler';
     parts.push(
@@ -591,13 +573,10 @@ export function buildExportSvg(
         COMPACT_CAPTION_HEIGHT -
         box.height
       : 0;
-    // The arcs of a retry and of a repeat hang out where the step starts: of
-    // the upper edge in a vertical graph, of the left side in a horizontal one.
-    const looped = (node as CanvasNodeWithRoutes).retry || node.repeat;
-    const sideReach = looped && direction === 'LR' ? LOOP_REACH : 0;
-    const topReach = looped && direction !== 'LR' ? LOOP_TOP_REACH : 0;
-    minX = Math.min(minX, box.x - Math.max(0, hang, sideReach));
-    minY = Math.min(minY, box.y - Math.max(rise, topReach));
+    // The arcs of a retry and of a repeat rise above the card.
+    const reach = hasLoopArcs(node) ? LOOP_REACH : 0;
+    minX = Math.min(minX, box.x - Math.max(0, hang));
+    minY = Math.min(minY, box.y - Math.max(rise, reach));
     maxX = Math.max(maxX, box.x + box.width + ghost + Math.max(0, hang));
     maxY = Math.max(maxY, box.y + box.height + ghost + Math.max(0, below));
   }

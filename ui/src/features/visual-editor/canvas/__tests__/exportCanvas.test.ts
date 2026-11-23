@@ -175,70 +175,57 @@ describe('buildExportSvg', () => {
     expect(rects[0]?.hasAttribute('stroke-dasharray')).toBe(false);
   });
 
-  // The arcs of the loops hang out of the sides of the card: the margin must hold them.
-  it('draws the arcs on the left side of a horizontal graph, with their labels', () => {
-    const looping = node('a', {
-      retry: { limit: 12 },
-      repeat: { mode: 'while', limit: 8 },
-    } as Partial<CanvasNode>);
-    const doc = parse(buildExportSvg(graphOf([looping]), ONE, 'LR').svg);
-    const g = nodeEl(doc, 'a');
-    const arcs = [...g.querySelectorAll('[data-loop]')];
-    expect(arcs.map((arc) => arc.getAttribute('data-loop'))).toEqual([
-      'retry',
-      'repeat',
-    ]);
-    // Both sit on the left side, mirrored: the retry low, the repeat high and dashed.
-    expect(arcs[0]?.getAttribute('transform')).toBe(
-      'translate(0 36.4) scale(-1.4 1.4)'
-    );
-    expect(arcs[1]?.getAttribute('transform')).toBe(
-      'translate(0 8) scale(-1.4 1.4)'
-    );
-    expect(
-      arcs[0]?.querySelector('path')?.hasAttribute('stroke-dasharray')
-    ).toBe(false);
-    expect(
-      arcs[1]?.querySelector('path')?.hasAttribute('stroke-dasharray')
-    ).toBe(true);
-    expect([...g.querySelectorAll('text')].map((t) => t.textContent)).toEqual(
-      expect.arrayContaining(['×12', '×8'])
-    );
-    // The colours are literal, as in the rest of the file.
-    expect(g.outerHTML).not.toMatch(/var\(--/);
+  const LOOPS = {
+    retry: { limit: 12 },
+    repeat: { mode: 'while', limit: 8 },
+  } as Partial<CanvasNode>;
+
+  // The arcs sit on the upper edge in both directions, as on the canvas: the
+  // retry at the right corner, the repeat at the left one and dashed.
+  it.each(['LR', 'TB'] as const)(
+    'draws the arcs of a step above its card in a %s graph',
+    (direction) => {
+      const doc = parse(
+        buildExportSvg(graphOf([node('a', LOOPS)]), ONE, direction).svg
+      );
+      const g = nodeEl(doc, 'a');
+      const arcs = [...g.querySelectorAll('[data-loop]')];
+      expect(arcs.map((arc) => arc.getAttribute('data-loop'))).toEqual([
+        'retry',
+        'repeat',
+      ]);
+      expect(arcs[0]?.getAttribute('transform')).toBe(
+        'translate(195.6 0) scale(1.4 -1.4)'
+      );
+      expect(arcs[1]?.getAttribute('transform')).toBe(
+        'translate(22 0) scale(1.4 -1.4)'
+      );
+      expect(
+        arcs[0]?.querySelector('path')?.hasAttribute('stroke-dasharray')
+      ).toBe(false);
+      expect(
+        arcs[1]?.querySelector('path')?.hasAttribute('stroke-dasharray')
+      ).toBe(true);
+      expect([...g.querySelectorAll('text')].map((t) => t.textContent)).toEqual(
+        expect.arrayContaining(['max 12', 'max 8'])
+      );
+      // The colours are literal, as in the rest of the file.
+      expect(g.outerHTML).not.toMatch(/var\(--/);
+    }
+  );
+
+  // The canvas draws the arcs on step cards only.
+  it('draws no arc on a handler card', () => {
+    const handler = node('h', { ...LOOPS, lane: 'handler' });
+    const doc = parse(buildExportSvg(graphOf([handler]), ONE, 'TB').svg);
+    expect(nodeEl(doc, 'h').querySelectorAll('[data-loop]')).toHaveLength(0);
   });
 
-  it('draws the arcs on the upper edge of a vertical graph', () => {
-    const looping = node('a', {
-      retry: { limit: 12 },
-      repeat: { mode: 'while', limit: 8 },
-    } as Partial<CanvasNode>);
-    const doc = parse(buildExportSvg(graphOf([looping]), ONE, 'TB').svg);
-    const arcs = [...nodeEl(doc, 'a').querySelectorAll('[data-loop]')];
-    // The retry at the right corner, the repeat at the left one: both above the card.
-    expect(arcs[0]?.getAttribute('transform')).toBe(
-      'translate(195.6 0) scale(1.4 -1.4)'
-    );
-    expect(arcs[1]?.getAttribute('transform')).toBe(
-      'translate(22 0) scale(1.4 -1.4)'
-    );
-  });
-
-  it('grows the margin for the arcs of a loop, on the side that they hang out of', () => {
+  it('grows the margin above a card with loops, and only above', () => {
     const plainBox = buildExportSvg(graphOf([node('a')]), ONE, 'LR');
-    const looping = buildExportSvg(
-      graphOf([
-        node('a', {
-          retry: { limit: 3 },
-          repeat: { mode: 'until' },
-        } as Partial<CanvasNode>),
-      ]),
-      ONE,
-      'LR'
-    );
-    expect(looping.width).toBe(plainBox.width + 42);
-    expect(looping.height).toBe(plainBox.height);
-    expect(looping.svg).toContain('translate(66 24)');
+    const looping = buildExportSvg(graphOf([node('a', LOOPS)]), ONE, 'LR');
+    expect(looping.width).toBe(plainBox.width);
+    expect(looping.height).toBeGreaterThan(plainBox.height);
   });
 
   // The image has the status colours of the canvas in the same theme.

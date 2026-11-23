@@ -10,7 +10,8 @@ import type {
   ToolEntryModel,
 } from '../tools/model';
 import type { EdgeBundleData } from './bundles';
-import type { AgentFacts, RetryFacts } from './agentCard';
+import type { AgentFacts } from './agentCard';
+import type { RetryFacts } from './retryPolicy';
 import type {
   ChatInfo,
   ModelEditData,
