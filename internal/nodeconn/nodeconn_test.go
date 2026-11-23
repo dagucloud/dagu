@@ -256,10 +256,11 @@ func TestServiceStage(t *testing.T) {
 	service := nodeconn.New(hostKeys, newSecrets())
 	ctx := context.Background()
 
-	staged, err := service.Stage(ctx, nodes, []nodeconn.Accepted{
+	accepted := []nodeconn.Accepted{
 		{Node: "DB01", Fingerprint: fingerprint(db01Server)},
 		{Node: "jump", Fingerprint: fingerprint(jumpServer)},
-	})
+	}
+	staged, err := service.Stage(ctx, nodes, "db01", accepted)
 	require.NoError(t, err)
 	assert.Zero(t, db01Server.AuthAttempts(), "staging sent the node a credential")
 	assert.Empty(t, nodes[1].HostKey, "the nodes given changed")
@@ -269,8 +270,66 @@ func TestServiceStage(t *testing.T) {
 	_, err = hostKeys.Get(ctx, "db01")
 	require.ErrorIs(t, err, inventory.ErrNoTrustedHostKey, "staging trusted a key")
 
-	_, err = service.Stage(ctx, nodes, []nodeconn.Accepted{{Node: "jump", Fingerprint: "SHA256:not-the-key"}})
+	_, err = service.Stage(ctx, nodes, "db01", []nodeconn.Accepted{{Node: "jump", Fingerprint: "SHA256:not-the-key"}})
 	require.ErrorContains(t, err, fingerprint(jumpServer), "the error names the key the node presents")
+}
+
+// Stage takes keys only for the hops of the node's connection, one each,
+// and never accepts a key in place of a trusted one.
+func TestServiceStageRefusals(t *testing.T) {
+	t.Parallel()
+
+	jump, jumpServer := startNode(t, "jump", false)
+	web01, web01Server := startNode(t, "web01", false)
+	nodes := []inventory.ResolvedNode{jump, web01}
+	hostKeys := newHostKeys(t)
+	service := nodeconn.New(hostKeys, newSecrets())
+	ctx := context.Background()
+
+	_, err := service.Stage(ctx, nodes, "web01", []nodeconn.Accepted{{Node: "jump", Fingerprint: fingerprint(jumpServer)}})
+	require.ErrorContains(t, err, "nor its bastion", "jump is no hop of web01")
+	_, err = service.Stage(ctx, nodes, "web01", []nodeconn.Accepted{
+		{Node: "web01", Fingerprint: fingerprint(web01Server)},
+		{Node: "WEB01", Fingerprint: fingerprint(web01Server)},
+	})
+	require.ErrorContains(t, err, "more than one")
+
+	other := harness.StartSSHServer(t, harness.SSHServerOptions{User: nodeUser, Password: nodePassword})
+	_, err = hostKeys.Trust(ctx, "web01", other.HostKey, "u", "")
+	require.NoError(t, err)
+	_, err = service.Stage(ctx, nodes, "web01", []nodeconn.Accepted{{Node: "web01", Fingerprint: fingerprint(web01Server)}})
+	require.ErrorContains(t, err, fingerprint(other), "a trusted key was replaced")
+}
+
+// TrustAccepted stores the keys Stage read, and leaves a key that is
+// already trusted as it is.
+func TestServiceTrustAccepted(t *testing.T) {
+	t.Parallel()
+
+	jump, jumpServer := startNode(t, "jump", false)
+	db01, db01Server := startNode(t, "db01", false)
+	db01.Bastion = "jump"
+	nodes := []inventory.ResolvedNode{jump, db01}
+	hostKeys := newHostKeys(t)
+	service := nodeconn.New(hostKeys, newSecrets())
+	ctx := context.Background()
+	_, err := hostKeys.Trust(ctx, "jump", jumpServer.HostKey, "u", "")
+	require.NoError(t, err)
+
+	accepted := []nodeconn.Accepted{
+		{Node: "jump", Fingerprint: fingerprint(jumpServer)},
+		{Node: "db01", Fingerprint: fingerprint(db01Server)},
+	}
+	staged, err := service.Stage(ctx, nodes, "db01", accepted)
+	require.NoError(t, err)
+	trusted, err := service.TrustAccepted(ctx, staged, accepted, "u")
+	require.NoError(t, err)
+	require.Len(t, trusted, 1)
+	assert.Equal(t, "db01", trusted[0].Node)
+	assert.Equal(t, fingerprint(db01Server), trusted[0].Fingerprint)
+
+	results := testNodes(t, service, nodes, nodes[1:])
+	require.NoError(t, results["db01"].Err, "the stored nodes pass with the trusted keys")
 }
 
 func TestServiceTrustUnknownNode(t *testing.T) {

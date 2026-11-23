@@ -5,13 +5,16 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/audit"
+	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 )
 
@@ -156,6 +159,122 @@ func (a *API) PutInventoryNode(ctx context.Context, request api.PutInventoryNode
 		return api.PutInventoryNode201JSONResponse(toInventory(stored)), nil
 	}
 	return api.PutInventoryNode200JSONResponse(toInventory(stored)), nil
+}
+
+// AddInventoryNode adds a node to an inventory, given the version the change
+// is based on, and then trusts the host keys the user accepted in its test.
+// The keys are read before anything is stored, so a key that cannot be read
+// stores nothing.
+func (a *API) AddInventoryNode(ctx context.Context, request api.AddInventoryNodeRequestObject) (api.AddInventoryNodeResponseObject, error) {
+	service, err := a.nodeConnections()
+	if err != nil {
+		return nil, err
+	}
+	if err := a.requireInventoryWrite(ctx); err != nil {
+		return nil, err
+	}
+	if request.Body == nil {
+		return api.AddInventoryNode400JSONResponse(changeRefused("Request body is required")), nil
+	}
+	node, err := decodeNodeRecord(request.Body.Node)
+	if err != nil {
+		return api.AddInventoryNode400JSONResponse(changeRefused(err.Error())), nil
+	}
+	accepted, err := acceptedKeys(valueOf(request.Body.Trust))
+	if err != nil {
+		return api.AddInventoryNode400JSONResponse(changeRefused(err.Error())), nil
+	}
+	_, nodes, err := a.withNewNode(ctx, request.InventoryId, node)
+	switch {
+	case errors.Is(err, inventory.ErrNotFound):
+		return api.AddInventoryNode404JSONResponse(inventoryNotFound(request.InventoryId)), nil
+	case errors.Is(err, inventory.ErrInvalid):
+		return api.AddInventoryNode400JSONResponse(ruleViolation(err)), nil
+	case errors.Is(err, inventory.ErrNodeExists):
+		return api.AddInventoryNode400JSONResponse(changeRefused(err.Error())), nil
+	case err != nil:
+		return nil, err
+	}
+	staged, err := service.Stage(ctx, nodes, node.Name, accepted)
+	if err != nil {
+		return api.AddInventoryNode400JSONResponse(changeRefused(err.Error())), nil
+	}
+
+	stored, err := inventory.AddNode(ctx, a.inventoryStore, request.InventoryId, node, request.Params.Version)
+	switch {
+	case errors.Is(err, inventory.ErrInvalid):
+		return api.AddInventoryNode400JSONResponse(ruleViolation(err)), nil
+	case errors.Is(err, inventory.ErrNodeExists):
+		return api.AddInventoryNode400JSONResponse(changeRefused(err.Error())), nil
+	case errors.Is(err, inventory.ErrNotFound):
+		return api.AddInventoryNode404JSONResponse(inventoryNotFound(request.InventoryId)), nil
+	case errors.Is(err, inventory.ErrStale):
+		conflict, found, err := a.inventoryConflict(ctx, request.InventoryId, err)
+		if !found {
+			return api.AddInventoryNode404JSONResponse(inventoryNotFound(request.InventoryId)), err
+		}
+		return api.AddInventoryNode409JSONResponse(conflict), err
+	case err != nil:
+		return nil, fmt.Errorf("failed to add node %q: %w", node.Name, err)
+	}
+	a.logAudit(ctx, audit.CategorySystem, "inventory_node_add", map[string]any{
+		"inventory": stored.Name, "node": node.Name,
+	})
+
+	var by string
+	if user, ok := auth.UserFromContext(ctx); ok {
+		by = user.Username
+	}
+	// The node is stored, so its keys are trusted even if the client leaves.
+	trusted, err := service.TrustAccepted(context.WithoutCancel(ctx), staged, accepted, by)
+	for _, key := range trusted {
+		a.logAudit(ctx, audit.CategorySystem, "node_host_key_trust", map[string]any{
+			"node": key.Node, "fingerprint": key.Fingerprint, "previous": "",
+		})
+	}
+	if err != nil {
+		return nil, fmt.Errorf("node %q was added, but a host key was not trusted: %w", node.Name, err)
+	}
+	return api.AddInventoryNode201JSONResponse(toInventory(stored)), nil
+}
+
+// decodeNodeRecord reads a node record that a request carries as JSON. An
+// unknown field is refused.
+func decodeNodeRecord(record map[string]any) (inventory.Node, error) {
+	raw, err := json.Marshal(record)
+	if err != nil {
+		return inventory.Node{}, fmt.Errorf("failed to read the node: %w", err)
+	}
+	return inventory.DecodeNode(raw)
+}
+
+// withNewNode returns inventory id, and every node of the project resolved
+// as it would be with node added to that inventory. It fails with
+// inventory.ErrNotFound for an unknown inventory, inventory.ErrNodeExists
+// for a name the inventory holds, and inventory.ErrInvalid for a broken
+// rule.
+func (a *API) withNewNode(ctx context.Context, id string, node inventory.Node) (inventory.Stored, []inventory.ResolvedNode, error) {
+	all, err := a.inventoryStore.List(ctx)
+	if err != nil {
+		return inventory.Stored{}, nil, fmt.Errorf("failed to list inventories: %w", err)
+	}
+	i := slices.IndexFunc(all, func(s inventory.Stored) bool { return s.ID == id })
+	if i < 0 {
+		return inventory.Stored{}, nil, fmt.Errorf("inventory %q: %w", id, inventory.ErrNotFound)
+	}
+	target := all[i]
+	if slices.ContainsFunc(target.Nodes, func(n inventory.Node) bool { return strings.EqualFold(n.Name, node.Name) }) {
+		return inventory.Stored{}, nil, fmt.Errorf("%w: inventory %q already has a node %q", inventory.ErrNodeExists, target.Name, node.Name)
+	}
+	invs, err := inventory.WithNode(all, target.ID, node)
+	if err != nil {
+		return inventory.Stored{}, nil, err
+	}
+	nodes, err := inventory.Resolve(invs)
+	if err != nil {
+		return inventory.Stored{}, nil, err
+	}
+	return target, nodes, nil
 }
 
 // DeleteInventoryNode removes a node from an inventory, given the version

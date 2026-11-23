@@ -280,21 +280,14 @@ func (a *API) findInventory(ctx context.Context, ref string) (inventory.Stored, 
 	if err != nil {
 		return inventory.Stored{}, false, fmt.Errorf("failed to list inventories: %w", err)
 	}
-	found, ok := findInventoryIn(stored, ref)
-	return found, ok, nil
-}
-
-// findInventoryIn finds an inventory of stored by its ID, or else by its
-// name compared without case.
-func findInventoryIn(stored []inventory.Stored, ref string) (inventory.Stored, bool) {
 	i := slices.IndexFunc(stored, func(s inventory.Stored) bool { return s.ID == ref })
 	if i < 0 {
 		i = slices.IndexFunc(stored, func(s inventory.Stored) bool { return strings.EqualFold(s.Name, ref) })
 	}
 	if i < 0 {
-		return inventory.Stored{}, false
+		return inventory.Stored{}, false, nil
 	}
-	return stored[i], true
+	return stored[i], true, nil
 }
 
 func importRefused(message string, ruleErrs []api.InventoryRuleError) api.ImportInventories400JSONResponse {

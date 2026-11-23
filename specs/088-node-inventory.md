@@ -203,7 +203,8 @@ saves, `add` tests the connection as [Host keys](#host-keys) defines.
 `DELETE /inventories/{id}/nodes/{name}?version=` add, change, and remove one
 node. A request body is decoded as sent: an unknown field, or data after
 the record, is refused. Changes need the developer role and are written to
-the audit log.
+the audit log. `POST /inventories/{id}/nodes?version=` adds a node and
+refuses a name the inventory holds; §Host keys describes it.
 
 ### Host keys
 
@@ -246,24 +247,31 @@ fingerprint of the key the user saw. Two entries for one node are refused.
 - A key that is already trusted is reported as `unchanged`.
 - The response is a `result` event per entry, then a `done` event.
 
-**Testing a node that is not stored.** `POST /node-connection-tests` with
-`node`, a node record, and `inventory`, the ID or name of the inventory it
-would join, tests that node as it would be there, with the inventory's
-defaults. The record is checked against every rule first, and a broken rule
-refuses the request. Nothing is stored.
+**Adding a node that is tested first.** `POST /inventories/{id}/node-tests`
+with `node`, a node record, tests that node as it would be in the
+inventory, with the inventory's defaults. `POST /inventories/{id}/nodes`
+with the same `node` adds it. Both check the record against every rule
+first, and refuse a broken rule or a name the inventory holds.
 
-- `accept` lists keys the user accepted for this test only, each a node,
-  the node or its bastion, and the fingerprint the user saw. The server
-  reads each key again without sending a credential, and accepts it in
-  memory when the fingerprint matches; otherwise the test fails, naming the
-  fingerprint the node presents. A bastion's key is read first.
-- An accepted key is not trusted. Once the node is stored, a trust stores
-  it.
+- A test takes `accept`, the keys the user accepted for that test only. An
+  add takes the same keys as `trust`.
+- Each key names a hop of the node's connection, the node or its bastion,
+  at most once each, and the fingerprint the user saw. A key for any other
+  node is refused. A bastion's key is read first.
+- The server reads each key again without sending a credential. When the
+  fingerprint matches, a test accepts the key in memory; otherwise the test
+  fails, naming the fingerprint the node presents.
+- A key never replaces a trusted one: a hop whose trusted key is another
+  fails the test or refuses the add.
+- A test stores and trusts nothing. An add reads every key before it stores
+  the node, so a key that cannot be read stores nothing. It then stores the
+  node and trusts the keys, even when the client has gone.
 
 A test needs the operator role, and a trust the developer role. A test of a
-node that is not stored needs the developer role, since the record decides
-which host receives the inventory's credentials. Each test, and each key a
-trust stores, is written to the audit log.
+node that is not stored, and an add, need the developer role, since the
+record decides which host receives the inventory's credentials. Each test,
+each add, and each key a trust or an add stores, is written to the audit
+log.
 
 **`dagu nodes test`** tests the named nodes, compared without case, the
 nodes `--labels` matches, or every node, as the server does, and prints a

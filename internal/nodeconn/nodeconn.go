@@ -205,31 +205,44 @@ func (s *Service) readHostKey(ctx context.Context, nodes []inventory.ResolvedNod
 	return key, nil
 }
 
-// Accepted names a host key the user accepted for a node during a test, by
-// the fingerprint the user saw.
+// Accepted names a host key the user accepted for a hop of a node's
+// connection during a test, by the fingerprint the user saw.
 type Accepted struct {
 	Node        string
 	Fingerprint string
 }
 
 // Stage returns a copy of nodes in which each accepted key is pinned as its
-// node's host key, in memory only, so a test of a node that is not stored
-// yet can authenticate through hops whose keys the user accepted but has not
-// trusted. Each key is read from its node without sending it a credential;
-// a node that presents no key with the accepted fingerprint fails the stage.
-func (s *Service) Stage(ctx context.Context, nodes []inventory.ResolvedNode, accepted []Accepted) ([]inventory.ResolvedNode, error) {
+// hop's host key, in memory only, so the node named name can be tested
+// through hops whose keys the user accepted but nobody trusted. The hops are
+// the node and its bastion, if any, and each takes at most one key. Each key
+// is read from its hop without sending it a credential. A hop that presents
+// no key with the accepted fingerprint, or whose trusted key is another,
+// fails the stage: accepting a key never replaces a trusted one.
+func (s *Service) Stage(ctx context.Context, nodes []inventory.ResolvedNode, name string, accepted []Accepted) ([]inventory.ResolvedNode, error) {
+	node, ok := findNode(nodes, name)
+	if !ok {
+		return nil, fmt.Errorf("node %q is not in the project's inventories", name)
+	}
+	hops, err := acceptedHops(node, accepted)
+	if err != nil {
+		return nil, err
+	}
 	staged := slices.Clone(nodes)
-	// A node behind a bastion is read through it, so the keys of nodes that
-	// connect directly are pinned first.
-	order := slices.Clone(accepted)
-	slices.SortStableFunc(order, func(a, b Accepted) int {
-		return behindBastion(staged, a.Node) - behindBastion(staged, b.Node)
-	})
 	secrets := s.newSecretCache()
-	for _, key := range order {
+	for _, key := range hops {
 		i := slices.IndexFunc(staged, func(n inventory.ResolvedNode) bool { return strings.EqualFold(n.Name, key.Node) })
 		if i < 0 {
 			return nil, fmt.Errorf("node %q is not in the project's inventories", key.Node)
+		}
+		trusted, err := s.trustedFingerprint(ctx, staged[i].Name)
+		switch {
+		case err != nil:
+			return nil, err
+		case trusted == key.Fingerprint:
+			continue
+		case trusted != "":
+			return nil, fmt.Errorf("node %q has the trusted host key %s; replace it rather than accept another", staged[i].Name, trusted)
 		}
 		readCtx, cancel := context.WithTimeout(ctx, nodeTimeout)
 		read, err := s.readHostKey(readCtx, staged, staged[i], key.Fingerprint, secrets)
@@ -242,13 +255,71 @@ func (s *Service) Stage(ctx context.Context, nodes []inventory.ResolvedNode, acc
 	return staged, nil
 }
 
-// behindBastion is 1 when the node named name connects through a bastion,
-// and 0 otherwise.
-func behindBastion(nodes []inventory.ResolvedNode, name string) int {
-	if node, ok := findNode(nodes, name); ok && node.Bastion != "" {
-		return 1
+// acceptedHops orders the keys accepted for node by hop. The node is
+// reached through its bastion, so the bastion's key comes first.
+func acceptedHops(node inventory.ResolvedNode, accepted []Accepted) ([]Accepted, error) {
+	var bastion, own []Accepted
+	for _, key := range accepted {
+		switch {
+		case node.Bastion != "" && strings.EqualFold(key.Node, node.Bastion):
+			bastion = append(bastion, key)
+		case strings.EqualFold(key.Node, node.Name):
+			own = append(own, key)
+		default:
+			return nil, fmt.Errorf("node %q is neither node %q nor its bastion", key.Node, node.Name)
+		}
 	}
-	return 0
+	for _, keys := range [][]Accepted{bastion, own} {
+		if len(keys) > 1 {
+			return nil, fmt.Errorf("node %q has more than one accepted key", keys[0].Node)
+		}
+	}
+	return append(bastion, own...), nil
+}
+
+// TrustAccepted trusts each accepted key as Stage pinned it in staged, once
+// the node it was staged for is stored, since storing a node forgets any key
+// trusted for its name. A key that is already trusted is left as it is. by
+// names the user who trusts the keys. It returns the keys it trusted, also
+// when it fails part way.
+func (s *Service) TrustAccepted(ctx context.Context, staged []inventory.ResolvedNode, accepted []Accepted, by string) ([]inventory.TrustedHostKey, error) {
+	var trusted []inventory.TrustedHostKey
+	for _, key := range accepted {
+		node, ok := findNode(staged, key.Node)
+		if !ok {
+			return trusted, fmt.Errorf("node %q is not in the project's inventories", key.Node)
+		}
+		current, err := s.trustedFingerprint(ctx, node.Name)
+		if err != nil {
+			return trusted, err
+		}
+		if current == key.Fingerprint {
+			continue
+		}
+		public, _, _, _, err := ssh.ParseAuthorizedKey([]byte(node.HostKey))
+		if err != nil || ssh.FingerprintSHA256(public) != key.Fingerprint {
+			return trusted, fmt.Errorf("node %q has no staged host key %s", node.Name, key.Fingerprint)
+		}
+		stored, err := s.hostKeys.Trust(ctx, node.Name, public, by, "")
+		if err != nil {
+			return trusted, fmt.Errorf("failed to trust the host key of node %q: %w", node.Name, err)
+		}
+		trusted = append(trusted, stored)
+	}
+	return trusted, nil
+}
+
+// trustedFingerprint returns the fingerprint of the key trusted for node, or
+// empty when none is.
+func (s *Service) trustedFingerprint(ctx context.Context, node string) (string, error) {
+	current, err := s.hostKeys.Get(ctx, node)
+	switch {
+	case errors.Is(err, inventory.ErrNoTrustedHostKey):
+		return "", nil
+	case err != nil:
+		return "", fmt.Errorf("failed to read the trusted host key of node %q: %w", node, err)
+	}
+	return current.Fingerprint, nil
 }
 
 // replaceRefusal says why request replaces nothing on node, whose trusted key

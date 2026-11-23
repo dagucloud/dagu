@@ -13,7 +13,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/nodeconn"
@@ -89,10 +88,10 @@ func runNodesAdd(ctx *Context, args []string) error {
 	}
 
 	out := ctx.Command.OutOrStdout()
-	var accepted []acceptedKey
+	service := nodeconn.New(stores.hostKeys, ctx.secretResolver())
+	var accepted []nodeconn.Accepted
 	if noTest, _ := ctx.Command.Flags().GetBool("no-test"); !noTest {
-		service := nodeconn.New(stores.hostKeys, ctx.secretResolver())
-		if accepted, err = testBeforeSave(ctx, service, nodes, node.Name); err != nil {
+		if nodes, accepted, err = testBeforeSave(ctx, service, nodes, node.Name); err != nil {
 			return fmt.Errorf("node %q not added: %w", node.Name, err)
 		}
 		_, _ = fmt.Fprintf(out, "connection test of %s passed\n", node.Name)
@@ -111,60 +110,48 @@ func runNodesAdd(ctx *Context, args []string) error {
 	}
 	_, _ = fmt.Fprintf(out, "%s %s in %s\n", verb, node.Name, stored.Name)
 
-	// The keys are trusted once the node is stored, since storing a node
-	// forgets any key trusted before for its name.
 	by, _ := localOSSubject(user.Current)
-	for _, key := range accepted {
-		trusted, err := stores.hostKeys.Trust(ctx, key.node, key.key, by, "")
-		if err != nil {
-			return fmt.Errorf("node %q was added, but the host key of %q was not trusted: %w", node.Name, key.node, err)
-		}
-		_, _ = fmt.Fprintf(out, "trusted host key %s of %s\n", trusted.Fingerprint, key.node)
+	trusted, err := service.TrustAccepted(ctx, nodes, accepted, by)
+	for _, key := range trusted {
+		_, _ = fmt.Fprintf(out, "trusted host key %s of %s\n", key.Fingerprint, key.Node)
+	}
+	if err != nil {
+		return fmt.Errorf("node %q was added, but a host key was not trusted: %w", node.Name, err)
 	}
 	return nil
-}
-
-// acceptedKey is a host key the user accepted for a node during a test.
-type acceptedKey struct {
-	node string
-	key  ssh.PublicKey
 }
 
 // testBeforeSave tests the node named name among nodes until the test passes
 // or fails for good. When a hop presents an unknown key, it asks the user,
 // and on yes tests again with that key accepted for that hop in memory only,
 // so the node is authenticated and runs true before anything is stored. It
-// returns the keys the user accepted, to trust once the node is stored.
-func testBeforeSave(ctx *Context, service *nodeconn.Service, nodes []inventory.ResolvedNode, name string) ([]acceptedKey, error) {
+// returns nodes with the accepted keys staged, and those keys, to trust once
+// the node is stored.
+func testBeforeSave(ctx *Context, service *nodeconn.Service, nodes []inventory.ResolvedNode, name string) ([]inventory.ResolvedNode, []nodeconn.Accepted, error) {
 	out := ctx.Command.OutOrStdout()
 	staged := nodes
-	var accepted []acceptedKey
+	var accepted []nodeconn.Accepted
 	for {
 		var result nodeconn.TestResult
 		service.Test(ctx, staged, []inventory.ResolvedNode{staged[nodeIndex(staged, name)]}, func(r nodeconn.TestResult) { result = r })
 		if result.Err == nil {
-			return accepted, nil
+			return staged, accepted, nil
 		}
 		refused := result.Refused
 		unknown := refused != nil && len(refused.Expected) == 0 && refused.Presented != ""
-		if !unknown || slices.ContainsFunc(accepted, func(k acceptedKey) bool { return strings.EqualFold(k.node, refused.Node) }) {
-			return nil, fmt.Errorf("its connection test failed: %w", result.Err)
+		if !unknown || slices.ContainsFunc(accepted, func(k nodeconn.Accepted) bool { return strings.EqualFold(k.Node, refused.Node) }) {
+			return nil, nil, fmt.Errorf("its connection test failed: %w", result.Err)
 		}
 		_, _ = fmt.Fprintf(out, "The host key of %s %q is unknown: %s\n", refused.Hop, refused.Node, refused.Presented)
 		if !confirmAction("Trust this key and add the node?") {
-			return nil, errors.New("its host key was not trusted")
+			return nil, nil, errors.New("its host key was not trusted")
 		}
+		key := nodeconn.Accepted{Node: refused.Node, Fingerprint: refused.Presented}
 		var err error
-		staged, err = service.Stage(ctx, staged, []nodeconn.Accepted{{Node: refused.Node, Fingerprint: refused.Presented}})
-		if err != nil {
-			return nil, err
+		if staged, err = service.Stage(ctx, staged, name, []nodeconn.Accepted{key}); err != nil {
+			return nil, nil, err
 		}
-		hop := staged[nodeIndex(staged, refused.Node)]
-		key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(hop.HostKey))
-		if err != nil {
-			return nil, err
-		}
-		accepted = append(accepted, acceptedKey{node: hop.Name, key: key})
+		accepted = append(accepted, key)
 	}
 }
 

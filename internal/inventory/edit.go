@@ -11,8 +11,28 @@ import (
 	"strings"
 )
 
-// ErrNodeNotFound reports a node name that an inventory does not hold.
-var ErrNodeNotFound = errors.New("node not found")
+var (
+	// ErrNodeNotFound reports a node name that an inventory does not hold.
+	ErrNodeNotFound = errors.New("node not found")
+	// ErrNodeExists reports a node name that an inventory already holds.
+	ErrNodeExists = errors.New("node exists")
+)
+
+// AddNode adds node to inventory id, given the version the change is based
+// on. It fails with ErrNodeExists when the inventory holds a node of that
+// name.
+func AddNode(ctx context.Context, store Store, id string, node Node, version int64) (Stored, error) {
+	current, err := currentAt(ctx, store, id, version)
+	if err != nil {
+		return Stored{}, err
+	}
+	if nodeIndex(current.Nodes, node.Name) >= 0 {
+		return Stored{}, fmt.Errorf("%w: inventory %q already has a node %q", ErrNodeExists, current.Name, node.Name)
+	}
+	inv := current.Inventory
+	inv.Nodes = append(slices.Clone(inv.Nodes), node)
+	return store.Replace(ctx, inv, version)
+}
 
 // PutNode adds node to inventory id, or replaces the node of that name,
 // given the version the change is based on. It reports whether the node is

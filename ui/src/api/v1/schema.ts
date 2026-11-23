@@ -4704,6 +4704,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/inventories/{inventoryId}/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add a node
+         * @description Adds a node to an inventory, given the version of the inventory the change is based on, and then trusts the host keys in `trust`. A name the inventory already holds is refused; `PUT /inventories/{inventoryId}/nodes/{nodeName}` replaces a node. Each key is read from its node by fingerprint, sending it no credential, before anything is stored, so a key that cannot be read stores nothing. Requires the developer role or above, and is audited. Remote nodes do not manage inventories, so a request for a remote node is refused with 403.
+         */
+        post: operations["addInventoryNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/inventories/{inventoryId}/node-tests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a node before it is added
+         * @description Tests a node that is not stored yet from the server, as it would be in this inventory with the inventory's defaults. The node is checked against every rule first, and a name the inventory already holds is refused. Each key in `accept` is read from its node by fingerprint, sending it no credential, and accepted in memory for this test only. The test then runs as `POST /node-connection-tests` runs one. Nothing is stored or trusted. The response is a server-sent event stream: a `result` event carrying an `InventoryNodeConnectionTest`, then a `done` event carrying an `InventoryNodeConnectionTestSummary`. Requires the developer role or above, since the record decides which host receives the inventory's credentials, and is audited.
+         */
+        post: operations["testNewInventoryNode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/inventories/{inventoryId}/nodes/{nodeName}": {
         parameters: {
             query?: never;
@@ -4759,7 +4799,7 @@ export interface paths {
         put?: never;
         /**
          * Test node connections
-         * @description Tests the named nodes, the nodes a label selector matches, or one node that is not stored yet, from the server. Each test checks the host key of each hop, authenticates, and runs `true`. A hop whose host key is unknown or has changed receives no credential, and the result names that hop. A node named twice is tested once. At most 16 nodes are tested at once. The response is a server-sent event stream: a `result` event per node as its test finishes, carrying an `InventoryNodeConnectionTest`, then a `done` event carrying an `InventoryNodeConnectionTestSummary`. A test never trusts a key. Requires the operator role or above, and the developer role or above for a node that is not stored.
+         * @description Tests the named nodes, or the nodes a label selector matches, from the server. Each test checks the host key of each hop, authenticates, and runs `true`. A hop whose host key is unknown or has changed receives no credential, and the result names that hop. A node named twice is tested once. At most 16 nodes are tested at once. The response is a server-sent event stream: a `result` event per node as its test finishes, carrying an `InventoryNodeConnectionTest`, then a `done` event carrying an `InventoryNodeConnectionTestSummary`. A test never trusts a key. Requires the operator role or above.
          */
         post: operations["testInventoryNodeConnections"];
         delete?: never;
@@ -9761,22 +9801,32 @@ export interface components {
             /** @description Whether the import only checked and stored nothing */
             dryRun: boolean;
         };
-        /** @description The nodes to test: named, matched by a label selector, or one node that is not stored yet. Exactly one of `nodes`, `labels`, and `node` is given */
+        /** @description The nodes to test: either named, or matched by a label selector */
         InventoryNodeConnectionTestRequest: {
             /** @description Names of the nodes to test, compared without case */
             nodes?: string[];
             /** @description Label selector of the nodes to test, as `GET /nodes` takes it */
             labels?: string;
-            /** @description A node that is not stored yet, in the record format of an inventory's nodes, tested as it would be in `inventory` with that inventory's defaults. An unknown field is refused. Nothing is stored. Testing a node that is not stored needs the developer role, since the record decides which host receives the inventory's credentials */
-            node?: {
+        };
+        /** @description A node that is not stored yet, and the host keys the user accepted for its test */
+        InventoryNewNodeTestRequest: {
+            /** @description The node in the record format that `InventoryNodeSpec` describes. An unknown field is refused */
+            node: {
                 [key: string]: unknown;
             };
-            /** @description ID or name of the inventory that `node` would join. Required with `node` */
-            inventory?: string;
-            /** @description Host keys the user accepted for this test only, read again by fingerprint without sending a credential and accepted in memory. Allowed only with `node`; the keys are trusted only by `POST /node-host-keys` once the node is stored */
+            /** @description Host keys the user accepted for this test only: at most one for the node and one for its bastion, the only hops of its connection. Each is read again by fingerprint without sending a credential, and accepted in memory */
             accept?: components["schemas"]["InventoryAcceptedHostKey"][];
         };
-        /** @description A host key a user accepted for a node, by the fingerprint the user saw */
+        /** @description A node to add, and the host keys to trust once it is stored */
+        InventoryNodeAddRequest: {
+            /** @description The node in the record format that `InventoryNodeSpec` describes. An unknown field is refused */
+            node: {
+                [key: string]: unknown;
+            };
+            /** @description Host keys the user accepted in the node's test, to trust once the node is stored: at most one for the node and one for its bastion */
+            trust?: components["schemas"]["InventoryAcceptedHostKey"][];
+        };
+        /** @description A host key a user accepted for a hop of a node's connection, by the fingerprint the user saw. A key trusted for a node is never replaced this way */
         InventoryAcceptedHostKey: {
             /** @description Name of the node, or of its bastion, compared without case */
             node: string;
@@ -25550,6 +25600,160 @@ export interface operations {
             };
         };
     };
+    addInventoryNode: {
+        parameters: {
+            query: {
+                /** @description Version of the inventory the change is based on, as the inventory last read reports it */
+                version: components["parameters"]["InventoryVersion"];
+            };
+            header?: never;
+            path: {
+                inventoryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryNodeAddRequest"];
+            };
+        };
+        responses: {
+            /** @description The node was added and its keys trusted; the inventory as stored */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inventory"];
+                };
+            };
+            /** @description The node breaks a rule, the inventory already holds its name, or a key in `trust` names another node or cannot be read; nothing was stored */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryImportError"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No inventory has this ID */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The inventory changed since `version`; the response carries the current inventory */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InventoryConflict"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    testNewInventoryNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                inventoryId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InventoryNewNodeTestRequest"];
+            };
+        };
+        responses: {
+            /** @description A server-sent event stream of one `result` event, then a `done` event */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["InventoryNodeConnectionTestEvent"];
+                };
+            };
+            /** @description The node breaks a rule, or the inventory already holds its name */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No inventory has this ID */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
     putInventoryNode: {
         parameters: {
             query: {
@@ -25843,7 +26047,7 @@ export interface operations {
                     "text/event-stream": components["schemas"]["InventoryNodeConnectionTestEvent"];
                 };
             };
-            /** @description The request names no node, an unknown one, or more than 1,000, or its selector is invalid or matches no node, or the node that is not stored breaks a rule or names no inventory */
+            /** @description The request names no node, an unknown one, or more than 1,000, or its selector is invalid or matches no node */
             400: {
                 headers: {
                     [name: string]: unknown;
