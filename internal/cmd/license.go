@@ -229,8 +229,8 @@ var reportChoices = []struct {
 	level config.ReportLevel
 	label string
 }{
-	{config.ReportErrors, "Health, run status, and error messages (recommended)"},
-	{config.ReportRuns, "Health and run status"},
+	{config.ReportRuns, "Health and run status (recommended)"},
+	{config.ReportErrors, "Health, run status, and error messages"},
 	{config.ReportHealth, "Health only"},
 	{config.ReportOff, "Nothing"},
 }

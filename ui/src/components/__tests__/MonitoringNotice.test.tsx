@@ -154,7 +154,7 @@ describe('MonitoringNotice', () => {
 
     expect(client.PUT).toHaveBeenCalledWith('/license/monitoring', {
       params: { query: { remoteNode: 'local' } },
-      body: { level: 'errors' },
+      body: { level: 'runs' },
     });
     await waitFor(() =>
       expect(screen.queryByText(notice)).not.toBeInTheDocument()
@@ -196,7 +196,7 @@ describe('MonitoringNotice', () => {
     });
     expect(
       within(dialog).getByRole('radio', {
-        name: 'Health, run status, and error messages (recommended)',
+        name: 'Health, run status, and error messages',
       })
     ).toBeChecked();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }));

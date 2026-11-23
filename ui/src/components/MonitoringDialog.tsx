@@ -32,13 +32,13 @@ const choices: { level: ReportingLevel; title: string; sends: string }[] = [
   },
   {
     level: LicenseMonitoringLevel.runs,
-    title: 'Health and run status',
+    title: 'Health and run status (recommended)',
     sends:
       "Sends the health fields, plus the status of each top-level DAG run that finishes, with its failed step names (up to 50) and how it was triggered, and the list of runs queued, running, or waiting. Each run is sent as its DAG name, run ID, attempt ID, status, trigger, and queued, started, and finished times, with up to 200 of its steps, each as its name, status, start and finish times, and retry count. Also each scheduled DAG's next run, and whether its latest scheduled run started, and each queue holding runs: its name, how many runs are waiting and how many are running, how many may run at once, when the next run was queued, and why it cannot start when it waits for a worker. No parameters, logs, or outputs.",
   },
   {
     level: LicenseMonitoringLevel.errors,
-    title: 'Health, run status, and error messages (recommended)',
+    title: 'Health, run status, and error messages',
     sends:
       "Sends everything Health and run status sends, plus why each failed run failed: the error messages of up to 5 failed steps and handlers, or the run's own, each up to 2 KB from its end. A step's error can end with the last lines of its stderr, with the values of workflow secrets masked.",
   },
@@ -131,7 +131,7 @@ export function MonitoringDialog({
 }) {
   const { ts } = useI18n();
   const [selected, setSelected] = useState<ReportingLevel>(
-    LicenseMonitoringLevel.errors
+    LicenseMonitoringLevel.runs
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +142,7 @@ export function MonitoringDialog({
     setSelected(
       suggested ??
         (level === undefined || level === LicenseMonitoringLevel.off
-          ? LicenseMonitoringLevel.errors
+          ? LicenseMonitoringLevel.runs
           : level)
     );
     setError(null);

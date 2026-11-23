@@ -142,7 +142,8 @@ func TestChooseReportLevel(t *testing.T) {
 		wantErr    string
 	}{
 		{name: "Flag", flag: "runs", want: config.ReportRuns},
-		{name: "Default", answer: "\n", want: config.ReportErrors, asked: true},
+		{name: "Default", answer: "\n", want: config.ReportRuns, asked: true},
+		{name: "Errors", answer: "2\n", want: config.ReportErrors, asked: true},
 		{name: "Answer", answer: "3\n", want: config.ReportHealth, asked: true},
 		{name: "Nothing", answer: "4\n", want: config.ReportOff, asked: true},
 		{name: "Configured", flag: "health", configured: config.ReportRuns, want: config.ReportRuns},
