@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { memo, useState, type ReactElement } from 'react';
-import { NodeStatus, type components } from '@/api/v1/schema';
+import { NodeStatus } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { PanelMessage } from '@/components/ui/panel-message';
 import { RelativeTime } from '@/components/ui/relative-time';
@@ -12,37 +12,48 @@ import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import { formatExactCount } from '@/lib/formatCompactCount';
 import { sameContent } from '../data/sameContent';
 import { formatSpanMs } from './format';
-import type { SampleSource } from './sampleSource';
+import type { SampleSource, SourceEvent } from './sampleSource';
 import { useEventsPage, useReadAtEnd } from './useContinuousData';
 
-type StepEvent = components['schemas']['StepEvent'];
 type Window = { from: number; to: number } | null;
+
+/** What the list says when it has no event, or cannot load: names the source. */
+interface EventsSubject {
+  /** The English text of "the events of ...", for the error message. */
+  events: string;
+}
 
 /** The events that one request asks for. */
 export const EVENTS_PAGE = 50;
 
 /** The status whose token colours an event kind. */
-const KIND_STATUS: Record<StepEvent['kind'], NodeStatus> = {
+const KIND_STATUS: Record<SourceEvent['kind'], NodeStatus> = {
   started: NodeStatus.NotStarted,
   stopped: NodeStatus.Aborted,
   failed: NodeStatus.Failed,
   recovered: NodeStatus.Success,
+  gap: NodeStatus.Waiting,
 };
 
-const KIND_LABEL: Record<StepEvent['kind'], string> = {
+const KIND_LABEL: Record<SourceEvent['kind'], string> = {
   started: 'Started',
   stopped: 'Stopped',
   failed: 'Failed',
   recovered: 'Recovered',
+  gap: 'Gap',
 };
 
 // A poll hands out a new copy of each event: the row renders only for a change.
 const EventRow = memo(
-  function EventRow({ event }: { event: StepEvent }): ReactElement {
+  function EventRow({ event }: { event: SourceEvent }): ReactElement {
     const { ts, locale } = useI18n();
     const kind = ts(KIND_LABEL[event.kind]);
     const facts: string[] = [];
-    if (event.exitCode !== undefined && event.kind === 'failed') {
+    if (
+      'exitCode' in event &&
+      event.exitCode !== undefined &&
+      event.kind === 'failed'
+    ) {
       facts.push(ts('exit {code}', { code: event.exitCode }));
     }
     if (event.failedCount !== undefined && event.failedCount > 0) {
@@ -56,6 +67,13 @@ const EventRow = memo(
       facts.push(
         ts('outage {length}', {
           length: formatSpanMs(event.outageSeconds * 1000),
+        })
+      );
+    }
+    if ('gapSeconds' in event && event.gapSeconds !== undefined) {
+      facts.push(
+        ts('no run for {length}', {
+          length: formatSpanMs(event.gapSeconds * 1000),
         })
       );
     }
@@ -105,11 +123,13 @@ const EventRow = memo(
  */
 function EventsPage({
   source,
+  subject,
   window,
   before,
   poll,
 }: {
   source: SampleSource;
+  subject: EventsSubject;
   window: Window;
   before?: string;
   poll: boolean;
@@ -125,7 +145,7 @@ function EventsPage({
   if (error && !data) {
     return (
       <PanelMessage tone="error" align="start" className="p-0">
-        {ts('Could not load {thing}', { thing: ts('the events of this step') })}
+        {ts('Could not load {thing}', { thing: ts(subject.events) })}
       </PanelMessage>
     );
   }
@@ -154,6 +174,7 @@ function EventsPage({
         (more ? (
           <EventsPage
             source={source}
+            subject={subject}
             window={window}
             before={data.nextCursor}
             poll={false}
@@ -174,15 +195,17 @@ function EventsPage({
 }
 
 /**
- * The events of a continuous step, newest first, with the cursor of the API.
- * `window` limits the list to the times of a bucket of the chart.
+ * The events of a source, newest first, with the cursor of the API. `window`
+ * limits the list to the times of a bucket of the chart.
  */
 export function EventsList({
   source,
+  subject,
   window,
   poll,
 }: {
   source: SampleSource;
+  subject: EventsSubject;
   window: Window;
   poll: boolean;
 }): ReactElement {
@@ -190,7 +213,13 @@ export function EventsList({
   const key = window ? `${window.from}-${window.to}` : 'all';
   return (
     <div data-testid="continuous-events">
-      <EventsPage key={key} source={source} window={window} poll={poll} />
+      <EventsPage
+        key={key}
+        source={source}
+        subject={subject}
+        window={window}
+        poll={poll}
+      />
     </div>
   );
 }

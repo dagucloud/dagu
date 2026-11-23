@@ -23,7 +23,7 @@ import {
   useSamples,
   type SamplesWindow,
 } from '../useContinuousData';
-import { stepSource } from '../sampleSource';
+import { runHistorySource, stepSource } from '../sampleSource';
 
 const h = vi.hoisted(() => ({ GET: vi.fn() }));
 
@@ -285,5 +285,70 @@ describe('useEventsPage', () => {
       })
     );
     expect(view.result.current.data).toEqual(page);
+  });
+});
+
+// The run history of a service DAG answers with the same series. It reads
+// its own routes, at the periods of the step.
+describe('with the run history source', () => {
+  const history = runHistorySource('svc.yaml');
+  const SAMPLES = '/dags/{fileName}/run-history/samples';
+
+  const paths = () => h.GET.mock.calls.map((call) => call[0]);
+
+  it('reads the samples of the history, 10 s for 1h and a minute for more', async () => {
+    const hour = renderWithCache(() =>
+      useSamples(history, { preset: '1h' }, 100, true)
+    );
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(1));
+    expect(h.GET).toHaveBeenCalledWith(
+      SAMPLES,
+      expect.objectContaining({
+        params: expect.objectContaining({ path: { fileName: 'svc.yaml' } }),
+      })
+    );
+    await tick(SHORT_WINDOW_POLL_MS);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(2));
+
+    hour.unmount();
+    h.GET.mockClear();
+    renderWithCache(() => useSamples(history, { preset: '7d' }, 100, true));
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(1));
+    await tick(LONG_WINDOW_POLL_MS - 1000);
+    expect(h.GET).toHaveBeenCalledTimes(1);
+    await tick(1000);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(2));
+    expect(new Set(paths())).toEqual(new Set([SAMPLES]));
+  });
+
+  it('polls the availability once a minute and the events every 30 s', async () => {
+    renderWithCache(() => useSampleAvailability(history, true));
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(1));
+    expect(paths()).toEqual(['/dags/{fileName}/run-history/availability']);
+    await tick(AVAILABILITY_POLL_MS - 1000);
+    expect(h.GET).toHaveBeenCalledTimes(1);
+    await tick(1000);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(2));
+
+    h.GET.mockClear();
+    renderWithCache(() =>
+      useEventsPage(history, { window: null, limit: 50 }, true)
+    );
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(1));
+    expect(paths()).toEqual(['/dags/{fileName}/run-history/events']);
+    await tick(EVENTS_POLL_MS - 1000);
+    expect(h.GET).toHaveBeenCalledTimes(1);
+    await tick(1000);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(2));
+  });
+
+  // A step and a history never share a cache entry.
+  it('keeps the cache entry of a history apart from that of a step', async () => {
+    const view = renderWithCache(() => [
+      useSamples(history, { preset: '24h' }, 100, false),
+      useSamples(target, { preset: '24h' }, 100, false),
+    ]);
+    await waitFor(() => expect(h.GET).toHaveBeenCalledTimes(2));
+    expect([...view.cache.keys()]).toHaveLength(2);
   });
 });

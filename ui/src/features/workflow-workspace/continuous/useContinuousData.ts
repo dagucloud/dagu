@@ -37,8 +37,10 @@ export function useReadAtEnd(active: boolean, read: () => unknown): void {
 const STEP_AVAILABILITY =
   '/dag-runs/{name}/{dagRunId}/steps/{stepName}/availability';
 const STEP_EVENTS = '/dag-runs/{name}/{dagRunId}/steps/{stepName}/events';
+const HISTORY_AVAILABILITY = '/dags/{fileName}/run-history/availability';
+const HISTORY_EVENTS = '/dags/{fileName}/run-history/events';
 
-function stepPathOf(source: SampleSource) {
+function stepPathOf(source: Extract<SampleSource, { kind: 'step' }>) {
   return {
     name: source.name,
     dagRunId: source.runId,
@@ -46,17 +48,38 @@ function stepPathOf(source: SampleSource) {
   };
 }
 
-/** The availability and the streak of the source. Polled while `poll` is set. */
+/**
+ * The availability and the streak of the source. Polled while `poll` is
+ * set. The query of the other kind of source has a null init: it asks for
+ * nothing.
+ */
 export function useSampleAvailability(source: SampleSource, poll: boolean) {
   const remoteNode = useRemoteNode();
-  return useQuery(
+  const config = { refreshInterval: poll ? AVAILABILITY_POLL_MS : 0 };
+  const step = useQuery(
     STEP_AVAILABILITY,
-    { params: { path: stepPathOf(source), query: { remoteNode } } },
-    { refreshInterval: poll ? AVAILABILITY_POLL_MS : 0 }
+    source.kind === 'step'
+      ? { params: { path: stepPathOf(source), query: { remoteNode } } }
+      : null,
+    config
   );
+  const history = useQuery(
+    HISTORY_AVAILABILITY,
+    source.kind === 'run-history'
+      ? {
+          params: {
+            path: { fileName: source.fileName },
+            query: { remoteNode },
+          },
+        }
+      : null,
+    config
+  );
+  return source.kind === 'step' ? step : history;
 }
 
 const SAMPLES_PATH = '/dag-runs/{name}/{dagRunId}/steps/{stepName}/samples';
+const HISTORY_SAMPLES_PATH = '/dags/{fileName}/run-history/samples';
 
 /** The window of the samples: fixed times, or a preset that ends now. */
 export type SamplesWindow =
@@ -147,7 +170,8 @@ export function useSamples(
 ) {
   const remoteNode = useRemoteNode();
   const client = useClient();
-  const path = stepPathOf(source);
+  const path =
+    source.kind === 'step' ? stepPathOf(source) : { fileName: source.fileName };
   const at =
     'preset' in window
       ? [window.preset, window.startedAt ?? null]
@@ -158,15 +182,20 @@ export function useSamples(
   return useSWR(
     [
       'continuous-samples',
-      SAMPLES_PATH,
+      source.kind === 'step' ? SAMPLES_PATH : HISTORY_SAMPLES_PATH,
       { path, remoteNode, points, at },
     ] as const,
     async () => {
       const { from, to } = windowAt(window, Date.now());
       const query = { remoteNode, from: iso(from), to: iso(to), points };
-      const { data, error } = await client.GET(SAMPLES_PATH, {
-        params: { path, query },
-      });
+      const { data, error } =
+        source.kind === 'step'
+          ? await client.GET(SAMPLES_PATH, {
+              params: { path: stepPathOf(source), query },
+            })
+          : await client.GET(HISTORY_SAMPLES_PATH, {
+              params: { path: { fileName: source.fileName }, query },
+            });
       if (error) throw error;
       return data;
     },
@@ -214,24 +243,31 @@ export function useEventsPage(
   poll: boolean
 ) {
   const remoteNode = useRemoteNode();
-  return useQuery(
+  const query = {
+    remoteNode,
+    limit: page.limit,
+    ...(page.before ? { before: page.before } : {}),
+    ...(page.window
+      ? { from: iso(page.window.from), to: iso(page.window.to) }
+      : {}),
+  };
+  const config = {
+    keepPreviousData: true,
+    refreshInterval: poll && !page.before ? EVENTS_POLL_MS : 0,
+  };
+  const step = useQuery(
     STEP_EVENTS,
-    {
-      params: {
-        path: stepPathOf(source),
-        query: {
-          remoteNode,
-          limit: page.limit,
-          ...(page.before ? { before: page.before } : {}),
-          ...(page.window
-            ? { from: iso(page.window.from), to: iso(page.window.to) }
-            : {}),
-        },
-      },
-    },
-    {
-      keepPreviousData: true,
-      refreshInterval: poll && !page.before ? EVENTS_POLL_MS : 0,
-    }
+    source.kind === 'step'
+      ? { params: { path: stepPathOf(source), query } }
+      : null,
+    config
   );
+  const history = useQuery(
+    HISTORY_EVENTS,
+    source.kind === 'run-history'
+      ? { params: { path: { fileName: source.fileName }, query } }
+      : null,
+    config
+  );
+  return source.kind === 'step' ? step : history;
 }

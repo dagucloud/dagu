@@ -49,9 +49,10 @@ function answer(data: unknown, path: string) {
 vi.mock('@/hooks/api', () => ({
   useQuery: (
     path: string,
-    init: { params: { query: Record<string, unknown> } },
+    init: { params: { query: Record<string, unknown> } } | null,
     config?: Record<string, unknown>
   ) => {
+    if (init === null) return { data: undefined, error: undefined };
     h.calls.push({ path, query: init.params.query, config });
     const data =
       typeof h.responses[path] === 'function'
@@ -227,6 +228,11 @@ describe('ContinuousPanel', () => {
     expect(strip.getByTestId('continuous-availability-365d')).toHaveTextContent(
       '-'
     );
+    // A step has one figure for each window, as before: no uptime.
+    expect(strip.getByTestId('continuous-availability-24h')).toHaveTextContent(
+      'Availability 24h'
+    );
+    expect(strip.queryByTestId('continuous-uptime-24h')).toBeNull();
     const streak = within(strip.getByTestId('continuous-streak'));
     expect(streak.getByTestId('compact-count')).toHaveTextContent('1.2M');
     expect(streak.getByTestId('compact-count')).toHaveAttribute(

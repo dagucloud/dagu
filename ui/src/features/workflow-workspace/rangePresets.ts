@@ -23,11 +23,13 @@ export type PresetId = (typeof RANGE_PRESETS)[number]['id'];
 export type RangePreset = (typeof RANGE_PRESETS)[number];
 
 /** The use of a time axis: it decides which presets the user can choose. */
-export type RangeUse = 'dag' | 'continuous';
+export type RangeUse = 'dag' | 'service' | 'continuous';
 
 const USE_IDS: Record<RangeUse, readonly PresetId[]> = {
   // The runs of a normal DAG: only the retained runs fill the axis.
   dag: ['1h', '6h', '24h', '7d'],
+  // The run history of a service DAG goes back three years.
+  service: ['1h', '6h', '24h', '7d', '30d', '1y', '3y'],
   continuous: ['1h', '24h', '7d', '30d', '1y', '3y'],
 };
 

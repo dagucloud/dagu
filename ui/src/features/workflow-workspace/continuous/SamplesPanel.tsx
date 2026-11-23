@@ -30,7 +30,7 @@ import {
   type RangePresetId,
   type View,
 } from './sampleBars';
-import type { SampleSource } from './sampleSource';
+import { unitOf, type SampleSource } from './sampleSource';
 import {
   useReadAtEnd,
   useSampleAvailability,
@@ -48,6 +48,49 @@ function fixed(view: View, now: number): View {
   return { ...view, ...viewAt(view, now) };
 }
 
+/** The window that a host chooses: a preset that ends now, or fixed times. */
+export type PanelRange =
+  | { preset: Exclude<RangePresetId, 'all'> }
+  | { from: number; to: number };
+
+function viewOf(range: PanelRange, now: number): View {
+  return 'preset' in range
+    ? presetView(range.preset, now)
+    : { from: range.from, to: range.to, preset: null };
+}
+
+const rangeKey = (range: PanelRange | undefined) =>
+  range === undefined
+    ? null
+    : 'preset' in range
+      ? range.preset
+      : `${range.from}-${range.to}`;
+
+/** The English texts that name what a source holds. */
+interface Subject {
+  title: string;
+  samples: string;
+  availability: string;
+  events: string;
+  empty: string;
+}
+
+const STEP_SUBJECT: Subject = {
+  title: 'Samples',
+  samples: 'the samples of this step',
+  availability: 'the availability of this step',
+  events: 'the events of this step',
+  empty: 'No samples yet',
+};
+
+const HISTORY_SUBJECT: Subject = {
+  title: 'Run history',
+  samples: 'the run history',
+  availability: 'the availability of the runs',
+  events: 'the events of the run history',
+  empty: 'No runs in this window',
+};
+
 export interface SamplesPanelProps {
   source: SampleSource;
   /** The short windows and the lists poll. */
@@ -56,16 +99,24 @@ export interface SamplesPanelProps {
   startedAt?: number;
   /** The start of the streak when no sample failed. */
   since?: string;
-  /** The periods that the panel offers as buttons, and "All". */
-  presets: readonly RangePreset[];
+  /**
+   * The periods that the panel offers as buttons, and "All", for a step.
+   * Without them the host chooses the window with `range`.
+   */
+  presets?: readonly RangePreset[];
+  /** The window of the host. The panel starts again at it when it changes. */
+  range?: PanelRange;
+  testId?: string;
   /** The `data-step` of the root, for a step. */
   step?: string;
+  className?: string;
 }
 
 /**
  * The panel of a series of samples: the availability, the chart over a
  * window that zooms from one hour to years, and the events of the selected
- * bucket. Samples and events come from the API in buckets and pages, so the
+ * bucket. The source is a continuous step or the run history of a service
+ * DAG. Samples and events come from the API in buckets and pages, so the
  * panel stays small for a window of years.
  */
 export function SamplesPanel({
@@ -74,17 +125,31 @@ export function SamplesPanel({
   startedAt,
   since,
   presets,
+  range,
+  testId = 'continuous-panel',
   step,
+  className = 'h-full min-h-0 space-y-3 overflow-auto p-3',
 }: SamplesPanelProps): ReactElement {
   const { ts } = useI18n();
+  const subject = source.kind === 'step' ? STEP_SUBJECT : HISTORY_SUBJECT;
+  const unit = unitOf(source);
 
   const [view, setView] = useState<View>(() =>
-    presetView(DEFAULT_PRESET, Date.now())
+    range ? viewOf(range, Date.now()) : presetView(DEFAULT_PRESET, Date.now())
   );
   const [selected, setSelected] = useState<{
     time: number;
     resolutionSeconds: number;
   } | null>(null);
+  // A window that the host chooses again starts the view again.
+  const [seenRange, setSeenRange] = useState(rangeKey(range));
+  if (rangeKey(range) !== seenRange) {
+    setSeenRange(rangeKey(range));
+    if (range) {
+      setView(viewOf(range, Date.now()));
+      setSelected(null);
+    }
+  }
   // The window of the request: a preset at once, a zoom or a pan once it
   // rests, so that a drag does not ask for each of its moves.
   const [asked, setAsked] = useState(view);
@@ -149,9 +214,7 @@ export function SamplesPanel({
   if (failed) {
     return (
       <PanelMessage tone="error" align="start">
-        {ts('Could not load {thing}', {
-          thing: ts('the samples of this step'),
-        })}
+        {ts('Could not load {thing}', { thing: ts(subject.samples) })}
       </PanelMessage>
     );
   }
@@ -159,17 +222,15 @@ export function SamplesPanel({
   return (
     <div
       ref={rootRef}
-      data-testid="continuous-panel"
+      data-testid={testId}
       data-step={step}
-      className="h-full min-h-0 space-y-3 overflow-auto p-3"
+      className={className}
     >
       {availability.data ? (
-        <AvailabilityStrip data={availability.data} since={since} />
+        <AvailabilityStrip data={availability.data} since={since} unit={unit} />
       ) : availability.error ? (
         <PanelMessage tone="error" align="start" className="p-0">
-          {ts('Could not load {thing}', {
-            thing: ts('the availability of this step'),
-          })}
+          {ts('Could not load {thing}', { thing: ts(subject.availability) })}
         </PanelMessage>
       ) : (
         <PanelMessage tone="muted" align="start" className="p-0">
@@ -177,41 +238,41 @@ export function SamplesPanel({
         </PanelMessage>
       )}
 
-      <section aria-label={ts('Samples')} className="space-y-2">
-        <ToggleGroup aria-label={ts('Period')} className="flex-wrap">
-          {[
-            ...presets.map((p) => ({
-              id: p.id as RangePresetId,
-              label: p.short,
-            })),
-            { id: 'all' as RangePresetId, label: ts('All') },
-          ].map((p) => (
-            <ToggleButton
-              key={p.id}
-              value={p.id}
-              groupValue={view.preset ?? undefined}
-              onClick={() => choose(p.id)}
-              className="h-6 px-2"
-            >
-              {p.label}
-            </ToggleButton>
-          ))}
-        </ToggleGroup>
+      <section aria-label={ts(subject.title)} className="space-y-2">
+        {presets && (
+          <ToggleGroup aria-label={ts('Period')} className="flex-wrap">
+            {[
+              ...presets.map((p) => ({
+                id: p.id as RangePresetId,
+                label: p.short,
+              })),
+              { id: 'all' as RangePresetId, label: ts('All') },
+            ].map((p) => (
+              <ToggleButton
+                key={p.id}
+                value={p.id}
+                groupValue={view.preset ?? undefined}
+                onClick={() => choose(p.id)}
+                className="h-6 px-2"
+              >
+                {p.label}
+              </ToggleButton>
+            ))}
+          </ToggleGroup>
+        )}
         <div className="pt-2">
           {samples.error && !samples.data ? (
             <PanelMessage tone="error" align="start" className="p-0">
-              {ts('Could not load {thing}', {
-                thing: ts('the samples of this step'),
-              })}
+              {ts('Could not load {thing}', { thing: ts(subject.samples) })}
             </PanelMessage>
           ) : !samples.data ? (
             <PanelMessage tone="muted" align="start" className="p-0">
               {ts('Loading samples...')}
             </PanelMessage>
-          ) : samples.data.buckets.length === 0 ? (
+          ) : samples.data.buckets.every((b) => b.count <= 0) ? (
             <div data-testid="continuous-empty">
               <PanelMessage tone="muted" align="center" className="py-8">
-                {ts('No samples yet')}
+                {ts(subject.empty)}
               </PanelMessage>
             </div>
           ) : (
@@ -219,6 +280,7 @@ export function SamplesPanel({
               samples={samples.data}
               window={shown}
               width={width}
+              unit={unit}
               selected={selected?.time ?? null}
               onSelect={setSelected}
               onZoom={zoom}
@@ -250,7 +312,12 @@ export function SamplesPanel({
             </>
           )}
         </div>
-        <EventsList source={source} window={eventsWindow} poll={active} />
+        <EventsList
+          source={source}
+          subject={subject}
+          window={eventsWindow}
+          poll={active}
+        />
       </section>
     </div>
   );
