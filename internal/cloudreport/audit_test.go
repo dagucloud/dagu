@@ -5,7 +5,6 @@ package cloudreport
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +14,8 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/audit"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/license"
 	fileaudit "github.com/dagucloud/dagu/v2/internal/persis/file/audit"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/stretchr/testify/assert"
@@ -64,6 +65,9 @@ func (d *auditDir) writeCall(t *testing.T, at time.Time, tool string) {
 	}
 }
 
+// errConsoleBusy is Console asking to send again on the next pass.
+var errConsoleBusy = &auditRefusal{msg: "Dagu Console is busy", wait: auditCheckInterval}
+
 // auditConsole records the batches a shipper sends, and fails a send while
 // fail holds errors.
 type auditConsole struct {
@@ -75,7 +79,7 @@ func newAuditConsole() *auditConsole {
 	return &auditConsole{batches: make(chan auditBatch, 16), fail: make(chan error, 4)}
 }
 
-func (c *auditConsole) send(_ context.Context, batch auditBatch) error {
+func (c *auditConsole) send(_ context.Context, _ license.CloudCredentials, batch auditBatch) error {
 	c.batches <- batch
 	select {
 	case err := <-c.fail:
@@ -100,16 +104,35 @@ func (c *auditConsole) sent() []auditBatch {
 
 // startShipper runs a shipper over d at level with a clock the test controls,
 // and returns the clock after the first pass.
-func startShipper(t *testing.T, d *auditDir, level auditLevel, console *auditConsole) *fakeClock {
+func startShipper(t *testing.T, d *auditDir, level config.AuditLevel, console *auditConsole) *fakeClock {
 	t.Helper()
 	_, clock := runShipper(t, d, level, console)
 	return clock
 }
 
+// testCredentials are a license connected to Dagu Console that includes
+// audit logs.
+func testCredentials() (license.CloudCredentials, bool) {
+	return license.CloudCredentials{CloudURL: "http://console.invalid", LicenseID: "lic-1", ServerID: "srv-1", HeartbeatSecret: "hb-secret"}, true
+}
+
+// newTestShipper is a shipper connected with testCredentials.
+func newTestShipper(
+	feed AuditFeed,
+	state StateStore,
+	lease Lease,
+	level config.AuditLevel,
+	send func(context.Context, license.CloudCredentials, auditBatch) error,
+) *auditShipper {
+	s := newAuditShipper(feed, state, lease, level, send)
+	s.credentials, s.licensed = testCredentials, func() bool { return true }
+	return s
+}
+
 // runShipper is startShipper that also returns the shipper.
-func runShipper(t *testing.T, d *auditDir, level auditLevel, console *auditConsole) (*auditShipper, *fakeClock) {
+func runShipper(t *testing.T, d *auditDir, level config.AuditLevel, console *auditConsole) (*auditShipper, *fakeClock) {
 	t.Helper()
-	s := newAuditShipper(fileaudit.NewFeed(d.dir), d.state, filemonitor.NewLease(d.stateFile, nil), level, console.send)
+	s := newTestShipper(fileaudit.NewFeed(d.dir), d.state, filemonitor.NewLease(d.stateFile, nil), level, console.send)
 	clock := &fakeClock{t: t, waits: make(chan time.Duration, 16), fire: make(chan time.Time), at: testClockStart}
 	s.after, s.now = clock.after, clock.now
 	s.start(t.Context())
@@ -140,7 +163,7 @@ func sentEntries(batches []auditBatch) []*audit.Entry {
 // 100 MCP calls, 80 reads and 20 changes, write 300 local entries. Of each
 // call only the result goes, and at changes no successful read.
 func TestAuditShipperLevels(t *testing.T) {
-	for level, want := range map[auditLevel]int{auditChanges: 20, auditAll: 100} {
+	for level, want := range map[config.AuditLevel]int{config.AuditChanges: 20, config.AuditAll: 100} {
 		t.Run(string(level), func(t *testing.T) {
 			d := newAuditDir(t)
 			for i := range 100 {
@@ -186,8 +209,8 @@ func TestAuditShipperSendsWhatTheLevelSends(t *testing.T) {
 		{"cleanup", entry(audit.CategorySystem, "audit_cleanup", "", ""), true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.changes, (&auditShipper{level: auditChanges}).sends(tc.entry), "changes")
-			assert.Equal(t, tc.all, (&auditShipper{level: auditAll}).sends(tc.entry), "all")
+			assert.Equal(t, tc.changes, (&auditShipper{level: config.AuditChanges}).sends(tc.entry), "changes")
+			assert.Equal(t, tc.all, (&auditShipper{level: config.AuditAll}).sends(tc.entry), "all")
 		})
 	}
 }
@@ -204,7 +227,7 @@ func TestAuditShipperSendsOnlyMaskedEntries(t *testing.T) {
 	masked := d.write(t, testClockStart, audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
 	console := newAuditConsole()
 
-	startShipper(t, d, auditAll, console)
+	startShipper(t, d, config.AuditAll, console)
 
 	entries := sentEntries(console.sent())
 	require.Len(t, entries, 1)
@@ -220,7 +243,7 @@ func TestAuditShipperIdleWritesNothing(t *testing.T) {
 	d.state = state
 	console := newAuditConsole()
 
-	clock := startShipper(t, d, auditChanges, console)
+	clock := startShipper(t, d, config.AuditChanges, console)
 	assert.Empty(t, console.sent())
 	saves := state.saves.Load()
 	require.Positive(t, saves)
@@ -240,7 +263,7 @@ func TestAuditShipperSendsFullBatchesAtOnce(t *testing.T) {
 	}
 	console := newAuditConsole()
 
-	startShipper(t, d, auditAll, console)
+	startShipper(t, d, config.AuditAll, console)
 
 	batches := console.sent()
 	require.Len(t, batches, 2)
@@ -250,13 +273,13 @@ func TestAuditShipperSendsFullBatchesAtOnce(t *testing.T) {
 
 // countingFeed counts the reads of a feed.
 type countingFeed struct {
-	auditFeed
+	AuditFeed
 	reads atomic.Int32
 }
 
 func (f *countingFeed) Read(ctx context.Context, q audit.FeedQuery) (audit.FeedChunk, error) {
 	f.reads.Add(1)
-	return f.auditFeed.Read(ctx, q)
+	return f.AuditFeed.Read(ctx, q)
 }
 
 // A batch Console did not store goes again as built: a line past the read
@@ -266,10 +289,10 @@ func TestAuditShipperResendsWithoutReadingAgain(t *testing.T) {
 	entry := d.write(t, testClockStart, audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
 	appendRaw(t, d, strings.Repeat("x", 10<<20))
 	console := newAuditConsole()
-	console.fail <- errors.New("console unreachable")
-	console.fail <- errors.New("console unreachable")
-	feed := &countingFeed{auditFeed: fileaudit.NewFeed(d.dir)}
-	s := newAuditShipper(feed, d.state, filemonitor.NewLease(d.stateFile, nil), auditAll, console.send)
+	console.fail <- errConsoleBusy
+	console.fail <- errConsoleBusy
+	feed := &countingFeed{AuditFeed: fileaudit.NewFeed(d.dir)}
+	s := newTestShipper(feed, d.state, filemonitor.NewLease(d.stateFile, nil), config.AuditAll, console.send)
 	clock := &fakeClock{t: t, waits: make(chan time.Duration, 16), fire: make(chan time.Time), at: testClockStart}
 	s.after, s.now = clock.after, clock.now
 	s.start(t.Context())
@@ -296,9 +319,9 @@ func TestAuditShipperResendsWhatConsoleDidNotStore(t *testing.T) {
 	d := newAuditDir(t)
 	entry := d.write(t, testClockStart, audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
 	console := newAuditConsole()
-	console.fail <- errors.New("console unreachable")
+	console.fail <- errConsoleBusy
 
-	clock := startShipper(t, d, auditAll, console)
+	clock := startShipper(t, d, config.AuditAll, console)
 	require.Len(t, sentEntries(console.sent()), 1)
 
 	clock.next()
@@ -317,13 +340,13 @@ func TestAuditShipperKeepsItsStartWhenTheFirstSendFails(t *testing.T) {
 	yesterday := testClockStart.AddDate(0, 0, -1)
 	d.write(t, yesterday, audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
 	console := newAuditConsole()
-	console.fail <- errors.New("console unreachable")
-	first, _ := runShipper(t, d, auditAll, console)
+	console.fail <- errConsoleBusy
+	first, _ := runShipper(t, d, config.AuditAll, console)
 	require.Len(t, sentEntries(console.sent()), 1)
 	first.stop()
 
 	require.NoError(t, os.Remove(filepath.Join(d.dir, yesterday.Format("2006-01-02")+".jsonl")))
-	startShipper(t, d, auditAll, console)
+	startShipper(t, d, config.AuditAll, console)
 
 	batches := console.sent()
 	require.Len(t, batches, 1)
@@ -337,10 +360,10 @@ func TestAuditShipperKeepsItsStartWhenTheFirstSendFails(t *testing.T) {
 func TestAuditShipperRepeatsAFailedFullCheck(t *testing.T) {
 	d := newAuditDir(t)
 	console := newAuditConsole()
-	clock := startShipper(t, d, auditAll, console)
+	clock := startShipper(t, d, config.AuditAll, console)
 
 	late := d.write(t, testClockStart.AddDate(0, 0, -1), audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
-	console.fail <- errors.New("console unreachable")
+	console.fail <- errConsoleBusy
 	clock.shift(auditScanInterval)
 	clock.next()
 	require.Len(t, sentEntries(console.sent()), 1)
@@ -362,7 +385,7 @@ func TestAuditShipperBoundsBatchBytes(t *testing.T) {
 	}
 	console := newAuditConsole()
 
-	startShipper(t, d, auditAll, console)
+	startShipper(t, d, config.AuditAll, console)
 
 	batches := console.sent()
 	require.Greater(t, len(batches), 1)
@@ -389,7 +412,7 @@ func (f *endlessFeed) Read(context.Context, audit.FeedQuery) (audit.FeedChunk, e
 func TestAuditShipperStopsDuringALongRead(t *testing.T) {
 	d := newAuditDir(t)
 	feed := &endlessFeed{reading: make(chan struct{})}
-	s := newAuditShipper(feed, d.state, filemonitor.NewLease(d.stateFile, nil), auditChanges, newAuditConsole().send)
+	s := newTestShipper(feed, d.state, filemonitor.NewLease(d.stateFile, nil), config.AuditChanges, newAuditConsole().send)
 	s.start(t.Context())
 	select {
 	case <-feed.reading:
@@ -414,7 +437,7 @@ func TestAuditShipperStopsDuringALongRead(t *testing.T) {
 func TestAuditShipperFindsLateEntriesWithinAMinute(t *testing.T) {
 	d := newAuditDir(t)
 	console := newAuditConsole()
-	clock := startShipper(t, d, auditAll, console)
+	clock := startShipper(t, d, config.AuditAll, console)
 
 	late := d.write(t, testClockStart.AddDate(0, 0, -1), audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
 	clock.shift(auditScanInterval - 2*auditCheckInterval)
@@ -434,7 +457,7 @@ func TestAuditShipperSendsOneGapPerBatch(t *testing.T) {
 	yesterday := testClockStart.AddDate(0, 0, -1)
 	d.write(t, yesterday, audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
 	console := newAuditConsole()
-	clock := startShipper(t, d, auditAll, console)
+	clock := startShipper(t, d, config.AuditAll, console)
 	require.Len(t, console.sent(), 1)
 
 	require.NoError(t, os.Remove(filepath.Join(d.dir, yesterday.Format("2006-01-02")+".jsonl")))
@@ -491,13 +514,13 @@ func TestAuditShipperLease(t *testing.T) {
 	d := newAuditDir(t)
 	first := d.write(t, testClockStart, audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
 	holderConsole := newAuditConsole()
-	holder, _ := runShipper(t, d, auditAll, holderConsole)
+	holder, _ := runShipper(t, d, config.AuditAll, holderConsole)
 	sent := sentEntries(holderConsole.sent())
 	require.Len(t, sent, 1)
 	assert.Equal(t, first.ID, sent[0].ID)
 
 	standbyConsole := newAuditConsole()
-	standby := startShipper(t, d, auditAll, standbyConsole)
+	standby := startShipper(t, d, config.AuditAll, standbyConsole)
 	assert.Empty(t, standbyConsole.sent())
 
 	holder.stop()
