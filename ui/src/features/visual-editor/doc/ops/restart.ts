@@ -47,25 +47,27 @@ function isEmpty(node: unknown): boolean {
 /** The keys of the map form of a schedule. */
 const SCHEDULE_KINDS = ['start', 'stop', 'restart'];
 
-/**
- * The entries of a schedule: a string, a list, an entry object, or the
- * start, stop and restart of the map form, each of them in any form.
- */
-function scheduleEntries(node: unknown): number {
+/** The entries of a value: a string, an entry object, or a list of them. */
+function entryCount(node: unknown): number {
   if (isSeq(node)) return node.items.length;
-  if (isMap(node)) {
-    const kinds = SCHEDULE_KINDS.filter((key) => node.has(key));
-    if (kinds.length === 0) return node.items.length > 0 ? 1 : 0;
-    return kinds.reduce(
-      (count, key) => count + scheduleEntries(node.get(key, true)),
-      0
-    );
-  }
+  if (isMap(node)) return node.items.length > 0 ? 1 : 0;
   return isScalar(node) &&
     typeof node.value === 'string' &&
     node.value.trim() !== ''
     ? 1
     : 0;
+}
+
+/**
+ * The entries of a schedule: a string, a list, or the start, stop and
+ * restart of the map form, each of them in any form.
+ */
+function scheduleEntries(node: unknown): number {
+  if (!isMap(node)) return entryCount(node);
+  return SCHEDULE_KINDS.reduce(
+    (count, key) => count + entryCount(node.get(key, true)),
+    0
+  );
 }
 
 /** Reads the restart keys of document 0. Never throws. */

@@ -64,6 +64,11 @@ describe('readRestart', () => {
     expect(
       readRestart('schedule:\n  - expression: "0 8 * * *"\n').schedule
     ).toBe(true);
+    // The map form takes only start, stop and restart: the server reads any
+    // other map as a broken schedule, not as an entry.
+    expect(readRestart('schedule:\n  expression: "0 8 * * *"\n').schedule).toBe(
+      false
+    );
     expect(readRestart('retry_policy:\n  limit: 2\n').retryPolicy).toBe(true);
     // A key with no value: the server reads no retry policy.
     expect(readRestart('retry_policy:\n').retryPolicy).toBe(false);
