@@ -15,6 +15,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/aiendpoint"
 	"github.com/dagucloud/dagu/v2/internal/aigateway"
+	"github.com/dagucloud/dagu/v2/internal/audit"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
@@ -148,7 +149,9 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 	}
 
 	if cfg.Server.Audit.Enabled {
-		auditStore, err := fileaudit.New(fileaudit.Dir(cfg.Paths.AdminLogsDir), cfg.Server.Audit.RetentionDays)
+		// Without a secret store, no entry is marked masked, so none is sent.
+		auditStore, err := fileaudit.New(fileaudit.Dir(cfg.Paths.AdminLogsDir), cfg.Server.Audit.RetentionDays,
+			fileaudit.WithMasker(audit.NewMasker(stores.Secret)))
 		if err != nil {
 			return fmt.Errorf("failed to initialize audit service: failed to create audit store: %w", err)
 		}

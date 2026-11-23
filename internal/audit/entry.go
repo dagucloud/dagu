@@ -70,6 +70,8 @@ type Entry struct {
 	Details string `json:"details,omitempty"`
 	// IPAddress is the IP address from which the action was performed.
 	IPAddress string `json:"ip_address,omitempty"`
+	// Masked reports that the store masked the entry before writing it.
+	Masked bool `json:"masked,omitempty"`
 }
 
 // NewEntry creates a new audit entry with a generated ID and current timestamp.

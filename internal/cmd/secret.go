@@ -82,7 +82,7 @@ the value is not printed if the entry cannot be written.`,
 		if err != nil {
 			return fmt.Errorf("failed to resolve secret %q: %w", ref, err)
 		}
-		if err := auditSecretResolve(ctx, sec); err != nil {
+		if err := auditSecretResolve(ctx, secrets, sec); err != nil {
 			return fmt.Errorf("failed to record secret read in the audit log: %w", err)
 		}
 		_, err = io.WriteString(ctx.Command.OutOrStdout(), value)
@@ -128,13 +128,15 @@ func ensureSecretWorkspaceKnown(ctx *Context, secrets secret.Store, name string)
 	return nil
 }
 
-// auditSecretResolve records a plaintext read of sec, so reads outside DAG runs
-// stay traceable. It records nothing when audit logging is disabled.
-func auditSecretResolve(ctx *Context, sec *secret.Secret) error {
+// auditSecretResolve records a plaintext read of sec, masked with the values
+// in secrets, so reads outside DAG runs stay traceable. It records nothing
+// when audit logging is disabled.
+func auditSecretResolve(ctx *Context, secrets secret.Store, sec *secret.Secret) error {
 	if !ctx.Config.Server.Audit.Enabled {
 		return nil
 	}
-	auditStore, err := fileaudit.New(fileaudit.Dir(ctx.Config.Paths.AdminLogsDir), 0)
+	auditStore, err := fileaudit.New(fileaudit.Dir(ctx.Config.Paths.AdminLogsDir), 0,
+		fileaudit.WithMasker(audit.NewMasker(secrets)))
 	if err != nil {
 		return err
 	}

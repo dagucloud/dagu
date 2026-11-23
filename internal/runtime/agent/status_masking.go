@@ -9,7 +9,6 @@ import (
 	"maps"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
@@ -126,72 +125,14 @@ func maskStepOutputs(masker *masking.Masker, node *ir.Node) *string {
 	return maskOutputDocument(masker, node.StepOutputsValue)
 }
 
-// maskOutputDocument masks a stored JSON output document. Plain replacement
-// can split a JSON token, such as a secret matching a number; such a document
-// is masked value by value instead, so a run that reuses it can still read it.
-// It never keeps secret text that plain replacement masks.
+// maskOutputDocument masks a stored JSON output document, keeping it JSON,
+// so a run that reuses it can still read it.
 func maskOutputDocument(masker *masking.Masker, value *string) *string {
-	masked := maskStringPointer(masker, value)
-	if masked == nil || *masked == *value || json.Valid([]byte(*masked)) || !json.Valid([]byte(*value)) {
-		return masked
+	if value == nil {
+		return nil
 	}
-	decoder := json.NewDecoder(strings.NewReader(*value))
-	decoder.UseNumber()
-	var decoded any
-	if err := decoder.Decode(&decoded); err != nil {
-		return masked
-	}
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(maskJSONValue(masker, decoded)); err != nil {
-		return masked
-	}
-	document := strings.TrimSuffix(buf.String(), "\n")
-	// A secret spanning JSON values is in no single decoded value, so
-	// re-encoding writes it back out.
-	if masker.MaskString(document) != document {
-		return masked
-	}
-	return &document
-}
-
-// maskJSONValue masks secrets in decoded JSON. A number, boolean, or null
-// holding a secret becomes the masked string.
-func maskJSONValue(masker *masking.Masker, value any) any {
-	switch typed := value.(type) {
-	case string:
-		return masker.MaskString(typed)
-	case json.Number:
-		return maskJSONLiteral(masker, typed.String(), typed)
-	case bool:
-		return maskJSONLiteral(masker, strconv.FormatBool(typed), typed)
-	case nil:
-		return maskJSONLiteral(masker, "null", nil)
-	case []any:
-		masked := make([]any, len(typed))
-		for i, item := range typed {
-			masked[i] = maskJSONValue(masker, item)
-		}
-		return masked
-	case map[string]any:
-		masked := make(map[string]any, len(typed))
-		for key, item := range typed {
-			masked[masker.MaskString(key)] = maskJSONValue(masker, item)
-		}
-		return masked
-	default:
-		return value
-	}
-}
-
-// maskJSONLiteral returns the masked text of a JSON literal holding a secret,
-// and value otherwise.
-func maskJSONLiteral(masker *masking.Masker, literal string, value any) any {
-	if masked := masker.MaskString(literal); masked != literal {
-		return masked
-	}
-	return value
+	masked := masker.MaskJSON(*value)
+	return &masked
 }
 
 func maskNodeStatusDetails(masker *masking.Masker, details []ir.NodeStatusDetail) []ir.NodeStatusDetail {

@@ -52,7 +52,7 @@ func auditToolCall[T any](
 		}
 		failureDetails := withAuditResult(details, outcome)
 		failureDetails["duration_ms"] = time.Since(start).Milliseconds()
-		failureDetails["error"] = sanitizeAuditString(err.Error(), 512)
+		failureDetails["error"] = strings.TrimSpace(err.Error())
 		logMCPAudit(ctx, api, action, failureDetails)
 		return nil, output, err
 	}
@@ -112,12 +112,12 @@ func applyMCPRequestMetadata(source *audit.SourceContext, session *mcpsdk.Server
 	if session != nil {
 		source.SessionID = session.ID()
 		if params := session.InitializeParams(); params != nil && params.ClientInfo != nil {
-			source.ClientName = sanitizeAuditString(params.ClientInfo.Name, 128)
-			source.ClientVersion = sanitizeAuditString(params.ClientInfo.Version, 64)
+			source.ClientName = strings.TrimSpace(params.ClientInfo.Name)
+			source.ClientVersion = strings.TrimSpace(params.ClientInfo.Version)
 		}
 	}
 	if extra != nil && source.ClientName == "" {
-		source.ClientName = sanitizeAuditString(extra.Header.Get("User-Agent"), 128)
+		source.ClientName = strings.TrimSpace(extra.Header.Get("User-Agent"))
 	}
 }
 
@@ -196,7 +196,7 @@ func readAuditMetadata(input readInput) toolAuditMetadata {
 		resourceID = strings.Trim(resourceID+"/"+input.DAGRunID, "/")
 	}
 	if input.URI != "" {
-		resourceID = sanitizeAuditString(input.URI, 256)
+		resourceID = strings.TrimSpace(input.URI)
 	}
 	attrs := map[string]any{
 		"target": target,
@@ -212,9 +212,9 @@ func readAuditMetadata(input readInput) toolAuditMetadata {
 	}
 	if input.Path != "" {
 		if target == readTargetWorkbook {
-			attrs["workbook_path"] = sanitizeAuditString(input.Path, 512)
+			attrs["workbook_path"] = strings.TrimSpace(input.Path)
 			if resourceID == "" {
-				resourceID = sanitizeAuditString(input.Path, 256)
+				resourceID = strings.TrimSpace(input.Path)
 			}
 		} else {
 			attrs["doc_path"] = input.Path
@@ -361,7 +361,7 @@ func queryKeys(raw string) []string {
 	}
 	keys := make([]string, 0, len(values))
 	for key := range values {
-		keys = append(keys, sanitizeAuditString(key, 64))
+		keys = append(keys, strings.TrimSpace(key))
 	}
 	return sortedStrings(keys)
 }
@@ -376,7 +376,7 @@ func jsonObjectKeys(raw string) []string {
 	}
 	keys := make([]string, 0, len(values))
 	for key := range values {
-		keys = append(keys, sanitizeAuditString(key, 64))
+		keys = append(keys, strings.TrimSpace(key))
 	}
 	return sortedStrings(keys)
 }
@@ -387,18 +387,6 @@ func sortedStrings(values []string) []string {
 	}
 	sort.Strings(values)
 	return values
-}
-
-func sanitizeAuditString(value string, limit int) string {
-	value = strings.TrimSpace(value)
-	if limit <= 0 {
-		return value
-	}
-	runes := []rune(value)
-	if len(runes) <= limit {
-		return value
-	}
-	return string(runes[:limit])
 }
 
 func (svc *Service) readResource(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
@@ -416,7 +404,7 @@ func (svc *Service) readResource(ctx context.Context, req *mcpsdk.ReadResourceRe
 		}
 		failureDetails := withAuditResult(details, outcome)
 		failureDetails["duration_ms"] = time.Since(start).Milliseconds()
-		failureDetails["error"] = sanitizeAuditString(err.Error(), 512)
+		failureDetails["error"] = strings.TrimSpace(err.Error())
 		logMCPAudit(ctx, svc.api, action, failureDetails)
 		return nil, err
 	}
@@ -472,7 +460,7 @@ func withMCPUnsubscribeSourceContext(ctx context.Context, req *mcpsdk.Unsubscrib
 
 func resourceAuditDetails(rawURI string) map[string]any {
 	resourceType := "resource"
-	resourceID := sanitizeAuditString(rawURI, 256)
+	resourceID := strings.TrimSpace(rawURI)
 	if parsed, err := url.Parse(rawURI); err == nil && parsed.Scheme == "ui" {
 		resourceType = "mcp_app"
 	} else if err == nil && parsed.Scheme == "dagu" {
@@ -516,6 +504,6 @@ func resourceAuditDetails(rawURI string) map[string]any {
 	}
 	return map[string]any{
 		"resource_type": resourceType,
-		"resource_id":   sanitizeAuditString(resourceID, 256),
+		"resource_id":   strings.TrimSpace(resourceID),
 	}
 }
