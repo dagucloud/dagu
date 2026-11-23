@@ -43,6 +43,9 @@ type feedPosition struct {
 	// describe files the reader never had to read.
 	Since time.Time            `json:"since"`
 	Files map[string]*feedFile `json:"files"`
+	// Listing reports that a read of every file stopped at its limit; the
+	// next read goes on with every file.
+	Listing bool `json:"listing,omitempty"`
 }
 
 // feedFile is the position in one day file.
@@ -79,15 +82,17 @@ func NewFeed(dir string) *Feed {
 // Read returns the entries after q.Position. A read without Full checks only
 // today's file, with one stat. A Full read lists every day file, and once it
 // has read today's file to its end, reports each file removed with entries it
-// never read as a deleted loss.
+// never read as a deleted loss. A first read, and the reads after a full one
+// that stopped at its limit, are full.
 func (f *Feed) Read(_ context.Context, q audit.FeedQuery) (audit.FeedChunk, error) {
 	pos, fresh := decodeFeedPosition(q.Position, q.Now)
 	r := &feedRead{dir: f.dir, pos: pos, keep: q.Keep, limit: q.Limit}
 	today := q.Now.UTC().Format(dateFormat) + auditFileExtension
+	full := q.Full || fresh || pos.Listing
 
 	var sizes map[string]int64
 	var err error
-	if q.Full || fresh {
+	if full {
 		sizes, err = f.list()
 	} else {
 		sizes, err = f.stat(today)
@@ -124,9 +129,10 @@ func (f *Feed) Read(_ context.Context, q audit.FeedQuery) (audit.FeedChunk, erro
 			break
 		}
 	}
-	if (q.Full || fresh) && !r.chunk.More {
+	if full && !r.chunk.More {
 		r.reportRemoved(sizes)
 	}
+	pos.Listing = full && r.chunk.More
 
 	r.chunk.Position, err = json.Marshal(pos)
 	if err != nil {

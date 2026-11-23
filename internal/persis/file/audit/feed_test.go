@@ -187,6 +187,24 @@ func TestFeed_KeepSelectsEntries(t *testing.T) {
 	assert.Equal(t, []string{"c"}, entryIDs(readFeed(t, dir, chunk.Position, feedNow, false)))
 }
 
+// A first read checks every file, and the read after it goes on with every
+// file while the first stopped at its limit, whatever the caller asks.
+func TestFeed_ContinuesAFullReadThatStopped(t *testing.T) {
+	dir := t.TempDir()
+	yesterday := feedNow.AddDate(0, 0, -1)
+	appendText(t, dir, yesterday, feedLine(t, "a", yesterday)+feedLine(t, "b", yesterday))
+	feed := NewFeed(dir)
+
+	first, err := feed.Read(context.Background(), audit.FeedQuery{Now: feedNow, Limit: 1})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a"}, entryIDs(first))
+	require.True(t, first.More)
+
+	second, err := feed.Read(context.Background(), audit.FeedQuery{Position: first.Position, Now: feedNow, Limit: 1})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b"}, entryIDs(second))
+}
+
 func TestFeed_StopsAtLimit(t *testing.T) {
 	dir := t.TempDir()
 	appendText(t, dir, feedNow, feedLine(t, "a", feedNow)+feedLine(t, "b", feedNow)+feedLine(t, "c", feedNow))

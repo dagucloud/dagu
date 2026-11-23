@@ -22,8 +22,8 @@ type FeedQuery struct {
 	// Now decides the store's current day.
 	Now time.Time
 	// Full checks every day the store holds, not only the current one, and
-	// reports days removed since the last full read. A read that returned
-	// More continues with the same Full.
+	// reports days removed since the last full read. A first read is full,
+	// and so is the read after a full one that returned More.
 	Full bool
 	// Keep selects the entries to return; nil returns every entry. The rest
 	// are passed over, and Position still moves past them.
