@@ -29,7 +29,9 @@ func workbookPart(t *testing.T, path, part string) string {
 	t.Helper()
 	f, err := zip.OpenReader(path)
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, f.Close()) })
+	// Closed before returning: Windows refuses to replace a file that is
+	// still open, and tests write the workbook again after reading a part.
+	defer func() { require.NoError(t, f.Close()) }()
 	r, err := f.Open(part)
 	require.NoError(t, err)
 	data, err := io.ReadAll(r)
