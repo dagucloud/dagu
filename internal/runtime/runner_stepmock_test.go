@@ -4,12 +4,17 @@
 package runtime_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin/dag"
+	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -276,6 +281,106 @@ func TestStepMockResolvesFieldsByAction(t *testing.T) {
 			if tc.wantCommand != "" {
 				assert.Equal(t, tc.wantCommand, mocked.Commands[0].CmdWithArgs)
 			}
+		})
+	}
+}
+
+// childRuns records the child runs that steps start or queue. Each run it
+// starts succeeds.
+type childRuns struct {
+	mu     sync.Mutex
+	runIDs []string
+}
+
+var (
+	_ executor.SubWorkflowRunner = (*childRuns)(nil)
+	_ executor.Enqueuer          = (*childRuns)(nil)
+)
+
+func (c *childRuns) started() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.runIDs)
+}
+
+func (c *childRuns) record(runID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.runIDs = append(c.runIDs, runID)
+}
+
+func (*childRuns) ShouldRun(context.Context, executor.SubWorkflowRequest) bool { return true }
+
+func (c *childRuns) Run(_ context.Context, req executor.SubWorkflowRequest) (*ir.RunStatus, error) {
+	c.record(req.RunID)
+	return &ir.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Status: ir.Succeeded}, nil
+}
+
+func (c *childRuns) Retry(ctx context.Context, req executor.SubWorkflowRetryRequest) (*ir.RunStatus, error) {
+	return c.Run(ctx, req.SubWorkflowRequest)
+}
+
+func (*childRuns) Cancel(context.Context, executor.SubWorkflowCancelRequest) error { return nil }
+
+func (c *childRuns) Enqueue(_ context.Context, req executor.EnqueueRequest) (executor.EnqueueResult, error) {
+	c.record(req.RunID)
+	return executor.EnqueueResult{Status: ir.Queued}, nil
+}
+
+// A mock on a step that runs child DAGs replaces every child: the step takes
+// the mock's result, and no child run starts, is queued, or is recorded on
+// the step. Results count executions of the step, not children, so the
+// second result is never taken. Unmocked, the same step starts its children
+// in the same run context.
+func TestStepMockReplacesChildRuns(t *testing.T) {
+	t.Parallel()
+
+	localDAGs := map[string]*ir.DAG{
+		"deploy": {Name: "deploy", YamlData: []byte("name: deploy\nsteps:\n  - run: ./deploy.sh\n")},
+	}
+	subDAG := func(name string) stepOption {
+		return func(step *ir.Step) { step.SubDAG = &ir.SubDAG{Name: name, Params: "ENV=prod"} }
+	}
+	parallel := func(step *ir.Step) {
+		step.Parallel = &ir.ParallelConfig{Items: []ir.ParallelItem{{Value: "a"}, {Value: "b"}}}
+	}
+
+	for _, tc := range []struct {
+		name string
+		step ir.Step
+	}{
+		{name: "DAGRun", step: newStep("rollout", withExecutorType(ir.ExecutorTypeDAG), subDAG("deploy"))},
+		{name: "DAGEnqueue", step: newStep("rollout", withExecutorType(ir.ExecutorTypeDAGEnqueue), subDAG("deploy"))},
+		{name: "Parallel", step: newStep("rollout", withExecutorType(ir.ExecutorTypeParallel), subDAG("deploy"), parallel)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			run := func(t *testing.T, opts ...runnerOption) (*runtime.Node, []string) {
+				t.Helper()
+
+				runs := &childRuns{}
+				r := setupRunner(t, opts...)
+				r.Context = executor.WithSubWorkflowRunner(r.Context, runs)
+				ph := r.newPlan(t, tc.step)
+				ph.steps = []ir.Step{tc.step}
+				ph.localDAGs = localDAGs
+				ph.contextOpts = []runtime.ContextOption{
+					runtime.WithRootDAGRun(runtime.NewDAGRunRef("test_dag", r.cfg.DAGRunID)),
+				}
+				return ph.assertRun(t, ir.Succeeded).nodeByName(t, tc.step.Name), runs.started()
+			}
+
+			unmocked, started := run(t)
+			assert.NotEmpty(t, started)
+			assert.NotEmpty(t, unmocked.State().SubRuns)
+
+			mocked, started := run(t, withStepMocks(map[string]stepmock.Step{
+				tc.step.Name: {Results: []stepmock.Result{{Stdout: "first\n"}, {Stdout: "second\n"}}},
+			}))
+			assert.Empty(t, started)
+			assert.Empty(t, mocked.State().SubRuns)
+			assert.Equal(t, "first\n", readLog(t, mocked.GetStdout()))
 		})
 	}
 }

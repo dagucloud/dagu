@@ -958,7 +958,7 @@ func (n *Node) setupExecutor(ctx context.Context, override ExecutorOverride) (co
 	}
 
 	// Create the executor
-	cmd, err := newExecutor(ctx, override, n.Step())
+	cmd, replaced, err := newExecutor(ctx, override, n.Step())
 	if err != nil {
 		return ctx, nil, err
 	}
@@ -968,8 +968,9 @@ func (n *Node) setupExecutor(ctx context.Context, override ExecutorOverride) (co
 		return ctx, nil, fmt.Errorf("failed to set up step output: %w", err)
 	}
 
-	// Handle sub DAG execution
-	if subDAG := n.Step().SubDAG; subDAG != nil {
+	// Handle sub DAG execution. A replaced action runs no child, so the
+	// step builds and records none.
+	if subDAG := n.Step().SubDAG; subDAG != nil && !replaced {
 		runParams, err := n.buildChildRunParams(ctx, subDAG)
 		if err != nil {
 			return ctx, nil, err
@@ -991,14 +992,22 @@ func (n *Node) setupExecutor(ctx context.Context, override ExecutorOverride) (co
 }
 
 // newExecutor builds the step's executor, unless override supplies one in
-// place of the step's action.
-func newExecutor(ctx context.Context, override ExecutorOverride, step ir.Step) (executor.Executor, error) {
-	if override != nil {
-		if cmd, ok := override.Executor(ctx, step); ok {
-			return cmd, nil
-		}
+// place of the step's action. It reports whether override supplied it.
+func newExecutor(ctx context.Context, override ExecutorOverride, step ir.Step) (executor.Executor, bool, error) {
+	if cmd, ok := replacementExecutor(ctx, override, step); ok {
+		return cmd, true, nil
 	}
-	return executor.NewExecutor(ctx, step)
+	cmd, err := executor.NewExecutor(ctx, step)
+	return cmd, false, err
+}
+
+// replacementExecutor returns the executor override supplies in place of the
+// step's action, or false when the step runs its own action.
+func replacementExecutor(ctx context.Context, override ExecutorOverride, step ir.Step) (executor.Executor, bool) {
+	if override == nil {
+		return nil, false
+	}
+	return override.Executor(ctx, step)
 }
 
 func (n *Node) setupStepOutputFile(ctx context.Context) (context.Context, error) {
