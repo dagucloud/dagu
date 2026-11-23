@@ -261,6 +261,26 @@ describe('IssuesPopover', () => {
     expect(page).not.toHaveBeenCalled();
   });
 
+  // An Esc of another control, such as the find box of the code editor, is
+  // that control's: it reaches the page, and the popover still closes.
+  it('passes the Escape of another control on', () => {
+    const page = vi.fn();
+    document.addEventListener('keydown', page);
+    render(
+      <>
+        <input aria-label="Find" />
+        <IssuesPopover warnings={[]} errors={['a']} />
+      </>
+    );
+    openPopover();
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Find' }), {
+      key: 'Escape',
+    });
+    document.removeEventListener('keydown', page);
+    expect(page).toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: 'Issues' })).toBeNull();
+  });
+
   it('closes on Escape and on a click outside', () => {
     render(<IssuesPopover warnings={[]} errors={['a']} />);
     const button = screen.getByRole('button', { name: 'Issues (1)' });
