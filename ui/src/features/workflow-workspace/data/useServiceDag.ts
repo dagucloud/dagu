@@ -196,7 +196,6 @@ export function useRetainedRuns(
       void gatedRead(gateKey, () => mutate(), SERVICE_READ_GAP_MS);
     }
     // Only a new window reads.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [windowKey]);
   return useMemo(() => {
     const runs = data?.dagRuns;
