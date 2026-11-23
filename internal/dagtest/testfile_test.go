@@ -288,6 +288,11 @@ func TestLoadFileMerge(t *testing.T) {
 		Steps: []dagtest.StepExpect{
 			{
 				Key: "build image", Step: "build image", Status: "failed", Attempts: new(1),
+				// manifest is declared with type: json.
+				Outputs: []dagtest.OutputExpect{
+					{Name: "image_tag", Value: "v1"},
+					{Name: "manifest", Value: map[string]any{"files": 3}, JSON: true},
+				},
 				Stderr: &dagtest.StreamExpect{Contains: new("boom")},
 			},
 			{Key: "route", Step: "route", Status: "skipped"},
@@ -322,6 +327,7 @@ func TestLoadFileDefaultMock(t *testing.T) {
 	assert.Equal(t, map[ir.HandlerType]dagtest.Script{
 		ir.HandlerOnExit: {DefaultMock: true, ReplacesAction: true, Results: succeeds},
 	}, full.Handlers)
+	assert.Equal(t, []string{"build", "tick", "gate", "child", "ship", "handler_on.exit"}, full.DefaultMocked)
 
 	// {} keeps side-effect-free actions and leaves conditions and waits
 	// unhandled.
@@ -338,6 +344,69 @@ func TestLoadFileDefaultMock(t *testing.T) {
 		"child": {DefaultMock: true, ReplacesAction: true},
 		"ship":  {DefaultMock: true, ReplacesAction: true},
 	}, empty.Steps)
+}
+
+// The fix holds each step's current mock, by the key it is written under,
+// with the fields its sources need: an inline mock becomes one result to
+// take a stopping condition, a successful result publishes the known
+// outputs of a step with an id, and a form value the form still rejects is
+// marked. The default mock is the current mock where it applies.
+func TestLoadFileFix(t *testing.T) {
+	t.Parallel()
+
+	file := loadTestFile(t, "fixes.test.yaml")
+	require.Len(t, file.Cases, 2)
+	review := `  form:
+    review:
+      decision: approve
+      values:
+        code: "" # replace with a value the form accepts
+        tier: gold
+        urgent: false
+        count: 0
+`
+	assert.Equal(t, `mocks:
+  build image:
+    results:
+      - stdout: built
+        outputs:
+          tag: v1
+        condition: not_met
+`+review+`  fanout: {}
+  gate:
+    precondition: met
+  watch:
+    results:
+      - outputs:
+          seen: ""
+        condition: met
+  publish:
+    precondition: met
+`, file.Cases[0].Fix)
+	assert.Equal(t, `mocks:
+  build:
+    results:
+      - exit_code: 1
+        condition: not_met
+      - outputs:
+          tag: ""
+        condition: not_met
+`+review+`  gate:
+    precondition: met
+  watch:
+    results:
+      - exit_code: 1
+        condition: met
+      - outputs:
+          seen: ""
+        condition: met
+  publish:
+    results:
+      - exit_code: 1
+      - exit_code: 0
+    precondition: met
+`, file.Cases[1].Fix)
+	assert.Empty(t, file.Cases[1].FileFix)
 }
 
 // A handler_on.<event> key names the handler of that event, and a step whose

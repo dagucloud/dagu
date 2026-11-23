@@ -59,12 +59,21 @@ type Case struct {
 	Steps map[string]Script
 	// Handlers holds the same for lifecycle handlers, by handler type.
 	Handlers map[ir.HandlerType]Script
+	// DefaultMocked lists the labels of the steps and handlers the default
+	// mock applies to, whether or not a run reaches them: steps in DAG
+	// order, then handlers.
+	DefaultMocked []string
 	// Expect holds the case's assertions.
 	Expect Expect
 	// Errors lists what makes the case invalid: field errors sorted by label,
 	// then the unhandled sources of the fail-closed rule. An invalid case
 	// runs none of its steps. Empty for a valid case.
 	Errors []Finding
+	// Fix holds the case fields that handle every unhandled source of
+	// Errors, as YAML to paste into the case, or "" when there is none.
+	Fix string
+	// FileFix holds the same for the test file's secrets, or "".
+	FileFix string
 }
 
 // Script is how a case handles one step or lifecycle handler.
@@ -149,6 +158,9 @@ type StepExpect struct {
 type OutputExpect struct {
 	Name  string
 	Value any
+	// JSON reports that the step declares the output with type: json, so
+	// its published text is compared as JSON whatever Value is.
+	JSON bool
 }
 
 // StreamExpect asserts on a step's stdout or stderr.

@@ -1,0 +1,61 @@
+mocks:
+  count:
+    outputs:
+      files: "3"
+      stats:
+        files: 3
+        lines: 40
+  check:
+    results:
+      - exit_code: 1
+        stdout: first try
+      - stdout: second try
+cases:
+  # The stats assertion lists one of two keys. The check stream holds only
+  # its second execution, after the retry.
+  - name: the summary reports the count
+    expect:
+      status: succeeded
+      attempts: 1
+      steps:
+        count:
+          outputs:
+            files: "3"
+            stats:
+              files: 3
+        summary:
+          stdout:
+            contains: 3 files changed
+            matches: '^\d+ files changed'
+        check:
+          attempts: 2
+          stdout:
+            matches: '^second try$'
+      notifications: []
+  - name: a failed check sends one mail
+    mocks:
+      check:
+        exit_code: 1
+    expect:
+      status: failed
+      notifications:
+        - kind: mail_on.failure
+          to: [oncall@example.com]
+  - name: every failed assertion is reported
+    mocks:
+      check:
+        exit_code: 1
+    expect:
+      attempts: 2
+      steps:
+        count:
+          outputs:
+            files: "03"
+            stats:
+              lines: 41
+        summary:
+          stdout:
+            contains: 4 files
+          stderr:
+            matches: error
+      notifications: []

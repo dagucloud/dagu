@@ -366,14 +366,13 @@ func (b *caseBuilder) stepExpect(label string, t *stepTarget, s stepExpectSpec) 
 		Handler:  t.handler,
 		Status:   b.token(statusLabel, s.status, nodeStatuses),
 		Attempts: b.attempts(label+".attempts", s.attempts),
-		Outputs:  s.outputs,
+		Outputs:  b.outputExpects(label, *t.step, s.outputs),
 		Stdout:   b.stream(label+".stdout", s.stdout),
 		Stderr:   b.stream(label+".stderr", s.stderr),
 	}
 	if t.handler == "" {
 		out.Step = t.step.Name
 	}
-	b.checkOutputAssertions(label, *t.step, s.outputs)
 	return out
 }
 

@@ -1,0 +1,60 @@
+steps:
+  - name: build image
+    id: build
+    run: ./build.sh
+    outputs:
+      - name: tag
+    repeat_policy:
+      repeat: while
+      condition: test -f again
+      limit: 3
+  - id: form
+    action: human.task
+    with:
+      prompt: Fill it in.
+      form:
+        type: object
+        properties:
+          code:
+            type: string
+            pattern: "^[A-Z]+$"
+          tier:
+            type: string
+            oneOf:
+              - const: gold
+              - const: silver
+          urgent:
+            type: boolean
+          count:
+            type: number
+          note:
+            type: string
+            default: none
+        required: [code, tier, urgent, count, note]
+  - id: fanout
+    foreach:
+      items: [a]
+      steps:
+        - id: one
+          run: ./one.sh
+  - id: gate
+    action: noop
+    preconditions:
+      - condition: test -f ready
+  - id: watch
+    action: log.write
+    with:
+      message: watching
+    outputs:
+      - name: seen
+    repeat_policy:
+      repeat: until
+      condition: test -f done
+      limit: 3
+  - name: publish
+    run: ./publish.sh
+    output:
+      url:
+        from: stdout
+    preconditions:
+      - condition: test -f ready

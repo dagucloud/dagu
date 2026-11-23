@@ -1,0 +1,74 @@
+params:
+  - name: stamp
+    eval: $(touch stamp.ran)
+  - name: region
+    enum: [eu, us]
+    eval: $(touch region.ran)
+preconditions:
+  - condition: touch dag.ran
+secrets:
+  - name: API_TOKEN
+    provider: env
+    key: DAGU_CONFORMANCE_UNSET_TOKEN
+steps:
+  - id: build
+    run: touch build.ran
+    outputs:
+      - name: tag
+      - name: meta
+        type: json
+  - id: lint
+    run: touch lint.ran
+    preconditions:
+      - condition: touch lint-check.ran
+  - id: poll
+    action: log.write
+    with:
+      message: polled
+    outputs:
+      - name: seen
+    repeat_policy:
+      repeat: until
+      condition: touch poll-check.ran
+      limit: 5
+  - id: collect
+    action: log.write
+    with:
+      message: collected
+    output:
+      result:
+        from: file
+        path: result.json
+        decode: json
+  - id: tick
+    action: log.write
+    with:
+      message: tick
+    repeat_policy:
+      repeat: while
+  - id: sign_off
+    action: human.task
+    with:
+      prompt: Sign off the release.
+      form:
+        type: object
+        properties:
+          reason:
+            type: string
+          level:
+            type: integer
+            enum: [2, 3]
+        required: [reason, level]
+  - id: ship
+    run: touch ship.ran
+    approval:
+      prompt: Ship it?
+      input: [ticket]
+      required: [ticket]
+  - id: say
+    action: log.write
+    with:
+      message: hello
+handler_on:
+  failure:
+    run: touch failure.ran

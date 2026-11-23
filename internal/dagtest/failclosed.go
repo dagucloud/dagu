@@ -82,14 +82,20 @@ func (f Finding) String() string {
 // handlers, and the sources of one step in the order of the rule's table. A
 // case with no finding may run.
 func CheckFailClosed(dag *ir.DAG, handling Handling) []Finding {
-	c := checker{
+	return checkFailClosed(dag, handling).findings
+}
+
+// checkFailClosed checks dag as CheckFailClosed does, and returns the
+// checker with its findings and their sources.
+func checkFailClosed(dag *ir.DAG, handling Handling) *checker {
+	c := &checker{
 		mocks:       handling.Mocks,
 		defaultMock: handling.DefaultMock,
 		real:        toSet(handling.Real),
 		params:      toSet(handling.Params),
 	}
 	c.checkDAG(dag, handling, len(handling.Real) > 0)
-	return c.findings
+	return c
 }
 
 // checkDAG adds the sources of dag that handling leaves unhandled. In a case
@@ -100,13 +106,13 @@ func (c *checker) checkDAG(dag *ir.DAG, handling Handling, hasRealSteps bool) {
 		c.checkSecrets(dag, toSet(handling.Secrets))
 	}
 	if !handling.Precondition && slices.ContainsFunc(dag.Preconditions, (*ir.Condition).RunsCommand) {
-		c.add("precondition", "command check or substituting eval runs a command", "set precondition in the case")
+		c.add(source{kind: sourceDAGPrecondition}, "precondition", "command check or substituting eval runs a command", "set precondition in the case")
 	}
 	for _, step := range dag.Steps {
-		c.checkStep("step "+stepLabel(step), step, stepKeys(step)...)
+		c.checkStep("step "+stepLabel(step), stepLabel(step), step, stepKeys(step)...)
 	}
 	for _, h := range lifecycleHandlers(dag.HandlerOn) {
-		c.checkStep(h.key, h.step, h.key)
+		c.checkStep(h.key, h.key, h.step, h.key)
 	}
 }
 
@@ -125,15 +131,27 @@ type checker struct {
 	// field of the case handles.
 	fix      string
 	findings []Finding
+	// sources holds the source of each finding, in the same order.
+	sources []source
 }
 
-// add records an unhandled source: what it does, and how the case handles
-// it.
-func (c *checker) add(source, does, fix string) {
+// source is one unhandled source, as the fix of a case handles it.
+type source struct {
+	kind sourceKind
+	// name is the param, or the DAG secret or SSH credential ref.
+	name string
+	// target is the label of the step or handler the source is on.
+	target string
+}
+
+// add records an unhandled source under its label: what it does, and how
+// the case handles it.
+func (c *checker) add(src source, label, does, fix string) {
 	if c.fix != "" {
 		fix = c.fix
 	}
-	c.findings = append(c.findings, Finding{Source: source, Message: does + "; " + fix})
+	c.findings = append(c.findings, Finding{Source: label, Message: does + "; " + fix})
+	c.sources = append(c.sources, src)
 }
 
 func (c *checker) checkParams(defs []ir.ParamDef) {
@@ -144,7 +162,7 @@ func (c *checker) checkParams(defs []ir.ParamDef) {
 		if _, ok := c.params[def.Name]; ok {
 			continue
 		}
-		c.add("param "+def.Name, "eval runs a command", "give it a value under params")
+		c.add(source{kind: sourceParam, name: def.Name}, "param "+def.Name, "eval runs a command", "give it a value under params")
 	}
 }
 
@@ -154,7 +172,7 @@ func (c *checker) checkParams(defs []ir.ParamDef) {
 func (c *checker) checkSecrets(dag *ir.DAG, values map[string]struct{}) {
 	for _, secret := range dag.Secrets {
 		if _, ok := values[secret.Name]; !ok {
-			c.add("secret "+secret.Name, "a real step may read it", "give it a value under secrets")
+			c.add(source{kind: sourceSecret, name: secret.Name}, "secret "+secret.Name, "a real step may read it", "give it a value under secrets")
 		}
 	}
 	refs := make([]string, 0, len(dag.CredentialRefs))
@@ -164,14 +182,15 @@ func (c *checker) checkSecrets(dag *ir.DAG, values map[string]struct{}) {
 	slices.Sort(refs)
 	for _, ref := range slices.Compact(refs) {
 		if _, ok := values[ref]; !ok {
-			c.add("secret "+ref, "a real step may read this SSH credential", "give it a value under secrets")
+			c.add(source{kind: sourceSecret, name: ref}, "secret "+ref, "a real step may read this SSH credential", "give it a value under secrets")
 		}
 	}
 }
 
 // checkStep reports the sources of a step or handler that its mock and real,
-// looked up by keys, leave unhandled.
-func (c *checker) checkStep(label string, step ir.Step, keys ...string) {
+// looked up by keys, leave unhandled. target labels the step or handler in
+// the sources it records.
+func (c *checker) checkStep(label, target string, step ir.Step, keys ...string) {
 	mock, mocked := c.lookupMock(keys)
 	real := c.isReal(keys)
 	// Spec 101 narrows which steps take the default mock and when its
@@ -183,7 +202,7 @@ func (c *checker) checkStep(label string, step ir.Step, keys ...string) {
 	}
 	replaced := replacesAction(step, mocked, mock, real)
 	for _, o := range stepOffenses(step, mock, replaced, real) {
-		c.add(label+o.label, o.subject+" "+o.does, o.fix)
+		c.add(source{kind: o.kind, target: target}, label+o.label, o.subject+" "+o.does, o.fix)
 	}
 }
 
@@ -232,7 +251,7 @@ func replacesAction(step ir.Step, mocked bool, mock MockFields, real bool) bool 
 }
 
 // sourceKind orders the sources of one step as the fail-closed table lists
-// them.
+// them, followed by the sources that are not on a step.
 type sourceKind int
 
 const (
@@ -243,6 +262,9 @@ const (
 	sourceContinuous
 	sourceForeachBody
 	sourceWait
+	sourceParam
+	sourceSecret
+	sourceDAGPrecondition
 )
 
 // offense is one unhandled source of a step: what it is, what it does, and

@@ -58,7 +58,9 @@ func (b *caseBuilder) validate(c *Case, src caseSources) []Finding {
 		handling.DefaultMock = &fields
 		b.applyDefaultMock(c, *src.defaultMock, src)
 	}
-	return CheckFailClosed(b.dag, handling)
+	check := checkFailClosed(b.dag, handling)
+	b.buildFix(c, check.sources, src.mocks)
+	return check.findings
 }
 
 // checkReal reports a step that real cannot take.
@@ -158,6 +160,7 @@ func (b *caseBuilder) applyDefaultMock(c *Case, m mockSpec, src caseSources) {
 		}
 		if s, ok := b.defaultScript(t, m, results); ok {
 			c.setScript(t, s)
+			c.DefaultMocked = append(c.DefaultMocked, t.label)
 		}
 	}
 }
@@ -276,18 +279,22 @@ func (b *caseBuilder) checkKnownOutputs(path string, known map[string]ir.StepOut
 	}
 }
 
-// checkOutputAssertions reports an output assertion on a name that a step
-// with known outputs does not declare.
-func (b *caseBuilder) checkOutputAssertions(label string, step ir.Step, outputs []OutputExpect) {
+// outputExpects returns the output assertions on a step, each marked when
+// the step declares its output with type: json. An assertion on a name that
+// a step with known outputs does not declare makes the case invalid.
+func (b *caseBuilder) outputExpects(label string, step ir.Step, outputs []OutputExpect) []OutputExpect {
 	known, runtime := stepOutputs(step)
-	if runtime || len(known) == 0 {
-		return
-	}
-	for _, o := range outputs {
-		if _, ok := known[o.Name]; !ok {
+	outputs = slices.Clone(outputs)
+	for i, o := range outputs {
+		decl, ok := known[o.Name]
+		switch {
+		case ok:
+			outputs[i].JSON = decl.Type == ir.StepDeclaredOutputTypeJSON
+		case !runtime && len(known) > 0:
 			b.fail(label+".outputs."+o.Name, "is not an output the step declares")
 		}
 	}
+	return outputs
 }
 
 // stepOutputs returns a step's known outputs by name, and reports whether it

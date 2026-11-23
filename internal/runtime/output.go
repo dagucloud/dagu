@@ -217,6 +217,31 @@ func (oc *OutputCoordinator) flushWriters() error {
 	return oc.flushWritersWithMode(false)
 }
 
+// logSizes writes out what earlier executions left buffered and returns
+// the sizes of the local stdout and stderr logs. A merged log gives its size
+// for both, and a log streamed to a remote writer gives 0.
+func (oc *OutputCoordinator) logSizes() (stdout, stderr int64) {
+	_ = oc.flushWriters()
+	oc.mu.Lock()
+	defer oc.mu.Unlock()
+	stdout = openFileSize(oc.stdoutFile)
+	if oc.stderrFile == nil && oc.stderrFileName == oc.stdoutFileName {
+		return stdout, stdout
+	}
+	return stdout, openFileSize(oc.stderrFile)
+}
+
+func openFileSize(file *os.File) int64 {
+	if file == nil {
+		return 0
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
 func (oc *OutputCoordinator) flushWritersIfDue() error {
 	return oc.flushWritersWithMode(true)
 }

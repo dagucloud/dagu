@@ -21,10 +21,15 @@ type jsonTestCase struct {
 	Name   string `json:"name"`
 	Result string `json:"result"`
 	// DurationMS is set for a case that ran.
-	DurationMS *int64          `json:"duration_ms,omitempty"`
-	Failures   []jsonFailure   `json:"failures,omitempty"`
-	Errors     []jsonTestError `json:"errors,omitempty"`
-	CaseDir    string          `json:"case_dir,omitempty"`
+	DurationMS    *int64             `json:"duration_ms,omitempty"`
+	Failures      []jsonFailure      `json:"failures,omitempty"`
+	Errors        []jsonTestError    `json:"errors,omitempty"`
+	Fix           string             `json:"fix,omitempty"`
+	FileFix       string             `json:"file_fix,omitempty"`
+	DefaultMocked []string           `json:"default_mocked,omitempty"`
+	AutoApproved  []string           `json:"auto_approved,omitempty"`
+	Notifications []testNotification `json:"notifications,omitempty"`
+	CaseDir       string             `json:"case_dir,omitempty"`
 }
 
 type jsonFailure struct {
@@ -49,7 +54,18 @@ func newJSONTestReport() *jsonTestReport {
 }
 
 func jsonCaseOf(c caseResult) jsonTestCase {
-	out := jsonTestCase{File: c.file, Name: c.name, Result: c.result(), Errors: jsonErrors(c.errors), CaseDir: c.caseDir}
+	out := jsonTestCase{
+		File:          c.file,
+		Name:          c.name,
+		Result:        c.result(),
+		Errors:        jsonErrors(c.errors),
+		Fix:           c.fix,
+		FileFix:       c.fileFix,
+		DefaultMocked: c.defaultMocked,
+		AutoApproved:  c.autoApproved,
+		Notifications: c.notifications,
+		CaseDir:       c.caseDir,
+	}
 	if out.Result != resultInvalid {
 		ms := c.duration.Milliseconds()
 		out.DurationMS = &ms

@@ -164,6 +164,11 @@ type Node struct {
 	// ModelUsage is what the step's calls to models used, over every attempt
 	// of the step in this run.
 	ModelUsage *StepModelUsage `json:"modelUsage,omitempty"`
+	// StdoutStart and StderrStart are the sizes of Stdout and Stderr when the
+	// latest execution started, in the status of the process that ran it. A
+	// stored status does not hold them.
+	StdoutStart int64 `json:"-"`
+	StderrStart int64 `json:"-"`
 
 	// outputsValueFrom and stepOutputsValueFrom name the output field whose
 	// value a stored node repeats, so a status file holds that value once.
