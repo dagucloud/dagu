@@ -69,6 +69,48 @@ test.describe('Nodes', () => {
     await expect(drawer).toContainText('Disabled');
   });
 
+  test('creates an inventory, opens it as JSON, and deletes it', async ({
+    page,
+    request,
+  }) => {
+    const stack = await loadStack();
+    const token = await loginViaAPI(
+      request,
+      stack.auth.adminUsername,
+      stack.auth.adminPassword
+    );
+    const id = uniqueName('e2e');
+    // An inventory makes the page show its tabs rather than the empty state.
+    const imported = await request.post('/api/v1/inventory-imports', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: [{ name: `${id} existing`, nodes: [] }],
+    });
+    expect(imported.ok(), await imported.text()).toBeTruthy();
+    const name = `${id} created`;
+
+    await loginViaUI(page, stack.auth.adminUsername, stack.auth.adminPassword);
+    await page.goto('/nodes');
+    await page.getByRole('button', { name: 'Inventories' }).click();
+    await page.getByRole('button', { name: 'New inventory' }).click();
+    const form = page.getByRole('dialog');
+    await form.getByLabel('Name').fill(name);
+    await form.getByLabel('Default user').fill('deploy');
+    await form.getByRole('button', { name: 'Create' }).click();
+    await expect(form).toHaveCount(0);
+
+    await page.getByRole('button', { name: `Edit JSON ${name}` }).click();
+    const editor = page.getByRole('dialog');
+    await expect(editor).toContainText('"deploy"');
+    await editor.getByRole('button', { name: 'Cancel' }).click();
+
+    await page.getByRole('button', { name: `Delete ${name}` }).click();
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Delete' })
+      .click();
+    await expect(page.getByRole('cell', { name, exact: true })).toHaveCount(0);
+  });
+
   test('tests a checked node and shows its result as the stream delivers it', async ({
     page,
     request,

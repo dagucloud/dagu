@@ -4,6 +4,7 @@
 import type { components } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import {
+  useCanEditInventories,
   useCanTestNodes,
   useCanTrustNodeHostKeys,
 } from '@/contexts/AuthContext';
@@ -27,6 +28,7 @@ vi.mock('@/hooks/api', () => ({
   useClient: () => ({ GET: clientGet }),
 }));
 vi.mock('@/contexts/AuthContext', () => ({
+  useCanEditInventories: vi.fn(),
   useCanTestNodes: vi.fn(),
   useCanTrustNodeHostKeys: vi.fn(),
 }));
@@ -38,6 +40,9 @@ vi.mock('@/contexts/ConfigContext', async (importOriginal) => ({
 const useQueryMock = useQuery as unknown as ReturnType<typeof vi.fn>;
 const canTestMock = useCanTestNodes as unknown as ReturnType<typeof vi.fn>;
 const canTrustMock = useCanTrustNodeHostKeys as unknown as ReturnType<
+  typeof vi.fn
+>;
+const canEditMock = useCanEditInventories as unknown as ReturnType<
   typeof vi.fn
 >;
 
@@ -109,9 +114,13 @@ function respond({
               { id: 'inv-tokyo', name: 'Tokyo production', nodeCount: 3 },
             ],
           },
+          mutate: vi.fn(),
         };
       case '/node-labels':
-        return { data: { labels: ['role=db', 'role=web'], errors: [] } };
+        return {
+          data: { labels: ['role=db', 'role=web'], errors: [] },
+          mutate: vi.fn(),
+        };
       case '/nodes':
         return {
           data: nodes
@@ -160,6 +169,7 @@ describe('NodesPage', () => {
     useQueryMock.mockReset();
     canTestMock.mockReturnValue(true);
     canTrustMock.mockReturnValue(true);
+    canEditMock.mockReturnValue(true);
     respond();
   });
 
@@ -255,7 +265,7 @@ describe('NodesPage', () => {
     expect(drawer).toHaveTextContent('Off: any key is accepted');
   });
 
-  it('tells a user without inventories how to import one', () => {
+  it('tells a user without inventories how to import one, or create one', () => {
     respond({ inventories: [] });
     renderPage();
 
@@ -263,6 +273,33 @@ describe('NodesPage', () => {
       screen.getByRole('heading', { name: 'No nodes yet' })
     ).toBeInTheDocument();
     expect(screen.getByText('dagu nodes import')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'New inventory' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('New inventory');
+  });
+
+  it('offers no new inventory to a user who cannot edit inventories', () => {
+    canEditMock.mockReturnValue(false);
+    respond({ inventories: [] });
+    renderPage();
+
+    expect(
+      screen.queryByRole('button', { name: 'New inventory' })
+    ).not.toBeInTheDocument();
+  });
+
+  it('lists the inventories on their own tab', () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Inventories' }));
+
+    const row = screen.getByText('Tokyo production').closest('tr')!;
+    expect(row).toHaveTextContent('3');
+    expect(
+      screen.getByRole('button', { name: 'Edit Tokyo production' })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('columnheader', { name: 'Host' })
+    ).not.toBeInTheDocument();
   });
 
   it('reports inventories that fail to load, offers a retry, and keeps the nodes', () => {
@@ -386,6 +423,7 @@ describe('NodesPage connection tests', () => {
     clientGet.mockReset();
     canTestMock.mockReturnValue(true);
     canTrustMock.mockReturnValue(true);
+    canEditMock.mockReturnValue(true);
     respond();
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
