@@ -122,6 +122,21 @@ func TestFeed_FullReadFindsLateEntriesInOlderFiles(t *testing.T) {
 	assert.Equal(t, []string{"late"}, entryIDs(readFeed(t, dir, first.Position, feedNow, true)))
 }
 
+// Entries Keep passes over do not count toward the limit, and the position
+// moves past them.
+func TestFeed_KeepSelectsEntries(t *testing.T) {
+	dir := t.TempDir()
+	appendText(t, dir, feedNow, feedLine(t, "a", feedNow)+feedLine(t, "skip", feedNow)+feedLine(t, "b", feedNow))
+	keep := func(entry *audit.Entry) bool { return entry.ID != "skip" }
+
+	chunk, err := NewFeed(dir).Read(context.Background(), audit.FeedQuery{Now: feedNow, Full: true, Keep: keep, Limit: 2})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a", "b"}, entryIDs(chunk))
+
+	appendText(t, dir, feedNow, feedLine(t, "c", feedNow))
+	assert.Equal(t, []string{"c"}, entryIDs(readFeed(t, dir, chunk.Position, feedNow, false)))
+}
+
 func TestFeed_StopsAtLimit(t *testing.T) {
 	dir := t.TempDir()
 	appendText(t, dir, feedNow, feedLine(t, "a", feedNow)+feedLine(t, "b", feedNow)+feedLine(t, "c", feedNow))

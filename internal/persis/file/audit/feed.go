@@ -59,8 +59,9 @@ type feedFile struct {
 type feedRead struct {
 	dir   string
 	pos   *feedPosition
+	keep  func(*audit.Entry) bool
 	limit int
-	lines int
+	kept  int
 	bytes int64
 	chunk audit.FeedChunk
 }
@@ -76,7 +77,7 @@ func NewFeed(dir string) *Feed {
 // never read as a deleted loss.
 func (f *Feed) Read(_ context.Context, q audit.FeedQuery) (audit.FeedChunk, error) {
 	pos, fresh := decodeFeedPosition(q.Position, q.Now)
-	r := &feedRead{dir: f.dir, pos: pos, limit: q.Limit}
+	r := &feedRead{dir: f.dir, pos: pos, keep: q.Keep, limit: q.Limit}
 	today := q.Now.UTC().Format(dateFormat) + auditFileExtension
 
 	var sizes map[string]int64
@@ -215,7 +216,7 @@ func (r *feedRead) readFile(name string, size int64) (bool, error) {
 		}
 	}()
 	for {
-		if r.lines >= r.limit || r.bytes >= feedMaxReadBytes {
+		if r.kept >= r.limit || r.bytes >= feedMaxReadBytes {
 			return true, nil
 		}
 		line, n, err := readLine(reader)
@@ -227,7 +228,6 @@ func (r *feedRead) readFile(name string, size int64) (bool, error) {
 		}
 		file.Offset += n
 		r.bytes += n
-		r.lines++
 
 		entry, ok := parseEntry(line)
 		if !ok {
@@ -243,7 +243,10 @@ func (r *feedRead) readFile(name string, size int64) (bool, error) {
 		}
 		file.LastAt = entry.Timestamp
 		r.applyCleanup(entry)
-		r.chunk.Entries = append(r.chunk.Entries, entry)
+		if r.keep == nil || r.keep(entry) {
+			r.chunk.Entries = append(r.chunk.Entries, entry)
+			r.kept++
+		}
 	}
 }
 

@@ -24,7 +24,10 @@ type FeedQuery struct {
 	// Full checks every day the store holds, not only the current one, and
 	// reports days removed since the last full read.
 	Full bool
-	// Limit caps the stored lines one read consumes.
+	// Keep selects the entries to return; nil returns every entry. The rest
+	// are passed over, and Position still moves past them.
+	Keep func(*Entry) bool
+	// Limit caps the entries one read returns.
 	Limit int
 }
 
@@ -36,7 +39,8 @@ type FeedChunk struct {
 	Losses []FeedLoss
 	// Position resumes after this chunk.
 	Position []byte
-	// More reports that the read stopped at its limit.
+	// More reports that the read stopped before the end of what the store
+	// holds, at its limit or its byte budget.
 	More bool
 }
 
