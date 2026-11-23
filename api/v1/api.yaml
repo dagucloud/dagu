@@ -855,14 +855,6 @@ paths:
             enum: ["asc", "desc"]
             default: "asc"
           description: "Sort order (ascending or descending)"
-        - name: "activityWindow"
-          in: "query"
-          required: false
-          schema:
-            type: "integer"
-            minimum: 60
-            maximum: 604800
-          description: "Length in seconds of a window that ends now. When set, each DAG in the list carries `activity`: its runs that started in the window, newest first, and its latest run while it is active. Without it, no DAG carries `activity`."
       responses:
         "200":
           description: "A successful response"
@@ -2798,6 +2790,94 @@ paths:
                 $ref: "#/components/schemas/DAGRunActivity"
         "400":
           description: "The window, filters, or cursor are invalid"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-list-activity:
+    get:
+      summary: "Get the activity of a DAG list page"
+      description: |
+        Gives the activity of each DAG of one page of `GET /dags` over a window
+        that ends now. The paging, filters, and sort select the same DAGs in
+        the same order as `GET /dags` with the same values. A plain DAG lists
+        its runs that started in the window, newest first, and its latest run
+        while it is active. A service DAG gives the buckets of its run history
+        instead.
+      operationId: "getDAGListActivity"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/Workspace"
+        - name: "window"
+          in: "query"
+          required: true
+          schema:
+            type: "integer"
+            minimum: 60
+            maximum: 604800
+          description: "Length in seconds of the window that ends now"
+        - name: "name"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+          description: "Same as `name` of `GET /dags`"
+        - name: "labels"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+          description: "Same as `labels` of `GET /dags`"
+        - name: "active"
+          in: "query"
+          required: false
+          schema:
+            type: "boolean"
+            default: false
+          description: "Same as `active` of `GET /dags`"
+        - name: "tags"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+          deprecated: true
+          description: "Same as `tags` of `GET /dags`"
+        - name: "sort"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+            enum: ["name", "nextRun", "status", "lastRun"]
+            default: "name"
+          description: "Same as `sort` of `GET /dags`"
+        - name: "order"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+            enum: ["asc", "desc"]
+            default: "asc"
+          description: "Same as `order` of `GET /dags`"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DAGListActivityPage"
+        "400":
+          description: "The window, the page size, or a filter is invalid"
           content:
             application/json:
               schema:
@@ -16612,8 +16692,6 @@ components:
           $ref: "#/components/schemas/DAG"
         latestDAGRun:
           $ref: "#/components/schemas/DAGRunSummary"
-        activity:
-          $ref: "#/components/schemas/DAGListActivity"
         nextRun:
           type: string
           format: date-time
@@ -18075,9 +18153,39 @@ components:
       description: "Schedule slot to run for: latest (the latest fire at or before now), a date (2006-01-02) when the schedule fires once that day, a time without an offset (2006-01-02T15:04) read in the schedule's zone, or an RFC 3339 time with an offset. The run gets the schedule time and window of that slot. A slot later than now returns 400. A time that is not a fire time is accepted with a warning."
       example: "2026-11-09"
 
+    DAGListActivityPage:
+      type: object
+      description: "The activity of the DAGs of one DAG list page, in page order"
+      properties:
+        dags:
+          type: array
+          items:
+            $ref: "#/components/schemas/DAGListActivityEntry"
+        errors:
+          type: array
+          description: "Errors encountered while listing the DAGs or reading their activity"
+          items:
+            type: string
+      required:
+        - dags
+        - errors
+
+    DAGListActivityEntry:
+      type: object
+      description: "The activity of one DAG of a list page"
+      properties:
+        fileName:
+          type: string
+          description: "The fileName of the DAG in `GET /dags`"
+        activity:
+          $ref: "#/components/schemas/DAGListActivity"
+      required:
+        - fileName
+        - activity
+
     DAGListActivity:
       type: object
-      description: "The runs of a DAG that started in the window of a list request, newest first, and its latest run while it is active. For a service DAG, the buckets of its run history instead."
+      description: "The runs of a DAG that started in the window of the request, newest first, and its latest run while it is active. For a service DAG, the buckets of its run history instead."
       properties:
         runs:
           type: array

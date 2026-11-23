@@ -6,7 +6,6 @@ package api
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
@@ -39,6 +38,9 @@ const (
 	// activityFollowGrace is how long after the last read of the run events a
 	// kept activity still waits for them. The events are read each second.
 	activityFollowGrace = 10 * time.Second
+	// maxActivityPageSize is the most DAGs whose activity one request reads,
+	// the size of the largest DAG list page.
+	maxActivityPageSize = 200
 )
 
 // startedRunStatuses are the statuses of a run that can have started. A
@@ -47,36 +49,136 @@ var startedRunStatuses = []ir.Status{
 	ir.Running, ir.Waiting, ir.Succeeded, ir.PartiallySucceeded, ir.Failed, ir.Aborted, ir.Rejected,
 }
 
-// activityWindowFromSeconds checks the activityWindow parameter of a list.
+// activityWindowFromSeconds checks the window of an activity request.
 func activityWindowFromSeconds(seconds int) (time.Duration, error) {
 	window := time.Duration(seconds) * time.Second
 	if window < minActivityWindow || window > maxActivityWindow {
-		return 0, &Error{
-			HTTPStatus: http.StatusBadRequest,
-			Code:       api.ErrorCodeBadRequest,
-			Message: fmt.Sprintf("activityWindow must be from %d to %d seconds, got %d",
-				int(minActivityWindow.Seconds()), int(maxActivityWindow.Seconds()), seconds),
-		}
+		return 0, activityBadRequest(fmt.Sprintf("window must be from %d to %d seconds, got %d",
+			int(minActivityWindow.Seconds()), int(maxActivityWindow.Seconds()), seconds))
 	}
 	return window, nil
 }
 
-// activityWindowFromQuery reads activityWindow from the query string of an
-// SSE list. It returns 0 when the parameter is absent.
+// activityWindowFromQuery reads the window from the query string of an
+// activity topic.
 func activityWindowFromQuery(params url.Values) (time.Duration, error) {
-	raw := params.Get("activityWindow")
+	raw := params.Get("window")
 	if raw == "" {
-		return 0, nil
+		return 0, activityBadRequest("window is required")
 	}
 	seconds, err := strconv.Atoi(raw)
 	if err != nil {
-		return 0, &Error{
-			HTTPStatus: http.StatusBadRequest,
-			Code:       api.ErrorCodeBadRequest,
-			Message:    fmt.Sprintf("activityWindow must be an integer, got %q", raw),
-		}
+		return 0, activityBadRequest(fmt.Sprintf("window must be an integer, got %q", raw))
 	}
 	return activityWindowFromSeconds(seconds)
+}
+
+// GetDAGListActivity returns the activity of the DAGs of one DAG list page.
+func (a *API) GetDAGListActivity(ctx context.Context, request api.GetDAGListActivityRequestObject) (api.GetDAGListActivityResponseObject, error) {
+	p := request.Params
+	window, err := activityWindowFromSeconds(p.Window)
+	if err != nil {
+		return nil, err
+	}
+	listOpts, err := a.dagListOptions(ctx, dagListParams{
+		page: p.Page, perPage: p.PerPage, workspace: p.Workspace,
+		name: p.Name, labels: p.Labels, tags: p.Tags, active: p.Active,
+		sort: (*string)(p.Sort), order: (*string)(p.Order),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := checkActivityPage(listOpts); err != nil {
+		return nil, err
+	}
+	page, err := a.dagListActivity(ctx, listOpts, window)
+	if err != nil {
+		return nil, err
+	}
+	return api.GetDAGListActivity200JSONResponse(page), nil
+}
+
+// GetDAGListActivityData returns the activity of a DAG list page for SSE. The
+// identifier is the query string of the list topic of the page, with window.
+func (a *API) GetDAGListActivityData(ctx context.Context, queryString string) (any, error) {
+	return withDAGRunReadTimeout(ctx, dagRunReadRequestInfo{
+		endpoint: "/dag-list-activity",
+	}, func(readCtx context.Context) (any, error) {
+		listOpts, window, err := a.dagListActivityQuery(readCtx, queryString)
+		if err != nil {
+			return nil, err
+		}
+		return a.dagListActivity(readCtx, listOpts, window)
+	})
+}
+
+// ValidateDAGListActivityQuery returns a 400 *Error when
+// GetDAGListActivityData would reject the query string.
+func (a *API) ValidateDAGListActivityQuery(ctx context.Context, queryString string) error {
+	_, _, err := a.dagListActivityQuery(ctx, queryString)
+	return err
+}
+
+// dagListActivityQuery reads the list options and the window of an activity
+// topic.
+func (a *API) dagListActivityQuery(ctx context.Context, queryString string) (persis.DAGListOptions, time.Duration, error) {
+	params, err := url.ParseQuery(queryString)
+	if err != nil {
+		return persis.DAGListOptions{}, 0, activityBadRequest(fmt.Sprintf("invalid query parameters: %s", err))
+	}
+	window, err := activityWindowFromQuery(params)
+	if err != nil {
+		return persis.DAGListOptions{}, 0, err
+	}
+	if sort := params.Get("sort"); sort != "" && !api.GetDAGListActivityParamsSort(sort).Valid() {
+		return persis.DAGListOptions{}, 0, activityBadRequest(fmt.Sprintf("sort must be name, nextRun, status, or lastRun, got %q", sort))
+	}
+	if order := params.Get("order"); order != "" && !api.GetDAGListActivityParamsOrder(order).Valid() {
+		return persis.DAGListOptions{}, 0, activityBadRequest(fmt.Sprintf("order must be asc or desc, got %q", order))
+	}
+	listOpts, err := a.buildDAGListOptions(ctx, queryString)
+	if err != nil {
+		return persis.DAGListOptions{}, 0, err
+	}
+	if err := checkActivityPage(listOpts); err != nil {
+		return persis.DAGListOptions{}, 0, err
+	}
+	return listOpts, window, nil
+}
+
+// checkActivityPage rejects a page that is larger than a DAG list page.
+func checkActivityPage(listOpts persis.DAGListOptions) error {
+	if listOpts.Paginator != nil && listOpts.Paginator.Limit() > maxActivityPageSize {
+		return activityBadRequest(fmt.Sprintf("perPage must be at most %d", maxActivityPageSize))
+	}
+	return nil
+}
+
+// dagListActivity gives the activity of each DAG of the DAG list page that
+// listOpts select, in page order. The page, its order, and its errors are
+// those of the DAG list with the same options.
+func (a *API) dagListActivity(ctx context.Context, listOpts persis.DAGListOptions, window time.Duration) (api.DAGListActivityPage, error) {
+	now := time.Now()
+	page := api.DAGListActivityPage{Dags: []api.DAGListActivityEntry{}}
+	var activityErrs []string
+	list, err := a.listDAGsDataWithSearchPaths(ctx, listOpts, dagListSource{
+		pinnedFirst:   true,
+		skipBackfills: true,
+		visit: func(item persis.DAGListItem, latest ir.DAGRunStatus) {
+			activity, err := a.listActivity(ctx, item.DAG, latest, now, window)
+			if err != nil {
+				activityErrs = append(activityErrs, err.Error())
+			}
+			if activity != nil {
+				page.Dags = append(page.Dags, api.DAGListActivityEntry{FileName: item.ID, Activity: *activity})
+			}
+		},
+	})
+	if err != nil {
+		return api.DAGListActivityPage{}, err
+	}
+	page.Errors = append(list.Errors, activityErrs...)
+	return page, nil
 }
 
 // serviceActivity gives the activity of a service DAG as buckets of its run

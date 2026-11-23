@@ -998,6 +998,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dag-list-activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the activity of a DAG list page
+         * @description Gives the activity of each DAG of one page of `GET /dags` over a window
+         *     that ends now. The paging, filters, and sort select the same DAGs in
+         *     the same order as `GET /dags` with the same values. A plain DAG lists
+         *     its runs that started in the window, newest first, and its latest run
+         *     while it is active. A service DAG gives the buckets of its run history
+         *     instead.
+         *
+         */
+        get: operations["getDAGListActivity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dag-runs": {
         parameters: {
             query?: never;
@@ -6455,7 +6481,6 @@ export interface components {
             fileName: string;
             dag: components["schemas"]["DAG"];
             latestDAGRun: components["schemas"]["DAGRunSummary"];
-            activity?: components["schemas"]["DAGListActivity"];
             /**
              * Format: date-time
              * @description Scheduler-aware next planned run time. Pending overdue one-offs remain visible until consumed.
@@ -7241,7 +7266,19 @@ export interface components {
          * @example 2026-11-09
          */
         ScheduleSlotValue: string;
-        /** @description The runs of a DAG that started in the window of a list request, newest first, and its latest run while it is active. For a service DAG, the buckets of its run history instead. */
+        /** @description The activity of the DAGs of one DAG list page, in page order */
+        DAGListActivityPage: {
+            dags: components["schemas"]["DAGListActivityEntry"][];
+            /** @description Errors encountered while listing the DAGs or reading their activity */
+            errors: string[];
+        };
+        /** @description The activity of one DAG of a list page */
+        DAGListActivityEntry: {
+            /** @description The fileName of the DAG in `GET /dags` */
+            fileName: string;
+            activity: components["schemas"]["DAGListActivity"];
+        };
+        /** @description The runs of a DAG that started in the window of the request, newest first, and its latest run while it is active. For a service DAG, the buckets of its run history instead. */
         DAGListActivity: {
             /** @description Runs that started in the window, at most 60. Backfill runs are not listed. */
             runs: components["schemas"]["DAGListActivityRun"][];
@@ -10855,8 +10892,6 @@ export interface operations {
                 sort?: PathsDagsGetParametersQuerySort;
                 /** @description Sort order (ascending or descending) */
                 order?: PathsDagsGetParametersQueryOrder;
-                /** @description Length in seconds of a window that ends now. When set, each DAG in the list carries `activity`: its runs that started in the window, newest first, and its latest run while it is active. Without it, no DAG carries `activity`. */
-                activityWindow?: number;
             };
             header?: never;
             path?: never;
@@ -12931,6 +12966,70 @@ export interface operations {
                 };
             };
             /** @description The window, filters, or cursor are invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGListActivity: {
+        parameters: {
+            query: {
+                /** @description page number of items to fetch (default is 1) */
+                page?: components["parameters"]["Page"];
+                /** @description number of items per page (default is 30, max is 100) */
+                perPage?: components["parameters"]["PerPage"];
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description Workspace selector. For list and search APIs, use all, default, or a workspace name. Omitted means all. */
+                workspace?: components["parameters"]["Workspace"];
+                /** @description Length in seconds of the window that ends now */
+                window: number;
+                /** @description Same as `name` of `GET /dags` */
+                name?: string;
+                /** @description Same as `labels` of `GET /dags` */
+                labels?: string;
+                /** @description Same as `active` of `GET /dags` */
+                active?: boolean;
+                /**
+                 * @deprecated
+                 * @description Same as `tags` of `GET /dags`
+                 */
+                tags?: string;
+                /** @description Same as `sort` of `GET /dags` */
+                sort?: PathsDagListActivityGetParametersQuerySort;
+                /** @description Same as `order` of `GET /dags` */
+                order?: PathsDagListActivityGetParametersQueryOrder;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DAGListActivityPage"];
+                };
+            };
+            /** @description The window, the page size, or a filter is invalid */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -25883,6 +25982,16 @@ export enum PathsDagsGetParametersQuerySort {
     lastRun = "lastRun"
 }
 export enum PathsDagsGetParametersQueryOrder {
+    asc = "asc",
+    desc = "desc"
+}
+export enum PathsDagListActivityGetParametersQuerySort {
+    name = "name",
+    nextRun = "nextRun",
+    status = "status",
+    lastRun = "lastRun"
+}
+export enum PathsDagListActivityGetParametersQueryOrder {
     asc = "asc",
     desc = "desc"
 }

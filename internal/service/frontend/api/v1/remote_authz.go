@@ -49,6 +49,7 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"GetCalendar":                     remoteNodeAccessRead,
 	"PreviewCalendar":                 remoteNodeAccessRead,
 	"GetDAGRunActivity":               remoteNodeAccessRead,
+	"GetDAGListActivity":              remoteNodeAccessRead,
 	"ListDAGRuns":                     remoteNodeAccessRead,
 	"ListDAGRunsByName":               remoteNodeAccessRead,
 	"GetDAGRunDetails":                remoteNodeAccessRead,

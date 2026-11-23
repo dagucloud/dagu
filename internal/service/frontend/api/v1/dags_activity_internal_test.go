@@ -10,6 +10,7 @@ import (
 	"time"
 
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/stretchr/testify/assert"
@@ -17,16 +18,33 @@ import (
 
 func TestActivityWindowFromQuery(t *testing.T) {
 	t.Parallel()
-	window, err := activityWindowFromQuery(url.Values{})
-	assert.NoError(t, err)
-	assert.Zero(t, window)
-
-	window, err = activityWindowFromQuery(url.Values{"activityWindow": {"86400"}})
+	window, err := activityWindowFromQuery(url.Values{"window": {"86400"}})
 	assert.NoError(t, err)
 	assert.Equal(t, 24*time.Hour, window)
 
-	for _, bad := range []string{"day", "59", "604801", "-1"} {
-		_, err = activityWindowFromQuery(url.Values{"activityWindow": {bad}})
+	for _, bad := range []string{"", "day", "59", "604801", "-1"} {
+		_, err = activityWindowFromQuery(url.Values{"window": {bad}})
+		var apiErr *Error
+		if assert.ErrorAs(t, err, &apiErr, bad) {
+			assert.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus, bad)
+		}
+	}
+}
+
+// An activity topic needs a window, a known sort and order, and a page that
+// a DAG list can have.
+func TestValidateDAGListActivityQuery(t *testing.T) {
+	t.Parallel()
+	a := &API{config: &config.Config{}}
+	assert.NoError(t, a.ValidateDAGListActivityQuery(t.Context(), "window=86400&page=1&perPage=100&sort=lastRun&order=desc"))
+
+	for _, bad := range []string{
+		"page=1&perPage=100",
+		"window=86400&sort=size",
+		"window=86400&order=up",
+		"window=86400&perPage=9223372036854775807",
+	} {
+		err := a.ValidateDAGListActivityQuery(t.Context(), bad)
 		var apiErr *Error
 		if assert.ErrorAs(t, err, &apiErr, bad) {
 			assert.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus, bad)

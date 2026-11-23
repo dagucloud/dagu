@@ -64,15 +64,22 @@ func seedActivityRun(t *testing.T, server test.Server, dag *ir.DAG, run activity
 	require.NoError(t, attempt.Close(server.Context))
 }
 
-func listActivity(t *testing.T, server test.Server, query string) map[string]api.DAGFile {
+// listActivity reads the activity of the DAG list page of query, by fileName.
+func listActivity(t *testing.T, server test.Server, query string) map[string]*api.DAGListActivity {
 	t.Helper()
-	var list api.ListDAGs200JSONResponse
-	server.Client().Get("/api/v1/dags"+query).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &list)
-	byName := make(map[string]api.DAGFile, len(list.Dags))
-	for _, dag := range list.Dags {
-		byName[dag.FileName] = dag
+	page := readActivityPage(t, server, query)
+	byName := make(map[string]*api.DAGListActivity, len(page.Dags))
+	for _, entry := range page.Dags {
+		byName[entry.FileName] = &entry.Activity
 	}
 	return byName
+}
+
+func readActivityPage(t *testing.T, server test.Server, query string) api.DAGListActivityPage {
+	t.Helper()
+	var page api.DAGListActivityPage
+	server.Client().Get("/api/v1/dag-list-activity"+query).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &page)
+	return page
 }
 
 func activityRunIDs(activity *api.DAGListActivity) []string {
@@ -90,8 +97,8 @@ func TestListDAGsActivityLimitedToTheWindow(t *testing.T) {
 	seedActivityRun(t, server, dag, activityRun{id: "first", status: ir.Succeeded, startAgo: 3 * time.Hour, took: 5 * time.Minute})
 	seedActivityRun(t, server, dag, activityRun{id: "second", status: ir.Failed, startAgo: 30 * time.Minute, took: time.Minute})
 
-	dags := listActivity(t, server, "?activityWindow=86400")
-	activity := dags["activity_window"].Activity
+	dags := listActivity(t, server, "?window=86400")
+	activity := dags["activity_window"]
 	require.NotNil(t, activity)
 	assert.Equal(t, []string{"second", "first"}, activityRunIDs(activity))
 	assert.False(t, activity.Truncated)
@@ -100,8 +107,6 @@ func TestListDAGsActivityLimitedToTheWindow(t *testing.T) {
 	assert.Equal(t, api.Status(ir.Failed), second.Status)
 	assert.NotNil(t, second.FinishedAt)
 
-	assert.Nil(t, listActivity(t, server, "")["activity_window"].Activity,
-		"a list without a window carries no activity")
 }
 
 func TestListDAGsActivityOfAnIdleDAGIsEmpty(t *testing.T) {
@@ -110,11 +115,11 @@ func TestListDAGsActivityOfAnIdleDAGIsEmpty(t *testing.T) {
 	createActivityDAG(t, server, "activity_never")
 	seedActivityRun(t, server, idle, activityRun{id: "ancient", status: ir.Succeeded, startAgo: 2 * 365 * 24 * time.Hour, took: time.Minute})
 
-	dags := listActivity(t, server, "?activityWindow=86400")
+	dags := listActivity(t, server, "?window=86400")
 	for _, name := range []string{"activity_idle", "activity_never"} {
-		require.NotNil(t, dags[name].Activity, name)
-		assert.Empty(t, dags[name].Activity.Runs, name)
-		assert.False(t, dags[name].Activity.Truncated, name)
+		require.NotNil(t, dags[name], name)
+		assert.Empty(t, dags[name].Runs, name)
+		assert.False(t, dags[name].Truncated, name)
 	}
 }
 
@@ -140,14 +145,14 @@ func TestListDAGsActivityIsBounded(t *testing.T) {
 	}
 	seedActivityRun(t, server, full, activityRun{id: "queued", status: ir.Queued})
 
-	dags := listActivity(t, server, "?activityWindow=86400")
-	activity := dags["activity_busy"].Activity
+	dags := listActivity(t, server, "?window=86400")
+	activity := dags["activity_busy"]
 	require.NotNil(t, activity)
 	assert.Len(t, activity.Runs, 60)
 	assert.True(t, activity.Truncated)
 	assert.Equal(t, "run-064", activity.Runs[0].DagRunId, "the newest run comes first")
 
-	activity = dags["activity_full"].Activity
+	activity = dags["activity_full"]
 	require.NotNil(t, activity)
 	assert.Len(t, activity.Runs, 60)
 	assert.False(t, activity.Truncated)
@@ -168,14 +173,14 @@ func TestListDAGsActivityAroundQueuedAndLongRuns(t *testing.T) {
 	long := createActivityDAG(t, server, "activity_long")
 	seedActivityRun(t, server, long, activityRun{id: "long", status: ir.Waiting, startAgo: 30 * time.Hour})
 
-	for _, query := range []string{"?activityWindow=86400", "?activityWindow=86400&sort=lastRun"} {
+	for _, query := range []string{"?window=86400", "?window=86400&sort=lastRun"} {
 		dags := listActivity(t, server, query)
-		require.NotNil(t, dags["activity_queue"].Activity, query)
-		assert.Equal(t, []string{"going", "done"}, activityRunIDs(dags["activity_queue"].Activity), query)
-		require.NotNil(t, dags["activity_retry"].Activity, query)
-		assert.Empty(t, dags["activity_retry"].Activity.Runs, query)
-		require.NotNil(t, dags["activity_long"].Activity, query)
-		assert.Equal(t, []string{"long"}, activityRunIDs(dags["activity_long"].Activity), query)
+		require.NotNil(t, dags["activity_queue"], query)
+		assert.Equal(t, []string{"going", "done"}, activityRunIDs(dags["activity_queue"]), query)
+		require.NotNil(t, dags["activity_retry"], query)
+		assert.Empty(t, dags["activity_retry"].Runs, query)
+		require.NotNil(t, dags["activity_long"], query)
+		assert.Equal(t, []string{"long"}, activityRunIDs(dags["activity_long"]), query)
 	}
 }
 
@@ -192,11 +197,11 @@ func TestListDAGsActivityOfRunsQueuedBeforeTheyStarted(t *testing.T) {
 	seedActivityRun(t, server, order, activityRun{id: "waited", status: ir.Succeeded, startAgo: time.Hour, queuedFor: 4 * time.Hour, took: time.Minute})
 	seedActivityRun(t, server, order, activityRun{id: "direct", status: ir.Succeeded, startAgo: 3 * time.Hour, took: time.Minute})
 
-	for _, query := range []string{"?activityWindow=86400", "?activityWindow=86400&sort=lastRun"} {
+	for _, query := range []string{"?window=86400", "?window=86400&sort=lastRun"} {
 		dags := listActivity(t, server, query)
-		assert.Equal(t, []string{"running"}, activityRunIDs(dags["activity_late_running"].Activity), query)
-		assert.Equal(t, []string{"ended"}, activityRunIDs(dags["activity_late_ended"].Activity), query)
-		assert.Equal(t, []string{"waited", "direct"}, activityRunIDs(dags["activity_late_order"].Activity), query)
+		assert.Equal(t, []string{"running"}, activityRunIDs(dags["activity_late_running"]), query)
+		assert.Equal(t, []string{"ended"}, activityRunIDs(dags["activity_late_ended"]), query)
+		assert.Equal(t, []string{"waited", "direct"}, activityRunIDs(dags["activity_late_order"]), query)
 	}
 }
 
@@ -213,12 +218,12 @@ func TestListDAGsActivityLeavesOutBackfillRuns(t *testing.T) {
 	only := createActivityDAG(t, server, "activity_backfill_only")
 	seedActivityRun(t, server, only, activityRun{id: "slot", status: ir.Succeeded, startAgo: time.Hour, took: time.Minute, backfill: "fill"})
 
-	dags := listActivity(t, server, "?activityWindow=86400")
+	dags := listActivity(t, server, "?window=86400")
 	for _, name := range []string{"activity_backfill_idle", "activity_backfill_only"} {
-		require.NotNil(t, dags[name].Activity, name)
-		assert.Empty(t, dags[name].Activity.Runs, name)
+		require.NotNil(t, dags[name], name)
+		assert.Empty(t, dags[name].Runs, name)
 	}
-	assert.Equal(t, []string{"live"}, activityRunIDs(dags["activity_backfill_recent"].Activity))
+	assert.Equal(t, []string{"live"}, activityRunIDs(dags["activity_backfill_recent"]))
 }
 
 // A list keeps the activity of a DAG, and the next list shows a new run of
@@ -227,16 +232,42 @@ func TestListDAGsActivityShowsANewRunAtOnce(t *testing.T) {
 	server := test.SetupServer(t)
 	dag := createActivityDAG(t, server, "activity_new")
 	seedActivityRun(t, server, dag, activityRun{id: "first", status: ir.Succeeded, startAgo: time.Hour, took: time.Minute})
-	assert.Equal(t, []string{"first"}, activityRunIDs(listActivity(t, server, "?activityWindow=86400")["activity_new"].Activity))
+	assert.Equal(t, []string{"first"}, activityRunIDs(listActivity(t, server, "?window=86400")["activity_new"]))
 
 	seedActivityRun(t, server, dag, activityRun{id: "second", status: ir.Running, startAgo: time.Minute})
-	assert.Equal(t, []string{"second", "first"}, activityRunIDs(listActivity(t, server, "?activityWindow=86400")["activity_new"].Activity))
+	assert.Equal(t, []string{"second", "first"}, activityRunIDs(listActivity(t, server, "?window=86400")["activity_new"]))
 }
 
 func TestListDAGsActivityRejectsAWindowOutOfRange(t *testing.T) {
 	server := test.SetupServer(t)
-	for _, window := range []string{"10", "604801"} {
-		server.Client().Get("/api/v1/dags?activityWindow=" + window).
+	for _, query := range []string{"?window=10", "?window=604801", ""} {
+		server.Client().Get("/api/v1/dag-list-activity" + query).
 			ExpectStatus(http.StatusBadRequest).Send(t)
+	}
+}
+
+// The activity covers the DAGs of the list page with the same paging and
+// sort, in the order of the list.
+func TestListDAGsActivityFollowsTheListPage(t *testing.T) {
+	server := test.SetupServer(t)
+	for _, name := range []string{"page_a", "page_b", "page_c"} {
+		createActivityDAG(t, server, name)
+	}
+
+	for _, query := range []string{"perPage=2&page=2", "perPage=2&page=1&order=desc"} {
+		var list api.ListDAGs200JSONResponse
+		server.Client().Get("/api/v1/dags?"+query).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &list)
+		want := make([]string, 0, len(list.Dags))
+		for _, dag := range list.Dags {
+			want = append(want, dag.FileName)
+		}
+		require.NotEmpty(t, want, query)
+
+		page := readActivityPage(t, server, "?window=86400&"+query)
+		got := make([]string, 0, len(page.Dags))
+		for _, entry := range page.Dags {
+			got = append(got, entry.FileName)
+		}
+		assert.Equal(t, want, got, query)
 	}
 }
