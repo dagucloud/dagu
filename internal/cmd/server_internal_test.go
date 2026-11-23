@@ -5,6 +5,8 @@ package cmd
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -143,6 +145,48 @@ func TestStartCloudReport(t *testing.T) {
 		require.Nil(t, newCloudAccess(ctx))
 		require.Nil(t, startCloudReport(ctx, monitoring, nil, nil))
 	})
+}
+
+// The audit shipper starts only at a level that sends, with local audit on
+// and a license manager; otherwise nothing reads the audit files.
+func TestStartCloudAudit(t *testing.T) {
+	newContext := func(level config.AuditLevel) *Context {
+		cfg := &config.Config{Cloud: config.CloudConfig{Audit: level}}
+		cfg.Server.Audit.Enabled = true
+		cfg.Paths.DataDir = t.TempDir()
+		cfg.Paths.AdminLogsDir = t.TempDir()
+		return &Context{Context: t.Context(), Config: cfg, LicenseManager: license.NewConnectedTestManager(license.FeatureAudit)}
+	}
+	stateFile := func(ctx *Context) string {
+		return filepath.Join(ctx.Config.Paths.DataDir, "cloud", "audit-state.json")
+	}
+
+	t.Run("sends", func(t *testing.T) {
+		ctx := newContext(config.AuditChanges)
+		stop := startCloudAudit(ctx, nil)
+		defer stop()
+		require.Eventually(t, func() bool {
+			_, err := os.Stat(stateFile(ctx))
+			return err == nil
+		}, 5*time.Second, 10*time.Millisecond, "the shipper saves where it starts")
+	})
+
+	for name, ctx := range map[string]*Context{
+		"unset": newContext(""),
+		"off":   newContext(config.AuditOff),
+		"audit off": func() *Context {
+			ctx := newContext(config.AuditAll)
+			ctx.Config.Server.Audit.Enabled = false
+			return ctx
+		}(),
+		"no license": func() *Context { ctx := newContext(config.AuditAll); ctx.LicenseManager = nil; return ctx }(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			startCloudAudit(ctx, nil)()
+			_, err := os.Stat(filepath.Dir(stateFile(ctx)))
+			require.ErrorIs(t, err, os.ErrNotExist)
+		})
+	}
 }
 
 // The event store and the run history are prepared at every level: an
