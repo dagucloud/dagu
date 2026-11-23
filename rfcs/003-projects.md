@@ -764,6 +764,9 @@ The report lists these items, which migration cannot settle alone:
 - A DAG under `paths.alt_dags_dir` that v2 scheduled, because
   `alt_dags_dir` lay inside `dags_dir`. v3 treats it as a library DAG and
   does not schedule it; moving its file into a project schedules it again.
+- A DAG that v2 found through a symbolic link out of `paths.dags_dir`.
+  v3.0 does not follow the link, so the DAG is no longer listed or
+  scheduled; moving its file into a DAG directory runs it again.
 - A library DAG with a `workspace` label. On v2 only that workspace's
   users could read it; on v3 every user can read library DAGs. Moving its
   file into the project keeps it private when no other project calls it.
@@ -971,7 +974,9 @@ Criteria 23 and 24 apply from the release that ships the feature.
     its name and run history, and its record ends.
 36. A DAG file that runs in place is listed, scheduled, and started only in
     its project, and a user who could not see it on v2 cannot see it on
-    v3.0. No DAG stops being scheduled at the upgrade.
+    v3.0. No DAG stops being scheduled at the upgrade, except one that
+    v2 found through a symbolic link out of `paths.dags_dir`, which the
+    report lists.
 37. A secret, profile, or DAG state that a worker reads through the
     coordinator comes from the task's project, and the coordinator refuses
     a call without a project for a task of another project.
