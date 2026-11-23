@@ -777,3 +777,33 @@ func TestValidateHumanTaskInputs(t *testing.T) {
 	_, err = ValidateHumanTaskInputs(form, map[string]any{"window": json.Number("4")}, false)
 	require.Error(t, err)
 }
+
+// Spec 031 applies form defaults before it enforces required, so a required
+// property with a default may be left out.
+func TestHumanTaskInputsFillRequiredDefaults(t *testing.T) {
+	t.Parallel()
+
+	form, _, err := buildHumanTaskForm(map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"channel": map[string]any{"type": "string", "default": "stable"},
+			"count":   map[string]any{"type": "integer", "default": 2},
+			"note":    map[string]any{"type": "string"},
+		},
+		"required": []any{"channel", "count", "note"},
+	})
+	require.NoError(t, err)
+
+	result, err := ValidateHumanTaskInputs(form, map[string]any{"note": "ok"}, false)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"channel":"stable","count":2,"note":"ok"}`, string(result.Canonical))
+	assert.Equal(t, map[string]string{"channel": "stable", "count": "2", "note": "ok"}, result.Outputs)
+
+	result, err = ValidateHumanTaskInputs(form, map[string]any{"channel": "beta", "note": "ok"}, false)
+	require.NoError(t, err)
+	assert.Equal(t, "beta", result.Outputs["channel"])
+
+	_, err = ValidateHumanTaskInputs(form, nil, false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "note")
+}

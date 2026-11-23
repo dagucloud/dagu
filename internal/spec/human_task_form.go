@@ -514,6 +514,9 @@ func ValidateHumanTaskInputs(form json.RawMessage, inputs map[string]any, coerce
 			continue
 		}
 	}
+	if err := applyRequiredDefaults(values, resolved.Schema()); err != nil {
+		return nil, err
+	}
 	values, err = validateSchemaMap(values, resolved, false)
 	if err != nil {
 		return nil, fmt.Errorf("human task form validation failed: %w", err)
@@ -536,4 +539,22 @@ func ValidateHumanTaskInputs(form json.RawMessage, inputs map[string]any, coerce
 		outputs[declaration.Name] = stringifyTypedValue(value)
 	}
 	return &HumanTaskInputResult{Canonical: canonical, Outputs: outputs}, nil
+}
+
+// applyRequiredDefaults sets each omitted required property that has a
+// default. The schema library applies defaults to optional properties only,
+// and Spec 031 applies every default before it enforces required.
+func applyRequiredDefaults(values map[string]any, schema *jsonschema.Schema) error {
+	for _, name := range schema.Required {
+		property := schema.Properties[name]
+		if _, supplied := values[name]; supplied || property == nil || len(property.Default) == 0 {
+			continue
+		}
+		var value any
+		if err := json.Unmarshal(property.Default, &value); err != nil {
+			return fmt.Errorf("%s: invalid default: %w", name, err)
+		}
+		values[name] = value
+	}
+	return nil
 }
