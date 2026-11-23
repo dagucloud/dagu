@@ -29,9 +29,26 @@ type cleaner struct {
 	stopOnce      sync.Once
 }
 
+// cleanupRecord is the details of an audit_cleanup entry. It is written
+// before the files it lists are removed, so a reader that tracks byte offsets
+// can tell whether a removed file held entries it never read.
+type cleanupRecord struct {
+	PurgedFrom    string        `json:"purged_from"`
+	PurgedTo      string        `json:"purged_to"`
+	Files         []cleanupFile `json:"files"`
+	RetentionDays int           `json:"retention_days"`
+}
+
+// cleanupFile is an audit file the cleaner removes, with its size.
+type cleanupFile struct {
+	Name  string `json:"name"`
+	Bytes int64  `json:"bytes"`
+}
+
 // newCleaner creates and starts a cleaner that purges expired audit log files.
 // It runs purgeExpiredFiles immediately, then every 24 hours.
-// The appendFn is called to record cleanup events in the audit log.
+// The appendFn records each cleanup in the audit log before its files are
+// removed.
 func newCleaner(baseDir string, retentionDays int, fn appendFn) *cleaner {
 	c := &cleaner{
 		baseDir:       baseDir,
@@ -69,12 +86,43 @@ func (c *cleaner) stop() {
 
 // purgeExpiredFiles removes audit log files whose date is strictly before
 // the cutoff (today minus retentionDays, UTC). For example, retentionDays=7
-// keeps today plus the 7 previous days (8 calendar days of files).
+// keeps today plus the 7 previous days (8 calendar days of files). It records
+// the files and their sizes first, and removes nothing if the record fails.
 func (c *cleaner) purgeExpiredFiles() {
 	if c.retentionDays <= 0 {
 		return
 	}
 
+	files := c.expiredFiles()
+	if len(files) == 0 {
+		return
+	}
+	if err := c.recordCleanup(files); err != nil {
+		slog.Warn("fileaudit: kept expired audit files, the cleanup entry failed",
+			slog.Int("files", len(files)),
+			slog.String("error", err.Error()))
+		return
+	}
+
+	removed := 0
+	for _, file := range files {
+		filePath := filepath.Join(c.baseDir, file.Name)
+		if err := fileutil.Remove(filePath); err != nil {
+			slog.Warn("fileaudit: failed to remove expired audit file",
+				slog.String("file", filePath),
+				slog.String("error", err.Error()))
+			continue
+		}
+		removed++
+	}
+	slog.Info("fileaudit: purged expired audit log files",
+		slog.Int("removed", removed),
+		slog.Int("retentionDays", c.retentionDays))
+}
+
+// expiredFiles lists the audit files dated before the retention cutoff,
+// oldest first, with their sizes.
+func (c *cleaner) expiredFiles() []cleanupFile {
 	entries, err := os.ReadDir(c.baseDir)
 	if err != nil {
 		if !os.IsNotExist(err) {
@@ -82,14 +130,14 @@ func (c *cleaner) purgeExpiredFiles() {
 				slog.String("dir", c.baseDir),
 				slog.String("error", err.Error()))
 		}
-		return
+		return nil
 	}
 
 	now := time.Now().UTC()
 	cutoff := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC).
 		AddDate(0, 0, -c.retentionDays)
 
-	var purgedDates []string
+	var files []cleanupFile
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -100,47 +148,33 @@ func (c *cleaner) purgeExpiredFiles() {
 			continue
 		}
 
-		datePart := strings.TrimSuffix(name, auditFileExtension)
-		fileDate, err := time.Parse(dateFormat, datePart)
-		if err != nil {
+		fileDate, err := time.Parse(dateFormat, strings.TrimSuffix(name, auditFileExtension))
+		if err != nil || !fileDate.Before(cutoff) {
 			continue
 		}
 
-		if fileDate.Before(cutoff) {
-			filePath := filepath.Join(c.baseDir, name)
-			if err := fileutil.Remove(filePath); err != nil {
-				slog.Warn("fileaudit: failed to remove expired audit file",
-					slog.String("file", filePath),
-					slog.String("error", err.Error()))
-				continue
-			}
-			purgedDates = append(purgedDates, datePart)
+		info, err := entry.Info()
+		if err != nil {
+			// Its size cannot go in the record, so the file is not removed.
+			continue
 		}
+		files = append(files, cleanupFile{Name: name, Bytes: info.Size()})
 	}
+	return files
+}
 
-	if len(purgedDates) > 0 {
-		slog.Info("fileaudit: purged expired audit log files",
-			slog.Int("removed", len(purgedDates)),
-			slog.Int("retentionDays", c.retentionDays))
-
-		if c.appendFn != nil {
-			details, err := json.Marshal(map[string]any{
-				"purged_from":    purgedDates[0],
-				"purged_to":      purgedDates[len(purgedDates)-1],
-				"files_removed":  len(purgedDates),
-				"retention_days": c.retentionDays,
-			})
-			if err != nil {
-				slog.Warn("fileaudit: failed to marshal cleanup audit details",
-					slog.String("error", err.Error()))
-				details = []byte("{}")
-			}
-			entry := audit.NewEntry(audit.CategorySystem, "audit_cleanup", "", "system").
-				WithDetails(string(details))
-			if err := c.appendFn(context.Background(), entry); err != nil {
-				slog.Warn("fileaudit: failed to log cleanup audit entry",
-					slog.String("error", err.Error()))
-			}
-		}
+// recordCleanup appends the audit_cleanup entry that lists files.
+func (c *cleaner) recordCleanup(files []cleanupFile) error {
+	details, err := json.Marshal(cleanupRecord{
+		PurgedFrom:    strings.TrimSuffix(files[0].Name, auditFileExtension),
+		PurgedTo:      strings.TrimSuffix(files[len(files)-1].Name, auditFileExtension),
+		Files:         files,
+		RetentionDays: c.retentionDays,
+	})
+	if err != nil {
+		return err
 	}
+	entry := audit.NewEntry(audit.CategorySystem, "audit_cleanup", "", "system").
+		WithDetails(string(details))
+	return c.appendFn(context.Background(), entry)
 }
