@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -390,17 +389,14 @@ func approvalInputs(values map[string]any) (map[string]string, error) {
 	}
 	inputs := make(map[string]string, len(values))
 	for name, value := range values {
-		if value == nil {
+		switch v := value.(type) {
+		case nil:
 			inputs[name] = ""
-			continue
-		}
-		switch reflect.ValueOf(value).Kind() {
-		case reflect.String:
-			inputs[name] = fmt.Sprint(value)
-		case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
-			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
-			reflect.Float32, reflect.Float64:
-			text, err := json.Marshal(value)
+		case string:
+			inputs[name] = v
+		case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64,
+			float32, float64, json.Number:
+			text, err := json.Marshal(v)
 			if err != nil {
 				return nil, fmt.Errorf("value %s: %w", name, err)
 			}
