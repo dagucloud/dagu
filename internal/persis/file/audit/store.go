@@ -55,7 +55,7 @@ var _ audit.Store = (*Store)(nil)
 type Option func(*Store)
 
 // WithMasker sets the masker Append runs on every entry. Without it, Append
-// masks common token formats only.
+// masks common token formats only and marks no entry masked.
 func WithMasker(m *audit.Masker) Option {
 	return func(s *Store) {
 		s.masker = m

@@ -143,11 +143,23 @@ func TestMaskHidesCommonTokenFormats(t *testing.T) {
 	for _, token := range tokens {
 		entry := &Entry{Details: fmt.Sprintf(`{"command":"git push https://%s@github.com/o/r"}`, token)}
 
-		NewMasker(nil).Mask(context.Background(), entry)
+		NewMasker(&secretValues{}).Mask(context.Background(), entry)
 
 		assert.NotContains(t, entry.Details, token)
 		assert.True(t, entry.Masked)
 	}
+}
+
+// Without a secret source the stored values are unknown, so an entry has
+// its token formats hidden but carries no marker.
+func TestMaskMarksNothingWithoutSource(t *testing.T) {
+	token := "ghp_" + strings.Repeat("a", 36)
+	entry := &Entry{Details: `{"command":"echo ` + token + `"}`}
+
+	NewMasker(nil).Mask(context.Background(), entry)
+
+	assert.NotContains(t, entry.Details, token)
+	assert.False(t, entry.Masked)
 }
 
 // A secret changed in this process is masked in the next entry; one changed

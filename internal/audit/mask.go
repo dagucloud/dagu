@@ -93,7 +93,8 @@ type Masker struct {
 }
 
 // NewMasker returns a masker that hides the values source supplies and
-// common token formats. A nil source hides the token formats only.
+// common token formats. A nil source hides the token formats only and marks
+// no entry masked.
 func NewMasker(source SecretSource) *Masker {
 	return &Masker{source: source, now: time.Now, secrets: tokenMasker}
 }
@@ -123,7 +124,7 @@ func (m *Masker) Mask(ctx context.Context, entry *Entry) {
 // secretsRetryInterval if it failed.
 func (m *Masker) current(ctx context.Context) (*masking.Masker, bool) {
 	if m == nil || m.source == nil {
-		return tokenMasker, true
+		return tokenMasker, false
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
