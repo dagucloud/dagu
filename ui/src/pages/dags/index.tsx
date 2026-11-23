@@ -972,6 +972,40 @@ function DAGsContent() {
     }
   };
 
+  const handleRenameWorkflowView = async (
+    viewId: string,
+    name: string
+  ): Promise<void> => {
+    const view = scopedWorkflowViews.find((item) => item.id === viewId);
+    if (!view) {
+      return;
+    }
+    // The saved filters stay as they are: a rename does not save the edits.
+    const saved = workflowViews.find((item) => item.id === viewId);
+    if (!saved) {
+      return;
+    }
+    setWorkflowViewError(null);
+    try {
+      await updateView(
+        viewId,
+        buildWorkflowViewSpec(
+          name,
+          cloneFilters(saved.filters),
+          view.isDefault ?? false,
+          view.pinned ?? false
+        )
+      );
+    } catch (error) {
+      setWorkflowViewError(
+        error instanceof Error
+          ? error.message
+          : 'Failed to rename the workflow view'
+      );
+      throw error;
+    }
+  };
+
   const handleDeleteWorkflowView = async (viewId: string): Promise<void> => {
     const deletingActiveView = viewId === activeWorkflowViewId;
     setWorkflowViewError(null);
@@ -996,6 +1030,9 @@ function DAGsContent() {
   const isWorkflowViewEdited = activeWorkflowView
     ? !areDAGDefinitionsFiltersEqual(activeWorkflowView.filters, currentFilters)
     : false;
+  const areWorkflowFiltersSaved = workflowViews.some((view) =>
+    areDAGDefinitionsFiltersEqual(view.filters, currentFilters)
+  );
   const isAllWorkflowsView =
     activeWorkflowViewId === null &&
     areDAGDefinitionsFiltersEqual(currentFilters, defaultFilters);
@@ -1197,6 +1234,7 @@ function DAGsContent() {
             defaultWorkflowViewId={defaultWorkflowViewId}
             isAllWorkflowsView={isAllWorkflowsView}
             isWorkflowViewEdited={isWorkflowViewEdited}
+            areWorkflowFiltersSaved={areWorkflowFiltersSaved}
             canManageWorkflowViews={canManageWorkflowViews}
             canDeleteDAGs={canManageWorkflowViews}
             workflowViewError={workflowViewError}
@@ -1208,6 +1246,7 @@ function DAGsContent() {
             onSetDefaultWorkflowView={handleSetDefaultWorkflowView}
             onSetPinnedWorkflowView={handleSetPinnedWorkflowView}
             onDeleteWorkflowView={handleDeleteWorkflowView}
+            onRenameWorkflowView={handleRenameWorkflowView}
             onDeleteDAGs={handleDeleteDAGs}
             canEditDAG={canWriteDAG}
             canPinDAG={canWriteDAG}
