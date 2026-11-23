@@ -1368,6 +1368,11 @@ func (srv *Server) setupAssetRoutesWithFS(r *chi.Mux, basePath string, assetFS f
 			_, _ = w.Write(cmnschema.WorkflowTestSchemaJSON)
 			return
 		}
+		if strings.HasSuffix(r.URL.Path, "inventory.schema.json") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(cmnschema.InventorySchemaJSON)
+			return
+		}
 
 		if ctype := mime.TypeByExtension(strings.ToLower(path.Ext(r.URL.Path))); ctype != "" {
 			w.Header().Set("Content-Type", ctype)

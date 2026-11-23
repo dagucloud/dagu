@@ -404,6 +404,8 @@ This document outlines the design principles and guidelines for the Dagu UI base
 
 Dagu supports managing workflows across multiple remote nodes. Every API endpoint that interacts with DAGs, services, or system resources must include the `remoteNode` query parameter to ensure the request is routed to the correct node.
 
+Exception: the node inventory endpoints (`/nodes`, `/node-labels`, `/inventories`, `/inventory-imports`, `/node-connection-tests`, and `/node-host-keys`) serve only the server the browser talks to. They declare no `remoteNode`, and the Nodes page renders nothing while a remote node is selected (RFC 012 §API).
+
 #### Pattern for `useQuery` hooks:
 ```tsx
 const remoteNode = appBarContext.selectedRemoteNode || 'local';
