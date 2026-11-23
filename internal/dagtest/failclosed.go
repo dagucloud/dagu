@@ -19,6 +19,10 @@ type Handling struct {
 	// Mocks maps a step key, a step's name or id or handler_on.<event> for a
 	// lifecycle handler, to the fields its mock sets.
 	Mocks map[string]MockFields
+	// DefaultMock is the case's default mock, or nil when it has none. It
+	// counts as the mock of every step and handler with a source that Mocks
+	// and Real do not name.
+	DefaultMock *MockFields
 	// Real lists the step keys of the steps that run their real action.
 	Real []string
 	// Precondition reports whether the case sets precondition, the result of
@@ -70,9 +74,10 @@ func (f Finding) String() string {
 // step in the order of the rule's table. A case with no finding may run.
 func CheckFailClosed(dag *ir.DAG, handling Handling) []Finding {
 	c := checker{
-		mocks:  handling.Mocks,
-		real:   toSet(handling.Real),
-		params: toSet(handling.Params),
+		mocks:       handling.Mocks,
+		defaultMock: handling.DefaultMock,
+		real:        toSet(handling.Real),
+		params:      toSet(handling.Params),
 	}
 	c.checkParams(dag.ParamDefs)
 	if !handling.Precondition && slices.ContainsFunc(dag.Preconditions, runsCommand) {
@@ -94,10 +99,11 @@ const (
 )
 
 type checker struct {
-	mocks    map[string]MockFields
-	real     map[string]struct{}
-	params   map[string]struct{}
-	findings []Finding
+	mocks       map[string]MockFields
+	defaultMock *MockFields
+	real        map[string]struct{}
+	params      map[string]struct{}
+	findings    []Finding
 }
 
 func (c *checker) add(source, message string) {
@@ -121,6 +127,13 @@ func (c *checker) checkParams(defs []ir.ParamDef) {
 func (c *checker) checkStep(label string, step ir.Step, keys ...string) {
 	mock, mocked := c.lookupMock(keys)
 	real := c.isReal(keys)
+	// Spec 101 limits the default mock to steps with a source, and its
+	// result fields to side-effect-free actions that are a source. Neither
+	// limit changes a finding, so it applies to every step and handler the
+	// case does not name.
+	if !mocked && !real && c.defaultMock != nil {
+		mock, mocked = *c.defaultMock, true
+	}
 	replaced := replacesAction(step, mocked, mock, real)
 	for _, o := range stepOffenses(step, mock, replaced, real) {
 		c.add(label+o.label, o.subject+" "+o.does+"; "+o.fix)

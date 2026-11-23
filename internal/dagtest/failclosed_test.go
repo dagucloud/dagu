@@ -339,6 +339,104 @@ func TestCheckFailClosed(t *testing.T) {
 				Mocks: map[string]dagtest.MockFields{"handler_on.failure": {}},
 			},
 		},
+		{
+			// default_mock: {} replaces every action that has side effects,
+			// of steps and handlers alike.
+			name:     "DefaultMockReplacesActions",
+			dag:      "actions.yaml",
+			handling: dagtest.Handling{DefaultMock: &dagtest.MockFields{}},
+		},
+		{
+			name:     "DefaultMockOnBaseConfigHandler",
+			dag:      "base_handler/dag.yaml",
+			base:     "base_handler/base.yaml",
+			handling: dagtest.Handling{DefaultMock: &dagtest.MockFields{}},
+		},
+		{
+			// A source that no field of the default mock handles stays
+			// unhandled.
+			name: "DefaultMockWithoutFields",
+			dag:  "conditions.yaml",
+			handling: dagtest.Handling{
+				DefaultMock:  &dagtest.MockFields{},
+				Precondition: true,
+				Params:       []string{"build_date"},
+			},
+			want: []string{
+				"step gate: precondition runs a command; set precondition in its mock or list it under real",
+				"step compare: precondition runs a command; set precondition in its mock or list it under real",
+				"step poll: repeat condition runs a command; set condition in every result of its mock or list it under real",
+			},
+		},
+		{
+			// The default mock handles no DAG-level source, and a step's own
+			// mock replaces it as a whole.
+			name: "DefaultMockFields",
+			dag:  "conditions.yaml",
+			handling: dagtest.Handling{
+				Mocks: map[string]dagtest.MockFields{"gate": {}},
+				DefaultMock: &dagtest.MockFields{
+					Results:      []dagtest.ResultFields{{Condition: true}},
+					Precondition: true,
+				},
+			},
+			want: []string{
+				"param build_date: eval runs a command; give it a value under params",
+				"precondition: command check or substituting eval runs a command; set precondition in the case",
+				"step gate: precondition runs a command; set precondition in its mock or list it under real",
+			},
+		},
+		{
+			// Without a result field, the default mock keeps a
+			// side-effect-free action, so the step still repeats without end.
+			name:     "DefaultMockKeepsContinuousStep",
+			dag:      "continuous.yaml",
+			handling: dagtest.Handling{DefaultMock: &dagtest.MockFields{}},
+			want: []string{
+				"step heartbeat: repeat policy has no limit; mock it with a result or list it under real",
+			},
+		},
+		{
+			name:     "DefaultMockResultBoundsContinuousStep",
+			dag:      "continuous.yaml",
+			handling: dagtest.Handling{DefaultMock: &replacing},
+		},
+		{
+			name:     "DefaultMockKeepsOutputFile",
+			dag:      "outputs.yaml",
+			handling: dagtest.Handling{DefaultMock: &dagtest.MockFields{}},
+			want: []string{
+				"step report: object-form output reads a file; mock it or list it under real",
+			},
+		},
+		{
+			name:     "DefaultMockResultReplacesOutputFile",
+			dag:      "outputs.yaml",
+			handling: dagtest.Handling{DefaultMock: &replacing},
+		},
+		{
+			// The default mock replaces a foreach step with side effects,
+			// body included.
+			name:     "DefaultMockReplacesForeach",
+			dag:      "foreach.yaml",
+			handling: dagtest.Handling{DefaultMock: &dagtest.MockFields{Review: true}},
+			want: []string{
+				"step poll_all: repeat policy has no limit; mock it with a result or list it under real",
+			},
+		},
+		{
+			// A real step takes no default mock, so its wait needs review in
+			// a mock of its own.
+			name: "DefaultMockSkipsRealStep",
+			dag:  "waits.yaml",
+			handling: dagtest.Handling{
+				DefaultMock: &dagtest.MockFields{Review: true},
+				Real:        []string{"release"},
+			},
+			want: []string{
+				"step release: approval waits for required values; set review in its mock",
+			},
+		},
 	}
 
 	for _, tt := range tests {
