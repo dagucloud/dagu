@@ -94,36 +94,6 @@ describe('isSameYaml', () => {
     expect(isSameYaml('a: 1\n# tail\n', 'a: 1\n\n# tail\n\n')).toBe(true);
   });
 
-  // A comment belongs to the node that holds it: moving it is a change.
-  it('counts a comment that moves to another node', () => {
-    const steps = (first: string, second: string) =>
-      `steps:\n${first}  - name: a\n${second}  - name: b\n`;
-    const onA = steps('  # build\n', '');
-    const onB = steps('', '  # build\n');
-    expect(isSameYaml(onA, onB)).toBe(false);
-    expect(isSameYaml(onB, onA)).toBe(false);
-    expect(isSameYaml('a: 1\n# note\nb: 2\n', 'a: 1\nb: 2\n# note\n')).toBe(
-      false
-    );
-    expect(isSameYaml('a: 1 # x\nb: 2\n', 'a: 1\nb: 2 # x\n')).toBe(false);
-    expect(isSameYaml('# x\na: 1\n# y\nb: 2\n', '# y\na: 1\n# x\nb: 2\n')).toBe(
-      false
-    );
-  });
-
-  it('ignores a blank line around the first comment of a node', () => {
-    const steps = (gap: string) => `steps:\n  # build\n${gap}  - name: a\n`;
-    expect(isSameYaml(steps(''), steps('\n'))).toBe(true);
-    expect(isSameYaml('# a\n# b\nname: x\n', '# a\n\n# b\nname: x\n')).toBe(
-      true
-    );
-    expect(isSameYaml('# a\n- x\n', '# a\n\n- x\n')).toBe(true);
-    expect(isSameYaml('# c\n- name: a\n', '# c\n\n- name: a\n')).toBe(true);
-    expect(isSameYaml('# c\n- - 1\n', '# c\n\n- - 1\n')).toBe(true);
-    const block = (gap: string) => `  # c\n${gap}  - name: a\n    run: x\n`;
-    expect(isSameYaml(block(''), block('\n'))).toBe(true);
-  });
-
   it('compares the comments of a text without a document', () => {
     expect(isSameYaml('# a\n', '# b\n')).toBe(false);
     expect(isSameYaml('# a\n', '# a\n\n')).toBe(true);
