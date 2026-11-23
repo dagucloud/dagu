@@ -459,6 +459,34 @@ steps:
 	assert.Empty(t, evaluated.DeferredParams)
 }
 
+// A param given an empty value keeps it, and its eval does not run, when the
+// params that wait for the run get their values.
+func TestEvaluateDeferredParams_EmptyValue(t *testing.T) {
+	t.Parallel()
+
+	marker := filepath.Join(t.TempDir(), "eval.ran")
+	yaml := []byte(fmt.Sprintf(`
+params:
+  - name: env
+    default: prod
+  - name: service
+    eval: ${params.env}-api
+  - name: stamp
+    eval: $(touch %s)
+steps:
+  - run: echo ${params.service}
+`, marker))
+	dag, err := spec.LoadYAML(context.Background(), yaml, spec.WithParams(spec.QuoteRuntimeParams([]string{"stamp="}, nil)), spec.DeferAllParamEvals())
+	require.NoError(t, err)
+	require.Equal(t, []string{"service"}, dag.DeferredParams)
+
+	evaluated, err := spec.EvaluateDeferredParams(context.Background(), dag, nil, cmnvalue.BuiltinContext{})
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"env=prod", "service=prod-api", "stamp="}, evaluated.Params)
+	assert.NoFileExists(t, marker)
+}
+
 // A snapshot queued before its params were evaluated, as the scheduler
 // queues one, gets them when the run rebuilds it, and so does the env that
 // reads them.
