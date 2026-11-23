@@ -439,6 +439,32 @@ func TestJobAttemptClosedWithoutAFinish(t *testing.T) {
 	assert.Empty(t, console.calls)
 }
 
+// dirRunState begins attempts that live in a directory, as the file store's
+// do.
+type dirRunState struct{ runstate.Store }
+
+type dirAttempt struct{ runstate.Attempt }
+
+func (dirAttempt) AttemptDir() string { return "/data/runs/attempt-1" }
+
+func (dirRunState) BeginAttempt(_ context.Context, req runstate.BeginAttemptRequest) (runstate.Attempt, error) {
+	return dirAttempt{Attempt: runstate.NewNoopAttempt(req)}, nil
+}
+
+// A reported attempt keeps its directory, where the agent stores what a
+// run keeps there, such as a continuous step's samples.
+func TestJobAttemptKeepsItsDirectory(t *testing.T) {
+	t.Parallel()
+	reports := &JobReports{RunKey: testRunKey, CloudURL: newFakeJobConsole(t).server.URL}
+	attempt, err := reports.Wrap(dirRunState{}).BeginAttempt(t.Context(), runstate.BeginAttemptRequest{RunID: "run-1"})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = attempt.Close(context.Background()) })
+
+	dir, ok := attempt.(interface{ AttemptDir() string })
+	require.True(t, ok, "the attempt names its directory")
+	assert.Equal(t, "/data/runs/attempt-1", dir.AttemptDir())
+}
+
 // A report always fits what Console takes: what matters least goes first.
 func TestJobReportFitsDaguConsole(t *testing.T) {
 	t.Parallel()

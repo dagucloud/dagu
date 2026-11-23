@@ -135,6 +135,16 @@ func (a *jobAttempt) Close(ctx context.Context) error {
 	return err
 }
 
+// AttemptDir is the directory of the wrapped attempt, or "" when it has
+// none. The agent stores what a run keeps there, such as a continuous step's
+// samples, so reporting must not hide it.
+func (a *jobAttempt) AttemptDir() string {
+	if d, ok := a.Attempt.(interface{ AttemptDir() string }); ok {
+		return d.AttemptDir()
+	}
+	return ""
+}
+
 // jobPlace is where a job run ran, as its reports carry it.
 type jobPlace struct {
 	Platform    string `json:"platform,omitempty"`
