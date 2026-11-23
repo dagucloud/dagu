@@ -1186,11 +1186,14 @@ a new column, lies in a merged cell. `output` on `xlsx.append` writes the
 result to another workbook and leaves `path` untouched.
 
 `xlsx.update_rows` `with` fields: `path`, `sheet`, `key` (the column that
-identifies a row, or `_row`), `rows`, `set` (`{Status: status}` takes a field of
-each row, `{Reviewed: {value: yes}}` writes one literal, and a literal that is
-text in the canonical form of a number such as `"100"` is written as a number
-unless `type: string` pins it; omitted, every field
-other than the key and `_row` goes to the column of the same name), `missing`
+identifies a row, or `_row`), `key_field` (the row field that carries the key
+when it differs from the column, such as `order_id` after a read with
+`columns: [{注文番号: order_id}]`; defaults to `key`), `rows`, `set`
+(`{Status: status}` takes a field of each row, `{Reviewed: {value: yes}}`
+writes one literal, and a literal that is text in the canonical form of a
+number such as `"100"` is written as a number unless `type: string` pins it;
+omitted, every field other than the key, `key_field`, and `_row` goes to the
+column of the same name), `missing`
 (`fail`, `skip`, or `append`), `output` (a different workbook to write the
 result to, leaving `path` untouched), `atomic`, `dry_run`, `wait_for_unlock`,
 `artifact`. Columns the sheet lacks are added at the right. Two checks run

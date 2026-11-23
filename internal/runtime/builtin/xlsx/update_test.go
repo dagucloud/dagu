@@ -100,6 +100,25 @@ func TestUpdateRowsChecksDeferredSetAtRun(t *testing.T) {
 	require.ErrorContains(t, err, "set.Status: use a field name or {value: literal}")
 }
 
+func TestUpdateRowsKeyField(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeBook(t, dir, "orders.xlsx", []any{"注文番号", "状態"}, []any{"INV-1", ""})
+	tw, err := newTestWriter(t, dir, opUpdateRows, map[string]any{
+		"path": "orders.xlsx", "key": "注文番号", "key_field": "order_id",
+		"rows": `[{"order_id":"INV-1","_row":2,"status":"処理済み"},{"order_id":"INV-2","status":"追加"}]`,
+		"set":  map[string]any{"状態": "status"}, "missing": "append",
+	})
+	require.NoError(t, err)
+	require.NoError(t, tw.exec.Run(context.Background()))
+	back, err := workbook.Read(context.Background(), filepath.Join(dir, "orders.xlsx"), workbook.ReadOptions{})
+	require.NoError(t, err)
+	require.Len(t, back.Rows, 2)
+	assert.Equal(t, "処理済み", back.Rows[0]["状態"])
+	assert.Equal(t, "INV-2", back.Rows[1]["注文番号"])
+	assert.Equal(t, "追加", back.Rows[1]["状態"])
+}
+
 func TestUpdateRowsValidation(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -114,6 +133,8 @@ func TestUpdateRowsValidation(t *testing.T) {
 		{"bad set", map[string]any{"path": "a.xlsx", "key": "id", "rows": "[]", "set": map[string]any{"Status": 3}}, "set.Status: use a field name or {value: literal}"},
 		{"header false", map[string]any{"path": "a.xlsx", "key": "id", "rows": "[]", "header": false}, "header: false is not supported"},
 		{"input not allowed", map[string]any{"path": "a.xlsx", "key": "id", "rows": "[]", "input": "x.csv"}, "with.input is not valid for xlsx.update_rows"},
+		{"blank key_field", map[string]any{"path": "a.xlsx", "key": "id", "key_field": " ", "rows": "[]"}, "key_field must not be blank"},
+		{"key_field with _row", map[string]any{"path": "a.xlsx", "key": "_row", "key_field": "id", "rows": "[]"}, "key_field needs a key column"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

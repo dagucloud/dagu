@@ -436,9 +436,9 @@ row found; use header: false to append rows by position`.
 
 ### Updating rows
 
-`xlsx.update_rows` takes `rows` (objects, each with the `key` column and
-optionally `_row`), `key` (a column name, or `_row` to address rows by
-number alone), and `set`:
+`xlsx.update_rows` takes `rows` (objects, each with the `key` column, or
+the `key_field` field when given, and optionally `_row`), `key` (a column
+name, or `_row` to address rows by number alone), and `set`:
 
 ```yaml
 set:
@@ -449,14 +449,24 @@ set:
 A literal that is text in the canonical form of a number, `100` or `-12.5`,
 is written as a number, since a reference interpolated into `with` arrives
 as text; `{value: "007", type: string}` pins text, and `type` takes any
-column type. Without `set`, every field other than the key and `_row` goes
-to the column of the same name. A field in `set` that no row carries is an
-error:
+column type. Without `set`, every field other than the key, `key_field`,
+and `_row` goes to the column of the same name. A field in `set` that no
+row carries is an error:
 `set.Status: field "state" is not in any row`. An empty `rows` list, such as
 a scheduled run with nothing pending, succeeds and changes nothing, with or
 without `set`. A column that is not in the header row is added at the right
 when a row is written, its header cell copying the style of the last header
 cell; a new header cell inside a merged cell fails as it does for an append.
+
+`key_field` names the row field that carries the key when it differs from
+the `key` column, and defaults to `key`. After a read with
+`columns: [{注文番号: order_id}]`, `key: 注文番号` with `key_field: order_id`
+matches rows by `order_id`, compares it with the key column of a row
+addressed by `_row`, and writes it to the key column of an appended row.
+An explicit `set` may still name it as a source field. `key_field` must not
+be blank or combined with `key: _row`. With `key_field` given, a row that
+lacks the field fails the step before anything is saved, even when it
+carries `_row`.
 
 Rows are matched by `_row` when present, else by the key column, with keys
 compared as trimmed text so `7` and `"7"` match. A key found at two rows is
