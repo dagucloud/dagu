@@ -685,10 +685,10 @@ function coveredByServerReference(
 /**
  * The issues of the server and the issues of the client in one list. A
  * client issue that the server has said already is dropped, and a server
- * issue of no step that a client issue says with its line gives way to it.
- * The list is
- * sorted by line; an issue without a line comes first (it is about the
- * whole file), and errors come before warnings on one line.
+ * issue of no step that a client issue of the same severity says with its
+ * line gives way to it. The list is sorted by line; an issue without a line
+ * comes first (it is about the whole file), and errors come before warnings
+ * on one line.
  */
 export function mergeIssues(
   model: DagDocModel,
@@ -697,14 +697,18 @@ export function mergeIssues(
   client: ValidationIssue[]
 ): ValidationIssue[] {
   if (client.length === 0) return server;
-  // A server error that names no step ("Workflow-level") and that a client
-  // issue says again, with its step and its line, gives way to that issue.
-  const clientMessages = new Set(client.map((issue) => issue.message));
+  // A server issue that names no step ("Workflow-level") and that a client
+  // issue of the same severity says again, with its line, gives way to it.
+  const clientMessages = new Set(
+    client.map((issue) => `${issue.severity}|${issue.message}`)
+  );
   const kept = server.filter(
     (issue) =>
       issue.stepPath !== undefined ||
       issue.stepName !== undefined ||
-      !clientMessages.has(plainIssueMessage(issue.message))
+      !clientMessages.has(
+        `${issue.severity}|${plainIssueMessage(issue.message)}`
+      )
   );
   const taken = new Set(kept.map(signatureOf));
   const merged = [...kept];

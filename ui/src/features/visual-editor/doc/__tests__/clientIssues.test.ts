@@ -476,6 +476,16 @@ describe.skipIf(realSchema === null)('mergeIssues', () => {
     expect(same[0]).toBe(server[0]);
   });
 
+  // A client warning cannot stand for a server error: the error would read
+  // as a warning.
+  it('keeps a server error of no step that a client warning says again', () => {
+    const warning = client.find(
+      (i) => i.severity === ValidationIssueSeverity.warning
+    )!;
+    const server = [serverIssue({ message: warning.message })];
+    expect(mergeIssues(model, names, server, client)).toContain(server[0]);
+  });
+
   it('drops a client reference that the server has said as a value reference', () => {
     const server = [
       serverIssue({
