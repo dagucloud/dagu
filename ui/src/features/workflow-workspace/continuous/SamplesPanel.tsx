@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type ReactElement,
+  type ReactNode,
 } from 'react';
 import { Button } from '@/components/ui/button';
 import { PanelMessage } from '@/components/ui/panel-message';
@@ -17,7 +18,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import type { RangePreset } from '../rangePresets';
 import { AvailabilityStrip } from './AvailabilityStrip';
-import { EventsList } from './EventsList';
+import { EventsList, type RunLinks } from './EventsList';
 import { AXIS_PX, SamplesChart, type LiveRun } from './SamplesChart';
 import {
   bucketWindow,
@@ -106,6 +107,10 @@ export interface SamplesPanelProps {
   presets?: readonly RangePreset[];
   /** The window of the host. The panel starts again at it when it changes. */
   range?: PanelRange;
+  /** Opens the runs that an event names. */
+  links?: RunLinks;
+  /** A note above the chart, for the window that the chart shows. */
+  notice?(window: { from: number; to: number }): ReactNode;
   /**
    * The run in progress of a run history, or null when none is. A step has
    * none: its samples come while it runs.
@@ -133,6 +138,8 @@ export function SamplesPanel({
   since,
   presets,
   range,
+  links,
+  notice,
   liveRun,
   onOpenRun,
   testId = 'continuous-panel',
@@ -273,6 +280,7 @@ export function SamplesPanel({
             ))}
           </ToggleGroup>
         )}
+        {notice?.(shown)}
         <div className="pt-2">
           {samples.error && !samples.data ? (
             <PanelMessage tone="error" align="start" className="p-0">
@@ -331,6 +339,7 @@ export function SamplesPanel({
         <EventsList
           source={source}
           subject={subject}
+          links={links}
           window={eventsWindow}
           poll={active}
         />

@@ -362,6 +362,7 @@ export function useVisibleRuns({
     includeEphemeral: true,
     includeBackfill: settings.showBackfill,
     pollTestRuns,
+    newestOnly: true,
   });
   const preset = settings.range.preset;
   // A custom range has fixed ends, but a running run lasts until now.

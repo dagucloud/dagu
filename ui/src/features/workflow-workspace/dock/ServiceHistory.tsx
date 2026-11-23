@@ -1,14 +1,19 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useMemo, type ReactElement, type ReactNode } from 'react';
+import { useMemo, useRef, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { RestartPolicy, Status } from '@/api/v1/schema';
+import { useI18n } from '@/i18n/I18nProvider';
+import { formatAbsoluteTime } from '@/lib/dagRunTiming';
+import type { RunLinks } from '../continuous/EventsList';
 import type { LiveRun } from '../continuous/SamplesChart';
 import { runHistorySource } from '../continuous/sampleSource';
 import { SamplesPanel, type PanelRange } from '../continuous/SamplesPanel';
 import type { ApiDAGRunDetails } from '../contracts';
 import { useWorkspaceRun } from '../data';
 import { useWorkspaceData } from '../data/context';
+import { useRetainedRuns } from '../data/useServiceDag';
 import { runSpan } from './runExtents';
 import type { RunRange } from './runTimelineModel';
 
@@ -34,8 +39,13 @@ export function ServiceHistory({
   /** undefined: in place. null: hidden. An element: the controls go there. */
   controlsHost: HTMLElement | null | undefined;
 }): ReactElement {
+  const { ts } = useI18n();
   const { fileName, dagData } = useWorkspaceData('ServiceHistory');
   const run = useWorkspaceRun();
+  const retained = useRetainedRuns(
+    true,
+    range.preset === 'custom' ? `${range.from}-${range.to}` : range.preset
+  );
   const source = useMemo(() => runHistorySource(fileName), [fileName]);
   const panelRange = useMemo<PanelRange>(
     () =>
@@ -46,6 +56,43 @@ export function ServiceHistory({
   );
   const latest = dagData.latestDAGRun;
   const liveRun = useMemo(() => liveRunOf(latest), [latest]);
+  // The history of a DAG that gets no new run cannot change: a suspended
+  // one, and an unless-stopped one whose latest run was stopped. Its panel
+  // does not poll. A run that starts after all makes it poll again.
+  const restarts =
+    liveRun !== null ||
+    !(
+      dagData.suspended ||
+      (dagData.dag?.restartPolicy === RestartPolicy.unless_stopped &&
+        latest?.status === Status.Aborted)
+    );
+
+  // The links keep one identity while the retained runs do not change.
+  const select = useRef(run.select);
+  select.current = run.select;
+  const links = useMemo<RunLinks>(
+    () => ({
+      // The list is up to 30 s old: a run that is not newer than the oldest
+      // retained run is the only one that can be gone.
+      has: (runId, time) =>
+        retained.ids.has(runId) ||
+        (retained.oldestAt !== null && Date.parse(time) >= retained.oldestAt),
+      open: (runId) => select.current(runId, { replace: true }),
+    }),
+    [retained]
+  );
+
+  const notice = (window: { from: number; to: number }) =>
+    retained.oldestAt !== null && window.from < retained.oldestAt ? (
+      <p
+        data-testid="ww-service-history-notice"
+        className="text-[11px] text-muted-foreground"
+      >
+        {ts('The runs before {time} are not kept.', {
+          time: formatAbsoluteTime(retained.oldestAt) ?? '',
+        })}
+      </p>
+    ) : null;
 
   return (
     <div
@@ -57,12 +104,13 @@ export function ServiceHistory({
         : controlsHost && createPortal(controls, controlsHost)}
       <SamplesPanel
         source={source}
-        // The dock stops the polls of a closed panel: the panel itself is
-        // always live, so closing it reads nothing again.
-        active
+        // The dock stops the polls of a closed panel by itself.
+        active={restarts}
         range={panelRange}
+        links={links}
+        notice={notice}
         liveRun={liveRun}
-        onOpenRun={(id) => run.select(id, { replace: true })}
+        onOpenRun={links.open}
         testId="ww-service-history-panel"
         // The phone view of Activity is a whole screen: the availability
         // takes two columns there, so the chart needs more height.

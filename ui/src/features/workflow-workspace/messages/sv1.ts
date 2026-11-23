@@ -18,6 +18,9 @@ export default defineMessages({
     Gap: 'Gap',
     'no run for {length}': 'no run for {length}',
     'Running since {time}': 'Running since {time}',
+    'Open run {id}': 'Open run {id}',
+    'The runs before {time} are not kept.':
+      'The runs before {time} are not kept.',
   },
   'zh-CN': {
     'Last year': '最近 1 年',
@@ -31,6 +34,8 @@ export default defineMessages({
     Gap: '空档',
     'no run for {length}': '{length} 内没有运行',
     'Running since {time}': '自 {time} 起运行中',
+    'Open run {id}': '打开运行 {id}',
+    'The runs before {time} are not kept.': '{time} 之前的运行未保留。',
   },
   ja: {
     'Last year': '過去 1 年',
@@ -44,5 +49,8 @@ export default defineMessages({
     Gap: '空白',
     'no run for {length}': '{length} の間、実行なし',
     'Running since {time}': '{time} から実行中',
+    'Open run {id}': '実行 {id} を開く',
+    'The runs before {time} are not kept.':
+      '{time} より前の実行は保持されていません。',
   },
 });
