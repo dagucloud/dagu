@@ -153,6 +153,56 @@ describe('AddNodeDialog', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('trusts the accepted key only once the node is stored', async () => {
+    let stored!: (value: unknown) => void;
+    fetchMock
+      .mockResolvedValueOnce(stream(UNKNOWN))
+      .mockResolvedValueOnce(stream(PASSED))
+      .mockResolvedValueOnce(
+        stream({
+          node: 'web01',
+          fingerprint: 'SHA256:web01',
+          outcome: 'trusted',
+        })
+      );
+    client.PUT.mockReturnValue(new Promise((resolve) => (stored = resolve)));
+    renderDialog();
+
+    fill('Name', 'web01');
+    fill('Host', '10.0.1.11');
+    await click('Test connection');
+    await click('Trust this key and test again');
+    await click('Add node');
+    expect(bodiesTo(fetchMock, '/node-host-keys')).toEqual([]);
+
+    await act(async () => stored({ data: {} }));
+    expect(bodiesTo(fetchMock, '/node-host-keys')).toHaveLength(1);
+  });
+
+  it('trusts nothing when the node is refused, and needs a new test after loading the current inventory', async () => {
+    fetchMock
+      .mockResolvedValueOnce(stream(UNKNOWN))
+      .mockResolvedValueOnce(stream(PASSED));
+    client.PUT.mockResolvedValue({
+      error: {
+        code: 'conflict',
+        message: 'inventory changed',
+        inventory: { ...FLEET, version: 5, defaults: {}, nodes: [] },
+      },
+    });
+    renderDialog();
+
+    fill('Name', 'web01');
+    fill('Host', '10.0.1.11');
+    await click('Test connection');
+    await click('Trust this key and test again');
+    await click('Add node');
+    expect(bodiesTo(fetchMock, '/node-host-keys')).toEqual([]);
+
+    await click('Load current version');
+    expect(screen.getByRole('button', { name: 'Add node' })).toBeDisabled();
+  });
+
   it('needs a new test once a field changes', async () => {
     fetchMock.mockResolvedValueOnce(stream(PASSED));
     renderDialog();

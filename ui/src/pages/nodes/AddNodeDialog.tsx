@@ -92,8 +92,10 @@ export function AddNodeDialog({
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<ChangeRefusal | null>(null);
-  // The inventory's version after a change refused as stale.
-  const [version, setVersion] = useState<number | null>(null);
+  // An inventory's version as loaded after a change refused as stale.
+  const [loaded, setLoaded] = useState<{ id: string; version: number } | null>(
+    null
+  );
 
   const built = nodeOf(fields);
   const fieldsKey = JSON.stringify(fields);
@@ -156,7 +158,7 @@ export function AddNodeDialog({
       const { refusal } = await putNode(
         client,
         inventory.id,
-        version ?? inventory.version,
+        loaded?.id === inventory.id ? loaded.version : inventory.version,
         built
       );
       if (refusal) {
@@ -348,7 +350,9 @@ export function AddNodeDialog({
             <RefusalNotice
               refusal={refusal}
               onLoadCurrent={(current) => {
-                setVersion(current.version);
+                setLoaded({ id: current.id, version: current.version });
+                // The inventory's defaults may have changed since the test.
+                setTested(null);
                 setRefusal(null);
               }}
             />
