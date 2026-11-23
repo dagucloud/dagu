@@ -747,6 +747,8 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOp
 	if err != nil {
 		return err
 	}
+	runState := withJobReports(ctx, persis.NewRunStateStore(ctx.Persistence.DAGRunRepository, opts.preparedAttempt),
+		jobRun{parent: status.Parent, workerID: opts.workerID, keepTrigger: true})
 
 	agentInstance := agent.New(
 		status.DAGRunID,
@@ -766,7 +768,7 @@ func executeRetry(ctx *Context, dag *ir.DAG, status *ir.DAGRunStatus, opts runOp
 			RetryPath:                opts.retryPath,
 			WorkerID:                 opts.workerID,
 			AttemptID:                agentAttemptID(opts.attemptID, opts.preparedAttempt),
-			RunStateStore:            persis.NewRunStateStore(ctx.Persistence.DAGRunRepository, opts.preparedAttempt),
+			RunStateStore:            runState,
 			StateStore:               ctx.Persistence.StateStore,
 			MaterializationStore:     as.MaterializationStore,
 			NoReuse:                  opts.noReuse,

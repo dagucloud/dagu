@@ -49,6 +49,9 @@ type runOptions struct {
 	// redirectRoot moves the step redirect files of a test case into its case
 	// directory.
 	redirectRoot runtime.RedirectRoot
+	// testCase is set for a workflow test's run, which never reports to
+	// Dagu Console with a run key.
+	testCase bool
 }
 
 func dagDefinitionIDFromEnv() string {

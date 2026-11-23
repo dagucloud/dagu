@@ -1,6 +1,6 @@
 # RFC 022: Job Run Reports to Dagu Console
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Date:** 2026-11-23
 - **Affected areas:** `cmd` (`start`, `exec`, `retry`, `restart`),
   `runtime/runstate`, `cloudreport`, `license`, `cmn/config`, and `docs`
