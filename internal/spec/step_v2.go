@@ -37,6 +37,20 @@ var v2RunWithFields = map[string]struct{}{
 
 type actionNormalizer func(normalized map[string]any, with map[string]any) error
 
+// builtinAction is a builtin action: the normalizer that rewrites it into
+// step fields, and the loaded step that ActionName traces back to it. An
+// action without executorType loads as a run step, a human task, or another
+// action's step, so ActionName does not trace it through this table.
+type builtinAction struct {
+	// executorType is the executor type of the loaded step.
+	executorType string
+	// variant reads the part of the action name after executorType from the
+	// loaded step, as the operation copy names file.copy. Nil marks the
+	// default action of the type.
+	variant   stepVariant
+	normalize actionNormalizer
+}
+
 // Name prefixes of builtin action families.
 const (
 	artifactActionPrefix = "artifact."
@@ -44,7 +58,7 @@ const (
 	computerActionPrefix = "computer."
 )
 
-var builtinActionNormalizers = map[string]actionNormalizer{
+var builtinActions = map[string]builtinAction{
 	"a2a.get_task":        operationAction("a2a", "get_task"),
 	"a2a.send":            operationAction("a2a", "send"),
 	"artifact.list":       operationAction("artifact", "list"),
@@ -53,21 +67,21 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"archive.create":      operationAction("archive", "create"),
 	"archive.extract":     operationAction("archive", "extract"),
 	"archive.list":        operationAction("archive", "list"),
-	"browser.extract":     normalizeBrowserExtractAction,
-	"browser.run":         normalizeBrowserRunAction,
-	"chat.completion":     normalizeChatAction,
-	"clickhouse.query":    normalizeClickHouseQueryAction,
-	"computer.extract":    normalizeComputerExtractAction,
-	"computer.run":        normalizeComputerRunAction,
+	"browser.extract":     {normalize: normalizeBrowserExtractAction},
+	"browser.run":         {executorType: ir.ExecutorTypeBrowser, normalize: normalizeBrowserRunAction},
+	"chat.completion":     {executorType: "chat", normalize: normalizeChatAction},
+	"clickhouse.query":    {executorType: "clickhouse", normalize: normalizeClickHouseQueryAction},
+	"computer.extract":    {normalize: normalizeComputerExtractAction},
+	"computer.run":        {executorType: ir.ExecutorTypeComputer, normalize: normalizeComputerRunAction},
 	"container.run":       optionalCommandAction("container", "command"),
-	"dag.enqueue":         normalizeDagEnqueueAction,
-	"dag.run":             normalizeDagRunAction,
+	"dag.enqueue":         {executorType: ir.ExecutorTypeDAGEnqueue, normalize: normalizeDagEnqueueAction},
+	"dag.run":             {executorType: ir.ExecutorTypeDAG, normalize: normalizeDagRunAction},
 	"data.convert":        operationAction("data", "convert"),
 	"data.pick":           operationAction("data", "pick"),
 	"data.filter":         operationAction("data", "filter"),
-	"decision.evaluate":   normalizeDecisionAction,
+	"decision.evaluate":   {executorType: "decision", normalize: normalizeDecisionAction},
 	"docker.run":          optionalCommandAction("docker", "command"),
-	"exec":                normalizeExecAction,
+	"exec":                {normalize: normalizeExecAction},
 	"file.copy":           operationAction("file", "copy"),
 	"file.delete":         operationAction("file", "delete"),
 	"file.list":           operationAction("file", "list"),
@@ -77,25 +91,25 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"file.stat":           operationAction("file", "stat"),
 	"file.write":          operationAction("file", "write"),
 	"git.checkout":        operationAction("git", "checkout"),
-	"git.worktree.add":    normalizeGitWorktreeAddAction,
-	"git.worktree.remove": normalizeGitWorktreeRemoveAction,
-	"harness.run":         normalizeHarnessRunAction,
-	"http.request":        normalizeHTTPRequestAction,
-	"human.task":          normalizeHumanTaskAction,
-	"jq.filter":           normalizeJQFilterAction,
-	"js.run":              normalizeJSRunAction,
+	"git.worktree.add":    {executorType: "git", variant: operationVariant, normalize: normalizeGitWorktreeAddAction},
+	"git.worktree.remove": {executorType: "git", variant: operationVariant, normalize: normalizeGitWorktreeRemoveAction},
+	"harness.run":         {executorType: "harness", normalize: normalizeHarnessRunAction},
+	"http.request":        {executorType: "http", normalize: normalizeHTTPRequestAction},
+	humanTaskAction:       {normalize: normalizeHumanTaskAction},
+	"jq.filter":           {executorType: "jq", normalize: normalizeJQFilterAction},
+	"js.run":              {executorType: "js", normalize: normalizeJSRunAction},
 	"k8s.run":             optionalCommandAction("k8s", "command"),
 	"kubernetes.run":      optionalCommandAction("kubernetes", "command"),
-	"log.write":           normalizeLogAction,
-	"mail.organize":       normalizeMailOrganizeAction,
-	"mail.search":         normalizeMailSearchAction,
+	"log.write":           {executorType: "log", normalize: normalizeLogAction},
+	"mail.organize":       {executorType: "mail", variant: operationVariant, normalize: normalizeMailOrganizeAction},
+	"mail.search":         {executorType: "mail", variant: operationVariant, normalize: normalizeMailSearchAction},
 	"mail.send":           typedAction("mail"),
 	"mcp.call":            typedAction("mcp"),
-	"noop":                normalizeNoopAction,
+	"noop":                {executorType: "noop", normalize: normalizeNoopAction},
 	"outputs.write":       operationAction("outputs", "write"),
 	"postgres.query":      commandAction("postgres", "query"),
 	"postgres.import":     importAction("postgres"),
-	"router.route":        normalizeRouterAction,
+	"router.route":        {executorType: ir.ExecutorTypeRouter, normalize: normalizeRouterAction},
 	"s3.delete":           operationAction("s3", "delete"),
 	"s3.download":         operationAction("s3", "download"),
 	"s3.list":             operationAction("s3", "list"),
@@ -110,7 +124,7 @@ var builtinActionNormalizers = map[string]actionNormalizer{
 	"state.get":           operationAction("state", "get"),
 	"state.list":          operationAction("state", "list"),
 	"state.set":           operationAction("state", "set"),
-	"template.render":     normalizeTemplateAction,
+	"template.render":     {executorType: "template", normalize: normalizeTemplateAction},
 	"wait.duration":       operationAction("wait", "duration"),
 	"wait.file":           operationAction("wait", "file"),
 	"wait.http":           operationAction("wait", "http"),
@@ -235,8 +249,8 @@ func normalizeActionStep(normalized, raw map[string]any, registry *customStepTyp
 		return finishAction(normalized, action, with)
 	}
 
-	if normalizer, ok := builtinActionNormalizers[action]; ok {
-		return normalizer(normalized, with)
+	if builtin, ok := builtinActions[action]; ok {
+		return builtin.normalize(normalized, with)
 	}
 	if after, ok0 := strings.CutPrefix(action, "redis."); ok0 {
 		return normalizeRedisAction(normalized, with, after)
@@ -420,9 +434,12 @@ func normalizeTypedAction(normalized map[string]any, executorType string, with m
 	return finishAction(normalized, executorType, with)
 }
 
-func typedAction(executorType string) actionNormalizer {
-	return func(normalized map[string]any, with map[string]any) error {
-		return normalizeTypedAction(normalized, executorType, with)
+func typedAction(executorType string) builtinAction {
+	return builtinAction{
+		executorType: executorType,
+		normalize: func(normalized map[string]any, with map[string]any) error {
+			return normalizeTypedAction(normalized, executorType, with)
+		},
 	}
 }
 
@@ -605,9 +622,12 @@ func normalizeCommandAction(normalized map[string]any, executorType string, with
 	return finishAction(normalized, executorType, with)
 }
 
-func commandAction(executorType, field string) actionNormalizer {
-	return func(normalized map[string]any, with map[string]any) error {
-		return normalizeCommandAction(normalized, executorType, with, field)
+func commandAction(executorType, field string) builtinAction {
+	return builtinAction{
+		executorType: executorType,
+		normalize: func(normalized map[string]any, with map[string]any) error {
+			return normalizeCommandAction(normalized, executorType, with, field)
+		},
 	}
 }
 
@@ -636,9 +656,12 @@ func normalizeOptionalCommandAction(normalized map[string]any, executorType stri
 	return finishAction(normalized, executorType, with)
 }
 
-func optionalCommandAction(executorType, field string) actionNormalizer {
-	return func(normalized map[string]any, with map[string]any) error {
-		return normalizeOptionalCommandAction(normalized, executorType, with, field)
+func optionalCommandAction(executorType, field string) builtinAction {
+	return builtinAction{
+		executorType: executorType,
+		normalize: func(normalized map[string]any, with map[string]any) error {
+			return normalizeOptionalCommandAction(normalized, executorType, with, field)
+		},
 	}
 }
 
@@ -668,9 +691,13 @@ func normalizeImportAction(normalized map[string]any, executorType string, with 
 	return finishAction(normalized, executorType, with)
 }
 
-func importAction(executorType string) actionNormalizer {
-	return func(normalized map[string]any, with map[string]any) error {
-		return normalizeImportAction(normalized, executorType, with)
+func importAction(executorType string) builtinAction {
+	return builtinAction{
+		executorType: executorType,
+		variant:      configKeyVariant("import"),
+		normalize: func(normalized map[string]any, with map[string]any) error {
+			return normalizeImportAction(normalized, executorType, with)
+		},
 	}
 }
 
@@ -685,9 +712,13 @@ func normalizeDirectionAction(normalized map[string]any, executorType string, wi
 	return finishAction(normalized, executorType, with)
 }
 
-func directionAction(executorType, direction string) actionNormalizer {
-	return func(normalized map[string]any, with map[string]any) error {
-		return normalizeDirectionAction(normalized, executorType, with, direction)
+func directionAction(executorType, direction string) builtinAction {
+	return builtinAction{
+		executorType: executorType,
+		variant:      configValueVariant("direction"),
+		normalize: func(normalized map[string]any, with map[string]any) error {
+			return normalizeDirectionAction(normalized, executorType, with, direction)
+		},
 	}
 }
 
@@ -696,9 +727,13 @@ func normalizeOperationAction(normalized map[string]any, executorType string, wi
 	return finishAction(normalized, executorType, with)
 }
 
-func operationAction(executorType, operation string) actionNormalizer {
-	return func(normalized map[string]any, with map[string]any) error {
-		return normalizeOperationAction(normalized, executorType, with, operation)
+func operationAction(executorType, operation string) builtinAction {
+	return builtinAction{
+		executorType: executorType,
+		variant:      operationVariant,
+		normalize: func(normalized map[string]any, with map[string]any) error {
+			return normalizeOperationAction(normalized, executorType, with, operation)
+		},
 	}
 }
 
@@ -974,7 +1009,7 @@ func normalizeNoopAction(normalized map[string]any, with map[string]any) error {
 
 func isBuiltinActionName(name string) bool {
 	name = strings.TrimSpace(name)
-	if _, ok := builtinActionNormalizers[name]; ok {
+	if _, ok := builtinActions[name]; ok {
 		return true
 	}
 	return strings.HasPrefix(name, "redis.") && strings.TrimPrefix(name, "redis.") != ""
