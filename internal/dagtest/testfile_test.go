@@ -288,6 +288,11 @@ func TestLoadFileMerge(t *testing.T) {
 		Steps: []dagtest.StepExpect{
 			{
 				Key: "build image", Step: "build image", Status: "failed", Attempts: new(1),
+				// manifest is declared with type: json.
+				Outputs: []dagtest.OutputExpect{
+					{Name: "image_tag", Value: "v1"},
+					{Name: "manifest", Value: map[string]any{"files": 3}, JSON: true},
+				},
 				Stderr: &dagtest.StreamExpect{Contains: new("boom")},
 			},
 			{Key: "route", Step: "route", Status: "skipped"},
@@ -322,6 +327,7 @@ func TestLoadFileDefaultMock(t *testing.T) {
 	assert.Equal(t, map[ir.HandlerType]dagtest.Script{
 		ir.HandlerOnExit: {DefaultMock: true, ReplacesAction: true, Results: succeeds},
 	}, full.Handlers)
+	assert.Equal(t, []string{"build", "tick", "gate", "child", "ship", "handler_on.exit"}, full.DefaultMocked)
 
 	// {} keeps side-effect-free actions and leaves conditions and waits
 	// unhandled.

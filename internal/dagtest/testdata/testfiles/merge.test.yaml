@@ -60,6 +60,9 @@ cases:
         build image:
           status: failed
           attempts: 1
+          outputs:
+            image_tag: v1
+            manifest: {files: 3}
           stderr:
             contains: boom
             matches: ^bo+m$

@@ -59,6 +59,9 @@ type Case struct {
 	Steps map[string]Script
 	// Handlers holds the same for lifecycle handlers, by handler type.
 	Handlers map[ir.HandlerType]Script
+	// DefaultMocked lists the labels of the steps and handlers that took
+	// the default mock: steps in DAG order, then handlers.
+	DefaultMocked []string
 	// Expect holds the case's assertions.
 	Expect Expect
 	// Errors lists what makes the case invalid: field errors sorted by label,
@@ -149,6 +152,9 @@ type StepExpect struct {
 type OutputExpect struct {
 	Name  string
 	Value any
+	// JSON reports that the step declares the output with type: json, so
+	// its published text is compared as JSON whatever Value is.
+	JSON bool
 }
 
 // StreamExpect asserts on a step's stdout or stderr.
