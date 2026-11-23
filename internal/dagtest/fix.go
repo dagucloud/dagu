@@ -70,7 +70,7 @@ type fixValue struct {
 
 // buildFix sets the fix of c from the unhandled sources of the fail-closed
 // rule. A source that no field handles adds nothing.
-func (b *caseBuilder) buildFix(c *Case, sources []source, src caseSources) {
+func (b *caseBuilder) buildFix(c *Case, sources []source, mocks []keyedMock) {
 	var fix caseFix
 	for _, s := range sources {
 		switch s.kind {
@@ -81,7 +81,7 @@ func (b *caseBuilder) buildFix(c *Case, sources []source, src caseSources) {
 		case sourceDAGPrecondition:
 			fix.precondition = true
 		default:
-			if m := b.fixMockOf(&fix, s.target, c, src); m != nil {
+			if m := b.fixMockOf(&fix, s.target, c, mocks); m != nil {
 				m.handle(s.kind)
 			}
 		}
@@ -109,7 +109,7 @@ func (b *caseBuilder) paramValue(name string) any {
 // fixMockOf returns the mock of the fix for the step or handler labeled
 // target. It starts from how the case scripts the step, by its mock under
 // mocks or the default mock, under the key the mock is written with.
-func (b *caseBuilder) fixMockOf(fix *caseFix, target string, c *Case, src caseSources) *fixMock {
+func (b *caseBuilder) fixMockOf(fix *caseFix, target string, c *Case, mocks []keyedMock) *fixMock {
 	i := slices.IndexFunc(b.steps.all, func(t *stepTarget) bool { return t.label == target })
 	if i < 0 {
 		return nil
@@ -119,8 +119,8 @@ func (b *caseBuilder) fixMockOf(fix *caseFix, target string, c *Case, src caseSo
 		return fix.mocks[j]
 	}
 	m := &fixMock{key: t.label, target: t}
-	if k := slices.IndexFunc(src.mocks, func(km keyedMock) bool { return km.target == t }); k >= 0 {
-		m.key = src.mocks[k].key
+	if k := slices.IndexFunc(mocks, func(km keyedMock) bool { return km.target == t }); k >= 0 {
+		m.key = mocks[k].key
 	}
 	m.setScript(c.script(t))
 	fix.mocks = append(fix.mocks, m)
@@ -417,11 +417,11 @@ func addEntry(n *yaml.Node, key string, value *yaml.Node) {
 	n.Content = append(n.Content, valueNode(key), value)
 }
 
+// valueNode encodes a value decoded from YAML or JSON, which always
+// encodes.
 func valueNode(value any) *yaml.Node {
 	var n yaml.Node
-	if err := n.Encode(value); err != nil {
-		_ = n.Encode("")
-	}
+	_ = n.Encode(value)
 	return &n
 }
 

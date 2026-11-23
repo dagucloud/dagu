@@ -59,7 +59,7 @@ func (b *caseBuilder) validate(c *Case, src caseSources) []Finding {
 		b.applyDefaultMock(c, *src.defaultMock, src)
 	}
 	check := checkFailClosed(b.dag, handling)
-	b.buildFix(c, check.sources, src)
+	b.buildFix(c, check.sources, src.mocks)
 	return check.findings
 }
 
