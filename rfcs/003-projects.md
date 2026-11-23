@@ -1,7 +1,7 @@
 # RFC 003: Replace Workspaces with Projects
 
 - **Status:** Proposed
-- **Date:** 2026-10-09, revised 2026-10-24 and 2026-11-14
+- **Date:** 2026-10-09, revised 2026-10-24, 2026-11-14, and 2026-11-23
 - **Affected areas:** `workspace`, `auth`, `spec` (base config), `runtime`
   (`dag.run` resolution), `secret`, `profile`, notification routes, incident
   policies, wiki, `audit`, `gitsync`, `persis`, `cmn/crypto`, `cloudreport`,
@@ -41,8 +41,8 @@ on each DAG, and every workspace shares one set of stores. That design has
 three problems.
 
 1. **Every subsystem filters.** Each store, query, and API path checks the
-   label. The API spec mentions workspaces about 270 times and the UI in 85
-   files.
+   label. The API spec mentions workspaces over 300 times and the UI in over
+   200 files.
 2. **The boundary leaks.** Unlabelled DAGs are visible to every user. Child
    runs and distributed tasks must carry their parent's workspace to load the
    right base config (`base_config_workspace` on the coordinator task).
@@ -266,8 +266,9 @@ with the old one's.
   or the library once symbolic links resolve. A target in another project
   is a load error.
 - A CLI command addresses the project named by `--project`, else by
-  `DAGU_PROJECT`, else the project whose DAG directory contains the current
-  directory, else `default`, as [Checkouts](#checkouts) details.
+  `DAGU_PROJECT`, else the server project whose DAG directory contains the
+  current directory, else the checkout found from it, else `default`, as
+  [Checkouts](#checkouts) details.
 - API paths and MCP tools that address DAGs, runs, secrets, profiles, routes,
   policies, or wiki pages take `project`. The default is `default`, so
   existing clients keep working against the default project. A request for
@@ -551,6 +552,10 @@ scheduler process   HA lock, health server, service registry, signals, license
   a dispatched run fetches its child from the coordinator, which resolves it
   in the task's project, then the library. `GetDAG` gains a project ID field
   for this.
+- A worker sees a project's files only through a step's `dependencies`
+  ([spec 035](../specs/035-file-dependencies.md)), which resolve from the
+  DAG's working directory. For a checkout, that is the directory spec 001
+  sets.
 - A worker's own `dags_dir` and `alt_dags_dir` serve only default-project
   tasks, so a project run never picks up a default-project DAG with the same
   name.
@@ -570,7 +575,7 @@ server reports its projects and binds them; this RFC fixes what that needs:
 - Reports identify a project by its ID, never its name. From v3.0, report
   protocol 3 names the project of each run, so `etl` in two projects is two
   workflows in Dagu Cloud.
-- A server shares a project with Dagu Cloud only through an explicit
+- Inventory sync and deploys reach a project only through an explicit
   [binding](002-dagu-cloud-connector.md#binding), never by matching names.
 - The registry stores the binding, and [Lifecycle](#lifecycle) says what
   delete and changes on disk do to it.
@@ -687,7 +692,7 @@ Cost grows with the number of projects, so an idle project adds little.
 | Release | Ships |
 | --- | --- |
 | v2.22 | Warnings and an admin notice that list workspace settings in use. |
-| Next v2 release | The warning and notice say that v3.0 moves workspaces into projects on its first start, and stop asking operators to move settings by hand. |
+| v2.28 | The warning and notice say that v3.0 moves workspaces into projects on its first start, and stop asking operators to move settings by hand. |
 | v3.0 | Projects with IDs, names, and display names; the server layer; store scopes and relative run paths; create, on the default directory or an existing folder, and delete; migration on first start, with its preview `dagu migrate workspaces`; report protocol 3 (RFC 002); checkouts, with spec 001. |
 | v3.1 | Drops the `workspace_mappings` and `default_workspace_access` aliases. |
 | After v3.0 | Moving DAGs between projects; the All projects view; Dagu Cloud bindings (RFC 002). |
