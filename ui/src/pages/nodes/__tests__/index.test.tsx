@@ -191,6 +191,26 @@ describe('NodesPage', () => {
     );
   });
 
+  it('drops the count and pages of a request that failed', () => {
+    // After a failed request the previous filter's rows are still returned
+    // next to the error.
+    respond({
+      nodes: {
+        data: { nodes: NODES, pagination: pages(1, 3) },
+        error: { code: 'bad_request', message: 'invalid label filter "role="' },
+      },
+    });
+    renderPage();
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'invalid label filter "role="'
+    );
+    expect(screen.queryByText(/of 3 nodes/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Next' })
+    ).not.toBeInTheDocument();
+  });
+
   it('opens a drawer with the connection settings and secret refs', () => {
     renderPage();
 

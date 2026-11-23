@@ -109,7 +109,9 @@ function NodeList(): React.ReactElement {
     0
   );
   const nodes = data?.nodes ?? [];
-  const pagination = data?.pagination;
+  // A failed request still returns the previous filter's data, whose count
+  // and pages do not describe the current filter.
+  const pagination = error ? undefined : data?.pagination;
   // While a new filter loads, the rows and pages shown are the previous
   // request's, so paging from them would ask for the wrong page.
   const canPage =
