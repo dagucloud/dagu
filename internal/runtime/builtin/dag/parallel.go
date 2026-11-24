@@ -239,8 +239,6 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 				e.results[res.attempt.runParams.RunID] = res.result
 				e.lock.Unlock()
 			}
-			e.noteNodeFinish(res.attempt.runParams.RunID, res.result)
-
 			if res.err != nil && !e.cancelled() {
 				logger.Error(ctx, "Sub DAG execution failed",
 					tag.SubRunID(res.attempt.runParams.RunID),
@@ -249,10 +247,12 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 			}
 
 			if e.cancelled() {
+				e.noteNodeFinish(res.attempt.runParams.RunID, res.result, 0)
 				continue
 			}
 			e.noteNodeResult(res)
 
+			retries := 0
 			if res.result != nil && len(res.result.PendingStepRetries) > 0 {
 				scheduledAt := time.Now()
 				for _, retry := range res.result.PendingStepRetries {
@@ -268,7 +268,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 					}
 					pending = append(pending, next)
 					pendingSet[key] = struct{}{}
-					e.noteNodeRetry(next.runParams.RunID)
+					retries++
 				}
 			} else if res.err != nil && !errors.Is(res.err, errParallelCancelled) && !errors.Is(res.err, context.Canceled) {
 				if e.nodes != nil {
@@ -277,6 +277,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 					e.errors = append(e.errors, fmt.Errorf("sub DAG %s failed: %w", res.attempt.runParams.RunID, res.err))
 				}
 			}
+			e.noteNodeFinish(res.attempt.runParams.RunID, res.result, retries)
 
 		case <-e.cancel:
 			if timer != nil {

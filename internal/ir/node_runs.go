@@ -47,9 +47,28 @@ const (
 	NodeRunDisabled           NodeRunStatus = "disabled"
 )
 
-// NodeRunStatusOf returns the status of a node whose child run reached status.
+// NodeRunStatusOf returns the status of a node whose child run returned with
+// status. A child run that returned without finishing, such as a queued one
+// a retry reused, failed, as the step counts it.
 func NodeRunStatusOf(status Status) NodeRunStatus {
-	return NodeRunStatus(status.String())
+	switch status {
+	case Succeeded:
+		return NodeRunSucceeded
+	case PartiallySucceeded:
+		return NodeRunPartiallySucceeded
+	case Failed:
+		return NodeRunFailed
+	case Aborted:
+		return NodeRunAborted
+	case Waiting:
+		return NodeRunWaiting
+	case Rejected:
+		return NodeRunRejected
+	case NotStarted, Running, Queued:
+		return NodeRunFailed
+	default:
+		return NodeRunFailed
+	}
 }
 
 // NodeRunCounts counts the runs of a step's matched nodes by status. A

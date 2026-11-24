@@ -80,12 +80,12 @@ func TestNodeRunRecords(t *testing.T) {
 	e.lock.Lock()
 	e.results["a"] = &ir.RunStatus{Status: ir.Failed, Steps: &ir.StepProgress{Done: 3, Total: 4}, FailedStep: "restart"}
 	e.lock.Unlock()
-	e.noteNodeFinish("a", e.results["a"])
+	e.noteNodeFinish("a", e.results["a"], 0)
 	e.noteNodeStart("c")
 	// web04 returned without a result, as a child run that failed to start
 	// does.
 	e.noteNodeStart("d")
-	e.noteNodeFinish("d", nil)
+	e.noteNodeFinish("d", nil, 0)
 	e.writeNodeRuns(ctx, dir, false)
 	statuses, _, counts = readNodeRecords(t, dir)
 	require.Equal(t, []string{"web01=failed", "web02=disabled", "web03=running", "web04=failed", "web05=not_started"}, statuses)
@@ -123,23 +123,21 @@ func TestNodeRunRecordsRetry(t *testing.T) {
 		return statuses[0]
 	}
 
-	// The first attempt queues a retry for each of two child steps.
+	// The first attempt fails and queues a retry for each of two child steps.
 	first := &ir.RunStatus{Status: ir.Failed, PendingStepRetries: []ir.PendingStepRetry{{StepName: "restart"}, {StepName: "check"}}}
 	e.noteNodeStart("a")
 	e.lock.Lock()
 	e.results["a"] = first
 	e.lock.Unlock()
-	e.noteNodeFinish("a", first)
-	e.noteNodeRetry("a")
-	e.noteNodeRetry("a")
+	e.noteNodeFinish("a", first, 2)
 	require.Equal(t, "web01=running", web01(t))
 
 	e.noteNodeStart("a")
-	e.noteNodeFinish("a", nil)
+	e.noteNodeFinish("a", nil, 0)
 	require.Equal(t, "web01=running", web01(t), "the second retry is still queued")
 
 	e.noteNodeStart("a")
-	e.noteNodeFinish("a", nil)
+	e.noteNodeFinish("a", nil, 0)
 	require.Equal(t, "web01=failed", web01(t))
 }
 

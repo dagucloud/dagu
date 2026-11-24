@@ -170,19 +170,10 @@ func (e *parallelExecutor) noteNodeStart(runID string) {
 	e.nodes.changed = true
 }
 
-// noteNodeRetry records that a step retry of a node was queued.
-func (e *parallelExecutor) noteNodeRetry(runID string) {
-	if e.nodes == nil {
-		return
-	}
-	e.lock.Lock()
-	defer e.lock.Unlock()
-	e.nodes.retries[runID]++
-}
-
 // noteNodeFinish records that an attempt of a node's child run returned,
-// with result or without one.
-func (e *parallelExecutor) noteNodeFinish(runID string, result *ir.RunStatus) {
+// with result or without one, and queued retries more of its steps. Both
+// change at once, so a record never shows a node that will retry as done.
+func (e *parallelExecutor) noteNodeFinish(runID string, result *ir.RunStatus, retries int) {
 	if e.nodes == nil {
 		return
 	}
@@ -190,6 +181,7 @@ func (e *parallelExecutor) noteNodeFinish(runID string, result *ir.RunStatus) {
 	defer e.lock.Unlock()
 	e.nodes.finished[runID] = time.Now()
 	e.nodes.active[runID] = false
+	e.nodes.retries[runID] += retries
 	e.nodes.resultless[runID] = result == nil
 	e.nodes.changed = true
 }
