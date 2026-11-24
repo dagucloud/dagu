@@ -565,6 +565,16 @@ steps:
       30_000
     );
     expect(rescheduledRun.dagRunId).toBe(newRunId);
+    // The new run fails in its step, not before the step runs.
+    await expect
+      .poll(
+        () =>
+          getStepStdout(request, token, dagName, newRunId, 'reschedule-step', {
+            retryNotFound: true,
+          }),
+        { timeout: 15_000 }
+      )
+      .toContain('reschedule complete');
 
     const latestRun = await getDAGRun(request, token, dagName, newRunId);
     expect(latestRun.dagRunId).toBe(newRunId);

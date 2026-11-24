@@ -799,6 +799,16 @@ steps:
       'local',
       30_000
     );
+    // The new run fails in its step, not before the step runs.
+    await expect
+      .poll(
+        () =>
+          getStepStdout(request, token, dagName, newRunId, 'say', {
+            retryNotFound: true,
+          }),
+        { timeout: 15_000 }
+      )
+      .toContain('reschedule complete');
     await expect(chipRun(page, newRunId)).toBeAttached({ timeout: 30_000 });
     // The first run is unchanged.
     await waitForRunStatus(request, token, dagName, firstId, ['failed']);
