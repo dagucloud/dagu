@@ -25,6 +25,26 @@ import type { ReferenceEditorState } from '@/features/visual-editor/references/e
 const DAGEditor = React.lazy(loadDAGEditor);
 
 /**
+ * The bars of the text, while the editor loads and until it first shows. It
+ * reads the steps when it renders, so an edit of the loaded editor parses
+ * nothing for it.
+ */
+function LoadingSkeleton({
+  text,
+  stepLenses,
+}: {
+  text: string;
+  stepLenses?: StepLensSource;
+}) {
+  const lenses = useMemo(() => stepLenses?.steps(text), [stepLenses, text]);
+  return (
+    <div className="relative h-full">
+      <EditorSkeleton text={text} lenses={lenses} />
+    </div>
+  );
+}
+
+/**
  * Props for the DAGEditorWithDocs component
  */
 type DAGEditorWithDocsProps = {
@@ -161,11 +181,9 @@ function DAGEditorWithDocs({
     };
   }, [toggleSidebar]);
 
-  // The bars of the text, while the editor loads and until it first shows.
+  // A hidden skeleton draws no lenses, so it reads no steps.
   const skeleton = (
-    <div className="relative h-full">
-      <EditorSkeleton text={value} lenses={stepLenses?.steps} />
-    </div>
+    <LoadingSkeleton text={value} stepLenses={shown ? stepLenses : undefined} />
   );
 
   return (

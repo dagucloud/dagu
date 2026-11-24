@@ -839,27 +839,36 @@ function DAGSpec({
     [textModel, visualValidation.dag]
   );
   // A lens above each step of the whole file opens the step in the
-  // full-screen step view. The steps follow the checked text.
-  const lensSteps = React.useMemo(
-    () =>
-      textModel.steps.flatMap((step) => {
-        // A step with no name runs under its id.
-        const name = textNames.byKey[step.key] ?? step.explicitName ?? step.id;
-        return name ? [{ line: step.range.startLine, name }] : [];
-      }),
-    [textModel, textNames]
-  );
+  // full-screen step view. The lines come from the text that the editor has
+  // when Monaco asks, not from the checked text, which can be older.
   const stepLensLabel = ts('Open step');
-  const stepLenses = React.useMemo(
-    () => ({
-      steps: lensSteps,
+  const stepLenses = React.useMemo(() => {
+    let last: { text: string; steps: { line: number; name: string }[] } | null =
+      null;
+    const stepsOf = (text: string) => {
+      if (last?.text === text) return last.steps;
+      const model =
+        text === textModel.text ? textModel : parseDagDocLenient(text);
+      const names =
+        model === textModel
+          ? textNames
+          : resolveStepNames(model, visualValidation.dag);
+      const steps = model.steps.flatMap((step) => {
+        // A step with no name runs under its id.
+        const name = names.byKey[step.key] ?? step.explicitName ?? step.id;
+        return name ? [{ line: step.range.startLine, name }] : [];
+      });
+      last = { text, steps };
+      return steps;
+    };
+    return {
+      steps: stepsOf,
       label: stepLensLabel,
       open: (name: string) => {
         visualHandleRef.current?.openYaml(name);
       },
-    }),
-    [lensSteps, stepLensLabel]
-  );
+    };
+  }, [textModel, textNames, visualValidation.dag, stepLensLabel]);
   const allIssues = React.useMemo(
     () =>
       !clientIssues
