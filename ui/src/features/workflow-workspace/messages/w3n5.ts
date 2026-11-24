@@ -17,4 +17,8 @@ export default defineMessages({
     while: '条件が真の間',
     until: '条件が真になるまで',
   },
+  de: {
+    while: 'während',
+    until: 'bis',
+  },
 });

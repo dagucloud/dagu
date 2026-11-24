@@ -6,10 +6,10 @@ import { baseStaticMessages } from '@/i18n/staticMessages';
 import { workspaceModules } from '..';
 
 type Catalog = Readonly<Record<string, string>>;
-type LocaleId = 'en' | 'zh-CN' | 'ja';
+type LocaleId = 'en' | 'zh-CN' | 'ja' | 'de';
 type MessageModule = Readonly<Record<LocaleId, Catalog>>;
 
-const TRANSLATED = ['zh-CN', 'ja'] as const;
+const TRANSLATED = ['zh-CN', 'ja', 'de'] as const;
 
 /** Words that every locale writes as in English. */
 const TECHNICAL_WORDS = [
@@ -60,11 +60,12 @@ const base: MessageModule = {
   en: { DAG: 'DAG', Save: 'Save' },
   'zh-CN': { DAG: 'DAG', Save: '保存' },
   ja: { DAG: 'DAG', Save: '保存' },
+  de: { DAG: 'DAG', Save: 'Speichern' },
 };
 
 describe('workspace message translations', () => {
   // parity:crit-i18n-locales
-  it('translate every module key in zh-CN and ja', () => {
+  it('translate every module key in zh-CN, ja and de', () => {
     expect(findUntranslated(workspaceModules, baseStaticMessages)).toEqual([]);
   });
 
@@ -74,6 +75,7 @@ describe('workspace message translations', () => {
         en: { 'Run now': 'Run now' },
         'zh-CN': { 'Run now': 'Run now' },
         ja: { 'Run now': '今すぐ実行' },
+        de: { 'Run now': 'Jetzt ausführen' },
       },
     };
     expect(findUntranslated(modules, base)).toEqual([
@@ -91,6 +93,7 @@ describe('workspace message translations', () => {
           DAG: 'DAG',
         },
         ja: { YAML: 'YAML', 'stdout / stderr': 'stdout / stderr', DAG: 'DAG' },
+        de: { YAML: 'YAML', 'stdout / stderr': 'stdout / stderr', DAG: 'DAG' },
       },
     };
     expect(findUntranslated(modules, base)).toEqual([]);
@@ -102,6 +105,7 @@ describe('workspace message translations', () => {
         en: { 'Show YAML': 'Show YAML' },
         'zh-CN': { 'Show YAML': '显示 YAML' },
         ja: { 'Show YAML': 'Show YAML' },
+        de: { 'Show YAML': 'YAML anzeigen' },
       },
     };
     expect(findUntranslated(modules, base)).toEqual([

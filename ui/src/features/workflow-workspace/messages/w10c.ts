@@ -45,4 +45,17 @@ export default defineMessages({
     'The outputs of a step of a sub-run are not available here.':
       'サブ実行のステップの出力はここでは表示できません。',
   },
+  de: {
+    'from run {id}': 'aus Lauf {id}',
+    'cached {time}': 'zwischengespeichert {time}',
+    'Outputs reused from run {id}': 'Ausgaben aus Lauf {id} übernommen',
+    'From your cache': 'Aus deinem Zwischenspeicher',
+    'From your cache ({time})': 'Aus deinem Zwischenspeicher ({time})',
+    'Inputs used': 'Verwendete Eingaben',
+    'Inputs used ({count})': 'Verwendete Eingaben ({count})',
+    'Show values': 'Werte anzeigen',
+    'Hide values': 'Werte ausblenden',
+    'The outputs of a step of a sub-run are not available here.':
+      'Die Ausgaben eines Schritts in einem Unterlauf sind hier nicht verfügbar.',
+  },
 });

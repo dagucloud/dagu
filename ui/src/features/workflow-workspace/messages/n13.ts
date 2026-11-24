@@ -46,4 +46,18 @@ export default defineMessages({
     'Duplicate step': 'ステップを複製',
     'Copy step': 'ステップをコピー',
   },
+  de: {
+    'Up to {count} tool calls': 'Bis zu {count} Werkzeugaufrufe',
+    'Iterations: {count}': 'Durchgänge: {count}',
+    'Tool calls: {count}': 'Werkzeugaufrufe: {count}',
+    'Calls: {count}': 'Aufrufe: {count}',
+    'Filter tools by name': 'Werkzeuge nach Namen filtern',
+    'Clear the filter': 'Filter löschen',
+    '{count} of {total} tools': '{count} von {total} Werkzeugen',
+    'Task pending': 'Aufgabe offen',
+    'Revert to the last save': 'Auf letzten Speicherstand zurücksetzen',
+    'Simplified view': 'Vereinfachte Ansicht',
+    'Duplicate step': 'Schritt duplizieren',
+    'Copy step': 'Schritt kopieren',
+  },
 });

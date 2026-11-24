@@ -35,4 +35,15 @@ export default defineMessages({
     'Failed to load the saved definition':
       '保存済みの定義を読み込めませんでした',
   },
+  de: {
+    'Same as the saved definition': 'Wie die gespeicherte Definition',
+    'Changed since this run': 'Seit diesem Lauf geändert',
+    'This run has no stored definition.':
+      'Für diesen Lauf ist keine Definition gespeichert.',
+    Changes: 'Änderungen',
+    'This run': 'Dieser Lauf',
+    'Open on canvas': 'Auf der Zeichenfläche öffnen',
+    'Failed to load the saved definition':
+      'Gespeicherte Definition konnte nicht geladen werden',
+  },
 });

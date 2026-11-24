@@ -17,4 +17,8 @@ export default defineMessages({
     'Last {n} runs': '直近 {n} 件の実行',
     'Number of runs shown': '表示する実行の数',
   },
+  de: {
+    'Last {n} runs': 'Letzte {n} Läufe',
+    'Number of runs shown': 'Anzahl angezeigter Läufe',
+  },
 });

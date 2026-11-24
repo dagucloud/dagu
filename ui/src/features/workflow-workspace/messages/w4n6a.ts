@@ -20,4 +20,9 @@ export default defineMessages({
     'Redo the last change': '直前の変更をやり直す',
     'Open step': 'ステップを開く',
   },
+  de: {
+    'Undo the last change': 'Letzte Änderung rückgängig machen',
+    'Redo the last change': 'Letzte Änderung wiederherstellen',
+    'Open step': 'Schritt öffnen',
+  },
 });

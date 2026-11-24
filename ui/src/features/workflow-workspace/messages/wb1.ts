@@ -26,4 +26,11 @@ export default defineMessages({
     'Show more': 'もっと見る',
     'Waiting for the step to run': 'ステップの実行を待っています',
   },
+  de: {
+    'Run the step {name} with its {count} upstream steps?':
+      'Schritt {name} mit seinen {count} vorherigen Schritten ausführen?',
+    'Not run': 'Nicht gelaufen',
+    'Show more': 'Mehr anzeigen',
+    'Waiting for the step to run': 'Wartet auf die Ausführung des Schritts',
+  },
 });

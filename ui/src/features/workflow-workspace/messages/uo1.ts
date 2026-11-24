@@ -84,4 +84,30 @@ export default defineMessages({
     'Global environment': 'グローバル環境',
     'Workspace defaults': 'ワークスペースの既定値',
   },
+  de: {
+    'Manage profiles': 'Profile verwalten',
+    'A profile sets environment variables for every run of this workflow. A run can pick another profile in the Start dialog.':
+      'Ein Profil setzt Umgebungsvariablen für jeden Lauf dieses Ablaufs. Ein Lauf kann im Start-Dialog ein anderes Profil wählen.',
+    Applies: 'Gilt',
+    'This profile is disabled. A run cannot use it.':
+      'Dieses Profil ist abgeschaltet. Ein Lauf kann es nicht verwenden.',
+    'The details of this profile are not available.':
+      'Die Details dieses Profils sind nicht verfügbar.',
+    Variables: 'Variablen',
+    '{variables} variables, {secrets} secrets':
+      '{variables} Variablen, {secrets} Geheimnisse',
+    'Secret value hidden': 'Geheimer Wert verborgen',
+    'overrides {layers}': 'überschreibt {layers}',
+    'Global variables are visible to administrators only.':
+      'Globale Variablen sind nur für Administratoren sichtbar.',
+    'The defaults of the workspace are not available to your role.':
+      'Die Vorgaben des Arbeitsbereichs sind für deine Rolle nicht verfügbar.',
+    'Yes: the default profile of this workflow':
+      'Ja: das Standardprofil dieses Ablaufs',
+    'Yes: the default profile of the workspace {workspace}':
+      'Ja: das Standardprofil des Arbeitsbereichs {workspace}',
+    'No profile applies to this workflow': 'Für diesen Ablauf gilt kein Profil',
+    'Global environment': 'Globale Umgebung',
+    'Workspace defaults': 'Vorgaben des Arbeitsbereichs',
+  },
 });

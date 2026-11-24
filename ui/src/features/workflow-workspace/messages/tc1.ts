@@ -24,4 +24,10 @@ export default defineMessages({
       '前のステップと一緒にステップ {name} を実行しますか？',
     'Steps that run: {steps}': '実行するステップ：{steps}',
   },
+  de: {
+    'Step only': 'Nur Schritt',
+    'Run the step {name} with its previous steps?':
+      'Schritt {name} mit seinen vorherigen Schritten ausführen?',
+    'Steps that run: {steps}': 'Auszuführende Schritte: {steps}',
+  },
 });

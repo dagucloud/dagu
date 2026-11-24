@@ -17,4 +17,9 @@ export default defineMessages({
     'This workflow has unsaved changes':
       'このワークフローには未保存の変更があります',
   },
+  de: {
+    Unsaved: 'Nicht gespeichert',
+    'This workflow has unsaved changes':
+      'Dieser Ablauf hat ungespeicherte Änderungen',
+  },
 });

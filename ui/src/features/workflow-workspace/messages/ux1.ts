@@ -18,4 +18,8 @@ export default defineMessages({
     'Workflow views': 'ワークフローの表示',
     'Switch to {panel}': '{panel}に切り替え',
   },
+  de: {
+    'Workflow views': 'Ablauf-Ansichten',
+    'Switch to {panel}': 'Zu {panel} wechseln',
+  },
 });

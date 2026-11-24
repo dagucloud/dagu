@@ -39,4 +39,15 @@ export default defineMessages({
     '{n} more run overlaps': 'さらに {n} 件の実行が重なる',
     '{n} more runs overlap': 'さらに {n} 件の実行が重なる',
   },
+  de: {
+    'Run durations': 'Laufdauern',
+    'Long run': 'Langer Lauf',
+    'Started before this view': 'Vor dieser Ansicht gestartet',
+    'Still running': 'Läuft noch',
+    'Ended {time}': 'Beendet {time}',
+    'overlaps {n} other run': 'überschneidet sich mit {n} anderen Lauf',
+    'overlaps {n} other runs': 'überschneidet sich mit {n} anderen Läufen',
+    '{n} more run overlaps': '{n} weiterer Lauf überschneidet sich',
+    '{n} more runs overlap': '{n} weitere Läufe überschneiden sich',
+  },
 });
