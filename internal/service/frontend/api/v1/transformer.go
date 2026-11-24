@@ -483,16 +483,23 @@ func toDAGRunsPageResponse(page persis.DAGRunStatusPage) api.DAGRunsPageResponse
 	return resp
 }
 
-// ToDAGRunDetails converts a DAGRunStatus to its API representation.
+// ToDAGRunDetails converts a DAGRunStatus to its API representation, with
+// the counts of the node runs of each step with nodes.
 // This function is exported for use by the SSE package.
 func ToDAGRunDetails(s ir.DAGRunStatus) api.DAGRunDetails {
+	return toDAGRunDetails(s, toNodeWithRuns)
+}
+
+// toDAGRunDetails converts a DAGRunStatus to its API representation, with
+// its steps and handlers converted by convertNode.
+func toDAGRunDetails(s ir.DAGRunStatus, convertNode func(*ir.Node) api.Node) api.DAGRunDetails {
 	preconditions := make([]api.Condition, len(s.Preconditions))
 	for i, p := range s.Preconditions {
 		preconditions[i] = toPreconditionResult(p)
 	}
 	nodes := make([]api.Node, len(s.Nodes))
 	for i, n := range s.Nodes {
-		nodes[i] = toNode(n)
+		nodes[i] = convertNode(n)
 	}
 
 	var autoRetryLimit *int
@@ -557,12 +564,12 @@ func ToDAGRunDetails(s ir.DAGRunStatus) api.DAGRunDetails {
 		BackfillId:             ptrOf(s.BackfillID),
 		Preconditions:          ptrOf(preconditions),
 		Nodes:                  nodes,
-		OnInit:                 ptrOf(toNode(s.OnInit)),
-		OnSuccess:              ptrOf(toNode(s.OnSuccess)),
-		OnFailure:              ptrOf(toNode(s.OnFailure)),
-		OnAbort:                ptrOf(toNode(s.OnAbort)),
-		OnExit:                 ptrOf(toNode(s.OnExit)),
-		OnWait:                 ptrOf(toNode(s.OnWait)),
+		OnInit:                 ptrOf(convertNode(s.OnInit)),
+		OnSuccess:              ptrOf(convertNode(s.OnSuccess)),
+		OnFailure:              ptrOf(convertNode(s.OnFailure)),
+		OnAbort:                ptrOf(convertNode(s.OnAbort)),
+		OnExit:                 ptrOf(convertNode(s.OnExit)),
+		OnWait:                 ptrOf(convertNode(s.OnWait)),
 		Labels:                 &s.Labels,
 		Tags:                   &s.Labels,
 		ModelUsage:             toRunModelUsage(s),
@@ -668,7 +675,6 @@ func toNode(node *ir.Node) api.Node {
 		Error:                  ptrOf(node.Error),
 		SubRuns:                ptrOf(toSubDAGRuns(node.SubRuns)),
 		SubRunsRepeated:        ptrOf(toSubDAGRuns(node.SubRunsRepeated)),
-		NodeRuns:               nodeRunCounts(node),
 		Continuous:             continuousFlag(isContinuousNode(node)),
 		HumanTaskCompletedBy:   ptrOf(node.HumanTaskCompletedBy),
 		HumanTaskCompletedById: ptrOf(node.HumanTaskCompletedByID),

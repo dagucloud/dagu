@@ -128,6 +128,13 @@ func readNodeRuns(node *ir.Node) (*ir.NodeRuns, error) {
 	return &records, nil
 }
 
+// toNodeWithRuns converts a node with the counts of its node runs.
+func toNodeWithRuns(node *ir.Node) api.Node {
+	result := toNode(node)
+	result.NodeRuns = nodeRunCounts(node)
+	return result
+}
+
 // nodeRunCounts reads the counts of the node runs of a step with nodes, or
 // returns nil for another step and for a step whose counts cannot be read.
 func nodeRunCounts(node *ir.Node) *api.NodeRunCounts {
