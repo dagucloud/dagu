@@ -79,10 +79,9 @@ export function placeToolbar(
   );
   shift = Math.round(shift);
   // The shift is already as far right as the canvas lets it go, so a toolbar
-  // that covers an obstacle (the Model pickers, the labels of the connectors,
-  // the end of a link) goes to the other side of the node, when that side has
-  // room and is free. Else it goes right of the obstacle, as long as it keeps
-  // a part over its node and stays inside the canvas.
+  // that covers an obstacle goes to the other side of the node, when that
+  // side has room and is free. Else it goes right of the obstacle, as long as
+  // it keeps a part over its node and stays inside the canvas.
   const hits = (under: boolean, at: number) => {
     const right = edge + at;
     const top = under ? node.bottom : node.top - size.height;
@@ -155,10 +154,9 @@ export function useToolbarPlacement(
       width: box.width || FALLBACK_SIZE.width,
       height: box.height || FALLBACK_SIZE.height,
     };
-    // The toolbar never covers the Model pickers of the other nodes, the
-    // labels of the connectors, or a link that ends at the top or the bottom
-    // of its node: a handle gives the link a box as long as the toolbar. The
-    // DOM does not mark a handle that has a link, so each handle counts.
+    // The toolbar never covers a link that ends at the top or the bottom of
+    // its node: a handle gives the link a box as long as the toolbar. The DOM
+    // does not mark a handle that has a link, so each handle counts.
     const reach = size.height + GAP + MARGIN;
     const obstacles = [
       ...Array.from(
