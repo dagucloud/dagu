@@ -11,7 +11,7 @@ import {
   type components,
 } from '@/api/v1/schema';
 import { RelativeTime } from '@/components/ui/relative-time';
-import { RunStatusChip } from '@/features/dag-runs/components/common/RunStatusChip';
+import StatusChip from '@/components/ui/status-chip';
 import Ticker from '@/components/ui/ticker';
 import { useCanAccessSystemStatus } from '@/contexts/AuthContext';
 import { ServiceDAGFailure } from '@/features/service-dags/components/ServiceDAGState';
@@ -264,14 +264,9 @@ export function NeedsAttention({
                 key={`${item.kind}:${item.name}:${item.run.dagRunId}`}
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2"
               >
-                <RunStatusChip
-                  name={item.name}
-                  dagRunId={item.run.dagRunId}
-                  status={item.run.status}
-                  size="xs"
-                >
+                <StatusChip status={item.run.status} size="xs">
                   {runStatusText(item.run.status)}
-                </RunStatusChip>
+                </StatusChip>
                 <RunLink
                   name={item.name}
                   run={item.run}
@@ -378,14 +373,9 @@ export function InProgress({
         <ul className="flex flex-col gap-1">
           {runs.map((run) => (
             <li key={run.dagRunId} className="flex items-center gap-2 text-sm">
-              <RunStatusChip
-                name={run.name}
-                dagRunId={run.dagRunId}
-                status={run.status}
-                size="xs"
-              >
+              <StatusChip status={run.status} size="xs">
                 {runStatusText(run.status)}
-              </RunStatusChip>
+              </StatusChip>
               <RunLink
                 name={run.name}
                 run={run}
