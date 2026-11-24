@@ -11,10 +11,10 @@
 
 ## Summary
 
-Let a DAG start when new work appears somewhere that sends no event. A user
-who may run commands on the scheduler host gives the DAG a poll: a command
-the scheduler runs on an interval. Each new line it prints starts one run. A
-check that finds nothing starts no run.
+Let a DAG start when new work appears somewhere that sends no event. A
+developer gives the DAG a poll: a command the scheduler runs on an
+interval. Each new line it prints starts one run. A check that finds
+nothing starts no run.
 
 A poll is server state, like the per-DAG webhook. It is kept in the data
 directory, set in the DAG's page or through the API, and the DAG file does
@@ -110,8 +110,8 @@ become runs.
    failed. A poll that keeps failing notifies, and one that stopped checking
    says so.
 5. Bounded idle cost on the scheduler host.
-6. Only a user who may already run commands on the scheduler host can set or
-   try a poll, and the audit log records it.
+6. Setting or trying a poll needs the developer role or above, as the
+   per-DAG webhook does, and the audit log records it.
 7. DAG files, their schema, and their validation do not change.
 
 ## Non-goals
@@ -168,10 +168,10 @@ invalid gojq expression, or an unknown `backlog` is rejected.
   `GET`, `PUT`, and `DELETE /api/v1/dags/{fileName}/poll`. Reading a poll
   needs the role that reads the DAG; `env` values are never returned.
 - **Who may change it.** Creating, changing, deleting, or trying a poll
-  needs the developer role or above when `default_execution_mode` is
-  `local`, where DAG steps already run on the scheduler host, and an admin
-  when it is `distributed`, where DAG authors otherwise run nothing there.
-  The audit log records each.
+  needs the developer role or above, as the webhook does. A developer can
+  already run commands on the scheduler host through a DAG's steps, which
+  `worker_selector: local` keeps there in distributed mode too. The audit
+  log records each.
 - **All polls.** `GET /api/v1/polls` and an admin page list every poll: its
   DAG, command, interval, state (checking, failing, not running, suspended,
   disabled, or no DAG), and last check. They show what runs on the
@@ -362,11 +362,10 @@ would.
 
 ## Security
 
-- A poll runs a command on the scheduler host as the scheduler's user. Only
-  a user who may already run commands there can create, change, or try one:
-  the developer role or above in local mode, an admin in distributed mode.
-  Each is audited, and the list of polls shows every command that runs
-  there. A DAG file that arrives through git sync cannot add a poll.
+- A poll runs a command on the scheduler host as the scheduler's user.
+  Creating, changing, or trying one needs the developer role or above,
+  which can already run commands there through a DAG's steps. Each is
+  audited, and the list of polls shows every command that runs there.
 - `POLL_ITEM` and `POLL_KEY` are controlled by whatever the command lists. A
   value interpolated into a step's command can inject a command, so steps
   read them as environment variables. The docs say so, as Spec 082 does for
@@ -582,9 +581,9 @@ is backed up and restored with the data directory, as webhooks are.
 13. Check now runs on the scheduler host, lists the items and which are new,
     and is in the audit log; a check right after it still finds the same
     items new.
-14. In distributed mode a developer cannot create, change, delete, or try a
-    poll, and an admin can; in local mode a developer can. The audit log
-    records each. `env` values are never in an API response.
+14. An operator cannot create, change, delete, or try a poll, and a
+    developer can. The audit log records each. `env` values are never in an
+    API response.
 15. Renaming a DAG in Dagu keeps its poll and its record of keys; no item
     runs again. Deleting or renaming the DAG file through git sync leaves
     the poll unchecked and listed as having no DAG; pointing it at the new
@@ -599,12 +598,11 @@ is backed up and restored with the data directory, as webhooks are.
 ## Alternatives considered
 
 - **A `poll` field in the DAG file** (the previous draft). It would travel
-  with the DAG through git sync, as `schedule` and `watch` do. But anyone who
-  can change a DAG file could run a command on the scheduler host, which in
-  distributed mode DAG authors otherwise cannot; it needed a config switch
-  to keep it off there, and a token for the command would sit in git. Unlike
-  `schedule` and `watch`, a poll runs user code in the scheduler, so it
-  follows the per-DAG webhook: server state that an authorized user sets.
+  with the DAG through git sync, as `schedule` and `watch` do. But a token
+  the command needs would sit in git, and the DAG schema and its validation
+  would grow for a command that runs outside any run. Server state keeps
+  the token encrypted and DAG files as they are, as the per-DAG webhook
+  does.
 - **Sources and triggers.** A source file in `sources/` that several DAGs
   subscribe to, with conditions, params, and webhook source types. It shares
   one check, or one URL, between DAGs, but adds a new kind of file with state
