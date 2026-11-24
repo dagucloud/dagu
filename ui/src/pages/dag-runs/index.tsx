@@ -1394,6 +1394,14 @@ function DAGRuns() {
     areFiltersEqual(resolveRunViewFilters(view.filters), currentFilters)
   );
 
+  const batchActions = (
+    <DAGRunBatchActions
+      selectedRuns={selectedRuns}
+      onReplaceSelection={replaceSelection}
+      onActionComplete={refreshDagRuns}
+    />
+  );
+
   return (
     <div>
       <DAGListHeader
@@ -1405,7 +1413,13 @@ function DAGRuns() {
       />
       <div>
         {backfillId ? (
-          <BackfillRunsScope backfillId={backfillId} onClear={clearBackfill} />
+          <>
+            <BackfillRunsScope backfillId={backfillId} onClear={clearBackfill} />
+            {/* The scope replaces the filter row that holds the actions. */}
+            <div className="mb-3 flex flex-wrap items-center gap-2 empty:hidden">
+              {batchActions}
+            </div>
+          </>
         ) : (
           <div data-testid="workflow-controls" className="mb-4 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -1614,11 +1628,7 @@ function DAGRuns() {
                 <Search className="mr-1.5 h-4 w-4" />
                 <I18nText text={'Search'} />
               </Button>
-              <DAGRunBatchActions
-                selectedRuns={selectedRuns}
-                onReplaceSelection={replaceSelection}
-                onActionComplete={refreshDagRuns}
-              />
+              {batchActions}
             </div>
           </div>
         )}

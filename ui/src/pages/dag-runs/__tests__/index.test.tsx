@@ -127,7 +127,7 @@ vi.mock('@/features/dag-runs/hooks/useBulkDAGRunSelection', () => ({
 }));
 
 vi.mock('@/features/dag-runs/components/common/DAGRunBatchActions', () => ({
-  default: () => null,
+  default: () => <div data-testid="batch-actions" />,
 }));
 
 const dagRunTableProps = vi.hoisted(() => ({
@@ -315,6 +315,14 @@ describe('DAGRuns page', () => {
       expect(locationSearchParams().has('backfillId')).toBe(false)
     );
     expect(lastRunQuery()['backfillId']).toBeUndefined();
+  });
+
+  // The scope of a backfill replaces the filter row that holds the batch
+  // actions; they stay on the page.
+  it('keeps the batch actions in the list of a backfill', () => {
+    renderPage(vi.fn(), '/dag-runs?backfillId=bf123456');
+
+    expect(screen.getByTestId('batch-actions')).toBeInTheDocument();
   });
 
   // A backfill page links to its runs on the backfill's node, whatever
