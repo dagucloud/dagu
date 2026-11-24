@@ -802,8 +802,13 @@ Rules:
 
 - Migration moves no DAG file, base config file, or wiki page, and edits
   none. It writes the registry and moves state.
-- A DAG that ran on v2 runs on v3.0 from the same file, in the same
-  directory, with the same base config, under the same name.
+- A DAG outside the library that ran on v2 runs on v3.0 from the same file,
+  in the same working directory, under the same name, with the same base
+  config, secrets, profile, notification routes, and incident policies.
+- No DAG that v2 scheduled stops being scheduled, except one that v2 found
+  through a symbolic link out of `<dags_dir>`, and one under
+  `paths.alt_dags_dir` that v2 scheduled because `alt_dags_dir` lay inside
+  `dags_dir`. The report lists both.
 - The default project's runs, DAG state, queues, suspend flags, DAG
   settings, and the rest of its state move from v2's directories in
   `<data_dir>`, and its logs from the default log directory, into its state
