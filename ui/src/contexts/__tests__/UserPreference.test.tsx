@@ -124,20 +124,24 @@ describe('UserPreferencesProvider', () => {
     expect(result.current.preferences.theme).toBe('system');
   });
 
-  // The workflow page has one body; an old stored choice is dropped.
-  it('drops the stored workflow page choice of an older version', () => {
+  // The workflow page has one body and the run list one view; an old stored
+  // choice of another is dropped.
+  it.each([
+    ['workflowPage', 'classic'],
+    ['dagRunsViewMode', 'grouped'],
+  ])('drops the stored %s choice of an older version', (key, value) => {
     localStorage.setItem(
       'user_preferences',
-      JSON.stringify({ workflowPage: 'classic', locale: 'ja' })
+      JSON.stringify({ [key]: value, locale: 'ja' })
     );
 
     const { result } = renderHook(() => useUserPreferences(), { wrapper });
 
-    expect(result.current.preferences).not.toHaveProperty('workflowPage');
+    expect(result.current.preferences).not.toHaveProperty(key);
     expect(result.current.preferences.locale).toBe('ja');
     expect(
       JSON.parse(localStorage.getItem('user_preferences') ?? '{}')
-    ).not.toHaveProperty('workflowPage');
+    ).not.toHaveProperty(key);
   });
 
   describe('useResolvedTheme', () => {

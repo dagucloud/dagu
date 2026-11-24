@@ -7,7 +7,6 @@ import React, {
 } from 'react';
 import { writeLocalStorage } from '@/lib/local-storage-migration';
 
-export type DAGRunsViewMode = 'list' | 'grouped';
 export type Locale = 'en' | 'zh-CN' | 'ja' | 'de';
 
 /** Which end of a log is at the top of the viewer. */
@@ -21,7 +20,6 @@ export type ResolvedTheme = 'light' | 'dark';
 
 export type UserPreferences = {
   pageLimit: number;
-  dagRunsViewMode: DAGRunsViewMode;
   logWrap: boolean;
   logOrder: LogOrder;
   theme: ThemePreference;
@@ -42,7 +40,6 @@ const UserPreferencesContext = createContext<{
 
 const defaultPreferences: UserPreferences = {
   pageLimit: 50,
-  dagRunsViewMode: 'list',
   logWrap: true,
   logOrder: 'oldToNew',
   theme: 'system',
@@ -87,6 +84,8 @@ function loadPreferences(): UserPreferences {
     delete preferences.specViewMode;
     // The workflow page has one body; an old choice of another is dropped.
     delete preferences.workflowPage;
+    // The run list has one view; an old choice of another is dropped.
+    delete preferences.dagRunsViewMode;
     const migrated = {
       ...defaultPreferences,
       ...preferences,

@@ -3,21 +3,6 @@
 
 import dayjs from './dayjs';
 
-type DAGRunTiming = {
-  scheduleTime?: string;
-  queuedAt?: string;
-};
-
-export function getDAGRunScheduleSortValue(run: DAGRunTiming): number {
-  const timestamp = run.scheduleTime || run.queuedAt;
-  if (!timestamp) {
-    return 0;
-  }
-
-  const value = dayjs(timestamp).valueOf();
-  return Number.isFinite(value) ? value : 0;
-}
-
 /** True for "-" and the Go zero time, which both mean "never". */
 export function isUnsetTime(value: string | null | undefined): boolean {
   return !value || value === '-' || value.startsWith('0001-01-01');
