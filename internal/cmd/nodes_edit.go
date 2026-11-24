@@ -82,7 +82,7 @@ func runNodesAdd(ctx *Context, args []string) error {
 	out := ctx.Command.OutOrStdout()
 	var accepted []nodeconn.Accepted
 	if noTest, _ := ctx.Command.Flags().GetBool("no-test"); !noTest {
-		if accepted, err = testBeforeSave(ctx, adder, node.Name); err != nil {
+		if accepted, err = testBeforeSave(ctx, adder); err != nil {
 			return notAdded(node.Name, err)
 		}
 		_, _ = fmt.Fprintf(out, "connection test of %s passed\n", node.Name)
@@ -98,6 +98,10 @@ func runNodesAdd(ctx *Context, args []string) error {
 		_, _ = fmt.Fprintf(out, "trusted host key %s of %s\n", key.Fingerprint, key.Node)
 	}
 	if err != nil {
+		// A remote add reports the stored node in its own words.
+		if partial, ok := errors.AsType[partialAdd](err); ok {
+			return partial
+		}
 		return fmt.Errorf("node %q was added, but a host key was not trusted: %w", node.Name, err)
 	}
 	return nil
@@ -215,12 +219,11 @@ func (l *localAdder) add(ctx context.Context, accepted []nodeconn.Accepted, by s
 	return stored, trusted, err
 }
 
-// testBeforeSave tests the node named name until the test passes or fails
-// for good. When a hop presents an unknown key, it asks the user, and on yes
+// testBeforeSave tests the node until the test passes or fails for good. When a hop presents an unknown key, it asks the user, and on yes
 // tests again with that key accepted for that test only, so the node is
 // authenticated and runs true before anything is stored. It returns the
 // keys the user accepted, to trust once the node is stored.
-func testBeforeSave(ctx *Context, adder nodeAdder, name string) ([]nodeconn.Accepted, error) {
+func testBeforeSave(ctx *Context, adder nodeAdder) ([]nodeconn.Accepted, error) {
 	out := ctx.Command.OutOrStdout()
 	var accepted []nodeconn.Accepted
 	for {
@@ -326,7 +329,7 @@ func nodeFromFlags(ctx *Context, name string) (inventory.Node, error) {
 	case key != "" && keySecret != "":
 		return inventory.Node{}, errors.New("--key and --key-secret cannot be combined")
 	case key != "":
-		if ctx.IsRemote() && !filepath.IsAbs(key) && !strings.HasPrefix(key, "~") && !strings.HasPrefix(key, "$") {
+		if ctx.IsRemote() && !serverKeyPath(key) {
 			return inventory.Node{}, fmt.Errorf("invalid --key %q: the server reads the key on its own host, so give an absolute path, or one that starts with ~ or $", key)
 		}
 		path, err := keyFilePath(key)
@@ -349,6 +352,21 @@ func nodeFromFlags(ctx *Context, name string) (inventory.Node, error) {
 		}
 	}
 	return node, nil
+}
+
+// serverKeyPath reports whether a remote server can read the --key path as
+// given: an absolute path on a POSIX or a Windows server, or one that starts
+// with ~ or $ for the server to expand. The server's platform is not known
+// here, so a path absolute on either is taken.
+func serverKeyPath(path string) bool {
+	switch {
+	case strings.HasPrefix(path, "/"), strings.HasPrefix(path, `\\`),
+		strings.HasPrefix(path, "~"), strings.HasPrefix(path, "$"):
+		return true
+	default:
+		return len(path) > 2 && path[1] == ':' && (path[2] == '\\' || path[2] == '/') &&
+			(path[0] >= 'a' && path[0] <= 'z' || path[0] >= 'A' && path[0] <= 'Z')
+	}
 }
 
 // keyFilePath returns the --key path as the node stores it. The node is

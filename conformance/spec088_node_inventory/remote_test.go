@@ -119,6 +119,11 @@ func TestNodesAddAndTestOverRemoteContext(t *testing.T) {
 		ExpectStderrContains(`invalid --key "id_ed25519": the server reads the key on its own host`)
 
 	run("", "nodes", "add", "web02", "--host", "127.0.0.1", "--port", web02.Port, "--no-test").ExpectExitCode(0)
+	// Declining every key trusts nothing, and the summary still prints.
+	declined := run("n\n", "nodes", "test")
+	declined.ExpectNonZeroExitCode()
+	assert.Contains(t, declined.Stdout(), "1 passed, 1 failed")
+	declined.ExpectStderrContains("1 of 2 nodes failed the connection test")
 	tested := run("y\n", "nodes", "test")
 	tested.ExpectExitCode(0)
 	for _, line := range []string{

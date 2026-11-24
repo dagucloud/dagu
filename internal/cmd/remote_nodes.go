@@ -300,25 +300,32 @@ func (r remoteTester) test(ctx context.Context, targets []inventory.ResolvedNode
 }
 
 func (r remoteTester) trust(ctx context.Context, requests []nodeconn.TrustRequest, _ string, emit func(nodeconn.TrustResult)) error {
-	keys := make([]api.InventoryHostKeyTrustEntry, 0, len(requests))
-	for _, request := range requests {
-		entry := api.InventoryHostKeyTrustEntry{Node: request.Node, Fingerprint: request.Fingerprint}
-		if request.Replace != "" {
-			entry.Replace = &request.Replace
+	for start := 0; start < len(requests); start += remoteTestBatch {
+		batch := requests[start:min(start+remoteTestBatch, len(requests))]
+		keys := make([]api.InventoryHostKeyTrustEntry, 0, len(batch))
+		for _, request := range batch {
+			entry := api.InventoryHostKeyTrustEntry{Node: request.Node, Fingerprint: request.Fingerprint}
+			if request.Replace != "" {
+				entry.Replace = &request.Replace
+			}
+			keys = append(keys, entry)
 		}
-		keys = append(keys, entry)
-	}
-	return r.client.stream(ctx, "/node-host-keys", map[string]any{"keys": keys}, func(event string, data []byte) error {
-		if event != "result" {
+		err := r.client.stream(ctx, "/node-host-keys", map[string]any{"keys": keys}, func(event string, data []byte) error {
+			if event != "result" {
+				return nil
+			}
+			var result api.InventoryHostKeyTrust
+			if err := json.Unmarshal(data, &result); err != nil {
+				return fmt.Errorf("invalid trust result: %w", err)
+			}
+			emit(trustResultOf(result))
 			return nil
+		})
+		if err != nil {
+			return err
 		}
-		var result api.InventoryHostKeyTrust
-		if err := json.Unmarshal(data, &result); err != nil {
-			return fmt.Errorf("invalid trust result: %w", err)
-		}
-		emit(trustResultOf(result))
-		return nil
-	})
+	}
+	return nil
 }
 
 // remoteAdder tests a node that is not stored yet on a remote server, and
@@ -343,6 +350,13 @@ func (r remoteAdder) test(ctx context.Context, accepted []nodeconn.Accepted) (no
 
 func (r remoteAdder) add(ctx context.Context, accepted []nodeconn.Accepted, _ string) (inventory.Stored, []inventory.TrustedHostKey, error) {
 	stored, err := r.client.remoteAddNode(ctx, r.target.ID, r.target.Version, r.node, accepted)
+	if remote, ok := errors.AsType[*remoteError](err); ok && remote.StatusCode >= http.StatusInternalServerError {
+		// The server stores the node before it trusts the keys, so a
+		// failure may come after the node is stored.
+		if current, readErr := r.client.remoteInventory(ctx, r.target.ID); readErr == nil && holdsNode(current, r.node.Name) {
+			return current, nil, partialAdd{node: r.node.Name, err: err}
+		}
+	}
 	if err != nil {
 		return inventory.Stored{}, nil, err
 	}
@@ -352,6 +366,30 @@ func (r remoteAdder) add(ctx context.Context, accepted []nodeconn.Accepted, _ st
 		trusted = append(trusted, inventory.TrustedHostKey{Node: key.Node, Fingerprint: key.Fingerprint})
 	}
 	return stored, trusted, nil
+}
+
+// partialAdd is the error of an add whose node the server stored before
+// trusting its keys failed.
+type partialAdd struct {
+	node string
+	err  error
+}
+
+func (e partialAdd) Error() string {
+	return fmt.Sprintf("node %q was added, but its host keys were not trusted: %v; trust them with 'dagu nodes test %s'", e.node, e.err, e.node)
+}
+
+func (e partialAdd) Unwrap() error { return e.err }
+
+// holdsNode reports whether inv holds a node named name, compared without
+// case.
+func holdsNode(inv inventory.Stored, name string) bool {
+	for _, node := range inv.Nodes {
+		if strings.EqualFold(node.Name, name) {
+			return true
+		}
+	}
+	return false
 }
 
 // emitTestResult passes a result event of a test stream to emit.

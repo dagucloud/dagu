@@ -283,6 +283,9 @@ func (t connectionTest) confirmOffers(offers []keyOffer) []keyOffer {
 // trust trusts the accepted keys and returns the nodes, lowercased, whose
 // key is now trusted.
 func (t connectionTest) trust(accepted []keyOffer) (map[string]bool, error) {
+	if len(accepted) == 0 {
+		return nil, nil
+	}
 	requests := make([]nodeconn.TrustRequest, 0, len(accepted))
 	for _, offer := range accepted {
 		requests = append(requests, nodeconn.TrustRequest{Node: offer.node, Fingerprint: offer.presented, Replace: offer.trusted})

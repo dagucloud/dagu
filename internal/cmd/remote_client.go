@@ -328,11 +328,18 @@ func decodeRemoteError(resp *http.Response) error {
 		return &remoteError{StatusCode: resp.StatusCode, Message: resp.Status}
 	}
 	var apiErr struct {
+		Code    string                   `json:"code"`
 		Message string                   `json:"message"`
 		Errors  []api.InventoryRuleError `json:"errors"`
 	}
-	if err := json.Unmarshal(data, &apiErr); err == nil && apiErr.Message != "" {
-		return &remoteError{StatusCode: resp.StatusCode, Message: apiErr.Message, Rules: apiErr.Errors}
+	if err := json.Unmarshal(data, &apiErr); err == nil {
+		switch {
+		case apiErr.Message != "":
+			return &remoteError{StatusCode: resp.StatusCode, Message: apiErr.Message, Rules: apiErr.Errors}
+		case apiErr.Code != "":
+			// A server error hides its cause and sends only its code.
+			return &remoteError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("%s (%s)", resp.Status, apiErr.Code)}
+		}
 	}
 	msg := strings.TrimSpace(string(data))
 	if len(data) > maxRemoteErrorBodyBytes {
