@@ -64,17 +64,21 @@ type RunStepSourceError struct {
 
 func (e *RunStepSourceError) Error() string { return e.Message }
 
+// RunDefinitions holds, by run ID, the definition that a run ran.
+type RunDefinitions map[string]*ir.DAG
+
 // LoadRunStepSources reads the run that each step of refs carries its outputs
-// from. refs maps a step name or ID to a run ID. A run that does not exist for
-// the DAG (it was removed, or it belongs to another DAG) gives a
-// *RunStepSourceError that names the step and the run. A run ID that refs
-// repeats is read once. check, when set, accepts or rejects each run read; its
-// error is returned as it is.
-func LoadRunStepSources(ctx context.Context, repo *persis.DAGRunRepository, dagName string, refs map[string]string, check func(*ir.DAGRunStatus) error) (RunStepSources, error) {
+// from, and the definition that each run ran. refs maps a step name or ID to a
+// run ID. A run that does not exist for the DAG (it was removed, or it belongs
+// to another DAG) gives a *RunStepSourceError that names the step and the run.
+// A run ID that refs repeats is read once. check, when set, accepts or rejects
+// each run read; its error is returned as it is.
+func LoadRunStepSources(ctx context.Context, repo *persis.DAGRunRepository, dagName string, refs map[string]string, check func(*ir.DAGRunStatus) error) (RunStepSources, RunDefinitions, error) {
 	if len(refs) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	runs := make(map[string]*ir.DAGRunStatus)
+	definitions := make(RunDefinitions)
 	result := make(RunStepSources, len(refs))
 	for _, step := range slices.Sorted(maps.Keys(refs)) {
 		runID := refs[step]
@@ -82,25 +86,30 @@ func LoadRunStepSources(ctx context.Context, repo *persis.DAGRunRepository, dagN
 		if !ok {
 			attempt, err := repo.FindAttempt(ctx, ir.NewDAGRunRef(dagName, runID))
 			if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
-				return nil, &RunStepSourceError{Message: fmt.Sprintf("step %s cannot be reused from run %s: the run does not exist for DAG %s", step, runID, dagName)}
+				return nil, nil, &RunStepSourceError{Message: fmt.Sprintf("step %s cannot be reused from run %s: the run does not exist for DAG %s", step, runID, dagName)}
 			}
 			if err != nil {
-				return nil, fmt.Errorf("failed to find dag-run %s: %w", runID, err)
+				return nil, nil, fmt.Errorf("failed to find dag-run %s: %w", runID, err)
 			}
 			run, err = attempt.ReadStatus(ctx)
 			if err != nil {
-				return nil, fmt.Errorf("failed to read status for dag-run %s: %w", runID, err)
+				return nil, nil, fmt.Errorf("failed to read status for dag-run %s: %w", runID, err)
 			}
 			if check != nil {
 				if err := check(run); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 			}
+			definition, err := attempt.ReadDAG(ctx)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to read the definition of dag-run %s: %w", runID, err)
+			}
 			runs[runID] = run
+			definitions[runID] = definition
 		}
 		result[step] = run
 	}
-	return result, nil
+	return result, definitions, nil
 }
 
 // CheckRunStepSources makes sure that every step of fromRuns exists, is not

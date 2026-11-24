@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -84,6 +85,70 @@ func StepsToRun(dag *ir.DAG, profile string, sourceDAG *ir.DAG, source *ir.DAGRu
 		}
 	}
 	return names, nil
+}
+
+// CheckRunStepsUnchanged makes sure that each step of fromRuns is as it was in
+// its run, as StepsToRun compares a step: its definition, the DAG's definition
+// other than its steps, the base config, the run's parameters and runtime
+// profile, and the steps it depends on. dag has its run's parameters resolved,
+// profile is the runtime profile of the run, and definitions holds the
+// definition that each run of fromRuns ran. The error names the step and the
+// run.
+func CheckRunStepsUnchanged(dag *ir.DAG, profile string, fromRuns RunStepSources, definitions RunDefinitions) error {
+	if len(fromRuns) == 0 {
+		return nil
+	}
+	params := strings.Join(dag.Params, " ")
+	current, err := stepFingerprints(dag, params, profile)
+	if err != nil {
+		return err
+	}
+	earlier := make(map[string]map[string]string, len(definitions))
+	for _, ref := range slices.Sorted(maps.Keys(fromRuns)) {
+		run := fromRuns[ref]
+		name, err := resolveStepName(dag, ref)
+		if err != nil {
+			return err
+		}
+		definition := definitions[run.DAGRunID]
+		if definition == nil {
+			return fmt.Errorf("step %s cannot be reused from run %s: the definition of the run is not known", ref, run.DAGRunID)
+		}
+		digests, ok := earlier[run.DAGRunID]
+		if !ok {
+			if digests, err = stepFingerprints(definition, run.Params, run.ProfileName); err != nil {
+				return fmt.Errorf("step %s cannot be reused from run %s: %w", ref, run.DAGRunID, err)
+			}
+			earlier[run.DAGRunID] = digests
+		}
+		if digests[name] == current[name] {
+			continue
+		}
+		reason, err := changeReason(dag, params, profile, definition, run)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("step %s cannot be reused from run %s: %s", ref, run.DAGRunID, reason)
+	}
+	return nil
+}
+
+// changeReason says what changed for a step whose digest differs from the one
+// in run, which ran earlier: what every step shares, or the step and the steps
+// it depends on.
+func changeReason(dag *ir.DAG, params, profile string, earlier *ir.DAG, run *ir.DAGRunStatus) (string, error) {
+	now, err := definitionDigest(dag, params, profile)
+	if err != nil {
+		return "", err
+	}
+	then, err := definitionDigest(earlier, run.Params, run.ProfileName)
+	if err != nil {
+		return "", err
+	}
+	if now != then {
+		return "the parameters, runtime profile, base config, or top-level settings differ from that run", nil
+	}
+	return "the step or a step it depends on changed since that run", nil
 }
 
 // stepFingerprints returns, by step name, a digest of what decides what each

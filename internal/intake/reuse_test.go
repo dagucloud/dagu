@@ -95,6 +95,51 @@ func TestStepsToRun(t *testing.T) {
 	}
 }
 
+// A step carried from a run must be as StepsToRun would reuse it: a change of
+// the step, a step it depends on, the parameters, the profile, or the settings
+// outside the steps rejects it, and the error says which kind of change.
+func TestCheckRunStepsUnchanged(t *testing.T) {
+	t.Parallel()
+
+	const settingsChanged = "step filter cannot be reused from run earlier: the parameters, runtime profile, base config, or top-level settings differ from that run"
+	const stepChanged = "step filter cannot be reused from run earlier: the step or a step it depends on changed since that run"
+	earlier := loadReuseDAG(t, reuseSpec)
+	for _, tc := range []struct {
+		name string
+		yaml string
+		// params replaces the parameters the run resolved, when set.
+		params []string
+		// profile is the runtime profile of the run.
+		profile string
+		// wantErr is empty when the step can be carried.
+		wantErr string
+	}{
+		{name: "Unchanged", yaml: reuseSpec},
+		{name: "ChangedStepThatItDoesNotNeed", yaml: strings.Replace(reuseSpec, "echo notes", "echo all notes", 1)},
+		{name: "ChangedStep", yaml: strings.Replace(reuseSpec, "under 7000", "under 5000", 1), wantErr: stepChanged},
+		{name: "ChangedStepThatItNeeds", yaml: strings.Replace(reuseSpec, "echo rows", "echo all rows", 1), wantErr: stepChanged},
+		{name: "ChangedParameters", yaml: reuseSpec, params: []string{"MAX=5000"}, wantErr: settingsChanged},
+		{name: "ChangedProfile", yaml: reuseSpec, profile: "staging", wantErr: settingsChanged},
+		{name: "ChangedEnvironment", yaml: strings.Replace(reuseSpec, "homes.example.com", "homes.example.org", 1), wantErr: settingsChanged},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dag := loadReuseDAG(t, tc.yaml)
+			if tc.params != nil {
+				dag.Params = tc.params
+			}
+			err := intake.CheckRunStepsUnchanged(dag, tc.profile,
+				intake.RunStepSources{"filter": succeededRun(earlier)},
+				intake.RunDefinitions{"earlier": earlier})
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tc.wantErr)
+		})
+	}
+}
+
 // A step that the earlier run skipped by retry is reused when the caller
 // supplied its outputs, which leaves it no finish time; one that carried
 // nothing runs.

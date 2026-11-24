@@ -240,6 +240,50 @@ func TestStartStepsRejects(t *testing.T) {
 	})
 }
 
+// A step of outputsFromRuns carries outputs only from a run in which it was as
+// it is now. The parameters count: a default from outside the DAG file, such
+// as the base config, changes them without changing the file.
+func TestStartStepsRejectsAChangedStep(t *testing.T) {
+	ctx := context.Background()
+	api, dag := setupEditRetryAPI(t, t.TempDir(), editRetrySourceYAML())
+	seedEditRetrySourceAttempt(t, ctx, api.dagRunRepository, dag, "same-run")
+	seedEditRetrySourceAttemptWithParams(t, ctx, api.dagRunRepository, dag, "params-run")
+	edited, err := spec.LoadYAML(ctx, []byte(editRetryEditedYAML()))
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		dag     *ir.DAG
+		runID   string
+		wantMsg string
+	}{
+		{
+			name:    "OtherParameters",
+			dag:     dag,
+			runID:   "params-run",
+			wantMsg: "step build cannot be reused from run params-run: the parameters, runtime profile, base config, or top-level settings differ from that run",
+		},
+		{
+			name:    "ChangedStep",
+			dag:     edited,
+			runID:   "same-run",
+			wantMsg: "step build cannot be reused from run same-run: the step or a step it depends on changed since that run",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := api.startSelectedSteps(ctx, tt.dag, selectedStepsStart{
+				selection: stepSelection{steps: []string{"consume"}, outputsFromRuns: map[string]string{"build": tt.runID}},
+				dagRunID:  "run",
+			})
+			var apiErr *Error
+			require.ErrorAs(t, err, &apiErr)
+			require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
+			require.Contains(t, apiErr.Message, tt.wantMsg)
+		})
+	}
+}
+
 // An ephemeral run takes explicit outputs with no source run, is found by its
 // ID, appears in no listing, and refuses retry, reschedule and edit.
 func TestStartStepsEphemeral(t *testing.T) {

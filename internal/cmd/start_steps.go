@@ -209,12 +209,15 @@ func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts r
 			return fmt.Errorf("failed to read status for dag-run %s: %w", selection.outputsFrom, err)
 		}
 	}
-	fromRuns, err := intake.LoadRunStepSources(ctx, repo, dag.Name, selection.outputFrom, nil)
+	fromRuns, definitions, err := intake.LoadRunStepSources(ctx, repo, dag.Name, selection.outputFrom, nil)
 	if err != nil {
 		return err
 	}
 	nodes, reused, err := intake.SelectedStepNodes(dag, selection.steps, source, fromRuns, selection.outputs, nil)
 	if err != nil {
+		return err
+	}
+	if err := intake.CheckRunStepsUnchanged(dag, opts.profileName, fromRuns, definitions); err != nil {
 		return err
 	}
 	skipHandlers, err := intake.SelectionSkipsHandlers(dag, selection.steps)
