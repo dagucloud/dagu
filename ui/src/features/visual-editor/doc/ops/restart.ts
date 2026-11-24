@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { isMap, isScalar, isSeq } from 'yaml';
-import type { Document } from 'yaml';
+import { isAlias, isMap, isScalar, isSeq } from 'yaml';
+import type { Document, YAMLMap } from 'yaml';
 import { parseAllDocumentsAsServer } from '../serverYaml';
 
 export type RestartPolicy = 'no' | 'always' | 'unless-stopped';
@@ -37,6 +37,12 @@ export function parseRestartPolicy(value: string): RestartPolicy | null {
     : null;
 }
 
+/** The value of a key, with an alias read as the value of its anchor. */
+export function valueOf(doc: Document, map: YAMLMap, key: string): unknown {
+  const node = map.get(key, true);
+  return isAlias(node) ? node.resolve(doc) : node;
+}
+
 /** True for a key with no value: absent, `null`, or empty. */
 function isEmpty(node: unknown): boolean {
   return (
@@ -64,10 +70,10 @@ function entryCount(node: unknown): number {
  * The entries of a schedule: a string, a list, or the start, stop and
  * restart of the map form, each of them in any form.
  */
-function scheduleEntries(node: unknown): number {
+function scheduleEntries(doc: Document, node: unknown): number {
   if (!isMap(node)) return entryCount(node);
   return SCHEDULE_KINDS.reduce(
-    (count, key) => count + entryCount(node.get(key, true)),
+    (count, key) => count + entryCount(valueOf(doc, node, key)),
     0
   );
 }
@@ -79,8 +85,8 @@ export function restartOf(doc: Document | undefined): RestartView {
   }
   const root = doc.contents;
   return {
-    schedule: scheduleEntries(root.get('schedule', true)) > 0,
-    retryPolicy: !isEmpty(root.get('retry_policy', true)),
+    schedule: scheduleEntries(doc, valueOf(doc, root, 'schedule')) > 0,
+    retryPolicy: !isEmpty(valueOf(doc, root, 'retry_policy')),
   };
 }
 

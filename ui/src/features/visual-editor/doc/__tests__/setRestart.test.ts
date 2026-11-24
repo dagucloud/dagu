@@ -55,6 +55,15 @@ describe('readRestartSettings', () => {
     expect(readRestartSettings('restart_wait_sec: "5"\n').waitSec).toBeNull();
     expect(readRestartSettings('restart_wait_sec: 1.5\n').waitSec).toBeNull();
   });
+
+  // The server reads an alias as the value of its anchor.
+  it('reads a key written as an alias', () => {
+    const text = `x-policy: &p always\ndelay_sec: &d 5\nrestart_policy: *p\nrestart_wait_sec: *d\n${BASE}`;
+    expect(readRestartSettings(text)).toMatchObject({
+      policy: 'always',
+      waitSec: 5,
+    });
+  });
 });
 
 describe('setRestartPolicy', () => {

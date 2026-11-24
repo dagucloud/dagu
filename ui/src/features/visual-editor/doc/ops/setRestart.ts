@@ -12,6 +12,7 @@ import {
   isServicePolicy,
   parseRestartPolicy,
   restartOf,
+  valueOf,
   type RestartPolicy,
   type RestartView,
 } from './restart';
@@ -61,13 +62,13 @@ function settingsOf(doc: Document | undefined): RestartSettings {
   };
   if (doc && doc.errors.length === 0 && isMap(doc.contents)) {
     const root = doc.contents;
-    settings.policy = readPolicy(root.get('restart_policy', true));
-    settings.waitSec = readInteger(root.get('restart_wait_sec', true));
+    settings.policy = readPolicy(valueOf(doc, root, 'restart_policy'));
+    settings.waitSec = readInteger(valueOf(doc, root, 'restart_wait_sec'));
     settings.histRetentionRuns = readInteger(
-      root.get('hist_retention_runs', true)
+      valueOf(doc, root, 'hist_retention_runs')
     );
     settings.histRetentionDays = readInteger(
-      root.get('hist_retention_days', true)
+      valueOf(doc, root, 'hist_retention_days')
     );
   }
   return settings;
