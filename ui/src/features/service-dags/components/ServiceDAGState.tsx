@@ -6,10 +6,12 @@ import {
   components,
   ServiceDAGRestartHold,
   ServiceDAGState,
+  Status,
 } from '@/api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import Ticker from '@/components/ui/ticker';
 import { formatElapsed } from '@/lib/dagRunTiming';
+import dayjs from '@/lib/dayjs';
 import { formatDurationMs } from '@/lib/formatDuration';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -70,9 +72,17 @@ export function describeServiceDAG(
       const nextRestart = dag.nextRestartAt
         ? Date.parse(dag.nextRestartAt)
         : NaN;
-      // A DAG whose state cannot be read, or one from an older server, has no
-      // restart time, so nothing says that a restart is under way.
       if (Number.isNaN(nextRestart)) {
+        // The next run waits in the queue: it has no restart time.
+        const status = dag.latestRun?.status;
+        if (
+          dag.state === ServiceDAGState.restarting &&
+          (status === Status.Queued || status === Status.NotStarted)
+        ) {
+          return { text: 'Restarting…' };
+        }
+        // A DAG whose state cannot be read, or one from an older server, has
+        // no restart time, so nothing says that a restart is under way.
         return { text: 'Next restart unknown' };
       }
       const remaining = Math.ceil((nextRestart - now) / 1000);
@@ -117,6 +127,47 @@ export function ServiceDAGStatusText({
         const { text, values } = describeServiceDAG(dag, Date.now());
         return <span className={className}>{ts(text, values)}</span>;
       }}
+    </Ticker>
+  );
+}
+
+/**
+ * When the scheduler starts the next run of a service DAG, in words, or
+ * nothing while no restart is due: the DAG is not restarting or failing, its
+ * restarts are on hold, or the time is unknown.
+ */
+export function ServiceDAGNextRun({
+  dag,
+  className,
+}: {
+  dag: ServiceDAG;
+  className?: string;
+}): React.ReactElement | null {
+  const { locale, ts } = useI18n();
+  const at = dag.nextRestartAt ? Date.parse(dag.nextRestartAt) : NaN;
+  if (
+    (dag.state !== ServiceDAGState.restarting &&
+      dag.state !== ServiceDAGState.failing) ||
+    dag.restartHold ||
+    dag.readError ||
+    Number.isNaN(at)
+  ) {
+    return null;
+  }
+  // The words change slowly: "in a few seconds", "in 4 minutes", "in an hour".
+  return (
+    <Ticker intervalMs={15_000}>
+      {() => (
+        <span className={className}>
+          {at > Date.now()
+            ? ts('Restart {when}', {
+                when: dayjs(at)
+                  .locale(locale === 'zh-CN' ? 'zh-cn' : locale)
+                  .fromNow(),
+              })
+            : ts('Restarting…')}
+        </span>
+      )}
     </Ticker>
   );
 }
