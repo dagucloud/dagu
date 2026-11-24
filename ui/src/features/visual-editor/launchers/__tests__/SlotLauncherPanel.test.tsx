@@ -3,6 +3,7 @@
 
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { ScheduleKind } from '@/api/v1/schema';
@@ -48,26 +49,75 @@ const ON: RestartSettings = {
   histRetentionRuns: 20,
 };
 
+interface FileView {
+  schedule: ScheduleView;
+  restart: RestartSettings;
+}
+
+// The panel on the file of a test. With `edited`, a call of the panel changes
+// the file to it in the same update, as an edit of the YAML does.
+function Panel({
+  open,
+  file,
+  edited,
+  editable,
+  scheduleRemovable,
+  onSchedule,
+  onRestart,
+}: {
+  open: 'schedule' | 'cron' | 'always';
+  file: FileView;
+  edited?: FileView;
+  editable: boolean;
+  scheduleRemovable: boolean;
+  onSchedule(...args: unknown[]): void;
+  onRestart(...args: unknown[]): void;
+}) {
+  const [applied, setApplied] = useState(false);
+  const { schedule, restart } = applied && edited ? edited : file;
+  return (
+    <SlotLauncherPanel
+      open={open}
+      schedule={schedule}
+      scheduleRemovable={scheduleRemovable}
+      restart={restart}
+      editable={editable}
+      onSchedule={(...args) => {
+        onSchedule(...args);
+        setApplied(true);
+      }}
+      onRestart={(...args) => {
+        onRestart(...args);
+        setApplied(true);
+      }}
+      onClose={() => undefined}
+    />
+  );
+}
+
 function renderPanel(
   open: 'schedule' | 'cron' | 'always',
   schedule: ScheduleView,
   restart: RestartSettings,
-  { editable = true, scheduleRemovable = true } = {}
+  {
+    editable = true,
+    scheduleRemovable = true,
+    edited,
+  }: { editable?: boolean; scheduleRemovable?: boolean; edited?: FileView } = {}
 ) {
   const onSchedule = vi.fn();
   const onRestart = vi.fn();
   const view = (s: ScheduleView, r: RestartSettings) => (
     <UserPreferencesProvider>
       <I18nProvider>
-        <SlotLauncherPanel
+        <Panel
           open={open}
-          schedule={s}
-          scheduleRemovable={scheduleRemovable}
-          restart={r}
+          file={{ schedule: s, restart: r }}
+          edited={edited}
           editable={editable}
+          scheduleRemovable={scheduleRemovable}
           onSchedule={onSchedule}
           onRestart={onRestart}
-          onClose={vi.fn()}
         />
       </I18nProvider>
     </UserPreferencesProvider>
@@ -80,6 +130,10 @@ function renderPanel(
       utils.rerender(view(s, r)),
   };
 }
+
+const NEITHER: FileView = { schedule: NO_SCHEDULE, restart: OFF };
+const RETRY =
+  'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.';
 
 const chooser = () =>
   screen.queryByRole('group', { name: 'Choose how the workflow starts' });
@@ -171,32 +225,78 @@ describe('SlotLauncherPanel', () => {
   });
 
   it('switches from Cron: removes the expressions, then asks with Always on chosen and focused', async () => {
-    const { onSchedule, rerender } = renderPanel('cron', SCHEDULED, OFF);
+    const { onSchedule } = renderPanel('cron', SCHEDULED, OFF, {
+      edited: NEITHER,
+    });
     await userEvent.click(
       screen.getByRole('button', { name: 'Switch to Always on' })
     );
     expect(onSchedule).toHaveBeenCalledTimes(1);
     expect(onSchedule).toHaveBeenCalledWith([]);
     // The YAML has no schedule now: the chooser is back.
-    rerender(NO_SCHEDULE, OFF);
     expect(chooser()).toBeInTheDocument();
     expect(choice('Always on')).toHaveAttribute('aria-pressed', 'true');
     // The focus is on the first control of the Always on form.
     expect(policy('Off')).toHaveFocus();
   });
 
-  it('switches from Always on: removes the policy, then asks with Cron chosen and focused', async () => {
-    const { onRestart, rerender } = renderPanel('always', NO_SCHEDULE, ON);
+  // The wait belongs to the policy: it goes with it. The runs kept stay.
+  it('switches from Always on: removes the policy and its wait, then asks with Cron chosen and focused', async () => {
+    const { onRestart } = renderPanel('always', NO_SCHEDULE, ON, {
+      edited: NEITHER,
+    });
     await userEvent.click(
       screen.getByRole('button', { name: 'Switch to Cron' })
     );
     expect(onRestart).toHaveBeenCalledTimes(1);
-    expect(onRestart).toHaveBeenCalledWith({ policy: 'no' });
-    rerender(NO_SCHEDULE, OFF);
+    expect(onRestart).toHaveBeenCalledWith({ policy: 'no', waitSec: null });
     expect(chooser()).toBeInTheDocument();
     expect(choice('Cron')).toHaveAttribute('aria-pressed', 'true');
     // The focus is on the first control of the Cron form.
     expect(screen.getByLabelText('Frequency')).toHaveFocus();
+  });
+
+  // A refused edit leaves the schedule: the focus does not move later, when
+  // the author removes the schedule another way.
+  it('moves no focus after a switch that the file refuses', async () => {
+    const { rerender } = renderPanel('cron', SCHEDULED, OFF);
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Switch to Always on' })
+    );
+    rerender(NO_SCHEDULE, OFF);
+    expect(choice('Always on')).toHaveAttribute('aria-pressed', 'true');
+    expect(policy('Off')).not.toHaveFocus();
+  });
+
+  // Off removes the policy only: the form stays, with the focus on Off.
+  it('keeps the Always on form and the focus when Off is chosen', async () => {
+    const { onRestart } = renderPanel('always', NO_SCHEDULE, ON, {
+      edited: NEITHER,
+    });
+    await userEvent.click(policy('Off'));
+    expect(onRestart).toHaveBeenCalledWith({ policy: 'no' });
+    expect(choice('Always on')).toHaveAttribute('aria-pressed', 'true');
+    expect(policy('Off')).toHaveAttribute('aria-pressed', 'true');
+    expect(policy('Off')).toHaveFocus();
+  });
+
+  it('keeps the focus in a field that commits on Enter', async () => {
+    renderPanel('always', NO_SCHEDULE, ON, {
+      edited: { schedule: NO_SCHEDULE, restart: { ...ON, waitSec: 30 } },
+    });
+    await userEvent.clear(wait());
+    await userEvent.type(wait(), '30{Enter}');
+    expect(wait()).toHaveValue('30');
+    expect(wait()).toHaveFocus();
+  });
+
+  // The switch would remove the schedule, and the policy could not turn on.
+  it('offers the retry_policy note in place of the switch to Always on', () => {
+    renderPanel('cron', SCHEDULED, { ...OFF, retryPolicy: true });
+    expect(
+      screen.queryByRole('button', { name: 'Switch to Always on' })
+    ).toBeNull();
+    expect(screen.getByText(RETRY)).toBeInTheDocument();
   });
 
   it('is read only when the file cannot be edited', () => {

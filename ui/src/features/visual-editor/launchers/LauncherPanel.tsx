@@ -611,6 +611,13 @@ function CountField({
 }): ReactElement {
   const saved = value === null ? '' : String(value);
   const [draft, setDraft] = useState(saved);
+  // The field stays mounted when its value changes, so that it keeps the
+  // focus. A new value replaces the draft.
+  const [shown, setShown] = useState(saved);
+  if (shown !== saved) {
+    setShown(saved);
+    setDraft(saved);
+  }
   const commit = () => {
     const text = draft.trim();
     if (text === saved) return;
@@ -716,7 +723,6 @@ function AlwaysBody({
           </p>
           <section className="space-y-2" aria-label={ts('Restart settings')}>
             <CountField
-              key={`wait-${restart.waitSec}`}
               label={ts('Wait before a new run (s)')}
               value={restart.waitSec}
               editable={editable}
@@ -724,7 +730,6 @@ function AlwaysBody({
               onCommit={(waitSec) => onChange({ waitSec })}
             />
             <CountField
-              key={`runs-${restart.histRetentionRuns}`}
               label={ts('Runs kept in the history')}
               value={restart.histRetentionRuns}
               placeholder={defaultRuns ? '100' : undefined}
@@ -860,15 +865,25 @@ export function SlotLauncherPanel({
   // The form that takes the focus when it shows: the other one, after a switch.
   const focusNext = useRef<SlotChoice | null>(null);
   useEffect(() => {
-    if (focusNext.current === null || focusNext.current !== shown) return;
-    focusNext.current = null;
-    formRef.current?.querySelector<HTMLElement>(FIRST_CONTROL)?.focus();
+    if (focusNext.current === shown) {
+      formRef.current?.querySelector<HTMLElement>(FIRST_CONTROL)?.focus();
+      focusNext.current = null;
+    }
+    // A setting is still in the file: the switch is over, or was refused.
+    if (!choosing) focusNext.current = null;
   });
   const switchTo = (next: SlotChoice) => {
     focusNext.current = next;
     setChoice(next);
     if (next === 'always') onSchedule([]);
-    else onRestart({ policy: 'no' });
+    // The wait belongs to the policy. The runs kept also apply to a schedule.
+    else onRestart({ policy: 'no', waitSec: null });
+  };
+  // Off keeps the Always on form open: without a choice, only the chooser
+  // would show.
+  const changeRestart: typeof onRestart = (change) => {
+    if (change.policy === 'no') setChoice('always');
+    onRestart(change);
   };
   return (
     <Shell id={open} onClose={onClose}>
@@ -936,13 +951,19 @@ export function SlotLauncherPanel({
             <AlwaysBody
               restart={restart}
               editable={editable}
-              onChange={onRestart}
+              onChange={changeRestart}
             />
           )}
           {editable &&
             shown === 'cron' &&
             scheduled &&
-            (scheduleRemovable ? (
+            (restart.retryPolicy ? (
+              <p className="text-xs text-muted-foreground">
+                {ts(
+                  'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.'
+                )}
+              </p>
+            ) : scheduleRemovable ? (
               <SwitchButton
                 label="Switch to Always on"
                 onClick={() => switchTo('always')}

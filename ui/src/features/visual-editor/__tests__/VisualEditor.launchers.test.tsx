@@ -390,7 +390,10 @@ describe('VisualEditor launchers', () => {
     fireEvent.click(
       within(panel()).getByRole('button', { name: 'Switch to Cron' })
     );
+    // The wait goes with the policy; the runs kept also apply to a schedule.
     expect(state.text).not.toContain('restart_policy');
+    expect(state.text).not.toContain('restart_wait_sec');
+    expect(state.text).toContain('hist_retention_runs: 20\n');
     expect(slot()).toEqual(['schedule']);
     expect(
       within(panel()).getByRole('button', { name: /^Cron/ })
