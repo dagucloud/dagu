@@ -585,7 +585,7 @@ the existing relay where they apply.
 | Server → relay | binary response body chunks for `id`, then `end{id}` |
 | Relay → server | `cancel{id}` |
 | Server → relay | `"ping"` every 15 seconds; the relay answers `"pong"` |
-| Both | `hooks`, `hooked`, `delivery`, `delivered` for public triggers (RFC 004), on the scheduler's connection |
+| Both | `hooks`, `hooked`, `delivery`, `delivered` for public webhook URLs (RFC 028), on the scheduler's connection |
 
 A binary chunk is a version byte (`1`), the 16 bytes of the call's UUID, and
 up to 64 KiB of the body. The relay sends request bodies of at most 512 KiB,
@@ -666,7 +666,7 @@ projects:
 | --- | --- |
 | v2.19 | Browser approval; reporting; the `cloud` config section. Dagu Cloud's report endpoint must be live first. |
 | v2.19.2 | The free plan, and `version` on the connect URL. |
-| v2.20 | The `dagucloud` tunnel provider, carrying webhook deliveries for public triggers only (RFC 004). |
+| v2.20 | The `dagucloud` tunnel provider, carrying webhook deliveries for public webhook URLs only (RFC 028). |
 | v2.22 | Remote access for MCP calls over each server process's own connection: assertions, the Remote access section, remote approvals, the license audience check, and the remote access level in health reports. |
 | Later | A browser UI over the same connection, with `use = session` assertions and the UI bar. |
 | v3.0 | Protocol 3, which names each run's project (RFC 003). |
