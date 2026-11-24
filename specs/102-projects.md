@@ -479,8 +479,8 @@ Rules:
 
 ### Access
 
-- A grant is a user or group, a project, and a role below `admin`. A grant
-  on an API key limits the key to that project, as for a user.
+- A grant is a user, group, or API key, a project, and a role below
+  `admin`. Grants limit an API key to their projects, as they limit a user.
 - A server-wide role applies to every project. A user or API key may have
   none.
 - `admin` is server-wide only.
@@ -1167,8 +1167,7 @@ names `day-ahead` and `intraday`.
 - With a run of `auction` queued, deleting `day-ahead` is refused. The
   project keeps its directory, state, and grants, and is no longer marked
   deleting.
-- With no run of `auction` that is not finished, deleting `day-ahead`
-  removes `/srv/dagu/projects/day-ahead/`,
+- When every run of `auction` has finished, deleting `day-ahead` removes `/srv/dagu/projects/day-ahead/`,
   `/srv/dagu/data/projects/day-ahead/`, the grants on `day-ahead`, and its
   registry entry. Each API key whose only role was a grant on `day-ahead`
   is removed.
