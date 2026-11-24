@@ -74,8 +74,10 @@ export function ServiceHistory({
   select.current = run.select;
   const links = useMemo<RunLinks>(
     () => ({
-      // The list is up to 30 s old: a run that is not newer than the oldest
-      // listed run is the only one that can be gone.
+      // The last read is up to 30 s old. A run that started after its oldest
+      // run links: it was retained at that read or started since. A count
+      // retention may drop the oldest of them meanwhile; the next read shows
+      // those as text.
       has: (runId, time) =>
         retained.ids.has(runId) ||
         (retained.oldestListedAt !== null &&
