@@ -17,7 +17,6 @@ export default defineMessages({
     'Could not load the recent runs': 'Could not load the recent runs',
     '{own} + {cached} cached': '{own} + {cached} cached',
     'queued {time}': 'queued {time}',
-    'in {time}': 'in {time}',
     'Webhook of {name}': 'Webhook of {name}',
     'Enable webhook': 'Enable webhook',
     'Disable webhook': 'Disable webhook',
@@ -52,7 +51,6 @@ export default defineMessages({
     'Could not load the recent runs': '无法加载最近的运行',
     '{own} + {cached} cached': '{own} + 缓存 {cached}',
     'queued {time}': '排队 {time}',
-    'in {time}': '{time}后',
     'Webhook of {name}': '{name} 的 Webhook',
     'Enable webhook': '启用 Webhook',
     'Disable webhook': '停用 Webhook',
@@ -87,7 +85,6 @@ export default defineMessages({
     'Could not load the recent runs': '最近の実行を読み込めませんでした',
     '{own} + {cached} cached': '{own} + キャッシュ {cached}',
     'queued {time}': '待機 {time}',
-    'in {time}': '{time}後',
     'Webhook of {name}': '{name} の Webhook',
     'Enable webhook': 'Webhook を有効にする',
     'Disable webhook': 'Webhook を無効にする',
@@ -112,10 +109,43 @@ export default defineMessages({
       '「{name}」の {count} 件のワークフローの Webhook を{action}しますか？',
   },
   de: {
+    'Runs in the last 24 hours': 'Läufe in den letzten 24 Stunden',
+    '1 run in the last 24 hours': '1 Lauf in den letzten 24 Stunden',
+    '{count} runs in the last 24 hours':
+      '{count} Läufe in den letzten 24 Stunden',
+    '{count}+ runs in the last 24 hours':
+      '{count}+ Läufe in den letzten 24 Stunden',
+    'Show recent runs': 'Letzte Läufe anzeigen',
+    'Hide recent runs': 'Letzte Läufe ausblenden',
+    'Recent runs of {name}': 'Letzte Läufe von {name}',
+    'Open the workflow': 'Ablauf öffnen',
+    'Could not load the recent runs':
+      'Die letzten Läufe konnten nicht geladen werden',
+    '{own} + {cached} cached': '{own} + {cached} aus dem Cache',
+    'queued {time}': '{time} wartend',
+    'Webhook of {name}': 'Webhook von {name}',
+    'Enable webhook': 'Webhook einschalten',
+    'Disable webhook': 'Webhook abschalten',
+    'Could not update the webhook':
+      'Der Webhook konnte nicht aktualisiert werden',
     'Rename view': 'Ansicht umbenennen',
     'Save the changes of “{name}”': 'Änderungen an „{name}“ speichern',
     'View actions': 'Ansicht-Aktionen',
     'The view keeps its saved filters.':
       'Die Ansicht behält ihre gespeicherten Filter.',
+    'Pin group {name}': 'Gruppe {name} anheften',
+    'Pin group': 'Gruppe anheften',
+    'Unpin group': 'Gruppe lösen',
+    'Gather the workflows by group': 'Abläufe nach Gruppe bündeln',
+    Show: 'Anzeigen',
+    'Could not update the schedules':
+      'Die Zeitpläne konnten nicht aktualisiert werden',
+    'Schedules of group {name}': 'Zeitpläne der Gruppe {name}',
+    'Webhooks of group {name}': 'Webhooks der Gruppe {name}',
+    '{live} of {total} live': '{live} von {total} live',
+    'Are you sure you want to {action} the schedules of the {count} workflows of "{name}"?':
+      'Zeitpläne der {count} Abläufe von "{name}" wirklich {action}?',
+    'Are you sure you want to {action} the webhooks of the {count} workflows of "{name}"?':
+      'Webhooks der {count} Abläufe von "{name}" wirklich {action}?',
   },
 });

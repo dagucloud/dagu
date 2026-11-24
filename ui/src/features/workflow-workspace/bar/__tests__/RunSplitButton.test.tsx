@@ -73,11 +73,13 @@ vi.mock('@/hooks/api', () => ({
 }));
 // The read of the Workflows list: one request for the list and the header. It
 // reads nothing while it is not enabled, as the hook does.
-vi.mock('@/features/dag-runs/hooks/useServiceDAGs', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  useServiceDAGs: (...args: unknown[]) => {
-    h.serviceRead(...args);
-    return args[1] ? h.serviceDags : [];
+vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
+  useServiceDAGs: (options: { enabled: boolean }) => {
+    h.serviceRead(options);
+    return {
+      serviceDAGs: options.enabled ? h.serviceDags : [],
+      error: null,
+    };
   },
 }));
 vi.mock('@/components/ui/simple-toast', () => ({
@@ -1419,11 +1421,8 @@ describe('RunSplitButton', () => {
           ).toBeNull();
           expect(barControlAvailable('start')).toBe(false);
           expect(barControlAvailable('retry')).toBe(false);
-          // The header reads the list of the page, for this node and scope.
-          expect(h.serviceRead).toHaveBeenCalledWith(
-            { remoteNode: 'local', workspace: 'all' },
-            true
-          );
+          // The header reads the list of the service DAGs.
+          expect(h.serviceRead).toHaveBeenCalledWith({ enabled: true });
         });
 
         it('has no Run button when the user may only execute', () => {
@@ -1501,9 +1500,9 @@ describe('RunSplitButton', () => {
 
       expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
       expect(barControlAvailable('start')).toBe(true);
-      expect(h.serviceRead.mock.calls.every((args) => args[1] === false)).toBe(
-        true
-      );
+      expect(
+        h.serviceRead.mock.calls.every((args) => args[0].enabled === false)
+      ).toBe(true);
     });
 
     // Stop has the slot of Start; the caret of the draft menu stays.

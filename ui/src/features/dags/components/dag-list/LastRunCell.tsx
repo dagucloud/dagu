@@ -6,7 +6,7 @@ import RelativeTime from '@/components/ui/relative-time';
 import StatusChip from '@/components/ui/status-chip';
 import { StatusDot } from '@/components/ui/status-dot';
 import { useListRunDisplay } from '@/features/dag-runs/hooks/useListRunDisplay';
-import { SERVICE_STATE_CHIP } from '@/features/dag-runs/hooks/useServiceDAGs';
+import { SERVICE_STATE_CHIP } from '@/features/service-dags/components/ServiceDAGState';
 import { I18nText } from '@/i18n/I18nText';
 import { readableToneText } from '@/lib/statusPalette';
 import { cn } from '@/lib/utils';
@@ -40,7 +40,13 @@ export function LastRunCell({
   serviceState?: ServiceDAGState;
 }) {
   const run = dag.latestDAGRun;
-  const display = useListRunDisplay(dag.dag.name, run?.dagRunId, run?.status);
+  // The chip of a service state ignores the display status: without a status
+  // the hook reads neither the definition nor the details of the run.
+  const display = useListRunDisplay(
+    dag.dag.name,
+    run?.dagRunId,
+    serviceState ? undefined : run?.status
+  );
   if (serviceState) {
     return (
       <span

@@ -49,11 +49,10 @@ const serviceDAGs = vi.hoisted(() => ({
   hook: vi.fn(),
 }));
 
-vi.mock('@/features/dag-runs/hooks/useServiceDAGs', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
+vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
   useServiceDAGs: (...args: unknown[]) => {
     serviceDAGs.hook(...args);
-    return serviceDAGs.list;
+    return { serviceDAGs: serviceDAGs.list, error: null };
   },
 }));
 
@@ -748,6 +747,15 @@ describe('DAGTable', () => {
     expect(texts.findIndex((text) => text.includes('zeta'))).toBeLessThan(
       texts.findIndex((text) => text.includes('alpha'))
     );
+  });
+
+  it('asks the server to sort by next run from the Schedule header', () => {
+    const { onSortChange } = renderTable();
+    const table = screen.getByRole('table');
+
+    fireEvent.click(within(table).getByRole('button', { name: /^Schedule/ }));
+
+    expect(onSortChange).toHaveBeenCalledWith('nextRun', 'asc');
   });
 
   it('disables the run sorts when more workflows match than the server sorts by run', () => {
@@ -1547,10 +1555,10 @@ describe('DAGTable', () => {
       expect(cells[2]).toHaveTextContent('ago');
       expect(cells[0]).toHaveAttribute('data-service-state', 'running');
       expect(cells[2]).not.toHaveAttribute('data-service-state');
-      // The table calls the hook, not the rows, with the node and the scope.
+      // The table reads the services, not the rows.
       expect(serviceDAGs.hook).toHaveBeenCalled();
       for (const args of serviceDAGs.hook.mock.calls) {
-        expect(args).toEqual([{ remoteNode: 'local', workspace: 'all' }, true]);
+        expect(args).toEqual([{ enabled: true }]);
       }
     });
 
@@ -1598,7 +1606,9 @@ describe('DAGTable', () => {
         within(screen.getByRole('table')).getByTestId('dag-last-run')
       ).toHaveTextContent('ago');
       expect(
-        serviceDAGs.hook.mock.calls.every((args) => args[1] === false)
+        serviceDAGs.hook.mock.calls.every(
+          (args) => (args[0] as { enabled: boolean }).enabled === false
+        )
       ).toBe(true);
     });
   });

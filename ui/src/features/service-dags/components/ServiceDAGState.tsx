@@ -14,7 +14,7 @@ import { formatElapsed } from '@/lib/dagRunTiming';
 import { formatDurationMs } from '@/lib/formatDuration';
 import { useI18n } from '@/i18n/I18nProvider';
 
-type ServiceDAG = components['schemas']['ServiceDAG'];
+export type ServiceDAG = components['schemas']['ServiceDAG'];
 type BadgeVariant = React.ComponentProps<typeof Badge>['variant'];
 
 const STATE_LABEL: Record<ServiceDAGState, string> = {
@@ -35,6 +35,19 @@ const STATE_VARIANT: Record<ServiceDAGState, BadgeVariant> = {
   [ServiceDAGState.failing]: 'error',
   [ServiceDAGState.suspended]: 'warning',
   [ServiceDAGState.stopped]: 'default',
+};
+
+// The chip of a list takes the colour of the run status that looks like the
+// state: a DAG that runs or waits to restart is green, one that fails is red,
+// one that is suspended or waits for a person is amber.
+export const SERVICE_STATE_CHIP: Record<ServiceDAGState, [Status, string]> = {
+  [ServiceDAGState.pending]: [Status.Queued, 'Pending'],
+  [ServiceDAGState.running]: [Status.Success, 'Healthy'],
+  [ServiceDAGState.waiting]: [Status.Waiting, 'Waiting'],
+  [ServiceDAGState.restarting]: [Status.Success, 'Healthy'],
+  [ServiceDAGState.failing]: [Status.Failed, 'Failing'],
+  [ServiceDAGState.suspended]: [Status.Waiting, 'Suspended'],
+  [ServiceDAGState.stopped]: [Status.Aborted, 'Stopped'],
 };
 
 /**

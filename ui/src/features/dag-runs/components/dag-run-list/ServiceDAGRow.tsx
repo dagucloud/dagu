@@ -21,7 +21,7 @@ import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import {
   SERVICE_STATE_CHIP,
   type ServiceDAG,
-} from '../../hooks/useServiceDAGs';
+} from '@/features/service-dags/components/ServiceDAGState';
 
 /** The window of a row: the dates of the filter. No end means now. */
 export interface ServiceRunWindow {

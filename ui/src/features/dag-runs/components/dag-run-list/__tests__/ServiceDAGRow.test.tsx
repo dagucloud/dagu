@@ -14,7 +14,7 @@ import {
 import { Config, ConfigContext } from '@/contexts/ConfigContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
-import type { ServiceDAG } from '../../../hooks/useServiceDAGs';
+import type { ServiceDAG } from '@/features/service-dags/components/ServiceDAGState';
 import DAGRunTable from '../DAGRunTable';
 
 // The summary reads the run history: the test gives it a day of buckets and

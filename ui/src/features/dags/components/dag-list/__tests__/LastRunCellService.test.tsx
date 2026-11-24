@@ -4,19 +4,20 @@
 import { render, screen } from '@testing-library/react';
 import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NodeStatus, Status } from '@/api/v1/schema';
+import { NodeStatus, ServiceDAGState, Status } from '@/api/v1/schema';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { LastRunCell } from '../LastRunCell';
 
 // The hook of the list runs for real: it reads the definition of the workflow.
-const h = vi.hoisted(() => ({ service: false }));
+const h = vi.hoisted(() => ({ service: false, requests: [] as string[] }));
 
 const forever = { repeatPolicy: { repeat: 'while', interval: 10 } };
 
 vi.mock('@/hooks/api', () => ({
   useQuery: (path: string, init: unknown) => {
     if (init === null) return { data: undefined };
+    h.requests.push(path);
     if (path === '/dags/{fileName}') {
       return {
         data: {
@@ -63,6 +64,7 @@ const running = {
 describe('LastRunCell of a run with a continuous step', () => {
   beforeEach(() => {
     h.service = false;
+    h.requests = [];
   });
 
   it('shows the normal status and the time for a workflow that is not a service DAG', () => {
@@ -81,5 +83,19 @@ describe('LastRunCell of a run with a continuous step', () => {
     expect(cell).toHaveAttribute('data-healthy', 'true');
     expect(cell).toHaveTextContent('Healthy');
     expect(cell).not.toHaveTextContent('ago');
+  });
+
+  // The chip of the state needs neither the definition nor the steps of the run.
+  it('requests nothing for a service DAG whose state is known', () => {
+    h.service = true;
+    render(
+      <LastRunCell dag={running} serviceState={ServiceDAGState.running} />,
+      { wrapper: Wrapper }
+    );
+    expect(screen.getByTestId('dag-last-run')).toHaveAttribute(
+      'data-service-state',
+      ServiceDAGState.running
+    );
+    expect(h.requests).toEqual([]);
   });
 });

@@ -105,9 +105,8 @@ import { parseLabelParts } from '../../../../lib/utils';
 import {
   isWorkspaceLabel,
   withoutWorkspaceLabels,
-  workspaceSelectionQuery,
 } from '../../../../lib/workspace';
-import { useServiceDAGs } from '@/features/dag-runs/hooks/useServiceDAGs';
+import { useServiceDAGs } from '@/features/service-dags/hooks/useServiceDAGs';
 import { ViewSelector } from '@/features/views/ViewSelector';
 import { DAGBackfillChip } from '@/features/backfills/components/DAGBackfillChip';
 import { I18nText } from '@/i18n/I18nText';
@@ -1087,8 +1086,7 @@ const defaultColumns = [
 // Mapping between column IDs and backend sort fields
 const columnToSortField: Record<string, string> = {
   Name: 'name',
-  ScheduleAndNextRun: 'nextRun',
-  Status: 'status',
+  Schedule: 'nextRun',
   LastRun: 'lastRun',
 };
 
@@ -1644,13 +1642,7 @@ function DAGTable({
   // One read of the service states for all rows; it starts when a service
   // DAG is on the page.
   const hasServiceDAG = dags.some((dag) => isServiceDAG(dag.dag));
-  const serviceDAGs = useServiceDAGs(
-    {
-      remoteNode: appBarContext?.selectedRemoteNode || 'local',
-      ...workspaceSelectionQuery(appBarContext?.workspaceSelection),
-    },
-    hasServiceDAG
-  );
+  const { serviceDAGs } = useServiceDAGs({ enabled: hasServiceDAG });
   const services = useMemo(
     () => new Map(serviceDAGs.map((dag) => [dag.fileName, dag])),
     [serviceDAGs]
@@ -1984,7 +1976,7 @@ function DAGTable({
           className={`w-full text-xs ${isLoading ? 'opacity-70' : ''}`}
           style={{ tableLayout: 'fixed' }}
         >
-          {/* Column widths: Select 40px, Expand 32px, Name 28%, LastRun 88px, Activity auto, Schedule 220px, Actions 160px */}
+          {/* Column widths: Select 24px, Pin 24px, Name 28%, LastRun 88px, Activity by activityColumn, Schedule 220px, Webhook 88px, Actions 160px */}
           <colgroup>
             {canDeleteDAGs && <col style={{ width: '24px' }} />}
             <col style={{ width: '24px' }} />

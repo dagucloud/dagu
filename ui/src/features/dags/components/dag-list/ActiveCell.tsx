@@ -16,7 +16,7 @@ import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
 import { isServiceDAG } from '@/lib/dagSchedule';
 import LiveSwitch from '../common/LiveSwitch';
-import { ScheduleLine, WebhookIndicator } from './ScheduleSummary';
+import { ScheduleLine } from './ScheduleSummary';
 
 type DAGFile = components['schemas']['DAGFile'];
 
@@ -66,8 +66,7 @@ export function WebhookCell({ dag }: { dag: DAGFile }) {
 
 /**
  * The switch of the webhook of a workflow. It shows only with a webhook and
- * the right to manage webhooks on the local server; a reader sees the marker
- * of the webhook without a switch.
+ * the right to manage webhooks on the local server; a dash otherwise.
  */
 function WebhookSwitch({ dag }: { dag: DAGFile }) {
   const { ts } = useI18n();
@@ -108,11 +107,7 @@ function WebhookSwitch({ dag }: { dag: DAGFile }) {
   }, [client, dag.fileName, mutate, pending, remoteNode, showError, ts]);
 
   if (!enabled || !webhook) {
-    return webhook ? (
-      <WebhookIndicator fileName={dag.fileName} />
-    ) : (
-      <span className="text-muted-foreground">-</span>
-    );
+    return <span className="text-muted-foreground">-</span>;
   }
   const name = dag.dag.name;
   const canToggle = config.permissions.runDags;

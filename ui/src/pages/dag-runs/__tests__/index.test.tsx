@@ -121,7 +121,7 @@ vi.mock('@/features/dag-runs/hooks/dagRunPagination', () => ({
 
 const useServiceDAGsMock = vi.hoisted(() => vi.fn());
 
-vi.mock('@/features/dag-runs/hooks/useServiceDAGs', () => ({
+vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
   useServiceDAGs: useServiceDAGsMock,
 }));
 
@@ -186,7 +186,7 @@ beforeEach(() => {
   dagsListState.dags = [];
   dagsListState.get.mockReset();
   useServiceDAGsMock.mockReset();
-  useServiceDAGsMock.mockReturnValue([]);
+  useServiceDAGsMock.mockReturnValue({ serviceDAGs: [], error: null });
   usePaginatedDAGRunsMock.mockReset();
   usePaginatedDAGRunsMock.mockReturnValue({
     dagRuns: [],
@@ -1065,11 +1065,11 @@ describe('DAGRuns page service DAGs', () => {
   const svc = { name: 'svc', fileName: 'svc.yaml' };
   const lastServiceRead = () => {
     const calls = useServiceDAGsMock.mock.calls;
-    return calls[calls.length - 1] as [Record<string, unknown>, boolean];
+    return calls[calls.length - 1] as [{ enabled: boolean }];
   };
 
   beforeEach(() => {
-    useServiceDAGsMock.mockReturnValue([svc]);
+    useServiceDAGsMock.mockReturnValue({ serviceDAGs: [svc], error: null });
   });
 
   it('leaves out the runs of service DAGs and shows their rows', async () => {
@@ -1078,10 +1078,7 @@ describe('DAGRuns page service DAGs', () => {
       expect(dagRunTableProps.current.serviceDags).toEqual([svc]);
     });
     expect(lastRunQuery()['excludeServiceDAGRuns']).toBe(true);
-    expect(lastServiceRead()).toEqual([
-      { remoteNode: 'local', workspace: 'all' },
-      true,
-    ]);
+    expect(lastServiceRead()).toEqual([{ enabled: true }]);
     // The window is the date filter: the start of today until now.
     expect(dagRunTableProps.current.serviceWindow).toEqual({
       from: dayjs().startOf('day').unix() * 1000,
@@ -1089,7 +1086,7 @@ describe('DAGRuns page service DAGs', () => {
     });
   });
 
-  it('reads the service DAGs of the workspace', async () => {
+  it('leaves out the runs of service DAGs in a workspace', async () => {
     renderPage(
       vi.fn(),
       '/dag-runs',
@@ -1100,10 +1097,7 @@ describe('DAGRuns page service DAGs', () => {
       expect(lastRunQuery()['workspace']).toBe('ops');
     });
     expect(lastRunQuery()['excludeServiceDAGRuns']).toBe(true);
-    expect(lastServiceRead()).toEqual([
-      { remoteNode: 'local', workspace: 'ops' },
-      true,
-    ]);
+    expect(lastServiceRead()).toEqual([{ enabled: true }]);
   });
 
   it.each([
@@ -1114,7 +1108,7 @@ describe('DAGRuns page service DAGs', () => {
   ])('shows the runs as they are with a %s filter', async (_, url) => {
     renderPage(vi.fn(), url);
     await waitFor(() => {
-      expect(lastServiceRead()[1]).toBe(false);
+      expect(lastServiceRead()[0].enabled).toBe(false);
     });
     await act(async () => {});
     const query = lastRunQuery();

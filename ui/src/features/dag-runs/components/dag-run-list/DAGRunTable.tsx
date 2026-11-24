@@ -38,7 +38,7 @@ import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
 import { I18nText } from '@/i18n/I18nText';
 import { RunListDuration } from './RunListDuration';
 import { statusMoment } from '@/features/dags/components/dag-list/recentRunFacts';
-import type { ServiceDAG } from '../../hooks/useServiceDAGs';
+import type { ServiceDAG } from '@/features/service-dags/components/ServiceDAGState';
 import {
   ServiceDAGCard,
   ServiceDAGRow,

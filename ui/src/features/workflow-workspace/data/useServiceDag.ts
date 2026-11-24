@@ -3,13 +3,11 @@
 
 import { useContext, useEffect, useMemo, useRef } from 'react';
 import type { components } from '@/api/v1/schema';
-import { AppBarContext } from '@/contexts/AppBarContext';
-import { useServiceDAGs } from '@/features/dag-runs/hooks/useServiceDAGs';
+import { useServiceDAGs } from '@/features/service-dags/hooks/useServiceDAGs';
 import { useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import { useDAGHistorySSE } from '@/hooks/useDAGHistorySSE';
 import { isServiceDAG } from '@/lib/dagSchedule';
-import { workspaceSelectionQuery } from '@/lib/workspace';
 import { runTimeMs } from '../dock/runTimelineModel';
 import { useWorkspaceData, WorkspaceDataContext } from './context';
 
@@ -30,16 +28,9 @@ export function useIsServiceDag(): boolean {
 export function useServiceDag(
   fileName: string
 ): components['schemas']['ServiceDAG'] | undefined {
-  const appBar = useContext(AppBarContext);
   const isService = useIsServiceDag();
-  const dags = useServiceDAGs(
-    {
-      remoteNode: appBar?.selectedRemoteNode || 'local',
-      ...workspaceSelectionQuery(appBar?.workspaceSelection),
-    },
-    isService
-  );
-  return dags.find((dag) => dag.fileName === fileName);
+  const { serviceDAGs } = useServiceDAGs({ enabled: isService });
+  return serviceDAGs.find((dag) => dag.fileName === fileName);
 }
 
 /**

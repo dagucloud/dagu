@@ -50,7 +50,7 @@ import { useQuery } from '../../hooks/api';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { legacyRunPageRedirectURL } from '../../features/dag-runs/lib/dagRunUrls';
 import { useBulkDAGRunSelection } from '../../features/dag-runs/hooks/useBulkDAGRunSelection';
-import { useServiceDAGs } from '../../features/dag-runs/hooks/useServiceDAGs';
+import { useServiceDAGs } from '../../features/service-dags/hooks/useServiceDAGs';
 import { PeekHost } from '../../features/peek/PeekHost';
 import { withoutPeek } from '../../features/peek/peekParams';
 import {
@@ -918,13 +918,7 @@ function DAGRuns() {
     }
   );
   // Without a filter, the list shows one row for each service DAG.
-  const serviceDags = useServiceDAGs(
-    {
-      remoteNode: appBarContext.selectedRemoteNode || 'local',
-      ...workspaceQuery,
-    },
-    !filtered
-  );
+  const { serviceDAGs: serviceDags } = useServiceDAGs({ enabled: !filtered });
   // The window of the filters: the dates of the query, else the last 3 years.
   // The list of a backfill has no dates and shows no service DAG.
   const queryFromDate =

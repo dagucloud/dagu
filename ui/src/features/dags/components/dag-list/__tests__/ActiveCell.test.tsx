@@ -135,10 +135,11 @@ describe('ScheduleCell and WebhookCell', () => {
     ).not.toBeChecked();
   });
 
-  it('gives a reader the marker of the webhook without a switch', () => {
+  it('shows a dash, with no switch, to a reader of a workflow with a webhook', () => {
     mocks.canManageWebhooks = false;
     mocks.webhooks = [{ dagName: 'etl', enabled: true }];
     renderCell(dagFile(cron));
     expect(screen.queryByTestId('webhook-switch')).toBeNull();
+    expect(screen.getByTestId('webhook-cell').textContent).toBe('-');
   });
 });

@@ -10,14 +10,12 @@ interface ServiceDAGsParams {
   workspace?: components['parameters']['Workspace'];
 }
 
-/** The live list of the service DAGs. The server sends it at most every 2 s. */
 export function useServiceDAGsSSE(
   params: ServiceDAGsParams = {},
-  enabled: boolean = true,
-  remoteNode?: string
+  enabled: boolean = true
 ): SSEState<ServiceDAGsResponse> {
   const endpoint = buildSSEEndpoint('/events/service-dags', params);
-  return useSSE<ServiceDAGsResponse>(endpoint, enabled, remoteNode);
+  return useSSE<ServiceDAGsResponse>(endpoint, enabled);
 }
 
 export type { ServiceDAGsParams };
