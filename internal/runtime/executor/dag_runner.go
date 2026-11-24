@@ -314,6 +314,9 @@ func validateSubWorkflowRequest(req SubWorkflowRequest) error {
 	if req.RootDAGRun.Zero() {
 		return errRootDAGRunNotSet
 	}
+	if len(req.TargetNodes) > 0 && len(req.WorkerSelector) > 0 {
+		return fmt.Errorf("DAG %q: %w", req.DAG.Name, ir.ErrNodeListOnWorkers)
+	}
 	return nil
 }
 

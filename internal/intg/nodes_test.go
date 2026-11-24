@@ -498,3 +498,80 @@ steps:
 		require.Equal(t, "web01", status.BoundNode)
 	})
 }
+
+// The node list counts the steps with nodes of foreach bodies and handlers
+// too, and a child of a narrowed run stays on the Dagu host.
+func TestNodeSteps_NarrowedBodiesAndHandlers(t *testing.T) {
+	t.Parallel()
+
+	nodes := staticNodes{dbNode("db01"), webNode("web01")}
+
+	t.Run("a foreach body that runs a listed node counts", func(t *testing.T) {
+		t.Parallel()
+
+		status := runNarrowed(t, nodes, `
+steps:
+  - id: migrate
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: db
+  - id: each
+    depends: [migrate]
+    foreach:
+      items: [a]
+      steps:
+        - id: deploy
+          action: dag.run
+          with:
+            dag: deploy-one
+          nodes: web
+`+boundChildSucceeds, []string{"web01"}, "")
+		require.Equal(t, ir.Succeeded, status.Status)
+		require.True(t, status.Nodes[0].SkippedByNodeList)
+	})
+
+	t.Run("a handler that runs no listed node fails the run", func(t *testing.T) {
+		t.Parallel()
+
+		runNarrowed(t, nodes, `
+steps:
+  - action: noop
+handler_on:
+  exit:
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: web
+`+boundChildSucceeds, []string{"db01"}, "no listed node was selected")
+	})
+
+	t.Run("a child that selects workers is refused", func(t *testing.T) {
+		t.Parallel()
+
+		runNarrowed(t, nodes, `
+steps:
+  - id: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: web
+  - id: report
+    depends: [deploy]
+    action: dag.run
+    with:
+      dag: report
+---
+name: deploy-one
+node: required
+steps:
+  - action: noop
+---
+name: report
+worker_selector:
+  gpu: "true"
+steps:
+  - action: noop
+`, []string{"web01"}, "cannot select workers")
+	})
+}

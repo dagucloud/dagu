@@ -145,6 +145,78 @@ func TestEnqueueWorkerSelector(t *testing.T) {
 	assert.Equal(t, map[string]string{"host": "serverA"}, child.WorkerSelector)
 }
 
+// A child that a narrowed run enqueues keeps the list and runs on the Dagu
+// host, so it cannot select workers.
+func TestEnqueueNarrowedChild(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		selector map[string]string
+		wantErr  string
+	}{
+		{name: "keeps the list"},
+		{name: "refuses workers", selector: map[string]string{"gpu": "true"}, wantErr: "cannot select workers"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			th := test.Setup(t, test.WithConfigMutator(func(cfg *config.Config) {
+				cfg.Queues.Enabled = true
+				cfg.Queues.Config = []config.QueueConfig{{Name: "default", MaxActiveRuns: 1}}
+			}))
+			parent := &ir.DAG{
+				Name: "parent",
+				LocalDAGs: map[string]*ir.DAG{
+					"child": {
+						Name:     "child",
+						YamlData: []byte("name: child\nsteps:\n  - name: step\n    run: echo child\n"),
+						Steps:    []ir.Step{{Name: "step", ExecutorConfig: ir.ExecutorConfig{Type: "noop"}}},
+					},
+				},
+			}
+			parentRun := ir.NewDAGRunRef(parent.Name, "parent-run")
+			ctx := runtime.NewContext(
+				th.Context,
+				parent,
+				parentRun.ID,
+				filepath.Join(th.Config.Paths.LogDir, "parent.log"),
+				runtime.WithRootDAGRun(parentRun),
+				runtime.WithDAGRunLogDir(th.Config.Paths.LogDir),
+				runtime.WithDAGRunArtifactDir(th.Config.Paths.ArtifactDir),
+				runtime.WithTargetNodes([]string{"web01"}),
+			)
+			ctx = withEnqueuer(ctx, th.DAGRunRepository, th.QueueStore, th.Config)
+
+			execImpl, err := executor.NewExecutor(ctx, ir.Step{
+				Name:           "enqueue-child",
+				ExecutorConfig: ir.ExecutorConfig{Type: ir.ExecutorTypeDAGEnqueue},
+				SubDAG:         &ir.SubDAG{Name: "child"},
+				Parallel:       &ir.ParallelConfig{},
+			})
+			require.NoError(t, err)
+			parallelExec, ok := execImpl.(executor.ParallelExecutor)
+			require.True(t, ok)
+			parallelExec.SetParamsList([]executor.RunParams{{RunID: "child-run", DAGName: "child", WorkerSelector: tc.selector}})
+
+			err = execImpl.Run(ctx)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			attempt, err := th.DAGRunRepository.FindAttempt(ctx, ir.NewDAGRunRef("child", "child-run"))
+			require.NoError(t, err)
+			status, err := attempt.ReadStatus(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, []string{"web01"}, status.TargetNodes)
+			child, err := attempt.ReadDAG(ctx)
+			require.NoError(t, err)
+			assert.True(t, child.ForceLocal)
+		})
+	}
+}
+
 func TestSubDAGExecutorsRejectHumanTasks(t *testing.T) {
 	t.Parallel()
 

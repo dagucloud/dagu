@@ -30,7 +30,7 @@ func CheckTargetNodes(dag *ir.DAG, names []string, known []inventory.ResolvedNod
 		return nil, fmt.Errorf("DAG %q has no step with nodes and no dag.run step, so a node list narrows nothing", dag.Name)
 	}
 	if len(dag.WorkerSelector) > 0 {
-		return nil, fmt.Errorf("a run with a node list runs on the Dagu host, so DAG %q cannot select workers", dag.Name)
+		return nil, fmt.Errorf("DAG %q: %w", dag.Name, ir.ErrNodeListOnWorkers)
 	}
 	var listed []string
 	for _, name := range names {

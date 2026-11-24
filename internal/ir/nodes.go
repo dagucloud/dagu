@@ -4,9 +4,14 @@
 package ir
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 )
+
+// ErrNodeListOnWorkers refuses a run with a node list that selects workers:
+// steps with nodes run on the Dagu host (RFC 013 §Narrowing a run).
+var ErrNodeListOnWorkers = errors.New("a run with a node list runs on the Dagu host and cannot select workers")
 
 // NodeTargets is a step's nodes field (RFC 013): which inventory nodes the
 // step runs on, and how it dispatches them.
