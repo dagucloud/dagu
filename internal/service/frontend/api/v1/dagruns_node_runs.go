@@ -165,6 +165,8 @@ func nodeRunRowRank(row api.NodeRunRow) int {
 			return nodeRunRankFailed
 		case api.NodeRunStatusRunning, api.NodeRunStatusWaiting:
 			rank = nodeRunRankActive
+		case api.NodeRunStatusNotStarted, api.NodeRunStatusSucceeded,
+			api.NodeRunStatusPartiallySucceeded, api.NodeRunStatusDisabled:
 		}
 	}
 	return rank

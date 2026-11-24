@@ -82,7 +82,11 @@ func CountNodeRuns(runs []NodeRun) NodeRunCounts {
 			counts.Aborted++
 		case NodeRunDisabled:
 			counts.Disabled++
+		case NodeRunFailed, NodeRunRejected:
+			counts.Failed++
 		default:
+			// A status this version does not know counts as failed, as the
+			// aggregate counts it.
 			counts.Failed++
 		}
 	}
