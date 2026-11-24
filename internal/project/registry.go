@@ -56,9 +56,10 @@ type Registry interface {
 	// ErrDefaultProject for the default project.
 	Delete(ctx context.Context, id string) error
 
-	// Watch calls onChange with every registered project once it starts and
-	// again each time the registry changes, until ctx ends. Calls are made
-	// one at a time from the goroutine that called Watch.
+	// Watch calls onChange with every registered project when it starts, or
+	// once the registry can be read, and again each time the registry
+	// changes, until ctx ends. Calls are made one at a time from the
+	// goroutine that called Watch.
 	Watch(ctx context.Context, onChange func([]Project))
 }
 

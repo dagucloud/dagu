@@ -20,9 +20,10 @@ import (
 // NFS sends no notice of another host's write.
 const pollInterval = 5 * time.Second
 
-// Watch calls onChange with every registered project once it starts and
-// again each time projects.json changes, until ctx ends. It checks the file
-// every 5 seconds at the cost of one stat, and reads it only when it changed.
+// Watch calls onChange with every registered project when it starts, or once
+// projects.json can be read, and again each time the file changes, until ctx
+// ends. It checks the file every 5 seconds at the cost of one stat, and reads
+// it only when it changed.
 func (r *Registry) Watch(ctx context.Context, onChange func([]project.Project)) {
 	ticks, stop := r.pollTicks()
 	defer stop()
