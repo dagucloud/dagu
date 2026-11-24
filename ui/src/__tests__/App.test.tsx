@@ -48,7 +48,7 @@ vi.mock('@/hooks/api', () => ({
   useQuery: useQueryMock,
 }));
 
-// The app does not mount the overlay by default; these tests need it.
+// These tests cover the overlay, so they mount it whatever the default.
 vi.mock('@/features/peek/overlayMounted', () => ({ OVERLAY_MOUNTED: true }));
 
 vi.mock('../layouts/Layout', () => ({
