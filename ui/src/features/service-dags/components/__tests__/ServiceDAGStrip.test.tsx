@@ -15,7 +15,7 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { WorkspaceKind } from '@/lib/workspace';
-import { describeServiceDAG } from '../ServiceDAGState';
+import { describeServiceDAG, ServiceDAGNextRun } from '../ServiceDAGState';
 import { ServiceDAGStrip } from '../ServiceDAGStrip';
 
 type ServiceDAG = components['schemas']['ServiceDAG'];
@@ -160,6 +160,52 @@ describe('describeServiceDAG', () => {
     expect(
       describeServiceDAG(dag({ state: ServiceDAGState.pending }), NOW).text
     ).toBe('Waiting for a run');
+  });
+});
+
+describe('ServiceDAGNextRun', () => {
+  function renderNextRun(fields: Partial<ServiceDAG>) {
+    return render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <ServiceDAGNextRun dag={dag(fields)} />
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+  }
+  const inMs = (ms: number) => new Date(Date.now() + ms).toISOString();
+
+  // Minutes change slowly enough to read in a list.
+  it('says when the next run starts, to the minute', () => {
+    const { container } = renderNextRun({
+      state: ServiceDAGState.restarting,
+      nextRestartAt: inMs(55 * 60_000 + 30_000),
+    });
+    expect(container).toHaveTextContent('Restart in 56m');
+  });
+
+  it('counts the last minute down to the second', () => {
+    const { container } = renderNextRun({
+      state: ServiceDAGState.failing,
+      nextRestartAt: inMs(30_500),
+    });
+    expect(container.textContent).toMatch(/^Restart in (29|30)s$/);
+  });
+
+  it.each<[string, Partial<ServiceDAG>]>([
+    ['running', { state: ServiceDAGState.running }],
+    [
+      'on hold',
+      {
+        state: ServiceDAGState.restarting,
+        restartHold: ServiceDAGRestartHold.paused,
+      },
+    ],
+    ['without a time', { state: ServiceDAGState.failing }],
+  ])('shows nothing while no restart is due (%s)', (name, fields) => {
+    const nextRestartAt = name === 'without a time' ? undefined : inMs(60_000);
+    const { container } = renderNextRun({ nextRestartAt, ...fields });
+    expect(container).toBeEmptyDOMElement();
   });
 });
 

@@ -13,6 +13,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  type components,
   NodeStatus,
   RestartPolicy,
   ServiceDAGRestartHold,
@@ -21,7 +22,8 @@ import {
   StatusLabel,
 } from '@/api/v1/schema';
 import DAGActions from '../DAGActions';
-import type { ServiceRestartFields } from '@/lib/dagSchedule';
+
+type ServiceDAG = components['schemas']['ServiceDAG'];
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { DAGContext } from '@/features/dags/contexts/DAGContext';
 
@@ -243,8 +245,9 @@ describe('DAGActions', () => {
     ).toBeDisabled();
   });
 
-  // Reject decides the approval; Stop ends the run without deciding it.
-  it('offers Stop next to Reject for a run waiting on an approval', () => {
+  // The list has no Approve, so it offers no Reject either: the run decides
+  // its approvals and human tasks. Stop ends the run without deciding.
+  it('offers Stop but not Reject for a run waiting on an approval', () => {
     const view = render(
       <DAGActions
         status={
@@ -273,7 +276,7 @@ describe('DAGActions', () => {
     );
 
     const queries = within(view.container);
-    expect(queries.getByRole('button', { name: 'Reject' })).toBeEnabled();
+    expect(queries.queryByRole('button', { name: 'Reject' })).toBeNull();
     expect(queries.getByRole('button', { name: 'Stop' })).toBeEnabled();
   });
 
@@ -425,9 +428,9 @@ describe('DAGActions', () => {
   });
 
   // A service workflow has one run at a time, and the scheduler starts its
-  // next run by itself. The list rows and the cards keep Start, Stop and
-  // Retry in place and disable the ones that do not apply. The bar keeps
-  // Start enabled.
+  // next run by itself. A list row or card keeps Start, Retry and Stop in
+  // fixed slots; while the scheduler starts the runs, it takes the slots of
+  // Start and Retry. The bar keeps its Start.
   describe('service workflow', () => {
     const run = (status: Status) =>
       ({
@@ -449,13 +452,25 @@ describe('DAGActions', () => {
       restartPolicy: RestartPolicy.unless_stopped,
       restartWaitSec: 5,
     };
+    // The service DAG as GET /service-dags lists it.
+    const svc = (fields: Partial<ServiceDAG>): ServiceDAG => ({
+      fileName: 'svc',
+      name: 'svc',
+      restartPolicy: RestartPolicy.always,
+      restartWaitSec: 5,
+      queue: 'svc',
+      state: ServiceDAGState.running,
+      suspended: false,
+      consecutiveFailures: 0,
+      ...fields,
+    });
 
     function renderService(
       dag: { name: string; restartPolicy?: RestartPolicy },
       status: Status,
       extra: Partial<React.ComponentProps<typeof DAGActions>> = {}
     ) {
-      render(
+      return render(
         <MemoryRouter>
           <DAGActions
             fileName="svc"
@@ -468,85 +483,85 @@ describe('DAGActions', () => {
       );
     }
 
-    // The buttons in their order, each marked when it is disabled.
-    const buttons = () =>
-      screen
-        .queryAllByRole('button')
-        .map(
-          (b) =>
-            `${b.getAttribute('data-ww-action')}${
-              (b as HTMLButtonElement).disabled ? ' (disabled)' : ''
-            }`
-        );
+    // The slots in their order: an action, marked when it is disabled, or
+    // the lines of the scheduler slot.
+    const slots = (container: HTMLElement) =>
+      Array.from(container.firstElementChild?.children ?? []).map((el) => {
+        const button = el.querySelector('button');
+        if (!button) {
+          return Array.from(el.children)
+            .map((line) => line.textContent)
+            .join(' / ');
+        }
+        const action = button.getAttribute('data-ww-action');
+        return button.disabled ? `${action} (disabled)` : `${action}`;
+      });
+    const SCHEDULER = 'Scheduler / Start / Retry';
 
     it.each([
-      [Status.Running, ['start (disabled)', 'stop', 'retry (disabled)']],
-      [Status.Waiting, ['start (disabled)', 'stop', 'retry (disabled)']],
-      [
-        Status.Queued,
-        ['start (disabled)', 'stop (disabled)', 'retry (disabled)'],
-      ],
+      [Status.Running, [SCHEDULER, 'stop']],
+      [Status.Waiting, [SCHEDULER, 'stop']],
+      [Status.Queued, [SCHEDULER, 'stop (disabled)']],
     ])(
-      'disables Start and Retry while a run is active (status %s)',
+      'gives Start and Retry to the scheduler while a run is active (status %s)',
       (status, want) => {
-        renderService(always, status);
-        expect(buttons()).toEqual(want);
+        const { container } = renderService(always, status);
+        expect(slots(container)).toEqual(want);
       }
     );
-
-    it('enables Start and Retry when the latest run failed', () => {
-      renderService(always, Status.Failed);
-      expect(buttons()).toEqual(['start', 'stop (disabled)', 'retry']);
-    });
-
-    it('enables Start and Retry, as for a plain workflow, when the latest run ended', () => {
-      renderService(unlessStopped, Status.Success);
-      expect(buttons()).toEqual(['start', 'stop (disabled)', 'retry']);
-    });
 
     // The scheduler starts the next run alone in these states.
     it.each([ServiceDAGState.restarting, ServiceDAGState.failing])(
-      'disables Start and Retry in the state %s',
+      'gives Start and Retry to the scheduler in the state %s',
       (state) => {
-        renderService(always, Status.Success, { service: { state } });
-        expect(buttons()).toEqual([
-          'start (disabled)',
-          'stop (disabled)',
-          'retry (disabled)',
-        ]);
+        const { container } = renderService(always, Status.Success, {
+          service: svc({ state }),
+        });
+        expect(slots(container)).toEqual([SCHEDULER, 'stop (disabled)']);
       }
     );
 
-    it.each([
-      ServiceDAGState.pending,
-      ServiceDAGState.suspended,
-      ServiceDAGState.stopped,
-    ])('enables Start and Retry in the state %s', (state) => {
-      renderService(always, Status.Failed, { service: { state } });
-      expect(buttons()).toEqual(['start', 'stop (disabled)', 'retry']);
+    it.each<[string, Partial<ServiceDAG>]>([
+      ['pending', { state: ServiceDAGState.pending }],
+      ['suspended', { state: ServiceDAGState.suspended }],
+      ['stopped', { state: ServiceDAGState.stopped }],
+      [
+        'on hold',
+        {
+          state: ServiceDAGState.failing,
+          restartHold: ServiceDAGRestartHold.paused,
+        },
+      ],
+      [
+        'unreadable',
+        { state: ServiceDAGState.failing, readError: 'status file is corrupt' },
+      ],
+    ])('keeps Start and Retry when the DAG is %s', (_, fields) => {
+      const { container } = renderService(always, Status.Failed, {
+        service: svc(fields),
+      });
+      expect(slots(container)).toEqual(['start', 'retry', 'stop (disabled)']);
     });
 
-    it.each([ServiceDAGState.running, ServiceDAGState.failing])(
-      'keeps Stop enabled while a run is alive in the state %s',
-      (state) => {
-        renderService(always, Status.Running, { service: { state } });
-        expect(buttons()).toEqual([
-          'start (disabled)',
-          'stop',
-          'retry (disabled)',
-        ]);
-      }
-    );
+    it('keeps Start and Retry, as for a plain workflow, when the latest run ended', () => {
+      const { container } = renderService(unlessStopped, Status.Success);
+      expect(slots(container)).toEqual(['start', 'retry', 'stop (disabled)']);
+    });
 
     it('ignores the state of a plain workflow', () => {
-      renderService({ name: 'svc' }, Status.Success, {
-        service: { state: ServiceDAGState.restarting },
+      const { container } = renderService({ name: 'svc' }, Status.Success, {
+        service: svc({ state: ServiceDAGState.restarting }),
       });
-      expect(buttons()).toEqual(['start', 'stop (disabled)', 'retry']);
+      expect(slots(container)).toEqual(['start', 'retry', 'stop (disabled)']);
     });
 
-    it('disables Start for a run that has not started for 5 minutes at most', () => {
-      render(
+    it('keeps the slots of a plain workflow with a running run', () => {
+      const { container } = renderService({ name: 'svc' }, Status.Running);
+      expect(slots(container)).toEqual(['start', 'retry (disabled)', 'stop']);
+    });
+
+    it('gives Start and Retry to the scheduler for a run that has not started for 5 minutes at most', () => {
+      const { container } = render(
         <MemoryRouter>
           <DAGActions
             fileName="svc"
@@ -565,33 +580,7 @@ describe('DAGActions', () => {
           />
         </MemoryRouter>
       );
-      expect(buttons()).toEqual([
-        'start (disabled)',
-        'stop (disabled)',
-        'retry (disabled)',
-      ]);
-    });
-
-    // A disabled button takes no pointer event, so its wrapper shows why.
-    it.each<[string, Status, ServiceRestartFields | undefined, string]>([
-      [
-        'active',
-        Status.Running,
-        undefined,
-        'A run is active, and a service DAG has one run at a time.',
-      ],
-      [
-        'restarting',
-        Status.Success,
-        { state: ServiceDAGState.restarting },
-        'The scheduler starts the next run.',
-      ],
-    ])('says why Start is disabled (%s)', async (_, status, service, why) => {
-      renderService(always, status, { service });
-      await userEvent.hover(
-        screen.getByRole('button', { name: 'Start' }).parentElement!
-      );
-      expect((await screen.findAllByText(why))[0]).toBeTruthy();
+      expect(slots(container)).toEqual([SCHEDULER, 'stop (disabled)']);
     });
 
     it('does not open the Start dialog on request while a run is active', () => {
@@ -630,11 +619,6 @@ describe('DAGActions', () => {
       ).toBeVisible();
     });
 
-    it('keeps Start, Stop and Retry together for a plain workflow', () => {
-      renderService({ name: 'svc' }, Status.Running);
-      expect(buttons()).toEqual(['start', 'stop', 'retry (disabled)']);
-    });
-
     it('shows the restart wait in the Stop tooltip for always', async () => {
       renderService(always, Status.Running);
       await userEvent.hover(screen.getByRole('button', { name: 'Stop' }));
@@ -655,7 +639,7 @@ describe('DAGActions', () => {
     });
 
     // The scheduler starts no run after the stop of such a DAG.
-    it.each<[string, ServiceRestartFields]>([
+    it.each<[string, Partial<ServiceDAG>]>([
       ['suspended', { state: ServiceDAGState.running, suspended: true }],
       [
         'on hold',
@@ -666,8 +650,8 @@ describe('DAGActions', () => {
       ],
     ])(
       'keeps the plain Stop tooltip for an always DAG that is %s',
-      async (_, service) => {
-        renderService(always, Status.Running, { service });
+      async (_, fields) => {
+        renderService(always, Status.Running, { service: svc(fields) });
         await userEvent.hover(screen.getByRole('button', { name: 'Stop' }));
         expect(
           (await screen.findAllByText('Stop the latest run'))[0]

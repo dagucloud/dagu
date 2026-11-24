@@ -130,6 +130,54 @@ export function ServiceDAGStatusText({
   );
 }
 
+const MINUTE_MS = 60_000;
+
+/**
+ * When the scheduler starts the next run of a service DAG, to the minute, or
+ * nothing while no restart is due: the DAG is not restarting or failing, its
+ * restarts are on hold, or the time is unknown.
+ */
+export function ServiceDAGNextRun({
+  dag,
+  className,
+}: {
+  dag: ServiceDAG;
+  className?: string;
+}): React.ReactElement | null {
+  const { ts } = useI18n();
+  const at = dag.nextRestartAt ? Date.parse(dag.nextRestartAt) : NaN;
+  if (
+    (dag.state !== ServiceDAGState.restarting &&
+      dag.state !== ServiceDAGState.failing) ||
+    dag.restartHold ||
+    dag.readError ||
+    Number.isNaN(at)
+  ) {
+    return null;
+  }
+  return (
+    <Ticker intervalMs={1000}>
+      {() => {
+        const remaining = at - Date.now();
+        // Minutes change slowly enough to read; the last minute counts down.
+        const shown =
+          remaining >= MINUTE_MS
+            ? Math.ceil(remaining / MINUTE_MS) * MINUTE_MS
+            : remaining;
+        return (
+          <span className={className}>
+            {remaining > 0
+              ? ts('Restart in {duration}', {
+                  duration: formatDurationMs(shown),
+                })
+              : ts('Restarting…')}
+          </span>
+        );
+      }}
+    </Ticker>
+  );
+}
+
 /** The API reports at most this many failures in a row. */
 const MAX_REPORTED_FAILURES = 10;
 
