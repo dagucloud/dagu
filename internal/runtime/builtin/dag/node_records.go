@@ -105,14 +105,11 @@ func (e *parallelExecutor) writeNodeRuns(ctx context.Context, dir string, ended 
 	}
 }
 
-// SetProgressCallback implements executor.ProgressCallbackAware. Only a step
-// with nodes reports progress.
-func (e *parallelExecutor) SetProgressCallback(callback func()) {
+// SetProgressCallback implements executor.ProgressCallbackAware.
+func (e *nodesExecutor) SetProgressCallback(callback func()) {
 	e.lock.Lock()
 	defer e.lock.Unlock()
-	if e.nodes != nil {
-		e.nodes.progress = callback
-	}
+	e.nodes.progress = callback
 }
 
 // reportNodeCounts asks the runner to write the run status when the counts

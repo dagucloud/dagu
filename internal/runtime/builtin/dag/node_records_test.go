@@ -120,7 +120,7 @@ func TestNodeRunRecordsReport(t *testing.T) {
 	// The record ticker may make a write in place of the test.
 	var mu sync.Mutex
 	var reported []ir.NodeRunCounts
-	e.SetProgressCallback(func() {
+	(&nodesExecutor{parallelExecutor: e}).SetProgressCallback(func() {
 		_, _, counts := readNodeRecords(t, dir)
 		mu.Lock()
 		defer mu.Unlock()

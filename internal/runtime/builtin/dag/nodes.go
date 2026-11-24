@@ -18,7 +18,13 @@ import (
 )
 
 var _ executor.NodesExecutor = (*parallelExecutor)(nil)
-var _ executor.ProgressCallbackAware = (*parallelExecutor)(nil)
+var _ executor.ProgressCallbackAware = (*nodesExecutor)(nil)
+
+// nodesExecutor runs a step with nodes. Unlike a parallel step, it reports
+// progress of its own: a change in its node run counts.
+type nodesExecutor struct {
+	*parallelExecutor
+}
 
 // nodeDispatch is the state of a step with nodes (RFC 013), which runs as a
 // parallel step over one bound child run per node, with its own failure
@@ -76,7 +82,7 @@ func newNodesExecutor(ctx context.Context, step ir.Step) (executor.Executor, err
 	if dag := runctx.GetContext(ctx).DAG; dag != nil && dag.MaxOutputSize > 0 {
 		maxOutputSize = dag.MaxOutputSize
 	}
-	return &parallelExecutor{
+	return &nodesExecutor{parallelExecutor: &parallelExecutor{
 		step:          step,
 		workDir:       dir,
 		maxConcurrent: max(step.Nodes.MaxConcurrent, ir.DefaultNodeMaxConcurrent),
@@ -92,7 +98,7 @@ func newNodesExecutor(ctx context.Context, step ir.Step) (executor.Executor, err
 			resultless:    make(map[string]bool),
 			maxOutputSize: maxOutputSize,
 		},
-	}, nil
+	}}, nil
 }
 
 // SetNodes implements executor.NodesExecutor.
