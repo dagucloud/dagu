@@ -78,7 +78,9 @@ vi.mock('@/hooks/useViews', () => ({
   }),
 }));
 
+// The header renders the Create button, which takes the API client.
 vi.mock('@/hooks/api', () => ({
+  useClient: () => ({ POST: vi.fn() }),
   useQuery: (path: string, init?: unknown) => ({
     data:
       init === null
@@ -326,6 +328,25 @@ describe('DAGRuns page', () => {
     });
   });
 
+  it('shows no service DAG section when no DAG is one', () => {
+    renderPage();
+
+    expect(lastRunQuery()['excludeServiceDAGRuns']).toBe(true);
+    expect(screen.queryByRole('region', { name: 'Service DAGs' })).toBeNull();
+  });
+
+  it.each(['name=worker', 'dagRunId=run-1', 'status=2', 'labels=team%3Ddata'])(
+    'shows the runs of service DAGs when the list is filtered by %s',
+    (filter) => {
+      serviceDAGsState.count = 2;
+
+      renderPage(vi.fn(), `/dag-runs?${filter}`);
+
+      expect(lastRunQuery()['excludeServiceDAGRuns']).toBeUndefined();
+      expect(screen.queryByRole('region', { name: 'Service DAGs' })).toBeNull();
+    }
+  );
+
   it('uses the Workflows page title with the Runs mode selected', () => {
     const setTitle = vi.fn();
 
@@ -462,7 +483,6 @@ describe('DAGRuns page', () => {
     expect(locationSearchParams().get('run')).toBe('run-1');
   });
 
-  // Links from before the run page replaced the side panel.
   it('opens the run of a legacy ?selectedRunName link on its workflow page', () => {
     renderPage(
       vi.fn(),
