@@ -31,8 +31,9 @@ type Setting struct {
 
 // Settings reports every key in the environment binding table, in table
 // order, with the value read from its source before Dagu applies its own
-// defaults. Keys for projects are left out while projects are off. The exception is auth.mode, which reports the mode cfg runs in.
-// Secret values are masked. cfg is the Config that Load returned.
+// defaults. The exception is auth.mode, which reports the mode cfg runs in.
+// Keys for projects are left out while projects are off. Secret values are
+// masked. cfg is the Config that Load returned.
 func (l *ConfigLoader) Settings(cfg *Config) []Setting {
 	prefix := strings.ToUpper(AppSlug) + "_"
 
