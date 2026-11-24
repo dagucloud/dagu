@@ -237,18 +237,21 @@ The scheduler remembers the keys of the poll's last check. After a
 successful check:
 
 - An item whose key is remembered is skipped.
-- Any other item is new, and is queued as a run, in the order printed, up to
-  100 runs per check. None is queued while 100 or more runs wait on the DAG's
-  queue. The run ID is `poll-` and a 16-byte hash of the poll ID and the
-  key, in hex, as `watch` names its runs. If a run with that ID exists,
-  nothing starts, and the item counts as queued.
+- Any other item is new, and is queued as a run, in the order printed. The
+  run ID is `poll-` and a 16-byte hash of the poll ID and the key, in hex,
+  as `watch` names its runs. If a run with that ID exists, nothing starts,
+  and the item counts as queued.
+- A check queues at most 100 items, less the runs already waiting on the
+  DAG's queue, so it never fills that queue past 100. Items whose run
+  exists count toward this.
 - The scheduler then remembers every listed key, except those of items it
   did not queue. Those are new again at the next check.
 - A key that is no longer listed is forgotten.
 
-With 10,000 jobs listed at once and `backlog: run`, the poll queues 100 per
-check, about 6,000 an hour at the default interval, and none while the DAG's
-queue is full.
+With 10,000 jobs listed at once and `backlog: run`, the first check queues
+100, and each later check tops the DAG's queue back up to 100 waiting runs.
+The backlog drains as fast as the DAG runs it, at most 100 runs per check:
+about 6,000 an hour at the default interval.
 
 Items past the output limit wait until earlier ones leave the listing, so a
 work queue prints its oldest jobs first. A remembered item pushed past the
@@ -283,9 +286,22 @@ and starts nothing, as `watch` and Zapier do. With `backlog: run`, every
 listed item is new. A work queue wants `run`; a listing of an archive, such as
 a channel's past videos, wants `skip`.
 
-If a poll's record in `poll-state/` is lost, its next check is a first
-check again.
-With `backlog: run`, items whose runs have left the history run again.
+A first check can run an item again, or pass one over:
+
+- After a `command` change with `backlog: run`, an item whose run is still
+  in the history does not run again, since its run ID is unchanged.
+- After a `key` change with `backlog: run`, every listed item has a new key,
+  and so a new run ID, and runs again.
+- With `backlog: skip`, items an earlier check left unqueued, at the limit
+  or with the DAG's queue full, are remembered without running.
+- A poll deleted and created again has a new ID. With `backlog: run`, every
+  item it lists runs again.
+- If a poll's keys in `poll-state/` are lost, its next check is a first
+  check. With `backlog: run`, items whose runs have left the history run
+  again.
+
+The Poll tab warns before it saves a `command` or `key` change, and before
+it deletes a poll.
 
 ### Where the check runs
 
@@ -407,11 +423,11 @@ would.
 | Check fails or times out | It starts nothing and keeps the poll's keys, and the next check waits longer, up to 10 minutes. At 3 in a row, the DAG's page shows the error and one notification is sent; the first check that neither fails nor skips a line sends another. |
 | A line over 16 KiB or with a NUL byte, or, with `key`, not JSON or without a valid key | The line is skipped and not remembered; the other items are queued. The check counts toward the 3 in a row that notify. |
 | Output over 1 MiB or 10,000 lines | The rest is read and discarded. The exit code still decides the check, which goes on with the items read and is marked as cut. |
-| Over 100 new items, or 100 runs waiting on the DAG's queue | Items not queued are not remembered and are new again at the next check. |
+| More new items than 100, less the runs waiting on the DAG's queue | Items not queued are not remembered and are new again at the next check. |
 | DAG file renamed or deleted outside Dagu | The poll has no DAG and is not checked; the list of polls shows it. |
 | All 4 check slots busy | Due checks wait in the order they fell due; one past due by more than the interval plus the timeout shows as late. |
 | Scheduler fails over to a host that cannot run the command | Checks fail and alert as above. |
-| Scheduler stops between queuing runs and saving its record | The next check derives the same run IDs; nothing new starts. |
+| Scheduler stops between queuing runs and saving the poll's keys | The next check derives the same run IDs; nothing new starts. |
 | DAG suspended | Not checked; items still listed when it resumes run then. |
 | DAG fails to load | Not checked; the DAG's page says why. |
 | `polls/` cannot be read | The scheduler keeps the polls from its last complete read. |
@@ -425,7 +441,7 @@ would.
   process and writes a status record, logs, and a work directory. A failing
   poll slows to one check every 10 minutes. Output past the limit costs
   CPU to discard, not memory, until the command exits or times out.
-- **Runs queued.** At most 100 per check, and none while 100 wait on the
+- **Runs queued.** At most 100 per check, less the runs waiting on the
   DAG's queue.
 - **Notifications.** At most two per failing streak: one when it starts,
   one when it ends.
@@ -440,7 +456,11 @@ would.
   retention does not change.
 - **Per run.** A poll's run stores its item and key as params: at most
   32 KiB, and usually one short line.
-- **Run history.** Looked up by derived run ID on enqueue; never listed.
+- **Run history.** Never listed. Each queued item costs the run ID lookup
+  every enqueue costs today: when no run has the ID, one folder read per
+  day of the DAG's run history. At most 100 lookups per check, since an
+  item whose run exists counts toward the 100, and in steady state about
+  one per run started.
 - **Upgrade.** None. The poll folders are created on first use.
 
 ## First release: public URLs for per-DAG webhooks
@@ -586,10 +606,10 @@ is backed up and restored with the data directory, as webhooks are.
    the same output starts none.
 3. With `max_active_runs: 3`, ten new items run at most three at a time.
 4. With `backlog: run` and 1,000 items listed, the first check queues 100
-   runs and later checks queue the rest, 100 at a time; none is queued while
-   100 runs wait on the DAG's queue.
-5. Killing the scheduler after queuing runs and before saving its record,
-   then restarting it, starts no second run for the same key.
+   runs, and each later check queues only enough to bring the DAG's queue
+   back to 100 waiting runs.
+5. Killing the scheduler after queuing runs and before saving the poll's
+   keys, then restarting it, starts no second run for the same key.
 6. A failing or timed-out check starts nothing, keeps the poll's keys, and
    shows its stderr in the check log, with `env` values masked.
 7. With a 1-minute interval and a command that always fails, each check
@@ -671,6 +691,7 @@ is backed up and restored with the data directory, as webhooks are.
   costs one of 4 slots until its timeout.
 - Every scheduler host that can take the scheduler lock needs what the
   commands need.
-- A large backlog drains at 100 runs per check.
+- A large backlog drains at most 100 runs per check, and no faster than
+  the DAG runs them.
 - Debugging a check means reading the DAG's check log, not a run's logs.
 - Two DAGs that react to one listing run two checks.
