@@ -64,6 +64,12 @@ files, URLs, and commands. An install with workspaces upgrades with no
 manual step, and no workflow changes silently which settings or secrets it
 runs with.
 
+Two cases need a step, and the preview lists both before the upgrade: an
+install whose paths overlap ([Overlapping Paths](#overlapping-paths)) sets
+`paths.projects_dir` or moves a path, and a DAG that migration finds with
+an [unsettled label](#unsettled-labels) loads once its label is removed or
+its file moves into a project.
+
 ## Decisions
 
 | ID | Closed | Decision |
@@ -205,7 +211,8 @@ Rules:
   creation time, the Dagu Cloud binding (RFC 002), and, for a project that
   migration made, the v2 workspace name it came from. It also records the
   files that run in place as the project's, and whether the project is
-  marked deleting.
+  marked deleting. Server-wide, it records the DAG files that migration
+  found with an [unsettled label](#unsettled-labels).
 - The registry is the only list of projects. Creating a project, changing
   its display name, deleting it, and migration change it. Nothing on disk
   adds to it.
@@ -324,6 +331,10 @@ start, and says which paths overlap, when:
 - two DAG roots are the same directory.
 
 Any other directory inside `<data_dir>` may hold a DAG root.
+
+`dagu migrate workspaces` is the one exception. It does not refuse to
+start: it lists each overlap as an item that needs attention and goes on
+with the rest of the preview.
 
 An install whose `<data_dir>` is its Dagu home, as in the Helm chart, sets
 `paths.projects_dir`, since the default would be `<data_dir>/projects/`.
@@ -686,8 +697,8 @@ Rules:
 - Its DAG directory is `<dags_dir>`, and its base config is the file at
   `paths.base_config`.
 - Its wiki directory is the one v2 used: `paths.wiki_dir` when set, else
-  `<dags_dir>/docs` when that exists and `<dags_dir>/wiki` does not, else
-  `<dags_dir>/wiki`.
+  the deprecated `paths.docs_dir` when set, else `<dags_dir>/docs` when
+  that exists and `<dags_dir>/wiki` does not, else `<dags_dir>/wiki`.
 - Its DAG files, DAG names, and URLs are those of the v2 install it came
   from.
 
@@ -843,7 +854,7 @@ the default project's state moves too.
 | Workspace `X` | Project `X` in the registry, with a new ID |
 | DAG labelled `workspace=X`, where `X` is a v2 workspace | Project `X`'s DAG. Its file stays where it is and runs in place. Its runs, logs, artifacts, DAG state, suspend flags, and DAG settings move to `X`'s state directories |
 | DAG without a `workspace` label | The default project's DAG. Its file stays in `<dags_dir>`. Its runs, logs, and state move to the default project's state directories |
-| DAG whose `workspace` label is not a valid workspace name, has two values, or names no v2 workspace | Does not load. Its file stays in `<dags_dir>`, and its runs and state move to the default project's state directories. See [Unsettled Labels](#unsettled-labels) |
+| On an install with workspaces, DAG whose `workspace` label is not a valid workspace name, has two values, or names no v2 workspace | Recorded, and does not load until its label is removed or its file moves. Its file stays in `<dags_dir>`, and its runs and state move to the default project's state directories. See [Unsettled Labels](#unsettled-labels) |
 | File with several documents | The first document decides the file's project. See [Files With Several Documents](#files-with-several-documents) |
 | DAG under `paths.alt_dags_dir` | A library DAG, in place |
 | Global base config (`paths.base_config`) | The default project's base config, at the same path |
@@ -856,7 +867,7 @@ the default project's state moves too.
 | User or API key with roles in `X` | Grants on project `X` |
 | User or API key with `workspace_access.all: false` | No server-wide role, and `viewer` on the default project |
 | `workspace_mappings`, `default_workspace_access` | Read as `project_mappings` and `default_project_access` until v3.1 |
-| `workspace` label | An ordinary label |
+| `workspace` label | An ordinary label, apart from the two rules in [`workspace` Labels After Migration](#workspace-labels-after-migration) |
 
 `<wiki>` is the default project's wiki directory.
 
@@ -970,27 +981,39 @@ Rules:
 
 #### `workspace` Labels After Migration
 
-- A `workspace` label places nothing.
+- A `workspace` label places nothing. Apart from the two rules below, it is
+  an ordinary label.
 - A default-project DAG whose `workspace` label names a migrated project,
   by its name or by the v2 workspace name it came from, does not load, and
   the error names the project. Moving the file to `<projects_dir>/X/` or
   removing the label fixes it.
-- These rules read the first document of a file. A later document's
+- A file that migration recorded for an
+  [unsettled label](#unsettled-labels) does not load.
+- Both rules read the first document of a file. A later document's
   `workspace` label is an ordinary label.
 
 #### Unsettled Labels
 
 A `workspace` label is unsettled when its value is not a valid v2 workspace
 name, when it has two different values, or when it names neither a v2
-workspace nor a migrated project, as after a typo. On v2, only users with
-access to every workspace saw such a DAG.
+workspace nor a project that migration makes, as after a typo. On v2, only
+users with access to every workspace saw such a DAG.
 
-- A DAG in `<dags_dir>` with an unsettled label does not load, and the
-  error names the label. A DAG that loads in the default project would be
-  visible to every user with a role there.
-- Moving its file into a project's DAG directory, or removing the label,
-  loads it.
-- The preview and the report list each one.
+- On an install that had at least one workspace, migration records in the
+  registry each DAG file in `<dags_dir>` whose first document has an
+  unsettled label. A recorded file does not load, and the error names the
+  label. Loaded in the default project, the DAG would be visible to every
+  user with a role there.
+- An install without workspaces has no such records, since no v2 user
+  there could be limited to a workspace.
+- Only migration records such files. A file added or labelled later is an
+  ordinary default-project DAG, unless its label names a migrated project.
+- A record ends when the file's first document has no `workspace` label,
+  when the file moves into a project's DAG directory, or when an admin
+  ends it on the projects page. The DAG then loads where its file is. The
+  record stays while the file is absent.
+- A later document of a file is never recorded, and its label is ordinary.
+- The preview and the report list each recorded file.
 
 #### Files With Several Documents
 
@@ -1027,7 +1050,8 @@ attention:
 - each library DAG with a `workspace` label, which every user can now read
 - each `dag.run` target that contains a variable, which migration cannot
   resolve
-- each DAG with an unsettled `workspace` label, which does not load
+- each DAG file recorded for an unsettled `workspace` label, which does not
+  load
 - each later document of a file whose `workspace` label differs from the
   first document's
 - each workspace DAG whose name a DAG in `<projects_dir>/X/` already has,
@@ -1054,6 +1078,8 @@ needs attention:
   path that moves, and every item the report would list as needing
   attention. In place of cancelled runs, it lists the runs that are live
   when it runs.
+- It also lists each [overlap of paths](#overlapping-paths) that would stop
+  v3.0 from starting, and does not refuse to run because of one.
 
 ## Constraints
 
@@ -1128,8 +1154,8 @@ Delete is refused, and changes nothing, when:
 - A default-project DAG whose `workspace` label names a migrated project,
   by its name or by the v2 workspace name it came from, does not load, and
   the error names the project.
-- A DAG in `<dags_dir>` with an unsettled `workspace` label does not load,
-  and the error names the label.
+- A DAG file that migration recorded for an unsettled `workspace` label
+  does not load, and the error names the label.
 - An explicit start of a library DAG in a project that has a DAG of the
   same name is refused.
 - A library DAG with a `schedule` loads with a validation warning and is
