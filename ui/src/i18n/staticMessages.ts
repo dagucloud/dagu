@@ -2253,6 +2253,9 @@ const baseEnglish = {
     'Suspend the restarts of "{name}"? A running run keeps running.',
   'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.':
     'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.',
+  'A run is active, and a service DAG has one run at a time.':
+    'A run is active, and a service DAG has one run at a time.',
+  'The scheduler starts the next run.': 'The scheduler starts the next run.',
   'Are you sure you want to {action} the webhook for "{name}"?':
     'Are you sure you want to {action} the webhook for "{name}"?',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -5541,6 +5544,9 @@ const baseChinese = {
     '暂停“{name}”的重启吗？正在进行的运行会继续运行。',
   'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.':
     '停止此运行。它将在 {seconds} 秒后重启。暂停重启即可永久停止。',
+  'A run is active, and a service DAG has one run at a time.':
+    '有运行正在进行，服务 DAG 一次只能有一个运行。',
+  'The scheduler starts the next run.': '调度器会启动下一次运行。',
   'Are you sure you want to {action} the webhook for "{name}"?':
     '确定要{action}“{name}”的 Webhook 吗？',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -8866,6 +8872,10 @@ const baseJapanese = {
     '「{name}」の再起動を一時停止しますか？実行中の実行はそのまま続行されます。',
   'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.':
     'この実行を停止します。{seconds} 秒後に再起動します。再起動を一時停止すると完全に停止します。',
+  'A run is active, and a service DAG has one run at a time.':
+    '実行が進行中です。サービス DAG が同時に持てる実行は 1 つです。',
+  'The scheduler starts the next run.':
+    'スケジューラーが次の実行を開始します。',
   'Are you sure you want to {action} the webhook for "{name}"?':
     '「{name}」の Webhook を{action}にしますか？',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -12230,6 +12240,10 @@ const baseGerman = {
     'Neustarts von "{name}" anhalten? Ein laufender Lauf läuft weiter.',
   'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.':
     'Diesen Lauf stoppen. Er startet nach {seconds} s neu. Halten Sie die Neustarts an, um ihn endgültig zu stoppen.',
+  'A run is active, and a service DAG has one run at a time.':
+    'Ein Lauf ist aktiv, und ein Service-DAG hat jeweils nur einen Lauf.',
+  'The scheduler starts the next run.':
+    'Der Scheduler startet den nächsten Lauf.',
   'Are you sure you want to {action} the webhook for "{name}"?':
     'Webhook für "{name}" wirklich {action}?',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':

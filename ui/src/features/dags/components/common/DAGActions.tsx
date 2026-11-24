@@ -22,6 +22,7 @@ import dayjs from '@/lib/dayjs';
 import { cn } from '@/lib/utils';
 import ActionButton from '@/components/ui/action-button';
 import StatusChip from '@/components/ui/status-chip';
+import { Slot } from '@radix-ui/react-slot';
 import { Ban, CircleStop, Play, RotateCcw, X } from 'lucide-react';
 import React from 'react';
 import { components, Status } from '../../../../api/v1/schema';
@@ -120,22 +121,25 @@ function DAGActions({
 }: Props) {
   const shows = (action: 'start' | 'stop' | 'retry') =>
     !only || only.includes(action);
-  // A service workflow has one run at a time: while a run is active, only
-  // Stop applies, and Start and Retry are not shown. They are not shown
-  // either while the scheduler starts the next run by itself. A button that
-  // is not shown keeps its slot, so the buttons after it stay in place.
+  const hasStartButton = shows('start');
+  // A service workflow has one run at a time, and the scheduler starts its
+  // next run by itself. Start and Retry are disabled then, with the reason in
+  // their tooltip, so that every button keeps its place.
   const isService = dag ? isServiceDAG(dag) : false;
   const serviceActive = hasActiveServiceRun(dag, status);
   const serviceRestarts = isService && restartsByItself(service);
-  // The Start of a bar stays enabled: the bar has no service state to say why
-  // a start is refused, so the server gives the reason.
-  const hasStartButton =
-    shows('start') && (barStart || (!serviceActive && !serviceRestarts));
-  const stopShown = !isService || serviceActive;
-  const retryShown = !serviceActive && !serviceRestarts;
   const mark = (action: 'start' | 'stop' | 'retry') =>
     markActions ? action : undefined;
   const { ts } = useI18n();
+  // Why a service DAG takes no start or retry now; undefined while it does.
+  const serviceBlock = serviceActive
+    ? ts('A run is active, and a service DAG has one run at a time.')
+    : serviceRestarts
+      ? ts('The scheduler starts the next run.')
+      : undefined;
+  // The Start of a bar stays enabled: the bar has no service state, so the
+  // server gives the reason when it refuses a run.
+  const startBlock = barStart ? undefined : serviceBlock;
   const dagContext = React.useContext(DAGContext);
   const config = useConfig();
   const { hasUnsavedChanges, canSave, save } = useUnsavedChanges();
@@ -235,10 +239,10 @@ function DAGActions({
 
   // Auto-open start modal when requested (e.g., from cockpit preview)
   React.useEffect(() => {
-    if (dagContext.autoOpenStartModal && hasStartButton) {
+    if (dagContext.autoOpenStartModal && hasStartButton && !startBlock) {
       setIsEnqueueModal(true);
     }
-  }, [dagContext.autoOpenStartModal, hasStartButton]);
+  }, [dagContext.autoOpenStartModal, hasStartButton, startBlock]);
 
   React.useEffect(() => {
     if (!isEnqueueModal) {
@@ -359,53 +363,49 @@ function DAGActions({
         {hasStartButton && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <ActionButton
-                label={barStart ? 'wide' : displayMode !== 'compact'}
-                variant={
-                  displayMode !== 'compact' || barStart ? 'primary' : undefined
-                }
-                icon={
-                  <Play
-                    className={cn('h-4 w-4', startIconHidden && 'invisible')}
-                  />
-                }
-                aria-label={barStart ? ts('Start') : undefined}
-                disabled={!buttonState['enqueue']}
-                data-ww-action={mark('start')}
-                onClick={() => {
-                  if (hasUnsavedChanges) {
-                    setIsUnsavedChangesModal(true);
-                  } else {
-                    setIsEnqueueModal(true);
+              <BlockedTrigger blocked={Boolean(startBlock)}>
+                <ActionButton
+                  label={barStart ? 'wide' : displayMode !== 'compact'}
+                  variant={
+                    displayMode !== 'compact' || barStart
+                      ? 'primary'
+                      : undefined
                   }
-                }}
-                className="cursor-pointer"
-              >
-                {/* Hidden with the icon, under the feedback of the host. */}
-                <span className={cn(startIconHidden && 'invisible')}>
-                  <I18nText text={'Start'} />
-                </span>
-              </ActionButton>
+                  icon={
+                    <Play
+                      className={cn('h-4 w-4', startIconHidden && 'invisible')}
+                    />
+                  }
+                  aria-label={barStart ? ts('Start') : undefined}
+                  disabled={!buttonState['enqueue'] || Boolean(startBlock)}
+                  data-ww-action={mark('start')}
+                  onClick={() => {
+                    if (hasUnsavedChanges) {
+                      setIsUnsavedChangesModal(true);
+                    } else {
+                      setIsEnqueueModal(true);
+                    }
+                  }}
+                  className="cursor-pointer"
+                >
+                  {/* Hidden with the icon, under the feedback of the host. */}
+                  <span className={cn(startIconHidden && 'invisible')}>
+                    <I18nText text={'Start'} />
+                  </span>
+                </ActionButton>
+              </BlockedTrigger>
             </TooltipTrigger>
             <TooltipContent>
               <p>
                 <I18nText text={'Start a new run'} />
               </p>
+              {startBlock && <p className="text-warning">{startBlock}</p>}
             </TooltipContent>
           </Tooltip>
         )}
-        {shows('start') && !hasStartButton && (
-          <ReservedSlot
-            action="start"
-            label={displayMode !== 'compact'}
-            icon={<Play className="h-4 w-4" />}
-          >
-            <I18nText text={'Start'} />
-          </ReservedSlot>
-        )}
 
         {/* Reject Button */}
-        {shows('stop') && stopShown && buttonState.reject && (
+        {shows('stop') && buttonState.reject && (
           <Tooltip>
             <TooltipTrigger asChild>
               <ActionButton
@@ -426,7 +426,7 @@ function DAGActions({
         )}
 
         {/* Stop Button */}
-        {shows('stop') && stopShown && (
+        {shows('stop') && (
           <Tooltip>
             <TooltipTrigger asChild>
               <ActionButton
@@ -461,105 +461,95 @@ function DAGActions({
             </TooltipContent>
           </Tooltip>
         )}
-        {shows('stop') && !stopShown && (
-          <ReservedSlot
-            action="stop"
-            label={displayMode !== 'compact'}
-            icon={<CircleStop className="h-4 w-4" />}
-          >
-            {terminateDetails.buttonText}
-          </ReservedSlot>
-        )}
 
         {/* Retry Button */}
-        {shows('retry') && !isSubDAGRun && retryShown && (
+        {shows('retry') && !isSubDAGRun && (
           <Tooltip>
             <TooltipTrigger asChild>
-              <ActionButton
-                label={displayMode !== 'compact'}
-                icon={<RotateCcw className="h-4 w-4" />}
-                disabled={!buttonState['retry']}
-                data-ww-action={mark('retry')}
-                onClick={async () => {
-                  // Get the current URL parameters
-                  const urlParams = new URLSearchParams(window.location.search);
-                  const idxParam = urlParams.get('idx');
+              <BlockedTrigger blocked={Boolean(serviceBlock)}>
+                <ActionButton
+                  label={displayMode !== 'compact'}
+                  icon={<RotateCcw className="h-4 w-4" />}
+                  disabled={!buttonState['retry'] || Boolean(serviceBlock)}
+                  data-ww-action={mark('retry')}
+                  onClick={async () => {
+                    // Get the current URL parameters
+                    const urlParams = new URLSearchParams(
+                      window.location.search
+                    );
+                    const idxParam = urlParams.get('idx');
 
-                  // Default to current status dagRunId
-                  let dagRunIdToUse = status?.dagRunId || '';
+                    // Default to current status dagRunId
+                    let dagRunIdToUse = status?.dagRunId || '';
 
-                  // If we're in the history page or modal history tab with a specific run selected
-                  const isInHistoryPage =
-                    window.location.pathname.includes('/history');
-                  const isInModalHistoryTab =
-                    document.querySelector(
-                      '.dag-modal-content [data-tab="history"]'
-                    ) !== null;
+                    // If we're in the history page or modal history tab with a specific run selected
+                    const isInHistoryPage =
+                      window.location.pathname.includes('/history');
+                    const isInModalHistoryTab =
+                      document.querySelector(
+                        '.dag-modal-content [data-tab="history"]'
+                      ) !== null;
 
-                  if (
-                    (isInHistoryPage || isInModalHistoryTab) &&
-                    idxParam !== null
-                  ) {
-                    try {
-                      // Get all dag-runs for this DAG to find the correct dagRunId
-                      const { data } = await client.GET(
-                        '/dags/{fileName}/dag-runs',
-                        {
-                          params: {
-                            path: {
-                              fileName: fileName,
+                    if (
+                      (isInHistoryPage || isInModalHistoryTab) &&
+                      idxParam !== null
+                    ) {
+                      try {
+                        // Get all dag-runs for this DAG to find the correct dagRunId
+                        const { data } = await client.GET(
+                          '/dags/{fileName}/dag-runs',
+                          {
+                            params: {
+                              path: {
+                                fileName: fileName,
+                              },
+                              query: {
+                                remoteNode,
+                              },
                             },
-                            query: {
-                              remoteNode,
-                            },
-                          },
+                          }
+                        );
+
+                        if (data?.dagRuns && data.dagRuns.length > 0) {
+                          // Convert idx to integer
+                          const selectedIdx = parseInt(idxParam);
+
+                          // Get the dag-run at the selected index (reversed order)
+                          const selectedDagRun = [...data.dagRuns].reverse()[
+                            selectedIdx
+                          ];
+
+                          if (selectedDagRun && selectedDagRun.dagRunId) {
+                            dagRunIdToUse = selectedDagRun.dagRunId;
+                          }
                         }
-                      );
-
-                      if (data?.dagRuns && data.dagRuns.length > 0) {
-                        // Convert idx to integer
-                        const selectedIdx = parseInt(idxParam);
-
-                        // Get the dag-run at the selected index (reversed order)
-                        const selectedDagRun = [...data.dagRuns].reverse()[
-                          selectedIdx
-                        ];
-
-                        if (selectedDagRun && selectedDagRun.dagRunId) {
-                          dagRunIdToUse = selectedDagRun.dagRunId;
-                        }
+                      } catch (err) {
+                        console.error(
+                          'Error fetching dag-runs for retry:',
+                          err
+                        );
                       }
-                    } catch (err) {
-                      console.error('Error fetching dag-runs for retry:', err);
                     }
-                  }
 
-                  // Set the dagRunId to use for retry
-                  setRetryDagRunId(dagRunIdToUse);
+                    // Set the dagRunId to use for retry
+                    setRetryDagRunId(dagRunIdToUse);
 
-                  // Show the modal
-                  setIsRetryModal(true);
-                }}
-                className="cursor-pointer"
-              >
-                <I18nText text={'Retry'} />
-              </ActionButton>
+                    // Show the modal
+                    setIsRetryModal(true);
+                  }}
+                  className="cursor-pointer"
+                >
+                  <I18nText text={'Retry'} />
+                </ActionButton>
+              </BlockedTrigger>
             </TooltipTrigger>
             <TooltipContent>
               <p>
                 <I18nText text={'Retry this run'} />
               </p>
+              {serviceBlock && <p className="text-warning">{serviceBlock}</p>}
             </TooltipContent>
           </Tooltip>
-        )}
-        {shows('retry') && !isSubDAGRun && !retryShown && (
-          <ReservedSlot
-            action="retry"
-            label={displayMode !== 'compact'}
-            icon={<RotateCcw className="h-4 w-4" />}
-          >
-            <I18nText text={'Retry'} />
-          </ReservedSlot>
         )}
         {status && waitingApprovalStepName && (
           <RejectDAGRunDialog
@@ -1069,32 +1059,18 @@ function DAGActions({
 }
 
 /**
- * The slot of a button that does not apply now: an invisible copy of the
- * button, of the same size, that no pointer, key or screen reader reaches.
- * Each button of a list row stays where it is as the state of the workflow
- * changes, so a click never lands on a button that moved under the pointer.
+ * The tooltip trigger of a button that a service DAG blocks. A disabled
+ * button takes no pointer or focus event, so a blocked one gets a wrapper
+ * that takes them and still shows why.
  */
-function ReservedSlot({
-  action,
-  label,
-  icon,
-  children,
-}: {
-  action: 'start' | 'stop' | 'retry';
-  label: boolean;
-  icon: React.ReactElement;
-  children: React.ReactNode;
-}) {
-  return (
-    <span
-      aria-hidden="true"
-      className="invisible inline-flex"
-      data-reserved-action={action}
-    >
-      <ActionButton label={label} icon={icon} disabled tabIndex={-1}>
-        {children}
-      </ActionButton>
-    </span>
+function BlockedTrigger({
+  blocked,
+  ...props
+}: React.ComponentProps<typeof Slot> & { blocked: boolean }) {
+  return blocked ? (
+    <span {...props} className="inline-flex shrink-0" tabIndex={0} />
+  ) : (
+    <Slot {...props} />
   );
 }
 

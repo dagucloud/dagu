@@ -454,12 +454,12 @@ Rules:
   Healthy. Only a service DAG reads Healthy.
 - The states come from `GET /service-dags` and from its live topic. The table reads them once for
   all rows. A DAG with no known state shows the time of its last run.
-- A service DAG that is restarting or failing has no Start button and no Retry button: the scheduler
-  starts the next run. In the states pending, suspended and stopped, the Start button stays. So do
-  both buttons while the restarts are on hold (`restartHold`) and for a DAG whose state cannot be
-  read (`readError`): the scheduler starts no run. A service DAG with an active run keeps only the
-  Stop button. A button that is not shown leaves its place empty, so each button of a row and a card
-  stays where it is in every state.
+- A row and a card of a service DAG show Start, Stop and Retry in the places that they have for any
+  workflow. A service DAG that is restarting or failing has Start and Retry disabled: the scheduler
+  starts the next run. In the states pending, suspended and stopped, Start and Retry stay enabled. So
+  do they while the restarts are on hold (`restartHold`) and for a DAG whose state cannot be read
+  (`readError`): the scheduler starts no run. A service DAG with an active run has Start and Retry
+  disabled. The tooltip of a disabled Start or Retry says why.
 - The header of the page of a service DAG follows the same rule. It reads the state from the same
   `GET /service-dags` read as the list, with no extra request. A DAG that is restarting or failing,
   with no active run, has no Start button, no Retry button and no menu to run a draft. With no known
