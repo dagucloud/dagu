@@ -529,13 +529,17 @@ function ContinuousBody({ details, step }: RunTabProps) {
 
 /**
  * The node runs of the run, one row per node. The column of the shown or
- * selected step is marked.
+ * selected step is marked. The table holds every step with nodes, so it reads
+ * the whole run, not the run scoped to the shown step.
  */
-function NodesBody({ details, step }: RunTabProps) {
+function NodesBody({ run, details, step }: RunTabProps) {
   const dockStep = useDockStep();
   return (
     <div className={SCROLL}>
-      <NodeRunsPanel details={details} step={step ?? dockStep ?? undefined} />
+      <NodeRunsPanel
+        details={run.details ?? details}
+        step={step ?? dockStep ?? undefined}
+      />
     </div>
   );
 }

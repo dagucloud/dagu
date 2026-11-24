@@ -5,8 +5,10 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NodeRunStatus, NodeStatus, type components } from '@/api/v1/schema';
 import { SubRunOpenProvider } from '@/features/dags/components/common/SubRunStackModal';
+import type { ApiDAGDetails } from '../../contracts';
 import { node, run } from '../../data/__tests__/fixtures';
-import type { ApiDAGRunDetails } from '../../data/types';
+import type { ApiDAGRunDetails, WorkspaceRunValue } from '../../data/types';
+import { NodesTab } from '../../dock/tabs/runTabBodies';
 import { NodeRunsPanel } from '../NodeRunsPanel';
 
 type NodeRunList = components['schemas']['NodeRunList'];
@@ -25,6 +27,7 @@ const api = vi.hoisted(() => ({
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
+vi.mock('../../dock/useDockStep', () => ({ useDockStep: () => null }));
 vi.mock('@/hooks/api', () => ({
   useQuery: (
     path: string,
@@ -243,6 +246,34 @@ describe('NodeRunsPanel', () => {
         />
       </SubRunOpenProvider>
     );
+
+    expect(api.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  // The dock scopes a run tab to the step it shows, but the table holds every
+  // step with nodes, so a change in any of them reads the page again.
+  it('reads the page again for another step while the dock shows one', () => {
+    const tab = (check: NodeRunCounts) => {
+      const value = run('root-1', [
+        node('deploy', NodeStatus.Success, { nodeRuns: deployCounts }),
+        node('check', NodeStatus.Running, { nodeRuns: check }),
+      ]);
+      const workspaceRun = {
+        ref: { name: value.name, runId: value.dagRunId },
+        details: value,
+      } as WorkspaceRunValue;
+      return (
+        <NodesTab
+          run={workspaceRun}
+          fileName="demo.yaml"
+          dag={{} as ApiDAGDetails}
+          step="deploy"
+        />
+      );
+    };
+    const { rerender } = render(tab(counts({ total: 2, running: 2 })));
+
+    rerender(tab(counts({ total: 2, running: 1, failed: 1 })));
 
     expect(api.mutate).toHaveBeenCalledTimes(1);
   });
