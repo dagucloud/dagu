@@ -9,6 +9,7 @@ import {
   PathsDagRunsGetParametersQueryBackfill,
   RunBackfillFilter,
   Status,
+  ViewSpecType,
 } from '../../api/v1/schema';
 import { AutocompleteInput } from '@/components/ui/autocomplete-input';
 import { Button } from '@/components/ui/button';
@@ -45,8 +46,7 @@ import {
   viewMatchesScope,
   viewScopeForSelection,
 } from '../../features/views/viewScope';
-import { type View } from '../../hooks/useViews';
-import { useSharedViews } from '../../hooks/useSharedViews';
+import { useViews, type View } from '../../hooks/useViews';
 import { useQuery } from '../../hooks/api';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { legacyRunPageRedirectURL } from '../../features/dag-runs/lib/dagRunUrls';
@@ -217,7 +217,7 @@ function DAGRuns() {
     createView,
     updateView,
     deleteView,
-  } = useSharedViews('run');
+  } = useViews(ViewSpecType.run);
   const scopedRunViews = React.useMemo(
     () => sharedRunViews.filter((view) => viewMatchesScope(view, runViewScope)),
     [sharedRunViews, runViewScope]

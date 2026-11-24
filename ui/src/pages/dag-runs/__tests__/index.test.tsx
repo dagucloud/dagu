@@ -66,28 +66,9 @@ vi.mock('@/contexts/AuthContext', () => ({
   useCanWriteForWorkspace: () => true,
 }));
 
-// The page reads its views through useSharedViews, which calls useViews once
-// for the workflow type and once for the run type and merges both lists. Like
-// the real hook, the mock keeps the same array while the views do not change.
-const viewsOfTypeCache = vi.hoisted(() => new Map<string, unknown[]>());
-
-function viewsOfType(type: ViewSpecType): View[] {
-  const next = sharedRunViewState.views.filter((view) => view.type === type);
-  const cached = viewsOfTypeCache.get(type) as View[] | undefined;
-  if (
-    cached &&
-    cached.length === next.length &&
-    cached.every((view, i) => view === next[i])
-  ) {
-    return cached;
-  }
-  viewsOfTypeCache.set(type, next);
-  return next;
-}
-
 vi.mock('@/hooks/useViews', () => ({
-  useViews: (type: ViewSpecType) => ({
-    views: viewsOfType(type),
+  useViews: () => ({
+    views: sharedRunViewState.views,
     isLoading: viewsLoadingState.current,
     error: undefined,
     createView: createRunViewMock,
@@ -808,9 +789,7 @@ describe('DAGRuns page', () => {
     await waitFor(() => {
       expect(createRunViewMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          // The two modes share their views, which are created as workflow
-          // views.
-          type: ViewSpecType.workflow,
+          type: ViewSpecType.run,
           name: 'Nightly runs',
           dagName: 'nightly',
           intervalDays: 1,

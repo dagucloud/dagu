@@ -53,8 +53,7 @@ import {
   workspaceSelectionQuery,
 } from '../../lib/workspace';
 import LoadingIndicator from '@/components/ui/loading-indicator';
-import { type View, type ViewSpec } from '@/hooks/useViews';
-import { useSharedViews } from '@/hooks/useSharedViews';
+import { useViews, type View, type ViewSpec } from '@/hooks/useViews';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { LoadErrorState } from '@/components/PageStates';
@@ -310,7 +309,7 @@ function DAGsContent() {
     createView,
     updateView,
     deleteView,
-  } = useSharedViews('workflow');
+  } = useViews(ViewSpecType.workflow);
   const scopedWorkflowViews = React.useMemo(
     () =>
       sharedWorkflowViews.filter((view) =>
