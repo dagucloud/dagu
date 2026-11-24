@@ -42,6 +42,18 @@ function setup(element: HTMLDivElement = document.createElement('div')) {
   return { fit, result };
 }
 
+/** The hook as the canvas uses it: with the callbacks that keep the zoom. */
+function setupHost(element: HTMLDivElement = document.createElement('div')) {
+  const fit = vi.fn();
+  const onShrink = vi.fn();
+  const onGrow = vi.fn();
+  const ref = { current: element };
+  const { result } = renderHook(() =>
+    useAutoFit(ref, fit, undefined, onShrink, onGrow)
+  );
+  return { fit, onShrink, onGrow, result };
+}
+
 /** An element with a layout: jsdom gives every element a size of 0. */
 function laidOut(width: number, height: number): HTMLDivElement {
   const element = document.createElement('div');
@@ -122,9 +134,10 @@ describe('useAutoFit', () => {
   // The flow fits the size that it measures at its first layout. A panel
   // restored from memory can change it before the observer first reports.
   it('fits again when the first report differs from the size at mount', () => {
-    const { fit } = setup(laidOut(1000, 600));
+    const { fit, onShrink } = setupHost(laidOut(1000, 600));
     act(() => vi.advanceTimersByTime(AUTO_FIT_DELAY_MS));
     expect(fit).toHaveBeenCalledTimes(1);
+    expect(onShrink).not.toHaveBeenCalled();
   });
 
   it('does not fit again when the first report is the size at mount', () => {
@@ -195,5 +208,109 @@ describe('useAutoFit', () => {
     result.current.onUserMove();
     result.current.refit();
     expect(fit).toHaveBeenCalledTimes(2);
+  });
+
+  // A panel or a dock that opens, leaves or changes never changes the zoom
+  // after the first moments: the host pans (onShrink) or restores (onGrow).
+  describe('with the callbacks of the host', () => {
+    const wait = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+
+    it('keeps the zoom when a panel opens and closes', () => {
+      const { fit, onShrink, onGrow } = setupHost();
+      wait(AUTO_FIT_SETTLE_MS);
+      notify(500, 600);
+      wait(AUTO_FIT_DELAY_MS);
+      expect(onShrink).toHaveBeenCalledTimes(1);
+      expect(onGrow).not.toHaveBeenCalled();
+      notify(800, 600);
+      wait(AUTO_FIT_DELAY_MS);
+      expect(onShrink).toHaveBeenCalledTimes(1);
+      expect(onGrow).toHaveBeenCalledTimes(1);
+      expect(fit).not.toHaveBeenCalled();
+    });
+
+    // A dock changes the height only.
+    it('keeps the zoom when a dock opens and closes', () => {
+      const { fit, onShrink, onGrow } = setupHost();
+      wait(AUTO_FIT_SETTLE_MS);
+      notify(800, 300);
+      wait(AUTO_FIT_DELAY_MS);
+      expect(onShrink).toHaveBeenCalledTimes(1);
+      expect(onGrow).not.toHaveBeenCalled();
+      notify(800, 600);
+      wait(AUTO_FIT_DELAY_MS);
+      expect(onShrink).toHaveBeenCalledTimes(1);
+      expect(onGrow).toHaveBeenCalledTimes(1);
+      expect(fit).not.toHaveBeenCalled();
+    });
+
+    // A panel leaves while a dock comes: the graph may be cut on one axis.
+    it('calls onShrink when one axis grows and the other shrinks', () => {
+      const { fit, onShrink, onGrow } = setupHost();
+      wait(AUTO_FIT_SETTLE_MS);
+      notify(900, 300);
+      wait(AUTO_FIT_DELAY_MS);
+      expect(onShrink).toHaveBeenCalledTimes(1);
+      expect(onGrow).not.toHaveBeenCalled();
+      expect(fit).not.toHaveBeenCalled();
+    });
+
+    // The room of a page that opens is not final: a panel restored from
+    // memory fits the graph again, as a new page would.
+    it('fits a change in the first moments, and keeps the zoom later', () => {
+      const { fit, onShrink, onGrow } = setupHost();
+      notify(500, 600);
+      wait(AUTO_FIT_DELAY_MS);
+      notify(500, 300);
+      wait(AUTO_FIT_DELAY_MS);
+      notify(1000, 600);
+      wait(AUTO_FIT_DELAY_MS);
+      expect(fit).toHaveBeenCalledTimes(3);
+      expect(onShrink).not.toHaveBeenCalled();
+      expect(onGrow).not.toHaveBeenCalled();
+
+      wait(AUTO_FIT_SETTLE_MS);
+      notify(400, 600);
+      wait(AUTO_FIT_DELAY_MS);
+      expect(onShrink).toHaveBeenCalledTimes(1);
+      expect(fit).toHaveBeenCalledTimes(3);
+    });
+
+    // A panel that gives its place to another one reports each size: the
+    // change is from the size before the first report to the last one.
+    it('takes the reports of one delay as one change', () => {
+      const { fit, onShrink, onGrow } = setupHost();
+      wait(AUTO_FIT_SETTLE_MS);
+      notify(600, 600);
+      wait(AUTO_FIT_DELAY_MS);
+      expect(onShrink).toHaveBeenCalledTimes(1);
+
+      notify(500, 600);
+      notify(1000, 600);
+      wait(AUTO_FIT_DELAY_MS);
+      expect(onShrink).toHaveBeenCalledTimes(1);
+      expect(onGrow).toHaveBeenCalledTimes(1);
+
+      // A size that comes back to where it was is no change.
+      notify(700, 600);
+      notify(1000, 600);
+      wait(AUTO_FIT_DELAY_MS);
+      expect(onShrink).toHaveBeenCalledTimes(1);
+      expect(onGrow).toHaveBeenCalledTimes(1);
+      expect(fit).not.toHaveBeenCalled();
+    });
+
+    it('stops after the user moves the view', () => {
+      const { fit, onShrink, onGrow, result } = setupHost();
+      wait(AUTO_FIT_SETTLE_MS);
+      result.current.onUserMove();
+      notify(600, 600);
+      wait(AUTO_FIT_DELAY_MS);
+      notify(900, 600);
+      wait(AUTO_FIT_DELAY_MS);
+      expect(onShrink).not.toHaveBeenCalled();
+      expect(onGrow).not.toHaveBeenCalled();
+      expect(fit).not.toHaveBeenCalled();
+    });
   });
 });
