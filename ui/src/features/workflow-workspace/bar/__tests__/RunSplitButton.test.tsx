@@ -148,6 +148,8 @@ interface Setup {
   url?: string;
   /** The DAG has a start schedule. */
   scheduled?: boolean;
+  /** The shown run has no workflow file. */
+  standalone?: boolean;
 }
 
 function EditorBinder({ dirty, buffer }: { dirty: boolean; buffer: string }) {
@@ -198,6 +200,7 @@ function setup({
   cluster = false,
   url = `/dags/${FILE}`,
   scheduled = false,
+  standalone = false,
 }: Setup = {}) {
   const shown = scheduled
     ? ({ ...dag, schedule: [{ expression: '0 2 * * *' }] } as ApiDAGDetails)
@@ -247,6 +250,7 @@ function setup({
             run,
             refresh,
             registerHistory: () => () => {},
+            standaloneRun: standalone ? selected : null,
           }}
         >
           <WorkspaceEditorProvider>
@@ -822,6 +826,39 @@ describe('RunSplitButton', () => {
           .getAllByRole('menuitem')
           .map((item) => item.textContent)
       ).toEqual(['Start']);
+    });
+  });
+
+  // A run without its workflow file has nothing to start or draft: the bar
+  // keeps the action of the run alone.
+  describe('a run without its workflow file', () => {
+    it('has Stop in the slot, with no Start and no menu', () => {
+      setup({
+        standalone: true,
+        editor: { dirty: true, buffer: 'steps: []\n' },
+        latest: runDetails('run-3', Status.Running),
+      });
+
+      const slot = screen.getByTestId('ww-run-start-slot');
+      expect(within(slot).getByRole('button', { name: 'Stop' })).toBeEnabled();
+      expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
+      expect(document.querySelector('[data-ww-action="start"]')).toBeNull();
+      expect(
+        screen.queryByRole('button', { name: 'More run options' })
+      ).toBeNull();
+    });
+
+    it('has Retry in the slot for a failed run', () => {
+      setup({ standalone: true, latest: failedRun() });
+
+      const slot = screen.getByTestId('ww-run-start-slot');
+      expect(within(slot).getByRole('button', { name: 'Retry' })).toBeEnabled();
+    });
+
+    it('shows nothing for a run that needs no action', () => {
+      setup({ standalone: true, latest: runDetails('run-3', Status.Success) });
+
+      expect(screen.queryByTestId('ww-run-split')).toBeNull();
     });
   });
 

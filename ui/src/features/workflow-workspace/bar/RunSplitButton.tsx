@@ -35,7 +35,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
 import type { BarSlotProps } from '../contracts';
-import { useWorkspaceData } from '../data/context';
+import { useStandaloneRun, useWorkspaceData } from '../data/context';
 import { useWorkspaceRun } from '../data/useWorkspaceRun';
 import { useWorkspacePermissions } from '../data/useWorkspacePermissions';
 import { useWorkspaceRefresh } from '../data/useWorkspaceRefresh';
@@ -93,7 +93,8 @@ function StartFeedback({
  * file, its menu says that there is no draft to run. With unsaved changes,
  * the menu also offers to save and run to a user who may do both. While the
  * shown run has Dequeue, Stop, Reject or Retry, that action takes the slot of
- * Start and the menu offers Start.
+ * Start and the menu offers Start. A run without its workflow file has that
+ * action alone: no Start and no menu.
  */
 export function RunSplitButton(props: BarSlotProps) {
   const { canRunDags, canExecute } = useWorkspacePermissions();
@@ -147,6 +148,8 @@ function SplitButton({
     !!run.ref &&
     run.details?.status === Status.Failed;
   const replaced = stopShown || retryShown || dequeueShown;
+  // A run without its workflow file has nothing to start: only its action.
+  const standalone = useStandaloneRun() !== null;
   const [url] = useWorkspaceUrl();
   const [editRetry, setEditRetry] = useState(false);
   const startFlow = useRunStart();
@@ -179,8 +182,10 @@ function SplitButton({
   const canBackfill = canRunDags && (dag.schedule?.length ?? 0) > 0;
   // While another action has the slot of Start, the menu offers Start.
   const startInMenu = canRunDags && replaced;
-  const hasMenu = startInMenu || canRunDraft || canSaveAndRun || canBackfill;
+  const hasMenu =
+    !standalone && (startInMenu || canRunDraft || canSaveAndRun || canBackfill);
   if (!canRunDags && !hasMenu) return null;
+  if (standalone && !replaced) return null;
 
   return (
     <div data-testid="ww-run-split" className="flex min-w-0 items-center gap-1">
@@ -211,21 +216,23 @@ function SplitButton({
             )}
             {/* Start stays mounted, hidden: the palette and the menu open its
                 dialog while another action has the slot. */}
-            <div className={replaced ? 'hidden' : 'contents'}>
-              <DAGActions
-                only={['start']}
-                displayMode="full"
-                barStart
-                // While the slot shows busy or error, the feedback icon takes the
-                // place of the Play icon: the button keeps its size.
-                startIconHidden={busy || Boolean(shownError)}
-                status={dagData.latestDAGRun}
-                dag={dag}
-                fileName={fileName}
-                refresh={() => void refresh()}
-                markActions
-              />
-            </div>
+            {!standalone && (
+              <div className={replaced ? 'hidden' : 'contents'}>
+                <DAGActions
+                  only={['start']}
+                  displayMode="full"
+                  barStart
+                  // While the slot shows busy or error, the feedback icon takes
+                  // the place of the Play icon: the button keeps its size.
+                  startIconHidden={busy || Boolean(shownError)}
+                  status={dagData.latestDAGRun}
+                  dag={dag}
+                  fileName={fileName}
+                  refresh={() => void refresh()}
+                  markActions
+                />
+              </div>
+            )}
           </RunStartTarget>
           {(busy || shownError) && !replaced && (
             <span
