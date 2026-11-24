@@ -133,8 +133,7 @@ export function WorkspaceLoading({
             className={PANEL_ZONE_SHELL_CLASS}
             style={{ width: `${panelWidth}px`, maxWidth: panelMaxWidth() }}
           >
-            {/* From md the title is in the row of the toolbar, not here. */}
-            <div className={cn(PANEL_HEADER_CLASS, 'md:hidden')}>
+            <div className={PANEL_HEADER_CLASS}>
               <span className="truncate text-base font-semibold text-foreground">
                 {right === 'yaml' ? ts('YAML') : ts('Workflow')}
               </span>
