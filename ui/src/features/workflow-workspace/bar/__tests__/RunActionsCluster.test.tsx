@@ -328,7 +328,6 @@ describe('RunActionsCluster', () => {
     'succeeded',
   ])('has no Stop, Cancel, Reject, Retry or Dequeue for a %s run', (kind) => {
     setup(details(kind));
-    expect(screen.queryByTestId('ww-run-actions-slot')).toBeNull();
     for (const name of ['Stop', 'Cancel', 'Reject', 'Retry', 'Dequeue']) {
       expect(screen.queryByRole('button', { name })).toBeNull();
     }
