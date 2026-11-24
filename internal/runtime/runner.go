@@ -43,6 +43,9 @@ var (
 	ErrUpstreamSkipped  = fmt.Errorf("upstream skipped")
 	ErrUpstreamRejected = fmt.Errorf("upstream rejected")
 	ErrDeadlockDetected = errors.New("deadlock detected: no runnable nodes but DAG not finished")
+	// ErrNoListedNode fails a narrowed run whose node list left every step
+	// with nodes that matched nodes without a node (RFC 013).
+	ErrNoListedNode = errors.New("no listed node was selected")
 )
 
 // ChatMessagesHandler handles chat session messages for persistence.
@@ -310,6 +313,8 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 	if !r.isError() {
 		if err := upstreamBlock(plan); err != nil {
 			r.setLastError(err)
+		} else if noListedNode(plan) {
+			r.setLastError(ErrNoListedNode)
 		}
 	}
 
@@ -1606,6 +1611,21 @@ func upstreamBlock(plan *Plan) error {
 	return block
 }
 
+// noListedNode reports a run whose node list skipped a step with nodes and
+// left no step with nodes that started a node's run.
+func noListedNode(plan *Plan) bool {
+	skipped := false
+	for _, node := range plan.Nodes() {
+		state := node.State()
+		if state.SkippedByNodeList {
+			skipped = true
+		} else if node.Step().Nodes != nil && len(state.SubRuns) > 0 {
+			return false
+		}
+	}
+	return skipped
+}
+
 func blockedByUpstream(plan *Plan, node *Node) bool {
 	err := node.State().Error
 	return plan.inRetrySelection(node) && (errors.Is(err, ErrUpstreamFailed) || errors.Is(err, ErrUpstreamAborted))
@@ -1652,6 +1672,11 @@ func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 		case ir.NodeSkipped:
 			if dep.State().SkippedByRetry {
 				logger.Debug(ctx, "Dependency skipped by retry",
+					tag.Step(node.Name()), tag.Dependency(dep.Name()))
+				continue
+			}
+			if dep.State().SkippedByNodeList {
+				logger.Debug(ctx, "Dependency skipped by the node list",
 					tag.Step(node.Name()), tag.Dependency(dep.Name()))
 				continue
 			}

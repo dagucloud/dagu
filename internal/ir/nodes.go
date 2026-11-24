@@ -20,6 +20,33 @@ type NodeTargets struct {
 	KeepGoing bool `json:"keepGoing,omitempty"`
 }
 
+// HasNodeOrSubDAGSteps reports whether a step of the DAG, a foreach body or
+// a handler included, sets nodes or runs a child DAG: the steps a run's node
+// list can narrow.
+func (d *DAG) HasNodeOrSubDAGSteps() bool {
+	var narrows func(steps []Step) bool
+	narrows = func(steps []Step) bool {
+		for _, step := range steps {
+			if step.Nodes != nil || step.SubDAG != nil {
+				return true
+			}
+			if step.Foreach != nil && narrows(step.Foreach.Steps) {
+				return true
+			}
+		}
+		return false
+	}
+	if narrows(d.Steps) {
+		return true
+	}
+	for _, handler := range []*Step{d.HandlerOn.Init, d.HandlerOn.Failure, d.HandlerOn.Success, d.HandlerOn.Abort, d.HandlerOn.Exit, d.HandlerOn.Wait} {
+		if handler != nil && narrows([]Step{*handler}) {
+			return true
+		}
+	}
+	return false
+}
+
 const (
 	// DefaultNodeMaxConcurrent runs one node at a time, so a command that
 	// restarts a service never reaches every host at once by default.

@@ -271,6 +271,10 @@ type DAGRunStatus struct {
 	Labels             []string              `json:"labels,omitempty"`
 	LeaseAt            int64                 `json:"leaseAt,omitempty"` // Unix millis; stamped by coordinator on observed run liveness
 
+	// TargetNodes narrows the run's steps with nodes to the nodes it names
+	// (RFC 013 §Narrowing a run). Empty for a run that is not narrowed.
+	TargetNodes []string `json:"targetNodes,omitempty"`
+
 	// Ephemeral marks a run that leaves no trace: it is stored apart from the
 	// history, is not listed, emits no events, and is removed after it ends.
 	Ephemeral bool `json:"ephemeral,omitempty"`

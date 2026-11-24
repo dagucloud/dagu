@@ -102,6 +102,8 @@ var (
 	WithMaterializationStore = runctx.WithMaterializationStore
 	// WithNodeSelector sets where steps with nodes find their nodes.
 	WithNodeSelector = runctx.WithNodeSelector
+	// WithTargetNodes sets the nodes the run is narrowed to.
+	WithTargetNodes = runctx.WithTargetNodes
 	// WithHostKeys sets where connections to nodes find trusted host keys.
 	WithHostKeys = runctx.WithHostKeys
 	// WithNoReuse records that manifest hits are disabled for the run.

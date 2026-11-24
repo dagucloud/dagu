@@ -39,6 +39,8 @@ type EnqueueRequest struct {
 	// the child inherits.
 	ScheduleTime   string
 	ScheduleWindow ir.ScheduleWindow
+	// TargetNodes is the parent's node list, which the child keeps.
+	TargetNodes []string
 }
 
 // EnqueueResult describes the persisted state after queue admission.
@@ -77,6 +79,9 @@ type SubWorkflowRequest struct {
 	// for a command step with nodes. DAG then holds the parent's definition,
 	// which the runner narrows to that step (ir.DAG.NodeStepChild).
 	NodeStep string
+	// TargetNodes is the parent's node list, which narrows the child's steps
+	// with nodes too (RFC 013 §Narrowing a run).
+	TargetNodes []string
 }
 
 // SubWorkflowRetryRequest describes a child workflow step retry.

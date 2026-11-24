@@ -221,6 +221,9 @@ type Agent struct {
 	// boundNode names the inventory node a bound child run runs on.
 	boundNode string
 
+	// targetNodes narrows the run's steps with nodes to the nodes it names.
+	targetNodes []string
+
 	// nodeSelector finds the inventory nodes of steps with nodes.
 	nodeSelector runtime.NodeSelector
 
@@ -472,6 +475,10 @@ type Options struct {
 	ParallelItem string
 	// BoundNode names the inventory node a bound child run runs on (RFC 013).
 	BoundNode string
+	// TargetNodes narrows the run's steps with nodes, and those of its child
+	// runs, to the nodes it names (RFC 013 §Narrowing a run). A node: required
+	// DAG started with one node is bound to it.
+	TargetNodes []string
 	// NodeSelector finds the inventory nodes of steps with nodes (RFC 012).
 	NodeSelector runtime.NodeSelector
 	// HostKeys finds the host keys trusted for nodes (RFC 012).
@@ -598,7 +605,8 @@ func New(
 		triggerType:              opts.TriggerType,
 		triggerActor:             opts.TriggerActor,
 		parallelItem:             opts.ParallelItem,
-		boundNode:                boundNodeOf(opts),
+		boundNode:                boundNodeOf(dag, opts),
+		targetNodes:              targetNodesOf(opts),
 		nodeSelector:             opts.NodeSelector,
 		hostKeys:                 opts.HostKeys,
 		defaultExecMode:          opts.DefaultExecMode,
@@ -975,6 +983,9 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	if a.binding != nil {
 		contextOpts = append(contextOpts, runtime.WithBoundNode(a.binding.valueNode()))
+	}
+	if len(a.targetNodes) > 0 {
+		contextOpts = append(contextOpts, runtime.WithTargetNodes(a.targetNodes))
 	}
 	if a.noReuse {
 		contextOpts = append(contextOpts, runtime.WithNoReuse(true))
@@ -1844,6 +1855,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithTriggerActor(a.triggerActor),
 			ir.WithParallelItem(parallelItem),
 			ir.WithBoundNode(a.boundNode),
+			ir.WithTargetNodes(a.targetNodes),
 			ir.WithAutoRetryCount(a.currentAutoRetryCount()),
 			ir.WithPIDStartedAt(currentPIDStartedAt()),
 			ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
@@ -1906,6 +1918,7 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 		ir.WithTriggerActor(a.triggerActor),
 		ir.WithParallelItem(parallelItem),
 		ir.WithBoundNode(a.boundNode),
+		ir.WithTargetNodes(a.targetNodes),
 		ir.WithAutoRetryCount(a.currentAutoRetryCount()),
 		ir.WithPIDStartedAt(currentPIDStartedAt()),
 		ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
@@ -2853,6 +2866,9 @@ func (a *Agent) dryRun(ctx context.Context) error {
 	}
 	if a.binding != nil {
 		contextOpts = append(contextOpts, runtime.WithBoundNode(a.binding.valueNode()))
+	}
+	if len(a.targetNodes) > 0 {
+		contextOpts = append(contextOpts, runtime.WithTargetNodes(a.targetNodes))
 	}
 	if a.noReuse {
 		contextOpts = append(contextOpts, runtime.WithNoReuse(true))

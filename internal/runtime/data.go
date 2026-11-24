@@ -70,6 +70,9 @@ type NodeState struct {
 	// execution during a retry. Edit-and-retry uses this to preserve outputs;
 	// include-downstream step retry uses it for preserved skipped join prerequisites.
 	SkippedByRetry bool
+	// SkippedByNodeList marks a step with nodes that the run's node list
+	// left with no node. It does not block downstream steps either.
+	SkippedByNodeList bool
 	// Error is the error that the executor encountered.
 	Error error
 	// PreconditionResults records the latest precondition evaluation.
@@ -815,6 +818,15 @@ func (d *Data) SetSkippedByRetry(skipped bool) {
 	defer d.mu.Unlock()
 
 	d.inner.State.SkippedByRetry = skipped
+}
+
+// SetSkippedByNodeList marks a step with nodes that the run's node list
+// left with no node.
+func (d *Data) SetSkippedByNodeList(skipped bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.inner.State.SkippedByNodeList = skipped
 }
 
 func (d *Data) IsRepeated() bool {

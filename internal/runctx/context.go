@@ -72,6 +72,9 @@ type Context struct {
 	// SecretValues, when non-nil, holds the secret values the run resolved
 	// its secrets from in place of their providers.
 	SecretValues map[string]string
+	// TargetNodes narrows the steps with nodes of the run and of its child
+	// runs to the nodes it names (RFC 013 §Narrowing a run).
+	TargetNodes []string
 }
 
 // RedirectRoot moves the stdout and stderr redirect files of steps under Dir,
@@ -432,6 +435,13 @@ type NodeSelector interface {
 func WithNodeSelector(nodes NodeSelector) ContextOption {
 	return func(o *contextOptions) {
 		o.Nodes = nodes
+	}
+}
+
+// WithTargetNodes sets the nodes the run is narrowed to.
+func WithTargetNodes(names []string) ContextOption {
+	return func(o *contextOptions) {
+		o.TargetNodes = names
 	}
 }
 

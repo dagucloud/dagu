@@ -341,6 +341,7 @@ func (e *SubDAGExecutor) subWorkflowRequest(ctx context.Context, runParams RunPa
 		ScheduleWindow:    rCtx.ScheduleWindow,
 		Node:              runParams.Node,
 		NodeStep:          e.nodeStep,
+		TargetNodes:       rCtx.TargetNodes,
 	}
 	if e.workspaceSeed != nil {
 		req.Workspace = &SubWorkflowWorkspace{

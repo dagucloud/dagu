@@ -25,12 +25,28 @@ const localWorkerID = "local"
 const defaultSSHPort = "22"
 
 // boundNodeOf returns the node a run is bound to. A retry keeps the binding of
-// the run it retries.
-func boundNodeOf(opts Options) string {
-	if opts.BoundNode == "" && opts.RetryTarget != nil {
+// the run it retries, and a node: required DAG started with one node is
+// bound to it.
+func boundNodeOf(dag *ir.DAG, opts Options) string {
+	if opts.BoundNode != "" {
+		return opts.BoundNode
+	}
+	if opts.RetryTarget != nil && opts.RetryTarget.BoundNode != "" {
 		return opts.RetryTarget.BoundNode
 	}
-	return opts.BoundNode
+	if listed := targetNodesOf(opts); dag != nil && dag.NodeRequired && len(listed) == 1 {
+		return listed[0]
+	}
+	return ""
+}
+
+// targetNodesOf returns the nodes a run is narrowed to. A retry keeps the
+// list of the run it retries.
+func targetNodesOf(opts Options) []string {
+	if len(opts.TargetNodes) == 0 && opts.RetryTarget != nil {
+		return opts.RetryTarget.TargetNodes
+	}
+	return opts.TargetNodes
 }
 
 // nodeTargetingError fails, before any step starts, a run that uses node
@@ -41,7 +57,7 @@ func boundNodeOf(opts Options) string {
 //     nodes.
 func nodeTargetingError(dag *ir.DAG, boundNode, workerID string) error {
 	if dag.NodeRequired && boundNode == "" {
-		return fmt.Errorf("DAG %q declares node: required, so it runs only bound to a node, as the child of a dag.run step with nodes", dag.Name)
+		return fmt.Errorf("DAG %q declares node: required, so it runs only bound to a node, as the child of a dag.run step with nodes or started with one node (--node)", dag.Name)
 	}
 	if workerID == "" || workerID == localWorkerID {
 		return nil
