@@ -622,8 +622,7 @@ const (
 
 // PathsConfig represents the file system paths configuration.
 type PathsConfig struct {
-	DAGsDir string
-	// ProjectsDir holds the DAG directory of every project but the default.
+	DAGsDir         string
 	ProjectsDir     string
 	WikiDir         string
 	WikiDirLegacy   bool

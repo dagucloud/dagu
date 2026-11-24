@@ -24,14 +24,14 @@ const projectsSwitchKey = "experimental_projects"
 //	<log_dir>/.projects/<name>/     when paths.log_dir is set; likewise for
 //	                                artifact_dir, dag_runs_dir, dag_run_work_dir
 const (
-	defaultProjectName      = "default"
-	projectStatesDirName    = "projects"
-	setApartProjectsDirName = ".projects"
-	projectLogsDirName      = "logs"
-	projectArtifactsDirName = "artifacts"
-	projectRunsDirName      = "runs"
-	projectOtherStateDir    = "state"
-	projectRunWorkDirName   = "dag-run-work"
+	defaultProjectName       = "default"
+	projectStatesDirName     = "projects"
+	setApartProjectsDirName  = ".projects"
+	projectLogsDirName       = "logs"
+	projectArtifactsDirName  = "artifacts"
+	projectRunsDirName       = "runs"
+	projectOtherStateDirName = "state"
+	projectRunWorkDirName    = "dag-run-work"
 )
 
 // ProjectPaths holds the directories of one project.
@@ -106,7 +106,7 @@ func (c *Config) ProjectPaths(name string) (ProjectPaths, error) {
 	paths.DAGRunsDir = place(explicit.DAGRunsDir, c.Paths.DAGRunsDir,
 		filepath.Join(stateDir, projectRunsDirName))
 	paths.DAGRunWorkDir = place(explicit.DAGRunWorkDir, c.Paths.DAGRunWorkDir,
-		filepath.Join(stateDir, projectOtherStateDir, projectRunWorkDirName))
+		filepath.Join(stateDir, projectOtherStateDirName, projectRunWorkDirName))
 	return paths, nil
 }
 
