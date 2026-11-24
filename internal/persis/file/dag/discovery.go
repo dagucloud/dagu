@@ -184,6 +184,24 @@ func statSkipRoots(dirs []string) ([]skipRoot, []error) {
 	return roots, errs
 }
 
+// underSkipRoot reports whether path lies in one of roots below dir.
+func underSkipRoot(roots []skipRoot, dir, path string) bool {
+	if len(roots) == 0 {
+		return false
+	}
+	for current := filepath.Dir(path); current != dir; {
+		if isSkipRoot(roots, current, filepath.Base(current)) {
+			return true
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+		current = parent
+	}
+	return false
+}
+
 func statResolved(path string) (os.FileInfo, string, error) {
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {

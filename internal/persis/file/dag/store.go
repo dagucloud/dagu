@@ -924,19 +924,25 @@ func (store *Store) locateDAG(ctx context.Context, nameOrPath string) (ResolvedF
 			}
 		}
 		if len(store.searchPaths) > 1 {
-			return locateDAGInDirectories(nameOrPath, store.searchPaths[1:], store.symlinks)
+			return locateDAGInDirectories(nameOrPath, store.searchPaths[1:], store.symlinks, store.skipRoots)
 		}
 		return ResolvedFile{}, fmt.Errorf("DAG %s not found: %w", nameOrPath, os.ErrNotExist)
 	}
 
-	return locateDAGInDirectories(nameOrPath, store.searchPaths, store.symlinks)
+	return locateDAGInDirectories(nameOrPath, store.searchPaths, store.symlinks, store.skipRoots)
 }
 
+// locateDAGInDirectories resolves nameOrPath in the first of directories
+// that holds it. A file below one of skipRootDirs is not found there, as
+// discovery does not list it.
 func locateDAGInDirectories(
 	nameOrPath string,
 	directories []string,
 	symlinks bool,
+	skipRootDirs []string,
 ) (ResolvedFile, error) {
+	// Discovery reports a skip root it cannot look up.
+	skipRoots, _ := statSkipRoots(skipRootDirs)
 	var externalSymlinkDisabled bool
 	for _, dir := range directories {
 		absDir, err := filepath.Abs(dir)
@@ -954,7 +960,7 @@ func locateDAGInDirectories(
 
 		for _, candidatePath := range dagFileCandidates(relativePath) {
 			resolved, err := ResolveFile(absDir, candidatePath)
-			if err != nil {
+			if err != nil || underSkipRoot(skipRoots, absDir, resolved.EntryPath) {
 				continue
 			}
 			if resolved.ExternalSymlink && !symlinks {

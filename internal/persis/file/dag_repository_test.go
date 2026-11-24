@@ -276,9 +276,9 @@ func assertListUsesDataDirIndex(t *testing.T, repo *persis.DAGRepository, dataDi
 	assert.Len(t, indexes, 1)
 }
 
-// With projects on, discovery in paths.dags_dir skips paths.projects_dir
-// and paths.alt_dags_dir nested in it. With projects off, it lists them as
-// v2 does.
+// With projects on, the default project's repository neither lists nor
+// finds by path a DAG in paths.projects_dir or paths.alt_dags_dir nested in
+// paths.dags_dir. With projects off, it reaches them as v2 does.
 func TestDAGRepositorySkipsNestedRoots(t *testing.T) {
 	t.Parallel()
 
@@ -317,6 +317,18 @@ func TestDAGRepositorySkipsNestedRoots(t *testing.T) {
 				names = append(names, dag.Name)
 			}
 			assert.ElementsMatch(t, tc.want, names)
+
+			nestedFile := filepath.Join(cfg.Paths.ProjectsDir, "weather", "beta.yaml")
+			for _, path := range []string{"projects/weather/beta", nestedFile} {
+				_, err := repo.GetMetadata(context.Background(), path)
+				if tc.projects {
+					assert.ErrorIs(t, err, os.ErrNotExist, "path %s", path)
+				} else {
+					assert.NoError(t, err, "path %s", path)
+				}
+			}
+			_, err = repo.GetMetadata(context.Background(), "alpha")
+			assert.NoError(t, err)
 		})
 	}
 }
