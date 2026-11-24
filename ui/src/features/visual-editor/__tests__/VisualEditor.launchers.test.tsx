@@ -325,7 +325,7 @@ describe('VisualEditor launchers', () => {
     );
     expect(launcherButton('always')).toHaveAttribute(
       'title',
-      'Always on: Restarts after each run, wait 5 s, keeps 100 runs (default)'
+      'Always on: Restarts after each run, wait 5 s, keeps 100 runs, or as many as the base configuration sets'
     );
     const wait = within(panel()).getByLabelText('Wait before a new run (s)');
     fireEvent.change(wait, { target: { value: '30' } });

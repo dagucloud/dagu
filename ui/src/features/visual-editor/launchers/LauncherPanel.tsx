@@ -596,14 +596,12 @@ const DEFAULT_WAIT_SEC = 5;
 function CountField({
   label,
   value,
-  placeholder,
   editable,
   optional,
   onCommit,
 }: {
   label: string;
   value: number | null;
-  placeholder?: string;
   editable: boolean;
   /** True when an empty field removes the value. */
   optional: boolean;
@@ -633,7 +631,6 @@ function CountField({
         inputMode="numeric"
         value={draft}
         readOnly={!editable}
-        placeholder={placeholder}
         spellCheck={false}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
@@ -732,14 +729,15 @@ function AlwaysBody({
             <CountField
               label={ts('Runs kept in the history')}
               value={restart.histRetentionRuns}
-              placeholder={defaultRuns ? '100' : undefined}
               editable={editable}
               optional
               onCommit={(histRetentionRuns) => onChange({ histRetentionRuns })}
             />
             {defaultRuns && (
               <p className="text-xs text-muted-foreground">
-                {ts('With no value, the history keeps the latest 100 runs.')}
+                {ts(
+                  'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.'
+                )}
               </p>
             )}
           </section>

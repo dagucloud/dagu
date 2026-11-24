@@ -110,7 +110,7 @@ function keepsText(state: LauncherState, ts: Translate): string {
       { count: days }
     );
   }
-  return ts('keeps {count} runs (default)', {
+  return ts('keeps {count} runs, or as many as the base configuration sets', {
     count: DEFAULT_RETENTION_RUNS,
   });
 }

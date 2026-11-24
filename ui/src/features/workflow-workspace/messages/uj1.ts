@@ -72,7 +72,8 @@ export default defineMessages({
     '{seconds} s': '{seconds} s',
     'keeps {count} runs': 'keeps {count} runs',
     'keeps {count} run': 'keeps {count} run',
-    'keeps {count} runs (default)': 'keeps {count} runs (default)',
+    'keeps {count} runs, or as many as the base configuration sets':
+      'keeps {count} runs, or as many as the base configuration sets',
     'keeps runs for {count} days': 'keeps runs for {count} days',
     'keeps runs for {count} day': 'keeps runs for {count} day',
     '{state}, {history}': '{state}, {history}',
@@ -88,8 +89,8 @@ export default defineMessages({
       'The scheduler keeps one run of this workflow alive. It starts a new run when the last run ends.',
     'Wait before a new run (s)': 'Wait before a new run (s)',
     'Runs kept in the history': 'Runs kept in the history',
-    'With no value, the history keeps the latest 100 runs.':
-      'With no value, the history keeps the latest 100 runs.',
+    'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.':
+      'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.',
     'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.':
       'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.',
     'Workflow > {tab}': 'Workflow > {tab}',
@@ -174,7 +175,8 @@ export default defineMessages({
     '{seconds} s': '{seconds} 秒',
     'keeps {count} runs': '保留 {count} 次运行',
     'keeps {count} run': '保留 {count} 次运行',
-    'keeps {count} runs (default)': '保留 {count} 次运行（默认）',
+    'keeps {count} runs, or as many as the base configuration sets':
+      '保留 {count} 次运行，或基础配置设定的数量',
     'keeps runs for {count} days': '运行保留 {count} 天',
     'keeps runs for {count} day': '运行保留 {count} 天',
     '{state}, {history}': '{state}，{history}',
@@ -190,8 +192,8 @@ export default defineMessages({
       '调度器让此工作流始终保持一个运行。上一个运行结束时，它会启动新的运行。',
     'Wait before a new run (s)': '新运行前的等待时间（秒）',
     'Runs kept in the history': '历史中保留的运行数',
-    'With no value, the history keeps the latest 100 runs.':
-      '未设置时，历史保留最近 100 次运行。',
+    'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.':
+      '未设置时，历史保留最近 100 次运行，或基础配置设定的数量。',
     'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.':
       '请先删除工作流的 retry_policy：始终开启的工作流不能有它。',
     'Workflow > {tab}': '工作流 > {tab}',
@@ -277,7 +279,8 @@ export default defineMessages({
     '{seconds} s': '{seconds} 秒',
     'keeps {count} runs': '実行 {count} 件を保持',
     'keeps {count} run': '実行 {count} 件を保持',
-    'keeps {count} runs (default)': '実行 {count} 件を保持（既定）',
+    'keeps {count} runs, or as many as the base configuration sets':
+      '実行 {count} 件、または基本設定の件数を保持',
     'keeps runs for {count} days': '実行を {count} 日間保持',
     'keeps runs for {count} day': '実行を {count} 日間保持',
     '{state}, {history}': '{state}、{history}',
@@ -293,8 +296,8 @@ export default defineMessages({
       'スケジューラーは、このワークフローの実行を 1 つ維持します。前の実行が終わると、新しい実行を開始します。',
     'Wait before a new run (s)': '新しい実行までの待機時間（秒）',
     'Runs kept in the history': '履歴に残す実行数',
-    'With no value, the history keeps the latest 100 runs.':
-      '値がない場合、履歴には直近 100 件の実行が残ります。',
+    'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.':
+      '値がない場合、履歴には直近 100 件、または基本設定の件数の実行が残ります。',
     'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.':
       '先にワークフローの retry_policy を削除してください。常に有効なワークフローには置けません。',
     'Workflow > {tab}': 'ワークフロー > {tab}',
@@ -382,7 +385,8 @@ export default defineMessages({
     '{seconds} s': '{seconds} Sek.',
     'keeps {count} runs': 'behält {count} Läufe',
     'keeps {count} run': 'behält {count} Lauf',
-    'keeps {count} runs (default)': 'behält {count} Läufe (Standard)',
+    'keeps {count} runs, or as many as the base configuration sets':
+      'behält {count} Läufe oder so viele, wie die Grundkonfiguration festlegt',
     'keeps runs for {count} days': 'behält Läufe {count} Tage lang',
     'keeps runs for {count} day': 'behält Läufe {count} Tag lang',
     '{state}, {history}': '{state}, {history}',
@@ -398,8 +402,8 @@ export default defineMessages({
       'Der Scheduler hält einen Lauf dieses Ablaufs am Leben. Er startet einen neuen Lauf, wenn der letzte Lauf endet.',
     'Wait before a new run (s)': 'Wartezeit vor einem neuen Lauf (s)',
     'Runs kept in the history': 'Läufe im Verlauf',
-    'With no value, the history keeps the latest 100 runs.':
-      'Ohne Wert behält der Verlauf die letzten 100 Läufe.',
+    'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.':
+      'Ohne Wert behält der Verlauf die letzten 100 Läufe oder so viele, wie die Grundkonfiguration festlegt.',
     'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.':
       'Zuerst die retry_policy des Ablaufs entfernen: Ein Ablauf, der immer an ist, kann keine haben.',
     'Workflow > {tab}': 'Ablauf > {tab}',

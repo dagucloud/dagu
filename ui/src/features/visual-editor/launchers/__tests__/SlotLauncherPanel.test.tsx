@@ -144,7 +144,8 @@ const choice = (name: string) =>
 const policy = (name: string) => screen.getByRole('button', { name });
 const wait = () => screen.getByLabelText('Wait before a new run (s)');
 const runs = () => screen.getByLabelText('Runs kept in the history');
-const DEFAULT_RUNS = 'With no value, the history keeps the latest 100 runs.';
+const DEFAULT_RUNS =
+  'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.';
 const EDIT_IN_YAML = 'Edit the schedule in the YAML to switch to Always on.';
 
 describe('SlotLauncherPanel', () => {
@@ -387,10 +388,8 @@ describe('SlotLauncherPanel', () => {
     const service = { ...ON, histRetentionRuns: null };
     const { rerender } = renderPanel('always', NO_SCHEDULE, service);
     expect(screen.getByText(DEFAULT_RUNS)).toBeInTheDocument();
-    expect(runs()).toHaveAttribute('placeholder', '100');
     rerender(NO_SCHEDULE, { ...service, histRetentionDays: 7 });
     expect(screen.queryByText(DEFAULT_RUNS)).toBeNull();
-    expect(runs()).not.toHaveAttribute('placeholder');
   });
 
   // Spec 080: a service has no retry_policy.
