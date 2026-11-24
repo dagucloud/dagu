@@ -187,7 +187,12 @@ it as `targetNodes`, and the audit entry of the start records it.
 A step whose selector matches nodes, none of which the list names, is
 `skipped`, and the skip does not block the steps after it, as a step skipped
 by a precondition would. A run whose list leaves every step with nodes that
-matched nodes without a node fails with `no listed node was selected`.
+matched nodes without a node, those of `foreach` bodies and handlers
+included, fails with `no listed node was selected`.
+
+A child run of a narrowed run, started by `dag.run` or `dag.enqueue`, keeps
+the list and runs on the Dagu host, so a child DAG that selects workers
+fails the step that starts it.
 
 ### Viewing node runs
 
