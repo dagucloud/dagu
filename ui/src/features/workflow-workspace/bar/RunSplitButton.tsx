@@ -25,7 +25,6 @@ import {
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import DAGRunActions from '@/features/dag-runs/components/common/DAGRunActions';
 import { getDAGRunTerminateAction } from '@/features/dag-runs/components/common/terminateAction';
-import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
 import { useUnsavedChanges } from '@/contexts/UnsavedChangesContext';
 import { daysBack } from '@/features/backfills/components/BackfillRangePicker';
 import { StartBackfillDialog } from '@/features/backfills/components/StartBackfillDialog';
@@ -138,16 +137,12 @@ function SplitButton({
   // Each state of the shown run has its action in the slot of Start: Dequeue
   // for a queued run; Stop for an active run, with Reject beside it while the
   // run waits for an approval; Retry for a failed run; else Start.
-  const { isWaiting, waitingApprovalNodes } = getManualActionState(
-    run.details ?? undefined
-  );
   const dequeueShown = !!run.ref && run.details?.status === Status.Queued;
   const stopShown =
     !dequeueShown &&
     !!run.ref &&
     !!run.details &&
-    (getDAGRunTerminateAction(run.details) !== 'none' ||
-      (isWaiting && waitingApprovalNodes.length > 0));
+    getDAGRunTerminateAction(run.details) !== 'none';
   // A run without its workflow file has nothing to start: only its action.
   const standalone = useStandaloneRun() !== null;
   // A run that is not active can be retried, as the server allows. Retry
