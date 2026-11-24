@@ -46,7 +46,7 @@ This process runs continuously in the foreground until terminated.
 	)
 }
 
-var schedulerFlags = []commandLineFlag{dagsFlag}
+var schedulerFlags = []commandLineFlag{dagsFlag, projectsDirFlag}
 
 func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Scheduler, error) {
 	if deps.DAGSettingsStore == nil {

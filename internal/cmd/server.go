@@ -68,7 +68,7 @@ Example:
 	)
 }
 
-var serverFlags = []commandLineFlag{dagsFlag, hostFlag, portFlag, tunnelFlag, tunnelTokenFlag, tunnelFunnelFlag, tunnelHTTPSFlag}
+var serverFlags = []commandLineFlag{dagsFlag, projectsDirFlag, hostFlag, portFlag, tunnelFlag, tunnelTokenFlag, tunnelFunnelFlag, tunnelHTTPSFlag}
 
 const localAgentSessionShutdownTimeout = 10 * time.Second
 

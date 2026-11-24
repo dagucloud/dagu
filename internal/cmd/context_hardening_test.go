@@ -161,6 +161,22 @@ func TestNewContext_RemoteSkipsLocalEventStore(t *testing.T) {
 	require.NoDirExists(t, eventStoreDir)
 }
 
+func TestNewContext_ProjectsDirFlag(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	projectsDir := filepath.Join(home, "team-projects")
+	command := &cobra.Command{Use: "status"}
+	initFlags(command, projectsDirFlag)
+	command.SetContext(context.Background())
+	require.NoError(t, command.Flags().Set("dagu-home", home))
+	require.NoError(t, command.Flags().Set("projects-dir", projectsDir))
+
+	ctx, err := NewContext(command, []commandLineFlag{projectsDirFlag})
+	require.NoError(t, err)
+	assert.Equal(t, projectsDir, ctx.Config.Paths.ProjectsDir)
+}
+
 func writeTestConfig(t *testing.T, home, contextsDir string) string {
 	t.Helper()
 	configPath := filepath.Join(home, "config.yaml")
