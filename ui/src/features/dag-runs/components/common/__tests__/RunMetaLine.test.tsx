@@ -146,6 +146,14 @@ describe('RunMetaLine', () => {
     expect(screen.getByText('region=eu')).toBeInTheDocument();
   });
 
+  it('names the node of a bound run', () => {
+    const { rerender } = render(<RunMetaLine dagRun={run} />);
+    expect(screen.queryByTitle('Node')).toBeNull();
+
+    rerender(<RunMetaLine dagRun={{ ...run, boundNode: 'web03' }} />);
+    expect(screen.getByTitle('Node')).toHaveTextContent('web03');
+  });
+
   it('links the trigger of a backfill run to its backfill', () => {
     render(
       <MemoryRouter>

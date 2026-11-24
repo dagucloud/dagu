@@ -84,7 +84,13 @@ export function hasHiddenFacts(
     queued && fields.startedAt && fields.startedAt !== '-'
       ? Date.parse(fields.startedAt) - Date.parse(fields.queuedAt!) >= 1000
       : false;
-  if (fields.workerId || fields.profileName || fields.params || waited) {
+  if (
+    fields.workerId ||
+    fields.boundNode ||
+    fields.profileName ||
+    fields.params ||
+    waited
+  ) {
     return true;
   }
   return [...ALL_INLINE_FACTS].some(
