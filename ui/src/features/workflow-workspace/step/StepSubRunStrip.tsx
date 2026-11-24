@@ -44,9 +44,11 @@ export function StepSubRunStrip({
         )}
       >
         <span className="min-w-0 truncate">
-          {ts('This step matched {count} nodes.', {
-            count: node.nodeRuns.total,
-          })}
+          {node.nodeRuns.total === 1
+            ? ts('This step matched 1 node.')
+            : ts('This step matched {count} nodes.', {
+                count: node.nodeRuns.total,
+              })}
         </span>
         <Button type="button" variant="ghost" size="xs" onClick={onOpenNodes}>
           {ts('Open Nodes')}

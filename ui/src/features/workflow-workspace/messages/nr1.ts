@@ -13,6 +13,7 @@ export default defineMessages({
     'The step did not select this node': 'The step did not select this node',
     'Open the run of {node} for {step}': 'Open the run of {node} for {step}',
     'Open Nodes': 'Open Nodes',
+    'This step matched 1 node.': 'This step matched 1 node.',
     'This step matched {count} nodes.': 'This step matched {count} nodes.',
   },
   'zh-CN': {
@@ -22,6 +23,7 @@ export default defineMessages({
     'The step did not select this node': '该步骤未选中此节点',
     'Open the run of {node} for {step}': '打开 {node} 上 {step} 的运行',
     'Open Nodes': '打开节点',
+    'This step matched 1 node.': '此步骤匹配了 1 个节点。',
     'This step matched {count} nodes.': '此步骤匹配了 {count} 个节点。',
   },
   ja: {
@@ -32,6 +34,7 @@ export default defineMessages({
       'このステップはこのノードを選択していません',
     'Open the run of {node} for {step}': '{node} の {step} の実行を開く',
     'Open Nodes': 'ノードを開く',
+    'This step matched 1 node.': 'このステップは 1 件のノードに一致しました。',
     'This step matched {count} nodes.':
       'このステップは {count} 件のノードに一致しました。',
   },
@@ -43,6 +46,7 @@ export default defineMessages({
       'Der Schritt hat diesen Knoten nicht ausgewählt',
     'Open the run of {node} for {step}': 'Lauf von {node} für {step} öffnen',
     'Open Nodes': 'Knoten öffnen',
+    'This step matched 1 node.': 'Dieser Schritt hat 1 Knoten ausgewählt.',
     'This step matched {count} nodes.':
       'Dieser Schritt hat {count} Knoten ausgewählt.',
   },
