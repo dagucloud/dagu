@@ -35,6 +35,9 @@ type nodeDispatch struct {
 	finished map[string]time.Time
 	// active holds the run IDs of the nodes with an attempt in flight.
 	active map[string]bool
+	// retries counts the step retries of each node that are queued and have
+	// not started, by run ID.
+	retries map[string]int
 	// resultless holds the run IDs of the nodes whose last attempt returned
 	// no result, whatever an earlier attempt returned.
 	resultless map[string]bool
@@ -80,6 +83,7 @@ func newNodesExecutor(ctx context.Context, step ir.Step) (executor.Executor, err
 			started:       make(map[string]time.Time),
 			finished:      make(map[string]time.Time),
 			active:        make(map[string]bool),
+			retries:       make(map[string]int),
 			resultless:    make(map[string]bool),
 			maxOutputSize: maxOutputSize,
 		},
@@ -157,9 +161,23 @@ func (e *parallelExecutor) noteNodeStart(runID string) {
 	defer e.lock.Unlock()
 	if _, started := e.nodes.started[runID]; !started {
 		e.nodes.started[runID] = time.Now()
+	} else if e.nodes.retries[runID] > 0 {
+		// One attempt of a node runs at a time, so a node that starts
+		// again starts one of its queued retries.
+		e.nodes.retries[runID]--
 	}
 	e.nodes.active[runID] = true
 	e.nodes.changed = true
+}
+
+// noteNodeRetry records that a step retry of a node was queued.
+func (e *parallelExecutor) noteNodeRetry(runID string) {
+	if e.nodes == nil {
+		return
+	}
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	e.nodes.retries[runID]++
 }
 
 // noteNodeFinish records that an attempt of a node's child run returned,
@@ -177,7 +195,8 @@ func (e *parallelExecutor) noteNodeFinish(runID string, result *ir.RunStatus) {
 }
 
 // nodeRunStatus returns the status of a matched node's run. ended tells that
-// the step has ended, after which no attempt of a node runs. A node that
+// the step has ended, after which no attempt of a node runs. A node runs while
+// an attempt is in flight or a step retry is queued. A node whose last attempt
 // returned no result failed. Callers hold e.lock.
 func (e *parallelExecutor) nodeRunStatus(node executor.NodeRun, ended bool) ir.NodeRunStatus {
 	if node.Disabled {
@@ -187,16 +206,13 @@ func (e *parallelExecutor) nodeRunStatus(node executor.NodeRun, ended bool) ir.N
 	if _, started := e.nodes.started[id]; !started {
 		return ir.NodeRunNotStarted
 	}
-	active := e.nodes.active[id]
+	busy := e.nodes.active[id] || e.nodes.retries[id] > 0
 	result, returned := e.results[id]
 	returned = returned && !e.nodes.resultless[id]
 	switch {
-	case active && e.cancelled():
+	case busy && e.cancelled():
 		return ir.NodeRunAborted
-	case active && !ended:
-		return ir.NodeRunRunning
-	case returned && len(result.PendingStepRetries) > 0 && !ended && !e.cancelled():
-		// A step retry of the node is pending.
+	case busy && !ended:
 		return ir.NodeRunRunning
 	case returned:
 		return ir.NodeRunStatusOf(result.Status)

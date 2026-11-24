@@ -268,6 +268,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 					}
 					pending = append(pending, next)
 					pendingSet[key] = struct{}{}
+					e.noteNodeRetry(next.runParams.RunID)
 				}
 			} else if res.err != nil && !errors.Is(res.err, errParallelCancelled) && !errors.Is(res.err, context.Canceled) {
 				if e.nodes != nil {

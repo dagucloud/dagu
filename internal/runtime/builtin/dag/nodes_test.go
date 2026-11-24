@@ -20,7 +20,7 @@ func nodesExecutorWith(limit int, matched []executor.NodeRun, results map[string
 		results: results,
 		nodes: &nodeDispatch{
 			started: map[string]time.Time{}, finished: map[string]time.Time{},
-			active: map[string]bool{}, resultless: map[string]bool{},
+			active: map[string]bool{}, retries: map[string]int{}, resultless: map[string]bool{},
 			maxOutputSize: limit,
 		},
 	}
