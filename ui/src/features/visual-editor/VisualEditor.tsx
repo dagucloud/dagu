@@ -33,7 +33,10 @@ import { cn } from '@/lib/utils';
 import { buildCanvasGraph, buildDetailsGraph, VisualCanvas } from './canvas';
 import { AgentRunContext } from './canvas/agentRunContext';
 import { CanvasToolbar } from './canvas/CanvasToolbar';
-import { useCanvasToolbarHost } from './canvas/toolbarHost';
+import {
+  useCanvasToolbarHost,
+  usePanelInToolbarRow,
+} from './canvas/toolbarHost';
 import { ghostLookOf } from './canvas/ghost';
 import {
   CanvasOverlayInsetContext,
@@ -195,6 +198,11 @@ export interface VisualEditorProps extends EditorHostProps {
   onWorkflowOpenChange?(open: boolean): void;
   /** Controls before the canvas controls; see VisualCanvasProps.toolbarStart. */
   toolbarStart?: ReactNode;
+  /**
+   * The text tools of the YAML panel of the file. In the row of a host, they
+   * stand at the start of the toolbar while that panel is open.
+   */
+  yamlTools?: ReactNode;
   /**
    * Restores the text of the last save; the 'Revert to the last save' button
    * shows only with it, and is on only while the text is dirty. The host asks
@@ -395,6 +403,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     onYamlIntent,
     onYamlModeChange,
     initialYamlMode = 'step',
+    yamlTools,
     initialWorkflowOpen = false,
     onWorkflowOpenChange,
     toolbarStart,
@@ -1690,8 +1699,21 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   });
 
   const yamlShown = yamlVisible && !(inDrawer && formOpen);
+  // In the row of a host (from md), the open Workflow and YAML panels have no
+  // title bar: their toggles show the name, and the YAML tools join the row.
+  const panelsInRow = usePanelInToolbarRow();
+  const inRow = panelsInRow && !compactTools;
+  const toolsInRow = inRow && wholeFileShown && !!yamlTools;
   const toolbarEnd = (
     <>
+      {toolsInRow && (
+        <div
+          data-testid="ve-yaml-tools"
+          className="mr-1 flex items-center gap-1"
+        >
+          {yamlTools}
+        </div>
+      )}
       {!chrome?.hideRunBar && (
         <RunBar
           dagName={dagName}

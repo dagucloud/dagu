@@ -750,14 +750,19 @@ export function WorkspaceCanvas({
           </PanelColumnProvider>
         </CanvasOverlayInsetContext.Provider>
         {panelStep !== null && !columnMode && (
-          <StepPanel
-            step={panelStep}
-            openedAt={stepPanel.openedAt}
-            onClose={stepPanel.close}
-            onStepCommand={onStepCommand}
-            gates={stepCommandGates}
-            onOpenStep={() => openStepDetails(panelStep)}
-          />
+          // A panel of the zone: its title and Close button sit in the row.
+          <PanelPlacementProvider value="zone">
+            <CanvasToolbarHostContext.Provider value={toolbarRow}>
+              <StepPanel
+                step={panelStep}
+                openedAt={stepPanel.openedAt}
+                onClose={stepPanel.close}
+                onStepCommand={onStepCommand}
+                gates={stepCommandGates}
+                onOpenStep={() => openStepDetails(panelStep)}
+              />
+            </CanvasToolbarHostContext.Provider>
+          </PanelPlacementProvider>
         )}
         {snapshot && <RunSnapshotCanvas />}
         {actions.dialogs}

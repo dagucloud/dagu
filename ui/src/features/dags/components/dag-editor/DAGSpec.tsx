@@ -104,6 +104,8 @@ import { useYamlSection } from './useYamlSection';
 import { useDAGSpecQuery } from './useDAGSpecQuery';
 import { WorkflowPanel } from './WorkflowPanel';
 import { PanelSwitchButton } from '@/features/visual-editor/PanelSwitchButton';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { WIDE_QUERY } from '@/lib/breakpoints';
 import type { LauncherId } from '@/features/visual-editor/launchers/model';
 // Not lazy: the canvas is what the page shows first, and a lazy editor adds
 // a blank render that React holds for up to 300 ms.
@@ -1033,6 +1035,9 @@ function DAGSpec({
   const { yamlKind, setYamlKind, sectionOpen, setSectionOpen } =
     useYamlSection(ndv);
   const panelColumn = usePanelColumn();
+  // From md the toggles of the toolbar row swap the docks: the YAML dock has
+  // no header, and so no switch button.
+  const phone = !useMediaQuery(WIDE_QUERY, true);
   // The step that the YAML shows alone: the schema docs follow it.
   const [yamlStepPath, setYamlStepPath] = React.useState<string[] | null>(null);
   // Where the visual editor puts its controls in the bar of the YAML drawer.
@@ -2096,16 +2101,17 @@ function DAGSpec({
               </I18nProps>
             )}
             {editable && (
-              // Save and the issues button share this box: the same place,
-              // the same height and the same width, so that nothing moves.
+              // Save and the issues button share this box: the same place and
+              // the same height. The box starts at the end of the YAML button,
+              // so that Save has no gap before it.
               // In the tools sheet of a phone the Save button says its name.
               <IconButtonLabelsConsumer>
                 {(saveLabeled) => (
                   <div
                     data-testid="save-slot"
                     className={cn(
-                      'flex h-7 items-center justify-start',
-                      saveLabeled ? 'h-9 w-full' : 'w-14'
+                      'flex h-7 items-center',
+                      saveLabeled ? 'h-9 w-full justify-start' : 'justify-start'
                     )}
                   >
                     {savingBlocked && issuesPopover}
@@ -2334,6 +2340,9 @@ function DAGSpec({
                           onWorkflowOpenChange={setWorkflowOpen}
                           toolbarStart={documentTabs}
                           toolbarTrail={specActions}
+                          yamlTools={
+                            yamlKind === 'file' ? yamlTools : undefined
+                          }
                           onRevertToSave={editable ? requestDiscard : undefined}
                           yamlToolbarRoot={yamlToolbarRoot}
                           onYamlStepPathChange={setYamlStepPath}
@@ -2481,7 +2490,8 @@ function DAGSpec({
                       yamlKind === 'file' &&
                       preview.dag &&
                       activeTab === 'parent' &&
-                      !panelColumn ? (
+                      !panelColumn &&
+                      phone ? (
                         <PanelSwitchButton
                           to="workflow"
                           onClick={() => editorHandle.openWorkflowPanel(true)}

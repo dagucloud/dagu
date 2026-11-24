@@ -41,6 +41,11 @@ import {
   useDrawerWidth,
 } from '@/features/dags/components/step-details/StepSideDrawer';
 import { actionIcon } from '@/features/visual-editor/canvas/icons';
+import {
+  PanelRowTitle,
+  ROW_PANEL_HEADER_CLASS,
+  usePanelInToolbarRow,
+} from '@/features/visual-editor/canvas/toolbarHost';
 import type { QuickFix } from '@/features/visual-editor/doc/quickFixes';
 import { buildRunOverlay } from '@/features/visual-editor/run/runOverlay';
 import { stepNeighbours } from './stepOrder';
@@ -334,9 +339,14 @@ export function NodeDetailsFrame({
   // tab for the file, over the zone and the column for a step. One container
   // keeps its editor, with the undo history, when it changes place. Over the
   // tab it claims no right-panel slot.
+  const inRow = usePanelInToolbarRow();
   const column = usePanelColumn();
   const layer = column?.layer ?? null;
   const inColumn = !!layer && !!column?.yaml && state !== 'expanded';
+  // The row of the toolbars has the Close button of the docked file, and its
+  // title unless the bar has a note; an open frame only, as the zone keeps a
+  // slot free for the button.
+  const rowTitle = inRow && fileScope && open && !inColumn;
   const columnBox = useBoxIn(inColumn ? column.yaml : null, layer);
   useRightPanelClaim('ndv', open && !inColumn, onClose, onRestore);
   const sectionRef = React.useRef<HTMLElement>(null);
@@ -605,9 +615,23 @@ export function NodeDetailsFrame({
       >
         {/* The docked frame takes a new width from its left edge. */}
         {docked && !fillsZone && <PanelResizeHandle shown={open} />}
+        {rowTitle && (
+          <PanelRowTitle
+            title={headerNote ? undefined : ts('YAML')}
+            closeLabel={ts('Close')}
+            onClose={onClose}
+          />
+        )}
         <header
           data-panel-header
-          className={cn(PANEL_HEADER_CLASS, '@container')}
+          className={cn(
+            PANEL_HEADER_CLASS,
+            '@container',
+            // The YAML toggle and the tools of the row take its place from
+            // md. A note (the lock of a read-only text, a run) keeps it, but
+            // the row has the title and the Close button.
+            inRow && fileScope && !headerNote && ROW_PANEL_HEADER_CLASS
+          )}
         >
           <div className="flex h-12 min-w-0 flex-1 items-center gap-2">
             {/* The title side gives way first: the buttons, Close included,
@@ -700,7 +724,12 @@ export function NodeDetailsFrame({
                   </Button>
                 )}
               {!inColumn && (
-                <IconButton label={ts('Close')} icon={X} onClick={onClose} />
+                <IconButton
+                  label={ts('Close')}
+                  icon={X}
+                  className={rowTitle ? 'md:hidden' : undefined}
+                  onClick={onClose}
+                />
               )}
             </div>
           </div>
