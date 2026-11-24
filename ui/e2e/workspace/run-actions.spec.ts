@@ -630,8 +630,7 @@ steps:
     await expect(
       page.getByRole('button', { name: 'Retry', exact: true })
     ).toHaveCount(0);
-    await page
-      .getByTestId('ww-run-start-slot')
+    await runSlot(page)
       .getByRole('button', { name: 'Stop', exact: true })
       .click();
     const confirm = page.getByRole('dialog', { name: 'Stop this run?' });
@@ -695,8 +694,7 @@ steps:
     await expect(chipStatus(page, 'Failed')).toBeVisible();
     // Retry replaces Start in its slot, for a failed run only.
     await expect(runButton(page)).toBeHidden();
-    await page
-      .getByTestId('ww-run-start-slot')
+    await runSlot(page)
       .getByRole('button', { name: 'Retry', exact: true })
       .click();
     const confirm = page.getByRole('dialog', { name: 'Retry this run?' });
@@ -760,8 +758,7 @@ steps:
     const newRunId = uniqueName('ws-rescheduled-run');
     await openRun(page, gotoWorkspace, fileName);
     await expect(chipRun(page, firstId)).toBeAttached({ timeout: 30_000 });
-    await page
-      .getByTestId('ww-run-start-slot')
+    await runSlot(page)
       .getByRole('button', { name: 'Retry', exact: true })
       .click();
     await expect(
