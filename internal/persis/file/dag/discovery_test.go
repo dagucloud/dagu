@@ -4,8 +4,10 @@
 package dag
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -162,6 +164,34 @@ func TestDiscoverRecursiveSkipsNestedRoots(t *testing.T) {
 		}
 		assert.Equal(t, want, discovered(t, filepath.Join(root, "TEAM", "Projects")))
 	})
+}
+
+// A skip root that cannot be looked up is reported, and discovery goes on.
+func TestDiscoverReportsUnreadableSkipRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permissions do not deny lookups on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	base := t.TempDir()
+	root := filepath.Join(base, "dags")
+	require.NoError(t, os.MkdirAll(root, 0750))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "root.yaml"), []byte("steps: []\n"), 0600))
+	locked := filepath.Join(base, "locked")
+	require.NoError(t, os.MkdirAll(filepath.Join(locked, "projects"), 0750))
+	require.NoError(t, os.Chmod(locked, 0))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0750) })
+
+	result, err := Discover(root, DiscoveryOptions{
+		Recursive: true,
+		SkipRoots: []string{filepath.Join(locked, "projects"), filepath.Join(base, "missing")},
+	})
+	require.NoError(t, err)
+	require.Len(t, result.Errors, 1)
+	assert.ErrorIs(t, result.Errors[0], fs.ErrPermission)
+	require.Len(t, result.Files, 1)
+	assert.Equal(t, "root.yaml", result.Files[0].RelPath)
 }
 
 func TestDiscoverNonRecursiveOnlyReadsRoot(t *testing.T) {

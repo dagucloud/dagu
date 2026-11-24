@@ -78,8 +78,8 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 		return DiscoveryResult{}, fmt.Errorf("%s is not a directory", root)
 	}
 
-	skipRoots := statSkipRoots(opts.SkipRoots)
-	result := DiscoveryResult{}
+	skipRoots, skipErrs := statSkipRoots(opts.SkipRoots)
+	result := DiscoveryResult{Errors: skipErrs}
 	err = filepath.WalkDir(walkRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		relPath, err := filepath.Rel(walkRoot, path)
 		if err != nil {
@@ -160,21 +160,37 @@ type skipRoot struct {
 }
 
 // statSkipRoots returns the directories among dirs that exist now. One
-// created later is omitted from the next discovery on.
-func statSkipRoots(dirs []string) []skipRoot {
-	var roots []skipRoot
+// created later is omitted from the next discovery on. A directory that
+// cannot be looked up for a reason other than its absence is reported, since
+// discovery may then read what it should skip.
+func statSkipRoots(dirs []string) ([]skipRoot, []error) {
+	var (
+		roots []skipRoot
+		errs  []error
+	)
 	for _, dir := range dirs {
-		resolved, err := filepath.EvalSymlinks(dir)
-		if err != nil {
+		info, resolved, err := statResolved(dir)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
 			continue
-		}
-		info, err := os.Stat(resolved)
-		if err != nil || !info.IsDir() {
+		case err != nil:
+			errs = append(errs, fmt.Errorf("skip %s: %w", dir, err))
+			continue
+		case !info.IsDir():
 			continue
 		}
 		roots = append(roots, skipRoot{name: filepath.Base(resolved), info: info})
 	}
-	return roots
+	return roots, errs
+}
+
+func statResolved(path string) (os.FileInfo, string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, "", err
+	}
+	info, err := os.Stat(resolved)
+	return info, resolved, err
 }
 
 // isSkipRoot reports whether the directory at path, called name, is one of
