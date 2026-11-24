@@ -161,8 +161,9 @@ status. A record holds the node, its status, its child run, and when the run
 started and finished. Once the child run finishes, the record adds how many
 of its steps succeeded and the step that failed last. A node's status is one
 its child run reached, or `not_started`, `running`, or `disabled`. A child
-run that returned without finishing, such as a queued one that a retry
-reused, is `failed`, as the step counts it. The step
+run that returned while still queued, running, or not started, as one that a
+retry reused can, is `failed`, as the step counts it. One that returned
+waiting for approval stays `waiting`. The step
 records its nodes before any of them starts, again at most once a second
 while they change, and once more when it ends. A node running when the step
 is aborted is `aborted`.
