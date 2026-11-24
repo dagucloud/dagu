@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -112,6 +113,55 @@ func TestDiscoverRecursiveSkipsConfiguredDirectories(t *testing.T) {
 	}
 	// A directory deeper in the tree with a skipped name is still read.
 	assert.Equal(t, []string{"entrypoint.yaml", "pipelines/batch.yaml", "pipelines/jobs/nested.yaml"}, files)
+}
+
+// A skip root is omitted wherever it lies below root, and matched by
+// identity, so another spelling of its path still matches.
+func TestDiscoverRecursiveSkipsNestedRoots(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "dags")
+	nested := filepath.Join(root, "team", "projects")
+	for _, path := range []string{
+		filepath.Join(root, "root.yaml"),
+		filepath.Join(nested, "weather", "nested.yaml"),
+		filepath.Join(root, "other", "projects", "kept.yaml"),
+	} {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0750))
+		require.NoError(t, os.WriteFile(path, []byte("steps: []\n"), 0600))
+	}
+	discovered := func(t *testing.T, skipRoots ...string) []string {
+		t.Helper()
+		result, err := Discover(root, DiscoveryOptions{Recursive: true, SkipRoots: skipRoots})
+		require.NoError(t, err)
+		require.Empty(t, result.Errors)
+		var files []string
+		for _, file := range result.Files {
+			files = append(files, file.RelPath)
+		}
+		return files
+	}
+	want := []string{"other/projects/kept.yaml", "root.yaml"}
+
+	assert.Equal(t, want, discovered(t, nested, filepath.Join(base, "missing")))
+
+	t.Run("RootItself", func(t *testing.T) {
+		assert.Equal(t, append(want, "team/projects/weather/nested.yaml"), discovered(t, root))
+	})
+
+	t.Run("SymlinkedPath", func(t *testing.T) {
+		link := filepath.Join(base, "link")
+		if err := os.Symlink(nested, link); err != nil {
+			t.Skipf("symlinks are unavailable: %v", err)
+		}
+		assert.Equal(t, want, discovered(t, link))
+	})
+
+	t.Run("OtherCase", func(t *testing.T) {
+		if !fileutil.IsCaseInsensitiveFS(root) {
+			t.Skip("file system distinguishes case")
+		}
+		assert.Equal(t, want, discovered(t, filepath.Join(root, "TEAM", "Projects")))
+	})
 }
 
 func TestDiscoverNonRecursiveOnlyReadsRoot(t *testing.T) {

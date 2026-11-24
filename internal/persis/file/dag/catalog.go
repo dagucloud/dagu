@@ -26,6 +26,7 @@ func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*
 		Recursive: store.recursive,
 		Symlinks:  store.symlinks,
 		SkipDirs:  store.skipDirs,
+		SkipRoots: store.skipRoots,
 	})
 	if err != nil {
 		return nil, err
@@ -47,6 +48,7 @@ func (store *Store) loadCatalog(ctx context.Context, includeSearchPaths bool) (*
 				Recursive: store.recursive,
 				Symlinks:  store.symlinks,
 				SkipDirs:  store.skipDirs,
+				SkipRoots: store.skipRoots,
 			})
 			if err != nil {
 				return nil, err

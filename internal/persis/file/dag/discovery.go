@@ -37,6 +37,11 @@ type DiscoveryOptions struct {
 	// discovery omits, so child-DAG subtrees stay resolvable by path but out
 	// of the catalog and scheduler. A name deeper in the tree is not skipped.
 	SkipDirs []string
+	// SkipRoots lists directories that recursive discovery omits wherever
+	// it meets them below root, such as another owner's DAG directory
+	// nested in this one. A directory matches by identity, whatever the
+	// case or links of its path.
+	SkipRoots []string
 }
 
 // ResolvedFile describes a DAG file entry and its canonical read target.
@@ -73,6 +78,7 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 		return DiscoveryResult{}, fmt.Errorf("%s is not a directory", root)
 	}
 
+	skipRoots := statSkipRoots(opts.SkipRoots)
 	result := DiscoveryResult{}
 	err = filepath.WalkDir(walkRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		relPath, err := filepath.Rel(walkRoot, path)
@@ -115,7 +121,8 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 			if relPath != "." {
 				if strings.HasPrefix(entry.Name(), ".") ||
 					relPath == workspace.BaseConfigDirName ||
-					slices.Contains(opts.SkipDirs, relPath) {
+					slices.Contains(opts.SkipDirs, relPath) ||
+					isSkipRoot(skipRoots, path, entry.Name()) {
 					return filepath.SkipDir
 				}
 			}
@@ -144,6 +151,45 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 
 	sortResult(&result)
 	return result, nil
+}
+
+// skipRoot is an existing directory that recursive discovery omits.
+type skipRoot struct {
+	name string
+	info os.FileInfo
+}
+
+// statSkipRoots returns the directories among dirs that exist now. One
+// created later is omitted from the next discovery on.
+func statSkipRoots(dirs []string) []skipRoot {
+	var roots []skipRoot
+	for _, dir := range dirs {
+		resolved, err := filepath.EvalSymlinks(dir)
+		if err != nil {
+			continue
+		}
+		info, err := os.Stat(resolved)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		roots = append(roots, skipRoot{name: filepath.Base(resolved), info: info})
+	}
+	return roots
+}
+
+// isSkipRoot reports whether the directory at path, called name, is one of
+// roots. Only a directory whose name matches a root's without regard to case
+// is compared by identity, so other directories cost no system call.
+func isSkipRoot(roots []skipRoot, path, name string) bool {
+	for _, root := range roots {
+		if !strings.EqualFold(name, root.name) {
+			continue
+		}
+		if info, err := os.Stat(path); err == nil && os.SameFile(info, root.info) {
+			return true
+		}
+	}
+	return false
 }
 
 func scanRoot(root string, symlinks bool) (DiscoveryResult, error) {

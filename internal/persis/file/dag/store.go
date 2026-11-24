@@ -54,6 +54,7 @@ type Options struct {
 	Recursive              bool                     // Discover DAG definitions in subdirectories
 	Symlinks               bool                     // Include recursive file symlinks and external targets
 	SkipDirs               []string                 // Root-level directories recursive discovery omits
+	SkipRoots              []string                 // Directories recursive discovery omits wherever they lie
 	SkipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
 	legacyFlagsBaseDir     string
 	indexDir               string
@@ -78,6 +79,14 @@ func WithSymlinks(enabled bool) Option {
 func WithSkipDirs(dirs []string) Option {
 	return func(o *Options) {
 		o.SkipDirs = dirs
+	}
+}
+
+// WithSkipRoots sets the directories recursive discovery omits wherever it
+// meets them below a scanned directory.
+func WithSkipRoots(dirs []string) Option {
+	return func(o *Options) {
+		o.SkipRoots = dirs
 	}
 }
 
@@ -197,6 +206,7 @@ func NewStore(baseDir string, opts ...Option) *Store {
 		recursive:              options.Recursive,
 		symlinks:               options.Symlinks,
 		skipDirs:               options.SkipDirs,
+		skipRoots:              options.SkipRoots,
 		skipDirectoryCreation:  options.SkipDirectoryCreation,
 	}
 }
@@ -220,6 +230,7 @@ type Store struct {
 	recursive              bool                     // Discover DAG definitions in subdirectories
 	symlinks               bool                     // Include recursive file symlinks and external targets
 	skipDirs               []string                 // Root-level directories recursive discovery omits
+	skipRoots              []string                 // Directories recursive discovery omits wherever they lie
 	skipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
 	baseConfigMu           sync.Mutex               // Protects base config state refresh and invalidation
 	indexMu                sync.Mutex               // Protects index load/rebuild/invalidate
@@ -971,6 +982,7 @@ func (store *Store) stemExists(name, exceptPath string) bool {
 		Recursive: true,
 		Symlinks:  store.symlinks,
 		SkipDirs:  store.skipDirs,
+		SkipRoots: store.skipRoots,
 	})
 	if err != nil {
 		return false
