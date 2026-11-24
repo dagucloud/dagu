@@ -17,4 +17,8 @@ export default defineMessages({
     'Back to current definition': '現在の定義に戻る',
     'Read-only: definition of run {id}': '読み取り専用:実行 {id} の定義',
   },
+  de: {
+    'Back to current definition': 'Zurück zur aktuellen Definition',
+    'Read-only: definition of run {id}': 'Nur lesen: Definition von Lauf {id}',
+  },
 });

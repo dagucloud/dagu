@@ -13,4 +13,7 @@ export default defineMessages({
   ja: {
     'Close logs sheet': 'ログシートを閉じる',
   },
+  de: {
+    'Close logs sheet': 'Protokoll schließen',
+  },
 });

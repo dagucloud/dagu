@@ -20,4 +20,10 @@ export default defineMessages({
       'このステップは項目ごとに1回実行されます。',
     'View items': '項目を表示',
   },
+  de: {
+    'Previous error': 'Vorheriger Fehler',
+    'This step runs once for each item.':
+      'Dieser Schritt läuft einmal je Eintrag.',
+    'View items': 'Einträge ansehen',
+  },
 });

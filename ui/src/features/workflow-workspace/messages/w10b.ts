@@ -21,4 +21,9 @@ export default defineMessages({
     'Shown after {step} (times are rounded to the second)':
       '{step} の後に表示（時刻は秒単位に丸められています）',
   },
+  de: {
+    '<1s': '<1 s',
+    'Shown after {step} (times are rounded to the second)':
+      'Angezeigt nach {step} (Zeiten auf Sekunden gerundet)',
+  },
 });

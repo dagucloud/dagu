@@ -43,4 +43,17 @@ export default defineMessages({
     'Validation errors': '検証エラー',
     'Please try again.': 'もう一度お試しください。',
   },
+  de: {
+    'Nothing to revert': 'Nichts zurückzusetzen',
+    'Nothing to undo': 'Nichts rückgängig zu machen',
+    'Nothing to redo': 'Nichts zum Wiederherstellen',
+    'No changes to save': 'Keine Änderungen zum Speichern',
+    'Make some edits before saving.': 'Vor dem Speichern etwas ändern.',
+    'Failed to save spec': 'Definition konnte nicht gespeichert werden',
+    'Please check the YAML syntax and try again.':
+      'Bitte YAML-Syntax prüfen und erneut versuchen.',
+    'The spec was not saved': 'Die Definition wurde nicht gespeichert',
+    'Validation errors': 'Prüffehler',
+    'Please try again.': 'Bitte erneut versuchen.',
+  },
 });

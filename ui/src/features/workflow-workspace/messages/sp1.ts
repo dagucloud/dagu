@@ -17,4 +17,8 @@ export default defineMessages({
     'Details of {step}': '{step} の詳細',
     'Not run yet': 'まだ実行されていません',
   },
+  de: {
+    'Details of {step}': 'Details zu {step}',
+    'Not run yet': 'Noch nicht gelaufen',
+  },
 });

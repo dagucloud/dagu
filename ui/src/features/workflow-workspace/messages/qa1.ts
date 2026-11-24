@@ -66,7 +66,8 @@ export default defineMessages({
     'Download files over SFTP.': 'Download files over SFTP.',
     'Upload files over SFTP.': 'Upload files over SFTP.',
     'Send an email.': 'Send an email.',
-    'Call a tool on a remote MCP server.': 'Call a tool on a remote MCP server.',
+    'Call a tool on a remote MCP server.':
+      'Call a tool on a remote MCP server.',
     'Send a message to a remote A2A agent.':
       'Send a message to a remote A2A agent.',
     'Read the state and artifacts of a remote A2A task.':
@@ -200,7 +201,8 @@ export default defineMessages({
     'Download files over SFTP.': 'SFTP でファイルをダウンロードします。',
     'Upload files over SFTP.': 'SFTP でファイルをアップロードします。',
     'Send an email.': 'メールを送信します。',
-    'Call a tool on a remote MCP server.': 'リモートの MCP サーバーにあるツールを呼び出します。',
+    'Call a tool on a remote MCP server.':
+      'リモートの MCP サーバーにあるツールを呼び出します。',
     'Send a message to a remote A2A agent.':
       'リモートの A2A エージェントにメッセージを送信します。',
     'Read the state and artifacts of a remote A2A task.':
@@ -208,5 +210,79 @@ export default defineMessages({
     'Ask a person to review or fill in a form.':
       '担当者にレビューやフォームの入力を依頼します。',
     'Publish values as outputs of the run.': '値を実行の出力として公開します。',
+  },
+  de: {
+    Calls: 'Aufrufe',
+    'Open the sub-run (Cmd/Ctrl+Click opens a new tab)':
+      'Unterlauf öffnen (Cmd/Strg+Klick öffnet neuen Tab)',
+    'Multiple executions: {count} sub-runs':
+      'Mehrfache Ausführung: {count} Unterläufe',
+    'Multiple executions: {visible} of {total} sub-runs':
+      'Mehrfache Ausführung: {visible} von {total} Unterläufen',
+    '{visible} of {total} sub-runs': '{visible} von {total} Unterläufen',
+    'No sub-runs match the selected filter':
+      'Keine Unterläufe passen zum Filter',
+    'Pack files into an archive.': 'Dateien in ein Archiv packen.',
+    'Unpack an archive into a folder.': 'Archiv in einen Ordner entpacken.',
+    'List the files in an archive.': 'Dateien eines Archivs auflisten.',
+    'List the artifacts of the run.': 'Artefakte des Laufs auflisten.',
+    'Read an artifact of the run.': 'Artefakt des Laufs lesen.',
+    'Write content to an artifact of the run.':
+      'Inhalt in ein Artefakt des Laufs schreiben.',
+    'Copy a file or folder.': 'Datei oder Ordner kopieren.',
+    'Delete a file or folder.': 'Datei oder Ordner löschen.',
+    'List the files in a folder.': 'Dateien eines Ordners auflisten.',
+    'Create a folder.': 'Ordner anlegen.',
+    'Move or rename a file or folder.':
+      'Datei oder Ordner verschieben oder umbenennen.',
+    'Read the content of a file.': 'Inhalt einer Datei lesen.',
+    'Read the size, type and times of a file.':
+      'Größe, Typ und Zeiten einer Datei lesen.',
+    'Write content to a file.': 'Inhalt in eine Datei schreiben.',
+    'Delete a key of the workflow state.':
+      'Einen Schlüssel aus dem Ablaufzustand löschen.',
+    'Tell whether a value changed since the last run, and store it.':
+      'Feststellen, ob sich ein Wert seit dem letzten Lauf geändert hat, und ihn speichern.',
+    'Read a key of the workflow state.': 'Schlüssel des Ablaufzustands lesen.',
+    'List the keys of the workflow state.':
+      'Schlüssel des Ablaufzustands auflisten.',
+    'Store a value in the workflow state.': 'Wert im Ablaufzustand speichern.',
+    'Wait for a length of time.': 'Eine Zeitspanne warten.',
+    'Wait until a file exists, or is gone.':
+      'Warten, bis eine Datei da oder weg ist.',
+    'Wait until a URL answers with the expected status.':
+      'Warten, bis eine URL mit dem erwarteten Status antwortet.',
+    'Wait until a time of day or a date.':
+      'Bis zu einer Uhrzeit oder einem Datum warten.',
+    'Run a SQL query on PostgreSQL.': 'SQL-Abfrage auf PostgreSQL ausführen.',
+    'Import a data file into a PostgreSQL table.':
+      'Datendatei in eine PostgreSQL-Tabelle importieren.',
+    'Run a SQL query on SQLite.': 'SQL-Abfrage auf SQLite ausführen.',
+    'Import a data file into a SQLite table.':
+      'Datendatei in eine SQLite-Tabelle importieren.',
+    'Run a command in a container.': 'Befehl in einem Container ausführen.',
+    'Run a command in a Docker container.':
+      'Befehl in einem Docker-Container ausführen.',
+    'Run a command as a Kubernetes job.':
+      'Befehl als Kubernetes-Job ausführen.',
+    'Read a key from Redis.': 'Schlüssel aus Redis lesen.',
+    'Store a value in Redis.': 'Wert in Redis speichern.',
+    'Delete objects from S3.': 'Objekte in S3 löschen.',
+    'Download objects from S3.': 'Objekte aus S3 herunterladen.',
+    'List the objects in an S3 bucket.': 'Objekte eines S3-Buckets auflisten.',
+    'Upload files to S3.': 'Dateien nach S3 hochladen.',
+    'Download files over SFTP.': 'Dateien per SFTP herunterladen.',
+    'Upload files over SFTP.': 'Dateien per SFTP hochladen.',
+    'Send an email.': 'E-Mail senden.',
+    'Call a tool on a remote MCP server.':
+      'Ein Werkzeug auf einem entfernten MCP-Server aufrufen.',
+    'Send a message to a remote A2A agent.':
+      'Nachricht an einen entfernten A2A-Agenten senden.',
+    'Read the state and artifacts of a remote A2A task.':
+      'Zustand und Artefakte einer entfernten A2A-Aufgabe lesen.',
+    'Ask a person to review or fill in a form.':
+      'Eine Person prüfen oder ein Formular ausfüllen lassen.',
+    'Publish values as outputs of the run.':
+      'Werte als Ausgaben des Laufs veröffentlichen.',
   },
 });

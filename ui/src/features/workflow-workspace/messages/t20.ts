@@ -40,4 +40,16 @@ export default defineMessages({
     '{count} more notice': 'ほかに {count} 件の通知',
     '{count} more notices': 'ほかに {count} 件の通知',
   },
+  de: {
+    Issues: 'Probleme',
+    'Issues ({count})': 'Probleme ({count})',
+    'No issues': 'Keine Probleme',
+    Warnings: 'Warnungen',
+    Errors: 'Fehler',
+    'Value references': 'Wert-Verweise',
+    'Show step {name}': 'Schritt {name} anzeigen',
+    'More notices': 'Weitere Hinweise',
+    '{count} more notice': '{count} weiterer Hinweis',
+    '{count} more notices': '{count} weitere Hinweise',
+  },
 });

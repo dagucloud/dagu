@@ -8,4 +8,5 @@ export default defineMessages({
   en: {},
   'zh-CN': {},
   ja: {},
+  de: {},
 });

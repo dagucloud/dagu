@@ -19,4 +19,9 @@ export default defineMessages({
       '保存する前に問題を修正してください（{count}）',
     'line {line}': '{line} 行目',
   },
+  de: {
+    'Fix the issues before you save ({count})':
+      'Vor dem Speichern die Probleme beheben ({count})',
+    'line {line}': 'Zeile {line}',
+  },
 });

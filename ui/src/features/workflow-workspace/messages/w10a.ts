@@ -18,4 +18,8 @@ export default defineMessages({
     'Run duration': '実行時間',
     'Run duration (square root scale)': '実行時間（平方根スケール）',
   },
+  de: {
+    'Run duration': 'Laufdauer',
+    'Run duration (square root scale)': 'Laufdauer (Wurzelskala)',
+  },
 });
