@@ -73,7 +73,6 @@ import {
   fitAtZoom,
   snapZoom,
   zoomAt,
-  type FitOptions,
   type Rect,
 } from './engine/geometry';
 import { MINIMAP_RESERVE } from './engine/overlays';
@@ -788,15 +787,8 @@ function CanvasView({
   // a graph that is too wide for the area keeps its start side in view.
   const keepInView = useCallback(
     (motion?: ViewMotion) => {
-      const { nodes, size, getViewport } = storeRef.current;
-      const bounds = boundsOf(
-        nodes().map((node) => ({
-          x: node.position.x,
-          y: node.position.y,
-          width: node.width,
-          height: node.height,
-        }))
-      );
+      const { nodeRects, size, getViewport } = storeRef.current;
+      const bounds = boundsOf(nodeRects());
       if (!bounds || size.width === 0 || size.height === 0) {
         return;
       }
@@ -811,7 +803,9 @@ function CanvasView({
         { x: 0, y: 0, width: size.width, height: size.height },
         insetRef.current
       );
-      setViewport({ ...view, x: view.x + dx, y: view.y + dy }, motion);
+      if (dx !== 0 || dy !== 0) {
+        setViewport({ ...view, x: view.x + dx, y: view.y + dy }, motion);
+      }
     },
     [setViewport]
   );
@@ -822,23 +816,17 @@ function CanvasView({
     },
     [keepInView, keepSelectedInView]
   );
-  // A room that grows (a panel leaves or changes) gives the graph its place
-  // back when the fit of the new room has the zoom of the view; else the view
-  // pans only as far as needed. The zoom never changes.
-  const fitOptionsRef = useRef<FitOptions | null>(null);
+  // A room that grows (a panel or a dock leaves or changes) gives the graph
+  // its place back when the fit of the new room has the zoom of the view; else
+  // the view pans only as far as needed. The zoom never changes.
+  const fitOptionsRef = useRef(fitOptions);
+  fitOptionsRef.current = fitOptions;
   const growView = useCallback(
     (motion?: ViewMotion) => {
-      const { nodes, size, zoomLimits, getViewport } = storeRef.current;
-      const bounds = boundsOf(
-        nodes().map((node) => ({
-          x: node.position.x,
-          y: node.position.y,
-          width: node.width,
-          height: node.height,
-        }))
-      );
+      const { nodeRects, size, zoomLimits, getViewport } = storeRef.current;
+      const bounds = boundsOf(nodeRects());
       const fitted =
-        bounds && fitOptionsRef.current && size.width > 0 && size.height > 0
+        bounds && size.width > 0 && size.height > 0
           ? fitAtZoom(
               bounds,
               size,
@@ -859,9 +847,10 @@ function CanvasView({
     },
     [setViewport, keepSelectedInView, keepGraphInView]
   );
-  // A change of the room of the canvas (a panel, Activity, the window) or of
-  // the graph glides the view to its new place, in one move; while the
-  // canvas has just shown, it jumps there.
+  // While the canvas has just shown, a change of its room (a panel, a dock,
+  // Activity, the window) fits the graph again, with a jump. Later the zoom
+  // stays: the view pans only as far as needed, or goes back to its fit when
+  // that has the same zoom.
   const autoFit = useAutoFit(
     wrapperRef,
     (glide) => {
@@ -871,10 +860,8 @@ function CanvasView({
       keepSelectedInView(motion);
     },
     undefined,
-    // A dock that opens changes the height only: the graph stays in place and
-    // moves only when it would hide the selected step.
-    () => keepSelectedInView(),
-    // A panel that shrinks the canvas moves the graph only if it must.
+    // A panel or a dock that shrinks the canvas moves the graph only if it
+    // would cut it.
     () => keepGraphInView(),
     // A canvas that grows keeps the zoom too.
     () => growView(GLIDE)
@@ -888,7 +875,6 @@ function CanvasView({
     settle,
     settled,
   } = autoFit;
-  fitOptionsRef.current = fitOptions;
   // A reveal that waits for the size of the canvas or for a layout change.
   const pendingReveal = useRef<{
     key: StepKey;
@@ -1031,9 +1017,9 @@ function CanvasView({
   }, [ghostX, ghostY, viewForNode, setViewport]);
 
   // The view fits again when the graph changes (undo, redo, discard, a new
-  // step), when the direction changes and when a panel covers or frees the
-  // right of the canvas; a view that the user panned stays, but a new
-  // direction is a new layout.
+  // step) and when the direction changes; a view that the user panned stays,
+  // but a new direction is a new layout. A panel that covers or frees a part
+  // of the canvas fits again only while the page opens: later the zoom stays.
   // The launchers count: they arrive after the first layout and push the
   // steps aside. The ghost of the Add step list does not: a hover must not
   // move the view.
@@ -1092,13 +1078,13 @@ function CanvasView({
       if (userMoved()) {
         // A view that the user moved stays, but not over the selected step.
         keepSelectedInView(GLIDE);
+      } else if (!settled()) {
+        // The page is still opening: its parts fit the graph again.
+        refit();
       } else if (overlayRight > last.overlayRight) {
         // A panel that covers more of the canvas moves the graph only if it
         // must. The zoom stays.
         keepGraphInView(GLIDE);
-      } else if (!settled()) {
-        // The page is still opening: its parts fit the graph again.
-        refit();
       } else {
         // A panel that leaves or changes keeps the zoom.
         resume();

@@ -1229,8 +1229,8 @@ describe('VisualCanvas', () => {
 
         beforeEach(() => {
           vi.useFakeTimers();
-          // The fit is 125 % with no panel, 100 % beside 500 px of panel and
-          // 50 % beside 700 px of it.
+          // The graph is narrow: only the panel of 700 px leaves it too
+          // little width for the zoom of the fit with no panel.
           sizes.width = 1000;
           sizes.height = 900;
         });
@@ -1246,16 +1246,18 @@ describe('VisualCanvas', () => {
           expect(viewport().zoom).toBe(zoom);
         });
 
-        it('keeps the zoom when a panel gives its place to a wider one', () => {
-          const { rerender } = render(withPanel(0));
-          const { zoom } = viewport();
+        // The fit of each later room has a larger zoom than the first one:
+        // the view never takes it, and only pans.
+        it('keeps the zoom when a panel gives its place to another one', () => {
+          const first = fittedZoom(700);
+          expect(first).toBeLessThan(fittedZoom(500));
+          const { rerender } = render(withPanel(700));
           act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1));
-          rerender(withPanel(700));
           rerender(withPanel(500));
-          expect(viewport().zoom).toBe(zoom);
+          expect(viewport().zoom).toBe(first);
           rerender(withPanel(700));
           rerender(withPanel(300));
-          expect(viewport().zoom).toBe(zoom);
+          expect(viewport().zoom).toBe(first);
         });
 
         // The first fit, with the panel open, is the zoom of the page.
@@ -1511,6 +1513,19 @@ describe('VisualCanvas', () => {
           );
         });
       };
+      // Ends the first moments of the canvas, in which a resize fits again.
+      const settleCanvas = () => {
+        act(() => {
+          vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1);
+        });
+      };
+      const graphBox = () => {
+        const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
+        return {
+          top: Math.min(...rects.map((r) => r.top)),
+          bottom: Math.max(...rects.map((r) => r.bottom)),
+        };
+      };
       const inFreeArea = (key: string) => {
         const rect = nodeScreenRect(key);
         expect(rect.top).toBeGreaterThanOrEqual(72);
@@ -1565,6 +1580,53 @@ describe('VisualCanvas', () => {
         inFreeArea('steps[8]');
       });
 
+      // A dock that opens under the canvas takes its height. With no step
+      // selected, the graph moves up only as far as the dock would cut it,
+      // and goes back to its fit when the dock closes. The zoom stays.
+      it('keeps the graph clear of a dock that opens, at the same zoom', () => {
+        vi.useFakeTimers();
+        sizes.height = 900;
+        renderWithView({ direction: 'TB' });
+        resize(1000, 900);
+        settleCanvas();
+        const before = viewport();
+        const box = graphBox();
+        // Room for the graph between the insets (72 px and 48 px), but not
+        // at its place.
+        const height = Math.ceil(box.bottom - box.top) + 72 + 48 + 16;
+        expect(box.bottom).toBeGreaterThan(height - 48);
+        resize(1000, height);
+        act(() => {
+          vi.advanceTimersByTime(300);
+        });
+        const after = viewport();
+        expect(after.zoom).toBe(before.zoom);
+        expect(after.x).toBe(before.x);
+        expect(graphBox().top).toBeGreaterThanOrEqual(72);
+        expect(graphBox().bottom).toBeLessThanOrEqual(height - 48 + 0.5);
+
+        resize(1000, 900);
+        act(() => {
+          vi.advanceTimersByTime(300);
+        });
+        expect(viewport()).toEqual(before);
+      });
+
+      it('keeps the graph in place when a dock leaves it in view', () => {
+        vi.useFakeTimers();
+        sizes.height = 900;
+        renderWithView({ direction: 'TB' });
+        resize(1000, 900);
+        settleCanvas();
+        const before = viewport();
+        // The graph ends 8 px above the bottom inset of 48 px.
+        resize(1000, Math.ceil(graphBox().bottom) + 8 + 48);
+        act(() => {
+          vi.advanceTimersByTime(300);
+        });
+        expect(viewport()).toEqual(before);
+      });
+
       // A panel that shrinks the canvas moves the graph only if it must: a
       // graph that stays in the free area keeps its place and its zoom.
       it('keeps the graph in place when a panel leaves it in view', () => {
@@ -1573,6 +1635,7 @@ describe('VisualCanvas', () => {
         sizes.height = 600;
         renderWithView({ direction: 'TB' });
         resize(1000, 600);
+        settleCanvas();
         const before = viewport();
         const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
         const right = Math.max(...rects.map((r) => r.right));
@@ -1590,23 +1653,28 @@ describe('VisualCanvas', () => {
         sizes.height = 600;
         renderWithView({ direction: 'TB' });
         resize(1000, 600);
+        settleCanvas();
         const before = viewport();
         const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
         const width =
           Math.max(...rects.map((r) => r.right)) -
           Math.min(...rects.map((r) => r.left));
-        // The canvas keeps room for the graph, but not at its place.
-        const shrunk = Math.round(width + 60);
+        // The canvas keeps room for the graph, but not at its place. It
+        // stays wide enough for the toolbar on one row: the top inset, and
+        // so the place of the graph in height, do not change.
+        const shrunk = 560;
+        expect(width).toBeLessThanOrEqual(shrunk - 48);
         resize(shrunk, 600);
         act(() => {
           vi.advanceTimersByTime(300);
         });
         const after = viewport();
         expect(after.zoom).toBe(before.zoom);
+        expect(after.x).toBeLessThan(before.x);
         expect(after.y).toBe(before.y);
         const moved = graph.nodes.map((n) => nodeScreenRect(n.key));
         expect(Math.max(...moved.map((r) => r.right))).toBeLessThanOrEqual(
-          shrunk - 24
+          shrunk - 24 + 0.5
         );
         expect(Math.min(...moved.map((r) => r.left))).toBeGreaterThanOrEqual(
           24
@@ -1621,6 +1689,7 @@ describe('VisualCanvas', () => {
         sizes.height = 600;
         renderWithView({ direction: 'TB' });
         resize(1000, 600);
+        settleCanvas();
         const before = viewport();
         const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
         const width =
