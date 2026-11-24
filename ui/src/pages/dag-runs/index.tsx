@@ -1394,6 +1394,9 @@ function DAGRuns() {
     areFiltersEqual(resolveRunViewFilters(view.filters), currentFilters)
   );
 
+  const showsLoadError =
+    Boolean(dagRunsError) && dagRuns.length === 0 && !isInitialLoading;
+
   const batchActions = (
     <DAGRunBatchActions
       selectedRuns={selectedRuns}
@@ -1406,8 +1409,10 @@ function DAGRuns() {
     <div>
       <DAGListHeader
         mode="runs"
-        // No count until the first page arrives: "0 runs" would be wrong.
-        resultCount={isInitialLoading ? undefined : dagRuns.length}
+        // No count while no page has loaded: "0 runs" would be wrong.
+        resultCount={
+          isInitialLoading || showsLoadError ? undefined : dagRuns.length
+        }
         hasMore={hasMore}
         onRefresh={() => refreshDagRuns()}
       />
@@ -1640,7 +1645,7 @@ function DAGRuns() {
         {hideServiceDAGRuns && (
           <ServiceDAGStrip expandable className="px-0 pb-4" />
         )}
-        {dagRunsError && dagRuns.length === 0 && !isInitialLoading ? (
+        {showsLoadError ? (
           <LoadErrorState
             title={ts("Couldn't load runs")}
             error={dagRunsError}

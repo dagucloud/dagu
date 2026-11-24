@@ -465,6 +465,24 @@ describe('DAGRuns page', () => {
     expect(screen.queryByTestId('workflow-count')).toBeNull();
   });
 
+  it('shows no run count when the first page fails', () => {
+    usePaginatedDAGRunsMock.mockReturnValue({
+      dagRuns: [],
+      error: new Error('server down'),
+      isInitialLoading: false,
+      isLoadingMore: false,
+      loadMoreError: null,
+      hasMore: false,
+      refresh: vi.fn(),
+      loadMore: vi.fn(),
+    });
+
+    renderPage();
+
+    expect(screen.getByText("Couldn't load runs")).toBeInTheDocument();
+    expect(screen.queryByTestId('workflow-count')).toBeNull();
+  });
+
   it('uses consistent filter control sizing', () => {
     renderPage();
 
