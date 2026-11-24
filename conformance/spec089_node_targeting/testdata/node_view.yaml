@@ -1,0 +1,35 @@
+# deploy runs a bound child on each web node, and check runs one that fails
+# on web03.
+steps:
+  - id: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: web
+  - id: check
+    depends: [deploy]
+    action: dag.run
+    with:
+      dag: check-one
+    nodes:
+      labels: web
+      keep_going: true
+---
+name: deploy-one
+node: required
+steps:
+  - action: noop
+---
+name: check-one
+node: required
+steps:
+  - id: ping
+    action: noop
+  - id: probe
+    depends: [ping]
+    action: js.run
+    preconditions:
+      - condition: "${node.name}"
+        expected: web03
+    with:
+      script: throw new Error("web03 is down")

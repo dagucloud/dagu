@@ -5448,6 +5448,87 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /dag-runs/{name}/{dagRunId}/node-runs:
+    get:
+      summary: "List the node runs of a DAG-run"
+      description: |
+        Lists the runs of the nodes that the run's steps with nodes matched,
+        one row per node with a run for each such step that matched it. Rows
+        with a failed, aborted, or rejected run come first, then rows with a
+        running or waiting run, then the rest, each group in node name order.
+        A run recorded before node runs were has no rows.
+      operationId: "getDAGRunNodeRuns"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - $ref: "#/components/parameters/NodeRunsFailedOnly"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NodeRunList"
+        "404":
+          description: "DAG-run not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/node-runs:
+    get:
+      summary: "List the node runs of a sub DAG-run"
+      description: |
+        Lists the runs of the nodes that the sub DAG-run's steps with nodes
+        matched, as getDAGRunNodeRuns lists those of a DAG-run.
+      operationId: "getSubDAGRunNodeRuns"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGName"
+        - $ref: "#/components/parameters/DAGRunId"
+        - name: "subDAGRunId"
+          in: "path"
+          required: true
+          schema:
+            type: "string"
+          description: "ID of the sub DAG-run"
+        - $ref: "#/components/parameters/NodeRunsFailedOnly"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NodeRunList"
+        "404":
+          description: "DAG-run or sub DAG-run not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/foreach/{item}:
     get:
       summary: "Retrieve one item of a foreach step in a sub DAG-run"
@@ -13891,6 +13972,14 @@ components:
         type: string
         pattern: "^[0-9]+\\.[a-zA-Z0-9_~-]+(\\.[0-9]+\\.[a-zA-Z0-9_~-]+)*$"
 
+    NodeRunsFailedOnly:
+      name: failedOnly
+      in: query
+      description: only list nodes with a failed, aborted, or rejected run
+      required: false
+      schema:
+        type: boolean
+
     ForeachItemStatusFilter:
       name: status
       in: query
@@ -18885,6 +18974,9 @@ components:
               allOf:
                 - $ref: "#/components/schemas/DAGRunId"
                 - description: "ID of the parent DAG-run"
+            boundNode:
+              type: string
+              description: "Inventory node that a child run of a step with nodes is bound to. Absent for other runs."
             log:
               type: string
               description: "Path to the log file"
@@ -19305,6 +19397,8 @@ components:
           description: "List of repeated sub DAG-runs when using repeatPolicy"
           items:
             $ref: "#/components/schemas/SubDAGRun"
+        nodeRuns:
+          $ref: "#/components/schemas/NodeRunCounts"
         error:
           type: string
           description: "Error message if the step failed"
@@ -20349,6 +20443,141 @@ components:
           type: string
         error:
           type: string
+
+    NodeRunList:
+      type: object
+      description: "One page of the node runs of a DAG-run, one row per node"
+      properties:
+        steps:
+          type: array
+          description: "Steps with nodes that recorded their node runs, in run order"
+          items:
+            $ref: "#/components/schemas/NodeRunStep"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/NodeRunRow"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+      required:
+        - steps
+        - items
+        - pagination
+
+    NodeRunStep:
+      type: object
+      description: "A step with nodes and the counts of its node runs"
+      properties:
+        name:
+          type: string
+          description: "Name of the step"
+        counts:
+          $ref: "#/components/schemas/NodeRunCounts"
+      required:
+        - name
+        - counts
+
+    NodeRunRow:
+      type: object
+      description: "A node and its run for each step with nodes that matched it"
+      properties:
+        node:
+          type: string
+          description: "Name of the inventory node"
+        runs:
+          type: array
+          description: "The node's runs, in the order of steps"
+          items:
+            $ref: "#/components/schemas/NodeRun"
+      required:
+        - node
+        - runs
+
+    NodeRun:
+      type: object
+      description: "The child run of one node that a step with nodes matched"
+      properties:
+        step:
+          type: string
+          description: "Name of the step with nodes"
+        status:
+          $ref: "#/components/schemas/NodeRunStatus"
+        dagName:
+          type: string
+          description: "Name of the DAG of the child run. Absent for a disabled node."
+        dagRunId:
+          type: string
+          description: "ID of the child run, a sub DAG-run of the root run. Absent for a disabled node."
+        startedAt:
+          type: string
+          description: "RFC 3339 timestamp with millisecond precision when the child run started"
+        finishedAt:
+          type: string
+          description: "RFC 3339 timestamp with millisecond precision when the child run finished"
+        steps:
+          $ref: "#/components/schemas/StepProgress"
+        failedStep:
+          type: string
+          description: "Name of the step that failed last in the child run"
+      required:
+        - step
+        - status
+
+    NodeRunStatus:
+      type: string
+      description: "Status of a node's run: the status its child run reached, or not_started, running, or disabled"
+      enum:
+        - "not_started"
+        - "running"
+        - "waiting"
+        - "succeeded"
+        - "partially_succeeded"
+        - "failed"
+        - "aborted"
+        - "rejected"
+        - "disabled"
+
+    NodeRunCounts:
+      type: object
+      description: "Number of a step's node runs by status. A partially succeeded run counts as succeeded and a rejected one as failed. Run details carry it for each step with nodes that recorded its node runs."
+      properties:
+        total:
+          type: integer
+        notStarted:
+          type: integer
+        running:
+          type: integer
+        waiting:
+          type: integer
+        succeeded:
+          type: integer
+        failed:
+          type: integer
+        aborted:
+          type: integer
+        disabled:
+          type: integer
+      required:
+        - total
+        - notStarted
+        - running
+        - waiting
+        - succeeded
+        - failed
+        - aborted
+        - disabled
+
+    StepProgress:
+      type: object
+      description: "Number of a run's steps that succeeded, once the run finished. Handlers are not counted."
+      properties:
+        done:
+          type: integer
+        total:
+          type: integer
+      required:
+        - done
+        - total
 
     ForeachItemStatusFilter:
       type: string

@@ -631,22 +631,26 @@ func TestDAGRunRemove(t *testing.T) {
 		assert.NoDirExists(t, dagRunLogDir)
 	})
 
-	// Body steps of a foreach step log under the attempt's foreach/ directory
-	// without appearing in the run status, so removal must drop that tree by
-	// its location rather than by recorded paths.
-	t.Run("RemovesForeachBodyLogs", func(t *testing.T) {
+	// Body steps of a foreach step log under the attempt's foreach/ directory,
+	// and a step with nodes records its node runs under node-runs/, without
+	// appearing in the run status, so removal must drop those trees by their
+	// location rather than by recorded paths.
+	t.Run("RemovesForeachBodyLogsAndNodeRuns", func(t *testing.T) {
 		dagRunLogDir := filepath.Join(t.TempDir(), "dag-run")
 		attemptLogDir := filepath.Join(dagRunLogDir, "run-attempt")
 		foreachLogDir := filepath.Join(attemptLogDir, logpath.ForeachLogDirName)
 		itemDir := filepath.Join(foreachLogDir, "each", "0")
 		nestedLogDir := filepath.Join(itemDir, logpath.ForeachLogDirName, "inner", "1")
 		require.NoError(t, os.MkdirAll(nestedLogDir, 0750))
+		nodeRunsDir := logpath.NodeRunsDir(attemptLogDir, "each")
+		require.NoError(t, os.MkdirAll(nodeRunsDir, 0750))
 
 		stepLog := filepath.Join(attemptLogDir, "each.out")
 		bodyLogs := []string{
 			filepath.Join(itemDir, "body.out"),
 			filepath.Join(itemDir, logpath.ForeachItemStatusFile),
 			filepath.Join(nestedLogDir, "inner.out"),
+			filepath.Join(nodeRunsDir, logpath.NodeRunsFile),
 		}
 		for _, logFile := range append([]string{stepLog}, bodyLogs...) {
 			require.NoError(t, os.WriteFile(logFile, []byte("log"), 0600))
@@ -675,6 +679,7 @@ func TestDAGRunRemove(t *testing.T) {
 			assert.NoFileExists(t, logFile)
 		}
 		assert.NoDirExists(t, foreachLogDir)
+		assert.NoDirExists(t, nodeRunsDir)
 		assert.NoDirExists(t, attemptLogDir)
 		assert.NoDirExists(t, dagRunLogDir)
 	})

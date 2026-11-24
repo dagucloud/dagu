@@ -2061,6 +2061,53 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dag-runs/{name}/{dagRunId}/node-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the node runs of a DAG-run
+         * @description Lists the runs of the nodes that the run's steps with nodes matched,
+         *     one row per node with a run for each such step that matched it. Rows
+         *     with a failed, aborted, or rejected run come first, then rows with a
+         *     running or waiting run, then the rest, each group in node name order.
+         *     A run recorded before node runs were has no rows.
+         *
+         */
+        get: operations["getDAGRunNodeRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/node-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the node runs of a sub DAG-run
+         * @description Lists the runs of the nodes that the sub DAG-run's steps with nodes
+         *     matched, as getDAGRunNodeRuns lists those of a DAG-run.
+         *
+         */
+        get: operations["getSubDAGRunNodeRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/steps/{stepName}/foreach/{item}": {
         parameters: {
             query?: never;
@@ -7487,6 +7534,8 @@ export interface components {
             /** @description Name of the parent DAG-run */
             parentDAGRunName?: string;
             parentDAGRunId?: components["schemas"]["DAGRunId"] & unknown;
+            /** @description Inventory node that a child run of a step with nodes is bound to. Absent for other runs. */
+            boundNode?: string;
             /** @description Path to the log file */
             log: string;
             /** @description Dates the run resolved from its DAG's dates block when it was created, in declaration order */
@@ -7716,6 +7765,7 @@ export interface components {
             subRuns?: components["schemas"]["SubDAGRun"][];
             /** @description List of repeated sub DAG-runs when using repeatPolicy */
             subRunsRepeated?: components["schemas"]["SubDAGRun"][];
+            nodeRuns?: components["schemas"]["NodeRunCounts"];
             /** @description Error message if the step failed */
             error?: string;
             build?: components["schemas"]["BuildExecution"];
@@ -8250,6 +8300,64 @@ export interface components {
         WikiPageDeleteBatchFailedItem: {
             path: string;
             error: string;
+        };
+        /** @description One page of the node runs of a DAG-run, one row per node */
+        NodeRunList: {
+            /** @description Steps with nodes that recorded their node runs, in run order */
+            steps: components["schemas"]["NodeRunStep"][];
+            items: components["schemas"]["NodeRunRow"][];
+            pagination: components["schemas"]["Pagination"];
+        };
+        /** @description A step with nodes and the counts of its node runs */
+        NodeRunStep: {
+            /** @description Name of the step */
+            name: string;
+            counts: components["schemas"]["NodeRunCounts"];
+        };
+        /** @description A node and its run for each step with nodes that matched it */
+        NodeRunRow: {
+            /** @description Name of the inventory node */
+            node: string;
+            /** @description The node's runs, in the order of steps */
+            runs: components["schemas"]["NodeRun"][];
+        };
+        /** @description The child run of one node that a step with nodes matched */
+        NodeRun: {
+            /** @description Name of the step with nodes */
+            step: string;
+            status: components["schemas"]["NodeRunStatus"];
+            /** @description Name of the DAG of the child run. Absent for a disabled node. */
+            dagName?: string;
+            /** @description ID of the child run, a sub DAG-run of the root run. Absent for a disabled node. */
+            dagRunId?: string;
+            /** @description RFC 3339 timestamp with millisecond precision when the child run started */
+            startedAt?: string;
+            /** @description RFC 3339 timestamp with millisecond precision when the child run finished */
+            finishedAt?: string;
+            steps?: components["schemas"]["StepProgress"];
+            /** @description Name of the step that failed last in the child run */
+            failedStep?: string;
+        };
+        /**
+         * @description Status of a node's run: the status its child run reached, or not_started, running, or disabled
+         * @enum {string}
+         */
+        NodeRunStatus: NodeRunStatus;
+        /** @description Number of a step's node runs by status. A partially succeeded run counts as succeeded and a rejected one as failed. Run details carry it for each step with nodes that recorded its node runs. */
+        NodeRunCounts: {
+            total: number;
+            notStarted: number;
+            running: number;
+            waiting: number;
+            succeeded: number;
+            failed: number;
+            aborted: number;
+            disabled: number;
+        };
+        /** @description Number of a run's steps that succeeded, once the run finished. Handlers are not counted. */
+        StepProgress: {
+            done: number;
+            total: number;
         };
         /**
          * @description Status of a foreach item's body run
@@ -10001,6 +10109,8 @@ export interface components {
          *     The value is the foreachParent a body step reports, such as 2.inner.
          *      */
         ForeachParent: string;
+        /** @description only list nodes with a failed, aborted, or rejected run */
+        NodeRunsFailedOnly: boolean;
         /** @description only list items whose body run reached this status */
         ForeachItemStatusFilter: components["schemas"]["ForeachItemStatusFilter"];
         /** @description explicit ID of the human-task step */
@@ -16397,6 +16507,112 @@ export interface operations {
                 };
             };
             /** @description DAG-run or step not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getDAGRunNodeRuns: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description only list nodes with a failed, aborted, or rejected run */
+                failedOnly?: components["parameters"]["NodeRunsFailedOnly"];
+                /** @description page number of items to fetch (default is 1) */
+                page?: components["parameters"]["Page"];
+                /** @description number of items per page (default is 30, max is 100) */
+                perPage?: components["parameters"]["PerPage"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeRunList"];
+                };
+            };
+            /** @description DAG-run not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    getSubDAGRunNodeRuns: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+                /** @description only list nodes with a failed, aborted, or rejected run */
+                failedOnly?: components["parameters"]["NodeRunsFailedOnly"];
+                /** @description page number of items to fetch (default is 1) */
+                page?: components["parameters"]["Page"];
+                /** @description number of items per page (default is 30, max is 100) */
+                perPage?: components["parameters"]["PerPage"];
+            };
+            header?: never;
+            path: {
+                /** @description name of the DAG */
+                name: components["parameters"]["DAGName"];
+                /** @description ID of the DAG-run or 'latest' to get the most recent DAG-run */
+                dagRunId: components["parameters"]["DAGRunId"];
+                /** @description ID of the sub DAG-run */
+                subDAGRunId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A successful response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeRunList"];
+                };
+            };
+            /** @description DAG-run or sub DAG-run not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -27277,6 +27493,17 @@ export enum StepOutputDeclarationType {
 export enum WikiPageTreeNodeResponseType {
     file = "file",
     directory = "directory"
+}
+export enum NodeRunStatus {
+    not_started = "not_started",
+    running = "running",
+    waiting = "waiting",
+    succeeded = "succeeded",
+    partially_succeeded = "partially_succeeded",
+    failed = "failed",
+    aborted = "aborted",
+    rejected = "rejected",
+    disabled = "disabled"
 }
 export enum ForeachItemStatusFilter {
     not_started = "not_started",

@@ -300,6 +300,8 @@ func TestRunnerRunReportsUnmetRootPrecondition(t *testing.T) {
 
 // A failed child returns the error of the step that failed last, so the
 // parent step reads the same exit code as from a child run in its process.
+// The result also tells how far the child got and when it ran, for the
+// records of a step with nodes.
 func TestRunnerRunReturnsFailedChildError(t *testing.T) {
 	t.Parallel()
 
@@ -307,9 +309,11 @@ func TestRunnerRunReturnsFailedChildError(t *testing.T) {
 		return &ir.Node{Step: ir.Step{Name: name}, Status: ir.NodeFailed, Error: err, FinishedAt: finishedAt}
 	}
 	tests := []struct {
-		name    string
-		status  ir.DAGRunStatus
-		wantErr string
+		name           string
+		status         ir.DAGRunStatus
+		wantErr        string
+		wantSteps      ir.StepProgress
+		wantFailedStep string
 	}{
 		{
 			name: "last failed step",
@@ -318,7 +322,9 @@ func TestRunnerRunReturnsFailedChildError(t *testing.T) {
 				failedNode("early", "exit status 3", "2026-10-31T10:00:01.000Z"),
 				{Step: ir.Step{Name: "ok"}, Status: ir.NodeSucceeded},
 			}},
-			wantErr: "exit status 7",
+			wantErr:        "exit status 7",
+			wantSteps:      ir.StepProgress{Done: 1, Total: 3},
+			wantFailedStep: "late",
 		},
 		{
 			name:    "no failed step",
@@ -326,8 +332,16 @@ func TestRunnerRunReturnsFailedChildError(t *testing.T) {
 			wantErr: "sub DAG run child-1 failed with status: failed",
 		},
 		{
-			name:   "succeeded",
-			status: ir.DAGRunStatus{Status: ir.Succeeded},
+			name: "succeeded",
+			status: ir.DAGRunStatus{
+				Status:     ir.Succeeded,
+				StartedAt:  "2026-10-31T10:00:00.000Z",
+				FinishedAt: "2026-10-31T10:00:05.000Z",
+				Nodes: []*ir.Node{
+					{Step: ir.Step{Name: "ok"}, Status: ir.NodeSucceeded},
+				},
+			},
+			wantSteps: ir.StepProgress{Done: 1, Total: 1},
 		},
 	}
 
@@ -346,6 +360,10 @@ func TestRunnerRunReturnsFailedChildError(t *testing.T) {
 			})
 			require.NotNil(t, result)
 			assert.Equal(t, tt.status.Status, result.Status)
+			assert.Equal(t, &tt.wantSteps, result.Steps)
+			assert.Equal(t, tt.wantFailedStep, result.FailedStep)
+			assert.Equal(t, tt.status.StartedAt, result.StartedAt)
+			assert.Equal(t, tt.status.FinishedAt, result.FinishedAt)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return

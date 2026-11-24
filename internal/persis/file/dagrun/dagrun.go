@@ -354,15 +354,18 @@ func (dr DAGRun) removeLogFiles(ctx context.Context) error {
 		}
 		parentDirs[filepath.Dir(file)] = struct{}{}
 	}
-	// Foreach body logs are not recorded in the status; they live in a
-	// fixed directory beside the step's own log files.
+	// Foreach body logs and the records of node runs are not recorded in
+	// the status; they live in fixed directories beside the step's own log
+	// files.
 	for dir := range parentDirs {
-		foreachDir := filepath.Join(dir, logpath.ForeachLogDirName)
-		if err := fileutil.RemoveAll(foreachDir); err != nil {
-			logger.Error(ctx, "Failed to remove foreach body log directory",
-				tag.Error(err),
-				tag.RunID(dr.dagRunID),
-				tag.Dir(foreachDir))
+		for _, name := range []string{logpath.ForeachLogDirName, logpath.NodeRunsDirName} {
+			stepDir := filepath.Join(dir, name)
+			if err := fileutil.RemoveAll(stepDir); err != nil {
+				logger.Error(ctx, "Failed to remove step log directory",
+					tag.Error(err),
+					tag.RunID(dr.dagRunID),
+					tag.Dir(stepDir))
+			}
 		}
 	}
 	for dir := range uniqueArtifactDirs {

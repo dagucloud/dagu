@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -17,11 +18,15 @@ import (
 func nodesExecutorWith(limit int, matched []executor.NodeRun, results map[string]*ir.RunStatus) *parallelExecutor {
 	e := &parallelExecutor{
 		results: results,
-		nodes:   &nodeDispatch{started: map[string]struct{}{}, maxOutputSize: limit},
+		nodes: &nodeDispatch{
+			started: map[string]time.Time{}, finished: map[string]time.Time{},
+			active: map[string]bool{}, retries: map[string]int{}, resultless: map[string]bool{},
+			maxOutputSize: limit,
+		},
 	}
 	e.SetNodes(matched)
 	for runID := range results {
-		e.nodes.started[runID] = struct{}{}
+		e.nodes.started[runID] = time.Now()
 	}
 	return e
 }
