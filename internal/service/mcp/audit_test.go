@@ -131,3 +131,12 @@ func TestDAGChangeAuditMetadata(t *testing.T) {
 		})
 	}
 }
+
+// A node read records the node's name, not a DAG name.
+func TestReadAuditMetadataNodeName(t *testing.T) {
+	t.Parallel()
+	meta := readAuditMetadata(readInput{Target: readTargetNode, Name: "web01"})
+	require.Equal(t, "web01", meta.Attributes["node_name"])
+	require.NotContains(t, meta.Attributes, "dag_name")
+	require.Equal(t, "web01", meta.ResourceID)
+}
