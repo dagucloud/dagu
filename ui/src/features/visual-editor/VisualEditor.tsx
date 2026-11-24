@@ -73,6 +73,7 @@ import {
   resolveStepNames,
 } from './doc';
 import { LauncherDataProbe, type LauncherData } from './launchers/LauncherData';
+import { useAlive } from './launchers/alive';
 import {
   ManualLauncherPanel,
   SlotLauncherPanel,
@@ -639,13 +640,16 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   const openNode = drawnLauncher(launcherOpen, launcherData?.states);
   const slotOpen =
     openNode === 'schedule' || openNode === 'cron' || openNode === 'always';
+  // The host object changes with the latest run: the YAML is read again
+  // only when the text changes.
+  const hasLauncherHost = !!launcherHost;
   const schedule = useMemo(
-    () => (launcherHost ? readSchedule(text) : null),
-    [launcherHost, text]
+    () => (hasLauncherHost ? readSchedule(text) : null),
+    [hasLauncherHost, text]
   );
   const restart = useMemo(
-    () => (launcherHost ? readRestartSettings(text) : null),
-    [launcherHost, text]
+    () => (hasLauncherHost ? readRestartSettings(text) : null),
+    [hasLauncherHost, text]
   );
   // The removal of the start expressions leaves the other entries and the
   // `stop` and `restart` of the map form: a schedule with one of them stays.
@@ -655,6 +659,13 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     const cleared = applyEdit(text, { kind: 'setSchedule', expressions: [] });
     return cleared.ok && !readRestartSettings(cleared.text).schedule;
   }, [slotOpen, restart, text]);
+  const launcherAlive = useAlive({
+    status: launcherHost?.latestRun?.status,
+    finishedAt: launcherHost?.latestRun?.finishedAt,
+    policy: restart?.policy ?? 'no',
+    waitSec: restart?.waitSec ?? null,
+    suspended: launcherHost?.suspended ?? false,
+  });
   const [ownFormOpen, setOwnFormOpen] = useState(false);
   const formOpen = formVisible ?? ownFormOpen;
   const setFormOpen = useCallback(
@@ -1921,6 +1932,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
                 }
                 launchers={launcherHost ? launcherData?.states : undefined}
                 activeLauncher={openNode}
+                launcherAlive={launcherAlive}
                 onLauncher={openLauncher}
                 onStepClick={(key, at) => {
                   const name = serverNameOf(key);

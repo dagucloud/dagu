@@ -295,6 +295,7 @@ function CanvasView({
   onRefused,
   launchers = NO_LAUNCHERS,
   activeLauncher = null,
+  launcherAlive = null,
   onLauncher,
   onStepClick,
   fitPadding = FIT_PADDING,
@@ -456,8 +457,9 @@ function CanvasView({
     () => ({
       open: (id) => onLauncher?.(id),
       active: activeLauncher,
+      alive: launcherAlive,
     }),
-    [onLauncher, activeLauncher]
+    [onLauncher, activeLauncher, launcherAlive]
   );
   const toolCount = useMemo(() => {
     const needle = toolFilter.trim().toLowerCase();
