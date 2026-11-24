@@ -104,6 +104,9 @@ func CheckRunStepsUnchanged(dag *ir.DAG, profile string, fromRuns RunStepSources
 		return err
 	}
 	earlier := make(map[string]map[string]string, len(definitions))
+	// The reason depends on the run only, and is worked out for a run once
+	// one of its steps changed.
+	reasons := make(map[string]string)
 	var changed []string
 	for _, ref := range slices.Sorted(maps.Keys(fromRuns)) {
 		run := fromRuns[ref]
@@ -125,9 +128,12 @@ func CheckRunStepsUnchanged(dag *ir.DAG, profile string, fromRuns RunStepSources
 		if digests[name] == current[name] {
 			continue
 		}
-		reason, err := changeReason(dag, params, profile, definition, run)
-		if err != nil {
-			return err
+		reason, ok := reasons[run.DAGRunID]
+		if !ok {
+			if reason, err = changeReason(dag, params, profile, definition, run); err != nil {
+				return err
+			}
+			reasons[run.DAGRunID] = reason
 		}
 		changed = append(changed, fmt.Sprintf("step %s cannot be reused from run %s: %s", ref, run.DAGRunID, reason))
 	}
