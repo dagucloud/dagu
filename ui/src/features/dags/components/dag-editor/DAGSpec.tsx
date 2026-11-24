@@ -97,7 +97,6 @@ import {
 import type { ReferenceEditorState } from '@/features/visual-editor/references/editorState';
 import { YamlReferenceButton } from '@/features/visual-editor/references/YamlReferenceButton';
 import ExternalChangeDialog from './ExternalChangeDialog';
-import { useStepViewForm } from './stepViewMode';
 import { preloadDAGEditor } from './loadDAGEditor';
 import { stepLensReader } from './stepLenses';
 import { ReadOnlyMarker, YamlFileBody, YamlFilePanel } from './YamlFilePanel';
@@ -1052,14 +1051,9 @@ function DAGSpec({
   const [visualStepName, setVisualStepName] = React.useState<string | null>(
     null
   );
-  // The same drawer shows the form of a step in place of the text. The mode
-  // of a step view is the last one of the session, and only the pane that is
-  // shown writes it (a hidden editor under the run snapshot does not).
-  const [drawerForm, setDrawerForm] = useStepViewForm(
-    ndv?.state === 'expanded' &&
-      (ndv.active ?? true) &&
-      (selectedStepName ?? visualStepName) != null
-  );
+  // The same drawer shows the form of a step in place of the text. A step
+  // always opens on its text; the form is one tab away.
+  const [drawerForm, setDrawerForm] = React.useState(false);
 
   const closeSection = React.useCallback(() => {
     setSectionOpen(false);
@@ -1844,12 +1838,12 @@ function DAGSpec({
       ? undefined
       : ndvIssues.map((issue) => refineIssue(issue, ts).message);
   const ndvProblemFixes = ndvIssues.map((issue) => quickFixOf(issue));
+  // The arrows of the step view move to another step on its YAML, never on
+  // its form, even when the form of the last step was open.
   const selectNdvStep = (name: string) => {
-    if (onSelectedStepNameChange) {
-      onSelectedStepNameChange(name);
-    } else {
-      visualHandleRef.current?.revealStep(name);
-    }
+    if (visualHandleRef.current?.openYaml(name)) return;
+    // The editor has no such step, or is not mounted: the host selects it.
+    onSelectedStepNameChange?.(name);
   };
 
   // The text of the file, as the editor and the run canvas show it. It stays

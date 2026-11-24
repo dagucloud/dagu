@@ -783,8 +783,13 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         if (closing === 'webhook' && launcherHost) launcherHost.guard(done);
         else done();
       }
-      if (formOpen) showFormFor(key);
-      else if (openNdvOn === 'open' || wholeFileShown) select(key);
+      // A click always shows the YAML of the step, never its form, even when
+      // the form was open: the form opens from the tab of the inspector.
+      // Without a YAML view of the host, the form is the view of a step and
+      // moves to the clicked one.
+      if (formOpen && !onYamlVisibleChange) showFormFor(key);
+      else if (!formOpen && (openNdvOn === 'open' || wholeFileShown))
+        select(key);
       else showYamlFor(key);
     },
     [
@@ -794,8 +799,9 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       formOpen,
       openNdvOn,
       wholeFileShown,
-      showFormFor,
+      onYamlVisibleChange,
       select,
+      showFormFor,
       showYamlFor,
     ]
   );
@@ -841,8 +847,10 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
             written === undefined
               ? null
               : { key: result.select, name: written, fresh: true };
-          // The new step shows where the last one did: its form or its YAML.
-          pickStep(result.select);
+          // A new step shows where the last one did: its form, to fill it in,
+          // or its YAML.
+          if (formOpen) showFormFor(result.select);
+          else pickStep(result.select);
           revealSoon(result.select);
         }
         return;
@@ -856,7 +864,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         });
       }
     },
-    [ts, pickStep, revealSoon]
+    [ts, formOpen, showFormFor, pickStep, revealSoon]
   );
   const onEdit = useCallback(
     (op: DagEditOp) => afterEdit(session.apply(op)),

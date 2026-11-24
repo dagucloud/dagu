@@ -979,6 +979,26 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas', () => {
       expect(screen.getByTestId('run-yaml-editor')).toBeInTheDocument();
     });
 
+    // The arrows move to the YAML of another step, never to its form.
+    it('shows the YAML of the next step when the form was open', async () => {
+      await openStepYaml();
+      const ndv = await screen.findByTestId('ndv');
+      await showForm();
+      expect(
+        await within(ndv).findByRole('button', { name: 'Form', pressed: true })
+      ).toBeInTheDocument();
+
+      fireEvent.click(within(ndv).getByRole('button', { name: 'Next step' }));
+
+      expect(
+        await within(ndv).findByRole('button', { name: 'YAML', pressed: true })
+      ).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.getByTestId('loc').dataset.url).toContain('step=publish')
+      );
+      expect(screen.queryByTestId('ve-inspector')).toBeNull();
+    });
+
     it('has a Copy YAML button that copies the definition', async () => {
       const writeText = vi.fn().mockResolvedValue(undefined);
       Object.defineProperty(navigator, 'clipboard', {
@@ -1150,7 +1170,7 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas', () => {
 
   // The INPUT column reads the references of the definition of the run, as
   // the editor does for its saved text.
-  it('lists the upstream data of the step in the INPUT column', async () => {
+  function renderExtractStep() {
     h.post.mockResolvedValue({ data: { referenceScope: scopeHttpJq } });
     h.runSpec = yamlHttpJq;
     h.run = makeRun(
@@ -1165,6 +1185,10 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas', () => {
       )
     );
     renderCanvas('/dags/demo?run=run-1&def=run&step=extract&ndv=expanded');
+  }
+
+  it('lists the upstream data of the step in the INPUT column', async () => {
+    renderExtractStep();
 
     const input = await screen.findByRole('region', { name: 'Input' });
     await waitFor(() =>
@@ -1177,6 +1201,30 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas', () => {
         body: { spec: yamlHttpJq, name: 'demo' },
       })
     );
+  });
+
+  // A step link of the INPUT column moves to the YAML of that step, never
+  // to its form.
+  it('shows the YAML of a linked upstream step when the form was open', async () => {
+    renderExtractStep();
+    const ndv = await screen.findByTestId('ndv');
+    await showForm();
+    expect(
+      await within(ndv).findByRole('button', { name: 'Form', pressed: true })
+    ).toBeInTheDocument();
+
+    const input = await screen.findByRole('region', { name: 'Input' });
+    fireEvent.click(
+      await within(input).findByRole('button', { name: 'Open step fetch' })
+    );
+
+    expect(
+      await within(ndv).findByRole('button', { name: 'YAML', pressed: true })
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId('loc').dataset.url).toContain('step=fetch')
+    );
+    expect(screen.queryByTestId('ve-inspector')).toBeNull();
   });
 
   it('reads no reference data while no step view is open', async () => {
@@ -1456,14 +1504,15 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas agent grid', () => {
     expect(h.yaml.mounts).toBe(editors);
   });
 
-  // The mode of the last step view is the one of the next view: after the
-  // form, a link to a step opens the form.
-  it('opens a linked step in the last mode of the session', async () => {
-    sessionStorage.setItem('dagu.stepView.mode', 'form');
+  // A link to a step opens its YAML, never its form.
+  it('opens a linked step on its YAML, not its form', async () => {
     renderCanvas('/dags/demo?run=run-1&def=run&step=transform&ndv=expanded');
     const ndv = await screen.findByTestId('ndv');
     expect(
-      await within(ndv).findByRole('button', { name: 'Form', pressed: true })
+      await within(ndv).findByRole('button', { name: 'YAML', pressed: true })
+    ).toBeInTheDocument();
+    expect(
+      within(ndv).getByRole('button', { name: 'Form', pressed: false })
     ).toBeInTheDocument();
   });
 });

@@ -3,7 +3,7 @@
 
 import { act, render } from '@testing-library/react';
 import { MemoryRouter, useLocation, useNavigationType } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { WorkspaceEditorHandle } from '../../contracts';
 import { useOpenStepDetails } from '../useOpenStepDetails';
 
@@ -36,8 +36,6 @@ function Probe() {
   return null;
 }
 
-beforeEach(() => sessionStorage.clear());
-
 function mount(url: string) {
   render(
     <MemoryRouter initialEntries={[url]}>
@@ -64,9 +62,8 @@ describe('useOpenStepDetails', () => {
     expect(dock.setTab).not.toHaveBeenCalled();
   });
 
-  // The step opens on its YAML, as a double click does; after the form, the
-  // form is the last mode of the session.
-  it('opens the YAML at first and the form after the form', () => {
+  // The step opens on its YAML, as a double click does, and never on its form.
+  it('opens the YAML, never the form', () => {
     const openForm = vi.fn(() => true);
     const openYaml = vi.fn(() => true);
     state.handle = { openForm, openYaml, revealStep: vi.fn() };
@@ -74,10 +71,6 @@ describe('useOpenStepDetails', () => {
     act(() => open('build'));
     expect(openYaml).toHaveBeenCalledWith('build');
     expect(openForm).not.toHaveBeenCalled();
-
-    sessionStorage.setItem('dagu.stepView.mode', 'form');
-    act(() => open('test'));
-    expect(openForm).toHaveBeenCalledWith('test');
   });
 
   it('reveals the step when the editor has no such step', () => {

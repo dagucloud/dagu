@@ -1048,22 +1048,38 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
         t.clean();
       });
 
-      it('stays in the form while the user clicks other steps', () => {
+      it('shows the YAML of the next clicked step, not its form, after the form was open', () => {
         const t = setup();
         fireEvent.click(screen.getByTestId('ve-canvas-node-steps[0]'));
         fireEvent.click(t.bar.getByRole('button', { name: 'Form' }));
 
         fireEvent.click(screen.getByTestId('ve-canvas-node-steps[2]'));
 
-        expect(t.body.getByTestId('ve-inspector')).toBeInTheDocument();
-        expect(t.onFormVisibleChange).not.toHaveBeenLastCalledWith(false);
+        expect(t.body.queryByTestId('ve-inspector')).toBeNull();
+        expect(t.onFormVisibleChange).toHaveBeenLastCalledWith(false);
         t.clean();
       });
     });
 
-    it('stays on the form while the user clicks other steps', () => {
+    it('shows the YAML of a clicked step, not its form, after the form was open', () => {
       renderEditorWithBar({ initial: yamlArraySteps });
       openForm('ve-canvas-node-steps[0]');
+
+      fireEvent.click(screen.getByTestId('ve-canvas-node-steps[2]'));
+
+      expect(screen.queryByTestId('ve-inspector')).toBeNull();
+    });
+
+    // A host without a YAML view, as the editor of a child document, has
+    // the form as its one view of a step: a click moves it to that step.
+    it('keeps the form on a clicked step when the host has no YAML view', () => {
+      renderEditor({ initial: yamlArraySteps });
+      fireEvent.doubleClick(screen.getByTestId('ve-canvas-node-steps[0]'));
+      expect(
+        within(screen.getByTestId('ve-inspector')).getByRole('heading', {
+          name: 'fetch',
+        })
+      ).toBeInTheDocument();
 
       fireEvent.click(screen.getByTestId('ve-canvas-node-steps[2]'));
 

@@ -374,16 +374,15 @@ describe.skipIf(realSchema === null)('DAGSpec ndv segments', () => {
     fireEvent.click(segment(/^Settings/));
     expect(segment(/^Settings/)).toHaveAttribute('aria-pressed', 'true');
 
-    // Next and previous step in the header of the frame.
+    // Next and previous step in the header of the frame show the YAML of
+    // that step, never its form, even while the form is open.
     fireEvent.click(header().getByRole('button', { name: 'Next step' }));
-    expect(formTitle()).toBe('publish');
-    expect(segment(/^Settings/)).toHaveAttribute('aria-pressed', 'true');
+    expect(visual.formVisible).toBe(false);
     fireEvent.click(header().getByRole('button', { name: 'Previous step' }));
     fireEvent.click(header().getByRole('button', { name: 'Previous step' }));
-    expect(formTitle()).toBe('fetch');
-    expect(segment(/^Settings/)).toHaveAttribute('aria-pressed', 'true');
+    expect(visual.formVisible).toBe(false);
 
-    // A selection from the host.
+    // A selection from the host that asks for the form keeps the part.
     act(() => void editor.handle?.openForm('publish'));
     expect(formTitle()).toBe('publish');
     expect(segment(/^Settings/)).toHaveAttribute('aria-pressed', 'true');
@@ -501,12 +500,10 @@ describe.skipIf(realSchema === null)('DAGSpec ndv segments', () => {
     );
   });
 
-  // A step view that stays open after a reload shows the mode of the last
-  // one: the form when the form was used.
-  it('starts a mounted view in the last mode of the session', async () => {
-    sessionStorage.setItem('dagu.stepView.mode', 'form');
+  // A step view that is open when the page mounts starts on the text.
+  it('starts a mounted view on the YAML, not the form', async () => {
     await renderSpec({ initialNdv: 'expanded', selectedStepName: 'transform' });
-    expect(visual.formVisible).toBe(true);
+    expect(visual.formVisible).toBe(false);
   });
 
   it('gives the classic page the form of today', async () => {
