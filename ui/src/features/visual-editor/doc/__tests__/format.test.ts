@@ -121,23 +121,18 @@ describe('isSameYaml', () => {
     expect(isSameYaml('', '\n\n')).toBe(true);
   });
 
-  // An alias before its anchor parses, but toJS throws. isSameYaml runs while a
-  // page renders, so it must compare the texts instead.
-  it('does not throw on an alias that has no anchor before it', () => {
-    const aliased = 'env: *x\n' + base + 'x: &x\n  A: 1\n';
-    expect(() => isSameYaml(base, aliased)).not.toThrow();
-    expect(isSameYaml(base, aliased)).toBe(false);
-    expect(isSameYaml(aliased, aliased + '\n\n')).toBe(true);
-    expect(isSameYaml(aliased, aliased.replace('echo a', 'echo b'))).toBe(
-      false
-    );
-  });
-
   // An alias without its anchor parses, but the document has no value.
   it('compares text when an alias has no anchor', () => {
     const unresolved = 'steps:\n  - name: a\n    run: *missing\n';
     expect(isSameYaml(base, unresolved)).toBe(false);
     expect(isSameYaml(unresolved, unresolved + '\n\n')).toBe(true);
+    // An alias before its anchor has no value either.
+    const aliased = 'env: *x\n' + base + 'x: &x\n  A: 1\n';
+    expect(isSameYaml(base, aliased)).toBe(false);
+    expect(isSameYaml(aliased, aliased + '\n\n')).toBe(true);
+    expect(isSameYaml(aliased, aliased.replace('echo a', 'echo b'))).toBe(
+      false
+    );
   });
 
   it('compares every document of a multi document text', () => {
