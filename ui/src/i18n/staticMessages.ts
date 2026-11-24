@@ -12752,6 +12752,18 @@ const baseGerman = {
     'Server- oder Lizenzschlüssel aus der Dagu Console eingeben.',
   Monitoring: 'Überwachung',
   'Set in configuration': 'In der Konfiguration gesetzt',
+  Sends: 'Sendet',
+  'Every entry but successful reads':
+    'Alle Einträge außer erfolgreichen Lesezugriffen',
+  'Every entry': 'Alle Einträge',
+  "Dagu Console keeps a copy of this server's audit entries, so the record of who did what outlives the server.":
+    'Dagu Console bewahrt eine Kopie der Prüfeinträge dieses Servers auf, damit die Aufzeichnung, wer was getan hat, den Server überdauert.',
+  'Each entry sent carries its time, category, action, and result; the user ID and name; the IP address; the resource, workspace, credential, and MCP tool involved; and its details. Secret values and tokens are masked when an entry is written and again before it is sent.':
+    'Jeder gesendete Eintrag enthält Zeit, Kategorie, Aktion und Ergebnis; Benutzer-ID und Name; die IP-Adresse; die betroffene Ressource, den Arbeitsbereich, die Zugangsdaten und das MCP-Werkzeug; sowie seine Details. Geheime Werte und Tokens werden beim Schreiben eines Eintrags und erneut vor dem Senden maskiert.',
+  "Dagu Console stores them in the United States, for the workspace's audit retention.":
+    'Dagu Console speichert sie in den Vereinigten Staaten, für die Aufbewahrungsdauer der Prüfprotokolle des Arbeitsbereichs.',
+  'cloud.audit in the server configuration sets this. It takes effect with local audit on and a plan that includes audit logs. Change it there and restart Dagu.':
+    'Das setzt cloud.audit in der Serverkonfiguration. Es greift nur bei eingeschalteter lokaler Prüfung und einem Tarif mit Prüfprotokollen. Dort ändern und Dagu neu starten.',
   'Monitoring status unavailable': 'Überwachungsstatus nicht verfügbar',
   Reports: 'Meldungen',
   'Last report': 'Letzte Meldung',
