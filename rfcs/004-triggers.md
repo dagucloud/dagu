@@ -201,27 +201,35 @@ The scheduler runs `command` with the default shell, as a step without
 the filtered base environment that runs get, plus `env`; it does not inherit
 the rest of the scheduler's environment.
 
-- **Output.** Stdout is read up to 1 MiB or 10,000 lines, whichever comes
-  first. The rest is not read, a cut last line is dropped, and the check log
-  marks the check as cut. Each line that is not blank is an item, without
-  its trailing carriage return. A line over 16 KiB fails the check, since
-  the run receives it in an environment variable.
+- **Output.** Items are taken from stdout up to 1 MiB or 10,000 lines,
+  whichever comes first. The rest is read and discarded until the command
+  exits, so the command never blocks on a full pipe and its exit code still
+  decides the check. A cut last line is dropped, and the check log marks
+  the check as cut. Each line that is not blank is an item, without its
+  trailing carriage return.
 - **Stderr.** Kept up to 4 KiB for the check log, with `env` values masked,
   as secrets are in step logs.
 - **Exit code.** A non-zero exit or a timeout fails the check. A failed check
-  starts nothing and changes no record.
+  starts nothing and leaves the poll's keys as they were.
 - **Keys.** Each item's key is the line, or the result of `key`, evaluated
-  within the check's timeout. A line that is not JSON, or a key that is not
-  a non-empty string, fails the check. Of lines with the same key, the
-  first is the item and the rest are skipped.
+  within the check's timeout. Of lines with the same key, the first is the
+  item and the rest are skipped.
+- **Bad lines.** A line is skipped when it is over 16 KiB or holds a NUL
+  byte, since the run receives it in an environment variable, or, with
+  `key`, when it is not JSON or its key is not a non-empty string of at
+  most 16 KiB. A skipped line starts nothing and is not remembered. The
+  check goes on with the other items, so one bad job does not hold up a
+  work queue, and the check log marks the check with the number of lines
+  skipped and the first reason.
 - **Overlap.** At most one check per poll runs at a time, and at most 4
   across the scheduler. A due check waits for a slot, and waiting checks
   run in the order they fell due.
-- **After a failure.** After n failed checks in a row, the next check waits
-  `interval` × 2^(n−1), at most 10 minutes, or `interval` when that is
-  longer. With the default interval: 1, 2, 4, 8, then every 10 minutes. A
-  successful check, saving the poll, and resuming the DAG return the wait to
-  `interval`.
+- **After a failure.** After n failed checks in a row, counted from the
+  last successful check, save of the poll, or resume of the DAG, the next
+  check waits `interval` × 2^(n−1), at most 10 minutes, or `interval` when
+  that is longer. With the default interval: 1, 2, 4, 8, then every 10
+  minutes. So a fix is checked after `interval`. Saving and resuming do not
+  end a failing streak for [alerts](#alerts); only a successful check does.
 
 ### New items
 
@@ -304,9 +312,10 @@ enabled again, and not remembered, run then. This is what `watch` does.
 
 ### The check log
 
-Each poll keeps its latest 50 checks that started a run, failed, or were
-cut: start time, duration, exit code, number of items, number of new items,
-links to up to 20 runs started, and the stderr excerpt. Checks that found
+Each poll keeps its latest 50 checks that started a run, failed, were cut,
+or skipped lines: start time, duration, exit code, number of items, number
+of new items, lines skipped and why, links to up to 20 runs started, and
+the stderr excerpt. Checks that found
 nothing new are not listed one by one; the log keeps their count since the
 last listed check and when the latest ended. So a log of a quiet poll still
 reaches back to its last real work. The log is kept in `poll-state/`, not in
@@ -315,14 +324,15 @@ ended and when the next is due.
 
 ### Alerts
 
-- **Failing.** At the third failed check in a row, the DAG's page shows the
-  latest error, and one notification goes to the targets a failed run of the
-  DAG notifies, as a backfill's summary does; a command target is left out.
-  It names the DAG, the number of failed checks, the exit code, and the
-  stderr excerpt. No further notification is sent while the checks keep
-  failing.
-- **Recovered.** The first successful check after that clears the error and
-  sends one notification to the same targets.
+- **Failing.** At the third check in a row that failed or skipped a line,
+  the DAG's page shows the latest error, and one notification goes to the
+  targets a failed run of the DAG notifies, as a backfill's summary does; a
+  command target is left out. It names the DAG, the number of checks in the
+  streak, and the exit code and stderr excerpt, or the lines skipped and
+  why. No further notification is sent while the streak lasts, and saving
+  the poll does not end it.
+- **Recovered.** The first check after that which neither fails nor skips a
+  line clears the error and sends one notification to the same targets.
 - **Not running.** The scheduler records when each poll's next check is
   due. For an enabled poll of an unsuspended DAG, the DAG's page shows that
   the poll is not running, and when its last check ended, while no
@@ -394,8 +404,9 @@ would.
 | Situation | Behavior |
 | --- | --- |
 | Scheduler down | No checks run, and the DAG's page shows the poll is not running. The next check offers every item not remembered. |
-| Check fails or times out | It starts nothing and changes no record, and the next check waits longer, up to 10 minutes. At 3 in a row, the DAG's page shows the error and one notification is sent; the first success sends another. |
-| Output over 1 MiB or 10,000 lines | The rest is not read; the check goes on with what it read and is marked as cut. |
+| Check fails or times out | It starts nothing and keeps the poll's keys, and the next check waits longer, up to 10 minutes. At 3 in a row, the DAG's page shows the error and one notification is sent; the first check that neither fails nor skips a line sends another. |
+| A line over 16 KiB or with a NUL byte, or, with `key`, not JSON or without a valid key | The line is skipped and not remembered; the other items are queued. The check counts toward the 3 in a row that notify. |
+| Output over 1 MiB or 10,000 lines | The rest is read and discarded. The exit code still decides the check, which goes on with the items read and is marked as cut. |
 | Over 100 new items, or 100 runs waiting on the DAG's queue | Items not queued are not remembered and are new again at the next check. |
 | DAG file renamed or deleted outside Dagu | The poll has no DAG and is not checked; the list of polls shows it. |
 | All 4 check slots busy | Due checks wait in the order they fell due; one past due by more than the interval plus the timeout shows as late. |
@@ -412,10 +423,11 @@ would.
   100 processes a minute; slower checks stretch the time between checks
   rather than add processes. Each replaces a full run today, which starts a
   process and writes a status record, logs, and a work directory. A failing
-  poll slows to one check every 10 minutes.
+  poll slows to one check every 10 minutes. Output past the limit costs
+  CPU to discard, not memory, until the command exits or times out.
 - **Runs queued.** At most 100 per check, and none while 100 wait on the
   DAG's queue.
-- **Notifications.** At most two per run of failures: one when it starts,
+- **Notifications.** At most two per failing streak: one when it starts,
   one when it ends.
 - **Pickup.** One read of `polls/` and one of `poll-checks/` every 10
   seconds. Both grow with the number of polls, not with DAGs or runs.
@@ -578,14 +590,14 @@ is backed up and restored with the data directory, as webhooks are.
    100 runs wait on the DAG's queue.
 5. Killing the scheduler after queuing runs and before saving its record,
    then restarting it, starts no second run for the same key.
-6. A failing or timed-out check starts nothing, keeps the record, and shows
-   its stderr in the check log, with `env` values masked.
-7. With a 1-minute interval and a command that always fails, checks start
-   1, 2, 4, 8, and then 10 minutes apart; saving the poll returns them to 1
-   minute.
+6. A failing or timed-out check starts nothing, keeps the poll's keys, and
+   shows its stderr in the check log, with `env` values masked.
+7. With a 1-minute interval and a command that always fails, each check
+   starts 1, 2, 4, 8, and then 10 minutes after the previous one ended;
+   saving the poll returns the wait to 1 minute.
 8. At the third failure in a row, the DAG's page shows the error and the
-   DAG's failure targets get one notification; later failures send none, and
-   the next success sends one more.
+   DAG's failure targets get one notification; later failures send none,
+   even after the poll is saved, and the next success sends one more.
 9. With the scheduler stopped, the DAG's page shows the poll is not running
    once the scheduler lock is released or stale. With all 4 check slots
    held by hung checks, a due poll shows as late, not as not running.
@@ -595,7 +607,8 @@ is backed up and restored with the data directory, as webhooks are.
     run once.
 12. Output over 1 MiB or 10,000 lines is cut: runs are queued for the items
     read, the check log marks the check as cut, and later items run as
-    earlier ones leave the listing.
+    earlier ones leave the listing. A command that exits non-zero after the
+    cut fails the check.
 13. Check now runs on the scheduler host, lists the items and which are new,
     and is in the audit log; a check right after it still finds the same
     items new. A command that runs past 30 seconds is stopped, and the call
@@ -613,6 +626,10 @@ is backed up and restored with the data directory, as webhooks are.
     base environment leaves out.
 18. A step that reads an item crafted with shell metacharacters from its
     environment runs no command beyond its own.
+19. With `key` set, a line that is not JSON is skipped and not remembered;
+    the check's other items start runs, and the check log shows the skip.
+    At the third such check in a row, the failure targets get one
+    notification.
 
 ## Alternatives considered
 
