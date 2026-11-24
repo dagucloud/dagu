@@ -38,6 +38,10 @@ const (
 	// reads, so a backlog of large entries is sent in parts.
 	auditBatchBytes   = 4 << 20
 	auditStateVersion = 1
+	// auditBacklogReads bounds the reads a report spends looking for the
+	// oldest entry that waits, so a backlog of entries the level skips costs
+	// one read, not all of it.
+	auditBacklogReads = 1
 	// auditGapStopped is the reason of the gap for entries a stopping server
 	// could not send.
 	auditGapStopped = "stopped"
@@ -352,7 +356,7 @@ func (s *AuditShipper) firstUnsent(ctx context.Context) (time.Time, bool) {
 	if !s.loaded {
 		return time.Time{}, false
 	}
-	return s.firstAfter(ctx, s.saved.Position)
+	return s.firstAfter(ctx, s.saved.Position, 0)
 }
 
 // Backlog reports what waits to be sent, from the position saved last, so
@@ -372,15 +376,16 @@ func (s *AuditShipper) Backlog(ctx context.Context) (unsentBytes int64, oldestUn
 		return 0, time.Time{}, false
 	}
 	if unsent > 0 {
-		oldestUnsent, _ = s.firstAfter(ctx, state.Position)
+		oldestUnsent, _ = s.firstAfter(ctx, state.Position, auditBacklogReads)
 	}
 	return unsent, oldestUnsent, true
 }
 
 // firstAfter returns when the first entry the level sends after position was
-// written, reading past the entries it skips.
-func (s *AuditShipper) firstAfter(ctx context.Context, position []byte) (time.Time, bool) {
-	for ctx.Err() == nil {
+// written, reading past the entries it skips, in at most reads reads, or
+// until the end when reads is 0.
+func (s *AuditShipper) firstAfter(ctx context.Context, position []byte, reads int) (time.Time, bool) {
+	for read := 1; ctx.Err() == nil && (reads == 0 || read <= reads); read++ {
 		chunk, err := s.feed.Read(ctx, audit.FeedQuery{Position: position, Now: s.now(), Full: true, Keep: s.sends, Limit: 1})
 		if err != nil {
 			return time.Time{}, false

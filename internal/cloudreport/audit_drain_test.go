@@ -5,6 +5,7 @@ package cloudreport
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -232,5 +233,27 @@ func TestAuditShipperBacklog(t *testing.T) {
 	unsent, oldest, ok = s.Backlog(t.Context())
 	require.True(t, ok)
 	assert.Zero(t, unsent)
+	assert.True(t, oldest.IsZero())
+}
+
+// A report spends one read looking for the oldest entry that waits: behind
+// more than a read of entries the level skips, it leaves the time out and
+// still counts the bytes.
+func TestAuditShipperBacklogReadsBounded(t *testing.T) {
+	d := newAuditDir(t)
+	unmarked, err := fileaudit.New(d.dir, 0)
+	require.NoError(t, err)
+	for range 50 {
+		entry := audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops")
+		entry.Timestamp, entry.Details = testClockStart, `{"command":"`+strings.Repeat("x", 100<<10)+`"}`
+		require.NoError(t, unmarked.Append(t.Context(), entry))
+	}
+	d.write(t, testClockStart, audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
+	s := newTestShipper(fileaudit.NewFeed(d.dir), d.state, filemonitor.NewLease(d.stateFile, nil), config.AuditAll, nil)
+
+	unsent, oldest, ok := s.Backlog(t.Context())
+
+	require.True(t, ok)
+	assert.Greater(t, unsent, int64(4<<20), "more than one read waits")
 	assert.True(t, oldest.IsZero())
 }

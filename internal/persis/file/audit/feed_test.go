@@ -286,6 +286,13 @@ func TestFeed_Unsent(t *testing.T) {
 	all, err := feed.Unsent(context.Background(), nil)
 	require.NoError(t, err)
 	assert.Equal(t, unsent+int64(len(feedLine(t, "a", yesterday))), all)
+
+	// A file replaced by a smaller one is read again from its start.
+	replacement := feedLine(t, "r", yesterday)[:10] + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(dir, yesterday.Format(dateFormat)+auditFileExtension), []byte(replacement), auditFilePermissions))
+	replaced, err := feed.Unsent(context.Background(), first.Position)
+	require.NoError(t, err)
+	assert.Equal(t, int64(len(replacement)+len(newFile)), replaced)
 }
 
 func TestFeed_StopsAtLimit(t *testing.T) {

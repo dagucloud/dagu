@@ -160,10 +160,12 @@ func (f *Feed) Unsent(_ context.Context, position []byte) (int64, error) {
 	var unsent int64
 	for name, size := range sizes {
 		var offset int64
-		if file := pos.Files[name]; file != nil {
+		if file := pos.Files[name]; file != nil && file.Offset <= size {
+			// A file now smaller than its offset was replaced, and is read
+			// again from its start.
 			offset = file.Offset
 		}
-		unsent += max(size-offset, 0)
+		unsent += size - offset
 	}
 	return unsent, nil
 }
