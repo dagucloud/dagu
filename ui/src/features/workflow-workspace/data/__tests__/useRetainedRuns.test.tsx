@@ -149,6 +149,22 @@ describe('useRetainedRuns without a connected feed', () => {
     await waitFor(() => expect(retainedCalls()).toHaveLength(2));
   });
 
+  // A DAG that gets no new run keeps its runs: it reads them once and polls
+  // again when a run starts.
+  it('does not poll while poll is false', async () => {
+    setPolicy('always');
+    h.historySSE.mockReturnValue({ ...idleSSE, shouldUseFallback: true });
+    let poll = false;
+    const view = renderWorkspace(() => useRetainedRuns(true, '24h', poll));
+    await waitFor(() => expect(retainedCalls()).toHaveLength(1));
+    await wait(RETAINED_READ_MS * 2);
+    expect(retainedCalls()).toHaveLength(1);
+    poll = true;
+    view.rerender();
+    await wait(RETAINED_READ_MS + 1000);
+    await waitFor(() => expect(retainedCalls()).toHaveLength(2));
+  });
+
   // A DAG that is not a service keeps its poll and uses no feed.
   it('polls a DAG that is not a service, as before', async () => {
     setPolicy(undefined);
@@ -177,6 +193,17 @@ describe('useRetainedRuns without a connected feed', () => {
 // and a read that happens first cancels it.
 describe('gatedRead', () => {
   it('keeps the earliest pending read of a list', async () => {
+    const read = vi.fn(() => Promise.resolve());
+    noteRead('list');
+    void gatedRead('list', read, 10_000);
+    void gatedRead('list', read, 30_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(read).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it('moves the pending read earlier for a shorter gap', async () => {
     const read = vi.fn(() => Promise.resolve());
     noteRead('list');
     void gatedRead('list', read, 30_000);

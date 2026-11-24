@@ -123,12 +123,13 @@ const NONE: RetainedRuns = { ids: new Set(), oldestAt: null };
  * panel opens, when `windowKey` changes (at most once in
  * SERVICE_READ_GAP_MS), and after an event of the feed (at most once in
  * RETAINED_READ_MS: each run sends an event). Without the feed, and for a
- * DAG that is not a service, it reads each RETAINED_READ_MS. It reads nothing
- * while `enabled` is false.
+ * DAG that is not a service, it reads each RETAINED_READ_MS while `poll` is
+ * true. It reads nothing while `enabled` is false.
  */
 export function useRetainedRuns(
   enabled: boolean,
-  windowKey?: string
+  windowKey?: string,
+  poll = true
 ): RetainedRuns {
   const { fileName, remoteNode, dagData } = useWorkspaceData('useRetainedRuns');
   const dag = dagData.dag;
@@ -147,7 +148,7 @@ export function useRetainedRuns(
     }),
     {
       keepPreviousData: true,
-      refreshInterval: fed ? 0 : RETAINED_READ_MS,
+      refreshInterval: fed || !poll ? 0 : RETAINED_READ_MS,
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
       onSuccess: () => noteRead(gateKey),
