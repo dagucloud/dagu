@@ -24,7 +24,7 @@ func TestConnectionTestCancelled(t *testing.T) {
 	cancel()
 	var out bytes.Buffer
 	nodes := []inventory.ResolvedNode{{Name: "web01"}, {Name: "web02"}}
-	session := connectionTest{ctx: &Context{Context: ctx}, service: nodeconn.New(nil, nil), nodes: nodes, out: &out}
+	session := connectionTest{ctx: &Context{Context: ctx}, tester: localTester{service: nodeconn.New(nil, nil), nodes: nodes}, nodes: nodes, out: &out}
 
 	err := session.run(nodes)
 

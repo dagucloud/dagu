@@ -14110,11 +14110,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/InventoryNodeConnectionTestEvent"
         "400":
-          description: "The node breaks a rule, or the inventory already holds its name"
+          description: "The node breaks a rule, or the inventory already holds its name. `errors` lists each broken rule, and `message` names them too"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: "#/components/schemas/InventoryImportError"
         "404":
           description: "No inventory has this ID"
           content:

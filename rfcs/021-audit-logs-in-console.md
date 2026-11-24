@@ -1,6 +1,6 @@
 # RFC 021: Audit Logs in Dagu Console
 
-- **Status:** Draft
+- **Status:** Implemented
 - **Date:** 2026-11-22
 - **Affected areas:** `audit`, `persis/file/audit`, `cmn/masking`,
   `cloudreport`, `cmd` (`server`, `start-all`, `secret`), `service/frontend`

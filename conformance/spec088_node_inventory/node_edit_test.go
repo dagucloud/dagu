@@ -32,9 +32,9 @@ func add(dagu *harness.Runner, env []string, answer string, args ...string) *har
 	return dagu.RunWithStdin(env, strings.NewReader(answer), append([]string{"nodes", "add"}, args...)...)
 }
 
-// dagu nodes add tests a node before it saves it, and asks before it trusts
-// an unknown host key. Removing the node forgets the key, so the node added
-// again is asked about again.
+// dagu nodes add tests a node before it saves it, asks before it trusts an
+// unknown host key, and refuses a name the inventory holds. Removing the
+// node forgets the key, so the node added again is asked about again.
 func TestAddAndRemoveNode(t *testing.T) {
 	t.Parallel()
 
@@ -61,10 +61,12 @@ func TestAddAndRemoveNode(t *testing.T) {
 	}
 	assert.Equal(t, []string{"role=web"}, findNode(t, listNodes(t, dagu, env), "web01").Labels)
 
-	// The key is trusted now, so adding the node again asks nothing.
-	again := add(dagu, env, "", web01...)
-	again.ExpectExitCode(0)
-	assert.Contains(t, again.Stdout(), "replaced web01 in fleet")
+	// add adds new nodes only: a name the inventory holds is refused before
+	// anything is tested.
+	again := add(dagu, env, "", append([]string{"WEB01"}, web01[1:]...)...)
+	again.ExpectNonZeroExitCode()
+	again.ExpectStderrContains(`node "WEB01" not added: inventory "fleet" already has a node "web01"`)
+	assert.Equal(t, 1, server.AuthAttempts(), "a refused add tested the node")
 
 	removed := dagu.RunWithEnv(env, "nodes", "remove", "WEB01")
 	removed.ExpectExitCode(0)

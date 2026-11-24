@@ -1,6 +1,8 @@
 # RFC 002: Dagu Cloud Connector
 
-- **Status:** Proposed
+- **Status:** Proposed. Connection, reporting, the free plan, the
+  `dagucloud` tunnel, and remote access for MCP calls shipped in v2.19 to
+  v2.22; the rest is planned.
 - **Date:** 2026-10-09, revised 2026-11-14
 - **Affected areas:** `license`, `eventstore`, `cloudrelay`, `cloudaccess`,
   `cloudreport`, `serviceregistry`, `service/frontend` (auth, API, UI),
