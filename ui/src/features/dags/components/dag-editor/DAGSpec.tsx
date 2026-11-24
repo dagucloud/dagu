@@ -99,6 +99,7 @@ import { YamlReferenceButton } from '@/features/visual-editor/references/YamlRef
 import ExternalChangeDialog from './ExternalChangeDialog';
 import { useStepViewForm } from './stepViewMode';
 import { preloadDAGEditor } from './loadDAGEditor';
+import { stepLensReader } from './stepLenses';
 import { ReadOnlyMarker, YamlFileBody, YamlFilePanel } from './YamlFilePanel';
 import { useYamlSection } from './useYamlSection';
 import { useDAGSpecQuery } from './useDAGSpecQuery';
@@ -842,33 +843,16 @@ function DAGSpec({
   // full-screen step view. The lines come from the text that the editor has
   // when Monaco asks, not from the checked text, which can be older.
   const stepLensLabel = ts('Open step');
-  const stepLenses = React.useMemo(() => {
-    let last: { text: string; steps: { line: number; name: string }[] } | null =
-      null;
-    const stepsOf = (text: string) => {
-      if (last?.text === text) return last.steps;
-      const model =
-        text === textModel.text ? textModel : parseDagDocLenient(text);
-      const names =
-        model === textModel
-          ? textNames
-          : resolveStepNames(model, visualValidation.dag);
-      const steps = model.steps.flatMap((step) => {
-        // A step with no name runs under its id.
-        const name = names.byKey[step.key] ?? step.explicitName ?? step.id;
-        return name ? [{ line: step.range.startLine, name }] : [];
-      });
-      last = { text, steps };
-      return steps;
-    };
-    return {
-      steps: stepsOf,
+  const stepLenses = React.useMemo(
+    () => ({
+      steps: stepLensReader(textModel, textNames, visualValidation.dag),
       label: stepLensLabel,
       open: (name: string) => {
         visualHandleRef.current?.openYaml(name);
       },
-    };
-  }, [textModel, textNames, visualValidation.dag, stepLensLabel]);
+    }),
+    [textModel, textNames, visualValidation.dag, stepLensLabel]
+  );
   const allIssues = React.useMemo(
     () =>
       !clientIssues

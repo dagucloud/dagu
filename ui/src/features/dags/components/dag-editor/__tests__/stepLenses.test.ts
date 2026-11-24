@@ -3,7 +3,16 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import type { languages } from 'monaco-editor';
-import { registerStepLenses, type StepLensSource } from '../stepLenses';
+import type { ApiDAGDetails } from '@/features/visual-editor/contracts';
+import {
+  parseDagDocLenient,
+  resolveStepNames,
+} from '@/features/visual-editor/doc/parse';
+import {
+  registerStepLenses,
+  stepLensReader,
+  type StepLensSource,
+} from '../stepLenses';
 
 // A stand-in for the parts of Monaco that the lenses use.
 function fakeMonaco() {
@@ -153,5 +162,33 @@ describe('registerStepLenses', () => {
     );
     registration.refresh();
     expect(fire).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('stepLensReader', () => {
+  // The host checks the text some time after an edit, and Monaco can ask in
+  // between: a newer text gets its own lines, and the names of the server.
+  it('reads the steps of a text newer than the checked one', () => {
+    const details: ApiDAGDetails = {
+      name: 'd',
+      steps: [
+        { name: 'first', id: 'a' },
+        { name: 'second', id: 'b' },
+      ],
+    };
+    const checked = parseDagDocLenient('steps:\n  - id: a\n  - id: b\n');
+    const read = stepLensReader(
+      checked,
+      resolveStepNames(checked, details),
+      details
+    );
+    expect(read(checked.text)).toEqual([
+      { line: 2, name: 'first' },
+      { line: 3, name: 'second' },
+    ]);
+    expect(read('steps:\n  # note\n  - id: a\n  - id: b\n')).toEqual([
+      { line: 3, name: 'first' },
+      { line: 4, name: 'second' },
+    ]);
   });
 });
