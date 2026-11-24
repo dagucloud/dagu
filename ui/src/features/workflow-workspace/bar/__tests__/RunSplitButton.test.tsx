@@ -506,7 +506,6 @@ describe('RunSplitButton', () => {
       const slot = screen.getByTestId('ww-run-start-slot');
       expect(within(slot).getByRole('button', { name: 'Retry' })).toBeEnabled();
       expect(shownByName('Start')).toHaveLength(0);
-      expect(screen.getAllByRole('button', { name: 'Retry' })).toHaveLength(1);
       // The cluster has no Retry: the one Retry button is in the slot.
       expect(screen.getAllByRole('button', { name: 'Retry' })).toHaveLength(1);
       // The shown buttons of the group: Retry and the caret.
