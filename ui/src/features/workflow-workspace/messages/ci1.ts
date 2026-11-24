@@ -101,5 +101,15 @@ export default defineMessages({
     'The step then counts as a success.':
       'Der Schritt gilt dann als erfolgreich.',
     'Runs only if:': 'Läuft nur, wenn:',
+    'Retries the step up to {limit} times.':
+      'Wiederholt den Schritt bis zu {limit}-mal.',
+    'Retries the step once.': 'Wiederholt den Schritt höchstens einmal.',
+    'Retries the step.': 'Wiederholt den Schritt.',
+    'Waits {interval} between the attempts.':
+      'Wartet {interval} zwischen den Versuchen.',
+    'Waits {interval} before the second attempt, then longer each time.':
+      'Wartet {interval} vor dem zweiten Versuch, danach jedes Mal länger.',
+    'Retries only after the exit code {codes}.':
+      'Wiederholt nur bei Exit-Code {codes}.',
   },
 });
