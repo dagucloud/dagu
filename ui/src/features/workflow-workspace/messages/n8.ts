@@ -35,6 +35,5 @@ export default defineMessages({
     'Newer run': 'Neuerer Lauf',
     Latest: 'Neueste',
     'Follow latest': 'Neuestem folgen',
-    'A newer run is active': 'Ein neuerer Lauf ist aktiv',
   },
 });

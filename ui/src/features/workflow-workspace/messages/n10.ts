@@ -55,7 +55,6 @@ export default defineMessages({
     'An action is waiting.': 'Eine Aktion wartet.',
     '{count} actions are waiting.': '{count} Aktionen warten.',
     'Open agent': 'Agent öffnen',
-    'A newer run is active': 'Ein neuerer Lauf ist aktiv',
     'Follow latest': 'Neuestem folgen',
     'Sub-run {name} is waiting for an action.':
       'Unterlauf {name} wartet auf eine Aktion.',
