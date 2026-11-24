@@ -28,6 +28,7 @@ export function LauncherDataProbe({
   restartPolicy,
   restartWaitSec,
   restartRetentionRuns,
+  restartRetentionDays,
   onData,
 }: {
   fileName: string;
@@ -36,6 +37,7 @@ export function LauncherDataProbe({
   restartPolicy: RestartPolicy;
   restartWaitSec: number | null;
   restartRetentionRuns: number | null;
+  restartRetentionDays: number | null;
   onData(data: LauncherData): void;
 }): null {
   const remoteNode = useRemoteNode();
@@ -51,6 +53,7 @@ export function LauncherDataProbe({
         restartPolicy,
         restartWaitSec,
         restartRetentionRuns,
+        restartRetentionDays,
         webhookCount,
         webhooksAvailable,
       }),
@@ -60,6 +63,7 @@ export function LauncherDataProbe({
       restartPolicy,
       restartWaitSec,
       restartRetentionRuns,
+      restartRetentionDays,
       webhookCount,
       webhooksAvailable,
     ]

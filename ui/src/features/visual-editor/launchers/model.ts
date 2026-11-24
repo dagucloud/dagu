@@ -36,12 +36,14 @@ export interface LauncherState {
   /** Set on Cron: the number of cron expressions of the schedule. */
   count?: number;
   /**
-   * Set on an active Always on: the policy, the wait in seconds and the runs
-   * kept, each null when the file has none.
+   * Set on an active Always on: the policy, the wait in seconds, the runs
+   * kept and the days that the history keeps runs for, each null when the
+   * file has none.
    */
   policy?: Exclude<RestartPolicy, 'no'>;
   waitSec?: number | null;
   retentionRuns?: number | null;
+  retentionDays?: number | null;
 }
 
 /** The runs that the history keeps for a service DAG with no retention (spec 080). */
@@ -58,6 +60,8 @@ export interface LauncherInputs {
   restartWaitSec?: number | null;
   /** The `hist_retention_runs` of the YAML. */
   restartRetentionRuns?: number | null;
+  /** The `hist_retention_days` of the YAML. */
+  restartRetentionDays?: number | null;
   /**
    * Number of webhooks of the workflow, or null while it is not known (the
    * request is running or failed).
@@ -93,6 +97,7 @@ export function launcherStates(input: LauncherInputs): LauncherState[] {
       policy,
       waitSec: input.restartWaitSec ?? null,
       retentionRuns: input.restartRetentionRuns ?? null,
+      retentionDays: input.restartRetentionDays ?? null,
     });
   }
   if (input.webhooksAvailable) {

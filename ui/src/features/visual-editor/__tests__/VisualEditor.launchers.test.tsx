@@ -69,6 +69,7 @@ vi.mock('../launchers/LauncherData', async () => {
       restartPolicy,
       restartWaitSec,
       restartRetentionRuns,
+      restartRetentionDays,
       onData,
     }: {
       scheduleCount: number;
@@ -76,6 +77,7 @@ vi.mock('../launchers/LauncherData', async () => {
       restartPolicy: RestartPolicy;
       restartWaitSec: number | null;
       restartRetentionRuns: number | null;
+      restartRetentionDays: number | null;
       onData(data: LauncherData): void;
     }) => {
       useEffect(() => {
@@ -86,6 +88,7 @@ vi.mock('../launchers/LauncherData', async () => {
             restartPolicy,
             restartWaitSec,
             restartRetentionRuns,
+            restartRetentionDays,
             webhookCount: probe.webhookCount,
             webhooksAvailable: probe.webhooks,
           }),
@@ -98,6 +101,7 @@ vi.mock('../launchers/LauncherData', async () => {
         restartPolicy,
         restartWaitSec,
         restartRetentionRuns,
+        restartRetentionDays,
         onData,
       ]);
       return null;
@@ -163,6 +167,9 @@ function openAddStep(handle: () => VisualEditorHandle) {
   act(() => handle().addStep());
 }
 
+const launcherButton = (id: string) =>
+  within(screen.getByTestId(`ve-launcher-${id}`)).getByRole('button');
+
 beforeEach(() => {
   probe.webhooks = true;
   probe.webhookCount = 0;
@@ -205,12 +212,13 @@ describe('VisualEditor launchers', () => {
     ).toBeInTheDocument();
   });
 
-  it('draws Cron solid when the YAML has a schedule', () => {
+  it('draws Cron solid and alone when the YAML has a schedule', () => {
     renderEditor(`schedule: "0 * * * *"\n${yamlArraySteps}`);
     expect(screen.getByTestId('ve-launcher-cron')).toHaveAttribute(
       'data-status',
       'active'
     );
+    expect(screen.queryByTestId('ve-launcher-always')).toBeNull();
   });
 
   it('opens the Cron panel from its node and edits the YAML text only', () => {
@@ -248,10 +256,23 @@ describe('VisualEditor launchers', () => {
       'data-status',
       'active'
     );
-    expect(screen.getByTestId('ve-launcher-summary')).toHaveTextContent(
-      '5 s · 20 runs'
+    expect(launcherButton('always')).toHaveAttribute(
+      'title',
+      'Always on: Restarts after each run, wait 5 s, keeps 20 runs'
     );
     expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
+  });
+
+  // A file with `hist_retention_days` keeps runs by days, not the 100 runs
+  // of the default.
+  it('tells the days that an Always on workflow keeps its runs for', () => {
+    renderEditor(
+      `restart_policy: always\nhist_retention_days: 7\n${yamlArraySteps}`
+    );
+    expect(launcherButton('always')).toHaveAttribute(
+      'title',
+      'Always on: Restarts after each run, keeps runs for 7 days'
+    );
   });
 
   // The icon of Always on turns by the latest run of the workflow, which the
@@ -294,24 +315,6 @@ describe('VisualEditor launchers', () => {
     });
   });
 
-  it('draws Cron alone with a schedule', () => {
-    renderEditor(`schedule: "0 * * * *"\n${yamlArraySteps}`);
-    expect(screen.getByTestId('ve-launcher-cron')).toBeInTheDocument();
-    expect(screen.queryByTestId('ve-launcher-always')).toBeNull();
-  });
-
-  it('draws both solid for a file that has a policy and a schedule', () => {
-    renderEditor(
-      `restart_policy: always\nrestart_wait_sec: 5\nschedule: "0 * * * *"\n${yamlArraySteps}`
-    );
-    for (const id of ['cron', 'always']) {
-      expect(screen.getByTestId(`ve-launcher-${id}`)).toHaveAttribute(
-        'data-status',
-        'active'
-      );
-    }
-  });
-
   it('swaps the slot as the author chooses, sets, switches and removes', () => {
     renderEditor();
     const open = (id: string) =>
@@ -327,7 +330,7 @@ describe('VisualEditor launchers', () => {
     // The chooser writes nothing.
     open('schedule');
     const panel = () => screen.getByTestId(/^ve-launcher-panel-/);
-    fireEvent.click(within(panel()).getByRole('radio', { name: /^Cron/ }));
+    fireEvent.click(within(panel()).getByRole('button', { name: /^Cron/ }));
     expect(state.text).toBe(yamlArraySteps);
     expect(slot()).toEqual(['schedule']);
 
@@ -352,32 +355,36 @@ describe('VisualEditor launchers', () => {
     expect(state.text).toBe(yamlArraySteps);
     expect(slot()).toEqual(['schedule']);
     expect(
-      within(panel()).getByRole('radio', { name: /^Always on/ })
-    ).toHaveAttribute('aria-checked', 'true');
+      within(panel()).getByRole('button', { name: /^Always on/ })
+    ).toHaveAttribute('aria-pressed', 'true');
 
-    // The first policy turns the node into Always on, with its second line.
-    fireEvent.click(within(panel()).getByRole('radio', { name: 'Always' }));
+    // The first policy turns the node into Always on, with a wait of 5 s.
+    fireEvent.click(within(panel()).getByRole('button', { name: 'Always' }));
     expect(slot()).toEqual(['always']);
     expect(screen.getByTestId('ve-launcher-panel-always')).toBeInTheDocument();
-    expect(screen.getByTestId('ve-launcher-summary')).toHaveTextContent(
-      '5 s · 100 runs'
+    expect(state.text).toContain(
+      'restart_policy: always\nrestart_wait_sec: 5\n'
+    );
+    expect(launcherButton('always')).toHaveAttribute(
+      'title',
+      'Always on: Restarts after each run, wait 5 s, keeps 100 runs (default)'
     );
     const wait = within(panel()).getByLabelText('Wait before a new run (s)');
     fireEvent.change(wait, { target: { value: '30' } });
     fireEvent.blur(wait);
     fireEvent.click(
-      within(panel()).getByRole('radio', { name: 'Unless stopped' })
+      within(panel()).getByRole('button', { name: 'Unless stopped' })
     );
     const runs = within(panel()).getByLabelText('Runs kept in the history');
     fireEvent.change(runs, { target: { value: '20' } });
     fireEvent.blur(runs);
-    expect(screen.getByTestId('ve-launcher-summary')).toHaveTextContent(
-      'unless stopped · 30 s'
+    expect(state.text).toContain('restart_policy: unless-stopped\n');
+    expect(state.text).toContain('restart_wait_sec: 30\n');
+    expect(state.text).toContain('hist_retention_runs: 20\n');
+    expect(launcherButton('always')).toHaveAttribute(
+      'title',
+      'Always on: Restarts unless stopped, wait 30 s, keeps 20 runs'
     );
-    // The runs kept are in the tooltip: the line has no room for them.
-    expect(
-      within(screen.getByTestId('ve-launcher-always')).getByRole('button')
-    ).toHaveAttribute('title', expect.stringContaining('keeps 20 runs'));
 
     // Switch back to Cron.
     fireEvent.click(
@@ -386,41 +393,44 @@ describe('VisualEditor launchers', () => {
     expect(state.text).not.toContain('restart_policy');
     expect(slot()).toEqual(['schedule']);
     expect(
-      within(panel()).getByRole('radio', { name: /^Cron/ })
-    ).toHaveAttribute('aria-checked', 'true');
+      within(panel()).getByRole('button', { name: /^Cron/ })
+    ).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('sets, changes and removes the restart policy from its panel', () => {
-    renderEditor();
-    fireEvent.click(
-      within(screen.getByTestId('ve-launcher-schedule')).getByRole('button')
-    );
-    let panel = screen.getByTestId('ve-launcher-panel-schedule');
-    fireEvent.click(within(panel).getByRole('radio', { name: /^Always on/ }));
-    fireEvent.click(within(panel).getByRole('radio', { name: 'Always' }));
-    panel = screen.getByTestId('ve-launcher-panel-always');
-    expect(state.text).toContain(
-      'restart_policy: always\nrestart_wait_sec: 5\n'
-    );
-
-    fireEvent.click(
-      within(panel).getByRole('radio', { name: 'Unless stopped' })
-    );
-    const wait = within(panel).getByLabelText('Wait before a new run (s)');
-    fireEvent.change(wait, { target: { value: '30' } });
-    fireEvent.blur(wait);
-    expect(state.text).toContain('restart_policy: unless-stopped');
-    expect(state.text).toContain('restart_wait_sec: 30');
-
-    fireEvent.click(
-      within(panel).getByRole('button', { name: 'Remove the restart policy' })
-    );
-    expect(state.text).not.toContain('restart_policy');
-    // The node is the placeholder again, and the panel the chooser.
-    expect(screen.getByTestId('ve-launcher-schedule')).toBeInTheDocument();
+  // The switch removes the start expressions only. With a `stop` entry the
+  // schedule would stay, and a restart policy cannot go with it.
+  it('offers no switch to Always on for a schedule that would stay', () => {
+    const text = `schedule:\n  start: "0 8 * * *"\n  stop: "0 18 * * *"\n${yamlArraySteps}`;
+    renderEditor(text);
+    fireEvent.click(launcherButton('cron'));
+    const panel = screen.getByTestId('ve-launcher-panel-cron');
     expect(
-      screen.getByTestId('ve-launcher-panel-schedule')
+      within(panel).queryByRole('button', { name: 'Switch to Always on' })
+    ).toBeNull();
+    expect(
+      within(panel).getByText(
+        'Edit the schedule in the YAML to switch to Always on.'
+      )
     ).toBeInTheDocument();
+    expect(state.text).toBe(text);
+  });
+
+  it('switches to Always on from a schedule with start entries only', () => {
+    renderEditor(`schedule:\n  start: "0 8 * * *"\n${yamlArraySteps}`);
+    fireEvent.click(launcherButton('cron'));
+    fireEvent.click(
+      within(screen.getByTestId('ve-launcher-panel-cron')).getByRole('button', {
+        name: 'Switch to Always on',
+      })
+    );
+    expect(state.text).not.toContain('schedule');
+    fireEvent.click(
+      within(screen.getByTestId('ve-launcher-panel-schedule')).getByRole(
+        'button',
+        { name: 'Always' }
+      )
+    );
+    expect(state.text).toContain('restart_policy: always\n');
   });
 
   // A file with both keys is invalid: the panel names the conflict, and the
@@ -429,9 +439,14 @@ describe('VisualEditor launchers', () => {
     renderEditor(
       `restart_policy: always\nrestart_wait_sec: 5\nschedule: "0 * * * *"\n${yamlArraySteps}`
     );
-    fireEvent.click(
-      within(screen.getByTestId('ve-launcher-always')).getByRole('button')
-    );
+    // Both nodes are solid, so that the conflict shows on the graph.
+    for (const id of ['cron', 'always']) {
+      expect(screen.getByTestId(`ve-launcher-${id}`)).toHaveAttribute(
+        'data-status',
+        'active'
+      );
+    }
+    fireEvent.click(launcherButton('always'));
     const panel = screen.getByTestId('ve-launcher-panel-always');
     expect(within(panel).getByRole('note')).toHaveTextContent(
       'A service DAG cannot have a schedule'

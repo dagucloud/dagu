@@ -1814,13 +1814,15 @@ describe('VisualCanvas launchers', () => {
     const withPolicy = (
       restartPolicy: 'no' | 'always' | 'unless-stopped',
       restartWaitSec: number | null = null,
-      restartRetentionRuns: number | null = null
+      restartRetentionRuns: number | null = null,
+      restartRetentionDays: number | null = null
     ) =>
       launcherStates({
         scheduleCount: 0,
         restartPolicy,
         restartWaitSec,
         restartRetentionRuns,
+        restartRetentionDays,
         webhookCount: 0,
         webhooksAvailable: true,
       });
@@ -1871,6 +1873,25 @@ describe('VisualCanvas launchers', () => {
       expect(button('always')).toHaveAttribute(
         'aria-label',
         'Always on: Restarts after each run, wait 5 s, keeps 100 runs (default)'
+      );
+    });
+
+    // A file with `hist_retention_days` keeps runs by days: the 100 runs of
+    // the default do not apply.
+    it('tells the days kept in the tooltip, and no runs on the card', () => {
+      renderCanvas({ launchers: withPolicy('always', 5, null, 7) });
+      expect(summary()).toHaveTextContent(/^5 s$/);
+      expect(button('always')).toHaveAttribute(
+        'title',
+        'Always on: Restarts after each run, wait 5 s, keeps runs for 7 days'
+      );
+    });
+
+    it('uses the singular for one day kept', () => {
+      renderCanvas({ launchers: withPolicy('unless-stopped', null, null, 1) });
+      expect(button('always')).toHaveAttribute(
+        'title',
+        'Always on: Restarts unless stopped, keeps runs for 1 day'
       );
     });
 

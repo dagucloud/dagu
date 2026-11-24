@@ -8,7 +8,13 @@ import {
   SlidersHorizontal,
   Trash2,
 } from 'lucide-react';
-import { useState, type ReactElement, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import {
   ScheduleKind,
   type components,
@@ -16,6 +22,7 @@ import {
 } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
+import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
 import { useConfig } from '@/contexts/ConfigContext';
 import WebhookTab from '@/features/dags/components/dag-details/WebhookTab';
 import {
@@ -370,8 +377,6 @@ function describesEntry(
 interface CronProps {
   schedule: ScheduleView;
   editable: boolean;
-  /** True when `restart_policy` keeps the workflow running: no schedule can be added. */
-  alwaysOn?: boolean;
   /** Next runs of the saved or validated schedule, from the server. */
   upcomingRuns?: UpcomingRun[];
   /** Why none of the upcoming runs will start, if they will not. */
@@ -403,11 +408,9 @@ function CronBody({
   paramDefs = [],
   issues = [],
   coincidences,
-  alwaysOn = false,
   onChange,
   onParamChange,
-  onSwitch,
-}: CronProps & { onSwitch?: () => void }): ReactElement {
+}: CronProps): ReactElement {
   const { ts, locale } = useI18n();
   const dayjsLocale = locale === 'zh-CN' ? 'zh-cn' : locale;
   const [added, setAdded] = useState('');
@@ -448,16 +451,6 @@ function CronBody({
     );
   return (
     <>
-      {alwaysOn && (
-        <p
-          role="note"
-          className="rounded-md border border-warning px-2 py-1.5 text-xs text-foreground"
-        >
-          {ts(
-            'Not available with Always on: a workflow that is always on cannot have a schedule. Turn Always on off to use cron.'
-          )}
-        </p>
-      )}
       <p className="text-sm text-muted-foreground">
         {ts('The workflow starts on each of these schedules.')}
       </p>
@@ -517,7 +510,7 @@ function CronBody({
           schedules={schedules}
         />
       )}
-      {editable && !alwaysOn && (
+      {editable && (
         <section className="space-y-2" aria-label={ts('Add an expression')}>
           <ScheduleBuilder expression={added} onChange={setAdded} />
           <div className="flex items-center gap-2">
@@ -569,9 +562,6 @@ function CronBody({
           </div>
         </section>
       )}
-      {onSwitch && editable && (
-        <SwitchButton label="Switch to Always on" onClick={onSwitch} />
-      )}
     </>
   );
 }
@@ -598,6 +588,7 @@ const POLICY_HINTS: Record<Exclude<RestartPolicy, 'no'>, string> = {
   'unless-stopped':
     'A new run follows each run, except a run that an operator stopped.',
 };
+
 /** The wait that a new policy gets when the file has none: the policy needs one. */
 const DEFAULT_WAIT_SEC = 5;
 
@@ -670,8 +661,7 @@ function AlwaysBody({
   restart,
   editable,
   onChange,
-  onSwitch,
-}: AlwaysProps & { onSwitch?: () => void }): ReactElement {
+}: AlwaysProps): ReactElement {
   const { ts } = useI18n();
   const on = isServicePolicy(restart.policy);
   const conflict = restart.retryPolicy
@@ -681,9 +671,13 @@ function AlwaysBody({
     : null;
   const choose = (policy: RestartPolicy) => {
     if (policy === restart.policy) return;
+    // The loader refuses a service DAG with no wait, and the base
+    // configuration is not known here.
     const needsWait = isServicePolicy(policy) && !(restart.waitSec ?? 0);
     onChange({ policy, ...(needsWait && { waitSec: DEFAULT_WAIT_SEC }) });
   };
+  // The 100 runs are the default only while the file sets no days.
+  const defaultRuns = restart.histRetentionDays === null;
   return (
     <>
       <p className="text-sm text-muted-foreground">
@@ -699,35 +693,22 @@ function AlwaysBody({
           {conflict}
         </p>
       )}
-      <div
-        role="radiogroup"
-        aria-label={ts('Restart policy')}
-        className="flex gap-1 rounded-md border p-0.5"
-      >
-        {POLICIES.map((policy) => {
-          const checked = restart.policy === policy;
-          return (
-            <button
-              key={policy}
-              type="button"
-              role="radio"
-              aria-checked={checked}
-              disabled={
-                !editable || (!on && policy !== 'no' && conflict !== null)
-              }
-              onClick={() => choose(policy)}
-              className={cn(
-                'h-7 flex-1 rounded px-2 text-xs transition-colors disabled:opacity-50',
-                checked
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-foreground hover:bg-accent'
-              )}
-            >
-              {ts(POLICY_LABELS[policy])}
-            </button>
-          );
-        })}
-      </div>
+      <ToggleGroup aria-label={ts('Restart policy')} className="flex">
+        {POLICIES.map((policy) => (
+          <ToggleButton
+            key={policy}
+            value={policy}
+            groupValue={restart.policy}
+            disabled={
+              !editable || (!on && policy !== 'no' && conflict !== null)
+            }
+            onClick={() => choose(policy)}
+            className="flex-1"
+          >
+            {ts(POLICY_LABELS[policy])}
+          </ToggleButton>
+        ))}
+      </ToggleGroup>
       {restart.policy !== 'no' && (
         <>
           <p className="text-xs text-muted-foreground">
@@ -746,44 +727,20 @@ function AlwaysBody({
               key={`runs-${restart.histRetentionRuns}`}
               label={ts('Runs kept in the history')}
               value={restart.histRetentionRuns}
-              placeholder="100"
+              placeholder={defaultRuns ? '100' : undefined}
               editable={editable}
               optional
               onCommit={(histRetentionRuns) => onChange({ histRetentionRuns })}
             />
-            <p className="text-xs text-muted-foreground">
-              {ts('With no value, the history keeps the latest 100 runs.')}
-            </p>
+            {defaultRuns && (
+              <p className="text-xs text-muted-foreground">
+                {ts('With no value, the history keeps the latest 100 runs.')}
+              </p>
+            )}
           </section>
-          {editable && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="text-destructive"
-              onClick={() => onChange({ policy: 'no' })}
-            >
-              <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-              {ts('Remove the restart policy')}
-            </Button>
-          )}
         </>
       )}
-      {onSwitch && editable && (
-        <SwitchButton label="Switch to Cron" onClick={onSwitch} />
-      )}
     </>
-  );
-}
-
-export function AlwaysOnLauncherPanel({
-  onClose,
-  ...props
-}: AlwaysProps & { onClose(): void }): ReactElement {
-  return (
-    <Shell id="always" onClose={onClose}>
-      <AlwaysBody {...props} />
-    </Shell>
   );
 }
 
@@ -797,13 +754,7 @@ function SwitchButton({
 }): ReactElement {
   const { ts } = useI18n();
   return (
-    <Button
-      type="button"
-      variant="outline"
-      size="sm"
-      className="self-start"
-      onClick={onClick}
-    >
+    <Button type="button" variant="outline" size="sm" onClick={onClick}>
       <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden="true" />
       {ts(label)}
     </Button>
@@ -829,16 +780,23 @@ const SLOT_CHOICES: ReadonlyArray<{
   },
 ];
 
+/** The first control of a form that can take the focus. */
+const FIRST_CONTROL =
+  'button:not([disabled]), input:not([readonly]), select, textarea';
+
 /**
  * The panel of the slot that Cron and Always on share. With neither set, it
  * has a chooser: the choice opens a form and writes nothing until the author
  * sets a value. With one set, it shows that form and an action that removes
- * the setting and goes back to the chooser. A file with both (invalid) shows
- * the form of the open node, with the same action on each.
+ * the setting and goes back to the chooser, with the focus in the other
+ * form. A schedule that the action cannot remove whole has a note in its
+ * place. A file with both (invalid) shows the form of the open node, with
+ * the same action on each.
  */
 export function SlotLauncherPanel({
   open,
   schedule,
+  scheduleRemovable,
   restart,
   editable,
   upcomingRuns,
@@ -855,6 +813,11 @@ export function SlotLauncherPanel({
   /** The node of the slot that opened the panel. */
   open: 'schedule' | 'cron' | 'always';
   schedule: ScheduleView;
+  /**
+   * True when the removal of the start expressions leaves no `schedule` key:
+   * a restart policy cannot go with what is left of one.
+   */
+  scheduleRemovable: boolean;
   restart: RestartSettings;
   editable: boolean;
   upcomingRuns?: UpcomingRun[];
@@ -893,6 +856,20 @@ export function SlotLauncherPanel({
         : choice;
   // The chooser shows while neither is set.
   const choosing = !scheduled && !service;
+  const formRef = useRef<HTMLDivElement>(null);
+  // The form that takes the focus when it shows: the other one, after a switch.
+  const focusNext = useRef<SlotChoice | null>(null);
+  useEffect(() => {
+    if (focusNext.current === null || focusNext.current !== shown) return;
+    focusNext.current = null;
+    formRef.current?.querySelector<HTMLElement>(FIRST_CONTROL)?.focus();
+  });
+  const switchTo = (next: SlotChoice) => {
+    focusNext.current = next;
+    setChoice(next);
+    if (next === 'always') onSchedule([]);
+    else onRestart({ policy: 'no' });
+  };
   return (
     <Shell id={open} onClose={onClose}>
       {both && (
@@ -906,22 +883,20 @@ export function SlotLauncherPanel({
         </p>
       )}
       {choosing && (
-        <div
-          role="radiogroup"
+        <ToggleGroup
           aria-label={ts('Choose how the workflow starts')}
-          className="space-y-1.5"
+          className="flex flex-col gap-1.5 bg-transparent p-0"
         >
           {SLOT_CHOICES.map((option) => {
             const Icon = LAUNCHER_ICONS[option.id];
             return (
-              <button
+              <ToggleButton
                 key={option.id}
-                type="button"
-                role="radio"
-                aria-checked={choice === option.id}
+                value={option.id}
+                groupValue={choice ?? undefined}
                 onClick={() => setChoice(option.id)}
                 className={cn(
-                  'flex w-full items-start gap-2 rounded-md border px-2.5 py-2 text-left transition-colors hover:bg-accent',
+                  'h-auto w-full items-start justify-start gap-2 border px-2.5 py-2 text-left hover:bg-accent',
                   choice === option.id && 'border-primary bg-accent'
                 )}
               >
@@ -933,52 +908,57 @@ export function SlotLauncherPanel({
                   <span className="block text-sm font-medium text-foreground">
                     {ts(option.label)}
                   </span>
-                  <span className="block text-xs text-muted-foreground">
+                  <span className="block text-xs font-normal text-muted-foreground">
                     {ts(option.hint)}
                   </span>
                 </span>
-              </button>
+              </ToggleButton>
             );
           })}
+        </ToggleGroup>
+      )}
+      {shown !== null && (
+        <div ref={formRef} className="space-y-4">
+          {shown === 'cron' ? (
+            <CronBody
+              schedule={schedule}
+              editable={editable}
+              upcomingRuns={upcomingRuns}
+              upcomingRunsHold={upcomingRunsHold}
+              schedules={schedules}
+              paramDefs={paramDefs}
+              issues={issues}
+              coincidences={coincidences}
+              onChange={onSchedule}
+              onParamChange={onScheduleParam}
+            />
+          ) : (
+            <AlwaysBody
+              restart={restart}
+              editable={editable}
+              onChange={onRestart}
+            />
+          )}
+          {editable &&
+            shown === 'cron' &&
+            scheduled &&
+            (scheduleRemovable ? (
+              <SwitchButton
+                label="Switch to Always on"
+                onClick={() => switchTo('always')}
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {ts('Edit the schedule in the YAML to switch to Always on.')}
+              </p>
+            ))}
+          {editable && shown === 'always' && service && (
+            <SwitchButton
+              label="Switch to Cron"
+              onClick={() => switchTo('cron')}
+            />
+          )}
         </div>
-      )}
-      {shown === 'cron' && (
-        <CronBody
-          schedule={schedule}
-          editable={editable}
-          upcomingRuns={upcomingRuns}
-          upcomingRunsHold={upcomingRunsHold}
-          schedules={schedules}
-          alwaysOn={service}
-          paramDefs={paramDefs}
-          issues={issues}
-          coincidences={coincidences}
-          onChange={onSchedule}
-          onParamChange={onScheduleParam}
-          onSwitch={
-            scheduled
-              ? () => {
-                  setChoice('always');
-                  onSchedule([]);
-                }
-              : undefined
-          }
-        />
-      )}
-      {shown === 'always' && (
-        <AlwaysBody
-          restart={restart}
-          editable={editable}
-          onChange={onRestart}
-          onSwitch={
-            service
-              ? () => {
-                  setChoice('cron');
-                  onRestart({ policy: 'no' });
-                }
-              : undefined
-          }
-        />
       )}
     </Shell>
   );

@@ -74,6 +74,7 @@ describe('launcherStates', () => {
       policy: 'unless-stopped',
       waitSec: 5,
       retentionRuns: 20,
+      retentionDays: null,
     });
   });
 
@@ -274,12 +275,12 @@ describe('withLaunchers', () => {
     const graph = graphOf(['a', 'b'], ['a>b']);
     const { graph: launched } = withLaunchers(graph, states);
     const lr = layoutGraph(launched, 'LR');
-    for (const id of ['manual', 'cron', 'webhook']) {
+    for (const id of ['manual', 'cron', 'always', 'webhook']) {
       expect(lr[`launcher:${id}`]!.x).toBeLessThan(lr['a']!.x);
     }
     expect(lr['a']!.x).toBeLessThan(lr['b']!.x);
     const tb = layoutGraph(launched, 'TB');
-    for (const id of ['manual', 'cron', 'webhook']) {
+    for (const id of ['manual', 'cron', 'always', 'webhook']) {
       expect(tb[`launcher:${id}`]!.y).toBeLessThan(tb['a']!.y);
     }
   });

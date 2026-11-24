@@ -21,6 +21,8 @@ export default defineMessages({
       'Keep one run alive and start a new one when it ends.',
     'Switch to Always on': 'Switch to Always on',
     'Switch to Cron': 'Switch to Cron',
+    'Edit the schedule in the YAML to switch to Always on.':
+      'Edit the schedule in the YAML to switch to Always on.',
     'Not set up': 'Not set up',
     Launcher: 'Launcher',
     'Manual launch is always active': 'Manual launch is always active',
@@ -71,6 +73,8 @@ export default defineMessages({
     'keeps {count} runs': 'keeps {count} runs',
     'keeps {count} run': 'keeps {count} run',
     'keeps {count} runs (default)': 'keeps {count} runs (default)',
+    'keeps runs for {count} days': 'keeps runs for {count} days',
+    'keeps runs for {count} day': 'keeps runs for {count} day',
     '{state}, {history}': '{state}, {history}',
     'Restart policy': 'Restart policy',
     'Restart settings': 'Restart settings',
@@ -86,15 +90,8 @@ export default defineMessages({
     'Runs kept in the history': 'Runs kept in the history',
     'With no value, the history keeps the latest 100 runs.':
       'With no value, the history keeps the latest 100 runs.',
-    'Remove the restart policy': 'Remove the restart policy',
     'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.':
       'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.',
-    'Not available with Always on: a workflow that is always on cannot have a schedule. Turn Always on off to use cron.':
-      'Not available with Always on: a workflow that is always on cannot have a schedule. Turn Always on off to use cron.',
-    'A service DAG cannot have a schedule or a retry_policy. Remove it first.':
-      'A service DAG cannot have a schedule or a retry_policy. Remove it first.',
-    'The value must be a positive integer.':
-      'The value must be a positive integer.',
     'Workflow > {tab}': 'Workflow > {tab}',
     'Does not start at {time}: {schedule} starts instead.':
       'Does not start at {time}: {schedule} starts instead.',
@@ -127,6 +124,8 @@ export default defineMessages({
       '保持一个运行，结束后启动新的运行。',
     'Switch to Always on': '切换为始终开启',
     'Switch to Cron': '切换为 Cron',
+    'Edit the schedule in the YAML to switch to Always on.':
+      '要切换为始终开启，请在 YAML 中编辑计划。',
     'Not set up': '未设置',
     Launcher: '启动方式',
     'Manual launch is always active': '手动启动始终可用',
@@ -176,6 +175,8 @@ export default defineMessages({
     'keeps {count} runs': '保留 {count} 次运行',
     'keeps {count} run': '保留 {count} 次运行',
     'keeps {count} runs (default)': '保留 {count} 次运行（默认）',
+    'keeps runs for {count} days': '运行保留 {count} 天',
+    'keeps runs for {count} day': '运行保留 {count} 天',
     '{state}, {history}': '{state}，{history}',
     'Restart policy': '重启策略',
     'Restart settings': '重启设置',
@@ -191,14 +192,8 @@ export default defineMessages({
     'Runs kept in the history': '历史中保留的运行数',
     'With no value, the history keeps the latest 100 runs.':
       '未设置时，历史保留最近 100 次运行。',
-    'Remove the restart policy': '删除重启策略',
     'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.':
       '请先删除工作流的 retry_policy：始终开启的工作流不能有它。',
-    'Not available with Always on: a workflow that is always on cannot have a schedule. Turn Always on off to use cron.':
-      '始终开启时不可用：始终开启的工作流不能有计划。关闭“始终开启”后才能使用 Cron。',
-    'A service DAG cannot have a schedule or a retry_policy. Remove it first.':
-      '服务型 DAG 不能有计划或 retry_policy。请先删除它。',
-    'The value must be a positive integer.': '该值必须是正整数。',
     'Workflow > {tab}': '工作流 > {tab}',
     'Does not start at {time}: {schedule} starts instead.':
       '在 {time} 不会启动：改为由 {schedule} 启动。',
@@ -230,6 +225,8 @@ export default defineMessages({
       '実行を 1 つ維持し、終了したら新しい実行を開始します。',
     'Switch to Always on': '常に有効に切り替え',
     'Switch to Cron': 'Cron に切り替え',
+    'Edit the schedule in the YAML to switch to Always on.':
+      '常に有効に切り替えるには、YAML でスケジュールを編集してください。',
     'Not set up': '未設定',
     Launcher: '起動方法',
     'Manual launch is always active': '手動起動は常に有効です',
@@ -281,6 +278,8 @@ export default defineMessages({
     'keeps {count} runs': '実行 {count} 件を保持',
     'keeps {count} run': '実行 {count} 件を保持',
     'keeps {count} runs (default)': '実行 {count} 件を保持（既定）',
+    'keeps runs for {count} days': '実行を {count} 日間保持',
+    'keeps runs for {count} day': '実行を {count} 日間保持',
     '{state}, {history}': '{state}、{history}',
     'Restart policy': '再起動ポリシー',
     'Restart settings': '再起動の設定',
@@ -296,14 +295,8 @@ export default defineMessages({
     'Runs kept in the history': '履歴に残す実行数',
     'With no value, the history keeps the latest 100 runs.':
       '値がない場合、履歴には直近 100 件の実行が残ります。',
-    'Remove the restart policy': '再起動ポリシーを削除',
     'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.':
       '先にワークフローの retry_policy を削除してください。常に有効なワークフローには置けません。',
-    'Not available with Always on: a workflow that is always on cannot have a schedule. Turn Always on off to use cron.':
-      '常に有効のときは利用できません。常に有効なワークフローにスケジュールは置けません。Cron を使うには「常に有効」をオフにしてください。',
-    'A service DAG cannot have a schedule or a retry_policy. Remove it first.':
-      'サービス DAG にスケジュールと retry_policy は置けません。先に削除してください。',
-    'The value must be a positive integer.': '値は正の整数にしてください。',
     'Workflow > {tab}': 'ワークフロー > {tab}',
     'Does not start at {time}: {schedule} starts instead.':
       '{time} には起動しません。代わりに {schedule} が起動します。',
@@ -327,6 +320,18 @@ export default defineMessages({
     'Cron, {count} schedule': 'Cron, {count} Zeitplan',
     'Cron, {count} schedules': 'Cron, {count} Zeitpläne',
     'Always on': 'Immer an',
+    'Cron or Always on': 'Cron oder Immer an',
+    'Not set up. Choose a cron schedule or Always on.':
+      'Nicht eingerichtet. Einen Cron-Zeitplan oder „Immer an“ wählen.',
+    'Choose how the workflow starts': 'Wählen, wie der Ablauf startet',
+    'Start on a schedule of cron expressions.':
+      'Nach einem Zeitplan aus Cron-Ausdrücken starten.',
+    'Keep one run alive and start a new one when it ends.':
+      'Einen Lauf am Leben halten und einen neuen starten, wenn er endet.',
+    'Switch to Always on': 'Zu „Immer an“ wechseln',
+    'Switch to Cron': 'Zu Cron wechseln',
+    'Edit the schedule in the YAML to switch to Always on.':
+      'Für den Wechsel zu „Immer an“ den Zeitplan im YAML bearbeiten.',
     'Not set up': 'Nicht eingerichtet',
     Launcher: 'Starter',
     'Manual launch is always active': 'Manueller Start ist immer möglich',
@@ -369,6 +374,34 @@ export default defineMessages({
     'Times are in the time zone of the scheduler ({tz}).':
       'Zeiten in der Zeitzone des Schedulers ({tz}).',
     'Workflow sections': 'Ablauf-Abschnitte',
+    Available: 'Verfügbar',
+    'Restarts after each run': 'Startet nach jedem Lauf neu',
+    'Restarts unless stopped': 'Startet neu, außer nach einem Stopp',
+    '{state}, wait {seconds} s': '{state}, Wartezeit {seconds} Sek.',
+    'unless stopped': 'außer nach Stopp',
+    '{seconds} s': '{seconds} Sek.',
+    'keeps {count} runs': 'behält {count} Läufe',
+    'keeps {count} run': 'behält {count} Lauf',
+    'keeps {count} runs (default)': 'behält {count} Läufe (Standard)',
+    'keeps runs for {count} days': 'behält Läufe {count} Tage lang',
+    'keeps runs for {count} day': 'behält Läufe {count} Tag lang',
+    '{state}, {history}': '{state}, {history}',
+    'Restart policy': 'Neustart-Richtlinie',
+    'Restart settings': 'Neustart-Einstellungen',
+    Always: 'Immer',
+    'Unless stopped': 'Außer nach Stopp',
+    'A new run follows each run, whatever its status.':
+      'Auf jeden Lauf folgt ein neuer Lauf, unabhängig von seinem Status.',
+    'A new run follows each run, except a run that an operator stopped.':
+      'Auf jeden Lauf folgt ein neuer Lauf, außer auf einen Lauf, den ein Operator gestoppt hat.',
+    'The scheduler keeps one run of this workflow alive. It starts a new run when the last run ends.':
+      'Der Scheduler hält einen Lauf dieses Ablaufs am Leben. Er startet einen neuen Lauf, wenn der letzte Lauf endet.',
+    'Wait before a new run (s)': 'Wartezeit vor einem neuen Lauf (s)',
+    'Runs kept in the history': 'Läufe im Verlauf',
+    'With no value, the history keeps the latest 100 runs.':
+      'Ohne Wert behält der Verlauf die letzten 100 Läufe.',
+    'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.':
+      'Zuerst die retry_policy des Ablaufs entfernen: Ein Ablauf, der immer an ist, kann keine haben.',
     'Workflow > {tab}': 'Ablauf > {tab}',
     'Does not start at {time}: {schedule} starts instead.':
       'Startet nicht um {time}: Stattdessen startet {schedule}.',

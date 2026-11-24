@@ -70,6 +70,7 @@ import type {
   VisualEditorState,
 } from './contracts';
 import {
+  applyEdit,
   groupIssues,
   parseDagDoc,
   parseDagDocLenient,
@@ -734,6 +735,13 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     () => (launcherHost ? readRestartSettings(text) : null),
     [launcherHost, text]
   );
+  // The removal of the start expressions leaves the other entries and the
+  // `stop` and `restart` of the map form: a schedule with one of them stays.
+  const scheduleRemovable = useMemo(() => {
+    if (!schedule?.present) return false;
+    const cleared = applyEdit(text, { kind: 'setSchedule', expressions: [] });
+    return cleared.ok && !readSchedule(cleared.text).present;
+  }, [schedule, text]);
   const launcherAlive = useAlive({
     status: launcherHost?.latestRun
       ? launcherHost.latestRun.status
@@ -2241,6 +2249,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           restartPolicy={restart.policy}
           restartWaitSec={restart.waitSec}
           restartRetentionRuns={restart.histRetentionRuns}
+          restartRetentionDays={restart.histRetentionDays}
           onData={setLauncherData}
         />
       )}
@@ -2429,6 +2438,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
               <SlotLauncherPanel
                 open={openNode}
                 schedule={schedule}
+                scheduleRemovable={scheduleRemovable}
                 restart={restart}
                 editable={canEdit}
                 upcomingRuns={details?.upcomingRuns}

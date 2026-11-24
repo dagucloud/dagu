@@ -98,15 +98,31 @@ function DashedOutline({
 
 type Translate = (source: string, values?: StaticTranslationValues) => string;
 
-/** The runs that an Always on card keeps, and whether the file sets them. */
-function keptRuns(state: LauncherState): { count: number; set: boolean } {
-  const set = state.retentionRuns != null;
-  return { count: state.retentionRuns ?? DEFAULT_RETENTION_RUNS, set };
+/**
+ * The runs that an Always on card keeps: the count of the file, or the
+ * default. Null when the file keeps runs by days and sets no count.
+ */
+function keptRuns(state: LauncherState): number | null {
+  if (state.retentionRuns != null) return state.retentionRuns;
+  return state.retentionDays == null ? DEFAULT_RETENTION_RUNS : null;
 }
 
-function keepsText(count: number, ts: Translate): string {
-  return ts(count === 1 ? 'keeps {count} run' : 'keeps {count} runs', {
-    count,
+/** What the history of an Always on card keeps, in words. */
+function keepsText(state: LauncherState, ts: Translate): string {
+  const { retentionRuns: runs, retentionDays: days } = state;
+  if (runs != null) {
+    return ts(runs === 1 ? 'keeps {count} run' : 'keeps {count} runs', {
+      count: runs,
+    });
+  }
+  if (days != null) {
+    return ts(
+      days === 1 ? 'keeps runs for {count} day' : 'keeps runs for {count} days',
+      { count: days }
+    );
+  }
+  return ts('keeps {count} runs (default)', {
+    count: DEFAULT_RETENTION_RUNS,
   });
 }
 
@@ -114,16 +130,17 @@ function keepsText(count: number, ts: Translate): string {
  * The second line of a solid Always on card. It is short, to fit one line of
  * a 176 px card. The first line says Always, so `always` shows the wait and
  * the runs kept, and `unless-stopped` shows its name and the wait: the runs
- * kept are in the tooltip. A missing wait is left out. Other cards have none.
+ * kept are in the tooltip. A missing wait is left out, and so are the runs of
+ * a file that keeps runs by days. Other cards have none.
  */
 function launcherSummary(state: LauncherState, ts: Translate): string | null {
   if (!state.policy || state.status !== 'active') return null;
   const always = state.policy === 'always';
-  const { count } = keptRuns(state);
+  const count = keptRuns(state);
   return [
     ...(always ? [] : [ts('unless stopped')]),
     ...(state.waitSec ? [ts('{seconds} s', { seconds: state.waitSec })] : []),
-    ...(always
+    ...(always && count !== null
       ? [ts(count === 1 ? '{count} run' : '{count} runs', { count })]
       : []),
   ].join(' · ');
@@ -153,12 +170,9 @@ function launcherDetail(
           seconds: state.waitSec,
         })
       : policy;
-    const { count, set } = keptRuns(state);
     return ts('{state}, {history}', {
       state: waited,
-      history: set
-        ? keepsText(count, ts)
-        : ts('keeps {count} runs (default)', { count }),
+      history: keepsText(state, ts),
     });
   }
   return ts('Enabled');
