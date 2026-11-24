@@ -231,9 +231,34 @@ func definitionDigest(dag *ir.DAG, params, profile string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read the DAG's definition: %w", err)
 	}
+	base, err := baseConfigValues(dag.BaseConfigData)
+	if err != nil {
+		return "", err
+	}
 	hash := sha256.New()
-	_, _ = fmt.Fprintf(hash, "%s\x00%s\x00%s\x00%s", data, dag.BaseConfigData, params, profile)
+	_, _ = fmt.Fprintf(hash, "%s\x00%s\x00%s\x00%s", data, base, params, profile)
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// baseConfigValues is the base config as values, without SMTP. A run keeps a
+// copy that the snapshot writes again without comments, and with SMTP taken
+// out or read anew (spec.PrepareDAGSnapshot, spec.RefreshBaseSMTP), so the
+// copy equals the file it came from only as values. SMTP sends mail; it does
+// not change what a step does.
+func baseConfigValues(data []byte) ([]byte, error) {
+	var values map[string]any
+	if err := yaml.Unmarshal(data, &values); err != nil {
+		return nil, fmt.Errorf("read the base config: %w", err)
+	}
+	delete(values, "smtp")
+	if len(values) == 0 {
+		return nil, nil
+	}
+	canonical, err := json.Marshal(values)
+	if err != nil {
+		return nil, fmt.Errorf("read the base config: %w", err)
+	}
+	return canonical, nil
 }
 
 // stepDefinition is a step's loaded definition as a run keeps it, so a step

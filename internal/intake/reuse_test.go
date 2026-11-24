@@ -140,6 +140,38 @@ func TestCheckRunStepsUnchanged(t *testing.T) {
 	}
 }
 
+// A run keeps the base config written again without comments and without
+// SMTP: only a change of a value counts.
+func TestCheckRunStepsUnchangedBaseConfig(t *testing.T) {
+	t.Parallel()
+
+	const saved = "max_active_steps: 10\ntype: graph\n"
+	for _, tc := range []struct {
+		name    string
+		base    string
+		wantErr string
+	}{
+		{name: "SameValues", base: "# Base config\ntype: graph # model\nmax_active_steps: 10\nsmtp:\n  host: mail.example.com\n"},
+		{name: "OtherValue", base: "type: graph\nmax_active_steps: 5\n", wantErr: "step filter cannot be reused from run earlier: the parameters, runtime profile, base config, or top-level settings differ from that run"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			earlier := loadReuseDAG(t, reuseSpec)
+			earlier.BaseConfigData = []byte(saved)
+			dag := loadReuseDAG(t, reuseSpec)
+			dag.BaseConfigData = []byte(tc.base)
+			err := intake.CheckRunStepsUnchanged(dag, "",
+				intake.RunStepSources{"filter": succeededRun(earlier)},
+				intake.RunDefinitions{"earlier": earlier})
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.EqualError(t, err, tc.wantErr)
+		})
+	}
+}
+
 // One error names every changed step, so that a client can drop all of its
 // stale entries after one refusal.
 func TestCheckRunStepsUnchangedNamesEach(t *testing.T) {
