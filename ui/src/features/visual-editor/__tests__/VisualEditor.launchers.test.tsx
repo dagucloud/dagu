@@ -11,7 +11,6 @@ import {
 } from '@testing-library/react';
 import { createRef, useState, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { Status } from '@/api/v1/schema';
 import { RightPanelProvider } from '@/contexts/RightPanelContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import type { LauncherHost, VisualEditorHandle } from '../contracts';
@@ -274,7 +273,6 @@ describe('VisualEditor launchers', () => {
     );
   });
 
-
   it('swaps the slot as the author chooses, sets, switches and removes', () => {
     renderEditor();
     const open = (id: string) =>
@@ -420,6 +418,25 @@ describe('VisualEditor launchers', () => {
     expect(state.text).not.toContain('restart_policy');
     expect(state.text).toContain('schedule');
     expect(screen.queryByTestId('ve-launcher-always')).toBeNull();
+  });
+
+  // Spec 080: an empty schedule defines none. It holds no slot, and a policy
+  // can go with it.
+  it('counts an empty schedule as none', () => {
+    renderEditor(`schedule: {}\n${yamlArraySteps}`);
+    expect(screen.getByTestId('ve-launcher-schedule')).toHaveAttribute(
+      'data-status',
+      'dashed'
+    );
+    cleanup();
+    renderEditor(
+      `restart_policy: always\nrestart_wait_sec: 5\nschedule: {}\n${yamlArraySteps}`
+    );
+    expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
+    fireEvent.click(launcherButton('always'));
+    expect(
+      within(screen.getByTestId('ve-launcher-panel-always')).queryByRole('note')
+    ).toBeNull();
   });
 
   // The YAML panel shows the file with a step in focus. A click on a launcher

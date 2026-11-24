@@ -648,10 +648,10 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   // The removal of the start expressions leaves the other entries and the
   // `stop` and `restart` of the map form: a schedule with one of them stays.
   const scheduleRemovable = useMemo(() => {
-    if (!schedule?.present) return false;
+    if (!restart?.schedule) return false;
     const cleared = applyEdit(text, { kind: 'setSchedule', expressions: [] });
-    return cleared.ok && !readSchedule(cleared.text).present;
-  }, [schedule, text]);
+    return cleared.ok && !readRestartSettings(cleared.text).schedule;
+  }, [restart, text]);
   const [ownFormOpen, setOwnFormOpen] = useState(false);
   const formOpen = formVisible ?? ownFormOpen;
   const setFormOpen = useCallback(
@@ -1946,7 +1946,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         <LauncherDataProbe
           fileName={fileName}
           scheduleCount={schedule.expressions.length + schedule.others}
-          schedulePresent={schedule.present}
+          schedulePresent={restart.schedule}
           restartPolicy={restart.policy}
           restartWaitSec={restart.waitSec}
           restartRetentionRuns={restart.histRetentionRuns}

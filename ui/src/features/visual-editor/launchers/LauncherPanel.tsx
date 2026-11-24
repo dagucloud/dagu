@@ -819,7 +819,7 @@ export function SlotLauncherPanel({
   open: 'schedule' | 'cron' | 'always';
   schedule: ScheduleView;
   /**
-   * True when the removal of the start expressions leaves no `schedule` key:
+   * True when the removal of the start expressions leaves no schedule entry:
    * a restart policy cannot go with what is left of one.
    */
   scheduleRemovable: boolean;
@@ -847,7 +847,7 @@ export function SlotLauncherPanel({
 }): ReactElement {
   const { ts } = useI18n();
   const [choice, setChoice] = useState<SlotChoice | null>(null);
-  const scheduled = schedule.present;
+  const scheduled = restart.schedule;
   const service = isServicePolicy(restart.policy);
   const both = scheduled && service;
   const shown: SlotChoice | null = both
