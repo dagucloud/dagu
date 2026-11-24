@@ -97,6 +97,34 @@ func TestRuleErrorsOf(t *testing.T) {
 	assert.Same(t, plain, ruleErrorsOf(plain))
 }
 
+// A refused import lists every rule it breaks, even when the list is far
+// longer than an error message the CLI prints.
+func TestRemoteImportListsManyRules(t *testing.T) {
+	t.Parallel()
+	inv, field := "big", "host"
+	rules := make([]api.InventoryRuleError, 1000)
+	for i := range rules {
+		node := fmt.Sprintf("web%04d", i)
+		rules[i] = api.InventoryRuleError{Inventory: &inv, Node: &node, Field: &field, Message: "is required"}
+	}
+	body, err := json.Marshal(api.InventoryImportError{Code: api.ErrorCodeBadRequest, Message: "The import breaks 1000 rules, and nothing was stored", Errors: rules})
+	require.NoError(t, err)
+	require.Greater(t, len(body), maxRemoteErrorBodyBytes)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(server.Close)
+	client := &remoteClient{baseURL: server.URL, client: server.Client()}
+
+	_, err = client.remoteImport(context.Background(), []byte("[]"), inventory.ImportOptions{})
+
+	require.ErrorIs(t, err, inventory.ErrInvalid)
+	lines := strings.Split(err.Error(), "\n")
+	require.Len(t, lines, 1000)
+	assert.Equal(t, `inventory "big": node "web0999": host: is required`, lines[999])
+}
+
 // A remote add takes a key path that is absolute on a POSIX or a Windows
 // server, whichever platform the CLI runs on.
 func TestServerKeyPath(t *testing.T) {
