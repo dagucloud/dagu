@@ -26,7 +26,7 @@ interface Box {
 export interface ToolbarPlacement {
   /** True when the toolbar sits under the node: no room above it. */
   below: boolean;
-  /** Horizontal shift in screen px that keeps the toolbar inside the canvas. */
+  /** Horizontal shift in screen px from the aligned place. */
   shift: number;
 }
 
@@ -46,7 +46,10 @@ export type ToolbarAlign = 'right' | 'center';
 /**
  * Where a toolbar of `size` (on screen) goes for a node: above it, right
  * aligned or centred, or under it when the canvas has no room above; shifted
- * to stay inside the canvas, as long as it keeps a part over its node.
+ * to stay inside the canvas, as long as it keeps a part over its node. A
+ * toolbar that would cover one of `obstacles` goes to the other side of the
+ * node when that side has room and is free, else right of the obstacle while
+ * it keeps a part over its node.
  */
 export function placeToolbar(
   node: Box,
@@ -78,10 +81,10 @@ export function placeToolbar(
     Math.max(node.left + held - edge, shift)
   );
   shift = Math.round(shift);
-  // The shift is already as far right as the canvas lets it go, so a toolbar
-  // that covers an obstacle goes to the other side of the node, when that
-  // side has room and is free. Else it goes right of the obstacle, as long as
-  // it keeps a part over its node and stays inside the canvas.
+  // A toolbar that covers an obstacle goes to the other side of the node,
+  // when that side has room and is free. Else it moves right of the
+  // obstacle, as long as it keeps a part over its node and stays inside
+  // the canvas.
   const hits = (under: boolean, at: number) => {
     const right = edge + at;
     const top = under ? node.bottom : node.top - size.height;
