@@ -611,6 +611,8 @@ describe('RunChip healthy', () => {
     expect(screen.queryByText('0/1')).toBeNull();
   });
 
+  // The empty slot keeps its width: the facts do not move when the count
+  // comes.
   it('shows no count before the continuous step has run', () => {
     definition.service = true;
     state.run = makeRun(
@@ -621,10 +623,11 @@ describe('RunChip healthy', () => {
     expect(screen.getByRole('img', { name: 'Healthy' })).toBeInTheDocument();
     expect(screen.queryByTestId('repeat-badge')).toBeNull();
     expect(screen.queryByRole('group', { name: 'Run progress' })).toBeNull();
+    expect(screen.getByTestId('ww-run-count-slot')).not.toHaveClass('hidden');
   });
 
   // The empty slot would leave a gap between the heart and the next fact.
-  it('leaves no slot for the count of a healthy run that has no repeat count', () => {
+  it('leaves no slot for the count of a healthy run with no continuous step', () => {
     definition.service = true;
     state.run = makeRun(
       runDetails('r3', [node('work', NodeStatus.Running)], Status.Running),

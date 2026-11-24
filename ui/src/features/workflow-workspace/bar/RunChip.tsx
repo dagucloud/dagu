@@ -173,10 +173,7 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
     ? readRepeatPolicy(continuous.step.repeatPolicy)
     : null;
 
-  const noCount =
-    run.isActive &&
-    display.healthy &&
-    !(continuousPolicy && continuous && continuous.doneCount > 0);
+  const noCount = run.isActive && display.healthy && !continuous;
 
   // The skipped steps are not in the count: they did not have to run.
   const nodes = (details.nodes ?? []).filter(
@@ -344,8 +341,8 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
           chip keeps its width when a run starts or ends. */}
       <span
         data-testid="ww-run-count-slot"
-        // A healthy run with no repeat count has nothing for the slot: it
-        // leaves no gap between the heart and the next fact.
+        // A healthy run with no continuous step never has a count: it leaves
+        // no gap between the heart and the next fact.
         className={cn(COUNT_SLOT, noCount && 'hidden')}
       >
         {run.isActive && display.healthy
