@@ -67,6 +67,18 @@ export function nodesByStep(
   return map;
 }
 
+/** The steps of a run with nodes that recorded their node runs, in run order. */
+export function stepsWithNodeRuns(details: ApiDAGRunDetails): ApiNode[] {
+  return [...nodesByStep(details).values()].filter(
+    (node) => node.nodeRuns !== undefined
+  );
+}
+
+/** Whether the run has a step with nodes that recorded its node runs. */
+export function hasNodeRuns(details: ApiDAGRunDetails): boolean {
+  return stepsWithNodeRuns(details).length > 0;
+}
+
 function isAgentWaiting(node: ApiNode): boolean {
   const state = node.agentSession?.state;
   return state === 'waiting' || state === 'unavailable';

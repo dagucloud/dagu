@@ -82,7 +82,8 @@ func nodeRunsDir(ctx context.Context, stepName string) string {
 }
 
 // writeNodeRuns writes the records and their counts when they changed since
-// the last write, and always once the step has ended.
+// the last write, and always once the step has ended. While the step runs, it
+// reports counts that changed to the runner.
 func (e *parallelExecutor) writeNodeRuns(ctx context.Context, dir string, ended bool) {
 	e.lock.Lock()
 	if !e.nodes.changed && !ended {
@@ -95,8 +96,43 @@ func (e *parallelExecutor) writeNodeRuns(ctx context.Context, dir string, ended 
 
 	// The counts follow the records they count, so a reader of both never
 	// sees counts ahead of the records.
-	writeNodeRecord(ctx, filepath.Join(dir, logpath.NodeRunsFile), ir.NodeRuns{Runs: runs})
-	writeNodeRecord(ctx, filepath.Join(dir, logpath.NodeRunsSummaryFile), ir.CountNodeRuns(runs))
+	counts := ir.CountNodeRuns(runs)
+	written := writeNodeRecord(ctx, filepath.Join(dir, logpath.NodeRunsFile), ir.NodeRuns{Runs: runs}) &&
+		writeNodeRecord(ctx, filepath.Join(dir, logpath.NodeRunsSummaryFile), counts)
+	if !written {
+		// The next write tries again, and reports the counts once they are
+		// stored.
+		e.lock.Lock()
+		e.nodes.changed = true
+		e.lock.Unlock()
+		return
+	}
+	// The status write at the end of the step follows the last records.
+	if !ended {
+		e.reportNodeCounts(counts)
+	}
+}
+
+// SetProgressCallback implements executor.ProgressCallbackAware.
+func (e *nodesExecutor) SetProgressCallback(callback func()) {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	e.nodes.progress = callback
+}
+
+// reportNodeCounts asks the runner to write the run status when the counts
+// changed since the last report. Readers of the run refresh on a status
+// write, and a child's own write can reach them before these records do, so
+// a write after the records keeps them from missing the change.
+func (e *parallelExecutor) reportNodeCounts(counts ir.NodeRunCounts) {
+	e.lock.Lock()
+	progress := e.nodes.progress
+	changed := counts != e.nodes.reported
+	e.nodes.reported = counts
+	e.lock.Unlock()
+	if changed && progress != nil {
+		progress()
+	}
 }
 
 // nodeRuns returns the records of the matched nodes in name order. Callers
@@ -126,7 +162,8 @@ func (e *parallelExecutor) nodeRuns(ended bool) []ir.NodeRun {
 	return runs
 }
 
-func writeNodeRecord(ctx context.Context, path string, record any) {
+// writeNodeRecord writes one record file and reports whether it did.
+func writeNodeRecord(ctx context.Context, path string, record any) bool {
 	data, err := json.Marshal(record)
 	if err == nil {
 		err = fileutil.MkdirAll(filepath.Dir(path), 0750)
@@ -136,5 +173,7 @@ func writeNodeRecord(ctx context.Context, path string, record any) {
 	}
 	if err != nil {
 		logger.Warn(ctx, "Failed to write node run record", tag.Error(err), tag.File(path))
+		return false
 	}
+	return true
 }

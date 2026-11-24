@@ -359,6 +359,7 @@ describe('dock tab bodies', () => {
         'definition',
         'history',
         'log',
+        'nodes',
         'outputs',
         'tasks',
         'timeline',

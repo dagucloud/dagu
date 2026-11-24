@@ -6,6 +6,8 @@ package runtime
 import (
 	"context"
 	"maps"
+	"testing"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -77,4 +79,11 @@ func (n *Node) SetPushBackPreviousStdout(path string) {
 // ChildRunSummary exports childRunSummary for testing.
 func ChildRunSummary(ctx context.Context, childRunID string, outputsReported bool) string {
 	return childRunSummary(ctx, childRunID, outputsReported)
+}
+
+// SetLiveModelUsageInterval sets liveModelUsageInterval until the test ends.
+func SetLiveModelUsageInterval(t testing.TB, interval time.Duration) {
+	previous := liveModelUsageInterval
+	liveModelUsageInterval = interval
+	t.Cleanup(func() { liveModelUsageInterval = previous })
 }

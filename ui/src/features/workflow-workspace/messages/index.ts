@@ -100,6 +100,7 @@ import hp1 from './hp1';
 import rc1 from './rc1';
 import sv1 from './sv1';
 import rp1 from './rp1';
+import nr1 from './nr1';
 
 export const workspaceModules = {
   q2,
@@ -199,6 +200,7 @@ export const workspaceModules = {
   rc1,
   sv1,
   rp1,
+  nr1,
 } as const;
 
 export const workspaceMessages = {
@@ -300,6 +302,7 @@ export const workspaceMessages = {
     ...rc1.en,
     ...sv1.en,
     ...rp1.en,
+    ...nr1.en,
   },
   'zh-CN': {
     ...q2['zh-CN'],
@@ -399,6 +402,7 @@ export const workspaceMessages = {
     ...rc1['zh-CN'],
     ...sv1['zh-CN'],
     ...rp1['zh-CN'],
+    ...nr1['zh-CN'],
   },
   ja: {
     ...q2.ja,
@@ -498,6 +502,7 @@ export const workspaceMessages = {
     ...rc1.ja,
     ...sv1.ja,
     ...rp1.ja,
+    ...nr1.ja,
   },
   de: {
     ...q2.de,
@@ -597,5 +602,6 @@ export const workspaceMessages = {
     ...rc1.de,
     ...sv1.de,
     ...rp1.de,
+    ...nr1.de,
   },
 } as const;

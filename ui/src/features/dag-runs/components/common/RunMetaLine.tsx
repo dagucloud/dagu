@@ -7,6 +7,7 @@ import {
   Hash,
   Hourglass,
   type LucideIcon,
+  Network,
   Server,
   SlidersHorizontal,
   Timer,
@@ -49,6 +50,7 @@ type RunFields = Pick<
   | 'triggerActor'
   | 'backfillId'
   | 'workerId'
+  | 'boundNode'
   | 'profileName'
   | 'params'
   | 'dates'
@@ -611,6 +613,15 @@ export function RunMetaLine({
             className={compact && !keepSecondary ? SECONDARY : undefined}
           >
             <span className="font-mono text-xs">{dagRun.workerId}</span>
+          </MetaItem>
+        )}
+        {dagRun.boundNode && (
+          <MetaItem
+            icon={Network}
+            label="Node"
+            className={compact && !keepSecondary ? SECONDARY : undefined}
+          >
+            <span className="font-mono text-xs">{dagRun.boundNode}</span>
           </MetaItem>
         )}
         {dagRun.profileName && (

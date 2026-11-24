@@ -218,3 +218,23 @@ describe('buildRunOverlay', () => {
     expect(buildRunOverlay()).toEqual({});
   });
 });
+
+describe('buildRunOverlay node runs', () => {
+  it('keeps the node runs of a step with nodes, and adds none elsewhere', () => {
+    const nodeRuns = {
+      total: 3,
+      notStarted: 0,
+      running: 1,
+      waiting: 0,
+      succeeded: 1,
+      failed: 1,
+      aborted: 0,
+      disabled: 0,
+    };
+    const overlay = buildRunOverlay(
+      details({ nodes: [node('deploy', { nodeRuns }), node('notify', {})] })
+    );
+    expect(overlay.deploy?.nodeRuns).toEqual(nodeRuns);
+    expect(overlay.notify).not.toHaveProperty('nodeRuns');
+  });
+});

@@ -211,6 +211,8 @@ export interface StepRunState {
    * the run skipped without carrying outputs.
    */
   reuseFailed?: { runId: string };
+  /** The node runs of a step with nodes, by status. */
+  nodeRuns?: components['schemas']['NodeRunCounts'];
 }
 export type RunOverlay = Record<string /* server step name */, StepRunState>;
 

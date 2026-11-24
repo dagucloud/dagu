@@ -947,6 +947,7 @@ describe('dockTabBodies', () => {
         'definition',
         'history',
         'log',
+        'nodes',
         'outputs',
         'tasks',
         'timeline',
