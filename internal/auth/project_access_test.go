@@ -43,6 +43,12 @@ func TestRoleInProject(t *testing.T) {
 		},
 		{name: "Neither", want: RoleNone},
 		{
+			// Admin applies only server-wide, so an admin grant counts for nothing.
+			name:   "AdminGrant",
+			grants: []ProjectGrant{{ProjectID: projectID, Role: RoleAdmin}},
+			want:   RoleNone,
+		},
+		{
 			// A role this version does not know gives no access.
 			name:       "UnknownRoles",
 			serverRole: Role("owner"),

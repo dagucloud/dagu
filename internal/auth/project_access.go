@@ -22,14 +22,14 @@ type ProjectGrant struct {
 
 // RoleInProject returns the role that applies in the project with the given
 // ID: the higher of serverRole and the role grants give that project.
-// RoleNone means no access to the project.
+// RoleNone means no access to the project. A grant never gives RoleAdmin.
 func RoleInProject(serverRole Role, grants []ProjectGrant, projectID string) Role {
 	role := RoleNone
 	if serverRole.Valid() {
 		role = serverRole
 	}
 	for _, grant := range grants {
-		if grant.ProjectID == projectID && grant.Role.rank() > role.rank() {
+		if grant.ProjectID == projectID && grant.Role != RoleAdmin && grant.Role.rank() > role.rank() {
 			role = grant.Role
 		}
 	}
