@@ -1604,8 +1604,8 @@ describe('VisualCanvas launchers', () => {
       'data-status',
       'active'
     );
-    // Not set up: dashed.
-    expect(screen.getByTestId('ve-launcher-cron')).toHaveAttribute(
+    // Neither Cron nor Always on is set up: one dashed placeholder.
+    expect(screen.getByTestId('ve-launcher-schedule')).toHaveAttribute(
       'data-status',
       'dashed'
     );
@@ -1613,6 +1613,8 @@ describe('VisualCanvas launchers', () => {
       'data-status',
       'active'
     );
+    expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
+    expect(screen.queryByTestId('ve-launcher-always')).toBeNull();
     for (const node of graph.nodes) {
       expect(nodeCard(node.key)).toBeInTheDocument();
     }
@@ -1642,9 +1644,9 @@ describe('VisualCanvas launchers', () => {
     const onLauncher = vi.fn();
     const { props } = renderCanvas({ launchers, onLauncher });
     fireEvent.click(
-      within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+      within(screen.getByTestId('ve-launcher-schedule')).getByRole('button')
     );
-    expect(onLauncher).toHaveBeenCalledWith('cron');
+    expect(onLauncher).toHaveBeenCalledWith('schedule');
     expect(props.onSelect).not.toHaveBeenCalled();
   });
 
@@ -1687,10 +1689,10 @@ describe('VisualCanvas launchers', () => {
       );
     });
 
-    it('hides the badge when there is no schedule', () => {
+    it('draws no badge on the placeholder when there is no schedule', () => {
       renderCanvas({ launchers: withSchedules(0) });
       expect(screen.queryByTestId('ve-launcher-count')).toBeNull();
-      expect(cronButton()).toHaveAttribute('aria-label', 'Cron: Not set up');
+      expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
     });
 
     it('keeps the badge in the simplified view', () => {
@@ -1718,15 +1720,15 @@ describe('VisualCanvas launchers', () => {
       expect(button('cron')).toHaveTextContent(/^Cron2$/);
       for (const id of ['manual', 'cron', 'webhook']) {
         expect(button(id)).not.toHaveTextContent(
-          /Always on|Not set up|Scheduled|Enabled/
+          /Available|Not set up|Scheduled|Enabled/
         );
       }
       // The state stays in the accessible name and the tooltip.
       expect(button('manual')).toHaveAttribute(
         'aria-label',
-        'Manual: Always on'
+        'Manual: Available'
       );
-      expect(button('manual')).toHaveAttribute('title', 'Manual: Always on');
+      expect(button('manual')).toHaveAttribute('title', 'Manual: Available');
       expect(button('webhook')).toHaveAttribute(
         'aria-label',
         'Webhook: Not set up'
@@ -1763,7 +1765,7 @@ describe('VisualCanvas launchers', () => {
   // is focused or open, with the same dashes for the border and the edges.
   describe('dashes of a launcher that is not set up', () => {
     const outline = () =>
-      within(screen.getByTestId('ve-launcher-cron')).getByTestId(
+      within(screen.getByTestId('ve-launcher-schedule')).getByTestId(
         've-launcher-outline'
       );
     const rect = () => outline().querySelector('rect')!;
@@ -1787,12 +1789,12 @@ describe('VisualCanvas launchers', () => {
     });
 
     it('keeps the dashes of the border and of the edges when the node is open', () => {
-      renderCanvas({ launchers, activeLauncher: 'cron' });
+      renderCanvas({ launchers, activeLauncher: 'schedule' });
       expect(rect().getAttribute('stroke-dasharray')).toBe('6 4');
       expect(rect().getAttribute('class')).toContain('stroke-primary');
       // No solid ring over the dashes.
       expect(
-        within(screen.getByTestId('ve-launcher-cron')).getByRole('button')
+        within(screen.getByTestId('ve-launcher-schedule')).getByRole('button')
       ).not.toHaveClass('ring-2');
       const lit = screen
         .getAllByTestId('ve-launcher-edge')
@@ -1816,9 +1818,9 @@ describe('VisualCanvas launchers', () => {
       expect(rect().getAttribute('class')).toContain(
         'group-focus-visible:stroke-primary'
       );
-      const button = within(screen.getByTestId('ve-launcher-cron')).getByRole(
-        'button'
-      );
+      const button = within(
+        screen.getByTestId('ve-launcher-schedule')
+      ).getByRole('button');
       expect(button).toHaveClass('group');
       expect(button.className).not.toContain('focus-visible:ring');
     });

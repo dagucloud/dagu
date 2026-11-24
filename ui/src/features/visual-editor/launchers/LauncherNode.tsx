@@ -1,9 +1,15 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { CalendarClock, MousePointerClick, Webhook } from 'lucide-react';
+import {
+  CalendarClock,
+  MousePointerClick,
+  Repeat,
+  Webhook,
+} from 'lucide-react';
 import { createContext, memo, useContext, type ReactElement } from 'react';
 import { useI18n } from '@/i18n/I18nProvider';
+import type { StaticTranslationValues } from '@/i18n/translateStatic';
 import { cn } from '@/lib/utils';
 import { DASHED } from '../canvas/edges/dash';
 import { Handle, type NodeProps } from '../canvas/engine';
@@ -11,18 +17,27 @@ import { useCanvasActions } from '../canvas/context';
 import { CountBadge } from '../canvas/CountBadge';
 import { handlePosition } from '../canvas/nodes/NodeParts';
 import { SOURCE_HANDLE, type StepFlowNode } from '../canvas/types';
-import { launcherIdOf, type LauncherId } from './model';
+import {
+  DEFAULT_RETENTION_RUNS,
+  launcherIdOf,
+  type LauncherId,
+  type LauncherState,
+} from './model';
 
 export const LAUNCHER_ICONS = {
   manual: MousePointerClick,
+  schedule: CalendarClock,
   cron: CalendarClock,
+  always: Repeat,
   webhook: Webhook,
 } as const;
 
 /** Static message keys of the launcher names. */
 export const LAUNCHER_LABELS: Record<LauncherId, string> = {
   manual: 'Manual',
+  schedule: 'Cron or Always on',
   cron: 'Cron',
+  always: 'Always on',
   webhook: 'Webhook',
 };
 
@@ -79,6 +94,59 @@ function DashedOutline({
   );
 }
 
+type Translate = (source: string, values?: StaticTranslationValues) => string;
+
+/** What the history of an Always on card keeps, in words. */
+function keepsText(state: LauncherState, ts: Translate): string {
+  const { retentionRuns: runs, retentionDays: days } = state;
+  if (runs != null) {
+    return ts(runs === 1 ? 'keeps {count} run' : 'keeps {count} runs', {
+      count: runs,
+    });
+  }
+  if (days != null) {
+    return ts(
+      days === 1 ? 'keeps runs for {count} day' : 'keeps runs for {count} days',
+      { count: days }
+    );
+  }
+  return ts('keeps {count} runs (default)', {
+    count: DEFAULT_RETENTION_RUNS,
+  });
+}
+
+/** The state of a launcher in words, for its tooltip and its accessible name. */
+function launcherDetail(
+  id: LauncherId,
+  state: LauncherState,
+  ts: Translate
+): string {
+  if (id === 'manual') return ts('Available');
+  if (id === 'schedule') {
+    return ts('Not set up. Choose a cron schedule or Always on.');
+  }
+  if (state.status === 'dashed') return ts('Not set up');
+  if (id === 'cron') return ts('Scheduled');
+  if (id === 'always') {
+    const policy = ts(
+      state.policy === 'unless-stopped'
+        ? 'Restarts unless stopped'
+        : 'Restarts after each run'
+    );
+    const waited = state.waitSec
+      ? ts('{state}, wait {seconds} s', {
+          state: policy,
+          seconds: state.waitSec,
+        })
+      : policy;
+    return ts('{state}, {history}', {
+      state: waited,
+      history: keepsText(state, ts),
+    });
+  }
+  return ts('Enabled');
+}
+
 /**
  * A launcher: a way to start the workflow, drawn as a root of the graph. It
  * is not a step. A dashed card means that the launcher is not set up yet. A
@@ -105,15 +173,7 @@ function LauncherNodeComponent({
           count,
         })
       : ts(LAUNCHER_LABELS[id]);
-  const detail = ts(
-    id === 'manual'
-      ? 'Always on'
-      : dashed
-        ? 'Not set up'
-        : id === 'cron'
-          ? 'Scheduled'
-          : 'Enabled'
-  );
+  const detail = launcherDetail(id, state, ts);
   return (
     <div
       data-testid={`ve-launcher-${id}`}
