@@ -25,8 +25,8 @@ import (
 //	web03   failed        not_started
 //	web04   running       -
 //
-// The sub-run is bound to web01.
-func seedNodeRuns(t *testing.T) test.Server {
+// The sub-run is bound to web01. Both runs give the deploy step deployStatus.
+func seedNodeRuns(t *testing.T, deployStatus ir.NodeStatus) test.Server {
 	t.Helper()
 	server := test.SetupServer(t)
 	logDir := t.TempDir()
@@ -71,6 +71,7 @@ func seedNodeRuns(t *testing.T) test.Server {
 		status.Status = ir.Running
 		status.Nodes[0].Stdout = filepath.Join(logDir, "setup.out")
 		status.Nodes[1].Stdout = deployLog
+		status.Nodes[1].Status = deployStatus
 		status.Nodes[2].Stdout = cleanLog
 		if runID != root.ID {
 			status.BoundNode = "web01"
@@ -96,7 +97,7 @@ func rowsOf(list api.NodeRunList) []string {
 }
 
 func TestNodeRuns(t *testing.T) {
-	server := seedNodeRuns(t)
+	server := seedNodeRuns(t, ir.NodeRunning)
 	for _, base := range []string{"/api/v1/dag-runs/node-runs-api/root", "/api/v1/dag-runs/node-runs-api/root/sub-dag-runs/child"} {
 		get := func(t *testing.T, query string) api.NodeRunList {
 			t.Helper()
@@ -158,4 +159,27 @@ func TestNodeRuns(t *testing.T) {
 	t.Run("an unknown run is not found", func(t *testing.T) {
 		server.Client().Get("/api/v1/dag-runs/node-runs-api/nowhere/node-runs").ExpectStatus(404).Send(t)
 	})
+}
+
+// A step that ends records its nodes once more. A node still recorded as
+// running after the step ended ran when its run stopped without that write,
+// as when its process died, so it ended as the step did.
+func TestNodeRunsOfEndedStep(t *testing.T) {
+	for stepStatus, want := range map[ir.NodeStatus]api.NodeRunCounts{
+		ir.NodeFailed:  {Total: 4, Succeeded: 1, Failed: 2, Disabled: 1},
+		ir.NodeAborted: {Total: 4, Succeeded: 1, Failed: 1, Aborted: 1, Disabled: 1},
+	} {
+		t.Run(stepStatus.String(), func(t *testing.T) {
+			server := seedNodeRuns(t, stepStatus)
+
+			var list api.NodeRunList
+			server.Client().Get("/api/v1/dag-runs/node-runs-api/root/node-runs").ExpectStatus(200).Send(t).Unmarshal(t, &list)
+			require.Equal(t, want, list.Steps[0].Counts)
+			require.NotContains(t, rowsOf(list), "web04 deploy=running")
+
+			var details api.GetDAGRunDetails200JSONResponse
+			server.Client().Get("/api/v1/dag-runs/node-runs-api/root").ExpectStatus(200).Send(t).Unmarshal(t, &details)
+			require.Equal(t, &want, details.DagRunDetails.Nodes[1].NodeRuns)
+		})
+	}
 }

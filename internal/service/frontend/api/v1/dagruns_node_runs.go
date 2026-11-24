@@ -112,7 +112,8 @@ func listNodeRuns(dagStatus *ir.DAGRunStatus, failedOnly bool, pg pagination.Pag
 }
 
 // readNodeRuns reads the records of a step with nodes, or returns nil for
-// another step and for a step that recorded none.
+// another step and for a step that recorded none. A node still recorded as
+// running in a step that ended has the status endedNodeRunStatus gives.
 func readNodeRuns(node *ir.Node) (*ir.NodeRuns, error) {
 	dir := nodeRunsDir(node)
 	if dir == "" {
@@ -124,6 +125,13 @@ func readNodeRuns(node *ir.Node) (*ir.NodeRuns, error) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to read the node runs of step %q: %w", node.Step.Name, err)
+	}
+	if status := endedNodeRunStatus(node); status != "" {
+		for i, run := range records.Runs {
+			if run.Status == ir.NodeRunRunning {
+				records.Runs[i].Status = status
+			}
+		}
 	}
 	return &records, nil
 }
@@ -137,6 +145,7 @@ func toNodeWithRuns(node *ir.Node) api.Node {
 
 // nodeRunCounts reads the counts of the node runs of a step with nodes, or
 // returns nil for another step and for a step whose counts cannot be read.
+// It counts the nodes as readNodeRuns returns them.
 func nodeRunCounts(node *ir.Node) *api.NodeRunCounts {
 	dir := nodeRunsDir(node)
 	if dir == "" {
@@ -146,8 +155,34 @@ func nodeRunCounts(node *ir.Node) *api.NodeRunCounts {
 	if err := readJSONFile(filepath.Join(dir, logpath.NodeRunsSummaryFile), &counts); err != nil {
 		return nil
 	}
+	if status := endedNodeRunStatus(node); status != "" {
+		if status == ir.NodeRunAborted {
+			counts.Aborted += counts.Running
+		} else {
+			counts.Failed += counts.Running
+		}
+		counts.Running = 0
+	}
 	result := toNodeRunCounts(counts)
 	return &result
+}
+
+// endedNodeRunStatus returns the status of a node still recorded as running
+// in a step that ended, or "" while the step runs. A step records its nodes
+// once more as it ends, so such a node ran when its run stopped without that
+// write, as when the process died. It ended as the step did: aborted with an
+// aborted step and failed otherwise.
+func endedNodeRunStatus(step *ir.Node) ir.NodeRunStatus {
+	switch step.Status {
+	case ir.NodeNotStarted, ir.NodeRunning, ir.NodeRetrying, ir.NodeWaiting:
+		return ""
+	case ir.NodeAborted:
+		return ir.NodeRunAborted
+	case ir.NodeFailed, ir.NodeSucceeded, ir.NodeSkipped, ir.NodePartiallySucceeded, ir.NodeRejected:
+		return ir.NodeRunFailed
+	default:
+		return ir.NodeRunFailed
+	}
 }
 
 // nodeRunsDir returns the directory of a step's node run records, or "" for
