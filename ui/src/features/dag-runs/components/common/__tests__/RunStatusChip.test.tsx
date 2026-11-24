@@ -8,7 +8,7 @@ import { RunStatusChip } from '../RunStatusChip';
 
 const h = vi.hoisted(() => ({
   nodes: [] as unknown[],
-  steps: [] as unknown[],
+  // True when the service list names every workflow of the tests.
   service: true,
   probe: 'data' as 'data' | 'loading' | 'error',
   query: vi.fn(),
@@ -20,16 +20,13 @@ vi.mock('@/hooks/api', () => ({
     h.query(path, init);
     h.options = options;
     if (init === null) return { data: undefined };
-    if (path === '/dags/{fileName}') {
+    if (path === '/service-dags') {
       if (h.probe === 'loading') return { data: undefined };
       if (h.probe === 'error')
         return { data: undefined, error: new Error('x') };
       return {
         data: {
-          dag: {
-            steps: h.steps,
-            restartPolicy: h.service ? 'always' : undefined,
-          },
+          dags: h.service ? [{ name: 'always' }, { name: 'etl' }] : [],
         },
       };
     }
@@ -61,7 +58,6 @@ beforeEach(() => {
     })),
   });
   h.nodes = [];
-  h.steps = [];
   h.service = true;
   h.probe = 'data';
   h.query.mockClear();
@@ -70,7 +66,6 @@ beforeEach(() => {
 // The summary of a run in a list has no steps: a running run reads its details.
 describe('RunStatusChip', () => {
   it('reads Healthy for a running run of a service DAG with a continuous step', () => {
-    h.steps = [forever];
     h.nodes = [node(NodeStatus.Running, forever)];
     render(
       <RunStatusChip name="always" dagRunId="r1" status={Status.Running}>
@@ -91,7 +86,6 @@ describe('RunStatusChip', () => {
 
   it('keeps Running for a continuous step of a workflow that is not a service DAG', () => {
     h.service = false;
-    h.steps = [forever];
     h.nodes = [node(NodeStatus.Running, forever)];
     render(
       <RunStatusChip name="always" dagRunId="r1" status={Status.Running}>
@@ -104,7 +98,6 @@ describe('RunStatusChip', () => {
   });
 
   it('keeps Running when a step of the run failed', () => {
-    h.steps = [forever];
     h.nodes = [node(NodeStatus.Running, forever), node(NodeStatus.Failed)];
     render(
       <RunStatusChip name="always" dagRunId="r1" status={Status.Running}>
@@ -169,7 +162,6 @@ describe('RunStatusChip', () => {
   // A page of running runs must not read the details of each run.
   it('reads no run details when the workflow is not a service', () => {
     h.service = false;
-    h.steps = [forever];
     h.nodes = [node(NodeStatus.Running)];
     render(
       <>
@@ -189,7 +181,7 @@ describe('RunStatusChip', () => {
     expect(detailsCalls()).toHaveLength(0);
   });
 
-  it('waits for the definition before it reads any run details', () => {
+  it('waits for the service list before it reads any run details', () => {
     h.probe = 'loading';
     render(
       <RunStatusChip name="etl" dagRunId="r1" status={Status.Running}>
@@ -200,12 +192,12 @@ describe('RunStatusChip', () => {
     expect(detailsCalls()).toHaveLength(0);
   });
 
-  // Without the definition the service fact is unknown: the status stands.
-  it('keeps Running when the definition cannot be read', () => {
+  // Without the service list the service fact is unknown: the status stands.
+  it('keeps Running when the service list cannot be read', () => {
     h.probe = 'error';
     h.nodes = [node(NodeStatus.Running, forever)];
     render(
-      <RunStatusChip name="renamed" dagRunId="r1" status={Status.Running}>
+      <RunStatusChip name="always" dagRunId="r1" status={Status.Running}>
         {StatusLabel.running}
       </RunStatusChip>
     );
@@ -213,7 +205,7 @@ describe('RunStatusChip', () => {
     expect(detailsCalls()).toHaveLength(0);
   });
 
-  it('reads no definition for a run that is not running', () => {
+  it('reads nothing for a run that is not running', () => {
     render(
       <RunStatusChip name="etl" dagRunId="r1" status={Status.Success}>
         {StatusLabel.succeeded}

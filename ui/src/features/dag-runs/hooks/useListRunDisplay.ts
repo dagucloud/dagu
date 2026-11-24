@@ -4,7 +4,6 @@
 import { Status } from '@/api/v1/schema';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
-import { isServiceDAG } from '@/lib/dagSchedule';
 import {
   hasContinuousStep,
   runDisplayStatus,
@@ -19,23 +18,21 @@ import {
 const RUNNING_REFRESH_MS = 60_000;
 
 /**
- * How long a list reuses the definition of a workflow, in ms: a row that
- * mounts later reads it again once this time has passed.
+ * How long a list reuses the list of service DAGs, in ms: a row that mounts
+ * later reads it again once this time has passed.
  */
-const DEFINITION_TTL_MS = 5 * 60_000;
+const SERVICE_LIST_TTL_MS = 5 * 60_000;
 
 /**
  * The status that a list prints for a run. The summary of a run has no steps.
  * A running run can be "Healthy" only when its workflow is a service DAG
- * (restart_policy), so the hook reads the definition first (one request for
- * each workflow name, shared by all its rows). Only such a workflow reads the
- * details of the run (once, and again every minute while it has a continuous
- * step): runDisplayStatus then
- * decides, with the failed steps in view. Until the details are there, for a
- * definition that the name does not give (for example a name that differs
- * from the file name) and for every run that is not running, the API status
- * stands. A definition edited after the run started can hide a continuous
- * step of that run until it ends.
+ * (restart_policy), so the hook reads the list of service DAGs first (one
+ * request shared by all the rows of every list). Only a run of such a
+ * workflow reads its details (once, and again every minute while it has a
+ * continuous step): runDisplayStatus then decides, with the failed steps in
+ * view. Until the details are there, and for every run that is not running,
+ * the API status stands. A definition edited after the run started can hide a
+ * continuous step of that run until it ends.
  */
 export function useListRunDisplay(
   name: string,
@@ -44,20 +41,17 @@ export function useListRunDisplay(
 ): RunDisplayStatus | undefined {
   const remoteNode = useRemoteNode();
   const running = status === Status.Running && !!dagRunId;
-  const definition = useQuery(
-    '/dags/{fileName}',
-    running
-      ? { params: { path: { fileName: name }, query: { remoteNode } } }
-      : null,
+  const services = useQuery(
+    '/service-dags',
+    running ? { params: { query: { remoteNode } } } : null,
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
       shouldRetryOnError: false,
-      dedupingInterval: DEFINITION_TTL_MS,
+      dedupingInterval: SERVICE_LIST_TTL_MS,
     }
   );
-  const service =
-    definition.data?.dag !== undefined && isServiceDAG(definition.data.dag);
+  const service = (services.data?.dags ?? []).some((dag) => dag.name === name);
   const enabled = running && service;
   const { data } = useQuery(
     '/dag-runs/{name}/{dagRunId}',
