@@ -80,12 +80,12 @@ func TestNodeRunRecords(t *testing.T) {
 	e.lock.Lock()
 	e.results["a"] = &ir.RunStatus{Status: ir.Failed, Steps: &ir.StepProgress{Done: 3, Total: 4}, FailedStep: "restart"}
 	e.lock.Unlock()
-	e.noteNodeFinish("a")
+	e.noteNodeFinish("a", e.results["a"])
 	e.noteNodeStart("c")
 	// web04 returned without a result, as a child run that failed to start
 	// does.
 	e.noteNodeStart("d")
-	e.noteNodeFinish("d")
+	e.noteNodeFinish("d", nil)
 	e.writeNodeRuns(ctx, dir, false)
 	statuses, _, counts = readNodeRecords(t, dir)
 	require.Equal(t, []string{"web01=failed", "web02=disabled", "web03=running", "web04=failed", "web05=not_started"}, statuses)
@@ -106,6 +106,33 @@ func TestNodeRunRecords(t *testing.T) {
 	require.NotEmpty(t, web01.FinishedAt)
 	require.Equal(t, ir.NodeRun{Node: "web02", Status: ir.NodeRunDisabled}, records.Runs[1])
 	require.Empty(t, records.Runs[4].StartedAt)
+}
+
+// A node with a step retry pending runs until its retry returns. A retry
+// that returns no result fails the node, whatever the earlier attempt
+// returned.
+func TestNodeRunRecordsRetry(t *testing.T) {
+	t.Parallel()
+
+	e, ctx, dir := recordingStep(t)
+	finish := e.recordNodeRuns(ctx)
+	defer finish()
+	first := &ir.RunStatus{Status: ir.Failed, PendingStepRetries: []ir.PendingStepRetry{{StepName: "restart"}}}
+	e.noteNodeStart("a")
+	e.lock.Lock()
+	e.results["a"] = first
+	e.lock.Unlock()
+	e.noteNodeFinish("a", first)
+
+	e.writeNodeRuns(ctx, dir, false)
+	statuses, _, _ := readNodeRecords(t, dir)
+	require.Equal(t, "web01=running", statuses[0])
+
+	e.noteNodeStart("a")
+	e.noteNodeFinish("a", nil)
+	e.writeNodeRuns(ctx, dir, false)
+	statuses, _, _ = readNodeRecords(t, dir)
+	require.Equal(t, "web01=failed", statuses[0])
 }
 
 // A node running when the step is aborted is aborted. A node that never

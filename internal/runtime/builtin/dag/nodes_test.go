@@ -19,7 +19,8 @@ func nodesExecutorWith(limit int, matched []executor.NodeRun, results map[string
 	e := &parallelExecutor{
 		results: results,
 		nodes: &nodeDispatch{
-			started: map[string]time.Time{}, finished: map[string]time.Time{}, active: map[string]bool{},
+			started: map[string]time.Time{}, finished: map[string]time.Time{},
+			active: map[string]bool{}, resultless: map[string]bool{},
 			maxOutputSize: limit,
 		},
 	}

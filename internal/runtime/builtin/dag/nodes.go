@@ -35,6 +35,9 @@ type nodeDispatch struct {
 	finished map[string]time.Time
 	// active holds the run IDs of the nodes with an attempt in flight.
 	active map[string]bool
+	// resultless holds the run IDs of the nodes whose last attempt returned
+	// no result, whatever an earlier attempt returned.
+	resultless map[string]bool
 	// changed marks a change the step's records do not show yet.
 	changed bool
 	// maxOutputSize limits the aggregate the step writes.
@@ -77,6 +80,7 @@ func newNodesExecutor(ctx context.Context, step ir.Step) (executor.Executor, err
 			started:       make(map[string]time.Time),
 			finished:      make(map[string]time.Time),
 			active:        make(map[string]bool),
+			resultless:    make(map[string]bool),
 			maxOutputSize: maxOutputSize,
 		},
 	}, nil
@@ -158,8 +162,9 @@ func (e *parallelExecutor) noteNodeStart(runID string) {
 	e.nodes.changed = true
 }
 
-// noteNodeFinish records that an attempt of a node's child run returned.
-func (e *parallelExecutor) noteNodeFinish(runID string) {
+// noteNodeFinish records that an attempt of a node's child run returned,
+// with result or without one.
+func (e *parallelExecutor) noteNodeFinish(runID string, result *ir.RunStatus) {
 	if e.nodes == nil {
 		return
 	}
@@ -167,6 +172,7 @@ func (e *parallelExecutor) noteNodeFinish(runID string) {
 	defer e.lock.Unlock()
 	e.nodes.finished[runID] = time.Now()
 	e.nodes.active[runID] = false
+	e.nodes.resultless[runID] = result == nil
 	e.nodes.changed = true
 }
 
@@ -183,6 +189,7 @@ func (e *parallelExecutor) nodeRunStatus(node executor.NodeRun, ended bool) ir.N
 	}
 	active := e.nodes.active[id]
 	result, returned := e.results[id]
+	returned = returned && !e.nodes.resultless[id]
 	switch {
 	case active && e.cancelled():
 		return ir.NodeRunAborted

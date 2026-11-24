@@ -239,7 +239,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 				e.results[res.attempt.runParams.RunID] = res.result
 				e.lock.Unlock()
 			}
-			e.noteNodeFinish(res.attempt.runParams.RunID)
+			e.noteNodeFinish(res.attempt.runParams.RunID, res.result)
 
 			if res.err != nil && !e.cancelled() {
 				logger.Error(ctx, "Sub DAG execution failed",
