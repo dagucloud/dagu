@@ -215,11 +215,12 @@ Rules:
 - Every write to the registry holds one lock and checks the
   [name rules](#names) before it stores. A write that breaks them stores
   nothing.
-- Each server, scheduler, and coordinator process checks the registry's
-  modification time every 5 seconds, also on shared storage that sends no
-  notice of another host's write. When it changed, the process reads the
-  registry and starts or stops using projects to match it, without a
-  restart.
+- Each server, scheduler, and coordinator process checks the registry for
+  changes every 5 seconds, also on shared storage that sends no notice of
+  another host's write. When it changed, the process reads the registry and
+  starts or stops using projects to match it, without a restart.
+- Every write reaches every process, also when two writes land within one
+  tick of the file system's modification time.
 - A CLI command sees every project registered when it starts.
 
 ### Layout
@@ -613,6 +614,9 @@ Rules:
 - Delete is refused while the project's DAG directory is in a git checkout
   and exists. The checkout owns the directory, so it is removed there first.
 - Delete is refused while a file runs in place as the project's.
+- Delete is refused while `<dags_dir>` or `paths.alt_dags_dir` lies inside
+  the project's DAG directory, so deleting a project never removes the
+  default project's or the library's files.
 - A refused delete changes nothing. A mark it set is removed.
 
 #### Changed on Disk
@@ -805,10 +809,14 @@ Rules:
 - A DAG outside the library that ran on v2 runs on v3.0 from the same file,
   in the same working directory, under the same name, with the same base
   config, secrets, profile, notification routes, and incident policies.
-- No DAG that v2 scheduled stops being scheduled, except one that v2 found
-  through a symbolic link out of `<dags_dir>`, and one under
-  `paths.alt_dags_dir` that v2 scheduled because `alt_dags_dir` lay inside
-  `dags_dir`. The report lists both.
+- The one exception is a DAG that v2 found through a symbolic link out of
+  `<dags_dir>`. Discovery does not follow that link, so the DAG is not
+  listed or scheduled until its file moves into a DAG directory. The
+  preview and the report list it.
+- A DAG under `paths.alt_dags_dir` that v2 scheduled because
+  `alt_dags_dir` lay inside `dags_dir` is a library DAG and is not
+  scheduled. Moving its file into a project schedules it again. The preview
+  and the report list it.
 - The default project's runs, DAG state, queues, suspend flags, DAG
   settings, and the rest of its state move from v2's directories in
   `<data_dir>`, and its logs from the default log directory, into its state
@@ -981,7 +989,9 @@ Delete is refused, and changes nothing, when:
 - the project is the default project;
 - the project has a run that is not finished;
 - the project's DAG directory is in a git checkout and exists;
-- a file runs in place as the project's.
+- a file runs in place as the project's;
+- `<dags_dir>` or `paths.alt_dags_dir` lies inside the project's DAG
+  directory.
 
 ### Choosing a Project
 
