@@ -88,9 +88,7 @@ func TestStepExecutorRecordsModelUsage(t *testing.T) {
 // A step that reports no progress of its own has its model usage reported
 // while it runs, and nothing after it ends.
 func TestStepExecutorReportsModelUsageWhileRunning(t *testing.T) {
-	previous := liveModelUsageInterval
-	liveModelUsageInterval = 10 * time.Millisecond
-	t.Cleanup(func() { liveModelUsageInterval = previous })
+	SetLiveModelUsageInterval(t, 10*time.Millisecond)
 
 	release := make(chan struct{})
 	called := make(chan struct{})
