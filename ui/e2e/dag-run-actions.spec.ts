@@ -490,7 +490,7 @@ steps:
       .toContain('retry succeeded');
   });
 
-  test('reschedules a completed queue-backed DAG run from the UI', async ({
+  test('reschedules a failed queue-backed DAG run from the UI', async ({
     page,
     request,
   }) => {
@@ -511,18 +511,21 @@ worker_selector:
   role: e2e
 steps:
   - name: reschedule-step
-    run: echo "reschedule complete"
+    run: |
+      echo "reschedule complete"
+      exit 1
 `
     );
 
     await waitForDAGAvailable(request, token, fileName);
+    // The bar offers Retry, and its Reschedule, for a failed run only.
     const originalRunId = await startDAG(request, token, fileName);
     await waitForRunStatus(
       request,
       token,
       dagName,
       originalRunId,
-      ['succeeded'],
+      ['failed'],
       'local',
       30_000
     );
@@ -557,7 +560,7 @@ steps:
       token,
       dagName,
       newRunId,
-      ['succeeded'],
+      ['failed'],
       'local',
       30_000
     );
