@@ -129,7 +129,11 @@ export function useReuseSource(p: {
 }): ReuseSourceState {
   const { dagData, run, remoteNode } = useWorkspaceData('useReuseSource');
   const client = useClient();
-  const history = useRunHistory({ enabled: true, includeEphemeral: true });
+  const history = useRunHistory({
+    enabled: true,
+    includeEphemeral: true,
+    newestOnly: true,
+  });
   const dagName = dagData.dag?.name ?? p.fileName;
   // The automatic choice looks at the runs that stay; a test run is for the
   // user to choose.

@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import type { ReactNode } from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -269,11 +270,29 @@ describe('SamplesPanel with a run history', () => {
     render(panel({ liveRun: { id: 'run-1', startedAt: NOW - 3_600_000 } }));
     expect(screen.getByTestId('continuous-empty')).toBeInTheDocument();
   });
+
+  // The server cuts the window to the samples it has: the note follows the
+  // window that the chart draws, not the one that it asked for.
+  it('gives the window that the chart shows to the note of the host', () => {
+    const from = NOW - 2 * 86_400_000;
+    h.responses.samples = { ...series(5), from: new Date(from).toISOString() };
+    const notice = vi.fn<(window: { from: number; to: number }) => ReactNode>(
+      () => <p data-testid="note">note</p>
+    );
+    render(panel({ notice }));
+    expect(screen.getByTestId('note')).toBeInTheDocument();
+    expect(notice).toHaveBeenLastCalledWith({ from, to: NOW });
+  });
 });
 
 describe('the events of a run history', () => {
-  it('shows the gap of each event', () => {
-    render(panel());
+  const links = (retained: string[]) => ({
+    has: (id: string) => retained.includes(id),
+    open: vi.fn(),
+  });
+
+  it('shows the gap and the run of each event', () => {
+    render(panel({ links: links([]) }));
     const rows = screen.getAllByTestId('continuous-event');
     expect(rows.map((r) => r.getAttribute('data-kind'))).toEqual([
       'gap',
@@ -282,11 +301,36 @@ describe('the events of a run history', () => {
     expect(rows[0]).toHaveTextContent('Gap');
     expect(rows[0]).toHaveTextContent('no run for 1m 30s');
     expect(rows[1]).toHaveTextContent('connection refused');
+    // The scheduler ID is short and tells the runs apart.
+    const ids = screen.getAllByTestId('continuous-event-run');
+    expect(ids.map((i) => i.textContent)).toEqual([
+      '1108T113000',
+      '1108T110000',
+    ]);
+  });
+
+  it('links a retained run and writes a dropped run as text', () => {
+    const open = links(['restart-bbbbbbbbbbbb-20261108T110000']);
+    render(panel({ links: open }));
+    const ids = screen.getAllByTestId('continuous-event-run');
+    expect(ids[0]!.tagName).toBe('SPAN');
+    expect(ids[1]!.tagName).toBe('BUTTON');
+    fireEvent.click(ids[1]!);
+    expect(open.open).toHaveBeenCalledWith(
+      'restart-bbbbbbbbbbbb-20261108T110000'
+    );
+  });
+
+  it('writes every run as text when the host has no links', () => {
+    render(panel());
+    for (const id of screen.getAllByTestId('continuous-event-run')) {
+      expect(id.tagName).toBe('SPAN');
+    }
   });
 });
 
 describe('SamplesPanel with a step', () => {
-  // A step counts executions.
+  // A step has no run ID in its events and counts executions.
   it('keeps the labels of the executions of a step', () => {
     h.responses = {
       '/dag-runs/{name}/{dagRunId}/steps/{stepName}/availability': availability,
@@ -302,5 +346,6 @@ describe('SamplesPanel with a step', () => {
     expect(screen.getByTestId('continuous-total')).toHaveTextContent(
       'Executions'
     );
+    expect(screen.queryByTestId('continuous-event-run')).toBeNull();
   });
 });
