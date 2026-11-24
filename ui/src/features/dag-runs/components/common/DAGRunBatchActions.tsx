@@ -25,19 +25,10 @@ import {
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
-import { cn } from '@/lib/utils';
 
 interface DAGRunBatchActionsProps {
-  /**
-   * Shows no summary bar: the bulk buttons float to the right of the row of
-   * the page that holds this component, once runs are selected.
-   */
-  inline?: boolean;
-  loadedCount: number;
   onActionComplete?: () => Promise<void>;
-  onClearSelection: () => void;
   onReplaceSelection: (items: DAGRunSelectionItem[]) => void;
-  onSelectAllLoaded: () => void;
   selectedRuns: DAGRunSelectionItem[];
 }
 
@@ -54,12 +45,8 @@ const actionVerbs: Record<BatchActionType, string> = {
 };
 
 function DAGRunBatchActions({
-  inline = false,
-  loadedCount,
   onActionComplete,
-  onClearSelection,
   onReplaceSelection,
-  onSelectAllLoaded,
   selectedRuns,
 }: DAGRunBatchActionsProps) {
   const { ts } = useI18n();
@@ -87,16 +74,6 @@ function DAGRunBatchActions({
   const [useCurrentDagFile, setUseCurrentDagFile] = React.useState(false);
   const [rescheduleSourceLoading, setRescheduleSourceLoading] =
     React.useState(false);
-
-  const summaryText =
-    selectedCount === 0
-      ? ts(loadedCount === 1 ? '{count} run' : '{count} runs', {
-          count: loadedCount,
-        })
-      : ts('{selected} of {loaded} selected', {
-          selected: selectedCount,
-          loaded: loadedCount,
-        });
 
   React.useEffect(() => {
     if (phase !== 'confirm' || activeBatch?.action !== 'reschedule') {
@@ -217,101 +194,32 @@ function DAGRunBatchActions({
 
   return (
     <>
-      {inline ? (
-        selectedCount > 0 && (
-          <div className="order-last ml-auto flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              onClick={() => openBatchDialog('retry')}
-              disabled={isRunning}
-            >
-              <I18nText text={'Retry selected'} />
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => openBatchDialog('reschedule')}
-              disabled={isRunning}
-            >
-              <I18nText text={'Reschedule selected'} />
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={() => openBatchDialog('delete')}
-              disabled={isRunning}
-            >
-              <Trash2 className="h-4 w-4" />
-              <I18nText text={'Delete'} /> ({selectedCount})
-            </Button>
-          </div>
-        )
-      ) : (
-        <div
-          className={cn(
-            'mb-3 flex min-h-11 flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-1.5 transition-colors',
-            selectedCount > 0
-              ? 'border-primary/40 bg-primary/5'
-              : 'border-transparent'
-          )}
-        >
-          <div
-            className={cn(
-              'text-sm',
-              selectedCount > 0
-                ? 'font-medium text-foreground'
-                : 'text-muted-foreground'
-            )}
+      {/* The buttons close the row of the page that holds this component,
+          once there is something to act on. */}
+      {selectedCount > 0 && (
+        <div className="order-last ml-auto flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => openBatchDialog('retry')}
+            disabled={isRunning}
           >
-            {summaryText}
-          </div>
-          {/* Bulk actions appear only once there is something to act on. */}
-          <div className="flex flex-wrap items-center gap-2">
-            {selectedCount === 0 ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onSelectAllLoaded}
-                disabled={loadedCount === 0 || isRunning}
-              >
-                <I18nText text={'Select all loaded'} />
-              </Button>
-            ) : (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={onClearSelection}
-                  disabled={isRunning}
-                >
-                  <I18nText text={'Clear selection'} />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => openBatchDialog('retry')}
-                  disabled={isRunning}
-                >
-                  <I18nText text={'Retry selected'} />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => openBatchDialog('reschedule')}
-                  disabled={isRunning}
-                >
-                  <I18nText text={'Reschedule selected'} />
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => openBatchDialog('delete')}
-                  disabled={isRunning}
-                >
-                  <Trash2 className="h-4 w-4" />
-                  <I18nText text={'Delete selected'} />
-                </Button>
-              </>
-            )}
-          </div>
+            <I18nText text={'Retry selected'} />
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => openBatchDialog('reschedule')}
+            disabled={isRunning}
+          >
+            <I18nText text={'Reschedule selected'} />
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={() => openBatchDialog('delete')}
+            disabled={isRunning}
+          >
+            <Trash2 className="h-4 w-4" />
+            <I18nText text={'Delete'} /> ({selectedCount})
+          </Button>
         </div>
       )}
 

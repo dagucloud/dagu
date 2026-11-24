@@ -53,37 +53,30 @@ describe('DAGRunBatchActions', () => {
   });
 
   it('offers bulk actions only once runs are selected', () => {
-    const onSelectAllLoaded = vi.fn();
-    const renderBar = (selectedRuns: { name: string; dagRunId: string }[]) => (
+    const renderActions = (
+      selectedRuns: { name: string; dagRunId: string }[]
+    ) => (
       <AppBarContext.Provider value={appBarContextValue}>
         <DAGRunBatchActions
           selectedRuns={selectedRuns}
-          loadedCount={18}
-          onSelectAllLoaded={onSelectAllLoaded}
-          onClearSelection={vi.fn()}
           onReplaceSelection={vi.fn()}
           onActionComplete={vi.fn()}
         />
       </AppBarContext.Provider>
     );
-    const { rerender } = render(renderBar([]));
+    const { rerender } = render(renderActions([]));
 
-    expect(screen.getByText('18 runs')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+
+    rerender(renderActions([{ name: 'alpha', dagRunId: 'run-1' }]));
+
     expect(
-      screen.queryByRole('button', { name: 'Delete selected' })
-    ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Select all loaded' }));
-    expect(onSelectAllLoaded).toHaveBeenCalled();
-
-    rerender(renderBar([{ name: 'alpha', dagRunId: 'run-1' }]));
-
-    expect(screen.getByText('1 of 18 selected')).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'Delete selected' })
+      screen.getByRole('button', { name: 'Retry selected' })
     ).toBeEnabled();
     expect(
-      screen.queryByRole('button', { name: 'Select all loaded' })
-    ).not.toBeInTheDocument();
+      screen.getByRole('button', { name: 'Reschedule selected' })
+    ).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Delete (1)' })).toBeEnabled();
   });
 
   it('submits reschedules sequentially and keeps failed items selected', async () => {
@@ -131,9 +124,6 @@ describe('DAGRunBatchActions', () => {
             { name: 'alpha', dagRunId: 'run-1' },
             { name: 'beta', dagRunId: 'run-2' },
           ]}
-          loadedCount={2}
-          onSelectAllLoaded={vi.fn()}
-          onClearSelection={vi.fn()}
           onReplaceSelection={onReplaceSelection}
           onActionComplete={onActionComplete}
         />
@@ -239,9 +229,6 @@ describe('DAGRunBatchActions', () => {
       <AppBarContext.Provider value={appBarContextValue}>
         <DAGRunBatchActions
           selectedRuns={[{ name: 'alpha', dagRunId: 'run-1' }]}
-          loadedCount={1}
-          onSelectAllLoaded={vi.fn()}
-          onClearSelection={vi.fn()}
           onReplaceSelection={onReplaceSelection}
           onActionComplete={vi.fn().mockResolvedValue(undefined)}
         />
@@ -283,16 +270,13 @@ describe('DAGRunBatchActions', () => {
       <AppBarContext.Provider value={appBarContextValue}>
         <DAGRunBatchActions
           selectedRuns={[{ name: 'alpha', dagRunId: 'run-1' }]}
-          loadedCount={1}
-          onSelectAllLoaded={vi.fn()}
-          onClearSelection={vi.fn()}
           onReplaceSelection={onReplaceSelection}
           onActionComplete={vi.fn().mockResolvedValue(undefined)}
         />
       </AppBarContext.Provider>
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete selected' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete (1)' }));
 
     const dialog = await screen.findByRole('dialog');
     expect(
@@ -340,9 +324,6 @@ describe('DAGRunBatchActions', () => {
       <AppBarContext.Provider value={appBarContextValue}>
         <DAGRunBatchActions
           selectedRuns={[{ name: 'alpha', dagRunId: 'run-1' }]}
-          loadedCount={1}
-          onSelectAllLoaded={vi.fn()}
-          onClearSelection={vi.fn()}
           onReplaceSelection={vi.fn()}
           onActionComplete={vi.fn().mockResolvedValue(undefined)}
         />
@@ -389,9 +370,6 @@ describe('DAGRunBatchActions', () => {
             { name: 'alpha', dagRunId: 'run-1' },
             { name: 'beta', dagRunId: 'run-2' },
           ]}
-          loadedCount={2}
-          onSelectAllLoaded={vi.fn()}
-          onClearSelection={vi.fn()}
           onReplaceSelection={vi.fn()}
           onActionComplete={vi.fn().mockResolvedValue(undefined)}
         />

@@ -1614,11 +1614,7 @@ function DAGRuns() {
                 <I18nText text={'Search'} />
               </Button>
               <DAGRunBatchActions
-                inline
                 selectedRuns={selectedRuns}
-                loadedCount={dagRuns.length}
-                onSelectAllLoaded={selectAllLoaded}
-                onClearSelection={clearSelection}
                 onReplaceSelection={replaceSelection}
                 onActionComplete={refreshDagRuns}
               />
@@ -1642,6 +1638,9 @@ function DAGRuns() {
             isLoading={isInitialLoading}
             selectedRunKeys={selectedKeys}
             onToggleBulkSelect={toggleSelection}
+            onSelectAll={(checked) =>
+              checked ? selectAllLoaded() : clearSelection()
+            }
           />
         )}
         <div className="mt-3 flex flex-col items-center gap-2">
