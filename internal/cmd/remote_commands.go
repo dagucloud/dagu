@@ -246,6 +246,10 @@ func remoteRunStart(ctx *Context, args []string) error {
 		if len(args) != 1 || ctx.Command.Flags().Changed("params") || ctx.Command.ArgsLenAtDash() != -1 || stdinParamsRequested(ctx) {
 			return fmt.Errorf("parameters cannot be provided when using --from-run-id")
 		}
+		// A remote reschedule carries no node list.
+		if ctx.Command.Flags().Changed(flagNode) {
+			return fmt.Errorf("--%s cannot be combined with --from-run-id in a remote context", flagNode)
+		}
 		scheduledAt, err := ctx.StringParam(scheduledAtFlag.name)
 		if err != nil {
 			return err

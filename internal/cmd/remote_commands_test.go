@@ -577,6 +577,12 @@ func TestRemoteRunParams(t *testing.T) {
 			startOnly: true,
 		},
 		{
+			name:      "FromRunIDRejectsNode",
+			args:      []string{"--node=web01", "--from-run-id=source", "etl"},
+			wantErr:   "--node cannot be combined with --from-run-id in a remote context",
+			startOnly: true,
+		},
+		{
 			name:       "FlagBeatsStdin",
 			args:       []string{"--params-stdin", "--params=P1=flag", "etl"},
 			stdin:      "P1=stdin",
