@@ -19,19 +19,15 @@ function Wrapper({ children }: { children: React.ReactNode }) {
   );
 }
 
-const display = vi.hoisted(() => ({
-  current: undefined as { healthy: boolean } | undefined,
-}));
-
-vi.mock('@/features/dag-runs/hooks/useListRunDisplay', () => ({
-  useListRunDisplay: () => display.current,
-}));
-
-function dag(startedAt: string | undefined, status = Status.Success) {
+function dag(
+  startedAt: string | undefined,
+  status = Status.Success,
+  dagRunId = 'r1'
+) {
   return {
     fileName: 'alpha.yaml',
     dag: { name: 'alpha' },
-    latestDAGRun: { dagRunId: 'r1', status, startedAt },
+    latestDAGRun: { dagRunId, status, startedAt },
   } as never;
 }
 
@@ -40,10 +36,6 @@ function ago(ms: number): string {
 }
 
 describe('LastRunCell', () => {
-  beforeEach(() => {
-    display.current = undefined;
-  });
-
   it('reads the compact time of the workflow header, behind the status dot', () => {
     render(<LastRunCell dag={dag(ago(3 * 86_400_000))} />, {
       wrapper: Wrapper,
@@ -53,19 +45,33 @@ describe('LastRunCell', () => {
   });
 
   it('shows a dash when the workflow never ran', () => {
-    render(<LastRunCell dag={dag(undefined)} />, { wrapper: Wrapper });
+    render(<LastRunCell dag={dag(undefined, Status.NotStarted, '')} />, {
+      wrapper: Wrapper,
+    });
     expect(screen.getByText('-')).toBeInTheDocument();
   });
 
-  it('shows a heartbeat that runs well as Healthy, with no time', () => {
-    display.current = { healthy: true };
-    render(<LastRunCell dag={dag(ago(1000 * 86_400_000), Status.Running)} />, {
+  // A queued run has no start time until it starts.
+  it('names the status of a run that has not started', () => {
+    render(<LastRunCell dag={dag(undefined, Status.Queued)} />, {
       wrapper: Wrapper,
     });
     const cell = screen.getByTestId('dag-last-run');
-    expect(cell).toHaveAttribute('data-healthy', 'true');
-    expect(cell).toHaveTextContent('Healthy');
-    expect(cell).not.toHaveTextContent('ago');
+    expect(cell).toHaveTextContent('Queued');
+    expect(cell.querySelector('[data-status]')).toHaveAttribute(
+      'data-status',
+      String(Status.Queued)
+    );
+  });
+
+  // Spec 100: only a service DAG reads Healthy; any other workflow keeps the
+  // time of its run, also a run that repeats for ever.
+  it('keeps the time of a running workflow', () => {
+    render(<LastRunCell dag={dag(ago(3 * 86_400_000), Status.Running)} />, {
+      wrapper: Wrapper,
+    });
+    expect(screen.getByTestId('dag-last-run')).toHaveTextContent('3d ago');
+    expect(screen.getByRole('img', { name: 'Running' })).toBeInTheDocument();
   });
 });
 
@@ -83,7 +89,6 @@ describe('LastRunCell of a service DAG', () => {
         removeEventListener: vi.fn(),
       }),
     });
-    display.current = undefined;
   });
 
   it.each([
@@ -109,21 +114,6 @@ describe('LastRunCell of a service DAG', () => {
       );
     }
   );
-
-  it('reads Healthy, with the chip of the service, for a heartbeat', () => {
-    display.current = { healthy: true };
-    render(
-      <LastRunCell
-        dag={dag(ago(1000 * 86_400_000), Status.Running)}
-        serviceState={ServiceDAGState.running}
-      />,
-      { wrapper: Wrapper }
-    );
-    const cell = screen.getByTestId('dag-last-run');
-    expect(cell).toHaveTextContent('Healthy');
-    expect(cell).toHaveAttribute('data-service-state', 'running');
-    expect(cell).not.toHaveAttribute('data-healthy');
-  });
 
   it('shows the state of a service DAG that never ran', () => {
     render(

@@ -100,6 +100,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     handleSearchTextChange,
     activeOnly,
     handleActiveOnlyChange,
+    isRequestFiltered,
     activeWorkflowViewId,
     workflowViewError,
     onSaveWorkflowView,
@@ -111,6 +112,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     onDeleteWorkflowView,
     onDeleteDAGs,
     onSetDAGPinned,
+    onSetDAGsPinned,
     canEditDAG,
     canPinDAG,
   }: {
@@ -122,6 +124,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     handleSearchTextChange: (value: string) => void;
     activeOnly: boolean;
     handleActiveOnlyChange: (value: boolean) => void;
+    isRequestFiltered: boolean;
     activeWorkflowViewId: string | null;
     workflowViewError?: string | null;
     onSaveWorkflowView: (
@@ -139,6 +142,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       fileNames: string[]
     ) => Promise<Array<{ fileName: string; error?: string }>>;
     onSetDAGPinned: (fileName: string, pinned: boolean) => Promise<void>;
+    onSetDAGsPinned: (fileNames: string[], pinned: boolean) => Promise<void>;
     canEditDAG?: (dag: {
       fileName: string;
       dag: { name: string; workspace?: string };
@@ -164,6 +168,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       <span data-testid="active-workflow-view">
         {activeWorkflowViewId ?? 'none'}
       </span>
+      <span data-testid="request-filtered">{String(isRequestFiltered)}</span>
       {workflowViewError && <div role="alert">{workflowViewError}</div>}
       <button
         type="button"
@@ -234,6 +239,24 @@ vi.mock('@/features/dags/components/dag-list', () => ({
         onClick={() => void onSetDAGPinned('demo.yaml', false)}
       >
         Unpin demo workflow
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void onSetDAGsPinned(
+            [
+              'one.yaml',
+              'two.yaml',
+              'three.yaml',
+              'four.yaml',
+              'five.yaml',
+              'six.yaml',
+            ],
+            true
+          )
+        }
+      >
+        Pin workflow batch
       </button>
       <ul>
         {dags.map((dag) => (
@@ -615,6 +638,25 @@ describe('DagsPage', () => {
     );
 
     expect(screen.getByRole('textbox', { name: 'Search DAGs' })).toHaveFocus();
+  });
+
+  // The table judges the rows on screen by the filter of their request,
+  // which follows the typed filter after a delay.
+  it('tells the table the filter of the request, not the typed one', async () => {
+    renderPage();
+    const filtered = () => screen.getByTestId('request-filtered').textContent;
+
+    await act(async () => {
+      fireEvent.change(screen.getByRole('textbox', { name: 'Search DAGs' }), {
+        target: { value: 'demo' },
+      });
+    });
+    expect(filtered()).toBe('false');
+
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(filtered()).toBe('true');
   });
 
   it('uses the Workflows app bar title', () => {
@@ -1061,6 +1103,34 @@ describe('DagsPage', () => {
       '/dags/{fileName}/pin',
       request
     );
+  });
+
+  it('limits concurrent group pin requests', async () => {
+    const pendingPins: Array<(value: object) => void> = [];
+    clientPutMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          pendingPins.push(resolve);
+        })
+    );
+    renderPage();
+    const reloadsBefore = listMutateMock.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pin workflow batch' }));
+    expect(clientPutMock).toHaveBeenCalledTimes(5);
+
+    await act(async () => {
+      pendingPins.splice(0).forEach((resolve) => resolve({}));
+      await Promise.resolve();
+    });
+    expect(clientPutMock).toHaveBeenCalledTimes(6);
+
+    await act(async () => {
+      pendingPins.splice(0).forEach((resolve) => resolve({}));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(listMutateMock).toHaveBeenCalledTimes(reloadsBefore + 1);
   });
 
   // In an all-workspaces view, write access differs between workflows.

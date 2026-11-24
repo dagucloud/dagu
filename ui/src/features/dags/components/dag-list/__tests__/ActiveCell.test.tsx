@@ -3,13 +3,19 @@
 
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ScheduleKind, type components } from '@/api/v1/schema';
+import {
+  ScheduleKind,
+  ServiceDAGState,
+  type components,
+} from '@/api/v1/schema';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
-import { ScheduleCell, WebhookCell } from '../ActiveCell';
+import { GroupScheduleCell, ScheduleCell, WebhookCell } from '../ActiveCell';
 
 type DAGFile = components['schemas']['DAGFile'];
+type ServiceDAG = components['schemas']['ServiceDAG'];
 
 const mocks = vi.hoisted(() => ({
   canManageWebhooks: true,
@@ -17,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   webhooks: [] as Array<{ dagName: string; enabled: boolean }>,
   post: vi.fn(),
   mutate: vi.fn(),
+  showError: vi.fn(),
 }));
 
 vi.mock('@/hooks/api', () => ({
@@ -37,7 +44,7 @@ vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
 vi.mock('@/components/ui/error-modal', () => ({
-  useErrorModal: () => ({ showError: vi.fn() }),
+  useErrorModal: () => ({ showError: mocks.showError }),
 }));
 
 function dagFile(schedule: components['schemas']['Schedule'][]): DAGFile {
@@ -70,6 +77,7 @@ beforeEach(() => {
   mocks.webhooks = [];
   mocks.post.mockReset().mockResolvedValue({ error: undefined });
   mocks.mutate.mockReset();
+  mocks.showError.mockReset();
 });
 
 describe('ScheduleCell and WebhookCell', () => {
@@ -107,16 +115,27 @@ describe('ScheduleCell and WebhookCell', () => {
     expect(screen.getByTestId('webhook-cell').textContent).toBe('-');
   });
 
-  it('shows the restart policy and the switch of a service DAG', () => {
+  it('shows a service DAG with its switch and its next restart', () => {
     const dag = dagFile([]);
     dag.dag = {
       ...dag.dag,
       restartPolicy: 'always',
       restartWaitSec: 1,
     } as never;
-    renderCell(dag);
-    expect(screen.getByTestId('schedule-cell').textContent).toContain(
-      'Restart: always · 1s'
+    const service = {
+      fileName: 'etl',
+      state: ServiceDAGState.restarting,
+      nextRestartAt: new Date(Date.now() + 4 * 60_000).toISOString(),
+    } as ServiceDAG;
+    render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <ScheduleCell dag={dag} service={service} />
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+    expect(screen.getByTestId('schedule-cell').textContent).toBe(
+      'ServiceRestart in 4 minutes'
     );
     expect(
       screen.getByRole('switch', { name: 'Restarts for etl' })
@@ -161,5 +180,71 @@ describe('ScheduleCell and WebhookCell', () => {
     renderCell(dagFile(cron));
     expect(screen.queryByTestId('webhook-switch')).toBeNull();
     expect(screen.getByTestId('webhook-cell').textContent).toBe('-');
+  });
+});
+
+function Providers({ children }: { children: React.ReactNode }) {
+  return (
+    <UserPreferencesProvider>
+      <I18nProvider>{children}</I18nProvider>
+    </UserPreferencesProvider>
+  );
+}
+
+describe('GroupScheduleCell', () => {
+  // A request that throws, such as on a network error, has no error response.
+  it('reports a request that fails without a response', async () => {
+    const refresh = vi.fn();
+    mocks.post.mockRejectedValueOnce(new Error('Failed to fetch'));
+    const members = ['a', 'b'].map(
+      (fileName) => ({ ...dagFile(cron), fileName }) as DAGFile
+    );
+    render(
+      <GroupScheduleCell name="nightly" members={members} refresh={refresh} />,
+      { wrapper: Providers }
+    );
+
+    await userEvent.click(
+      screen.getByRole('switch', { name: 'Schedules of group nightly' })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Disable' }));
+
+    await waitFor(() =>
+      expect(mocks.showError).toHaveBeenCalledWith(
+        'Failed to fetch',
+        expect.any(String)
+      )
+    );
+    expect(mocks.post).toHaveBeenCalledTimes(2);
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  // A service DAG has a schedule switch on its row without a schedule.
+  it('switches the service DAGs of the group too', async () => {
+    const service = {
+      ...dagFile([]),
+      fileName: 'api',
+      dag: { name: 'api', restartPolicy: 'always', restartWaitSec: 1 },
+    } as unknown as DAGFile;
+    render(
+      <GroupScheduleCell
+        name="nightly"
+        members={[dagFile(cron), service]}
+        refresh={vi.fn()}
+      />,
+      { wrapper: Providers }
+    );
+
+    expect(screen.getByText('2 of 2 live')).toBeVisible();
+    await userEvent.click(
+      screen.getByRole('switch', { name: 'Schedules of group nightly' })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Disable' }));
+
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(2));
+    expect(mocks.post).toHaveBeenCalledWith('/dags/{fileName}/suspend', {
+      params: { path: { fileName: 'api' }, query: { remoteNode: 'local' } },
+      body: { suspend: true },
+    });
   });
 });

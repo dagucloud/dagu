@@ -612,7 +612,9 @@ func (a *API) buildDAGRunHistoryResponse(
 	dagRuns := make([]api.DAGRunDetails, 0, len(page.Items))
 	for _, status := range page.Items {
 		recentHistory = append(recentHistory, *status)
-		dagRuns = append(dagRuns, ToDAGRunDetails(*status))
+		// History rows leave out the counts of node runs, which cost a file
+		// read per step with nodes in each row. Run details carry them.
+		dagRuns = append(dagRuns, toDAGRunDetails(*status, toNode))
 	}
 
 	response := api.GetDAGDAGRunHistory200JSONResponse{

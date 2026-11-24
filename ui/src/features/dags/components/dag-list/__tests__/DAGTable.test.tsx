@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   NodeStatus,
   RestartPolicy,
+  ScheduleKind,
   ServiceDAGState,
   Status,
   ViewSortField,
@@ -28,12 +29,13 @@ import { I18nProvider } from '@/i18n/I18nProvider';
 import { WorkspaceKind } from '@/lib/workspace';
 import DAGTable from '../DAGTable';
 
+const api = vi.hoisted(() => ({ post: vi.fn() }));
 const recentRuns = vi.hoisted(() => ({
   dagRuns: [] as unknown[],
 }));
 
 vi.mock('@/hooks/api', () => ({
-  useClient: () => ({ POST: vi.fn() }),
+  useClient: () => ({ POST: api.post }),
   useQuery: (path: string) =>
     path === '/dags/{fileName}/dag-runs'
       ? { data: { dagRuns: recentRuns.dagRuns }, isLoading: false }
@@ -69,9 +71,11 @@ vi.mock('@/features/dags/components/common', async (importOriginal) => ({
   DAGPagination: () => null,
 }));
 
+const auth = vi.hoisted(() => ({ canManageWebhooks: false }));
+
 vi.mock('@/contexts/AuthContext', () => ({
   useCanWrite: () => true,
-  useCanManageWebhooks: () => false,
+  useCanManageWebhooks: () => auth.canManageWebhooks,
 }));
 
 // Reads the locale from stored preferences, as the app does.
@@ -106,6 +110,9 @@ function renderTable(
     /** A peek host above the table. */
     peek?: PeekController;
     resultCount?: number;
+    isRequestFiltered?: boolean;
+    isLoading?: boolean;
+    remoteNode?: string;
   } = {}
 ) {
   const onSortChange = vi.fn();
@@ -123,11 +130,13 @@ function renderTable(
   const result = render(
     <MemoryRouter initialEntries={['/dags']}>
       <LocationProbe />
-      <ConfigContext.Provider value={{ basePath: '' } as never}>
+      <ConfigContext.Provider
+        value={{ basePath: '', permissions: { runDags: true } } as never}
+      >
         <AppBarContext.Provider
           value={
             {
-              selectedRemoteNode: 'local',
+              selectedRemoteNode: options.remoteNode ?? 'local',
               workspaceSelection: { kind: WorkspaceKind.all },
             } as never
           }
@@ -183,6 +192,8 @@ function renderTable(
               onSetDAGPinned={onSetDAGPinned}
               onSetDAGsPinned={onSetDAGsPinned}
               resultCount={options.resultCount}
+              isRequestFiltered={options.isRequestFiltered ?? false}
+              isLoading={options.isLoading}
             />
           </PanelWidthContext.Provider>
         </AppBarContext.Provider>
@@ -243,12 +254,14 @@ describe('DAGTable', () => {
     vi.stubGlobal('getConfig', () => ({
       tz: 'UTC',
     }));
+    api.post.mockReset().mockResolvedValue({});
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     localStorage.clear();
     serviceDAGs.list = [];
+    auth.canManageWebhooks = false;
   });
 
   it('links workflow names to their canonical detail pages', () => {
@@ -297,6 +310,38 @@ describe('DAGTable', () => {
       .getByRole('switch', { name: 'Gather the workflows by group' })
       .closest('label');
     expect(group?.className).toContain('h-9');
+  });
+
+  // The webhook cells read webhooks only for a user who may manage them, on
+  // the local server; for anyone else the column would hold only dashes.
+  it.each([
+    {
+      who: 'a user who may not manage webhooks',
+      manager: false,
+      node: 'local',
+      shown: false,
+    },
+    {
+      who: 'a webhook manager on the local server',
+      manager: true,
+      node: 'local',
+      shown: true,
+    },
+    {
+      who: 'a webhook manager on a remote node',
+      manager: true,
+      node: 'remote-a',
+      shown: false,
+    },
+  ])('shows the Webhook column to $who: $shown', ({ manager, node, shown }) => {
+    auth.canManageWebhooks = manager;
+    renderTable('', { remoteNode: node });
+
+    const header = within(screen.getByRole('table')).queryByRole(
+      'columnheader',
+      { name: 'Webhook' }
+    );
+    expect(header !== null).toBe(shown);
   });
 
   it('links grep to the global DAG search with the current workflow keyword', () => {
@@ -576,6 +621,45 @@ describe('DAGTable', () => {
     expect(onSetDAGPinned).not.toHaveBeenCalled();
   });
 
+  // A pinned workflow leads the list on its own row, but the schedule switch
+  // of its group still covers it.
+  it('switches the schedules of the pinned workflows of a group too', async () => {
+    const scheduled = (name: string, pinned = false) =>
+      ({
+        ...workflow({ name, group: 'nightly', pinned }),
+        dag: {
+          name,
+          group: 'nightly',
+          schedule: [{ kind: ScheduleKind.cron, expression: '0 * * * *' }],
+        },
+      }) as never;
+    renderTable('', {
+      dags: [scheduled('reports', true), scheduled('cleanup')],
+    });
+
+    fireEvent.click(
+      screen.getByRole('switch', { name: 'Schedules of group nightly' })
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('2 workflows of "nightly"');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Disable' }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    expect(
+      api.post.mock.calls.map(([, init]) => init.params.path.fileName).sort()
+    ).toEqual(['cleanup.yaml', 'reports.yaml']);
+  });
+
+  it('lists a group named after a property of Object', () => {
+    renderTable('', {
+      dags: [workflow({ name: 'build', group: 'constructor' })],
+    });
+
+    expect(
+      within(screen.getByRole('table')).getByText('constructor')
+    ).toBeInTheDocument();
+  });
+
   // Gathered by group is the default; the switch lists the workflows flat.
   it('lists the workflows flat by group then name when the Group switch is off', () => {
     renderTable('', {
@@ -608,6 +692,27 @@ describe('DAGTable', () => {
       'beta /',
     ]);
     expect(prefixes[0]?.nextElementSibling).toHaveTextContent('mid');
+  });
+
+  // The cards follow the same order as the rows, so they show the group too.
+  it('shows the group before the name of a card when the Group switch is off', () => {
+    renderTable('', {
+      panelWidth: 600,
+      dags: [
+        workflow({ name: 'zeta', group: 'alpha' }),
+        workflow({ name: 'solo' }),
+      ],
+    });
+    const cards = screen.getByTestId('workflow-card-view');
+    expect(within(cards).queryByTestId('dag-group-prefix')).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('switch', { name: 'Gather the workflows by group' })
+    );
+
+    const prefixes = within(cards).getAllByTestId('dag-group-prefix');
+    expect(prefixes.map((prefix) => prefix.textContent)).toEqual(['alpha /']);
+    expect(prefixes[0]?.nextElementSibling).toHaveTextContent('zeta');
   });
 
   it('invites creating the first workflow when none exist and no filters are set', () => {
@@ -691,6 +796,64 @@ describe('DAGTable', () => {
     expect(
       within(table).getAllByRole('link', { name: 'reports' })
     ).toHaveLength(1);
+  });
+
+  // The other workflows of "nightly" are on a page not loaded yet, so the
+  // group is not known to be all pinned.
+  it('keeps a pinned workflow on its own row while its group has more to load', () => {
+    renderTable('', {
+      dags: [
+        workflow({ name: 'reports', group: 'nightly', pinned: true }),
+        workflow({ name: 'alpha' }),
+      ],
+      resultCount: 3,
+    });
+
+    const table = screen.getByRole('table');
+    expect(bodyRowTexts(table)[0]).toContain('reports');
+    expect(
+      within(table).getByRole('link', { name: 'reports' })
+    ).toBeInTheDocument();
+  });
+
+  // Typed filters reach the request after a delay, and the rows of the
+  // previous request stay while the next one loads. Such rows may hold only a
+  // part of a group.
+  it.each([
+    ['the request still has a filter', { isRequestFiltered: true }],
+    ['the request is loading', { isLoading: true }],
+  ])('keeps pinned workflows on their rows while %s', (_, state) => {
+    renderTable('', {
+      dags: [
+        workflow({ name: 'reports', group: 'nightly', pinned: true }),
+        workflow({ name: 'alpha' }),
+      ],
+      resultCount: 2,
+      ...state,
+    });
+
+    const table = screen.getByRole('table');
+    expect(bodyRowTexts(table)[0]).toContain('reports');
+    expect(
+      within(table).getByRole('link', { name: 'reports' })
+    ).toBeInTheDocument();
+  });
+
+  it('leads with a group whose workflows are all pinned', () => {
+    renderTable('', {
+      dags: [
+        workflow({ name: 'alpha' }),
+        workflow({ name: 'cleanup', group: 'nightly', pinned: true }),
+        workflow({ name: 'reports', group: 'nightly', pinned: true }),
+      ],
+      resultCount: 3,
+    });
+
+    const table = screen.getByRole('table');
+    expect(bodyRowTexts(table)[0]).toContain('nightly');
+    expect(
+      within(table).getByRole('button', { name: 'Pin group nightly' })
+    ).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('shows the pin in its own column and no pinned row', () => {
@@ -831,6 +994,37 @@ describe('DAGTable', () => {
     expect(
       within(cards).getByRole('button', { name: 'Pin workflow alpha' })
     ).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('ends the pinned cards with a line after a pinned group', () => {
+    renderTable('', {
+      panelWidth: 600,
+      dags: [
+        workflow({ name: 'alpha' }),
+        workflow({ name: 'cleanup', group: 'nightly', pinned: true }),
+        workflow({ name: 'reports', group: 'nightly', pinned: true }),
+      ],
+      resultCount: 3,
+    });
+    const cards = screen.getByTestId('workflow-card-view');
+    const precedes = (a: Node, b: Node) =>
+      (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+    const separator = within(cards).getByRole('separator');
+    expect(precedes(within(cards).getByText('nightly'), separator)).toBe(true);
+    expect(
+      precedes(separator, within(cards).getByRole('link', { name: 'alpha' }))
+    ).toBe(true);
+
+    // Unfolded, the group still ends the pinned cards after its workflows.
+    fireEvent.click(within(cards).getByText('nightly'));
+    const unfolded = within(cards).getByRole('separator');
+    expect(
+      precedes(within(cards).getByRole('link', { name: 'reports' }), unfolded)
+    ).toBe(true);
+    expect(
+      precedes(unfolded, within(cards).getByRole('link', { name: 'alpha' }))
+    ).toBe(true);
   });
 
   // The server tells an operator's stop from a run that ended aborted, so

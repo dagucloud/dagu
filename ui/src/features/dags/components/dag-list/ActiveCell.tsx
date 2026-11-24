@@ -14,22 +14,46 @@ import { useClient, useQuery } from '@/hooks/api';
 import { whenEnabled } from '@/hooks/queryUtils';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
+import { ServiceDAGNextRun } from '@/features/service-dags/components/ServiceDAGState';
 import { isServiceDAG } from '@/lib/dagSchedule';
 import LiveSwitch from '../common/LiveSwitch';
 import { ScheduleLine } from './ScheduleSummary';
 
 type DAGFile = components['schemas']['DAGFile'];
+type ServiceDAG = components['schemas']['ServiceDAG'];
+
+/**
+ * The first failed request of a group switch: an error response, or a request
+ * that threw, such as on a network error. Undefined when all succeeded.
+ */
+function firstFailure(
+  results: PromiseSettledResult<{ error?: { message?: string } }>[]
+): { message?: string } | undefined {
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      const reason: unknown = result.reason;
+      return { message: reason instanceof Error ? reason.message : undefined };
+    }
+    if (result.value.error) {
+      return result.value.error;
+    }
+  }
+  return undefined;
+}
 
 /**
  * The schedule of a workflow with its switch (the suspension of the workflow)
- * and the next run; a service DAG shows its restart policy instead. A dash
- * without a schedule or a restart policy.
+ * and the next run; a service DAG says that it is a service, and when its
+ * next restart is due. A dash without a schedule or a restart policy.
  */
 export function ScheduleCell({
   dag,
+  service,
   refresh,
 }: {
   dag: DAGFile;
+  /** The workflow as a service DAG, when it is one and its state is known. */
+  service?: ServiceDAG;
   refresh?: () => void;
 }) {
   const hasSchedule = (dag.dag.schedule ?? []).length > 0;
@@ -53,6 +77,12 @@ export function ScheduleCell({
           as the switch of the group, mounts it anew. */}
       <LiveSwitch key={String(dag.suspended)} dag={dag} refresh={refresh} />
       <ScheduleLine dag={dag} emptyLabel={false} indicator={false} />
+      {service && (
+        <ServiceDAGNextRun
+          dag={service}
+          className="ml-2 truncate text-muted-foreground"
+        />
+      )}
     </span>
   );
 }
@@ -147,9 +177,10 @@ function WebhookSwitch({ dag }: { dag: DAGFile }) {
 }
 
 /**
- * The schedules of a group with one switch: on when every scheduled workflow
- * of the group is live. A change asks for the confirmation, then applies to all
- * of them at once. A dash when no workflow of the group has a schedule.
+ * The schedules of a group with one switch: on when every workflow of the
+ * group that has a schedule switch, a scheduled workflow or a service DAG, is
+ * live. A change asks for the confirmation, then applies to all of them at
+ * once. A dash when no workflow of the group has a schedule switch.
  */
 export function GroupScheduleCell({
   name,
@@ -165,12 +196,13 @@ export function GroupScheduleCell({
   const config = useConfig();
   const remoteNode = useRemoteNode();
   const { showError } = useErrorModal();
-  const scheduled = members.filter(
-    (dag) => (dag.dag.schedule ?? []).length > 0
+  // The same workflows as the rows that show a switch in ScheduleCell.
+  const switchable = members.filter(
+    (dag) => (dag.dag.schedule ?? []).length > 0 || isServiceDAG(dag.dag)
   );
   const [pending, setPending] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
-  const live = scheduled.filter((dag) => !dag.suspended).length;
+  const live = switchable.filter((dag) => !dag.suspended).length;
 
   const confirm = useCallback(async () => {
     const next = pending;
@@ -178,8 +210,8 @@ export function GroupScheduleCell({
     if (next === null) return;
     setBusy(true);
     try {
-      const results = await Promise.all(
-        scheduled
+      const results = await Promise.allSettled(
+        switchable
           .filter((dag) => !!dag.suspended === next)
           .map((dag) =>
             client.POST('/dags/{fileName}/suspend', {
@@ -191,10 +223,10 @@ export function GroupScheduleCell({
             })
           )
       );
-      const failure = results.find((result) => result.error);
-      if (failure?.error) {
+      const failure = firstFailure(results);
+      if (failure) {
         showError(
-          failure.error.message || ts('Could not update the schedules'),
+          failure.message || ts('Could not update the schedules'),
           ts('Please try again or check the server connection.')
         );
       }
@@ -202,9 +234,9 @@ export function GroupScheduleCell({
       setBusy(false);
       refresh?.();
     }
-  }, [client, pending, refresh, remoteNode, scheduled, showError, ts]);
+  }, [client, pending, refresh, remoteNode, switchable, showError, ts]);
 
-  if (scheduled.length === 0) {
+  if (switchable.length === 0) {
     return <span className="text-xs text-muted-foreground">-</span>;
   }
   const canToggle = config.permissions.runDags;
@@ -215,13 +247,13 @@ export function GroupScheduleCell({
       className="flex min-w-0 items-center gap-1.5 text-xs"
     >
       <Switch
-        checked={live === scheduled.length}
+        checked={live === switchable.length}
         disabled={!canToggle || busy}
         onCheckedChange={canToggle ? (value) => setPending(value) : undefined}
         aria-label={ts('Schedules of group {name}', { name })}
       />
       <span className="text-muted-foreground">
-        {ts('{live} of {total} live', { live, total: scheduled.length })}
+        {ts('{live} of {total} live', { live, total: switchable.length })}
       </span>
       <I18nProps>
         <ConfirmModal
@@ -236,7 +268,7 @@ export function GroupScheduleCell({
               'Are you sure you want to {action} the schedules of the {count} workflows of "{name}"?',
               {
                 action: ts(pending ? 'enable' : 'disable'),
-                count: scheduled.length,
+                count: switchable.length,
                 name,
               }
             )}
@@ -284,7 +316,7 @@ export function GroupWebhookCell({
     if (next === null) return;
     setBusy(true);
     try {
-      const results = await Promise.all(
+      const results = await Promise.allSettled(
         webhooks
           .filter((webhook) => webhook.enabled !== next)
           .map((webhook) =>
@@ -297,10 +329,10 @@ export function GroupWebhookCell({
             })
           )
       );
-      const failure = results.find((result) => result.error);
-      if (failure?.error) {
+      const failure = firstFailure(results);
+      if (failure) {
         showError(
-          failure.error.message || ts('Could not update the webhook'),
+          failure.message || ts('Could not update the webhook'),
           ts('Please try again or check the server connection.')
         );
       }

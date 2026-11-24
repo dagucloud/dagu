@@ -58,8 +58,7 @@ steps:
 
   // A click away from the links and buttons of the row opens the page; Back
   // returns to the list. No overlay opens over the list.
-  // The Last Run cell of a workflow that never ran holds only a dash.
-  const rowBody = row.getByRole('cell', { name: '-', exact: true }).first();
+  const rowBody = row.getByTestId('schedule-cell');
   const path = () => new URL(page.url()).pathname;
   await rowBody.click();
   await expect.poll(path).toBe(`/dags/${dagName}`);

@@ -264,8 +264,8 @@ steps:
         .click();
       await expect.poll(isPinned, { timeout: 15_000 }).toBe(true);
       await expect(
-        page.getByText('Pinned', { exact: true }).first()
-      ).toBeVisible();
+        dagEntry.getByRole('button', { name: `Pin workflow ${dagName}` })
+      ).toHaveAttribute('aria-pressed', 'true');
 
       await page.goto(`/dags/${encodeURIComponent(fileName)}`);
       const headerPin = page.getByRole('button', {

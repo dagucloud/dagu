@@ -46,6 +46,7 @@ import ServiceActivityStrip from './ServiceActivityStrip';
 import { DAGRecentRuns } from './DAGRecentRuns';
 import { LastRunCell, ServiceStateChip } from './LastRunCell';
 import { ScheduleLine } from './ScheduleSummary';
+import { ServiceDAGNextRun } from '@/features/service-dags/components/ServiceDAGState';
 import { isServiceDAG } from '../../../../lib/dagSchedule';
 import {
   GroupScheduleCell,
@@ -86,6 +87,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '../../../../contexts/AppBarContext';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
+import { useCanManageWebhooks } from '@/contexts/AuthContext';
 import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import { PeekLink } from '@/features/peek/PeekLink';
 import {
@@ -174,6 +176,8 @@ interface DAGCardProps {
    * chip shows the state in place of the run status.
    */
   service?: components['schemas']['ServiceDAG'];
+  /** The list does not gather by group: the group shows before the name. */
+  showGroup?: boolean;
   className?: string;
 }
 
@@ -284,6 +288,7 @@ function DAGCard({
   onTogglePin,
   isShown = false,
   service,
+  showGroup = false,
   className = '',
 }: DAGCardProps) {
   const fileName = dag.fileName;
@@ -322,13 +327,24 @@ function DAGCard({
               />
             </div>
           )}
-          <PeekLink
-            peek={{ dag: fileName }}
-            className="font-medium text-xs truncate flex-1 min-w-0 hover:underline"
-            onClick={(event) => event.stopPropagation()}
-          >
-            {title}
-          </PeekLink>
+          <div className="flex min-w-0 flex-1 items-baseline gap-1">
+            {showGroup && dag.dag.group && (
+              <span
+                data-testid="dag-group-prefix"
+                title={dag.dag.group}
+                className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground"
+              >
+                {dag.dag.group} /
+              </span>
+            )}
+            <PeekLink
+              peek={{ dag: fileName }}
+              className="font-medium text-xs truncate flex-1 min-w-0 hover:underline"
+              onClick={(event) => event.stopPropagation()}
+            >
+              {title}
+            </PeekLink>
+          </div>
         </div>
         <div className="flex flex-shrink-0 items-center gap-1">
           <PinToggle
@@ -364,6 +380,7 @@ function DAGCard({
       {/* Schedule & Last Run */}
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground mb-1.5">
         <ScheduleLine dag={dag} emptyLabel={false} />
+        {service && <ServiceDAGNextRun dag={service} className="text-xs" />}
         {dag.latestDAGRun.startedAt && dag.latestDAGRun.startedAt !== '-' && (
           <span className="flex items-center gap-0.5">
             <Calendar className="h-2.5 w-2.5" />
@@ -438,7 +455,7 @@ function DAGCard({
           </span>
         </div>
         <div
-          className="flex flex-shrink-0 items-center gap-1"
+          className="flex flex-shrink-0 items-center"
           onClick={(e) => e.stopPropagation()}
         >
           <DAGActions
@@ -447,14 +464,26 @@ function DAGCard({
             fileName={fileName}
             label={false}
             refresh={refreshFn}
-            retryInPlaceOfStop
             service={service}
           />
-          {canEdit && <EditDAGButton dag={dag} />}
+          {canEdit && (
+            <ActionSlot>
+              <EditDAGButton dag={dag} />
+            </ActionSlot>
+          )}
         </div>
       </div>
     </div>
   );
+}
+
+// The actions of a row sit in fixed slots of 40 px, as in DAGActions: Start,
+// Retry, Stop, Edit and Delete, plus the padding of the cell.
+const ACTIONS_WIDTH = 5 * 40 + 16;
+
+/** The fixed slot of Edit or Delete, beside the slots of DAGActions. */
+function ActionSlot({ children }: { children: React.ReactNode }) {
+  return <span className="flex w-10 shrink-0 justify-center">{children}</span>;
 }
 
 // Pinned groups and DAGs lead the rows; the card view puts a divider after them.
@@ -561,6 +590,11 @@ type Props = {
   onSetDAGsPinned: (fileNames: string[], pinned: boolean) => Promise<void>;
   /** Total workflows matching the server-side filters */
   resultCount?: number;
+  /**
+   * Whether the request of the list applies a filter. The request follows the
+   * typed filters after a delay, so the two can differ for a moment.
+   */
+  isRequestFiltered: boolean;
 };
 
 export type DAGDeleteResult = {
@@ -603,6 +637,11 @@ declare module '@tanstack/react-table' {
     canDeleteDAGs?: boolean;
     canPinDAG?: (dag: components['schemas']['DAGFile']) => boolean;
     onToggleGroupPin?: (dags: components['schemas']['DAGFile'][]) => void;
+    /**
+     * Every loaded workflow of each group, by group name. A pinned workflow
+     * that leads the list on its own row still counts.
+     */
+    groupMembers?: ReadonlyMap<string, components['schemas']['DAGFile'][]>;
     /** Workflows are not gathered by group: each name shows its group first. */
     showGroupPrefix?: boolean;
     isPinPending?: (fileName: string) => boolean;
@@ -621,13 +660,6 @@ declare module '@tanstack/react-table' {
 
 const columnHelper = createColumnHelper<Data>();
 // --- End Helper Functions ---
-
-/** The workflows of a group row. */
-function groupMembers(group: Data): components['schemas']['DAGFile'][] {
-  return (group.subRows ?? [])
-    .filter((item): item is DAGRow => item.kind === ItemKind.DAG)
-    .map((item) => item.dag);
-}
 
 const deleteSelectionColumn = columnHelper.display({
   id: 'Select',
@@ -811,7 +843,9 @@ const defaultColumns = [
               {table.options.meta?.showGroupPrefix && data.dag.dag.group && (
                 <span
                   data-testid="dag-group-prefix"
-                  className="shrink-0 text-xs text-muted-foreground"
+                  title={data.dag.dag.group}
+                  // Bounded, so a long group leaves room for the name.
+                  className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground"
                 >
                   {data.dag.dag.group} /
                 </span>
@@ -1013,13 +1047,17 @@ const defaultColumns = [
         return (
           <GroupScheduleCell
             name={data.name}
-            members={groupMembers(data)}
+            members={table.options.meta?.groupMembers?.get(data.name) ?? []}
             refresh={table.options.meta?.refreshFn}
           />
         );
       }
       return (
-        <ScheduleCell dag={data.dag} refresh={table.options.meta?.refreshFn} />
+        <ScheduleCell
+          dag={data.dag}
+          service={table.options.meta?.services?.get(data.dag.fileName)}
+          refresh={table.options.meta?.refreshFn}
+        />
       );
     },
   }),
@@ -1032,11 +1070,14 @@ const defaultColumns = [
         <I18nText text={'Webhook'} />
       </span>
     ),
-    cell: ({ row }) => {
+    cell: ({ row, table }) => {
       const data = row.original!;
       if (data.kind === ItemKind.Group) {
         return (
-          <GroupWebhookCell name={data.name} members={groupMembers(data)} />
+          <GroupWebhookCell
+            name={data.name}
+            members={table.options.meta?.groupMembers?.get(data.name) ?? []}
+          />
         );
       }
       return <WebhookCell dag={data.dag} />;
@@ -1044,9 +1085,9 @@ const defaultColumns = [
   }),
   columnHelper.display({
     id: 'Actions',
-    size: 160,
-    minSize: 160,
-    maxSize: 160,
+    size: ACTIONS_WIDTH,
+    minSize: ACTIONS_WIDTH,
+    maxSize: ACTIONS_WIDTH,
     header: () => (
       <span className="sr-only">
         <I18nText text={'Actions'} />
@@ -1062,7 +1103,7 @@ const defaultColumns = [
       return (
         // Wrap DAGActions in a div and stop propagation on its click
         <div
-          className="flex items-center justify-end gap-0.5"
+          className="flex items-center justify-center"
           onClick={(e) => e.stopPropagation()}
         >
           <DAGActions
@@ -1071,11 +1112,12 @@ const defaultColumns = [
             fileName={data.dag.fileName}
             label={false}
             refresh={table.options.meta?.refreshFn}
-            retryInPlaceOfStop
             service={table.options.meta?.services?.get(data.dag.fileName)}
           />
           {table.options.meta?.canEditDAG?.(data.dag) && (
-            <EditDAGButton dag={data.dag} />
+            <ActionSlot>
+              <EditDAGButton dag={data.dag} />
+            </ActionSlot>
           )}
         </div>
       );
@@ -1261,6 +1303,7 @@ function DAGTable({
   onSetDAGPinned,
   onSetDAGsPinned,
   resultCount,
+  isRequestFiltered,
 }: Props) {
   const { ts } = useI18n();
   // Status and LastRun sorts are disabled when the list total exceeds the
@@ -1269,13 +1312,17 @@ function DAGTable({
   const peekOrOpen = usePeekOrOpen();
   const isShown = usePeekShown();
   useRevealShownRow();
-  const columns = useMemo(
-    () =>
-      canDeleteDAGs
-        ? [deleteSelectionColumn, ...defaultColumns]
-        : defaultColumns,
-    [canDeleteDAGs]
-  );
+  // The webhook cells read webhooks only for a user who may manage them, on
+  // the local server. For anyone else the column would hold only dashes.
+  const canManageWebhooks = useCanManageWebhooks();
+  const remoteNode = useRemoteNode();
+  const showWebhooks = canManageWebhooks && remoteNode === 'local';
+  const columns = useMemo(() => {
+    const shown = showWebhooks
+      ? defaultColumns
+      : defaultColumns.filter((column) => column.id !== 'Webhook');
+    return canDeleteDAGs ? [deleteSelectionColumn, ...shown] : shown;
+  }, [canDeleteDAGs, showWebhooks]);
   const tableInstanceRef = useRef<ReturnType<typeof useReactTable> | null>(
     null
   );
@@ -1554,6 +1601,31 @@ function DAGTable({
     [searchLabels, handleSearchLabelsChange]
   );
 
+  // The loaded workflows of each group, in the server order. A Map keeps a
+  // group name such as "constructor" apart from the properties of Object.
+  const groupMembers = useMemo(() => {
+    const members = new Map<string, components['schemas']['DAGFile'][]>();
+    dags.forEach((dag) => {
+      const groupName = dag.dag.group;
+      if (!groupName) return;
+      const list = members.get(groupName);
+      if (list) list.push(dag);
+      else members.set(groupName, [dag]);
+    });
+    return members;
+  }, [dags]);
+
+  // The list holds every workflow of each group: no filter narrows it, typed
+  // or in the request, and no page is left to load. While a request loads,
+  // the rows are still those of the previous request.
+  const hasWholeGroups =
+    !searchText &&
+    searchLabels.length === 0 &&
+    !activeOnly &&
+    !isRequestFiltered &&
+    !isLoading &&
+    (resultCount === undefined || dags.length >= resultCount);
+
   // Transform the flat list of DAGs into a hierarchical structure with groups.
   // The order: pinned groups, pinned workflows, groups, workflows. The rows
   // keep the server order.
@@ -1579,16 +1651,14 @@ function DAGTable({
     }
 
     // A group whose workflows are all pinned stays a group, and leads the
-    // list; any other pinned workflow leads as a flat row.
-    const membersOf: { [key: string]: typeof sortedDags } = {};
-    sortedDags.forEach((dag) => {
-      const groupName = dag.dag.group;
-      if (groupName) (membersOf[groupName] ??= []).push(dag);
-    });
+    // list; any other pinned workflow leads as a flat row. A partly loaded
+    // group never counts as pinned, so its pinned workflows keep their rows.
     const pinnedGroupNames = new Set(
-      Object.entries(membersOf)
-        .filter(([, members]) => members.every((dag) => dag.pinned))
-        .map(([name]) => name)
+      hasWholeGroups
+        ? [...groupMembers]
+            .filter(([, members]) => members.every((dag) => dag.pinned))
+            .map(([name]) => name)
+        : []
     );
     const inPinnedGroup = (dag: (typeof sortedDags)[number]) =>
       !!dag.dag.group && pinnedGroupNames.has(dag.dag.group);
@@ -1600,18 +1670,16 @@ function DAGTable({
       (dag) => !dag.pinned || inPinnedGroup(dag)
     );
 
-    const groups: { [key: string]: Data } = {};
+    const groups = new Map<string, Data>();
     unpinnedDags.forEach((dag) => {
       const groupName = dag.dag.group;
       if (groupName) {
-        if (!groups[groupName]) {
-          groups[groupName] = {
-            kind: ItemKind.Group,
-            name: groupName,
-            subRows: [],
-          };
+        let group = groups.get(groupName);
+        if (!group) {
+          group = { kind: ItemKind.Group, name: groupName, subRows: [] };
+          groups.set(groupName, group);
         }
-        groups[groupName].subRows!.push({
+        group.subRows!.push({
           kind: ItemKind.DAG,
           name: dag.dag.name,
           dag: dag,
@@ -1619,7 +1687,7 @@ function DAGTable({
       }
     });
 
-    const groupRows = Object.values(groups);
+    const groupRows = [...groups.values()];
     const hierarchicalData: Data[] = [
       ...groupRows.filter((group) => pinnedGroupNames.has(group.name)),
       ...pinnedRows,
@@ -1636,7 +1704,7 @@ function DAGTable({
         });
       });
     return hierarchicalData;
-  }, [dags, groupByGroup, sortField, sortOrder]);
+  }, [dags, groupByGroup, groupMembers, hasWholeGroups, sortField, sortOrder]);
 
   const appBarContext = useContext(AppBarContext);
   // One read of the service states for all rows; it starts when a service
@@ -1683,6 +1751,7 @@ function DAGTable({
       isPinPending: (fileName) => pendingPins.has(fileName),
       onTogglePin: (dag) => void togglePin(dag),
       onToggleGroupPin: (dags) => void toggleGroupPin(dags),
+      groupMembers,
       showGroupPrefix: !groupByGroup,
       isActivityExpanded: (fileName) => expandedActivity.has(fileName),
       onToggleActivity: toggleActivity,
@@ -1976,7 +2045,7 @@ function DAGTable({
           className={`w-full text-xs ${isLoading ? 'opacity-70' : ''}`}
           style={{ tableLayout: 'fixed' }}
         >
-          {/* Column widths: Select 24px, Pin 24px, Name 28%, LastRun 88px, Activity by activityColumn, Schedule 220px, Webhook 88px, Actions 160px */}
+          {/* Column widths: Select 24px, Pin 24px, Name 28%, LastRun 88px, Schedule 220px, Webhook 88px when shown, Actions ACTIONS_WIDTH */}
           <colgroup>
             {canDeleteDAGs && <col style={{ width: '24px' }} />}
             <col style={{ width: '24px' }} />
@@ -1984,8 +2053,8 @@ function DAGTable({
             <col style={{ width: '88px' }} />
             <col className={activityColumn.col} />
             <col style={{ width: '220px' }} />
-            <col style={{ width: '88px' }} />
-            <col style={{ width: '160px' }} />
+            {showWebhooks && <col style={{ width: '88px' }} />}
+            <col style={{ width: `${ACTIONS_WIDTH}px` }} />
           </colgroup>
           <TableHeader>
             {instance.getHeaderGroups().map((headerGroup) => (
@@ -2159,6 +2228,11 @@ function DAGTable({
             if (row.original?.kind === ItemKind.Group) {
               const groupRow = row.original as GroupRow;
               const isExpanded = row.getIsExpanded();
+              // The rows of an unfolded group follow it in the row model.
+              const lastIndex = index + (isExpanded ? row.subRows.length : 0);
+              const endsPinnedSection =
+                lastIndex === pinnedRowCount - 1 &&
+                lastIndex < instance.getRowModel().rows.length - 1;
 
               return (
                 <div key={row.id} className="space-y-1.5">
@@ -2226,6 +2300,12 @@ function DAGTable({
                       })}
                     </div>
                   )}
+                  {endsPinnedSection && (
+                    <div
+                      role="separator"
+                      className="border-t-2 border-border"
+                    />
+                  )}
                 </div>
               );
             }
@@ -2257,9 +2337,13 @@ function DAGTable({
                     onTogglePin={(dag) => void togglePin(dag)}
                     isShown={isShown({ dag: dagRow.dag.fileName })}
                     service={services.get(dagRow.dag.fileName)}
+                    showGroup={!groupByGroup}
                   />
                   {endsPinnedSection && (
-                    <div className="border-t-2 border-border" />
+                    <div
+                      role="separator"
+                      className="border-t-2 border-border"
+                    />
                   )}
                 </React.Fragment>
               );
