@@ -6,10 +6,12 @@ import { NodeStatus, Status, type components } from '@/api/v1/schema';
 import {
   coverFromCache,
   defaultChoice,
+  defaultParamsHash,
   missingIn,
   paramsDiffer,
   pickReuseSource,
   planRun,
+  runParamsHash,
   staleUpstream,
   stepNeeds,
   type ReuseRun,
@@ -286,7 +288,7 @@ function entry(p: Partial<CacheEntry> = {}): CacheEntry {
     runId: 'r1',
     capturedAt: 1000,
     stepHash: 'h-a',
-    params: '',
+    params: runParamsHash(''),
     ...p,
   };
 }
@@ -330,8 +332,8 @@ describe('coverFromCache', () => {
       check: ok,
     };
     // The run holds `ENV=dev`, the server sends the default as `ENV="dev"`.
-    const dev = { a: entry({ params: 'ENV=dev' }) };
-    const prod = { a: entry({ params: 'ENV=prod' }) };
+    const dev = { a: entry({ params: runParamsHash('ENV=dev') }) };
+    const prod = { a: entry({ params: runParamsHash('ENV=prod') }) };
     const defaults = 'ENV="dev"';
     expect(
       coverFromCache({ ...base, entries: dev, defaultParams: defaults }).cached
@@ -537,6 +539,12 @@ describe('paramsDiffer', () => {
     expect(paramsDiffer('X=1', 'X=""')).toBe(true);
   });
 
+  // The quote after an escaped backslash ends the value.
+  it('reads a value that ends in a backslash before another parameter', () => {
+    expect(paramsDiffer('P=C:\\ Q=x', 'P="C:\\\\" Q="x"')).toBe(false);
+    expect(paramsDiffer('P=C:\\ Q=y', 'P="C:\\\\" Q="x"')).toBe(true);
+  });
+
   it('is true for other parameters', () => {
     expect(paramsDiffer('A=2', 'A=1')).toBe(true);
     expect(paramsDiffer('A=1', undefined)).toBe(true);
@@ -553,5 +561,15 @@ describe('paramsDiffer', () => {
       false
     );
     expect(paramsDiffer('A=2', 'A="1"')).toBe(true);
+  });
+});
+
+describe('runParamsHash and defaultParamsHash', () => {
+  it('are equal for a run that used the defaults', () => {
+    expect(runParamsHash('A=1 MSG=hi there')).toBe(
+      defaultParamsHash('A="1" MSG="hi there"')
+    );
+    expect(runParamsHash(undefined)).toBe(defaultParamsHash(null));
+    expect(runParamsHash('A=2')).not.toBe(defaultParamsHash('A="1"'));
   });
 });

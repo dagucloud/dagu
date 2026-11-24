@@ -11,6 +11,7 @@ import {
   type components,
 } from '@/api/v1/schema';
 import { outputCache } from '@/features/visual-editor/run/outputCache';
+import { runParamsHash } from '@/features/visual-editor/run/reuseSource';
 import { sourceChoiceStore } from '@/features/visual-editor/run/runSourceChoice';
 import { stepHashes } from '@/features/visual-editor/run/stepHashes';
 import { WorkspaceDataContext } from '../../data/context';
@@ -27,6 +28,8 @@ const h = vi.hoisted(() => ({
   get: vi.fn(),
   queries: [] as { path: string; init: unknown }[],
   history: [] as unknown[],
+  /** The remote node of the workspace. */
+  remoteNode: 'edge',
   /** The runs that the server still has, by id, for the check of the cache. */
   details: {} as Record<string, unknown>,
   specs: {
@@ -111,16 +114,13 @@ const SPEC = `steps:
 
 function wrapper(
   selected: ApiDAGRunDetails | null,
-  defaultParams?: string,
-  fresh = false
+  defaultParams?: string
 ): (props: { children: ReactNode }) => ReactNode {
-  const runFor = (details: ApiDAGRunDetails | null) =>
-    ({
-      selection: 'latest',
-      ref: details ? { name: 'example', runId: details.dagRunId } : null,
-      details,
-    }) as unknown as WorkspaceRunValue;
-  const run = runFor(selected);
+  const run = {
+    selection: 'latest',
+    ref: selected ? { name: 'example', runId: selected.dagRunId } : null,
+    details: selected,
+  } as unknown as WorkspaceRunValue;
   const value = {
     fileName: 'example.yaml',
     dagData: {
@@ -141,10 +141,11 @@ function wrapper(
     registerHistory: () => () => undefined,
   };
   return function Wrapper({ children }: { children: ReactNode }) {
-    // A polled run arrives as a new object each time.
-    const current = fresh
-      ? { ...value, run: runFor(selected && { ...selected }) }
-      : value;
+    // A test can move the workspace to another remote node.
+    const current =
+      h.remoteNode === value.remoteNode
+        ? value
+        : { ...value, remoteNode: h.remoteNode };
     return (
       <WorkspaceDataContext.Provider value={current}>
         {children}
@@ -162,8 +163,7 @@ function outputsCalls() {
 function render(
   p: Partial<Parameters<typeof useReuseSource>[0]> = {},
   selected: ApiDAGRunDetails | null = null,
-  defaultParams?: string,
-  fresh = false
+  defaultParams?: string
 ) {
   return renderHook(
     () =>
@@ -175,7 +175,7 @@ function render(
         followedUpstreamRunId: null,
         ...p,
       }),
-    { wrapper: wrapper(selected, defaultParams, fresh) }
+    { wrapper: wrapper(selected, defaultParams) }
   );
 }
 
@@ -201,6 +201,7 @@ beforeEach(() => {
     }
   );
   h.queries.length = 0;
+  h.remoteNode = 'edge';
   h.history = [runOf('new'), runOf('old')];
   h.specs.run = SPEC;
   h.specs.saved = undefined;
@@ -225,7 +226,7 @@ function cacheStep(
     runId,
     capturedAt: 5000,
     stepHash: stepHashes(text).get(step) ?? '',
-    params: '',
+    params: runParamsHash(''),
   });
 }
 
@@ -462,74 +463,77 @@ describe('useReuseSource', () => {
       });
     });
 
-    // Each answer arrives at its own time. A new answer or a new selected run
-    // must not cancel or repeat the requests in flight.
-    describe('with answers that arrive at different times', () => {
+    // The answers are held back, so that a test decides when each arrives.
+    describe('with answers that wait', () => {
+      type RunInit = {
+        params: { path: { dagRunId: string }; query: { remoteNode: string } };
+      };
       const runCalls = () =>
         h.get.mock.calls.filter(
           (call) => call[0] === '/dag-runs/{name}/{dagRunId}'
         );
-      function gate() {
+      const askedIds = () =>
+        runCalls().map((call) => (call[1] as RunInit).params.path.dagRunId);
+      // Gives the functions that let an answer arrive, by `<node>/<run id>`.
+      // A key of `gone` answers 404.
+      function gate(gone: readonly string[] = []) {
         const open: Record<string, () => void> = {};
-        h.get.mockImplementation(
-          async (
-            path: string,
-            init: { params: { path: { dagRunId: string } } }
-          ) => {
-            if (path !== '/dag-runs/{name}/{dagRunId}') {
-              return { data: { outputs: [{ name: 'x', value: '1' }] } };
-            }
-            const id = init.params.path.dagRunId as string;
-            await new Promise<void>((resolve) => {
-              open[id] = resolve;
-            });
-            return {
-              data: { dagRunDetails: runOf(id) },
-              response: { status: 200 },
-            };
+        h.get.mockImplementation(async (path: string, init: RunInit) => {
+          if (path !== '/dag-runs/{name}/{dagRunId}') {
+            return { data: { outputs: [{ name: 'x', value: '1' }] } };
           }
-        );
+          const id = init.params.path.dagRunId;
+          const key = `${init.params.query.remoteNode}/${id}`;
+          await new Promise<void>((resolve) => {
+            open[key] = resolve;
+          });
+          return gone.includes(key)
+            ? { data: undefined, response: { status: 404 } }
+            : { data: { dagRunDetails: runOf(id) }, response: { status: 200 } };
+        });
         return open;
       }
-      const cacheTwo = () => {
-        cacheStep('a', SPEC);
-        outputCache.put(SCOPE, 'b', {
-          values: { x: '1' },
-          runId: 'r1',
-          capturedAt: 5000,
-          stepHash: stepHashes(SPEC).get('b') ?? '',
-          params: '',
+      // Lets the answers that arrived, and the effects after them, finish.
+      const settle = () =>
+        act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
         });
-      };
 
-      it('makes one request for each run', async () => {
+      it('keeps at most five requests in flight', async () => {
         h.history = [];
         const open = gate();
-        cacheTwo();
-        const view = render({ liveText: SPEC });
-        await waitFor(() => expect(runCalls()).toHaveLength(2));
-        await act(async () => open['r0']!());
-        await waitFor(() => expect(view.result.current.cached).toEqual(['a']));
-        await act(async () => open['r1']!());
-        await waitFor(() => expect(view.result.current.loading).toBe(false));
-        expect(view.result.current.cached).toEqual(['a', 'b']);
-        expect(runCalls()).toHaveLength(2);
+        const steps = ['s1', 's2', 's3', 's4', 's5', 's6'];
+        steps.forEach((step, i) =>
+          cacheStep(step, SPEC, { x: '1' }, `r${i + 1}`)
+        );
+        render({ liveText: SPEC, previous: steps });
+        await waitFor(() => expect(runCalls()).toHaveLength(5));
+        await settle();
+        expect(askedIds()).toEqual(['r1', 'r2', 'r3', 'r4', 'r5']);
+        // An answer makes room for the run that waited.
+        await act(async () => open['edge/r1']!());
+        await waitFor(() =>
+          expect(askedIds()).toEqual(['r1', 'r2', 'r3', 'r4', 'r5', 'r6'])
+        );
       });
 
-      it('settles with a running selected run that is polled', async () => {
+      // The same run id is asked again on the other node; the answer of the
+      // first node, which says that the run is gone, arrives last.
+      it('ignores a late answer of another remote node', async () => {
         h.history = [];
-        const open = gate();
-        cacheTwo();
-        const selected = runOf('live', Status.Running);
-        const view = render({ liveText: SPEC }, selected, undefined, true);
+        const open = gate(['edge/r0']);
+        cacheStep('a', SPEC);
+        const view = render({ liveText: SPEC });
+        await waitFor(() => expect(runCalls()).toHaveLength(1));
+        h.remoteNode = 'other';
+        view.rerender();
         await waitFor(() => expect(runCalls()).toHaveLength(2));
-        view.rerender();
-        view.rerender();
-        await act(async () => open['r0']!());
-        view.rerender();
-        await act(async () => open['r1']!());
-        await waitFor(() => expect(view.result.current.loading).toBe(false));
-        expect(runCalls()).toHaveLength(2);
+        await act(async () => open['other/r0']!());
+        await waitFor(() => expect(view.result.current.cached).toEqual(['a']));
+        await act(async () => open['edge/r0']!());
+        await settle();
+        expect(view.result.current.cached).toEqual(['a']);
+        expect(view.result.current.gone).toEqual([]);
       });
     });
 

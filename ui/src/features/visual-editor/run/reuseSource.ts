@@ -5,6 +5,7 @@ import type { components } from '@/api/v1/schema';
 import { NodeStatus } from '@/api/v1/schema';
 import type { CacheEntries, CacheEntry } from './outputCache';
 import type { RunSpecDiff } from './runSpecDiff';
+import { hashText } from './stepHashes';
 import { isReusedNode, isRunActive } from './stepRunInfo';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
@@ -74,11 +75,7 @@ export function staleUpstream(p: {
   return p.previous.filter((name) => stale.has(name));
 }
 
-/**
- * True when the node of a step holds a state that a new run can copy. The
- * server rule (transform.Reusable): a node that succeeded or partially
- * succeeded, or one that a retry skipped.
- */
+/** True when the node of a step holds a state that a new run can copy. */
 export function nodeHoldsOutputs(node: Node | undefined): boolean {
   return (
     node !== undefined &&
@@ -237,11 +234,11 @@ export interface CacheCover {
  * does not cover: a step that the source run holds and that did not change
  * takes its outputs from that run, never from the cache. An entry covers a
  * step when its hash is the current hash of the step, which includes the
- * steps that it needs, the parameters of its run equal `defaultParams` (the
- * parameters that a new step run uses; the hash does not cover them), and its
- * run can still give the step (`check`); a stale entry, or one whose run is
- * gone, covers nothing. `hashes` is null while the current definition is not
- * known: then nothing is covered.
+ * steps that it needs, its run used `defaultParams` (the parameters that a
+ * new step run uses; see `defaultParamsHash`), and its run can still give the
+ * step (`check`); a stale entry, or one whose run is gone, covers nothing.
+ * `hashes` is null while the current definition is not known: then nothing is
+ * covered.
  */
 export function coverFromCache(p: {
   previous: readonly string[];
@@ -262,11 +259,12 @@ export function coverFromCache(p: {
   let checking = false;
   // With a source run, only the steps that it cannot give look at the cache.
   const open = new Set([...p.stale, ...p.missing]);
+  const defaults = defaultParamsHash(p.defaultParams);
   for (const name of p.previous) {
     if (p.hasSource && !open.has(name)) continue;
     const entry = p.entries[name];
     if (!entry || p.hashes?.get(name) !== entry.stepHash) continue;
-    if (paramsDiffer(entry.params, p.defaultParams)) continue;
+    if (entry.params !== defaults) continue;
     const state = p.check(name, entry);
     if (state === 'checking') {
       checking = true;
@@ -330,9 +328,10 @@ function normalizeParams(params: string | null | undefined): string {
   return (params ?? '').trim();
 }
 
-// One parameter of a text, as the server parses it: an optional `NAME=` and a
-// double-quoted, back-quoted or bare value.
-const PARAM_TOKEN = /(?:([^\s="]+)=)?("(?:\\"|[^"])*"|`[^`]*`|[^"\s]+)/g;
+// One parameter of `defaultParams`: an optional `NAME=` and a double-quoted,
+// back-quoted or bare value. An escape is read as a pair, so that a value
+// ending in a backslash (`"C:\\"`) ends at its own quote.
+const PARAM_TOKEN = /(?:([^\s="]+)=)?("(?:\\.|[^"\\])*"|`[^`]*`|[^"\s]+)/g;
 const GO_ESCAPES: Record<string, string> = {
   a: '\x07',
   b: '\b',
@@ -366,7 +365,7 @@ function unquoteValue(value: string): string {
  * server quotes each value in `defaultParams` (`ENV="dev"`) and does not
  * quote it in the `params` of a run (`ENV=dev`).
  */
-export function unquoteParams(defaults: string | null | undefined): string {
+function unquoteParams(defaults: string | null | undefined): string {
   return [...(defaults ?? '').matchAll(PARAM_TOKEN)]
     .map(([, name, value]) =>
       name
@@ -389,4 +388,20 @@ export function paramsDiffer(
   return (
     normalizeParams(runParams) !== normalizeParams(unquoteParams(defaults))
   );
+}
+
+/**
+ * The hash that a cache entry keeps of the `params` of its run: the text can
+ * be large, and every entry of a workflow would hold it.
+ */
+export function runParamsHash(runParams: string | null | undefined): string {
+  return hashText(normalizeParams(runParams));
+}
+
+/**
+ * The hash of the `defaultParams` of a workflow: equal to `runParamsHash` of
+ * a run that used the defaults.
+ */
+export function defaultParamsHash(defaults: string | null | undefined): string {
+  return hashText(normalizeParams(unquoteParams(defaults)));
 }

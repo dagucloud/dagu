@@ -12,7 +12,7 @@ import {
   type CacheEntry,
   type CacheScope,
 } from './outputCache';
-import { paramsDiffer } from './reuseSource';
+import { paramsDiffer, runParamsHash } from './reuseSource';
 import { useCacheScope, useOutputCacheEntries } from './useOutputCacheEntries';
 import { useLiveStepHashes, useRunStepHashes } from './useStepHashes';
 
@@ -54,16 +54,15 @@ export function forgetCaptures(scope: CacheScope, step: string): void {
 
 /**
  * Keeps the outputs of a step that succeeded in the cache of the workflow,
- * with the hash of the step and the parameters of the run, as the run saw
- * them (the hash does not cover the parameters). The caller passes the data
- * that it already loaded (`useStepOutputs`): this hook makes no request for
- * outputs. It reads the definition and the parameters of the run, and the
- * defaults of the workflow, once. Nothing happens without a file name. Every
- * entry names the run that it was read from. An entry that is fresh for the
- * saved definition is not replaced by the step of an older run that the user
- * looks at. The entry keeps the parameters of its run. A run with other parameters than the defaults of the workflow is
- * not kept: a step run uses the defaults, and the hash does not cover the
- * parameters of a run.
+ * with the hash of the step as the run saw it and a hash of the parameters of
+ * the run. The caller passes the data that it already loaded
+ * (`useStepOutputs`): this hook makes no request for outputs. It reads the
+ * definition and the parameters of the run, and the defaults of the workflow,
+ * once. Nothing happens without a file name. Every entry names the run that
+ * it was read from. An entry that is fresh for the saved definition is not
+ * replaced by the step of an older run that the user looks at. A run with
+ * other parameters than the defaults of the workflow is not kept: a step run
+ * uses the defaults, and the hash does not cover the parameters of a run.
  */
 export function useCaptureStepOutputs(p: {
   /** The workflow file; no capture without it. */
@@ -106,9 +105,10 @@ export function useCaptureStepOutputs(p: {
         : undefined,
     [dagName, runNodes]
   );
-  // The parameters of the run, as the server stores them; undefined until the
-  // run answers.
-  const params = run.data ? (run.data.dagRunDetails.params ?? '') : undefined;
+  // Undefined until the run answers.
+  const params = run.data
+    ? runParamsHash(run.data.dagRunDetails.params)
+    : undefined;
   const hashes = useRunStepHashes({
     dagName,
     runId,

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, NodeStatusLabel } from '@/api/v1/schema';
 import type { StepOutputs } from '../../contracts';
 import { outputCache } from '../outputCache';
+import { defaultParamsHash } from '../reuseSource';
 import { stepHashes } from '../stepHashes';
 import {
   cacheableValues,
@@ -17,8 +18,6 @@ const h = vi.hoisted(() => ({
   spec: undefined as string | undefined,
   /** The definition of the run, when it differs from `spec` (the saved file). */
   runSpec: undefined as string | undefined,
-  /** The run details answer. */
-  runLoaded: true,
   /** The saved definition answers. */
   saved: true,
   /** The parameters of the run, and the defaults of the workflow. */
@@ -38,16 +37,14 @@ vi.mock('@/hooks/api', () => ({
     }
     const steps = h.stepNames.map((name) => ({ name }));
     if (path === '/dag-runs/{name}/{dagRunId}') {
-      return h.runLoaded
-        ? {
-            data: {
-              dagRunDetails: {
-                params: h.runParams,
-                nodes: steps.map((step) => ({ step })),
-              },
-            },
-          }
-        : { data: undefined };
+      return {
+        data: {
+          dagRunDetails: {
+            params: h.runParams,
+            nodes: steps.map((step) => ({ step })),
+          },
+        },
+      };
     }
     if (path === '/dags/{fileName}') {
       return {
@@ -106,7 +103,6 @@ beforeEach(() => {
   forgetCaptures(SCOPE, 'fetch');
   h.spec = SPEC;
   h.runSpec = undefined;
-  h.runLoaded = true;
   h.saved = true;
   h.runParams = '';
   h.defaultParams = '';
@@ -181,23 +177,21 @@ describe('useCaptureStepOutputs', () => {
 
   // The server keeps the parameters of a run outside its definition: a run
   // with ENV=prod and one with the default give the same step hash.
-  it('stores the parameters of the run with the entry', () => {
+  it('stores a hash of the parameters of the run with the entry', () => {
     // A run is kept only with the defaults of the workflow.
     h.runParams = 'ENV=prod';
-    h.defaultParams = 'ENV=prod';
+    h.defaultParams = 'ENV="prod"';
     capture({ data: outputs() });
-    expect(outputCache.entries(SCOPE)['fetch']?.params).toBe('ENV=prod');
+    expect(outputCache.entries(SCOPE)['fetch']?.params).toBe(
+      defaultParamsHash('ENV="prod"')
+    );
   });
 
-  it('stores empty parameters for a run that has none', () => {
+  it('stores the hash of no parameters for a run that has none', () => {
     capture({ data: outputs() });
-    expect(outputCache.entries(SCOPE)['fetch']?.params).toBe('');
-  });
-
-  it('waits for the details of the run', () => {
-    h.runLoaded = false;
-    capture({ data: outputs() });
-    expect(outputCache.entries(SCOPE)).toEqual({});
+    expect(outputCache.entries(SCOPE)['fetch']?.params).toBe(
+      defaultParamsHash('')
+    );
   });
 
   it('waits for the definition of the run', () => {

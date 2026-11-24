@@ -4,10 +4,11 @@
 /**
  * What the browser remembers of the upstream steps: for each step, a
  * reference to a run in which it succeeded (`runId`, `capturedAt`), the hash
- * of the step definition (see `stepHashes`) and the parameters of that run. A
- * step run names that run to the server (`outputsFromRuns`), which reads the outputs from it: the
- * browser never sends a value. The values that were read from the run stay
- * for display only, labelled with their run; nobody can type or edit one.
+ * of the step definition (see `stepHashes`) and a hash of the parameters of
+ * that run. A step run names that run to the server (`outputsFromRuns`), which
+ * reads the outputs from it: the browser never sends a value. The values
+ * that were read from the run stay for display only, labelled with their run;
+ * nobody can type or edit one.
  */
 export interface CacheEntry {
   /**
@@ -22,9 +23,9 @@ export interface CacheEntry {
   /** Hash of the step and of the steps that it needs, when it was captured. */
   stepHash: string;
   /**
-   * The parameters of the run, as the server stores them, outside the
-   * definition. A step run uses the default parameters of the workflow, so the
-   * entry is fresh only when they equal these.
+   * Hash of the parameters of the run (`runParamsHash`), which the step hash
+   * does not cover. A step run uses the default parameters of the workflow, so
+   * the entry is fresh only for a run that used them.
    */
   params: string;
 }

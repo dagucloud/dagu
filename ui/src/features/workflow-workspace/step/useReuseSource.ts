@@ -44,6 +44,11 @@ const MAX_RUN_CHECKS = 5;
 /** The most outputs requests that one evaluation makes. */
 export const MAX_OUTPUT_REQUESTS = 3;
 
+/** What a request for a run of the cache answered. */
+type RunAnswer = ReuseRun | 'gone' | 'unknown';
+
+const NO_ANSWERS: Readonly<Record<string, RunAnswer>> = {};
+
 // The step that stands for the agent in the runs of an agent DAG.
 const AGENT_RUN_STEP = '__agent__';
 
@@ -88,10 +93,7 @@ export interface ReuseSourceState {
   cacheCapturedAt: number | null;
   /** The capture time of each cached step (ms). */
   cacheTimes: Record<string, number>;
-  /**
-   * A top-level key of the definition, or a document after the first,
-   * changed: every previous step is stale.
-   */
+  /** A top-level key of the definition changed: every previous step is stale. */
   headChanged: boolean;
   /** The source run used parameters other than the defaults. */
   paramsDiffer: boolean;
@@ -252,10 +254,11 @@ export function useReuseSource(p: {
 
   // The runs that the entries and the choice name must still exist. The
   // history says so for the runs that it lists; the others are asked once (a
-  // removed run, or a test run that expired, answers 404).
-  const [asked, setAsked] = useState<
-    Record<string, ReuseRun | 'gone' | 'unknown'>
-  >({});
+  // removed run, or a test run that expired, answers 404). The answers belong
+  // to one workflow on one node: those of another are not read.
+  const scopeKey = `${dagName}\u0001${remoteNode}`;
+  const [answers, setAnswers] = useState({ scopeKey, runs: NO_ANSWERS });
+  const asked = answers.scopeKey === scopeKey ? answers.runs : NO_ANSWERS;
   const runIds = useMemo(
     () => [
       ...new Set([
@@ -269,7 +272,7 @@ export function useReuseSource(p: {
   );
   const listed = history.runs;
   const runOfId = useCallback(
-    (id: string): ReuseRun | 'gone' | 'unknown' | undefined =>
+    (id: string): RunAnswer | undefined =>
       listed.find((r) => r.dagRunId === id) ??
       (selected?.dagRunId === id ? selected : undefined) ??
       asked[id],
@@ -278,7 +281,6 @@ export function useReuseSource(p: {
   // The runs already requested stay requested: a pass that starts again (a new
   // answer, a polled selected run) must not cancel or repeat them. The answers
   // of another workflow or node are ignored.
-  const scopeKey = `${dagName}\u0001${remoteNode}`;
   const scopeRef = useRef(scopeKey);
   scopeRef.current = scopeKey;
   const requested = useRef({ scopeKey, ids: new Set<string>() });
@@ -293,10 +295,15 @@ export function useReuseSource(p: {
     const toSend = runIds
       .filter((id) => !sent.has(id) && runOfId(id) === undefined)
       .slice(0, Math.max(0, MAX_RUN_CHECKS - inFlight));
-    const answer = (id: string, value: ReuseRun | 'gone' | 'unknown') => {
-      if (scopeRef.current === scopeKey) {
-        setAsked((held) => ({ ...held, [id]: value }));
-      }
+    const answer = (id: string, value: RunAnswer) => {
+      if (scopeRef.current !== scopeKey) return;
+      setAnswers((held) => ({
+        scopeKey,
+        runs: {
+          ...(held.scopeKey === scopeKey ? held.runs : NO_ANSWERS),
+          [id]: value,
+        },
+      }));
     };
     for (const id of toSend) {
       sent.add(id);
@@ -313,7 +320,7 @@ export function useReuseSource(p: {
           answer(
             id,
             data?.dagRunDetails
-              ? (data.dagRunDetails as unknown as ReuseRun)
+              ? data.dagRunDetails
               : response.status === 404
                 ? 'gone'
                 : 'unknown'
