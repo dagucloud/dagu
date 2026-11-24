@@ -441,6 +441,22 @@ describe('DAGRuns page', () => {
     expect(dagRunTableProps.current.isLoading).toBe(true);
   });
 
+  it('shows no run count before the first page arrives', () => {
+    usePaginatedDAGRunsMock.mockReturnValue({
+      dagRuns: [],
+      isInitialLoading: true,
+      isLoadingMore: false,
+      loadMoreError: null,
+      hasMore: false,
+      refresh: vi.fn(),
+      loadMore: vi.fn(),
+    });
+
+    renderPage();
+
+    expect(screen.queryByTestId('workflow-count')).toBeNull();
+  });
+
   it('uses consistent filter control sizing', () => {
     renderPage();
 

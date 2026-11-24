@@ -1398,7 +1398,8 @@ function DAGRuns() {
     <div>
       <DAGListHeader
         mode="runs"
-        resultCount={dagRuns.length}
+        // No count until the first page arrives: "0 runs" would be wrong.
+        resultCount={isInitialLoading ? undefined : dagRuns.length}
         hasMore={hasMore}
         onRefresh={() => refreshDagRuns()}
       />
