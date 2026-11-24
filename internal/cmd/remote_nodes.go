@@ -503,12 +503,14 @@ func ruleErrorsOf(err error) error {
 	}
 	errs := make([]error, 0, len(remote.Rules))
 	for _, rule := range remote.Rules {
-		if rule.Inventory == nil {
+		// The server leaves out an empty inventory name, so a rule is told
+		// from a plain error by its field too.
+		if rule.Inventory == nil && rule.Field == nil {
 			errs = append(errs, errors.New(rule.Message))
 			continue
 		}
 		errs = append(errs, &inventory.Error{
-			Inventory: *rule.Inventory,
+			Inventory: derefString(rule.Inventory),
 			Node:      derefString(rule.Node),
 			Field:     derefString(rule.Field),
 			Err:       errors.New(rule.Message),

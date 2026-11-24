@@ -51,6 +51,17 @@ func TestNodesCommandsOverRemoteContext(t *testing.T) {
 	// inventory of its own.
 	assert.Empty(t, listNodes(t, dagu, remote))
 
+	dagu.WriteFile("unnamed.json", `[{"name": "", "nodes": []}]`)
+	// An import that breaks a rule for each of 1,000 nodes lists more rules
+	// than a short error message holds.
+	hostless := make([]map[string]string, 1000)
+	for i := range hostless {
+		hostless[i] = map[string]string{"name": fmt.Sprintf("web%04d", i)}
+	}
+	data, err := json.Marshal([]map[string]any{{"name": "Hostless", "nodes": hostless}})
+	require.NoError(t, err)
+	dagu.WriteFile("hostless.json", string(data))
+
 	for _, args := range [][]string{
 		{"nodes", "list"},
 		{"nodes", "list", "--labels", "site=tokyo,!db", "--format", "json"},
@@ -65,6 +76,8 @@ func TestNodesCommandsOverRemoteContext(t *testing.T) {
 		{"nodes", "add", "tokyo-web09", "--inventory", "Tokyo production", "--host", "10.0.1.19", "--bastion", "nowhere"},
 		{"nodes", "import", "inventories.json"},
 		{"nodes", "import", "broken.json"},
+		{"nodes", "import", "unnamed.json"},
+		{"nodes", "import", "hostless.json"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			want := dagu.RunWithEnv(local, args...)
