@@ -300,8 +300,8 @@ func TestRunnerRunReportsUnmetRootPrecondition(t *testing.T) {
 
 // A failed child returns the error of the step that failed last, so the
 // parent step reads the same exit code as from a child run in its process.
-// A failed child returns the error of its last failed step. The result also
-// tells how far the child got, for the records of a step with nodes.
+// The result also tells how far the child got and when it ran, for the
+// records of a step with nodes.
 func TestRunnerRunReturnsFailedChildError(t *testing.T) {
 	t.Parallel()
 
@@ -333,9 +333,14 @@ func TestRunnerRunReturnsFailedChildError(t *testing.T) {
 		},
 		{
 			name: "succeeded",
-			status: ir.DAGRunStatus{Status: ir.Succeeded, Nodes: []*ir.Node{
-				{Step: ir.Step{Name: "ok"}, Status: ir.NodeSucceeded},
-			}},
+			status: ir.DAGRunStatus{
+				Status:     ir.Succeeded,
+				StartedAt:  "2026-10-31T10:00:00.000Z",
+				FinishedAt: "2026-10-31T10:00:05.000Z",
+				Nodes: []*ir.Node{
+					{Step: ir.Step{Name: "ok"}, Status: ir.NodeSucceeded},
+				},
+			},
 			wantSteps: ir.StepProgress{Done: 1, Total: 1},
 		},
 	}
@@ -357,6 +362,8 @@ func TestRunnerRunReturnsFailedChildError(t *testing.T) {
 			assert.Equal(t, tt.status.Status, result.Status)
 			assert.Equal(t, &tt.wantSteps, result.Steps)
 			assert.Equal(t, tt.wantFailedStep, result.FailedStep)
+			assert.Equal(t, tt.status.StartedAt, result.StartedAt)
+			assert.Equal(t, tt.status.FinishedAt, result.FinishedAt)
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return

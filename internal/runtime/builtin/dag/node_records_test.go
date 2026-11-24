@@ -141,6 +141,31 @@ func TestNodeRunRecordsRetry(t *testing.T) {
 	require.Equal(t, "web01=failed", web01(t))
 }
 
+// A retry that targets one node reuses the others, whose child runs return
+// at once. Their records keep when the child runs ran, not when they were
+// reused.
+func TestNodeRunRecordsReused(t *testing.T) {
+	t.Parallel()
+
+	e, ctx, dir := recordingStep(t)
+	finish := e.recordNodeRuns(ctx)
+	reused := &ir.RunStatus{
+		Status:     ir.Succeeded,
+		StartedAt:  "2026-11-01T10:00:00.000Z",
+		FinishedAt: "2026-11-01T10:05:00.000Z",
+	}
+	e.noteNodeStart("a")
+	e.lock.Lock()
+	e.results["a"] = reused
+	e.lock.Unlock()
+	e.noteNodeFinish("a", reused, 0)
+	finish()
+
+	_, records, _ := readNodeRecords(t, dir)
+	require.Equal(t, reused.StartedAt, records.Runs[0].StartedAt)
+	require.Equal(t, reused.FinishedAt, records.Runs[0].FinishedAt)
+}
+
 // A node running when the step is aborted is aborted. A node that never
 // started stays not started.
 func TestNodeRunRecordsAborted(t *testing.T) {

@@ -607,6 +607,8 @@ func statusToRunStatus(status *ir.DAGRunStatus, runID string) *ir.RunStatus {
 		PendingStepRetries: ir.PendingStepRetriesFromStatus(status),
 		ModelUsage:         status.ModelUsageTotal(),
 		Steps:              stepProgress(status),
+		StartedAt:          status.StartedAt,
+		FinishedAt:         status.FinishedAt,
 	}
 	if failed := lastFailedNode(status); failed != nil {
 		result.FailedStep = failed.Step.Name

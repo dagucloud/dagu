@@ -114,6 +114,11 @@ func (e *parallelExecutor) nodeRuns(ended bool) []ir.NodeRun {
 			}
 			if result, ok := e.results[id]; ok && run.Status != ir.NodeRunRunning {
 				run.Steps, run.FailedStep = result.Steps, result.FailedStep
+				// A child run that a retry reused returns at once, so the
+				// child's own times tell when it ran.
+				if result.StartedAt != "" {
+					run.StartedAt, run.FinishedAt = result.StartedAt, result.FinishedAt
+				}
 			}
 		}
 		runs = append(runs, run)
