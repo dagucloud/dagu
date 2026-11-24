@@ -91,6 +91,9 @@ func runNodesAdd(ctx *Context, args []string) error {
 	by, _ := localOSSubject(user.Current)
 	stored, trusted, err := adder.add(ctx, accepted, by)
 	if stored.ID == "" {
+		if _, ok := errors.AsType[uncertainAdd](err); ok {
+			return err
+		}
 		return notAdded(node.Name, err)
 	}
 	_, _ = fmt.Fprintf(out, "added %s in %s\n", node.Name, stored.Name)
@@ -329,10 +332,7 @@ func nodeFromFlags(ctx *Context, name string) (inventory.Node, error) {
 	case key != "" && keySecret != "":
 		return inventory.Node{}, errors.New("--key and --key-secret cannot be combined")
 	case key != "":
-		if ctx.IsRemote() && !serverKeyPath(key) {
-			return inventory.Node{}, fmt.Errorf("invalid --key %q: the server reads the key on its own host, so give an absolute path, or one that starts with ~ or $", key)
-		}
-		path, err := keyFilePath(key)
+		path, err := nodeKeyPath(key, ctx.IsRemote())
 		if err != nil {
 			return inventory.Node{}, fmt.Errorf("invalid --key %q: %w", key, err)
 		}
@@ -352,6 +352,19 @@ func nodeFromFlags(ctx *Context, name string) (inventory.Node, error) {
 		}
 	}
 	return node, nil
+}
+
+// nodeKeyPath returns the --key path as the node stores it. A remote server
+// reads the key on its own host, so its path is kept as given, and must be
+// one that server can read; a local path is made absolute.
+func nodeKeyPath(path string, remote bool) (string, error) {
+	if !remote {
+		return keyFilePath(path)
+	}
+	if !serverKeyPath(path) {
+		return "", errors.New("the server reads the key on its own host, so give an absolute path, or one that starts with ~ or $")
+	}
+	return path, nil
 }
 
 // serverKeyPath reports whether a remote server can read the --key path as

@@ -353,7 +353,11 @@ func (r remoteAdder) add(ctx context.Context, accepted []nodeconn.Accepted, _ st
 	if remote, ok := errors.AsType[*remoteError](err); ok && remote.StatusCode >= http.StatusInternalServerError {
 		// The server stores the node before it trusts the keys, so a
 		// failure may come after the node is stored.
-		if current, readErr := r.client.remoteInventory(ctx, r.target.ID); readErr == nil && holdsNode(current, r.node.Name) {
+		current, readErr := r.client.remoteInventory(ctx, r.target.ID)
+		if readErr != nil {
+			return inventory.Stored{}, nil, uncertainAdd{node: r.node.Name, err: err, readErr: readErr}
+		}
+		if holdsNode(current, r.node.Name) {
 			return current, nil, partialAdd{node: r.node.Name, err: err}
 		}
 	}
@@ -380,6 +384,20 @@ func (e partialAdd) Error() string {
 }
 
 func (e partialAdd) Unwrap() error { return e.err }
+
+// uncertainAdd is the error of an add that failed on the server when the
+// inventory could not be read again to learn whether the node was stored.
+type uncertainAdd struct {
+	node    string
+	err     error
+	readErr error
+}
+
+func (e uncertainAdd) Error() string {
+	return fmt.Sprintf("node %q may have been added: the server failed (%v), and reading its inventory again failed (%v); check with 'dagu nodes show %s' before adding it again", e.node, e.err, e.readErr, e.node)
+}
+
+func (e uncertainAdd) Unwrap() error { return e.err }
 
 // holdsNode reports whether inv holds a node named name, compared without
 // case.

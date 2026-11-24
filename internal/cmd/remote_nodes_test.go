@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -115,6 +116,23 @@ func TestServerKeyPath(t *testing.T) {
 	}
 }
 
+// A remote --key path is stored as given, since the server reads it; a
+// local one is made absolute.
+func TestNodeKeyPath(t *testing.T) {
+	t.Parallel()
+	for _, path := range []string{`C:\dagu\id`, "/etc/dagu/id", "~/.ssh/id_ed25519"} {
+		got, err := nodeKeyPath(path, true)
+		require.NoError(t, err)
+		assert.Equal(t, path, got)
+	}
+	_, err := nodeKeyPath("id_ed25519", true)
+	require.ErrorContains(t, err, "the server reads the key on its own host")
+
+	got, err := nodeKeyPath("id_ed25519", false)
+	require.NoError(t, err)
+	assert.True(t, filepath.IsAbs(got), got)
+}
+
 // eventServer answers each POST with a done event, and records the trust
 // entries each request names.
 func eventServer(t *testing.T, path string, status int, body string) (*remoteClient, *[]int) {
@@ -179,4 +197,28 @@ func TestRemoteAddStoredBeforeFailure(t *testing.T) {
 	_, partial := errors.AsType[partialAdd](err)
 	assert.True(t, partial, "err: %v", err)
 	assert.EqualError(t, err, `node "web01" was added, but its host keys were not trusted: 500 Internal Server Error (internal_error); trust them with 'dagu nodes test web01'`)
+}
+
+// When the server fails and its inventory cannot be read again, the add
+// reports that the node may have been stored.
+func TestRemoteAddUncertain(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"code":"internal_error"}`))
+	}))
+	t.Cleanup(server.Close)
+	adder := remoteAdder{
+		client: &remoteClient{baseURL: server.URL, client: server.Client()},
+		target: inventory.Stored{Inventory: inventory.Inventory{ID: "inv_fleet", Name: "fleet"}, Version: 1},
+		node:   inventory.Node{Name: "web01", Host: "h"},
+	}
+
+	stored, _, err := adder.add(context.Background(), nil, "")
+
+	assert.Empty(t, stored.ID)
+	_, uncertain := errors.AsType[uncertainAdd](err)
+	assert.True(t, uncertain, "err: %v", err)
+	assert.ErrorContains(t, err, `node "web01" may have been added`)
+	assert.ErrorContains(t, err, "dagu nodes show web01")
 }
