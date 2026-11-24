@@ -630,8 +630,8 @@ export function NodeDetailsFrame({
             PANEL_HEADER_CLASS,
             '@container',
             // The YAML toggle and the tools of the row take its place from
-            // md. A note (the lock of a read-only text, a run) keeps it, but
-            // the row has the title and the Close button.
+            // md. A note (the lock of a read-only text, a run) keeps it with
+            // the title; the row has the Close button.
             inRow && fileScope && !headerNote && ROW_PANEL_HEADER_CLASS
           )}
         >
