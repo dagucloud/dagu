@@ -169,10 +169,7 @@ function NodeRunCell({
       </td>
     );
   }
-  const finished = run.steps !== undefined;
-  const duration = finished
-    ? formatElapsed(run.startedAt, run.finishedAt)
-    : null;
+  const duration = formatElapsed(run.startedAt, run.finishedAt);
   const label = run.status === NodeRunStatus.disabled ? 'Disabled' : run.status;
   const content = (
     <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">

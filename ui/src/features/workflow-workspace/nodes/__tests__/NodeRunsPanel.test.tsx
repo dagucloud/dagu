@@ -184,6 +184,20 @@ describe('NodeRunsPanel', () => {
     ).toBeInTheDocument();
   });
 
+  // A child run that returned no result, such as one that failed to start,
+  // has no step progress, yet it finished.
+  it('shows how long a node ran without step progress', () => {
+    const web03 = list.items[0]!;
+    api.list = {
+      ...list,
+      items: [{ ...web03, runs: [{ ...web03.runs[0]!, steps: undefined }] }],
+    };
+    renderPanel(details());
+
+    const row = screen.getByTestId('node-runs-row');
+    expect(within(row).getByText('5s')).toBeInTheDocument();
+  });
+
   it('opens the child run of a cell on the sub-run stack', () => {
     const { open } = renderPanel(details());
 
