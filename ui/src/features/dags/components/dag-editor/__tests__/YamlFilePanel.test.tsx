@@ -86,7 +86,7 @@ function renderPanel(
       </RightPanelProvider>
     </UserPreferencesProvider>
   );
-  return { props, ...render(wrap(<YamlFilePanel {...props} />)) };
+  return { props, wrap, ...render(wrap(<YamlFilePanel {...props} />)) };
 }
 
 // The structure that a reader sees: the same in the editor and in Executions.
@@ -320,17 +320,9 @@ describe('YamlFilePanel', () => {
   });
 
   it('keeps the editor mounted while the form shows', () => {
-    const { props, rerender } = renderPanel();
+    const { props, wrap, rerender } = renderPanel();
     const textarea = screen.getByTestId('yaml-editor');
-    rerender(
-      <UserPreferencesProvider>
-        <RightPanelProvider>
-          <PanelPlacementProvider value="zone">
-            <YamlFilePanel {...props} formMode />
-          </PanelPlacementProvider>
-        </RightPanelProvider>
-      </UserPreferencesProvider>
-    );
+    rerender(wrap(<YamlFilePanel {...props} formMode />));
     expect(screen.getByTestId('yaml-editor')).toBe(textarea);
     expect(screen.getByTestId('yaml-file-body')).toHaveAttribute('hidden');
   });
