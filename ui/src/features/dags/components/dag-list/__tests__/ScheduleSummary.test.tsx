@@ -188,13 +188,11 @@ describe('ScheduleLine', () => {
     expect(screen.getByTestId('schedule-line').textContent).toBe('No schedule');
   });
 
-  it('shows the restart policy of a service DAG', () => {
+  it('says that a service DAG is a service', () => {
     renderLine(
       dagFile({ restartPolicy: RestartPolicy.always, restartWaitSec: 5 })
     );
-    expect(screen.getByTestId('schedule-line').textContent).toBe(
-      'Restart: always · 5s'
-    );
+    expect(screen.getByTestId('schedule-line').textContent).toBe('Service');
   });
 });
 

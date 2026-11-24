@@ -175,21 +175,17 @@ describe('ServiceDAGNextRun', () => {
   }
   const inMs = (ms: number) => new Date(Date.now() + ms).toISOString();
 
-  // Minutes change slowly enough to read in a list.
-  it('says when the next run starts, to the minute', () => {
+  // Words change slowly enough to read in a list.
+  it.each([
+    [4 * 60_000 + 10_000, 'Restart in 4 minutes'],
+    [56 * 60_000, 'Restart in an hour'],
+    [10_000, 'Restart in a few seconds'],
+  ])('says when the next run starts, in words (%i ms)', (ms, want) => {
     const { container } = renderNextRun({
       state: ServiceDAGState.restarting,
-      nextRestartAt: inMs(55 * 60_000 + 30_000),
+      nextRestartAt: inMs(ms),
     });
-    expect(container).toHaveTextContent('Restart in 56m');
-  });
-
-  it('counts the last minute down to the second', () => {
-    const { container } = renderNextRun({
-      state: ServiceDAGState.failing,
-      nextRestartAt: inMs(30_500),
-    });
-    expect(container.textContent).toMatch(/^Restart in (29|30)s$/);
+    expect(container).toHaveTextContent(want);
   });
 
   it.each<[string, Partial<ServiceDAG>]>([

@@ -1025,12 +1025,9 @@ function ActionSlot({ children }: { children: React.ReactNode }) {
  */
 function SchedulerSlot() {
   return (
-    <span className="flex w-20 shrink-0 flex-col px-1 text-[11px] leading-tight text-muted-foreground">
-      <span className="truncate">
-        <I18nText text={'Scheduler'} />
-      </span>
-      <span className="truncate">
-        <I18nText text={'Start / Retry'} />
+    <span className="flex w-20 shrink-0 justify-center">
+      <span className="flex h-6 w-16 items-center justify-center rounded-full bg-muted text-xs text-muted-foreground">
+        <I18nText text={'Auto'} />
       </span>
     </span>
   );

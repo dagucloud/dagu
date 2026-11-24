@@ -484,19 +484,17 @@ describe('DAGActions', () => {
     }
 
     // The slots in their order: an action, marked when it is disabled, or
-    // the lines of the scheduler slot.
+    // the text of the scheduler slot.
     const slots = (container: HTMLElement) =>
       Array.from(container.firstElementChild?.children ?? []).map((el) => {
         const button = el.querySelector('button');
         if (!button) {
-          return Array.from(el.children)
-            .map((line) => line.textContent)
-            .join(' / ');
+          return el.textContent;
         }
         const action = button.getAttribute('data-ww-action');
         return button.disabled ? `${action} (disabled)` : `${action}`;
       });
-    const SCHEDULER = 'Scheduler / Start / Retry';
+    const SCHEDULER = 'Auto';
 
     it.each([
       [Status.Running, [SCHEDULER, 'stop']],

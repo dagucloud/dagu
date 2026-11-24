@@ -964,15 +964,13 @@ const defaultColumns = [
               />
             </div>
           )}
-          <div className="flex min-w-0 flex-col">
-            <ScheduleLine dag={data.dag} />
-            {service && (
-              <ServiceDAGNextRun
-                dag={service}
-                className="truncate text-xs text-muted-foreground"
-              />
-            )}
-          </div>
+          <ScheduleLine dag={data.dag} />
+          {service && (
+            <ServiceDAGNextRun
+              dag={service}
+              className="ml-2 truncate text-xs text-muted-foreground"
+            />
+          )}
         </div>
       );
     },

@@ -20,11 +20,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import { cn } from '@/lib/utils';
 import type { components } from '@/api/v1/schema';
-import {
-  getRestartValue,
-  isServiceDAG,
-  parseNextRun,
-} from '../../../../lib/dagSchedule';
+import { isServiceDAG, parseNextRun } from '../../../../lib/dagSchedule';
 import {
   summarizeSchedules,
   type ScheduleEntry,
@@ -232,25 +228,14 @@ function ScheduleBody({ dag }: { dag: DAGFile }) {
   );
 }
 
-function RestartText({ dag, ts }: { dag: DAGFile; ts: Translate }) {
-  return (
-    <span
-      className={cn(
-        'min-w-0 truncate',
-        dag.suspended && 'text-muted-foreground'
-      )}
-    >
-      {ts('Restart')}:{' '}
-      <span className="font-mono text-[11px]">{getRestartValue(dag.dag)}</span>
-      {dag.suspended && ` · ${ts('Suspended')}`}
-    </span>
-  );
+function ServiceText({ ts }: { ts: Translate }) {
+  return <span className="min-w-0 truncate">{ts('Service')}</span>;
 }
 
 /**
  * The schedule of a workflow on one line: when it runs next and which
  * schedule fires then, a "+N" marker with the list of all schedules, and the
- * webhook marker. A service DAG shows its restart policy instead.
+ * webhook marker. A service DAG says that it is a service instead.
  * `emptyLabel` false hides the "No schedule" text.
  */
 export function ScheduleLine({
@@ -272,7 +257,7 @@ export function ScheduleLine({
           {() => <ScheduleBody dag={dag} />}
         </Ticker>
       ) : isServiceDAG(dag.dag) ? (
-        <RestartText dag={dag} ts={ts} />
+        <ServiceText ts={ts} />
       ) : (
         emptyLabel && <span className="truncate">{ts('No schedule')}</span>
       )}

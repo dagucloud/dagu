@@ -11,6 +11,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import Ticker from '@/components/ui/ticker';
 import { formatElapsed } from '@/lib/dagRunTiming';
+import dayjs from '@/lib/dayjs';
 import { formatDurationMs } from '@/lib/formatDuration';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -130,10 +131,8 @@ export function ServiceDAGStatusText({
   );
 }
 
-const MINUTE_MS = 60_000;
-
 /**
- * When the scheduler starts the next run of a service DAG, to the minute, or
+ * When the scheduler starts the next run of a service DAG, in words, or
  * nothing while no restart is due: the DAG is not restarting or failing, its
  * restarts are on hold, or the time is unknown.
  */
@@ -144,7 +143,7 @@ export function ServiceDAGNextRun({
   dag: ServiceDAG;
   className?: string;
 }): React.ReactElement | null {
-  const { ts } = useI18n();
+  const { locale, ts } = useI18n();
   const at = dag.nextRestartAt ? Date.parse(dag.nextRestartAt) : NaN;
   if (
     (dag.state !== ServiceDAGState.restarting &&
@@ -155,25 +154,20 @@ export function ServiceDAGNextRun({
   ) {
     return null;
   }
+  // The words change slowly: "in a few seconds", "in 4 minutes", "in an hour".
   return (
-    <Ticker intervalMs={1000}>
-      {() => {
-        const remaining = at - Date.now();
-        // Minutes change slowly enough to read; the last minute counts down.
-        const shown =
-          remaining >= MINUTE_MS
-            ? Math.ceil(remaining / MINUTE_MS) * MINUTE_MS
-            : remaining;
-        return (
-          <span className={className}>
-            {remaining > 0
-              ? ts('Restart in {duration}', {
-                  duration: formatDurationMs(shown),
-                })
-              : ts('Restarting…')}
-          </span>
-        );
-      }}
+    <Ticker intervalMs={15_000}>
+      {() => (
+        <span className={className}>
+          {at > Date.now()
+            ? ts('Restart {when}', {
+                when: dayjs(at)
+                  .locale(locale === 'zh-CN' ? 'zh-cn' : locale)
+                  .fromNow(),
+              })
+            : ts('Restarting…')}
+        </span>
+      )}
     </Ticker>
   );
 }
