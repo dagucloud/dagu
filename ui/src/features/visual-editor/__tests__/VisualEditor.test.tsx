@@ -1048,30 +1048,26 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
         t.clean();
       });
 
-      it('stays in the form while the user clicks other steps', () => {
+      it('shows the YAML of the next clicked step, not its form, after the form was open', () => {
         const t = setup();
         fireEvent.click(screen.getByTestId('ve-canvas-node-steps[0]'));
         fireEvent.click(t.bar.getByRole('button', { name: 'Form' }));
 
         fireEvent.click(screen.getByTestId('ve-canvas-node-steps[2]'));
 
-        expect(t.body.getByTestId('ve-inspector')).toBeInTheDocument();
-        expect(t.onFormVisibleChange).not.toHaveBeenLastCalledWith(false);
+        expect(t.body.queryByTestId('ve-inspector')).toBeNull();
+        expect(t.onFormVisibleChange).toHaveBeenLastCalledWith(false);
         t.clean();
       });
     });
 
-    it('stays on the form while the user clicks other steps', () => {
+    it('shows the YAML of a clicked step, not its form, after the form was open', () => {
       renderEditorWithBar({ initial: yamlArraySteps });
       openForm('ve-canvas-node-steps[0]');
 
       fireEvent.click(screen.getByTestId('ve-canvas-node-steps[2]'));
 
-      expect(
-        within(screen.getByTestId('ve-inspector')).getByRole('heading', {
-          name: 'publish',
-        })
-      ).toBeInTheDocument();
+      expect(screen.queryByTestId('ve-inspector')).toBeNull();
     });
 
     it('lights the step that the cursor of the YAML is in', () => {

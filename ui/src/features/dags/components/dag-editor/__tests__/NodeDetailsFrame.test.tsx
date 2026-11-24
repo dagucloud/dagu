@@ -383,7 +383,6 @@ const run = {
 
 beforeEach(() => {
   localStorage.clear();
-  // The last mode of the step view (form or YAML) lives in the session.
   sessionStorage.clear();
   schemaState.schema = null;
   auth.canWrite = true;
