@@ -71,20 +71,32 @@ const START_GAP = 24;
 
 /**
  * Pan on one axis, in px, that keeps content of `length` px at `start` in the
- * span `[from, to]`: none when it is there, else the least pan.
+ * span `[from, to]`: none when it is there, else the least pan. `edge` is the
+ * start of the view, which an obstruction can cover up to `from`.
  * Content longer than the span keeps its start side: it moves only to cover
- * the span, or to close a gap at its start of more than `START_GAP`.
+ * the span, to close a gap at its start of more than `START_GAP`, or to bring
+ * a start that an obstruction covers to `from`. A start before `edge` is off
+ * screen and stays. With `centre`, content that fits goes to the middle of the
+ * span.
  */
 function keepAxisDelta(
   start: number,
   length: number,
   from: number,
-  to: number
+  to: number,
+  edge: number,
+  centre: boolean
 ): number {
+  const fits = length <= to - from;
+  if (fits && centre) {
+    return (from + to) / 2 - (start + length / 2);
+  }
+  if (!fits && start >= edge && start < from) {
+    return from - start;
+  }
   // Content that fits may start from the span start to the last place where
   // it still ends in the span. Longer content may start from the place where
   // it ends at the span end to the span start plus the gap.
-  const fits = length <= to - from;
   const first = fits ? from : to - length;
   const last = fits ? to - length : from + START_GAP;
   const target = Math.min(Math.max(start, first), last);
@@ -97,11 +109,14 @@ function keepAxisDelta(
  * and `viewRect` are in the same screen space; `obstructions` are the px that
  * a toolbar or a panel covers at each side of `viewRect`. The zoom never
  * changes. A graph that is already in the free area gives `{ dx: 0, dy: 0 }`.
+ * With `centre`, the graph goes to the middle of the free area on each axis
+ * where it fits, as a fit at the same zoom would place it.
  */
 export function keepInViewDelta(
   bounds: Rect,
   viewRect: Rect,
-  obstructions: Insets
+  obstructions: Insets,
+  centre = false
 ): { dx: number; dy: number } {
   const left = viewRect.x + obstructions.left;
   const top = viewRect.y + obstructions.top;
@@ -114,7 +129,7 @@ export function keepInViewDelta(
     top + 1
   );
   return {
-    dx: keepAxisDelta(bounds.x, bounds.width, left, right),
-    dy: keepAxisDelta(bounds.y, bounds.height, top, bottom),
+    dx: keepAxisDelta(bounds.x, bounds.width, left, right, viewRect.x, centre),
+    dy: keepAxisDelta(bounds.y, bounds.height, top, bottom, viewRect.y, centre),
   };
 }

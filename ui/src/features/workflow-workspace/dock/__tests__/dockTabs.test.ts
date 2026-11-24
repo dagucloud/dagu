@@ -291,3 +291,46 @@ describe('dockTabsFor continuous run', () => {
     ).toBe(false);
   });
 });
+
+describe('dockTabsFor run with node runs', () => {
+  // The Nodes tab follows the Log tab, for a run with a step with nodes that
+  // recorded its node runs only.
+  it('shows Nodes after Log', () => {
+    expect(dockTabsFor({ ...BASE, hasNodeRuns: true })).toEqual([
+      'log',
+      'nodes',
+      'timeline',
+      'history',
+      'outputs',
+      'definition',
+    ]);
+    expect(dockTabsFor(BASE)).not.toContain('nodes');
+  });
+
+  it('reads the fact from the nodes of the run, handlers included', () => {
+    const nodeRuns = {
+      total: 1,
+      notStarted: 0,
+      running: 1,
+      waiting: 0,
+      succeeded: 0,
+      failed: 0,
+      aborted: 0,
+      disabled: 0,
+    };
+    const facts = (extra: Record<string, unknown>) =>
+      dockFacts(
+        {
+          status: Status.Running,
+          nodes: [{ step: { name: 'a' } }],
+          ...extra,
+        } as unknown as ApiDAGRunDetails,
+        { artifactEnabled: false }
+      ).hasNodeRuns;
+    expect(facts({})).toBe(false);
+    expect(facts({ nodes: [{ step: { name: 'a' }, nodeRuns }] })).toBe(true);
+    expect(facts({ onExit: { step: { name: 'onExit' }, nodeRuns } })).toBe(
+      true
+    );
+  });
+});

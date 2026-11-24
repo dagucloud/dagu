@@ -3333,6 +3333,10 @@ const baseEnglish = {
   'Search by name...': 'Search by name...',
   '{matched} of {total} nodes': '{matched} of {total} nodes',
   '{count} nodes': '{count} nodes',
+  '1 node': '1 node',
+  Node: 'Node',
+  '{succeeded} succeeded, {failed} failed, {active} running of {total} nodes':
+    '{succeeded} succeeded, {failed} failed, {active} running of {total} nodes',
   Kind: 'Kind',
   Host: 'Host',
   'Loading nodes...': 'Loading nodes...',
@@ -6600,6 +6604,10 @@ const baseChinese = {
   'Search by name...': '按名称搜索...',
   '{matched} of {total} nodes': '{total} 个节点中的 {matched} 个',
   '{count} nodes': '{count} 个节点',
+  '1 node': '1 个节点',
+  Node: '节点',
+  '{succeeded} succeeded, {failed} failed, {active} running of {total} nodes':
+    '{total} 个节点中 {succeeded} 个成功、{failed} 个失败、{active} 个运行中',
   Kind: '类型',
   Host: '主机',
   'Loading nodes...': '正在加载节点...',
@@ -9975,6 +9983,10 @@ const baseJapanese = {
   'Search by name...': '名前で検索...',
   '{matched} of {total} nodes': '{total} 件中 {matched} 件のノード',
   '{count} nodes': '{count} 件のノード',
+  '1 node': '1 件のノード',
+  Node: 'ノード',
+  '{succeeded} succeeded, {failed} failed, {active} running of {total} nodes':
+    '{total} 件のノードのうち成功 {succeeded}、失敗 {failed}、実行中 {active}',
   Kind: '種類',
   Host: 'ホスト',
   'Loading nodes...': 'ノードを読み込み中...',
@@ -13352,6 +13364,10 @@ const baseGerman = {
   'Search by name...': 'Nach Namen suchen …',
   '{matched} of {total} nodes': '{matched} von {total} Knoten',
   '{count} nodes': '{count} Knoten',
+  '1 node': '1 Knoten',
+  Node: 'Knoten',
+  '{succeeded} succeeded, {failed} failed, {active} running of {total} nodes':
+    '{succeeded} erfolgreich, {failed} fehlgeschlagen, {active} laufend von {total} Knoten',
   Kind: 'Art',
   Host: 'Host',
   'Loading nodes...': 'Knoten werden geladen …',

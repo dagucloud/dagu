@@ -1173,13 +1173,17 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas', () => {
 
   // The INPUT column reads the references of the definition of the run, as
   // the editor does for its saved text.
-  it('lists the upstream data of the step in the INPUT column', async () => {
+  function renderExtractStep() {
     h.post.mockResolvedValue({ data: { referenceScope: scopeHttpJq } });
     h.runSpec = yamlHttpJq;
     h.run = makeRun(
       runDetails('run-1', [node('fetch'), node('extract')], Status.Success)
     );
     renderCanvas('/dags/demo?run=run-1&def=run&step=extract&ndv=expanded');
+  }
+
+  it('lists the upstream data of the step in the INPUT column', async () => {
+    renderExtractStep();
 
     const input = await screen.findByRole('region', { name: 'Input' });
     await waitFor(() =>
@@ -1192,6 +1196,30 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas', () => {
         body: { spec: yamlHttpJq, name: 'demo' },
       })
     );
+  });
+
+  // A step link of the INPUT column moves to the YAML of that step, never
+  // to its form.
+  it('shows the YAML of a linked upstream step when the form was open', async () => {
+    renderExtractStep();
+    const ndv = await screen.findByTestId('ndv');
+    await showForm();
+    expect(
+      await within(ndv).findByRole('button', { name: 'Form', pressed: true })
+    ).toBeInTheDocument();
+
+    const input = await screen.findByRole('region', { name: 'Input' });
+    fireEvent.click(
+      await within(input).findByRole('button', { name: 'Open step fetch' })
+    );
+
+    expect(
+      await within(ndv).findByRole('button', { name: 'YAML', pressed: true })
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByTestId('loc').dataset.url).toContain('step=fetch')
+    );
+    expect(screen.queryByTestId('ve-inspector')).toBeNull();
   });
 
   it('reads no reference data while no step view is open', async () => {

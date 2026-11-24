@@ -82,6 +82,25 @@ func (r Role) IsAdmin() bool {
 	return r == RoleAdmin
 }
 
+// rank orders roles by privilege. RoleNone and unknown roles rank lowest.
+func (r Role) rank() int {
+	switch r {
+	case RoleAdmin:
+		return 5
+	case RoleManager:
+		return 4
+	case RoleDeveloper:
+		return 3
+	case RoleOperator:
+		return 2
+	case RoleViewer:
+		return 1
+	case RoleNone:
+		return 0
+	}
+	return 0
+}
+
 // ParseRole converts a string to a Role.
 // If the input is not "admin", "manager", "developer", "operator", or "viewer", it returns an error describing the valid options.
 func ParseRole(s string) (Role, error) {

@@ -108,12 +108,14 @@ func TestAPIKeyUpdate(t *testing.T) {
 
 	key.Description = "updated desc"
 	key.Role = auth.RoleViewer
+	key.ProjectGrants = []auth.ProjectGrant{{ProjectID: "project-a", Role: auth.RoleDeveloper}}
 	require.NoError(t, s.Update(ctx, key))
 
 	got, err := s.GetByID(ctx, key.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "updated desc", got.Description)
 	assert.Equal(t, auth.RoleViewer, got.Role)
+	assert.Equal(t, key.ProjectGrants, got.ProjectGrants)
 }
 
 func TestAPIKeyUpdatePreservesCredentialAndLatestUsage(t *testing.T) {

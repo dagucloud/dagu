@@ -287,18 +287,22 @@ function walk(
   return { node, exact: true };
 }
 
+/** The first document of the model, parsed as the server parses it. */
+function parseFirstDocument(model: DagDocModel): Document | undefined {
+  try {
+    return parseAllDocumentsAsServer(model.sanitizedText ?? model.text)[0];
+  } catch {
+    return undefined;
+  }
+}
+
 function resolveFieldPath(
   model: DagDocModel,
-  fieldPath: string
+  fieldPath: string,
+  doc: Document | undefined = parseFirstDocument(model)
 ): { node: Node; exact: boolean } | null {
   const tokens = parsePath(fieldPath);
   if (tokens.length === 0) return null;
-  let doc: Document | undefined;
-  try {
-    doc = parseAllDocumentsAsServer(model.sanitizedText ?? model.text)[0];
-  } catch {
-    return null;
-  }
   if (!doc || !isMap(doc.contents)) return null;
 
   let start: Node | null = doc.contents;
@@ -348,7 +352,27 @@ export function scalarAtField(
   model: DagDocModel,
   fieldPath: string
 ): { value: unknown; range: TextRange; block: boolean } | null {
-  const found = resolveFieldPath(model, fieldPath);
+  return scalarIn(model, fieldPath, parseFirstDocument(model));
+}
+
+/**
+ * The scalars that `fieldPaths` name, as scalarAtField finds each, with the
+ * text parsed once for all of them.
+ */
+export function scalarsAtFields(
+  model: DagDocModel,
+  fieldPaths: readonly string[]
+): Array<{ value: unknown; range: TextRange; block: boolean } | null> {
+  const doc = parseFirstDocument(model);
+  return fieldPaths.map((fieldPath) => scalarIn(model, fieldPath, doc));
+}
+
+function scalarIn(
+  model: DagDocModel,
+  fieldPath: string,
+  doc: Document | undefined
+): { value: unknown; range: TextRange; block: boolean } | null {
+  const found = resolveFieldPath(model, fieldPath, doc);
   if (!found?.exact || !isScalar(found.node)) return null;
   const range = nodeRange(model, found.node);
   const { type } = found.node;

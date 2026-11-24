@@ -274,24 +274,24 @@ describe('VisualEditor launchers', () => {
     );
   });
 
-  // The icon of Always on turns by the latest run of the workflow, which the
-  // host keeps live, and is still for a suspended workflow.
-  describe('Always on animation', () => {
+  // Always on tells the state of the latest run of the workflow, which the
+  // host keeps live, and is idle for a suspended workflow.
+  describe('Always on state', () => {
     const file = `restart_policy: always\nrestart_wait_sec: 5\n${yamlArraySteps}`;
     const alive = () =>
       screen.getByTestId('ve-launcher-always').getAttribute('data-alive');
 
-    it('turns while the latest run of the host runs', () => {
+    it('is running while the latest run of the host runs', () => {
       renderEditor(file, {
         launcherHost: {
           ...host,
           latestRun: { status: Status.Running, finishedAt: '-' },
         },
       });
-      expect(alive()).toBe('true');
+      expect(alive()).toBe('running');
     });
 
-    it('is still when the latest run ended long ago, or the workflow is suspended', () => {
+    it('is idle when the latest run ended long ago, or the workflow is suspended', () => {
       renderEditor(file, {
         launcherHost: {
           ...host,

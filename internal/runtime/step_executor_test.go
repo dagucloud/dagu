@@ -373,3 +373,72 @@ func TestStepExecutorKeepsPushBackFromStepsThatNeverRan(t *testing.T) {
 	require.Empty(t, fakeExec.pushBackInputs)
 	require.Empty(t, fakeExec.previousStdout)
 }
+
+// meteredChildRuns stands for child runs that call models. The child of the
+// item "fast" ends at once with its model usage; the others wait to be
+// released.
+type meteredChildRuns struct {
+	childRuns
+	release <-chan struct{}
+}
+
+func (c *meteredChildRuns) Run(ctx context.Context, req runtimeexec.SubWorkflowRequest) (*ir.RunStatus, error) {
+	status := &ir.RunStatus{Name: req.DAG.Name, DAGRunID: req.RunID, Status: ir.Succeeded}
+	if req.Params == "fast" {
+		status.ModelUsage = []ir.ModelUsage{{Provider: "openrouter", Model: "m", Calls: 1}}
+		return status, nil
+	}
+	select {
+	case <-c.release:
+		return status, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+// A parallel step reports the model usage of a child run that ended while
+// its other children still run.
+func TestParallelStepReportsModelUsageWhileRunning(t *testing.T) {
+	runtime.SetLiveModelUsageInterval(t, 10*time.Millisecond)
+
+	release := make(chan struct{})
+	child := &ir.DAG{Name: "child", YamlData: []byte("name: child\nsteps:\n  - run: \"true\"\n")}
+	dag := &ir.DAG{Name: "root", LocalDAGs: map[string]*ir.DAG{child.Name: child}}
+	step := ir.Step{
+		Name:           "fan-out",
+		ExecutorConfig: ir.ExecutorConfig{Type: ir.ExecutorTypeParallel},
+		SubDAG:         &ir.SubDAG{Name: child.Name},
+		Parallel:       &ir.ParallelConfig{Items: []ir.ParallelItem{{Value: "fast"}, {Value: "slow"}}},
+	}
+	ctx := runtime.NewContext(
+		runtimeexec.WithSubWorkflowRunner(context.Background(), &meteredChildRuns{release: release}),
+		dag,
+		"run-1",
+		"dag.log",
+		runtime.WithRootDAGRun(runtime.NewDAGRunRef(dag.Name, "run-1")),
+	)
+	ctx = runtime.WithEnv(ctx, runtime.NewEnv(ctx, step))
+	node := runtime.NewNode(step, runtime.NodeState{})
+
+	reported := make(chan *ir.StepModelUsage, 1)
+	done := make(chan error, 1)
+	go func() {
+		done <- runtime.NewStepExecutor().ExecuteWithProgress(ctx, node, nil, func() {
+			select {
+			case reported <- node.ModelUsage():
+			default:
+			}
+		})
+	}()
+
+	select {
+	case usage := <-reported:
+		require.NotNil(t, usage)
+		require.Len(t, usage.Reported, 1)
+		assert.Equal(t, int64(1), usage.Reported[0].Models[0].Calls)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the usage of the ended child was not reported while the step ran")
+	}
+	close(release)
+	require.NoError(t, <-done)
+}

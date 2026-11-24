@@ -11,6 +11,7 @@ import {
   type RunViewTab,
 } from '@/features/dags/lib/runViewTabs';
 import type { ApiDAGRunDetails } from '../data/types';
+import { hasNodeRuns } from '../data/runFacts';
 import type { DockTab } from '../state/workspaceUrl';
 
 /** The run view facts, with the facts that only the dock uses. */
@@ -23,6 +24,8 @@ export interface DockFacts extends RunViewFacts {
   isAgentRun?: boolean;
   /** The run has a continuous step: a step that repeats without a limit. */
   hasContinuous?: boolean;
+  /** The run has a step with nodes that recorded its node runs. */
+  hasNodeRuns?: boolean;
   /** Steps that wait while a run that they called waits for a person. */
   subRunsWaiting?: number;
 }
@@ -42,6 +45,7 @@ export function dockFacts(
       (details.agentEvents ?? []).length > 0 ||
       (details.agentTasks ?? []).length > 0,
     hasContinuous: (details.nodes ?? []).some((n) => n.continuous === true),
+    hasNodeRuns: hasNodeRuns(details),
     subRunsWaiting: getManualActionState(details).waitingSubRunNodes.length,
   };
 }
@@ -110,6 +114,8 @@ export function dockTabsFor(
   // Continuous follows the Log tab: the step log is its raw record.
   if (facts.hasContinuous)
     tabs.splice(tabs.indexOf('log') + 1, 0, 'continuous');
+  // Nodes follows the Log tab too: the run's steps fan out over its nodes.
+  if (facts.hasNodeRuns) tabs.splice(tabs.indexOf('log') + 1, 0, 'nodes');
   return tabs;
 }
 

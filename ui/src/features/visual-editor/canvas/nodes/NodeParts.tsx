@@ -20,6 +20,10 @@ import {
 } from 'react';
 import { NodeStatus } from '@/api/v1/schema';
 import { Badge } from '@/components/ui/badge';
+import {
+  NodeRunCounts,
+  nodeRunCountsLabel,
+} from '@/components/ui/node-run-counts';
 import { IconButton } from '@/components/ui/icon-button';
 import { RepeatBadge } from '@/components/ui/repeat-badge';
 import { RetryCount } from '@/components/ui/retry-count';
@@ -484,6 +488,36 @@ export function RunMeta({ run }: Pick<CanvasNode, 'run'>) {
  * RepeatBadge, with the number of runs of the followed run and a pulse while
  * the step runs. Nothing for a step that does not repeat.
  */
+/**
+ * The node runs of a step with nodes, such as `12 ✓ 1 ✗ 1 ⋯`. A compact card
+ * shows the failed ones, or else the number of nodes. Nothing for another
+ * step.
+ */
+export function NodeRunsMarker({
+  run,
+  compact = false,
+}: Pick<CanvasNode, 'run'> & { compact?: boolean }) {
+  const { ts } = useI18n();
+  const counts = run?.nodeRuns;
+  if (!counts) return null;
+  if (!compact) {
+    return <NodeRunCounts counts={counts} data-testid="ve-node-runs" />;
+  }
+  const failed = counts.failed + counts.aborted;
+  const label = nodeRunCountsLabel(ts, counts);
+  return (
+    <CountBadge
+      count={failed > 0 ? failed : counts.total}
+      tone={failed > 0 ? 'error' : 'primary'}
+      size="inline"
+      role="img"
+      aria-label={label}
+      title={label}
+      data-testid="ve-node-runs"
+    />
+  );
+}
+
 export function RepeatMarker({
   node,
   compact = false,
@@ -655,6 +689,7 @@ export function NodeHeader({
             )
           )}
           <ConditionMarks node={node} />
+          <NodeRunsMarker run={node.run} />
           <RepeatMarker node={node} />
           <TrustMark node={node} />
           <RunMeta run={node.run} />
@@ -719,6 +754,12 @@ export function NodeCompactBody({
       {node.repeat && (
         <span className="absolute bottom-0.5 right-0.5 flex">
           <RepeatMarker node={node} compact />
+        </span>
+      )}
+      {/* A step with nodes has no repeat policy: the corner is free. */}
+      {node.run?.nodeRuns && (
+        <span className="absolute bottom-0.5 right-0.5 flex">
+          <NodeRunsMarker run={node.run} compact />
         </span>
       )}
       {node.run?.reused && (

@@ -308,7 +308,7 @@ function CanvasView({
   dag: dagProp,
   launchers = NO_LAUNCHERS,
   activeLauncher = null,
-  launcherAlive = false,
+  launcherAlive = null,
   onLauncher,
   onStepClick,
   fitPadding = FIT_PADDING,
@@ -785,8 +785,9 @@ function CanvasView({
   // Moves the view only as far as needed to keep the graph in the free area
   // of the canvas. A graph that is there does not move. The zoom never changes:
   // a graph that is too wide for the area keeps its start side in view.
+  // `centre` puts a graph that fits in the middle of the area instead.
   const keepInView = useCallback(
-    (motion?: ViewMotion) => {
+    (motion?: ViewMotion, centre = false) => {
       const { nodeRects, size, getViewport } = storeRef.current;
       const bounds = boundsOf(nodeRects());
       if (!bounds || size.width === 0 || size.height === 0) {
@@ -801,7 +802,8 @@ function CanvasView({
           height: bounds.height * view.zoom,
         },
         { x: 0, y: 0, width: size.width, height: size.height },
-        insetRef.current
+        insetRef.current,
+        centre
       );
       if (dx !== 0 || dy !== 0) {
         setViewport({ ...view, x: view.x + dx, y: view.y + dy }, motion);
@@ -818,7 +820,8 @@ function CanvasView({
   );
   // A room that grows (a panel or a dock leaves or changes) gives the graph
   // its place back when the fit of the new room has the zoom of the view; else
-  // the view pans only as far as needed. The zoom never changes.
+  // the graph takes the middle of the new room, or keeps its start side when
+  // it is too long for it. The zoom never changes.
   const fitOptionsRef = useRef(fitOptions);
   fitOptionsRef.current = fitOptions;
   const growView = useCallback(
@@ -840,17 +843,17 @@ function CanvasView({
           : null;
       if (fitted) {
         setViewport(fitted, motion);
-        keepSelectedInView(motion);
       } else {
-        keepGraphInView(motion);
+        keepInView(motion, true);
       }
+      keepSelectedInView(motion);
     },
-    [setViewport, keepSelectedInView, keepGraphInView]
+    [setViewport, keepSelectedInView, keepInView]
   );
   // While the canvas has just shown, a change of its room (a panel, a dock,
   // Activity, the window) fits the graph again, with a jump. Later the zoom
-  // stays: the view pans only as far as needed, or goes back to its fit when
-  // that has the same zoom.
+  // stays: the view pans only as far as needed when the room shrinks, and
+  // takes the place of a fit at the same zoom when it grows.
   const autoFit = useAutoFit(
     wrapperRef,
     (glide) => {
@@ -1081,9 +1084,12 @@ function CanvasView({
       } else if (!settled()) {
         // The page is still opening: its parts fit the graph again.
         refit();
-      } else if (overlayRight > last.overlayRight) {
-        // A panel that covers more of the canvas moves the graph only if it
-        // must. The zoom stays.
+      } else if (
+        overlayRight > last.overlayRight ||
+        overlayTop > last.overlayTop
+      ) {
+        // A panel or a notice that covers more of the canvas moves the graph
+        // only if it must. The zoom stays.
         keepGraphInView(GLIDE);
       } else {
         // A panel that leaves or changes keeps the zoom.

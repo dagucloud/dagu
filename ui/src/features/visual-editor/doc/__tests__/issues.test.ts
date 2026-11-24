@@ -26,6 +26,8 @@ import {
   groupIssues,
   locateIssue,
   rangeFromOffsets,
+  scalarAtField,
+  scalarsAtFields,
 } from '../issues';
 
 function issue(extra: Partial<ValidationIssue>): ValidationIssue {
@@ -542,5 +544,24 @@ describe('attributeIssues', () => {
         issues
       )
     ).toEqual(issues);
+  });
+});
+
+describe('scalarsAtFields', () => {
+  // One parse serves every path, with what scalarAtField finds for each.
+  it('finds the scalars of several paths as scalarAtField does', () => {
+    const model = parseDagDoc(`steps:
+  - id: a
+    nodes: web
+  - id: b
+    nodes:
+      labels: db
+`);
+    const paths = ['steps[0].nodes', 'steps[1].nodes.labels', 'steps[1].nodes'];
+    expect(scalarsAtFields(model, paths)).toEqual(
+      paths.map((path) => scalarAtField(model, path))
+    );
+    expect(scalarsAtFields(model, paths)[1]?.value).toBe('db');
+    expect(scalarsAtFields(model, paths)[2]).toBeNull();
   });
 });

@@ -949,6 +949,57 @@ describe('StepNode issues and run', () => {
     });
   });
 
+  // The node runs of a step with nodes sit in the meta row: the card keeps
+  // its size.
+  describe('node runs marker', () => {
+    const run = {
+      status: NodeStatus.Running,
+      statusLabel: 'running',
+      startedAt: '2026-01-01T00:00:00Z',
+      retryCount: 0,
+      doneCount: 0,
+      nodeRuns: {
+        total: 15,
+        notStarted: 0,
+        running: 1,
+        waiting: 0,
+        succeeded: 12,
+        failed: 1,
+        aborted: 0,
+        disabled: 1,
+      },
+    };
+
+    it('counts the succeeded, failed and running nodes', () => {
+      const plain = renderIn(<StepNode {...nodeProps(makeNode())} />);
+      expect(plain.queryByTestId('ve-node-runs')).toBeNull();
+      plain.unmount();
+
+      const { getByTestId } = renderIn(
+        <StepNode {...nodeProps(makeNode({ run }))} />
+      );
+      const marker = getByTestId('ve-node-runs');
+      expect(marker).toHaveTextContent('12 ✓1 ✗1 ⋯');
+      expect(marker).toHaveAttribute(
+        'aria-label',
+        '12 succeeded, 1 failed, 1 running of 15 nodes'
+      );
+      const card = getByTestId('ve-canvas-node-steps[0]');
+      expect(card).toContainElement(marker);
+      expect(card).toHaveClass('h-16', 'w-60');
+    });
+
+    it('shows the failed nodes on a compact card', () => {
+      const { getByTestId } = renderIn(
+        <StepNode {...nodeProps(makeNode({ run }))} />,
+        makeActions({ compact: true })
+      );
+      const marker = getByTestId('ve-node-runs');
+      expect(marker).toHaveTextContent(/^1$/);
+      expect(getByTestId('ve-canvas-node-steps[0]')).toContainElement(marker);
+    });
+  });
+
   it('shows no run meta for an unfinished step', () => {
     const node = makeNode({
       run: {

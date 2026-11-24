@@ -1081,6 +1081,26 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
       expect(screen.queryByTestId('ve-inspector')).toBeNull();
     });
 
+    // A host without a YAML view, as the editor of a child document, has
+    // the form as its one view of a step: a click moves it to that step.
+    it('keeps the form on a clicked step when the host has no YAML view', () => {
+      renderEditor({ initial: yamlArraySteps });
+      fireEvent.doubleClick(screen.getByTestId('ve-canvas-node-steps[0]'));
+      expect(
+        within(screen.getByTestId('ve-inspector')).getByRole('heading', {
+          name: 'fetch',
+        })
+      ).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('ve-canvas-node-steps[2]'));
+
+      expect(
+        within(screen.getByTestId('ve-inspector')).getByRole('heading', {
+          name: 'publish',
+        })
+      ).toBeInTheDocument();
+    });
+
     it('lights the step that the cursor of the YAML is in', () => {
       let moveCursor: (line: number) => void = () => undefined;
       const editor = {

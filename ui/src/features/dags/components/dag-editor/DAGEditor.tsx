@@ -6,7 +6,10 @@
  *
  * @module features/dags/components/dag-editor
  */
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useSchema } from '@/contexts/SchemaContext';
+import { useClient } from '@/hooks/api';
+import { useI18n } from '@/i18n/I18nProvider';
 import { KILN_DARK, KILN_LIGHT, registerKilnThemes } from '@/lib/monaco-theme';
 import type { JSONSchema } from '@/lib/schema-utils';
 import { cn } from '@/lib/utils';
@@ -24,6 +27,12 @@ import {
   type QuickFixSource,
 } from './quickFixProvider';
 import { useChangeBars, type ChangeBarEditor } from './useChangeBars';
+import {
+  nodeSelectorCounter,
+  nodeSelectorReader,
+  registerNodeSelectorHints,
+  type NodeSelectorHintRegistration,
+} from './nodeSelectorHints';
 import {
   registerStepLenses,
   type StepLensRegistration,
@@ -106,7 +115,8 @@ type Props = {
   changeBaseline?: string;
   /**
    * The lenses above the steps of the whole file: each opens its step in
-   * the full-screen step view.
+   * the full-screen step view. An editor of the whole file also shows how
+   * many nodes each literal `nodes` selector matches.
    */
   stepLenses?: StepLensSource;
 };
@@ -285,6 +295,38 @@ function DAGEditor({
       registration.dispose();
     };
   }, [isEditorMounted, wantsStepLenses]);
+  // The match counts of the selectors read the inventory, which a remote
+  // node does not serve. Each selector is counted once per editor.
+  const { ts } = useI18n();
+  const tsRef = useRef(ts);
+  tsRef.current = ts;
+  const client = useClient();
+  const remoteNode = useRemoteNode();
+  const countsNodes = wantsStepLenses && remoteNode === 'local';
+  useEffect(() => {
+    const codeEditor = editorRef.current;
+    if (!isEditorMounted || !countsNodes || !codeEditor) {
+      return;
+    }
+    let registration: NodeSelectorHintRegistration | null = null;
+    const count = nodeSelectorCounter(
+      async (labels) => {
+        const { data } = await client.GET('/nodes', {
+          params: { query: { labels, perPage: 1 } },
+        });
+        return data ? data.pagination.totalRecords : null;
+      },
+      () => registration?.refresh()
+    );
+    const source = {
+      points: nodeSelectorReader(),
+      count,
+      label: (n: number) =>
+        tsRef.current(n === 1 ? '1 node' : '{count} nodes', { count: n }),
+    };
+    registration = registerNodeSelectorHints(monaco, codeEditor, () => source);
+    return () => registration?.dispose();
+  }, [isEditorMounted, countsNodes, client]);
   // The skeleton stays for the fade of the editor, which takes its place.
   const [fadedIn, setFadedIn] = useState<string | null>(null);
   const skeleton = fadedIn !== effectiveModelUri;

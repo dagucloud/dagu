@@ -6,6 +6,7 @@ import type { components, Status } from '@/api/v1/schema';
 import type { RepeatPolicyView } from '@/components/ui/repeat-summary';
 import type { JSONSchema } from '@/lib/schema-utils';
 import type { TrustSource } from './agentRun/agentRun';
+import type { AliveState } from './launchers/alive';
 import type { LauncherId, LauncherState } from './launchers/model';
 import type { InputProvenance } from './run/inputProvenance';
 import type { SourceOption } from './run/runSourceOptions';
@@ -218,6 +219,8 @@ export interface StepRunState {
    * the run skipped without carrying outputs.
    */
   reuseFailed?: { runId: string };
+  /** The node runs of a step with nodes, by status. */
+  nodeRuns?: components['schemas']['NodeRunCounts'];
 }
 export type RunOverlay = Record<string /* server step name */, StepRunState>;
 
@@ -528,8 +531,8 @@ export interface VisualCanvasProps {
   launchers?: readonly LauncherState[];
   /** The launcher whose panel is open: its node is lit. */
   activeLauncher?: LauncherId | null;
-  /** True while the workflow is alive: the icon of an Always on card turns. */
-  launcherAlive?: boolean;
+  /** The state of the workflow on an Always on card; null while it is not alive. */
+  launcherAlive?: AliveState | null;
   /** The user opens a launcher node. */
   onLauncher?(id: LauncherId): void;
   /**
@@ -697,7 +700,7 @@ export interface LauncherHost {
   /** Runs `next` at once, or after the user confirms a loss. */
   guard(next: () => void): void;
   setSecretVisible(visible: boolean): void;
-  /** True while the workflow is suspended: an Always on card does not turn. */
+  /** True while the workflow is suspended: an Always on card is not alive. */
   suspended?: boolean;
   /**
    * The latest run of the workflow, kept live by the host. The page can show

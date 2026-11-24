@@ -4,6 +4,7 @@
 package auth
 
 import (
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,6 +37,9 @@ type User struct {
 	// WorkspaceAccess restricts access to selected workspaces.
 	// Nil is treated as all-workspaces for backward compatibility.
 	WorkspaceAccess *WorkspaceAccess `json:"workspace_access,omitempty"`
+	// ProjectGrants give roles in single projects. Role applies to every
+	// project.
+	ProjectGrants []ProjectGrant `json:"project_grants,omitempty"`
 	// CreatedAt is the timestamp when the user was created.
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is the timestamp when the user was last modified.
@@ -83,6 +87,7 @@ type UserForStorage struct {
 	PasswordHash       string           `json:"password_hash"`
 	Role               Role             `json:"role"`
 	WorkspaceAccess    *WorkspaceAccess `json:"workspace_access,omitempty"`
+	ProjectGrants      []ProjectGrant   `json:"project_grants,omitempty"`
 	CreatedAt          time.Time        `json:"created_at"`
 	UpdatedAt          time.Time        `json:"updated_at"`
 	AuthProvider       string           `json:"auth_provider,omitempty"`
@@ -102,6 +107,7 @@ func (u *User) ToStorage() *UserForStorage {
 		PasswordHash:       u.PasswordHash,
 		Role:               u.Role,
 		WorkspaceAccess:    CloneWorkspaceAccess(u.WorkspaceAccess),
+		ProjectGrants:      slices.Clone(u.ProjectGrants),
 		CreatedAt:          u.CreatedAt,
 		UpdatedAt:          u.UpdatedAt,
 		AuthProvider:       u.AuthProvider,
@@ -122,6 +128,7 @@ func (s *UserForStorage) ToUser() *User {
 		PasswordHash:       s.PasswordHash,
 		Role:               s.Role,
 		WorkspaceAccess:    CloneWorkspaceAccess(s.WorkspaceAccess),
+		ProjectGrants:      slices.Clone(s.ProjectGrants),
 		CreatedAt:          s.CreatedAt,
 		UpdatedAt:          s.UpdatedAt,
 		AuthProvider:       s.AuthProvider,

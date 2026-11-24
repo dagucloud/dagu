@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createRef } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { NodeStatus } from '@/api/v1/schema';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import type { CanvasViewHandle, VisualCanvasProps } from '../../contracts';
 import {
@@ -19,6 +20,7 @@ import { CanvasOverlayInsetContext } from '../overlayInset';
 import { CanvasToolbarHostContext } from '../toolbarHost';
 import { buildCanvasGraph } from '../graph';
 import { CANVAS_DETAILS_KEY } from '../useCanvasDetails';
+import { statusCardClass } from '../statusStyle';
 import { agentColumns } from '../layout';
 import { AUTO_FIT_SETTLE_MS } from '../useAutoFit';
 import { neighbourStep } from '../neighbours';
@@ -1202,9 +1204,9 @@ describe('VisualCanvas', () => {
       // A panel that opens, changes or closes never changes the zoom, once
       // the canvas has been shown for a while.
       describe('with a panel that comes and goes', () => {
-        const withPanel = (right: number) => (
+        const withPanel = (right: number, top = 0) => (
           <UserPreferencesProvider>
-            <CanvasOverlayInsetContext.Provider value={{ right }}>
+            <CanvasOverlayInsetContext.Provider value={{ right, top }}>
               <VisualCanvas
                 graph={graph}
                 direction="TB"
@@ -1276,6 +1278,43 @@ describe('VisualCanvas', () => {
           act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1));
           rerender(withPanel(700));
           rerender(withPanel(0));
+          expect(viewport()).toEqual(before);
+        });
+
+        // The fit of the room without the panel has a larger zoom: the view
+        // keeps its zoom, and the graph takes the middle of that room.
+        it('centres the graph in the room that a closed panel gives back', () => {
+          const middle = () => {
+            const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
+            return (
+              (Math.min(...rects.map((r) => r.left)) +
+                Math.max(...rects.map((r) => r.right))) /
+              2
+            );
+          };
+          const open = render(withPanel(0));
+          const fitted = middle();
+          open.unmount();
+          const first = fittedZoom(700);
+          const { rerender } = render(withPanel(700));
+          expect(middle()).toBeLessThan(fitted - 100);
+          act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1));
+          rerender(withPanel(0));
+          expect(viewport().zoom).toBe(first);
+          expect(middle()).toBeCloseTo(fitted, 1);
+        });
+
+        // A notice that grows over an empty part of the canvas does not move
+        // the graph.
+        it('keeps the graph in place under a notice that leaves it in view', () => {
+          const { rerender } = render(withPanel(0));
+          const before = viewport();
+          const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
+          // The notice ends above the graph, and below the toolbar inset.
+          const top = Math.floor(Math.min(...rects.map((r) => r.top))) - 40;
+          expect(top).toBeGreaterThan(72);
+          act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1));
+          rerender(withPanel(0, top));
           expect(viewport()).toEqual(before);
         });
       });
@@ -1917,41 +1956,37 @@ describe('VisualCanvas launchers', () => {
       expect(screen.queryByTestId('ve-launcher-always')).toBeNull();
     });
 
-    it('draws a solid card in place of Cron, with the policy and its numbers', () => {
+    it('draws a solid card in place of Cron, with its wait', () => {
       renderCanvas({ launchers: withPolicy('always', 5, 20) });
       expect(screen.getByTestId('ve-launcher-always')).toHaveAttribute(
         'data-status',
         'active'
       );
       expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
-      expect(summary()).toHaveTextContent('5 s · 20 runs');
+      expect(summary()).toHaveTextContent(/^Wait 5 s$/);
       // One line, cut with an ellipsis when it is longer than the card.
       expect(summary()).toHaveClass('truncate');
       // As wide as the other launchers: LAUNCHER_WIDTH, 176 px.
       expect(button('always')).toHaveClass('w-44');
-      expect(button('always')).toHaveTextContent(/^Always on5 s · 20 runs$/);
+      expect(button('always')).toHaveTextContent(/^Always onWait 5 s$/);
+      // The runs kept are in the tooltip only.
       expect(button('always')).toHaveAttribute(
         'title',
         'Always on: Restarts after each run, wait 5 s, keeps 20 runs'
       );
     });
 
-    // The base configuration can set the runs kept: the card tells no count
-    // that the file does not set.
-    it('tells the runs kept by default in the tooltip only', () => {
+    it('tells the runs kept by default in the tooltip', () => {
       renderCanvas({ launchers: withPolicy('always', 5) });
-      expect(summary()).toHaveTextContent(/^5 s$/);
       expect(button('always')).toHaveAttribute(
         'aria-label',
         'Always on: Restarts after each run, wait 5 s, keeps 100 runs, or as many as the base configuration sets'
       );
     });
 
-    // A file with `hist_retention_days` keeps runs by days: the 100 runs of
-    // the default do not apply.
-    it('tells the days kept in the tooltip, and no runs on the card', () => {
+    it('tells the days kept in the tooltip', () => {
       renderCanvas({ launchers: withPolicy('always', 5, null, 7) });
-      expect(summary()).toHaveTextContent(/^5 s$/);
+      expect(summary()).toHaveTextContent(/^Wait 5 s$/);
       expect(button('always')).toHaveAttribute(
         'title',
         'Always on: Restarts after each run, wait 5 s, keeps runs for 7 days'
@@ -1966,10 +2001,14 @@ describe('VisualCanvas launchers', () => {
       );
     });
 
-    // The line is short, to fit the card: it has the wait, not the runs kept.
-    it('tells Unless stopped, and leaves out a missing wait', () => {
+    it('draws no second line for Always without a wait', () => {
+      renderCanvas({ launchers: withPolicy('always', null, 20) });
+      expect(summary()).toBeNull();
+    });
+
+    it('tells Unless stopped without a wait', () => {
       renderCanvas({ launchers: withPolicy('unless-stopped') });
-      expect(summary()).toHaveTextContent(/^unless stopped$/);
+      expect(summary()).toHaveTextContent(/^Unless stopped$/);
       expect(button('always')).toHaveAttribute(
         'aria-label',
         'Always on: Restarts unless stopped, keeps 100 runs, or as many as the base configuration sets'
@@ -1978,12 +2017,7 @@ describe('VisualCanvas launchers', () => {
 
     it('tells Unless stopped with its wait', () => {
       renderCanvas({ launchers: withPolicy('unless-stopped', 5, 20) });
-      expect(summary()).toHaveTextContent(/^unless stopped · 5 s$/);
-    });
-
-    it('uses the singular for one run kept', () => {
-      renderCanvas({ launchers: withPolicy('always', 5, 1) });
-      expect(summary()).toHaveTextContent('5 s · 1 run');
+      expect(summary()).toHaveTextContent(/^Unless stopped, wait 5 s$/);
     });
 
     it('opens the Always on panel on click', () => {
@@ -2009,8 +2043,9 @@ describe('VisualCanvas launchers', () => {
     });
   });
 
-  // The icon of a solid Always on card turns while the workflow is alive.
-  describe('Always on animation', () => {
+  // While its workflow is alive, a solid Always on card takes the colours of
+  // a running step during a run, and counts down the wait before the next.
+  describe('Always on state', () => {
     const states = (restartPolicy: 'no' | 'always') =>
       launcherStates({
         scheduleCount: 0,
@@ -2019,64 +2054,77 @@ describe('VisualCanvas launchers', () => {
         webhookCount: 0,
         webhooksAvailable: true,
       });
-    const icon = (id: string) =>
-      within(screen.getByTestId(`ve-launcher-${id}`))
-        .getByRole('button')
-        .querySelector('svg:not([data-testid])')!;
+    const card = () => screen.getByTestId('ve-launcher-always');
+    const always = () => within(card()).getByRole('button');
+    const summary = () => screen.queryByTestId('ve-launcher-summary');
+    const running = statusCardClass(NodeStatus.Running).split(' ');
+    const text =
+      'Always on: Restarts after each run, wait 5 s, keeps 100 runs, or as many as the base configuration sets';
 
-    it('turns slowly, and stops with reduced motion, while alive', () => {
-      renderCanvas({ launchers: states('always'), launcherAlive: true });
-      expect(screen.getByTestId('ve-launcher-always')).toHaveAttribute(
-        'data-alive',
-        'true'
-      );
-      expect(icon('always')).toHaveClass(
-        'animate-[spin_3s_linear_infinite]',
-        'motion-reduce:animate-none',
-        'motion-reduce:text-primary'
-      );
+    it('takes the colours of a running step during a run, and says so', () => {
+      renderCanvas({
+        launchers: states('always'),
+        launcherAlive: { phase: 'running' },
+      });
+      expect(card()).toHaveAttribute('data-alive', 'running');
+      expect(always()).toHaveClass(...running);
+      expect(summary()).toHaveTextContent(/^Wait 5 s$/);
+      expect(always()).toHaveAttribute('title', `${text}, running`);
+      expect(always()).toHaveAttribute('aria-label', `${text}, running`);
     });
 
-    // The motion and the colour are not the only signs of a live workflow.
-    it('tells in the title and the accessible name that it is alive', () => {
-      const text =
-        'Always on: Restarts after each run, wait 5 s, keeps 100 runs, or as many as the base configuration sets';
-      const always = () =>
-        within(screen.getByTestId('ve-launcher-always')).getByRole('button');
-      const { unmount } = renderCanvas({
+    // 2.5 s left reads as 3 s.
+    it('counts down the wait before the next run', () => {
+      renderCanvas({
         launchers: states('always'),
-        launcherAlive: true,
+        launcherAlive: { phase: 'waiting', nextRunAt: Date.now() + 2500 },
       });
-      expect(always()).toHaveAttribute('title', `${text} · alive`);
-      expect(always()).toHaveAttribute('aria-label', `${text} · alive`);
-      unmount();
-      renderCanvas({ launchers: states('always'), launcherAlive: false });
+      expect(summary()).toHaveTextContent(/^Next run in 3 s$/);
+      expect(always()).toHaveAttribute('title', `${text}, next run in 3 s`);
+      expect(always()).not.toHaveClass(...running);
+    });
+
+    it('tells that the next run starts once the wait is over', () => {
+      renderCanvas({
+        launchers: states('always'),
+        launcherAlive: { phase: 'starting' },
+      });
+      expect(summary()).toHaveTextContent(/^Starting$/);
+      expect(always()).toHaveAttribute('title', `${text}, starting`);
+    });
+
+    it('draws the plain card while the workflow is not alive', () => {
+      renderCanvas({ launchers: states('always'), launcherAlive: null });
+      expect(card()).not.toHaveAttribute('data-alive');
+      expect(always()).not.toHaveClass(...running);
+      expect(summary()).toHaveTextContent(/^Wait 5 s$/);
       expect(always()).toHaveAttribute('title', text);
     });
 
-    it('is still when the workflow is not alive', () => {
-      renderCanvas({ launchers: states('always'), launcherAlive: false });
-      expect(screen.getByTestId('ve-launcher-always')).not.toHaveAttribute(
-        'data-alive'
-      );
-      expect(icon('always').getAttribute('class')).not.toContain('animate-');
-    });
-
-    it('never turns on the placeholder, Manual and Webhook', () => {
-      renderCanvas({ launchers: states('no'), launcherAlive: true });
+    it('tells nothing on the placeholder, Manual and Webhook', () => {
+      renderCanvas({
+        launchers: states('no'),
+        launcherAlive: { phase: 'running' },
+      });
       for (const id of ['schedule', 'manual', 'webhook']) {
         expect(screen.getByTestId(`ve-launcher-${id}`)).not.toHaveAttribute(
           'data-alive'
         );
-        expect(icon(id).getAttribute('class')).not.toContain('animate-');
       }
     });
 
-    it('turns the tile icon in the simplified view', () => {
+    it('keeps the state in words on the tile of the simplified view', () => {
       window.localStorage.setItem(CANVAS_DETAILS_KEY, '0');
       try {
-        renderCanvas({ launchers: states('always'), launcherAlive: true });
-        expect(icon('always')).toHaveClass('animate-[spin_3s_linear_infinite]');
+        renderCanvas({
+          launchers: states('always'),
+          launcherAlive: { phase: 'waiting', nextRunAt: Date.now() + 2500 },
+        });
+        expect(summary()).toBeNull();
+        expect(always()).toHaveAttribute(
+          'aria-label',
+          `${text}, next run in 3 s`
+        );
       } finally {
         window.localStorage.removeItem(CANVAS_DETAILS_KEY);
       }

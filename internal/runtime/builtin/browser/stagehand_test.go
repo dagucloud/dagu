@@ -1786,6 +1786,43 @@ func TestStagehandCloseKeepsProfileCookies(t *testing.T) {
 	require.Contains(t, text, "Welcome back", "the profile keeps the session cookie the first browser received")
 }
 
+// A browser ended before its runtime starts exits on request, as a closed
+// one does, so its profile records a normal exit. Chrome records another
+// exit when a signal ends it.
+func TestStartedBrowserEndsByRequest(t *testing.T) {
+	t.Parallel()
+	chrometest.Require(t)
+
+	ctx := t.Context()
+	profile := browserProfileDir(t)
+	port, err := freeLoopbackPort()
+	require.NoError(t, err)
+	var launched *stagehand.Browser
+	require.NoError(t, withStartupSlot(func() (err error) {
+		launched, err = stagehand.LaunchLocalBrowser(ctx, &stagehand.LocalBrowserLaunchOptions{
+			ExecutablePath:  chrometest.Path(),
+			Headless:        true,
+			Port:            port,
+			UserDataDir:     profile,
+			ChromiumSandbox: new(false),
+		})
+		return err
+	}))
+
+	started := startedBrowser{browser: launched, cdpURL: fmt.Sprintf("http://127.0.0.1:%d", port)}
+	require.NoError(t, started.end(ctx))
+
+	data, err := os.ReadFile(filepath.Join(profile, "Default", "Preferences"))
+	require.NoError(t, err)
+	var preferences struct {
+		Profile struct {
+			ExitType string `json:"exit_type"`
+		} `json:"profile"`
+	}
+	require.NoError(t, json.Unmarshal(data, &preferences))
+	assert.Equal(t, "Normal", preferences.Profile.ExitType)
+}
+
 // A browser that stops answering DevTools does not hold up its close: the
 // request to exit gives up, so the runtime can end the browser.
 func TestAskToExitGivesUpOnASilentBrowser(t *testing.T) {

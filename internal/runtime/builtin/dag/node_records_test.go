@@ -6,7 +6,9 @@ package dag
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -106,6 +108,64 @@ func TestNodeRunRecords(t *testing.T) {
 	require.NotEmpty(t, web01.FinishedAt)
 	require.Equal(t, ir.NodeRun{Node: "web02", Status: ir.NodeRunDisabled}, records.Runs[1])
 	require.Empty(t, records.Runs[4].StartedAt)
+}
+
+// The runner hears of each change of the counts once the records show it,
+// so the status write it makes wakes readers that find the new counts. A
+// write that leaves the counts as they were tells it nothing, and neither
+// does the last write, which the end of the step follows.
+func TestNodeRunRecordsReport(t *testing.T) {
+	t.Parallel()
+
+	e, ctx, dir := recordingStep(t)
+	// The record ticker may make a write in place of the test.
+	var mu sync.Mutex
+	var reported []ir.NodeRunCounts
+	(&nodesExecutor{parallelExecutor: e}).SetProgressCallback(func() {
+		_, _, counts := readNodeRecords(t, dir)
+		mu.Lock()
+		defer mu.Unlock()
+		reported = append(reported, counts)
+	})
+	finish := e.recordNodeRuns(ctx)
+
+	e.noteNodeStart("a")
+	e.writeNodeRuns(ctx, dir, false)
+	// A failed attempt that queues a step retry leaves the node running.
+	e.noteNodeFinish("a", &ir.RunStatus{Status: ir.Failed}, 1)
+	e.writeNodeRuns(ctx, dir, false)
+	finish()
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []ir.NodeRunCounts{
+		{Total: 5, NotStarted: 4, Disabled: 1},
+		{Total: 5, NotStarted: 3, Running: 1, Disabled: 1},
+	}, reported)
+}
+
+// A write that fails tells the runner nothing and stays due, so the next
+// write stores the records and reports their counts.
+func TestNodeRunRecordsReportAfterFailedWrite(t *testing.T) {
+	t.Parallel()
+
+	e, ctx, _ := recordingStep(t)
+	reports := 0
+	(&nodesExecutor{parallelExecutor: e}).SetProgressCallback(func() { reports++ })
+	// A file where the directory of the records goes stops their writes.
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	require.NoError(t, os.WriteFile(blocked, nil, 0o600))
+	dir := filepath.Join(blocked, "deploy")
+
+	e.noteNodeStart("a")
+	e.writeNodeRuns(ctx, dir, false)
+	require.Zero(t, reports)
+
+	require.NoError(t, os.Remove(blocked))
+	e.writeNodeRuns(ctx, dir, false)
+	require.Equal(t, 1, reports)
+	statuses, _, _ := readNodeRecords(t, dir)
+	require.Equal(t, "web01=running", statuses[0])
 }
 
 // A node runs while a step retry of it is queued. Once its last retry

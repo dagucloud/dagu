@@ -36,7 +36,7 @@ export function RunStepsNav({
   const { ts } = useI18n();
   const run = useWorkspaceRun();
   const { handle } = useWorkspaceEditor();
-  const { openRunLog, openStep } = useDockCommands();
+  const { openRunLog, openStep, setTab } = useDockCommands();
   const selected = useDockStep();
   const subRuns = useStepSubRunsOpener();
 
@@ -62,7 +62,12 @@ export function RunStepsNav({
 
   const openSubRun = (step: string, opts: { newTab: boolean }) => {
     const node = runNode(run, step);
-    if (node) subRuns.open(node, details, opts);
+    // The children of a step with nodes are read a page at a time in the
+    // Nodes tab, with the step's column marked.
+    if (node?.nodeRuns) {
+      openStep(step, { keepTab: true });
+      setTab('nodes', { user: true });
+    } else if (node) subRuns.open(node, details, opts);
   };
 
   return (

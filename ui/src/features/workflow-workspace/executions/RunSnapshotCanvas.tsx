@@ -32,6 +32,10 @@ import {
 } from '@/features/visual-editor/canvas/toolbarHost';
 import { cn } from '@/lib/utils';
 import { CanvasOverlayInsetContext } from '@/features/visual-editor/canvas/overlayInset';
+import {
+  StepLinksContext,
+  type StepLinks,
+} from '@/features/visual-editor/references/StepLinks';
 import type { CodeEditorLike } from '@/features/visual-editor/useEditSession';
 import type { VisualEditorValidation } from '@/features/visual-editor/VisualEditor';
 import type {
@@ -206,6 +210,21 @@ function RunCanvasBody({
     clearStep: () => setUrl({ step: null, ndv: null }, { replace: true }),
   });
 
+  // The arrows and the step links of the INPUT column move to the YAML of
+  // another step, never its form.
+  const openStepYaml = useCallback(
+    (name: string) => {
+      if (!handle?.openYaml(name)) onSelectedStepNameChange(name);
+    },
+    [handle, onSelectedStepNameChange]
+  );
+  // The links of the workspace open the step in the editor under the
+  // snapshot: the step view of the run takes them here.
+  const stepLinks = useMemo<StepLinks>(
+    () => ({ open: openStepYaml }),
+    [openStepYaml]
+  );
+
   const step = url.step;
   const runStep =
     stepCommandGates.canRunStep && step !== null
@@ -241,38 +260,40 @@ function RunCanvasBody({
         <PanelPlacementProvider value="zone">
           <CanvasToolbarHostContext.Provider value={toolbarRow}>
             <Suspense fallback={null}>
-              <VisualEditor
-                fileName={fileName}
-                dagName={dagName}
-                text={text}
-                onTextChange={ignoreText}
-                validation={withScope}
-                editable={false}
-                isDirty={false}
-                customActions={NO_ACTIONS}
-                runSource={runSource}
-                selectedStepName={url.step}
-                onSelectedStepNameChange={onSelectedStepNameChange}
-                openNdvOn="open"
-                renderStepOutput={renderStepOutput}
-                onStepCommand={onStepCommand}
-                onOpenCall={openCall}
-                stepCommandGates={stepCommandGates}
-                chrome={ndvState !== null ? CHROME_NDV_OPEN : CHROME}
-                yamlVisible={ndvState !== null}
-                onYamlVisibleChange={setSectionOpen}
-                onYamlModeChange={setYamlKind}
-                initialYamlMode={yamlKind}
-                yamlToolbarRoot={toolbarRoot}
-                drawerBodyRoot={bodyRoot}
-                formVisible={drawerForm}
-                onFormVisibleChange={setDrawerForm}
-                inputColumnRoot={inputRoot}
-                outputColumnRoot={outputRoot}
-                yamlEditorRef={yamlEditorRef}
-                onYamlStepPathChange={setYamlStepPath}
-                handleRef={setHandle}
-              />
+              <StepLinksContext.Provider value={stepLinks}>
+                <VisualEditor
+                  fileName={fileName}
+                  dagName={dagName}
+                  text={text}
+                  onTextChange={ignoreText}
+                  validation={withScope}
+                  editable={false}
+                  isDirty={false}
+                  customActions={NO_ACTIONS}
+                  runSource={runSource}
+                  selectedStepName={url.step}
+                  onSelectedStepNameChange={onSelectedStepNameChange}
+                  openNdvOn="open"
+                  renderStepOutput={renderStepOutput}
+                  onStepCommand={onStepCommand}
+                  onOpenCall={openCall}
+                  stepCommandGates={stepCommandGates}
+                  chrome={ndvState !== null ? CHROME_NDV_OPEN : CHROME}
+                  yamlVisible={ndvState !== null}
+                  onYamlVisibleChange={setSectionOpen}
+                  onYamlModeChange={setYamlKind}
+                  initialYamlMode={yamlKind}
+                  yamlToolbarRoot={toolbarRoot}
+                  drawerBodyRoot={bodyRoot}
+                  formVisible={drawerForm}
+                  onFormVisibleChange={setDrawerForm}
+                  inputColumnRoot={inputRoot}
+                  outputColumnRoot={outputRoot}
+                  yamlEditorRef={yamlEditorRef}
+                  onYamlStepPathChange={setYamlStepPath}
+                  handleRef={setHandle}
+                />
+              </StepLinksContext.Provider>
             </Suspense>
           </CanvasToolbarHostContext.Provider>
           <YamlFilePanel
@@ -297,10 +318,7 @@ function RunCanvasBody({
             stepName={url.step}
             dag={validation?.dag}
             runDetails={details}
-            onSelectStep={(name) => {
-              // The arrows move to the YAML of another step, never its form.
-              if (!handle?.openYaml(name)) onSelectedStepNameChange(name);
-            }}
+            onSelectStep={openStepYaml}
             onRunStep={runStep}
             formMode={drawerForm}
             formRootRef={setBodyRoot}

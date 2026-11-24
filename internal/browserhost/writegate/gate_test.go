@@ -230,12 +230,33 @@ func startBrowserOn(t *testing.T, profile string) *browser {
 		endState, _ = cmd.Process.Wait()
 		close(ended)
 	}()
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		<-ended
-	})
-	cdpURL := waitForDevTools(t, activePort, &out, ended, func() *os.ProcessState { return endState })
+	// Empty until the browser answers on DevTools.
+	var cdpURL string
+	t.Cleanup(func() { endBrowser(cmd, cdpURL, ended) })
+	cdpURL = waitForDevTools(t, activePort, &out, ended, func() *os.ProcessState { return endState })
 	return &browser{cmd: cmd, cdpURL: cdpURL, profile: profile}
+}
+
+// browserExitLimit is how long a browser asked to exit has before it is
+// killed.
+const browserExitLimit = 10 * time.Second
+
+// endBrowser asks the browser at cdpURL to exit and waits for it, killing it
+// only when it does not exit in time or never answered on DevTools. On
+// macOS a killed Chrome leaves behind the copy of itself it runs from.
+func endBrowser(cmd *exec.Cmd, cdpURL string, ended <-chan struct{}) {
+	if cdpURL != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), browserExitLimit)
+		defer cancel()
+		_ = browserhost.CloseBrowser(ctx, cdpURL)
+		select {
+		case <-ended:
+			return
+		case <-ctx.Done():
+		}
+	}
+	_ = cmd.Process.Kill()
+	<-ended
 }
 
 // browserStartLimit only guards against a browser that hangs, as no test here

@@ -175,4 +175,30 @@ describe('keepInViewDelta', () => {
       dy: 152,
     });
   });
+
+  // A toolbar that grows covers the start of a long graph that is on screen:
+  // the start goes to the free area. A start that is off screen stays.
+  it('brings the covered start of a long graph to the free area', () => {
+    expect(keepInViewDelta(graph(10, 20, 1200, 900), view, area)).toEqual({
+      dx: 14,
+      dy: 28,
+    });
+    expect(keepInViewDelta(graph(-1, -1, 1200, 900), view, area)).toEqual({
+      dx: 0,
+      dy: 0,
+    });
+  });
+
+  // The free area is 24..976 by 48..552: its middle is (500, 300).
+  it('centres a graph that fits, on request', () => {
+    expect(keepInViewDelta(graph(24, 48), view, area, true)).toEqual({
+      dx: 276,
+      dy: 102,
+    });
+    // An axis on which the graph is too long keeps its start side.
+    expect(keepInViewDelta(graph(24, 48, 400, 900), view, area, true)).toEqual({
+      dx: 276,
+      dy: 0,
+    });
+  });
 });

@@ -39,7 +39,10 @@ vi.mock('monaco-editor', () => ({
     fire = vi.fn();
     dispose = vi.fn();
   },
-  languages: { registerCodeLensProvider: () => ({ dispose: vi.fn() }) },
+  languages: {
+    registerCodeLensProvider: () => ({ dispose: vi.fn() }),
+    registerInlayHintsProvider: () => ({ dispose: vi.fn() }),
+  },
 }));
 vi.mock('@/lib/monaco-theme', () => ({
   KILN_DARK: 'kiln-dark',
