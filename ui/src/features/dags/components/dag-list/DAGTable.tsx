@@ -46,6 +46,7 @@ import { CreateDAGButton, DAGPagination } from '../common';
 import DAGActions from '../common/DAGActions';
 import LiveSwitch from '../common/LiveSwitch';
 import { ScheduleLine } from './ScheduleSummary';
+import { ServiceDAGNextRun } from '@/features/service-dags/components/ServiceDAGState';
 import PinToggle from '../common/PinToggle';
 import { formatDurationMs } from '@/lib/formatDuration';
 
@@ -166,6 +167,8 @@ interface DAGCardProps {
    * does not count as stopped.
    */
   isStopped?: boolean;
+  /** The workflow as a service DAG, when it is one and its state is known. */
+  service?: components['schemas']['ServiceDAG'];
   className?: string;
 }
 
@@ -244,6 +247,7 @@ function DAGCard({
   onTogglePin,
   isShown = false,
   isStopped = false,
+  service,
   className = '',
 }: DAGCardProps) {
   const fileName = dag.fileName;
@@ -317,6 +321,7 @@ function DAGCard({
       {/* Schedule & Last Run */}
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground mb-1.5">
         <ScheduleLine dag={dag} emptyLabel={false} />
+        {service && <ServiceDAGNextRun dag={service} className="text-xs" />}
         {dag.latestDAGRun.startedAt && dag.latestDAGRun.startedAt !== '-' && (
           <span className="flex items-center gap-0.5">
             <Calendar className="h-2.5 w-2.5" />
@@ -378,7 +383,7 @@ function DAGCard({
           </span>
         </div>
         <div
-          className="flex flex-shrink-0 items-center gap-1"
+          className="flex flex-shrink-0 items-center"
           onClick={(e) => e.stopPropagation()}
         >
           <DAGActions
@@ -387,15 +392,31 @@ function DAGCard({
             fileName={fileName}
             label={false}
             refresh={refreshFn}
+            service={service}
           />
-          {canEdit && <EditDAGButton dag={dag} />}
+          {canEdit && (
+            <ActionSlot>
+              <EditDAGButton dag={dag} />
+            </ActionSlot>
+          )}
           {canDeleteDAGs && (
-            <DeleteDAGButton dag={dag} onDelete={onDeleteDAG} />
+            <ActionSlot>
+              <DeleteDAGButton dag={dag} onDelete={onDeleteDAG} />
+            </ActionSlot>
           )}
         </div>
       </div>
     </div>
   );
+}
+
+// The actions of a row sit in fixed slots of 40 px, as in DAGActions: Start,
+// Retry, Stop, Edit and Delete, plus the padding of the cell.
+const ACTIONS_WIDTH = 5 * 40 + 16;
+
+/** The fixed slot of Edit or Delete, beside the slots of DAGActions. */
+function ActionSlot({ children }: { children: React.ReactNode }) {
+  return <span className="flex w-10 shrink-0 justify-center">{children}</span>;
 }
 
 // Pinned DAGs lead the rows; the "Pinned" header and a divider frame them.
@@ -536,6 +557,8 @@ declare module '@tanstack/react-table' {
   interface TableMeta<TData extends RowData> {
     group: string;
     refreshFn: () => void;
+    /** Each service DAG that the server lists, by file name. */
+    services?: ReadonlyMap<string, components['schemas']['ServiceDAG']>;
     // Add label click handler to meta for direct access in cell
     onLabelClick?: (label: string) => void;
     getDeleteSelectionState?: () => boolean | 'indeterminate';
@@ -927,6 +950,7 @@ const defaultColumns = [
 
       const hasSchedule = (data.dag.dag.schedule ?? []).length > 0;
       const isService = isServiceDAG(data.dag.dag);
+      const service = table.options.meta?.services?.get(data.dag.fileName);
       return (
         <div className="flex min-w-0 items-center gap-1">
           {(hasSchedule || isService) && (
@@ -941,15 +965,21 @@ const defaultColumns = [
             </div>
           )}
           <ScheduleLine dag={data.dag} />
+          {service && (
+            <ServiceDAGNextRun
+              dag={service}
+              className="ml-2 truncate text-xs text-muted-foreground"
+            />
+          )}
         </div>
       );
     },
   }),
   columnHelper.display({
     id: 'Actions',
-    size: 160,
-    minSize: 160,
-    maxSize: 160,
+    size: ACTIONS_WIDTH,
+    minSize: ACTIONS_WIDTH,
+    maxSize: ACTIONS_WIDTH,
     header: () => (
       <span className="sr-only">
         <I18nText text={'Actions'} />
@@ -965,7 +995,7 @@ const defaultColumns = [
       return (
         // Wrap DAGActions in a div and stop propagation on its click
         <div
-          className="flex items-center justify-center gap-0.5"
+          className="flex items-center justify-center"
           onClick={(e) => e.stopPropagation()}
         >
           <DAGActions
@@ -974,15 +1004,20 @@ const defaultColumns = [
             fileName={data.dag.fileName}
             label={false}
             refresh={table.options.meta?.refreshFn}
+            service={table.options.meta?.services?.get(data.dag.fileName)}
           />
           {table.options.meta?.canEditDAG?.(data.dag) && (
-            <EditDAGButton dag={data.dag} />
+            <ActionSlot>
+              <EditDAGButton dag={data.dag} />
+            </ActionSlot>
           )}
           {table.options.meta?.canDeleteDAGs && (
-            <DeleteDAGButton
-              dag={data.dag}
-              onDelete={(dag) => table.options.meta?.onOpenDeleteDAG?.(dag)}
-            />
+            <ActionSlot>
+              <DeleteDAGButton
+                dag={data.dag}
+                onDelete={(dag) => table.options.meta?.onOpenDeleteDAG?.(dag)}
+              />
+            </ActionSlot>
           )}
         </div>
       );
@@ -1190,6 +1225,10 @@ function DAGTable({
           .filter((dag) => dag.state === ServiceDAGState.stopped)
           .map((dag) => dag.fileName)
       ),
+    [serviceDAGs]
+  );
+  const services = useMemo(
+    () => new Map(serviceDAGs.map((dag) => [dag.fileName, dag])),
     [serviceDAGs]
   );
   const columns = useMemo(
@@ -1482,6 +1521,7 @@ function DAGTable({
     meta: {
       group,
       refreshFn,
+      services,
       onLabelClick: handleLabelClick,
       getDeleteSelectionState,
       isDeleteSelected: (fileName) => deleteSelection.has(fileName),
@@ -1775,7 +1815,7 @@ function DAGTable({
             <col style={{ width: '10%' }} />
             <col style={{ width: '12%' }} />
             <col style={{ width: '28%' }} />
-            <col style={{ width: '160px' }} />
+            <col style={{ width: `${ACTIONS_WIDTH}px` }} />
           </colgroup>
           <TableHeader>
             {instance.getHeaderGroups().map((headerGroup) => (
@@ -2001,6 +2041,7 @@ function DAGTable({
                               isStopped={stoppedServiceDAGs.has(
                                 dagRow.dag.fileName
                               )}
+                              service={services.get(dagRow.dag.fileName)}
                               className="ml-2"
                             />
                           );
@@ -2041,6 +2082,7 @@ function DAGTable({
                     onTogglePin={(dag) => void togglePin(dag)}
                     isShown={isShown({ dag: dagRow.dag.fileName })}
                     isStopped={stoppedServiceDAGs.has(dagRow.dag.fileName)}
+                    service={services.get(dagRow.dag.fileName)}
                   />
                   {endsPinnedSection && (
                     <div className="border-t-2 border-border" />

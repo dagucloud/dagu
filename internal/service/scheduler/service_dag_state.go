@@ -17,8 +17,8 @@ import (
 type ServiceDAGState string
 
 const (
-	// ServiceDAGStatePending means no run is alive yet: the DAG has no run, or
-	// its latest run waits in the queue.
+	// ServiceDAGStatePending means the DAG is not suspended, and it has no run
+	// or a run that the scheduler did not queue waits to start.
 	ServiceDAGStatePending ServiceDAGState = "pending"
 	// ServiceDAGStateRunning means a run is alive.
 	ServiceDAGStateRunning ServiceDAGState = "running"
@@ -26,7 +26,9 @@ const (
 	// as an approval, and does nothing until someone acts on it.
 	ServiceDAGStateWaiting ServiceDAGState = "waiting"
 	// ServiceDAGStateRestarting means the latest run succeeded, or an operator
-	// stopped the latest run of an always DAG, and the next run is due.
+	// stopped the latest run of an always DAG, and the next run is due; or a run
+	// that the scheduler queued waits to start, the first run included, and
+	// the DAG is not suspended.
 	ServiceDAGStateRestarting ServiceDAGState = "restarting"
 	// ServiceDAGStateFailing means the latest run did not succeed, with no stop
 	// request, and the next run is due.
@@ -56,6 +58,11 @@ func DescribeServiceDAG(
 	case latest.Status == ir.Running:
 		return ServiceDAGStateRunning, nil
 	case latest.Status == ir.NotStarted || latest.Status == ir.Queued:
+		// A run that the scheduler queued, the first one included, waits in the
+		// queue for a short time.
+		if latest.TriggerType == ir.TriggerTypeRestart && !suspended {
+			return ServiceDAGStateRestarting, nil
+		}
 		return pendingOrSuspended(suspended), nil
 	case suspended:
 		return ServiceDAGStateSuspended, nil
@@ -86,8 +93,12 @@ func DescribeServiceDAG(
 // NextRestart returns when the scheduler starts the next run of a service DAG
 // after its latest run ended, given the backoff that the scheduler last shared
 // for the DAG. A run may have ended since that save, so it is counted here as the
-// scheduler counts it. ok is false when the end of the run is unknown.
+// scheduler counts it. ok is false when the end of the run is unknown, and for
+// a run that waits in the queue: that run is the next run.
 func NextRestart(restartWait time.Duration, latest *ir.DAGRunStatus, backoff schedulerstate.RestartBackoff) (time.Time, bool) {
+	if latest != nil && (latest.Status == ir.Queued || latest.Status == ir.NotStarted) {
+		return time.Time{}, false
+	}
 	endedAt, ok := retryReferenceTime(latest)
 	if !ok {
 		return time.Time{}, false

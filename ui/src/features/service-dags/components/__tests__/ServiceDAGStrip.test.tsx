@@ -15,7 +15,7 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { WorkspaceKind } from '@/lib/workspace';
-import { describeServiceDAG } from '../ServiceDAGState';
+import { describeServiceDAG, ServiceDAGNextRun } from '../ServiceDAGState';
 import { ServiceDAGStrip } from '../ServiceDAGStrip';
 
 type ServiceDAG = components['schemas']['ServiceDAG'];
@@ -137,6 +137,19 @@ describe('describeServiceDAG', () => {
     ).toBe('Next restart unknown');
   });
 
+  // The server gives no restart time for a run that waits in the queue.
+  it('says that a DAG whose next run is queued restarts', () => {
+    expect(
+      describeServiceDAG(
+        dag({
+          state: ServiceDAGState.restarting,
+          latestRun: { dagRunId: 'r2', status: Status.Queued },
+        }),
+        NOW
+      ).text
+    ).toBe('Restarting…');
+  });
+
   it('says why no run follows', () => {
     expect(
       describeServiceDAG(dag({ state: ServiceDAGState.stopped }), NOW).text
@@ -147,6 +160,48 @@ describe('describeServiceDAG', () => {
     expect(
       describeServiceDAG(dag({ state: ServiceDAGState.pending }), NOW).text
     ).toBe('Waiting for a run');
+  });
+});
+
+describe('ServiceDAGNextRun', () => {
+  function renderNextRun(fields: Partial<ServiceDAG>) {
+    return render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <ServiceDAGNextRun dag={dag(fields)} />
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+  }
+  const inMs = (ms: number) => new Date(Date.now() + ms).toISOString();
+
+  // Words change slowly enough to read in a list.
+  it.each([
+    [4 * 60_000 + 10_000, 'Restart in 4 minutes'],
+    [56 * 60_000, 'Restart in an hour'],
+    [10_000, 'Restart in a few seconds'],
+  ])('says when the next run starts, in words (%i ms)', (ms, want) => {
+    const { container } = renderNextRun({
+      state: ServiceDAGState.restarting,
+      nextRestartAt: inMs(ms),
+    });
+    expect(container).toHaveTextContent(want);
+  });
+
+  it.each<[string, Partial<ServiceDAG>]>([
+    ['running', { state: ServiceDAGState.running }],
+    [
+      'on hold',
+      {
+        state: ServiceDAGState.restarting,
+        restartHold: ServiceDAGRestartHold.paused,
+      },
+    ],
+    ['without a time', { state: ServiceDAGState.failing }],
+  ])('shows nothing while no restart is due (%s)', (name, fields) => {
+    const nextRestartAt = name === 'without a time' ? undefined : inMs(60_000);
+    const { container } = renderNextRun({ nextRestartAt, ...fields });
+    expect(container).toBeEmptyDOMElement();
   });
 });
 

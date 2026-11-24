@@ -38,6 +38,19 @@ func TestDescribeServiceDAG(t *testing.T) {
 		{name: "RunningWhileSuspended", latest: run(ir.Running), suspended: true, want: ServiceDAGStateRunning},
 		{name: "WaitingApproval", latest: run(ir.Waiting), want: ServiceDAGStateWaiting},
 		{name: "Queued", latest: run(ir.Queued), want: ServiceDAGStatePending},
+		{
+			// The first run and a later one look the same: the scheduler queues
+			// both with the restart trigger.
+			name:   "QueuedRestart",
+			latest: &ir.DAGRunStatus{DAGRunID: "run-1", Status: ir.Queued, TriggerType: ir.TriggerTypeRestart},
+			want:   ServiceDAGStateRestarting,
+		},
+		{
+			name:      "QueuedRestartSuspended",
+			latest:    &ir.DAGRunStatus{DAGRunID: "run-1", Status: ir.Queued, TriggerType: ir.TriggerTypeRestart},
+			suspended: true,
+			want:      ServiceDAGStateSuspended,
+		},
 		{name: "Succeeded", latest: run(ir.Succeeded), want: ServiceDAGStateRestarting},
 		{name: "PartiallySucceeded", latest: run(ir.PartiallySucceeded), want: ServiceDAGStateRestarting},
 		{name: "Failed", latest: run(ir.Failed), want: ServiceDAGStateFailing},
@@ -155,4 +168,8 @@ func TestNextRestart(t *testing.T) {
 
 	_, ok := NextRestart(5*time.Second, &ir.DAGRunStatus{DAGRunID: "run-1"}, schedulerstate.RestartBackoff{})
 	assert.False(t, ok, "a run whose end is unknown has no restart time")
+
+	queued := &ir.DAGRunStatus{DAGRunID: "run-4", Status: ir.Queued, TriggerType: ir.TriggerTypeRestart, CreatedAt: end.UnixMilli()}
+	_, ok = NextRestart(5*time.Second, queued, schedulerstate.RestartBackoff{})
+	assert.False(t, ok, "a queued restart is the next run")
 }
