@@ -12258,6 +12258,8 @@ const baseGerman = {
     'Neustarts von "{name}" fortsetzen? Der Scheduler startet einen Lauf, wenn einer fällig ist.',
   'Suspend the restarts of "{name}"? A running run keeps running.':
     'Neustarts von "{name}" anhalten? Ein laufender Lauf läuft weiter.',
+  'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.':
+    'Diesen Lauf stoppen. Er startet nach {seconds} s neu. Halten Sie die Neustarts an, um ihn endgültig zu stoppen.',
   'Are you sure you want to {action} the webhook for "{name}"?':
     'Webhook für "{name}" wirklich {action}?',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':

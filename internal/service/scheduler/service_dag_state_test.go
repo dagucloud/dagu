@@ -39,13 +39,9 @@ func TestDescribeServiceDAG(t *testing.T) {
 		{name: "WaitingApproval", latest: run(ir.Waiting), want: ServiceDAGStateWaiting},
 		{name: "Queued", latest: run(ir.Queued), want: ServiceDAGStatePending},
 		{
+			// The first run and a later one look the same: the scheduler queues
+			// both with the restart trigger.
 			name:   "QueuedRestart",
-			latest: &ir.DAGRunStatus{DAGRunID: "run-1", Status: ir.Queued, TriggerType: ir.TriggerTypeRestart},
-			want:   ServiceDAGStateRestarting,
-		},
-		{
-			// The scheduler queues the first run with the restart trigger too.
-			name:   "FirstRunQueued",
 			latest: &ir.DAGRunStatus{DAGRunID: "run-1", Status: ir.Queued, TriggerType: ir.TriggerTypeRestart},
 			want:   ServiceDAGStateRestarting,
 		},
