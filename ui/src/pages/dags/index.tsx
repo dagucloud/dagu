@@ -89,6 +89,8 @@ const areDAGDefinitionsFiltersEqual = (
 
 const ALL_WORKFLOWS_VIEW_PARAM = 'all';
 const DELETE_BATCH_SIZE = 5;
+// All pins share one record on the server, so a group pins a few at a time.
+const PIN_BATCH_SIZE = 5;
 
 function normalizeWorkflowSortField(value?: string | null): ViewSortField {
   return value === ViewSortField.nextRun ||
@@ -780,14 +782,20 @@ function DAGsContent() {
     [client, reloadDAGList, remoteNode, showError]
   );
 
-  // A group pins in one go: the requests run together, the list reloads once.
+  // A group pins in one go: the requests run in batches, the list reloads once.
   const handleSetDAGsPinned = React.useCallback(
     async (fileNames: string[], pinned: boolean): Promise<void> => {
-      const results = await Promise.allSettled(
-        fileNames.map((fileName) =>
-          setDAGPinned(client, { fileName, pinned, remoteNode })
-        )
-      );
+      const results: PromiseSettledResult<void>[] = [];
+      for (let index = 0; index < fileNames.length; index += PIN_BATCH_SIZE) {
+        const batch = fileNames.slice(index, index + PIN_BATCH_SIZE);
+        results.push(
+          ...(await Promise.allSettled(
+            batch.map((fileName) =>
+              setDAGPinned(client, { fileName, pinned, remoteNode })
+            )
+          ))
+        );
+      }
       const failed = results.find(
         (result): result is PromiseRejectedResult =>
           result.status === 'rejected'

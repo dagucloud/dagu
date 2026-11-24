@@ -111,6 +111,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
     onDeleteWorkflowView,
     onDeleteDAGs,
     onSetDAGPinned,
+    onSetDAGsPinned,
     canEditDAG,
     canPinDAG,
   }: {
@@ -139,6 +140,7 @@ vi.mock('@/features/dags/components/dag-list', () => ({
       fileNames: string[]
     ) => Promise<Array<{ fileName: string; error?: string }>>;
     onSetDAGPinned: (fileName: string, pinned: boolean) => Promise<void>;
+    onSetDAGsPinned: (fileNames: string[], pinned: boolean) => Promise<void>;
     canEditDAG?: (dag: {
       fileName: string;
       dag: { name: string; workspace?: string };
@@ -234,6 +236,24 @@ vi.mock('@/features/dags/components/dag-list', () => ({
         onClick={() => void onSetDAGPinned('demo.yaml', false)}
       >
         Unpin demo workflow
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          void onSetDAGsPinned(
+            [
+              'one.yaml',
+              'two.yaml',
+              'three.yaml',
+              'four.yaml',
+              'five.yaml',
+              'six.yaml',
+            ],
+            true
+          )
+        }
+      >
+        Pin workflow batch
       </button>
       <ul>
         {dags.map((dag) => (
@@ -1061,6 +1081,34 @@ describe('DagsPage', () => {
       '/dags/{fileName}/pin',
       request
     );
+  });
+
+  it('limits concurrent group pin requests', async () => {
+    const pendingPins: Array<(value: object) => void> = [];
+    clientPutMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          pendingPins.push(resolve);
+        })
+    );
+    renderPage();
+    const reloadsBefore = listMutateMock.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pin workflow batch' }));
+    expect(clientPutMock).toHaveBeenCalledTimes(5);
+
+    await act(async () => {
+      pendingPins.splice(0).forEach((resolve) => resolve({}));
+      await Promise.resolve();
+    });
+    expect(clientPutMock).toHaveBeenCalledTimes(6);
+
+    await act(async () => {
+      pendingPins.splice(0).forEach((resolve) => resolve({}));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(listMutateMock).toHaveBeenCalledTimes(reloadsBefore + 1);
   });
 
   // In an all-workspaces view, write access differs between workflows.
