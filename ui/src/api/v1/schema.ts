@@ -8598,10 +8598,10 @@ export interface components {
         };
         /**
          * @description What a service DAG does, as its latest run shows it:
-         *     - pending: no run is alive yet, or the latest run waits in the queue.
+         *     - pending: the DAG is not suspended, and it has no run or a run that the scheduler did not queue waits to start.
          *     - running: a run is alive.
          *     - waiting: a run is alive but waits for a person, such as an approval.
-         *     - restarting: the latest run succeeded, or an operator stopped the latest run of an always DAG, and the next run is due.
+         *     - restarting: the latest run succeeded, or an operator stopped the latest run of an always DAG, and the next run is due; or a run that the scheduler queued waits to start, the first run included, and the DAG is not suspended.
          *     - failing: the latest run did not succeed and the next run is due, or the latest run cannot be read, which `readError` reports.
          *     - suspended: the DAG gets no new run.
          *     - stopped: an operator stopped the latest run of an unless-stopped DAG.
@@ -8646,7 +8646,7 @@ export interface components {
             queue: string;
             /**
              * Format: date-time
-             * @description When the next run is due: restartWaitSec after the latest run ended, longer while the runs in a row fail soon after they start. The scheduler then queues the run, so a busy queue can start it later. Set only with the states restarting and failing, and not with restartHold.
+             * @description When the next run is due: restartWaitSec after the latest run ended, longer while the runs in a row fail soon after they start. The scheduler then queues the run, so a busy queue can start it later. Set only with the states restarting and failing, not while the next run waits in the queue, and not with restartHold.
              */
             nextRestartAt?: string;
             restartHold?: components["schemas"]["ServiceDAGRestartHold"];
