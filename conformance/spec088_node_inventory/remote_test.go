@@ -134,4 +134,13 @@ func TestNodesAddAndTestOverRemoteContext(t *testing.T) {
 	} {
 		assert.Contains(t, tested.Stdout(), line)
 	}
+
+	// The server reads a key on its own host, so a remote add stores its path
+	// as given, even one the CLI's platform would read as relative.
+	run("", "nodes", "add", "win01", "--host", "127.0.0.1", "--key", `C:\dagu\id`, "--no-test").ExpectExitCode(0)
+	shown := run("", "nodes", "show", "win01", "--format", "json")
+	shown.ExpectExitCode(0)
+	var win01 node
+	require.NoError(t, json.Unmarshal([]byte(shown.Stdout()), &win01), shown.Stdout())
+	assert.Equal(t, map[string]string{"file": `C:\dagu\id`}, win01.Key)
 }
