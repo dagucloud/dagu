@@ -459,7 +459,6 @@ export const mainListItems = React.forwardRef<
     // The runs are a mode of the Workflows page: a starred run view takes
     // the active mark from the Workflows entry too.
     '/dags': isPinnedWorkflowViewActive || isPinnedRunViewActive,
-    '/dag-runs': isPinnedRunViewActive,
     '/artifacts': isPinnedArtifactViewActive,
   };
   const mainItems = navigation.mainItems.map((item) => ({

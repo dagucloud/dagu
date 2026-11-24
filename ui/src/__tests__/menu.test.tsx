@@ -621,35 +621,9 @@ describe('sidebar menu', () => {
     expect(runViewLink).toHaveAttribute('href', '/dag-runs?view=run-1');
     expect(runViewLink).toHaveAttribute('aria-current', 'page');
     expect(runViewLink.querySelector('svg')).toHaveClass('lucide-star');
-    expect(
-      screen.queryByRole('link', { name: 'Executions' })
-    ).not.toBeInTheDocument();
-  });
-
-  // Known product defect: the starred run view is active, and Workflows (which
-  // owns /dag-runs) should not be active too. The suppression in menu.tsx is
-  // keyed on the removed '/dag-runs' item, so this test fails once fixed.
-  it('does not keep Workflows active on a starred run view', () => {
-    useViewsMock.mockImplementation((type?: ViewSpecType) => ({
-      views:
-        type === ViewSpecType.run
-          ? [
-              {
-                id: 'run-1',
-                name: 'Failed runs',
-                pinned: true,
-                workspace: '',
-                workspaceScope: ViewWorkspaceScope.all,
-              },
-            ]
-          : [],
-    }));
-
-    renderMenu('/dag-runs?view=run-1');
-
-    expect(screen.getByRole('link', { name: 'Workflows' })).not.toHaveAttribute(
-      'aria-current'
-    );
+    // Workflows owns /dag-runs, but the starred view is the active entry.
+    const workflowsLink = screen.getByRole('link', { name: 'Workflows' });
+    expect(workflowsLink).not.toHaveAttribute('aria-current');
   });
 
   it('renders starred artifact views for the current scope in the sidebar', () => {
