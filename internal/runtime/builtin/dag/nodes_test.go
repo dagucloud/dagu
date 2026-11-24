@@ -18,7 +18,10 @@ import (
 func nodesExecutorWith(limit int, matched []executor.NodeRun, results map[string]*ir.RunStatus) *parallelExecutor {
 	e := &parallelExecutor{
 		results: results,
-		nodes:   &nodeDispatch{started: map[string]time.Time{}, finished: map[string]time.Time{}, maxOutputSize: limit},
+		nodes: &nodeDispatch{
+			started: map[string]time.Time{}, finished: map[string]time.Time{}, active: map[string]bool{},
+			maxOutputSize: limit,
+		},
 	}
 	e.SetNodes(matched)
 	for runID := range results {

@@ -644,7 +644,7 @@ func (a *API) openForeachStepLog(ctx context.Context, node foreachStep, item, bo
 }
 
 func readJSONFile(path string, v any) error {
-	data, err := os.ReadFile(path) //nolint:gosec // paths derive from recorded log locations and validated segments
+	data, err := fileutil.ReadFile(path) //nolint:gosec // paths derive from recorded log locations and validated segments
 	if err != nil {
 		return err
 	}

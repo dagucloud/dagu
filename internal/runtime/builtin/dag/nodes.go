@@ -33,6 +33,8 @@ type nodeDispatch struct {
 	started map[string]time.Time
 	// finished holds when each node last returned, by run ID.
 	finished map[string]time.Time
+	// active holds the run IDs of the nodes with an attempt in flight.
+	active map[string]bool
 	// changed marks a change the step's records do not show yet.
 	changed bool
 	// maxOutputSize limits the aggregate the step writes.
@@ -74,6 +76,7 @@ func newNodesExecutor(ctx context.Context, step ir.Step) (executor.Executor, err
 			keepGoing:     step.Nodes.KeepGoing,
 			started:       make(map[string]time.Time),
 			finished:      make(map[string]time.Time),
+			active:        make(map[string]bool),
 			maxOutputSize: maxOutputSize,
 		},
 	}, nil
@@ -151,6 +154,7 @@ func (e *parallelExecutor) noteNodeStart(runID string) {
 	if _, started := e.nodes.started[runID]; !started {
 		e.nodes.started[runID] = time.Now()
 	}
+	e.nodes.active[runID] = true
 	e.nodes.changed = true
 }
 
@@ -162,33 +166,37 @@ func (e *parallelExecutor) noteNodeFinish(runID string) {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 	e.nodes.finished[runID] = time.Now()
+	e.nodes.active[runID] = false
 	e.nodes.changed = true
 }
 
 // nodeRunStatus returns the status of a matched node's run. ended tells that
-// the step has ended, after which a node that started and returned no result
-// failed. Callers hold e.lock.
+// the step has ended, after which no attempt of a node runs. A node that
+// returned no result failed. Callers hold e.lock.
 func (e *parallelExecutor) nodeRunStatus(node executor.NodeRun, ended bool) ir.NodeRunStatus {
 	if node.Disabled {
 		return ir.NodeRunDisabled
 	}
-	if result, ok := e.results[node.Run.RunID]; ok {
-		// A node with a step retry pending runs again.
-		if len(result.PendingStepRetries) > 0 && !ended && !e.cancelled() {
-			return ir.NodeRunRunning
-		}
-		return ir.NodeRunStatusOf(result.Status)
-	}
-	_, started := e.nodes.started[node.Run.RunID]
-	switch {
-	case !started:
+	id := node.Run.RunID
+	if _, started := e.nodes.started[id]; !started {
 		return ir.NodeRunNotStarted
+	}
+	active := e.nodes.active[id]
+	result, returned := e.results[id]
+	switch {
+	case active && e.cancelled():
+		return ir.NodeRunAborted
+	case active && !ended:
+		return ir.NodeRunRunning
+	case returned && len(result.PendingStepRetries) > 0 && !ended && !e.cancelled():
+		// A step retry of the node is pending.
+		return ir.NodeRunRunning
+	case returned:
+		return ir.NodeRunStatusOf(result.Status)
 	case e.cancelled():
 		return ir.NodeRunAborted
-	case ended:
-		return ir.NodeRunFailed
 	default:
-		return ir.NodeRunRunning
+		return ir.NodeRunFailed
 	}
 }
 

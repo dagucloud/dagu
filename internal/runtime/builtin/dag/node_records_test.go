@@ -6,10 +6,10 @@ package dag
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
@@ -20,7 +20,7 @@ import (
 )
 
 // recordingStep returns a step with nodes over web01, web02 (disabled),
-// web03, and web04, and the context of a run that logs the step beside the
+// web03, web04, and web05, and the context of a run that logs the step beside the
 // directory its records go to.
 func recordingStep(t *testing.T) (*parallelExecutor, context.Context, string) {
 	t.Helper()
@@ -37,6 +37,7 @@ func recordingStep(t *testing.T) (*parallelExecutor, context.Context, string) {
 		{Node: "web02", Disabled: true},
 		{Node: "web03", Run: executor.RunParams{RunID: "c", DAGName: "deploy-one"}},
 		{Node: "web04", Run: executor.RunParams{RunID: "d", DAGName: "deploy-one"}},
+		{Node: "web05", Run: executor.RunParams{RunID: "e", DAGName: "deploy-one"}},
 	}, map[string]*ir.RunStatus{})
 	e.step = ir.Step{Name: "deploy"}
 	return e, runtime.WithEnv(ctx, env), logpath.NodeRunsDir(logDir, "deploy")
@@ -48,11 +49,11 @@ func readNodeRecords(t *testing.T, dir string) ([]string, ir.NodeRuns, ir.NodeRu
 	t.Helper()
 
 	var records ir.NodeRuns
-	data, err := os.ReadFile(filepath.Join(dir, logpath.NodeRunsFile))
+	data, err := fileutil.ReadFile(filepath.Join(dir, logpath.NodeRunsFile))
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(data, &records))
 	var counts ir.NodeRunCounts
-	data, err = os.ReadFile(filepath.Join(dir, logpath.NodeRunsSummaryFile))
+	data, err = fileutil.ReadFile(filepath.Join(dir, logpath.NodeRunsSummaryFile))
 	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(data, &counts))
 
@@ -72,8 +73,8 @@ func TestNodeRunRecords(t *testing.T) {
 	finish := e.recordNodeRuns(ctx)
 
 	statuses, _, counts := readNodeRecords(t, dir)
-	require.Equal(t, []string{"web01=not_started", "web02=disabled", "web03=not_started", "web04=not_started"}, statuses)
-	require.Equal(t, ir.NodeRunCounts{Total: 4, NotStarted: 3, Disabled: 1}, counts)
+	require.Equal(t, []string{"web01=not_started", "web02=disabled", "web03=not_started", "web04=not_started", "web05=not_started"}, statuses)
+	require.Equal(t, ir.NodeRunCounts{Total: 5, NotStarted: 4, Disabled: 1}, counts)
 
 	e.noteNodeStart("a")
 	e.lock.Lock()
@@ -81,16 +82,20 @@ func TestNodeRunRecords(t *testing.T) {
 	e.lock.Unlock()
 	e.noteNodeFinish("a")
 	e.noteNodeStart("c")
+	// web04 returned without a result, as a child run that failed to start
+	// does.
+	e.noteNodeStart("d")
+	e.noteNodeFinish("d")
 	e.writeNodeRuns(ctx, dir, false)
 	statuses, _, counts = readNodeRecords(t, dir)
-	require.Equal(t, []string{"web01=failed", "web02=disabled", "web03=running", "web04=not_started"}, statuses)
-	require.Equal(t, ir.NodeRunCounts{Total: 4, NotStarted: 1, Running: 1, Failed: 1, Disabled: 1}, counts)
+	require.Equal(t, []string{"web01=failed", "web02=disabled", "web03=running", "web04=failed", "web05=not_started"}, statuses)
+	require.Equal(t, ir.NodeRunCounts{Total: 5, NotStarted: 1, Running: 1, Failed: 2, Disabled: 1}, counts)
 
-	// web03 returned no result before the step ended, so it failed.
+	// web03 was still running when the step ended, so it failed.
 	finish()
 	statuses, records, counts := readNodeRecords(t, dir)
-	require.Equal(t, []string{"web01=failed", "web02=disabled", "web03=failed", "web04=not_started"}, statuses)
-	require.Equal(t, ir.NodeRunCounts{Total: 4, NotStarted: 1, Failed: 2, Disabled: 1}, counts)
+	require.Equal(t, []string{"web01=failed", "web02=disabled", "web03=failed", "web04=failed", "web05=not_started"}, statuses)
+	require.Equal(t, ir.NodeRunCounts{Total: 5, NotStarted: 1, Failed: 3, Disabled: 1}, counts)
 
 	web01 := records.Runs[0]
 	require.Equal(t, "deploy-one", web01.DAGName)
@@ -100,7 +105,7 @@ func TestNodeRunRecords(t *testing.T) {
 	require.NotEmpty(t, web01.StartedAt)
 	require.NotEmpty(t, web01.FinishedAt)
 	require.Equal(t, ir.NodeRun{Node: "web02", Status: ir.NodeRunDisabled}, records.Runs[1])
-	require.Empty(t, records.Runs[3].StartedAt)
+	require.Empty(t, records.Runs[4].StartedAt)
 }
 
 // A node running when the step is aborted is aborted. A node that never
@@ -115,7 +120,7 @@ func TestNodeRunRecordsAborted(t *testing.T) {
 	finish()
 
 	statuses, _, _ := readNodeRecords(t, dir)
-	require.Equal(t, []string{"web01=aborted", "web02=disabled", "web03=not_started", "web04=not_started"}, statuses)
+	require.Equal(t, []string{"web01=aborted", "web02=disabled", "web03=not_started", "web04=not_started", "web05=not_started"}, statuses)
 }
 
 // A step that has no log file has nowhere to keep records, so it keeps none.

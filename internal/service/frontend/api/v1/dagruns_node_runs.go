@@ -26,10 +26,13 @@ import (
 func (a *API) GetDAGRunNodeRuns(ctx context.Context, request api.GetDAGRunNodeRunsRequestObject) (api.GetDAGRunNodeRunsResponseObject, error) {
 	dagStatus, err := a.dagRunMgr.GetSavedStatus(ctx, ir.NewDAGRunRef(request.Name, request.DagRunId))
 	if err != nil {
-		return api.GetDAGRunNodeRuns404JSONResponse{
-			Code:    api.ErrorCodeNotFound,
-			Message: fmt.Sprintf("dag-run ID %s not found for DAG %s", request.DagRunId, request.Name),
-		}, nil
+		if isDAGRunLookupNotFound(err) {
+			return api.GetDAGRunNodeRuns404JSONResponse{
+				Code:    api.ErrorCodeNotFound,
+				Message: fmt.Sprintf("dag-run ID %s not found for DAG %s", request.DagRunId, request.Name),
+			}, nil
+		}
+		return nil, err
 	}
 	if err := a.requireWorkspaceVisible(ctx, statusWorkspaceName(dagStatus)); err != nil {
 		return nil, err
