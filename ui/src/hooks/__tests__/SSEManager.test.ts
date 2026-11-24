@@ -86,6 +86,10 @@ describe('endpointToTopic', () => {
         'dagrunactivity:hours=24&workspace=ops',
       ],
       [
+        '/events/dag-list-activity?window=86400&page=1&perPage=100',
+        'daglistactivity:page=1&perPage=100&window=86400',
+      ],
+      [
         '/events/dag-runs/mydag/run-1/sub-dag-runs/sub-1',
         'subdagrun:mydag/run-1/sub-1',
       ],

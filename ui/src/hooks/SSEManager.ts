@@ -132,6 +132,9 @@ export function endpointToTopic(endpoint: string): string {
   if (segments.length === 2 && segments[1] === 'dag-run-activity') {
     return buildTopic('dagrunactivity', query);
   }
+  if (segments.length === 2 && segments[1] === 'dag-list-activity') {
+    return buildTopic('daglistactivity', query);
+  }
   if (segments.length === 4 && segments[1] === 'dag-runs') {
     return buildTopic('dagrun', `${segments[2]}/${segments[3]}`);
   }
