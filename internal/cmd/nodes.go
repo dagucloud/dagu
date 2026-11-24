@@ -90,6 +90,9 @@ func nodesListCommand() *cobra.Command {
 		if err != nil {
 			return err
 		}
+		if ctx.IsRemote() {
+			return remoteNodesList(ctx, format)
+		}
 		store, err := ctx.inventoryStore()
 		if err != nil {
 			return err
@@ -110,15 +113,7 @@ func nodesListCommand() *cobra.Command {
 			nodes = slices.DeleteFunc(nodes, func(n inventory.ResolvedNode) bool { return n.InventoryID != inv.ID })
 		}
 
-		out := ctx.Command.OutOrStdout()
-		if format == nodesFormatJSON {
-			views := make([]nodeView, 0, len(nodes))
-			for _, n := range nodes {
-				views = append(views, nodeViewOf(n))
-			}
-			return writeNodesJSON(out, views)
-		}
-		return renderNodesTable(out, nodes)
+		return printNodes(ctx, format, nodes)
 	})
 }
 
@@ -135,6 +130,13 @@ never as secret values.`,
 		if err != nil {
 			return err
 		}
+		if ctx.IsRemote() {
+			node, err := ctx.Remote.remoteNode(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			return printNode(ctx, format, node)
+		}
 		store, err := ctx.inventoryStore()
 		if err != nil {
 			return err
@@ -148,12 +150,7 @@ never as secret values.`,
 		if i < 0 {
 			return fmt.Errorf("node %q not found", args[0])
 		}
-
-		out := ctx.Command.OutOrStdout()
-		if format == nodesFormatJSON {
-			return writeNodesJSON(out, nodeViewOf(nodes[i]))
-		}
-		return renderNode(out, nodes[i])
+		return printNode(ctx, format, nodes[i])
 	})
 }
 
@@ -187,11 +184,18 @@ nothing is stored and every broken rule is listed. --dry-run only checks.`,
 		if err != nil {
 			return err
 		}
-		store, err := ctx.inventoryStore()
-		if err != nil {
-			return err
+		opts := inventory.ImportOptions{Replace: replace, DryRun: dryRun}
+		var result inventory.ImportResult
+		if ctx.IsRemote() {
+			// The server decodes the file again, as it was read.
+			result, err = ctx.Remote.remoteImport(ctx, data, opts)
+		} else {
+			var store inventory.Store
+			if store, err = ctx.inventoryStore(); err != nil {
+				return err
+			}
+			result, err = store.Import(ctx, invs, opts)
 		}
-		result, err := store.Import(ctx, invs, inventory.ImportOptions{Replace: replace, DryRun: dryRun})
 		if errors.Is(err, inventory.ErrInvalid) {
 			return fmt.Errorf("nothing imported:\n%w", err)
 		}
@@ -216,6 +220,9 @@ reads it. IDs are left out, so the output imports into any installation.`,
 		if err != nil {
 			return err
 		}
+		if ctx.IsRemote() {
+			return remoteNodesExport(ctx, ref)
+		}
 		store, err := ctx.inventoryStore()
 		if err != nil {
 			return err
@@ -231,14 +238,41 @@ reads it. IDs are left out, so the output imports into any installation.`,
 		if err != nil {
 			return err
 		}
-		invs := make([]inventory.Inventory, 0, len(stored))
-		for _, s := range stored {
-			inv := s.Inventory
-			inv.ID = ""
-			invs = append(invs, inv)
-		}
-		return writeNodesJSON(ctx.Command.OutOrStdout(), invs)
+		return writeExport(ctx, stored)
 	})
+}
+
+// writeExport prints stored as a JSON array without IDs, as import reads it.
+func writeExport(ctx *Context, stored []inventory.Stored) error {
+	invs := make([]inventory.Inventory, 0, len(stored))
+	for _, s := range stored {
+		inv := s.Inventory
+		inv.ID = ""
+		invs = append(invs, inv)
+	}
+	return writeNodesJSON(ctx.Command.OutOrStdout(), invs)
+}
+
+// printNodes prints nodes as a table, or as JSON.
+func printNodes(ctx *Context, format string, nodes []inventory.ResolvedNode) error {
+	out := ctx.Command.OutOrStdout()
+	if format == nodesFormatJSON {
+		views := make([]nodeView, 0, len(nodes))
+		for _, n := range nodes {
+			views = append(views, nodeViewOf(n))
+		}
+		return writeNodesJSON(out, views)
+	}
+	return renderNodesTable(out, nodes)
+}
+
+// printNode prints one node as a table, or as JSON.
+func printNode(ctx *Context, format string, node inventory.ResolvedNode) error {
+	out := ctx.Command.OutOrStdout()
+	if format == nodesFormatJSON {
+		return writeNodesJSON(out, nodeViewOf(node))
+	}
+	return renderNode(out, node)
 }
 
 // nodeView is a node as the CLI prints it in JSON: its fields with the
@@ -426,6 +460,12 @@ func findInventory(ctx *Context, store inventory.Store, ref string) (inventory.S
 	if err != nil {
 		return inventory.Stored{}, err
 	}
+	return findInventoryIn(all, ref)
+}
+
+// findInventoryIn returns the inventory of all with the given ID, or else the
+// one with the given name, compared without case.
+func findInventoryIn(all []inventory.Stored, ref string) (inventory.Stored, error) {
 	if i := slices.IndexFunc(all, func(s inventory.Stored) bool { return s.ID == ref }); i >= 0 {
 		return all[i], nil
 	}

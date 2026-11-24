@@ -7,8 +7,10 @@ export, and changes to one node are implemented through `dagu nodes list`,
 `show`, `add`, `remove`, `import`, and `export`, and conformance covers them
 through those commands. Testing connections and trusting host keys are
 implemented over the API and through `dagu nodes test`, and conformance
-covers both. Worker nodes are not implemented yet, and further sections are
-added as they land ([RFC 012](../rfcs/012-node-inventory.md)).
+covers both. The commands also run against a remote context, and
+conformance compares their output with a local run. Worker nodes are not
+implemented yet, and further sections are added as they land
+([RFC 012](../rfcs/012-node-inventory.md)).
 
 ## Scope
 
@@ -116,7 +118,7 @@ order, comparing bytes.
 | --- | --- |
 | `dagu nodes list [--labels <selector>] [--inventory <name or id>] [--format table\|json]` | Prints the nodes the selector matches, or every node without `--labels` |
 | `dagu nodes show <name> [--format table\|json]` | Prints one node. The name is compared without case |
-| `dagu nodes add <name> --host <host> [--inventory <name or id>] [flags]` | Adds a node, or replaces the node of that name, as [Changing inventories](#changing-inventories) defines |
+| `dagu nodes add <name> --host <host> [--inventory <name or id>] [flags]` | Adds a node, as [Changing inventories](#changing-inventories) defines |
 | `dagu nodes remove <name>` | Removes a node from the inventory that holds it |
 | `dagu nodes test [<name>...] [--labels <selector>]` | Tests the named nodes, the nodes the selector matches, or every node, and trusts the host keys the user accepts, as [Host keys](#host-keys) defines |
 | `dagu nodes import <file> [--replace] [--dry-run]` | Imports a JSON array of inventories, as [Import](#import) defines |
@@ -136,7 +138,12 @@ order, comparing bytes.
   array of them.
 - Credentials are printed as `{ "secret": <ref> }` or `{ "file": <path> }`,
   never as values.
-- The commands work on the local installation only.
+- Against a remote context, chosen with `--context` or `dagu context
+  use`, the commands reach the server's inventories through its API and
+  print the same output and errors as against the local installation.
+  `add` and `test` connect from the server, as tests and trusts over the
+  API do. A remote `add` refuses a relative `--key` path, since the server
+  reads the key on its own host.
 
 ### Import
 
@@ -188,8 +195,11 @@ inventory. A relative `--key` path is stored as an absolute path, since
 the node is later connected from other working directories. Before it
 saves, `add` tests the connection as [Host keys](#host-keys) defines.
 
+- `add` adds new nodes only. A name the inventory holds, compared without
+  case, is refused before anything is tested: `node "<name>" not added:
+  inventory "<inventory>" already has a node "<held name>"`.
 - A node that passes is saved, and `add` prints `added <name> in
-  <inventory>`, or `replaced` for a node of that name.
+  <inventory>`.
 - When a hop's host key is unknown, `add` prints `The host key of <hop>
   "<node>" is unknown: <fingerprint>` and asks before it trusts the key. On
   yes it tests again with that key accepted for that hop only, and saves the

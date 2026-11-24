@@ -36,11 +36,7 @@ fails when any node fails its last test.`,
 }
 
 func runNodesTest(ctx *Context, args []string) error {
-	stores, err := ctx.nodeStores()
-	if err != nil {
-		return err
-	}
-	nodes, err := stores.inventories.Nodes(ctx)
+	nodes, tester, err := nodesTester(ctx)
 	if err != nil {
 		return err
 	}
@@ -53,13 +49,53 @@ func runNodesTest(ctx *Context, args []string) error {
 		width = max(width, len(node.Name))
 	}
 	session := connectionTest{
-		ctx:     ctx,
-		service: nodeconn.New(stores.hostKeys, ctx.secretResolver()),
-		nodes:   nodes,
-		out:     ctx.Command.OutOrStdout(),
-		width:   width,
+		ctx:    ctx,
+		tester: tester,
+		nodes:  nodes,
+		out:    ctx.Command.OutOrStdout(),
+		width:  width,
 	}
 	return session.run(targets)
+}
+
+// nodeTester tests nodes and trusts their host keys, in this process or on
+// the server of a remote context.
+type nodeTester interface {
+	test(ctx context.Context, targets []inventory.ResolvedNode, emit func(nodeconn.TestResult)) error
+	trust(ctx context.Context, requests []nodeconn.TrustRequest, by string, emit func(nodeconn.TrustResult)) error
+}
+
+// nodesTester returns every node, and the tester that reaches them.
+func nodesTester(ctx *Context) ([]inventory.ResolvedNode, nodeTester, error) {
+	if ctx.IsRemote() {
+		nodes, err := ctx.Remote.remoteNodes(ctx, nil, "")
+		return nodes, remoteTester{client: ctx.Remote}, err
+	}
+	stores, err := ctx.nodeStores()
+	if err != nil {
+		return nil, nil, err
+	}
+	nodes, err := stores.inventories.Nodes(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return nodes, localTester{service: nodeconn.New(stores.hostKeys, ctx.secretResolver()), nodes: nodes}, nil
+}
+
+// localTester tests nodes and trusts host keys in this process.
+type localTester struct {
+	service *nodeconn.Service
+	nodes   []inventory.ResolvedNode
+}
+
+func (l localTester) test(ctx context.Context, targets []inventory.ResolvedNode, emit func(nodeconn.TestResult)) error {
+	l.service.Test(ctx, l.nodes, targets, emit)
+	return nil
+}
+
+func (l localTester) trust(ctx context.Context, requests []nodeconn.TrustRequest, by string, emit func(nodeconn.TrustResult)) error {
+	l.service.Trust(ctx, l.nodes, requests, by, emit)
+	return nil
 }
 
 // testTargets returns the nodes named in args, or the nodes --labels
@@ -104,10 +140,10 @@ func testTargets(ctx *Context, nodes []inventory.ResolvedNode, args []string) ([
 
 // connectionTest tests nodes, and trusts the host keys the user accepts.
 type connectionTest struct {
-	ctx     *Context
-	service *nodeconn.Service
-	nodes   []inventory.ResolvedNode
-	out     io.Writer
+	ctx    *Context
+	tester nodeTester
+	nodes  []inventory.ResolvedNode
+	out    io.Writer
 	// width is the width of the name column of the results.
 	width int
 }
@@ -122,16 +158,22 @@ func (t connectionTest) run(targets []inventory.ResolvedNode) error {
 	asked := map[string]bool{}
 	for len(targets) > 0 {
 		var round []nodeconn.TestResult
-		t.service.Test(t.ctx, t.nodes, targets, func(result nodeconn.TestResult) {
+		err := t.tester.test(t.ctx, targets, func(result nodeconn.TestResult) {
 			t.printResult(result)
 			last[strings.ToLower(result.Node)] = result
 			round = append(round, result)
 		})
+		if err != nil {
+			return err
+		}
 		offers := keyOffers(round, asked)
 		if len(offers) == 0 {
 			break
 		}
-		trusted := t.trust(t.confirmOffers(offers))
+		trusted, err := t.trust(t.confirmOffers(offers))
+		if err != nil {
+			return err
+		}
 		targets = nil
 		for _, result := range round {
 			if result.Refused != nil && trusted[strings.ToLower(result.Refused.Node)] {
@@ -240,14 +282,14 @@ func (t connectionTest) confirmOffers(offers []keyOffer) []keyOffer {
 
 // trust trusts the accepted keys and returns the nodes, lowercased, whose
 // key is now trusted.
-func (t connectionTest) trust(accepted []keyOffer) map[string]bool {
+func (t connectionTest) trust(accepted []keyOffer) (map[string]bool, error) {
 	requests := make([]nodeconn.TrustRequest, 0, len(accepted))
 	for _, offer := range accepted {
 		requests = append(requests, nodeconn.TrustRequest{Node: offer.node, Fingerprint: offer.presented, Replace: offer.trusted})
 	}
 	by, _ := localOSSubject(user.Current)
 	trusted := map[string]bool{}
-	t.service.Trust(t.ctx, t.nodes, requests, by, func(result nodeconn.TrustResult) {
+	err := t.tester.trust(t.ctx, requests, by, func(result nodeconn.TrustResult) {
 		switch result.Outcome {
 		case nodeconn.TrustOutcomeTrusted:
 			_, _ = fmt.Fprintf(t.out, "trusted host key %s of %s\n", result.Fingerprint, result.Node)
@@ -261,5 +303,5 @@ func (t connectionTest) trust(accepted []keyOffer) map[string]bool {
 		}
 		trusted[strings.ToLower(result.Node)] = true
 	})
-	return trusted
+	return trusted, err
 }

@@ -1,0 +1,478 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package cmd
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+	"time"
+
+	api "github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/nodeconn"
+	"github.com/dagucloud/dagu/v2/internal/sshconn"
+)
+
+const (
+	// remoteNodesPerPage is the most nodes GET /nodes returns per page.
+	remoteNodesPerPage = 200
+	// remoteTestBatch is the most nodes one test request names, as the
+	// server allows.
+	remoteTestBatch = 1000
+	// maxRemoteEventBytes bounds one line of an event stream.
+	maxRemoteEventBytes = 1 << 20
+)
+
+// remoteNodesList prints the nodes --labels matches on the server of a
+// remote context, limited to --inventory when it is given.
+func remoteNodesList(ctx *Context, format string) error {
+	var selector *string
+	if ctx.Command.Flags().Changed("labels") {
+		value, err := ctx.StringParam("labels")
+		if err != nil {
+			return err
+		}
+		// The selector is checked here as a local list checks it, so an
+		// invalid one fails alike.
+		if _, err := inventory.ParseSelector(value); err != nil {
+			return err
+		}
+		selector = &value
+	}
+	ref, err := ctx.StringParam("inventory")
+	if err != nil {
+		return err
+	}
+	var inventoryID string
+	if ref != "" {
+		all, err := ctx.Remote.remoteInventories(ctx)
+		if err != nil {
+			return err
+		}
+		inv, err := findInventoryIn(all, ref)
+		if err != nil {
+			return err
+		}
+		inventoryID = inv.ID
+	}
+	nodes, err := ctx.Remote.remoteNodes(ctx, selector, inventoryID)
+	if err != nil {
+		return err
+	}
+	return printNodes(ctx, format, nodes)
+}
+
+// remoteNodesExport prints the inventories of the server of a remote
+// context, or the one ref names, as a local export prints them.
+func remoteNodesExport(ctx *Context, ref string) error {
+	all, err := ctx.Remote.remoteInventories(ctx)
+	if err != nil {
+		return err
+	}
+	if ref != "" {
+		inv, err := findInventoryIn(all, ref)
+		if err != nil {
+			return err
+		}
+		all = []inventory.Stored{inv}
+	}
+	stored := make([]inventory.Stored, 0, len(all))
+	for _, summary := range all {
+		inv, err := ctx.Remote.remoteInventory(ctx, summary.ID)
+		if err != nil {
+			return err
+		}
+		stored = append(stored, inv)
+	}
+	return writeExport(ctx, stored)
+}
+
+// remoteNodesRemove removes the node named name from its inventory on the
+// server of a remote context.
+func remoteNodesRemove(ctx *Context, name string) error {
+	node, err := ctx.Remote.remoteNode(ctx, name)
+	if err != nil {
+		return err
+	}
+	holder, err := ctx.Remote.remoteInventory(ctx, node.InventoryID)
+	if err != nil {
+		return err
+	}
+	if err := ctx.Remote.remoteDeleteNode(ctx, holder.ID, node.Name, holder.Version); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(ctx.Command.OutOrStdout(), "removed %s from %s\n", node.Name, holder.Name)
+	return nil
+}
+
+// remoteInventory is an inventory as GET /inventories/{id} returns it: the
+// record, which an export prints, and the version a change names.
+type remoteInventory struct {
+	inventory.Inventory
+	Version int64 `json:"version"`
+}
+
+// remoteNodes lists the nodes the selector matches, or every node when
+// selector is nil, limited to the inventory inventoryID when it is set.
+func (c *remoteClient) remoteNodes(ctx context.Context, selector *string, inventoryID string) ([]inventory.ResolvedNode, error) {
+	var nodes []inventory.ResolvedNode
+	for page := 1; ; page++ {
+		query := map[string]string{"page": strconv.Itoa(page), "perPage": strconv.Itoa(remoteNodesPerPage), "inventory": inventoryID}
+		if selector != nil {
+			query["labels"] = *selector
+		}
+		var out api.InventoryNodeListResponse
+		if err := c.do(ctx, http.MethodGet, "/nodes", nil, &out, query); err != nil {
+			return nil, err
+		}
+		for _, node := range out.Nodes {
+			resolved, err := resolvedNodeOf(node)
+			if err != nil {
+				return nil, err
+			}
+			nodes = append(nodes, resolved)
+		}
+		if !out.Pagination.HasNextPage || len(out.Nodes) == 0 {
+			return nodes, nil
+		}
+	}
+}
+
+// remoteNode returns the node named name, or an error naming it when the
+// server holds none.
+func (c *remoteClient) remoteNode(ctx context.Context, name string) (inventory.ResolvedNode, error) {
+	var out api.InventoryNode
+	err := c.do(ctx, http.MethodGet, "/nodes/"+url.PathEscape(name), nil, &out, nil)
+	if remote, ok := errors.AsType[*remoteError](err); ok && remote.NotFound() {
+		return inventory.ResolvedNode{}, fmt.Errorf("node %q not found", name)
+	}
+	if err != nil {
+		return inventory.ResolvedNode{}, err
+	}
+	return resolvedNodeOf(out)
+}
+
+// remoteInventories lists the inventories, without their nodes.
+func (c *remoteClient) remoteInventories(ctx context.Context) ([]inventory.Stored, error) {
+	var out api.InventoryListResponse
+	if err := c.do(ctx, http.MethodGet, "/inventories", nil, &out, nil); err != nil {
+		return nil, err
+	}
+	all := make([]inventory.Stored, 0, len(out.Inventories))
+	for _, summary := range out.Inventories {
+		all = append(all, inventory.Stored{
+			Inventory: inventory.Inventory{ID: summary.Id, Name: summary.Name, Description: derefString(summary.Description)},
+			Version:   summary.Version,
+		})
+	}
+	return all, nil
+}
+
+// remoteInventory returns the inventory id with its nodes.
+func (c *remoteClient) remoteInventory(ctx context.Context, id string) (inventory.Stored, error) {
+	var out remoteInventory
+	if err := c.do(ctx, http.MethodGet, "/inventories/"+url.PathEscape(id), nil, &out, nil); err != nil {
+		return inventory.Stored{}, err
+	}
+	return inventory.Stored{Inventory: out.Inventory, Version: out.Version}, nil
+}
+
+// remoteImport imports data, a JSON array of inventories, as it was read.
+func (c *remoteClient) remoteImport(ctx context.Context, data []byte, opts inventory.ImportOptions) (inventory.ImportResult, error) {
+	query := map[string]string{"replace": strconv.FormatBool(opts.Replace), "dryRun": strconv.FormatBool(opts.DryRun)}
+	var out api.InventoryImportResult
+	if err := c.do(ctx, http.MethodPost, "/inventory-imports", json.RawMessage(data), &out, query); err != nil {
+		return inventory.ImportResult{}, ruleErrorsOf(err)
+	}
+	return inventory.ImportResult{Created: out.Created, Replaced: out.Replaced}, nil
+}
+
+// remoteAddNode adds node to the inventory id at version, and trusts the
+// accepted keys once it is stored.
+func (c *remoteClient) remoteAddNode(ctx context.Context, id string, version int64, node inventory.Node, accepted []nodeconn.Accepted) (inventory.Stored, error) {
+	body := map[string]any{"node": node}
+	if len(accepted) > 0 {
+		body["trust"] = acceptedKeysOf(accepted)
+	}
+	var out remoteInventory
+	query := map[string]string{"version": strconv.FormatInt(version, 10)}
+	if err := c.do(ctx, http.MethodPost, "/inventories/"+url.PathEscape(id)+"/nodes", body, &out, query); err != nil {
+		return inventory.Stored{}, ruleErrorsOf(err)
+	}
+	return inventory.Stored{Inventory: out.Inventory, Version: out.Version}, nil
+}
+
+// remoteDeleteNode removes the node named name from the inventory id at
+// version.
+func (c *remoteClient) remoteDeleteNode(ctx context.Context, id, name string, version int64) error {
+	query := map[string]string{"version": strconv.FormatInt(version, 10)}
+	path := "/inventories/" + url.PathEscape(id) + "/nodes/" + url.PathEscape(name)
+	return ruleErrorsOf(c.do(ctx, http.MethodDelete, path, nil, nil, query))
+}
+
+// stream posts body to path and passes each event of the server-sent event
+// stream that answers to handle, until the done event. A stream lasts as
+// long as the nodes take, so it is bounded by ctx, not by the client's
+// request timeout; the server keeps it alive while nodes are slow.
+func (c *remoteClient) stream(ctx context.Context, path string, body any, handle func(event string, data []byte) error) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	resp, err := (&http.Client{Transport: c.client.Transport}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return ruleErrorsOf(decodeRemoteError(resp))
+	}
+	return readEvents(resp.Body, handle)
+}
+
+// readEvents reads a server-sent event stream and passes each event to
+// handle, until the done event. A keepalive comment carries no event. A
+// stream that ends before done is an error.
+func readEvents(r io.Reader, handle func(event string, data []byte) error) error {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxRemoteEventBytes)
+	var event string
+	var data []byte
+	for scanner.Scan() {
+		line := scanner.Text()
+		switch {
+		case line == "":
+			if event != "" {
+				if err := handle(event, data); err != nil {
+					return err
+				}
+				if event == "done" {
+					return nil
+				}
+			}
+			event, data = "", nil
+		case strings.HasPrefix(line, "event:"):
+			event = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		case strings.HasPrefix(line, "data:"):
+			data = append(data, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " ")...)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	return errors.New("the server closed the stream before every node finished")
+}
+
+// remoteTester tests nodes and trusts host keys on a remote server.
+type remoteTester struct {
+	client *remoteClient
+}
+
+func (r remoteTester) test(ctx context.Context, targets []inventory.ResolvedNode, emit func(nodeconn.TestResult)) error {
+	for start := 0; start < len(targets); start += remoteTestBatch {
+		names := nodeNamesOf(targets[start:min(start+remoteTestBatch, len(targets))])
+		err := r.client.stream(ctx, "/node-connection-tests", map[string]any{"nodes": names}, func(event string, data []byte) error {
+			return emitTestResult(event, data, emit)
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r remoteTester) trust(ctx context.Context, requests []nodeconn.TrustRequest, _ string, emit func(nodeconn.TrustResult)) error {
+	keys := make([]api.InventoryHostKeyTrustEntry, 0, len(requests))
+	for _, request := range requests {
+		entry := api.InventoryHostKeyTrustEntry{Node: request.Node, Fingerprint: request.Fingerprint}
+		if request.Replace != "" {
+			entry.Replace = &request.Replace
+		}
+		keys = append(keys, entry)
+	}
+	return r.client.stream(ctx, "/node-host-keys", map[string]any{"keys": keys}, func(event string, data []byte) error {
+		if event != "result" {
+			return nil
+		}
+		var result api.InventoryHostKeyTrust
+		if err := json.Unmarshal(data, &result); err != nil {
+			return fmt.Errorf("invalid trust result: %w", err)
+		}
+		emit(trustResultOf(result))
+		return nil
+	})
+}
+
+// remoteAdder tests a node that is not stored yet on a remote server, and
+// adds it there.
+type remoteAdder struct {
+	client *remoteClient
+	target inventory.Stored
+	node   inventory.Node
+}
+
+func (r remoteAdder) test(ctx context.Context, accepted []nodeconn.Accepted) (nodeconn.TestResult, error) {
+	body := map[string]any{"node": r.node}
+	if len(accepted) > 0 {
+		body["accept"] = acceptedKeysOf(accepted)
+	}
+	var result nodeconn.TestResult
+	err := r.client.stream(ctx, "/inventories/"+url.PathEscape(r.target.ID)+"/node-tests", body, func(event string, data []byte) error {
+		return emitTestResult(event, data, func(r nodeconn.TestResult) { result = r })
+	})
+	return result, err
+}
+
+func (r remoteAdder) add(ctx context.Context, accepted []nodeconn.Accepted, _ string) (inventory.Stored, []inventory.TrustedHostKey, error) {
+	stored, err := r.client.remoteAddNode(ctx, r.target.ID, r.target.Version, r.node, accepted)
+	if err != nil {
+		return inventory.Stored{}, nil, err
+	}
+	// The server trusts the accepted keys before it answers.
+	trusted := make([]inventory.TrustedHostKey, 0, len(accepted))
+	for _, key := range accepted {
+		trusted = append(trusted, inventory.TrustedHostKey{Node: key.Node, Fingerprint: key.Fingerprint})
+	}
+	return stored, trusted, nil
+}
+
+// emitTestResult passes a result event of a test stream to emit.
+func emitTestResult(event string, data []byte, emit func(nodeconn.TestResult)) error {
+	if event != "result" {
+		return nil
+	}
+	var result api.InventoryNodeConnectionTest
+	if err := json.Unmarshal(data, &result); err != nil {
+		return fmt.Errorf("invalid test result: %w", err)
+	}
+	emit(testResultOf(result))
+	return nil
+}
+
+// testResultOf maps a test result of the API to the one the local test
+// reports, so both print and prompt alike.
+func testResultOf(result api.InventoryNodeConnectionTest) nodeconn.TestResult {
+	out := nodeconn.TestResult{
+		Node:               result.Node,
+		Fingerprint:        derefString(result.Fingerprint),
+		BastionFingerprint: derefString(result.BastionFingerprint),
+		Duration:           time.Duration(result.DurationMs) * time.Millisecond,
+	}
+	if !result.Ok {
+		out.Err = errors.New(derefString(result.Error))
+	}
+	if refused := result.HostKey; refused != nil {
+		out.Refused = &sshconn.HostKeyRefusal{
+			Hop:       string(refused.Hop),
+			Node:      refused.Node,
+			Presented: derefString(refused.Presented),
+			Expected:  refused.Expected,
+			Trusted:   derefString(refused.Trusted),
+		}
+	}
+	return out
+}
+
+func trustResultOf(result api.InventoryHostKeyTrust) nodeconn.TrustResult {
+	out := nodeconn.TrustResult{
+		Node:        result.Node,
+		Fingerprint: result.Fingerprint,
+		Previous:    derefString(result.Previous),
+	}
+	if result.Outcome != nil {
+		out.Outcome = nodeconn.TrustOutcome(*result.Outcome)
+	}
+	if result.Error != nil {
+		out.Err = errors.New(*result.Error)
+	}
+	return out
+}
+
+// resolvedNodeOf maps a node of the API to the resolved node the local
+// commands print, so both print alike.
+func resolvedNodeOf(node api.InventoryNode) (inventory.ResolvedNode, error) {
+	timeout, err := time.ParseDuration(node.Timeout)
+	if err != nil {
+		return inventory.ResolvedNode{}, fmt.Errorf("node %q: invalid timeout %q: %w", node.Name, node.Timeout, err)
+	}
+	return inventory.ResolvedNode{
+		Name:          node.Name,
+		Host:          node.Host,
+		InventoryID:   node.Inventory.Id,
+		InventoryName: node.Inventory.Name,
+		Port:          node.Port,
+		User:          derefString(node.User),
+		Auth: ir.SSHAuth{
+			Key:              derefString(node.Auth.KeyPath),
+			KeySecret:        derefString(node.Auth.KeySecret),
+			PasswordSecret:   derefString(node.Auth.PasswordSecret),
+			PassphraseSecret: derefString(node.Auth.PassphraseSecret),
+		},
+		Bastion:       derefString(node.Bastion),
+		HostKey:       derefString(node.HostKey),
+		StrictHostKey: node.StrictHostKey,
+		Shell:         derefString(node.Shell),
+		Timeout:       timeout,
+		Labels:        ir.NewLabels(node.Labels),
+		Description:   derefString(node.Description),
+		Disabled:      node.Disabled,
+	}, nil
+}
+
+// ruleErrorsOf returns the broken rules a refused change lists as the
+// errors the local commands report, so both print alike. Any other error is
+// returned as it is.
+func ruleErrorsOf(err error) error {
+	remote, ok := errors.AsType[*remoteError](err)
+	if !ok || len(remote.Rules) == 0 {
+		return err
+	}
+	errs := make([]error, 0, len(remote.Rules))
+	for _, rule := range remote.Rules {
+		if rule.Inventory == nil {
+			errs = append(errs, errors.New(rule.Message))
+			continue
+		}
+		errs = append(errs, &inventory.Error{
+			Inventory: *rule.Inventory,
+			Node:      derefString(rule.Node),
+			Field:     derefString(rule.Field),
+			Err:       errors.New(rule.Message),
+		})
+	}
+	return errors.Join(errs...)
+}
+
+func acceptedKeysOf(accepted []nodeconn.Accepted) []api.InventoryAcceptedHostKey {
+	keys := make([]api.InventoryAcceptedHostKey, 0, len(accepted))
+	for _, key := range accepted {
+		keys = append(keys, api.InventoryAcceptedHostKey{Node: key.Node, Fingerprint: key.Fingerprint})
+	}
+	return keys
+}
+
+func nodeNamesOf(nodes []inventory.ResolvedNode) []string {
+	names := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		names = append(names, node.Name)
+	}
+	return names
+}

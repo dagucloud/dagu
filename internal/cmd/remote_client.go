@@ -36,6 +36,8 @@ type remoteClient struct {
 type remoteError struct {
 	StatusCode int
 	Message    string
+	// Rules are the broken rules a refused inventory change lists.
+	Rules []api.InventoryRuleError
 }
 
 func (e *remoteError) Error() string {
@@ -325,9 +327,12 @@ func decodeRemoteError(resp *http.Response) error {
 	if len(data) == 0 {
 		return &remoteError{StatusCode: resp.StatusCode, Message: resp.Status}
 	}
-	var apiErr api.Error
+	var apiErr struct {
+		Message string                   `json:"message"`
+		Errors  []api.InventoryRuleError `json:"errors"`
+	}
 	if err := json.Unmarshal(data, &apiErr); err == nil && apiErr.Message != "" {
-		return &remoteError{StatusCode: resp.StatusCode, Message: apiErr.Message}
+		return &remoteError{StatusCode: resp.StatusCode, Message: apiErr.Message, Rules: apiErr.Errors}
 	}
 	msg := strings.TrimSpace(string(data))
 	if len(data) > maxRemoteErrorBodyBytes {
