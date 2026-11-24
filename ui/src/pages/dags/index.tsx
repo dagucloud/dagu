@@ -1281,6 +1281,11 @@ function DAGsContent() {
             canPinDAG={canWriteDAG}
             onSetDAGPinned={handleSetDAGPinned}
             resultCount={data.pagination.totalRecords}
+            isRequestFiltered={
+              !!requestFilters.searchText ||
+              requestFilters.searchLabels.length > 0 ||
+              requestFilters.activeOnly
+            }
             onSetDAGsPinned={handleSetDAGsPinned}
           />
           <div className="mt-3 flex flex-col items-center gap-2">

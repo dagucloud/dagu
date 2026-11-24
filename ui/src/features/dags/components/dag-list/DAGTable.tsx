@@ -529,6 +529,11 @@ type Props = {
   onSetDAGsPinned: (fileNames: string[], pinned: boolean) => Promise<void>;
   /** Total workflows matching the server-side filters */
   resultCount?: number;
+  /**
+   * Whether the request of the list applies a filter. The request follows the
+   * typed filters after a delay, so the two can differ for a moment.
+   */
+  isRequestFiltered: boolean;
 };
 
 export type DAGDeleteResult = {
@@ -1201,6 +1206,7 @@ function DAGTable({
   onSetDAGPinned,
   onSetDAGsPinned,
   resultCount,
+  isRequestFiltered,
 }: Props) {
   const { ts } = useI18n();
   // Status and LastRun sorts are disabled when the list total exceeds the
@@ -1501,12 +1507,15 @@ function DAGTable({
     return members;
   }, [dags]);
 
-  // The list holds every workflow of each group: no filter narrows it and no
-  // page is left to load.
+  // The list holds every workflow of each group: no filter narrows it, typed
+  // or in the request, and no page is left to load. While a request loads,
+  // the rows are still those of the previous request.
   const hasWholeGroups =
     !searchText &&
     searchLabels.length === 0 &&
     !activeOnly &&
+    !isRequestFiltered &&
+    !isLoading &&
     (resultCount === undefined || dags.length >= resultCount);
 
   // Transform the flat list of DAGs into a hierarchical structure with groups.

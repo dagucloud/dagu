@@ -101,6 +101,8 @@ function renderTable(
     /** A peek host above the table. */
     peek?: PeekController;
     resultCount?: number;
+    isRequestFiltered?: boolean;
+    isLoading?: boolean;
   } = {}
 ) {
   const onSortChange = vi.fn();
@@ -180,6 +182,8 @@ function renderTable(
               onSetDAGPinned={onSetDAGPinned}
               onSetDAGsPinned={onSetDAGsPinned}
               resultCount={options.resultCount}
+              isRequestFiltered={options.isRequestFiltered ?? false}
+              isLoading={options.isLoading}
             />
           </PanelWidthContext.Provider>
         </AppBarContext.Provider>
@@ -732,6 +736,29 @@ describe('DAGTable', () => {
         workflow({ name: 'alpha' }),
       ],
       resultCount: 3,
+    });
+
+    const table = screen.getByRole('table');
+    expect(bodyRowTexts(table)[0]).toContain('reports');
+    expect(
+      within(table).getByRole('link', { name: 'reports' })
+    ).toBeInTheDocument();
+  });
+
+  // Typed filters reach the request after a delay, and the rows of the
+  // previous request stay while the next one loads. Such rows may hold only a
+  // part of a group.
+  it.each([
+    ['the request still has a filter', { isRequestFiltered: true }],
+    ['the request is loading', { isLoading: true }],
+  ])('keeps pinned workflows on their rows while %s', (_, state) => {
+    renderTable('', {
+      dags: [
+        workflow({ name: 'reports', group: 'nightly', pinned: true }),
+        workflow({ name: 'alpha' }),
+      ],
+      resultCount: 2,
+      ...state,
     });
 
     const table = screen.getByRole('table');
