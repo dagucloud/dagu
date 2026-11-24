@@ -81,5 +81,9 @@ export default defineMessages({
     'Open run {id}': 'Lauf {id} öffnen',
     'The runs before {time} are not kept.':
       'Die Läufe vor {time} werden nicht aufbewahrt.',
+    'Runs in the last {window}': 'Läufe der letzten {window}',
+    'Longest gap': 'Längste Lücke',
+    'Wait {seconds} s': '{seconds} s warten',
+    '{count} failed in a row': '{count} in Folge fehlgeschlagen',
   },
 });

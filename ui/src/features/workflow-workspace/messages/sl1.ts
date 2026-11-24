@@ -42,4 +42,16 @@ export default defineMessages({
     'The CLI reads a skill with its tool Skill.':
       'CLI はそのツール Skill でスキルを読み込みます。',
   },
+  de: {
+    'Open {name}': '{name} öffnen',
+    'Opens in a new tab': 'Öffnet in einem neuen Tab',
+    'Open the skill': 'Skill öffnen',
+    'No skills yet': 'Noch keine Skills',
+    'Invalid skill entry': 'Ungültiger Skill-Eintrag',
+    'Remove skill {name}': 'Skill {name} entfernen',
+    'The model reads a skill with the tool load_skill.':
+      'Das Modell liest einen Skill mit dem Tool load_skill.',
+    'The CLI reads a skill with its tool Skill.':
+      'Die CLI liest einen Skill mit ihrem Tool Skill.',
+  },
 });
