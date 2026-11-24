@@ -40,10 +40,16 @@ func nodesEnv(t *testing.T) []string {
 	return []string{"DAGU_DATA_DIR=" + nodesDataDir(t)}
 }
 
-// nodesDataDir stores fleet in a new data directory and returns it. It stores
-// through the inventory store, as the command that imports inventories lands
-// separately.
+// nodesDataDir stores fleet in a new data directory and returns it.
 func nodesDataDir(t *testing.T) string {
+	t.Helper()
+	return nodesDataDirWith(t, fleet)
+}
+
+// nodesDataDirWith stores nodes as one inventory in a new data directory and
+// returns it. It stores through the inventory store, as the command that
+// imports inventories lands separately.
+func nodesDataDirWith(t *testing.T, nodes []inventory.Node) string {
 	t.Helper()
 
 	dataDir := t.TempDir()
@@ -54,7 +60,7 @@ func nodesDataDir(t *testing.T) string {
 		nil,
 	)
 	require.NoError(t, err)
-	_, err = inventories.Create(context.Background(), inventory.Inventory{Name: "fleet", Nodes: fleet})
+	_, err = inventories.Create(context.Background(), inventory.Inventory{Name: "fleet", Nodes: nodes})
 	require.NoError(t, err)
 	return dataDir
 }

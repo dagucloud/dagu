@@ -1,0 +1,30 @@
+# deploy runs on the web nodes, migrate on the db nodes, and notify after
+# both.
+working_dir: .
+params:
+  - DIR: ""
+steps:
+  - id: deploy
+    action: dag.run
+    stdout: nodes.json
+    with:
+      dag: deploy-one
+    nodes: web
+  - id: migrate
+    depends: [deploy]
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: db
+  - id: notify
+    depends: [migrate]
+    action: file.write
+    with:
+      path: ${params.DIR}/notified
+      content: done
+      overwrite: true
+---
+name: deploy-one
+node: required
+steps:
+  - action: noop
