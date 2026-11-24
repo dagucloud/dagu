@@ -101,8 +101,14 @@ steps:
     await signIn(page);
     const runPath = `/dags/${encodeURIComponent(fileName)}?run=${encodeURIComponent(runId)}`;
     // The step card of check counts its nodes. A phone shows the graph or the
-    // dock, not both, so the card is read before the dock opens.
+    // dock, not both, and opens a run on the dock: it switches to the graph.
     await gotoWorkspace(page, runPath);
+    if ((page.viewportSize()?.width ?? 0) < 768) {
+      await page
+        .getByTestId('ww-phone-nav')
+        .getByRole('button', { name: 'Graph', exact: true })
+        .click();
+    }
     await expect(
       page.getByTestId('ww-canvas').getByRole('img', {
         name: '1 succeeded, 1 failed, 0 running of 3 nodes',
