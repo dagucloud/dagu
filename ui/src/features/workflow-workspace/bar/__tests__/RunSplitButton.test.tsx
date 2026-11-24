@@ -311,6 +311,14 @@ function shownByName(name: string, scope: HTMLElement = document.body) {
 const failedRun = (id = 'run-3') =>
   runDetails(id, Status.Failed, { statusLabel: StatusLabel.failed });
 
+// A failed run that waits for its next auto-retry.
+const autoRetryRun = () =>
+  runDetails('run-3', Status.Failed, {
+    statusLabel: StatusLabel.failed,
+    autoRetryCount: 1,
+    autoRetryLimit: 3,
+  });
+
 beforeEach(() => {
   vi.clearAllMocks();
   h.runDags = true;
@@ -585,18 +593,33 @@ describe('RunSplitButton', () => {
       expect(within(slot).getByRole('button', { name: 'Start' })).toBeEnabled();
     });
 
-    // A failed run that waits for its auto-retry has Cancel in the slot.
-    it('gives the slot to Cancel, not Retry, for a pending auto-retry', () => {
-      setup({
-        latest: runDetails('run-3', Status.Failed, {
-          statusLabel: StatusLabel.failed,
-          autoRetryCount: 1,
-          autoRetryLimit: 3,
-        }),
-      });
+    // A failed run that waits for its auto-retry has Cancel in the slot. It
+    // can still be retried now, so the menu offers Retry after Start.
+    it('gives the slot to Cancel and the menu to Retry for a pending auto-retry', async () => {
+      setup({ latest: autoRetryRun() });
 
       expect(shownByName('Cancel')).toHaveLength(1);
-      expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+      expect(shownByName('Retry')).toHaveLength(0);
+      expect(barControlAvailable('retry')).toBe(true);
+      const menu = await openMenu();
+      expect(
+        within(menu)
+          .getAllByRole('menuitem')
+          .map((item) => item.textContent)
+      ).toEqual(['Start', 'Retry', 'Run unsaved draftNo unsaved changes']);
+
+      await userEvent.click(
+        within(menu).getByRole('menuitem', { name: 'Retry' })
+      );
+      const dialog = await screen.findByRole('dialog');
+      expect(
+        within(dialog).getByRole('heading', { name: 'Retry this run?' })
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByRole('checkbox', {
+          name: 'Reschedule as a new run',
+        })
+      ).toBeInTheDocument();
     });
 
     // parity:retry-modal
@@ -932,6 +955,21 @@ describe('RunSplitButton', () => {
       const slot = screen.getByTestId('ww-run-start-slot');
       expect(within(slot).getByRole('button', { name: 'Retry' })).toBeEnabled();
       expect(shownByName('Retry', slot)).toHaveLength(1);
+      expect(
+        screen.queryByRole('button', { name: 'More run options' })
+      ).toBeNull();
+    });
+
+    // Without a menu, Retry sits beside Cancel while an auto-retry is pending.
+    it('has Cancel and Retry in the slot for a pending auto-retry', () => {
+      setup({ standalone: true, latest: autoRetryRun() });
+
+      const slot = screen.getByTestId('ww-run-start-slot');
+      expect(shownButtons(slot).map((b) => b.textContent)).toEqual([
+        'Cancel',
+        'Retry',
+      ]);
+      expect(within(slot).getByRole('button', { name: 'Retry' })).toBeEnabled();
       expect(
         screen.queryByRole('button', { name: 'More run options' })
       ).toBeNull();
@@ -1410,14 +1448,7 @@ describe('RunSplitButton', () => {
 
   // parity:actions-cancel-auto-retry
   it('has Cancel in the slot of Start for a run with a pending auto-retry', async () => {
-    setup({
-      cluster: true,
-      latest: runDetails('run-3', Status.Failed, {
-        statusLabel: StatusLabel.failed,
-        autoRetryCount: 1,
-        autoRetryLimit: 3,
-      }),
-    });
+    setup({ cluster: true, latest: autoRetryRun() });
 
     const slot = screen.getByTestId('ww-run-start-slot');
     expect(shownByName('Start')).toHaveLength(0);

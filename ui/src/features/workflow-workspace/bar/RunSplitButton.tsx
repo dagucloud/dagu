@@ -95,11 +95,12 @@ function StartFeedback({
  * its place when the draft becomes dirty. While the editor equals the saved
  * file, its menu says that there is no draft to run. With unsaved changes,
  * the menu also offers to save and run to a user who may do both. While the
- * shown run has Dequeue, Stop (with Reject while it waits for an approval)
- * or, after a failure, Retry, that action takes the slot of Start and the
- * menu offers Start. Any other run that is not active has Retry in the menu.
- * A run without its workflow file has its action alone, Retry for any run
- * that is not active: no Start and no menu.
+ * shown run has Dequeue, Stop (with Reject while it waits for an approval),
+ * Cancel of a pending auto-retry or, after a failure, Retry, that action
+ * takes the slot of Start and the menu offers Start. Any other run that is
+ * not active, and a failed run with Cancel in the slot, has Retry in the
+ * menu. A run without its workflow file has its actions alone, Retry for any
+ * run that is not active: no Start and no menu.
  */
 export function RunSplitButton(props: BarSlotProps) {
   const { canRunDags, canExecute } = useWorkspacePermissions();
@@ -136,21 +137,29 @@ function SplitButton({
   const run = useWorkspaceRun();
   // Each state of the shown run has its action in the slot of Start: Dequeue
   // for a queued run; Stop for an active run, with Reject beside it while the
-  // run waits for an approval; Retry for a failed run; else Start.
-  const dequeueShown = !!run.ref && run.details?.status === Status.Queued;
+  // run waits for an approval; Cancel for a failed run with a pending
+  // auto-retry; Retry for any other failed run; else Start.
+  const status = run.details?.status;
+  const dequeueShown = !!run.ref && status === Status.Queued;
   const stopShown =
     !dequeueShown &&
     !!run.ref &&
     !!run.details &&
     getDAGRunTerminateAction(run.details) !== 'none';
-  // A run without its workflow file has nothing to start: only its action.
+  // A run without its workflow file has nothing to start: only its actions.
   const standalone = useStandaloneRun() !== null;
-  // A run that is not active can be retried, as the server allows. Retry
-  // takes the slot after a failure, or when there is no Start; otherwise the
-  // menu offers it.
-  const retryable = !stopShown && !dequeueShown && !!run.ref && !!run.details;
+  // A run that is not active can be retried, as the server allows, while an
+  // auto-retry is pending too. Retry is in the slot for a failed run without
+  // Cancel, and for any such run without Start (beside Cancel while an
+  // auto-retry is pending); otherwise the menu offers it.
+  const retryable =
+    !!run.ref &&
+    !!run.details &&
+    status !== Status.Running &&
+    status !== Status.Waiting &&
+    status !== Status.Queued;
   const retryShown =
-    retryable && (run.details?.status === Status.Failed || standalone);
+    retryable && (standalone || (!stopShown && status === Status.Failed));
   const retryInMenu = canRunDags && retryable && !retryShown;
   const replaced = stopShown || retryShown || dequeueShown;
   const runActions = useRef<HTMLDivElement>(null);
@@ -200,25 +209,36 @@ function SplitButton({
       {canRunDags && (
         <div
           data-testid="ww-run-start-slot"
-          className="relative"
+          className="relative flex items-center gap-1"
           title={replaced ? undefined : (shownError ?? undefined)}
         >
           <RunStartTarget>
-            {(replaced || retryInMenu) && run.ref && run.details && (
+            {(dequeueShown || stopShown) && run.ref && run.details && (
+              <DAGRunActions
+                part={dequeueShown ? 'dequeue' : 'stop'}
+                dagRun={run.details}
+                name={run.ref.name}
+                refresh={() => void run.refresh()}
+                displayMode="bar"
+                hideUnavailable
+                stopAll={stopAll}
+                markActions
+              />
+            )}
+            {(retryShown || retryInMenu) && run.ref && run.details && (
               // While the menu offers Retry, its button stays mounted, hidden:
               // the menu and the palette click it to open its dialog.
               <div
                 ref={runActions}
-                className={replaced ? 'contents' : 'hidden'}
+                className={retryShown ? 'contents' : 'hidden'}
               >
                 <DAGRunActions
-                  part={dequeueShown ? 'dequeue' : stopShown ? 'stop' : 'retry'}
+                  part="retry"
                   dagRun={run.details}
                   name={run.ref.name}
                   refresh={() => void run.refresh()}
                   displayMode="bar"
                   hideUnavailable
-                  stopAll={stopAll}
                   markActions
                   // A new run is shown at once. A run under another DAG name
                   // is not a run of this workflow.
