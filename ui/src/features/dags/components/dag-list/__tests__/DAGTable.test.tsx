@@ -17,7 +17,6 @@ import {
   Status,
   ViewSortField,
   ViewSortOrder,
-  type components,
 } from '@/api/v1/schema';
 import { PanelWidthContext } from '@/components/SplitLayout';
 import { AppBarContext } from '@/contexts/AppBarContext';
@@ -38,14 +37,14 @@ vi.mock('@/hooks/api', () => ({
 }));
 
 const serviceDAGs = vi.hoisted(() => ({
-  current: [] as components['schemas']['ServiceDAG'][],
-  enabled: [] as boolean[],
+  list: [] as { fileName: string; state: string }[],
+  hook: vi.fn(),
 }));
 
 vi.mock('@/features/service-dags/hooks/useServiceDAGs', () => ({
-  useServiceDAGs: ({ enabled = true }: { enabled?: boolean } = {}) => {
-    serviceDAGs.enabled.push(enabled);
-    return { serviceDAGs: enabled ? serviceDAGs.current : [], error: null };
+  useServiceDAGs: (...args: unknown[]) => {
+    serviceDAGs.hook(...args);
+    return { serviceDAGs: serviceDAGs.list, error: null };
   },
 }));
 
@@ -112,6 +111,7 @@ function renderTable(
         fileNames.map((fileName) => ({ fileName }))
       );
   const onSetDAGPinned = vi.fn().mockResolvedValue(undefined);
+  const onSetDAGsPinned = vi.fn().mockResolvedValue(undefined);
   const result = render(
     <MemoryRouter initialEntries={['/dags']}>
       <LocationProbe />
@@ -173,6 +173,7 @@ function renderTable(
               canEditDAG={options.canEditDAG ?? (() => true)}
               canPinDAG={options.canPinDAG ?? (() => true)}
               onSetDAGPinned={onSetDAGPinned}
+              onSetDAGsPinned={onSetDAGsPinned}
               resultCount={options.resultCount}
             />
           </PanelWidthContext.Provider>
@@ -194,6 +195,7 @@ function renderTable(
     handleActiveOnlyChange,
     onDeleteDAGs,
     onSetDAGPinned,
+    onSetDAGsPinned,
     onShowAllWorkflows,
     onSortChange,
   };
@@ -238,7 +240,7 @@ describe('DAGTable', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     localStorage.clear();
-    serviceDAGs.current = [];
+    serviceDAGs.list = [];
   });
 
   it('links workflow names to their canonical detail pages', () => {
@@ -259,7 +261,7 @@ describe('DAGTable', () => {
       'Filter by workflow name...'
     );
     expect(searchInput.className).toContain('h-9');
-    expect(searchInput.className).toContain('w-[200px]');
+    expect(searchInput.className).toContain('w-[180px]');
 
     const controlSurface = searchInput.closest(
       '[data-testid="workflow-controls"]'
@@ -269,8 +271,24 @@ describe('DAGTable', () => {
     const labelInput = screen.getByRole('combobox', {
       name: 'Filter by labels...',
     });
-    expect(labelInput.parentElement?.className).toContain('min-h-9');
-    expect(labelInput.parentElement?.className).toContain('bg-card');
+    // The label filter has the same height as the other controls of the row:
+    // its box grows from h-9 when chips wrap, inside the width bounds.
+    const labelBox = labelInput.parentElement;
+    expect(labelBox?.className).toContain('min-h-9');
+    expect(labelBox?.className).toContain('bg-card');
+    const labelWrapper = labelBox?.parentElement;
+    expect(labelWrapper?.className).toContain('h-9');
+    expect(labelWrapper?.className).toContain('min-w-[150px]');
+    expect(labelWrapper?.className).toContain('max-w-[180px]');
+
+    const activeOnly = screen
+      .getByRole('switch', { name: 'Active only' })
+      .closest('label');
+    expect(activeOnly?.className).toContain('h-9');
+    const group = screen
+      .getByRole('switch', { name: 'Gather the workflows by group' })
+      .closest('label');
+    expect(group?.className).toContain('h-9');
   });
 
   it('links grep to the global DAG search with the current workflow keyword', () => {
@@ -489,6 +507,94 @@ describe('DAGTable', () => {
     });
   });
 
+  // A group row holds its own checkbox, even when the group is folded.
+  it('selects all the workflows of a group from its checkbox', async () => {
+    const { onDeleteDAGs } = renderTable('', {
+      dags: [
+        workflow({ name: 'cleanup', group: 'nightly' }),
+        workflow({ name: 'reports', group: 'nightly' }),
+        workflow({ name: 'alpha' }),
+      ],
+    });
+    const table = screen.getByRole('table');
+
+    fireEvent.click(
+      within(table).getByRole('checkbox', { name: 'Select group nightly' })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete (2)' }));
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('cleanup.yaml');
+    expect(dialog).toHaveTextContent('reports.yaml');
+    expect(dialog).not.toHaveTextContent('alpha.yaml');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+    await waitFor(() => {
+      expect(onDeleteDAGs).toHaveBeenCalledWith([
+        'cleanup.yaml',
+        'reports.yaml',
+      ]);
+    });
+  });
+
+  it('pins all the workflows of a group with one call', async () => {
+    const { onSetDAGPinned, onSetDAGsPinned } = renderTable('', {
+      dags: [
+        workflow({ name: 'cleanup', group: 'nightly' }),
+        workflow({ name: 'reports', group: 'nightly' }),
+        workflow({ name: 'alpha' }),
+      ],
+    });
+
+    fireEvent.click(
+      within(screen.getByRole('table')).getByRole('button', {
+        name: 'Pin group nightly',
+      })
+    );
+
+    await waitFor(() => {
+      expect(onSetDAGsPinned).toHaveBeenCalledTimes(1);
+    });
+    expect(onSetDAGsPinned).toHaveBeenCalledWith(
+      ['cleanup.yaml', 'reports.yaml'],
+      true
+    );
+    expect(onSetDAGPinned).not.toHaveBeenCalled();
+  });
+
+  // Gathered by group is the default; the switch lists the workflows flat.
+  it('lists the workflows flat by group then name when the Group switch is off', () => {
+    renderTable('', {
+      dags: [
+        workflow({ name: 'zeta', group: 'alpha' }),
+        workflow({ name: 'beta', group: 'beta' }),
+        workflow({ name: 'solo' }),
+        workflow({ name: 'mid', group: 'alpha' }),
+      ],
+    });
+    const table = screen.getByRole('table');
+    expect(within(table).queryByTestId('dag-group-prefix')).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('switch', { name: 'Gather the workflows by group' })
+    );
+
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(rows.map((row) => row.querySelector('a')?.textContent)).toEqual([
+      'mid',
+      'zeta',
+      'beta',
+      'solo',
+    ]);
+    // The group shows before the name, in the same cell.
+    const prefixes = within(table).getAllByTestId('dag-group-prefix');
+    expect(prefixes.map((prefix) => prefix.textContent)).toEqual([
+      'alpha /',
+      'alpha /',
+      'beta /',
+    ]);
+    expect(prefixes[0]?.nextElementSibling).toHaveTextContent('mid');
+  });
+
   it('invites creating the first workflow when none exist and no filters are set', () => {
     renderTable('', { dags: [] });
 
@@ -550,7 +656,7 @@ describe('DAGTable', () => {
   });
 
   // A pinned workflow leaves its group so it stays visible at the top.
-  it('lists pinned workflows first in their own section', () => {
+  it('lists pinned workflows first, with no section label', () => {
     renderTable('', {
       dags: [
         workflow({ name: 'reports', group: 'nightly', pinned: true }),
@@ -563,8 +669,8 @@ describe('DAGTable', () => {
     const texts = bodyRowTexts(table);
     const position = (text: string) =>
       texts.findIndex((rowText) => rowText.includes(text));
-    expect(position('Pinned')).toBe(0);
-    expect(position('reports')).toBe(1);
+    expect(position('reports')).toBe(0);
+    expect(texts.some((text) => text.includes('Pinned'))).toBe(false);
     expect(position('nightly')).toBeGreaterThan(position('reports'));
     expect(position('alpha')).toBeGreaterThan(position('nightly'));
     expect(
@@ -572,17 +678,45 @@ describe('DAGTable', () => {
     ).toHaveLength(1);
   });
 
-  it('shows no pinned section when no visible workflow is pinned', () => {
-    renderTable();
+  it('shows the pin in its own column and no pinned row', () => {
+    renderTable('', {
+      dags: [
+        workflow({ name: 'reports', pinned: true }),
+        workflow({ name: 'alpha' }),
+      ],
+    });
+    const table = screen.getByRole('table');
 
     expect(
-      within(screen.getByRole('table')).queryByText('Pinned')
-    ).not.toBeInTheDocument();
+      within(table).getByRole('columnheader', { name: 'Pinned' })
+    ).toBeInTheDocument();
+    expect(bodyRowTexts(table).some((text) => text.includes('Pinned'))).toBe(
+      false
+    );
   });
 
-  // The server sorts by status. The table asks for that sort and keeps the
-  // rows it gets, with pinned workflows on top.
-  it('asks the server to sort by status and keeps pinned workflows on top', () => {
+  // Ascending status order alone would put the failed workflow first.
+  it('keeps pinned workflows on top when sorting by last run', () => {
+    renderTable('', {
+      dags: [
+        workflow({ name: 'zeta', pinned: true, status: Status.Success }),
+        workflow({ name: 'alpha', status: Status.Failed }),
+      ],
+    });
+    const table = screen.getByRole('table');
+
+    fireEvent.click(within(table).getByRole('button', { name: /^Last Run/ }));
+
+    const texts = bodyRowTexts(table);
+    expect(texts.findIndex((text) => text.includes('zeta'))).toBeLessThan(
+      texts.findIndex((text) => text.includes('alpha'))
+    );
+  });
+
+  // The Last Run column shows the status: it has no Status header. The server
+  // sorts by run. The table asks for that sort and keeps the rows it gets,
+  // with pinned workflows on top.
+  it('asks the server to sort by last run and keeps pinned workflows on top', () => {
     const { onSortChange } = renderTable('', {
       dags: [
         workflow({ name: 'alpha', status: Status.Failed }),
@@ -591,13 +725,22 @@ describe('DAGTable', () => {
     });
     const table = screen.getByRole('table');
 
-    fireEvent.click(within(table).getByRole('button', { name: /^Status/ }));
+    fireEvent.click(within(table).getByRole('button', { name: /^Last Run/ }));
 
-    expect(onSortChange).toHaveBeenCalledWith('status', 'asc');
+    expect(onSortChange).toHaveBeenCalledWith('lastRun', 'asc');
     const texts = bodyRowTexts(table);
     expect(texts.findIndex((text) => text.includes('zeta'))).toBeLessThan(
       texts.findIndex((text) => text.includes('alpha'))
     );
+  });
+
+  it('asks the server to sort by next run from the Schedule header', () => {
+    const { onSortChange } = renderTable();
+    const table = screen.getByRole('table');
+
+    fireEvent.click(within(table).getByRole('button', { name: /^Schedule/ }));
+
+    expect(onSortChange).toHaveBeenCalledWith('nextRun', 'asc');
   });
 
   it('disables the run sorts when more workflows match than the server sorts by run', () => {
@@ -656,7 +799,7 @@ describe('DAGTable', () => {
     ).toBeInTheDocument();
   });
 
-  it('shows the pinned section and pin buttons in the card view', () => {
+  it('shows the pin buttons in the card view', () => {
     renderTable('', {
       panelWidth: 600,
       dags: [
@@ -666,7 +809,7 @@ describe('DAGTable', () => {
     });
     const cards = screen.getByTestId('workflow-card-view');
 
-    expect(within(cards).getByText('Pinned')).toBeInTheDocument();
+    expect(within(cards).queryByText('Pinned')).not.toBeInTheDocument();
     expect(
       within(cards).getByRole('button', { name: 'Pin workflow reports' })
     ).toHaveAttribute('aria-pressed', 'true');
@@ -687,27 +830,9 @@ describe('DAGTable', () => {
           restartWaitSec: 5,
         },
       }) as never;
-    serviceDAGs.current = [
-      {
-        fileName: 'stopped.yaml',
-        name: 'stopped',
-        restartPolicy: RestartPolicy.unless_stopped,
-        restartWaitSec: 5,
-        queue: 'stopped',
-        state: ServiceDAGState.stopped,
-        suspended: false,
-        consecutiveFailures: 0,
-      },
-      {
-        fileName: 'failing.yaml',
-        name: 'failing',
-        restartPolicy: RestartPolicy.unless_stopped,
-        restartWaitSec: 5,
-        queue: 'failing',
-        state: ServiceDAGState.failing,
-        suspended: false,
-        consecutiveFailures: 1,
-      },
+    serviceDAGs.list = [
+      { fileName: 'stopped.yaml', state: ServiceDAGState.stopped },
+      { fileName: 'failing.yaml', state: ServiceDAGState.failing },
     ];
 
     renderTable('', {
@@ -721,15 +846,6 @@ describe('DAGTable', () => {
     expect(card('stopped')).toHaveTextContent('Stopped');
     expect(card('failing')).toHaveTextContent('Enabled');
     expect(card('failing')).not.toHaveTextContent('Stopped');
-  });
-
-  // A list without a service DAG has no use for the service DAG list.
-  it('reads the service DAG list only while it lists a service DAG', () => {
-    serviceDAGs.enabled = [];
-    renderTable('', { panelWidth: 600, dags: [workflow({ name: 'etl' })] });
-
-    expect(serviceDAGs.enabled.length).toBeGreaterThan(0);
-    expect(serviceDAGs.enabled).not.toContain(true);
   });
 
   it('opens the workflow page when a row is clicked', () => {
@@ -784,7 +900,6 @@ describe('DAGTable', () => {
     expect(screen.getByTestId('location')).not.toHaveTextContent('alpha');
     openMock.mockRestore();
   });
-
   describe('under a peek host', () => {
     const peekHost = () => ({ open: vi.fn(), isOpen: false });
 
@@ -920,5 +1035,108 @@ describe('DAGTable', () => {
         expect(screen.getByTestId('location')).toHaveTextContent(/^\/dags$/);
       }
     );
+  });
+  // The Last Run column of a service DAG shows the state of the service.
+  describe('state of a service DAG', () => {
+    function svc(name: string) {
+      return {
+        ...workflow({ name }),
+        dag: { name, restartPolicy: 'always', restartWaitSec: 1 },
+        latestDAGRun: {
+          status: Status.Success,
+          statusLabel: 'Success',
+          startedAt: new Date(Date.now() - 11_000).toISOString(),
+        },
+      } as never;
+    }
+
+    beforeEach(() => {
+      // The chip of a running DAG animates its text unless the user prefers less
+      // motion.
+      Object.defineProperty(window, 'matchMedia', {
+        writable: true,
+        configurable: true,
+        value: (query: string) => ({
+          matches: false,
+          media: query,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        }),
+      });
+      serviceDAGs.list = [];
+      serviceDAGs.hook.mockClear();
+    });
+
+    it('reads the services once for all rows and shows the state of each', () => {
+      serviceDAGs.list = [
+        { fileName: 'a.yaml', state: 'running' },
+        { fileName: 'b.yaml', state: 'restarting' },
+      ];
+      renderTable('', { dags: [svc('a'), svc('b'), svc('c')] });
+      const table = within(screen.getByRole('table'));
+      const cells = table.getAllByTestId('dag-last-run');
+      expect(cells).toHaveLength(3);
+      // A service that runs or restarts reads Healthy.
+      expect(cells[0]).toHaveTextContent('Healthy');
+      expect(cells[1]).toHaveTextContent('Healthy');
+      expect(cells[2]).toHaveTextContent('ago');
+      expect(cells[0]).toHaveAttribute('data-service-state', 'running');
+      expect(cells[2]).not.toHaveAttribute('data-service-state');
+      // The table reads the services, not the rows.
+      expect(serviceDAGs.hook).toHaveBeenCalled();
+      for (const args of serviceDAGs.hook.mock.calls) {
+        expect(args).toEqual([{ enabled: true }]);
+      }
+    });
+
+    it('shows the state in the chip of the card, in place of the run status', () => {
+      serviceDAGs.list = [
+        { fileName: 'a.yaml', state: 'failing' },
+        { fileName: 'b.yaml', state: 'restarting' },
+      ];
+      const plain = {
+        ...workflow({ name: 'plain' }),
+        latestDAGRun: {
+          status: Status.Success,
+          statusLabel: 'Success',
+          startedAt: new Date(Date.now() - 11_000).toISOString(),
+        },
+      } as never;
+      renderTable('', {
+        panelWidth: 600,
+        dags: [svc('a'), svc('b'), svc('c'), plain],
+      });
+      const card = (name: string) =>
+        within(screen.getByTestId('workflow-card-view'))
+          .getByRole('link', { name })
+          .closest<HTMLElement>('.card-obsidian')!;
+      expect(within(card('a')).getByText('Failing')).toBeInTheDocument();
+      expect(within(card('a')).queryByText('Success')).toBeNull();
+      expect(within(card('b')).getByText('Healthy')).toBeInTheDocument();
+      // A service DAG with no known state, and a plain workflow, keep the
+      // status of their last run.
+      expect(within(card('c')).getByText('Success')).toBeInTheDocument();
+      expect(within(card('plain')).getByText('Success')).toBeInTheDocument();
+    });
+
+    it('keeps the elapsed time of a plain workflow and does not read the services', () => {
+      const plain = {
+        ...workflow({ name: 'plain' }),
+        latestDAGRun: {
+          status: Status.Success,
+          statusLabel: 'Success',
+          startedAt: new Date(Date.now() - 11_000).toISOString(),
+        },
+      } as never;
+      renderTable('', { dags: [plain] });
+      expect(
+        within(screen.getByRole('table')).getByTestId('dag-last-run')
+      ).toHaveTextContent('ago');
+      expect(
+        serviceDAGs.hook.mock.calls.every(
+          (args) => (args[0] as { enabled: boolean }).enabled === false
+        )
+      ).toBe(true);
+    });
   });
 });

@@ -6,29 +6,95 @@ import { defineMessages } from './define';
 // The Workflows and Runs lists: their rows, groups and saved views.
 export default defineMessages({
   en: {
+    'Webhook of {name}': 'Webhook of {name}',
+    'Enable webhook': 'Enable webhook',
+    'Disable webhook': 'Disable webhook',
+    'Could not update the webhook': 'Could not update the webhook',
     'Rename view': 'Rename view',
     'Save the changes of “{name}”': 'Save the changes of “{name}”',
     'View actions': 'View actions',
     'The view keeps its saved filters.': 'The view keeps its saved filters.',
+    'Pin group {name}': 'Pin group {name}',
+    'Pin group': 'Pin group',
+    'Unpin group': 'Unpin group',
+    'Gather the workflows by group': 'Gather the workflows by group',
+    'Could not update the schedules': 'Could not update the schedules',
+    'Schedules of group {name}': 'Schedules of group {name}',
+    'Webhooks of group {name}': 'Webhooks of group {name}',
+    '{live} of {total} live': '{live} of {total} live',
+    'Are you sure you want to {action} the schedules of the {count} workflows of "{name}"?':
+      'Are you sure you want to {action} the schedules of the {count} workflows of "{name}"?',
+    'Are you sure you want to {action} the webhooks of the {count} workflows of "{name}"?':
+      'Are you sure you want to {action} the webhooks of the {count} workflows of "{name}"?',
   },
   'zh-CN': {
+    'Webhook of {name}': '{name} 的 Webhook',
+    'Enable webhook': '启用 Webhook',
+    'Disable webhook': '停用 Webhook',
+    'Could not update the webhook': '无法更新 Webhook',
     'Rename view': '重命名视图',
     'Save the changes of “{name}”': '保存“{name}”的更改',
     'View actions': '视图操作',
     'The view keeps its saved filters.': '视图保留其已保存的筛选条件。',
+    'Pin group {name}': '固定分组 {name}',
+    'Pin group': '固定分组',
+    'Unpin group': '取消固定分组',
+    'Gather the workflows by group': '按分组汇总工作流',
+    'Could not update the schedules': '无法更新计划',
+    'Schedules of group {name}': '分组 {name} 的计划',
+    'Webhooks of group {name}': '分组 {name} 的 Webhook',
+    '{live} of {total} live': '{live}/{total} 运行中',
+    'Are you sure you want to {action} the schedules of the {count} workflows of "{name}"?':
+      '确定要{action}“{name}”中 {count} 个工作流的计划吗？',
+    'Are you sure you want to {action} the webhooks of the {count} workflows of "{name}"?':
+      '确定要{action}“{name}”中 {count} 个工作流的 Webhook 吗？',
   },
   ja: {
+    'Webhook of {name}': '{name} の Webhook',
+    'Enable webhook': 'Webhook を有効にする',
+    'Disable webhook': 'Webhook を無効にする',
+    'Could not update the webhook': 'Webhook を更新できませんでした',
     'Rename view': 'ビューの名前を変更',
     'Save the changes of “{name}”': '「{name}」の変更を保存',
     'View actions': 'ビューの操作',
     'The view keeps its saved filters.':
       'ビューは保存済みのフィルターをそのまま保持します。',
+    'Pin group {name}': 'グループ {name} をピン留め',
+    'Pin group': 'グループをピン留め',
+    'Unpin group': 'グループのピン留めを解除',
+    'Gather the workflows by group': 'ワークフローをグループごとにまとめる',
+    'Could not update the schedules': 'スケジュールを更新できませんでした',
+    'Schedules of group {name}': 'グループ {name} のスケジュール',
+    'Webhooks of group {name}': 'グループ {name} の Webhook',
+    '{live} of {total} live': '{total} 件中 {live} 件が有効',
+    'Are you sure you want to {action} the schedules of the {count} workflows of "{name}"?':
+      '「{name}」の {count} 件のワークフローのスケジュールを{action}しますか？',
+    'Are you sure you want to {action} the webhooks of the {count} workflows of "{name}"?':
+      '「{name}」の {count} 件のワークフローの Webhook を{action}しますか？',
   },
   de: {
+    'Webhook of {name}': 'Webhook von {name}',
+    'Enable webhook': 'Webhook einschalten',
+    'Disable webhook': 'Webhook abschalten',
+    'Could not update the webhook':
+      'Der Webhook konnte nicht aktualisiert werden',
     'Rename view': 'Ansicht umbenennen',
     'Save the changes of “{name}”': 'Änderungen an „{name}“ speichern',
     'View actions': 'Ansicht-Aktionen',
     'The view keeps its saved filters.':
       'Die Ansicht behält ihre gespeicherten Filter.',
+    'Pin group {name}': 'Gruppe {name} anheften',
+    'Pin group': 'Gruppe anheften',
+    'Unpin group': 'Gruppe lösen',
+    'Gather the workflows by group': 'Abläufe nach Gruppe bündeln',
+    'Could not update the schedules':
+      'Die Zeitpläne konnten nicht aktualisiert werden',
+    'Schedules of group {name}': 'Zeitpläne der Gruppe {name}',
+    'Webhooks of group {name}': 'Webhooks der Gruppe {name}',
+    '{live} of {total} live': '{live} von {total} live',
+    'Are you sure you want to {action} the schedules of the {count} workflows of "{name}"?':
+      'Zeitpläne der {count} Abläufe von "{name}" wirklich {action}?',
+    'Are you sure you want to {action} the webhooks of the {count} workflows of "{name}"?':
+      'Webhooks der {count} Abläufe von "{name}" wirklich {action}?',
   },
 });
