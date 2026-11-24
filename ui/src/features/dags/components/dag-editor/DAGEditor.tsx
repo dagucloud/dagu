@@ -285,18 +285,20 @@ function DAGEditor({
       registration.dispose();
     };
   }, [isEditorMounted, wantsStepLenses]);
-  // The steps of the text that the skeleton shows.
+  // The skeleton stays for the fade of the editor, which takes its place.
+  const [fadedIn, setFadedIn] = useState<string | null>(null);
+  const skeleton = fadedIn !== effectiveModelUri;
+  // The steps of the text that the skeleton shows. Only the skeleton reads
+  // them: an edit of the editor that took its place parses nothing here.
   const skeletonLenses = useMemo(
-    () => stepLenses?.steps(value ?? ''),
-    [stepLenses, value]
+    () => (skeleton ? stepLenses?.steps(value ?? '') : undefined),
+    [skeleton, stepLenses, value]
   );
   const settled = useEditorSettled(
     isEditorMounted ? editorRef.current : null,
     (skeletonLenses?.length ?? 0) > 0,
     effectiveModelUri
   );
-  // The skeleton stays for the fade of the editor, which takes its place.
-  const [fadedIn, setFadedIn] = useState<string | null>(null);
   useEffect(() => {
     if (!settled) return;
     const timer = setTimeout(
@@ -305,7 +307,6 @@ function DAGEditor({
     );
     return () => clearTimeout(timer);
   }, [settled, effectiveModelUri]);
-  const skeleton = fadedIn !== effectiveModelUri;
 
   // The lenses read the text of the model when Monaco asks. Draw them again
   // when the names or the label change.
