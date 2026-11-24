@@ -39,7 +39,8 @@ steps:
   await useDefaultWorkspaceScope(page);
 
   await page.goto('/dags/');
-  await page.getByPlaceholder('Filter by workflow name...').fill(dagName);
+  const filter = page.getByPlaceholder('Filter by workflow name...');
+  await filter.fill(dagName);
   const row = page.getByRole('row').filter({ hasText: dagName }).first();
   await expect(row).toBeVisible({ timeout: 30_000 });
   const pageHref = new RegExp(`^/dags/${dagName}\\?remoteNode=local`);
@@ -56,13 +57,15 @@ steps:
   await popup.close();
   expect(new URL(page.url()).pathname).toBe('/dags');
 
-  // A click away from the links and buttons of the row opens the page; Back
-  // returns to the list. No overlay opens over the list.
+  // A click away from the links and buttons of the row opens the page in
+  // place of the list, which an overlay would keep below it; Back returns
+  // to the list.
   const rowBody = row.getByTestId('schedule-cell');
   const path = () => new URL(page.url()).pathname;
   await rowBody.click();
   await expect.poll(path).toBe(`/dags/${dagName}`);
   await expect(page.getByTestId('ww-pane')).toBeVisible();
+  await expect(filter).toBeHidden();
   await page.goBack();
   await expect.poll(path).toBe('/dags');
 
