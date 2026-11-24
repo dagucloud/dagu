@@ -205,6 +205,18 @@ func TestOutputsFromRunsRejects(t *testing.T) {
 		"name":            "from_runs_inline",
 		"outputsFromRuns": map[string]string{"build": good},
 	}).ExpectStatus(http.StatusBadRequest).Send(t)
+
+	// A run with other parameters cannot give build, nor can a run of a build
+	// that changed since.
+	params := startRun(t, server, path, map[string]any{"params": "FAIL=2"})
+	waitForStatus(t, server, name, params, api.StatusSuccess)
+	assert.Contains(t, reject(map[string]string{"build": params}),
+		fmt.Sprintf("step build cannot be reused from run %s: the parameters, runtime profile, base config, or top-level settings differ from that run", params))
+	server.Client().Put("/api/v1/dags/"+name+"/spec", map[string]any{
+		"spec": strings.Replace(fromRunsDAG, `echo "built $T"`, `echo "built again $T"`, 1),
+	}).ExpectStatus(http.StatusOK).Send(t)
+	assert.Contains(t, reject(map[string]string{"build": good}),
+		fmt.Sprintf("step build cannot be reused from run %s: the step or a step it depends on changed since that run", good))
 }
 
 // A step that got supplied outputs carried them, with no times: its run is a
