@@ -35,7 +35,6 @@ import { RunFacts, hasHiddenFacts, visibleFacts } from './RunFacts';
 import { RunIdMark, RunStaleDot } from './RunStaleDot';
 import { factsShownAt, useBarWidth } from './useFactTiers';
 
-// The statuses for which isRunActive is true.
 type Direction = 'older' | 'newer';
 
 // The slot of the count holds "99/99" or the repeat badge with "×1.2M". Its
@@ -110,8 +109,7 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
 
   const olderDisabled = historyReady ? olderId === null : !run.hasRun;
   // The latest run can have a newer test run in the timeline: the history
-  // decides, as it does for the older run. The first click reads it, so the
-  // arrow stays on until then.
+  // decides, as it does for the older run.
   const newerDisabled = historyReady ? newerId === null : !run.hasRun;
 
   const failedNode = run.failedStep
