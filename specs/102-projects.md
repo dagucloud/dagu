@@ -307,14 +307,17 @@ does in the Helm chart.
 
 #### Overlapping Paths
 
-A DAG directory never shares a directory with state. Every server,
-scheduler, coordinator, and CLI process refuses to start, and says which
-paths overlap, when `<projects_dir>`:
+A DAG directory never shares a directory with state. The DAG roots are
+`<dags_dir>`, `<projects_dir>`, and `paths.alt_dags_dir`. Every server,
+scheduler, coordinator, and CLI process checks the paths in effect after
+`config.yaml`, the environment, and flags. It refuses to start, and says
+which paths overlap, when:
 
-- is `<data_dir>` or contains it;
-- is, contains, or lies inside `<data_dir>/projects/`;
-- is or contains a [path set apart](#paths-set-apart);
-- is `<dags_dir>` or `paths.alt_dags_dir`.
+- a DAG root is `<data_dir>` or contains it;
+- a DAG root is, contains, or lies inside `<data_dir>/projects/`;
+- a DAG root is, contains, or lies inside a
+  [path set apart](#paths-set-apart);
+- two DAG roots are the same directory.
 
 An install whose `<data_dir>` is its Dagu home, as in the Helm chart, sets
 `paths.projects_dir`, since the default would be `<data_dir>/projects/`.
@@ -863,8 +866,12 @@ Rules:
   listed or scheduled until its file moves into a DAG directory. The
   preview and the report list it.
 - The other exceptions are a DAG with an
-  [unsettled label](#unsettled-labels), and a later document of a
-  [file with several documents](#files-with-several-documents).
+  [unsettled label](#unsettled-labels), a later document of a
+  [file with several documents](#files-with-several-documents), and a
+  workspace DAG whose name a DAG in `<projects_dir>/X/` already has when
+  migration runs. In the last case, the DAG in `<projects_dir>/X/` runs, as
+  [Files That Run in Place](#files-that-run-in-place) says, and the preview
+  and the report list the pair before and after the upgrade.
 - A DAG under `paths.alt_dags_dir` that v2 scheduled because
   `alt_dags_dir` lay inside `dags_dir` is a library DAG and is not
   scheduled. Moving its file into a project schedules it again. The preview
@@ -894,7 +901,8 @@ Rules:
   any time, by hand or in git. The file then belongs to `X` by its
   directory, keeps its name and run history, and its record ends.
 - While both files exist, the file in `<projects_dir>/X/` wins and the
-  record ends.
+  record ends. This also holds when the file in `<projects_dir>/X/` exists
+  before migration runs.
 - A record stays while its file is absent, as during a `git pull` or an
   editor's save that replaces the file. While the file is absent, the DAG
   is not listed or scheduled. When the file returns to the recorded path,
@@ -1016,6 +1024,8 @@ attention:
 - each DAG with an unsettled `workspace` label, which does not load
 - each later document of a file whose `workspace` label differs from the
   first document's
+- each workspace DAG whose name a DAG in `<projects_dir>/X/` already has,
+  so the file in `<projects_dir>/X/` runs in its place
 
 The text of the report is not part of this contract. For example:
 
@@ -1131,7 +1141,7 @@ Delete is refused, and changes nothing, when:
 
 ### Startup
 
-- When `<projects_dir>` overlaps state or another DAG directory, as
+- When a DAG root overlaps state or another DAG root, as
   [Overlapping Paths](#overlapping-paths) lists, the process refuses to
   start and names the paths.
 - When `<projects_dir>` and `<dags_dir>` are on different file systems, the
