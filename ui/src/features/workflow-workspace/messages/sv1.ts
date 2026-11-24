@@ -66,5 +66,8 @@ export default defineMessages({
     Gap: 'Lücke',
     'no run for {length}': 'kein Lauf seit {length}',
     'Running since {time}': 'Läuft seit {time}',
+    'Open run {id}': 'Lauf {id} öffnen',
+    'The runs before {time} are not kept.':
+      'Die Läufe vor {time} werden nicht aufbewahrt.',
   },
 });
