@@ -177,9 +177,10 @@ function WebhookSwitch({ dag }: { dag: DAGFile }) {
 }
 
 /**
- * The schedules of a group with one switch: on when every scheduled workflow
- * of the group is live. A change asks for the confirmation, then applies to all
- * of them at once. A dash when no workflow of the group has a schedule.
+ * The schedules of a group with one switch: on when every workflow of the
+ * group that has a schedule switch, a scheduled workflow or a service DAG, is
+ * live. A change asks for the confirmation, then applies to all of them at
+ * once. A dash when no workflow of the group has a schedule switch.
  */
 export function GroupScheduleCell({
   name,
@@ -195,12 +196,13 @@ export function GroupScheduleCell({
   const config = useConfig();
   const remoteNode = useRemoteNode();
   const { showError } = useErrorModal();
-  const scheduled = members.filter(
-    (dag) => (dag.dag.schedule ?? []).length > 0
+  // The same workflows as the rows that show a switch in ScheduleCell.
+  const switchable = members.filter(
+    (dag) => (dag.dag.schedule ?? []).length > 0 || isServiceDAG(dag.dag)
   );
   const [pending, setPending] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
-  const live = scheduled.filter((dag) => !dag.suspended).length;
+  const live = switchable.filter((dag) => !dag.suspended).length;
 
   const confirm = useCallback(async () => {
     const next = pending;
@@ -209,7 +211,7 @@ export function GroupScheduleCell({
     setBusy(true);
     try {
       const results = await Promise.allSettled(
-        scheduled
+        switchable
           .filter((dag) => !!dag.suspended === next)
           .map((dag) =>
             client.POST('/dags/{fileName}/suspend', {
@@ -232,9 +234,9 @@ export function GroupScheduleCell({
       setBusy(false);
       refresh?.();
     }
-  }, [client, pending, refresh, remoteNode, scheduled, showError, ts]);
+  }, [client, pending, refresh, remoteNode, switchable, showError, ts]);
 
-  if (scheduled.length === 0) {
+  if (switchable.length === 0) {
     return <span className="text-xs text-muted-foreground">-</span>;
   }
   const canToggle = config.permissions.runDags;
@@ -245,13 +247,13 @@ export function GroupScheduleCell({
       className="flex min-w-0 items-center gap-1.5 text-xs"
     >
       <Switch
-        checked={live === scheduled.length}
+        checked={live === switchable.length}
         disabled={!canToggle || busy}
         onCheckedChange={canToggle ? (value) => setPending(value) : undefined}
         aria-label={ts('Schedules of group {name}', { name })}
       />
       <span className="text-muted-foreground">
-        {ts('{live} of {total} live', { live, total: scheduled.length })}
+        {ts('{live} of {total} live', { live, total: switchable.length })}
       </span>
       <I18nProps>
         <ConfirmModal
@@ -266,7 +268,7 @@ export function GroupScheduleCell({
               'Are you sure you want to {action} the schedules of the {count} workflows of "{name}"?',
               {
                 action: ts(pending ? 'enable' : 'disable'),
-                count: scheduled.length,
+                count: switchable.length,
                 name,
               }
             )}

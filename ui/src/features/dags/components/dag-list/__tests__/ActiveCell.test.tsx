@@ -218,4 +218,33 @@ describe('GroupScheduleCell', () => {
     expect(mocks.post).toHaveBeenCalledTimes(2);
     expect(refresh).toHaveBeenCalledOnce();
   });
+
+  // A service DAG has a schedule switch on its row without a schedule.
+  it('switches the service DAGs of the group too', async () => {
+    const service = {
+      ...dagFile([]),
+      fileName: 'api',
+      dag: { name: 'api', restartPolicy: 'always', restartWaitSec: 1 },
+    } as unknown as DAGFile;
+    render(
+      <GroupScheduleCell
+        name="nightly"
+        members={[dagFile(cron), service]}
+        refresh={vi.fn()}
+      />,
+      { wrapper: Providers }
+    );
+
+    expect(screen.getByText('2 of 2 live')).toBeVisible();
+    await userEvent.click(
+      screen.getByRole('switch', { name: 'Schedules of group nightly' })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Disable' }));
+
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(2));
+    expect(mocks.post).toHaveBeenCalledWith('/dags/{fileName}/suspend', {
+      params: { path: { fileName: 'api' }, query: { remoteNode: 'local' } },
+      body: { suspend: true },
+    });
+  });
 });
