@@ -391,7 +391,7 @@ dagu config
 
 ### dagu nodes
 
-Work with node inventories: named lists of SSH hosts with labels, stored as JSON records (Spec 088). Every subcommand also runs against a remote context (`--context`), through the server's API, with the same output; `add` and `test` then connect from the server, and a remote `add` needs an absolute `--key` path.
+Work with node inventories: named lists of SSH hosts with labels, stored as JSON records (Spec 088). Every subcommand also runs against a remote context (`--context`), through the server's API, with the same output; `add` and `test` then connect from the server, and a remote `add` needs a `--key` path the server can read: absolute, or starting with `~` or `$`.
 
 ```sh
 dagu nodes list [--labels <selector>] [--inventory <name|id>] [--format/-f table|json]

@@ -51,7 +51,8 @@ func nodesAddCommand() *cobra.Command {
 	return NewCommand(&cobra.Command{
 		Use:   "add <name>",
 		Short: "Add a node to an inventory",
-		Long: `Add an SSH node to an inventory, or replace the node of that name.
+		Long: `Add a new SSH node to an inventory. A name the inventory already
+holds is refused before anything is tested.
 
 Before it saves, add tests the connection: it checks the host key,
 authenticates, and runs true. When the node's host key is unknown, add
