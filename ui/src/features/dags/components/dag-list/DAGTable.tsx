@@ -572,6 +572,11 @@ declare module '@tanstack/react-table' {
     onOpenDeleteDAG?: (dag: components['schemas']['DAGFile']) => void;
     canPinDAG?: (dag: components['schemas']['DAGFile']) => boolean;
     onToggleGroupPin?: (dags: components['schemas']['DAGFile'][]) => void;
+    /**
+     * Every loaded workflow of each group, by group name. A pinned workflow
+     * that leads the list on its own row still counts.
+     */
+    groupMembers?: ReadonlyMap<string, components['schemas']['DAGFile'][]>;
     /** Workflows are not gathered by group: each name shows its group first. */
     showGroupPrefix?: boolean;
     isPinPending?: (fileName: string) => boolean;
@@ -583,13 +588,6 @@ declare module '@tanstack/react-table' {
 
 const columnHelper = createColumnHelper<Data>();
 // --- End Helper Functions ---
-
-/** The workflows of a group row. */
-function groupMembers(group: Data): components['schemas']['DAGFile'][] {
-  return (group.subRows ?? [])
-    .filter((item): item is DAGRow => item.kind === ItemKind.DAG)
-    .map((item) => item.dag);
-}
 
 const deleteSelectionColumn = columnHelper.display({
   id: 'Select',
@@ -937,7 +935,7 @@ const defaultColumns = [
         return (
           <GroupScheduleCell
             name={data.name}
-            members={groupMembers(data)}
+            members={table.options.meta?.groupMembers?.get(data.name) ?? []}
             refresh={table.options.meta?.refreshFn}
           />
         );
@@ -960,11 +958,14 @@ const defaultColumns = [
         <I18nText text={'Webhook'} />
       </span>
     ),
-    cell: ({ row }) => {
+    cell: ({ row, table }) => {
       const data = row.original!;
       if (data.kind === ItemKind.Group) {
         return (
-          <GroupWebhookCell name={data.name} members={groupMembers(data)} />
+          <GroupWebhookCell
+            name={data.name}
+            members={table.options.meta?.groupMembers?.get(data.name) ?? []}
+          />
         );
       }
       return <WebhookCell dag={data.dag} />;
@@ -1484,6 +1485,19 @@ function DAGTable({
     [searchLabels, handleSearchLabelsChange]
   );
 
+  // The loaded workflows of each group, in the server order.
+  const groupMembers = useMemo(() => {
+    const members = new Map<string, components['schemas']['DAGFile'][]>();
+    dags.forEach((dag) => {
+      const groupName = dag.dag.group;
+      if (!groupName) return;
+      const list = members.get(groupName);
+      if (list) list.push(dag);
+      else members.set(groupName, [dag]);
+    });
+    return members;
+  }, [dags]);
+
   // Transform the flat list of DAGs into a hierarchical structure with groups.
   // The order: pinned groups, pinned workflows, groups, workflows. The rows
   // keep the server order.
@@ -1510,13 +1524,8 @@ function DAGTable({
 
     // A group whose workflows are all pinned stays a group, and leads the
     // list; any other pinned workflow leads as a flat row.
-    const membersOf: { [key: string]: typeof sortedDags } = {};
-    sortedDags.forEach((dag) => {
-      const groupName = dag.dag.group;
-      if (groupName) (membersOf[groupName] ??= []).push(dag);
-    });
     const pinnedGroupNames = new Set(
-      Object.entries(membersOf)
+      [...groupMembers]
         .filter(([, members]) => members.every((dag) => dag.pinned))
         .map(([name]) => name)
     );
@@ -1566,7 +1575,7 @@ function DAGTable({
         });
       });
     return hierarchicalData;
-  }, [dags, groupByGroup, sortField, sortOrder]);
+  }, [dags, groupByGroup, groupMembers, sortField, sortOrder]);
 
   const appBarContext = useContext(AppBarContext);
   // One read of the service states for all rows; it starts when a service
@@ -1614,6 +1623,7 @@ function DAGTable({
       isPinPending: (fileName) => pendingPins.has(fileName),
       onTogglePin: (dag) => void togglePin(dag),
       onToggleGroupPin: (dags) => void toggleGroupPin(dags),
+      groupMembers,
       showGroupPrefix: !groupByGroup,
       services,
     },

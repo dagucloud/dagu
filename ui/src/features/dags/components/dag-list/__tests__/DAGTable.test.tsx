@@ -13,6 +13,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   RestartPolicy,
+  ScheduleKind,
   ServiceDAGState,
   Status,
   ViewSortField,
@@ -27,8 +28,10 @@ import { I18nProvider } from '@/i18n/I18nProvider';
 import { WorkspaceKind } from '@/lib/workspace';
 import DAGTable from '../DAGTable';
 
+const api = vi.hoisted(() => ({ post: vi.fn() }));
+
 vi.mock('@/hooks/api', () => ({
-  useClient: () => ({ POST: vi.fn() }),
+  useClient: () => ({ POST: api.post }),
   useQuery: () => ({
     data: {
       labels: ['team=ops'],
@@ -115,7 +118,9 @@ function renderTable(
   const result = render(
     <MemoryRouter initialEntries={['/dags']}>
       <LocationProbe />
-      <ConfigContext.Provider value={{ basePath: '' } as never}>
+      <ConfigContext.Provider
+        value={{ basePath: '', permissions: { runDags: true } } as never}
+      >
         <AppBarContext.Provider
           value={
             {
@@ -235,6 +240,7 @@ describe('DAGTable', () => {
     vi.stubGlobal('getConfig', () => ({
       tz: 'UTC',
     }));
+    api.post.mockReset().mockResolvedValue({});
   });
 
   afterEach(() => {
@@ -559,6 +565,35 @@ describe('DAGTable', () => {
       true
     );
     expect(onSetDAGPinned).not.toHaveBeenCalled();
+  });
+
+  // A pinned workflow leads the list on its own row, but the schedule switch
+  // of its group still covers it.
+  it('switches the schedules of the pinned workflows of a group too', async () => {
+    const scheduled = (name: string, pinned = false) =>
+      ({
+        ...workflow({ name, group: 'nightly', pinned }),
+        dag: {
+          name,
+          group: 'nightly',
+          schedule: [{ kind: ScheduleKind.cron, expression: '0 * * * *' }],
+        },
+      }) as never;
+    renderTable('', {
+      dags: [scheduled('reports', true), scheduled('cleanup')],
+    });
+
+    fireEvent.click(
+      screen.getByRole('switch', { name: 'Schedules of group nightly' })
+    );
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveTextContent('2 workflows of "nightly"');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Disable' }));
+
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(2));
+    expect(
+      api.post.mock.calls.map(([, init]) => init.params.path.fileName).sort()
+    ).toEqual(['cleanup.yaml', 'reports.yaml']);
   });
 
   // Gathered by group is the default; the switch lists the workflows flat.
