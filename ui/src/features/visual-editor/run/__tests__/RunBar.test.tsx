@@ -28,7 +28,6 @@ vi.mock('@/contexts/RemoteNodeContext', () => ({
 
 function makeActions(fields: Partial<EditorRunActions> = {}): EditorRunActions {
   return {
-    runDag: vi.fn(async () => 'new-run'),
     runDraft: vi.fn(async () => 'draft-run'),
     runStep: vi.fn(async () => null),
     runSteps: vi.fn(async () => null),
@@ -103,7 +102,6 @@ describe('RunBar run buttons', () => {
       screen.getByRole('button', { name: 'Run unsaved draft' })
     );
     expect(actions.runDraft).toHaveBeenCalledTimes(1);
-    expect(actions.runDag).not.toHaveBeenCalled();
     expect(onRunIdChange).toHaveBeenCalledWith('draft-run');
   });
 
