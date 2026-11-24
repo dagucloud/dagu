@@ -222,11 +222,13 @@ func TestUserForAPIKeyAttribution(t *testing.T) {
 			Role:      RoleOperator,
 		}},
 	}
+	projectGrants := []ProjectGrant{{ProjectID: "project-a", Role: RoleManager}}
 	apiKey := &APIKey{
 		ID:                 "key-id",
 		Name:               "deploy-key",
 		Role:               RoleDeveloper,
 		WorkspaceAccess:    workspaceAccess,
+		ProjectGrants:      projectGrants,
 		AttributionClass:   APIKeyAttributionServiceAccount,
 		ServiceAccountID:   "svc-id",
 		ServiceAccountName: "deploy",
@@ -240,6 +242,7 @@ func TestUserForAPIKeyAttribution(t *testing.T) {
 	assert.Equal(t, RoleDeveloper, user.Role)
 	assert.Equal(t, workspaceAccess, user.WorkspaceAccess)
 	require.NotSame(t, workspaceAccess, user.WorkspaceAccess)
+	assert.Equal(t, projectGrants, user.ProjectGrants)
 }
 
 func TestAPIKey_ToStorage_ToAPIKey_Roundtrip(t *testing.T) {
@@ -261,6 +264,7 @@ func TestAPIKey_ToStorage_ToAPIKey_Roundtrip(t *testing.T) {
 		AttributionClass: APIKeyAttributionUserOwned,
 		OwnerUserID:      "owner-id",
 		OwnerUsername:    "alice",
+		ProjectGrants:    []ProjectGrant{{ProjectID: "project-a", Role: RoleOperator}},
 	}
 
 	// Convert to storage and back
@@ -282,6 +286,7 @@ func TestAPIKey_ToStorage_ToAPIKey_Roundtrip(t *testing.T) {
 	assert.Equal(t, original.OwnerUserID, recovered.OwnerUserID)
 	assert.Equal(t, original.OwnerUsername, recovered.OwnerUsername)
 	assert.ElementsMatch(t, original.AllowedSurfaces, recovered.AllowedSurfaces)
+	assert.Equal(t, original.ProjectGrants, recovered.ProjectGrants)
 }
 
 func TestAPIKey_JSONSerialization(t *testing.T) {
@@ -357,6 +362,15 @@ func TestAPIKeyForStorage_JSONSerialization(t *testing.T) {
 	assert.Equal(t, storage.Role, recovered.Role)
 	assert.Equal(t, storage.KeyHash, recovered.KeyHash)
 	assert.Equal(t, storage.KeyDigest, recovered.KeyDigest)
+}
+
+// An API key without project grants is stored as before projects existed.
+func TestAPIKeyForStorage_OmitsEmptyProjectGrants(t *testing.T) {
+	key, err := NewAPIKey("key", "", RoleViewer, "hash", "dagu_abc", "creator")
+	require.NoError(t, err)
+	data, err := json.Marshal(key.ToStorage())
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "project_grants")
 }
 func TestAPIKey_NilLastUsedAt(t *testing.T) {
 	key := &APIKey{

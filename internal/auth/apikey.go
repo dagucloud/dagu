@@ -46,6 +46,9 @@ type APIKey struct {
 	// WorkspaceAccess restricts access to selected workspaces.
 	// Nil is treated as all-workspaces for backward compatibility.
 	WorkspaceAccess *WorkspaceAccess `json:"workspace_access,omitempty"`
+	// ProjectGrants give roles in single projects. Role applies to every
+	// project.
+	ProjectGrants []ProjectGrant `json:"project_grants,omitempty"`
 	// AllowedSurfaces controls which public interfaces accept this key.
 	// Empty is treated as REST API and MCP for backward compatibility.
 	AllowedSurfaces []APIKeySurface `json:"allowed_surfaces,omitempty"`
@@ -118,6 +121,7 @@ type APIKeyForStorage struct {
 	Description              string                 `json:"description,omitempty"`
 	Role                     Role                   `json:"role"`
 	WorkspaceAccess          *WorkspaceAccess       `json:"workspace_access,omitempty"`
+	ProjectGrants            []ProjectGrant         `json:"project_grants,omitempty"`
 	AllowedSurfaces          []APIKeySurface        `json:"allowed_surfaces,omitempty"`
 	AttributionClass         APIKeyAttributionClass `json:"attribution_class,omitempty"`
 	OwnerUserID              string                 `json:"owner_user_id,omitempty"`
@@ -145,6 +149,7 @@ func (k *APIKey) ToStorage() *APIKeyForStorage {
 		Description:              normalized.Description,
 		Role:                     normalized.Role,
 		WorkspaceAccess:          CloneWorkspaceAccess(normalized.WorkspaceAccess),
+		ProjectGrants:            normalized.ProjectGrants,
 		AllowedSurfaces:          CloneAPIKeySurfaces(normalized.AllowedSurfaces),
 		AttributionClass:         normalized.AttributionClass,
 		OwnerUserID:              normalized.OwnerUserID,
@@ -172,6 +177,7 @@ func (s *APIKeyForStorage) ToAPIKey() *APIKey {
 		Description:              s.Description,
 		Role:                     s.Role,
 		WorkspaceAccess:          CloneWorkspaceAccess(s.WorkspaceAccess),
+		ProjectGrants:            s.ProjectGrants,
 		AllowedSurfaces:          CloneAPIKeySurfaces(s.AllowedSurfaces),
 		AttributionClass:         s.AttributionClass,
 		OwnerUserID:              s.OwnerUserID,
@@ -259,6 +265,7 @@ func UserForAPIKeyAttribution(apiKey *APIKey) (*User, bool) {
 			Username:        apiKey.OwnerUsername,
 			Role:            apiKey.Role,
 			WorkspaceAccess: CloneWorkspaceAccess(apiKey.WorkspaceAccess),
+			ProjectGrants:   apiKey.ProjectGrants,
 		}, true
 	case APIKeyAttributionServiceAccount:
 		return &User{
@@ -266,6 +273,7 @@ func UserForAPIKeyAttribution(apiKey *APIKey) (*User, bool) {
 			Username:        apiKey.ServiceAccountName,
 			Role:            apiKey.Role,
 			WorkspaceAccess: CloneWorkspaceAccess(apiKey.WorkspaceAccess),
+			ProjectGrants:   apiKey.ProjectGrants,
 		}, true
 	default:
 		return nil, false
@@ -280,6 +288,7 @@ func NormalizeAPIKeyMetadata(key *APIKey) *APIKey {
 	normalized := *key
 	normalized.WorkspaceAccess = CloneWorkspaceAccess(key.WorkspaceAccess)
 	normalized.AllowedSurfaces = CloneAPIKeySurfaces(key.AllowedSurfaces)
+	normalized.ProjectGrants = slices.Clone(key.ProjectGrants)
 
 	if normalized.AttributionClass == "" {
 		normalized.AttributionClass = APIKeyAttributionServiceAccount

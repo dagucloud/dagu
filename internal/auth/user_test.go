@@ -134,6 +134,7 @@ func TestUser_StorageRoundtrip(t *testing.T) {
 			AuthProvider:       AuthProviderProxy,
 			TrustedProxySource: "edge-cluster",
 			TrustedProxyUser:   "opaque-id",
+			ProjectGrants:      []ProjectGrant{{ProjectID: "project-a", Role: RoleDeveloper}},
 		}
 
 		storage := original.ToStorage()
@@ -148,6 +149,7 @@ func TestUser_StorageRoundtrip(t *testing.T) {
 		assert.Equal(t, original.AuthProvider, recovered.AuthProvider)
 		assert.Equal(t, original.TrustedProxySource, recovered.TrustedProxySource)
 		assert.Equal(t, original.TrustedProxyUser, recovered.TrustedProxyUser)
+		assert.Equal(t, original.ProjectGrants, recovered.ProjectGrants)
 	})
 }
 
@@ -225,6 +227,13 @@ func TestUserForStorage_JSONSerialization(t *testing.T) {
 		jsonStr := string(data)
 		assert.Contains(t, jsonStr, "included-hash")
 		assert.Contains(t, jsonStr, "password_hash")
+	})
+
+	// A user without project grants is stored as before projects existed.
+	t.Run("omits empty project grants", func(t *testing.T) {
+		data, err := json.Marshal((&User{ID: "id", Username: "user", Role: RoleViewer}).ToStorage())
+		require.NoError(t, err)
+		assert.NotContains(t, string(data), "project_grants")
 	})
 
 	t.Run("roundtrip preserves all fields", func(t *testing.T) {

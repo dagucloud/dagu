@@ -371,6 +371,31 @@ func TestMiddleware_APIKeyValidation_RolesPreserved(t *testing.T) {
 	}
 }
 
+func TestMiddleware_APIKeyProjectGrants(t *testing.T) {
+	grants := []auth.ProjectGrant{{ProjectID: "project-a", Role: auth.RoleManager}}
+	apiKeyValidator := newMockAPIKeyValidator()
+	apiKeyValidator.AddKey("dagu_testkey", &auth.APIKey{
+		ID:            "key-id",
+		Name:          "test-key",
+		Role:          auth.RoleViewer,
+		ProjectGrants: grants,
+	})
+	handler := &testHandler{}
+	server := httptest.NewServer(Middleware(Options{APIKeyValidator: apiKeyValidator})(handler))
+	defer server.Close()
+
+	req, err := http.NewRequest(http.MethodGet, server.URL+"/test", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer dagu_testkey")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	require.NotNil(t, handler.user)
+	assert.Equal(t, grants, handler.user.ProjectGrants)
+}
+
 func TestMiddleware_PublicPaths(t *testing.T) {
 	apiKeyValidator := newMockAPIKeyValidator()
 	// No keys added
