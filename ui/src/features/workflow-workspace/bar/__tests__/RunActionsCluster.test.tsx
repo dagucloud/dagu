@@ -25,9 +25,6 @@ const h = vi.hoisted(() => ({
     handle: null as { replaceBuffer: ReturnType<typeof vi.fn> } | null,
     state: null as Record<string, unknown> | null,
   },
-  client: { GET: vi.fn(), POST: vi.fn() },
-  showToast: vi.fn(),
-  showError: vi.fn(),
   setDockTab: vi.fn(),
 }));
 
@@ -50,7 +47,6 @@ vi.mock('@/contexts/AuthContext', () => ({
   useCanManageNotifications: () => false,
 }));
 vi.mock('@/hooks/api', () => ({
-  useClient: () => h.client,
   useQuery: (path: string, init: unknown) => {
     if (init === null) return { data: undefined, isLoading: false };
     if (path === '/dag-runs/{name}/{dagRunId}/spec') {
@@ -67,12 +63,6 @@ vi.mock('@/contexts/RemoteNodeContext', () => ({
 }));
 vi.mock('../../canvas/WorkspaceEditorContext', () => ({
   useWorkspaceEditor: () => h.editor,
-}));
-vi.mock('@/components/ui/simple-toast', () => ({
-  useSimpleToast: () => ({ showToast: h.showToast }),
-}));
-vi.mock('@/components/ui/error-modal', () => ({
-  useErrorModal: () => ({ showError: h.showError }),
 }));
 
 const FILE = 'etl.yaml';
@@ -242,8 +232,6 @@ beforeEach(() => {
     handle: { replaceBuffer: vi.fn() },
     state: { dirty: false, editable: true, loaded: true },
   };
-  h.client.GET.mockResolvedValue({ data: {} });
-  h.client.POST.mockResolvedValue({ data: {} });
 });
 
 describe('RunActionsCluster', () => {
