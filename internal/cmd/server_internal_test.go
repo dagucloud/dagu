@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cloudreport"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/license"
@@ -133,7 +134,7 @@ func TestStartCloudReport(t *testing.T) {
 	for _, level := range []config.ReportLevel{"", config.ReportOff, config.ReportHealth, config.ReportRuns} {
 		t.Run("level "+string(level), func(t *testing.T) {
 			ctx := newContext(level)
-			reporter := startCloudReport(ctx, newCloudReportMonitoring(ctx), newCloudAccess(ctx), resource.NewService(ctx.Config))
+			reporter := startCloudReport(ctx, newCloudReportMonitoring(ctx), newCloudAccess(ctx), resource.NewService(ctx.Config), cloudreport.Audit{})
 			require.NotNil(t, reporter)
 			reporter.Stop()
 		})
@@ -145,7 +146,7 @@ func TestStartCloudReport(t *testing.T) {
 		monitoring := newCloudReportMonitoring(ctx)
 		require.Nil(t, monitoring)
 		require.Nil(t, newCloudAccess(ctx))
-		require.Nil(t, startCloudReport(ctx, monitoring, nil, nil))
+		require.Nil(t, startCloudReport(ctx, monitoring, nil, nil, cloudreport.Audit{}))
 	})
 }
 
@@ -204,6 +205,10 @@ func (s *recordingShipper) Drain(sendUntil, endBy time.Time) {
 }
 
 func (s *recordingShipper) Stop() { s.ended <- "stop" }
+
+func (*recordingShipper) Backlog(context.Context) (int64, time.Time, bool) {
+	return 0, time.Time{}, false
+}
 
 // A stop signal drains the audit shipper for the timeout, once the web server
 // has stopped or half the send time has passed; anything else stops it at

@@ -148,6 +148,26 @@ func (f *Feed) Read(_ context.Context, q audit.FeedQuery) (audit.FeedChunk, erro
 	return r.chunk, nil
 }
 
+// Unsent returns how many bytes of the day files lie past position: entries
+// not read yet, and a line still being written. A file position does not hold
+// counts whole; an empty position counts every file.
+func (f *Feed) Unsent(_ context.Context, position []byte) (int64, error) {
+	pos, _ := decodeFeedPosition(position, time.Time{})
+	sizes, err := f.list()
+	if err != nil {
+		return 0, err
+	}
+	var unsent int64
+	for name, size := range sizes {
+		var offset int64
+		if file := pos.Files[name]; file != nil {
+			offset = file.Offset
+		}
+		unsent += max(size-offset, 0)
+	}
+	return unsent, nil
+}
+
 // decodeFeedPosition decodes a saved position. An empty or unreadable one
 // starts at now with no file read, and reports true.
 func decodeFeedPosition(data []byte, now time.Time) (*feedPosition, bool) {

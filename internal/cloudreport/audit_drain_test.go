@@ -194,3 +194,43 @@ func TestAuditDrainKeepsEntriesOverQuota(t *testing.T) {
 	ids, _ := sentIDs(console.requests())
 	assert.Len(t, ids, 3)
 }
+
+// The backlog is what waits past the saved position: while Console holds the
+// server, the bytes on disk and the oldest entry; once all is stored, nothing.
+// A process standing by reads it from the same state.
+func TestAuditShipperBacklog(t *testing.T) {
+	d := newAuditDir(t)
+	first := d.write(t, testClockStart, audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
+	writeCommands(t, d, 2)
+	console := newAuditFakeConsole(t)
+	overQuota := true
+	console.answer = func(auditReceived) (int, string) {
+		if overQuota {
+			return http.StatusTooManyRequests, "3600"
+		}
+		return http.StatusOK, ""
+	}
+	s, clock := startSendingShipper(t, d, console)
+	onDisk, err := fileaudit.NewFeed(d.dir).Unsent(t.Context(), nil)
+	require.NoError(t, err)
+
+	unsent, oldest, ok := s.Backlog(t.Context())
+	require.True(t, ok)
+	assert.Equal(t, onDisk, unsent)
+	assert.Equal(t, first.Timestamp, oldest)
+
+	standby := newTestShipper(fileaudit.NewFeed(d.dir), d.state, filemonitor.NewLease(d.stateFile, nil), config.AuditAll, nil)
+	unsent, oldest, ok = standby.Backlog(t.Context())
+	require.True(t, ok)
+	assert.Equal(t, onDisk, unsent)
+	assert.Equal(t, first.Timestamp, oldest)
+
+	overQuota = false
+	clock.shift(time.Hour)
+	clock.next()
+	require.Len(t, console.requests(), 2)
+	unsent, oldest, ok = s.Backlog(t.Context())
+	require.True(t, ok)
+	assert.Zero(t, unsent)
+	assert.True(t, oldest.IsZero())
+}

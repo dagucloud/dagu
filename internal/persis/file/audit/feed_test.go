@@ -262,6 +262,32 @@ func TestFeed_ContinuesAFullReadThatStopped(t *testing.T) {
 	assert.Equal(t, []string{"b"}, entryIDs(second))
 }
 
+// Unsent counts the bytes past the position: what is not read yet, and a
+// file the position does not hold, whole.
+func TestFeed_Unsent(t *testing.T) {
+	dir := t.TempDir()
+	yesterday := feedNow.AddDate(0, 0, -1)
+	appendText(t, dir, yesterday, feedLine(t, "a", yesterday))
+	first := readFeed(t, dir, nil, feedNow, true)
+	feed := NewFeed(dir)
+
+	caughtUp, err := feed.Unsent(context.Background(), first.Position)
+	require.NoError(t, err)
+	assert.Zero(t, caughtUp)
+
+	unread := feedLine(t, "b", yesterday)
+	appendText(t, dir, yesterday, unread)
+	newFile := feedLine(t, "c", feedNow)
+	appendText(t, dir, feedNow, newFile)
+	unsent, err := feed.Unsent(context.Background(), first.Position)
+	require.NoError(t, err)
+	assert.Equal(t, int64(len(unread)+len(newFile)), unsent)
+
+	all, err := feed.Unsent(context.Background(), nil)
+	require.NoError(t, err)
+	assert.Equal(t, unsent+int64(len(feedLine(t, "a", yesterday))), all)
+}
+
 func TestFeed_StopsAtLimit(t *testing.T) {
 	dir := t.TempDir()
 	appendText(t, dir, feedNow, feedLine(t, "a", feedNow)+feedLine(t, "b", feedNow)+feedLine(t, "c", feedNow))
