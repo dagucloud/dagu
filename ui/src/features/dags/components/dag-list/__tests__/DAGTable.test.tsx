@@ -898,6 +898,37 @@ describe('DAGTable', () => {
     ).toHaveAttribute('aria-pressed', 'false');
   });
 
+  it('ends the pinned cards with a line after a pinned group', () => {
+    renderTable('', {
+      panelWidth: 600,
+      dags: [
+        workflow({ name: 'alpha' }),
+        workflow({ name: 'cleanup', group: 'nightly', pinned: true }),
+        workflow({ name: 'reports', group: 'nightly', pinned: true }),
+      ],
+      resultCount: 3,
+    });
+    const cards = screen.getByTestId('workflow-card-view');
+    const precedes = (a: Node, b: Node) =>
+      (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+    const separator = within(cards).getByRole('separator');
+    expect(precedes(within(cards).getByText('nightly'), separator)).toBe(true);
+    expect(
+      precedes(separator, within(cards).getByRole('link', { name: 'alpha' }))
+    ).toBe(true);
+
+    // Unfolded, the group still ends the pinned cards after its workflows.
+    fireEvent.click(within(cards).getByText('nightly'));
+    const unfolded = within(cards).getByRole('separator');
+    expect(
+      precedes(within(cards).getByRole('link', { name: 'reports' }), unfolded)
+    ).toBe(true);
+    expect(
+      precedes(unfolded, within(cards).getByRole('link', { name: 'alpha' }))
+    ).toBe(true);
+  });
+
   // The server tells an operator's stop from a run that ended aborted, so
   // the card takes the state from the service DAG list.
   it('shows a service DAG as Stopped only when the server says so', () => {

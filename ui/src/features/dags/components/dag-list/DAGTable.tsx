@@ -2087,6 +2087,11 @@ function DAGTable({
             if (row.original?.kind === ItemKind.Group) {
               const groupRow = row.original as GroupRow;
               const isExpanded = row.getIsExpanded();
+              // The rows of an unfolded group follow it in the row model.
+              const lastIndex = index + (isExpanded ? row.subRows.length : 0);
+              const endsPinnedSection =
+                lastIndex === pinnedRowCount - 1 &&
+                lastIndex < instance.getRowModel().rows.length - 1;
 
               return (
                 <div key={row.id} className="space-y-1.5">
@@ -2155,6 +2160,12 @@ function DAGTable({
                       })}
                     </div>
                   )}
+                  {endsPinnedSection && (
+                    <div
+                      role="separator"
+                      className="border-t-2 border-border"
+                    />
+                  )}
                 </div>
               );
             }
@@ -2189,7 +2200,10 @@ function DAGTable({
                     service={services.get(dagRow.dag.fileName)}
                   />
                   {endsPinnedSection && (
-                    <div className="border-t-2 border-border" />
+                    <div
+                      role="separator"
+                      className="border-t-2 border-border"
+                    />
                   )}
                 </React.Fragment>
               );
