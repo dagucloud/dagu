@@ -121,6 +121,7 @@ become runs.
 - More than one poll per DAG, or one poll shared by several DAGs.
 - Conditions and params. The command filters and shapes what it prints.
 - Changes to the per-DAG webhook.
+- Starting a DAG from another DAG's outcome.
 - Running checks on workers. See [Where the check runs](#where-the-check-runs).
 - Detecting a changed item whose key stays the same. A new version of an
   item needs a new key.
@@ -140,6 +141,9 @@ become runs.
 | `timeout` | `30s` | Longest a check may run; at most `5m` |
 | `key` | the whole line | A gojq expression; when set, each line is JSON and its key is the expression's string result |
 | `backlog` | `skip` | `skip` or `run`: what the first check does with the items it lists |
+
+A save that breaks these rules, or sets a `key` that is not valid gojq, is
+rejected.
 
 A DAG's poll is managed in a Poll tab on its page, beside Webhook, and
 through `/api/v1/dags/{fileName}/poll` for settings and
@@ -175,13 +179,15 @@ The scheduler runs `command` with the default shell, in the DAG file's
 directory, as the scheduler's user. It gets the base environment that runs
 get, plus `env`, not the rest of the scheduler's environment.
 
-- **Items.** Each line of stdout that is not blank is an item. Output is
-  capped; items past the cap wait for a later check, so a work queue prints
-  its oldest jobs first.
+- **Items.** Each whole line of stdout that is not blank, without its line
+  ending, is an item. Output is capped; items past the cap wait for a later
+  check, so a work queue prints its oldest jobs first. The command still
+  runs to its end, and its exit code decides the check.
 - **Failure.** A non-zero exit or a timeout fails the check. A failed check
   starts nothing and leaves the poll's keys as they were.
-- **Keys.** An item's key is the line, or the result of `key`. Of lines
-  with the same key, the first is the item.
+- **Keys.** An item's key is the line, or the result of `key`, evaluated
+  within the check's timeout. Of lines with the same key, the first is the
+  item.
 - **Bad lines.** A line that cannot be an item is skipped and not
   remembered: one too long for an environment variable or holding a NUL
   byte, or, with `key`, one that is not JSON or has no non-empty string
@@ -282,10 +288,11 @@ poll is enabled again, and not remembered, run then, as with `watch`.
   backfill's summary does. No more are sent until a check neither
   fails nor skips a line, which clears the error and sends one
   notification.
-- **Not running or late.** The DAG's page shows a poll as not running while
-  no scheduler holds the scheduler lock, and as late when a check is well
-  past due. Neither is notified: whatever stops checks also stops the
-  process that would send the notification.
+- **Not running or late.** For an enabled poll of an unsuspended DAG, the
+  DAG's page shows the poll as not running while no scheduler holds the
+  scheduler lock, and as late when a check is well past due. Neither is
+  notified: whatever stops checks also stops the process that would send
+  the notification.
 
 ### Trying a check
 
@@ -297,8 +304,9 @@ were, so a command can be tried before it is saved.
 
 The scheduler runs the try, so it runs where real checks do, and busy check
 slots never hold it up. A try has a short time limit and says so when no
-scheduler answers. A slower command is tried by saving it with
-`backlog: skip`, whose first check starts nothing.
+scheduler answers. A try whose caller has stopped waiting is not run, and a
+request is removed once answered or abandoned. A slower command is tried by
+saving it with `backlog: skip`, whose first check starts nothing.
 
 ## Security
 
