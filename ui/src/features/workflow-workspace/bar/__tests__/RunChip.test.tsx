@@ -11,7 +11,12 @@ import {
   useNavigationType,
 } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NodeStatus, Status, TriggerType } from '@/api/v1/schema';
+import {
+  NodeStatus,
+  RestartPolicy,
+  Status,
+  TriggerType,
+} from '@/api/v1/schema';
 import type { ApiDAGDetails } from '../../contracts';
 import { node, run as runDetails } from '../../data/__tests__/fixtures';
 import { nodesByStep, NO_WAITING } from '../../data/runFacts';
@@ -99,11 +104,21 @@ function Probe() {
 }
 
 const dag = { name: 'demo' } as ApiDAGDetails;
+const serviceDag = {
+  name: 'demo',
+  restartPolicy: RestartPolicy.always,
+} as ApiDAGDetails;
+// Only a service DAG can read Healthy.
+const definition = { service: false };
 
 function chip() {
   return (
     <div data-testid="ww-bar">
-      <RunChip fileName="demo" dag={dag} workspaceName={null} />
+      <RunChip
+        fileName="demo"
+        dag={definition.service ? serviceDag : dag}
+        workspaceName={null}
+      />
     </div>
   );
 }
@@ -129,6 +144,7 @@ function renderChip(url = '/dags/demo') {
 }
 
 beforeEach(() => {
+  definition.service = false;
   window.localStorage.clear();
   bar.width = 1920;
   HTMLElement.prototype.getBoundingClientRect = function () {
@@ -577,7 +593,8 @@ describe('RunChip healthy', () => {
       step: { repeatPolicy: { repeat: 'while', interval: 10 } },
     });
 
-  it('reads Healthy for a run that never ends, with the repeat count and no 0/1', () => {
+  it('reads Healthy for a run of a service DAG that never ends, with the repeat count and no 0/1', () => {
+    definition.service = true;
     state.run = makeRun(
       runDetails('r3', [repeating(NodeStatus.Running)], Status.Running),
       { isActive: true }
@@ -595,6 +612,7 @@ describe('RunChip healthy', () => {
   });
 
   it('shows no count before the continuous step has run', () => {
+    definition.service = true;
     state.run = makeRun(
       runDetails('r3', [repeating(NodeStatus.Running, 0)], Status.Running),
       { isActive: true }
@@ -603,6 +621,30 @@ describe('RunChip healthy', () => {
     expect(screen.getByRole('img', { name: 'Healthy' })).toBeInTheDocument();
     expect(screen.queryByTestId('repeat-badge')).toBeNull();
     expect(screen.queryByRole('group', { name: 'Run progress' })).toBeNull();
+  });
+
+  // The empty slot would leave a gap between the heart and the next fact.
+  it('leaves no slot for the count of a healthy run that has no repeat count', () => {
+    definition.service = true;
+    state.run = makeRun(
+      runDetails('r3', [node('work', NodeStatus.Running)], Status.Running),
+      { isActive: true }
+    );
+    renderChip();
+    expect(screen.getByRole('img', { name: 'Healthy' })).toBeInTheDocument();
+    expect(screen.getByTestId('ww-run-count-slot')).toHaveClass('hidden');
+  });
+
+  it('keeps Running and the progress for a continuous step of a workflow that is not a service DAG', () => {
+    state.run = makeRun(
+      runDetails('r3', [repeating(NodeStatus.Running)], Status.Running),
+      { isActive: true }
+    );
+    renderChip();
+    expect(screen.getByRole('img', { name: 'Running' })).toBeInTheDocument();
+    expect(screen.queryByText('Healthy')).toBeNull();
+    expect(screen.queryByTestId('repeat-badge')).toBeNull();
+    expect(screen.getByRole('group', { name: 'Run progress' })).toBeVisible();
   });
 
   it('keeps Running and the progress for an ordinary run', () => {
@@ -618,6 +660,7 @@ describe('RunChip healthy', () => {
   });
 
   it('keeps the failure visible when a node of the run failed', () => {
+    definition.service = true;
     state.run = makeRun(
       runDetails(
         'r3',

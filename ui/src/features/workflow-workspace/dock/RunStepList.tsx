@@ -36,6 +36,7 @@ import { formatStepSpan } from '@/lib/formatStepSpan';
 import { shortRunId } from '@/lib/shortRunId';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
+import { isServiceDAG } from '@/lib/dagSchedule';
 import { runDisplayStatus } from '@/lib/runDisplayStatus';
 import { nodeStatusText } from '@/lib/status-utils';
 import { cn } from '@/lib/utils';
@@ -373,6 +374,7 @@ export function RunStepList({
   onOpenSubRun,
 }: RunStepListProps) {
   const { ts } = useI18n();
+  const service = isServiceDAG(dag);
   const known = useMemo(() => definitionNames(dag), [dag]);
   // By drawn start and dependency order: a step never sits above one that it
   // waits for, also when the times of both are the same second (a run that
@@ -465,7 +467,7 @@ export function RunStepList({
         <StatusDot
           kind="run"
           status={details.status}
-          healthy={runDisplayStatus(details).healthy}
+          healthy={runDisplayStatus(details, { service }).healthy}
           // The header chip of the run pulses: one pulse for the run.
           className="motion-safe:animate-none"
         />

@@ -1443,10 +1443,10 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
   const statusTextOf = useCallback<StatusTextOf>(
     (item) =>
       (selected && item.dagRunId === selected.dagRunId
-        ? runDisplayStatus(selected)
-        : summaryDisplayStatus(item.status, continuous)
+        ? runDisplayStatus(selected, { service })
+        : summaryDisplayStatus(item.status, { service, continuous })
       ).text,
-    [selected, continuous]
+    [selected, service, continuous]
   );
   const inRange = settings.mode === 'range';
   const select = (id: string) => run.select(id, { replace: true });
