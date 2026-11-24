@@ -17,8 +17,8 @@ import (
 type ServiceDAGState string
 
 const (
-	// ServiceDAGStatePending means the DAG is not suspended and has no run, or
-	// a run that the scheduler did not queue waits to start.
+	// ServiceDAGStatePending means the DAG is not suspended, and it has no run
+	// or a run that the scheduler did not queue waits to start.
 	ServiceDAGStatePending ServiceDAGState = "pending"
 	// ServiceDAGStateRunning means a run is alive.
 	ServiceDAGStateRunning ServiceDAGState = "running"
