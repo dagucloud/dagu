@@ -6,6 +6,7 @@ import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { EditorRunActions, StepRunInputs } from '../contracts';
+import { outputCache } from './outputCache';
 import { buildDraftBody, buildStartBody } from './runRequests';
 
 interface Args {
@@ -25,6 +26,20 @@ function serverMessage(error: unknown): string | null {
   if (typeof error !== 'object' || error === null) return null;
   const { message } = error as { message?: unknown };
   return typeof message === 'string' && message ? message : null;
+}
+
+// The steps of `fromRuns` whose run the server refused. The server names the
+// first entry that it refuses: `step X cannot be reused from run Y: <reason>`.
+function refusedSteps(
+  message: string | null,
+  fromRuns: Readonly<Record<string, string>>
+): string[] {
+  if (message === null) return [];
+  return Object.entries(fromRuns)
+    .filter(([step, runId]) =>
+      message.includes(`step ${step} cannot be reused from run ${runId}:`)
+    )
+    .map(([step]) => step);
 }
 
 export function useEditorRunActions(args: Args): EditorRunActions {
@@ -84,25 +99,40 @@ export function useEditorRunActions(args: Args): EditorRunActions {
   const runSteps = useCallback(
     async (steps: string[], opts?: StepRunInputs) => {
       const { fileName, dagName, spec, isDirty, remoteNode } = latest.current;
+      const fromRuns = opts?.outputsFromRuns;
       const step = {
         steps,
         outputsFromRunId: opts?.reuseOutputsFrom,
-        ...(opts?.outputsFromRuns
-          ? { outputsFromRuns: opts.outputsFromRuns }
-          : {}),
+        ...(fromRuns ? { outputsFromRuns: fromRuns } : {}),
         ...(opts?.reused ? { reused: opts.reused } : {}),
       };
+      // A cache entry whose run the server refuses is dropped, so that the
+      // next run of the step plans that step to run instead.
+      const send = (call: () => Promise<StartResult>) =>
+        start(async () => {
+          const result = await call();
+          if (fromRuns && result.error !== undefined) {
+            const scope = { remoteNode, fileName };
+            const refused = refusedSteps(serverMessage(result.error), fromRuns);
+            for (const name of refused) {
+              if (outputCache.entries(scope)[name]?.runId === fromRuns[name]) {
+                outputCache.remove(scope, name);
+              }
+            }
+          }
+          return result;
+        });
       // The steps of an unsaved buffer run from the buffer, not the saved
       // file. They are a test of a draft: the run leaves no trace.
       if (isDirty) {
-        return start(() =>
+        return send(() =>
           client.POST('/dag-runs', {
             params: { query: { remoteNode } },
             body: buildDraftBody(spec, dagName, { ...step, ephemeral: true }),
           })
         );
       }
-      return start(() =>
+      return send(() =>
         client.POST('/dags/{fileName}/start', {
           params: { path: { fileName }, query: { remoteNode } },
           body: buildStartBody(step),

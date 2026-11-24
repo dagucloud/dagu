@@ -3,6 +3,7 @@
 
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { outputCache } from '../outputCache';
 import { useEditorRunActions } from '../useEditorRunActions';
 
 const { POST, client } = vi.hoisted(() => {
@@ -17,6 +18,20 @@ vi.mock('@/contexts/RemoteNodeContext', () => ({
 
 const LABELS = ['dagu.source=editor'];
 const REUSE_LABELS = [...LABELS, 'dagu.outputs-from=r1'];
+const SCOPE = { remoteNode: 'node-1', fileName: 'my-dag' };
+
+function cacheEntry(runId: string) {
+  return { values: { OUT: 'x' }, runId, capturedAt: 1, stepHash: 'h' };
+}
+
+function refuse(step: string, runId: string) {
+  POST.mockResolvedValueOnce({
+    error: {
+      message: `step ${step} cannot be reused from run ${runId}: the step or a step it depends on changed since that run`,
+    },
+    response: { status: 400 },
+  });
+}
 
 function setup(
   overrides: Partial<Parameters<typeof useEditorRunActions>[0]> = {}
@@ -34,6 +49,7 @@ function setup(
 
 describe('useEditorRunActions', () => {
   beforeEach(() => {
+    outputCache.clear();
     POST.mockReset();
     POST.mockResolvedValue({
       data: { dagRunId: 'run-1' },
@@ -236,6 +252,30 @@ describe('useEditorRunActions', () => {
     expect(result.current.error).toBe(
       'outputs are reused only from a finished run'
     );
+  });
+
+  it('drops the cache entry of a step whose run the server refuses', async () => {
+    outputCache.put(SCOPE, 'a', cacheEntry('RunA'));
+    outputCache.put(SCOPE, 'c', cacheEntry('RunC'));
+    refuse('a', 'RunA');
+    const { result } = setup();
+    await act(async () => {
+      await result.current.runStep('b', {
+        outputsFromRuns: { a: 'RunA', c: 'RunC' },
+      });
+    });
+    expect(Object.keys(outputCache.entries(SCOPE))).toEqual(['c']);
+  });
+
+  // The entry of the step may name a newer run by the time the answer comes.
+  it('keeps an entry that names another run than the refused one', async () => {
+    outputCache.put(SCOPE, 'a', cacheEntry('RunA2'));
+    refuse('a', 'RunA');
+    const { result } = setup();
+    await act(async () => {
+      await result.current.runStep('b', { outputsFromRuns: { a: 'RunA' } });
+    });
+    expect(outputCache.entries(SCOPE)['a']?.runId).toBe('RunA2');
   });
 
   it('falls back to the HTTP status without a server message', async () => {
