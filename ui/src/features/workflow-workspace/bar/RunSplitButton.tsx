@@ -184,6 +184,9 @@ function SplitButton({
   const startInMenu = canRunDags && replaced;
   const hasMenu =
     !standalone && (startInMenu || canRunDraft || canSaveAndRun || canBackfill);
+  // While another action has the slot of Start, a failed draft run shows
+  // its alert on the caret.
+  const caretAlert = canRunDags && replaced && shownError !== null;
   if (!canRunDags && !hasMenu) return null;
   if (standalone && !replaced) return null;
 
@@ -193,7 +196,7 @@ function SplitButton({
         <div
           data-testid="ww-run-start-slot"
           className="relative"
-          title={shownError ?? undefined}
+          title={replaced ? undefined : (shownError ?? undefined)}
         >
           <RunStartTarget>
             {replaced && run.ref && run.details && (
@@ -270,7 +273,9 @@ function SplitButton({
             <Button
               size={canRunDags ? 'icon-sm' : 'sm'}
               aria-label={ts('More run options')}
-              title={ts('More run options')}
+              title={
+                caretAlert && shownError ? shownError : ts('More run options')
+              }
             >
               {!canRunDags &&
                 (busy || shownError ? (
@@ -283,7 +288,15 @@ function SplitButton({
                   <Play aria-hidden="true" />
                 ))}
               {!canRunDags && ts('Run')}
-              <ChevronDown aria-hidden="true" />
+              {caretAlert ? (
+                <StartFeedback
+                  busy={false}
+                  error={shownError}
+                  label={ts('Starting run')}
+                />
+              ) : (
+                <ChevronDown aria-hidden="true" />
+              )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className={cn(Z.menu, 'w-64')}>

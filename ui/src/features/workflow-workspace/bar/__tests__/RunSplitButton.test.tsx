@@ -1144,6 +1144,33 @@ describe('RunSplitButton', () => {
     expect(screen.getByTestId('location')).not.toHaveTextContent('executions');
   });
 
+  // Retry has the slot of Start: the alert of a failed draft run is on the
+  // caret, with the message as its tooltip, and not on Retry.
+  it('shows why the draft run could not start on the caret', async () => {
+    h.client.POST.mockResolvedValue({
+      error: { message: 'worker unavailable' },
+      response: { status: 503 },
+    });
+    setup({
+      latest: failedRun(),
+      editor: { dirty: true, buffer: 'steps: []\n' },
+    });
+
+    const menu = await openMenu();
+    await userEvent.click(
+      within(menu).getByRole('menuitem', { name: 'Run unsaved draft' })
+    );
+
+    const caret = screen.getByRole('button', { name: 'More run options' });
+    expect(await within(caret).findByRole('alert')).toHaveTextContent(
+      'worker unavailable'
+    );
+    expect(caret).toHaveAttribute('title', 'worker unavailable');
+    const slot = screen.getByTestId('ww-run-start-slot');
+    expect(within(slot).queryByRole('alert')).toBeNull();
+    expect(slot).not.toHaveAttribute('title');
+  });
+
   // The feedback of a start sits in the Start button: its size does not
   // change in idle, busy and error, and no text appears next to it.
   it('keeps the Start button size while a draft start is busy or failed', async () => {
