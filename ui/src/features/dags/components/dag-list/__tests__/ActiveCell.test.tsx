@@ -3,6 +3,7 @@
 
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ScheduleKind,
@@ -11,7 +12,7 @@ import {
 } from '@/api/v1/schema';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
-import { ScheduleCell, WebhookCell } from '../ActiveCell';
+import { GroupScheduleCell, ScheduleCell, WebhookCell } from '../ActiveCell';
 
 type DAGFile = components['schemas']['DAGFile'];
 type ServiceDAG = components['schemas']['ServiceDAG'];
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   webhooks: [] as Array<{ dagName: string; enabled: boolean }>,
   post: vi.fn(),
   mutate: vi.fn(),
+  showError: vi.fn(),
 }));
 
 vi.mock('@/hooks/api', () => ({
@@ -42,7 +44,7 @@ vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
 vi.mock('@/components/ui/error-modal', () => ({
-  useErrorModal: () => ({ showError: vi.fn() }),
+  useErrorModal: () => ({ showError: mocks.showError }),
 }));
 
 function dagFile(schedule: components['schemas']['Schedule'][]): DAGFile {
@@ -75,6 +77,7 @@ beforeEach(() => {
   mocks.webhooks = [];
   mocks.post.mockReset().mockResolvedValue({ error: undefined });
   mocks.mutate.mockReset();
+  mocks.showError.mockReset();
 });
 
 describe('ScheduleCell and WebhookCell', () => {
@@ -177,5 +180,42 @@ describe('ScheduleCell and WebhookCell', () => {
     renderCell(dagFile(cron));
     expect(screen.queryByTestId('webhook-switch')).toBeNull();
     expect(screen.getByTestId('webhook-cell').textContent).toBe('-');
+  });
+});
+
+function Providers({ children }: { children: React.ReactNode }) {
+  return (
+    <UserPreferencesProvider>
+      <I18nProvider>{children}</I18nProvider>
+    </UserPreferencesProvider>
+  );
+}
+
+describe('GroupScheduleCell', () => {
+  // A request that throws, such as on a network error, has no error response.
+  it('reports a request that fails without a response', async () => {
+    const refresh = vi.fn();
+    mocks.post.mockRejectedValueOnce(new Error('Failed to fetch'));
+    const members = ['a', 'b'].map(
+      (fileName) => ({ ...dagFile(cron), fileName }) as DAGFile
+    );
+    render(
+      <GroupScheduleCell name="nightly" members={members} refresh={refresh} />,
+      { wrapper: Providers }
+    );
+
+    await userEvent.click(
+      screen.getByRole('switch', { name: 'Schedules of group nightly' })
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Disable' }));
+
+    await waitFor(() =>
+      expect(mocks.showError).toHaveBeenCalledWith(
+        'Failed to fetch',
+        expect.any(String)
+      )
+    );
+    expect(mocks.post).toHaveBeenCalledTimes(2);
+    expect(refresh).toHaveBeenCalledOnce();
   });
 });

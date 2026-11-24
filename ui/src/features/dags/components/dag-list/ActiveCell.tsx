@@ -23,6 +23,25 @@ type DAGFile = components['schemas']['DAGFile'];
 type ServiceDAG = components['schemas']['ServiceDAG'];
 
 /**
+ * The first failed request of a group switch: an error response, or a request
+ * that threw, such as on a network error. Undefined when all succeeded.
+ */
+function firstFailure(
+  results: PromiseSettledResult<{ error?: { message?: string } }>[]
+): { message?: string } | undefined {
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      const reason: unknown = result.reason;
+      return { message: reason instanceof Error ? reason.message : undefined };
+    }
+    if (result.value.error) {
+      return result.value.error;
+    }
+  }
+  return undefined;
+}
+
+/**
  * The schedule of a workflow with its switch (the suspension of the workflow)
  * and the next run; a service DAG says that it is a service, and when its
  * next restart is due. A dash without a schedule or a restart policy.
@@ -189,7 +208,7 @@ export function GroupScheduleCell({
     if (next === null) return;
     setBusy(true);
     try {
-      const results = await Promise.all(
+      const results = await Promise.allSettled(
         scheduled
           .filter((dag) => !!dag.suspended === next)
           .map((dag) =>
@@ -202,10 +221,10 @@ export function GroupScheduleCell({
             })
           )
       );
-      const failure = results.find((result) => result.error);
-      if (failure?.error) {
+      const failure = firstFailure(results);
+      if (failure) {
         showError(
-          failure.error.message || ts('Could not update the schedules'),
+          failure.message || ts('Could not update the schedules'),
           ts('Please try again or check the server connection.')
         );
       }
@@ -295,7 +314,7 @@ export function GroupWebhookCell({
     if (next === null) return;
     setBusy(true);
     try {
-      const results = await Promise.all(
+      const results = await Promise.allSettled(
         webhooks
           .filter((webhook) => webhook.enabled !== next)
           .map((webhook) =>
@@ -308,10 +327,10 @@ export function GroupWebhookCell({
             })
           )
       );
-      const failure = results.find((result) => result.error);
-      if (failure?.error) {
+      const failure = firstFailure(results);
+      if (failure) {
         showError(
-          failure.error.message || ts('Could not update the webhook'),
+          failure.message || ts('Could not update the webhook'),
           ts('Please try again or check the server connection.')
         );
       }
