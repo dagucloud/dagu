@@ -86,8 +86,8 @@ describe('right-side panel shell', () => {
     );
   });
 
-  // The toolbar row of a zone holds the Workflow toggle, which names the panel
-  // from md. The close button stays below md, where the row is hidden.
+  // From md the toolbar row of a zone names the Workflow panel and holds its
+  // Close button. The bar stays below md, where the row is hidden.
   it('drops the title bar of the Workflow panel from md in a zone with a row', () => {
     const zone = (row: HTMLElement | undefined) => (
       <PanelPlacementProvider value="zone">

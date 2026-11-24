@@ -39,7 +39,7 @@ export function WorkflowDrawer({
 }): ReactElement {
   const { ts } = useI18n();
   const column = usePanelColumn();
-  // The Workflow toggle of the row names the panel: the bar goes from md.
+  // From md the row has the title and the Close button, in place of the bar.
   const inRow = usePanelInToolbarRow();
   // In the right column of the host the panel is the body of its tab: the
   // column has the title and the button that collapses it.
