@@ -18,14 +18,6 @@ function Wrapper({ children }: { children: React.ReactNode }) {
   );
 }
 
-const display = vi.hoisted(() => ({
-  current: undefined as { healthy: boolean } | undefined,
-}));
-
-vi.mock('@/features/dag-runs/hooks/useListRunDisplay', () => ({
-  useListRunDisplay: () => display.current,
-}));
-
 function dag(startedAt: string | undefined, status = Status.Success) {
   return {
     fileName: 'alpha.yaml',
@@ -39,10 +31,6 @@ function ago(ms: number): string {
 }
 
 describe('LastRunCell', () => {
-  beforeEach(() => {
-    display.current = undefined;
-  });
-
   it('reads the compact time of the workflow header, behind the status dot', () => {
     render(<LastRunCell dag={dag(ago(3 * 86_400_000))} />, {
       wrapper: Wrapper,
@@ -56,15 +44,14 @@ describe('LastRunCell', () => {
     expect(screen.getByText('-')).toBeInTheDocument();
   });
 
-  it('shows a heartbeat that runs well as Healthy, with no time', () => {
-    display.current = { healthy: true };
-    render(<LastRunCell dag={dag(ago(1000 * 86_400_000), Status.Running)} />, {
+  // Spec 100: only a service DAG reads Healthy; any other workflow keeps the
+  // time of its run, also a run that repeats for ever.
+  it('keeps the time of a running workflow', () => {
+    render(<LastRunCell dag={dag(ago(3 * 86_400_000), Status.Running)} />, {
       wrapper: Wrapper,
     });
-    const cell = screen.getByTestId('dag-last-run');
-    expect(cell).toHaveAttribute('data-healthy', 'true');
-    expect(cell).toHaveTextContent('Healthy');
-    expect(cell).not.toHaveTextContent('ago');
+    expect(screen.getByTestId('dag-last-run')).toHaveTextContent('3d ago');
+    expect(screen.getByRole('img', { name: 'Running' })).toBeInTheDocument();
   });
 });
 
@@ -82,7 +69,6 @@ describe('LastRunCell of a service DAG', () => {
         removeEventListener: vi.fn(),
       }),
     });
-    display.current = undefined;
   });
 
   it.each([
@@ -108,21 +94,6 @@ describe('LastRunCell of a service DAG', () => {
       );
     }
   );
-
-  it('reads Healthy, with the chip of the service, for a heartbeat', () => {
-    display.current = { healthy: true };
-    render(
-      <LastRunCell
-        dag={dag(ago(1000 * 86_400_000), Status.Running)}
-        serviceState={ServiceDAGState.running}
-      />,
-      { wrapper: Wrapper }
-    );
-    const cell = screen.getByTestId('dag-last-run');
-    expect(cell).toHaveTextContent('Healthy');
-    expect(cell).toHaveAttribute('data-service-state', 'running');
-    expect(cell).not.toHaveAttribute('data-healthy');
-  });
 
   it('shows the state of a service DAG that never ran', () => {
     render(
