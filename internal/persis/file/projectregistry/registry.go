@@ -40,9 +40,9 @@ const (
 	// lockStaleThreshold frees the lock of a process that died holding it.
 	lockStaleThreshold = 30 * time.Second
 	lockRetryInterval  = 20 * time.Millisecond
-	// writeBudget is how long a writer may hold the lock before it starts to
-	// replace the file. The rest of lockStaleThreshold bounds the replacement
-	// itself.
+	// writeBudget is how long after the attempt that took the lock a writer
+	// may still start to replace the file. The rest of lockStaleThreshold is
+	// left for the replacement itself.
 	writeBudget = lockStaleThreshold * 3 / 4
 )
 
@@ -225,15 +225,14 @@ func (r *Registry) Delete(ctx context.Context, id string) error {
 func (r *Registry) update(ctx context.Context, change func([]project.Project) ([]project.Project, bool, error)) error {
 	lock := dirlock.New(r.lockDir, &dirlock.LockOptions{
 		StaleThreshold: lockStaleThreshold,
-		RetryInterval:  lockRetryInterval,
 		// Hosts that share the data directory can disagree on the time.
 		ObserveHeartbeat: true,
 	})
-	if err := lock.Lock(ctx); err != nil {
+	lockedAt, err := r.acquire(ctx, lock)
+	if err != nil {
 		return fmt.Errorf("project registry: lock %s: %w", r.lockDir, err)
 	}
 	defer func() { _ = lock.Unlock() }()
-	lockedAt := r.now()
 
 	projects, err := r.load()
 	if err != nil {
@@ -245,9 +244,10 @@ func (r *Registry) update(ctx context.Context, change func([]project.Project) ([
 	}
 	// Shared storage offers no compare-and-swap for a rename, so a writer
 	// that lost the lock would replace a newer registry. A contender takes
-	// the lock over only after seeing it unchanged for lockStaleThreshold,
-	// so a replacement that starts within writeBudget has the rest of that
-	// time to finish.
+	// the lock over only after watching it unchanged for lockStaleThreshold
+	// from when it saw it first, which is after lockedAt. A replacement that
+	// starts within writeBudget thus has the rest of that time to finish;
+	// one that stalls longer can still overwrite a newer registry.
 	if r.now().Sub(lockedAt) > writeBudget {
 		return fmt.Errorf("project registry: lock held too long before the write: %w", dirlock.ErrLockNotHeld)
 	}
@@ -255,6 +255,28 @@ func (r *Registry) update(ctx context.Context, change func([]project.Project) ([
 		return fmt.Errorf("project registry: lock lost before the write: %w", dirlock.ErrLockNotHeld)
 	}
 	return r.store(next)
+}
+
+// acquire takes lock and returns the time at which the attempt that took it
+// started, before the lock existed.
+func (r *Registry) acquire(ctx context.Context, lock dirlock.DirLock) (time.Time, error) {
+	ticker := time.NewTicker(lockRetryInterval)
+	defer ticker.Stop()
+	for {
+		attempt := r.now()
+		err := lock.TryLock()
+		if err == nil {
+			return attempt, nil
+		}
+		if !errors.Is(err, dirlock.ErrLockConflict) {
+			return time.Time{}, err
+		}
+		select {
+		case <-ctx.Done():
+			return time.Time{}, ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 // load reads the registered projects, ordered by name. A missing file holds

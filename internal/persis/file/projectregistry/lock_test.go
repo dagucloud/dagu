@@ -4,6 +4,7 @@
 package projectregistry
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -13,16 +14,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// A writer that held the lock past its write budget can no longer rule out
-// that a contender took the lock over, so it stores nothing.
+// The clock jumps past the write budget the moment the lock exists, standing
+// for a writer that paused right after creating it. A contender may watch the
+// lock from then on, so the writer can no longer rule out a takeover and
+// stores nothing.
 func TestWriteRefusedPastBudget(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	reg := New(dir)
-	now := time.Now()
+	start := time.Now()
 	reg.now = func() time.Time {
-		now = now.Add(writeBudget + time.Second)
-		return now
+		if _, err := os.Stat(filepath.Join(reg.lockDir, dirlock.LockDirectoryName)); err == nil {
+			return start.Add(writeBudget + time.Second)
+		}
+		return start
 	}
 
 	_, err := reg.Create(t.Context(), project.CreateInput{Name: "weather"})
