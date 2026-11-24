@@ -60,4 +60,24 @@ export default defineMessages({
     'No older run in this view': 'このビューに古い実行はありません',
     'No newer run in this view': 'このビューに新しい実行はありません',
   },
+  de: {
+    'Show cached time': 'Zwischengespeicherte Zeit anzeigen',
+    'Hide cached time': 'Zwischengespeicherte Zeit ausblenden',
+    'Total {total} = own {own} + cached {cached}':
+      'Gesamt {total} = eigen {own} + zwischengespeichert {cached}',
+    'Newest runs': 'Neueste Läufe',
+    'Last hour': 'Letzte Stunde',
+    'Last 6 hours': 'Letzte 6 Stunden',
+    'Last 24 hours': 'Letzte 24 Stunden',
+    'Edit custom range': 'Eigenen Zeitraum bearbeiten',
+    'The start must not be after the end.':
+      'Der Beginn darf nicht nach dem Ende liegen.',
+    'Only the last {n} runs are loaded':
+      'Nur die letzten {n} Läufe sind geladen',
+    'No runs in this time range': 'Keine Läufe in diesem Zeitraum',
+    'Choose a longer range to see more runs.':
+      'Längeren Zeitraum wählen, um mehr Läufe zu sehen.',
+    'No older run in this view': 'Kein älterer Lauf in dieser Ansicht',
+    'No newer run in this view': 'Kein neuerer Lauf in dieser Ansicht',
+  },
 });

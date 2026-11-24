@@ -271,14 +271,17 @@ describe('SamplesPanel with a run history', () => {
     expect(screen.getByTestId('continuous-empty')).toBeInTheDocument();
   });
 
-  it('gives the window that the chart asks to the note of the host', () => {
+  // The server cuts the window to the samples it has: the note follows the
+  // window that the chart draws, not the one that it asked for.
+  it('gives the window that the chart shows to the note of the host', () => {
+    const from = NOW - 2 * 86_400_000;
+    h.responses.samples = { ...series(5), from: new Date(from).toISOString() };
     const notice = vi.fn<(window: { from: number; to: number }) => ReactNode>(
       () => <p data-testid="note">note</p>
     );
     render(panel({ notice }));
     expect(screen.getByTestId('note')).toBeInTheDocument();
-    const window = notice.mock.calls[0]![0];
-    expect(window.to - window.from).toBe(7 * 86_400_000);
+    expect(notice).toHaveBeenLastCalledWith({ from, to: NOW });
   });
 });
 

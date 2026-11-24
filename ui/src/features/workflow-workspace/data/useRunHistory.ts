@@ -144,9 +144,10 @@ export function useRunHistory({
   pollTestRuns?: boolean;
   /**
    * The caller uses only the newest page. While the feed of a service DAG is
-   * connected, its runs come from the feed, with the test runs of the last
-   * read, and an event does not read the list again. The older pages need a
-   * cursor that the feed does not give: they keep the reads.
+   * connected, or reconnects after a message, its runs come from the feed,
+   * with the test runs of the last read, and an event does not read the list
+   * again. The older pages need a cursor that the feed does not give: they
+   * keep the reads.
    */
   newestOnly?: boolean;
 }): RunHistory {
@@ -240,8 +241,16 @@ export function useRunHistory({
     (includeEphemeral ? noSync : mutate) as typeof mutate
   );
   const events = historySSE.data;
+  // A feed that reconnects keeps its last message, and nothing reads the list
+  // meanwhile: that message is newer than the last read. A feed in fallback
+  // polls the list, which is then the newer one.
+  const reconnecting =
+    historySSE.isConnecting && !historySSE.shouldUseFallback && events != null;
   const fromFeed =
-    newestOnly && includeEphemeral && service && historySSE.isConnected;
+    newestOnly &&
+    includeEphemeral &&
+    service &&
+    (historySSE.isConnected || reconnecting);
   useEffect(() => {
     // An event of the feed means that the history changed: read it again.
     if (

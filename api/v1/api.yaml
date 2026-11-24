@@ -10865,41 +10865,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
-  /license/monitoring/dismiss-errors-notice:
-    post:
-      summary: "Dismiss the notice that offers to send error messages"
-      description: "Stops offering administrators to have this server also send the error messages of failed runs to Dagu Console. Admin only."
-      operationId: "dismissLicenseMonitoringErrorsNotice"
-      tags:
-        - "system"
-      parameters:
-        - $ref: "#/components/parameters/RemoteNode"
-      responses:
-        "200":
-          description: "What this server reports"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LicenseMonitoring"
-        "400":
-          description: "License management is not available"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "403":
-          description: "Insufficient permissions"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        default:
-          description: "Unexpected error"
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-
   /license/remote-access:
     get:
       summary: "Get how far calls from Dagu Cloud may go on this server"
@@ -23119,12 +23084,19 @@ components:
       enum: ["off", "health", "runs", "errors"]
       description: "How much this server reports to Dagu Console: off sends nothing but one report saying so after health, runs, or errors, health sends its version and which services run, runs also sends the status of finished DAG runs and the runs in progress, and errors also sends the error messages of failed runs"
 
+    LicenseAuditLevel:
+      type: string
+      enum: ["off", "changes", "all"]
+      description: "Which audit entries this server sends to Dagu Console, as cloud.audit in the configuration sets: off sends none, changes sends every entry but successful reads, and all sends every entry. It takes effect only with local audit on and a license with the audit feature"
+
     LicenseMonitoring:
       type: object
       description: "What this server reports to Dagu Console"
       properties:
         level:
           $ref: "#/components/schemas/LicenseMonitoringLevel"
+        auditLevel:
+          $ref: "#/components/schemas/LicenseAuditLevel"
         configured:
           type: boolean
           description: "Whether cloud.report in the configuration fixes the level"
@@ -23134,9 +23106,6 @@ components:
         noticeDismissed:
           type: boolean
           description: "Whether an administrator dismissed the notice that asks what to report"
-        errorsOffered:
-          type: boolean
-          description: "Whether an administrator was offered to send error messages: they chose a level on this server, or dismissed the notice that offers them"
         lastReportAt:
           type: string
           description: "When Dagu Console accepted the last report this server sent"
@@ -23149,10 +23118,10 @@ components:
           description: "When Dagu Console stores this server's finished runs again, after its workspace reached the daily limit; absent when the last accepted report was not told of a pause"
       required:
         - level
+        - auditLevel
         - configured
         - chosen
         - noticeDismissed
-        - errorsOffered
 
     LicenseRemoteAccessLevel:
       type: string

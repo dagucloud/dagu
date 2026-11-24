@@ -121,6 +121,11 @@ export interface RetainedRuns {
    * the first read, or when the DAG keeps more runs than one page holds.
    */
   oldestAt: number | null;
+  /**
+   * The start of the oldest run that the last read listed, in ms; null
+   * before the first read. A run that started later is retained too.
+   */
+  oldestListedAt: number | null;
 }
 
 /**
@@ -137,7 +142,11 @@ function pageHoldsOldest(
   return runs > 0 && runs <= RETAINED_LIMIT && !dag?.histRetentionDays;
 }
 
-const NONE: RetainedRuns = { ids: new Set(), oldestAt: null };
+const NONE: RetainedRuns = {
+  ids: new Set(),
+  oldestAt: null,
+  oldestListedAt: null,
+};
 
 /**
  * The retained runs of a service DAG, for the notice and for the links of
@@ -145,12 +154,13 @@ const NONE: RetainedRuns = { ids: new Set(), oldestAt: null };
  * panel opens, when `windowKey` changes (at most once in
  * SERVICE_READ_GAP_MS), and after an event of the feed (at most once in
  * RETAINED_READ_MS: each run sends an event). Without the feed, and for a
- * DAG that is not a service, it reads each RETAINED_READ_MS. It reads nothing
- * while `enabled` is false.
+ * DAG that is not a service, it reads each RETAINED_READ_MS while `poll` is
+ * true. It reads nothing while `enabled` is false.
  */
 export function useRetainedRuns(
   enabled: boolean,
-  windowKey?: string
+  windowKey?: string,
+  poll = true
 ): RetainedRuns {
   const { fileName, remoteNode, dagData } = useWorkspaceData('useRetainedRuns');
   const dag = dagData.dag;
@@ -169,7 +179,7 @@ export function useRetainedRuns(
     }),
     {
       keepPreviousData: true,
-      refreshInterval: fed ? 0 : RETAINED_READ_MS,
+      refreshInterval: fed || !poll ? 0 : RETAINED_READ_MS,
       revalidateOnFocus: false,
       revalidateOnReconnect: false,
       onSuccess: () => noteRead(gateKey),
@@ -201,12 +211,11 @@ export function useRetainedRuns(
     const runs = data?.dagRuns;
     if (!runs) return NONE;
     const oldest = runs[runs.length - 1];
+    const oldestListedAt = oldest ? runTimeMs(oldest) : null;
     return {
       ids: new Set(runs.map((run) => run.dagRunId)),
-      oldestAt:
-        oldest && pageHoldsOldest(data.nextCursor, dag)
-          ? runTimeMs(oldest)
-          : null,
+      oldestAt: pageHoldsOldest(data.nextCursor, dag) ? oldestListedAt : null,
+      oldestListedAt,
     };
   }, [data, dag]);
 }

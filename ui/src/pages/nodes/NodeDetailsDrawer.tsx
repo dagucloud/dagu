@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { components } from '@/api/v1/schema';
+import { InventoryNodeKind, type components } from '@/api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
@@ -13,6 +13,7 @@ import {
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import React from 'react';
+import { NodeEditor } from './NodeEditor';
 import { TestOutcome } from './NodeTestPanel';
 
 type InventoryNode = components['schemas']['InventoryNode'];
@@ -22,6 +23,10 @@ type NodeDetailsDrawerProps = {
   node: InventoryNode | null;
   /** The node's last test on this page, if any. */
   lastTest?: ConnectionTest;
+  /** Whether the user can change the node: edit, disable, or remove it. */
+  canEdit?: boolean;
+  onChanged?: () => void;
+  onRemoved?: () => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
@@ -39,6 +44,9 @@ type DetailField = {
 export function NodeDetailsDrawer({
   node,
   lastTest,
+  canEdit = false,
+  onChanged = () => {},
+  onRemoved = () => {},
   open,
   onOpenChange,
 }: NodeDetailsDrawerProps): React.ReactElement | null {
@@ -132,6 +140,14 @@ export function NodeDetailsDrawer({
                 { label: 'Result', value: <TestOutcome result={lastTest} /> },
                 { label: 'Bastion key', value: lastTest.bastionFingerprint },
               ]}
+            />
+          )}
+          {canEdit && node.kind === InventoryNodeKind.ssh && (
+            <NodeEditor
+              key={`${node.inventory.id}/${node.name}`}
+              node={node}
+              onChanged={onChanged}
+              onRemoved={onRemoved}
             />
           )}
         </div>

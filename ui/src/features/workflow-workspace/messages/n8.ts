@@ -28,4 +28,13 @@ export default defineMessages({
     Latest: '最新',
     'Follow latest': '最新に追従',
   },
+  de: {
+    'No runs yet': 'Noch keine Läufe',
+    'Selected run': 'Gewählter Lauf',
+    'Older run': 'Älterer Lauf',
+    'Newer run': 'Neuerer Lauf',
+    Latest: 'Neueste',
+    'Follow latest': 'Neuestem folgen',
+    'A newer run is active': 'Ein neuerer Lauf ist aktiv',
+  },
 });

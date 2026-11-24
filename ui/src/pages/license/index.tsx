@@ -9,6 +9,7 @@ import { ConnectSection } from './ConnectSection';
 import { FeatureList } from './FeatureList';
 import { CalloutLink, LicenseAlerts, LicenseCallout } from './LicenseAlerts';
 import { LicenseOverview } from './LicenseOverview';
+import { AuditSection } from './AuditSection';
 import { MonitoringSection } from './MonitoringSection';
 import { RemoteAccessSection } from './RemoteAccessSection';
 import { useLicenseConnect } from './useLicenseConnect';
@@ -415,6 +416,7 @@ export default function LicenseSection({
             onTurnOff={() => monitoring.setLevel(LicenseMonitoringLevel.off)}
           />
         )}
+        {online && <AuditSection monitoring={monitoring.monitoring} />}
         {online && (
           <RemoteAccessSection
             remoteAccess={remoteAccess.remoteAccess}

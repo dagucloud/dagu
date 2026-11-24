@@ -124,6 +124,26 @@ describe('loopArcs', () => {
       'Waits 5s before the second attempt, then longer each time.'
     );
   });
+
+  // The server reads a backoff of 0 or null as no backoff.
+  it.each([0, null])('keeps the wait fixed for a backoff of %s', (backoff) => {
+    const retry = readRetry({ limit: 3, interval_sec: 5, backoff });
+    const [arc] = loopArcs(ts, plain({ retry: retry! }));
+    expect(arc?.title).toContain('Waits 5s between the attempts.');
+  });
+
+  it('says once for a single retry', () => {
+    const [arc] = loopArcs(ts, plain({ retry: readRetry({ limit: 1 })! }));
+    expect(arc?.title).toBe('Retries the step once.');
+  });
+
+  // "0" is the number 0, so the repeat has no limit.
+  it('draws the sign of no limit for a repeat whose limit is "0"', () => {
+    const repeat = readRepeatPolicy({ repeat: 'while', limit: '0' });
+    const [arc] = loopArcs(ts, plain({ repeat: repeat! }));
+    expect(arc).toMatchObject({ kind: 'repeat', label: '∞' });
+    expect(arc?.title).toContain('no limit');
+  });
 });
 
 describe('the retry of a step in the graph of the canvas', () => {

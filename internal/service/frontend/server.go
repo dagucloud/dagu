@@ -160,6 +160,7 @@ type Server struct {
 	syncService          gitsync.Service
 	listener             net.Listener
 	onReady              func(url string)
+	onStopped            func()
 	appStream            *sse.AppStreamService
 	sseMultiplexer       *sse.Multiplexer
 	terminalManager      *terminal.Manager
@@ -197,6 +198,15 @@ func WithListener(l net.Listener) ServerOption {
 func WithOnReady(fn func(url string)) ServerOption {
 	return func(s *Server) {
 		s.onReady = fn
+	}
+}
+
+// WithOnStopped sets a function called once a graceful shutdown has stopped
+// taking requests and the requests in progress have ended, or its budget ran
+// out, before it waits for DAG runs.
+func WithOnStopped(fn func()) ServerOption {
+	return func(s *Server) {
+		s.onStopped = fn
 	}
 }
 
@@ -1999,6 +2009,9 @@ func (srv *Server) setupGracefulShutdown(ctx context.Context, serveErr <-chan er
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Failed to shutdown server gracefully", tag.Error(err))
+	}
+	if srv.onStopped != nil {
+		srv.onStopped()
 	}
 	// Runner cleanup has its own DAG budget, independent of HTTP shutdown.
 	<-runsDone

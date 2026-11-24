@@ -658,6 +658,47 @@ describe('useRunHistory of a service DAG for the newest page', () => {
     expect(historyCalls()).toHaveLength(1);
   });
 
+  // A dropped feed keeps its last message while it reconnects. The runs must
+  // not go back to the first read, which can be far older than the feed.
+  it('keeps the runs of the feed while it reconnects', async () => {
+    setPolicy('always');
+    h.historySSE.mockReturnValue({ ...idleSSE, isConnected: true });
+    const view = newest();
+    await waitFor(() => expect(historyCalls()).toHaveLength(1));
+    const feed = event('run-2');
+    h.historySSE.mockReturnValue(feed);
+    view.rerender();
+    expect(ids(view)).toEqual(['run-2']);
+
+    h.historySSE.mockReturnValue({
+      ...feed,
+      isConnected: false,
+      isConnecting: true,
+    });
+    view.rerender();
+    expect(ids(view)).toEqual(['run-2']);
+
+    server.history = { dagRuns: [run('run-3'), run('run-2')], gridData: [] };
+    h.historySSE.mockReturnValue({
+      ...feed,
+      isConnected: false,
+      shouldUseFallback: true,
+    });
+    view.rerender();
+    await wait(SERVICE_READ_GAP_MS + 1000);
+    await waitFor(() => expect(ids(view)).toEqual(['run-3', 'run-2']));
+
+    // A retry of a feed in fallback connects again: the polled list is newer.
+    h.historySSE.mockReturnValue({
+      ...feed,
+      isConnected: false,
+      isConnecting: true,
+      shouldUseFallback: true,
+    });
+    view.rerender();
+    expect(ids(view)).toEqual(['run-3', 'run-2']);
+  });
+
   it('reads at the gap when the feed is down', async () => {
     setPolicy('always');
     h.historySSE.mockReturnValue({ ...idleSSE, shouldUseFallback: true });

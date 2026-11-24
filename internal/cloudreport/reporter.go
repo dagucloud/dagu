@@ -75,6 +75,7 @@ type Reporter struct {
 	remote RemoteAccess
 	// resources is nil when reports leave the machine's resources out.
 	resources Resources
+	audit     Audit
 	// refresh checks in for the license now; nil leaves a license change to
 	// the license manager's own check-ins.
 	refresh   func(context.Context) error
@@ -160,6 +161,7 @@ func Start(
 	monitoring *Monitoring,
 	remote RemoteAccess,
 	resources Resources,
+	audit Audit,
 	refresh func(context.Context) error,
 ) *Reporter {
 	r := newReporter(credentials, registry, monitoring)
@@ -169,9 +171,26 @@ func Start(
 	r.workers = workers
 	r.remote = remote
 	r.resources = resources
+	r.audit = audit
 	r.refresh = refresh
 	r.start(ctx)
 	return r
+}
+
+// Audit is what reports say about sending audit entries to Dagu Console.
+type Audit struct {
+	// Level is cloud.audit; empty is off.
+	Level config.AuditLevel
+	// Backlog is nil while no audit shipper runs in this process; reports
+	// then carry the level alone.
+	Backlog AuditBacklog
+}
+
+// AuditBacklog reports the audit entries waiting to be sent: the bytes on
+// disk past what Console has stored, and when the oldest entry that waits was
+// written, zero while none does. ok is false while unknown.
+type AuditBacklog interface {
+	Backlog(ctx context.Context) (unsentBytes int64, oldestUnsent time.Time, ok bool)
 }
 
 // RemoteAccess reads how far calls from Dagu Cloud may go on the server.
@@ -619,8 +638,17 @@ type reportRequest struct {
 	Gap    *reportGap `json:"gap,omitempty"`
 	// Schedules lists the scheduled DAGs and SchedulesTotal counts them all.
 	// Both are left out while unknown; an empty list says none is scheduled.
-	Schedules      []schedule `json:"schedules,omitzero"`
-	SchedulesTotal *int       `json:"schedules_total,omitempty"`
+	Schedules      []schedule   `json:"schedules,omitzero"`
+	SchedulesTotal *int         `json:"schedules_total,omitempty"`
+	Audit          *auditReport `json:"audit,omitempty"`
+}
+
+// auditReport is what waits to go to Dagu Console at the audit level. The
+// figures are left out while unknown, and OldestUnsentAt while nothing waits.
+type auditReport struct {
+	Level          config.AuditLevel `json:"level"`
+	UnsentBytes    *int64            `json:"unsent_bytes,omitempty"`
+	OldestUnsentAt string            `json:"oldest_unsent_at,omitempty"`
 }
 
 type health struct {
@@ -775,6 +803,7 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, lev
 			report.Health.Workers, report.Health.WorkersTotal = r.readWorkers(ctx, now, report.Health.Services,
 				level.ReportsRuns())
 		}
+		report.Audit = r.readAudit(ctx)
 	}
 	body, err := json.Marshal(report)
 	if err != nil {
@@ -858,4 +887,23 @@ func (r *Reporter) services(ctx context.Context) []service {
 		{Name: string(serviceregistry.ServiceNameScheduler), Instances: activeSchedulers, Standby: standbySchedulers},
 		{Name: string(serviceregistry.ServiceNameCoordinator), Instances: len(coordinators)},
 	}
+}
+
+// readAudit returns the audit level, and what waits to be sent when an audit
+// shipper runs in this process.
+func (r *Reporter) readAudit(ctx context.Context) *auditReport {
+	report := &auditReport{Level: r.audit.Level}
+	if report.Level == "" {
+		report.Level = config.AuditOff
+	}
+	if r.audit.Backlog == nil {
+		return report
+	}
+	if unsent, oldest, ok := r.audit.Backlog.Backlog(ctx); ok {
+		report.UnsentBytes = &unsent
+		if !oldest.IsZero() {
+			report.OldestUnsentAt = formatTime(oldest)
+		}
+	}
+	return report
 }

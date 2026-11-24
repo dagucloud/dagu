@@ -47,6 +47,7 @@ export default defineMessages({
     'exit {codes}': 'exit {codes}',
     'Retries the step up to {limit} times.':
       'Retries the step up to {limit} times.',
+    'Retries the step once.': 'Retries the step once.',
     'Retries the step.': 'Retries the step.',
     'Waits {interval} between the attempts.':
       'Waits {interval} between the attempts.',
@@ -102,6 +103,7 @@ export default defineMessages({
     'retry ×{limit}': '重试 ×{limit}',
     'exit {codes}': '退出码 {codes}',
     'Retries the step up to {limit} times.': '此步骤最多重试 {limit} 次。',
+    'Retries the step once.': '此步骤最多重试 1 次。',
     'Retries the step.': '此步骤会重试。',
     'Waits {interval} between the attempts.': '两次尝试之间等待 {interval}。',
     'Waits {interval} before the second attempt, then longer each time.':
@@ -162,6 +164,7 @@ export default defineMessages({
     'exit {codes}': '終了コード {codes}',
     'Retries the step up to {limit} times.':
       'このステップを最大 {limit} 回再試行します。',
+    'Retries the step once.': 'このステップを最大 1 回再試行します。',
     'Retries the step.': 'このステップを再試行します。',
     'Waits {interval} between the attempts.':
       '試行の間に {interval} 待ちます。',
@@ -180,5 +183,32 @@ export default defineMessages({
     'Prompt: {line}': 'プロンプト: {line}',
     '{count} tool call': 'ツール呼び出し {count} 回',
     '{count} tool calls': 'ツール呼び出し {count} 回',
+  },
+  de: {
+    'if {step} failed': 'wenn {step} fehlgeschlagen ist',
+    'if {step} succeeded': 'wenn {step} erfolgreich war',
+    'if {step} exits with {code}': 'wenn {step} mit {code} endet',
+    'if {step} does not exit with {code}': 'wenn {step} nicht mit {code} endet',
+    'if {step}: {test}': 'wenn {step}: {test}',
+    'Precondition: {text}': 'Vorbedingung: {text}',
+    'continues on failure': 'macht bei Fehler weiter',
+    'continues if skipped': 'macht bei Überspringen weiter',
+    'continues on exit code {codes}': 'macht bei Exit-Code {codes} weiter',
+    'continues on matching output': 'macht bei passender Ausgabe weiter',
+    'The run goes on with the steps after this one.':
+      'Der Lauf geht mit den Schritten danach weiter.',
+    'The step then counts as a success.':
+      'Der Schritt gilt dann als erfolgreich.',
+    'Runs only if:': 'Läuft nur, wenn:',
+    'Retries the step up to {limit} times.':
+      'Wiederholt den Schritt bis zu {limit}-mal.',
+    'Retries the step once.': 'Wiederholt den Schritt höchstens einmal.',
+    'Retries the step.': 'Wiederholt den Schritt.',
+    'Waits {interval} between the attempts.':
+      'Wartet {interval} zwischen den Versuchen.',
+    'Waits {interval} before the second attempt, then longer each time.':
+      'Wartet {interval} vor dem zweiten Versuch, danach jedes Mal länger.',
+    'Retries only after the exit code {codes}.':
+      'Wiederholt nur bei Exit-Code {codes}.',
   },
 });

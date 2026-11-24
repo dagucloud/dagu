@@ -412,6 +412,7 @@ func TestLoad_Env(t *testing.T) {
 			Retention: 24 * time.Hour,
 			Interval:  5 * time.Second,
 		},
+		Cloud: CloudConfig{AuditDrainTimeout: 25 * time.Second},
 		Tunnel: TunnelConfig{
 			Enabled:       true,
 			AllowTerminal: true,
@@ -777,6 +778,33 @@ cloud:
 		for _, value := range []string{"true", "runs"} {
 			err := loadWithErrorFromYAML(t, "cloud:\n  audit: "+value+"\n")
 			require.ErrorContains(t, err, "invalid cloud.audit", value)
+		}
+	})
+}
+
+func TestLoad_CloudAuditDrainTimeout(t *testing.T) {
+	t.Run("Default", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_AUDIT_DRAIN_TIMEOUT", "")
+		assert.Equal(t, 25*time.Second, testLoad(t).Cloud.AuditDrainTimeout)
+	})
+
+	t.Run("YAML", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_AUDIT_DRAIN_TIMEOUT", "")
+		cfg := loadFromYAML(t, "cloud:\n  audit_drain_timeout: 8s\n")
+		assert.Equal(t, 8*time.Second, cfg.Cloud.AuditDrainTimeout)
+	})
+
+	t.Run("Env", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_AUDIT_DRAIN_TIMEOUT", "0")
+		assert.Zero(t, testLoad(t).Cloud.AuditDrainTimeout)
+	})
+
+	t.Run("Invalid", func(t *testing.T) {
+		t.Setenv("DAGU_CLOUD_AUDIT_DRAIN_TIMEOUT", "")
+		for _, value := range []string{"soon", "-1s", "2s"} {
+			cfg := loadFromYAML(t, "cloud:\n  audit_drain_timeout: "+value+"\n")
+			assert.Equal(t, 25*time.Second, cfg.Cloud.AuditDrainTimeout, value)
+			assert.Contains(t, strings.Join(cfg.Warnings, "\n"), "Invalid cloud.audit_drain_timeout value: "+value)
 		}
 	})
 }
@@ -1327,6 +1355,7 @@ scheduler:
 			Retention: 24 * time.Hour,
 			Interval:  5 * time.Second,
 		},
+		Cloud:           CloudConfig{AuditDrainTimeout: 25 * time.Second},
 		DefaultExecMode: ExecutionModeLocal,
 		Warnings: []string{fmt.Sprintf(
 			"paths.suspend_flags_dir %q is outside paths.data_dir %q; suspension state may diverge across Dagu processes",

@@ -24,4 +24,10 @@ export default defineMessages({
     Progress: '進捗',
     '{done} of {total} succeeded': '{done} / {total} 成功',
   },
+  de: {
+    'Run details': 'Laufdetails',
+    'Show log': 'Protokoll anzeigen',
+    Progress: 'Fortschritt',
+    '{done} of {total} succeeded': '{done} von {total} erfolgreich',
+  },
 });

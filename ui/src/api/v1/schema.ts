@@ -4091,26 +4091,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/license/monitoring/dismiss-errors-notice": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Dismiss the notice that offers to send error messages
-         * @description Stops offering administrators to have this server also send the error messages of failed runs to Dagu Console. Admin only.
-         */
-        post: operations["dismissLicenseMonitoringErrorsNotice"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/license/remote-access": {
         parameters: {
             query?: never;
@@ -9379,17 +9359,21 @@ export interface components {
          * @enum {string}
          */
         LicenseMonitoringLevel: LicenseMonitoringLevel;
+        /**
+         * @description Which audit entries this server sends to Dagu Console, as cloud.audit in the configuration sets: off sends none, changes sends every entry but successful reads, and all sends every entry. It takes effect only with local audit on and a license with the audit feature
+         * @enum {string}
+         */
+        LicenseAuditLevel: LicenseAuditLevel;
         /** @description What this server reports to Dagu Console */
         LicenseMonitoring: {
             level: components["schemas"]["LicenseMonitoringLevel"];
+            auditLevel: components["schemas"]["LicenseAuditLevel"];
             /** @description Whether cloud.report in the configuration fixes the level */
             configured: boolean;
             /** @description Whether an administrator chose the level on this server */
             chosen: boolean;
             /** @description Whether an administrator dismissed the notice that asks what to report */
             noticeDismissed: boolean;
-            /** @description Whether an administrator was offered to send error messages: they chose a level on this server, or dismissed the notice that offers them */
-            errorsOffered: boolean;
             /** @description When Dagu Console accepted the last report this server sent */
             lastReportAt?: string;
             /** @description JSON body of the last report, as sent, with heartbeat_secret replaced by "[redacted]" */
@@ -24088,56 +24072,6 @@ export interface operations {
             };
         };
     };
-    dismissLicenseMonitoringErrorsNotice: {
-        parameters: {
-            query?: {
-                /** @description name of the remote node */
-                remoteNode?: components["parameters"]["RemoteNode"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description What this server reports */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LicenseMonitoring"];
-                };
-            };
-            /** @description License management is not available */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Insufficient permissions */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-            /** @description Unexpected error */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Error"];
-                };
-            };
-        };
-    };
     getLicenseRemoteAccess: {
         parameters: {
             query?: {
@@ -29949,6 +29883,11 @@ export enum LicenseMonitoringLevel {
     health = "health",
     runs = "runs",
     errors = "errors"
+}
+export enum LicenseAuditLevel {
+    off = "off",
+    changes = "changes",
+    all = "all"
 }
 export enum LicenseRemoteAccessLevel {
     off = "off",

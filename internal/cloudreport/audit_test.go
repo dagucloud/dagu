@@ -123,20 +123,20 @@ func newTestShipper(
 	lease Lease,
 	level config.AuditLevel,
 	send func(context.Context, license.CloudCredentials, auditBatch) error,
-) *auditShipper {
+) *AuditShipper {
 	s := newAuditShipper(feed, state, lease, level, send)
 	s.credentials, s.licensed = testCredentials, func() bool { return true }
 	return s
 }
 
 // runShipper is startShipper that also returns the shipper.
-func runShipper(t *testing.T, d *auditDir, level config.AuditLevel, console *auditConsole) (*auditShipper, *fakeClock) {
+func runShipper(t *testing.T, d *auditDir, level config.AuditLevel, console *auditConsole) (*AuditShipper, *fakeClock) {
 	t.Helper()
 	s := newTestShipper(fileaudit.NewFeed(d.dir), d.state, filemonitor.NewLease(d.stateFile, nil), level, console.send)
 	clock := &fakeClock{t: t, waits: make(chan time.Duration, 16), fire: make(chan time.Time), at: testClockStart}
 	s.after, s.now = clock.after, clock.now
 	s.start(t.Context())
-	t.Cleanup(s.stop)
+	t.Cleanup(s.Stop)
 	require.Equal(t, auditCheckInterval, clock.wait())
 	return s, clock
 }
@@ -209,8 +209,8 @@ func TestAuditShipperSendsWhatTheLevelSends(t *testing.T) {
 		{"cleanup", entry(audit.CategorySystem, "audit_cleanup", "", ""), true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.changes, (&auditShipper{level: config.AuditChanges}).sends(tc.entry), "changes")
-			assert.Equal(t, tc.all, (&auditShipper{level: config.AuditAll}).sends(tc.entry), "all")
+			assert.Equal(t, tc.changes, (&AuditShipper{level: config.AuditChanges}).sends(tc.entry), "changes")
+			assert.Equal(t, tc.all, (&AuditShipper{level: config.AuditAll}).sends(tc.entry), "all")
 		})
 	}
 }
@@ -296,7 +296,7 @@ func TestAuditShipperResendsWithoutReadingAgain(t *testing.T) {
 	clock := &fakeClock{t: t, waits: make(chan time.Duration, 16), fire: make(chan time.Time), at: testClockStart}
 	s.after, s.now = clock.after, clock.now
 	s.start(t.Context())
-	t.Cleanup(s.stop)
+	t.Cleanup(s.Stop)
 	clock.wait()
 	require.Len(t, sentEntries(console.sent()), 1)
 	reads := feed.reads.Load()
@@ -343,7 +343,7 @@ func TestAuditShipperKeepsItsStartWhenTheFirstSendFails(t *testing.T) {
 	console.fail <- errConsoleBusy
 	first, _ := runShipper(t, d, config.AuditAll, console)
 	require.Len(t, sentEntries(console.sent()), 1)
-	first.stop()
+	first.Stop()
 
 	require.NoError(t, os.Remove(filepath.Join(d.dir, yesterday.Format("2006-01-02")+".jsonl")))
 	startShipper(t, d, config.AuditAll, console)
@@ -401,6 +401,8 @@ type endlessFeed struct {
 	reading chan struct{}
 }
 
+func (*endlessFeed) Unsent(context.Context, []byte) (int64, error) { return 0, nil }
+
 func (f *endlessFeed) Read(context.Context, audit.FeedQuery) (audit.FeedChunk, error) {
 	if f.reads.Add(1) > 2 {
 		f.once.Do(func() { close(f.reading) })
@@ -422,7 +424,7 @@ func TestAuditShipperStopsDuringALongRead(t *testing.T) {
 
 	stopped := make(chan struct{})
 	go func() {
-		s.stop()
+		s.Stop()
 		close(stopped)
 	}()
 	select {
@@ -523,7 +525,7 @@ func TestAuditShipperLease(t *testing.T) {
 	standby := startShipper(t, d, config.AuditAll, standbyConsole)
 	assert.Empty(t, standbyConsole.sent())
 
-	holder.stop()
+	holder.Stop()
 	second := d.write(t, testClockStart, audit.NewEntry(audit.CategoryTerminal, "command", "u1", "ops"))
 	standby.next()
 	sent = sentEntries(standbyConsole.sent())

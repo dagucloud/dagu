@@ -23,4 +23,11 @@ export default defineMessages({
     'Format this step': 'このステップを整形',
     'The step is already formatted': 'このステップは整形済みです',
   },
+  de: {
+    'Apply quick fixes to this step':
+      'Schnellkorrekturen auf diesen Schritt anwenden',
+    'No quick fix': 'Keine Schnellkorrektur',
+    'Format this step': 'Diesen Schritt formatieren',
+    'The step is already formatted': 'Der Schritt ist schon formatiert',
+  },
 });

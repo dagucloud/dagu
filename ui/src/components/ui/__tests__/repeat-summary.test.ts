@@ -79,13 +79,20 @@ describe('readRepeatPolicy', () => {
     expect(readRepeatPolicy({ interval_sec: 5 })).toBeNull();
   });
 
-  it('keeps only fixed whole numbers for the interval and the limit', () => {
+  it('keeps whole numbers, and a reference as the text of the limit', () => {
     expect(
       readRepeatPolicy({ repeat: 'while', interval_sec: '15', limit: '${N}' })
-    ).toEqual({ mode: 'while', intervalSec: 15 });
+    ).toEqual({ mode: 'while', intervalSec: 15, limitRef: '${N}' });
     expect(
       readRepeatPolicy({ repeat: 'while', interval_sec: 0, limit: -1 })
     ).toEqual({ mode: 'while' });
+  });
+
+  // The server reads "0" as the number 0: no limit, not a reference.
+  it('reads a limit of "0" as no limit', () => {
+    expect(readRepeatPolicy({ repeat: 'while', limit: '0' })).toEqual({
+      mode: 'while',
+    });
   });
 });
 

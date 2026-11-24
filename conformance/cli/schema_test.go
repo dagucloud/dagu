@@ -56,6 +56,17 @@ func TestSchemaShowsConfigRootFields(t *testing.T) {
 	require.Contains(t, result.Stdout(), `"coordinator"`)
 }
 
+// TestSchemaShowsTestFileFields asserts on "default_mock", a property that
+// only the workflow test file schema has.
+func TestSchemaShowsTestFileFields(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	result := dagu.Run("schema", "test")
+	result.ExpectExitCode(0)
+	require.Contains(t, result.Stdout(), `"default_mock"`)
+}
+
 func TestSchemaRejectsUnknownName(t *testing.T) {
 	t.Parallel()
 

@@ -28,4 +28,12 @@ export default defineMessages({
     'This secret is shown only once. Leave only after you copy it.':
       'このシークレットは一度だけ表示されます。コピーしてから移動してください。',
   },
+  de: {
+    'Leave without saving?': 'Ohne Speichern verlassen?',
+    Leave: 'Verlassen',
+    'The changes in this section are not saved. Leave and discard them?':
+      'Die Änderungen in diesem Bereich sind nicht gespeichert. Verlassen und verwerfen?',
+    'This secret is shown only once. Leave only after you copy it.':
+      'Dieses Geheimnis wird nur einmal angezeigt. Erst verlassen, nachdem du es kopiert hast.',
+  },
 });

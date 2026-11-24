@@ -16,4 +16,8 @@ export default defineMessages({
     'Execute the step to see the log.':
       'ステップを実行するとログが表示されます。',
   },
+  de: {
+    'Execute the step to see the log.':
+      'Schritt ausführen, um das Protokoll zu sehen.',
+  },
 });

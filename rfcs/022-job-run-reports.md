@@ -97,19 +97,20 @@ exits with the run's own status
 | --- | --- | --- | --- |
 | `cloud.run_key` | `DAGU_CLOUD_RUN_KEY` | empty | The run key the workspace's owner made in Console. Empty turns job reports off. |
 | `license.cloud_url` | `DAGU_LICENSE_CLOUD_URL` | `https://console.dagu.sh` | Console's address, the one the license client uses (`internal/license/client.go:19`). |
-| `cloud.report` | `DAGU_CLOUD_REPORT` | `errors` with a run key | `runs` sends runs without error messages; `off` and `health` send nothing. |
+| `cloud.report` | `DAGU_CLOUD_REPORT` | `runs` with a run key | `errors` also sends error messages; `off` and `health` send nothing. |
 
 - A key that does not start with `drk_` is a configuration error: the run
   starts, the sender stays off, and one warning says so. A run key is never
   a license key; `DAGU_LICENSE_KEY` keeps its meaning.
-- With a run key and no `cloud.report`, the sender reports at `errors`, the
-  level Dagu's monitoring dialog recommends for servers. A machine that goes
-  away leaves its error messages nowhere else, and a failure alert without
-  one says only which step failed. They are masked as the server reporter
-  masks them: known secret values and common token formats are replaced.
-  Masking cannot catch everything a program prints, such as hostnames or
-  row contents, so `cloud.report: runs` keeps error output on the machine,
-  and a workspace can keep none (`dagu_errors` in Console).
+- With a run key and no `cloud.report`, the sender reports at `runs`, the
+  level Dagu's monitoring dialog recommends for servers, and keeps error
+  output on the machine. `cloud.report: errors` also sends error messages,
+  which a machine that goes away leaves nowhere else; without them a
+  failure alert says only which step failed. They are masked as the server
+  reporter masks them: known secret values and common token formats are
+  replaced. Masking cannot catch everything a program prints, such as
+  hostnames or row contents, and a workspace can keep none (`dagu_errors`
+  in Console).
 
 ### Where it runs
 
@@ -374,9 +375,10 @@ Order:
 
 ## Decisions
 
-- **Job runs send error messages by default** (`errors`), as servers are
-  recommended to. Failure alerts then say why a run failed after its machine
-  is gone. `cloud.report: runs` keeps error output on the machine.
+- **Job runs report at `runs` by default**, as servers are recommended
+  to, and keep error output on the machine. `cloud.report: errors` sends
+  error messages too, so failure alerts say why a run failed after its
+  machine is gone.
 - **The run prints one neutral line and warnings,** naming neither the key
   nor the workspace, since job logs are often public.
 - **A job run names its platform, not a trigger.** Without `--trigger-type`,

@@ -220,7 +220,7 @@ func mcpURL(consoleURL string) string {
 
 var reportFlag = commandLineFlag{
 	name:  "report",
-	usage: "What this server reports to Dagu Console once connected: errors, runs, health, or off (asked when omitted)",
+	usage: "What this server reports to Dagu Console once connected: runs, errors, health, or off (asked when omitted)",
 }
 
 // reportChoices are the levels a server connected from the CLI may report
@@ -229,8 +229,8 @@ var reportChoices = []struct {
 	level config.ReportLevel
 	label string
 }{
-	{config.ReportErrors, "Health, run status, and error messages (recommended)"},
-	{config.ReportRuns, "Health and run status"},
+	{config.ReportRuns, "Health and run status (recommended)"},
+	{config.ReportErrors, "Health, run status, and error messages"},
 	{config.ReportHealth, "Health only"},
 	{config.ReportOff, "Nothing"},
 }
@@ -249,7 +249,7 @@ func chooseReportLevel(in io.Reader, out io.Writer, flag string, configured conf
 				return level, nil
 			}
 		}
-		return "", errors.New("--report must be one of errors, runs, health, or off")
+		return "", errors.New("--report must be one of runs, errors, health, or off")
 	}
 	_, _ = fmt.Fprintln(out, "What should this server report to Dagu Console?")
 	for i, choice := range reportChoices {

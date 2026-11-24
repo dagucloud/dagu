@@ -254,6 +254,9 @@ type CloudConfig struct {
 	// Audit is which audit entries the server sends to Dagu Console. Empty
 	// means off.
 	Audit AuditLevel
+	// AuditDrainTimeout is how long a server stopping on a signal may spend
+	// sending the audit entries left. Zero stops sending at once.
+	AuditDrainTimeout time.Duration
 	// RemoteAccess is the highest role a Dagu Cloud user gets on calls Dagu
 	// Cloud carries to this server. Empty means it is not set, and an
 	// administrator chooses it; until then it is off.

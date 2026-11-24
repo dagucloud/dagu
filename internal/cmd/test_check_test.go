@@ -9,8 +9,56 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagtest"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
+	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// The facts of a run count the executions of every run attempt, list every
+// step in DAG order and then every handler in Spec 101's order, including
+// ones that never started, and pass check. The first attempt fails sync,
+// and the run's retry policy retries it.
+func TestExpectFromRun(t *testing.T) {
+	t.Parallel()
+
+	tc, status, err := runCase(t, `
+retry_policy:
+  limit: 2
+  interval_sec: 3600
+mail_on:
+  success: true
+info_mail:
+  from: dagu@example.com
+  to: ops@example.com
+handler_on:
+  exit:
+    run: echo exit
+  failure:
+    run: echo failure
+steps:
+  - name: sync data
+    id: sync
+    run: ./sync.sh
+  - name: report
+    depends: sync
+    run: echo report
+`, caseOptions{mocks: map[string]stepmock.Step{"sync data": {Results: []stepmock.Result{{ExitCode: 1}, {}}}}})
+	require.NoError(t, err)
+
+	expect := tc.expectFromRun(status)
+	assert.Equal(t, dagtest.Expect{
+		Status:   "succeeded",
+		Attempts: new(2),
+		Steps: []dagtest.StepExpect{
+			{Key: "sync", Step: "sync data", Status: "succeeded", Attempts: new(2)},
+			{Key: "report", Step: "report", Status: "succeeded", Attempts: new(1)},
+			{Key: "handler_on.failure", Handler: ir.HandlerOnFailure, Status: "not_started", Attempts: new(0)},
+			{Key: "handler_on.exit", Handler: ir.HandlerOnExit, Status: "succeeded", Attempts: new(2)},
+		},
+		Notifications: []dagtest.Notification{{Kind: "mail_on.success", To: []string{"ops@example.com"}}},
+	}, expect)
+	assert.Empty(t, tc.check(expect, status))
+}
 
 // A text output matches a string exactly and any other value by the JSON
 // rule against its text; a type: json output always matches by the JSON

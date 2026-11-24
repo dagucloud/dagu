@@ -90,7 +90,9 @@ test.describe('Nodes', () => {
 
     await loginViaUI(page, stack.auth.adminUsername, stack.auth.adminPassword);
     await page.goto('/nodes');
-    await page.getByRole('button', { name: 'Inventories' }).click();
+    await page
+      .getByRole('button', { name: 'Inventories', exact: true })
+      .click();
     await page.getByRole('button', { name: 'New inventory' }).click();
     const form = page.getByRole('dialog');
     await form.getByLabel('Name').fill(name);
@@ -150,6 +152,60 @@ test.describe('Nodes', () => {
     await expect(dialog).toHaveCount(0);
     await page.getByRole('textbox', { name: 'Search by name...' }).fill(id);
     await expect(page.getByRole('cell', { name, exact: true })).toBeVisible();
+  });
+
+  test('imports an inventory, then disables a node from its drawer', async ({
+    page,
+    request,
+  }) => {
+    const stack = await loadStack();
+    const token = await loginViaAPI(
+      request,
+      stack.auth.adminUsername,
+      stack.auth.adminPassword
+    );
+    const id = uniqueName('e2e');
+    const web = `${id}-web`;
+    // An inventory makes the page show its tabs rather than the empty state,
+    // whichever specs ran before.
+    const seeded = await request.post('/api/v1/inventory-imports', {
+      headers: { Authorization: `Bearer ${token}` },
+      data: [{ name: `${id} existing`, nodes: [] }],
+    });
+    expect(seeded.ok(), await seeded.text()).toBeTruthy();
+
+    await loginViaUI(page, stack.auth.adminUsername, stack.auth.adminPassword);
+    await page.goto('/nodes');
+    await page
+      .getByRole('button', { name: 'Inventories', exact: true })
+      .click();
+    await page.getByRole('button', { name: 'Import', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog
+      .getByLabel('Inventories JSON')
+      .fill(
+        JSON.stringify([
+          { name: `${id} inventory`, nodes: [{ name: web, host: '10.0.9.9' }] },
+        ])
+      );
+    await dialog.getByRole('button', { name: 'Check' }).click();
+    await expect(dialog).toContainText(`Would create: ${id} inventory`);
+    await dialog.getByRole('button', { name: 'Import' }).click();
+    await expect(dialog).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Nodes', exact: true }).click();
+    await page.getByRole('textbox', { name: 'Search by name...' }).fill(id);
+    await page.getByRole('cell', { name: web, exact: true }).click();
+    const drawer = page.getByRole('dialog');
+    await drawer.getByRole('button', { name: 'Disable' }).click();
+    await expect(drawer.getByRole('button', { name: 'Enable' })).toBeVisible();
+    // The drawer is modal, so the page's rows are hidden from the
+    // accessibility tree until it closes.
+    await drawer.getByRole('button', { name: 'Close' }).click();
+    await expect(drawer).toHaveCount(0);
+    await expect(
+      page.getByRole('row', { name: new RegExp(web) })
+    ).toContainText('Disabled');
   });
 
   test('tests a checked node and shows its result as the stream delivers it', async ({

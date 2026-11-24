@@ -26,6 +26,7 @@ const h = vi.hoisted(() => ({
   restartPolicy: undefined as string | undefined,
   histRetentionRuns: undefined as number | undefined,
   retained: undefined as unknown,
+  retainedInterval: undefined as number | undefined,
   chartWindow: { from: 0, to: 0 },
   latest: undefined as unknown,
   suspended: false,
@@ -53,10 +54,17 @@ vi.mock('../../bar/RunStartContext', () => ({
 }));
 vi.mock('@/hooks/api', () => ({
   useClient: () => ({ GET: vi.fn() }),
-  useQuery: (_path: string, init: unknown) => ({
-    data: init === null ? undefined : h.retained,
-    mutate: vi.fn(),
-  }),
+  useQuery: (
+    _path: string,
+    init: { params?: { query?: { limit?: number } } } | null,
+    config?: { refreshInterval?: number }
+  ) => {
+    // The retained runs: the only read with a limit.
+    if (init?.params?.query?.limit === 100) {
+      h.retainedInterval = config?.refreshInterval;
+    }
+    return { data: init === null ? undefined : h.retained, mutate: vi.fn() };
+  },
 }));
 vi.mock('@/hooks/useDAGHistorySSE', () => ({
   useDAGHistorySSE: () => ({
@@ -89,6 +97,9 @@ vi.mock('../../continuous/SamplesPanel', () => ({
       </span>
       <span data-testid="stub-has-gone">
         {String(props.links?.has('gone', '2026-01-01T00:00:00Z'))}
+      </span>
+      <span data-testid="stub-has-new">
+        {String(props.links?.has('new', '2026-11-08T11:59:30Z'))}
       </span>
       <button type="button" onClick={() => props.links?.open('kept')}>
         open
@@ -154,6 +165,7 @@ beforeEach(() => {
   h.restartPolicy = RestartPolicy.always;
   h.histRetentionRuns = undefined;
   h.retained = undefined;
+  h.retainedInterval = undefined;
   h.chartWindow = { from: NOW - 7 * 86_400_000, to: NOW };
   h.latest = undefined;
   h.suspended = false;
@@ -264,8 +276,8 @@ describe('the Activity panel of a service DAG', () => {
     expect(h.select).toHaveBeenCalledWith('run-1', { replace: true });
   });
 
-  // The history of a DAG that gets no new run cannot change: its panel does
-  // not poll.
+  // The history of a DAG that gets no new run cannot change: neither its
+  // panel nor its retained runs poll.
   it('polls the history unless the DAG gets no new run', () => {
     const ended = {
       dagRunId: 'run-1',
@@ -273,25 +285,28 @@ describe('the Activity panel of a service DAG', () => {
       startedAt: '2026-11-05T12:00:00Z',
       finishedAt: '2026-11-05T13:00:00Z',
     };
-    const active = () => {
+    const polls = () => {
       renderDock();
-      const text = screen.getByTestId('stub-active').textContent;
+      const panel = screen.getByTestId('stub-active').textContent === 'true';
+      const retained = (h.retainedInterval ?? 0) > 0;
       cleanup();
-      return text;
+      return { panel, retained };
     };
+    const yes = { panel: true, retained: true };
+    const no = { panel: false, retained: false };
     // An always DAG runs again after a stop.
     h.latest = ended;
-    expect(active()).toBe('true');
+    expect(polls()).toEqual(yes);
     // An unless-stopped DAG stays down, until a run starts after all.
     h.restartPolicy = RestartPolicy.unless_stopped;
-    expect(active()).toBe('false');
+    expect(polls()).toEqual(no);
     h.latest = { ...ended, status: Status.Running, finishedAt: '' };
-    expect(active()).toBe('true');
+    expect(polls()).toEqual(yes);
     // A suspended DAG gets no run.
     h.restartPolicy = RestartPolicy.always;
     h.latest = ended;
     h.suspended = true;
-    expect(active()).toBe('false');
+    expect(polls()).toEqual(no);
   });
 
   it('gives the history no run in progress after the latest run ended', () => {
@@ -386,10 +401,27 @@ describe('the Activity panel of a service DAG', () => {
       };
       renderDock();
       expect(screen.getByTestId('stub-has-kept')).toHaveTextContent('true');
+      // The list is up to 30 s old: a run newer than its oldest run is kept.
+      expect(screen.getByTestId('stub-has-new')).toHaveTextContent('true');
       // A run that started before the oldest one is gone.
       expect(screen.getByTestId('stub-has-gone')).toHaveTextContent('false');
       fireEvent.click(screen.getByRole('button', { name: 'open' }));
       expect(h.select).toHaveBeenCalledWith('kept', { replace: true });
+    });
+
+    // More runs remain than one page holds, so the oldest retained run is
+    // unknown. A run newer than the oldest listed run is still kept.
+    it('links a newer run when the kept runs fill more than a page', () => {
+      h.retained = {
+        dagRuns: [
+          run('kept', '2026-11-08T11:59:00Z'),
+          run('old', '2026-11-08T11:50:00Z'),
+        ],
+        nextCursor: 'next',
+      };
+      renderDock();
+      expect(screen.getByTestId('stub-has-new')).toHaveTextContent('true');
+      expect(screen.getByTestId('stub-has-gone')).toHaveTextContent('false');
     });
   });
 });

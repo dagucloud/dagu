@@ -111,4 +111,11 @@ export default defineMessages({
     'Are you sure you want to {action} the webhooks of the {count} workflows of "{name}"?':
       '「{name}」の {count} 件のワークフローの Webhook を{action}しますか？',
   },
+  de: {
+    'Rename view': 'Ansicht umbenennen',
+    'Save the changes of “{name}”': 'Änderungen an „{name}“ speichern',
+    'View actions': 'Ansicht-Aktionen',
+    'The view keeps its saved filters.':
+      'Die Ansicht behält ihre gespeicherten Filter.',
+  },
 });

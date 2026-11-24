@@ -33,7 +33,11 @@ export function readRetry(value: unknown): RetryFacts | undefined {
   if (limit !== undefined) retry.limit = limit;
   const interval = numberOrReference(value.interval_sec);
   if (interval !== undefined) retry.intervalSec = interval;
-  if (value.backoff !== undefined && value.backoff !== false) {
+  // The server takes true or a multiplier above 1; 0 and null turn it off.
+  if (
+    value.backoff === true ||
+    (typeof value.backoff === 'number' && value.backoff > 1)
+  ) {
     retry.backoff = true;
   }
   const raw = value.exit_code;
@@ -52,9 +56,11 @@ export function secondsText(value: number | string): string {
 /** The whole retry policy as sentences, for a tooltip. */
 export function retryTitle(ts: Translate, retry: RetryFacts): string {
   return [
-    retry.limit !== undefined
-      ? ts('Retries the step up to {limit} times.', { limit: retry.limit })
-      : ts('Retries the step.'),
+    retry.limit === 1
+      ? ts('Retries the step once.')
+      : retry.limit !== undefined
+        ? ts('Retries the step up to {limit} times.', { limit: retry.limit })
+        : ts('Retries the step.'),
     retry.intervalSec !== undefined
       ? ts(
           retry.backoff

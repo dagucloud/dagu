@@ -269,7 +269,7 @@ func TestLicenseConnect_Report(t *testing.T) {
 			ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &started)
 
 		assert.Equal(t, "runs", reportParam(t, started))
-		assert.Equal(t, api.LicenseMonitoring{Level: api.LicenseMonitoringLevelRuns, Chosen: true, ErrorsOffered: true}, monitoringOf(t, server))
+		assert.Equal(t, api.LicenseMonitoring{Level: api.LicenseMonitoringLevelRuns, AuditLevel: api.LicenseAuditLevelOff, Chosen: true}, monitoringOf(t, server))
 		var current api.LicenseConnectStatus
 		server.Client().Get("/api/v1/license/connect").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &current)
 		assert.Equal(t, started, current)
@@ -304,7 +304,7 @@ func TestLicenseConnect_Report(t *testing.T) {
 		server.Client().Post("/api/v1/license/connect", map[string]string{"report": "runs"}).
 			ExpectStatus(http.StatusConflict).Send(t)
 
-		assert.Equal(t, api.LicenseMonitoring{Level: api.LicenseMonitoringLevelOff}, monitoringOf(t, server))
+		assert.Equal(t, api.LicenseMonitoring{Level: api.LicenseMonitoringLevelOff, AuditLevel: api.LicenseAuditLevelOff}, monitoringOf(t, server))
 	})
 
 	// A link without the level would let the approval page say that
@@ -900,11 +900,11 @@ func TestLicenseMonitoring(t *testing.T) {
 
 	var monitoring api.LicenseMonitoring
 	server.Client().Get("/api/v1/license/monitoring").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &monitoring)
-	assert.Equal(t, api.LicenseMonitoring{Level: api.LicenseMonitoringLevelOff}, monitoring)
+	assert.Equal(t, api.LicenseMonitoring{Level: api.LicenseMonitoringLevelOff, AuditLevel: api.LicenseAuditLevelOff}, monitoring)
 
 	server.Client().Put("/api/v1/license/monitoring", map[string]string{"level": "runs"}).
 		ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &monitoring)
-	assert.Equal(t, api.LicenseMonitoring{Level: api.LicenseMonitoringLevelRuns, Chosen: true, ErrorsOffered: true}, monitoring)
+	assert.Equal(t, api.LicenseMonitoring{Level: api.LicenseMonitoringLevelRuns, AuditLevel: api.LicenseAuditLevelOff, Chosen: true}, monitoring)
 
 	server.Client().Post("/api/v1/license/monitoring/dismiss-notice", nil).
 		ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &monitoring)
@@ -918,26 +918,6 @@ func TestLicenseMonitoring(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, config.ReportRuns, status.Level)
 	assert.True(t, status.NoticeDismissed)
-}
-
-// A level chosen before servers could send error messages is offered them
-// until an administrator dismisses the offer.
-func TestLicenseMonitoring_DismissErrorsNotice(t *testing.T) {
-	t.Parallel()
-
-	settings := filepath.Join(t.TempDir(), "report-settings.json")
-	require.NoError(t, os.WriteFile(settings, []byte(`{"level":"runs"}`), 0o600))
-	server := test.SetupServer(t, test.WithServerOptions(frontend.WithAPIOption(apiv1.WithCloudReport(
-		cloudreport.NewMonitoring("", filemonitor.NewStateStore(settings)),
-	))))
-
-	var monitoring api.LicenseMonitoring
-	server.Client().Get("/api/v1/license/monitoring").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &monitoring)
-	assert.False(t, monitoring.ErrorsOffered)
-
-	server.Client().Post("/api/v1/license/monitoring/dismiss-errors-notice", nil).
-		ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &monitoring)
-	assert.Equal(t, api.LicenseMonitoring{Level: api.LicenseMonitoringLevelRuns, Chosen: true, ErrorsOffered: true}, monitoring)
 }
 
 func TestLicenseMonitoring_Configured(t *testing.T) {
@@ -954,7 +934,21 @@ func TestLicenseMonitoring_Configured(t *testing.T) {
 
 	var monitoring api.LicenseMonitoring
 	server.Client().Get("/api/v1/license/monitoring").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &monitoring)
-	assert.Equal(t, api.LicenseMonitoring{Level: api.LicenseMonitoringLevelHealth, Configured: true}, monitoring)
+	assert.Equal(t, api.LicenseMonitoring{Level: api.LicenseMonitoringLevelHealth, AuditLevel: api.LicenseAuditLevelOff, Configured: true}, monitoring)
+}
+
+// The page shows which audit entries cloud.audit sends to Dagu Console.
+func TestLicenseMonitoring_AuditLevel(t *testing.T) {
+	t.Parallel()
+
+	server := test.SetupServer(t,
+		test.WithConfigMutator(func(cfg *config.Config) { cfg.Cloud.Audit = config.AuditChanges }),
+		test.WithServerOptions(frontend.WithAPIOption(apiv1.WithCloudReport(newMonitoring(t, config.ReportHealth)))),
+	)
+
+	var monitoring api.LicenseMonitoring
+	server.Client().Get("/api/v1/license/monitoring").ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &monitoring)
+	assert.Equal(t, api.LicenseAuditLevelChanges, monitoring.AuditLevel)
 }
 
 func TestLicenseMonitoring_Unavailable(t *testing.T) {
@@ -981,8 +975,6 @@ func (stubCloudReport) Status(context.Context) (cloudreport.Status, error) {
 func (stubCloudReport) SetLevel(context.Context, config.ReportLevel) error { return nil }
 
 func (stubCloudReport) DismissNotice(context.Context) error { return nil }
-
-func (stubCloudReport) DismissErrorsNotice(context.Context) error { return nil }
 
 func TestLicenseMonitoring_LastReport(t *testing.T) {
 	t.Parallel()

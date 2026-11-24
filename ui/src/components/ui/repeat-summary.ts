@@ -32,12 +32,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** A whole number written as digits, as the YAML may give it. */
+const DIGITS = /^\s*\d+\s*$/;
+
 /** A positive whole number, written as a number or as digits; else undefined. */
 function count(value: unknown): number | undefined {
   const n =
-    typeof value === 'string' && /^\s*\d+\s*$/.test(value)
-      ? Number(value)
-      : value;
+    typeof value === 'string' && DIGITS.test(value) ? Number(value) : value;
   return typeof n === 'number' && Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
@@ -105,7 +106,12 @@ export function readRepeatPolicy(raw: unknown): RepeatPolicyView | null {
   if (intervalSec !== undefined) view.intervalSec = intervalSec;
   const limit = count(raw.limit);
   if (limit !== undefined) view.limit = limit;
-  else if (typeof raw.limit === 'string' && raw.limit.trim() !== '') {
+  else if (
+    typeof raw.limit === 'string' &&
+    raw.limit.trim() !== '' &&
+    // Digits are a number: "0" is no limit, as on the server.
+    !DIGITS.test(raw.limit)
+  ) {
     view.limitRef = raw.limit.trim();
   }
   if (condition !== undefined) view.condition = condition;

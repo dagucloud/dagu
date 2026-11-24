@@ -49,7 +49,7 @@ func jobReports(ctx *Context, run jobRun) *cloudreport.JobReports {
 	}
 	level := ctx.Config.Cloud.Report
 	if level == "" {
-		level = config.ReportErrors
+		level = config.ReportRuns
 	}
 	if !level.ReportsRuns() || !run.parent.Zero() || run.workerID != "local" {
 		return nil

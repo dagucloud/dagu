@@ -21,6 +21,7 @@ import { LicenseProvider } from '@/components/LicenseProvider';
 import { SWRConfig } from 'swr';
 import { Link, MemoryRouter, useNavigate } from 'react-router-dom';
 import {
+  LicenseAuditLevel,
   LicenseMonitoringLevel,
   LicenseRemoteAccessLevel,
   LicenseStatusResponseConnectedVia,
@@ -174,10 +175,10 @@ const freeOnline: Partial<LicenseStatus> = {
 
 const unchosen: LicenseMonitoring = {
   level: LicenseMonitoringLevel.off,
+  auditLevel: LicenseAuditLevel.off,
   configured: false,
   chosen: false,
   noticeDismissed: false,
-  errorsOffered: false,
 };
 
 function overview() {
@@ -696,7 +697,7 @@ describe('LicensePage', () => {
 
       expect(post).toHaveBeenCalledWith('/license/connect', {
         params: { query: { remoteNode: 'local' } },
-        body: { report: 'errors' },
+        body: { report: 'runs' },
       });
       expect(window.open).toHaveBeenCalledWith('about:blank', '_blank');
       expect(tab.opener).toBeNull();
@@ -763,7 +764,7 @@ describe('LicensePage', () => {
 
       expect(post).toHaveBeenCalledWith('/license/connect', {
         params: { query: { remoteNode: 'local' } },
-        body: { report: 'errors', remoteAccess: 'operator' },
+        body: { report: 'runs', remoteAccess: 'operator' },
       });
     });
 
@@ -882,7 +883,7 @@ describe('LicensePage', () => {
       expect(row('Status')).toHaveTextContent('Monitoring only');
       expect(
         await within(await findMonitoringCard()).findByText(
-          'Health, run status, and error messages'
+          'Health and run status'
         )
       ).toBeVisible();
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -1002,7 +1003,7 @@ describe('LicensePage', () => {
       );
       expect(
         within(offer()).getByRole('radio', {
-          name: 'Health, run status, and error messages (recommended)',
+          name: 'Health and run status (recommended)',
         })
       ).toBeChecked();
       await userEvent.click(
@@ -1011,7 +1012,7 @@ describe('LicensePage', () => {
 
       expect(post).toHaveBeenCalledWith('/license/connect', {
         params: { query: { remoteNode: 'local' } },
-        body: { report: 'errors' },
+        body: { report: 'runs' },
       });
       expect(await screen.findByText('ABCD1234')).toBeVisible();
       expect(
@@ -1046,13 +1047,15 @@ describe('LicensePage', () => {
     it('keeps the level chosen before when the server connects again', async () => {
       const { post, approve } = approveAndConnect({
         ...unchosen,
-        level: LicenseMonitoringLevel.runs,
+        level: LicenseMonitoringLevel.errors,
         chosen: true,
       });
       // The level chosen before is selected once the server's choice loads.
       await waitFor(() =>
         expect(
-          within(offer()).getByRole('radio', { name: 'Health and run status' })
+          within(offer()).getByRole('radio', {
+            name: 'Health, run status, and error messages',
+          })
         ).toBeChecked()
       );
       await approve(() =>
@@ -1061,7 +1064,7 @@ describe('LicensePage', () => {
 
       expect(post).toHaveBeenCalledWith('/license/connect', {
         params: { query: { remoteNode: 'local' } },
-        body: { report: 'runs' },
+        body: { report: 'errors' },
       });
     });
 
@@ -1092,6 +1095,7 @@ describe('LicensePage', () => {
       const { post, approve } = approveAndConnect({
         ...unchosen,
         level: LicenseMonitoringLevel.health,
+        auditLevel: LicenseAuditLevel.off,
         configured: true,
       });
 
@@ -1115,6 +1119,7 @@ describe('LicensePage', () => {
       const { approve } = approveAndConnect({
         ...unchosen,
         level: LicenseMonitoringLevel.health,
+        auditLevel: LicenseAuditLevel.off,
         configured: true,
       });
       await approve();
@@ -1337,10 +1342,10 @@ describe('LicensePage', () => {
     it('shows what the server reports and the last report', async () => {
       serveMonitoring({
         level: LicenseMonitoringLevel.runs,
+        auditLevel: LicenseAuditLevel.off,
         configured: false,
         chosen: true,
         noticeDismissed: false,
-        errorsOffered: false,
         lastReportAt: new Date().toISOString(),
         lastReport: '{"protocol":2,"heartbeat_secret":"[redacted]"}',
       });
@@ -1365,6 +1370,31 @@ describe('LicensePage', () => {
       expect(dialog).toHaveTextContent('"heartbeat_secret": "[redacted]"');
     });
 
+    // The audit card shows what cloud.audit sends, what leaves the server,
+    // and where Dagu Console keeps it.
+    it('shows which audit entries go to Dagu Console', async () => {
+      serveMonitoring({ ...unchosen, auditLevel: LicenseAuditLevel.changes });
+
+      const card = await screen.findByRole('region', { name: 'Audit logs' });
+      expect(
+        await within(card).findByText('Every entry but successful reads')
+      ).toBeVisible();
+      expect(card).toHaveTextContent('the user ID and name; the IP address');
+      expect(card).toHaveTextContent('in the United States');
+      expect(card).toHaveTextContent(
+        'cloud.audit in the server configuration sets this.'
+      );
+    });
+
+    it('shows an unknown audit level from an older remote node', async () => {
+      const older: Partial<LicenseMonitoring> = { ...unchosen };
+      delete older.auditLevel;
+      serveMonitoring(older as LicenseMonitoring);
+
+      const card = await screen.findByRole('region', { name: 'Audit logs' });
+      expect(await within(card).findByText('Unknown')).toBeVisible();
+    });
+
     it('turns reporting on with the chosen level', async () => {
       const { put } = serveMonitoring(unchosen);
       const card = await findMonitoringCard();
@@ -1379,12 +1409,12 @@ describe('LicensePage', () => {
       });
       const health = within(dialog).getByRole('radio', { name: 'Health only' });
       const runs = within(dialog).getByRole('radio', {
-        name: 'Health and run status',
+        name: 'Health and run status (recommended)',
       });
       const errors = within(dialog).getByRole('radio', {
-        name: 'Health, run status, and error messages (recommended)',
+        name: 'Health, run status, and error messages',
       });
-      expect(errors).toBeChecked();
+      expect(runs).toBeChecked();
       expect(errors).toHaveAccessibleDescription(
         "Sends everything Health and run status sends, plus why each failed run failed: the error messages of up to 5 failed steps and handlers, or the run's own, each up to 2 KB from its end. A step's error can end with the last lines of its stderr, with the values of workflow secrets masked."
       );
@@ -1442,6 +1472,7 @@ describe('LicensePage', () => {
       serveMonitoring({
         ...unchosen,
         level: LicenseMonitoringLevel.health,
+        auditLevel: LicenseAuditLevel.off,
         configured: true,
       });
       const card = await findMonitoringCard();
@@ -1513,10 +1544,10 @@ describe('LicensePage', () => {
     it('says when the server stopped reporting', async () => {
       serveMonitoring({
         level: LicenseMonitoringLevel.runs,
+        auditLevel: LicenseAuditLevel.off,
         configured: false,
         chosen: true,
         noticeDismissed: false,
-        errorsOffered: false,
         lastReportAt: new Date(Date.now() - 11 * 60_000).toISOString(),
       });
       const card = await findMonitoringCard();
@@ -1531,10 +1562,10 @@ describe('LicensePage', () => {
     it('shows when the last report arrived while reports arrive', async () => {
       serveMonitoring({
         level: LicenseMonitoringLevel.runs,
+        auditLevel: LicenseAuditLevel.off,
         configured: false,
         chosen: true,
         noticeDismissed: false,
-        errorsOffered: false,
         lastReportAt: new Date(Date.now() - 9 * 60_000).toISOString(),
       });
       const card = await findMonitoringCard();
@@ -1547,10 +1578,10 @@ describe('LicensePage', () => {
       const until = new Date(Date.now() + 3 * 60 * 60_000);
       serveMonitoring({
         level: LicenseMonitoringLevel.runs,
+        auditLevel: LicenseAuditLevel.off,
         configured: false,
         chosen: true,
         noticeDismissed: false,
-        errorsOffered: false,
         lastReportAt: new Date().toISOString(),
         runsPausedUntil: until.toISOString(),
       });
@@ -1566,10 +1597,10 @@ describe('LicensePage', () => {
     it('does not mention a pause that has ended', async () => {
       serveMonitoring({
         level: LicenseMonitoringLevel.runs,
+        auditLevel: LicenseAuditLevel.off,
         configured: false,
         chosen: true,
         noticeDismissed: false,
-        errorsOffered: false,
         lastReportAt: new Date().toISOString(),
         runsPausedUntil: new Date(Date.now() - 60_000).toISOString(),
       });

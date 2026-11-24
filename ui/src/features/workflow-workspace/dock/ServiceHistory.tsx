@@ -42,10 +42,6 @@ export function ServiceHistory({
   const { ts } = useI18n();
   const { fileName, dagData } = useWorkspaceData('ServiceHistory');
   const run = useWorkspaceRun();
-  const retained = useRetainedRuns(
-    true,
-    range.preset === 'custom' ? `${range.from}-${range.to}` : range.preset
-  );
   const source = useMemo(() => runHistorySource(fileName), [fileName]);
   const panelRange = useMemo<PanelRange>(
     () =>
@@ -58,7 +54,8 @@ export function ServiceHistory({
   const liveRun = useMemo(() => liveRunOf(latest), [latest]);
   // The history of a DAG that gets no new run cannot change: a suspended
   // one, and an unless-stopped one whose latest run was stopped. Its panel
-  // does not poll. A run that starts after all makes it poll again.
+  // and its retained runs do not poll. A run that starts after all makes
+  // them poll again.
   const restarts =
     liveRun !== null ||
     !(
@@ -66,17 +63,25 @@ export function ServiceHistory({
       (dagData.dag?.restartPolicy === RestartPolicy.unless_stopped &&
         latest?.status === Status.Aborted)
     );
+  const retained = useRetainedRuns(
+    true,
+    range.preset === 'custom' ? `${range.from}-${range.to}` : range.preset,
+    restarts
+  );
 
   // The links keep one identity while the retained runs do not change.
   const select = useRef(run.select);
   select.current = run.select;
   const links = useMemo<RunLinks>(
     () => ({
-      // The list is up to 30 s old: a run that is not newer than the oldest
-      // retained run is the only one that can be gone.
+      // The last read is up to 30 s old. A run that started after its oldest
+      // run links: it was retained at that read or started since. A count
+      // retention may drop the oldest of them meanwhile; the next read shows
+      // those as text.
       has: (runId, time) =>
         retained.ids.has(runId) ||
-        (retained.oldestAt !== null && Date.parse(time) >= retained.oldestAt),
+        (retained.oldestListedAt !== null &&
+          Date.parse(time) >= retained.oldestListedAt),
       open: (runId) => select.current(runId, { replace: true }),
     }),
     [retained]
