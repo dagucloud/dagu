@@ -11,7 +11,7 @@ type Mode = 'workflows' | 'runs';
 
 /**
  * The two modes of the Workflows page: the list of workflows, and the list of
- * the runs of all the workflows (the former Executions page).
+ * the runs of all the workflows.
  */
 export function WorkflowsModeToggle({ mode }: { mode: Mode }) {
   const navigate = useNavigate();
@@ -21,32 +21,36 @@ export function WorkflowsModeToggle({ mode }: { mode: Mode }) {
   return (
     <I18nProps>
       <ToggleGroup aria-label="Show" className="h-9 p-0.5">
-        <ToggleButton
-          value="workflows"
-          groupValue={mode}
-          onClick={() => go('workflows')}
-          position="first"
-          aria-label="Workflows"
-          className="h-8 px-3"
-        >
-          <Network size={16} className="sm:mr-1.5" />
-          <span className="hidden sm:inline">
-            <I18nText text={'Workflows'} />
-          </span>
-        </ToggleButton>
-        <ToggleButton
-          value="runs"
-          groupValue={mode}
-          onClick={() => go('runs')}
-          position="last"
-          aria-label="Runs"
-          className="h-8 px-3"
-        >
-          <History size={16} className="sm:mr-1.5" />
-          <span className="hidden sm:inline">
-            <I18nText text={'Runs'} />
-          </span>
-        </ToggleButton>
+        <I18nProps>
+          <ToggleButton
+            value="workflows"
+            groupValue={mode}
+            onClick={() => go('workflows')}
+            position="first"
+            aria-label="Workflows"
+            className="h-8 px-3"
+          >
+            <Network size={16} className="sm:mr-1.5" />
+            <span className="hidden sm:inline">
+              <I18nText text={'Workflows'} />
+            </span>
+          </ToggleButton>
+        </I18nProps>
+        <I18nProps>
+          <ToggleButton
+            value="runs"
+            groupValue={mode}
+            onClick={() => go('runs')}
+            position="last"
+            aria-label="Runs"
+            className="h-8 px-3"
+          >
+            <History size={16} className="sm:mr-1.5" />
+            <span className="hidden sm:inline">
+              <I18nText text={'Runs'} />
+            </span>
+          </ToggleButton>
+        </I18nProps>
       </ToggleGroup>
     </I18nProps>
   );
