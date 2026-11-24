@@ -158,7 +158,9 @@ as it did before the namespace.
 A step with nodes records the run of each node it matched beside its log
 files, outside the run status, so a step over many nodes does not grow the
 status. A record holds the node, its status, its child run, and when the run
-started and finished. Once the child run finishes, the record adds how many
+started and finished. Once the child run returns, the times are the child
+run's own, so a child that a retry reused keeps the times it ran. Once the
+child run finishes, the record adds how many
 of its steps succeeded and the step that failed last. A node's status is one
 its child run reached, or `not_started`, `running`, or `disabled`. A child
 run that returned while still queued, running, or not started, as one that a
@@ -166,7 +168,9 @@ retry reused can, is `failed`, as the step counts it. One that returned
 waiting for approval stays `waiting`. The step
 records its nodes before any of them starts, again at most once a second
 while they change, and once more when it ends. A node running when the step
-is aborted is `aborted`.
+is aborted is `aborted`. When the run stops without that last write, as when
+its process dies, a node still recorded as running reads as `aborted` once
+the step is aborted, and as `failed` once the step ends otherwise.
 
 `GET /dag-runs/{name}/{dagRunId}/node-runs` lists a run's node runs, and
 `GET /dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/node-runs` those
