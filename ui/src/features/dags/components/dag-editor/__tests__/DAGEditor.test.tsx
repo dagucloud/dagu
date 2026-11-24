@@ -1,21 +1,46 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { render, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JSONSchema } from '@/lib/schema-utils';
 import DAGEditor from '../DAGEditor';
 
-const { update, appSchema } = vi.hoisted(() => ({
+const { update, appSchema, mountedEditor } = vi.hoisted(() => ({
   update: vi.fn<(options: unknown) => Promise<void>>(async () => undefined),
   appSchema: { current: null as JSONSchema | null },
+  // The editor that the stand-in of Monaco mounts. Without one, the editor
+  // never mounts and its skeleton stays.
+  mountedEditor: { current: null as object | null },
 }));
 
-vi.mock('@monaco-editor/react', () => ({
-  default: () => null,
-  loader: { config: vi.fn() },
+vi.mock('@monaco-editor/react', async () => {
+  const { useEffect, useRef } = await import('react');
+  return {
+    default: function Editor({
+      onMount,
+    }: {
+      onMount?: (editor: object) => void;
+    }) {
+      const onMountRef = useRef(onMount);
+      useEffect(() => {
+        if (mountedEditor.current) onMountRef.current?.(mountedEditor.current);
+      }, []);
+      return null;
+    },
+    loader: { config: vi.fn() },
+  };
+});
+vi.mock('monaco-editor', () => ({
+  editor: { setTheme: vi.fn(), getModel: () => null },
+  Uri: { parse: (uri: string) => uri },
+  Emitter: class {
+    event = vi.fn();
+    fire = vi.fn();
+    dispose = vi.fn();
+  },
+  languages: { registerCodeLensProvider: () => ({ dispose: vi.fn() }) },
 }));
-vi.mock('monaco-editor', () => ({ editor: { setTheme: vi.fn() } }));
 vi.mock('@/lib/monaco-theme', () => ({
   KILN_DARK: 'kiln-dark',
   KILN_LIGHT: 'kiln-light',
@@ -81,5 +106,41 @@ describe('DAGEditor schema', () => {
     const { schema } = await registeredFor(modelUri);
     expect(schema?.properties?.holidays).toBe(own.properties!.holidays);
     expect(schema?.properties?.create_branch).toBeUndefined();
+  });
+});
+
+describe('DAGEditor skeleton', () => {
+  beforeEach(() => {
+    // No DOM node: the editor counts as settled as soon as it mounts.
+    mountedEditor.current = {
+      getDomNode: () => null,
+      getModel: () => null,
+      onKeyDown: vi.fn(),
+      addCommand: vi.fn(() => 'cmd-1'),
+    };
+  });
+  afterEach(() => {
+    mountedEditor.current = null;
+  });
+
+  // The steps come from a parse of the text. Once the editor has taken the
+  // place of its skeleton, only Monaco's lens queries read them: an edit
+  // costs no parse for the skeleton.
+  it('reads no steps for the skeleton once the editor shows', async () => {
+    const steps = vi.fn(() => [{ line: 2, name: 'a' }]);
+    const lenses = { label: 'Open step', open: vi.fn(), steps };
+    const { rerender } = render(
+      <DAGEditor value={'steps:\n  - id: a'} readOnly stepLenses={lenses} />
+    );
+    expect(steps).toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.queryByTestId('editor-skeleton')).toBeNull()
+    );
+
+    steps.mockClear();
+    rerender(
+      <DAGEditor value={'steps:\n  - id: ab'} readOnly stepLenses={lenses} />
+    );
+    expect(steps).not.toHaveBeenCalled();
   });
 });

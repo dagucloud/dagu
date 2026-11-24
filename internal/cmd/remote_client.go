@@ -23,8 +23,13 @@ import (
 
 const defaultRemoteTimeout = 30 * time.Second
 
-// maxRemoteErrorBodyBytes bounds the error body read from a remote server so a
-// misbehaving server cannot force an arbitrary allocation.
+// maxRemoteErrorReadBytes bounds the error body read from a remote server so a
+// misbehaving server cannot force an arbitrary allocation. A refused inventory
+// import lists every rule it breaks, so the bound holds about 200,000 rules.
+const maxRemoteErrorReadBytes = 16 << 20
+
+// maxRemoteErrorBodyBytes bounds the message printed from an error body that
+// is not a JSON error.
 const maxRemoteErrorBodyBytes = 64 * 1024
 
 type remoteClient struct {
@@ -323,7 +328,7 @@ func (c *remoteClient) doWithQueryValues(ctx context.Context, method, path strin
 }
 
 func decodeRemoteError(resp *http.Response) error {
-	data, _ := io.ReadAll(io.LimitReader(resp.Body, maxRemoteErrorBodyBytes+1))
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, maxRemoteErrorReadBytes))
 	if len(data) == 0 {
 		return &remoteError{StatusCode: resp.StatusCode, Message: resp.Status}
 	}

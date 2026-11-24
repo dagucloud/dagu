@@ -52,7 +52,10 @@ export const DEFAULT_RETENTION_RUNS = 100;
 export interface LauncherInputs {
   /** Number of schedule entries in the YAML. */
   scheduleCount: number;
-  /** True when the YAML has a schedule of any form. The default is `scheduleCount > 0`. */
+  /**
+   * True when the YAML defines a schedule: a start, stop or restart entry.
+   * An empty schedule defines none (spec 080). The default is `scheduleCount > 0`.
+   */
   schedulePresent?: boolean;
   /** The `restart_policy` of the YAML. The default is `no`. */
   restartPolicy?: RestartPolicy;

@@ -262,7 +262,6 @@ describe('VisualEditor launchers', () => {
     );
     expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
   });
-
   // A file with `hist_retention_days` keeps runs by days, not the 100 runs
   // of the default.
   it('tells the days that an Always on workflow keeps its runs for', () => {
@@ -367,7 +366,7 @@ describe('VisualEditor launchers', () => {
     );
     expect(launcherButton('always')).toHaveAttribute(
       'title',
-      'Always on: Restarts after each run, wait 5 s, keeps 100 runs (default)'
+      'Always on: Restarts after each run, wait 5 s, keeps 100 runs, or as many as the base configuration sets'
     );
     const wait = within(panel()).getByLabelText('Wait before a new run (s)');
     fireEvent.change(wait, { target: { value: '30' } });
@@ -460,6 +459,25 @@ describe('VisualEditor launchers', () => {
     expect(state.text).not.toContain('restart_policy');
     expect(state.text).toContain('schedule');
     expect(screen.queryByTestId('ve-launcher-always')).toBeNull();
+  });
+
+  // Spec 080: an empty schedule defines none. It holds no slot, and a policy
+  // can go with it.
+  it('counts an empty schedule as none', () => {
+    renderEditor(`schedule: {}\n${yamlArraySteps}`);
+    expect(screen.getByTestId('ve-launcher-schedule')).toHaveAttribute(
+      'data-status',
+      'dashed'
+    );
+    cleanup();
+    renderEditor(
+      `restart_policy: always\nrestart_wait_sec: 5\nschedule: {}\n${yamlArraySteps}`
+    );
+    expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
+    fireEvent.click(launcherButton('always'));
+    expect(
+      within(screen.getByTestId('ve-launcher-panel-always')).queryByRole('note')
+    ).toBeNull();
   });
 
   // The YAML panel shows the file with a step in focus. A click on a launcher

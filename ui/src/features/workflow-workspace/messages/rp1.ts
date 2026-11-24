@@ -18,7 +18,7 @@ export default defineMessages({
   },
   ja: {
     'A service DAG cannot have a schedule or a retry_policy. Remove it first.':
-      'サービス DAG にスケジュールと retry_policy は置けません。先に削除してください。',
+      'サービス DAG にスケジュールも retry_policy も置けません。先に削除してください。',
     'The value must be a positive integer.': '値は正の整数にしてください。',
   },
   de: {

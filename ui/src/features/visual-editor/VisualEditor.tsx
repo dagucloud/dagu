@@ -727,6 +727,8 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   // A node of the Cron and Always on slot changes its id with the YAML: the
   // panel and the lit node follow the one that is drawn.
   const openNode = drawnLauncher(launcherOpen, launcherData?.states);
+  const slotOpen =
+    openNode === 'schedule' || openNode === 'cron' || openNode === 'always';
   const schedule = useMemo(
     () => (launcherHost ? readSchedule(text) : null),
     [launcherHost, text]
@@ -737,11 +739,12 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   );
   // The removal of the start expressions leaves the other entries and the
   // `stop` and `restart` of the map form: a schedule with one of them stays.
+  // Only the panel of the slot reads it.
   const scheduleRemovable = useMemo(() => {
-    if (!schedule?.present) return false;
+    if (!slotOpen || !restart?.schedule) return false;
     const cleared = applyEdit(text, { kind: 'setSchedule', expressions: [] });
-    return cleared.ok && !readSchedule(cleared.text).present;
-  }, [schedule, text]);
+    return cleared.ok && !readRestartSettings(cleared.text).schedule;
+  }, [slotOpen, restart, text]);
   const launcherAlive = useAlive({
     status: launcherHost?.latestRun
       ? launcherHost.latestRun.status
@@ -2245,7 +2248,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
         <LauncherDataProbe
           fileName={fileName}
           scheduleCount={schedule.expressions.length + schedule.others}
-          schedulePresent={schedule.present}
+          schedulePresent={restart.schedule}
           restartPolicy={restart.policy}
           restartWaitSec={restart.waitSec}
           restartRetentionRuns={restart.histRetentionRuns}
@@ -2430,29 +2433,25 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
               onClose={closeLauncher}
             />
           )}
-          {(openNode === 'schedule' ||
-            openNode === 'cron' ||
-            openNode === 'always') &&
-            schedule &&
-            restart && (
-              <SlotLauncherPanel
-                open={openNode}
-                schedule={schedule}
-                scheduleRemovable={scheduleRemovable}
-                restart={restart}
-                editable={canEdit}
-                upcomingRuns={details?.upcomingRuns}
-                upcomingRunsHold={details?.upcomingRunsHold}
-                schedules={details?.schedule}
-                paramDefs={details?.paramDefs}
-                issues={validation?.issues}
-                coincidences={details?.scheduleCoincidences}
-                onSchedule={setSchedule}
-                onScheduleParam={setScheduleParam}
-                onRestart={setRestartPolicy}
-                onClose={closeLauncher}
-              />
-            )}
+          {slotOpen && schedule && restart && (
+            <SlotLauncherPanel
+              open={openNode}
+              schedule={schedule}
+              scheduleRemovable={scheduleRemovable}
+              restart={restart}
+              editable={canEdit}
+              upcomingRuns={details?.upcomingRuns}
+              upcomingRunsHold={details?.upcomingRunsHold}
+              schedules={details?.schedule}
+              paramDefs={details?.paramDefs}
+              issues={validation?.issues}
+              coincidences={details?.scheduleCoincidences}
+              onSchedule={setSchedule}
+              onScheduleParam={setScheduleParam}
+              onRestart={setRestartPolicy}
+              onClose={closeLauncher}
+            />
+          )}
           {launcherOpen === 'webhook' && (
             <WebhookLauncherPanel
               fileName={fileName}

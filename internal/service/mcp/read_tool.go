@@ -38,6 +38,10 @@ const (
 	readTargetWikiSearch = "wiki_search"
 	readTargetWorkbook   = "workbook"
 
+	readTargetNodes       = "nodes"
+	readTargetNode        = "node"
+	readTargetInventories = "inventories"
+
 	legacyReadTargetDocs      = "docs"
 	legacyReadTargetDoc       = "doc"
 	legacyReadTargetDocSearch = "doc_search"
@@ -81,8 +85,8 @@ const (
 )
 
 type readInput struct {
-	Target       string `json:"target" jsonschema:"Read target: dags, dag, dag_spec, dag_profile, dag_search, wiki, wiki_page, wiki_search, workbook, runs, run, run_logs, step_log, foreach_items, foreach_item, or reference."`
-	Name         string `json:"name,omitempty" jsonschema:"DAG name for dag, dag_spec, dag_profile, run, run_logs, and step_log targets."`
+	Target       string `json:"target" jsonschema:"Read target: dags, dag, dag_spec, dag_profile, dag_search, wiki, wiki_page, wiki_search, workbook, runs, run, run_logs, step_log, foreach_items, foreach_item, nodes, node, inventories, or reference."`
+	Name         string `json:"name,omitempty" jsonschema:"DAG name for dag, dag_spec, dag_profile, run, run_logs, and step_log targets, or node name for the node target."`
 	DAGRunID     string `json:"dagRunId,omitempty" jsonschema:"DAG-run ID for run, run_logs, and step_log targets. The value latest is accepted where Dagu accepts it."`
 	SubRunID     string `json:"subRunId,omitempty" jsonschema:"Child DAG-run ID for run and step_log targets, addressed under the root run identified by name and dagRunId."`
 	StepName     string `json:"stepName,omitempty" jsonschema:"Step name for the step_log, foreach_items, and foreach_item targets."`
@@ -105,12 +109,12 @@ func readToolInputSchema() json.RawMessage {
 		"properties": {
 			"target": {
 				"type": "string",
-				"enum": ["references", "reference", "dags", "dag", "dag_spec", "dag_profile", "dag_search", "wiki", "wiki_page", "wiki_search", "workbook", "runs", "run", "run_logs", "step_log", "foreach_items", "foreach_item"],
+				"enum": ["references", "reference", "dags", "dag", "dag_spec", "dag_profile", "dag_search", "wiki", "wiki_page", "wiki_search", "workbook", "runs", "run", "run_logs", "step_log", "foreach_items", "foreach_item", "nodes", "node", "inventories"],
 				"description": "Read target."
 			},
 			"name": {
 				"type": "string",
-				"description": "DAG name or reference topic name."
+				"description": "DAG name, node name for the node target, or reference topic name."
 			},
 			"dagRunId": {
 				"type": "string",
@@ -134,7 +138,7 @@ func readToolInputSchema() json.RawMessage {
 			},
 			"query": {
 				"type": "string",
-				"description": "URL query string without a leading question mark. Allowed for dags, wiki, runs, run_logs (tail), step_log (tail, head, offset, limit, stream), and foreach_items (parent, status, page, perPage)."
+				"description": "URL query string without a leading question mark. Allowed for dags, wiki, runs, run_logs (tail), step_log (tail, head, offset, limit, stream), foreach_items (parent, status, page, perPage), and nodes (labels, inventory, name, page, perPage)."
 			},
 			"workspace": {
 				"type": "string",
@@ -356,6 +360,18 @@ func (svc *Service) readToolImpl(ctx context.Context, input readInput) (*mcpsdk.
 					stepLogReadOptions(input.Query),
 				)
 			}
+		}
+	case readTargetNodes:
+		if err = svc.requireAPI(); err == nil {
+			data, err = svc.listNodes(ctx, input.Query)
+		}
+	case readTargetNode:
+		if err = svc.requireAPI(); err == nil {
+			data, err = svc.getNode(ctx, input.Name)
+		}
+	case readTargetInventories:
+		if err = svc.requireAPI(); err == nil {
+			data, err = svc.listInventories(ctx)
 		}
 	default:
 		return nil, nil, unsupportedReadTargetError(input.Target)
@@ -1065,6 +1081,36 @@ func validateTargetReadInput(input *readInput) *readToolError {
 			return err
 		}
 		input.URI = uriWithQuery(addr.foreachItemsURI(input.StepName), input.Query)
+	case readTargetNodes:
+		if input.Name != "" {
+			return invalidTargetField(input.Target, readFieldName)
+		}
+		if input.DAGRunID != "" {
+			return invalidTargetField(input.Target, readFieldDAGRunID)
+		}
+		if err := validateReadQuery(input.Target, input.Query, false, ""); err != nil {
+			return err
+		}
+	case readTargetNode:
+		if input.Name == "" {
+			return missingTargetField(input.Target, readFieldName)
+		}
+		if input.DAGRunID != "" {
+			return invalidTargetField(input.Target, readFieldDAGRunID)
+		}
+		if input.Query != "" {
+			return invalidTargetField(input.Target, readFieldQuery)
+		}
+	case readTargetInventories:
+		if input.Name != "" {
+			return invalidTargetField(input.Target, readFieldName)
+		}
+		if input.DAGRunID != "" {
+			return invalidTargetField(input.Target, readFieldDAGRunID)
+		}
+		if input.Query != "" {
+			return invalidTargetField(input.Target, readFieldQuery)
+		}
 	default:
 		return unsupportedReadTargetError(input.Target)
 	}
@@ -1148,6 +1194,11 @@ func isAllowedReadQueryParam(target, key string) bool {
 		case "parent", "status", "page", "perPage":
 			return true
 		}
+	case readTargetNodes:
+		switch key {
+		case "labels", "inventory", "name", "page", "perPage":
+			return true
+		}
 	}
 	return false
 }
@@ -1216,6 +1267,17 @@ func validReadQueryValue(target, key, value string) bool {
 		}
 	case readTargetForeachItems:
 		return validForeachItemsQueryValue(key, value)
+	case readTargetNodes:
+		// The inventory API checks the selector and the inventory, and its
+		// message names what is wrong.
+		switch key {
+		case "labels", "inventory", "name":
+			return value != ""
+		case "page":
+			return validIntRange(value, 1, 0)
+		case "perPage":
+			return validIntRange(value, 1, 200)
+		}
 	}
 	return false
 }

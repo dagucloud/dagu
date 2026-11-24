@@ -308,8 +308,10 @@ function DAGEditor({
     return () => clearTimeout(timer);
   }, [settled, effectiveModelUri]);
 
-  // The lenses read the text of the model when Monaco asks. Draw them again
-  // when the names or the label change.
+  // The lenses read the text of the model when Monaco asks. A new source comes
+  // with each parse of the page and each result of the server: ask again, for
+  // the names it can change and for a query that the editor dropped when it
+  // lost the focus.
   useEffect(() => {
     stepLensRegistration.current?.refresh();
   }, [stepLenses]);

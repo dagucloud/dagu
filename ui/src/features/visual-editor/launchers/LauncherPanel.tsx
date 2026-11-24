@@ -596,14 +596,12 @@ const DEFAULT_WAIT_SEC = 5;
 function CountField({
   label,
   value,
-  placeholder,
   editable,
   optional,
   onCommit,
 }: {
   label: string;
   value: number | null;
-  placeholder?: string;
   editable: boolean;
   /** True when an empty field removes the value. */
   optional: boolean;
@@ -633,7 +631,6 @@ function CountField({
         inputMode="numeric"
         value={draft}
         readOnly={!editable}
-        placeholder={placeholder}
         spellCheck={false}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commit}
@@ -732,14 +729,15 @@ function AlwaysBody({
             <CountField
               label={ts('Runs kept in the history')}
               value={restart.histRetentionRuns}
-              placeholder={defaultRuns ? '100' : undefined}
               editable={editable}
               optional
               onCommit={(histRetentionRuns) => onChange({ histRetentionRuns })}
             />
             {defaultRuns && (
               <p className="text-xs text-muted-foreground">
-                {ts('With no value, the history keeps the latest 100 runs.')}
+                {ts(
+                  'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.'
+                )}
               </p>
             )}
           </section>
@@ -819,7 +817,7 @@ export function SlotLauncherPanel({
   open: 'schedule' | 'cron' | 'always';
   schedule: ScheduleView;
   /**
-   * True when the removal of the start expressions leaves no `schedule` key:
+   * True when the removal of the start expressions leaves no schedule entry:
    * a restart policy cannot go with what is left of one.
    */
   scheduleRemovable: boolean;
@@ -847,7 +845,7 @@ export function SlotLauncherPanel({
 }): ReactElement {
   const { ts } = useI18n();
   const [choice, setChoice] = useState<SlotChoice | null>(null);
-  const scheduled = schedule.present;
+  const scheduled = restart.schedule;
   const service = isServicePolicy(restart.policy);
   const both = scheduled && service;
   const shown: SlotChoice | null = both

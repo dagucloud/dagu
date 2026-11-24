@@ -196,7 +196,7 @@ Pages show the display name; commands, API calls, and links use the name.
 
 | Scope | Contents |
 | --- | --- |
-| Server | `config.yaml`, library DAG files (`paths.alt_dags_dir`), business calendars, the project registry, v2 webhook URLs that migration kept, users and their grants, API keys, OIDC and proxy authentication, the encryption key, license, upgrade check, Dagu Cloud connection with its report and remote access state, remote nodes, coordinator and worker state (dispatch tasks, leases, active distributed runs, worker heartbeats), service registry, the scheduler lock, pause flag, and restart backoff, audit log, admin logs, notification channels and notification settings, queues defined in `config.yaml` and the runs admitted to them |
+| Server | `config.yaml`, library DAG files (`paths.alt_dags_dir`), business calendars, the project registry, v2 webhook URLs that migration kept, users and their grants, API keys, OIDC and proxy authentication, the encryption key, license, upgrade check, Dagu Cloud connection with its report and remote access state, remote nodes, coordinator and worker state (dispatch tasks, leases, active distributed runs, worker heartbeats), service registry, the scheduler lock, pause flag, and restart backoff, audit log, admin logs, notification channels and notification settings, incident providers, queues defined in `config.yaml` and the runs admitted to them |
 | Project | DAG files, base config, runs, logs, artifacts, run work directories, git sync settings and clone, process heartbeats, run events, DAG state, suspend flags, DAG settings, pins, views, scheduler state and checkpoints, watch state, slot index, backfills, materializations, agent session cleanups, secrets, profiles, notification routes, incident policies and incidents, wiki, per-DAG webhooks and their public URLs, node inventories ([RFC 012](012-node-inventory.md)), other queues |
 
 A store added later is per project unless it holds identity, authentication,
@@ -271,6 +271,9 @@ with.
   server-wide, and only admins change them, since a channel can run a
   command on the server. A project's routes name channels, and its users
   see a channel's name and type, never its URL or secret.
+- Incident providers, such as PagerDuty, stay server-wide in the same way.
+  A project's incident policies name providers, and its users see a
+  provider's name and type, never its credentials.
 - Editing a project's settings needs the role in that project that editing
   a workspace's needs in v2. A server-wide role covers the default project,
   so whoever edits global entries on v2 edits the default project's.
@@ -681,7 +684,7 @@ or a copy of one, before the upgrade.
 | Secrets and profile entries of `X` | Project `X`'s secrets and profiles, still encrypted with the server's key |
 | Notification routes and incident policies of `X` | Project `X`'s routes and policies |
 | Global secrets, profiles, profile defaults, notification routes, and incident policies | The default project's. Project `X` also gets a copy of each one it inherited on v2: every global secret, profile, and profile default, the global routes when `X`'s route set has `inheritGlobal`, and the global policies when `X`'s policy set has `inheritParent`. An entry of `X`'s own with the same name stays as it is. Both flags are then dropped |
-| Notification channels and notification settings | Stay server-wide, as on v2 |
+| Notification channels, notification settings, and incident providers | Stay server-wide, as on v2 |
 | Per-DAG wiki directory `<wiki>/X/<dag>`, pages under `<wiki>/X/` | Project `X`'s wiki, read and written where it is |
 | User or API key with roles in `X` | Grants on project `X` |
 | User or API key with `workspace_access.all: false` | No server-wide role, and `viewer` on the default project, which keeps v2 read access to unlabelled DAGs |
@@ -692,6 +695,8 @@ or a copy of one, before the upgrade.
   It writes the registry and moves state. A DAG that ran on v2 runs on
   v3.0 from the same file, in the same directory, with the same base
   config.
+- A schedule slot gets the same run ID on v3.0 as on v2, so a slot that
+  ran before the upgrade does not run again after it.
 - Each workspace DAG file runs in place. The registry records its path as
   project `X`'s, and `X` lists, schedules, and runs it under the same
   name, with `X`'s settings, runs, and state. No other project reads it.
@@ -1008,9 +1013,10 @@ Criteria 23 and 24 apply from the release that ships the feature.
     systems, the server warns at startup and on the projects page.
 47. `dagu test` with no argument inside a project's DAG directory runs
     that project's test files and no other project's.
-48. Notification channels and notification settings are server-wide, and
-    only admins change them. A project's routes name channels, and no
-    project user sees a channel's URL or secret.
+48. Notification channels, notification settings, and incident providers
+    are server-wide, and only admins change them. A project's routes name
+    channels and its policies name providers, and no project user sees a
+    channel's URL or secret or a provider's credentials.
 49. A project created or deleted through one process reaches every other
     server, scheduler, and coordinator process without a restart, also
     on NFS. Delete removes nothing while a process still

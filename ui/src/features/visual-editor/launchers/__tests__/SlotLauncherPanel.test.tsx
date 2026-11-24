@@ -42,6 +42,8 @@ const OFF: RestartSettings = {
   schedule: false,
   retryPolicy: false,
 };
+// The restart keys of a file with the schedule above.
+const OFF_SCHEDULED: RestartSettings = { ...OFF, schedule: true };
 const ON: RestartSettings = {
   ...OFF,
   policy: 'always',
@@ -142,7 +144,8 @@ const choice = (name: string) =>
 const policy = (name: string) => screen.getByRole('button', { name });
 const wait = () => screen.getByLabelText('Wait before a new run (s)');
 const runs = () => screen.getByLabelText('Runs kept in the history');
-const DEFAULT_RUNS = 'With no value, the history keeps the latest 100 runs.';
+const DEFAULT_RUNS =
+  'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.';
 const EDIT_IN_YAML = 'Edit the schedule in the YAML to switch to Always on.';
 
 describe('SlotLauncherPanel', () => {
@@ -188,7 +191,7 @@ describe('SlotLauncherPanel', () => {
   });
 
   it('shows only the Cron form, and a switch, once a schedule is set', () => {
-    renderPanel('cron', SCHEDULED, OFF);
+    renderPanel('cron', SCHEDULED, OFF_SCHEDULED);
     expect(chooser()).toBeNull();
     expect(screen.getByLabelText('New cron expression')).toBeInTheDocument();
     expect(
@@ -201,7 +204,7 @@ describe('SlotLauncherPanel', () => {
   // The switch removes the start expressions only: with a `stop` entry or a
   // one-off, a schedule would stay next to the policy.
   it('offers a note in place of the switch for a schedule that it cannot remove', () => {
-    renderPanel('cron', SCHEDULED, OFF, { scheduleRemovable: false });
+    renderPanel('cron', SCHEDULED, OFF_SCHEDULED, { scheduleRemovable: false });
     expect(
       screen.queryByRole('button', { name: 'Switch to Always on' })
     ).toBeNull();
@@ -225,7 +228,7 @@ describe('SlotLauncherPanel', () => {
   });
 
   it('switches from Cron: removes the expressions, then asks with Always on chosen and focused', async () => {
-    const { onSchedule } = renderPanel('cron', SCHEDULED, OFF, {
+    const { onSchedule } = renderPanel('cron', SCHEDULED, OFF_SCHEDULED, {
       edited: NEITHER,
     });
     await userEvent.click(
@@ -259,7 +262,7 @@ describe('SlotLauncherPanel', () => {
   // A refused edit leaves the schedule: the focus does not move later, when
   // the author removes the schedule another way.
   it('moves no focus after a switch that the file refuses', async () => {
-    const { rerender } = renderPanel('cron', SCHEDULED, OFF);
+    const { rerender } = renderPanel('cron', SCHEDULED, OFF_SCHEDULED);
     await userEvent.click(
       screen.getByRole('button', { name: 'Switch to Always on' })
     );
@@ -292,7 +295,7 @@ describe('SlotLauncherPanel', () => {
 
   // The switch would remove the schedule, and the policy could not turn on.
   it('offers the retry_policy note in place of the switch to Always on', () => {
-    renderPanel('cron', SCHEDULED, { ...OFF, retryPolicy: true });
+    renderPanel('cron', SCHEDULED, { ...OFF_SCHEDULED, retryPolicy: true });
     expect(
       screen.queryByRole('button', { name: 'Switch to Always on' })
     ).toBeNull();
@@ -385,10 +388,8 @@ describe('SlotLauncherPanel', () => {
     const service = { ...ON, histRetentionRuns: null };
     const { rerender } = renderPanel('always', NO_SCHEDULE, service);
     expect(screen.getByText(DEFAULT_RUNS)).toBeInTheDocument();
-    expect(runs()).toHaveAttribute('placeholder', '100');
     rerender(NO_SCHEDULE, { ...service, histRetentionDays: 7 });
     expect(screen.queryByText(DEFAULT_RUNS)).toBeNull();
-    expect(runs()).not.toHaveAttribute('placeholder');
   });
 
   // Spec 080: a service has no retry_policy.
