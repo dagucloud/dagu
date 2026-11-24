@@ -100,17 +100,22 @@ describe('useListRunDisplay service list cache', () => {
 });
 
 // Only a service DAG (restart_policy) can read Healthy.
-describe('useListRunDisplay of a continuous step', () => {
+describe('useListRunDisplay of a running run', () => {
   const forever = { repeatPolicy: { repeat: 'while', interval: 10 } };
 
-  function serve(services: object[]) {
+  function serve(
+    services: object[],
+    nodes: () => object[] = () => [
+      { status: NodeStatus.Running, step: forever },
+    ]
+  ) {
     h.fetch.mockImplementation(async (url: string) => {
       const body = String(url).includes('/dag-runs/')
         ? {
             dagRunDetails: {
               dagRunId: 'r1',
               status: Status.Running,
-              nodes: [{ status: NodeStatus.Running, step: forever }],
+              nodes: nodes(),
             },
           }
         : { dags: services };
@@ -121,7 +126,8 @@ describe('useListRunDisplay of a continuous step', () => {
     });
   }
 
-  async function read(): Promise<RunDisplayStatus | undefined> {
+  // Mounts a row and returns its latest display status.
+  async function mount(): Promise<() => RunDisplayStatus | undefined> {
     let display: RunDisplayStatus | undefined;
     function Probe() {
       display = useListRunDisplay('etl', 'r1', Status.Running);
@@ -133,8 +139,10 @@ describe('useListRunDisplay of a continuous step', () => {
       </SWRConfig>
     );
     await settle(50);
-    return display;
+    return () => display;
   }
+
+  const read = async () => (await mount())();
 
   it('reads Healthy when the service list names the workflow', async () => {
     serve([{ name: 'etl', restartPolicy: RestartPolicy.always }]);
@@ -148,5 +156,20 @@ describe('useListRunDisplay of a continuous step', () => {
     expect(
       h.fetch.mock.calls.filter(([url]) => String(url).includes('/dag-runs/'))
     ).toHaveLength(0);
+  });
+
+  // A step that fails leaves the run Running in the list: only a new read of
+  // the details shows the failure, also when the run has no continuous step.
+  it('turns Running when a later read shows a failed step', async () => {
+    const work = { status: NodeStatus.Running, step: {} };
+    let nodes: object[] = [work];
+    serve([{ name: 'etl', restartPolicy: RestartPolicy.always }], () => nodes);
+    const display = await mount();
+    expect(display()).toMatchObject({ healthy: true, text: 'Healthy' });
+
+    nodes = [work, { status: NodeStatus.Failed, step: {} }];
+    await settle(60_000);
+    await settle(50);
+    expect(display()).toMatchObject({ healthy: false, text: 'Running' });
   });
 });

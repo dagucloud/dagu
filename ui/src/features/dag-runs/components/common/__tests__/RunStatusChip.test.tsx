@@ -12,13 +12,11 @@ const h = vi.hoisted(() => ({
   service: true,
   probe: 'data' as 'data' | 'loading' | 'error',
   query: vi.fn(),
-  options: undefined as unknown,
 }));
 
 vi.mock('@/hooks/api', () => ({
-  useQuery: (path: string, init: unknown, options: unknown) => {
+  useQuery: (path: string, init: unknown) => {
     h.query(path, init);
-    h.options = options;
     if (init === null) return { data: undefined };
     if (path === '/service-dags') {
       if (h.probe === 'loading') return { data: undefined };
@@ -126,26 +124,6 @@ describe('RunStatusChip', () => {
       </RunStatusChip>
     );
     expect(screen.getByText('Healthy')).toBeVisible();
-  });
-
-  // A page of running runs must not read every run again and again: only a
-  // run that can turn Healthy reads its details again, once a minute.
-  it('reads the details again only for a run with a continuous step', () => {
-    render(
-      <RunStatusChip name="etl" dagRunId="r1" status={Status.Running}>
-        {StatusLabel.running}
-      </RunStatusChip>
-    );
-    const { refreshInterval } = h.options as {
-      refreshInterval: (latest?: unknown) => number;
-    };
-    const details = (nodes: unknown[]) => ({ dagRunDetails: { nodes } });
-
-    expect(refreshInterval(undefined)).toBe(0);
-    expect(refreshInterval(details([node(NodeStatus.Running)]))).toBe(0);
-    expect(refreshInterval(details([node(NodeStatus.Success, forever)]))).toBe(
-      60_000
-    );
   });
 
   it('reads the details only for a running run', () => {

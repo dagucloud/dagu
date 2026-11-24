@@ -5,15 +5,14 @@ import { Status } from '@/api/v1/schema';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
 import {
-  hasContinuousStep,
   runDisplayStatus,
   summaryDisplayStatus,
   type RunDisplayStatus,
 } from '@/lib/runDisplayStatus';
 
 /**
- * How often a running run of a list reads its steps again, in ms. A
- * continuous run never ends, so a page of them polls for as long as it is open.
+ * How often a running run of a service DAG reads its steps again, in ms: a
+ * step that fails leaves the run Running, so only a new read shows it.
  */
 const RUNNING_REFRESH_MS = 60_000;
 
@@ -28,11 +27,11 @@ const SERVICE_LIST_TTL_MS = 5 * 60_000;
  * A running run can be "Healthy" only when its workflow is a service DAG
  * (restart_policy), so the hook reads the list of service DAGs first (one
  * request shared by all the rows of every list). Only a run of such a
- * workflow reads its details (once, and again every minute while it has a
- * continuous step): runDisplayStatus then decides, with the failed steps in
- * view. Until the details are there, and for every run that is not running,
- * the API status stands. A definition edited after the run started can hide a
- * continuous step of that run until it ends.
+ * workflow reads its details (once, and again every minute while it runs):
+ * runDisplayStatus then decides, with the failed steps in view. Until the
+ * details are there, and for every run that is not running, the API status
+ * stands. A definition edited after the run started can hide a continuous
+ * step of that run until it ends.
  */
 export function useListRunDisplay(
   name: string,
@@ -65,10 +64,7 @@ export function useListRunDisplay(
       : null,
     {
       revalidateOnFocus: false,
-      refreshInterval: (latest) =>
-        hasContinuousStep(latest?.dagRunDetails.nodes?.map((node) => node.step))
-          ? RUNNING_REFRESH_MS
-          : 0,
+      refreshInterval: RUNNING_REFRESH_MS,
     }
   );
   if (status === undefined) return undefined;
