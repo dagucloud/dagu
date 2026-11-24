@@ -21,7 +21,6 @@ interface DAGsListParams {
   active?: boolean;
   sort?: string;
   order?: string;
-  activityWindow?: number;
   remoteNode?: string;
   workspace?: components['parameters']['Workspace'];
 }
