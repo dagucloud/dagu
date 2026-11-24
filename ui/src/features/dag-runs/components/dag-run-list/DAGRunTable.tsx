@@ -428,7 +428,7 @@ function DAGRunTable({
                 <I18nProps>
                   <Checkbox
                     aria-label="Select all loaded"
-                    disabled={!onSelectAll || dagRuns.length === 0}
+                    disabled={!onSelectAll}
                     checked={
                       dagRuns.some(isBulkSelected)
                         ? dagRuns.every(isBulkSelected)
