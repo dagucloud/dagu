@@ -1499,6 +1499,14 @@ function DAGTable({
     return members;
   }, [dags]);
 
+  // The list holds every workflow of each group: no filter narrows it and no
+  // page is left to load.
+  const hasWholeGroups =
+    !searchText &&
+    searchLabels.length === 0 &&
+    !activeOnly &&
+    (resultCount === undefined || dags.length >= resultCount);
+
   // Transform the flat list of DAGs into a hierarchical structure with groups.
   // The order: pinned groups, pinned workflows, groups, workflows. The rows
   // keep the server order.
@@ -1524,11 +1532,14 @@ function DAGTable({
     }
 
     // A group whose workflows are all pinned stays a group, and leads the
-    // list; any other pinned workflow leads as a flat row.
+    // list; any other pinned workflow leads as a flat row. A partly loaded
+    // group never counts as pinned, so its pinned workflows keep their rows.
     const pinnedGroupNames = new Set(
-      [...groupMembers]
-        .filter(([, members]) => members.every((dag) => dag.pinned))
-        .map(([name]) => name)
+      hasWholeGroups
+        ? [...groupMembers]
+            .filter(([, members]) => members.every((dag) => dag.pinned))
+            .map(([name]) => name)
+        : []
     );
     const inPinnedGroup = (dag: (typeof sortedDags)[number]) =>
       !!dag.dag.group && pinnedGroupNames.has(dag.dag.group);
@@ -1574,7 +1585,7 @@ function DAGTable({
         });
       });
     return hierarchicalData;
-  }, [dags, groupByGroup, groupMembers, sortField, sortOrder]);
+  }, [dags, groupByGroup, groupMembers, hasWholeGroups, sortField, sortOrder]);
 
   const appBarContext = useContext(AppBarContext);
   // One read of the service states for all rows; it starts when a service

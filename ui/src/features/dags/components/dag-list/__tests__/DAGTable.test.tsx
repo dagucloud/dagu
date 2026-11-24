@@ -723,6 +723,41 @@ describe('DAGTable', () => {
     ).toHaveLength(1);
   });
 
+  // The other workflows of "nightly" are on a page not loaded yet, so the
+  // group is not known to be all pinned.
+  it('keeps a pinned workflow on its own row while its group has more to load', () => {
+    renderTable('', {
+      dags: [
+        workflow({ name: 'reports', group: 'nightly', pinned: true }),
+        workflow({ name: 'alpha' }),
+      ],
+      resultCount: 3,
+    });
+
+    const table = screen.getByRole('table');
+    expect(bodyRowTexts(table)[0]).toContain('reports');
+    expect(
+      within(table).getByRole('link', { name: 'reports' })
+    ).toBeInTheDocument();
+  });
+
+  it('leads with a group whose workflows are all pinned', () => {
+    renderTable('', {
+      dags: [
+        workflow({ name: 'alpha' }),
+        workflow({ name: 'cleanup', group: 'nightly', pinned: true }),
+        workflow({ name: 'reports', group: 'nightly', pinned: true }),
+      ],
+      resultCount: 3,
+    });
+
+    const table = screen.getByRole('table');
+    expect(bodyRowTexts(table)[0]).toContain('nightly');
+    expect(
+      within(table).getByRole('button', { name: 'Pin group nightly' })
+    ).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('shows the pin in its own column and no pinned row', () => {
     renderTable('', {
       dags: [
