@@ -28,4 +28,12 @@ export default defineMessages({
       'このリンクにはステップが指定されていません。ワークフローからステップログを開いてください。',
     'Open the workflow': 'ワークフローを開く',
   },
+  de: {
+    'Show in workflow': 'Im Ablauf anzeigen',
+    'Open in workflow': 'Im Ablauf öffnen',
+    'Step log': 'Schrittprotokoll',
+    'This link names no step. Open a step log from the workflow.':
+      'Dieser Link nennt keinen Schritt. Schrittprotokoll aus dem Ablauf öffnen.',
+    'Open the workflow': 'Ablauf öffnen',
+  },
 });

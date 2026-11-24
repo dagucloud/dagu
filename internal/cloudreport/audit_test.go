@@ -401,6 +401,8 @@ type endlessFeed struct {
 	reading chan struct{}
 }
 
+func (*endlessFeed) Unsent(context.Context, []byte) (int64, error) { return 0, nil }
+
 func (f *endlessFeed) Read(context.Context, audit.FeedQuery) (audit.FeedChunk, error) {
 	if f.reads.Add(1) > 2 {
 		f.once.Do(func() { close(f.reading) })

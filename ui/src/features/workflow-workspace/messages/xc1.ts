@@ -16,4 +16,8 @@ export default defineMessages({
     'Too large to format, shown as it is':
       '大きすぎるため整形せず、そのまま表示します',
   },
+  de: {
+    'Too large to format, shown as it is':
+      'Zu groß zum Formatieren, unverändert angezeigt',
+  },
 });

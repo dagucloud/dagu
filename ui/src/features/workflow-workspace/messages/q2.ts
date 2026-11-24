@@ -38,4 +38,16 @@ export default defineMessages({
     'Showing the latest {count} runs.':
       '最新の {count} 件の実行を表示しています。',
   },
+  de: {
+    'The workflow has unsaved changes. Leave and discard them?':
+      'Der Ablauf hat ungespeicherte Änderungen. Verlassen und verwerfen?',
+    'Back to Workflows': 'Zurück zu den Abläufen',
+    'Show in all workspaces': 'In allen Arbeitsbereichen anzeigen',
+    'Show in workspace {name}': 'In Arbeitsbereich {name} anzeigen',
+    'Back to latest': 'Zurück zum neuesten',
+    'Latest run': 'Neuester Lauf',
+    'Following the latest run': 'Folgt dem neuesten Lauf',
+    'Showing the latest {count} runs.':
+      'Die neuesten {count} Läufe werden angezeigt.',
+  },
 });

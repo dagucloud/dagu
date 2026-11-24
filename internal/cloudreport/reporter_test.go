@@ -75,8 +75,50 @@ func TestReportPayload(t *testing.T) {
 				{"name": "scheduler", "instances": 1, "standby": 1},
 				{"name": "coordinator", "instances": 2}
 			]
-		}
+		},
+		"audit": {"level": "off"}
 	}`, config.Version, runtime.GOOS, runtime.GOARCH), report.body)
+}
+
+// stubBacklog is an audit shipper's backlog, known or not.
+type stubBacklog struct {
+	unsent int64
+	oldest time.Time
+	known  bool
+}
+
+func (b stubBacklog) Backlog(context.Context) (int64, time.Time, bool) {
+	return b.unsent, b.oldest, b.known
+}
+
+// Reports carry the audit level, and what waits to be sent while an audit
+// shipper runs in the process and knows it (RFC 021 Verification 22).
+func TestReportCarriesAudit(t *testing.T) {
+	oldest := time.Date(2026, 10, 10, 9, 14, 3, 0, time.UTC)
+	for name, tc := range map[string]struct {
+		audit Audit
+		want  string
+	}{
+		"waiting":    {Audit{Level: config.AuditChanges, Backlog: stubBacklog{18234, oldest, true}}, `{"level":"changes","unsent_bytes":18234,"oldest_unsent_at":"2026-10-10T09:14:03Z"}`},
+		"sent":       {Audit{Level: config.AuditAll, Backlog: stubBacklog{known: true}}, `{"level":"all","unsent_bytes":0}`},
+		"unknown":    {Audit{Level: config.AuditAll, Backlog: stubBacklog{}}, `{"level":"all"}`},
+		"no shipper": {Audit{Level: config.AuditOff}, `{"level":"off"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			console := newFakeConsole(t)
+			r := newReporter(console.credentials, nil, fixedLevel(config.ReportHealth))
+			r.audit = tc.audit
+			clock := startReporter(t.Context(), t, r, noJitter)
+
+			clock.wait()
+			clock.elapse()
+			var body struct {
+				Audit json.RawMessage `json:"audit"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(console.next(t).body), &body))
+			assert.JSONEq(t, tc.want, string(body.Audit))
+		})
+	}
 }
 
 // stubRemoteAccess lets calls from Dagu Cloud operate and decide waiting

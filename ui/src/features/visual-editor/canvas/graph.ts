@@ -23,6 +23,7 @@ import {
   readContinueOn,
   readPreconditions,
 } from './conditions';
+import { readRetry } from './retryPolicy';
 import {
   AGENT_NODE_KEY,
   type AgentTaskView,
@@ -230,6 +231,11 @@ function buildNode(
   );
   if (repeat) {
     node.repeat = repeat;
+  }
+  // The card draws the loop of the retry as an arc.
+  const retry = readRetry(step.value.retry_policy);
+  if (retry) {
+    node.retry = retry;
   }
   if (isRouter(step)) {
     const value = routeValue(step);

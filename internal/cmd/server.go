@@ -217,8 +217,10 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		}
 	}
 
-	cloudReporter = startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService)
-	waitCloudAudit = watchCloudAudit(signalCtx, webStopped, startCloudAudit(serviceCtx, stores.Secret), ctx.Config.Cloud.AuditDrainTimeout)
+	auditShipper := startCloudAudit(serviceCtx, stores.Secret)
+	cloudReporter = startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService,
+		cloudreport.Audit{Level: ctx.Config.Cloud.Audit, Backlog: auditShipper})
+	waitCloudAudit = watchCloudAudit(signalCtx, webStopped, auditShipper, ctx.Config.Cloud.AuditDrainTimeout)
 	stopCloudAccess = startCloudAccess(serviceCtx, cloudAccess, server)
 
 	err = restartExit(server.Serve(serviceCtx))
@@ -329,8 +331,11 @@ func cloudReportSettingsFile(cfg *config.Config) string {
 // the server holds an online license, with how far access lets calls from
 // Dagu Cloud go and how busy the machine is, as resources samples it. When
 // cloud.report is off, it only tells Dagu Console that the server no longer
-// reports, if it reported before. It returns nil when monitoring is nil.
-func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring, access *cloudaccess.Service, resources *resource.Service) *cloudreport.Reporter {
+// reports, if it reported before. Reports carry the audit level, and what
+// waits to be sent while an audit shipper runs. It returns nil when
+// monitoring is nil.
+func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring, access *cloudaccess.Service, resources *resource.Service,
+	audit cloudreport.Audit) *cloudreport.Reporter {
 	if monitoring == nil {
 		return nil
 	}
@@ -344,7 +349,7 @@ func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring, access *
 	}
 	scheduler := cloudreport.Scheduler{State: ctx.Persistence.SchedulerStateStore, Pause: ctx.Persistence.SchedulerPauseStore}
 	return cloudreport.Start(ctx, ctx.LicenseManager.CloudCredentials, ctx.Persistence.ServiceRegistry, cloudReportEvents(ctx), scheduler,
-		cloudReportQueues(ctx), cloudReportWorkers(ctx), monitoring, remote, sampled, ctx.LicenseManager.Refresh)
+		cloudReportQueues(ctx), cloudReportWorkers(ctx), monitoring, remote, sampled, audit, ctx.LicenseManager.Refresh)
 }
 
 // cloudAuditLeaseStaleThreshold outlasts the longest pause between the audit
@@ -359,10 +364,11 @@ const cloudAuditDrainStart = 10 * time.Second
 // left as a stopped gap.
 const cloudAuditGapTime = 3 * time.Second
 
-// cloudAuditShipper is the audit shipper as stopping sees it.
+// cloudAuditShipper is the audit shipper as stopping and reports see it.
 type cloudAuditShipper interface {
 	Drain(sendUntil, endBy time.Time)
 	Stop()
+	Backlog(ctx context.Context) (unsentBytes int64, oldestUnsent time.Time, ok bool)
 }
 
 // startCloudAudit sends the server's audit entries to Dagu Console at the

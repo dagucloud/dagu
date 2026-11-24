@@ -2226,6 +2226,8 @@ The report prints `PASS`, `FAIL`, or `INVALID` per case, every failed assertion,
 
 Start a test file with `dagu test --init [--timeout 5m] <dag file>`: it writes `<name>.test.yaml` (or `.test.yml`) beside the DAG, with the mocks and params the fix would print and one case, `initial`, whose `expect` holds the run status, each step's and handler's status (with `attempts` when above 1), and any notifications of a run with those mocks, then prints the file's path. It never replaces a test file, and exits 2 for a test file, a non-DAG argument, more than one argument, or `--run`, `--keep`, or `--format json`. When the case is still invalid (such as a form value marked `# replace with a value the form accepts`) or its run does not finish, the file expects `status: succeeded`, which no run observed, the case's report follows the path, and the exit status is 2 or 1. Edit the written case into the scenarios you want to test.
 
+`dagu schema test` prints the JSON Schema of test files. Save it with `dagu schema test > workflow-test.schema.json` and map it to `*.test.yaml` and `*.test.yml` in an editor's YAML schema settings to validate and complete test files.
+
 ### dagu validate
 
 Validate DAG YAML without executing: `dagu validate <dag>`
@@ -2403,19 +2405,21 @@ Flags:
 Show JSON schema documentation. Use a dot-separated path to drill into nested sections.
 
 ```sh
-dagu schema <dag|config> [path]
+dagu schema <dag|config|calendar|test> [path]
 ```
 
 Examples:
 
-- `dagu schema dag` — All DAG root-level fields
-- `dagu schema dag steps` — Step definition structure
-- `dagu schema dag steps.container` — Container configuration
-- `dagu schema dag steps.retry_policy` — Retry policy fields
-- `dagu schema dag steps.harness` — Harness step configuration
-- `dagu schema dag handler_on` — Lifecycle event hooks
-- `dagu schema config` — All config root-level fields
-- `dagu schema config auth` — Authentication configuration
+- `dagu schema dag`: All DAG root-level fields
+- `dagu schema dag steps`: Step definition structure
+- `dagu schema dag steps.container`: Container configuration
+- `dagu schema dag steps.retry_policy`: Retry policy fields
+- `dagu schema dag steps.harness`: Harness step configuration
+- `dagu schema dag handler_on`: Lifecycle event hooks
+- `dagu schema config`: All config root-level fields
+- `dagu schema config auth`: Authentication configuration
+- `dagu schema test`: All workflow test file root-level fields
+- `dagu schema test cases.expect`: Assertions of a test case
 
 ### dagu config
 

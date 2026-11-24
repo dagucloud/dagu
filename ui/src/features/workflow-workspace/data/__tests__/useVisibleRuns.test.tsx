@@ -126,6 +126,7 @@ describe('useVisibleRuns', () => {
       includeEphemeral: true,
       includeBackfill: false,
       pollTestRuns: true,
+      newestOnly: true,
     });
   });
 

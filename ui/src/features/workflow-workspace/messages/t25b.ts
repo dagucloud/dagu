@@ -22,4 +22,10 @@ export default defineMessages({
     'Layout direction': 'レイアウトの方向',
     'Run status: {status}': '実行ステータス: {status}',
   },
+  de: {
+    Tools: 'Werkzeuge',
+    'Canvas tools': 'Werkzeuge der Zeichenfläche',
+    'Layout direction': 'Ausrichtung',
+    'Run status: {status}': 'Laufstatus: {status}',
+  },
 });

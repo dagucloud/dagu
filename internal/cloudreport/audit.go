@@ -38,6 +38,10 @@ const (
 	// reads, so a backlog of large entries is sent in parts.
 	auditBatchBytes   = 4 << 20
 	auditStateVersion = 1
+	// auditBacklogReads bounds the reads a report spends looking for the
+	// oldest entry that waits, so a backlog of entries the level skips costs
+	// one read, not all of it.
+	auditBacklogReads = 1
 	// auditGapStopped is the reason of the gap for entries a stopping server
 	// could not send.
 	auditGapStopped = "stopped"
@@ -65,6 +69,8 @@ var auditReadTools = []string{"dagu_read"}
 // AuditFeed reads the entries an audit store holds after a position.
 type AuditFeed interface {
 	Read(ctx context.Context, q audit.FeedQuery) (audit.FeedChunk, error)
+	// Unsent returns how many stored bytes lie past position.
+	Unsent(ctx context.Context, position []byte) (int64, error)
 }
 
 // AuditOptions configures sending a server's audit entries to Dagu Console.
@@ -350,8 +356,36 @@ func (s *AuditShipper) firstUnsent(ctx context.Context) (time.Time, bool) {
 	if !s.loaded {
 		return time.Time{}, false
 	}
-	position := s.saved.Position
-	for ctx.Err() == nil {
+	return s.firstAfter(ctx, s.saved.Position, 0)
+}
+
+// Backlog reports what waits to be sent, from the position saved last, so
+// that a process standing by reports it too. It reads only file sizes while
+// nothing waits.
+func (s *AuditShipper) Backlog(ctx context.Context) (unsentBytes int64, oldestUnsent time.Time, ok bool) {
+	data, found, err := s.state.Load(ctx)
+	if err != nil {
+		return 0, time.Time{}, false
+	}
+	var state auditState
+	if found && (json.Unmarshal(data, &state) != nil || state.Version != auditStateVersion) {
+		return 0, time.Time{}, false
+	}
+	unsent, err := s.feed.Unsent(ctx, state.Position)
+	if err != nil {
+		return 0, time.Time{}, false
+	}
+	if unsent > 0 {
+		oldestUnsent, _ = s.firstAfter(ctx, state.Position, auditBacklogReads)
+	}
+	return unsent, oldestUnsent, true
+}
+
+// firstAfter returns when the first entry the level sends after position was
+// written, reading past the entries it skips, in at most reads reads, or
+// until the end when reads is 0.
+func (s *AuditShipper) firstAfter(ctx context.Context, position []byte, reads int) (time.Time, bool) {
+	for read := 1; ctx.Err() == nil && (reads == 0 || read <= reads); read++ {
 		chunk, err := s.feed.Read(ctx, audit.FeedQuery{Position: position, Now: s.now(), Full: true, Keep: s.sends, Limit: 1})
 		if err != nil {
 			return time.Time{}, false

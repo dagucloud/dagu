@@ -439,6 +439,7 @@ func (a *API) licenseMonitoring(ctx context.Context) (api.LicenseMonitoring, err
 	}
 	monitoring := api.LicenseMonitoring{
 		Level:           api.LicenseMonitoringLevel(status.Level),
+		AuditLevel:      api.LicenseAuditLevelOff,
 		Configured:      status.Configured,
 		Chosen:          status.Chosen,
 		NoticeDismissed: status.NoticeDismissed,
@@ -449,6 +450,9 @@ func (a *API) licenseMonitoring(ctx context.Context) (api.LicenseMonitoring, err
 	}
 	if !status.RunsPausedUntil.IsZero() {
 		monitoring.RunsPausedUntil = ptrOf(status.RunsPausedUntil)
+	}
+	if a.config != nil && a.config.Cloud.Audit != "" {
+		monitoring.AuditLevel = api.LicenseAuditLevel(a.config.Cloud.Audit)
 	}
 	return monitoring, nil
 }

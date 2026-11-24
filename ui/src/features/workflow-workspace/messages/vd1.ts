@@ -27,4 +27,12 @@ export default defineMessages({
     'Apply every quick fix as one edit':
       'すべてのクイックフィックスを 1 回の編集として適用します',
   },
+  de: {
+    'Add id: {id}': 'ID hinzufügen: {id}',
+    'Replace with {value}': 'Durch {value} ersetzen',
+    'Quick fix: {label}': 'Schnellkorrektur: {label}',
+    'Fix all ({count})': 'Alle korrigieren ({count})',
+    'Apply every quick fix as one edit':
+      'Alle Schnellkorrekturen als eine Änderung anwenden',
+  },
 });

@@ -6,8 +6,9 @@
 - **Affected areas:** `spec` (DAG-level `outputs`, publishing files),
   `ir` (run status fields), `intake`, `queue` (retry admission), `auth`
   (`a2a` key surface), `persis/file/dag` (discovery), `gitsync`,
-  `service/frontend` (A2A endpoints, AI Catalog), `cmn/config`, `specs`,
-  `conformance`, and `docs`
+  `service/frontend` (A2A endpoints, AI Catalog), `cmn/config`,
+  `runtime/builtin/a2a` (`a2a.send` message IDs), `specs`, `conformance`,
+  and `docs`
 
 ## Summary
 
@@ -18,8 +19,10 @@ ordinary DAG run, and `GetTask` and `CancelTask` act on that run. The DAG run
 is the only record: the task ID is the run ID, and nothing else is stored.
 
 This is the inbound half of A2A support. The outbound half is `a2a.send` and
-`a2a.get_task` (Spec 099), which lists hosting agents as out of scope. The
-design follows the proposal in #4048.
+`a2a.get_task` (Spec 099), which lists hosting agents as out of scope. This
+RFC also makes a retried `a2a.send` step resend the same message ID, so a call
+from one Dagu to another does not start a second run. The design follows the
+proposal in #4048.
 
 ```text
 <dags_dir>/a2a/incident-diagnostics.yaml        A2A client
@@ -50,7 +53,8 @@ POST /a2a/agents/incident-diagnostics   SendMessage | GetTask | CancelTask
 2. An A2A 1.0 JSON-RPC client finds the agent through its Agent Card or the AI
    Catalog, sends a message, polls the task, and cancels it.
 3. Each task is exactly one DAG run. The run is the single source of truth.
-4. A retried `SendMessage` never starts a second run.
+4. A retried `SendMessage` never starts a second run, including one that a
+   retried `a2a.send` step resends.
 5. A task in a terminal state never changes.
 6. A caller sees only its own tasks, and still sees them after it rotates its
    API key.
@@ -83,6 +87,8 @@ Promised:
   error, and no run is created.
 - **Unauthorized callers learn nothing.** An agent, card, catalog entry, or
   task the caller cannot access answers as if it did not exist.
+- **Retiring keeps tasks reachable.** A retired agent takes no new messages,
+  and its callers can still read and cancel their tasks.
 - **No idle cost.** No ticker, watcher, or index is added.
 
 Not promised:
@@ -129,14 +135,15 @@ text_param: PROMPT
 | `description` | no | Agent description. Defaults to the DAG description. |
 | `tags` | no | Skill tags on the card and the catalog. |
 | `text_param` | no | Parameter that receives a text part. Without it, only data parts are accepted. |
+| `retired` | no | `true` stops new messages and keeps existing tasks reachable. See Retiring an agent. |
 
 Rules:
 
 - The agent ID is the file's base name. It matches `^[A-Za-z0-9_-]+$` and is
   at most 64 characters. It appears in URLs, so renaming the DAG does not
   change the agent's address.
-- A file's presence publishes the DAG. Removing or moving the file
-  unpublishes it.
+- A file's presence publishes the DAG, unless the file sets `retired: true`.
+  Removing or moving the file revokes the agent.
 - Each DAG has at most one publishing file.
 - Unknown fields are invalid.
 - `dagu validate` checks a publishing file: the DAG exists, no other file
@@ -152,6 +159,30 @@ API keys in the data directory. Two changes follow:
   read publishing files as DAGs.
 - **Git sync carries it.** Git sync handles each item kind on its own, so
   publishing files become a new kind beside calendars and Wiki pages.
+
+### Retiring an agent
+
+An agent stops in one of two ways:
+
+| State | New `SendMessage` | Card and catalog | `GetTask` and `CancelTask` |
+| --- | --- | --- | --- |
+| Published | Accepted | Served and listed | Served |
+| Retired (`retired: true`) | Refused | HTTP 404, not listed | Served |
+| File deleted | HTTP 404 | HTTP 404, not listed | HTTP 404 |
+
+- **Retiring is the normal way to stop an agent.** Callers can still read
+  and cancel the tasks they started until retention removes the runs.
+- A retired agent refuses a new message with `UnsupportedOperationError` and
+  creates no run. A message whose `messageId` already has a task returns that
+  task, so a client that lost a response still gets its answer.
+- Removing `retired` publishes the agent again.
+- **Deleting the file revokes the agent at once,** for example after a leak.
+  Its tasks answer 404 with the rest of its paths, because nothing else maps
+  the agent ID to its DAG. The runs continue in Dagu, and operators handle
+  them there.
+- A retired file is still the DAG's one publishing file, so the agent ID
+  keeps naming the same DAG while its tasks are served. `dagu validate`
+  checks it as any other publishing file.
 
 ### DAG-level outputs
 
@@ -474,8 +505,37 @@ the agents the caller may run:
   a base path set needs a reverse proxy.
 - The catalog defines no access control. Dagu requires an `a2a` key and
   lists only agents whose DAG the caller may run.
+- A retired agent is left out.
 - A publishing file whose DAG is missing or invalid is left out, and the
   server logs a warning once per change of the file.
+
+### Outbound message IDs
+
+`a2a.send` gives each execution a random `messageId` (Spec 099). Toward a
+Dagu agent this defeats the deduplication above: a step retry after a lost
+response sends a new message, and the target starts a second run. This RFC
+changes Spec 099 so that a retry resends the same ID.
+
+- **The default ID is derived.** It is a UUIDv5 over the attempt ID, the
+  step name, the repeat index, and the message text.
+- **`message_id` sets it explicitly.** It is a new optional `with` field of
+  `a2a.send`. A workflow that wants one ID across attempts can set, for
+  example, `${DAG_RUN_ID}-delegate`.
+
+| Execution | `messageId` | Agent that deduplicates |
+| --- | --- | --- |
+| Step `retry_policy` | Same | Returns the existing task |
+| Next `repeat_policy` iteration | New | Starts a task |
+| Dagu retry of the run, which is a new attempt | New | Starts a task |
+| Another step with the same message | New | Starts a task |
+
+- A `retry_policy` fires only when the RPC fails. A remote state is data, and
+  the step succeeds whatever the state (Spec 099), so reusing the ID never
+  keeps a retry from running a failed remote task again.
+- Running a failed remote task again takes a Dagu retry, which is a new
+  attempt and so a new message.
+- An agent that does not deduplicate can still run a retried message twice,
+  so Spec 099's `Outcome unknown` note stays for such agents.
 
 ## Failure behavior
 
@@ -483,6 +543,8 @@ the agents the caller may run:
 | --- | --- |
 | No key, an invalid key, or a key without the `a2a` surface | HTTP 401 |
 | Unknown agent, or one the caller may not run | HTTP 404 |
+| Card of a retired agent | HTTP 404 |
+| New message to a retired agent | `UnsupportedOperationError`, no run created |
 | Message shape or params invalid | `InvalidParamsError`, no run created |
 | `messageId` reused with other params | `InvalidParamsError` |
 | Message continues a task (`taskId`) | `UnsupportedOperationError` |
@@ -530,6 +592,9 @@ the agents the caller may run:
   named `a2a` must move it or set `paths.a2a_dir`. The release notes say so.
 - **Keys.** An older binary may not accept a key whose surfaces include
   `a2a`. Downgrading requires removing that surface first.
+- **`a2a.send` message IDs.** A step retry resends the same `messageId`
+  instead of a new one, so an agent that deduplicates returns the earlier
+  task. Repeat iterations and Dagu retries still send new IDs.
 
 Order:
 
@@ -540,6 +605,8 @@ Order:
    validation, Agent Cards, the JSON-RPC methods, and the `a2a` surface.
 5. The AI Catalog.
 6. Docs, including a Dagu-to-Dagu example with `a2a.send`.
+7. `a2a.send` message IDs, as a change to Spec 099. It depends on none of the
+   steps above.
 
 The behavior goes into a new spec. Spec 099's out-of-scope line for hosting
 agents then points to it.
@@ -550,6 +617,8 @@ agents then points to it.
   needs HTTPS, which A2A requires (§7.1) and `a2a.send` enforces.
 - Tasks are scoped to the caller's subject. Another subject's task answers as
   a missing one.
+- Deleting a publishing file revokes the agent and access to its tasks at
+  once. Retiring keeps the tasks reachable for their callers.
 - Results contain only declared outputs, masked as step outputs already are.
   Failure messages carry no error text.
 - `SendMessage` and `CancelTask` write audit entries with the subject, the
@@ -595,8 +664,16 @@ agents then points to it.
   subject without access to the run's workspace gets `TaskNotFoundError`.
 - The catalog lists only agents the caller may run, and omits a file whose
   DAG is missing.
+- A retired agent's card answers 404, and the catalog omits it. A new
+  message returns `UnsupportedOperationError` and creates no run. A replayed
+  `messageId` returns its task, and `GetTask` and `CancelTask` still work.
+  After the file is deleted, every path of the agent answers 404.
 - Dagu to Dagu: a DAG with `a2a.send` and `a2a.get_task` calls an agent on a
   second Dagu over HTTPS and reads its artifact.
+- A step retry of `a2a.send` after a lost response resends the same
+  `messageId`, and the target has one run. A Dagu retry and each repeat
+  iteration send a new `messageId`. An explicit `message_id` is sent as
+  given.
 
 ## Alternatives considered
 

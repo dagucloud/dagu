@@ -18,4 +18,8 @@ export default defineMessages({
     'Exit code {code}': '終了コード {code}',
     'This step needs no action.': 'このステップに必要な操作はありません。',
   },
+  de: {
+    'Exit code {code}': 'Exit-Code {code}',
+    'This step needs no action.': 'Dieser Schritt braucht keine Aktion.',
+  },
 });

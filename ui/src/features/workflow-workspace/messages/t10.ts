@@ -22,4 +22,10 @@ export default defineMessages({
     'Resize logs': 'ログパネルのサイズを変更',
     '{count} waiting': '{count} 件待機中',
   },
+  de: {
+    More: 'Mehr',
+    Maximize: 'Maximieren',
+    'Resize logs': 'Protokollgröße ändern',
+    '{count} waiting': '{count} wartend',
+  },
 });

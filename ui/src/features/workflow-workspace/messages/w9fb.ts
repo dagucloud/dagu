@@ -26,4 +26,12 @@ export default defineMessages({
     cached: 'キャッシュ済み',
     'Test run, not kept': 'テスト実行（保存されません）',
   },
+  de: {
+    'Inputs from your cache ({time})':
+      'Eingaben aus deinem Zwischenspeicher ({time})',
+    'Inputs from run {id} and your cache':
+      'Eingaben aus Lauf {id} und deinem Zwischenspeicher',
+    cached: 'zwischengespeichert',
+    'Test run, not kept': 'Testlauf, wird nicht aufbewahrt',
+  },
 });

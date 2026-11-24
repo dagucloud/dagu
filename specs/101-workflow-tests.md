@@ -9,6 +9,7 @@ Partially implemented.
 below. It checks every assertion of [Assertions](#assertions), ends each
 invalid case with [its fix](#the-fix), and lists the default mocks,
 automatic approvals, and notifications of each case that ran.
+`dagu schema test` prints the [JSON Schema](#json-schema) of test files.
 
 The authoring flags `--init` and `--update` (see
 [Authoring Flags](#authoring-flags)) ship after the first release of
@@ -1200,6 +1201,10 @@ Invalid file object: `file`, and `errors`, a list of error objects.
 
 Dagu publishes a JSON Schema for test files beside the DAG schema, so an
 editor validates and completes `*.test.yaml` and `*.test.yml` files.
+
+`dagu schema test` prints the schema, which an editor takes as a schema
+file. `dagu schema test <path>` prints the part that a dot-separated path
+names, as `dagu schema dag` does for the DAG schema.
 
 Rules:
 

@@ -18,4 +18,9 @@ export default defineMessages({
     'Retries with the definition of run {id}': '実行 {id} の定義で再試行します',
     'Open last run': '直近の実行を開く',
   },
+  de: {
+    'Retries with the definition of run {id}':
+      'Wiederholt mit der Definition von Lauf {id}',
+    'Open last run': 'Letzten Lauf öffnen',
+  },
 });

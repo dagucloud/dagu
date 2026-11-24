@@ -13,4 +13,7 @@ export default defineMessages({
   ja: {
     '{step} run': '{step} の実行',
   },
+  de: {
+    '{step} run': 'Lauf von {step}',
+  },
 });

@@ -37,4 +37,15 @@ export default defineMessages({
     'The editor has unsaved changes. The definition of this run replaces them.':
       'エディターに未保存の変更があります。この実行の定義で置き換えます。',
   },
+  de: {
+    'This run has no stored definition. The current definition is shown.':
+      'Für diesen Lauf ist keine Definition gespeichert. Die aktuelle wird angezeigt.',
+    'No runs yet': 'Noch keine Läufe',
+    "Revert to this run's YAML": 'Auf das YAML dieses Laufs zurücksetzen',
+    'Replaces the editor text with the YAML of this run. Nothing is saved until you save.':
+      'Ersetzt den Editor-Text durch das YAML dieses Laufs. Gespeichert wird erst, wenn du speicherst.',
+    'Replace the editor text?': 'Text im Editor ersetzen?',
+    'The editor has unsaved changes. The definition of this run replaces them.':
+      'Der Editor hat ungespeicherte Änderungen. Die Definition dieses Laufs ersetzt sie.',
+  },
 });

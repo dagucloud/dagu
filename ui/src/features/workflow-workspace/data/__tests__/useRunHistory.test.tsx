@@ -8,7 +8,9 @@ import { useQuery } from '@/hooks/api';
 import { TEST_RUN_TTL_MS } from '../testRun';
 import {
   noteTestRunStarted,
+  resetReadGates,
   resetTestRunsStarted,
+  SERVICE_READ_GAP_MS,
   TEST_RUN_POLL_MS,
   TEST_RUN_REMOVAL_SLACK_MS,
   useRunHistory,
@@ -46,6 +48,7 @@ function historyCalls() {
 
 beforeEach(() => {
   resetTestRunsStarted();
+  resetReadGates();
   h.GET.mockReset();
   h.historySSE.mockReset();
   h.historySSE.mockReturnValue(idleSSE);
@@ -466,5 +469,266 @@ describe('useRunHistory with the test runs', () => {
       await poll(TEST_RUN_POLL_MS * 2);
       expect(historyCalls().length).toBe(settled);
     });
+  });
+});
+
+// A service DAG runs often and each run sends an event: its runs are read at
+// most once in SERVICE_READ_GAP_MS (spec 100).
+describe('useRunHistory of a service DAG', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const serve1 = (restartPolicy?: string) => {
+    server.dag = {
+      ...server.dag,
+      dag: { name: 'demo', restartPolicy },
+    } as typeof server.dag;
+  };
+  const wait = async (ms: number) => {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  };
+  const event = (id: string) => ({
+    ...idleSSE,
+    isConnected: true,
+    data: { dagRuns: [run(id)], gridData: [] },
+  });
+  const timeline = () =>
+    renderWorkspace(() =>
+      useRunHistory({ enabled: true, includeEphemeral: true })
+    );
+
+  it('reads once at the end of the gap for a burst of events', async () => {
+    serve1('always');
+    h.historySSE.mockReturnValue({ ...idleSSE, isConnected: true });
+    const view = timeline();
+    await waitFor(() => expect(historyCalls()).toHaveLength(1));
+
+    // The first event reads at once or waits for the gap: never twice.
+    for (const id of ['run-2', 'run-3', 'run-4']) {
+      h.historySSE.mockReturnValue(event(id));
+      view.rerender();
+      await wait(1000);
+    }
+    expect(historyCalls().length).toBeLessThanOrEqual(1);
+    await wait(SERVICE_READ_GAP_MS);
+    expect(historyCalls()).toHaveLength(2);
+    // Nothing more is due: the burst made one read.
+    await wait(SERVICE_READ_GAP_MS * 2);
+    expect(historyCalls()).toHaveLength(2);
+  });
+
+  it('reads an event at once when the gap is over', async () => {
+    serve1('unless-stopped');
+    h.historySSE.mockReturnValue({ ...idleSSE, isConnected: true });
+    const view = timeline();
+    await waitFor(() => expect(historyCalls()).toHaveLength(1));
+    await wait(SERVICE_READ_GAP_MS + 100);
+
+    h.historySSE.mockReturnValue(event('run-2'));
+    view.rerender();
+    await waitFor(() => expect(historyCalls()).toHaveLength(2));
+  });
+
+  it('polls a feed that does not connect at the gap, not every 2 s', async () => {
+    serve1('always');
+    h.historySSE.mockReturnValue({ ...idleSSE, shouldUseFallback: true });
+    timeline();
+    await waitFor(() => expect(historyCalls()).toHaveLength(1));
+    await wait(SERVICE_READ_GAP_MS - 500);
+    expect(historyCalls()).toHaveLength(1);
+    await wait(1000);
+    await waitFor(() => expect(historyCalls()).toHaveLength(2));
+  });
+
+  it('shares the gap between the readers of one list', async () => {
+    serve1('always');
+    h.historySSE.mockReturnValue({ ...idleSSE, isConnected: true });
+    const view = renderWorkspace(() => [
+      useRunHistory({ enabled: true, includeEphemeral: true }),
+      useRunHistory({ enabled: true, includeEphemeral: true }),
+    ]);
+    await waitFor(() => expect(historyCalls().length).toBeGreaterThan(0));
+    const before = historyCalls().length;
+    h.historySSE.mockReturnValue(event('run-2'));
+    view.rerender();
+    await wait(SERVICE_READ_GAP_MS + 100);
+    expect(historyCalls().length - before).toBeLessThanOrEqual(1);
+  });
+
+  // A normal DAG keeps its reads: each event reads the list at once.
+  it('does not delay the reads of a DAG that is not a service', async () => {
+    serve1(undefined);
+    h.historySSE.mockReturnValue({ ...idleSSE, isConnected: true });
+    const view = timeline();
+    await waitFor(() => expect(historyCalls()).toHaveLength(1));
+    h.historySSE.mockReturnValue(event('run-2'));
+    view.rerender();
+    await waitFor(() => expect(historyCalls()).toHaveLength(2));
+    h.historySSE.mockReturnValue(event('run-3'));
+    view.rerender();
+    await waitFor(() => expect(historyCalls()).toHaveLength(3));
+  });
+});
+
+// A caller of the newest page takes the runs of a service DAG from the feed
+// while it is connected: an event does not read the list again.
+describe('useRunHistory of a service DAG for the newest page', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const setPolicy = (restartPolicy?: string) => {
+    server.dag = {
+      ...server.dag,
+      dag: { name: 'demo', restartPolicy },
+    } as typeof server.dag;
+  };
+  const wait = async (ms: number) => {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  };
+  const event = (id: string) => ({
+    ...idleSSE,
+    isConnected: true,
+    data: { dagRuns: [run(id)], gridData: [] },
+  });
+  const newest = () =>
+    renderWorkspace(() =>
+      useRunHistory({
+        enabled: true,
+        includeEphemeral: true,
+        newestOnly: true,
+      })
+    );
+  const ids = (view: ReturnType<typeof newest>) =>
+    view.result.current.value.runs.map((r) => r.dagRunId);
+
+  it('does not read again while the feed is connected', async () => {
+    setPolicy('always');
+    h.historySSE.mockReturnValue({ ...idleSSE, isConnected: true });
+    const view = newest();
+    await waitFor(() => expect(historyCalls()).toHaveLength(1));
+
+    for (const id of ['run-2', 'run-3', 'run-4']) {
+      h.historySSE.mockReturnValue(event(id));
+      view.rerender();
+      await wait(SERVICE_READ_GAP_MS + 1000);
+      expect(ids(view)).toEqual([id]);
+    }
+    await wait(SERVICE_READ_GAP_MS * 3);
+    expect(historyCalls()).toHaveLength(1);
+  });
+
+  it('keeps the test runs of the last read in the runs of the feed', async () => {
+    setPolicy('always');
+    const test = run('test-1', [], Status.Success, {
+      ephemeral: true,
+      startedAt: '2026-01-15T02:00:00Z',
+    });
+    server.history = { dagRuns: [run('run-1'), test], gridData: [] };
+    h.historySSE.mockReturnValue({ ...idleSSE, isConnected: true });
+    const view = newest();
+    await waitFor(() => expect(historyCalls()).toHaveLength(1));
+    await waitFor(() => expect(ids(view)).toContain('test-1'));
+
+    h.historySSE.mockReturnValue({
+      ...idleSSE,
+      isConnected: true,
+      data: {
+        dagRuns: [
+          run('run-2', [], Status.Success, {
+            startedAt: '2026-01-15T03:00:00Z',
+          }),
+        ],
+        gridData: [],
+      },
+    });
+    view.rerender();
+    await waitFor(() => expect(ids(view)).toEqual(['run-2', 'test-1']));
+    expect(historyCalls()).toHaveLength(1);
+  });
+
+  // A dropped feed keeps its last message while it reconnects. The runs must
+  // not go back to the first read, which can be far older than the feed.
+  it('keeps the runs of the feed while it reconnects', async () => {
+    setPolicy('always');
+    h.historySSE.mockReturnValue({ ...idleSSE, isConnected: true });
+    const view = newest();
+    await waitFor(() => expect(historyCalls()).toHaveLength(1));
+    const feed = event('run-2');
+    h.historySSE.mockReturnValue(feed);
+    view.rerender();
+    expect(ids(view)).toEqual(['run-2']);
+
+    h.historySSE.mockReturnValue({
+      ...feed,
+      isConnected: false,
+      isConnecting: true,
+    });
+    view.rerender();
+    expect(ids(view)).toEqual(['run-2']);
+
+    server.history = { dagRuns: [run('run-3'), run('run-2')], gridData: [] };
+    h.historySSE.mockReturnValue({
+      ...feed,
+      isConnected: false,
+      shouldUseFallback: true,
+    });
+    view.rerender();
+    await wait(SERVICE_READ_GAP_MS + 1000);
+    await waitFor(() => expect(ids(view)).toEqual(['run-3', 'run-2']));
+
+    // A retry of a feed in fallback connects again: the polled list is newer.
+    h.historySSE.mockReturnValue({
+      ...feed,
+      isConnected: false,
+      isConnecting: true,
+      shouldUseFallback: true,
+    });
+    view.rerender();
+    expect(ids(view)).toEqual(['run-3', 'run-2']);
+  });
+
+  it('reads at the gap when the feed is down', async () => {
+    setPolicy('always');
+    h.historySSE.mockReturnValue({ ...idleSSE, shouldUseFallback: true });
+    newest();
+    await waitFor(() => expect(historyCalls()).toHaveLength(1));
+    await wait(SERVICE_READ_GAP_MS + 1000);
+    await waitFor(() => expect(historyCalls()).toHaveLength(2));
+  });
+
+  // A DAG that is not a service keeps its reads: each event reads the list.
+  it('reads each event of a DAG that is not a service', async () => {
+    setPolicy(undefined);
+    h.historySSE.mockReturnValue({ ...idleSSE, isConnected: true });
+    const view = newest();
+    await waitFor(() => expect(historyCalls()).toHaveLength(1));
+    h.historySSE.mockReturnValue(event('run-2'));
+    view.rerender();
+    await waitFor(() => expect(historyCalls()).toHaveLength(2));
+  });
+
+  it('keeps the reads of a caller of the older pages', async () => {
+    setPolicy('always');
+    h.historySSE.mockReturnValue({ ...idleSSE, isConnected: true });
+    const view = renderWorkspace(() =>
+      useRunHistory({ enabled: true, includeEphemeral: true })
+    );
+    await waitFor(() => expect(historyCalls()).toHaveLength(1));
+    await wait(SERVICE_READ_GAP_MS + 100);
+    h.historySSE.mockReturnValue(event('run-2'));
+    view.rerender();
+    await waitFor(() => expect(historyCalls()).toHaveLength(2));
   });
 });

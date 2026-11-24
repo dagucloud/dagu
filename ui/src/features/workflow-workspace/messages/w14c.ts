@@ -45,4 +45,18 @@ export default defineMessages({
     'Log of run {id} is no longer available':
       '実行 {id} のログは利用できなくなりました',
   },
+  de: {
+    'Run starts {time}': 'Lauf beginnt {time}',
+    'Reused, succeeded': 'Übernommen, erfolgreich',
+    'Reused, failed': 'Übernommen, fehlgeschlagen',
+    'Old to new': 'Alt nach neu',
+    'New to old': 'Neu nach alt',
+    'Reverse the order of the lines': 'Reihenfolge der Zeilen umkehren',
+    '1 cached step': '1 Schritt aus dem Zwischenspeicher',
+    '{count} cached steps': '{count} Schritte aus dem Zwischenspeicher',
+    'Cached from run {id}: {step}':
+      'Aus dem Zwischenspeicher von Lauf {id}: {step}',
+    'Log of run {id} is no longer available':
+      'Protokoll von Lauf {id} ist nicht mehr vorhanden',
+  },
 });

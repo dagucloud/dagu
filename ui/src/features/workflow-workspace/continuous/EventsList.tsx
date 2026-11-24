@@ -9,10 +9,15 @@ import { RelativeTime } from '@/components/ui/relative-time';
 import { StatusDot } from '@/components/ui/status-dot';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
+import { shortRunId } from '@/lib/shortRunId';
 import { formatExactCount } from '@/lib/formatCompactCount';
 import { sameContent } from '../data/sameContent';
 import { formatSpanMs } from './format';
-import type { SampleSource, SourceEvent } from './sampleSource';
+import {
+  eventRunId,
+  type SampleSource,
+  type SourceEvent,
+} from './sampleSource';
 import { useEventsPage, useReadAtEnd } from './useContinuousData';
 
 type Window = { from: number; to: number } | null;
@@ -21,6 +26,13 @@ type Window = { from: number; to: number } | null;
 interface EventsSubject {
   /** The English text of "the events of ...", for the error message. */
   events: string;
+}
+
+/** The runs of a run history that the user can open. */
+export interface RunLinks {
+  /** True when the run is still retained, so that its page exists. */
+  has(runId: string, time: string): boolean;
+  open(runId: string): void;
 }
 
 /** The events that one request asks for. */
@@ -43,9 +55,48 @@ const KIND_LABEL: Record<SourceEvent['kind'], string> = {
   gap: 'Gap',
 };
 
+/** The run of an event: a link while the run is retained, else plain text. */
+function EventRunId({
+  runId,
+  openable,
+  onOpen,
+}: {
+  runId: string;
+  openable: boolean;
+  onOpen(): void;
+}): ReactElement {
+  const { ts } = useI18n();
+  const text = shortRunId(runId);
+  return openable ? (
+    <button
+      type="button"
+      data-testid="continuous-event-run"
+      title={ts('Open run {id}', { id: runId })}
+      onClick={onOpen}
+      className="shrink-0 font-mono text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {text}
+    </button>
+  ) : (
+    <span
+      data-testid="continuous-event-run"
+      title={runId}
+      className="shrink-0 font-mono text-muted-foreground"
+    >
+      {text}
+    </span>
+  );
+}
+
 // A poll hands out a new copy of each event: the row renders only for a change.
 const EventRow = memo(
-  function EventRow({ event }: { event: SourceEvent }): ReactElement {
+  function EventRow({
+    event,
+    links,
+  }: {
+    event: SourceEvent;
+    links?: RunLinks;
+  }): ReactElement {
     const { ts, locale } = useI18n();
     const kind = ts(KIND_LABEL[event.kind]);
     const facts: string[] = [];
@@ -77,6 +128,7 @@ const EventRow = memo(
         })
       );
     }
+    const runId = eventRunId(event);
     return (
       <li
         data-testid="continuous-event"
@@ -103,6 +155,13 @@ const EventRow = memo(
             {facts.join(' · ')}
           </span>
         )}
+        {runId && (
+          <EventRunId
+            runId={runId}
+            openable={links?.has(runId, event.time) ?? false}
+            onOpen={() => links?.open(runId)}
+          />
+        )}
         {event.message && (
           <span
             className="min-w-0 truncate font-mono text-muted-foreground"
@@ -114,7 +173,8 @@ const EventRow = memo(
       </li>
     );
   },
-  (prev, next) => sameContent(prev.event, next.event)
+  (prev, next) =>
+    sameContent(prev.event, next.event) && prev.links === next.links
 );
 
 /**
@@ -124,12 +184,14 @@ const EventRow = memo(
 function EventsPage({
   source,
   subject,
+  links,
   window,
   before,
   poll,
 }: {
   source: SampleSource;
   subject: EventsSubject;
+  links?: RunLinks;
   window: Window;
   before?: string;
   poll: boolean;
@@ -167,7 +229,11 @@ function EventsPage({
     <>
       <ul className="divide-y divide-border">
         {data.events.map((event) => (
-          <EventRow key={`${event.time}:${event.kind}`} event={event} />
+          <EventRow
+            key={`${event.time}:${event.kind}:${eventRunId(event) ?? ''}`}
+            event={event}
+            links={links}
+          />
         ))}
       </ul>
       {data.nextCursor &&
@@ -175,6 +241,7 @@ function EventsPage({
           <EventsPage
             source={source}
             subject={subject}
+            links={links}
             window={window}
             before={data.nextCursor}
             poll={false}
@@ -196,16 +263,19 @@ function EventsPage({
 
 /**
  * The events of a source, newest first, with the cursor of the API. `window`
- * limits the list to the times of a bucket of the chart.
+ * limits the list to the times of a bucket of the chart. A run history
+ * names the run of each event; `links` opens the runs that are retained.
  */
 export function EventsList({
   source,
   subject,
+  links,
   window,
   poll,
 }: {
   source: SampleSource;
   subject: EventsSubject;
+  links?: RunLinks;
   window: Window;
   poll: boolean;
 }): ReactElement {
@@ -217,6 +287,7 @@ export function EventsList({
         key={key}
         source={source}
         subject={subject}
+        links={links}
         window={window}
         poll={poll}
       />
