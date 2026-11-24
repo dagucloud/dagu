@@ -186,6 +186,15 @@ steps:
   it('refuses a key with an anchor', () => {
     const text = `restart_wait_sec: &w 5\ndelay_sec: *w\n${BASE}`;
     expect(refused(text, { waitSec: 10 })).toBe('unsupportedForm');
+    expect(refused(text, { waitSec: null })).toBe('unsupportedForm');
+  });
+
+  // An edit that leaves the anchored key out does not change its aliases.
+  it('sets the other keys while one has an anchor', () => {
+    const text = `hist_retention_runs: &n 10\nmax_active_runs: *n\n${BASE}`;
+    expect(
+      readRestartSettings(set(text, { policy: 'always', waitSec: 5 }))
+    ).toMatchObject({ policy: 'always', waitSec: 5, histRetentionRuns: 10 });
   });
 
   // A count of runs removes the days, which an alias may still read.

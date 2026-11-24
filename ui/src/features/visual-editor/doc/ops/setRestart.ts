@@ -29,12 +29,6 @@ export interface RestartSettings extends RestartView {
   histRetentionDays: number | null;
 }
 
-const RESTART_KEYS = [
-  'restart_policy',
-  'restart_wait_sec',
-  'hist_retention_runs',
-] as const;
-
 function readPolicy(node: unknown): RestartPolicy {
   const policy =
     isScalar(node) && typeof node.value === 'string'
@@ -123,12 +117,13 @@ function setRestart(
   }
   const root: YAMLMap = doc.contents;
   const { policy, waitSec, histRetentionRuns } = op;
-  // A new value of an anchored key would also change its aliases. A count of
-  // runs removes the days, so their anchor counts too.
-  const edited: readonly string[] =
-    typeof histRetentionRuns === 'number'
-      ? [...RESTART_KEYS, 'hist_retention_days']
-      : RESTART_KEYS;
+  // A new value or the removal of an anchored key would also change its
+  // aliases. A count of runs removes the days, so their anchor counts too.
+  const edited: string[] = [];
+  if (policy !== undefined) edited.push('restart_policy');
+  if (waitSec !== undefined) edited.push('restart_wait_sec');
+  if (histRetentionRuns !== undefined) edited.push('hist_retention_runs');
+  if (typeof histRetentionRuns === 'number') edited.push('hist_retention_days');
   if (
     edited.some((key) => {
       const node = root.get(key, true);
@@ -183,8 +178,8 @@ function setRestart(
  * of the DAG. A field that the operation leaves out does not change, and
  * `null` removes the key. The policy `no` removes `restart_policy`, and a
  * count of runs to keep removes `hist_retention_days`. A service policy fails
- * when the DAG has a schedule or a retry_policy and is not a service yet. Any
- * edit fails when a restart key has an anchor, and a count of runs also when
+ * when the DAG has a schedule or a retry_policy and is not a service yet. An
+ * edit of a key that has an anchor fails, and so does a count of runs while
  * `hist_retention_days` has one. The other lines of the text do not change.
  */
 export function opSetRestartPolicy(
