@@ -458,7 +458,8 @@ Rules:
   starts the next run. In the states pending, suspended and stopped, the Start button stays. So do
   both buttons while the restarts are on hold (`restartHold`) and for a DAG whose state cannot be
   read (`readError`): the scheduler starts no run. A service DAG with an active run keeps only the
-  Stop button.
+  Stop button. A button that is not shown leaves its place empty, so each button of a row and a card
+  stays where it is in every state.
 - The header of the page of a service DAG follows the same rule. It reads the state from the same
   `GET /service-dags` read as the list, with no extra request. A DAG that is restarting or failing,
   with no active run, has no Start button, no Retry button and no menu to run a draft. With no known

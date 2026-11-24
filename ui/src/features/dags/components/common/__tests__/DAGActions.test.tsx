@@ -425,7 +425,7 @@ describe('DAGActions', () => {
   });
 
   // A service workflow has one run at a time: the list rows and the cards
-  // (retryInPlaceOfStop) show Stop or Start, never both. The bar keeps Start.
+  // show Stop or Start, never both. The bar keeps Start.
   describe('service workflow', () => {
     const run = (status: Status) =>
       ({
@@ -459,7 +459,6 @@ describe('DAGActions', () => {
             fileName="svc"
             dag={dag}
             status={run(status)}
-            retryInPlaceOfStop
             markActions
             {...extra}
           />
@@ -471,6 +470,28 @@ describe('DAGActions', () => {
       screen
         .queryAllByRole('button')
         .map((b) => b.getAttribute('data-ww-action'));
+
+    // The slots in their order, those of the buttons not shown included.
+    const slots = () =>
+      Array.from(
+        document.querySelectorAll('[data-ww-action], [data-reserved-action]')
+      ).map(
+        (el) =>
+          el.getAttribute('data-ww-action') ??
+          el.getAttribute('data-reserved-action')
+      );
+
+    // A button that is not shown keeps its slot, so the buttons after it do
+    // not move between rows or when the state changes.
+    it.each<[Status, ServiceRestartFields | undefined]>([
+      [Status.Running, undefined],
+      [Status.Failed, undefined],
+      [Status.Success, { state: ServiceDAGState.restarting }],
+      [Status.Failed, { state: ServiceDAGState.stopped }],
+    ])('keeps a slot for each button (status %s)', (status, service) => {
+      renderService(always, status, { service });
+      expect(slots()).toEqual(['start', 'stop', 'retry']);
+    });
 
     it.each([Status.Running, Status.Queued, Status.Waiting])(
       'shows only Stop while a run is active (status %s)',
@@ -528,7 +549,7 @@ describe('DAGActions', () => {
       renderService({ name: 'svc' }, Status.Success, {
         service: { state: ServiceDAGState.restarting },
       });
-      expect(names()).toEqual(['start', 'retry']);
+      expect(names()).toEqual(['start', 'stop', 'retry']);
     });
 
     it('hides Start for a run that has not started for 5 minutes at most', () => {
@@ -591,9 +612,9 @@ describe('DAGActions', () => {
       ).toBeVisible();
     });
 
-    it('keeps Start and Stop together for a plain workflow', () => {
+    it('keeps Start, Stop and Retry together for a plain workflow', () => {
       renderService({ name: 'svc' }, Status.Running);
-      expect(names()).toEqual(['start', 'stop']);
+      expect(names()).toEqual(['start', 'stop', 'retry']);
       expect(screen.getByRole('button', { name: /Start/ })).toBeEnabled();
     });
 
