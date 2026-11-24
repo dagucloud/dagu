@@ -644,6 +644,25 @@ describe('DAGRuns page', () => {
     ).toBeNull();
   });
 
+  it('drops the specific date parameters when a preset is chosen', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await choosePeriod(user, 'Specific date…');
+    await waitFor(() => {
+      expect(locationSearchParams().get('specificPeriod')).toBe('date');
+    });
+
+    await choosePeriod(user, 'Last 7 days');
+    await waitFor(() => {
+      const params = locationSearchParams();
+      expect(params.get('dateMode')).toBe('preset');
+      expect(params.get('preset')).toBe('last7days');
+      expect(params.has('specificValue')).toBe(false);
+      expect(params.has('specificPeriod')).toBe(false);
+    });
+  });
+
   it('interprets custom dates in the configured timezone', async () => {
     const user = userEvent.setup();
     renderPage(vi.fn(), '/dag-runs', { tzOffsetInSec: -5 * 60 * 60 });

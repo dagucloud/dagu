@@ -1280,6 +1280,8 @@ function DAGRuns() {
       dateMode: 'preset',
       fromDate: dates.from,
       toDate: dates.to,
+      specificValue: undefined,
+      specificPeriod: undefined,
     });
   };
 
@@ -1496,9 +1498,7 @@ function DAGRuns() {
                     handleDateRangeModeChange(value);
                     return;
                   }
-                  if (dateRangeMode !== 'preset') {
-                    handleDateRangeModeChange('preset');
-                  }
+                  setDateRangeMode('preset');
                   handleDatePresetChange(value);
                 }}
               >
