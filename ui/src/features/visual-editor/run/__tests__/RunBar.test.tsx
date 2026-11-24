@@ -105,6 +105,16 @@ describe('RunBar run buttons', () => {
     expect(onRunIdChange).toHaveBeenCalledWith('draft-run');
   });
 
+  it('keeps the shown run when the draft did not start', async () => {
+    const actions = makeActions({ runDraft: vi.fn(async () => null) });
+    const { onRunIdChange } = renderBar({ isDirty: true, actions });
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Run unsaved draft' })
+    );
+    expect(actions.runDraft).toHaveBeenCalledTimes(1);
+    expect(onRunIdChange).not.toHaveBeenCalled();
+  });
+
   it('disables the draft button with a spinner while starting', () => {
     renderBar({ isDirty: true, actions: makeActions({ isStarting: true }) });
     expect(
