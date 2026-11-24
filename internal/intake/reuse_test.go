@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/collections"
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	_ "github.com/dagucloud/dagu/v2/internal/runtime/builtin"
@@ -92,6 +93,29 @@ func TestStepsToRun(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+// A step that the earlier run skipped by retry is reused when the caller
+// supplied its outputs, which leaves it no finish time; one that carried
+// nothing runs.
+func TestStepsToRunSuppliedOutputs(t *testing.T) {
+	t.Parallel()
+
+	earlier := loadReuseDAG(t, reuseSpec)
+	source := succeededRun(earlier)
+	for _, node := range source.Nodes {
+		switch node.Step.Name {
+		case "page":
+			node.Status, node.SkippedByRetry = ir.NodeSkipped, true
+			node.OutputVariables = &collections.SyncMap{}
+			node.OutputVariables.Store("ROWS", "ROWS=supplied")
+		case "notes":
+			node.Status, node.SkippedByRetry = ir.NodeSkipped, true
+		}
+	}
+	got, err := intake.StepsToRun(loadReuseDAG(t, reuseSpec), "", earlier, source)
+	require.NoError(t, err)
+	require.Equal(t, []string{"notes"}, got)
 }
 
 // sharedBrowserSpec signs in and searches in one shared browser, and reads a
