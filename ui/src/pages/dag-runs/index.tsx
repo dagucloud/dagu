@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { Layers, List, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import dayjs from '@/lib/dayjs';
@@ -9,7 +9,6 @@ import {
   PathsDagRunsGetParametersQueryBackfill,
   RunBackfillFilter,
   Status,
-  ViewSpecType,
 } from '../../api/v1/schema';
 import { AutocompleteInput } from '@/components/ui/autocomplete-input';
 import { Button } from '@/components/ui/button';
@@ -23,14 +22,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { LabelCombobox } from '@/components/ui/label-combobox';
-import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
 import { AppBarContext } from '../../contexts/AppBarContext';
 import { useCanWriteForWorkspace } from '../../contexts/AuthContext';
 import { useConfig } from '../../contexts/ConfigContext';
 import { useSearchState } from '../../contexts/SearchStateContext';
-import { useUserPreferences } from '../../contexts/UserPreference';
+import { useHideBreadcrumb } from '@/contexts/LayoutChromeContext';
+import DAGListHeader from '../../features/dags/components/dag-list/DAGListHeader';
 import DAGRunBatchActions from '../../features/dag-runs/components/common/DAGRunBatchActions';
-import DAGRunGroupedView from '../../features/dag-runs/components/dag-run-list/DAGRunGroupedView';
 import DAGRunTable from '../../features/dag-runs/components/dag-run-list/DAGRunTable';
 import { ServiceDAGStrip } from '../../features/service-dags/components/ServiceDAGStrip';
 import { usePaginatedDAGRuns } from '../../features/dag-runs/hooks/dagRunPagination';
@@ -47,7 +45,8 @@ import {
   viewMatchesScope,
   viewScopeForSelection,
 } from '../../features/views/viewScope';
-import { useViews, type View } from '../../hooks/useViews';
+import { type View } from '../../hooks/useViews';
+import { useSharedViews } from '../../hooks/useSharedViews';
 import { useQuery } from '../../hooks/api';
 import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { legacyRunPageRedirectURL } from '../../features/dag-runs/lib/dagRunUrls';
@@ -60,7 +59,6 @@ import {
   workspaceSelectionQuery,
 } from '../../lib/workspace';
 import StatusChip from '@/components/ui/status-chip';
-import Title from '@/components/ui/title';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { LoadErrorState } from '@/components/PageStates';
@@ -190,12 +188,12 @@ const NAME_SUGGESTION_DEBOUNCE_MS = 300;
 const NAME_SUGGESTION_LIMIT = 50;
 
 function DAGRuns() {
+  useHideBreadcrumb(true);
   const { ts } = useI18n();
   const location = useLocation();
   const navigate = useNavigate();
   const appBarContext = React.useContext(AppBarContext);
   const config = useConfig();
-  const { preferences, updatePreference } = useUserPreferences();
   const searchState = useSearchState();
   const remoteKey = appBarContext.selectedRemoteNode || 'local';
   const workspaceSelection = appBarContext.workspaceSelection;
@@ -219,7 +217,7 @@ function DAGRuns() {
     createView,
     updateView,
     deleteView,
-  } = useViews(ViewSpecType.run);
+  } = useSharedViews('run');
   const scopedRunViews = React.useMemo(
     () => sharedRunViews.filter((view) => viewMatchesScope(view, runViewScope)),
     [sharedRunViews, runViewScope]
@@ -365,9 +363,6 @@ function DAGRuns() {
   }, [location.search, navigate, remoteKey]);
   const loadMoreSentinelRef = React.useRef<HTMLDivElement>(null);
   const autoLoadPendingRef = React.useRef(false);
-
-  // View mode comes from user preferences (local storage)
-  const viewMode = preferences.dagRunsViewMode;
 
   // Date range mode: 'preset', 'specific', or 'custom'
   const [dateRangeMode, setDateRangeMode] = React.useState<
@@ -739,7 +734,7 @@ function DAGRuns() {
   }, [currentFilters, runViewsLoading, searchState, searchStateScope]);
 
   React.useEffect(() => {
-    appBarContext.setTitle('Executions');
+    appBarContext.setTitle('Workflows');
   }, [appBarContext]);
 
   // Fetch available labels for the filter dropdown
@@ -1273,11 +1268,6 @@ function DAGRuns() {
     });
   };
 
-  const handleViewModeChange = (value: string) => {
-    const newViewMode = value as 'list' | 'grouped';
-    updatePreference('dagRunsViewMode', newViewMode);
-  };
-
   const handleDatePresetChange = (preset: string) => {
     setDatePreset(preset);
     const dates = getPresetDates(preset);
@@ -1404,75 +1394,38 @@ function DAGRuns() {
 
   return (
     <div>
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-3">
-          <Title>
-            <I18nText text={'Executions'} />
-          </Title>
-          {!backfillId && (
-            <ViewSelector
-              kind="run"
-              views={runViews}
-              activeViewId={activeRunViewId}
-              defaultViewId={defaultRunViewId}
-              isAllView={isAllRunsView}
-              isActiveViewEdited={isRunViewEdited}
-              canManageViews={canManageRunViews}
-              error={runViewError}
-              onSelectView={handleSelectRunView}
-              onShowAll={handleShowAllRuns}
-              onResetView={handleResetRunView}
-              onSaveView={handleSaveRunView}
-              onUpdateView={handleUpdateRunView}
-              onSetDefault={handleSetDefaultRunView}
-              onSetPinned={handleSetPinnedRunView}
-              onDeleteView={handleDeleteRunView}
-              onRenameView={handleRenameRunView}
-              filtersAlreadySaved={areRunFiltersSaved}
-            />
-          )}
-        </div>
-        <I18nProps>
-          <ToggleGroup aria-label="View mode" className="h-9 p-0.5">
-            <I18nProps>
-              <ToggleButton
-                value="list"
-                groupValue={viewMode}
-                onClick={() => handleViewModeChange('list')}
-                position="first"
-                aria-label="List view"
-                className="h-8 px-3"
-              >
-                <List size={16} className="sm:mr-1.5" />
-                <span className="hidden sm:inline">
-                  <I18nText text={'List'} />
-                </span>
-              </ToggleButton>
-            </I18nProps>
-            <I18nProps>
-              <ToggleButton
-                value="grouped"
-                groupValue={viewMode}
-                onClick={() => handleViewModeChange('grouped')}
-                position="last"
-                aria-label="Grouped view"
-                className="h-8 px-3"
-              >
-                <Layers size={16} className="sm:mr-1.5" />
-                <span className="hidden sm:inline">
-                  <I18nText text={'Grouped'} />
-                </span>
-              </ToggleButton>
-            </I18nProps>
-          </ToggleGroup>
-        </I18nProps>
-      </div>
+      <DAGListHeader
+        mode="runs"
+        resultCount={dagRuns.length}
+        hasMore={hasMore}
+        onRefresh={() => refreshDagRuns()}
+      />
       <div>
         {backfillId ? (
           <BackfillRunsScope backfillId={backfillId} onClear={clearBackfill} />
         ) : (
-          <div className="mb-4 space-y-2">
+          <div data-testid="workflow-controls" className="mb-4 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
+              <ViewSelector
+                kind="run"
+                views={runViews}
+                activeViewId={activeRunViewId}
+                defaultViewId={defaultRunViewId}
+                isAllView={isAllRunsView}
+                isActiveViewEdited={isRunViewEdited}
+                canManageViews={canManageRunViews}
+                error={runViewError}
+                onSelectView={handleSelectRunView}
+                onShowAll={handleShowAllRuns}
+                onResetView={handleResetRunView}
+                onSaveView={handleSaveRunView}
+                onUpdateView={handleUpdateRunView}
+                onSetDefault={handleSetDefaultRunView}
+                onSetPinned={handleSetPinnedRunView}
+                onDeleteView={handleDeleteRunView}
+                onRenameView={handleRenameRunView}
+                filtersAlreadySaved={areRunFiltersSaved}
+              />
               <I18nProps>
                 <AutocompleteInput
                   placeholder="Filter by workflow name..."
@@ -1480,7 +1433,7 @@ function DAGRuns() {
                   onValueChange={setSearchText}
                   onEnterPress={() => handleSearch()}
                   suggestions={dagNameSuggestions}
-                  className="w-[200px]"
+                  className="w-[180px]"
                 />
               </I18nProps>
               <I18nProps>
@@ -1490,12 +1443,12 @@ function DAGRuns() {
                   onValueChange={setDagRunId}
                   onEnterPress={() => handleSearch()}
                   suggestions={dagRunIdSuggestions}
-                  className="w-[180px]"
+                  className="w-[140px]"
                 />
               </I18nProps>
               <Select value={status} onValueChange={handleStatusChange}>
                 <I18nProps>
-                  <SelectTrigger aria-label="Status" className="w-[150px]">
+                  <SelectTrigger aria-label="Status" className="w-[130px]">
                     <I18nProps>
                       <SelectValue placeholder="Status">
                         <StatusSelectDisplay status={status} />
@@ -1533,153 +1486,168 @@ function DAGRuns() {
                   onLabelsChange={updateLabels}
                   availableLabels={availableLabels}
                   placeholder="Filter by labels..."
-                  className="h-9 min-w-[170px] max-w-[220px]"
+                  className="h-9 min-w-[150px] max-w-[180px]"
                 />
               </I18nProps>
-              <Button
-                onClick={() => handleSearch()}
-                className="px-4 font-medium"
+              <Select
+                value={dateRangeMode === 'preset' ? datePreset : dateRangeMode}
+                onValueChange={(value) => {
+                  if (value === 'specific' || value === 'custom') {
+                    handleDateRangeModeChange(value);
+                    return;
+                  }
+                  if (dateRangeMode !== 'preset') {
+                    handleDateRangeModeChange('preset');
+                  }
+                  handleDatePresetChange(value);
+                }}
               >
-                <Search className="mr-1.5 h-4 w-4" />
-                <I18nText text={'Search'} />
-              </Button>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <I18nProps>
-                <ToggleGroup aria-label="Date range mode" className="h-9 p-0.5">
-                  <I18nProps>
-                    <ToggleButton
-                      value="preset"
-                      groupValue={dateRangeMode}
-                      onClick={() => handleDateRangeModeChange('preset')}
-                      position="first"
-                      aria-label="Quick select"
-                      className="h-8 px-3"
-                    >
-                      <I18nText text={'Quick'} />
-                    </ToggleButton>
-                  </I18nProps>
-                  <I18nProps>
-                    <ToggleButton
-                      value="specific"
-                      groupValue={dateRangeMode}
-                      onClick={() => handleDateRangeModeChange('specific')}
-                      position="middle"
-                      aria-label="Specific date/month/year"
-                      className="h-8 px-3"
-                    >
-                      <I18nText text={'Specific'} />
-                    </ToggleButton>
-                  </I18nProps>
-                  <I18nProps>
-                    <ToggleButton
-                      value="custom"
-                      groupValue={dateRangeMode}
-                      onClick={() => handleDateRangeModeChange('custom')}
-                      position="last"
-                      aria-label="Custom range"
-                      className="h-8 px-3"
-                    >
-                      <I18nText text={'Custom'} />
-                    </ToggleButton>
-                  </I18nProps>
-                </ToggleGroup>
-              </I18nProps>
-              {dateRangeMode === 'preset' ? (
-                <Select
-                  value={datePreset}
-                  onValueChange={handleDatePresetChange}
-                >
-                  <I18nProps>
-                    <SelectTrigger
-                      aria-label="Date preset"
-                      className="w-[180px]"
-                    >
-                      <I18nProps>
-                        <SelectValue placeholder="Select period" />
-                      </I18nProps>
-                    </SelectTrigger>
-                  </I18nProps>
-                  <SelectContent>
-                    <SelectItem value="today">
-                      <I18nText text={'Today'} />
-                    </SelectItem>
-                    <SelectItem value="yesterday">
-                      <I18nText text={'Yesterday'} />
-                    </SelectItem>
-                    <SelectItem value="last7days">
-                      <I18nText text={'Last 7 days'} />
-                    </SelectItem>
-                    <SelectItem value="last30days">
-                      <I18nText text={'Last 30 days'} />
-                    </SelectItem>
-                    <SelectItem value="thisWeek">
-                      <I18nText text={'This week'} />
-                    </SelectItem>
-                    <SelectItem value="thisMonth">
-                      <I18nText text={'This month'} />
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              ) : dateRangeMode === 'specific' ? (
+                <I18nProps>
+                  <SelectTrigger aria-label="Period" className="w-[140px]">
+                    <I18nProps>
+                      <SelectValue placeholder="Select period" />
+                    </I18nProps>
+                  </SelectTrigger>
+                </I18nProps>
+                <SelectContent>
+                  <SelectItem value="today">
+                    <I18nText text={'Today'} />
+                  </SelectItem>
+                  <SelectItem value="yesterday">
+                    <I18nText text={'Yesterday'} />
+                  </SelectItem>
+                  <SelectItem value="last7days">
+                    <I18nText text={'Last 7 days'} />
+                  </SelectItem>
+                  <SelectItem value="last30days">
+                    <I18nText text={'Last 30 days'} />
+                  </SelectItem>
+                  <SelectItem value="thisWeek">
+                    <I18nText text={'This week'} />
+                  </SelectItem>
+                  <SelectItem value="thisMonth">
+                    <I18nText text={'This month'} />
+                  </SelectItem>
+                  <SelectItem value="specific">
+                    <I18nText text={'Specific date…'} />
+                  </SelectItem>
+                  <SelectItem value="custom">
+                    <I18nText text={'Custom range…'} />
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              {dateRangeMode === 'specific' ? (
                 <>
                   <Select
-                    value={specificPeriod}
-                    onValueChange={(v) => {
-                      const newPeriod = v as 'date' | 'month' | 'year';
-                      setSpecificPeriod(newPeriod);
-                      let newValue: string;
-                      const parsedDate = dayjs(specificValue);
-
-                      if (newPeriod === 'date') {
-                        newValue = parsedDate.isValid()
-                          ? parsedDate.format('YYYY-MM-DD')
-                          : dayjs().format('YYYY-MM-DD');
-                      } else if (newPeriod === 'month') {
-                        newValue = parsedDate.isValid()
-                          ? parsedDate.format('YYYY-MM')
-                          : dayjs().format('YYYY-MM');
-                      } else {
-                        newValue = parsedDate.isValid()
-                          ? parsedDate.format('YYYY')
-                          : dayjs().format('YYYY');
-                      }
-
-                      setSpecificValue(newValue);
-                      handleSpecificPeriodChange(newValue, newPeriod);
-                    }}
+                    value={datePreset}
+                    onValueChange={handleDatePresetChange}
                   >
                     <I18nProps>
                       <SelectTrigger
-                        aria-label="Specific period"
-                        className="w-[120px]"
+                        aria-label="Date preset"
+                        className="w-[180px]"
                       >
-                        <SelectValue />
+                        <I18nProps>
+                          <SelectValue placeholder="Select period" />
+                        </I18nProps>
                       </SelectTrigger>
                     </I18nProps>
                     <SelectContent>
-                      <SelectItem value="date">
-                        <I18nText text={'Date'} />
+                      <SelectItem value="today">
+                        <I18nText text={'Today'} />
                       </SelectItem>
-                      <SelectItem value="month">
-                        <I18nText text={'Month'} />
+                      <SelectItem value="yesterday">
+                        <I18nText text={'Yesterday'} />
                       </SelectItem>
-                      <SelectItem value="year">
-                        <I18nText text={'Year'} />
+                      <SelectItem value="last7days">
+                        <I18nText text={'Last 7 days'} />
+                      </SelectItem>
+                      <SelectItem value="last30days">
+                        <I18nText text={'Last 30 days'} />
+                      </SelectItem>
+                      <SelectItem value="thisWeek">
+                        <I18nText text={'This week'} />
+                      </SelectItem>
+                      <SelectItem value="thisMonth">
+                        <I18nText text={'This month'} />
                       </SelectItem>
                     </SelectContent>
                   </Select>
-                  <Input
-                    type={getInputTypeForPeriod(specificPeriod)}
-                    value={specificValue}
-                    onChange={(e) => handleSpecificPeriodChange(e.target.value)}
-                    placeholder={specificPeriod === 'year' ? 'YYYY' : undefined}
-                    min={specificPeriod === 'year' ? '2000' : undefined}
-                    max={specificPeriod === 'year' ? '2100' : undefined}
-                    className="h-9 w-[160px]"
+                  ) : dateRangeMode === 'specific' ? (
+                  <>
+                    <Select
+                      value={specificPeriod}
+                      onValueChange={(v) => {
+                        const newPeriod = v as 'date' | 'month' | 'year';
+                        setSpecificPeriod(newPeriod);
+                        let newValue: string;
+                        const parsedDate = dayjs(specificValue);
+
+                        if (newPeriod === 'date') {
+                          newValue = parsedDate.isValid()
+                            ? parsedDate.format('YYYY-MM-DD')
+                            : dayjs().format('YYYY-MM-DD');
+                        } else if (newPeriod === 'month') {
+                          newValue = parsedDate.isValid()
+                            ? parsedDate.format('YYYY-MM')
+                            : dayjs().format('YYYY-MM');
+                        } else {
+                          newValue = parsedDate.isValid()
+                            ? parsedDate.format('YYYY')
+                            : dayjs().format('YYYY');
+                        }
+
+                        setSpecificValue(newValue);
+                        handleSpecificPeriodChange(newValue, newPeriod);
+                      }}
+                    >
+                      <I18nProps>
+                        <SelectTrigger
+                          aria-label="Specific period"
+                          className="w-[120px]"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                      </I18nProps>
+                      <SelectContent>
+                        <SelectItem value="date">
+                          <I18nText text={'Date'} />
+                        </SelectItem>
+                        <SelectItem value="month">
+                          <I18nText text={'Month'} />
+                        </SelectItem>
+                        <SelectItem value="year">
+                          <I18nText text={'Year'} />
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input
+                      type={getInputTypeForPeriod(specificPeriod)}
+                      value={specificValue}
+                      onChange={(e) =>
+                        handleSpecificPeriodChange(e.target.value)
+                      }
+                      placeholder={
+                        specificPeriod === 'year' ? 'YYYY' : undefined
+                      }
+                      min={specificPeriod === 'year' ? '2000' : undefined}
+                      max={specificPeriod === 'year' ? '2100' : undefined}
+                      className="h-9 w-[160px]"
+                    />
+                  </>
+                  ) : (
+                  <DateRangePicker
+                    fromDate={fromDate}
+                    toDate={toDate}
+                    onFromDateChange={setFromDate}
+                    onToDateChange={setToDate}
+                    onEnterPress={() => handleSearch()}
+                    fromLabel={`From ${tzLabel}`}
+                    toLabel={`To ${tzLabel}`}
+                    className="w-full md:w-auto"
                   />
                 </>
-              ) : (
+              ) : dateRangeMode === 'custom' ? (
                 <DateRangePicker
                   fromDate={fromDate}
                   toDate={toDate}
@@ -1690,18 +1658,26 @@ function DAGRuns() {
                   toLabel={`To ${tzLabel}`}
                   className="w-full md:w-auto"
                 />
-              )}
+              ) : null}
+              <Button
+                onClick={() => handleSearch()}
+                className="px-4 font-medium"
+              >
+                <Search className="mr-1.5 h-4 w-4" />
+                <I18nText text={'Search'} />
+              </Button>
+              <DAGRunBatchActions
+                inline
+                selectedRuns={selectedRuns}
+                loadedCount={dagRuns.length}
+                onSelectAllLoaded={selectAllLoaded}
+                onClearSelection={clearSelection}
+                onReplaceSelection={replaceSelection}
+                onActionComplete={refreshDagRuns}
+              />
             </div>
           </div>
         )}
-        <DAGRunBatchActions
-          selectedRuns={selectedRuns}
-          loadedCount={dagRuns.length}
-          onSelectAllLoaded={selectAllLoaded}
-          onClearSelection={clearSelection}
-          onReplaceSelection={replaceSelection}
-          onActionComplete={refreshDagRuns}
-        />
         {/* A service DAG restarts without end, so its runs are not in this list.
             Each dag has a card that opens its latest runs instead. */}
         {hideServiceDAGRuns && (
@@ -1713,7 +1689,7 @@ function DAGRuns() {
             error={dagRunsError}
             onRetry={() => void refreshDagRuns()}
           />
-        ) : viewMode === 'list' ? (
+        ) : (
           <DAGRunTable
             dagRuns={dagRuns}
             isLoading={isInitialLoading}
@@ -1754,10 +1730,6 @@ function DAGRuns() {
                 </Button>
               )}
             </>
-          ) : dagRuns.length > 0 ? (
-            <div className="text-sm text-muted-foreground">
-              <I18nText text={'All runs are displayed.'} />
-            </div>
           ) : null}
         </div>
       </div>

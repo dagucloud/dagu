@@ -25,6 +25,7 @@ import {
   DAGTable,
   type DAGDeleteResult,
 } from '../../features/dags/components/dag-list';
+import { useHideBreadcrumb } from '@/contexts/LayoutChromeContext';
 import DAGListHeader from '../../features/dags/components/dag-list/DAGListHeader';
 import {
   isRunSortField,
@@ -52,7 +53,8 @@ import {
   workspaceSelectionQuery,
 } from '../../lib/workspace';
 import LoadingIndicator from '@/components/ui/loading-indicator';
-import { useViews, type View, type ViewSpec } from '@/hooks/useViews';
+import { type View, type ViewSpec } from '@/hooks/useViews';
+import { useSharedViews } from '@/hooks/useSharedViews';
 import { I18nText } from '@/i18n/I18nText';
 import { useI18n } from '@/i18n/I18nProvider';
 import { LoadErrorState } from '@/components/PageStates';
@@ -261,6 +263,8 @@ function supportsIntersectionObserver(): boolean {
 }
 
 function DAGsContent() {
+  // The page has its own title row: no breadcrumb strip above it.
+  useHideBreadcrumb(true);
   const location = useLocation();
   const navigate = useNavigate();
   const { ts } = useI18n();
@@ -306,7 +310,7 @@ function DAGsContent() {
     createView,
     updateView,
     deleteView,
-  } = useViews(ViewSpecType.workflow);
+  } = useSharedViews('workflow');
   const scopedWorkflowViews = React.useMemo(
     () =>
       sharedWorkflowViews.filter((view) =>
@@ -1236,7 +1240,10 @@ function DAGsContent() {
 
   return (
     <div>
-      <DAGListHeader onRefresh={refreshFn} />
+      <DAGListHeader
+        onRefresh={refreshFn}
+        resultCount={data?.pagination.totalRecords}
+      />
       {filtersReady && data ? (
         <>
           <DAGErrors
@@ -1314,10 +1321,6 @@ function DAGsContent() {
                   </Button>
                 )}
               </>
-            ) : dagFiles.length > 0 ? (
-              <div className="text-sm text-muted-foreground">
-                <I18nText text={'All workflows are displayed.'} />
-              </div>
             ) : null}
           </div>
         </>
