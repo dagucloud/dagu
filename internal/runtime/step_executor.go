@@ -96,6 +96,7 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 	if errors.Is(err, errNoListedNode) {
 		node.SetStatus(ir.NodeSkipped)
 		node.SetSkippedByNodeList(true)
+		GetDAGContext(ctx).NodeList.MarkSkipped()
 		logger.Info(ctx, "Step skipped: the run's node list names none of its nodes", tag.Step(node.Name()))
 		return nil
 	}

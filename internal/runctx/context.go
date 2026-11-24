@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/build"
@@ -75,6 +76,42 @@ type Context struct {
 	// TargetNodes narrows the steps with nodes of the run and of its child
 	// runs to the nodes it names (RFC 013 §Narrowing a run).
 	TargetNodes []string
+	// NodeList records what the steps with nodes of a narrowed run did with
+	// its list, foreach bodies and handlers included. Nil without a list.
+	NodeList *NodeListOutcome
+}
+
+// NodeListOutcome records whether a step with nodes of a narrowed run was
+// skipped because the list named none of its nodes, and whether one ran on a
+// listed node. It is safe for concurrent use.
+type NodeListOutcome struct {
+	skipped atomic.Bool
+	ran     atomic.Bool
+}
+
+// MarkSkipped records a step skipped because the list named none of its
+// nodes.
+func (o *NodeListOutcome) MarkSkipped() {
+	if o != nil {
+		o.skipped.Store(true)
+	}
+}
+
+// MarkRan records a step that runs on listed nodes.
+func (o *NodeListOutcome) MarkRan() {
+	if o != nil {
+		o.ran.Store(true)
+	}
+}
+
+// Skipped reports whether a step was skipped because of the list.
+func (o *NodeListOutcome) Skipped() bool {
+	return o != nil && o.skipped.Load()
+}
+
+// Ran reports whether a step ran on listed nodes.
+func (o *NodeListOutcome) Ran() bool {
+	return o != nil && o.ran.Load()
 }
 
 // RedirectRoot moves the stdout and stderr redirect files of steps under Dir,
@@ -438,10 +475,14 @@ func WithNodeSelector(nodes NodeSelector) ContextOption {
 	}
 }
 
-// WithTargetNodes sets the nodes the run is narrowed to.
+// WithTargetNodes sets the nodes the run is narrowed to, and starts the
+// record of what its steps with nodes do with them.
 func WithTargetNodes(names []string) ContextOption {
 	return func(o *contextOptions) {
 		o.TargetNodes = names
+		if len(names) > 0 {
+			o.NodeList = &NodeListOutcome{}
+		}
 	}
 }
 

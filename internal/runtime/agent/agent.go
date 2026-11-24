@@ -2428,6 +2428,7 @@ func (a *Agent) newRunner(attempt runstate.Attempt) *runtime.Runner {
 		DAGRunAutoRetryCount: a.currentAutoRetryCount(),
 		DAGRunAutoRetryLimit: autoRetryLimit,
 		DAGRunIsRoot:         a.parentDAGRun.Zero(),
+		CheckNodeList:        len(a.targetNodes) > 0,
 		SkipHandlers:         a.retryTarget != nil && a.retryTarget.SkipHandlers,
 		ExecutorOverride:     a.executorOverride,
 		ConditionOverride:    a.conditionOverride,

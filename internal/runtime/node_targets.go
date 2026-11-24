@@ -54,6 +54,7 @@ func (n *Node) setupNodesExecutor(ctx context.Context, override ExecutorOverride
 	if err != nil {
 		return ctx, nil, err
 	}
+	GetDAGContext(ctx).NodeList.MarkRan()
 
 	child, err := n.resolveNodeChild(ctx)
 	if err != nil {
