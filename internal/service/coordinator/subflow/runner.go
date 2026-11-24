@@ -596,7 +596,7 @@ func (r *Runner) getFullStatus(
 
 func statusToRunStatus(status *ir.DAGRunStatus, runID string) *ir.RunStatus {
 	nodes := status.NodesInRunOrder()
-	return &ir.RunStatus{
+	result := &ir.RunStatus{
 		Name:               status.Name,
 		DAGRunID:           runID,
 		Params:             status.Params,
@@ -606,7 +606,24 @@ func statusToRunStatus(status *ir.DAGRunStatus, runID string) *ir.RunStatus {
 		PreconditionNotMet: preconditionNotMet(status),
 		PendingStepRetries: ir.PendingStepRetriesFromStatus(status),
 		ModelUsage:         status.ModelUsageTotal(),
+		Steps:              stepProgress(status),
 	}
+	if failed := lastFailedNode(status); failed != nil {
+		result.FailedStep = failed.Step.Name
+	}
+	return result
+}
+
+// stepProgress counts the steps of a run that succeeded, as the run view
+// does. Handlers are not counted.
+func stepProgress(status *ir.DAGRunStatus) *ir.StepProgress {
+	progress := &ir.StepProgress{Total: len(status.Nodes)}
+	for _, node := range status.Nodes {
+		if node != nil && node.Status == ir.NodeSucceeded {
+			progress.Done++
+		}
+	}
+	return progress
 }
 
 // childFailure returns the error of a failed child run: the error of the step
@@ -616,6 +633,15 @@ func childFailure(status *ir.DAGRunStatus, runID string) error {
 	if status.Status != ir.Failed {
 		return nil
 	}
+	lastFailed := lastFailedNode(status)
+	if lastFailed == nil {
+		return fmt.Errorf("sub DAG run %s failed with status: %s", runID, status.Status)
+	}
+	return errors.New(lastFailed.Error)
+}
+
+// lastFailedNode returns the step or handler that failed last with an error.
+func lastFailedNode(status *ir.DAGRunStatus) *ir.Node {
 	var lastFailed *ir.Node
 	var lastFinishedAt time.Time
 	for _, node := range status.NodesInRunOrder() {
@@ -628,10 +654,7 @@ func childFailure(status *ir.DAGRunStatus, runID string) error {
 			lastFailed, lastFinishedAt = node, finishedAt
 		}
 	}
-	if lastFailed == nil {
-		return fmt.Errorf("sub DAG run %s failed with status: %s", runID, status.Status)
-	}
-	return errors.New(lastFailed.Error)
+	return lastFailed
 }
 
 func preconditionNotMet(status *ir.DAGRunStatus) bool {

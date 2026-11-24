@@ -103,6 +103,7 @@ func newParallelExecutor(
 }
 
 func (e *parallelExecutor) Run(ctx context.Context) error {
+	defer e.recordNodeRuns(ctx)()
 	if len(e.runParamsList) == 0 {
 		return fmt.Errorf("no sub DAG runs to execute")
 	}
@@ -238,6 +239,7 @@ func (e *parallelExecutor) Run(ctx context.Context) error {
 				e.results[res.attempt.runParams.RunID] = res.result
 				e.lock.Unlock()
 			}
+			e.noteNodeFinish(res.attempt.runParams.RunID)
 
 			if res.err != nil && !e.cancelled() {
 				logger.Error(ctx, "Sub DAG execution failed",

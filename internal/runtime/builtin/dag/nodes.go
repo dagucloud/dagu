@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
@@ -18,12 +19,6 @@ import (
 
 var _ executor.NodesExecutor = (*parallelExecutor)(nil)
 
-// Statuses of the aggregate entries of nodes that did not run.
-const (
-	nodeStatusDisabled   = "disabled"
-	nodeStatusNotStarted = "not_started"
-)
-
 // nodeDispatch is the state of a step with nodes (RFC 013), which runs as a
 // parallel step over one bound child run per node, with its own failure
 // policy and aggregate.
@@ -34,8 +29,12 @@ type nodeDispatch struct {
 	keepGoing bool
 	// failed records that a node failed.
 	failed bool
-	// started holds the run IDs of the nodes that started.
-	started map[string]struct{}
+	// started holds when each node that started first did so, by run ID.
+	started map[string]time.Time
+	// finished holds when each node last returned, by run ID.
+	finished map[string]time.Time
+	// changed marks a change the step's records do not show yet.
+	changed bool
 	// maxOutputSize limits the aggregate the step writes.
 	maxOutputSize int
 }
@@ -73,7 +72,8 @@ func newNodesExecutor(ctx context.Context, step ir.Step) (executor.Executor, err
 		cancel:        make(chan struct{}),
 		nodes: &nodeDispatch{
 			keepGoing:     step.Nodes.KeepGoing,
-			started:       make(map[string]struct{}),
+			started:       make(map[string]time.Time),
+			finished:      make(map[string]time.Time),
 			maxOutputSize: maxOutputSize,
 		},
 	}, nil
@@ -140,14 +140,56 @@ func (e *parallelExecutor) dropUnstartedNodes(pending []scheduledAttempt) []sche
 	return kept
 }
 
-// noteNodeStart records that a node's child run started.
+// noteNodeStart records that a node's child run started. A retry of the node
+// keeps the time of its first start.
 func (e *parallelExecutor) noteNodeStart(runID string) {
 	if e.nodes == nil {
 		return
 	}
 	e.lock.Lock()
 	defer e.lock.Unlock()
-	e.nodes.started[runID] = struct{}{}
+	if _, started := e.nodes.started[runID]; !started {
+		e.nodes.started[runID] = time.Now()
+	}
+	e.nodes.changed = true
+}
+
+// noteNodeFinish records that an attempt of a node's child run returned.
+func (e *parallelExecutor) noteNodeFinish(runID string) {
+	if e.nodes == nil {
+		return
+	}
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	e.nodes.finished[runID] = time.Now()
+	e.nodes.changed = true
+}
+
+// nodeRunStatus returns the status of a matched node's run. ended tells that
+// the step has ended, after which a node that started and returned no result
+// failed. Callers hold e.lock.
+func (e *parallelExecutor) nodeRunStatus(node executor.NodeRun, ended bool) ir.NodeRunStatus {
+	if node.Disabled {
+		return ir.NodeRunDisabled
+	}
+	if result, ok := e.results[node.Run.RunID]; ok {
+		// A node with a step retry pending runs again.
+		if len(result.PendingStepRetries) > 0 && !ended && !e.cancelled() {
+			return ir.NodeRunRunning
+		}
+		return ir.NodeRunStatusOf(result.Status)
+	}
+	_, started := e.nodes.started[node.Run.RunID]
+	switch {
+	case !started:
+		return ir.NodeRunNotStarted
+	case e.cancelled():
+		return ir.NodeRunAborted
+	case ended:
+		return ir.NodeRunFailed
+	default:
+		return ir.NodeRunRunning
+	}
 }
 
 // noteNodeResult records a node that failed. A node with a step retry pending
@@ -175,24 +217,20 @@ func (e *parallelExecutor) nodeEntries() ([]nodeResult, []map[string]string, int
 	outputs := make([]map[string]string, 0, len(e.results))
 	var succeeded, failed int
 	for _, node := range e.nodes.matched {
-		entry := nodeResult{Node: node.Node, Status: nodeStatusDisabled}
+		status := e.nodeRunStatus(node, true)
+		entry := nodeResult{Node: node.Node, Status: string(status)}
 		if !node.Disabled {
 			entry.Name, entry.Params, entry.DAGRunID = node.Run.DAGName, node.Run.Params, node.Run.RunID
-			entry.Status = nodeStatusNotStarted
-			if _, started := e.nodes.started[node.Run.RunID]; started {
-				entry.Status = ir.Failed.String()
-			}
 			if result, ok := e.results[node.Run.RunID]; ok {
 				entry.Name, entry.Params = result.Name, result.Params
 				entry.Outputs, entry.OutputValues = result.Outputs, result.OutputValues
-				entry.Status = result.Status.String()
 				if result.Status.IsSuccess() && result.Outputs != nil {
 					outputs = append(outputs, result.Outputs)
 				}
 			}
-			switch entry.Status {
-			case nodeStatusNotStarted:
-			case ir.Succeeded.String(), ir.PartiallySucceeded.String():
+			switch status {
+			case ir.NodeRunNotStarted:
+			case ir.NodeRunSucceeded, ir.NodeRunPartiallySucceeded:
 				succeeded++
 			default:
 				failed++

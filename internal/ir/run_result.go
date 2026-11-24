@@ -73,6 +73,10 @@ type RunStatus struct {
 	// ModelUsage is what every step of the run used on models, for the
 	// parent step that ran it. It is not part of the step's output.
 	ModelUsage []ModelUsage `json:"-"`
+	// Steps and FailedStep tell how far the run got, for the records of a
+	// step with nodes. They are not part of the step's output.
+	Steps      *StepProgress `json:"-"`
+	FailedStep string        `json:"-"`
 }
 
 // MarshalJSON implements json.Marshaler.
