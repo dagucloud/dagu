@@ -242,17 +242,17 @@ func (r *Registry) update(ctx context.Context, change func([]project.Project) ([
 	if err != nil || !changed {
 		return err
 	}
+	if !lock.IsHeldByMe() {
+		return fmt.Errorf("project registry: lock lost before the write: %w", dirlock.ErrLockNotHeld)
+	}
 	// Shared storage offers no compare-and-swap for a rename, so a writer
 	// that lost the lock would replace a newer registry. A contender takes
 	// the lock over only after watching it unchanged for lockStaleThreshold
-	// from when it saw it first, which is after lockedAt. A replacement that
-	// starts within writeBudget thus has the rest of that time to finish;
-	// one that stalls longer can still overwrite a newer registry.
+	// from when it saw it first, which is after lockedAt. From this check,
+	// the replacement thus has the rest of that time to finish; one that
+	// stalls longer can still overwrite a newer registry.
 	if r.now().Sub(lockedAt) > writeBudget {
 		return fmt.Errorf("project registry: lock held too long before the write: %w", dirlock.ErrLockNotHeld)
-	}
-	if !lock.IsHeldByMe() {
-		return fmt.Errorf("project registry: lock lost before the write: %w", dirlock.ErrLockNotHeld)
 	}
 	return r.store(next)
 }
