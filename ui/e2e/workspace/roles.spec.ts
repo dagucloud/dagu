@@ -306,15 +306,15 @@ test.describe('workspace without the run permission', () => {
 name: ${dagName}
 steps:
   - name: hello
-    run: echo hello
+    run: exit 1
 `
     );
     try {
       await waitForDAGAvailable(request, adminToken, fileName);
+      // The run fails: with runDags, Retry would have the slot of Start, so
+      // its absence below shows the gate.
       const runId = await startDAG(request, adminToken, fileName);
-      await waitForRunStatus(request, adminToken, dagName, runId, [
-        'succeeded',
-      ]);
+      await waitForRunStatus(request, adminToken, dagName, runId, ['failed']);
 
       await page.route('**/*', async (route) => {
         if (route.request().resourceType() !== 'document') {
