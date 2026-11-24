@@ -18,11 +18,15 @@ function Wrapper({ children }: { children: React.ReactNode }) {
   );
 }
 
-function dag(startedAt: string | undefined, status = Status.Success) {
+function dag(
+  startedAt: string | undefined,
+  status = Status.Success,
+  dagRunId = 'r1'
+) {
   return {
     fileName: 'alpha.yaml',
     dag: { name: 'alpha' },
-    latestDAGRun: { dagRunId: 'r1', status, startedAt },
+    latestDAGRun: { dagRunId, status, startedAt },
   } as never;
 }
 
@@ -40,8 +44,23 @@ describe('LastRunCell', () => {
   });
 
   it('shows a dash when the workflow never ran', () => {
-    render(<LastRunCell dag={dag(undefined)} />, { wrapper: Wrapper });
+    render(<LastRunCell dag={dag(undefined, Status.NotStarted, '')} />, {
+      wrapper: Wrapper,
+    });
     expect(screen.getByText('-')).toBeInTheDocument();
+  });
+
+  // A queued run has no start time until it starts.
+  it('names the status of a run that has not started', () => {
+    render(<LastRunCell dag={dag(undefined, Status.Queued)} />, {
+      wrapper: Wrapper,
+    });
+    const cell = screen.getByTestId('dag-last-run');
+    expect(cell).toHaveTextContent('Queued');
+    expect(cell.querySelector('[data-status]')).toHaveAttribute(
+      'data-status',
+      String(Status.Queued)
+    );
   });
 
   // Spec 100: only a service DAG reads Healthy; any other workflow keeps the
