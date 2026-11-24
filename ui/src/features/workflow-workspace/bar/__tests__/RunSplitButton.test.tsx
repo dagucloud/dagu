@@ -1258,6 +1258,28 @@ describe('RunSplitButton', () => {
     expect(slot).not.toHaveAttribute('title');
   });
 
+  // Retry has the slot of Start: a pending draft run shows its spinner on
+  // the caret, not on Retry.
+  it('shows a pending draft run on the caret', async () => {
+    h.client.POST.mockReturnValue(new Promise(() => undefined));
+    setup({
+      latest: failedRun(),
+      editor: { dirty: true, buffer: 'steps: []\n' },
+    });
+
+    const menu = await openMenu();
+    await userEvent.click(
+      within(menu).getByRole('menuitem', { name: 'Run unsaved draft' })
+    );
+
+    const caret = screen.getByRole('button', { name: 'More run options' });
+    expect(
+      await within(caret).findByRole('status', { name: 'Starting run' })
+    ).toBeInTheDocument();
+    const slot = screen.getByTestId('ww-run-start-slot');
+    expect(within(slot).queryByRole('status')).toBeNull();
+  });
+
   // The feedback of a start sits in the Start button: its size does not
   // change in idle, busy and error, and no text appears next to it.
   it('keeps the Start button size while a draft start is busy or failed', async () => {

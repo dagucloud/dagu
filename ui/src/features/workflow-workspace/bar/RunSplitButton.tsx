@@ -64,7 +64,10 @@ function useShownError(error: string | null, busy: boolean): string | null {
   return shown;
 }
 
-/** Spinner while the start is pending, a destructive alert after it failed. */
+/**
+ * Spinner while the start is pending, a destructive alert after it failed.
+ * The spinner takes the text colour of the button that it sits on.
+ */
 function StartFeedback({
   busy,
   error,
@@ -75,7 +78,7 @@ function StartFeedback({
   label: string;
 }) {
   if (busy) {
-    return <Spinner label={label} className="size-4 text-primary-foreground" />;
+    return <Spinner label={label} className="size-4" />;
   }
   return (
     <span role="alert" className="grid place-items-center">
@@ -189,9 +192,9 @@ function SplitButton({
   const hasMenu =
     !standalone &&
     (startInMenu || retryInMenu || canRunDraft || canSaveAndRun || canBackfill);
-  // While another action has the slot of Start, a failed draft run shows
-  // its alert on the caret.
-  const caretAlert = canRunDags && replaced && shownError !== null;
+  // While another action has the slot of Start, a draft run shows its
+  // spinner or its alert on the caret.
+  const caretFeedback = canRunDags && replaced && (busy || shownError !== null);
   if (!canRunDags && !hasMenu) return null;
   if (standalone && !replaced) return null;
 
@@ -253,9 +256,11 @@ function SplitButton({
             <span
               className={cn(
                 'pointer-events-none absolute inset-0 grid place-items-center',
-                // The alert icon needs a surface that it reads on.
-                !busy &&
-                  'rounded-md bg-background ring-1 ring-inset ring-destructive/50'
+                // The spinner sits on the Start button; the alert icon needs a
+                // surface that it reads on.
+                busy
+                  ? 'text-primary-foreground'
+                  : 'rounded-md bg-background ring-1 ring-inset ring-destructive/50'
               )}
             >
               <StartFeedback
@@ -286,7 +291,9 @@ function SplitButton({
               size={canRunDags ? 'icon-sm' : 'sm'}
               aria-label={ts('More run options')}
               title={
-                caretAlert && shownError ? shownError : ts('More run options')
+                caretFeedback && shownError
+                  ? shownError
+                  : ts('More run options')
               }
             >
               {!canRunDags &&
@@ -300,9 +307,9 @@ function SplitButton({
                   <Play aria-hidden="true" />
                 ))}
               {!canRunDags && ts('Run')}
-              {caretAlert ? (
+              {caretFeedback ? (
                 <StartFeedback
-                  busy={false}
+                  busy={busy}
                   error={shownError}
                   label={ts('Starting run')}
                 />
