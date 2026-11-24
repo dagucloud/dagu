@@ -329,6 +329,19 @@ func TestDAGRepositorySkipsNestedRoots(t *testing.T) {
 			}
 			_, err = repo.GetMetadata(context.Background(), "alpha")
 			assert.NoError(t, err)
+
+			t.Run("SymlinkIntoNestedRoot", func(t *testing.T) {
+				alias := filepath.Join(cfg.Paths.DAGsDir, "alias.yaml")
+				if err := os.Symlink(nestedFile, alias); err != nil {
+					t.Skipf("symlinks are unavailable: %v", err)
+				}
+				_, err := repo.GetMetadata(context.Background(), "./alias.yaml")
+				if tc.projects {
+					assert.ErrorIs(t, err, os.ErrNotExist)
+				} else {
+					assert.NoError(t, err)
+				}
+			})
 		})
 	}
 }

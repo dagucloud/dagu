@@ -166,6 +166,36 @@ func TestDiscoverRecursiveSkipsNestedRoots(t *testing.T) {
 	})
 }
 
+// A file symlink whose target lies in a nested skip root is omitted, in
+// recursive and root-only discovery alike. One into another directory stays.
+func TestDiscoverSkipsSymlinksIntoNestedRoots(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "projects")
+	for _, path := range []string{
+		filepath.Join(nested, "weather", "beta.yaml"),
+		filepath.Join(root, "team", "kept.yaml"),
+	} {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0750))
+		require.NoError(t, os.WriteFile(path, []byte("steps: []\n"), 0600))
+	}
+	if err := os.Symlink(filepath.Join(nested, "weather", "beta.yaml"), filepath.Join(root, "alias.yaml")); err != nil {
+		t.Skipf("symlinks are unavailable: %v", err)
+	}
+	require.NoError(t, os.Symlink(filepath.Join(root, "team", "kept.yaml"), filepath.Join(root, "link.yaml")))
+
+	for _, recursive := range []bool{true, false} {
+		result, err := Discover(root, DiscoveryOptions{Recursive: recursive, Symlinks: true, SkipRoots: []string{nested}})
+		require.NoError(t, err)
+		require.Empty(t, result.Errors)
+		var files []string
+		for _, file := range result.Files {
+			files = append(files, file.RelPath)
+		}
+		assert.NotContains(t, files, "alias.yaml", "recursive=%v", recursive)
+		assert.Contains(t, files, "link.yaml", "recursive=%v", recursive)
+	}
+}
+
 // A skip root that cannot be looked up is reported, and discovery goes on.
 func TestDiscoverReportsUnreadableSkipRoot(t *testing.T) {
 	if runtime.GOOS == "windows" {

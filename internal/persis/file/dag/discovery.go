@@ -37,10 +37,10 @@ type DiscoveryOptions struct {
 	// discovery omits, so child-DAG subtrees stay resolvable by path but out
 	// of the catalog and scheduler. A name deeper in the tree is not skipped.
 	SkipDirs []string
-	// SkipRoots lists directories that recursive discovery omits wherever
-	// it meets them below root, such as another owner's DAG directory
-	// nested in this one. A directory matches by identity, whatever the
-	// case or links of its path.
+	// SkipRoots lists directories that discovery omits wherever it meets
+	// them below root, such as another owner's DAG directory nested in this
+	// one, along with file symlinks into them. A directory matches by
+	// identity, whatever the case or links of its path.
 	SkipRoots []string
 }
 
@@ -63,7 +63,7 @@ type DiscoveryResult struct {
 func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 	root = filepath.Clean(root)
 	if !opts.Recursive {
-		return scanRoot(root, opts.Symlinks)
+		return scanRoot(root, opts.Symlinks, opts.SkipRoots)
 	}
 
 	walkRoot, err := filepath.EvalSymlinks(root)
@@ -111,6 +111,9 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 				if resolved.ExternalSymlink {
 					result.Errors = append(result.Errors, externalSymlinkDisabledError(relPath))
 				}
+				return nil
+			}
+			if inSkipRoot(skipRoots, root, resolved) {
 				return nil
 			}
 			appendResolvedFile(&result, relPath, resolved)
@@ -184,22 +187,44 @@ func statSkipRoots(dirs []string) ([]skipRoot, []error) {
 	return roots, errs
 }
 
-// underSkipRoot reports whether path lies in one of roots below dir.
-func underSkipRoot(roots []skipRoot, dir, path string) bool {
+// inSkipRoot reports whether the entry of resolved, or the target of a file
+// symlink, lies in one of roots below root. A target outside root is left to
+// the symlink rules.
+func inSkipRoot(roots []skipRoot, root string, resolved ResolvedFile) bool {
 	if len(roots) == 0 {
 		return false
 	}
-	for current := filepath.Dir(path); current != dir; {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return false
+	}
+	if underSkipRoot(roots, absRoot, resolved.EntryPath) {
+		return true
+	}
+	if !resolved.Symlink {
+		return false
+	}
+	realRoot, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		return false
+	}
+	return underSkipRoot(roots, realRoot, resolved.ResolvedPath)
+}
+
+// underSkipRoot reports whether path lies in one of roots below dir.
+func underSkipRoot(roots []skipRoot, dir, path string) bool {
+	for current := filepath.Dir(path); strictlyWithin(current, dir); current = filepath.Dir(current) {
 		if isSkipRoot(roots, current, filepath.Base(current)) {
 			return true
 		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			break
-		}
-		current = parent
 	}
 	return false
+}
+
+// strictlyWithin reports whether path lies below dir.
+func strictlyWithin(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func statResolved(path string) (os.FileInfo, string, error) {
@@ -226,13 +251,14 @@ func isSkipRoot(roots []skipRoot, path, name string) bool {
 	return false
 }
 
-func scanRoot(root string, symlinks bool) (DiscoveryResult, error) {
+func scanRoot(root string, symlinks bool, skipRootDirs []string) (DiscoveryResult, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return DiscoveryResult{}, err
 	}
 
-	result := DiscoveryResult{Dirs: []string{root}}
+	skipRoots, skipErrs := statSkipRoots(skipRootDirs)
+	result := DiscoveryResult{Dirs: []string{root}, Errors: skipErrs}
 	for _, entry := range entries {
 		if entry.IsDir() || !isDAGFile(entry.Name()) {
 			continue
@@ -244,6 +270,9 @@ func scanRoot(root string, symlinks bool) (DiscoveryResult, error) {
 		}
 		if resolved.ExternalSymlink && !symlinks {
 			result.Errors = append(result.Errors, externalSymlinkDisabledError(entry.Name()))
+			continue
+		}
+		if inSkipRoot(skipRoots, root, resolved) {
 			continue
 		}
 		appendResolvedFile(&result, filepath.ToSlash(entry.Name()), resolved)

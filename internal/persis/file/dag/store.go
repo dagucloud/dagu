@@ -933,8 +933,8 @@ func (store *Store) locateDAG(ctx context.Context, nameOrPath string) (ResolvedF
 }
 
 // locateDAGInDirectories resolves nameOrPath in the first of directories
-// that holds it. A file below one of skipRootDirs is not found there, as
-// discovery does not list it.
+// that holds it. A file below one of skipRootDirs, or a file symlink into
+// one, is not found there, as discovery does not list it.
 func locateDAGInDirectories(
 	nameOrPath string,
 	directories []string,
@@ -960,7 +960,7 @@ func locateDAGInDirectories(
 
 		for _, candidatePath := range dagFileCandidates(relativePath) {
 			resolved, err := ResolveFile(absDir, candidatePath)
-			if err != nil || underSkipRoot(skipRoots, absDir, resolved.EntryPath) {
+			if err != nil || inSkipRoot(skipRoots, absDir, resolved) {
 				continue
 			}
 			if resolved.ExternalSymlink && !symlinks {
