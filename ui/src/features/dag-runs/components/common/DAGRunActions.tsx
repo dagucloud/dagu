@@ -22,16 +22,13 @@ import {
   hasActiveServiceRun,
   isServiceDAG,
   restartsByItself,
+  type ServiceRestartFields,
 } from '@/lib/dagSchedule';
 import dayjs from '@/lib/dayjs';
 import ActionButton from '@/components/ui/action-button';
 import { Ban, CircleStop, RotateCcw, X } from 'lucide-react';
 import React from 'react';
-import {
-  components,
-  type ServiceDAGState,
-  Status,
-} from '../../../../api/v1/schema';
+import { components, Status } from '../../../../api/v1/schema';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient } from '../../../../hooks/api';
@@ -105,13 +102,13 @@ type Props = {
    * The restart policy of the workflow and its latest run. A service workflow
    * with an active latest run has one run at a time: Retry is not shown, and
    * the Stop tooltip says when a policy restarts the run. Retry is not shown
-   * either while the scheduler restarts the workflow by itself (`state`).
+   * either while the scheduler restarts the workflow by itself (`serviceDAG`).
    */
   service?: {
     dag: components['schemas']['DAG'] | components['schemas']['DAGDetails'];
     latestRun?: components['schemas']['DAGRunSummary'];
-    /** The state of the service DAG, when the host knows it. */
-    state?: ServiceDAGState;
+    /** The service DAG, when the host knows it. */
+    serviceDAG?: ServiceRestartFields;
   };
 };
 
@@ -242,8 +239,11 @@ function DAGRunActions({
   const serviceRestarts =
     !!service?.dag &&
     isServiceDAG(service.dag) &&
-    restartsByItself(service.state);
-  const restartAfterSec = getRestartAfterStopSec(service?.dag);
+    restartsByItself(service.serviceDAG);
+  const restartAfterSec = getRestartAfterStopSec(
+    service?.dag,
+    service?.serviceDAG
+  );
   const offersStopAll = Boolean(stopAll) && terminateDetails.offersStopAll;
   const stopsAll = offersStopAll && stopAllRunning;
   const hasManagedAgentSession = Boolean(

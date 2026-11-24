@@ -137,6 +137,19 @@ describe('describeServiceDAG', () => {
     ).toBe('Next restart unknown');
   });
 
+  // The server gives no restart time for a run that waits in the queue.
+  it('says that a DAG whose next run is queued restarts', () => {
+    expect(
+      describeServiceDAG(
+        dag({
+          state: ServiceDAGState.restarting,
+          latestRun: { dagRunId: 'r2', status: Status.Queued },
+        }),
+        NOW
+      ).text
+    ).toBe('Restarting…');
+  });
+
   it('says why no run follows', () => {
     expect(
       describeServiceDAG(dag({ state: ServiceDAGState.stopped }), NOW).text

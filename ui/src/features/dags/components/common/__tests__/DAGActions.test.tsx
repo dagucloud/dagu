@@ -15,11 +15,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   NodeStatus,
   RestartPolicy,
+  ServiceDAGRestartHold,
   ServiceDAGState,
   Status,
   StatusLabel,
 } from '@/api/v1/schema';
 import DAGActions from '../DAGActions';
+import type { ServiceRestartFields } from '@/lib/dagSchedule';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { DAGContext } from '@/features/dags/contexts/DAGContext';
 
@@ -494,7 +496,7 @@ describe('DAGActions', () => {
     it.each([ServiceDAGState.restarting, ServiceDAGState.failing])(
       'shows neither Start nor Retry in the state %s',
       (state) => {
-        renderService(always, Status.Success, { serviceState: state });
+        renderService(always, Status.Success, { service: { state } });
         expect(names()).toEqual([]);
       }
     );
@@ -504,27 +506,27 @@ describe('DAGActions', () => {
       ServiceDAGState.suspended,
       ServiceDAGState.stopped,
     ])('keeps Start and Retry in the state %s', (state) => {
-      renderService(always, Status.Failed, { serviceState: state });
+      renderService(always, Status.Failed, { service: { state } });
       expect(names()).toEqual(['start', 'retry']);
     });
 
     it('keeps only Stop in the state running', () => {
       renderService(always, Status.Running, {
-        serviceState: ServiceDAGState.running,
+        service: { state: ServiceDAGState.running },
       });
       expect(names()).toEqual(['stop']);
     });
 
     it('keeps Stop while a run is alive in the state failing', () => {
       renderService(always, Status.Running, {
-        serviceState: ServiceDAGState.failing,
+        service: { state: ServiceDAGState.failing },
       });
       expect(names()).toEqual(['stop']);
     });
 
     it('ignores the state of a plain workflow', () => {
       renderService({ name: 'svc' }, Status.Success, {
-        serviceState: ServiceDAGState.restarting,
+        service: { state: ServiceDAGState.restarting },
       });
       expect(names()).toEqual(['start', 'retry']);
     });
@@ -611,5 +613,27 @@ describe('DAGActions', () => {
       ).toBeTruthy();
       expect(screen.queryByText(/It restarts after/)).toBeNull();
     });
+
+    // The scheduler starts no run after the stop of such a DAG.
+    it.each<[string, ServiceRestartFields]>([
+      ['suspended', { state: ServiceDAGState.running, suspended: true }],
+      [
+        'on hold',
+        {
+          state: ServiceDAGState.restarting,
+          restartHold: ServiceDAGRestartHold.paused,
+        },
+      ],
+    ])(
+      'keeps the plain Stop tooltip for an always DAG that is %s',
+      async (_, service) => {
+        renderService(always, Status.Running, { service });
+        await userEvent.hover(screen.getByRole('button'));
+        expect(
+          (await screen.findAllByText('Stop the latest run'))[0]
+        ).toBeTruthy();
+        expect(screen.queryByText(/It restarts after/)).toBeNull();
+      }
+    );
   });
 });

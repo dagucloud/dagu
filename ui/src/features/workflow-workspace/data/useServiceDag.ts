@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useContext, useEffect, useMemo, useRef } from 'react';
-import type { ServiceDAGState } from '@/api/v1/schema';
+import type { components } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { useServiceDAGs } from '@/features/dag-runs/hooks/useServiceDAGs';
 import { useQuery } from '@/hooks/api';
@@ -23,11 +23,13 @@ export function useIsServiceDag(): boolean {
 }
 
 /**
- * The state of the service DAG of the page, from the same read as the
+ * The service DAG of the page with its state, from the same read as the
  * Workflows list (one request for both). It is undefined for a workflow that
  * is not a service DAG, and while the list does not have the DAG.
  */
-export function useServiceState(fileName: string): ServiceDAGState | undefined {
+export function useServiceDag(
+  fileName: string
+): components['schemas']['ServiceDAG'] | undefined {
   const appBar = useContext(AppBarContext);
   const isService = useIsServiceDag();
   const dags = useServiceDAGs(
@@ -37,7 +39,7 @@ export function useServiceState(fileName: string): ServiceDAGState | undefined {
     },
     isService
   );
-  return dags.find((dag) => dag.fileName === fileName)?.state;
+  return dags.find((dag) => dag.fileName === fileName);
 }
 
 /**

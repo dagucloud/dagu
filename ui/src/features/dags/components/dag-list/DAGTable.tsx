@@ -171,10 +171,10 @@ interface DAGCardProps {
   /** The overlay shows the workflow, or showed it last. */
   isShown?: boolean;
   /**
-   * The state of the workflow when it is a service DAG and the state is known.
-   * The chip shows it in place of the run status.
+   * The workflow as a service DAG, when it is one and its state is known. The
+   * chip shows the state in place of the run status.
    */
-  serviceState?: ServiceDAGState;
+  service?: components['schemas']['ServiceDAG'];
   className?: string;
 }
 
@@ -284,7 +284,7 @@ function DAGCard({
   isPinPending,
   onTogglePin,
   isShown = false,
-  serviceState,
+  service,
   className = '',
 }: DAGCardProps) {
   const fileName = dag.fileName;
@@ -296,6 +296,7 @@ function DAGCard({
   const hasSchedule = (dag.dag.schedule ?? []).length > 0;
   const isService = isServiceDAG(dag.dag);
   // An operator's stop shows as the label Stopped in place of Enabled.
+  const serviceState = service?.state;
   const isStopped = serviceState === ServiceDAGState.stopped;
 
   // The outline marks the focus: the shadow of card-obsidian hides a ring.
@@ -448,7 +449,7 @@ function DAGCard({
             label={false}
             refresh={refreshFn}
             retryInPlaceOfStop
-            serviceState={serviceState}
+            service={service}
           />
           {canEdit && <EditDAGButton dag={dag} />}
         </div>
@@ -607,8 +608,8 @@ declare module '@tanstack/react-table' {
     showGroupPrefix?: boolean;
     isPinPending?: (fileName: string) => boolean;
     onTogglePin?: (dag: components['schemas']['DAGFile']) => void;
-    /** The state of each service DAG that the server lists, by file name. */
-    serviceStates?: ReadonlyMap<string, ServiceDAGState>;
+    /** Each service DAG that the server lists, by file name. */
+    services?: ReadonlyMap<string, components['schemas']['ServiceDAG']>;
     isActivityExpanded?: (fileName: string) => boolean;
     onToggleActivity?: (fileName: string) => void;
     onOpenRun?: (
@@ -953,9 +954,9 @@ const defaultColumns = [
       return (
         <LastRunCell
           dag={data.dag}
-          serviceState={table.options.meta?.serviceStates?.get(
-            data.dag.fileName
-          )}
+          serviceState={
+            table.options.meta?.services?.get(data.dag.fileName)?.state
+          }
         />
       );
     },
@@ -1072,9 +1073,7 @@ const defaultColumns = [
             label={false}
             refresh={table.options.meta?.refreshFn}
             retryInPlaceOfStop
-            serviceState={table.options.meta?.serviceStates?.get(
-              data.dag.fileName
-            )}
+            service={table.options.meta?.services?.get(data.dag.fileName)}
           />
           {table.options.meta?.canEditDAG?.(data.dag) && (
             <EditDAGButton dag={data.dag} />
@@ -1652,8 +1651,8 @@ function DAGTable({
     },
     hasServiceDAG
   );
-  const serviceStates = useMemo(
-    () => new Map(serviceDAGs.map((dag) => [dag.fileName, dag.state])),
+  const services = useMemo(
+    () => new Map(serviceDAGs.map((dag) => [dag.fileName, dag])),
     [serviceDAGs]
   );
 
@@ -1696,7 +1695,7 @@ function DAGTable({
       isActivityExpanded: (fileName) => expandedActivity.has(fileName),
       onToggleActivity: toggleActivity,
       onOpenRun: openRun,
-      serviceStates,
+      services,
     },
   });
   // The peek steps through the workflows that the table shows, in their
@@ -2226,9 +2225,7 @@ function DAGTable({
                               )}
                               onTogglePin={(dag) => void togglePin(dag)}
                               isShown={isShown({ dag: dagRow.dag.fileName })}
-                              serviceState={serviceStates.get(
-                                dagRow.dag.fileName
-                              )}
+                              service={services.get(dagRow.dag.fileName)}
                               className="ml-2"
                             />
                           );
@@ -2267,7 +2264,7 @@ function DAGTable({
                     isPinPending={pendingPins.has(dagRow.dag.fileName)}
                     onTogglePin={(dag) => void togglePin(dag)}
                     isShown={isShown({ dag: dagRow.dag.fileName })}
-                    serviceState={serviceStates.get(dagRow.dag.fileName)}
+                    service={services.get(dagRow.dag.fileName)}
                   />
                   {endsPinnedSection && (
                     <div className="border-t-2 border-border" />

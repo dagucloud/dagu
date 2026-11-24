@@ -37,7 +37,7 @@ import { cn } from '@/lib/utils';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
 import type { BarSlotProps } from '../contracts';
 import { useWorkspaceData } from '../data/context';
-import { useServiceState } from '../data/useServiceDag';
+import { useServiceDag } from '../data/useServiceDag';
 import { useWorkspaceRun } from '../data/useWorkspaceRun';
 import { useWorkspacePermissions } from '../data/useWorkspacePermissions';
 import { useWorkspaceRefresh } from '../data/useWorkspaceRefresh';
@@ -127,7 +127,7 @@ function SplitButton({
     spec,
     isDirty: dirty,
   });
-  const serviceState = useServiceState(fileName);
+  const service = useServiceDag(fileName);
   const run = useWorkspaceRun();
   // Each state of the shown run has one action in the slot of Start: Dequeue
   // for a queued run; Stop (or Reject, for a run that waits for an approval)
@@ -179,7 +179,7 @@ function SplitButton({
   // A service workflow with an active run refuses a draft run, so its menu
   // has nothing to offer. So does one that the scheduler restarts by itself:
   // it starts the next run, and Start is not shown.
-  const serviceRestarts = restartsByItself(serviceState);
+  const serviceRestarts = restartsByItself(service);
   const serviceBusy =
     hasActiveServiceRun(dag, dagData.latestDAGRun) || serviceRestarts;
   const canRunDraft = canExecute && !serviceBusy && (dirty || canRunDags);
@@ -211,7 +211,7 @@ function SplitButton({
                 service={{
                   dag,
                   latestRun: dagData.latestDAGRun,
-                  state: serviceState,
+                  serviceDAG: service,
                 }}
                 markActions
                 // A new run is shown at once. A run under another DAG name is
@@ -237,7 +237,7 @@ function SplitButton({
                 fileName={fileName}
                 refresh={() => void refresh()}
                 markActions
-                serviceState={serviceState}
+                service={service}
               />
             </div>
           </RunStartTarget>

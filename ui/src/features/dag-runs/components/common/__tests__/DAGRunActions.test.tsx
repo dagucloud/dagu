@@ -796,7 +796,7 @@ describe('DAGRunActions of a service workflow', () => {
           dagRun={failedRun}
           name="etl"
           displayMode="full"
-          service={{ dag, latestRun: failedRun, state }}
+          service={{ dag, latestRun: failedRun, serviceDAG: { state } }}
         />
       );
       expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
@@ -814,7 +814,11 @@ describe('DAGRunActions of a service workflow', () => {
         dagRun={failedRun}
         name="etl"
         displayMode="full"
-        service={{ dag, latestRun: failedRun, state }}
+        service={{
+          dag,
+          latestRun: failedRun,
+          serviceDAG: state && { state },
+        }}
       />
     );
     expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
@@ -829,7 +833,7 @@ describe('DAGRunActions of a service workflow', () => {
         service={{
           dag: { name: 'etl' },
           latestRun: failedRun,
-          state: ServiceDAGState.failing,
+          serviceDAG: { state: ServiceDAGState.failing },
         }}
       />
     );

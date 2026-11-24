@@ -2,13 +2,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
-import { RestartPolicy, ScheduleKind, Status } from '@/api/v1/schema';
+import {
+  RestartPolicy,
+  ScheduleKind,
+  ServiceDAGRestartHold,
+  ServiceDAGState,
+  Status,
+} from '@/api/v1/schema';
 import {
   describeScheduleCoincidence,
   getRestartAfterStopSec,
   getRestartValue,
   hasActiveServiceRun,
   isServiceDAG,
+  restartsByItself,
 } from '../dagSchedule';
 
 describe('service DAGs', () => {
@@ -128,5 +135,23 @@ describe('active run of a service DAG', () => {
       })
     ).toBeNull();
     expect(getRestartAfterStopSec({})).toBeNull();
+  });
+
+  // Start stays offered while the scheduler starts no run.
+  it('tells whether the scheduler starts the next run by itself', () => {
+    const failing = { state: ServiceDAGState.failing };
+    expect(restartsByItself({ state: ServiceDAGState.restarting })).toBe(true);
+    expect(restartsByItself(failing)).toBe(true);
+    expect(restartsByItself({ state: ServiceDAGState.stopped })).toBe(false);
+    expect(restartsByItself(undefined)).toBe(false);
+    expect(
+      restartsByItself({
+        ...failing,
+        restartHold: ServiceDAGRestartHold.noScheduler,
+      })
+    ).toBe(false);
+    expect(
+      restartsByItself({ ...failing, readError: 'status file is corrupt' })
+    ).toBe(false);
   });
 });

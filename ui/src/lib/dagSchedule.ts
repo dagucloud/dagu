@@ -15,6 +15,7 @@ type Translate = (
   source: string,
   values?: Record<string, string | number>
 ) => string;
+type ServiceDAG = components['schemas']['ServiceDAG'];
 type RestartPolicyFields = Pick<
   components['schemas']['DAG'],
   'restartPolicy' | 'restartWaitSec'
@@ -140,13 +141,29 @@ export function isServiceDAG(dag: RestartPolicyFields): boolean {
 }
 
 /**
+ * What the list of service DAGs tells of the restarts of a DAG. A host passes
+ * the service DAG it read.
+ */
+export type ServiceRestartFields = Pick<
+  ServiceDAG,
+  'state' | 'restartHold' | 'readError'
+> & { suspended?: boolean };
+
+/**
  * True when the scheduler starts the next run of a service DAG by itself: it
  * waits to restart or it fails and restarts. A manual start or retry adds
- * nothing.
+ * nothing. False while the restarts are on hold and for a DAG whose state
+ * cannot be read: no run follows then, so a manual start applies.
  */
-export function restartsByItself(state: ServiceDAGState | undefined): boolean {
+export function restartsByItself(
+  service: ServiceRestartFields | undefined
+): boolean {
+  if (!service || service.restartHold || service.readError) {
+    return false;
+  }
   return (
-    state === ServiceDAGState.restarting || state === ServiceDAGState.failing
+    service.state === ServiceDAGState.restarting ||
+    service.state === ServiceDAGState.failing
   );
 }
 
@@ -181,12 +198,17 @@ export function hasActiveServiceRun(
 }
 
 /**
- * The seconds after which a stopped run restarts, or null when a stop is
- * final: `always` starts the next run after the wait, `unless-stopped` does not.
+ * The seconds after which a stopped run restarts, or null when no run follows
+ * a stop: `always` starts the next run after the wait, `unless-stopped` does
+ * not, and neither does a DAG that is suspended or whose restarts are on hold.
  */
 export function getRestartAfterStopSec(
-  dag: RestartPolicyFields | undefined
+  dag: RestartPolicyFields | undefined,
+  service?: ServiceRestartFields
 ): number | null {
+  if (service?.suspended || service?.restartHold) {
+    return null;
+  }
   return dag?.restartPolicy === RestartPolicy.always && dag.restartWaitSec
     ? dag.restartWaitSec
     : null;

@@ -24,11 +24,7 @@ import ActionButton from '@/components/ui/action-button';
 import StatusChip from '@/components/ui/status-chip';
 import { Ban, CircleStop, Play, RotateCcw, X } from 'lucide-react';
 import React from 'react';
-import {
-  components,
-  type ServiceDAGState,
-  Status,
-} from '../../../../api/v1/schema';
+import { components, Status } from '../../../../api/v1/schema';
 import { useCanManageProfiles } from '../../../../contexts/AuthContext';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
@@ -45,6 +41,7 @@ import {
   hasActiveServiceRun,
   isServiceDAG,
   restartsByItself,
+  type ServiceRestartFields,
 } from '@/lib/dagSchedule';
 import { DAGContext } from '../../contexts/DAGContext';
 import { useProfiles } from '../../hooks/useProfiles';
@@ -105,10 +102,10 @@ type Props = {
    */
   retryInPlaceOfStop?: boolean;
   /**
-   * The state of a service DAG, when the host knows it. While the scheduler
-   * restarts the DAG by itself, Start and Retry are not shown.
+   * The service DAG, when the host knows it. While the scheduler restarts the
+   * DAG by itself, Start and Retry are not shown.
    */
-  serviceState?: ServiceDAGState;
+  service?: ServiceRestartFields;
 };
 
 /**
@@ -125,7 +122,7 @@ function DAGActions({
   barStart = false,
   startIconHidden = false,
   retryInPlaceOfStop = false,
-  serviceState,
+  service,
 }: Props) {
   const shows = (action: 'start' | 'stop' | 'retry') =>
     !only || only.includes(action);
@@ -134,7 +131,7 @@ function DAGActions({
   // either while the scheduler starts the next run by itself.
   const isService = dag ? isServiceDAG(dag) : false;
   const serviceActive = hasActiveServiceRun(dag, status);
-  const serviceRestarts = isService && restartsByItself(serviceState);
+  const serviceRestarts = isService && restartsByItself(service);
   // The Start of a bar keeps its place for every run, disabled while the
   // service has an active run or starts the next one by itself.
   const hasStartButton =
@@ -352,7 +349,7 @@ function DAGActions({
   };
 
   const stopApplies = buttonState.terminate || buttonState.reject;
-  const restartAfterSec = getRestartAfterStopSec(dag);
+  const restartAfterSec = getRestartAfterStopSec(dag, service);
 
   if (!dag || !config.permissions.runDags) {
     return <></>;
