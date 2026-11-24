@@ -684,8 +684,9 @@ export function StepFacts({
       )}
 
       {/* The node runs of a step with nodes are read a page at a time in the
-          Nodes tab, not as a list of every child run. */}
-      {node.nodeRuns ? (
+          Nodes tab, not as a list of every child run. A host with no Nodes
+          tab to open keeps the list. */}
+      {node.nodeRuns && openNodes ? (
         <section className="space-y-1" aria-label={ts('Nodes')}>
           <div className={sectionTitle}>{ts('Nodes')}</div>
           <div className="flex items-center gap-2">
@@ -693,16 +694,9 @@ export function StepFacts({
               counts={node.nodeRuns}
               data-testid="ww-step-node-runs"
             />
-            {openNodes && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                onClick={openNodes}
-              >
-                {ts('Open Nodes')}
-              </Button>
-            )}
+            <Button type="button" variant="ghost" size="xs" onClick={openNodes}>
+              {ts('Open Nodes')}
+            </Button>
           </div>
         </section>
       ) : (
