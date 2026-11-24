@@ -35,7 +35,7 @@ import {
   nodeSize,
   routePorts,
 } from './layout';
-import type { NodePositions } from './types';
+import type { CanvasNodeWithRoutes, NodePositions } from './types';
 
 const MARGIN = 24;
 const GHOST_STEP = 4;
@@ -207,12 +207,13 @@ const english: Translate = (text, values) =>
   translateStatic('en', text, values);
 
 /**
- * Whether a card has loop arcs: the card of a step. A handler and a router
- * draw none on the canvas, so the picture draws none either.
+ * Whether a card has loop arcs: the card of a step. A handler, a router and
+ * a tool card draw none on the canvas, so the picture draws none either.
  */
 function hasLoopArcs(node: CanvasNode): boolean {
   return (
     node.lane !== 'handler' &&
+    !(node as CanvasNodeWithRoutes).tool &&
     !isRouter(node) &&
     loopArcs(english, node).length > 0
   );
