@@ -21462,12 +21462,19 @@ components:
       enum: ["off", "health", "runs", "errors"]
       description: "How much this server reports to Dagu Console: off sends nothing but one report saying so after health, runs, or errors, health sends its version and which services run, runs also sends the status of finished DAG runs and the runs in progress, and errors also sends the error messages of failed runs"
 
+    LicenseAuditLevel:
+      type: string
+      enum: ["off", "changes", "all"]
+      description: "Which audit entries this server sends to Dagu Console, as cloud.audit in the configuration sets: off sends none, changes sends every entry but successful reads, and all sends every entry. It takes effect only with local audit on and a license with the audit feature"
+
     LicenseMonitoring:
       type: object
       description: "What this server reports to Dagu Console"
       properties:
         level:
           $ref: "#/components/schemas/LicenseMonitoringLevel"
+        auditLevel:
+          $ref: "#/components/schemas/LicenseAuditLevel"
         configured:
           type: boolean
           description: "Whether cloud.report in the configuration fixes the level"
@@ -21489,6 +21496,7 @@ components:
           description: "When Dagu Console stores this server's finished runs again, after its workspace reached the daily limit; absent when the last accepted report was not told of a pause"
       required:
         - level
+        - auditLevel
         - configured
         - chosen
         - noticeDismissed
