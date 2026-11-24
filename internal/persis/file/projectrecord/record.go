@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
@@ -21,23 +22,46 @@ const (
 	filePermission = 0o600
 )
 
+// ErrOtherProject reports that a state directory records another project.
+var ErrOtherProject = errors.New("state directory records another project")
+
 // Record identifies the project a state directory belongs to.
 type Record struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
-// Write stores record in dir, creating dir when it does not exist and
-// replacing any record already there.
+// Write stores record in dir, creating dir when it does not exist. A dir
+// that already holds record is left as it is. A dir that holds any other
+// record is refused with an error wrapping ErrOtherProject, so a state
+// directory never passes to a new project of the same name. Of concurrent
+// writers, also in other processes, only one records its project.
 func Write(dir string, record Record) error {
 	if err := record.validate(); err != nil {
 		return err
 	}
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode project record: %w", err)
+	}
 	if err := fileutil.MkdirAll(dir, dirPermission); err != nil {
 		return fmt.Errorf("create project state directory %s: %w", dir, err)
 	}
-	if err := fileutil.WriteJSONAtomic(filepath.Join(dir, fileName), record, filePermission); err != nil {
+	err = fileutil.WriteFileAtomicExclusive(filepath.Join(dir, fileName), data, filePermission)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, fs.ErrExist) {
 		return fmt.Errorf("write project record in %s: %w", dir, err)
+	}
+
+	existing, err := Read(dir)
+	if err != nil {
+		return err
+	}
+	if existing != record {
+		return fmt.Errorf("%s records project %s (%s), not %s (%s): %w",
+			dir, existing.Name, existing.ID, record.Name, record.ID, ErrOtherProject)
 	}
 	return nil
 }

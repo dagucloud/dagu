@@ -4,9 +4,11 @@
 package projectrecord
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,11 +25,52 @@ func TestWriteRead(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, record, got)
 
-	replaced := Record{ID: "6a1b2c3d-4e5f-4a7b-8c9d-0e1f2a3b4c5d", Name: "weather"}
-	require.NoError(t, Write(dir, replaced))
-	got, err = Read(dir)
+	// Writing the same record again is a no-op.
+	require.NoError(t, Write(dir, record))
+}
+
+// A state directory left by a deleted project is never taken over by a new
+// project of the same name, nor relabeled under another name.
+func TestWriteRefusesOtherProject(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "weather")
+	record := Record{ID: "0f8e2c1a-5b7d-4e2f-9a61-3c4d5e6f7a8b", Name: "weather"}
+	require.NoError(t, Write(dir, record))
+
+	err := Write(dir, Record{ID: "6a1b2c3d-4e5f-4a7b-8c9d-0e1f2a3b4c5d", Name: "weather"})
+	assert.ErrorIs(t, err, ErrOtherProject)
+	err = Write(dir, Record{ID: record.ID, Name: "climate"})
+	assert.ErrorIs(t, err, ErrOtherProject)
+
+	got, err := Read(dir)
 	require.NoError(t, err)
-	assert.Equal(t, replaced, got)
+	assert.Equal(t, record, got)
+}
+
+func TestWriteConcurrentProjects(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "weather")
+
+	const writers = 8
+	errs := make(chan error, writers)
+	var wg sync.WaitGroup
+	for i := range writers {
+		wg.Go(func() {
+			errs <- Write(dir, Record{ID: fmt.Sprintf("project-%d", i), Name: "weather"})
+		})
+	}
+	wg.Wait()
+	close(errs)
+
+	var recorded int
+	for err := range errs {
+		if err == nil {
+			recorded++
+			continue
+		}
+		assert.ErrorIs(t, err, ErrOtherProject)
+	}
+	assert.Equal(t, 1, recorded)
 }
 
 func TestReadMissing(t *testing.T) {
