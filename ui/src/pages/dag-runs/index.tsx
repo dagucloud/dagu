@@ -1421,7 +1421,7 @@ function DAGRuns() {
             </div>
           </>
         ) : (
-          <div data-testid="workflow-controls" className="mb-4 space-y-2">
+          <div className="mb-4 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <ViewSelector
                 kind="run"
