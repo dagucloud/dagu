@@ -105,8 +105,8 @@ func LoadRunStepSources(ctx context.Context, repo *persis.DAGRunRepository, dagN
 
 // CheckRunStepSources makes sure that every step of fromRuns exists, is not
 // selected to run, and can be reused from its run: the run is finished and its
-// node for the step succeeded, or carries outputs of an earlier run. The error
-// names the step and the run.
+// node for the step succeeded, or carries outputs of an earlier run or of the
+// caller. The error names the step and the run.
 func CheckRunStepSources(dag *ir.DAG, steps []string, fromRuns RunStepSources) error {
 	selected := make(map[string]struct{}, len(steps))
 	for _, ref := range steps {
@@ -143,10 +143,14 @@ func CheckRunStepSources(dag *ir.DAG, steps []string, fromRuns RunStepSources) e
 	return nil
 }
 
-// carriesOutputs reports whether a node can give its outputs to another run.
-// A step skipped by retry that carried nothing has no finish time.
+// carriesOutputs reports whether a node can give its outputs to another run. A
+// step skipped by retry carries them when it has a finish time (copied from a
+// run) or outputs (supplied by the caller); one that carried nothing has none.
 func carriesOutputs(node *ir.Node) bool {
-	return transform.Reusable(node) && (node.Status != ir.NodeSkipped || node.FinishedAt != "")
+	if !transform.Reusable(node) {
+		return false
+	}
+	return node.Status != ir.NodeSkipped || node.FinishedAt != "" || node.StepOutputsValue != nil || node.OutputVariables != nil
 }
 
 // stepRefsByName maps the name of each step that refs address to the ref that

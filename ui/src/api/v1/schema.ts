@@ -7516,9 +7516,9 @@ export interface components {
             runId: components["schemas"]["DAGRunId"];
             /** @description RFC 3339 timestamp of when the outputs were captured. Absent when unknown. */
             capturedAt?: string;
-            /** @description RFC 3339 timestamp with millisecond precision of when the step started in the source run. Present for via run; absent for via cache. */
+            /** @description RFC 3339 timestamp with millisecond precision of when the step started in the source run. Present for via run when the step has that time in the source run; absent for via cache. */
             startedAt?: string;
-            /** @description RFC 3339 timestamp with millisecond precision of when the step finished in the source run. Present for via run; absent for via cache. */
+            /** @description RFC 3339 timestamp with millisecond precision of when the step finished in the source run. Present for via run when the step has that time in the source run; absent for via cache. */
             finishedAt?: string;
             /**
              * @description run: the outputs were carried from the run named by outputsFromRunId, or by outputsFromRuns for this step. cache: a client that is not the web UI supplied the outputs and named the run they were captured from in outputsSources.
@@ -11501,7 +11501,7 @@ export interface operations {
                     steps?: string[];
                     reuseFrom?: components["schemas"]["DAGRunId"] & unknown;
                     outputsFromRunId?: components["schemas"]["DAGRunId"] & unknown;
-                    /** @description The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries copied outputs; otherwise the request returns 400 with a message that names the step and the run. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps. */
+                    /** @description The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries outputs, copied from a run or supplied with outputs; otherwise the request returns 400 with a message that names the step and the run. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps. */
                     outputsFromRuns?: {
                         [key: string]: components["schemas"]["DAGRunId"];
                     };
@@ -13493,7 +13493,7 @@ export interface operations {
                     steps?: string[];
                     reuseFrom?: components["schemas"]["DAGRunId"] & unknown;
                     outputsFromRunId?: components["schemas"]["DAGRunId"] & unknown;
-                    /** @description The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries copied outputs; otherwise the request returns 400 with a message that names the step and the run. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps. */
+                    /** @description The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries outputs, copied from a run or supplied with outputs; otherwise the request returns 400 with a message that names the step and the run. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps. */
                     outputsFromRuns?: {
                         [key: string]: components["schemas"]["DAGRunId"];
                     };

@@ -304,7 +304,7 @@ Shell selection order is:
 
 - A step in `outputsFromRuns` takes its outputs from its own run, not from `outputsFromRunId`. The server seeds the step from the node of that run in the same way as for `outputsFromRunId`. The work directory still comes only from `outputsFromRunId`.
 
-- The server MUST reject an entry of `outputsFromRuns` with HTTP 400 and the message `step X cannot be reused from run Y: <reason>` when one of these is true. The run does not exist for the DAG (it was removed, or it belongs to another DAG). The run is not finished. The run has no node for the step. The step did not succeed in the run and does not carry copied outputs. A normal run and an ephemeral run that still exists can both be the source.
+- The server MUST reject an entry of `outputsFromRuns` with HTTP 400 and the message `step X cannot be reused from run Y: <reason>` when one of these is true. The run does not exist for the DAG (it was removed, or it belongs to another DAG). The run is not finished. The run has no node for the step. The step did not succeed in the run and carried no outputs into it, neither from another run nor from `outputs`. A normal run and an ephemeral run that still exists can both be the source.
 
 - A step selected to run MUST NOT be a key of `outputsFromRuns`. An unknown step, a run ID that is not valid, or two keys that address one step is rejected with HTTP 400.
 
@@ -326,7 +326,7 @@ Shell selection order is:
 
 `reuseFrom` names a finished run of the same DAG, a normal run or an ephemeral run that still exists. The run chooses its steps itself and reuses the steps that did not change since that run.
 
-- A step is reused when its definition, the DAG's definition other than its steps, the base config, the run's resolved parameters and runtime profile, and the steps it depends on (by `depends`, an inferred dependency, or a router) are as they were in that run, and its node there succeeded or carried outputs. A reused step is recorded as skipped and carries its outputs from that run, as a step of `outputsFromRuns` does. The run takes that run's work directory, as with `outputsFromRunId`.
+- A step is reused when its definition, the DAG's definition other than its steps, the base config, the run's resolved parameters and runtime profile, and the steps it depends on (by `depends`, an inferred dependency, or a router) are as they were in that run, and its node there succeeded or carried outputs, from another run or from `outputs`. A reused step is recorded as skipped and carries its outputs from that run, as a step of `outputsFromRuns` does. The run takes that run's work directory, as with `outputsFromRunId`.
 
 - Every other step runs, and so does every step after a step that runs, so it reads what that step does now. Every step that gives the same `browser.share` as a step that runs runs too, since each starts on the page the step before it left.
 
