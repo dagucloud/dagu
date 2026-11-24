@@ -1456,6 +1456,8 @@ describe('RunSplitButton', () => {
 
     const slot = screen.getByTestId('ww-run-start-slot');
     expect(shownByName('Start')).toHaveLength(0);
+    // Stop stays beside Reject: the run can also be stopped.
+    expect(within(slot).getByRole('button', { name: 'Stop' })).toBeEnabled();
     fireEvent.click(within(slot).getByRole('button', { name: 'Reject' }));
     const dialog = screen.getByRole('dialog');
     fireEvent.change(within(dialog).getByRole('textbox'), {

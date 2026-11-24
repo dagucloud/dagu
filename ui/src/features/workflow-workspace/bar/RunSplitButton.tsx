@@ -96,10 +96,11 @@ function StartFeedback({
  * its place when the draft becomes dirty. While the editor equals the saved
  * file, its menu says that there is no draft to run. With unsaved changes,
  * the menu also offers to save and run to a user who may do both. While the
- * shown run has Dequeue, Stop, Reject or, after a failure, Retry, that action
- * takes the slot of Start and the menu offers Start. Any other run that ended
- * has Retry in the menu. A run without its workflow file has its action
- * alone, Retry for any run that ended: no Start and no menu.
+ * shown run has Dequeue, Stop (with Reject while it waits for an approval)
+ * or, after a failure, Retry, that action takes the slot of Start and the
+ * menu offers Start. Any other run that is not active has Retry in the menu.
+ * A run without its workflow file has its action alone, Retry for any run
+ * that is not active: no Start and no menu.
  */
 export function RunSplitButton(props: BarSlotProps) {
   const { canRunDags, canExecute } = useWorkspacePermissions();
@@ -134,9 +135,9 @@ function SplitButton({
     isDirty: dirty,
   });
   const run = useWorkspaceRun();
-  // Each state of the shown run has one action in the slot of Start: Dequeue
-  // for a queued run; Stop (or Reject, for a run that waits for an approval)
-  // for an active run; Retry for a failed run; else Start.
+  // Each state of the shown run has its action in the slot of Start: Dequeue
+  // for a queued run; Stop for an active run, with Reject beside it while the
+  // run waits for an approval; Retry for a failed run; else Start.
   const { isWaiting, waitingApprovalNodes } = getManualActionState(
     run.details ?? undefined
   );
@@ -149,8 +150,9 @@ function SplitButton({
       (isWaiting && waitingApprovalNodes.length > 0));
   // A run without its workflow file has nothing to start: only its action.
   const standalone = useStandaloneRun() !== null;
-  // Any run that ended can be retried. Retry takes the slot after a failure,
-  // or when there is no Start; otherwise the menu offers it.
+  // A run that is not active can be retried, as the server allows. Retry
+  // takes the slot after a failure, or when there is no Start; otherwise the
+  // menu offers it.
   const retryable = !stopShown && !dequeueShown && !!run.ref && !!run.details;
   const retryShown =
     retryable && (run.details?.status === Status.Failed || standalone);
