@@ -148,7 +148,7 @@ describe('useAlive', () => {
     }
   });
 
-  it('is still at once for a run that an operator aborted under unless-stopped', () => {
+  it('is still at once for an aborted run under unless-stopped', () => {
     const aborted = {
       policy: 'unless-stopped' as const,
       status: Status.Aborted,

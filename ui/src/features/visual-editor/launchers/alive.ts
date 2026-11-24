@@ -23,8 +23,9 @@ function endedAt(finishedAt: string | undefined): number {
  * (and a grace) ago, so that the next run follows with no gap. The backoff
  * after runs that fail soon can outlast the hold: the card is then still
  * until the next run. A suspended workflow is not alive. With
- * `unless-stopped`, a run that an operator aborted is the end: nothing
- * follows it.
+ * `unless-stopped`, an aborted run is taken as a stop by an operator: nothing
+ * follows it. The run does not tell a stop from another abort, so a run that
+ * unmet preconditions aborted is still too, though the next one follows.
  *
  * The hold counts from the moment the hook sees a run end, so the clock of
  * the browser is not compared with the end time of the server. A run that
