@@ -771,7 +771,9 @@ const defaultColumns = [
               {table.options.meta?.showGroupPrefix && data.dag.dag.group && (
                 <span
                   data-testid="dag-group-prefix"
-                  className="shrink-0 text-xs text-muted-foreground"
+                  title={data.dag.dag.group}
+                  // Bounded, so a long group leaves room for the name.
+                  className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground"
                 >
                   {data.dag.dag.group} /
                 </span>
