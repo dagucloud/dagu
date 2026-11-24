@@ -301,16 +301,12 @@ export function WorkspaceCanvas({
     handle,
     editorState?.dirty ?? false
   );
-  // One line for the run notices and the offer. The run chip of the bar
-  // already says that a newer run is active.
+  // One line for the run notices and the offer.
   const allNotices = useWorkspaceNotices();
   // A test run stays on the line while it is shown.
   const testRunNotice = useTestRunNotice(run.details);
   const notices = useMemo(
-    () => [
-      ...allNotices.filter((notice) => notice.id !== 'newer-run-active'),
-      ...(testRunNotice ? [testRunNotice] : []),
-    ],
+    () => [...allNotices, ...(testRunNotice ? [testRunNotice] : [])],
     [allNotices, testRunNotice]
   );
   // The snapshot takes the place of the editor: the hidden editor is not

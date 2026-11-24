@@ -29,7 +29,6 @@ import { cn } from '@/lib/utils';
 import type { BarSlotProps } from '../contracts';
 import { useWorkspaceRun } from '../data';
 import { useVisibleRuns } from '../data/useVisibleRuns';
-import { isNewerRun } from '../data/runFacts';
 import { useDockCommands } from '../dock/DockContext';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
 import { RunFacts, hasHiddenFacts, visibleFacts } from './RunFacts';
@@ -37,13 +36,6 @@ import { RunIdMark, RunStaleDot } from './RunStaleDot';
 import { factsShownAt, useBarWidth } from './useFactTiers';
 
 // The statuses for which isRunActive is true.
-const ACTIVE_STATUSES: ReadonlySet<Status> = new Set([
-  Status.NotStarted,
-  Status.Queued,
-  Status.Running,
-  Status.Waiting,
-]);
-
 type Direction = 'older' | 'newer';
 
 // The slot of the count holds "99/99" or the repeat badge with "×1.2M". Its
@@ -102,8 +94,6 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
     setPending(dir);
   };
 
-  const pinned = run.selection !== 'latest';
-
   if (!details) {
     return (
       <div
@@ -120,7 +110,8 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
 
   const olderDisabled = historyReady ? olderId === null : !run.hasRun;
   // The latest run can have a newer test run in the timeline: the history
-  // decides, as it does for the older run.
+  // decides, as it does for the older run. The first click reads it, so the
+  // arrow stays on until then.
   const newerDisabled = historyReady ? newerId === null : !run.hasRun;
 
   const failedNode = run.failedStep
@@ -179,13 +170,6 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
     done: succeeded,
     total: nodes.length,
   });
-
-  const latestRef = run.latestRef;
-  const newerActive =
-    pinned &&
-    latestRef !== null &&
-    ACTIVE_STATUSES.has(latestRef.status) &&
-    isNewerRun(latestRef, details);
 
   return (
     <div
@@ -393,18 +377,6 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
           dag={dag}
           className={rowShown ? 'order-1' : undefined}
         />
-      )}
-      {newerActive && (
-        <button
-          type="button"
-          className={cn(
-            'shrink-0 rounded-md px-1.5 py-0.5 font-medium text-primary hover:bg-muted',
-            rowShown && 'order-2'
-          )}
-          onClick={() => select('latest')}
-        >
-          {ts('A newer run is active')}
-        </button>
       )}
     </div>
   );

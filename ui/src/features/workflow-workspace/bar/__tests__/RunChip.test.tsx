@@ -865,76 +865,34 @@ describe('RunChip spec-differs dot', () => {
   });
 });
 
+// The chip has no "A newer run is active" button: a newer active run shows
+// only in the history, as the Newer run arrow and the Latest run button.
 describe('RunChip newer run', () => {
   const text = 'A newer run is active';
 
-  it('shows when a pinned run is not the active latest run', async () => {
+  it.each([
+    ['running', Status.Running],
+    ['queued', Status.Queued],
+    ['waiting', Status.Waiting],
+  ])('has no notice while a pinned run has a %s latest run', (_l, status) => {
     state.run = makeRun(runDetails('r2'), {
       selection: { runId: 'r2' },
       isLatest: false,
-      latestRef: { runId: 'r3', status: Status.Running },
-    });
-    renderChip();
-    await userEvent.click(screen.getByRole('button', { name: text }));
-    expect(state.run.select).toHaveBeenCalledWith('latest');
-  });
-
-  // The API names an older run that is still active as the latest one.
-  it('hides when the active latest run is older than the selected run', () => {
-    state.run = makeRun(
-      runDetails('r2', [node('a')], Status.Success, {
-        startedAt: '2026-01-01T10:00:05Z',
-      }),
-      {
-        selection: { runId: 'r2' },
-        isLatest: true,
-        latestRef: {
-          runId: 'r1',
-          status: Status.Running,
-          at: Date.parse('2026-01-01T10:00:00Z'),
-        },
-      }
-    );
-    renderChip();
-    expect(screen.queryByText(text)).toBeNull();
-    expect(screen.queryByText('Back to latest')).toBeNull();
-  });
-
-  it('shows when the active latest run is newer than the selected run', () => {
-    state.run = makeRun(
-      runDetails('r1', [node('a')], Status.Success, {
-        startedAt: '2026-01-01T10:00:00Z',
-      }),
-      {
-        selection: { runId: 'r1' },
-        isLatest: false,
-        latestRef: {
-          runId: 'r2',
-          status: Status.Queued,
-          at: Date.parse('2026-01-01T10:00:05Z'),
-        },
-      }
-    );
-    renderChip();
-    expect(screen.getByRole('button', { name: text })).toBeInTheDocument();
-  });
-
-  it('hides when the latest run is done', () => {
-    state.run = makeRun(runDetails('r2'), {
-      selection: { runId: 'r2' },
-      isLatest: false,
-      latestRef: { runId: 'r3', status: Status.Success },
+      latestRef: { runId: 'r3', status },
     });
     renderChip();
     expect(screen.queryByText(text)).toBeNull();
+    expect(screen.queryByRole('button', { name: text })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Latest run' })).toBeEnabled();
   });
 
-  it('hides while the chip follows the latest run', () => {
+  it('has no notice while the chip follows an active latest run', () => {
     state.run = makeRun(runDetails('r3', [node('a')], Status.Running), {
       latestRef: { runId: 'r3', status: Status.Running },
     });
     renderChip();
     expect(screen.queryByText(text)).toBeNull();
+    expect(screen.queryByRole('button', { name: text })).toBeNull();
   });
 });
 
