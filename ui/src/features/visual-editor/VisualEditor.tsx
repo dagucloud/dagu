@@ -785,7 +785,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       }
       // A click always shows the YAML of the step, never its form, even when
       // the form was open: the form opens from the tab of the inspector.
-      if (!formOpen && (openNdvOn === 'open' || wholeFileShown)) select(key);
+      // Without a YAML view of the host, the form is the view of a step and
+      // moves to the clicked one.
+      if (formOpen && !onYamlVisibleChange) showFormFor(key);
+      else if (!formOpen && (openNdvOn === 'open' || wholeFileShown))
+        select(key);
       else showYamlFor(key);
     },
     [
@@ -795,7 +799,9 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
       formOpen,
       openNdvOn,
       wholeFileShown,
+      onYamlVisibleChange,
       select,
+      showFormFor,
       showYamlFor,
     ]
   );
