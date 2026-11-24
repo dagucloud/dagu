@@ -18,6 +18,7 @@ import (
 )
 
 var _ executor.NodesExecutor = (*parallelExecutor)(nil)
+var _ executor.ProgressCallbackAware = (*parallelExecutor)(nil)
 
 // nodeDispatch is the state of a step with nodes (RFC 013), which runs as a
 // parallel step over one bound child run per node, with its own failure
@@ -43,6 +44,10 @@ type nodeDispatch struct {
 	resultless map[string]bool
 	// changed marks a change the step's records do not show yet.
 	changed bool
+	// reported holds the counts last reported to the runner.
+	reported ir.NodeRunCounts
+	// progress asks the runner to write the run status.
+	progress func()
 	// maxOutputSize limits the aggregate the step writes.
 	maxOutputSize int
 }

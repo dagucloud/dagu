@@ -82,7 +82,8 @@ func nodeRunsDir(ctx context.Context, stepName string) string {
 }
 
 // writeNodeRuns writes the records and their counts when they changed since
-// the last write, and always once the step has ended.
+// the last write, and always once the step has ended. While the step runs, it
+// reports counts that changed to the runner.
 func (e *parallelExecutor) writeNodeRuns(ctx context.Context, dir string, ended bool) {
 	e.lock.Lock()
 	if !e.nodes.changed && !ended {
@@ -95,8 +96,38 @@ func (e *parallelExecutor) writeNodeRuns(ctx context.Context, dir string, ended 
 
 	// The counts follow the records they count, so a reader of both never
 	// sees counts ahead of the records.
+	counts := ir.CountNodeRuns(runs)
 	writeNodeRecord(ctx, filepath.Join(dir, logpath.NodeRunsFile), ir.NodeRuns{Runs: runs})
-	writeNodeRecord(ctx, filepath.Join(dir, logpath.NodeRunsSummaryFile), ir.CountNodeRuns(runs))
+	writeNodeRecord(ctx, filepath.Join(dir, logpath.NodeRunsSummaryFile), counts)
+	// The status write at the end of the step follows the last records.
+	if !ended {
+		e.reportNodeCounts(counts)
+	}
+}
+
+// SetProgressCallback implements executor.ProgressCallbackAware. Only a step
+// with nodes reports progress.
+func (e *parallelExecutor) SetProgressCallback(callback func()) {
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	if e.nodes != nil {
+		e.nodes.progress = callback
+	}
+}
+
+// reportNodeCounts asks the runner to write the run status when the counts
+// changed since the last report. Readers of the run refresh on a status
+// write, and a child's own write can reach them before these records do, so
+// a write after the records keeps them from missing the change.
+func (e *parallelExecutor) reportNodeCounts(counts ir.NodeRunCounts) {
+	e.lock.Lock()
+	progress := e.nodes.progress
+	changed := counts != e.nodes.reported
+	e.nodes.reported = counts
+	e.lock.Unlock()
+	if changed && progress != nil {
+		progress()
+	}
 }
 
 // nodeRuns returns the records of the matched nodes in name order. Callers
