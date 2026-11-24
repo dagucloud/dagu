@@ -80,7 +80,11 @@ steps:
     expect(diffRunSpec(child, child).headChanged).toBe(false);
     expect(diffRunSpec(child, withChild('echo b')).headChanged).toBe(true);
     expect(diffRunSpec(BASE, child).headChanged).toBe(true);
+    expect(diffRunSpec(child, BASE).headChanged).toBe(true);
     expect(diffRunSpec(child, `${BASE}---\nname: [\n`).headChanged).toBe(true);
+    // Comments and key order of the later document do not count.
+    const reordered = `${BASE}---\n# note\nsteps:\n  - run: echo a\n    name: work\nname: child\n`;
+    expect(diffRunSpec(child, reordered).headChanged).toBe(false);
   });
 
   it('does not count a handler as the head', () => {

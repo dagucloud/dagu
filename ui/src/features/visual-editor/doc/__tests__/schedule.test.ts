@@ -167,6 +167,32 @@ steps:
     expect(next).toBe(BASE);
   });
 
+  it('adds to the schedule of document 0 in a multi-document file', () => {
+    const text = `schedule: "0 9 * * *"
+steps:
+  - name: a
+    run: echo a
+---
+name: sub
+steps:
+  - name: b
+    run: echo b
+`;
+    const next = set(text, ['0 9 * * *', '0 12 * * *']);
+    expect(readSchedule(next).expressions).toEqual(['0 9 * * *', '0 12 * * *']);
+    expect(next.slice(next.indexOf('---'))).toBe(
+      text.slice(text.indexOf('---'))
+    );
+  });
+
+  it('removes the key when the map form has only start', () => {
+    const next = set(
+      'schedule:\n  start: "0 8 * * *"\nsteps:\n  - echo a\n',
+      []
+    );
+    expect(next).toBe('steps:\n  - echo a\n');
+  });
+
   it('keeps the other entries with an empty list', () => {
     const list = set(
       'schedule:\n  - "0 * * * *"\n  - at: 2030-01-01T00:00:00Z\n',
@@ -179,6 +205,14 @@ steps:
       []
     );
     expect(map).toBe('schedule:\n  stop: "0 18 * * *"\n');
+
+    const both = set(
+      'schedule:\n  start: "0 8 * * *"\n  stop: "0 18 * * *"\n  restart: "0 12 * * *"\nsteps:\n  - echo a\n',
+      []
+    );
+    expect(both).toBe(
+      'schedule:\n  stop: "0 18 * * *"\n  restart: "0 12 * * *"\nsteps:\n  - echo a\n'
+    );
   });
 
   // The start of the map form can be one object, such as a one-off run.

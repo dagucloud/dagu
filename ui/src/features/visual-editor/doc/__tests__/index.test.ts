@@ -137,3 +137,35 @@ describe('applyEdit with a quoted scalar with unindented lines', () => {
     });
   });
 });
+
+// The alias is used before its anchor: the text parses without an error, but
+// the emit of the document throws "Unresolved alias".
+const ALIAS_BEFORE_ANCHOR = `name: demo
+env: *base
+steps:
+  - name: a
+    run: echo a
+base: &base
+  A: 1
+`;
+
+describe('applyEdit with an alias before its anchor', () => {
+  const ops: DagEditOp[] = [
+    { kind: 'setSchedule', expressions: ['0 * * * *'] },
+    { kind: 'addStep', step: { name: 'b', run: 'echo b' } },
+    { kind: 'deleteStep', step: 'a', rewire: false },
+    { kind: 'renameStep', step: 'a', newName: 'z' },
+  ];
+
+  it.each(ops.map((op) => [op.kind, op] as const))(
+    'returns an error for %s and does not throw',
+    (_kind, op) => {
+      const result = doc.applyEdit(ALIAS_BEFORE_ANCHOR, op);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe('invalidYaml');
+        expect(result.message).toContain('Unresolved alias');
+      }
+    }
+  );
+});
