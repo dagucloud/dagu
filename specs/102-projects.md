@@ -289,9 +289,10 @@ $DAGU_HOME/
 Outside `<data_dir>/projects/`, Dagu keeps only server-wide state in
 `<data_dir>`: the registry, the queues defined in `config.yaml` in
 `server/`, and the rest of the Server row of
-[Server-Wide and Project State](#server-wide-and-project-state). Another
-configured path may still lie inside `<data_dir>`, as `paths.dags_dir`
-does in the Helm chart.
+[Server-Wide and Project State](#server-wide-and-project-state). A DAG
+root may still lie inside `<data_dir>` in a directory that holds no state,
+as `paths.dags_dir: /data/dags` does in the Helm chart. See
+[Overlapping Paths](#overlapping-paths).
 
 #### Discovery
 
@@ -308,16 +309,21 @@ does in the Helm chart.
 #### Overlapping Paths
 
 A DAG directory never shares a directory with state. The DAG roots are
-`<dags_dir>`, `<projects_dir>`, and `paths.alt_dags_dir`. Every server,
-scheduler, coordinator, and CLI process checks the paths in effect after
-`config.yaml`, the environment, and flags. It refuses to start, and says
-which paths overlap, when:
+`<dags_dir>`, `<projects_dir>`, and `paths.alt_dags_dir`. The state
+directories are `<data_dir>/projects/`, each
+[path set apart](#paths-set-apart), and the directory of each server-wide
+store, such as `<data_dir>/server/` or the one a `paths` setting like
+`paths.users_dir` places.
+
+Every server, scheduler, coordinator, and CLI process checks the paths in
+effect after `config.yaml`, the environment, and flags. It refuses to
+start, and says which paths overlap, when:
 
 - a DAG root is `<data_dir>` or contains it;
-- a DAG root is, contains, or lies inside `<data_dir>/projects/`;
-- a DAG root is, contains, or lies inside a
-  [path set apart](#paths-set-apart);
+- a DAG root is, contains, or lies inside a state directory;
 - two DAG roots are the same directory.
+
+Any other directory inside `<data_dir>` may hold a DAG root.
 
 An install whose `<data_dir>` is its Dagu home, as in the Helm chart, sets
 `paths.projects_dir`, since the default would be `<data_dir>/projects/`.
