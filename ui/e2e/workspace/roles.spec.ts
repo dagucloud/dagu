@@ -197,9 +197,9 @@ steps:
         }
 
         // Run controls. The run is active: Stop is in the slot of Start, and
-        // there is no Retry, which is for a failed run. Stop is gated by the
-        // server permission run_dags, which this stack gives to every role;
-        // the viewer has it too, so it is checked from operator up.
+        // there is no Retry, which is for a run that ended. Stop is gated by
+        // the server permission run_dags, which this stack gives to every
+        // role; the viewer has it too, so it is checked from operator up.
         if (gates.canExecute) {
           await expect(
             page

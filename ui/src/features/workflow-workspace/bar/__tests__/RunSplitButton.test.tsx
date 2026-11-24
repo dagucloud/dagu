@@ -332,12 +332,11 @@ describe('RunSplitButton', () => {
     // The only DAGActions copy is start only: no Stop, Retry or Reject. The
     // second button is the caret of the draft menu, an icon without text.
     const split = screen.getByTestId('ww-run-split');
-    expect(
-      within(split)
-        .getAllByRole('button')
-        .map((b) => b.textContent)
-    ).toEqual(['Start', '']);
-    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(shownButtons(split).map((b) => b.textContent)).toEqual([
+      'Start',
+      '',
+    ]);
+    expect(shownByName('Retry')).toHaveLength(0);
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
@@ -362,7 +361,7 @@ describe('RunSplitButton', () => {
   // The palette commands Run…, Stop and Retry click the bar controls that
   // carry data-ww-action. Stop or Retry has the slot of Start while the run is
   // active or failed; the hidden Start stays, so that Run… still opens its
-  // dialog.
+  // dialog. A run that ended without a failure keeps a hidden Retry.
   it('marks Start, Stop and Retry for the command palette', () => {
     const startControl = () =>
       document.querySelector<HTMLElement>('[data-ww-action="start"]');
@@ -395,9 +394,16 @@ describe('RunSplitButton', () => {
     expect(startControl()!.closest('.hidden')).toBeNull();
     expect(barControlAvailable('start')).toBe(true);
     expect(barControlAvailable('stop')).toBe(false);
-    expect(barControlAvailable('retry')).toBe(false);
     act(() => startControl()!.click());
     expect(screen.getByTestId('start-modal')).toBeInTheDocument();
+    // The palette clicks the hidden Retry as a script does.
+    expect(barControlAvailable('retry')).toBe(true);
+    act(() =>
+      document.querySelector<HTMLElement>('[data-ww-action="retry"]')!.click()
+    );
+    expect(
+      screen.getByRole('heading', { name: 'Retry this run?' })
+    ).toBeInTheDocument();
   });
 
   // The displayed run is active: Stop sits in the slot of Start, which is hidden.
@@ -431,7 +437,7 @@ describe('RunSplitButton', () => {
     expect(within(slot).getByRole('button', { name: 'Start' })).toBeEnabled();
     expect(shownByName('Start', slot)).toHaveLength(1);
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect(shownByName('Retry')).toHaveLength(0);
   });
 
   // A queued run has Dequeue in the slot of Start, not in the cluster.
@@ -483,6 +489,11 @@ describe('RunSplitButton', () => {
           }),
         })
       );
+      // The run stays shown: it is kept as aborted, and can be retried.
+      expect(view.run.select).not.toHaveBeenCalled();
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        /^\/dags\/etl\.yaml$/
+      );
     });
 
     // Only a queued run is dequeued: any other state has its own button.
@@ -498,7 +509,7 @@ describe('RunSplitButton', () => {
     });
   });
 
-  // Retry is for a failed run only, and it replaces Start in its slot.
+  // Retry replaces Start in its slot for a failed run only.
   describe('Retry in the slot of Start', () => {
     it('replaces Start for a failed run, not in the cluster', () => {
       setup({ cluster: true, latest: failedRun() });
@@ -538,22 +549,19 @@ describe('RunSplitButton', () => {
       expect(shownByName('Start')).toHaveLength(0);
     });
 
-    it('is absent while the displayed run is a success after a failed one', () => {
+    it('is not in the slot while the displayed run is a success after a failed one', () => {
       setup({
         pinned: 'run-1',
         details: runDetails('run-1', Status.Success),
         latest: failedRun(),
       });
 
-      expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+      expect(shownByName('Retry')).toHaveLength(0);
       expect(shownByName('Start')).toHaveLength(1);
     });
 
-    // Only a failed run can be retried from the bar.
+    // A run that has not ended cannot be retried.
     it.each([
-      ['succeeded', Status.Success],
-      ['aborted', Status.Aborted],
-      ['partially succeeded', Status.PartialSuccess],
       ['queued', Status.Queued],
       ['running', Status.Running],
       ['waiting', Status.Waiting],
@@ -751,6 +759,73 @@ describe('RunSplitButton', () => {
     });
   });
 
+  // A run that ended without a failure keeps Start in its slot, and the
+  // caret menu keeps a way to its Retry and Reschedule.
+  describe('Retry in the caret menu', () => {
+    it.each([
+      ['succeeded', Status.Success],
+      ['aborted', Status.Aborted],
+      ['partially succeeded', Status.PartialSuccess],
+      ['rejected', Status.Rejected],
+    ])('has Retry first for a %s run', async (_label, status) => {
+      setup({ latest: runDetails('run-3', status) });
+
+      expect(shownByName('Retry')).toHaveLength(0);
+      const menu = await openMenu();
+      expect(
+        within(menu)
+          .getAllByRole('menuitem')
+          .map((item) => item.textContent)
+      ).toEqual(['Retry', 'Run unsaved draftNo unsaved changes']);
+    });
+
+    // A dequeued or stopped run is kept as aborted, and can be retried.
+    it('retries the displayed run, and offers Reschedule', async () => {
+      setup({
+        pinned: 'run-1',
+        details: runDetails('run-1', Status.Aborted),
+        latest: runDetails('run-3', Status.Success),
+      });
+
+      const menu = await openMenu();
+      await userEvent.click(
+        within(menu).getByRole('menuitem', { name: 'Retry' })
+      );
+      const dialog = await screen.findByRole('dialog');
+      expect(
+        within(dialog).getByRole('heading', { name: 'Retry this run?' })
+      ).toBeInTheDocument();
+      expect(within(dialog).getByText('run-1')).toBeInTheDocument();
+      expect(
+        within(dialog).getByRole('checkbox', {
+          name: 'Reschedule as a new run',
+        })
+      ).toBeInTheDocument();
+
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
+      await waitFor(() =>
+        expect(h.client.POST).toHaveBeenCalledWith(
+          '/dag-runs/{name}/{dagRunId}/retry',
+          expect.objectContaining({
+            params: {
+              path: { name: 'etl', dagRunId: 'run-1' },
+              query: { remoteNode: 'local' },
+            },
+          })
+        )
+      );
+    });
+
+    it('has no Retry item while Retry has the slot', async () => {
+      setup({ latest: failedRun() });
+
+      const menu = await openMenu();
+      expect(
+        within(menu).queryByRole('menuitem', { name: 'Retry' })
+      ).toBeNull();
+    });
+  });
+
   // Another action has the slot of Start, so the caret menu keeps a way to
   // the Start dialog.
   describe('Start in the caret menu', () => {
@@ -811,7 +886,7 @@ describe('RunSplitButton', () => {
       expect(
         within(menu).queryByRole('menuitem', { name: 'Start' })
       ).toBeNull();
-      expect(within(menu).getAllByRole('menuitem')).toHaveLength(1);
+      expect(within(menu).getAllByRole('menuitem')).toHaveLength(2);
     });
 
     // A user who may start but not run a draft has a menu for Start alone.
@@ -829,7 +904,7 @@ describe('RunSplitButton', () => {
   });
 
   // A run without its workflow file has nothing to start or draft: the bar
-  // keeps the action of the run alone.
+  // keeps the action of the run alone, Retry for any run that ended.
   describe('a run without its workflow file', () => {
     it('has Stop in the slot, with no Start and no menu', () => {
       setup({
@@ -847,17 +922,19 @@ describe('RunSplitButton', () => {
       ).toBeNull();
     });
 
-    it('has Retry in the slot for a failed run', () => {
-      setup({ standalone: true, latest: failedRun() });
+    it.each([
+      ['failed', Status.Failed],
+      ['succeeded', Status.Success],
+      ['aborted', Status.Aborted],
+    ])('has Retry in the slot for a %s run', (_label, status) => {
+      setup({ standalone: true, latest: runDetails('run-3', status) });
 
       const slot = screen.getByTestId('ww-run-start-slot');
       expect(within(slot).getByRole('button', { name: 'Retry' })).toBeEnabled();
-    });
-
-    it('shows nothing for a run that needs no action', () => {
-      setup({ standalone: true, latest: runDetails('run-3', Status.Success) });
-
-      expect(screen.queryByTestId('ww-run-split')).toBeNull();
+      expect(shownByName('Retry', slot)).toHaveLength(1);
+      expect(
+        screen.queryByRole('button', { name: 'More run options' })
+      ).toBeNull();
     });
   });
 
@@ -957,9 +1034,9 @@ describe('RunSplitButton', () => {
   // right-aligned group never gains a button, so Start keeps its x position.
   it('has the same buttons, in the same order, clean and dirty', () => {
     const names = () =>
-      within(screen.getByTestId('ww-run-split'))
-        .getAllByRole('button')
-        .map((b) => b.getAttribute('aria-label'));
+      shownButtons(screen.getByTestId('ww-run-split')).map((b) =>
+        b.getAttribute('aria-label')
+      );
     const clean = setup({ editor: { dirty: false, buffer: 'steps: []\n' } });
     const before = names();
     clean.unmount();
@@ -985,7 +1062,7 @@ describe('RunSplitButton', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent)
-    ).toEqual(['Run unsaved draft']);
+    ).toEqual(['Retry', 'Run unsaved draft']);
 
     await userEvent.click(
       within(menu).getByRole('menuitem', { name: 'Run unsaved draft' })
@@ -1042,9 +1119,21 @@ describe('RunSplitButton', () => {
     await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 
-  it('offers no draft run without canExecute', () => {
+  const menuItems = async () =>
+    within(await openMenu())
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent);
+
+  it('offers no draft run without canExecute', async () => {
     h.canExecute = false;
     setup({ editor: { dirty: true, buffer: 'steps: []\n' } });
+
+    expect(await menuItems()).toEqual(['Retry']);
+  });
+
+  it('has no menu without canExecute and without a run to retry', () => {
+    h.canExecute = false;
+    setup({ details: null, editor: { dirty: true, buffer: 'steps: []\n' } });
 
     expect(
       screen.queryByRole('button', { name: 'More run options' })
@@ -1060,15 +1149,13 @@ describe('RunSplitButton', () => {
     expect(
       within(menu).getByRole('menuitem', { name: 'Run unsaved draft' })
     ).not.toHaveAttribute('aria-disabled');
+    expect(within(menu).queryByRole('menuitem', { name: 'Retry' })).toBeNull();
   });
 
-  const menuItems = async () =>
-    within(await openMenu())
-      .getAllByRole('menuitem')
-      .map((item) => item.textContent);
-
+  // The save and run tests show no run, so the menu has no Retry.
   it('offers to save and run to a user who can save and run', async () => {
     setup({
+      details: null,
       canSave: true,
       dirtyFlag: true,
       editor: { dirty: true, buffer: 'steps: []\n' },
@@ -1078,7 +1165,7 @@ describe('RunSplitButton', () => {
   });
 
   it('offers no save and run while there is nothing to save', async () => {
-    setup({ canSave: true });
+    setup({ details: null, canSave: true });
 
     expect(await menuItems()).toEqual(['Run unsaved draftNo unsaved changes']);
   });
@@ -1097,6 +1184,7 @@ describe('RunSplitButton', () => {
   it('offers only save and run without canExecute', async () => {
     h.canExecute = false;
     setup({
+      details: null,
       canSave: true,
       dirtyFlag: true,
       editor: { dirty: true, buffer: 'steps: []\n' },

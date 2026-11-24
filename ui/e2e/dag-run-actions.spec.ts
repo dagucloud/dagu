@@ -518,7 +518,7 @@ steps:
     );
 
     await waitForDAGAvailable(request, token, fileName);
-    // The bar offers Retry, and its Reschedule, for a failed run only.
+    // The run fails, so Retry and its Reschedule have the slot of Start.
     const originalRunId = await startDAG(request, token, fileName);
     await waitForRunStatus(
       request,

@@ -7,10 +7,11 @@ import {
   FilePen,
   History,
   Play,
+  RotateCcw,
   Save,
 } from 'lucide-react';
 import { Status } from '@/api/v1/schema';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -92,9 +93,10 @@ function StartFeedback({
  * its place when the draft becomes dirty. While the editor equals the saved
  * file, its menu says that there is no draft to run. With unsaved changes,
  * the menu also offers to save and run to a user who may do both. While the
- * shown run has Dequeue, Stop, Reject or Retry, that action takes the slot of
- * Start and the menu offers Start. A run without its workflow file has that
- * action alone: no Start and no menu.
+ * shown run has Dequeue, Stop, Reject or, after a failure, Retry, that action
+ * takes the slot of Start and the menu offers Start. Any other run that ended
+ * has Retry in the menu. A run without its workflow file has its action
+ * alone, Retry for any run that ended: no Start and no menu.
  */
 export function RunSplitButton(props: BarSlotProps) {
   const { canRunDags, canExecute } = useWorkspacePermissions();
@@ -142,14 +144,16 @@ function SplitButton({
     !!run.details &&
     (getDAGRunTerminateAction(run.details) !== 'none' ||
       (isWaiting && waitingApprovalNodes.length > 0));
-  const retryShown =
-    !stopShown &&
-    !dequeueShown &&
-    !!run.ref &&
-    run.details?.status === Status.Failed;
-  const replaced = stopShown || retryShown || dequeueShown;
   // A run without its workflow file has nothing to start: only its action.
   const standalone = useStandaloneRun() !== null;
+  // Any run that ended can be retried. Retry takes the slot after a failure,
+  // or when there is no Start; otherwise the menu offers it.
+  const retryable = !stopShown && !dequeueShown && !!run.ref && !!run.details;
+  const retryShown =
+    retryable && (run.details?.status === Status.Failed || standalone);
+  const retryInMenu = canRunDags && retryable && !retryShown;
+  const replaced = stopShown || retryShown || dequeueShown;
+  const runActions = useRef<HTMLDivElement>(null);
   const [url] = useWorkspaceUrl();
   const [editRetry, setEditRetry] = useState(false);
   const startFlow = useRunStart();
@@ -183,7 +187,8 @@ function SplitButton({
   // While another action has the slot of Start, the menu offers Start.
   const startInMenu = canRunDags && replaced;
   const hasMenu =
-    !standalone && (startInMenu || canRunDraft || canSaveAndRun || canBackfill);
+    !standalone &&
+    (startInMenu || retryInMenu || canRunDraft || canSaveAndRun || canBackfill);
   // While another action has the slot of Start, a failed draft run shows
   // its alert on the caret.
   const caretAlert = canRunDags && replaced && shownError !== null;
@@ -199,23 +204,30 @@ function SplitButton({
           title={replaced ? undefined : (shownError ?? undefined)}
         >
           <RunStartTarget>
-            {replaced && run.ref && run.details && (
-              <DAGRunActions
-                part={dequeueShown ? 'dequeue' : stopShown ? 'stop' : 'retry'}
-                dagRun={run.details}
-                name={run.ref.name}
-                refresh={() => void run.refresh()}
-                displayMode="bar"
-                hideUnavailable
-                stopAll={stopAll}
-                markActions
-                // A new run is shown at once. A run under another DAG name is
-                // not a run of this workflow.
-                onRescheduled={(runId, runName) => {
-                  if (runName === dag.name) showRun(runId, url.runName);
-                }}
-                onEditRetry={() => setEditRetry(true)}
-              />
+            {(replaced || retryInMenu) && run.ref && run.details && (
+              // While the menu offers Retry, its button stays mounted, hidden:
+              // the menu and the palette click it to open its dialog.
+              <div
+                ref={runActions}
+                className={replaced ? 'contents' : 'hidden'}
+              >
+                <DAGRunActions
+                  part={dequeueShown ? 'dequeue' : stopShown ? 'stop' : 'retry'}
+                  dagRun={run.details}
+                  name={run.ref.name}
+                  refresh={() => void run.refresh()}
+                  displayMode="bar"
+                  hideUnavailable
+                  stopAll={stopAll}
+                  markActions
+                  // A new run is shown at once. A run under another DAG name
+                  // is not a run of this workflow.
+                  onRescheduled={(runId, runName) => {
+                    if (runName === dag.name) showRun(runId, url.runName);
+                  }}
+                  onEditRetry={() => setEditRetry(true)}
+                />
+              </div>
             )}
             {/* Start stays mounted, hidden: the palette and the menu open its
                 dialog while another action has the slot. */}
@@ -307,6 +319,19 @@ function SplitButton({
               >
                 <Play aria-hidden="true" className="size-4 shrink-0" />
                 {ts('Start')}
+              </DropdownMenuItem>
+            )}
+            {retryInMenu && (
+              <DropdownMenuItem
+                onSelect={() =>
+                  runActions.current
+                    ?.querySelector<HTMLElement>('[data-ww-action="retry"]')
+                    ?.click()
+                }
+                className="gap-2"
+              >
+                <RotateCcw aria-hidden="true" className="size-4 shrink-0" />
+                {ts('Retry')}
               </DropdownMenuItem>
             )}
             {canSaveAndRun && (

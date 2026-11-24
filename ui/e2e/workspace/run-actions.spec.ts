@@ -625,7 +625,7 @@ steps:
     await expect(chipRun(page, runId)).toBeAttached({ timeout: 30_000 });
     await expect(chipStatus(page, 'Running')).toBeVisible();
     // While the run is active, Stop is in the slot of Start. Start stays
-    // mounted but hidden, and Retry is for a failed run only.
+    // mounted but hidden, and there is no Retry before the run ends.
     await expect(runButton(page)).toBeHidden();
     await expect(
       page.getByRole('button', { name: 'Retry', exact: true })
@@ -649,6 +649,14 @@ steps:
     await expect(chipStatus(page, 'Aborted')).toBeVisible({
       timeout: 30_000,
     });
+    // The stopped run gives the slot back to Start, and the run menu offers
+    // its Retry.
+    await expect(runButton(page)).toBeVisible();
+    const menu = await openRunMenu(page);
+    await menu.getByRole('menuitem', { name: 'Retry', exact: true }).click();
+    await expect(
+      page.getByRole('dialog', { name: 'Retry this run?' })
+    ).toBeVisible();
   });
 
   // parity:actions-retry
@@ -743,7 +751,7 @@ steps:
       exit 1
 `
     );
-    // Retry is offered for a failed run only, so the run fails.
+    // The run fails, so Retry and its Reschedule have the slot of Start.
     const firstId = await startDAG(request, token, fileName);
     await waitForRunStatus(
       request,
