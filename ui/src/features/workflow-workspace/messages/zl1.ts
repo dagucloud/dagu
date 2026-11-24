@@ -24,4 +24,11 @@ export default defineMessages({
     'The view keeps its saved filters.':
       'ビューは保存済みのフィルターをそのまま保持します。',
   },
+  de: {
+    'Rename view': 'Ansicht umbenennen',
+    'Save the changes of “{name}”': 'Änderungen an „{name}“ speichern',
+    'View actions': 'Ansicht-Aktionen',
+    'The view keeps its saved filters.':
+      'Die Ansicht behält ihre gespeicherten Filter.',
+  },
 });

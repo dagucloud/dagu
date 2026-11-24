@@ -1853,6 +1853,10 @@
           "enum": ["off", "changes", "all"],
           "description": "Which audit entries this server sends to Dagu Console, which keeps them for the workspace's retention. It takes effect only with audit.enabled and a license with the audit feature that connects to Dagu Console. off (default) sends nothing; changes sends every entry but successful reads, which are MCP resource reads and read-only tool calls; all sends every entry. Of an MCP call, only its result is sent. Entries are masked before they are written and again before they are sent: values of dagu-managed secrets and common token formats are replaced. Local audit files and the Audit page are unchanged."
         },
+        "audit_drain_timeout": {
+          "type": "string",
+          "description": "How long a server stopping on SIGINT or SIGTERM may spend sending the audit entries left to Dagu Console, from the signal, with cloud.audit on. Sending starts once the web server has stopped taking requests, waits out a short hold Dagu Console asks for, and stops 3 seconds before the end, which is kept to report any entries left as a stopped gap. Entries not sent stay on disk and go after the next start. Default: '25s', which fits Kubernetes' 30-second terminationGracePeriodSeconds; set it below the supervisor's stop timeout (docker stop defaults to 10s). '0' stops sending at once; other values are at least '5s'."
+        },
         "remote_access": {
           "type": "string",
           "enum": ["off", "viewer", "operator", "developer"],
@@ -1865,7 +1869,7 @@
         "run_key": {
           "type": "string",
           "pattern": "^drk_[0-9a-f]{64}$",
-          "description": "A run key from Dagu Console, starting with drk_. With it, a top-level run of dagu start, exec, retry, or restart, such as one in a Kubernetes Job or a CI step, reports itself to Dagu Console as a job run: when it starts, about each minute while it runs, when its status changes, and when it finishes, with the platform it ran in, a link to its CI run, and the machine's hostname. It reports at the report level, errors when that is unset. A run's status and exit code never depend on Dagu Console. Workflow steps never inherit it."
+          "description": "A run key from Dagu Console, starting with drk_. With it, a top-level run of dagu start, exec, retry, or restart, such as one in a Kubernetes Job or a CI step, reports itself to Dagu Console as a job run: when it starts, about each minute while it runs, when its status changes, and when it finishes, with the platform it ran in, a link to its CI run, and the machine's hostname. It reports at the report level, runs when that is unset. A run's status and exit code never depend on Dagu Console. Workflow steps never inherit it."
         }
       }
     }

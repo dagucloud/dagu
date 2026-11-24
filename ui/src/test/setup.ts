@@ -8,7 +8,11 @@ import { loadStaticMessages } from '@/i18n/translateStatic';
 
 // Tests see the catalogs loaded, as the app does once its first render runs.
 beforeAll(async () => {
-  await Promise.all([loadStaticMessages('zh-CN'), loadStaticMessages('ja')]);
+  await Promise.all([
+    loadStaticMessages('zh-CN'),
+    loadStaticMessages('ja'),
+    loadStaticMessages('de'),
+  ]);
 });
 
 afterEach(() => {

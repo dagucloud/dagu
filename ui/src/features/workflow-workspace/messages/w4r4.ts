@@ -8,4 +8,7 @@ export default defineMessages({
   en: { 'Show run': 'Show run' },
   'zh-CN': { 'Show run': '显示运行' },
   ja: { 'Show run': '実行を表示' },
+  de: {
+    'Show run': 'Lauf anzeigen',
+  },
 });

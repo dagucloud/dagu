@@ -254,7 +254,7 @@ test('connects a community server with the trial through Dagu Console', async ({
   ).toHaveAttribute('href', 'https://console.dagu.test/servers?server=srv-123');
 
   const card = page.getByRole('region', { name: 'Monitoring' });
-  await expect(card).toContainText('Health, run status, and error messages');
+  await expect(card).toContainText('Health and run status');
   await expect(card).toContainText('Last report');
   await card.screenshot({ path: testInfo.outputPath('monitoring-card.png') });
   await card.getByRole('button', { name: 'View last report' }).click();
@@ -323,7 +323,7 @@ test('starts monitoring when a server connects from the free offer', async ({
   });
   await expect(
     offer.getByRole('radio', {
-      name: 'Health, run status, and error messages (recommended)',
+      name: 'Health and run status (recommended)',
     })
   ).toBeChecked();
   await offer.screenshot({
@@ -345,7 +345,7 @@ test('starts monitoring when a server connects from the free offer', async ({
   const popup = page.waitForEvent('popup');
   await offer.getByRole('button', { name: 'Connect for free' }).click();
   await expect(await popup).toHaveURL(connectUrl);
-  expect(connectBody).toEqual({ report: 'errors' });
+  expect(connectBody).toEqual({ report: 'runs' });
   await expect(page.getByText('ABCD1234')).toBeVisible();
 
   license = {
@@ -362,7 +362,7 @@ test('starts monitoring when a server connects from the free offer', async ({
   approved = true;
   await expect(page.getByText('Connected to acme.')).toBeVisible();
   const card = page.getByRole('region', { name: 'Monitoring' });
-  await expect(card).toContainText('Health, run status, and error messages');
+  await expect(card).toContainText('Health and run status');
   await expect(page.getByRole('dialog')).toHaveCount(0);
 });
 

@@ -24,4 +24,10 @@ export default defineMessages({
     'Parallel to {name}': '{name} と並列',
     'New step': '新しいステップ',
   },
+  de: {
+    'Restore the link': 'Verbindung wiederherstellen',
+    'Add a parallel step': 'Parallelen Schritt hinzufügen',
+    'Parallel to {name}': 'Parallel zu {name}',
+    'New step': 'Neuer Schritt',
+  },
 });

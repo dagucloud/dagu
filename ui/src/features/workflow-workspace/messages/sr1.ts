@@ -44,4 +44,18 @@ export default defineMessages({
     'Step {step} of the selected run ran this workflow {count} times.':
       '選択した実行のステップ {step} がこのワークフローを {count} 回実行しました。',
   },
+  de: {
+    'This step ran {name} as a sub-run.':
+      'Dieser Schritt hat {name} als Unterlauf ausgeführt.',
+    'This step ran {name} as {count} sub-runs.':
+      'Dieser Schritt hat {name} als {count} Unterläufe ausgeführt.',
+    'Choose sub-run': 'Unterlauf wählen',
+    'Open sub-run: {name}': 'Unterlauf öffnen: {name}',
+    'Choose one of {count} sub-runs of {name}':
+      'Einen von {count} Unterläufen von {name} wählen',
+    'Step {step} of the selected run ran this workflow.':
+      'Schritt {step} des gewählten Laufs hat diesen Ablauf ausgeführt.',
+    'Step {step} of the selected run ran this workflow {count} times.':
+      'Schritt {step} des gewählten Laufs hat diesen Ablauf {count}-mal ausgeführt.',
+  },
 });

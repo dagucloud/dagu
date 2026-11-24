@@ -476,4 +476,172 @@ export const backfillMessages = defineMessages({
     'Failed to cancel the backfill': 'バックフィルをキャンセルできませんでした',
     'Failed to resume the backfill': 'バックフィルを再開できませんでした',
   },
+  de: {
+    Backfills: 'Nachholen',
+    'Backfill {id}': 'Nachholen {id}',
+    'Running: {done} of {total} slots done':
+      'Läuft: {done} von {total} Terminen erledigt',
+    'Running: {done} of {total} slots done, {failed} failed':
+      'Läuft: {done} von {total} Terminen erledigt, {failed} fehlgeschlagen',
+    'Finishing: all {total} slots are done':
+      'Abschluss: alle {total} Termine erledigt',
+    'Waiting for a scheduler: {done} of {total} slots done':
+      'Wartet auf einen Scheduler: {done} von {total} Terminen erledigt',
+    'No scheduler is running, so the backfill queues no run.':
+      'Kein Scheduler läuft, daher stellt das Nachholen keinen Lauf ein.',
+    'Succeeded: all {total} slots': 'Erfolgreich: alle {total} Termine',
+    'Succeeded: {ran} slots ran, {skipped} skipped':
+      'Erfolgreich: {ran} Termine gelaufen, {skipped} übersprungen',
+    'Failed: {failed} of {total} slots failed':
+      'Fehlgeschlagen: {failed} von {total} Terminen',
+    'Stopped: {failed} failed, {notRun} not run':
+      'Gestoppt: {failed} fehlgeschlagen, {notRun} nicht gelaufen',
+    'Cancelled: {cancelled} slots were not run':
+      'Abgebrochen: {cancelled} Termine nicht ausgeführt',
+    'Not run': 'Nicht gelaufen',
+    Cancelled: 'Abgebrochen',
+    Slots: 'Termine',
+    'Run past slots of the schedule':
+      'Vergangene Termine des Zeitplans ausführen',
+    'Could not read the last success: {message}':
+      'Letzter Erfolg nicht lesbar: {message}',
+    'Since the last success': 'Seit dem letzten Erfolg',
+    'Since the last success, {time}': 'Seit dem letzten Erfolg, {time}',
+    'Fire times': 'Startzeiten',
+    'No slot succeeded in the last {days} days.':
+      'In den letzten {days} Tagen war kein Termin erfolgreich.',
+    'First fire time': 'Erste Startzeit',
+    'Last fire time': 'Letzte Startzeit',
+    'Times are in {zone}.': 'Zeiten in {zone}.',
+    Options: 'Optionen',
+    '{count} at a time, stop after a failed slot':
+      '{count} gleichzeitig, nach Fehler anhalten',
+    '{count} at a time, continue after a failed slot':
+      '{count} gleichzeitig, nach Fehler weitermachen',
+    "The DAG's default profile": 'Standardprofil des DAG',
+    '{name} (protected)': '{name} (geschützt)',
+    '{name} (admin only)': '{name} (nur Admin)',
+    'No slots in this state.': 'Keine Termine in diesem Zustand.',
+    'Slot {time}': 'Termin {time}',
+    'Older definition': 'Ältere Definition',
+    'Backfill {done}/{total}': 'Nachholen {done}/{total}',
+    'Backfill {done}/{total}, {failed} failed':
+      'Nachholen {done}/{total}, {failed} fehlgeschlagen',
+    'Backfill failed: {failed} slots':
+      'Nachholen fehlgeschlagen: {failed} Termine',
+    'Page {page} of {pages}': 'Seite {page} von {pages}',
+    'Submitted {time}': 'Eingereicht {time}',
+    'Submitted {time} by {actor}': 'Eingereicht {time} von {actor}',
+    'Resumed once': 'Einmal fortgesetzt',
+    'Resumed {count} times': '{count}-mal fortgesetzt',
+    'Fill gaps': 'Lücken füllen',
+    'Fill gaps and redo failed':
+      'Lücken füllen und Fehlgeschlagene wiederholen',
+    'Redo everything': 'Alles erneut ausführen',
+    'Named slots': 'Benannte Termine',
+    '{count} at a time': '{count} gleichzeitig',
+    'Stops after a slot fails': 'Hält nach einem fehlgeschlagenen Termin an',
+    'Goes on after a slot fails':
+      'Macht nach einem fehlgeschlagenen Termin weiter',
+    'View runs': 'Läufe ansehen',
+    'Open backfill': 'Nachholen öffnen',
+    'Open workflow': 'Ablauf öffnen',
+    'Cancel backfill': 'Nachholen abbrechen',
+    'Cancel the backfill?': 'Nachholen abbrechen?',
+    'Its queued runs are withdrawn and the slots it has not reached are cancelled. Runs in progress finish unless you stop them.':
+      'Seine wartenden Läufe werden zurückgezogen und noch nicht erreichte Termine abgebrochen. Laufende Läufe enden normal, außer du stoppst sie.',
+    'Also stop the run in progress': 'Auch den laufenden Lauf stoppen',
+    'Also stop the {count} runs in progress':
+      'Auch die {count} laufenden Läufe stoppen',
+    'Keep running': 'Weiterlaufen lassen',
+    'Resume backfill': 'Nachholen fortsetzen',
+    'Runs again the slots that did not succeed, with the current definition of the DAG and new runs.':
+      'Führt die nicht erfolgreichen Termine erneut aus, mit der aktuellen Definition und neuen Läufen.',
+    'Runs at once': 'Läufe gleichzeitig',
+    'The queue runs {limit} at a time.':
+      'Die Warteschlange führt {limit} gleichzeitig aus.',
+    'After a slot fails': 'Nach einem fehlgeschlagenen Termin',
+    'Stop: for loads that build on the slot before':
+      'Anhalten: für Ladevorgänge, die auf dem vorherigen Termin aufbauen',
+    'Continue: for slots that do not depend on each other':
+      'Weitermachen: für Termine, die nicht voneinander abhängen',
+    'Planning…': 'Wird geplant…',
+    'Nothing to resume: every slot succeeded or was skipped.':
+      'Nichts fortzusetzen: Jeder Termin war erfolgreich oder wurde übersprungen.',
+    'The plan changed. Review it and resume again.':
+      'Der Plan hat sich geändert. Bitte prüfen und erneut fortsetzen.',
+    'Resume 1 run': '1 Lauf fortsetzen',
+    'Resume {count} runs': '{count} Läufe fortsetzen',
+    'About {duration}': 'Etwa {duration}',
+    'Backfill running: {done} of {total} slots done':
+      'Nachholen läuft: {done} von {total} Terminen erledigt',
+    '{count} slots passed from {from} to {to} while {why}':
+      '{count} Termine verstrichen von {from} bis {to}, während {why}',
+    '1 slot passed at {at} while {why}':
+      '1 Termin verstrich um {at}, während {why}',
+    'this DAG was suspended': 'dieser DAG angehalten war',
+    'the scheduler was paused': 'der Scheduler pausiert war',
+    'the scheduler was down': 'der Scheduler aus war',
+    'this DAG could not run': 'dieser DAG nicht laufen konnte',
+    'The missed slots were not dismissed.':
+      'Die verpassten Termine wurden nicht verworfen.',
+    'Please try again or check the server connection.':
+      'Bitte erneut versuchen oder Serververbindung prüfen.',
+    'Backfill running: {done} of {total} slots done, {failed} failed':
+      'Nachholen läuft: {done} von {total} Terminen erledigt, {failed} fehlgeschlagen',
+    'Backfill failed: {failed} slots did not succeed':
+      'Nachholen fehlgeschlagen: {failed} Termine nicht erfolgreich',
+    'No backfills yet.': 'Noch nichts nachgeholt.',
+    'A backfill runs the past slots of this schedule.':
+      'Nachholen führt die vergangenen Termine dieses Zeitplans aus.',
+    'A backfill runs the past slots of this schedule. Start one from the slots above.':
+      'Nachholen führt die vergangenen Termine dieses Zeitplans aus. Starte es über die Termine oben.',
+    'Backfill not found': 'Nachholen nicht gefunden',
+    'Failed to load the backfill': 'Nachholen konnte nicht geladen werden',
+    'Failed to load the backfills':
+      'Nachholvorgänge konnten nicht geladen werden',
+    'Slot states': 'Terminzustände',
+    'Failed to load the slots': 'Termine konnten nicht geladen werden',
+    'Last 90 days': 'Letzte 90 Tage',
+    Range: 'Zeitraum',
+    'The schedule fires no slot in this range.':
+      'Der Zeitplan hat in diesem Zeitraum keinen Termin.',
+    'Showing the newest {shown} of {total} slots. Pick a shorter range to see the rest.':
+      'Die neuesten {shown} von {total} Terminen werden angezeigt. Für den Rest kürzeren Zeitraum wählen.',
+    'Pick missing': 'Fehlende wählen',
+    'Pick missing and failed': 'Fehlende und fehlgeschlagene wählen',
+    'Backfill 1 slot': '1 Termin nachholen',
+    'Backfill {count} slots': '{count} Termine nachholen',
+    'Backfill this range': 'Diesen Zeitraum nachholen',
+    'Runs the {count} slots you picked, oldest first.':
+      'Führt die {count} gewählten Termine aus, älteste zuerst.',
+    'Runs the past slots of the range, oldest first.':
+      'Führt die vergangenen Termine des Zeitraums aus, älteste zuerst.',
+    'What to run': 'Was ausgeführt wird',
+    'Fix the highlighted params before starting.':
+      'Vor dem Start die markierten Parameter korrigieren.',
+    'Nothing to run: every slot is done or held.':
+      'Nichts auszuführen: Jeder Termin ist erledigt oder angehalten.',
+    'Slots {from} to {to}': 'Termine {from} bis {to}',
+    'Loads {from} to {to} ({entry})': 'Lädt {from} bis {to} ({entry})',
+    'Run 1 slot that succeeded again':
+      '1 erfolgreichen Termin erneut ausführen',
+    'Run {count} slots that succeeded again':
+      '{count} erfolgreiche Termine erneut ausführen',
+    'The plan changed. Review it and start again.':
+      'Der Plan hat sich geändert. Bitte prüfen und erneut starten.',
+    'Failed to plan the backfill': 'Nachholen konnte nicht geplant werden',
+    'Failed to start the backfill': 'Nachholen konnte nicht gestartet werden',
+    'Start 1 run': '1 Lauf starten',
+    'Start {count} runs': '{count} Läufe starten',
+    'Show backfill runs': 'Nachhol-Läufe anzeigen',
+    'Runs of backfill {id}': 'Läufe von Nachholen {id}',
+    'Show all runs': 'Alle Läufe anzeigen',
+    'Runs 1 slot': 'Führt 1 Termin aus',
+    'Runs {count} slots': 'Führt {count} Termine aus',
+    'Failed to cancel the backfill':
+      'Nachholen konnte nicht abgebrochen werden',
+    'Failed to resume the backfill':
+      'Nachholen konnte nicht fortgesetzt werden',
+  },
 });

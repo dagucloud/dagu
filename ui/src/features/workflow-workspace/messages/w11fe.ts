@@ -142,4 +142,52 @@ export default defineMessages({
     'Reused from run {id}': '実行 {id} から再利用',
     'In that run: {start} → {finish}': 'その実行: {start} → {finish}',
   },
+  de: {
+    'Inputs from': 'Eingaben aus',
+    'Run to take the inputs from': 'Lauf, aus dem die Eingaben kommen',
+    Automatic: 'Automatisch',
+    'No run': 'Kein Lauf',
+    'missing: {steps}': 'fehlt: {steps}',
+    'still running': 'läuft noch',
+    'Cached values': 'Zwischengespeicherte Werte',
+    'Cached values (from run {id}, {time})':
+      'Zwischengespeicherte Werte (von Lauf {id}, {time})',
+    'Cached values (from runs {ids}, {time})':
+      'Zwischengespeicherte Werte (von Läufen {ids}, {time})',
+    'cached from run {id}': 'zwischengespeichert aus Lauf {id}',
+    'cached from run {id}, {time}': 'zwischengespeichert aus Lauf {id}, {time}',
+    'Cached values from run {id}': 'Zwischengespeicherte Werte von Lauf {id}',
+    'Cached values from run {id}, {time}':
+      'Zwischengespeicherte Werte von Lauf {id}, {time}',
+    'Outputs reused from run {id}, {time}':
+      'Ausgaben aus Lauf {id} übernommen, {time}',
+    'The step changed since': 'Der Schritt hat sich geändert seit',
+    'run {id} (no longer available)': 'Lauf {id} (nicht mehr vorhanden)',
+    'Test run': 'Testlauf',
+    'Test run, not kept. Back to latest':
+      'Testlauf, wird nicht aufbewahrt. Zurück zum neuesten',
+    'Test run, not kept: it disappears {minutes} minutes after it ends':
+      'Testlauf, wird nicht aufbewahrt: verschwindet {minutes} Minuten nach dem Ende',
+    'Test run, not kept: it disappears at {time}':
+      'Testlauf, wird nicht aufbewahrt: verschwindet um {time}',
+    'Hide test runs': 'Testläufe ausblenden',
+    'Show test runs': 'Testläufe anzeigen',
+    'Filter runs by trigger': 'Läufe nach Auslöser filtern',
+    'Triggered by': 'Ausgelöst von',
+    'Only one trigger type in these runs':
+      'Nur eine Auslöser-Art in diesen Läufen',
+    'No test run in these runs': 'Kein Testlauf in diesen Läufen',
+    'No cached time in these runs':
+      'Keine zwischengespeicherte Zeit in diesen Läufen',
+    Reused: 'Übernommen',
+    'Reused time: {time}': 'Übernommene Zeit: {time}',
+    'Time that the reused steps took in their source runs. It is not part of the duration of this run.':
+      'Zeit, die die übernommenen Schritte in ihren Ursprungsläufen brauchten. Sie zählt nicht zur Dauer dieses Laufs.',
+    'run {id}': 'Lauf {id}',
+    'cache of run {id}': 'Zwischenspeicher von Lauf {id}',
+    'source run no longer available': 'Ursprungslauf nicht mehr vorhanden',
+    'Took this long in run {id}': 'So lange in Lauf {id}',
+    'Reused from run {id}': 'Aus Lauf {id} übernommen',
+    'In that run: {start} → {finish}': 'In diesem Lauf: {start} → {finish}',
+  },
 });

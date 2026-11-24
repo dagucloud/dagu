@@ -27,4 +27,11 @@ export default defineMessages({
     'Outputs of {name}': '{name} の出力',
     'shown above': '上に表示済み',
   },
+  de: {
+    'Reused from run {id}: succeeded': 'Aus Lauf {id} übernommen: erfolgreich',
+    'Reused from run {id}: failed': 'Aus Lauf {id} übernommen: fehlgeschlagen',
+    'Open step {name}': 'Schritt {name} öffnen',
+    'Outputs of {name}': 'Ausgaben von {name}',
+    'shown above': 'oben angezeigt',
+  },
 });

@@ -39,4 +39,15 @@ export default defineMessages({
       'ワークフローを開始すると、ここに実行が表示されます。',
     'Failed to delete DAG': 'DAG の削除に失敗しました',
   },
+  de: {
+    Run: 'Starten',
+    Runs: 'Läufe',
+    'Run timeline': 'Zeitleiste des Laufs',
+    'Run {id}': 'Lauf {id}',
+    latest: 'neuester',
+    Latest: 'Neueste',
+    'Start the workflow to see its runs here.':
+      'Ablauf starten, um seine Läufe hier zu sehen.',
+    'Failed to delete DAG': 'DAG konnte nicht gelöscht werden',
+  },
 });

@@ -69,4 +69,28 @@ export default defineMessages({
     'Failed to save source DAG': 'ソース DAG の保存に失敗しました',
     'Source DAG saved successfully': 'ソース DAG を保存しました',
   },
+  de: {
+    'Failed to preview edited retry':
+      'Vorschau der bearbeiteten Wiederholung fehlgeschlagen',
+    'Check the edited YAML and try again.':
+      'Bearbeitetes YAML prüfen und erneut versuchen.',
+    'The server did not return a retry preview.':
+      'Der Server hat keine Vorschau der Wiederholung geliefert.',
+    'Check your connection and try again.':
+      'Verbindung prüfen und erneut versuchen.',
+    'Failed to retry edited DAG':
+      'Bearbeiteter DAG konnte nicht wiederholt werden',
+    'Check the edited YAML and preview, then try again.':
+      'Bearbeitetes YAML und Vorschau prüfen, dann erneut versuchen.',
+    'The server did not return a new DAG-run ID.':
+      'Der Server hat keine neue Lauf-ID geliefert.',
+    'New DAG run created: {id}': 'Neuer Lauf angelegt: {id}',
+    'Failed to load source DAG': 'Quell-DAG konnte nicht geladen werden',
+    'The source DAG file may no longer be editable from the DAGs directory.':
+      'Die Quell-DAG-Datei ist im DAG-Verzeichnis eventuell nicht mehr bearbeitbar.',
+    'Source DAG already matches the edited spec':
+      'Quell-DAG entspricht bereits der bearbeiteten Definition',
+    'Failed to save source DAG': 'Quell-DAG konnte nicht gespeichert werden',
+    'Source DAG saved successfully': 'Quell-DAG gespeichert',
+  },
 });

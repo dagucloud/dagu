@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -123,14 +124,14 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	var resourceService *resource.Service
 	var cloudReporter *cloudreport.Reporter
 	stopCloudAccess := func() {}
-	stopCloudAudit := func() {}
+	waitCloudAudit := func() {}
 	defer func() {
 		stop()
 		stopCloudAccess()
 		if cloudReporter != nil {
 			cloudReporter.Stop()
 		}
-		stopCloudAudit()
+		waitCloudAudit()
 		if resourceService != nil {
 			if err := resourceService.Stop(ctx); err != nil {
 				logger.Error(ctx, "Failed to stop resource service", tag.Error(err))
@@ -187,6 +188,8 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 		serverOpts = append(serverOpts, frontend.WithAPIOption(apiv1.WithCloudAccess(cloudAccess)))
 	}
 	serverOpts = append(serverOpts, frontend.WithOnReady(printStartupBanner(serviceCtx, stores.AuthSetupRequired)))
+	webStopped, onWebStopped := closedOnce()
+	serverOpts = append(serverOpts, frontend.WithOnStopped(onWebStopped))
 
 	// Initialize server (includes auth setup). Use serviceCtx so auth providers can
 	// respond to termination signals during potentially slow network operations.
@@ -215,7 +218,7 @@ func runServer(ctx *Context, _ []string, serverOpts ...frontend.ServerOption) er
 	}
 
 	cloudReporter = startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService)
-	stopCloudAudit = startCloudAudit(serviceCtx, stores.Secret)
+	waitCloudAudit = watchCloudAudit(signalCtx, webStopped, startCloudAudit(serviceCtx, stores.Secret), ctx.Config.Cloud.AuditDrainTimeout)
 	stopCloudAccess = startCloudAccess(serviceCtx, cloudAccess, server)
 
 	err = restartExit(server.Serve(serviceCtx))
@@ -348,15 +351,28 @@ func startCloudReport(ctx *Context, monitoring *cloudreport.Monitoring, access *
 // shipper's lease heartbeats: a batch sent as several requests.
 const cloudAuditLeaseStaleThreshold = 2 * time.Minute
 
+// cloudAuditDrainStart is the longest the audit drain waits for the web
+// server to stop before it starts.
+const cloudAuditDrainStart = 10 * time.Second
+
+// cloudAuditGapTime is the end of the audit drain kept to report the entries
+// left as a stopped gap.
+const cloudAuditGapTime = 3 * time.Second
+
+// cloudAuditShipper is the audit shipper as stopping sees it.
+type cloudAuditShipper interface {
+	Drain(sendUntil, endBy time.Time)
+	Stop()
+}
+
 // startCloudAudit sends the server's audit entries to Dagu Console at the
 // level cloud.audit sets, while the server holds an online license that
-// includes audit logs, and returns a function that stops it. Nothing starts,
-// and no audit file is read, while cloud.audit or local audit is off, or no
-// license manager runs.
-func startCloudAudit(ctx *Context, secrets secret.Store) func() {
+// includes audit logs. It returns nil, and no audit file is read, while
+// cloud.audit or local audit is off, or no license manager runs.
+func startCloudAudit(ctx *Context, secrets secret.Store) cloudAuditShipper {
 	cfg := ctx.Config
 	if !cfg.Cloud.Audit.Sends() || !cfg.Server.Audit.Enabled || ctx.LicenseManager == nil {
-		return func() {}
+		return nil
 	}
 	manager := ctx.LicenseManager
 	stateFile := filepath.Join(cfg.Paths.DataDir, "cloud", "audit-state.json")
@@ -369,6 +385,45 @@ func startCloudAudit(ctx *Context, secrets secret.Store) func() {
 		Licensed:    func() bool { return manager.Checker().IsFeatureEnabled(license.FeatureAudit) },
 		Secrets:     secrets,
 	})
+}
+
+// watchCloudAudit ends the audit shipper with the command. After a stop
+// signal it drains for timeout: from when the web server has stopped, so the
+// last entries are on disk, or once half the send time has passed, at most
+// cloudAuditDrainStart; batches go until cloudAuditGapTime before the end.
+// Otherwise, as after an upgrade restart or a failure to start, or with a
+// zero timeout, it stops at once. The returned function waits for it.
+func watchCloudAudit(signalCtx context.Context, webStopped <-chan struct{}, shipper cloudAuditShipper, timeout time.Duration) func() {
+	if shipper == nil {
+		return func() {}
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		<-signalCtx.Done()
+		var sig os.Signal
+		if timeout <= 0 || !errors.As(context.Cause(signalCtx), &sig) {
+			shipper.Stop()
+			return
+		}
+		signaled := time.Now()
+		endBy := signaled.Add(timeout)
+		sendUntil := endBy.Add(-cloudAuditGapTime)
+		select {
+		case <-webStopped:
+		case <-time.After(min(cloudAuditDrainStart, sendUntil.Sub(signaled)/2)):
+		}
+		shipper.Drain(sendUntil, endBy)
+	}()
+	return func() { <-done }
+}
+
+// closedOnce returns a channel and a function that closes it, safe to call
+// more than once.
+func closedOnce() (<-chan struct{}, func()) {
+	ch := make(chan struct{})
+	var once sync.Once
+	return ch, func() { once.Do(func() { close(ch) }) }
 }
 
 // cloudReportQueues reads the server's queues for reports: what waits and

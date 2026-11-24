@@ -162,6 +162,65 @@ func TestMaskMarksNothingWithoutSource(t *testing.T) {
 	assert.False(t, entry.Masked)
 }
 
+// contextSecrets is a SecretSource that, like a store read, fails once its
+// context is done.
+type contextSecrets []string
+
+func (s contextSecrets) CurrentValues(ctx context.Context) ([]string, error) {
+	return s, ctx.Err()
+}
+
+func (contextSecrets) Revision() uint64 { return 0 }
+
+// A request's context ends when the server stops, while its handler can still
+// write an entry; the values still load, so the entry is masked and sent.
+func TestMaskLoadsSecretsForARequestThatEnded(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	entry := &Entry{Username: "s3cr3t"}
+
+	NewMasker(contextSecrets{"s3cr3t"}).Mask(ctx, entry)
+
+	assert.Equal(t, masking.DefaultMaskString, entry.Username)
+	assert.True(t, entry.Masked)
+}
+
+// blockingSecrets is a SecretSource whose load never ends before its context.
+type blockingSecrets struct{}
+
+func (blockingSecrets) CurrentValues(ctx context.Context) ([]string, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (blockingSecrets) Revision() uint64 { return 0 }
+
+// A load that hangs ends with its own timeout, so entries are still written,
+// unmarked.
+func TestMaskBoundsASlowLoad(t *testing.T) {
+	m := NewMasker(blockingSecrets{})
+	m.loadTimeout = 10 * time.Millisecond
+	entry := &Entry{Username: "u1"}
+
+	m.Mask(t.Context(), entry)
+
+	assert.False(t, entry.Masked)
+}
+
+// A load that hangs ends by the caller's deadline, so a caller with its own
+// time limit, as the audit drain has, is not held past it.
+func TestMaskKeepsTheCallerDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+	entry := &Entry{Username: "u1"}
+
+	started := time.Now()
+	NewMasker(blockingSecrets{}).Mask(ctx, entry)
+
+	assert.Less(t, time.Since(started), time.Second)
+	assert.False(t, entry.Masked)
+}
+
 // A secret changed in this process is masked in the next entry; one changed
 // elsewhere is masked once the values are a minute old.
 func TestMaskReloadsChangedSecrets(t *testing.T) {

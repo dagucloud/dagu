@@ -22,4 +22,10 @@ export default defineMessages({
     'Open webhook settings': 'Webhook 設定を開く',
     'No webhook': 'Webhook なし',
   },
+  de: {
+    'Show workflows with label {label}': 'Abläufe mit Label {label} anzeigen',
+    '{count} more labels': '{count} weitere Labels',
+    'Open webhook settings': 'Webhook-Einstellungen öffnen',
+    'No webhook': 'Kein Webhook',
+  },
 });

@@ -78,4 +78,31 @@ export default defineMessages({
     'Nothing matches: Esc clears the search':
       '一致なし：Esc で検索をクリアします',
   },
+  de: {
+    'Route {port} of {router}': 'Weg {port} von {router}',
+    'First step': 'Erster Schritt',
+    Favourites: 'Favoriten',
+    'Add to favourites': 'Zu Favoriten hinzufügen',
+    'Remove from favourites': 'Aus Favoriten entfernen',
+    'Details of the action': 'Details der Aktion',
+    'Required keys': 'Pflichtschlüssel',
+    'No required keys': 'Keine Pflichtschlüssel',
+    'Up and Down to move, Enter to add, Shift+Enter to add another, Esc to clear or close':
+      'Hoch/Runter zum Bewegen, Enter zum Hinzufügen, Umschalt+Enter für einen weiteren, Esc zum Leeren oder Schließen',
+    'Run a command in a shell.': 'Befehl in einer Shell ausführen.',
+    'Call a URL and keep the response.':
+      'Eine URL aufrufen und die Antwort behalten.',
+    'Run another workflow as a step.': 'Anderen Ablauf als Schritt ausführen.',
+    'Send the run down one branch by a value.':
+      'Lauf anhand eines Werts in einen Zweig leiten.',
+    'Reshape JSON with a jq expression.':
+      'JSON mit einem jq-Ausdruck umformen.',
+    'Write a message to the log.': 'Meldung ins Protokoll schreiben.',
+    Core: 'Kern',
+    'Pattern {pattern}': 'Muster {pattern}',
+    'Arrow keys select a step, Enter opens it':
+      'Pfeiltasten wählen einen Schritt, Enter öffnet ihn',
+    'Nothing matches: Esc clears the search':
+      'Kein Treffer: Esc löscht die Suche',
+  },
 });

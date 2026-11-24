@@ -192,11 +192,16 @@ type InvalidFileError struct {
 }
 
 func (e *InvalidFileError) Error() string {
-	lines := make([]string, 0, len(e.Errors))
-	for _, finding := range e.Errors {
+	return fmt.Sprintf("invalid test file %s: %s", e.Path, joinFindings(e.Errors))
+}
+
+// joinFindings writes findings on one line, separated by semicolons.
+func joinFindings(findings []Finding) string {
+	lines := make([]string, 0, len(findings))
+	for _, finding := range findings {
 		lines = append(lines, finding.String())
 	}
-	return fmt.Sprintf("invalid test file %s: %s", e.Path, strings.Join(lines, "; "))
+	return strings.Join(lines, "; ")
 }
 
 // LoadFile reads the test file at path, loads the DAG it tests with opts and
@@ -218,21 +223,41 @@ func LoadFile(ctx context.Context, path string, opts ...spec.LoadOption) (*File,
 	if finding != nil {
 		return nil, invalid(*finding)
 	}
+	dag, findings := loadTestedDAG(ctx, dagPath, opts)
+	if len(findings) > 0 {
+		return nil, invalid(findings...)
+	}
+	return newFile(path, dagPath, dag, decoded), nil
+}
+
+// loadTestedDAG loads the DAG a test file tests with opts and with every
+// params[].eval deferred to the run. A DAG that fails to load, and a
+// type: build DAG, return the findings that make the test file invalid.
+func loadTestedDAG(ctx context.Context, dagPath string, opts []spec.LoadOption) (*ir.DAG, []Finding) {
 	dag, err := spec.Load(ctx, dagPath, append(slices.Clip(opts), spec.DeferAllParamEvals())...)
 	if err != nil {
-		return nil, invalid(loadFindings(err)...)
+		return nil, loadFindings(err)
 	}
 	if dag.Type == ir.TypeBuild {
-		return nil, invalid(Finding{Message: "the DAG is a type: build DAG, whose path outputs a test cannot mock (Spec 033)"})
+		return nil, []Finding{{Message: "the DAG is a type: build DAG, whose path outputs a test cannot mock (Spec 033)"}}
 	}
+	return dag, nil
+}
 
+// newFile returns the test file at path decoded as decoded, with each case
+// merged and validated against dag.
+func newFile(path, dagPath string, dag *ir.DAG, decoded fileSpec) *File {
 	file := &File{Path: path, DAGPath: dagPath, DAG: dag}
 	steps := indexSteps(dag)
 	for _, c := range decoded.cases {
 		file.Cases = append(file.Cases, buildCase(dag, steps, decoded, c))
 	}
-	return file, nil
+	return file
 }
+
+// dagFileExtensions are the extensions of a tested DAG file, in the order a
+// test file without dag looks for them.
+var dagFileExtensions = []string{".yaml", ".yml"}
 
 // testedDAGPath returns the DAG file a test file tests: dag resolved against
 // the test file's directory, or the file beside it with the test suffix
@@ -254,7 +279,7 @@ func testedDAGPath(testFile, dag string) (string, *Finding) {
 	if !ok {
 		return "", &Finding{Message: "the file name does not end in .test.yaml or .test.yml; set dag"}
 	}
-	for _, ext := range []string{".yaml", ".yml"} {
+	for _, ext := range dagFileExtensions {
 		if _, err := os.Stat(base + ext); err == nil {
 			return base + ext, nil
 		}

@@ -53,4 +53,18 @@ export default defineMessages({
     'The runs before {time} are not kept.':
       '{time} より前の実行は保持されていません。',
   },
+  de: {
+    'Last year': 'Letztes Jahr',
+    'Last 3 years': 'Letzte 3 Jahre',
+    'Run history': 'Laufverlauf',
+    'the run history': 'der Laufverlauf',
+    'the availability of the runs': 'die Verfügbarkeit der Läufe',
+    'the events of the run history': 'die Ereignisse des Laufverlaufs',
+    'No runs in this window': 'Keine Läufe in diesem Zeitraum',
+    '{failures} failed of {count} runs':
+      '{failures} von {count} Läufen fehlgeschlagen',
+    Gap: 'Lücke',
+    'no run for {length}': 'kein Lauf seit {length}',
+    'Running since {time}': 'Läuft seit {time}',
+  },
 });

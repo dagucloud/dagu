@@ -194,6 +194,79 @@ func TestWorkflowTestFix(t *testing.T) {
 	}
 }
 
+// dagu test --init writes a test file whose case passes, and never replaces
+// one (RFC 020 criterion 43). The mocks it writes keep the commands of
+// release.yaml from running.
+func TestWorkflowTestInit(t *testing.T) {
+	t.Parallel()
+
+	const written = `mocks:
+  build:
+    outputs:
+      image_tag: ""
+  deploy: {}
+cases:
+  - name: initial
+    expect:
+      status: succeeded
+      steps:
+        build: succeeded
+        deploy: succeeded
+`
+	dagu := harness.NewRunner(t)
+	require.NoError(t, os.Remove(dagu.ProjectPath("workflows/release.test.yaml")))
+
+	result := dagu.Run("test", "--init", "workflows/release.yaml")
+	result.ExpectExitCode(0)
+	result.ExpectStdout("workflows/release.test.yaml\n")
+	dagu.ExpectFileContent("workflows/release.test.yaml", written)
+
+	result = dagu.Run("test", "workflows/release.test.yaml")
+	result.ExpectExitCode(0)
+	expectLines(t, result.Stdout(), "PASS workflows/release.test.yaml: initial (", "1 case: 1 passed, 0 failed\n")
+
+	result = dagu.Run("test", "--init", "workflows/release.yaml")
+	result.ExpectExitCode(2)
+	result.ExpectStdout("")
+	result.ExpectStderrContains("workflows/release.test.yaml already exists")
+	dagu.ExpectFileContent("workflows/release.test.yaml", written)
+	for _, pattern := range leftovers {
+		matches, err := filepath.Glob(dagu.ProjectPath(pattern))
+		require.NoError(t, err)
+		require.Empty(t, matches)
+	}
+}
+
+// --init takes one DAG file, and no flag that selects or reports cases. An
+// invalid argument exits with status 2 and writes nothing.
+func TestWorkflowTestInitArguments(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		args   []string
+		stderr string
+	}{
+		"test file":      {[]string{"workflows/gate.test.yaml"}, "is a test file"},
+		"not a DAG file": {[]string{"workflows"}, "is not a DAG file"},
+		"two files":      {[]string{"workflows/release.yaml", "workflows/gate.yaml"}, "exactly one DAG file"},
+		"run":            {[]string{"--run", "initial", "workflows/release.yaml"}, "--run cannot be used with --init"},
+		"keep":           {[]string{"--keep", "workflows/release.yaml"}, "--keep cannot be used with --init"},
+		"json":           {[]string{"--format", "json", "workflows/release.yaml"}, "--format json cannot be used with --init"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			dagu := harness.NewRunner(t)
+			require.NoError(t, os.Remove(dagu.ProjectPath("workflows/release.test.yaml")))
+			result := dagu.Run(append([]string{"test", "--init"}, tc.args...)...)
+			result.ExpectExitCode(2)
+			result.ExpectStdout("")
+			result.ExpectStderrContains(tc.stderr)
+			dagu.ExpectNoFile("workflows/release.test.yaml")
+		})
+	}
+}
+
 // A case reads and writes nothing in the configured data directory, and its
 // case directory is removed when it ends.
 func TestWorkflowTestIsolation(t *testing.T) {
