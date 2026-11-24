@@ -175,4 +175,17 @@ describe('keepInViewDelta', () => {
       dy: 152,
     });
   });
+
+  // A toolbar that grows covers the start of a long graph that is on screen:
+  // the start goes to the free area. A start that is off screen stays.
+  it('brings the covered start of a long graph to the free area', () => {
+    expect(keepInViewDelta(graph(10, 20, 1200, 900), view, area)).toEqual({
+      dx: 14,
+      dy: 28,
+    });
+    expect(keepInViewDelta(graph(-1, -1, 1200, 900), view, area)).toEqual({
+      dx: 0,
+      dy: 0,
+    });
+  });
 });
