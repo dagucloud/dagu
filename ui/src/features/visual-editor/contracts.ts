@@ -702,7 +702,7 @@ export interface LauncherHost {
   /**
    * The latest run of the workflow, kept live by the host. The page can show
    * an older run (its URL names it), but the workflow is alive by its latest
-   * run. Without it, the shown run stands for it.
+   * run. Without it, an Always on card is not alive.
    */
   latestRun?: { status: Status; finishedAt?: string } | null;
 }

@@ -98,15 +98,6 @@ function DashedOutline({
 
 type Translate = (source: string, values?: StaticTranslationValues) => string;
 
-/**
- * The runs that an Always on card keeps: the count of the file, or the
- * default. Null when the file keeps runs by days and sets no count.
- */
-function keptRuns(state: LauncherState): number | null {
-  if (state.retentionRuns != null) return state.retentionRuns;
-  return state.retentionDays == null ? DEFAULT_RETENTION_RUNS : null;
-}
-
 /** What the history of an Always on card keeps, in words. */
 function keepsText(state: LauncherState, ts: Translate): string {
   const { retentionRuns: runs, retentionDays: days } = state;
@@ -130,13 +121,14 @@ function keepsText(state: LauncherState, ts: Translate): string {
  * The second line of a solid Always on card. It is short, to fit one line of
  * a 176 px card. The first line says Always, so `always` shows the wait and
  * the runs kept, and `unless-stopped` shows its name and the wait: the runs
- * kept are in the tooltip. A missing wait is left out, and so are the runs of
- * a file that keeps runs by days. Other cards have none.
+ * kept are in the tooltip. A missing wait is left out, and so are the runs
+ * that the file does not set: the base configuration can set them. Other
+ * cards have none.
  */
 function launcherSummary(state: LauncherState, ts: Translate): string | null {
   if (!state.policy || state.status !== 'active') return null;
   const always = state.policy === 'always';
-  const count = keptRuns(state);
+  const count = state.retentionRuns ?? null;
   return [
     ...(always ? [] : [ts('unless stopped')]),
     ...(state.waitSec ? [ts('{seconds} s', { seconds: state.waitSec })] : []),
@@ -207,7 +199,10 @@ function LauncherNodeComponent({
           count,
         })
       : ts(LAUNCHER_LABELS[id]);
-  const detail = launcherDetail(id, state, ts);
+  // The state is in words too: the turn of the icon is not the only sign.
+  const detail = turning
+    ? `${launcherDetail(id, state, ts)} · ${ts('alive')}`
+    : launcherDetail(id, state, ts);
   const summary = compact ? null : launcherSummary(state, ts);
   return (
     <div

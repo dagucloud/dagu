@@ -70,6 +70,7 @@ export default defineMessages({
     '{state}, wait {seconds} s': '{state}, wait {seconds} s',
     'unless stopped': 'unless stopped',
     '{seconds} s': '{seconds} s',
+    alive: 'alive',
     'keeps {count} runs': 'keeps {count} runs',
     'keeps {count} run': 'keeps {count} run',
     'keeps {count} runs, or as many as the base configuration sets':
@@ -173,6 +174,7 @@ export default defineMessages({
     '{state}, wait {seconds} s': '{state}，等待 {seconds} 秒',
     'unless stopped': '除非停止',
     '{seconds} s': '{seconds} 秒',
+    alive: '运行中',
     'keeps {count} runs': '保留 {count} 次运行',
     'keeps {count} run': '保留 {count} 次运行',
     'keeps {count} runs, or as many as the base configuration sets':
@@ -277,6 +279,7 @@ export default defineMessages({
     '{state}, wait {seconds} s': '{state}、待機 {seconds} 秒',
     'unless stopped': '停止時を除く',
     '{seconds} s': '{seconds} 秒',
+    alive: '稼働中',
     'keeps {count} runs': '実行 {count} 件を保持',
     'keeps {count} run': '実行 {count} 件を保持',
     'keeps {count} runs, or as many as the base configuration sets':
@@ -383,6 +386,7 @@ export default defineMessages({
     '{state}, wait {seconds} s': '{state}, Wartezeit {seconds} Sek.',
     'unless stopped': 'außer nach Stopp',
     '{seconds} s': '{seconds} Sek.',
+    alive: 'aktiv',
     'keeps {count} runs': 'behält {count} Läufe',
     'keeps {count} run': 'behält {count} Lauf',
     'keeps {count} runs, or as many as the base configuration sets':

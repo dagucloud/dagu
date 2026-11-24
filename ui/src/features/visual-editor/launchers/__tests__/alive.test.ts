@@ -39,8 +39,8 @@ describe('useAlive', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('is alive while a run is running or queued', () => {
-    for (const status of [Status.Running, Status.Queued]) {
+  it('is alive while a run is running, queued or waiting', () => {
+    for (const status of [Status.Running, Status.Queued, Status.Waiting]) {
       expect(setup({ status, finishedAt: '-' }).result.current).toBe(true);
     }
   });
@@ -68,7 +68,7 @@ describe('useAlive', () => {
   });
 
   it('counts the wait of the file in the hold', () => {
-    const ended = endedAgo(4000);
+    const ended = endedAgo(ALIVE_GRACE_MS + 2000);
     expect(
       setup({ status: Status.Success, finishedAt: ended, waitSec: 1 }).result
         .current
@@ -77,6 +77,23 @@ describe('useAlive', () => {
       setup({ status: Status.Success, finishedAt: ended, waitSec: 5 }).result
         .current
     ).toBe(true);
+  });
+
+  // The clock of the browser can differ from the clock of the server: a run
+  // that the hook sees end holds from that moment, whatever its end time.
+  it('holds from the moment a run is seen to end, whatever its end time', () => {
+    for (const finishedAt of ['2020-01-01T00:00:00Z', '2040-01-01T00:00:00Z']) {
+      const { result, rerender } = setup({
+        status: Status.Running,
+        finishedAt: '-',
+      });
+      rerender({ ...base, status: Status.Success, finishedAt });
+      expect(result.current).toBe(true);
+      act(() => vi.advanceTimersByTime(1000 + ALIVE_GRACE_MS - 1));
+      expect(result.current).toBe(true);
+      act(() => vi.advanceTimersByTime(1));
+      expect(result.current).toBe(false);
+    }
   });
 
   it('keeps one steady state across runs that follow each other', () => {
@@ -109,5 +126,14 @@ describe('useAlive', () => {
     const running = { status: Status.Running, finishedAt: '-' };
     expect(setup({ ...running, suspended: true }).result.current).toBe(false);
     expect(setup({ ...running, policy: 'no' }).result.current).toBe(false);
+  });
+
+  // A card that cannot turn waits for nothing.
+  it('arms no timer without a policy, and one for the hold with a policy', () => {
+    const ended = { status: Status.Success, finishedAt: endedAgo(0) };
+    setup({ ...ended, policy: 'no' });
+    expect(vi.getTimerCount()).toBe(0);
+    setup(ended);
+    expect(vi.getTimerCount()).toBe(1);
   });
 });

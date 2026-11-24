@@ -1867,12 +1867,14 @@ describe('VisualCanvas launchers', () => {
       );
     });
 
-    it('marks the default runs kept in the tooltip only', () => {
+    // The base configuration can set the runs kept: the card tells no count
+    // that the file does not set.
+    it('tells the runs kept by default in the tooltip only', () => {
       renderCanvas({ launchers: withPolicy('always', 5) });
-      expect(summary()).toHaveTextContent('5 s · 100 runs');
+      expect(summary()).toHaveTextContent(/^5 s$/);
       expect(button('always')).toHaveAttribute(
         'aria-label',
-        'Always on: Restarts after each run, wait 5 s, keeps 100 runs (default)'
+        'Always on: Restarts after each run, wait 5 s, keeps 100 runs, or as many as the base configuration sets'
       );
     });
 
@@ -1901,7 +1903,7 @@ describe('VisualCanvas launchers', () => {
       expect(summary()).toHaveTextContent(/^unless stopped$/);
       expect(button('always')).toHaveAttribute(
         'aria-label',
-        'Always on: Restarts unless stopped, keeps 100 runs (default)'
+        'Always on: Restarts unless stopped, keeps 100 runs, or as many as the base configuration sets'
       );
     });
 
@@ -1964,6 +1966,23 @@ describe('VisualCanvas launchers', () => {
         'motion-reduce:animate-none',
         'motion-reduce:text-primary'
       );
+    });
+
+    // The motion and the colour are not the only signs of a live workflow.
+    it('tells in the title and the accessible name that it is alive', () => {
+      const text =
+        'Always on: Restarts after each run, wait 5 s, keeps 100 runs, or as many as the base configuration sets';
+      const always = () =>
+        within(screen.getByTestId('ve-launcher-always')).getByRole('button');
+      const { unmount } = renderCanvas({
+        launchers: states('always'),
+        launcherAlive: true,
+      });
+      expect(always()).toHaveAttribute('title', `${text} · alive`);
+      expect(always()).toHaveAttribute('aria-label', `${text} · alive`);
+      unmount();
+      renderCanvas({ launchers: states('always'), launcherAlive: false });
+      expect(always()).toHaveAttribute('title', text);
     });
 
     it('is still when the workflow is not alive', () => {

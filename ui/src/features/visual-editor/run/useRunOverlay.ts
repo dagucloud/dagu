@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useMemo, useState } from 'react';
-import type { Status } from '@/api/v1/schema';
 import { useQuery } from '@/hooks/api';
 import { useDAGRunSSE } from '@/hooks/useDAGRunSSE';
 import { sseFallbackOptions } from '@/hooks/useSSECacheSync';
@@ -19,9 +18,6 @@ import {
 
 /** The overlay of a run, with the agent facts of an agent DAG run. */
 export interface RunOverlayWithAgent extends RunOverlayResult {
-  /** The status and the end time of the run that the overlay shows. */
-  status?: Status;
-  finishedAt?: string;
   /** Set only for the run of an agent DAG. */
   agent?: AgentRunInfo;
   /** Calls of each tool DAG by chat step, from the sub-runs of the run. */
@@ -98,9 +94,6 @@ export function useRunOverlay({
     overlay,
     runId: details?.dagRunId ?? (runId === 'latest' ? null : runId),
     isLoading,
-    ...(details
-      ? { status: details.status, finishedAt: details.finishedAt }
-      : {}),
     ...(agent ? { agent } : {}),
     ...(Object.keys(toolCalls).length > 0 ? { toolCalls, toolSubRuns } : {}),
   };
