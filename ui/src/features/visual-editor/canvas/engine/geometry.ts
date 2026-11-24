@@ -301,6 +301,21 @@ export function fitViewport(
 }
 
 /**
+ * The fit of `bounds` in a `size` area, when it has the zoom of `current`;
+ * null when the fit would change the zoom. A view that panned for a panel
+ * uses it to go back to its place when the panel leaves.
+ */
+export function fitAtZoom(
+  bounds: Rect,
+  size: { width: number; height: number },
+  options: FitOptions,
+  current: Viewport
+): Viewport | null {
+  const fit = fitViewport(bounds, size, options);
+  return Math.abs(fit.zoom - current.zoom) < ZOOM_EPSILON ? fit : null;
+}
+
+/**
  * Moves the view so that the content stays reachable: at least `margin` px
  * of its bounds stay on screen on each axis. A view that does so is returned
  * as it is.

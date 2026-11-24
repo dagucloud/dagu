@@ -41,7 +41,7 @@ import {
   useCanvasToolbarHost,
   useToolbarHostWidth,
 } from './toolbarHost';
-import { revealDelta } from './revealDelta';
+import { keepInViewDelta, revealDelta } from './revealDelta';
 import { SimplifiedToggle } from './SimplifiedToggle';
 import { ContextMenu, type MenuChoice } from './ContextMenu';
 import {
@@ -66,7 +66,13 @@ import {
   type ConnectionEndState,
 } from './engine';
 import type { MenuPoint } from './engine/Flow';
-import { boundsOf, clamp, snapZoom, zoomAt } from './engine/geometry';
+import {
+  boundsOf,
+  clamp,
+  fitAtZoom,
+  snapZoom,
+  zoomAt,
+} from './engine/geometry';
 import { MINIMAP_RESERVE } from './engine/overlays';
 import type { Viewport } from './engine/types';
 import { useFlowStore, type ViewMotion } from './engine/store';
@@ -703,22 +709,100 @@ function CanvasView({
       : { zoom: view.zoom, x: view.x + dx, y: view.y + dy };
   }, []);
   // Moves the view only as far as needed to show the selected step.
-  const keepSelectedInView = (motion?: ViewMotion) => {
-    const key = selectedRef.current;
-    const view = key ? viewForNode(key, 0, true) : null;
-    if (view) {
-      setViewport(view, motion);
-    }
-  };
-  // A change of the room of the canvas (a panel, Activity, the window) or of
-  // the graph glides the view to its new place, in one move; while the
-  // canvas has just shown, it jumps there.
-  const autoFit = useAutoFit(wrapperRef, (glide) => {
-    const motion = glide ? GLIDE : undefined;
-    fitView(fitOptions, motion);
-    // A resize that fits the graph again keeps the selected step in view.
-    keepSelectedInView(motion);
-  });
+  const keepSelectedInView = useCallback(
+    (motion?: ViewMotion) => {
+      const key = selectedRef.current;
+      const view = key ? viewForNode(key, 0, true) : null;
+      if (view) {
+        setViewport(view, motion);
+      }
+    },
+    [viewForNode, setViewport]
+  );
+  // Moves the view only as far as needed to keep the graph in the free area
+  // of the canvas. A graph that is there does not move. The zoom never changes:
+  // a graph that is too wide for the area keeps its start side in view.
+  const keepInView = useCallback(
+    (motion?: ViewMotion) => {
+      const { nodeRects, size, getViewport } = storeRef.current;
+      const bounds = boundsOf(nodeRects());
+      if (!bounds || size.width === 0 || size.height === 0) {
+        return;
+      }
+      const view = getViewport();
+      const { dx, dy } = keepInViewDelta(
+        {
+          x: bounds.x * view.zoom + view.x,
+          y: bounds.y * view.zoom + view.y,
+          width: bounds.width * view.zoom,
+          height: bounds.height * view.zoom,
+        },
+        { x: 0, y: 0, width: size.width, height: size.height },
+        insetRef.current
+      );
+      if (dx !== 0 || dy !== 0) {
+        setViewport({ ...view, x: view.x + dx, y: view.y + dy }, motion);
+      }
+    },
+    [setViewport]
+  );
+  const keepGraphInView = useCallback(
+    (motion?: ViewMotion) => {
+      keepInView(motion);
+      keepSelectedInView(motion);
+    },
+    [keepInView, keepSelectedInView]
+  );
+  // A room that grows (a panel or a dock leaves or changes) gives the graph
+  // its place back when the fit of the new room has the zoom of the view; else
+  // the view pans only as far as needed. The zoom never changes.
+  const fitOptionsRef = useRef(fitOptions);
+  fitOptionsRef.current = fitOptions;
+  const growView = useCallback(
+    (motion?: ViewMotion) => {
+      const { nodeRects, size, zoomLimits, getViewport } = storeRef.current;
+      const bounds = boundsOf(nodeRects());
+      const fitted =
+        bounds && size.width > 0 && size.height > 0
+          ? fitAtZoom(
+              bounds,
+              size,
+              {
+                minZoom: zoomLimits.min,
+                maxZoom: zoomLimits.max,
+                ...fitOptionsRef.current,
+              },
+              getViewport()
+            )
+          : null;
+      if (fitted) {
+        setViewport(fitted, motion);
+        keepSelectedInView(motion);
+      } else {
+        keepGraphInView(motion);
+      }
+    },
+    [setViewport, keepSelectedInView, keepGraphInView]
+  );
+  // While the canvas has just shown, a change of its room (a panel, a dock,
+  // Activity, the window) fits the graph again, with a jump. Later the zoom
+  // stays: the view pans only as far as needed, or goes back to its fit when
+  // that has the same zoom.
+  const autoFit = useAutoFit(
+    wrapperRef,
+    (glide) => {
+      const motion = glide ? GLIDE : undefined;
+      fitView(fitOptions, motion);
+      // A resize that fits the graph again keeps the selected step in view.
+      keepSelectedInView(motion);
+    },
+    undefined,
+    // A panel or a dock that shrinks the canvas moves the graph only if it
+    // would cut it.
+    () => keepGraphInView(),
+    // A canvas that grows keeps the zoom too.
+    () => growView(GLIDE)
+  );
   const {
     onUserMove: stopAutoFit,
     onHostMove,
@@ -726,6 +810,7 @@ function CanvasView({
     refit,
     moved: userMoved,
     settle,
+    settled,
   } = autoFit;
   // A reveal that waits for the size of the canvas or for a layout change.
   const pendingReveal = useRef<{
@@ -869,9 +954,9 @@ function CanvasView({
   }, [ghostX, ghostY, viewForNode, setViewport]);
 
   // The view fits again when the graph changes (undo, redo, discard, a new
-  // step), when the direction changes and when a panel covers or frees the
-  // right of the canvas; a view that the user panned stays, but a new
-  // direction is a new layout.
+  // step) and when the direction changes; a view that the user panned stays,
+  // but a new direction is a new layout. A panel that covers or frees a part
+  // of the canvas fits again only while the page opens: later the zoom stays.
   // The launchers count: they arrive after the first layout and push the
   // steps aside. The ghost of the Add step list does not: a hover must not
   // move the view.
@@ -927,11 +1012,20 @@ function CanvasView({
       last.overlayRight !== overlayRight ||
       last.overlayTop !== overlayTop
     ) {
-      // A view that the user moved stays, but not over the selected step.
       if (userMoved()) {
+        // A view that the user moved stays, but not over the selected step.
         keepSelectedInView(GLIDE);
-      } else {
+      } else if (!settled()) {
+        // The page is still opening: its parts fit the graph again.
         refit();
+      } else if (overlayRight > last.overlayRight) {
+        // A panel that covers more of the canvas moves the graph only if it
+        // must. The zoom stays.
+        keepGraphInView(GLIDE);
+      } else {
+        // A panel that leaves or changes keeps the zoom.
+        resume();
+        growView(GLIDE);
       }
     }
   }, [
@@ -943,6 +1037,10 @@ function CanvasView({
     resume,
     refit,
     userMoved,
+    keepGraphInView,
+    keepSelectedInView,
+    growView,
+    settled,
     stopAutoFit,
     setViewport,
     fitView,
