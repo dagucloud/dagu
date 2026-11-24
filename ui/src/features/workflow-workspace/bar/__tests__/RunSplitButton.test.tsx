@@ -13,11 +13,7 @@ import userEvent from '@testing-library/user-event';
 import { useEffect, type ReactNode } from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  NodeStatus,
-  Status,
-  StatusLabel,
-} from '@/api/v1/schema';
+import { NodeStatus, Status, StatusLabel } from '@/api/v1/schema';
 import {
   UnsavedChangesProvider,
   useUnsavedChanges,

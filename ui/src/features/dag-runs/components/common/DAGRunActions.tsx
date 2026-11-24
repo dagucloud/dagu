@@ -309,9 +309,7 @@ function DAGRunActions({
                 </span>
               </TooltipTrigger>
               <TooltipContent>
-                <p>
-                  {ts(terminateDetails.tooltipText)}
-                </p>
+                <p>{ts(terminateDetails.tooltipText)}</p>
               </TooltipContent>
             </Tooltip>
           )}
