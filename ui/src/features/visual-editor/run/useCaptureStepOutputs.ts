@@ -44,13 +44,37 @@ function capturedKey(scope: CacheScope, step: string): string {
   return `${scope.remoteNode}\u0000${scope.fileName}\u0000${step}`;
 }
 
+function capturedPair(
+  runId: string,
+  values: Readonly<Record<string, string>>
+): string {
+  return `${runId}\u0000${JSON.stringify(values)}`;
+}
+
 /**
  * Lets the next read of a step capture again, after its entry was removed
- * from the cache. A run that refused an entry does not call it, so that the
- * same pair is not stored again.
+ * from the cache.
  */
 export function forgetCaptures(scope: CacheScope, step: string): void {
   captured.delete(capturedKey(scope, step));
+}
+
+/**
+ * Removes the entry of a step when it names `runId`, which the server refused
+ * for that step, and keeps a read of the same run and values from storing it
+ * again while the page lives. An entry that names another run stays.
+ */
+export function dropRefusedEntry(
+  scope: CacheScope,
+  step: string,
+  runId: string
+): void {
+  const held = outputCache.entries(scope)[step];
+  if (held?.runId !== runId) return;
+  const key = capturedKey(scope, step);
+  const seen = captured.get(key) ?? new Set<string>();
+  captured.set(key, seen.add(capturedPair(runId, held.values)));
+  outputCache.remove(scope, step);
 }
 
 /**
@@ -152,7 +176,7 @@ export function useCaptureStepOutputs(p: {
       stepHash: hash,
     };
     const seen = captured.get(capturedKey(scope, step)) ?? new Set<string>();
-    const pair = `${runId}\u0000${JSON.stringify(values)}`;
+    const pair = capturedPair(runId, values);
     if (seen.has(pair) || sameEntry(held, entry)) return;
     if (outputCache.put(scope, step, entry)) {
       captured.set(capturedKey(scope, step), seen.add(pair));

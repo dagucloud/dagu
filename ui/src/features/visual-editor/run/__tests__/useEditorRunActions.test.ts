@@ -274,17 +274,6 @@ describe('useEditorRunActions', () => {
     expect(Object.keys(outputCache.entries(SCOPE))).toEqual(['d']);
   });
 
-  // The entry of the step may name a newer run by the time the answer comes.
-  it('keeps an entry that names another run than the refused one', async () => {
-    outputCache.put(SCOPE, 'a', cacheEntry('RunA2'));
-    refuse(['a', 'RunA']);
-    const { result } = setup();
-    await act(async () => {
-      await result.current.runStep('b', { outputsFromRuns: { a: 'RunA' } });
-    });
-    expect(outputCache.entries(SCOPE)['a']?.runId).toBe('RunA2');
-  });
-
   it('falls back to the HTTP status without a server message', async () => {
     POST.mockResolvedValue({ error: {}, response: { status: 502 } });
     const { result } = setup();

@@ -6,8 +6,8 @@ import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useClient } from '@/hooks/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { EditorRunActions, StepRunInputs } from '../contracts';
-import { outputCache } from './outputCache';
 import { buildDraftBody, buildStartBody } from './runRequests';
+import { dropRefusedEntry } from './useCaptureStepOutputs';
 
 interface Args {
   fileName: string;
@@ -28,18 +28,16 @@ function serverMessage(error: unknown): string | null {
   return typeof message === 'string' && message ? message : null;
 }
 
-// The steps of `fromRuns` whose run the server refused. The server names each
-// one as `step X cannot be reused from run Y: <reason>`.
-function refusedSteps(
+// The entries of `fromRuns` that the server refused, as [step, run id]. The
+// server names each one as `step X cannot be reused from run Y: <reason>`.
+function refusedRuns(
   message: string | null,
   fromRuns: Readonly<Record<string, string>>
-): string[] {
+): [string, string][] {
   if (message === null) return [];
-  return Object.entries(fromRuns)
-    .filter(([step, runId]) =>
-      message.includes(`step ${step} cannot be reused from run ${runId}:`)
-    )
-    .map(([step]) => step);
+  return Object.entries(fromRuns).filter(([step, runId]) =>
+    message.includes(`step ${step} cannot be reused from run ${runId}:`)
+  );
 }
 
 export function useEditorRunActions(args: Args): EditorRunActions {
@@ -113,11 +111,9 @@ export function useEditorRunActions(args: Args): EditorRunActions {
           const result = await call();
           if (fromRuns && result.error !== undefined) {
             const scope = { remoteNode, fileName };
-            const refused = refusedSteps(serverMessage(result.error), fromRuns);
-            for (const name of refused) {
-              if (outputCache.entries(scope)[name]?.runId === fromRuns[name]) {
-                outputCache.remove(scope, name);
-              }
+            const refused = refusedRuns(serverMessage(result.error), fromRuns);
+            for (const [step, runId] of refused) {
+              dropRefusedEntry(scope, step, runId);
             }
           }
           return result;
