@@ -50,7 +50,10 @@ vi.mock('@/hooks/useDAGRunSSE', () => ({
     shouldUseFallback: true,
   }),
 }));
-vi.mock('@/contexts/AuthContext', () => ({ useCanExecute: () => true }));
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanExecute: () => true,
+  useCanExecuteForWorkspace: () => true,
+}));
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
@@ -626,10 +629,12 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
     expect(screen.getByLabelText('Top to bottom')).toBeInTheDocument();
   });
 
-  // There is no bar above the canvas: the controls sit on the canvas.
+  // There is no bar above the canvas: the controls sit on the canvas. The
+  // saved definition starts from the header, so the bar has only the draft run.
   it('puts the run, history and workflow controls on the canvas', () => {
     renderEditor({
       initial: yamlArraySteps,
+      isDirty: true,
       toolbarStart: <button type="button">Start</button>,
       toolbarTrail: <button type="button">Trail</button>,
       workflowPanel: <p>About the workflow</p>,
@@ -637,7 +642,13 @@ describe.skipIf(realSchema === null)('VisualEditor', () => {
     });
 
     const toolbar = within(screen.getByTestId('ve-toolbar'));
-    for (const name of ['Trail', 'Undo', 'Redo', 'Run', 'Workflow']) {
+    for (const name of [
+      'Trail',
+      'Undo',
+      'Redo',
+      'Run unsaved draft',
+      'Workflow',
+    ]) {
       expect(toolbar.getByRole('button', { name })).toBeInTheDocument();
     }
     expect(toolbar.getByRole('button', { name: 'YAML' })).toBeInTheDocument();
