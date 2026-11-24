@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { editor, IDisposable } from 'monaco-editor';
-import { scalarAtField } from '@/features/visual-editor/doc/issues';
+import { scalarsAtFields } from '@/features/visual-editor/doc/issues';
 import { parseDagDocLenient } from '@/features/visual-editor/doc/parse';
 
 type Monaco = typeof import('monaco-editor');
@@ -40,7 +40,7 @@ export function nodeSelectorReader(): (
   return (text) => {
     if (last?.text === text) return last.points;
     const model = parseDagDocLenient(text);
-    const points = model.steps.flatMap((step) => {
+    const candidates = model.steps.flatMap((step) => {
       const value = step.value.nodes;
       const path = isRecord(value)
         ? `${step.key}.nodes.labels`
@@ -62,7 +62,18 @@ export function nodeSelectorReader(): (
         return [];
       }
       if (selector === '' || selector.includes('${')) return [];
-      const range = scalarAtField(model, at)?.range;
+      return [{ selector, at }];
+    });
+    // One parse of the text finds the rows of every selector.
+    const ranges =
+      candidates.length > 0
+        ? scalarsAtFields(
+            model,
+            candidates.map(({ at }) => at)
+          )
+        : [];
+    const points = candidates.flatMap(({ selector }, i) => {
+      const range = ranges[i]?.range;
       return range ? [{ selector, line: range.endLine }] : [];
     });
     last = { text, points };
