@@ -9,7 +9,8 @@ import { RunBar } from '../RunBar';
 
 const { useQueryMock, auth, specs } = vi.hoisted(() => ({
   useQueryMock: vi.fn(),
-  auth: { canExecute: true, workspaces: [] as unknown[] },
+  // The workspaces where the user may run workflows; null allows every one.
+  auth: { runIn: null as string[] | null },
   specs: {
     run: undefined as string | undefined,
     saved: undefined as string | undefined,
@@ -18,10 +19,8 @@ const { useQueryMock, auth, specs } = vi.hoisted(() => ({
 
 vi.mock('@/hooks/api', () => ({ useQuery: useQueryMock }));
 vi.mock('@/contexts/AuthContext', () => ({
-  useCanExecuteForWorkspace: (workspace?: string | null) => {
-    auth.workspaces.push(workspace);
-    return auth.canExecute;
-  },
+  useCanExecuteForWorkspace: (workspace?: string | null) =>
+    auth.runIn === null || auth.runIn.includes(workspace ?? ''),
 }));
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'node-1',
@@ -64,8 +63,7 @@ function renderBar(
 }
 
 beforeEach(() => {
-  auth.canExecute = true;
-  auth.workspaces = [];
+  auth.runIn = null;
   specs.run = undefined;
   specs.saved = undefined;
   useQueryMock.mockReset();
@@ -87,18 +85,16 @@ beforeEach(() => {
 describe('RunBar run buttons', () => {
   // The saved definition starts from the Start button of the header: it opens
   // the start dialog (parameters, profile, run ID, enqueue).
-  it('has no one-click Run of the saved definition', () => {
-    renderBar();
-    expect(screen.queryByRole('button', { name: 'Run' })).toBeNull();
+  it('keeps only the draft run on the bar', () => {
     renderBar({ isDirty: true });
-    expect(screen.queryByRole('button', { name: 'Run' })).toBeNull();
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual([
+      'Run unsaved draft',
+    ]);
   });
 
-  it('offers the draft run only when the buffer is dirty', () => {
+  it('offers no run while the buffer is clean', () => {
     renderBar({ isDirty: false });
-    expect(
-      screen.queryByRole('button', { name: 'Run unsaved draft' })
-    ).toBeNull();
+    expect(screen.queryAllByRole('button')).toEqual([]);
   });
 
   it('runs the draft and shows the new run', async () => {
@@ -122,7 +118,7 @@ describe('RunBar run buttons', () => {
 
 describe('RunBar permission', () => {
   it('disables the draft button without execute permission', () => {
-    auth.canExecute = false;
+    auth.runIn = [];
     renderBar({ isDirty: true });
     const button = screen.getByRole('button', { name: 'Run unsaved draft' });
     expect(button).toBeDisabled();
@@ -131,9 +127,14 @@ describe('RunBar permission', () => {
 
   // The role is checked in the workspace of the DAG, not in the one that the
   // app bar shows.
-  it('checks the permission in the workspace of the DAG', () => {
-    renderBar({ isDirty: true, workspace: 'team-a' });
-    expect(new Set(auth.workspaces)).toEqual(new Set(['team-a']));
+  it.each([
+    ['team-a', true],
+    ['team-b', false],
+  ])('checks the permission in workspace %s of the DAG', (workspace, ok) => {
+    auth.runIn = ['team-a'];
+    renderBar({ isDirty: true, workspace });
+    const button = screen.getByRole('button', { name: 'Run unsaved draft' });
+    expect(button.hasAttribute('disabled')).toBe(!ok);
   });
 });
 
