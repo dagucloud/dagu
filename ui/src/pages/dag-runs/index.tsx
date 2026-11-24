@@ -1539,112 +1539,59 @@ function DAGRuns() {
               {dateRangeMode === 'specific' ? (
                 <>
                   <Select
-                    value={datePreset}
-                    onValueChange={handleDatePresetChange}
+                    value={specificPeriod}
+                    onValueChange={(v) => {
+                      const newPeriod = v as 'date' | 'month' | 'year';
+                      setSpecificPeriod(newPeriod);
+                      let newValue: string;
+                      const parsedDate = dayjs(specificValue);
+
+                      if (newPeriod === 'date') {
+                        newValue = parsedDate.isValid()
+                          ? parsedDate.format('YYYY-MM-DD')
+                          : dayjs().format('YYYY-MM-DD');
+                      } else if (newPeriod === 'month') {
+                        newValue = parsedDate.isValid()
+                          ? parsedDate.format('YYYY-MM')
+                          : dayjs().format('YYYY-MM');
+                      } else {
+                        newValue = parsedDate.isValid()
+                          ? parsedDate.format('YYYY')
+                          : dayjs().format('YYYY');
+                      }
+
+                      setSpecificValue(newValue);
+                      handleSpecificPeriodChange(newValue, newPeriod);
+                    }}
                   >
                     <I18nProps>
                       <SelectTrigger
-                        aria-label="Date preset"
-                        className="w-[180px]"
+                        aria-label="Specific period"
+                        className="w-[120px]"
                       >
-                        <I18nProps>
-                          <SelectValue placeholder="Select period" />
-                        </I18nProps>
+                        <SelectValue />
                       </SelectTrigger>
                     </I18nProps>
                     <SelectContent>
-                      <SelectItem value="today">
-                        <I18nText text={'Today'} />
+                      <SelectItem value="date">
+                        <I18nText text={'Date'} />
                       </SelectItem>
-                      <SelectItem value="yesterday">
-                        <I18nText text={'Yesterday'} />
+                      <SelectItem value="month">
+                        <I18nText text={'Month'} />
                       </SelectItem>
-                      <SelectItem value="last7days">
-                        <I18nText text={'Last 7 days'} />
-                      </SelectItem>
-                      <SelectItem value="last30days">
-                        <I18nText text={'Last 30 days'} />
-                      </SelectItem>
-                      <SelectItem value="thisWeek">
-                        <I18nText text={'This week'} />
-                      </SelectItem>
-                      <SelectItem value="thisMonth">
-                        <I18nText text={'This month'} />
+                      <SelectItem value="year">
+                        <I18nText text={'Year'} />
                       </SelectItem>
                     </SelectContent>
                   </Select>
-                  ) : dateRangeMode === 'specific' ? (
-                  <>
-                    <Select
-                      value={specificPeriod}
-                      onValueChange={(v) => {
-                        const newPeriod = v as 'date' | 'month' | 'year';
-                        setSpecificPeriod(newPeriod);
-                        let newValue: string;
-                        const parsedDate = dayjs(specificValue);
-
-                        if (newPeriod === 'date') {
-                          newValue = parsedDate.isValid()
-                            ? parsedDate.format('YYYY-MM-DD')
-                            : dayjs().format('YYYY-MM-DD');
-                        } else if (newPeriod === 'month') {
-                          newValue = parsedDate.isValid()
-                            ? parsedDate.format('YYYY-MM')
-                            : dayjs().format('YYYY-MM');
-                        } else {
-                          newValue = parsedDate.isValid()
-                            ? parsedDate.format('YYYY')
-                            : dayjs().format('YYYY');
-                        }
-
-                        setSpecificValue(newValue);
-                        handleSpecificPeriodChange(newValue, newPeriod);
-                      }}
-                    >
-                      <I18nProps>
-                        <SelectTrigger
-                          aria-label="Specific period"
-                          className="w-[120px]"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                      </I18nProps>
-                      <SelectContent>
-                        <SelectItem value="date">
-                          <I18nText text={'Date'} />
-                        </SelectItem>
-                        <SelectItem value="month">
-                          <I18nText text={'Month'} />
-                        </SelectItem>
-                        <SelectItem value="year">
-                          <I18nText text={'Year'} />
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      type={getInputTypeForPeriod(specificPeriod)}
-                      value={specificValue}
-                      onChange={(e) =>
-                        handleSpecificPeriodChange(e.target.value)
-                      }
-                      placeholder={
-                        specificPeriod === 'year' ? 'YYYY' : undefined
-                      }
-                      min={specificPeriod === 'year' ? '2000' : undefined}
-                      max={specificPeriod === 'year' ? '2100' : undefined}
-                      className="h-9 w-[160px]"
-                    />
-                  </>
-                  ) : (
-                  <DateRangePicker
-                    fromDate={fromDate}
-                    toDate={toDate}
-                    onFromDateChange={setFromDate}
-                    onToDateChange={setToDate}
-                    onEnterPress={() => handleSearch()}
-                    fromLabel={`From ${tzLabel}`}
-                    toLabel={`To ${tzLabel}`}
-                    className="w-full md:w-auto"
+                  <Input
+                    type={getInputTypeForPeriod(specificPeriod)}
+                    value={specificValue}
+                    onChange={(e) => handleSpecificPeriodChange(e.target.value)}
+                    placeholder={specificPeriod === 'year' ? 'YYYY' : undefined}
+                    min={specificPeriod === 'year' ? '2000' : undefined}
+                    max={specificPeriod === 'year' ? '2100' : undefined}
+                    className="h-9 w-[160px]"
                   />
                 </>
               ) : dateRangeMode === 'custom' ? (

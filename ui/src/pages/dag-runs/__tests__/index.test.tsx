@@ -622,6 +622,28 @@ describe('DAGRuns page', () => {
     });
   });
 
+  it('shows only the inputs of the chosen period', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await choosePeriod(user, 'Specific date…');
+    expect(
+      await screen.findByRole('combobox', { name: 'Specific period' })
+    ).toBeVisible();
+    expect(screen.queryByRole('combobox', { name: 'Date preset' })).toBeNull();
+    expect(
+      screen.queryAllByPlaceholderText('YYYY-MM-DD HH:mm:ss')
+    ).toHaveLength(0);
+
+    await choosePeriod(user, 'Custom range…');
+    expect(
+      await screen.findAllByPlaceholderText('YYYY-MM-DD HH:mm:ss')
+    ).toHaveLength(2);
+    expect(
+      screen.queryByRole('combobox', { name: 'Specific period' })
+    ).toBeNull();
+  });
+
   it('interprets custom dates in the configured timezone', async () => {
     const user = userEvent.setup();
     renderPage(vi.fn(), '/dag-runs', { tzOffsetInSec: -5 * 60 * 60 });
