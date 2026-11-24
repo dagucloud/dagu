@@ -93,6 +93,7 @@ It must not be treated as product behavior until implementation catches up.
 | [099: A2A Actions](099-a2a.md) | Implemented |
 | [100: Service Run History](100-service-run-history.md) | Partially implemented |
 | [101: Workflow Tests](101-workflow-tests.md) | Partially implemented |
+| [102: Projects](102-projects.md) | Not implemented |
 
 **Writing guidelines:**
 
