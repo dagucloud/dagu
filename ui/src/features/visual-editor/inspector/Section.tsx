@@ -37,7 +37,7 @@ export function Section({
     <section className="border-b border-border">
       <button
         type="button"
-        className="flex h-7 w-full items-center gap-1 px-2 text-left text-xs font-semibold text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className="flex h-8 w-full items-center gap-1 px-3 text-left text-xs font-semibold text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         aria-expanded={open}
         aria-controls={bodyId}
         onClick={() => setOpen((value) => !value)}
@@ -54,7 +54,7 @@ export function Section({
           </span>
         )}
       </button>
-      <div id={bodyId} hidden={!open} className="space-y-2 px-2 pb-2 pt-1">
+      <div id={bodyId} hidden={!open} className="space-y-3 px-3 pb-3 pt-1">
         {open ? children : null}
       </div>
     </section>
