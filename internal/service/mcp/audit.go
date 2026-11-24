@@ -202,7 +202,11 @@ func readAuditMetadata(input readInput) toolAuditMetadata {
 		"target": target,
 	}
 	if input.Name != "" {
-		attrs["dag_name"] = input.Name
+		if target == readTargetNode {
+			attrs["node_name"] = input.Name
+		} else {
+			attrs["dag_name"] = input.Name
+		}
 	}
 	if input.DAGRunID != "" {
 		attrs["dag_run_id"] = input.DAGRunID

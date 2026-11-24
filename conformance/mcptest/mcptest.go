@@ -135,6 +135,15 @@ func (s *Server) CreateAPIKey(t *testing.T, name string, surfaces ...api.CreateA
 	return result.Key
 }
 
+// ImportInventories imports inventories, in the form dagu nodes export
+// prints, as the administrator of a server from NewAuthServer.
+func (s *Server) ImportInventories(t *testing.T, inventories []map[string]any) {
+	t.Helper()
+
+	s.server.Client().Post("/api/v1/inventory-imports", inventories).
+		WithBearerToken(s.adminToken(t)).ExpectStatus(http.StatusOK).Send(t)
+}
+
 func (s *Server) CreateDAG(t *testing.T, name, spec string) {
 	t.Helper()
 

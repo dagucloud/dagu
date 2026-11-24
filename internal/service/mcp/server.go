@@ -191,7 +191,7 @@ func registerTools(server *mcpsdk.Server, svc *Service) {
 		Meta:        runInspectorToolMeta(),
 		Name:        toolRead,
 		Title:       "Read Dagu state",
-		Description: "Read DAG specs and default profiles, workspace-aware Wiki pages, DAG-run details, logs, list views, and Dagu MCP reference resources.",
+		Description: "Read DAG specs and default profiles, workspace-aware Wiki pages, DAG-run details, logs, list views, node inventories, and Dagu MCP reference resources.",
 		InputSchema: readToolInputSchema(),
 		Annotations: &mcpsdk.ToolAnnotations{
 			OpenWorldHint: falsePtr,
