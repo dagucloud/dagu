@@ -349,7 +349,7 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
       aria-label={ts('Step inspector')}
     >
       {!props.embedded && (
-        <header className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-2">
+        <header className="flex h-8 shrink-0 items-center gap-2 border-b border-border px-3">
           <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
             {label}
           </h2>
@@ -383,7 +383,7 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
         <div
           role="group"
           aria-label={ts('Part of the form to show')}
-          className="flex shrink-0 gap-1 border-b border-border px-2 py-1"
+          className="flex shrink-0 gap-1 border-b border-border px-3 py-1"
         >
           {segments.map((segment) => (
             <button
@@ -439,7 +439,7 @@ export function StepInspector(props: StepInspectorProps): ReactElement {
         )}
         <FieldIssues
           issues={grouped.general}
-          className="border-b border-border px-2 py-1"
+          className="border-b border-border px-3 py-1"
         />
         {split ? (
           <>
