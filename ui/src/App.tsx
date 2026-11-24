@@ -310,6 +310,8 @@ function ActiveLicenseDeveloperElement({
 
 type LazyRouteErrorBoundaryProps = {
   children: React.ReactNode;
+  /** A change of this value clears the error, so that a new page can load. */
+  resetKey?: unknown;
 };
 
 type LazyRouteErrorBoundaryState = {
@@ -324,6 +326,17 @@ class LazyRouteErrorBoundary extends React.Component<
 
   static getDerivedStateFromError(): LazyRouteErrorBoundaryState {
     return { hasError: true };
+  }
+
+  componentDidUpdate(
+    prevProps: LazyRouteErrorBoundaryProps,
+    prevState: LazyRouteErrorBoundaryState
+  ): void {
+    // Clears only an error caught under an earlier key: one caught in the
+    // render that brought the new key belongs to the new page.
+    if (prevState.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false });
+    }
   }
 
   render(): React.ReactNode {
@@ -425,7 +438,7 @@ function LazyRoutes({
     [shown, children]
   );
   return (
-    <LazyRouteErrorBoundary>
+    <LazyRouteErrorBoundary resetKey={shown}>
       <React.Suspense fallback={<RouteFallback />}>
         <div className="contents" inert={overlay?.isOpen || undefined}>
           {routes}
