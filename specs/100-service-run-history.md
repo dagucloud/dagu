@@ -454,8 +454,10 @@ Rules:
 - The states come from `GET /service-dags` and from its live topic. The table reads them once for
   all rows. A DAG with no known state shows the time of its last run.
 - A service DAG that is restarting or failing has no Start button and no Retry button: the scheduler
-  starts the next run. In the states pending, suspended and stopped, the Start button stays. A
-  service DAG with an active run keeps only the Stop button.
+  starts the next run. In the states pending, suspended and stopped, the Start button stays. So do
+  both buttons while the restarts are on hold (`restartHold`) and for a DAG whose state cannot be
+  read (`readError`): the scheduler starts no run. A service DAG with an active run keeps only the
+  Stop button.
 - The header of the page of a service DAG follows the same rule. It reads the state from the same
   `GET /service-dags` read as the list, with no extra request. A DAG that is restarting or failing,
   with no active run, has no Start button, no Retry button and no menu to run a draft. With no known
@@ -488,7 +490,7 @@ The row of a service DAG shows:
 - a strip of at most 60 cells of the run history, with the colors of the Workflows list. The strip
   has the compact count of the runs of the window and the uptime of the window, or the success rate
   when the uptime is unknown. The samples query of the run history gives the uptime of the window.
-- the state of the DAG: Healthy (running or restarting), pending, failing, suspended or stopped. A restart that waits in the queue counts as restarting. Pending applies only before the first run.
+- the state of the DAG: Healthy (running or restarting), pending, failing, suspended or stopped. A run that the scheduler queued counts as restarting, the first run included. Pending means that the DAG has no run, or that a run the scheduler did not queue waits in the queue.
   The row shows the restart wait in seconds next to it.
 - the time of the last failure of the DAG.
 - for the state failing: the count of failed runs in a row, and the error. The error is the

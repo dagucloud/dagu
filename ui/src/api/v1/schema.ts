@@ -9094,10 +9094,10 @@ export interface components {
         };
         /**
          * @description What a service DAG does, as its latest run shows it:
-         *     - pending: no run is alive yet: the DAG has no run, or its first run waits in the queue.
+         *     - pending: the DAG has no run, or a run that the scheduler did not queue waits in the queue.
          *     - running: a run is alive.
          *     - waiting: a run is alive but waits for a person, such as an approval.
-         *     - restarting: the latest run succeeded, or an operator stopped the latest run of an always DAG, and the next run is due or waits in the queue.
+         *     - restarting: the latest run succeeded, or an operator stopped the latest run of an always DAG, and the next run is due; or a run that the scheduler queued waits in the queue, the first run included.
          *     - failing: the latest run did not succeed and the next run is due, or the latest run cannot be read, which `readError` reports.
          *     - suspended: the DAG gets no new run.
          *     - stopped: an operator stopped the latest run of an unless-stopped DAG.
