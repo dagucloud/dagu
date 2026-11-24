@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cloudreport"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
@@ -236,11 +237,13 @@ func runStartAll(ctx *Context, _ []string) error {
 		return fmt.Errorf("failed to start resource service: %w", err)
 	}
 
-	if cloudReporter := startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService); cloudReporter != nil {
+	auditShipper := startCloudAudit(serviceCtx, stores.Secret)
+	if cloudReporter := startCloudReport(serviceCtx, cloudMonitoring, cloudAccess, resourceService,
+		cloudreport.Audit{Level: ctx.Config.Cloud.Audit, Backlog: auditShipper}); cloudReporter != nil {
 		defer cloudReporter.Stop()
 	}
 	// The drain runs alongside the scheduler's and coordinator's shutdown.
-	defer watchCloudAudit(signalCtx, webStopped, startCloudAudit(serviceCtx, stores.Secret), ctx.Config.Cloud.AuditDrainTimeout)()
+	defer watchCloudAudit(signalCtx, webStopped, auditShipper, ctx.Config.Cloud.AuditDrainTimeout)()
 	defer startCloudAccess(serviceCtx, cloudAccess, server)()
 
 	// WaitGroup to track all services

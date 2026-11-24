@@ -7,6 +7,7 @@ import * as React from 'react';
 import { SWRConfig } from 'swr';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  LicenseAuditLevel,
   LicenseMonitoringLevel,
   LicenseStatusResponseConnectedVia,
 } from '@/api/v1/schema';
@@ -60,6 +61,7 @@ const online: LicenseStatus = {
 
 const unchosen: LicenseMonitoring = {
   level: LicenseMonitoringLevel.off,
+  auditLevel: LicenseAuditLevel.off,
   configured: false,
   chosen: false,
   noticeDismissed: false,

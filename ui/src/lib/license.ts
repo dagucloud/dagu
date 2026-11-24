@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import {
+  LicenseAuditLevel,
   LicenseMonitoringLevel,
   LicenseRemoteAccessLevel,
   type components,
@@ -120,6 +121,13 @@ export const remoteAccessLevelLabels: Record<LicenseRemoteAccessLevel, string> =
     [LicenseRemoteAccessLevel.operator]: 'Operator',
     [LicenseRemoteAccessLevel.developer]: 'Developer',
   };
+
+/** Which audit entries each audit level sends, as a short label. */
+export const auditLevelLabels: Record<LicenseAuditLevel, string> = {
+  [LicenseAuditLevel.off]: 'Off',
+  [LicenseAuditLevel.changes]: 'Every entry but successful reads',
+  [LicenseAuditLevel.all]: 'Every entry',
+};
 
 /** What each monitoring level reports, as a short label. */
 export const monitoringLevelLabels: Record<LicenseMonitoringLevel, string> = {
