@@ -342,7 +342,7 @@ steps:
     // The old run page redirects to the workflow page with the run.
     await page.goto(`/dag-runs/${dagName}/${dagRunId}`);
     await page
-      .getByTestId('ww-run-actions')
+      .getByTestId('ww-run-start-slot')
       .getByRole('button', { name: 'Stop', exact: true })
       .click();
 
@@ -396,7 +396,7 @@ steps:
 
     await page.goto(`/dag-runs/${dagName}/${dagRunId}`);
     await page
-      .getByTestId('ww-run-actions')
+      .getByTestId('ww-run-start-slot')
       .getByRole('button', { name: 'Stop', exact: true })
       .click();
 
@@ -530,8 +530,8 @@ steps:
     const newRunId = uniqueName('rescheduled-run');
     await page.goto(`/dag-runs/${dagName}/${originalRunId}`);
     await page
+      .getByTestId('ww-run-start-slot')
       .getByRole('button', { name: 'Retry', exact: true })
-      .first()
       .click();
 
     const dialog = page.getByRole('dialog');

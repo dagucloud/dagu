@@ -65,6 +65,11 @@ type Props = {
    */
   hideUnavailable?: boolean;
   /**
+   * Which actions this instance shows: only Stop and Reject, only Retry, or
+   * only Dequeue. A bar places each in its own place.
+   */
+  part?: 'stop' | 'retry' | 'dequeue';
+  /**
    * Offers 'Stop all running instances' in the Stop confirmation. A checked
    * submit stops every running instance of this workflow file.
    */
@@ -79,6 +84,8 @@ type Props = {
    * run' succeeds.
    */
   onRescheduled?: (dagRunId: string, dagName: string) => void;
+  /** Called after the run was removed from the queue, before refresh. */
+  onDequeued?: () => void;
   /**
    * Opens the screen that edits the definition of the run and chooses the
    * steps that run again, for a new run. The Retry dialog links to it.
@@ -96,9 +103,11 @@ function DAGRunActions({
   displayMode = 'compact',
   isRootLevel = true,
   hideUnavailable = false,
+  part,
   stopAll,
   markActions = false,
   onRescheduled,
+  onDequeued,
   onEditRetry,
 }: Props) {
   const { ts } = useI18n();
@@ -246,7 +255,8 @@ function DAGRunActions({
         className={`flex items-center ${displayMode === 'full' ? 'space-x-2' : 'space-x-1'}`}
       >
         {/* Reject Button */}
-        {isWaiting &&
+        {(part === undefined || part === 'stop') &&
+          isWaiting &&
           hasWaitingApprovals &&
           !(hideUnavailable && !buttonState.reject) && (
             <Tooltip>
@@ -272,99 +282,107 @@ function DAGRunActions({
           )}
 
         {/* Stop Button */}
-        {!(hideUnavailable && !buttonState.terminate) && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <ActionButton
-                  label={buttonLabel}
-                  icon={
-                    terminateAction === 'cancel' ? (
-                      <X className="h-4 w-4" />
-                    ) : (
-                      <CircleStop className="h-4 w-4" />
-                    )
-                  }
-                  disabled={!buttonState['terminate']}
-                  data-ww-action={markActions ? 'stop' : undefined}
-                  onClick={() => {
-                    setStopAllRunning(false);
-                    setIsStopModal(true);
-                  }}
-                  className={dangerClass}
-                >
-                  {ts(terminateDetails.buttonText)}
-                </ActionButton>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{ts(terminateDetails.tooltipText)}</p>
-            </TooltipContent>
-          </Tooltip>
-        )}
+        {(part === undefined || part === 'stop') &&
+          !(hideUnavailable && !buttonState.terminate) && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <ActionButton
+                    label={buttonLabel}
+                    icon={
+                      terminateAction === 'cancel' ? (
+                        <X className="h-4 w-4" />
+                      ) : (
+                        <CircleStop className="h-4 w-4" />
+                      )
+                    }
+                    disabled={!buttonState['terminate']}
+                    data-ww-action={markActions ? 'stop' : undefined}
+                    onClick={() => {
+                      setStopAllRunning(false);
+                      setIsStopModal(true);
+                    }}
+                    className={dangerClass}
+                  >
+                    {ts(terminateDetails.buttonText)}
+                  </ActionButton>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>
+                  {ts(terminateDetails.tooltipText)}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
 
         {/* Retry Button */}
-        {(!hideUnavailable || buttonState.retry || !isRootLevel) && (
-          <Tooltip>
-            {/* On a sub-run the disabled button cannot take focus, so the
+        {(part === undefined || part === 'retry') &&
+          (!hideUnavailable ||
+            part === 'retry' ||
+            buttonState.retry ||
+            !isRootLevel) && (
+            <Tooltip>
+              {/* On a sub-run the disabled button cannot take focus, so the
                 wrapper does, letting keyboard users read why. */}
-            <TooltipTrigger asChild>
-              <span tabIndex={isRootLevel ? undefined : 0}>
-                <ActionButton
-                  label={buttonLabel}
-                  icon={<RotateCcw className="h-4 w-4" />}
-                  disabled={!buttonState['retry']}
-                  data-ww-action={markActions ? 'retry' : undefined}
-                  onClick={() => setIsRetryModal(true)}
-                  className="cursor-pointer"
-                >
-                  <I18nText text={'Retry'} />
-                </ActionButton>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>
-                {isRootLevel ? (
-                  <I18nText text={'Retry this run'} />
-                ) : (
-                  <I18nText
-                    text={'Retry is only available on the top-level run'}
-                  />
-                )}
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        )}
+              <TooltipTrigger asChild>
+                <span tabIndex={isRootLevel ? undefined : 0}>
+                  <ActionButton
+                    label={buttonLabel}
+                    icon={<RotateCcw className="h-4 w-4" />}
+                    disabled={!buttonState['retry']}
+                    data-ww-action={markActions ? 'retry' : undefined}
+                    onClick={() => setIsRetryModal(true)}
+                    className="cursor-pointer"
+                  >
+                    <I18nText text={'Retry'} />
+                  </ActionButton>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>
+                  {isRootLevel ? (
+                    <I18nText text={'Retry this run'} />
+                  ) : (
+                    <I18nText
+                      text={'Retry is only available on the top-level run'}
+                    />
+                  )}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
 
         {/* Dequeue Button */}
-        {(!hideUnavailable || buttonState.dequeue) && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span>
-                <ActionButton
-                  label={buttonLabel}
-                  icon={<X className="h-4 w-4" />}
-                  disabled={!buttonState['dequeue']}
-                  onClick={() => setIsDequeueModal(true)}
-                  className="cursor-pointer"
-                >
-                  <I18nText text={'Dequeue'} />
-                </ActionButton>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>
-                {isRootLevel ? (
-                  <I18nText text={'Remove this run from the queue'} />
-                ) : (
-                  <I18nText
-                    text={'Dequeue is only available on the top-level run'}
-                  />
-                )}
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        )}
+        {(part === undefined || part === 'dequeue') &&
+          (!hideUnavailable || buttonState.dequeue) && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <ActionButton
+                    label={buttonLabel}
+                    icon={<X className="h-4 w-4" />}
+                    disabled={!buttonState['dequeue']}
+                    onClick={() => setIsDequeueModal(true)}
+                    className="cursor-pointer"
+                  >
+                    <I18nText text={'Dequeue'} />
+                  </ActionButton>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>
+                  {isRootLevel ? (
+                    <I18nText text={'Remove this run from the queue'} />
+                  ) : (
+                    <I18nText
+                      text={'Dequeue is only available on the top-level run'}
+                    />
+                  )}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
 
         {/* Stop Confirmation Modal */}
         <I18nProps>
@@ -777,6 +795,7 @@ function DAGRunActions({
                 return;
               }
               showToast('DAG run dequeued');
+              onDequeued?.();
               reloadData();
             }}
           >

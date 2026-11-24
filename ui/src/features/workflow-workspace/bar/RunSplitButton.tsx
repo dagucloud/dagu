@@ -9,7 +9,8 @@ import {
   Play,
   Save,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { Status } from '@/api/v1/schema';
+import { useEffect, useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
+import DAGRunActions from '@/features/dag-runs/components/common/DAGRunActions';
+import { getDAGRunTerminateAction } from '@/features/dag-runs/components/common/terminateAction';
+import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
 import { useUnsavedChanges } from '@/contexts/UnsavedChangesContext';
 import { daysBack } from '@/features/backfills/components/BackfillRangePicker';
 import { StartBackfillDialog } from '@/features/backfills/components/StartBackfillDialog';
@@ -32,9 +36,12 @@ import { cn } from '@/lib/utils';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
 import type { BarSlotProps } from '../contracts';
 import { useWorkspaceData } from '../data/context';
+import { useWorkspaceRun } from '../data/useWorkspaceRun';
 import { useWorkspacePermissions } from '../data/useWorkspacePermissions';
 import { useWorkspaceRefresh } from '../data/useWorkspaceRefresh';
+import { useWorkspaceUrl } from '../state/workspaceUrl';
 import { Z } from '../zLayers';
+import { EditRetryDialog } from './EditRetryDialog';
 import { RunStartTarget, useRunStart } from './RunStartContext';
 import { useShowRun } from './useShowRun';
 
@@ -107,7 +114,6 @@ function SplitButton({
   const { handle, state } = useWorkspaceEditor();
   const dirty = state?.dirty ?? false;
   const { hasUnsavedChanges } = useUnsavedChanges();
-  const { canSaveAndStart, requestSaveAndStart } = useRunStart();
   const navigate = useNavigate();
   const remoteNode = useRemoteNode();
   const [backfilling, setBackfilling] = useState(false);
@@ -119,6 +125,34 @@ function SplitButton({
     spec,
     isDirty: dirty,
   });
+  const run = useWorkspaceRun();
+  // Each state of the shown run has one action in the slot of Start: Dequeue
+  // for a queued run; Stop (or Reject, for a run that waits for an approval)
+  // for an active run; Retry for a failed run; else Start.
+  const { isWaiting, waitingApprovalNodes } = getManualActionState(
+    run.details ?? undefined
+  );
+  const dequeueShown = !!run.ref && run.details?.status === Status.Queued;
+  const stopShown =
+    !dequeueShown &&
+    !!run.ref &&
+    !!run.details &&
+    (getDAGRunTerminateAction(run.details) !== 'none' ||
+      (isWaiting && waitingApprovalNodes.length > 0));
+  // A run that failed has Retry in the slot of Start. A service workflow
+  // that has an active run, or that the scheduler restarts by itself, keeps
+  // the button disabled: it has one run at a time.
+  const retryShown =
+    !stopShown &&
+    !dequeueShown &&
+    !!run.ref &&
+    run.details?.status === Status.Failed;
+  const replaced = stopShown || retryShown || dequeueShown;
+  const [url] = useWorkspaceUrl();
+  const [editRetry, setEditRetry] = useState(false);
+  const startFlow = useRunStart();
+  const { canSaveAndStart, requestSaveAndStart } = startFlow;
+  const stopAll = useMemo(() => ({ fileName }), [fileName]);
   const busy = actions.isStarting;
   const shownError = useShownError(actions.error, busy);
 
@@ -156,21 +190,43 @@ function SplitButton({
           title={shownError ?? undefined}
         >
           <RunStartTarget>
-            <DAGActions
-              only={['start']}
-              displayMode="full"
-              barStart
-              // While the slot shows busy or error, the feedback icon takes the
-              // place of the Play icon: the button keeps its size.
-              startIconHidden={busy || Boolean(shownError)}
-              status={dagData.latestDAGRun}
-              dag={dag}
-              fileName={fileName}
-              refresh={() => void refresh()}
-              markActions
-            />
+            {replaced && run.ref && run.details && (
+              <DAGRunActions
+                part={dequeueShown ? 'dequeue' : stopShown ? 'stop' : 'retry'}
+                dagRun={run.details}
+                name={run.ref.name}
+                refresh={() => void run.refresh()}
+                displayMode="bar"
+                hideUnavailable
+                stopAll={stopAll}
+                markActions
+                // A new run is shown at once. A run under another DAG name is
+                // not a run of this workflow.
+                onRescheduled={(runId, runName) => {
+                  if (runName === dag.name) showRun(runId, url.runName);
+                }}
+                onEditRetry={() => setEditRetry(true)}
+              />
+            )}
+            {/* Start stays mounted, hidden: the palette and the menu open its
+                dialog while Stop or Retry has the slot. */}
+            <div className={replaced ? 'hidden' : 'contents'}>
+              <DAGActions
+                only={['start']}
+                displayMode="full"
+                barStart
+                // While the slot shows busy or error, the feedback icon takes the
+                // place of the Play icon: the button keeps its size.
+                startIconHidden={busy || Boolean(shownError)}
+                status={dagData.latestDAGRun}
+                dag={dag}
+                fileName={fileName}
+                refresh={() => void refresh()}
+                markActions
+              />
+            </div>
           </RunStartTarget>
-          {(busy || shownError) && (
+          {(busy || shownError) && !replaced && (
             <span
               className={cn(
                 'pointer-events-none absolute inset-0 grid place-items-center',
@@ -187,6 +243,18 @@ function SplitButton({
             </span>
           )}
         </div>
+      )}
+      {canRunDags && run.ref && (
+        <EditRetryDialog
+          open={editRetry}
+          onClose={() => setEditRetry(false)}
+          dagName={run.ref.name}
+          dagRunId={run.ref.runId}
+          fileName={fileName}
+          // The new run shows at once, as after Start or Reschedule. It keeps
+          // the DAG name of the retried run.
+          onRetried={(runId) => showRun(runId, url.runName)}
+        />
       )}
       {hasMenu && (
         <DropdownMenu>
@@ -211,6 +279,15 @@ function SplitButton({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className={cn(Z.menu, 'w-64')}>
+            {retryShown && canRunDags && (
+              <DropdownMenuItem
+                onSelect={() => startFlow.requestStart()}
+                className="gap-2"
+              >
+                <Play aria-hidden="true" className="size-4 shrink-0" />
+                {ts('Start')}
+              </DropdownMenuItem>
+            )}
             {canSaveAndRun && (
               <DropdownMenuItem
                 disabled={busy}
