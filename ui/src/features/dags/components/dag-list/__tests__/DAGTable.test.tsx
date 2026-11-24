@@ -64,9 +64,11 @@ vi.mock('@/features/dags/components/common', async (importOriginal) => ({
   DAGPagination: () => null,
 }));
 
+const auth = vi.hoisted(() => ({ canManageWebhooks: false }));
+
 vi.mock('@/contexts/AuthContext', () => ({
   useCanWrite: () => true,
-  useCanManageWebhooks: () => false,
+  useCanManageWebhooks: () => auth.canManageWebhooks,
 }));
 
 // Reads the locale from stored preferences, as the app does.
@@ -103,6 +105,7 @@ function renderTable(
     resultCount?: number;
     isRequestFiltered?: boolean;
     isLoading?: boolean;
+    remoteNode?: string;
   } = {}
 ) {
   const onSortChange = vi.fn();
@@ -126,7 +129,7 @@ function renderTable(
         <AppBarContext.Provider
           value={
             {
-              selectedRemoteNode: 'local',
+              selectedRemoteNode: options.remoteNode ?? 'local',
               workspaceSelection: { kind: WorkspaceKind.all },
             } as never
           }
@@ -251,6 +254,7 @@ describe('DAGTable', () => {
     vi.unstubAllGlobals();
     localStorage.clear();
     serviceDAGs.list = [];
+    auth.canManageWebhooks = false;
   });
 
   it('links workflow names to their canonical detail pages', () => {
@@ -299,6 +303,38 @@ describe('DAGTable', () => {
       .getByRole('switch', { name: 'Gather the workflows by group' })
       .closest('label');
     expect(group?.className).toContain('h-9');
+  });
+
+  // The webhook cells read webhooks only for a user who may manage them, on
+  // the local server; for anyone else the column would hold only dashes.
+  it.each([
+    {
+      who: 'a user who may not manage webhooks',
+      manager: false,
+      node: 'local',
+      shown: false,
+    },
+    {
+      who: 'a webhook manager on the local server',
+      manager: true,
+      node: 'local',
+      shown: true,
+    },
+    {
+      who: 'a webhook manager on a remote node',
+      manager: true,
+      node: 'remote-a',
+      shown: false,
+    },
+  ])('shows the Webhook column to $who: $shown', ({ manager, node, shown }) => {
+    auth.canManageWebhooks = manager;
+    renderTable('', { remoteNode: node });
+
+    const header = within(screen.getByRole('table')).queryByRole(
+      'columnheader',
+      { name: 'Webhook' }
+    );
+    expect(header !== null).toBe(shown);
   });
 
   it('links grep to the global DAG search with the current workflow keyword', () => {

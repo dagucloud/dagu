@@ -83,6 +83,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { AppBarContext } from '../../../../contexts/AppBarContext';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
+import { useCanManageWebhooks } from '@/contexts/AuthContext';
 import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
 import { PeekLink } from '@/features/peek/PeekLink';
 import {
@@ -1229,13 +1230,17 @@ function DAGTable({
   const peekOrOpen = usePeekOrOpen();
   const isShown = usePeekShown();
   useRevealShownRow();
-  const columns = useMemo(
-    () =>
-      canDeleteDAGs
-        ? [deleteSelectionColumn, ...defaultColumns]
-        : defaultColumns,
-    [canDeleteDAGs]
-  );
+  // The webhook cells read webhooks only for a user who may manage them, on
+  // the local server. For anyone else the column would hold only dashes.
+  const canManageWebhooks = useCanManageWebhooks();
+  const remoteNode = useRemoteNode();
+  const showWebhooks = canManageWebhooks && remoteNode === 'local';
+  const columns = useMemo(() => {
+    const shown = showWebhooks
+      ? defaultColumns
+      : defaultColumns.filter((column) => column.id !== 'Webhook');
+    return canDeleteDAGs ? [deleteSelectionColumn, ...shown] : shown;
+  }, [canDeleteDAGs, showWebhooks]);
   const tableInstanceRef = useRef<ReturnType<typeof useReactTable> | null>(
     null
   );
@@ -1950,14 +1955,14 @@ function DAGTable({
           className={`w-full text-xs ${isLoading ? 'opacity-70' : ''}`}
           style={{ tableLayout: 'fixed' }}
         >
-          {/* Column widths: Select 24px, Pin 24px, Name 28%, LastRun 88px, Schedule 220px, Webhook 88px, Actions ACTIONS_WIDTH */}
+          {/* Column widths: Select 24px, Pin 24px, Name 28%, LastRun 88px, Schedule 220px, Webhook 88px when shown, Actions ACTIONS_WIDTH */}
           <colgroup>
             {canDeleteDAGs && <col style={{ width: '24px' }} />}
             <col style={{ width: '24px' }} />
             <col style={{ width: '28%' }} />
             <col style={{ width: '88px' }} />
             <col style={{ width: '220px' }} />
-            <col style={{ width: '88px' }} />
+            {showWebhooks && <col style={{ width: '88px' }} />}
             <col style={{ width: `${ACTIONS_WIDTH}px` }} />
           </colgroup>
           <TableHeader>
