@@ -81,6 +81,26 @@ describe('ScheduleCell and WebhookCell', () => {
     expect(screen.queryByTestId('webhook-switch')).toBeNull();
   });
 
+  // The switch of a group suspends its workflows: the row follows the list.
+  it('follows a schedule that was suspended from elsewhere', () => {
+    const view = renderCell(dagFile(cron));
+    expect(
+      screen.getByRole('switch', { name: 'Schedule for etl' })
+    ).toBeChecked();
+    const suspended = { ...dagFile(cron), suspended: true } as DAGFile;
+    view.rerender(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <ScheduleCell dag={suspended} />
+          <WebhookCell dag={suspended} />
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+    expect(
+      screen.getByRole('switch', { name: 'Schedule for etl' })
+    ).not.toBeChecked();
+  });
+
   it('shows a dash in each column for a workflow that has neither', () => {
     renderCell(dagFile([]));
     expect(screen.getByTestId('schedule-cell').textContent).toBe('-');

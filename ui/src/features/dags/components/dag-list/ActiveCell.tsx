@@ -49,7 +49,9 @@ export function ScheduleCell({
       onClick={(event) => event.stopPropagation()}
       className="flex min-w-0 items-center gap-1 text-xs"
     >
-      <LiveSwitch dag={dag} refresh={refresh} />
+      {/* The switch keeps its own position, so a change from elsewhere, such
+          as the switch of the group, mounts it anew. */}
+      <LiveSwitch key={String(dag.suspended)} dag={dag} refresh={refresh} />
       <ScheduleLine dag={dag} emptyLabel={false} indicator={false} />
     </span>
   );
