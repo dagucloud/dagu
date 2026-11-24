@@ -64,6 +64,13 @@ func TestReadNodeTargets(t *testing.T) {
 		require.EqualValues(t, 4, pagination["totalPages"])
 	})
 
+	// Query values are trimmed, as their validation trims them.
+	t.Run("nodes trims query values", func(t *testing.T) {
+		result := callRead(t, session, map[string]any{"target": "nodes", "query": "perPage=%201%20&page=+2&name=+web0"})
+		data := requireData(t, requireReadSuccess(t, result, "nodes", "", "", ""))
+		require.Equal(t, []string{"tokyo-web01"}, itemNames(t, data))
+	})
+
 	// Credentials are refs: a key path or a secret name, never a value.
 	t.Run("node reads one node by name in any case", func(t *testing.T) {
 		data := requireData(t, requireReadSuccess(t, callRead(t, session, map[string]any{"target": "node", "name": "TOKYO-DB01"}), "node", "", "", ""))

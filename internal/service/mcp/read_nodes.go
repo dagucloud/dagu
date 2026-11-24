@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 
 	daguapi "github.com/dagucloud/dagu/v2/api/v1"
 )
@@ -19,16 +20,18 @@ func (svc *Service) listNodes(ctx context.Context, rawQuery string) (map[string]
 	if err != nil {
 		return nil, err
 	}
+	// Values are trimmed, as validateReadQuery trims them before it checks
+	// them.
 	text := func(key string) *string {
 		if !values.Has(key) {
 			return nil
 		}
-		value := values.Get(key)
+		value := strings.TrimSpace(values.Get(key))
 		return &value
 	}
 	// Numbers were range-checked, so a value that does not parse is absent.
 	number := func(key string) *int {
-		n, err := strconv.Atoi(values.Get(key))
+		n, err := strconv.Atoi(strings.TrimSpace(values.Get(key)))
 		if err != nil {
 			return nil
 		}
