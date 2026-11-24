@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { isMap, isScalar, isSeq } from 'yaml';
+import type { Document } from 'yaml';
 import { parseAllDocumentsAsServer } from '../serverYaml';
 
 export type RestartPolicy = 'no' | 'always' | 'unless-stopped';
@@ -71,18 +72,22 @@ function scheduleEntries(node: unknown): number {
   );
 }
 
+/** The schedule and retry policy of a parsed document 0. */
+export function restartOf(doc: Document | undefined): RestartView {
+  if (!doc || doc.errors.length > 0 || !isMap(doc.contents)) {
+    return NO_RESTART;
+  }
+  const root = doc.contents;
+  return {
+    schedule: scheduleEntries(root.get('schedule', true)) > 0,
+    retryPolicy: !isEmpty(root.get('retry_policy', true)),
+  };
+}
+
 /** Reads the schedule and retry policy of document 0. Never throws. */
 export function readRestart(text: string): RestartView {
   try {
-    const doc = parseAllDocumentsAsServer(text)[0];
-    if (!doc || doc.errors.length > 0 || !isMap(doc.contents)) {
-      return NO_RESTART;
-    }
-    const root = doc.contents;
-    return {
-      schedule: scheduleEntries(root.get('schedule', true)) > 0,
-      retryPolicy: !isEmpty(root.get('retry_policy', true)),
-    };
+    return restartOf(parseAllDocumentsAsServer(text)[0]);
   } catch {
     return NO_RESTART;
   }
