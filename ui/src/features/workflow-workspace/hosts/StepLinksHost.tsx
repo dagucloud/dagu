@@ -11,11 +11,11 @@ import { useOpenStepDetails } from '../canvas/useOpenStepDetails';
 /**
  * Gives the names of the previous steps in the Upstream data column a click
  * that opens the step in the node view (?step and ?ndv=expanded; the other
- * keys of the URL stay, the tab of the view stays). It sits inside the editor
- * provider, as the dock does.
+ * keys of the URL stay). An open form gives way to the YAML of that step. It
+ * sits inside the editor provider, as the dock does.
  */
 export function StepLinksHost({ children }: { children: ReactNode }) {
-  // The step view keeps its tab, the YAML by default, as for any step.
+  // The step selects as for a click on its card: the view shows its YAML.
   const open = useOpenStepDetails({ form: false });
   const links = useMemo<StepLinks>(() => ({ open }), [open]);
   return (

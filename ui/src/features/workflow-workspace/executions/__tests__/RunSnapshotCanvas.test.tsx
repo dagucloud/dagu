@@ -982,6 +982,26 @@ describe.skipIf(realSchema === null)('RunSnapshotCanvas', () => {
       expect(screen.getByTestId('run-yaml-editor')).toBeInTheDocument();
     });
 
+    // The arrows move to the YAML of another step, never to its form.
+    it('shows the YAML of the next step when the form was open', async () => {
+      await openStepYaml();
+      const ndv = await screen.findByTestId('ndv');
+      await showForm();
+      expect(
+        await within(ndv).findByRole('button', { name: 'Form', pressed: true })
+      ).toBeInTheDocument();
+
+      fireEvent.click(within(ndv).getByRole('button', { name: 'Next step' }));
+
+      expect(
+        await within(ndv).findByRole('button', { name: 'YAML', pressed: true })
+      ).toBeInTheDocument();
+      await waitFor(() =>
+        expect(screen.getByTestId('loc').dataset.url).toContain('step=publish')
+      );
+      expect(screen.queryByTestId('ve-inspector')).toBeNull();
+    });
+
     it('has a Copy YAML button that copies the definition', async () => {
       const writeText = vi.fn().mockResolvedValue(undefined);
       Object.defineProperty(navigator, 'clipboard', {

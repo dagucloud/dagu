@@ -1863,11 +1863,8 @@ function DAGSpec({
   // its form, even when the form of the last step was open.
   const selectNdvStep = (name: string) => {
     if (visualHandleRef.current?.openYaml(name)) return;
-    if (onSelectedStepNameChange) {
-      onSelectedStepNameChange(name);
-    } else {
-      visualHandleRef.current?.revealStep(name);
-    }
+    // The editor has no such step, or is not mounted: the host selects it.
+    onSelectedStepNameChange?.(name);
   };
 
   // The text of the file, as the editor and the run canvas show it. It stays

@@ -70,15 +70,15 @@ describe('placeToolbar', () => {
     expect(node.right + shift).toBeLessThan(canvas.left);
   });
 
-  // The Model pickers stand left of a node. A node at the right edge of a
-  // canvas with a dock pushes its toolbar left, over those pickers.
+  // A node at the right edge of the canvas pushes its toolbar left, over
+  // what stands left of the node.
   describe('with an obstacle', () => {
-    // The pickers: left of the node, level with the band above it.
-    const pickers = { left: 560, top: 150, right: 760, bottom: 250 };
+    // Left of the node, level with the band above it.
+    const beside = { left: 560, top: 150, right: 760, bottom: 250 };
     const node = box(700, 200, 360, 60);
 
-    it('goes under the node when the toolbar would cover the pickers', () => {
-      expect(placeToolbar(node, canvas, size, 'right', [pickers]).below).toBe(
+    it('goes under the node when the toolbar would cover the obstacle', () => {
+      expect(placeToolbar(node, canvas, size, 'right', [beside]).below).toBe(
         true
       );
     });
@@ -101,7 +101,7 @@ describe('placeToolbar', () => {
     it('stays where it is when both sides are covered', () => {
       const below = { left: 560, top: 262, right: 760, bottom: 300 };
       expect(
-        placeToolbar(node, canvas, size, 'right', [pickers, below]).below
+        placeToolbar(node, canvas, size, 'right', [beside, below]).below
       ).toBe(false);
     });
   });

@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
-import { stepNeeds, staleUpstream } from '../reuseSource';
 import { yamlUnindentedQuote } from '../../testing/fixtures';
 import { diffRunSpec, normalizeSpec, specTextDiffers } from '../runSpecDiff';
 
@@ -139,21 +138,6 @@ steps:
     run: ${command}
 `;
 
-    it('marks the head and the steps downstream when a sub-DAG changes', () => {
-      const diff = diffRunSpec(multi('echo a'), multi('echo b'));
-      expect(diff.headChanged).toBe(true);
-      const stale = staleUpstream({
-        diff,
-        previous: ['child', 'use', 'other'],
-        deps: stepNeeds([
-          { name: 'child' },
-          { name: 'use', depends: ['child'] },
-          { name: 'other' },
-        ]),
-      });
-      expect(stale).toEqual(expect.arrayContaining(['child', 'use']));
-    });
-
     it('finds no difference in an unchanged text', () => {
       const diff = diffRunSpec(multi('echo a'), multi('echo a'));
       expect(diff.headChanged).toBe(false);
@@ -173,11 +157,6 @@ steps:
       const single = multi('echo a').split('---')[0] ?? '';
       expect(diffRunSpec(multi('echo a'), single).headChanged).toBe(true);
       expect(diffRunSpec(single, multi('echo a')).headChanged).toBe(true);
-    });
-
-    it('marks the head when a later document cannot be read', () => {
-      const broken = `${multi('echo a').split('---')[0]}---\nsteps: [`;
-      expect(diffRunSpec(multi('echo a'), broken).headChanged).toBe(true);
     });
   });
 

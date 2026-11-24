@@ -157,7 +157,8 @@ export function useToolbarPlacement(
     };
     // The toolbar never covers the Model pickers of the other nodes, the
     // labels of the connectors, or a link that ends at the top or the bottom
-    // of its node: a handle gives the link a box as long as the toolbar.
+    // of its node: a handle gives the link a box as long as the toolbar. The
+    // DOM does not mark a handle that has a link, so each handle counts.
     const reach = size.height + GAP + MARGIN;
     const obstacles = [
       ...Array.from(

@@ -3,7 +3,7 @@
 
 import { act, render } from '@testing-library/react';
 import { MemoryRouter, useLocation, useNavigationType } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { WorkspaceEditorHandle } from '../../contracts';
 import { useOpenStepDetails } from '../useOpenStepDetails';
 
@@ -35,8 +35,6 @@ function Probe() {
   navigation = useNavigationType();
   return null;
 }
-
-beforeEach(() => sessionStorage.clear());
 
 function mount(url: string) {
   render(

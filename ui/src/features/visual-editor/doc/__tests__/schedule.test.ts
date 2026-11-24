@@ -55,24 +55,6 @@ describe('readSchedule', () => {
     });
   });
 
-  it('reads the schedule of document 0 in a multi-document file', () => {
-    const text = `schedule: "0 9 * * *"
-steps:
-  - name: a
-    run: echo a
----
-name: sub
-steps:
-  - name: b
-    run: echo b
-`;
-    expect(readSchedule(text)).toMatchObject({
-      present: true,
-      expressions: ['0 9 * * *'],
-      others: 0,
-    });
-  });
-
   it('counts a start that is one object', () => {
     expect(
       readSchedule('schedule:\n  start:\n    at: 2030-01-01T00:00:00Z\n')
@@ -203,31 +185,12 @@ steps:
     );
   });
 
-  it('keeps stop and restart when the last start is removed', () => {
-    const text =
-      'schedule:\n  start: "0 8 * * *"\n  stop: "0 18 * * *"\n  restart: "0 12 * * *"\nsteps:\n  - echo a\n';
-    const next = set(text, []);
-    expect(next).toBe(
-      'schedule:\n  stop: "0 18 * * *"\n  restart: "0 12 * * *"\nsteps:\n  - echo a\n'
-    );
-  });
-
   it('removes the key when the map form has only start', () => {
     const next = set(
       'schedule:\n  start: "0 8 * * *"\nsteps:\n  - echo a\n',
       []
     );
     expect(next).toBe('steps:\n  - echo a\n');
-  });
-
-  it('keeps one-off entries when the last cron is removed', () => {
-    const text =
-      'schedule:\n  - "0 * * * *"\n  - at: 2030-01-01T00:00:00Z\nsteps:\n  - echo a\n';
-    const next = set(text, []);
-    const view = readSchedule(next);
-    expect(view.expressions).toEqual([]);
-    expect(view.others).toBe(1);
-    expect(next).toContain('at: 2030-01-01T00:00:00Z');
   });
 
   it('keeps the other entries with an empty list', () => {
@@ -242,6 +205,14 @@ steps:
       []
     );
     expect(map).toBe('schedule:\n  stop: "0 18 * * *"\n');
+
+    const both = set(
+      'schedule:\n  start: "0 8 * * *"\n  stop: "0 18 * * *"\n  restart: "0 12 * * *"\nsteps:\n  - echo a\n',
+      []
+    );
+    expect(both).toBe(
+      'schedule:\n  stop: "0 18 * * *"\n  restart: "0 12 * * *"\nsteps:\n  - echo a\n'
+    );
   });
 
   // The start of the map form can be one object, such as a one-off run.

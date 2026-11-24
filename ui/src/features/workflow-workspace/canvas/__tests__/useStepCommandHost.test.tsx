@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { VisualEditorHandle } from '@/features/visual-editor/contracts';
 import {
   NO_RUN_GATES,
@@ -118,8 +118,6 @@ describe('runStepGates', () => {
 });
 
 describe('useDeepLinkReveal', () => {
-  beforeEach(() => sessionStorage.clear());
-
   function handle(openForm: boolean) {
     return {
       openForm: vi.fn(() => openForm),
