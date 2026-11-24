@@ -121,6 +121,18 @@ describe('isSameYaml', () => {
     expect(isSameYaml('', '\n\n')).toBe(true);
   });
 
+  // An alias before its anchor parses, but toJS throws. isSameYaml runs while a
+  // page renders, so it must compare the texts instead.
+  it('does not throw on an alias that has no anchor before it', () => {
+    const aliased = 'env: *x\n' + base + 'x: &x\n  A: 1\n';
+    expect(() => isSameYaml(base, aliased)).not.toThrow();
+    expect(isSameYaml(base, aliased)).toBe(false);
+    expect(isSameYaml(aliased, aliased + '\n\n')).toBe(true);
+    expect(isSameYaml(aliased, aliased.replace('echo a', 'echo b'))).toBe(
+      false
+    );
+  });
+
   // An alias without its anchor parses, but the document has no value.
   it('compares text when an alias has no anchor', () => {
     const unresolved = 'steps:\n  - name: a\n    run: *missing\n';
@@ -277,7 +289,9 @@ describe('formatYaml', () => {
 
   it('keeps the line ends of a kept block scalar at the end', () => {
     const text = 'steps:\n  - name: a\n    script: |+\n      echo hi\n\n\n';
-    expect(parse(formatYaml(text))).toEqual(parse(text));
+    const out = formatYaml(text);
+    expect(parse(out)).toEqual(parse(text));
+    expect(formatYaml(out)).toBe(out);
   });
 
   it('keeps an integer beyond the float precision', () => {
@@ -337,6 +351,44 @@ function load(dir: string): { name: string; text: string }[] {
     return [];
   }
 }
+
+describe('formatYaml and formatStepRange with a keep block', () => {
+  // The range of the step stops before the blank lines that a kept block
+  // owns: the edit takes them in, so that the value of the block stays.
+  it.each(['|+', '|+2', '>+2', '|2+'])(
+    'formats a step with a %s block and keeps its value',
+    (header) => {
+      const text = `name: demo\nsteps:\n  - run: echo 1\n    name: a\n    script: ${header}\n      echo hi\n\n\n  - name: b\n    run: echo 2\n`;
+      const model = parseDagDoc(text);
+      const edit = formatStepRange(text, model.steps[0]!);
+      expect(edit).not.toBeNull();
+      const out = applyTextEdits(text, [edit!]);
+      expect(out).not.toBe(text);
+      const before = parse(text) as { steps: { script: string }[] };
+      const after = parse(out) as { steps: { script: string }[] };
+      expect(after.steps[0]!.script).toBe(before.steps[0]!.script);
+      expect(after.steps[1]).toEqual(before.steps[1]);
+    }
+  );
+
+  it.each(['run: echo a |+', 'run: x # keep |+'])(
+    'formats a step with `%s` in a plain scalar or a comment',
+    (line) => {
+      const text = `name: demo\nsteps:\n  - ${line}\n    name: a\n`;
+      const model = parseDagDoc(text);
+      expect(formatStepRange(text, model.steps[0]!)).not.toBeNull();
+    }
+  );
+
+  it('keeps a |+ block in the last of several documents', () => {
+    const text = 'name: a\n---\nname: b\nscript: |+\n  echo hi\n\n\n';
+    const docs = parseAllDocuments(formatYaml(text));
+    expect(docs).toHaveLength(2);
+    expect((docs[1]!.toJS() as { script: string }).script).toBe(
+      'echo hi\n\n\n'
+    );
+  });
+});
 
 describe('formatYaml on the fixtures', () => {
   const files = [...load(fixtureDir), ...load(e2eDir)];
@@ -723,10 +775,35 @@ describe('formatStepRange', () => {
     expect(out.replace(/\r\n/g, '\n')).toBe(formatYaml(messy));
   });
 
+  // A step out of key order is rewritten, and the integer stays.
+  it('keeps an integer beyond 2^53 exact', () => {
+    const text = [
+      'name: demo',
+      'env:',
+      '  CHANNEL: 1234567890123456789',
+      'steps:',
+      '  - id: a',
+      '    name: a',
+      '    run: echo a',
+      '    env:',
+      '      ID: 1234567890123456789',
+      '',
+    ].join('\n');
+    const messy = text.replace(
+      '  - id: a\n    name: a\n',
+      '  - name: a\n    id: a\n'
+    );
+    const out = formatStep(messy, 0);
+    expect(out).not.toBe(messy);
+    expect(out).toContain('ID: 1234567890123456789');
+  });
+
   it('keeps a line of spaces inside a block scalar', () => {
     const text =
       'name: demo\n\nsteps:\n  - name: a\n    run: |\n      echo a\n        \n      echo b\n';
     expect(formatStepRange(text, parseDagDoc(text).steps[0]!)).toBeNull();
+    // The line is longer than the block indent: it is content.
+    expect(parse(formatYaml(text)).steps[0].run).toBe('echo a\n  \necho b\n');
   });
 
   it('keeps a block scalar with a trailing space in block style', () => {
