@@ -255,6 +255,24 @@ func TestNewNodeAPI_RefusesBadRequests(t *testing.T) {
 	require.IsType(t, apigen.TestNewInventoryNode404JSONResponse{}, test)
 }
 
+// A test of a node that breaks a rule lists each rule, as an add does, and
+// its message names them too for clients that show only the message.
+func TestNewNodeAPI_ListsBrokenRules(t *testing.T) {
+	fleet := newNodeFleet(t, "web01")
+	test, err := fleet.api().TestNewInventoryNode(context.Background(), apigen.TestNewInventoryNodeRequestObject{
+		InventoryId: fleet.inventory.ID,
+		Body:        &apigen.InventoryNewNodeTestRequest{Node: newNodeRecord(t, "-web02", "22")},
+	})
+	require.NoError(t, err)
+	refused, ok := test.(apigen.TestNewInventoryNode400JSONResponse)
+	require.True(t, ok, "got %T", test)
+	require.Len(t, refused.Errors, 1)
+	rule := refused.Errors[0]
+	assert.Equal(t, "-web02", *rule.Node)
+	assert.Equal(t, "name", *rule.Field)
+	assert.Contains(t, refused.Message, rule.Message)
+}
+
 // A new node is tested as it would be in its inventory, with that
 // inventory's credentials, and only by a developer. A key the user accepts
 // lets it pass, and nothing is stored or trusted.

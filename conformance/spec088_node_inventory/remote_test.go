@@ -62,6 +62,7 @@ func TestNodesCommandsOverRemoteContext(t *testing.T) {
 		{"nodes", "show", "web99"},
 		{"nodes", "list", "--inventory", "nowhere"},
 		{"nodes", "list", "--labels", ","},
+		{"nodes", "add", "tokyo-web09", "--inventory", "Tokyo production", "--host", "10.0.1.19", "--bastion", "nowhere"},
 		{"nodes", "import", "inventories.json"},
 		{"nodes", "import", "broken.json"},
 	} {
