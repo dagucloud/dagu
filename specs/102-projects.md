@@ -64,11 +64,16 @@ files, URLs, and commands. An install with workspaces upgrades with no
 manual step, and no workflow changes silently which settings or secrets it
 runs with.
 
-Two cases need a step, and the preview lists both before the upgrade: an
-install whose paths overlap ([Overlapping Paths](#overlapping-paths)) sets
-`paths.projects_dir` or moves a path, and a DAG that migration finds with
-an [unsettled label](#unsettled-labels) loads once its label is removed or
-its file moves into a project.
+Some cases need a step, and the preview lists each before the upgrade:
+
+- An install whose paths overlap ([Overlapping Paths](#overlapping-paths))
+  sets `paths.projects_dir` or moves a path.
+- A DAG that migration finds with an [unsettled label](#unsettled-labels)
+  loads once its label is removed or its file moves into a project.
+- A DAG that v2 found through a symbolic link out of `<dags_dir>`, and a
+  library DAG that v2 scheduled because `alt_dags_dir` lay inside
+  `dags_dir`, are scheduled again once their files move into a DAG
+  directory. See [What Moves](#what-moves).
 
 ## Decisions
 
