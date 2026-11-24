@@ -28,8 +28,8 @@ function serverMessage(error: unknown): string | null {
   return typeof message === 'string' && message ? message : null;
 }
 
-// The steps of `fromRuns` whose run the server refused. The server names the
-// first entry that it refuses: `step X cannot be reused from run Y: <reason>`.
+// The steps of `fromRuns` whose run the server refused. The server names each
+// one as `step X cannot be reused from run Y: <reason>`.
 function refusedSteps(
   message: string | null,
   fromRuns: Readonly<Record<string, string>>

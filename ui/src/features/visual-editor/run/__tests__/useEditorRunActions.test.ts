@@ -24,11 +24,17 @@ function cacheEntry(runId: string) {
   return { values: { OUT: 'x' }, runId, capturedAt: 1, stepHash: 'h' };
 }
 
-function refuse(step: string, runId: string) {
+// Answers the next request with a refusal of each step and its run, as the
+// server joins them.
+function refuse(...pairs: [step: string, runId: string][]) {
+  const message = pairs
+    .map(
+      ([step, runId]) =>
+        `step ${step} cannot be reused from run ${runId}: the step or a step it depends on changed since that run`
+    )
+    .join('; ');
   POST.mockResolvedValueOnce({
-    error: {
-      message: `step ${step} cannot be reused from run ${runId}: the step or a step it depends on changed since that run`,
-    },
+    error: { message },
     response: { status: 400 },
   });
 }
@@ -254,23 +260,24 @@ describe('useEditorRunActions', () => {
     );
   });
 
-  it('drops the cache entry of a step whose run the server refuses', async () => {
+  it('drops the cache entries of the steps whose runs the server refuses', async () => {
     outputCache.put(SCOPE, 'a', cacheEntry('RunA'));
     outputCache.put(SCOPE, 'c', cacheEntry('RunC'));
-    refuse('a', 'RunA');
+    outputCache.put(SCOPE, 'd', cacheEntry('RunD'));
+    refuse(['a', 'RunA'], ['c', 'RunC']);
     const { result } = setup();
     await act(async () => {
       await result.current.runStep('b', {
-        outputsFromRuns: { a: 'RunA', c: 'RunC' },
+        outputsFromRuns: { a: 'RunA', c: 'RunC', d: 'RunD' },
       });
     });
-    expect(Object.keys(outputCache.entries(SCOPE))).toEqual(['c']);
+    expect(Object.keys(outputCache.entries(SCOPE))).toEqual(['d']);
   });
 
   // The entry of the step may name a newer run by the time the answer comes.
   it('keeps an entry that names another run than the refused one', async () => {
     outputCache.put(SCOPE, 'a', cacheEntry('RunA2'));
-    refuse('a', 'RunA');
+    refuse(['a', 'RunA']);
     const { result } = setup();
     await act(async () => {
       await result.current.runStep('b', { outputsFromRuns: { a: 'RunA' } });

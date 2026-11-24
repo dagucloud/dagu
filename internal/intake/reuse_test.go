@@ -140,6 +140,21 @@ func TestCheckRunStepsUnchanged(t *testing.T) {
 	}
 }
 
+// One error names every changed step, so that a client can drop all of its
+// stale entries after one refusal.
+func TestCheckRunStepsUnchangedNamesEach(t *testing.T) {
+	t.Parallel()
+
+	earlier := loadReuseDAG(t, reuseSpec)
+	run := succeededRun(earlier)
+	dag := loadReuseDAG(t, strings.Replace(reuseSpec, "echo rows", "echo all rows", 1))
+	err := intake.CheckRunStepsUnchanged(dag, "",
+		intake.RunStepSources{"page": run, "filter": run, "notes": run},
+		intake.RunDefinitions{"earlier": earlier})
+	require.EqualError(t, err, "step filter cannot be reused from run earlier: the step or a step it depends on changed since that run; "+
+		"step page cannot be reused from run earlier: the step or a step it depends on changed since that run")
+}
+
 // A step that the earlier run skipped by retry is reused when the caller
 // supplied its outputs, which leaves it no finish time; one that carried
 // nothing runs.

@@ -92,8 +92,8 @@ func StepsToRun(dag *ir.DAG, profile string, sourceDAG *ir.DAG, source *ir.DAGRu
 // other than its steps, the base config, the run's parameters and runtime
 // profile, and the steps it depends on. dag has its run's parameters resolved,
 // profile is the runtime profile of the run, and definitions holds the
-// definition that each run of fromRuns ran. The error names the step and the
-// run.
+// definition that each run of fromRuns ran. The error names every changed
+// step with its run, joined by "; ", so that a caller can drop them at once.
 func CheckRunStepsUnchanged(dag *ir.DAG, profile string, fromRuns RunStepSources, definitions RunDefinitions) error {
 	if len(fromRuns) == 0 {
 		return nil
@@ -104,6 +104,7 @@ func CheckRunStepsUnchanged(dag *ir.DAG, profile string, fromRuns RunStepSources
 		return err
 	}
 	earlier := make(map[string]map[string]string, len(definitions))
+	var changed []string
 	for _, ref := range slices.Sorted(maps.Keys(fromRuns)) {
 		run := fromRuns[ref]
 		name, err := resolveStepName(dag, ref)
@@ -128,7 +129,10 @@ func CheckRunStepsUnchanged(dag *ir.DAG, profile string, fromRuns RunStepSources
 		if err != nil {
 			return err
 		}
-		return fmt.Errorf("step %s cannot be reused from run %s: %s", ref, run.DAGRunID, reason)
+		changed = append(changed, fmt.Sprintf("step %s cannot be reused from run %s: %s", ref, run.DAGRunID, reason))
+	}
+	if len(changed) > 0 {
+		return errors.New(strings.Join(changed, "; "))
 	}
 	return nil
 }
