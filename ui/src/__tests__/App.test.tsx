@@ -48,6 +48,9 @@ vi.mock('@/hooks/api', () => ({
   useQuery: useQueryMock,
 }));
 
+// The app does not mount the overlay by default; these tests need it.
+vi.mock('@/features/peek/overlayMounted', () => ({ OVERLAY_MOUNTED: true }));
+
 vi.mock('../layouts/Layout', () => ({
   default: ({ children }: { children: React.ReactNode }) => {
     const license = useLicense();
