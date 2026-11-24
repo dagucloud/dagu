@@ -46,13 +46,13 @@ Tool input is a JSON object. Fields outside this table fail with
 | Field | Type | Allowed in mode | Required rule | Meaning |
 | --- | --- | --- | --- | --- |
 | `target` | string | Target mode only. | Required for target mode. | Case-sensitive read target literal. |
-| `name` | string | Target mode only. | Required for `dag`, `dag_spec`, `run`, `run_logs`, `step_log`, `foreach_items`, and `foreach_item`; optional for `reference`; forbidden for the remaining targets. | DAG name or reference topic name. |
+| `name` | string | Target mode only. | Required for `dag`, `dag_spec`, `run`, `run_logs`, `step_log`, `foreach_items`, `foreach_item`, and `node`; optional for `reference`; forbidden for the remaining targets. | DAG name, node name, or reference topic name. |
 | `dagRunId` | string | Target mode only. | Required for `run`, `run_logs`, `step_log`, `foreach_items`, and `foreach_item`; forbidden for all other targets. | DAG-run identifier. |
 | `subRunId` | string | Target mode only. | Optional for `run`, `step_log`, `foreach_items`, and `foreach_item`; forbidden for all other targets. | Child DAG-run identifier addressed under the root run selected by `name` and `dagRunId`. |
 | `stepName` | string | Target mode only. | Required for `step_log`, `foreach_items`, and `foreach_item`; forbidden for all other targets. | Step name inside the DAG-run. |
 | `item` | string | Target mode only. | Required for `foreach_item`; optional for `step_log`, where it requires `bodyStepName`; forbidden for all other targets. | Foreach item path: the item index, or for an item of a nested foreach the `foreachParent` a body step reports followed by `.` and the index. |
 | `bodyStepName` | string | Target mode only. | Optional for `step_log`, where it requires `item`; forbidden for all other targets. | Body step name or ID inside the foreach item. |
-| `query` | string | Target mode only. | Optional only for `dags`, `wiki`, `runs`, `run_logs`, `step_log`, and `foreach_items`; forbidden for all other targets. | URL query string without a leading `?`. |
+| `query` | string | Target mode only. | Optional only for `dags`, `wiki`, `runs`, `run_logs`, `step_log`, `foreach_items`, and `nodes`; forbidden for all other targets. | URL query string without a leading `?`. |
 | `workspace` | string | Target mode only. | Required for `wiki_page`, where `all` is not allowed; optional for `wiki`, `wiki_search`, and `dag_search`, defaulting to `all`; forbidden for all other targets. | Workspace selector. |
 | `path` | string | Target mode only. | Required for `wiki_page` and `workbook`; forbidden for all other targets. | Wiki page path without the `.md` extension, or for `workbook` a file path on the server. |
 | `password` | string | Target mode only. | Optional for `workbook`; forbidden for all other targets. | Password of a protected workbook, kept exactly as supplied. It is not recorded in the audit log. |
@@ -136,6 +136,9 @@ Rules:
 | `step_log` | `name`, `dagRunId`, `stepName`. | `subRunId`, `query`, `item` with `bodyStepName`. | The root or child step-log URI, or the foreach step-log URI when `item` is supplied, with the supplied query appended when present. | Step-log model. |
 | `foreach_items` | `name`, `dagRunId`, `stepName`. | `subRunId`, `query`. | The root or child foreach-items URI, with the supplied query appended when present. | Foreach items model. |
 | `foreach_item` | `name`, `dagRunId`, `stepName`, `item`. | `subRunId`. | The root or child foreach-item URI. | Foreach item model. |
+| `nodes` | None. | `query`. | Omitted. | Node collection model. |
+| `node` | `name`. | None. | Omitted. | Node model. |
+| `inventories` | None. | None. | Omitted. | Inventory collection model. |
 
 Minimum `data` models:
 
@@ -154,6 +157,9 @@ Minimum `data` models:
 | Foreach item | `data.item`, `data.key`, `data.statusLabel` are strings, `data.index` and `data.status` numbers, and `data.error` a string when the body run failed. `data.steps` is an array in execution order; each entry has `name` string, `status` number, `statusLabel` string, `hasStdout` and `hasStderr` booleans, carries `error`, `startedAt`, and `finishedAt` strings once recorded, and for a body step that is itself a foreach carries `foreachParent`, the `parent` query value that lists its items. A body step that kept an agent session, such as the operations of a browser step, carries it as `agentSession`, with the run's secrets masked, and a body step that called models carries `modelUsage`; both have the shape the run's own steps have in the HTTP API. |
 | DAG search | `data.results` is an array. Each result has `name` string, `uri` string set to the canonical `dagu://dags/{name}/spec` URI, `matches` array of line-level snippets, and `hasMoreMatches` boolean. `data.hasMore` is a boolean, and `data.nextCursor` is an opaque cursor string when another page is available. |
 | Workbook | `data.path` is the resolved file path string and `data.date_system` is a string, `1900` or `1904`. `data.sheets` is an array with one entry per sheet, each with `name` string, `hidden` boolean `true` for a hidden or very hidden sheet, `used_range` string, `range` string, `header_row` number (0 for an empty sheet), `headers` array of strings, `types` object mapping header to `string`, `number`, `integer`, `boolean`, `date`, or `datetime`, `row_count` number, `hidden_rows` number of data rows hidden by a filter or by hand when there are any, `columns` array profiling each column in header order, `profile_truncated` boolean `true` when the table holds more data rows than the profile reads, `tables` array of `{name, range}`, and, for a sheet with a header row, `sample` array of up to five typed rows keyed by header, each carrying `_row`. Each `columns` entry has `name` string, `type` string, and `filled`, `blank`, and `distinct` numbers, and may carry `values` array of strings, `min` and `max`, `odd` number, and `odd_cells` array of `{cell, text}`; Spec 077 defines the profile. `data.named_ranges` is an array of `{name, refers_to, scope}` and `data.warnings` an array of strings. The path is any workbook the server process can read, the same trust as DAG authoring, and the audit record carries it as `workbook_path`. A path that is not `.xlsx` or `.xlsm` is `invalid_tool_input` on `path`, a missing file is `resource_not_found`, and a file another program holds or that is not a workbook is `resource_unavailable`. A protected workbook needs `password`; a missing or wrong password is `invalid_tool_input` on `password`, with `<name>: workbook password is missing or incorrect`, and a workbook whose encryption is not supported is `resource_unavailable`. The password is not recorded in the audit log. |
+| Node collection | `data.items` is an array of node models in name order, one page of the nodes the query selects. `data.pagination` is an object describing the returned page. |
+| Node | The node as `GET /nodes/{name}` returns it, with its inventory's defaults applied ([Spec 088](088-node-inventory.md)): `data.name`, `data.host`, and `data.timeout` strings, `data.port` number, `data.inventory` object with `id` and `name` strings, `data.labels` array of strings, `data.disabled` boolean, and `data.auth` object. `data.auth` holds only key paths and secret names, as `keyPath`, `keySecret`, `passwordSecret`, and `passphraseSecret` strings, never a secret value. `node` matches `name` without case. |
+| Inventory collection | `data.items` is an array in name order. Each item has `id` and `name` strings, `nodeCount` and `version` numbers, and `createdAt` and `updatedAt` strings, and carries `description` when the inventory has one. |
 | Wiki collection | `data.pagination` is an object describing the returned page. Tree mode returns `data.tree`, and flat mode returns `data.items`; entries carry `id` strings and canonical `dagu://wiki/{workspace}/{path}` URIs for pages. |
 | Wiki page | `data.id` is the page path string. `data.content` is the Markdown string. `data.mimeType` is `text/markdown`. `data.uri` is the canonical `dagu://wiki/{workspace}/{path}` URI. |
 | Wiki search | `data.results` is an array. Each result has `id` string, `uri` string, `matches` array of snippets, and `hasMoreMatches` boolean. `data.hasMore` is a boolean, and `data.nextCursor` is an opaque cursor string when another page is available. |
@@ -168,7 +174,7 @@ absence of additional fields.
 Rules:
 
 - The `query` field is allowed only in target mode for `dags`, `wiki`,
-  `runs`, `run_logs`, `step_log`, and `foreach_items`.
+  `runs`, `run_logs`, `step_log`, `foreach_items`, and `nodes`.
 - The `query` field must not start with `?`.
 - The same parameter names are allowed in URI-mode collection and log URIs.
 - Query parameter order is not normative.
@@ -211,6 +217,11 @@ outside the table below fail with `invalid_tool_input` in target mode and
 | `foreach_items` | `status` | One of `not_started`, `running`, `succeeded`, `failed`, or `aborted`. |
 | `foreach_items` | `page` | Integer greater than or equal to `1`. |
 | `foreach_items` | `perPage` | Integer from `1` through `500`. |
+| `nodes` | `labels` | Non-empty node selector, as a step's `nodes` field takes it ([Spec 088](088-node-inventory.md)). |
+| `nodes` | `inventory` | Non-empty inventory ID, or inventory name compared without case. |
+| `nodes` | `name` | Non-empty string. Keeps the nodes whose name contains it, compared without case. |
+| `nodes` | `page` | Integer greater than or equal to `1`. |
+| `nodes` | `perPage` | Integer from `1` through `200`. |
 
 For `step_log`, at most one of `tail`, `head`, and `offset` may be supplied.
 `limit` may be combined only with `offset`; `limit` alone reads from the
@@ -330,7 +341,8 @@ Common conditions map to codes as follows:
 | The `query` field is supplied in URI mode, supplied for a target that does not allow it, starts with `?`, contains malformed URL query encoding, or contains unsupported parameters. | `invalid_tool_input` |
 | `uri` is malformed, uses the wrong scheme, has an unsupported path shape, or contains malformed query parameters. | `invalid_resource_uri` |
 | `uri` identifies a resource family that this tool cannot read. | `unsupported_resource` |
-| The named DAG, DAG run, log stream, or reference topic does not exist. | `resource_not_found` |
+| For `nodes`, `labels` is not a valid selector or `inventory` names no inventory. The error names `query`. | `invalid_tool_input` |
+| The named DAG, DAG run, log stream, node, or reference topic does not exist. | `resource_not_found` |
 | The resource exists but cannot currently be read. | `resource_unavailable` |
 | The server fails unexpectedly while handling the read. | `internal_error` |
 

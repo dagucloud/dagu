@@ -8,8 +8,9 @@ export, and changes to one node are implemented through `dagu nodes list`,
 through those commands. Testing connections and trusting host keys are
 implemented over the API and through `dagu nodes test`, and conformance
 covers both. The commands also run against a remote context, and
-conformance compares their output with a local run. Worker nodes are not
-implemented yet, and further sections are added as they land
+conformance compares their output with a local run. MCP's `dagu_read`
+lists nodes and inventories ([Spec 021](021-mcp-read-tool.md)). Worker
+nodes are not implemented yet, and further sections are added as they land
 ([RFC 012](../rfcs/012-node-inventory.md)).
 
 ## Scope
