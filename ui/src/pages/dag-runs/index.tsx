@@ -1414,7 +1414,10 @@ function DAGRuns() {
       <div>
         {backfillId ? (
           <>
-            <BackfillRunsScope backfillId={backfillId} onClear={clearBackfill} />
+            <BackfillRunsScope
+              backfillId={backfillId}
+              onClear={clearBackfill}
+            />
             {/* The scope replaces the filter row that holds the actions. */}
             <div className="mb-3 flex flex-wrap items-center gap-2 empty:hidden">
               {batchActions}
