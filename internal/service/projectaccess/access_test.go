@@ -71,6 +71,19 @@ func TestList(t *testing.T) {
 				{Project: f.weather, Role: auth.RoleViewer},
 			},
 		},
+		{
+			// The viewer role of a user limited to some workspaces does not
+			// reach every project; only the grants count.
+			name: "LimitedToWorkspaces",
+			user: &auth.User{
+				Role: auth.RoleViewer,
+				WorkspaceAccess: &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{
+					{Workspace: "ops", Role: auth.RoleOperator},
+				}},
+				ProjectGrants: []auth.ProjectGrant{{ProjectID: f.weather.ID, Role: auth.RoleOperator}},
+			},
+			want: []projectaccess.Access{{Project: f.weather, Role: auth.RoleOperator}},
+		},
 		{name: "NoRole", user: &auth.User{}, want: []projectaccess.Access{}},
 		{name: "NilUser", want: []projectaccess.Access{}},
 	}

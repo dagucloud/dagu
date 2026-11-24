@@ -23,6 +23,11 @@ type Access struct {
 }
 
 // Checker decides access to the projects of a registry.
+//
+// A nil user has no role in any project. A caller to which roles do not
+// apply, such as a request under auth mode none, passes a user with
+// auth.RoleAdmin. A user limited to some workspaces has no server-wide role,
+// only its project grants.
 type Checker struct {
 	registry project.Registry
 }
@@ -35,8 +40,7 @@ func New(registry project.Registry) *Checker {
 // Get returns the project whose name matches name without regard to case,
 // and the user's role in it. It returns the same error, wrapping
 // project.ErrNotFound, when no project has the name and when the user has no
-// role in it, so a hidden project cannot be told from a missing one. A nil
-// user has no role in any project.
+// role in it, so a hidden project cannot be told from a missing one.
 func (c *Checker) Get(ctx context.Context, user *auth.User, name string) (Access, error) {
 	p, err := c.registry.Get(ctx, name)
 	if errors.Is(err, project.ErrNotFound) {
@@ -52,8 +56,7 @@ func (c *Checker) Get(ctx context.Context, user *auth.User, name string) (Access
 	return Access{Project: p, Role: role}, nil
 }
 
-// List returns the projects the user has a role in, ordered by name. A nil
-// user has no role in any project.
+// List returns the projects the user has a role in, ordered by name.
 func (c *Checker) List(ctx context.Context, user *auth.User) ([]Access, error) {
 	projects, err := c.registry.List(ctx)
 	if err != nil {
@@ -72,7 +75,13 @@ func roleIn(user *auth.User, p project.Project) auth.Role {
 	if user == nil {
 		return auth.RoleNone
 	}
-	return auth.RoleInProject(user.Role, user.ProjectGrants, p.ID)
+	serverRole := user.Role
+	// Workspace rules require RoleViewer of a user limited to some
+	// workspaces, so that role does not reach every project.
+	if !auth.NormalizeWorkspaceAccess(user.WorkspaceAccess).All {
+		serverRole = auth.RoleNone
+	}
+	return auth.RoleInProject(serverRole, user.ProjectGrants, p.ID)
 }
 
 func notFound(name string) error {
