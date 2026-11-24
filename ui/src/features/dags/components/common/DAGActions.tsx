@@ -132,11 +132,10 @@ function DAGActions({
   const isService = dag ? isServiceDAG(dag) : false;
   const serviceActive = hasActiveServiceRun(dag, status);
   const serviceRestarts = isService && restartsByItself(service);
-  // The Start of a bar keeps its place for every run, disabled while the
-  // service has an active run or starts the next one by itself.
+  // The Start of a bar stays enabled: the bar has no service state to say why
+  // a start is refused, so the server gives the reason.
   const hasStartButton =
     shows('start') && (barStart || (!serviceActive && !serviceRestarts));
-  const serviceBusy = serviceActive || serviceRestarts;
   const mark = (action: 'start' | 'stop' | 'retry') =>
     markActions ? action : undefined;
   const { ts } = useI18n();
@@ -239,10 +238,10 @@ function DAGActions({
 
   // Auto-open start modal when requested (e.g., from cockpit preview)
   React.useEffect(() => {
-    if (dagContext.autoOpenStartModal && hasStartButton && !serviceBusy) {
+    if (dagContext.autoOpenStartModal && hasStartButton) {
       setIsEnqueueModal(true);
     }
-  }, [dagContext.autoOpenStartModal, hasStartButton, serviceBusy]);
+  }, [dagContext.autoOpenStartModal, hasStartButton]);
 
   React.useEffect(() => {
     if (!isEnqueueModal) {
@@ -375,7 +374,7 @@ function DAGActions({
                   />
                 }
                 aria-label={barStart ? ts('Start') : undefined}
-                disabled={!buttonState['enqueue'] || serviceBusy}
+                disabled={!buttonState['enqueue']}
                 data-ww-action={mark('start')}
                 onClick={() => {
                   if (hasUnsavedChanges) {

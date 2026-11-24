@@ -425,7 +425,7 @@ describe('DAGActions', () => {
   });
 
   // A service workflow has one run at a time: the list rows and the cards
-  // (retryInPlaceOfStop) and the bar show Stop or Start, never both.
+  // (retryInPlaceOfStop) show Stop or Start, never both. The bar keeps Start.
   describe('service workflow', () => {
     const run = (status: Status) =>
       ({
@@ -570,7 +570,9 @@ describe('DAGActions', () => {
       expect(screen.queryByRole('button', { name: 'Submit start' })).toBeNull();
     });
 
-    it('keeps the Start of a bar in place, disabled and closed, while a run is active', () => {
+    // The bar has no service state to say why a start is refused, so its
+    // Start opens the dialog and the server gives the reason.
+    it('opens the Start dialog of a bar on request while a run is active', async () => {
       render(
         <MemoryRouter>
           <DAGContext.Provider value={{ autoOpenStartModal: true } as never}>
@@ -579,14 +581,14 @@ describe('DAGActions', () => {
               dag={always}
               status={run(Status.Running)}
               barStart
-              markActions
             />
           </DAGContext.Provider>
         </MemoryRouter>
       );
-      expect(names()).toEqual(['start', 'stop']);
-      expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled();
-      expect(screen.queryByRole('button', { name: 'Submit start' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled();
+      expect(
+        await screen.findByRole('button', { name: 'Submit start' })
+      ).toBeVisible();
     });
 
     it('keeps Start and Stop together for a plain workflow', () => {
