@@ -19,6 +19,7 @@ import {
   Status,
   ViewSortField,
   ViewSortOrder,
+  type components,
 } from '@/api/v1/schema';
 import { PanelWidthContext } from '@/components/SplitLayout';
 import { AppBarContext } from '@/contexts/AppBarContext';
@@ -94,6 +95,21 @@ function LocationProbe() {
   );
 }
 
+type Activity = components['schemas']['DAGListActivity'];
+
+// A fixture may carry the activity of its workflow. The table takes it by
+// file name, as the Workflows page joins the activity of a list page.
+function activityOf(
+  dags: React.ComponentProps<typeof DAGTable>['dags']
+): ReadonlyMap<string, Activity> {
+  return new Map(
+    dags.flatMap((dag) => {
+      const { activity } = dag as typeof dag & { activity?: Activity };
+      return activity ? [[dag.fileName, activity] as const] : [];
+    })
+  );
+}
+
 function renderTable(
   searchText = '',
   options: {
@@ -127,6 +143,20 @@ function renderTable(
       );
   const onSetDAGPinned = vi.fn().mockResolvedValue(undefined);
   const onSetDAGsPinned = vi.fn().mockResolvedValue(undefined);
+  const dags = options.dags ?? [
+    {
+      fileName: 'example.yaml',
+      dag: {
+        name: searchText || 'example',
+      },
+      latestDAGRun: {
+        status: Status.Success,
+        statusLabel: 'Success',
+      },
+      suspended: false,
+      errors: [],
+    } as never,
+  ];
   const result = render(
     <MemoryRouter initialEntries={['/dags']}>
       <LocationProbe />
@@ -143,22 +173,8 @@ function renderTable(
         >
           <PanelWidthContext.Provider value={options.panelWidth ?? null}>
             <DAGTable
-              dags={
-                options.dags ?? [
-                  {
-                    fileName: 'example.yaml',
-                    dag: {
-                      name: searchText || 'example',
-                    },
-                    latestDAGRun: {
-                      status: Status.Success,
-                      statusLabel: 'Success',
-                    },
-                    suspended: false,
-                    errors: [],
-                  } as never,
-                ]
-              }
+              dags={dags}
+              activity={activityOf(dags)}
               group=""
               refreshFn={vi.fn()}
               searchText={searchText}

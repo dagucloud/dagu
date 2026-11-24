@@ -114,13 +114,10 @@ import { DAGBackfillChip } from '@/features/backfills/components/DAGBackfillChip
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
-
-// Threshold in pixels below which we switch to card view
-// Set higher than table's comfortable minimum width (~700px for all columns)
-const CARD_VIEW_THRESHOLD = 700;
-// The strip of the activity needs room: below this width of the table, or below
-// the xl breakpoint of the page, the column is left out and the cards show it.
-const ACTIVITY_COLUMN_MIN_WIDTH = 1100;
+import {
+  ACTIVITY_COLUMN_MIN_WIDTH,
+  CARD_VIEW_THRESHOLD,
+} from './activityVisibility';
 
 /**
  * The name of a workflow. A plain click shows its peek, like a click on the
@@ -176,6 +173,8 @@ interface DAGCardProps {
    * chip shows the state in place of the run status.
    */
   service?: components['schemas']['ServiceDAG'];
+  /** The activity of the workflow, once the list has read it. */
+  activity?: components['schemas']['DAGListActivity'];
   /** The list does not gather by group: the group shows before the name. */
   showGroup?: boolean;
   className?: string;
@@ -218,21 +217,19 @@ function EditDAGButton({ dag }: { dag: components['schemas']['DAGFile'] }) {
  */
 function HeartbeatAwareActivity({
   dag,
+  activity,
   onOpenRun,
 }: {
   dag: components['schemas']['DAGFile'];
+  activity?: components['schemas']['DAGListActivity'];
   onOpenRun: (runId: string, event: React.MouseEvent) => void;
 }) {
   if (isServiceDAG(dag.dag)) {
-    return dag.activity?.buckets ? (
-      <ServiceActivityStrip
-        activity={dag.activity}
-        fileName={dag.fileName}
-        fluid
-      />
+    return activity?.buckets ? (
+      <ServiceActivityStrip activity={activity} fileName={dag.fileName} fluid />
     ) : null;
   }
-  return <ActivityBars activity={dag.activity} fluid onOpenRun={onOpenRun} />;
+  return <ActivityBars activity={activity} fluid onOpenRun={onOpenRun} />;
 }
 
 /** The chevron that unfolds the recent runs under the row of a workflow. */
@@ -288,6 +285,7 @@ function DAGCard({
   onTogglePin,
   isShown = false,
   service,
+  activity,
   showGroup = false,
   className = '',
 }: DAGCardProps) {
@@ -393,17 +391,17 @@ function DAGCard({
         )}
       </div>
 
-      {dag.activity &&
+      {activity &&
         (isService ? (
-          dag.activity.buckets && (
+          activity.buckets && (
             <ServiceActivityStrip
-              activity={dag.activity}
+              activity={activity}
               fileName={fileName}
               className="mb-1.5"
             />
           )
         ) : (
-          <ActivityBars activity={dag.activity} className="mb-1.5" />
+          <ActivityBars activity={activity} className="mb-1.5" />
         ))}
 
       {/* Labels */}
@@ -513,6 +511,11 @@ function countLeadingPinnedRows(rows: Row<Data>[]): number {
 type Props = {
   /** List of DAG files to display */
   dags: components['schemas']['DAGFile'][];
+  /**
+   * The activity of the listed workflows, by file name. A workflow with no
+   * entry draws no strip.
+   */
+  activity?: ReadonlyMap<string, components['schemas']['DAGListActivity']>;
   /** Current group filter */
   group: string;
   /** Function to refresh the data */
@@ -648,6 +651,8 @@ declare module '@tanstack/react-table' {
     onTogglePin?: (dag: components['schemas']['DAGFile']) => void;
     /** Each service DAG that the server lists, by file name. */
     services?: ReadonlyMap<string, components['schemas']['ServiceDAG']>;
+    /** The activity of the listed workflows, by file name. */
+    activity?: ReadonlyMap<string, components['schemas']['DAGListActivity']>;
     isActivityExpanded?: (fileName: string) => boolean;
     onToggleActivity?: (fileName: string) => void;
     onOpenRun?: (
@@ -1010,16 +1015,18 @@ const defaultColumns = [
       }
       const meta = table.options.meta;
       const fileName = data.dag.fileName;
+      const activity = meta?.activity?.get(fileName);
       return (
         <div className="flex items-center gap-1">
           <HeartbeatAwareActivity
             dag={data.dag}
+            activity={activity}
             onOpenRun={(runId, event) =>
               meta?.onOpenRun?.(fileName, runId, event)
             }
           />
           {data.dag.latestDAGRun?.dagRunId ||
-          (data.dag.activity?.runs.length ?? 0) > 0 ? (
+          (activity?.runs.length ?? 0) > 0 ? (
             <ActivityToggle
               expanded={meta?.isActivityExpanded?.(fileName) ?? false}
               onToggle={() => meta?.onToggleActivity?.(fileName)}
@@ -1266,6 +1273,7 @@ const RunSortDisabledTooltip = () => (
  */
 function DAGTable({
   dags = [],
+  activity,
   group = '', // Keep group prop if needed for external filtering/logic
   refreshFn,
   searchText,
@@ -1757,6 +1765,7 @@ function DAGTable({
       onToggleActivity: toggleActivity,
       onOpenRun: openRun,
       services,
+      activity,
     },
   });
   // The peek steps through the workflows that the table shows, in their
@@ -2292,6 +2301,7 @@ function DAGTable({
                               onTogglePin={(dag) => void togglePin(dag)}
                               isShown={isShown({ dag: dagRow.dag.fileName })}
                               service={services.get(dagRow.dag.fileName)}
+                              activity={activity?.get(dagRow.dag.fileName)}
                               className="ml-2"
                             />
                           );
@@ -2337,6 +2347,7 @@ function DAGTable({
                     onTogglePin={(dag) => void togglePin(dag)}
                     isShown={isShown({ dag: dagRow.dag.fileName })}
                     service={services.get(dagRow.dag.fileName)}
+                    activity={activity?.get(dagRow.dag.fileName)}
                     showGroup={!groupByGroup}
                   />
                   {endsPinnedSection && (
