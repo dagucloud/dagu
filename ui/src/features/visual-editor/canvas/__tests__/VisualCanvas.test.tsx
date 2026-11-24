@@ -1279,6 +1279,29 @@ describe('VisualCanvas', () => {
           expect(viewport()).toEqual(before);
         });
 
+        // The fit of the room without the panel has a larger zoom: the view
+        // keeps its zoom, and the graph takes the middle of that room.
+        it('centres the graph in the room that a closed panel gives back', () => {
+          const middle = () => {
+            const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
+            return (
+              (Math.min(...rects.map((r) => r.left)) +
+                Math.max(...rects.map((r) => r.right))) /
+              2
+            );
+          };
+          const open = render(withPanel(0));
+          const fitted = middle();
+          open.unmount();
+          const first = fittedZoom(700);
+          const { rerender } = render(withPanel(700));
+          expect(middle()).toBeLessThan(fitted - 100);
+          act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1));
+          rerender(withPanel(0));
+          expect(viewport().zoom).toBe(first);
+          expect(middle()).toBeCloseTo(fitted, 1);
+        });
+
         // A notice that grows over an empty part of the canvas does not move
         // the graph.
         it('keeps the graph in place under a notice that leaves it in view', () => {

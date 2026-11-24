@@ -188,4 +188,17 @@ describe('keepInViewDelta', () => {
       dy: 0,
     });
   });
+
+  // The free area is 24..976 by 48..552: its middle is (500, 300).
+  it('centres a graph that fits, on request', () => {
+    expect(keepInViewDelta(graph(24, 48), view, area, true)).toEqual({
+      dx: 276,
+      dy: 102,
+    });
+    // An axis on which the graph is too long keeps its start side.
+    expect(keepInViewDelta(graph(24, 48, 400, 900), view, area, true)).toEqual({
+      dx: 276,
+      dy: 0,
+    });
+  });
 });
