@@ -96,6 +96,43 @@ describe('useAlive', () => {
     }
   });
 
+  // A run that shows up after the mount and was not seen running is old
+  // data, not a run that just ended.
+  it('counts a run that it did not see running from its end time', () => {
+    const { result, rerender } = setup();
+    rerender({ ...base, status: Status.Success, finishedAt: endedAgo(60_000) });
+    expect(result.current).toBe(false);
+    rerender({ ...base, status: Status.Success, finishedAt: endedAgo(500) });
+    expect(result.current).toBe(true);
+    act(() => vi.advanceTimersByTime(1000 + ALIVE_GRACE_MS - 500));
+    expect(result.current).toBe(false);
+  });
+
+  it('is still at once when the latest run goes away', () => {
+    const { result, rerender } = setup({
+      status: Status.Success,
+      finishedAt: endedAgo(0),
+    });
+    expect(result.current).toBe(true);
+    rerender(base);
+    expect(result.current).toBe(false);
+  });
+
+  // An edit of the wait changes the length of the hold, not its start.
+  it('follows a wait that changes during the hold', () => {
+    const ended = { status: Status.Success, finishedAt: endedAgo(0) };
+    const { result, rerender } = setup({ ...ended, waitSec: 60 });
+    act(() => vi.advanceTimersByTime(5000));
+    rerender({ ...base, ...ended, waitSec: 1 });
+    expect(result.current).toBe(true);
+    act(() => vi.advanceTimersByTime(1000 + ALIVE_GRACE_MS - 5000 - 1));
+    expect(result.current).toBe(true);
+    act(() => vi.advanceTimersByTime(1));
+    expect(result.current).toBe(false);
+    rerender({ ...base, ...ended, waitSec: 60 });
+    expect(result.current).toBe(true);
+  });
+
   it('keeps one steady state across runs that follow each other', () => {
     const { result, rerender } = setup({
       status: Status.Success,
