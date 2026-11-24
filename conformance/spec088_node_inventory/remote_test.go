@@ -51,6 +51,8 @@ func TestNodesCommandsOverRemoteContext(t *testing.T) {
 	// inventory of its own.
 	assert.Empty(t, listNodes(t, dagu, remote))
 
+	dagu.WriteFile("unnamed.json", `[{"name": "", "nodes": []}]`)
+
 	for _, args := range [][]string{
 		{"nodes", "list"},
 		{"nodes", "list", "--labels", "site=tokyo,!db", "--format", "json"},
@@ -65,6 +67,7 @@ func TestNodesCommandsOverRemoteContext(t *testing.T) {
 		{"nodes", "add", "tokyo-web09", "--inventory", "Tokyo production", "--host", "10.0.1.19", "--bastion", "nowhere"},
 		{"nodes", "import", "inventories.json"},
 		{"nodes", "import", "broken.json"},
+		{"nodes", "import", "unnamed.json"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			want := dagu.RunWithEnv(local, args...)

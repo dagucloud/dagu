@@ -82,14 +82,16 @@ func TestResolvedNodeOf(t *testing.T) {
 // The rules a refused change lists print as the local commands print them.
 func TestRuleErrorsOf(t *testing.T) {
 	t.Parallel()
-	inv, node, field := "Nagoya", "nagoya-web01", "host"
+	inv, node, field, name := "Nagoya", "nagoya-web01", "host", "name"
 	err := ruleErrorsOf(&remoteError{StatusCode: 400, Message: "nothing imported", Rules: []api.InventoryRuleError{
 		{Inventory: &inv, Node: &node, Field: &field, Message: "is not a host name"},
+		// The server leaves out an empty inventory name.
+		{Field: &name, Message: "is required"},
 		{Message: "an import holds no inventory"},
 	}})
 
 	require.ErrorIs(t, err, inventory.ErrInvalid)
-	assert.Equal(t, "inventory \"Nagoya\": node \"nagoya-web01\": host: is not a host name\nan import holds no inventory", err.Error())
+	assert.Equal(t, "inventory \"Nagoya\": node \"nagoya-web01\": host: is not a host name\ninventory \"\": name: is required\nan import holds no inventory", err.Error())
 
 	plain := &remoteError{StatusCode: 409, Message: "run it again"}
 	assert.Same(t, plain, ruleErrorsOf(plain))
