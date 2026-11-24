@@ -568,18 +568,16 @@ export async function startRunNow(dialog: Locator): Promise<void> {
 
 /**
  * Opens the Start dialog of the workflow page. While Stop, Retry or Dequeue
- * has the slot of Start, Start is in the menu of the run options.
+ * has the slot of Start, the Start button stays mounted, hidden. The helper
+ * clicks it in either state, as the palette command "Run…" does, so a run
+ * that changes state meanwhile cannot move Start away from the click.
  */
 export async function openStartDialog(page: Page): Promise<void> {
-  const split = page.getByTestId('ww-run-split');
-  await expect(split).toBeVisible({ timeout: 30_000 });
-  const start = split.locator('[data-ww-action="start"]');
-  if (await start.isVisible()) {
-    await start.click();
-    return;
-  }
-  await split.getByRole('button', { name: 'More run options' }).click();
-  await page.getByRole('menuitem', { name: 'Start', exact: true }).click();
+  const start = page
+    .getByTestId('ww-run-split')
+    .locator('[data-ww-action="start"]');
+  await expect(start).toBeAttached({ timeout: 30_000 });
+  await start.dispatchEvent('click');
 }
 
 export async function enqueueRunFromUI(
