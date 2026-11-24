@@ -1202,9 +1202,9 @@ describe('VisualCanvas', () => {
       // A panel that opens, changes or closes never changes the zoom, once
       // the canvas has been shown for a while.
       describe('with a panel that comes and goes', () => {
-        const withPanel = (right: number) => (
+        const withPanel = (right: number, top = 0) => (
           <UserPreferencesProvider>
-            <CanvasOverlayInsetContext.Provider value={{ right }}>
+            <CanvasOverlayInsetContext.Provider value={{ right, top }}>
               <VisualCanvas
                 graph={graph}
                 direction="TB"
@@ -1276,6 +1276,20 @@ describe('VisualCanvas', () => {
           act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1));
           rerender(withPanel(700));
           rerender(withPanel(0));
+          expect(viewport()).toEqual(before);
+        });
+
+        // A notice that grows over an empty part of the canvas does not move
+        // the graph.
+        it('keeps the graph in place under a notice that leaves it in view', () => {
+          const { rerender } = render(withPanel(0));
+          const before = viewport();
+          const rects = graph.nodes.map((n) => nodeScreenRect(n.key));
+          // The notice ends above the graph, and below the toolbar inset.
+          const top = Math.floor(Math.min(...rects.map((r) => r.top))) - 40;
+          expect(top).toBeGreaterThan(72);
+          act(() => vi.advanceTimersByTime(AUTO_FIT_SETTLE_MS + 1));
+          rerender(withPanel(0, top));
           expect(viewport()).toEqual(before);
         });
       });

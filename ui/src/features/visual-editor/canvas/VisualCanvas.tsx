@@ -1018,9 +1018,12 @@ function CanvasView({
       } else if (!settled()) {
         // The page is still opening: its parts fit the graph again.
         refit();
-      } else if (overlayRight > last.overlayRight) {
-        // A panel that covers more of the canvas moves the graph only if it
-        // must. The zoom stays.
+      } else if (
+        overlayRight > last.overlayRight ||
+        overlayTop > last.overlayTop
+      ) {
+        // A panel or a notice that covers more of the canvas moves the graph
+        // only if it must. The zoom stays.
         keepGraphInView(GLIDE);
       } else {
         // A panel that leaves or changes keeps the zoom.
