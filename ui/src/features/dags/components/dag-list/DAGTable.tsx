@@ -169,6 +169,8 @@ interface DAGCardProps {
    * chip shows the state in place of the run status.
    */
   service?: components['schemas']['ServiceDAG'];
+  /** The list does not gather by group: the group shows before the name. */
+  showGroup?: boolean;
   className?: string;
 }
 
@@ -247,6 +249,7 @@ function DAGCard({
   onTogglePin,
   isShown = false,
   service,
+  showGroup = false,
   className = '',
 }: DAGCardProps) {
   const fileName = dag.fileName;
@@ -285,13 +288,24 @@ function DAGCard({
               />
             </div>
           )}
-          <PeekLink
-            peek={{ dag: fileName }}
-            className="font-medium text-xs truncate flex-1 min-w-0 hover:underline"
-            onClick={(event) => event.stopPropagation()}
-          >
-            {title}
-          </PeekLink>
+          <div className="flex min-w-0 flex-1 items-baseline gap-1">
+            {showGroup && dag.dag.group && (
+              <span
+                data-testid="dag-group-prefix"
+                title={dag.dag.group}
+                className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground"
+              >
+                {dag.dag.group} /
+              </span>
+            )}
+            <PeekLink
+              peek={{ dag: fileName }}
+              className="font-medium text-xs truncate flex-1 min-w-0 hover:underline"
+              onClick={(event) => event.stopPropagation()}
+            >
+              {title}
+            </PeekLink>
+          </div>
         </div>
         <div className="flex flex-shrink-0 items-center gap-1">
           <PinToggle
@@ -2207,6 +2221,7 @@ function DAGTable({
                     onTogglePin={(dag) => void togglePin(dag)}
                     isShown={isShown({ dag: dagRow.dag.fileName })}
                     service={services.get(dagRow.dag.fileName)}
+                    showGroup={!groupByGroup}
                   />
                   {endsPinnedSection && (
                     <div

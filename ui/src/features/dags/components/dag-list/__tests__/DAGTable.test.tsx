@@ -644,6 +644,27 @@ describe('DAGTable', () => {
     expect(prefixes[0]?.nextElementSibling).toHaveTextContent('mid');
   });
 
+  // The cards follow the same order as the rows, so they show the group too.
+  it('shows the group before the name of a card when the Group switch is off', () => {
+    renderTable('', {
+      panelWidth: 600,
+      dags: [
+        workflow({ name: 'zeta', group: 'alpha' }),
+        workflow({ name: 'solo' }),
+      ],
+    });
+    const cards = screen.getByTestId('workflow-card-view');
+    expect(within(cards).queryByTestId('dag-group-prefix')).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole('switch', { name: 'Gather the workflows by group' })
+    );
+
+    const prefixes = within(cards).getAllByTestId('dag-group-prefix');
+    expect(prefixes.map((prefix) => prefix.textContent)).toEqual(['alpha /']);
+    expect(prefixes[0]?.nextElementSibling).toHaveTextContent('zeta');
+  });
+
   it('invites creating the first workflow when none exist and no filters are set', () => {
     renderTable('', { dags: [] });
 
