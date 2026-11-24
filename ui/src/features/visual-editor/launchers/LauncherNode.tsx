@@ -46,6 +46,8 @@ export interface LauncherActions {
   open(id: LauncherId): void;
   /** The launcher whose panel is open. */
   active: LauncherId | null;
+  /** True while the workflow of an Always on card is alive: its icon turns. */
+  alive?: boolean;
 }
 
 export const LauncherActionsContext = createContext<LauncherActions>({
@@ -115,6 +117,27 @@ function keepsText(state: LauncherState, ts: Translate): string {
   });
 }
 
+/**
+ * The second line of a solid Always on card. It is short, to fit one line of
+ * a 176 px card. The first line says Always, so `always` shows the wait and
+ * the runs kept, and `unless-stopped` shows its name and the wait: the runs
+ * kept are in the tooltip. A missing wait is left out, and so are the runs
+ * that the file does not set: the base configuration can set them. Other
+ * cards have none.
+ */
+function launcherSummary(state: LauncherState, ts: Translate): string | null {
+  if (!state.policy || state.status !== 'active') return null;
+  const always = state.policy === 'always';
+  const count = state.retentionRuns ?? null;
+  return [
+    ...(always ? [] : [ts('unless stopped')]),
+    ...(state.waitSec ? [ts('{seconds} s', { seconds: state.waitSec })] : []),
+    ...(always && count !== null
+      ? [ts(count === 1 ? '{count} run' : '{count} runs', { count })]
+      : []),
+  ].join(' · ');
+}
+
 /** The state of a launcher in words, for its tooltip and its accessible name. */
 function launcherDetail(
   id: LauncherId,
@@ -150,22 +173,25 @@ function launcherDetail(
 /**
  * A launcher: a way to start the workflow, drawn as a root of the graph. It
  * is not a step. A dashed card means that the launcher is not set up yet. A
- * card shows only its name; the state is in its tooltip and its accessible
- * name. The Cron card has a badge with the number of cron expressions, which
- * a card of no expression does not show.
+ * card shows its name; the state is in its tooltip and its accessible name.
+ * A solid Always on card has a second line with the policy and its numbers,
+ * except in the simplified view, and its icon turns while the workflow is
+ * alive. The Cron card has a badge with the number
+ * of cron expressions, which a card of no expression does not show.
  */
 function LauncherNodeComponent({
   data,
 }: NodeProps<StepFlowNode>): ReactElement {
   const { ts } = useI18n();
   const { direction, compact = false } = useCanvasActions();
-  const { open, active } = useContext(LauncherActionsContext);
+  const { open, active, alive = false } = useContext(LauncherActionsContext);
   const id = launcherIdOf(data.node.key);
   const state = data.launcher;
   if (!id || !state) return <div />;
   const Icon = LAUNCHER_ICONS[id];
   const dashed = state.status === 'dashed';
   const lit = active === id;
+  const turning = alive && id === 'always' && !dashed;
   const count = id === 'cron' ? (state.count ?? 0) : 0;
   const label =
     count > 0
@@ -173,12 +199,17 @@ function LauncherNodeComponent({
           count,
         })
       : ts(LAUNCHER_LABELS[id]);
-  const detail = launcherDetail(id, state, ts);
+  // The state is in words too: the turn of the icon is not the only sign.
+  const detail = turning
+    ? `${launcherDetail(id, state, ts)} · ${ts('alive')}`
+    : launcherDetail(id, state, ts);
+  const summary = compact ? null : launcherSummary(state, ts);
   return (
     <div
       data-testid={`ve-launcher-${id}`}
       data-launcher={id}
       data-status={state.status}
+      data-alive={turning ? 'true' : undefined}
       className="relative"
     >
       <button
@@ -203,10 +234,28 @@ function LauncherNodeComponent({
         )}
       >
         {dashed && <DashedOutline radius={compact ? 6 : 28} lit={lit} />}
-        <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+        <Icon
+          className={cn(
+            'h-4 w-4 shrink-0',
+            // One turn in 3 s. Without motion the icon takes the accent colour.
+            turning &&
+              'animate-[spin_3s_linear_infinite] motion-reduce:animate-none motion-reduce:text-primary'
+          )}
+          aria-hidden="true"
+        />
         {!compact && (
-          <span className="min-w-0 truncate text-sm font-medium">
-            {ts(LAUNCHER_LABELS[id])}
+          <span className="flex min-w-0 flex-col">
+            <span className="truncate text-sm font-medium">
+              {ts(LAUNCHER_LABELS[id])}
+            </span>
+            {summary && (
+              <span
+                data-testid="ve-launcher-summary"
+                className="truncate text-xs leading-4 text-muted-foreground"
+              >
+                {summary}
+              </span>
+            )}
           </span>
         )}
         {count > 0 && (

@@ -48,6 +48,7 @@ import type {
   WorkspaceEditorHandle,
 } from '../contracts';
 import { useWorkspacePermissions, useWorkspaceRun } from '../data';
+import { isNeverRun } from '../data/runFacts';
 import { useStandaloneRun } from '../data/context';
 import { RunSnapshotCanvas } from '../executions/RunSnapshotCanvas';
 import { PaneActiveContext, useModePaneActive } from '../layout/paneActive';
@@ -495,10 +496,26 @@ export function WorkspaceCanvas({
     setUrl({ panel: null }, { replace: true });
   }, [handle, wantedPanel, setUrl]);
 
+  const latestRun = isNeverRun(dagData.latestDAGRun)
+    ? null
+    : dagData.latestDAGRun;
   // The panels guard their close, as a draft or a one-time secret is at risk.
   const launcherHost = useMemo<LauncherHost>(
-    () => ({ guard, setSecretVisible }),
-    [guard, setSecretVisible]
+    () => ({
+      guard,
+      setSecretVisible,
+      suspended: dagData.suspended,
+      latestRun: latestRun
+        ? { status: latestRun.status, finishedAt: latestRun.finishedAt }
+        : null,
+    }),
+    [
+      guard,
+      setSecretVisible,
+      dagData.suspended,
+      latestRun?.status,
+      latestRun?.finishedAt,
+    ]
   );
   const renderWorkflowPanel = useCallback<
     NonNullable<DAGSpecHostProps['renderWorkflowPanel']>

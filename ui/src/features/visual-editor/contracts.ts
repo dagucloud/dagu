@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { KeyboardEvent, ReactNode, Ref } from 'react';
-import type { components } from '@/api/v1/schema';
+import type { components, Status } from '@/api/v1/schema';
 import type { RepeatPolicyView } from '@/components/ui/repeat-summary';
 import type { JSONSchema } from '@/lib/schema-utils';
 import type { LauncherId, LauncherState } from './launchers/model';
@@ -459,6 +459,8 @@ export interface VisualCanvasProps {
   launchers?: readonly LauncherState[];
   /** The launcher whose panel is open: its node is lit. */
   activeLauncher?: LauncherId | null;
+  /** True while the workflow is alive: the icon of an Always on card turns. */
+  launcherAlive?: boolean;
   /** The user opens a launcher node. */
   onLauncher?(id: LauncherId): void;
   /**
@@ -626,6 +628,14 @@ export interface LauncherHost {
   /** Runs `next` at once, or after the user confirms a loss. */
   guard(next: () => void): void;
   setSecretVisible(visible: boolean): void;
+  /** True while the workflow is suspended: an Always on card does not turn. */
+  suspended?: boolean;
+  /**
+   * The latest run of the workflow, kept live by the host. The page can show
+   * an older run (its URL names it), but the workflow is alive by its latest
+   * run. Without it, an Always on card is not alive.
+   */
+  latestRun?: { status: Status; finishedAt?: string } | null;
 }
 export interface EditorHostProps {
   launcherHost?: LauncherHost;

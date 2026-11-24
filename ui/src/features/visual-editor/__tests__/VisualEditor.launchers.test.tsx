@@ -11,6 +11,7 @@ import {
 } from '@testing-library/react';
 import { createRef, useState, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Status } from '@/api/v1/schema';
 import { RightPanelProvider } from '@/contexts/RightPanelContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import type { LauncherHost, VisualEditorHandle } from '../contracts';
@@ -271,6 +272,46 @@ describe('VisualEditor launchers', () => {
       'title',
       'Always on: Restarts after each run, keeps runs for 7 days'
     );
+  });
+
+  // The icon of Always on turns by the latest run of the workflow, which the
+  // host keeps live, and is still for a suspended workflow.
+  describe('Always on animation', () => {
+    const file = `restart_policy: always\nrestart_wait_sec: 5\n${yamlArraySteps}`;
+    const alive = () =>
+      screen.getByTestId('ve-launcher-always').getAttribute('data-alive');
+
+    it('turns while the latest run of the host runs', () => {
+      renderEditor(file, {
+        launcherHost: {
+          ...host,
+          latestRun: { status: Status.Running, finishedAt: '-' },
+        },
+      });
+      expect(alive()).toBe('true');
+    });
+
+    it('is still when the latest run ended long ago, or the workflow is suspended', () => {
+      renderEditor(file, {
+        launcherHost: {
+          ...host,
+          latestRun: {
+            status: Status.Success,
+            finishedAt: '2020-01-01T00:00:00Z',
+          },
+        },
+      });
+      expect(alive()).toBeNull();
+      cleanup();
+      renderEditor(file, {
+        launcherHost: {
+          ...host,
+          suspended: true,
+          latestRun: { status: Status.Running, finishedAt: '-' },
+        },
+      });
+      expect(alive()).toBeNull();
+    });
   });
 
   it('swaps the slot as the author chooses, sets, switches and removes', () => {

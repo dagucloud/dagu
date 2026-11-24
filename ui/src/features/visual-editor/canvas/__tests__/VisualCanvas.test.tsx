@@ -1656,6 +1656,212 @@ describe('VisualCanvas launchers', () => {
     expect(props.onCommand).not.toHaveBeenCalled();
   });
 
+  // Always on stands for `restart_policy` and takes the place of Cron: the
+  // two exclude each other (spec 080).
+  describe('Always on', () => {
+    const withPolicy = (
+      restartPolicy: 'no' | 'always' | 'unless-stopped',
+      restartWaitSec: number | null = null,
+      restartRetentionRuns: number | null = null,
+      restartRetentionDays: number | null = null
+    ) =>
+      launcherStates({
+        scheduleCount: 0,
+        restartPolicy,
+        restartWaitSec,
+        restartRetentionRuns,
+        restartRetentionDays,
+        webhookCount: 0,
+        webhooksAvailable: true,
+      });
+    const button = (id: string) =>
+      within(screen.getByTestId(`ve-launcher-${id}`)).getByRole('button');
+    const summary = () => screen.queryByTestId('ve-launcher-summary');
+
+    // The slot of Cron and Always on has one placeholder: the name of both
+    // choices, and no second line.
+    it('draws one dashed placeholder for both choices without a policy', () => {
+      renderCanvas({ launchers: withPolicy('no') });
+      expect(screen.getByTestId('ve-launcher-schedule')).toHaveAttribute(
+        'data-status',
+        'dashed'
+      );
+      expect(button('schedule')).toHaveAttribute(
+        'aria-label',
+        'Cron or Always on: Not set up. Choose a cron schedule or Always on.'
+      );
+      expect(button('schedule')).toHaveTextContent(/^Cron or Always on$/);
+      expect(summary()).toBeNull();
+      expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
+      expect(screen.queryByTestId('ve-launcher-always')).toBeNull();
+    });
+
+    it('draws a solid card in place of Cron, with the policy and its numbers', () => {
+      renderCanvas({ launchers: withPolicy('always', 5, 20) });
+      expect(screen.getByTestId('ve-launcher-always')).toHaveAttribute(
+        'data-status',
+        'active'
+      );
+      expect(screen.queryByTestId('ve-launcher-cron')).toBeNull();
+      expect(summary()).toHaveTextContent('5 s · 20 runs');
+      // One line, cut with an ellipsis when it is longer than the card.
+      expect(summary()).toHaveClass('truncate');
+      // As wide as the other launchers: LAUNCHER_WIDTH, 176 px.
+      expect(button('always')).toHaveClass('w-44');
+      expect(button('always')).toHaveTextContent(/^Always on5 s · 20 runs$/);
+      expect(button('always')).toHaveAttribute(
+        'title',
+        'Always on: Restarts after each run, wait 5 s, keeps 20 runs'
+      );
+    });
+
+    // The base configuration can set the runs kept: the card tells no count
+    // that the file does not set.
+    it('tells the runs kept by default in the tooltip only', () => {
+      renderCanvas({ launchers: withPolicy('always', 5) });
+      expect(summary()).toHaveTextContent(/^5 s$/);
+      expect(button('always')).toHaveAttribute(
+        'aria-label',
+        'Always on: Restarts after each run, wait 5 s, keeps 100 runs, or as many as the base configuration sets'
+      );
+    });
+
+    // A file with `hist_retention_days` keeps runs by days: the 100 runs of
+    // the default do not apply.
+    it('tells the days kept in the tooltip, and no runs on the card', () => {
+      renderCanvas({ launchers: withPolicy('always', 5, null, 7) });
+      expect(summary()).toHaveTextContent(/^5 s$/);
+      expect(button('always')).toHaveAttribute(
+        'title',
+        'Always on: Restarts after each run, wait 5 s, keeps runs for 7 days'
+      );
+    });
+
+    it('uses the singular for one day kept', () => {
+      renderCanvas({ launchers: withPolicy('unless-stopped', null, null, 1) });
+      expect(button('always')).toHaveAttribute(
+        'title',
+        'Always on: Restarts unless stopped, keeps runs for 1 day'
+      );
+    });
+
+    // The line is short, to fit the card: it has the wait, not the runs kept.
+    it('tells Unless stopped, and leaves out a missing wait', () => {
+      renderCanvas({ launchers: withPolicy('unless-stopped') });
+      expect(summary()).toHaveTextContent(/^unless stopped$/);
+      expect(button('always')).toHaveAttribute(
+        'aria-label',
+        'Always on: Restarts unless stopped, keeps 100 runs, or as many as the base configuration sets'
+      );
+    });
+
+    it('tells Unless stopped with its wait', () => {
+      renderCanvas({ launchers: withPolicy('unless-stopped', 5, 20) });
+      expect(summary()).toHaveTextContent(/^unless stopped · 5 s$/);
+    });
+
+    it('uses the singular for one run kept', () => {
+      renderCanvas({ launchers: withPolicy('always', 5, 1) });
+      expect(summary()).toHaveTextContent('5 s · 1 run');
+    });
+
+    it('opens the Always on panel on click', () => {
+      const onLauncher = vi.fn();
+      renderCanvas({ launchers: withPolicy('always', 5), onLauncher });
+      fireEvent.click(button('always'));
+      expect(onLauncher).toHaveBeenCalledWith('always');
+    });
+
+    it('keeps the name and the state in the simplified view, with no second line', () => {
+      window.localStorage.setItem(CANVAS_DETAILS_KEY, '0');
+      try {
+        renderCanvas({ launchers: withPolicy('always', 5, 20) });
+        expect(button('always')).toHaveTextContent('');
+        expect(summary()).toBeNull();
+        expect(button('always')).toHaveAttribute(
+          'aria-label',
+          'Always on: Restarts after each run, wait 5 s, keeps 20 runs'
+        );
+      } finally {
+        window.localStorage.removeItem(CANVAS_DETAILS_KEY);
+      }
+    });
+  });
+
+  // The icon of a solid Always on card turns while the workflow is alive.
+  describe('Always on animation', () => {
+    const states = (restartPolicy: 'no' | 'always') =>
+      launcherStates({
+        scheduleCount: 0,
+        restartPolicy,
+        restartWaitSec: 5,
+        webhookCount: 0,
+        webhooksAvailable: true,
+      });
+    const icon = (id: string) =>
+      within(screen.getByTestId(`ve-launcher-${id}`))
+        .getByRole('button')
+        .querySelector('svg:not([data-testid])')!;
+
+    it('turns slowly, and stops with reduced motion, while alive', () => {
+      renderCanvas({ launchers: states('always'), launcherAlive: true });
+      expect(screen.getByTestId('ve-launcher-always')).toHaveAttribute(
+        'data-alive',
+        'true'
+      );
+      expect(icon('always')).toHaveClass(
+        'animate-[spin_3s_linear_infinite]',
+        'motion-reduce:animate-none',
+        'motion-reduce:text-primary'
+      );
+    });
+
+    // The motion and the colour are not the only signs of a live workflow.
+    it('tells in the title and the accessible name that it is alive', () => {
+      const text =
+        'Always on: Restarts after each run, wait 5 s, keeps 100 runs, or as many as the base configuration sets';
+      const always = () =>
+        within(screen.getByTestId('ve-launcher-always')).getByRole('button');
+      const { unmount } = renderCanvas({
+        launchers: states('always'),
+        launcherAlive: true,
+      });
+      expect(always()).toHaveAttribute('title', `${text} · alive`);
+      expect(always()).toHaveAttribute('aria-label', `${text} · alive`);
+      unmount();
+      renderCanvas({ launchers: states('always'), launcherAlive: false });
+      expect(always()).toHaveAttribute('title', text);
+    });
+
+    it('is still when the workflow is not alive', () => {
+      renderCanvas({ launchers: states('always'), launcherAlive: false });
+      expect(screen.getByTestId('ve-launcher-always')).not.toHaveAttribute(
+        'data-alive'
+      );
+      expect(icon('always').getAttribute('class')).not.toContain('animate-');
+    });
+
+    it('never turns on the placeholder, Manual and Webhook', () => {
+      renderCanvas({ launchers: states('no'), launcherAlive: true });
+      for (const id of ['schedule', 'manual', 'webhook']) {
+        expect(screen.getByTestId(`ve-launcher-${id}`)).not.toHaveAttribute(
+          'data-alive'
+        );
+        expect(icon(id).getAttribute('class')).not.toContain('animate-');
+      }
+    });
+
+    it('turns the tile icon in the simplified view', () => {
+      window.localStorage.setItem(CANVAS_DETAILS_KEY, '0');
+      try {
+        renderCanvas({ launchers: states('always'), launcherAlive: true });
+        expect(icon('always')).toHaveClass('animate-[spin_3s_linear_infinite]');
+      } finally {
+        window.localStorage.removeItem(CANVAS_DETAILS_KEY);
+      }
+    });
+  });
+
   // The owner asked to see how many cron expressions are set up.
   describe('count of cron expressions', () => {
     const withSchedules = (scheduleCount: number) =>
@@ -1709,7 +1915,8 @@ describe('VisualCanvas launchers', () => {
       }
     });
 
-    // The owner asked for the name alone: no second line.
+    // The owner asked for the name alone: no second line, except on a solid
+    // Always on card.
     it('shows only the name on Cron, Manual and Webhook, without a subtitle', () => {
       renderCanvas({ launchers: withSchedules(2) });
       const button = (id: string) =>
