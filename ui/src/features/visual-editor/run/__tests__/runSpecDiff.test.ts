@@ -80,7 +80,11 @@ steps:
     expect(diffRunSpec(child, child).headChanged).toBe(false);
     expect(diffRunSpec(child, withChild('echo b')).headChanged).toBe(true);
     expect(diffRunSpec(BASE, child).headChanged).toBe(true);
+    expect(diffRunSpec(child, BASE).headChanged).toBe(true);
     expect(diffRunSpec(child, `${BASE}---\nname: [\n`).headChanged).toBe(true);
+    // Comments and key order of the later document do not count.
+    const reordered = `${BASE}---\n# note\nsteps:\n  - run: echo a\n    name: work\nname: child\n`;
+    expect(diffRunSpec(child, reordered).headChanged).toBe(false);
   });
 
   it('does not count a handler as the head', () => {
@@ -120,44 +124,6 @@ steps:
   it('gives headChanged for a text that cannot be read', () => {
     expect(diffRunSpec(BASE, 'name: [\n').headChanged).toBe(true);
     expect(diffRunSpec('name: [\n', BASE).headChanged).toBe(true);
-  });
-
-  describe('with a sub-DAG after ---', () => {
-    const multi = (command: string) => `steps:
-  - name: child
-    call: transform
-  - name: use
-    depends: [child]
-    run: echo "\${steps.child.outputs.x}"
-  - name: other
-    run: echo free
----
-name: transform
-steps:
-  - name: t
-    run: ${command}
-`;
-
-    it('finds no difference in an unchanged text', () => {
-      const diff = diffRunSpec(multi('echo a'), multi('echo a'));
-      expect(diff.headChanged).toBe(false);
-      expect([...diff.changed]).toEqual([]);
-    });
-
-    it('ignores comments and key order in the sub-DAG', () => {
-      const live = multi('echo a').replace(
-        'name: transform\nsteps:\n  - name: t\n    run: echo a\n',
-        '# note\nsteps:\n  - run: echo a\n    name: t\nname: transform\n'
-      );
-      expect(live).not.toBe(multi('echo a'));
-      expect(diffRunSpec(multi('echo a'), live).headChanged).toBe(false);
-    });
-
-    it('marks the head when a sub-DAG is added or removed', () => {
-      const single = multi('echo a').split('---')[0] ?? '';
-      expect(diffRunSpec(multi('echo a'), single).headChanged).toBe(true);
-      expect(diffRunSpec(single, multi('echo a')).headChanged).toBe(true);
-    });
   });
 
   // A chain step depends on the steps of the position before it.
