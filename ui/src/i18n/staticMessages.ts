@@ -2777,6 +2777,17 @@ const baseEnglish = {
     'Enter a server key or license key from Dagu Console.',
   Monitoring: 'Monitoring',
   'Set in configuration': 'Set in configuration',
+  Sends: 'Sends',
+  'Every entry but successful reads': 'Every entry but successful reads',
+  'Every entry': 'Every entry',
+  "Dagu Console keeps a copy of this server's audit entries, so the record of who did what outlives the server.":
+    "Dagu Console keeps a copy of this server's audit entries, so the record of who did what outlives the server.",
+  'Each entry sent carries its time, category, action, and result; the user ID and name; the IP address; the resource, workspace, credential, and MCP tool involved; and its details. Secret values and tokens are masked when an entry is written and again before it is sent.':
+    'Each entry sent carries its time, category, action, and result; the user ID and name; the IP address; the resource, workspace, credential, and MCP tool involved; and its details. Secret values and tokens are masked when an entry is written and again before it is sent.',
+  "Dagu Console stores them in the United States, for the workspace's audit retention.":
+    "Dagu Console stores them in the United States, for the workspace's audit retention.",
+  'cloud.audit in the server configuration sets this. It takes effect with local audit on and a plan that includes audit logs. Change it there and restart Dagu.':
+    'cloud.audit in the server configuration sets this. It takes effect with local audit on and a plan that includes audit logs. Change it there and restart Dagu.',
   'Monitoring status unavailable': 'Monitoring status unavailable',
   Reports: 'Reports',
   'Last report': 'Last report',
@@ -6036,6 +6047,17 @@ const baseChinese = {
     '输入来自 Dagu Console 的服务器密钥或许可证密钥。',
   Monitoring: '监控',
   'Set in configuration': '在配置中设置',
+  Sends: '发送',
+  'Every entry but successful reads': '除成功读取外的所有条目',
+  'Every entry': '所有条目',
+  "Dagu Console keeps a copy of this server's audit entries, so the record of who did what outlives the server.":
+    'Dagu Console 会保留此服务器审计条目的副本，让谁做了什么的记录在服务器之外依然留存。',
+  'Each entry sent carries its time, category, action, and result; the user ID and name; the IP address; the resource, workspace, credential, and MCP tool involved; and its details. Secret values and tokens are masked when an entry is written and again before it is sent.':
+    '每个发送的条目包含时间、类别、操作和结果；用户 ID 和名称；IP 地址；涉及的资源、工作区、凭据和 MCP 工具；以及详细信息。密钥值和令牌在写入条目时以及发送前都会被遮蔽。',
+  "Dagu Console stores them in the United States, for the workspace's audit retention.":
+    'Dagu Console 将它们存储在美国，保留期限为工作区的审计保留期。',
+  'cloud.audit in the server configuration sets this. It takes effect with local audit on and a plan that includes audit logs. Change it there and restart Dagu.':
+    '由服务器配置中的 cloud.audit 设置。仅在本地审计开启且套餐包含审计日志时生效。请在配置中修改并重启 Dagu。',
   'Monitoring status unavailable': '监控状态不可用',
   Reports: '报告内容',
   'Last report': '最近报告',
@@ -9368,6 +9390,17 @@ const baseJapanese = {
     'Dagu Console のサーバーキーまたはライセンスキーを入力してください。',
   Monitoring: '監視',
   'Set in configuration': '設定ファイルで指定',
+  Sends: '送信',
+  'Every entry but successful reads': '成功した読み取り以外のすべてのエントリ',
+  'Every entry': 'すべてのエントリ',
+  "Dagu Console keeps a copy of this server's audit entries, so the record of who did what outlives the server.":
+    'Dagu Console はこのサーバーの監査エントリのコピーを保管するため、誰が何をしたかの記録はサーバーがなくなっても残ります。',
+  'Each entry sent carries its time, category, action, and result; the user ID and name; the IP address; the resource, workspace, credential, and MCP tool involved; and its details. Secret values and tokens are masked when an entry is written and again before it is sent.':
+    '送信される各エントリには、時刻、カテゴリ、操作、結果、ユーザー ID と名前、IP アドレス、関係するリソース、ワークスペース、認証情報、MCP ツール、詳細が含まれます。シークレットの値とトークンは、エントリの書き込み時と送信前の両方でマスクされます。',
+  "Dagu Console stores them in the United States, for the workspace's audit retention.":
+    'Dagu Console はこれらを米国に保存し、ワークスペースの監査ログ保持期間だけ保管します。',
+  'cloud.audit in the server configuration sets this. It takes effect with local audit on and a plan that includes audit logs. Change it there and restart Dagu.':
+    'サーバー設定の cloud.audit で設定します。ローカルの監査が有効で、プランに監査ログが含まれる場合にのみ有効になります。変更するには設定を編集し、Dagu を再起動してください。',
   'Monitoring status unavailable': '監視の状態を取得できません',
   Reports: '報告内容',
   'Last report': '最終報告',

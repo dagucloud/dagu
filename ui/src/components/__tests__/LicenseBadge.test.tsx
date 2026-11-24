@@ -7,6 +7,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
 import { SWRConfig } from 'swr';
 import {
+  LicenseAuditLevel,
   LicenseMonitoringLevel,
   LicenseStatusResponseConnectedVia,
 } from '@/api/v1/schema';
@@ -64,6 +65,7 @@ const minutesAgo = (minutes: number) =>
   new Date(now.getTime() - minutes * 60_000).toISOString();
 const reporting = (lastReportAt?: string): LicenseMonitoring => ({
   level: LicenseMonitoringLevel.runs,
+  auditLevel: LicenseAuditLevel.off,
   configured: false,
   chosen: true,
   noticeDismissed: false,

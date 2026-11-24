@@ -8863,9 +8863,15 @@ export interface components {
          * @enum {string}
          */
         LicenseMonitoringLevel: LicenseMonitoringLevel;
+        /**
+         * @description Which audit entries this server sends to Dagu Console, as cloud.audit in the configuration sets: off sends none, changes sends every entry but successful reads, and all sends every entry. It takes effect only with local audit on and a license with the audit feature
+         * @enum {string}
+         */
+        LicenseAuditLevel: LicenseAuditLevel;
         /** @description What this server reports to Dagu Console */
         LicenseMonitoring: {
             level: components["schemas"]["LicenseMonitoringLevel"];
+            auditLevel: components["schemas"]["LicenseAuditLevel"];
             /** @description Whether cloud.report in the configuration fixes the level */
             configured: boolean;
             /** @description Whether an administrator chose the level on this server */
@@ -27354,6 +27360,11 @@ export enum LicenseMonitoringLevel {
     health = "health",
     runs = "runs",
     errors = "errors"
+}
+export enum LicenseAuditLevel {
+    off = "off",
+    changes = "changes",
+    all = "all"
 }
 export enum LicenseRemoteAccessLevel {
     off = "off",

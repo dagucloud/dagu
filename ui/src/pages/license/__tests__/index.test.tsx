@@ -21,6 +21,7 @@ import { LicenseProvider } from '@/components/LicenseProvider';
 import { SWRConfig } from 'swr';
 import { Link, MemoryRouter, useNavigate } from 'react-router-dom';
 import {
+  LicenseAuditLevel,
   LicenseMonitoringLevel,
   LicenseRemoteAccessLevel,
   LicenseStatusResponseConnectedVia,
@@ -174,6 +175,7 @@ const freeOnline: Partial<LicenseStatus> = {
 
 const unchosen: LicenseMonitoring = {
   level: LicenseMonitoringLevel.off,
+  auditLevel: LicenseAuditLevel.off,
   configured: false,
   chosen: false,
   noticeDismissed: false,
@@ -1093,6 +1095,7 @@ describe('LicensePage', () => {
       const { post, approve } = approveAndConnect({
         ...unchosen,
         level: LicenseMonitoringLevel.health,
+        auditLevel: LicenseAuditLevel.off,
         configured: true,
       });
 
@@ -1116,6 +1119,7 @@ describe('LicensePage', () => {
       const { approve } = approveAndConnect({
         ...unchosen,
         level: LicenseMonitoringLevel.health,
+        auditLevel: LicenseAuditLevel.off,
         configured: true,
       });
       await approve();
@@ -1338,6 +1342,7 @@ describe('LicensePage', () => {
     it('shows what the server reports and the last report', async () => {
       serveMonitoring({
         level: LicenseMonitoringLevel.runs,
+        auditLevel: LicenseAuditLevel.off,
         configured: false,
         chosen: true,
         noticeDismissed: false,
@@ -1363,6 +1368,22 @@ describe('LicensePage', () => {
       );
       const dialog = await screen.findByRole('dialog', { name: 'Last report' });
       expect(dialog).toHaveTextContent('"heartbeat_secret": "[redacted]"');
+    });
+
+    // The audit card shows what cloud.audit sends, what leaves the server,
+    // and where Dagu Console keeps it.
+    it('shows which audit entries go to Dagu Console', async () => {
+      serveMonitoring({ ...unchosen, auditLevel: LicenseAuditLevel.changes });
+
+      const card = await screen.findByRole('region', { name: 'Audit logs' });
+      expect(
+        await within(card).findByText('Every entry but successful reads')
+      ).toBeVisible();
+      expect(card).toHaveTextContent('the user ID and name; the IP address');
+      expect(card).toHaveTextContent('in the United States');
+      expect(card).toHaveTextContent(
+        'cloud.audit in the server configuration sets this.'
+      );
     });
 
     it('turns reporting on with the chosen level', async () => {
@@ -1442,6 +1463,7 @@ describe('LicensePage', () => {
       serveMonitoring({
         ...unchosen,
         level: LicenseMonitoringLevel.health,
+        auditLevel: LicenseAuditLevel.off,
         configured: true,
       });
       const card = await findMonitoringCard();
@@ -1513,6 +1535,7 @@ describe('LicensePage', () => {
     it('says when the server stopped reporting', async () => {
       serveMonitoring({
         level: LicenseMonitoringLevel.runs,
+        auditLevel: LicenseAuditLevel.off,
         configured: false,
         chosen: true,
         noticeDismissed: false,
@@ -1530,6 +1553,7 @@ describe('LicensePage', () => {
     it('shows when the last report arrived while reports arrive', async () => {
       serveMonitoring({
         level: LicenseMonitoringLevel.runs,
+        auditLevel: LicenseAuditLevel.off,
         configured: false,
         chosen: true,
         noticeDismissed: false,
@@ -1545,6 +1569,7 @@ describe('LicensePage', () => {
       const until = new Date(Date.now() + 3 * 60 * 60_000);
       serveMonitoring({
         level: LicenseMonitoringLevel.runs,
+        auditLevel: LicenseAuditLevel.off,
         configured: false,
         chosen: true,
         noticeDismissed: false,
@@ -1563,6 +1588,7 @@ describe('LicensePage', () => {
     it('does not mention a pause that has ended', async () => {
       serveMonitoring({
         level: LicenseMonitoringLevel.runs,
+        auditLevel: LicenseAuditLevel.off,
         configured: false,
         chosen: true,
         noticeDismissed: false,
