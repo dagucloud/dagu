@@ -99,10 +99,17 @@ steps:
     await waitForRunStatus(request, token, dagName, runId, ['failed']);
 
     await signIn(page);
-    await gotoWorkspace(
-      page,
-      `/dags/${encodeURIComponent(fileName)}?run=${encodeURIComponent(runId)}&dock=nodes`
-    );
+    const runPath = `/dags/${encodeURIComponent(fileName)}?run=${encodeURIComponent(runId)}`;
+    // The step card of check counts its nodes. A phone shows the graph or the
+    // dock, not both, so the card is read before the dock opens.
+    await gotoWorkspace(page, runPath);
+    await expect(
+      page.getByTestId('ww-canvas').getByRole('img', {
+        name: '1 succeeded, 1 failed, 0 running of 3 nodes',
+      })
+    ).toBeVisible({ timeout: 30_000 });
+
+    await gotoWorkspace(page, `${runPath}&dock=nodes`);
     await expect(
       page
         .getByTestId('ww-dock')
@@ -111,13 +118,6 @@ steps:
 
     const rows = page.getByTestId('node-runs-row');
     await expect(rows.getByRole('rowheader')).toHaveText([web03, web01, web02]);
-
-    // The step card of check counts its nodes.
-    await expect(
-      page.getByTestId('ww-canvas').getByRole('img', {
-        name: '1 succeeded, 1 failed, 0 running of 3 nodes',
-      })
-    ).toBeVisible();
 
     await page.getByRole('button', { name: 'Failed only' }).click();
     await expect(rows.getByRole('rowheader')).toHaveText([web03]);
