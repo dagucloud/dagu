@@ -30,6 +30,10 @@ export function AuditSection({
   if (!monitoring) {
     return null;
   }
+  // A remote node running an older Dagu does not say its level.
+  const levelLabel = auditLevelLabels[monitoring.auditLevel] as
+    | string
+    | undefined;
 
   return (
     <section
@@ -48,9 +52,7 @@ export function AuditSection({
         </p>
       </div>
       <dl className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-4 gap-y-1.5 text-sm">
-        <Row label={ts('Sends')}>
-          {ts(auditLevelLabels[monitoring.auditLevel])}
-        </Row>
+        <Row label={ts('Sends')}>{ts(levelLabel ?? 'Unknown')}</Row>
       </dl>
       <p className="text-sm text-muted-foreground">
         {ts(

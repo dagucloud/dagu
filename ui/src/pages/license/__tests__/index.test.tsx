@@ -1386,6 +1386,15 @@ describe('LicensePage', () => {
       );
     });
 
+    it('shows an unknown audit level from an older remote node', async () => {
+      const older: Partial<LicenseMonitoring> = { ...unchosen };
+      delete older.auditLevel;
+      serveMonitoring(older as LicenseMonitoring);
+
+      const card = await screen.findByRole('region', { name: 'Audit logs' });
+      expect(await within(card).findByText('Unknown')).toBeVisible();
+    });
+
     it('turns reporting on with the chosen level', async () => {
       const { put } = serveMonitoring(unchosen);
       const card = await findMonitoringCard();
