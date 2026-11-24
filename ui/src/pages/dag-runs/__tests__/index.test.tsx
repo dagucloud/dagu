@@ -257,7 +257,7 @@ async function choosePeriod(
   user: ReturnType<typeof userEvent.setup>,
   name: string
 ): Promise<void> {
-  await user.click(screen.getByRole('combobox', { name: 'Period' }));
+  await user.click(screen.getByRole('combobox', { name: 'Time range' }));
   await user.click(await screen.findByRole('option', { name }));
 }
 
@@ -452,7 +452,7 @@ describe('DAGRuns page', () => {
       screen.getByRole('combobox', { name: 'Status' }).className
     ).toContain('h-9');
     expect(
-      screen.getByRole('combobox', { name: 'Period' }).className
+      screen.getByRole('combobox', { name: 'Time range' }).className
     ).toContain('h-9');
     expect(screen.getByRole('button', { name: 'Search' }).className).toContain(
       'h-9'
@@ -595,7 +595,7 @@ describe('DAGRuns page', () => {
       expect(params.has('specificPeriod')).toBe(false);
     });
 
-    await choosePeriod(user, 'Specific date…');
+    await choosePeriod(user, 'Specific period');
     await waitFor(() => {
       const params = locationSearchParams();
       expect(params.get('dateMode')).toBe('specific');
@@ -608,7 +608,7 @@ describe('DAGRuns page', () => {
       expect(params.get('specificPeriod')).toBe('date');
     });
 
-    await choosePeriod(user, 'Custom range…');
+    await choosePeriod(user, 'Custom range');
     await waitFor(() => {
       const params = locationSearchParams();
       expect(params.get('dateMode')).toBe('custom');
@@ -626,7 +626,7 @@ describe('DAGRuns page', () => {
     const user = userEvent.setup();
     renderPage();
 
-    await choosePeriod(user, 'Specific date…');
+    await choosePeriod(user, 'Specific period');
     expect(
       await screen.findByRole('combobox', { name: 'Specific period' })
     ).toBeVisible();
@@ -635,7 +635,7 @@ describe('DAGRuns page', () => {
       screen.queryAllByPlaceholderText('YYYY-MM-DD HH:mm:ss')
     ).toHaveLength(0);
 
-    await choosePeriod(user, 'Custom range…');
+    await choosePeriod(user, 'Custom range');
     expect(
       await screen.findAllByPlaceholderText('YYYY-MM-DD HH:mm:ss')
     ).toHaveLength(2);
@@ -648,7 +648,7 @@ describe('DAGRuns page', () => {
     const user = userEvent.setup();
     renderPage();
 
-    await choosePeriod(user, 'Specific date…');
+    await choosePeriod(user, 'Specific period');
     await waitFor(() => {
       expect(locationSearchParams().get('specificPeriod')).toBe('date');
     });
@@ -667,7 +667,7 @@ describe('DAGRuns page', () => {
     const user = userEvent.setup();
     renderPage(vi.fn(), '/dag-runs', { tzOffsetInSec: -5 * 60 * 60 });
 
-    await choosePeriod(user, 'Custom range…');
+    await choosePeriod(user, 'Custom range');
     const inputs = await screen.findAllByPlaceholderText('YYYY-MM-DD HH:mm:ss');
     const fromInput = inputs[0]!;
     const toInput = inputs[1]!;

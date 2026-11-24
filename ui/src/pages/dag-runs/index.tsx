@@ -1503,7 +1503,7 @@ function DAGRuns() {
                 }}
               >
                 <I18nProps>
-                  <SelectTrigger aria-label="Period" className="w-[140px]">
+                  <SelectTrigger aria-label="Time range" className="w-[140px]">
                     <I18nProps>
                       <SelectValue placeholder="Select period" />
                     </I18nProps>
@@ -1529,10 +1529,10 @@ function DAGRuns() {
                     <I18nText text={'This month'} />
                   </SelectItem>
                   <SelectItem value="specific">
-                    <I18nText text={'Specific date…'} />
+                    <I18nText text={'Specific period'} />
                   </SelectItem>
                   <SelectItem value="custom">
-                    <I18nText text={'Custom range…'} />
+                    <I18nText text={'Custom range'} />
                   </SelectItem>
                 </SelectContent>
               </Select>
