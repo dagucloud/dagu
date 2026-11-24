@@ -181,7 +181,10 @@ function DAGEditorWithDocs({
     };
   }, [toggleSidebar]);
 
-  const skeleton = <LoadingSkeleton text={value} stepLenses={stepLenses} />;
+  // A hidden skeleton draws no lenses, so it reads no steps.
+  const skeleton = (
+    <LoadingSkeleton text={value} stepLenses={shown ? stepLenses : undefined} />
+  );
 
   return (
     <div
