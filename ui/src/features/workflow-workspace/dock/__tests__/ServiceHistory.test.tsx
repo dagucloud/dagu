@@ -408,6 +408,21 @@ describe('the Activity panel of a service DAG', () => {
       fireEvent.click(screen.getByRole('button', { name: 'open' }));
       expect(h.select).toHaveBeenCalledWith('kept', { replace: true });
     });
+
+    // More runs remain than one page holds, so the oldest retained run is
+    // unknown. A run newer than the oldest listed run is still kept.
+    it('links a newer run when the kept runs fill more than a page', () => {
+      h.retained = {
+        dagRuns: [
+          run('kept', '2026-11-08T11:59:00Z'),
+          run('old', '2026-11-08T11:50:00Z'),
+        ],
+        nextCursor: 'next',
+      };
+      renderDock();
+      expect(screen.getByTestId('stub-has-new')).toHaveTextContent('true');
+      expect(screen.getByTestId('stub-has-gone')).toHaveTextContent('false');
+    });
   });
 });
 

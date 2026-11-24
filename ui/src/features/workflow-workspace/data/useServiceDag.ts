@@ -99,6 +99,11 @@ export interface RetainedRuns {
    * the first read, or when the DAG keeps more runs than one page holds.
    */
   oldestAt: number | null;
+  /**
+   * The start of the oldest run that the last read listed, in ms; null
+   * before the first read. A run that started later is retained too.
+   */
+  oldestListedAt: number | null;
 }
 
 /**
@@ -115,7 +120,11 @@ function pageHoldsOldest(
   return runs > 0 && runs <= RETAINED_LIMIT && !dag?.histRetentionDays;
 }
 
-const NONE: RetainedRuns = { ids: new Set(), oldestAt: null };
+const NONE: RetainedRuns = {
+  ids: new Set(),
+  oldestAt: null,
+  oldestListedAt: null,
+};
 
 /**
  * The retained runs of a service DAG, for the notice and for the links of
@@ -180,12 +189,11 @@ export function useRetainedRuns(
     const runs = data?.dagRuns;
     if (!runs) return NONE;
     const oldest = runs[runs.length - 1];
+    const oldestListedAt = oldest ? runTimeMs(oldest) : null;
     return {
       ids: new Set(runs.map((run) => run.dagRunId)),
-      oldestAt:
-        oldest && pageHoldsOldest(data.nextCursor, dag)
-          ? runTimeMs(oldest)
-          : null,
+      oldestAt: pageHoldsOldest(data.nextCursor, dag) ? oldestListedAt : null,
+      oldestListedAt,
     };
   }, [data, dag]);
 }
