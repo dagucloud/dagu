@@ -48,13 +48,6 @@ export function isContinuousStep(step: StepLike | null | undefined): boolean {
   return policy !== null && policy.limit === undefined;
 }
 
-/** True when at least one step of a definition is continuous. */
-export function hasContinuousStep(
-  steps: readonly StepLike[] | null | undefined
-): boolean {
-  return (steps ?? []).some(isContinuousStep);
-}
-
 const HEALTHY: Pick<RunDisplayStatus, 'healthy' | 'text' | 'tone'> = {
   healthy: true,
   text: 'Healthy',
@@ -104,15 +97,14 @@ export function runDisplayStatus(
 
 /**
  * The display status of a run that is known only by its summary (a list row,
- * a bar of the history): without nodes, the definition decides, through
- * `service` and hasContinuousStep. A failed node cannot show here; the run
- * page shows it.
+ * a bar of the history): without nodes, `service` decides. A failed node or a
+ * stopped continuous step cannot show here; the run page shows it.
  */
 export function summaryDisplayStatus(
   status: Status,
-  { service, continuous }: RunDisplayContext & { continuous: boolean }
+  { service }: RunDisplayContext
 ): RunDisplayStatus {
-  return status === Status.Running && service && continuous
+  return status === Status.Running && service
     ? { status, ...HEALTHY }
     : normal(status);
 }

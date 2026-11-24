@@ -69,7 +69,8 @@ export function useListRunDisplay(
   );
   if (status === undefined) return undefined;
   const details = data?.dagRunDetails;
+  // Without the details a failed step cannot show: the API status stands.
   return details && details.dagRunId === dagRunId
     ? runDisplayStatus(details, { service })
-    : summaryDisplayStatus(status, { service, continuous: false });
+    : summaryDisplayStatus(status, { service: false });
 }
