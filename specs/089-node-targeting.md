@@ -4,11 +4,12 @@
 
 Partially implemented. The `nodes` step field, the `node` DAG field, their
 validation, running a step as one child run per node, binding SSH nodes into
-their child runs, and the `node` namespace are implemented. Conformance
-covers validation through `dagu validate` and runs through `dagu start`,
-against SSH servers the test harness starts. Bound runs and steps with
-nodes do not run on workers yet. Further sections are added as RFC 013
-lands.
+their child runs, the `node` namespace, and the records of node runs with
+the API that reads them are implemented. Conformance covers validation
+through `dagu validate`, runs through `dagu start` against SSH servers the
+test harness starts, and node runs through the API. Bound runs and steps
+with nodes do not run on workers yet, and the UI does not show node runs
+yet. Further sections are added as RFC 013 lands.
 
 ## Scope
 
@@ -151,6 +152,36 @@ Outside a bound run, a `${node.*}` reference is kept as text, with a
 runtime-only notice. A run with a variable named `node`, such as a step
 output, reads `${node.<path>}` as a JSON path into that variable instead,
 as it did before the namespace.
+
+### Viewing node runs
+
+A step with nodes records the run of each node it matched beside its log
+files, outside the run status, so a step over many nodes does not grow the
+status. A record holds the node, its status, its child run, and when the run
+started and finished. Once the child run finishes, the record adds how many
+of its steps succeeded and the step that failed last. A node's status is one
+its child run reached, or `not_started`, `running`, or `disabled`. The step
+records its nodes before any of them starts, again at most once a second
+while they change, and once more when it ends. A node running when the step
+is aborted is `aborted`.
+
+`GET /dag-runs/{name}/{dagRunId}/node-runs` lists a run's node runs, and
+`GET /dag-runs/{name}/{dagRunId}/sub-dag-runs/{subDAGRunId}/node-runs` those
+of a sub-run:
+
+- `steps` names the steps with nodes that recorded, in run order, with
+  their counts by status. A partially succeeded run counts as succeeded and
+  a rejected one as failed.
+- `items` holds one row per node, with its run for each of those steps that
+  matched it.
+- Rows with a failed, aborted, or rejected run come first, then rows with a
+  running or waiting run, then the rest, each group in node name order.
+  `failedOnly=true` keeps only the first group. `page` and `perPage` page
+  the rows.
+
+Run details carry the same counts as `nodeRuns` on each step with nodes
+that recorded, and a bound run's node as `boundNode`. A run recorded before
+this version has no rows and no counts.
 
 ## Errors
 

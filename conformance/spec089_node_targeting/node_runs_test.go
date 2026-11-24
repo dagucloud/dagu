@@ -34,9 +34,16 @@ var fleet = []inventory.Node{
 }
 
 // nodesEnv stores fleet in a new data directory and returns the environment
-// that points dagu at it. It stores through the inventory store, as the
-// command that imports inventories lands separately.
+// that points dagu at it.
 func nodesEnv(t *testing.T) []string {
+	t.Helper()
+	return []string{"DAGU_DATA_DIR=" + nodesDataDir(t)}
+}
+
+// nodesDataDir stores fleet in a new data directory and returns it. It stores
+// through the inventory store, as the command that imports inventories lands
+// separately.
+func nodesDataDir(t *testing.T) string {
 	t.Helper()
 
 	dataDir := t.TempDir()
@@ -49,7 +56,7 @@ func nodesEnv(t *testing.T) []string {
 	require.NoError(t, err)
 	_, err = inventories.Create(context.Background(), inventory.Inventory{Name: "fleet", Nodes: fleet})
 	require.NoError(t, err)
-	return []string{"DAGU_DATA_DIR=" + dataDir}
+	return dataDir
 }
 
 // nodeStatuses reads the aggregate a node step wrote and returns each node's
