@@ -1485,7 +1485,8 @@ function DAGTable({
     [searchLabels, handleSearchLabelsChange]
   );
 
-  // The loaded workflows of each group, in the server order.
+  // The loaded workflows of each group, in the server order. A Map keeps a
+  // group name such as "constructor" apart from the properties of Object.
   const groupMembers = useMemo(() => {
     const members = new Map<string, components['schemas']['DAGFile'][]>();
     dags.forEach((dag) => {
@@ -1539,18 +1540,16 @@ function DAGTable({
       (dag) => !dag.pinned || inPinnedGroup(dag)
     );
 
-    const groups: { [key: string]: Data } = {};
+    const groups = new Map<string, Data>();
     unpinnedDags.forEach((dag) => {
       const groupName = dag.dag.group;
       if (groupName) {
-        if (!groups[groupName]) {
-          groups[groupName] = {
-            kind: ItemKind.Group,
-            name: groupName,
-            subRows: [],
-          };
+        let group = groups.get(groupName);
+        if (!group) {
+          group = { kind: ItemKind.Group, name: groupName, subRows: [] };
+          groups.set(groupName, group);
         }
-        groups[groupName].subRows!.push({
+        group.subRows!.push({
           kind: ItemKind.DAG,
           name: dag.dag.name,
           dag: dag,
@@ -1558,7 +1557,7 @@ function DAGTable({
       }
     });
 
-    const groupRows = Object.values(groups);
+    const groupRows = [...groups.values()];
     const hierarchicalData: Data[] = [
       ...groupRows.filter((group) => pinnedGroupNames.has(group.name)),
       ...pinnedRows,

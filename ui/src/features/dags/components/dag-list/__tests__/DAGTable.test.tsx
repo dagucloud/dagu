@@ -596,6 +596,16 @@ describe('DAGTable', () => {
     ).toEqual(['cleanup.yaml', 'reports.yaml']);
   });
 
+  it('lists a group named after a property of Object', () => {
+    renderTable('', {
+      dags: [workflow({ name: 'build', group: 'constructor' })],
+    });
+
+    expect(
+      within(screen.getByRole('table')).getByText('constructor')
+    ).toBeInTheDocument();
+  });
+
   // Gathered by group is the default; the switch lists the workflows flat.
   it('lists the workflows flat by group then name when the Group switch is off', () => {
     renderTable('', {
