@@ -356,6 +356,28 @@ func TestUserPatchPreservesUnspecifiedAuthorization(t *testing.T) {
 	assert.Equal(t, u.PasswordHash, patched.PasswordHash)
 }
 
+// Project grants stay when other authorization fields change.
+func TestUserKeepsProjectGrants(t *testing.T) {
+	ctx := context.Background()
+	s := newUserStore(t)
+	u := newUser("granted")
+	grants := []auth.ProjectGrant{{ProjectID: "project-a", Role: auth.RoleManager}}
+	u.ProjectGrants = grants
+	require.NoError(t, s.Create(ctx, u))
+
+	role := auth.RoleOperator
+	_, err := s.Patch(ctx, u.ID, auth.UserPatch{Role: &role})
+	require.NoError(t, err)
+	result, err := s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, nil)
+	require.NoError(t, err)
+	assert.Equal(t, grants, result.User.ProjectGrants)
+
+	got, err := s.GetByID(ctx, u.ID)
+	require.NoError(t, err)
+	assert.Equal(t, auth.RoleViewer, got.Role)
+	assert.Equal(t, grants, got.ProjectGrants)
+}
+
 func TestUserSyncAuthorizationPreservesAdministrativeFields(t *testing.T) {
 	ctx := context.Background()
 	s := newUserStore(t)

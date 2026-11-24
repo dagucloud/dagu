@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/auth"
@@ -188,6 +189,7 @@ func Middleware(opts Options) func(next http.Handler) http.Handler {
 						Username:        "apikey:" + apiKey.Name,
 						Role:            apiKey.Role,
 						WorkspaceAccess: auth.CloneWorkspaceAccess(apiKey.WorkspaceAccess),
+						ProjectGrants:   slices.Clone(apiKey.ProjectGrants),
 					}
 					ctx := auth.WithAPIKey(auth.WithUser(r.Context(), syntheticUser), apiKey)
 					next.ServeHTTP(w, r.WithContext(ctx))
