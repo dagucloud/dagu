@@ -89,6 +89,8 @@ const areDAGDefinitionsFiltersEqual = (
 
 const ALL_WORKFLOWS_VIEW_PARAM = 'all';
 const DELETE_BATCH_SIZE = 5;
+// All pins share one record on the server, so a group pins a few at a time.
+const PIN_BATCH_SIZE = 5;
 
 function normalizeWorkflowSortField(value?: string | null): ViewSortField {
   return value === ViewSortField.nextRun ||
@@ -780,6 +782,37 @@ function DAGsContent() {
     [client, reloadDAGList, remoteNode, showError]
   );
 
+  // A group pins in one go: the requests run in batches, the list reloads once.
+  const handleSetDAGsPinned = React.useCallback(
+    async (fileNames: string[], pinned: boolean): Promise<void> => {
+      const results: PromiseSettledResult<void>[] = [];
+      for (let index = 0; index < fileNames.length; index += PIN_BATCH_SIZE) {
+        const batch = fileNames.slice(index, index + PIN_BATCH_SIZE);
+        results.push(
+          ...(await Promise.allSettled(
+            batch.map((fileName) =>
+              setDAGPinned(client, { fileName, pinned, remoteNode })
+            )
+          ))
+        );
+      }
+      const failed = results.find(
+        (result): result is PromiseRejectedResult =>
+          result.status === 'rejected'
+      );
+      if (failed) {
+        showError(
+          failed.reason instanceof Error
+            ? failed.reason.message
+            : String(failed.reason),
+          'Please try again or check the server connection.'
+        );
+      }
+      await reloadDAGList();
+    },
+    [client, reloadDAGList, remoteNode, showError]
+  );
+
   React.useEffect(() => {
     appBarContext.setTitle('Workflows');
   }, [appBarContext]);
@@ -1248,6 +1281,12 @@ function DAGsContent() {
             canPinDAG={canWriteDAG}
             onSetDAGPinned={handleSetDAGPinned}
             resultCount={data.pagination.totalRecords}
+            isRequestFiltered={
+              !!requestFilters.searchText ||
+              requestFilters.searchLabels.length > 0 ||
+              requestFilters.activeOnly
+            }
+            onSetDAGsPinned={handleSetDAGsPinned}
           />
           <div className="mt-3 flex flex-col items-center gap-2">
             {loadMoreError && (

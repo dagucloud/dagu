@@ -58,7 +58,7 @@ steps:
   expect(new URL(page.url()).pathname).toBe('/dags');
 
   // A click away from the links and buttons of the row opens the overlay.
-  const rowBody = row.getByText('No schedule', { exact: true });
+  const rowBody = row.getByTestId('schedule-cell');
   const overlay = page.getByRole('dialog', { name: 'Workflow' });
   const path = () => new URL(page.url()).pathname;
   await rowBody.click();
