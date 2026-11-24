@@ -3,6 +3,7 @@
 
 import type { APIRequestContext, Page } from '@playwright/test';
 import {
+  listDAGRuns,
   loadStack,
   loginViaAPI,
   startDAG,
@@ -525,9 +526,20 @@ test.describe('workspace run header', () => {
     });
     await sameAsReference('running run with progress');
 
-    // A run of a service DAG that never ends, with its repeat count.
+    // A run of a service DAG that never ends, with its repeat count. The
+    // scheduler starts the first run: a start by hand would race it and fail.
     const good = await createDAG(request, token, created, CONTINUOUS_SERVICE);
-    const goodRun = await startDAG(request, token, good.fileName);
+    let goodRun = '';
+    await expect
+      .poll(
+        async () => {
+          const runs = await listDAGRuns(request, token, good.dagName);
+          goodRun = runs[0]?.dagRunId ?? '';
+          return goodRun;
+        },
+        { timeout: 60_000 }
+      )
+      .not.toBe('');
     stopped.push({ dagName: good.dagName, runId: goodRun });
     await openWorkflow(page, gotoWorkspace, good.fileName);
     await expect(
