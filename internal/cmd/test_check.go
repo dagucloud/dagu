@@ -65,6 +65,63 @@ func (c *testCase) check(expect dagtest.Expect, status *ir.DAGRunStatus) []caseF
 	return failures
 }
 
+// expectFromRun returns the exact facts of the case's run as assertions:
+// the run's status and attempts, the status and attempts of every step in
+// the order the DAG declares them and then of every lifecycle handler, and
+// the notifications the run would have sent. status is the status of the
+// run's last attempt. When it is terminal, check passes the facts.
+func (c *testCase) expectFromRun(status *ir.DAGRunStatus) dagtest.Expect {
+	expect := dagtest.Expect{
+		Status:        status.Status.String(),
+		Attempts:      new(c.attempts),
+		Notifications: make([]dagtest.Notification, 0, len(c.notifications)),
+	}
+	for _, step := range c.dag.Steps {
+		expect.Steps = append(expect.Steps, c.stepFacts(dagtest.StepExpect{Key: stepLabel(step), Step: step.Name}, status))
+	}
+	for _, h := range lifecycleHandlers(c.dag.HandlerOn) {
+		expect.Steps = append(expect.Steps, c.stepFacts(h, status))
+	}
+	for _, n := range c.notifications {
+		expect.Notifications = append(expect.Notifications, dagtest.Notification{Kind: string(n.Kind), Step: n.Step, To: n.To})
+	}
+	return expect
+}
+
+// stepFacts returns s with the status and attempts of its step or handler
+// in the case's run.
+func (c *testCase) stepFacts(s dagtest.StepExpect, status *ir.DAGRunStatus) dagtest.StepExpect {
+	s.Status = nodeStatusToken(expectedNode(status, c.waited, s))
+	s.Attempts = new(c.stepAttempts(s))
+	return s
+}
+
+// handlerKeyPrefix starts the step key of a lifecycle handler.
+const handlerKeyPrefix = "handler_on."
+
+// lifecycleHandlers returns the lifecycle handlers that on sets, each with
+// its step key, in the order init, success, failure, abort, exit, wait.
+func lifecycleHandlers(on ir.HandlerOn) []dagtest.StepExpect {
+	var handlers []dagtest.StepExpect
+	for _, h := range []struct {
+		event string
+		kind  ir.HandlerType
+		step  *ir.Step
+	}{
+		{"init", ir.HandlerOnInit, on.Init},
+		{"success", ir.HandlerOnSuccess, on.Success},
+		{"failure", ir.HandlerOnFailure, on.Failure},
+		{"abort", ir.HandlerOnAbort, on.Abort},
+		{"exit", ir.HandlerOnExit, on.Exit},
+		{"wait", ir.HandlerOnWait, on.Wait},
+	} {
+		if h.step != nil {
+			handlers = append(handlers, dagtest.StepExpect{Key: handlerKeyPrefix + h.event, Handler: h.kind})
+		}
+	}
+	return handlers
+}
+
 // checkStep returns the failed assertions on one step or handler: status,
 // attempts, outputs in the order listed, stdout, then stderr.
 func (c *testCase) checkStep(s dagtest.StepExpect, status *ir.DAGRunStatus) []caseFailure {

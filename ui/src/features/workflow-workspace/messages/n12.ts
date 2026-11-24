@@ -13,4 +13,7 @@ export default defineMessages({
   ja: {
     'Zoom {percent}%, reset to 100%': 'ズーム {percent}%、100% にリセット',
   },
+  de: {
+    'Zoom {percent}%, reset to 100%': 'Zoom {percent} %, zurück auf 100 %',
+  },
 });

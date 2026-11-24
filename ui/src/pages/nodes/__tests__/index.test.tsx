@@ -21,11 +21,14 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import NodesPage from '..';
 
-const clientGet = vi.fn();
+// One client for every render, as the real hook returns.
+const client = vi.hoisted(() => ({ GET: vi.fn(), PUT: vi.fn() }));
+const clientGet = client.GET;
+const clientPut = client.PUT;
 
 vi.mock('@/hooks/api', () => ({
   useQuery: vi.fn(),
-  useClient: () => ({ GET: clientGet }),
+  useClient: () => client,
 }));
 vi.mock('@/contexts/AuthContext', () => ({
   useCanEditInventories: vi.fn(),
@@ -277,6 +280,14 @@ describe('NodesPage', () => {
     expect(screen.getByRole('dialog')).toHaveTextContent('New inventory');
   });
 
+  it('offers an import to a user without inventories', () => {
+    respond({ inventories: [] });
+    renderPage();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Import inventories');
+  });
+
   it('offers no new inventory to a user who cannot edit inventories', () => {
     canEditMock.mockReturnValue(false);
     respond({ inventories: [] });
@@ -300,6 +311,50 @@ describe('NodesPage', () => {
     expect(screen.getByText("Couldn't load inventories.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(retry).toHaveBeenCalled();
+  });
+
+  it('lets an editor change a node from its drawer', () => {
+    renderPage();
+    fireEvent.click(screen.getByText('web01', { selector: 'td span' }));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Edit node');
+  });
+
+  it('offers no node changes in the drawer to a user who cannot edit inventories', () => {
+    canEditMock.mockReturnValue(false);
+    renderPage();
+    fireEvent.click(screen.getByText('web01', { selector: 'td span' }));
+    expect(screen.getByRole('dialog')).not.toHaveTextContent('Edit node');
+  });
+
+  it('keeps a closed drawer closed when a read of its node finishes late', async () => {
+    let reloaded!: (value: unknown) => void;
+    clientGet.mockImplementation((path: string) =>
+      path === '/nodes/{nodeName}'
+        ? new Promise((resolve) => (reloaded = resolve))
+        : Promise.resolve({
+            data: {
+              id: 'inv-tokyo',
+              name: 'Tokyo production',
+              version: 1,
+              createdAt: '',
+              updatedAt: '',
+              defaults: {},
+              nodes: [{ name: 'web01', host: '10.0.1.11' }],
+            },
+          })
+    );
+    clientPut.mockResolvedValue({ data: {} });
+    renderPage();
+
+    fireEvent.click(screen.getByText('web01', { selector: 'td span' }));
+    await act(async () => {});
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Disable' }));
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await act(async () => reloaded({ data: NODES[0] }));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('offers Add node to editors only', () => {

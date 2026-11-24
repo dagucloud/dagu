@@ -39,4 +39,15 @@ export default defineMessages({
     'iteration {n} of {limit}': '{limit} 回中 {n} 回目',
     'iteration {n}': '{n} 回目',
   },
+  de: {
+    'repeat while "{condition}"': 'wiederholen solange "{condition}"',
+    'repeat until "{condition}"': 'wiederholen bis "{condition}"',
+    'repeat while exit {codes}': 'wiederholen solange Exit {codes}',
+    'repeat until exit {codes}': 'wiederholen bis Exit {codes}',
+    'every {interval}': 'alle {interval}',
+    'max {limit}': 'max. {limit}',
+    'no limit': 'ohne Grenze',
+    'iteration {n} of {limit}': 'Durchgang {n} von {limit}',
+    'iteration {n}': 'Durchgang {n}',
+  },
 });

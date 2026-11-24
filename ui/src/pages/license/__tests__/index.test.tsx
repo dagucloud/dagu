@@ -177,7 +177,6 @@ const unchosen: LicenseMonitoring = {
   configured: false,
   chosen: false,
   noticeDismissed: false,
-  errorsOffered: false,
 };
 
 function overview() {
@@ -696,7 +695,7 @@ describe('LicensePage', () => {
 
       expect(post).toHaveBeenCalledWith('/license/connect', {
         params: { query: { remoteNode: 'local' } },
-        body: { report: 'errors' },
+        body: { report: 'runs' },
       });
       expect(window.open).toHaveBeenCalledWith('about:blank', '_blank');
       expect(tab.opener).toBeNull();
@@ -763,7 +762,7 @@ describe('LicensePage', () => {
 
       expect(post).toHaveBeenCalledWith('/license/connect', {
         params: { query: { remoteNode: 'local' } },
-        body: { report: 'errors', remoteAccess: 'operator' },
+        body: { report: 'runs', remoteAccess: 'operator' },
       });
     });
 
@@ -882,7 +881,7 @@ describe('LicensePage', () => {
       expect(row('Status')).toHaveTextContent('Monitoring only');
       expect(
         await within(await findMonitoringCard()).findByText(
-          'Health, run status, and error messages'
+          'Health and run status'
         )
       ).toBeVisible();
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -1002,7 +1001,7 @@ describe('LicensePage', () => {
       );
       expect(
         within(offer()).getByRole('radio', {
-          name: 'Health, run status, and error messages (recommended)',
+          name: 'Health and run status (recommended)',
         })
       ).toBeChecked();
       await userEvent.click(
@@ -1011,7 +1010,7 @@ describe('LicensePage', () => {
 
       expect(post).toHaveBeenCalledWith('/license/connect', {
         params: { query: { remoteNode: 'local' } },
-        body: { report: 'errors' },
+        body: { report: 'runs' },
       });
       expect(await screen.findByText('ABCD1234')).toBeVisible();
       expect(
@@ -1046,13 +1045,15 @@ describe('LicensePage', () => {
     it('keeps the level chosen before when the server connects again', async () => {
       const { post, approve } = approveAndConnect({
         ...unchosen,
-        level: LicenseMonitoringLevel.runs,
+        level: LicenseMonitoringLevel.errors,
         chosen: true,
       });
       // The level chosen before is selected once the server's choice loads.
       await waitFor(() =>
         expect(
-          within(offer()).getByRole('radio', { name: 'Health and run status' })
+          within(offer()).getByRole('radio', {
+            name: 'Health, run status, and error messages',
+          })
         ).toBeChecked()
       );
       await approve(() =>
@@ -1061,7 +1062,7 @@ describe('LicensePage', () => {
 
       expect(post).toHaveBeenCalledWith('/license/connect', {
         params: { query: { remoteNode: 'local' } },
-        body: { report: 'runs' },
+        body: { report: 'errors' },
       });
     });
 
@@ -1340,7 +1341,6 @@ describe('LicensePage', () => {
         configured: false,
         chosen: true,
         noticeDismissed: false,
-        errorsOffered: false,
         lastReportAt: new Date().toISOString(),
         lastReport: '{"protocol":2,"heartbeat_secret":"[redacted]"}',
       });
@@ -1379,12 +1379,12 @@ describe('LicensePage', () => {
       });
       const health = within(dialog).getByRole('radio', { name: 'Health only' });
       const runs = within(dialog).getByRole('radio', {
-        name: 'Health and run status',
+        name: 'Health and run status (recommended)',
       });
       const errors = within(dialog).getByRole('radio', {
-        name: 'Health, run status, and error messages (recommended)',
+        name: 'Health, run status, and error messages',
       });
-      expect(errors).toBeChecked();
+      expect(runs).toBeChecked();
       expect(errors).toHaveAccessibleDescription(
         "Sends everything Health and run status sends, plus why each failed run failed: the error messages of up to 5 failed steps and handlers, or the run's own, each up to 2 KB from its end. A step's error can end with the last lines of its stderr, with the values of workflow secrets masked."
       );
@@ -1516,7 +1516,6 @@ describe('LicensePage', () => {
         configured: false,
         chosen: true,
         noticeDismissed: false,
-        errorsOffered: false,
         lastReportAt: new Date(Date.now() - 11 * 60_000).toISOString(),
       });
       const card = await findMonitoringCard();
@@ -1534,7 +1533,6 @@ describe('LicensePage', () => {
         configured: false,
         chosen: true,
         noticeDismissed: false,
-        errorsOffered: false,
         lastReportAt: new Date(Date.now() - 9 * 60_000).toISOString(),
       });
       const card = await findMonitoringCard();
@@ -1550,7 +1548,6 @@ describe('LicensePage', () => {
         configured: false,
         chosen: true,
         noticeDismissed: false,
-        errorsOffered: false,
         lastReportAt: new Date().toISOString(),
         runsPausedUntil: until.toISOString(),
       });
@@ -1569,7 +1566,6 @@ describe('LicensePage', () => {
         configured: false,
         chosen: true,
         noticeDismissed: false,
-        errorsOffered: false,
         lastReportAt: new Date().toISOString(),
         runsPausedUntil: new Date(Date.now() - 60_000).toISOString(),
       });

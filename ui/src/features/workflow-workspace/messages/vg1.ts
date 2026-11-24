@@ -33,4 +33,14 @@ export default defineMessages({
       '整形する前に YAML の構文エラーを修正してください',
     'The YAML is already formatted': 'YAML は整形済みです',
   },
+  de: {
+    'Apply all quick fixes': 'Alle Schnellkorrekturen anwenden',
+    'No quick fix to apply': 'Keine Schnellkorrektur anwendbar',
+    'Fix all quick fixes in the file':
+      'Alle Schnellkorrekturen in der Datei anwenden',
+    'Format YAML': 'YAML formatieren',
+    'Fix the YAML syntax error before you format':
+      'Vor dem Formatieren den YAML-Syntaxfehler beheben',
+    'The YAML is already formatted': 'Das YAML ist schon formatiert',
+  },
 });

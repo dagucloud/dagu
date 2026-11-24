@@ -19,4 +19,9 @@ export default defineMessages({
     'No steps': 'ステップがありません',
     'Add a step to route {port}': 'ルート {port} にステップを追加',
   },
+  de: {
+    'Add first step': 'Ersten Schritt hinzufügen',
+    'No steps': 'Keine Schritte',
+    'Add a step to route {port}': 'Schritt für Weg {port} hinzufügen',
+  },
 });

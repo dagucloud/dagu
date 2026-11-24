@@ -186,9 +186,7 @@ values of declared secrets. An administrator who would not send them chooses
   keeps sending only its license check-in.
 - **The admin chooses in the UI**, at a moment it is useful: right after the
   server connects to Dagu Cloud, or from a one-time notice on a server that
-  was already licensed. A server that chose run status before error
-  messages could be sent is offered them once, from the same kind of
-  notice. The dialog lists what each level sends and what is never sent,
+  was already licensed. The dialog lists what each level sends and what is never sent,
   before anything is. The choice persists in the data directory
   and applies without a restart.
 - **Config wins.** Set in configuration, `cloud.report` fixes the level for

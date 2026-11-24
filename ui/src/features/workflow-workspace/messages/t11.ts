@@ -30,4 +30,13 @@ export default defineMessages({
     'Run the {count} upstream steps of {name} now? Their commands run for real.':
       '{name} の上流の {count} 個のステップを今すぐ実行しますか？コマンドは実際に実行されます。',
   },
+  de: {
+    'Choose a sub DAG run': 'Unterlauf wählen',
+    'Failed to update status': 'Status konnte nicht aktualisiert werden',
+    'Run upstream steps': 'Vorherige Schritte ausführen',
+    'Fix the file to run the upstream steps':
+      'Datei korrigieren, um die vorherigen Schritte auszuführen',
+    'Run the {count} upstream steps of {name} now? Their commands run for real.':
+      'Die {count} vorherigen Schritte von {name} jetzt ausführen? Ihre Befehle laufen wirklich.',
+  },
 });

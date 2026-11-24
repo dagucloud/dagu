@@ -43,4 +43,17 @@ export default defineMessages({
     Filter: '絞り込み',
     'Max Active Steps': '最大アクティブステップ数',
   },
+  de: {
+    'Part of the form to show': 'Anzuzeigender Teil des Formulars',
+    '{count} more levels': '{count} weitere Ebenen',
+    '{count} more level': '{count} weitere Ebene',
+    '{field} is required': '{field} ist Pflicht',
+    'No declared outputs': 'Keine angegebenen Ausgaben',
+    'declared output': 'angegebene Ausgabe',
+    'action output': 'Aktionsausgabe',
+    'stdout field': 'stdout-Feld',
+    'output variable': 'Ausgabevariable',
+    Filter: 'Filtern',
+    'Max Active Steps': 'Max. aktive Schritte',
+  },
 });

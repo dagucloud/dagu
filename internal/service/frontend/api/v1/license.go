@@ -418,22 +418,6 @@ func (a *API) DismissLicenseMonitoringNotice(ctx context.Context, _ api.DismissL
 	return api.DismissLicenseMonitoringNotice200JSONResponse(status), nil
 }
 
-// DismissLicenseMonitoringErrorsNotice stops offering administrators to have
-// this server also send error messages to Dagu Console.
-func (a *API) DismissLicenseMonitoringErrorsNotice(ctx context.Context, _ api.DismissLicenseMonitoringErrorsNoticeRequestObject) (api.DismissLicenseMonitoringErrorsNoticeResponseObject, error) {
-	if err := a.requireCloudReport(ctx); err != nil {
-		return nil, err
-	}
-	if err := a.cloudReport.DismissErrorsNotice(ctx); err != nil {
-		return nil, internalError(err)
-	}
-	status, err := a.licenseMonitoring(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return api.DismissLicenseMonitoringErrorsNotice200JSONResponse(status), nil
-}
-
 func (a *API) requireCloudReport(ctx context.Context) error {
 	if err := a.requireAdmin(ctx); err != nil {
 		return err
@@ -458,7 +442,6 @@ func (a *API) licenseMonitoring(ctx context.Context) (api.LicenseMonitoring, err
 		Configured:      status.Configured,
 		Chosen:          status.Chosen,
 		NoticeDismissed: status.NoticeDismissed,
-		ErrorsOffered:   status.ErrorsOffered,
 	}
 	if !status.LastReportAt.IsZero() {
 		monitoring.LastReportAt = ptrOf(stringutil.FormatTimeSeconds(status.LastReportAt))

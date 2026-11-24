@@ -37,4 +37,15 @@ export default defineMessages({
     'Open {tab}': '{tab}を開く',
     'Follow latest run': '最新の実行に追従',
   },
+  de: {
+    'This workflow': 'Dieser Ablauf',
+    'Toggle YAML': 'YAML ein/aus',
+    'Workflow panel': 'Ablauf-Bereich',
+    'Add step…': 'Schritt hinzufügen…',
+    'Go to step {name}': 'Zu Schritt {name}',
+    'Toggle logs': 'Protokoll ein/aus',
+    'Open run log': 'Laufprotokoll öffnen',
+    'Open {tab}': '{tab} öffnen',
+    'Follow latest run': 'Neuestem Lauf folgen',
+  },
 });

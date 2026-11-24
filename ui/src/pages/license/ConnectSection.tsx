@@ -89,7 +89,7 @@ export function ConnectSection({
     cancel,
   } = connect;
   const [report, setReport] = useState<ReportingLevel>(
-    LicenseMonitoringLevel.errors
+    LicenseMonitoringLevel.runs
   );
   const [trial, setTrial] = useState(trialRequested || mcpRequested);
   const [mcp, setMCP] = useState(mcpRequested);

@@ -85,4 +85,21 @@ export default defineMessages({
     'Retries only after the exit code {codes}.':
       '終了コードが {codes} のときだけ再試行します。',
   },
+  de: {
+    'if {step} failed': 'wenn {step} fehlgeschlagen ist',
+    'if {step} succeeded': 'wenn {step} erfolgreich war',
+    'if {step} exits with {code}': 'wenn {step} mit {code} endet',
+    'if {step} does not exit with {code}': 'wenn {step} nicht mit {code} endet',
+    'if {step}: {test}': 'wenn {step}: {test}',
+    'Precondition: {text}': 'Vorbedingung: {text}',
+    'continues on failure': 'macht bei Fehler weiter',
+    'continues if skipped': 'macht bei Überspringen weiter',
+    'continues on exit code {codes}': 'macht bei Exit-Code {codes} weiter',
+    'continues on matching output': 'macht bei passender Ausgabe weiter',
+    'The run goes on with the steps after this one.':
+      'Der Lauf geht mit den Schritten danach weiter.',
+    'The step then counts as a success.':
+      'Der Schritt gilt dann als erfolgreich.',
+    'Runs only if:': 'Läuft nur, wenn:',
+  },
 });

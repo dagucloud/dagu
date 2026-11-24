@@ -56,8 +56,7 @@ async function outcomeOf(
     const { error } = await request;
     return { refusal: error ? refusalOf(error) : undefined };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { refusal: { message, rules: [] } };
+    return { refusal: { message: messageOf(error), rules: [] } };
   }
 }
 
@@ -72,7 +71,7 @@ export async function readInventory(
     });
     return data ?? { failure: error?.message ?? '' };
   } catch (error) {
-    return { failure: error instanceof Error ? error.message : String(error) };
+    return { failure: messageOf(error) };
   }
 }
 
@@ -118,6 +117,79 @@ export function addNode(
   );
 }
 
+/** Replaces the node of node's name in the inventory id, based on version. */
+export function replaceNode(
+  client: Client,
+  id: string,
+  version: number,
+  node: InventoryNodeSpec
+): Promise<Outcome> {
+  return outcomeOf(
+    client.PUT('/inventories/{inventoryId}/nodes/{nodeName}', {
+      params: {
+        path: { inventoryId: id, nodeName: node.name },
+        query: { version },
+      },
+      body: node,
+    })
+  );
+}
+
+/** Removes the node named name from the inventory id, based on version. */
+export function deleteNode(
+  client: Client,
+  id: string,
+  version: number,
+  name: string
+): Promise<Outcome> {
+  return outcomeOf(
+    client.DELETE('/inventories/{inventoryId}/nodes/{nodeName}', {
+      params: { path: { inventoryId: id, nodeName: name }, query: { version } },
+    })
+  );
+}
+
+export type ImportResult = components['schemas']['InventoryImportResult'];
+
+/**
+ * Imports records as `dagu nodes import` does: with dryRun it only checks
+ * them, and with replace it replaces an inventory whose name is taken.
+ */
+export async function importInventories(
+  client: Client,
+  records: unknown[],
+  options: { replace: boolean; dryRun: boolean }
+): Promise<{ result?: ImportResult; refusal?: ChangeRefusal }> {
+  try {
+    const { data, error } = await client.POST('/inventory-imports', {
+      params: { query: options },
+      body: records as { [key: string]: unknown }[],
+    });
+    return data ? { result: data } : { refusal: refusalOf(error) };
+  } catch (error) {
+    return { refusal: { message: messageOf(error), rules: [] } };
+  }
+}
+
+/**
+ * Reads the inventories ids as `dagu nodes export` prints them, or why one
+ * could not be read.
+ */
+export async function exportRecords(
+  client: Client,
+  ids: string[]
+): Promise<InventoryRecord[] | { failure: string }> {
+  const records: InventoryRecord[] = [];
+  for (const id of ids) {
+    const read = await readInventory(client, id);
+    if ('failure' in read) {
+      return read;
+    }
+    records.push(recordOf(read));
+  }
+  return records;
+}
+
 /** Deletes the inventory id, based on version, with its nodes. */
 export function deleteInventory(
   client: Client,
@@ -149,4 +221,8 @@ function ruleText(rule: RuleError): string {
     .filter(Boolean)
     .join(': ');
   return where ? `${where}: ${rule.message}` : rule.message;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

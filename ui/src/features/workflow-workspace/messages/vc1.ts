@@ -24,4 +24,10 @@ export default defineMessages({
     'Show less': '折りたたむ',
     'Required key': '必須キー',
   },
+  de: {
+    'Reload the workflow, its runs and the latest run from the server':
+      'Ablauf, seine Läufe und den neuesten Lauf neu vom Server laden',
+    'Show less': 'Weniger anzeigen',
+    'Required key': 'Pflichtschlüssel',
+  },
 });

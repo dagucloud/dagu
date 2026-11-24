@@ -40,4 +40,16 @@ export default defineMessages({
     'Pinned run': '固定された実行',
     'Open the run timeline': '実行のタイムラインを開く',
   },
+  de: {
+    'This run used a different definition.':
+      'Dieser Lauf hatte eine andere Definition.',
+    'This run used a different definition. {count} step of the run is not on the canvas.':
+      'Dieser Lauf hatte eine andere Definition. {count} Schritt des Laufs ist nicht auf der Zeichenfläche.',
+    'This run used a different definition. {count} steps of the run are not on the canvas.':
+      'Dieser Lauf hatte eine andere Definition. {count} Schritte des Laufs sind nicht auf der Zeichenfläche.',
+    'Show the definition of this run': 'Definition dieses Laufs anzeigen',
+    'Back to the current definition': 'Zurück zur aktuellen Definition',
+    'Pinned run': 'Angehefteter Lauf',
+    'Open the run timeline': 'Zeitleiste des Laufs öffnen',
+  },
 });

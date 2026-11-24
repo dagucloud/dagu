@@ -47,4 +47,20 @@ export default defineMessages({
     'Sub-run {name} is waiting for an action.':
       'サブ実行 {name} がアクションを待っています。',
   },
+  de: {
+    'The run in the link was not found. The latest run is shown.':
+      'Der Lauf im Link wurde nicht gefunden. Der neueste Lauf wird angezeigt.',
+    'Approval saved; resume failed.':
+      'Freigabe gespeichert; Fortsetzen fehlgeschlagen.',
+    'Tasks saved; resume failed.':
+      'Aufgaben gespeichert; Fortsetzen fehlgeschlagen.',
+    'Open actions': 'Aktionen öffnen',
+    'An action is waiting.': 'Eine Aktion wartet.',
+    '{count} actions are waiting.': '{count} Aktionen warten.',
+    'Open agent': 'Agent öffnen',
+    'A newer run is active': 'Ein neuerer Lauf ist aktiv',
+    'Follow latest': 'Neuestem folgen',
+    'Sub-run {name} is waiting for an action.':
+      'Unterlauf {name} wartet auf eine Aktion.',
+  },
 });

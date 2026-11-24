@@ -117,4 +117,41 @@ export default defineMessages({
     'The samples of a step of a sub-run are not available here.':
       'サブ実行のステップのサンプルはここでは表示できません。',
   },
+  de: {
+    Continuous: 'Fortlaufend',
+    'Availability {window}': 'Verfügbarkeit {window}',
+    'Uptime {window}': 'Verfügbarkeit {window}',
+    'Success rate {window}': 'Erfolgsquote {window}',
+    'The share of the window in which a run was active':
+      'Anteil des Zeitraums, in dem ein Lauf aktiv war',
+    '{failures} failed of {count} executions':
+      '{failures} von {count} Ausführungen fehlgeschlagen',
+    'Current streak': 'Aktuelle Serie',
+    'since {time}': 'seit {time}',
+    'Last failure': 'Letzter Fehler',
+    Samples: 'Messwerte',
+    'No samples yet': 'Noch keine Messwerte',
+    'No events yet': 'Noch keine Ereignisse',
+    'Loading samples...': 'Messwerte werden geladen …',
+    'Loading events...': 'Ereignisse werden geladen …',
+    'Loading availability...': 'Verfügbarkeit wird geladen …',
+    'the samples of this step': 'die Messwerte dieses Schritts',
+    'the events of this step': 'die Ereignisse dieses Schritts',
+    'the availability of this step': 'die Verfügbarkeit dieses Schritts',
+    '{count} buckets of {resolution}, from {from} to {to}':
+      '{count} Abschnitte zu {resolution}, von {from} bis {to}',
+    Resolution: 'Auflösung',
+    Min: 'Min.',
+    Max: 'Max.',
+    'Median (p50)': 'Zentralwert (p50)',
+    'Slow tail (p95)': 'Langsame Läufe (p95)',
+    Stopped: 'Gestoppt',
+    Recovered: 'Wieder in Ordnung',
+    'exit {code}': 'Exit {code}',
+    'outage {length}': 'Ausfall {length}',
+    '{from} to {to}': '{from} bis {to}',
+    'Show all events': 'Alle Ereignisse anzeigen',
+    'The samples of a step of a sub-run are not available here.':
+      'Die Messwerte eines Schritts in einem Unterlauf sind hier nicht verfügbar.',
+  },
 });

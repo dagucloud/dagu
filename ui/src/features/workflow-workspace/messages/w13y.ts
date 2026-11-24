@@ -23,4 +23,10 @@ export default defineMessages({
     'Values from the cache, {time}': '値の取得元: キャッシュ、{time}',
     'Values from the cache': '値の取得元: キャッシュ',
   },
+  de: {
+    'Values from run {id}, {time}': 'Werte aus Lauf {id}, {time}',
+    'Values from run {id}': 'Werte aus Lauf {id}',
+    'Values from the cache, {time}': 'Werte aus dem Zwischenspeicher, {time}',
+    'Values from the cache': 'Werte aus dem Zwischenspeicher',
+  },
 });
