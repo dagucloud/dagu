@@ -39,7 +39,14 @@ describe('toolbar row of a graph zone', () => {
     expect(TOOLBAR_ZONE_CLASS).toContain(
       'has-[[data-panel-close=row]]:[--ww-close-slot:2.5rem]'
     );
-    expect(tokens(TOOLBAR_ROW_CLASS)).toContain('pr-(--ww-close-slot,0.5rem)');
+    expect(tokens(TOOLBAR_ROW_CLASS)).toContain('pr-(--ww-close-slot)');
+  });
+
+  // The run zone sits in the editor zone, whose hidden panels stay mounted. A
+  // custom property inherits, so each zone sets the slot itself: a panel of
+  // the outer zone never shortens the toolbars of the inner one.
+  it('keeps the Close slot of a zone to its own panels', () => {
+    expect(tokens(TOOLBAR_ZONE_CLASS)).toContain('[--ww-close-slot:0.5rem]');
   });
 
   it('keeps the height of the row for the panels', () => {

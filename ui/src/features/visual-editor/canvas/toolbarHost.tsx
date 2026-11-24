@@ -52,21 +52,23 @@ export const ROW_PANEL_HEADER_CLASS = 'md:hidden';
  * the row in --ww-toolbar-row, where the right panels read the top that they
  * start at. The row floats over the canvas, which fills the whole zone; the
  * panels start under it. Below md the row is hidden and the variable is 0.
- * While a panel has its Close button in the row (PanelRowTitle), the zone sets
- * --ww-close-slot to the width that the button keeps at the right end of the
- * row: the toolbars end before it. Without such a panel the variable is unset.
+ * The zone also sets --ww-close-slot, the right padding of the row: 8px, or
+ * the width that the Close button of a panel keeps at the right end of the
+ * row while it is there (PanelRowTitle), so that the toolbars end before it.
+ * Each zone sets its own value: a zone nested in another never inherits the
+ * slot of a panel in the outer one.
  */
 export const TOOLBAR_ZONE_CLASS =
-  '[--ww-toolbar-row:2.5rem] max-md:[--ww-toolbar-row:0px] has-[[data-panel-close=row]]:[--ww-close-slot:2.5rem]';
+  '[--ww-toolbar-row:2.5rem] max-md:[--ww-toolbar-row:0px] [--ww-close-slot:0.5rem] has-[[data-panel-close=row]]:[--ww-close-slot:2.5rem]';
 
 /**
  * Classes of the row of the toolbars: one line of 40px over the top of the
  * zone, never wrapped, with no background. The row lets a click through to
  * the canvas; each group takes its own (see TOOLBAR_GROUP_CLASS). Its right
- * padding is 8px, or --ww-close-slot when a panel has its Close button there.
+ * padding is --ww-close-slot, which its zone sets (TOOLBAR_ZONE_CLASS).
  */
 export const TOOLBAR_ROW_CLASS =
-  'pointer-events-none absolute inset-x-0 top-0 z-10 flex h-10 min-w-0 items-center justify-between gap-2 pl-2 pr-(--ww-close-slot,0.5rem) max-md:hidden';
+  'pointer-events-none absolute inset-x-0 top-0 z-10 flex h-10 min-w-0 items-center justify-between gap-2 pl-2 pr-(--ww-close-slot) max-md:hidden';
 
 /**
  * With a right panel docked in the zone, the row goes above the panel (z 60),
