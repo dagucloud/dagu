@@ -49,6 +49,7 @@ import { useDockHidden } from '../FreezeWhenHidden';
 import { StepFailureBanner } from '../StepFailure';
 import { useDockStep } from '../useDockStep';
 import { ContinuousPanel } from '../../continuous/ContinuousPanel';
+import { NodeRunsPanel } from '../../nodes/NodeRunsPanel';
 import { pickContinuousNode } from '../../continuous/continuousNode';
 import { useWorkspaceUrl } from '../../state/workspaceUrl';
 import { StepForeach, isForeachStep } from '../../step/StepForeach';
@@ -527,11 +528,24 @@ function ContinuousBody({ details, step }: RunTabProps) {
 }
 
 /**
+ * The node runs of the run, one row per node. The column of the shown or
+ * selected step is marked.
+ */
+function NodesBody({ details, step }: RunTabProps) {
+  const dockStep = useDockStep();
+  return (
+    <div className={SCROLL}>
+      <NodeRunsPanel details={details} step={step ?? dockStep ?? undefined} />
+    </div>
+  );
+}
+
+/**
  * The step log that ?step names, or the step that the auto-open chose. A
  * failed step opens on stderr, where the text of the failure is. Without a
  * step, the scheduler log of the run.
  */
-function LogBody({ run, details, step, fileName }: RunTabProps) {
+function LogBody({ run, details, step, fileName, selectTab }: RunTabProps) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
   const [url, setUrl] = useWorkspaceUrl();
@@ -574,7 +588,11 @@ function LogBody({ run, details, step, fileName }: RunTabProps) {
           />
         )}
         {!target.subRun && !target.foreach && (
-          <StepSubRunStrip node={node} holder={details} />
+          <StepSubRunStrip
+            node={node}
+            holder={details}
+            onOpenNodes={selectTab ? () => selectTab('nodes') : undefined}
+          />
         )}
         {foreachItems &&
           (step ? (
@@ -658,4 +676,5 @@ export const AgentTab = runTab(AgentBody, 'AgentTab');
 export const ChatTab = runTab(ChatBody, 'ChatTab');
 export const TasksTab = runTab(TasksBody, 'TasksTab');
 export const ContinuousTab = runTab(ContinuousBody, 'ContinuousTab');
+export const NodesTab = runTab(NodesBody, 'NodesTab');
 export const LogTab = runTab(LogBody, 'LogTab');

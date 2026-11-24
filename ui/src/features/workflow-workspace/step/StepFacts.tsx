@@ -16,6 +16,7 @@ import { CommandDisplay } from '@/components/ui/command-display';
 import { PanelMessage } from '@/components/ui/panel-message';
 import RelativeTime from '@/components/ui/relative-time';
 import { CompactCount } from '@/components/ui/compact-count';
+import { NodeRunCounts } from '@/components/ui/node-run-counts';
 import { RepeatBadge } from '@/components/ui/repeat-badge';
 import { readRepeatPolicy } from '@/components/ui/repeat-summary';
 import { RetryCount } from '@/components/ui/retry-count';
@@ -53,6 +54,7 @@ import { statusClasses, toneClasses } from '@/lib/statusPalette';
 import { cn } from '@/lib/utils';
 import type { ApiDAGRunDetails, ApiNode } from '../contracts';
 import { useWorkspaceData } from '../data/context';
+import { useDockCommands } from '../dock/DockContext';
 import { RepeatRule } from './RepeatRule';
 import { StepForeach, isForeachStep } from './StepForeach';
 import { stepLogPageURL } from './StepLogPane';
@@ -69,6 +71,11 @@ export interface StepFactsProps {
   onOpenLogs?(t: StepRunTarget): void;
   /** Called after a step action changed the sub-run of the target. */
   onRunChanged?(): void;
+  /**
+   * Shows the node runs of the run. Without it, a step of the selected run
+   * opens the Nodes tab of the dock, and a step of a sub-run offers none.
+   */
+  onOpenNodes?(): void;
   /**
    * 'details' is the Details tab of the step panel. It leaves out what the
    * panel shows around it: the status, the repeat policy, the log and run
@@ -524,10 +531,15 @@ export function StepFacts({
   node,
   onOpenLogs,
   onRunChanged,
+  onOpenNodes,
   variant = 'full',
 }: StepFactsProps) {
   const { ts } = useI18n();
   const { fileName } = useWorkspaceData('StepFacts');
+  const dock = useDockCommands();
+  const openNodes =
+    onOpenNodes ??
+    (target.subRun ? undefined : () => dock.setTab('nodes', { user: true }));
   const remoteNode = useRemoteNode();
   const actions = useStepRunActions(
     target.subRun ? { holder, onChanged: onRunChanged } : undefined
@@ -671,15 +683,39 @@ export function StepFacts({
         </>
       )}
 
-      {allSubRunsOf(node).length > 0 && (
-        <section className="space-y-1" aria-label={ts('Sub-runs')}>
-          <div className={sectionTitle}>{ts('Sub-runs')}</div>
-          <StepSubRuns
-            node={node}
-            holder={holder}
-            parentSubDAGRunId={target.subRun?.subDAGRunId}
-          />
+      {/* The node runs of a step with nodes are read a page at a time in the
+          Nodes tab, not as a list of every child run. */}
+      {node.nodeRuns ? (
+        <section className="space-y-1" aria-label={ts('Nodes')}>
+          <div className={sectionTitle}>{ts('Nodes')}</div>
+          <div className="flex items-center gap-2">
+            <NodeRunCounts
+              counts={node.nodeRuns}
+              data-testid="ww-step-node-runs"
+            />
+            {openNodes && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={openNodes}
+              >
+                {ts('Open Nodes')}
+              </Button>
+            )}
+          </div>
         </section>
+      ) : (
+        allSubRunsOf(node).length > 0 && (
+          <section className="space-y-1" aria-label={ts('Sub-runs')}>
+            <div className={sectionTitle}>{ts('Sub-runs')}</div>
+            <StepSubRuns
+              node={node}
+              holder={holder}
+              parentSubDAGRunId={target.subRun?.subDAGRunId}
+            />
+          </section>
+        )
       )}
 
       {isForeachStep(node) && (

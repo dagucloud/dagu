@@ -11,6 +11,7 @@ import {
   History,
   ListChecks,
   MessageSquare,
+  Network,
   Package,
   ScrollText,
   type LucideIcon,
@@ -31,6 +32,7 @@ export const DOCK_TAB_LABELS: Record<DockTab, string> = {
   tasks: 'Tasks',
   chat: 'Chat',
   continuous: 'Continuous',
+  nodes: 'Nodes',
   definition: 'Definition',
 };
 
@@ -45,6 +47,7 @@ const DOCK_TAB_ICONS: Record<DockTab, LucideIcon> = {
   tasks: ListChecks,
   chat: MessageSquare,
   continuous: Activity,
+  nodes: Network,
   definition: FileCode,
 };
 

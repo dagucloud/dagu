@@ -250,3 +250,42 @@ describe('StepFacts details variant', () => {
     expect(useStepOutputsMock).not.toHaveBeenCalled();
   });
 });
+
+describe('StepFacts of a step with nodes', () => {
+  // Its child runs are read a page at a time in the Nodes tab, not listed
+  // here, so the facts read none of them.
+  it('counts the node runs and opens the Nodes tab in place of the sub-runs', () => {
+    const onOpenNodes = vi.fn();
+    const step = node('deploy', NodeStatus.Running, {
+      subRuns: [{ dagRunId: 'child-1', dagName: 'deploy-one' }],
+      nodeRuns: {
+        total: 2,
+        notStarted: 0,
+        running: 1,
+        waiting: 0,
+        succeeded: 1,
+        failed: 0,
+        aborted: 0,
+        disabled: 0,
+      },
+    });
+    render(
+      <MemoryRouter>
+        <StepFacts
+          target={{ step: 'deploy' }}
+          holder={run('run-1', [step], Status.Running)}
+          node={step}
+          onOpenNodes={onOpenNodes}
+        />
+      </MemoryRouter>
+    );
+
+    expect(screen.queryByLabelText('Sub-runs')).toBeNull();
+    expect(screen.getByTestId('ww-step-node-runs')).toHaveAttribute(
+      'aria-label',
+      '1 succeeded, 0 failed, 1 running of 2 nodes'
+    );
+    act(() => screen.getByRole('button', { name: 'Open Nodes' }).click());
+    expect(onOpenNodes).toHaveBeenCalledTimes(1);
+  });
+});

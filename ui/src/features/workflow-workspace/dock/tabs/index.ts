@@ -12,6 +12,7 @@ import {
   ChatTab,
   ContinuousTab,
   LogTab,
+  NodesTab,
   OutputsTab,
   TasksTab,
   TimelineTab,
@@ -41,6 +42,7 @@ export const dockTabBodies: Partial<
   tasks: memo(TasksTab),
   chat: memo(ChatTab),
   continuous: memo(ContinuousTab),
+  nodes: memo(NodesTab),
   // Mounts again for each run, like the run tabs.
   definition: memo(DefinitionBody),
 };

@@ -12,6 +12,7 @@ import {
   Link2,
   ListChecks,
   MessageSquare,
+  Network,
   ScrollText,
   X,
 } from 'lucide-react';
@@ -52,8 +53,9 @@ import { cn } from '@/lib/utils';
 import type { ApiNode } from '../contracts';
 import { useWorkflowShare } from '../bar/useWorkflowShare';
 import { WorkspaceDataContext } from '../data/context';
-import { nodesByStep } from '../data/runFacts';
+import { hasNodeRuns, nodesByStep } from '../data/runFacts';
 import { RunTimelineWithOpener } from '../dock/tabs/runTabBodies';
+import { NodeRunsPanel } from '../nodes/NodeRunsPanel';
 import { StepFacts } from '../step/StepFacts';
 import {
   LogPageLink,
@@ -125,7 +127,8 @@ export function SubRunView({
 
   const openStep = (step: string) => {
     const node = nodeOf(step);
-    if (node && allSubRunsOf(node).length > 0) subRuns.open(node, run);
+    if (node?.nodeRuns) openNodes();
+    else if (node && allSubRunsOf(node).length > 0) subRuns.open(node, run);
     else setPicked(step);
   };
 
@@ -134,6 +137,7 @@ export function SubRunView({
     tab: 'timeline',
     open: true,
   });
+  const openNodes = () => setActivity({ tab: 'nodes', open: true });
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -168,6 +172,7 @@ export function SubRunView({
             onClose={() => setPicked(null)}
             onChanged={onChanged}
             onOpenAgent={() => setActivity({ tab: 'agent', open: true })}
+            onOpenNodes={openNodes}
           />
         )}
       </div>
@@ -217,6 +222,7 @@ function usePageFile(run: DAGRunDetails): string {
 type ActivityTab =
   | 'timeline'
   | 'log'
+  | 'nodes'
   | 'agent'
   | 'chat'
   | 'tasks'
@@ -261,6 +267,9 @@ function SubRunActivity({
   const tabs = [
     { id: 'timeline', label: ts('Timeline'), icon: GanttChart },
     { id: 'log', label: ts('Run log'), icon: ScrollText },
+    ...(hasNodeRuns(run)
+      ? [{ id: 'nodes', label: ts('Nodes'), icon: Network }]
+      : []),
     ...(facts.hasAgentSessions || events.length > 0
       ? [{ id: 'agent', label: ts('Agent'), icon: Bot }]
       : []),
@@ -324,6 +333,11 @@ function SubRunActivity({
                   />
                 }
               />
+            </div>
+          )}
+          {tab === 'nodes' && (
+            <div className="p-2">
+              <NodeRunsPanel details={run} />
             </div>
           )}
           {tab === 'agent' && (
@@ -395,6 +409,7 @@ function RunStepPane({
   onClose,
   onChanged,
   onOpenAgent,
+  onOpenNodes,
 }: {
   run: DAGRunDetails;
   node: ApiNode;
@@ -402,6 +417,8 @@ function RunStepPane({
   onChanged?(): void;
   /** Shows the agent sessions of the run, where a waiting agent is answered. */
   onOpenAgent(): void;
+  /** Shows the node runs of the run. */
+  onOpenNodes(): void;
 }): ReactElement {
   const { ts } = useI18n();
   const step = node.step.name;
@@ -469,6 +486,7 @@ function RunStepPane({
               node={node}
               onOpenLogs={openLogs}
               onRunChanged={onChanged}
+              onOpenNodes={onOpenNodes}
             />
             <StepManualActions
               holder={run}
@@ -480,7 +498,11 @@ function RunStepPane({
           </div>
         ) : (
           <div className="flex h-full min-h-0 flex-col">
-            <StepSubRunStrip node={node} holder={run} />
+            <StepSubRunStrip
+              node={node}
+              holder={run}
+              onOpenNodes={onOpenNodes}
+            />
             <div className="min-h-0 flex-1">
               <StepLog
                 dagName={run.name}
