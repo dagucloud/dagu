@@ -309,6 +309,10 @@ func remoteRunStart(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	targetNodes, err := remoteTargetNodes(ctx)
+	if err != nil {
+		return err
+	}
 	scheduledAt, err := ctx.StringParam("scheduled-at")
 	if err != nil {
 		return err
@@ -325,6 +329,7 @@ func remoteRunStart(ctx *Context, args []string) error {
 		Outputs:          outputs,
 		ReuseFrom:        stringPtrOrNil(selection.reuseFrom),
 		WorkerSelector:   workerSelector,
+		TargetNodes:      targetNodes,
 		ScheduleTime:     stringPtrOrNil(scheduledAt),
 	})
 	if err != nil {
@@ -367,6 +372,10 @@ func remoteRunEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	targetNodes, err := remoteTargetNodes(ctx)
+	if err != nil {
+		return err
+	}
 	scheduledAt, err := ctx.StringParam("scheduled-at")
 	if err != nil {
 		return err
@@ -379,6 +388,7 @@ func remoteRunEnqueue(ctx *Context, args []string) error {
 		Labels:         labels,
 		NoReuse:        &noReuse,
 		WorkerSelector: workerSelector,
+		TargetNodes:    targetNodes,
 		ScheduleTime:   stringPtrOrNil(scheduledAt),
 	})
 	if err != nil {

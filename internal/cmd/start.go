@@ -90,7 +90,7 @@ This command parses the DAG definition, resolves parameters, and initiates the D
 }
 
 // Command line flags for the start command
-var startFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, workerLabelFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFromFlag, outputFlag, reuseFromFlag, recursiveOutputFlag}
+var startFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, workerLabelFlag, nodeFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFromFlag, outputFlag, reuseFromFlag, recursiveOutputFlag}
 
 var fromRunIDFlag = commandLineFlag{
 	name:  "from-run-id",
@@ -297,6 +297,13 @@ func runStart(ctx *Context, args []string) error {
 	if err := parseAndAppendLabels(ctx, dag); err != nil {
 		return err
 	}
+	targetNodes, err := narrowRun(ctx, dag)
+	if err != nil {
+		return err
+	}
+	if len(targetNodes) > 0 && (len(selection.steps) > 0 || selection.reuseFrom != "") {
+		return fmt.Errorf("--%s cannot be combined with a selected-steps run", flagNode)
+	}
 
 	root, err := determineRootDAGRun(isSubDAGRun, rootRef, dag, dagRunID)
 	if err != nil {
@@ -350,6 +357,7 @@ func runStart(ctx *Context, args []string) error {
 		definitionID:    dagDefinitionIDFromEnv(),
 		noReuse:         noReuse,
 		recursiveOutput: recursiveOutput,
+		targetNodes:     targetNodes,
 	}
 
 	ctx.Context = logger.WithValues(ctx.Context, tag.DAG(dag.Name), tag.RunID(dagRunID))
@@ -764,6 +772,7 @@ func withDAGRunAgent(ctx *Context, d *ir.DAG, dagRunID string, opts runOptions, 
 			ProfileStore:             as.ProfileStore,
 			NodeSelector:             as.Inventory,
 			HostKeys:                 as.HostKeys,
+			TargetNodes:              opts.targetNodes,
 			ProfileName:              opts.profileName,
 			DAGDefinitionID:          opts.definitionID,
 			ServiceRegistry:          ctx.Persistence.ServiceRegistry,

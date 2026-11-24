@@ -54,6 +54,7 @@ const (
 	executeFieldScheduleTime       = "scheduleTime"
 	executeFieldProfile            = "profile"
 	executeFieldLabels             = "labels"
+	executeFieldTargetNodes        = "targetNodes"
 	executeFieldStepName           = "stepName"
 	executeFieldIncludeDownstream  = "includeDownstream"
 	executeFieldWait               = "wait"
@@ -80,6 +81,7 @@ type executeInput struct {
 	ScheduleTime       string
 	Profile            string
 	Labels             []string
+	TargetNodes        []string
 	StepName           string
 	IncludeDownstream  bool
 	Wait               bool
@@ -148,6 +150,11 @@ func executeToolInputSchema() json.RawMessage {
 				"type": "array",
 				"items": {"type": "string"},
 				"description": "Additional labels, each as key=value or key-only."
+			},
+			"targetNodes": {
+				"type": "array",
+				"items": {"type": "string"},
+				"description": "Inventory nodes to narrow the run to, for start or enqueue: its steps with nodes, and those of its child runs, run only on listed nodes. A node: required DAG takes exactly one node and runs bound to it. Each name must be an inventory node."
 			},
 			"stepName": {
 				"type": "string",
@@ -505,6 +512,10 @@ func parseExecuteToolInput(raw json.RawMessage) (executeInput, *executeToolError
 			input.ScheduleTime, parseErr = executeStringField(field, value)
 		case executeFieldProfile:
 			input.Profile, parseErr = executeStringField(field, value)
+		case executeFieldTargetNodes:
+			if err := json.Unmarshal(value, &input.TargetNodes); err != nil {
+				parseErr = executeInputError("Field targetNodes must be an array of strings.", executeFieldTargetNodes)
+			}
 		case executeFieldLabels:
 			if err := json.Unmarshal(value, &input.Labels); err != nil {
 				parseErr = executeInputError("Field labels must be an array of strings.", executeFieldLabels)
@@ -663,6 +674,8 @@ func validateExecuteInput(input *executeInput, provided map[string]bool) *execut
 			return executeInputError("The profile field is only valid for start and enqueue.", executeFieldProfile)
 		case provided[executeFieldLabels]:
 			return executeInputError("The labels field is only valid for start and enqueue.", executeFieldLabels)
+		case provided[executeFieldTargetNodes]:
+			return executeInputError("The targetNodes field is only valid for start and enqueue.", executeFieldTargetNodes)
 		}
 	}
 	if launchAction && provided[executeFieldScheduleTime] && input.TargetType != executeTargetTypeDAG {

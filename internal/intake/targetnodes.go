@@ -1,0 +1,52 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package intake
+
+import (
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/dagucloud/dagu/v2/internal/inventory"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+)
+
+// CheckTargetNodes checks the node list a run is started or enqueued with
+// (RFC 013 §Narrowing a run) against the project's nodes, and returns it as
+// the inventory spells the names, in name order, each once. An empty list
+// returns nil. Every error it returns is a mistake in the request.
+//
+// Every name must be a node of the project, so a mistyped name never starts
+// a run. A node: required DAG takes exactly one node, which binds the run. Any
+// other DAG takes a list only when a step sets nodes or runs a child DAG, and
+// only when it runs on the Dagu host, since steps with nodes do not run on
+// workers.
+func CheckTargetNodes(dag *ir.DAG, names []string, known []inventory.ResolvedNode) ([]string, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	if !dag.NodeRequired && !dag.HasNodeOrSubDAGSteps() {
+		return nil, fmt.Errorf("DAG %q has no step with nodes and no dag.run step, so a node list narrows nothing", dag.Name)
+	}
+	if len(dag.WorkerSelector) > 0 {
+		return nil, fmt.Errorf("a run with a node list runs on the Dagu host, so DAG %q cannot select workers", dag.Name)
+	}
+	var listed []string
+	for _, name := range names {
+		i := slices.IndexFunc(known, func(node inventory.ResolvedNode) bool {
+			return strings.EqualFold(node.Name, strings.TrimSpace(name))
+		})
+		if i < 0 {
+			return nil, fmt.Errorf("node %q is not a node of the project", name)
+		}
+		if !slices.Contains(listed, known[i].Name) {
+			listed = append(listed, known[i].Name)
+		}
+	}
+	slices.Sort(listed)
+	if dag.NodeRequired && len(listed) != 1 {
+		return nil, fmt.Errorf("DAG %q declares node: required, so it starts with exactly one node, not %d", dag.Name, len(listed))
+	}
+	return listed, nil
+}

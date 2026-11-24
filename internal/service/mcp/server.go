@@ -637,14 +637,15 @@ func (svc *Service) startDAG(ctx context.Context, targetType string, input execu
 			return "", nil, errors.New("spec is required for inline_spec target")
 		}
 		inlineBody := &daguapi.ExecuteDAGRunFromSpecJSONRequestBody{
-			DagRunId:  body.DagRunId,
-			Labels:    body.Labels,
-			Name:      stringPtr(input.Name),
-			NoReuse:   body.NoReuse,
-			Params:    body.Params,
-			Profile:   body.Profile,
-			Singleton: body.Singleton,
-			Spec:      input.Spec,
+			DagRunId:    body.DagRunId,
+			Labels:      body.Labels,
+			Name:        stringPtr(input.Name),
+			NoReuse:     body.NoReuse,
+			Params:      body.Params,
+			Profile:     body.Profile,
+			Singleton:   body.Singleton,
+			Spec:        input.Spec,
+			TargetNodes: body.TargetNodes,
 		}
 		resp, err := svc.api.ExecuteDAGRunFromSpec(ctx, daguapi.ExecuteDAGRunFromSpecRequestObject{Body: inlineBody})
 		if err != nil {
@@ -690,15 +691,16 @@ func (svc *Service) enqueueDAG(ctx context.Context, targetType string, input exe
 			return "", nil, errors.New("spec is required for inline_spec target")
 		}
 		inlineBody := &daguapi.EnqueueDAGRunFromSpecJSONRequestBody{
-			DagRunId:  body.DagRunId,
-			Labels:    body.Labels,
-			Name:      stringPtr(input.Name),
-			NoReuse:   body.NoReuse,
-			Params:    body.Params,
-			Profile:   body.Profile,
-			Queue:     body.Queue,
-			Singleton: body.Singleton,
-			Spec:      input.Spec,
+			DagRunId:    body.DagRunId,
+			Labels:      body.Labels,
+			Name:        stringPtr(input.Name),
+			NoReuse:     body.NoReuse,
+			Params:      body.Params,
+			Profile:     body.Profile,
+			Queue:       body.Queue,
+			Singleton:   body.Singleton,
+			Spec:        input.Spec,
+			TargetNodes: body.TargetNodes,
 		}
 		resp, err := svc.api.EnqueueDAGRunFromSpec(ctx, daguapi.EnqueueDAGRunFromSpecRequestObject{Body: inlineBody})
 		if err != nil {
@@ -790,6 +792,10 @@ func executeBody(input executeInput) *daguapi.ExecuteDAGJSONRequestBody {
 		labels := daguapi.Labels(input.Labels)
 		body.Labels = &labels
 	}
+	if len(input.TargetNodes) > 0 {
+		nodes := daguapi.TargetNodes(input.TargetNodes)
+		body.TargetNodes = &nodes
+	}
 	return body
 }
 
@@ -817,6 +823,10 @@ func enqueueBody(input executeInput) *daguapi.EnqueueDAGDAGRunJSONRequestBody {
 	if len(input.Labels) > 0 {
 		labels := daguapi.Labels(input.Labels)
 		body.Labels = &labels
+	}
+	if len(input.TargetNodes) > 0 {
+		nodes := daguapi.TargetNodes(input.TargetNodes)
+		body.TargetNodes = &nodes
 	}
 	return body
 }

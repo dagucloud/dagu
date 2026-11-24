@@ -1274,6 +1274,10 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 	if err != nil {
 		return nil, err
 	}
+	targetNodes, err := a.checkTargetNodes(ctx, dag, request.Body.TargetNodes)
+	if err != nil {
+		return nil, err
+	}
 
 	if dagRunId == "" {
 		var err error
@@ -1313,6 +1317,9 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 		return nil, err
 	}
 
+	if len(targetNodes) > 0 && (len(selection.steps) > 0 || selection.reuseFrom != "") {
+		return nil, targetNodesWithSelectedSteps()
+	}
 	if len(selection.steps) > 0 || selection.reuseFrom != "" {
 		if err := a.startSelectedSteps(ctx, dag, selectedStepsStart{
 			selection:      selection,
@@ -1334,6 +1341,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 		profileName:    profileName,
 		noReuse:        valueOf(request.Body.NoReuse),
 		workerSelector: workerSelector,
+		targetNodes:    targetNodes,
 		slot:           slot,
 	}); err != nil {
 		return nil, fmt.Errorf("error starting dag-run: %w", err)
@@ -1348,6 +1356,9 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 	}
 	if len(workerSelector) > 0 {
 		detailsMap["worker_selector"] = workerSelector
+	}
+	if len(targetNodes) > 0 {
+		detailsMap["target_nodes"] = targetNodes
 	}
 	if slot != nil {
 		detailsMap["schedule_time"] = slot.scheduleTime
@@ -1418,6 +1429,10 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 	if err != nil {
 		return nil, err
 	}
+	targetNodes, err := a.checkTargetNodes(ctx, dag, request.Body.TargetNodes)
+	if err != nil {
+		return nil, err
+	}
 
 	if dagRunId == "" {
 		var err error
@@ -1458,6 +1473,7 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 		profileName:    profileName,
 		noReuse:        valueOf(request.Body.NoReuse),
 		workerSelector: workerSelector,
+		targetNodes:    targetNodes,
 	}); err != nil {
 		return nil, fmt.Errorf("error starting dag-run: %w", err)
 	}
@@ -1472,6 +1488,9 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 	}
 	if len(workerSelector) > 0 {
 		detailsMap["worker_selector"] = workerSelector
+	}
+	if len(targetNodes) > 0 {
+		detailsMap["target_nodes"] = targetNodes
 	}
 	a.logAudit(ctx, audit.CategoryDAG, "dag_execute_sync", detailsMap)
 
@@ -1574,6 +1593,9 @@ type manualStart struct {
 	// workerSelector is the request's override, already applied to the DAG;
 	// it travels to the start subprocess, which reloads the DAG from its file.
 	workerSelector map[string]string
+	// targetNodes is the checked node list, which travels to the start
+	// subprocess.
+	targetNodes []string
 	// slot is the schedule slot the run is for, or nil.
 	slot *requestedSlot
 }
@@ -1589,6 +1611,7 @@ func (a *API) startDAGRun(ctx context.Context, dag *ir.DAG, req manualStart) (*l
 		profileName:    req.profileName,
 		noReuse:        req.noReuse,
 		workerSelector: req.workerSelector,
+		targetNodes:    req.targetNodes,
 		scheduleTime:   req.slot.scheduleTimeOrEmpty(),
 		scheduleWindow: req.slot.windowOrZero(),
 	})
@@ -1709,6 +1732,8 @@ type startDAGRunOptions struct {
 	noReuse      bool
 	// workerSelector is a per-run override, passed to the start subprocess.
 	workerSelector map[string]string
+	// targetNodes is the run's node list, passed to the start subprocess.
+	targetNodes []string
 	// scheduleTime and scheduleWindow name the schedule slot the run is for.
 	scheduleTime   string
 	scheduleWindow ir.ScheduleWindow
@@ -1909,6 +1934,10 @@ func (a *API) startDAGRunWithOptions(ctx context.Context, dag *ir.DAG, opts star
 	if err := reapplyWorkerSelector(resolvedDAG, opts.workerSelector); err != nil {
 		return nil, err
 	}
+	// A narrowed run runs on the Dagu host.
+	if len(opts.targetNodes) > 0 {
+		resolvedDAG.ForceLocal = true
+	}
 	dag = resolvedDAG
 
 	if err := buildErrorsToAPIError(dag.BuildErrors); err != nil {
@@ -1981,6 +2010,7 @@ func (a *API) startPreparedDAGRunWithOptions(
 		ProfileName:    opts.profileName,
 		NoReuse:        opts.noReuse,
 		WorkerSelector: opts.workerSelector,
+		TargetNodes:    opts.targetNodes,
 		ScheduleTime:   opts.scheduleTime,
 	})
 	spec.Env = append(spec.Env, a.managedOpenCodeEnv(ctx, dag)...)
@@ -2087,6 +2117,10 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 	if err != nil {
 		return nil, err
 	}
+	targetNodes, err := a.checkTargetNodes(ctx, dag, request.Body.TargetNodes)
+	if err != nil {
+		return nil, err
+	}
 
 	dagRunId := valueOf(request.Body.DagRunId)
 	if err := validateDAGRunID(dagRunId); err != nil {
@@ -2140,6 +2174,7 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 		noReuse:        valueOf(request.Body.NoReuse),
 		definitionID:   request.FileName,
 		workerSelector: workerSelector,
+		targetNodes:    targetNodes,
 		scheduleTime:   slot.scheduleTimeOrEmpty(),
 	}); err != nil {
 		return nil, fmt.Errorf("error enqueuing dag-run: %w", err)
@@ -2154,6 +2189,9 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 	}
 	if len(workerSelector) > 0 {
 		enqueueDetails["worker_selector"] = workerSelector
+	}
+	if len(targetNodes) > 0 {
+		enqueueDetails["target_nodes"] = targetNodes
 	}
 	if slot != nil {
 		enqueueDetails["schedule_time"] = slot.scheduleTime
@@ -2181,6 +2219,9 @@ type enqueueRequest struct {
 	// workerSelector is the request's override, already applied to the DAG;
 	// it travels to the enqueue subprocess, which reloads the DAG from its file.
 	workerSelector map[string]string
+	// targetNodes is the checked node list, which travels to the enqueue
+	// subprocess.
+	targetNodes []string
 	// scheduleTime names the schedule slot the run is for.
 	scheduleTime string
 }
@@ -2235,6 +2276,7 @@ func (a *API) enqueueDAGRun(ctx context.Context, dag *ir.DAG, req enqueueRequest
 		DefinitionID:   req.definitionID,
 		NoReuse:        req.noReuse,
 		WorkerSelector: req.workerSelector,
+		TargetNodes:    req.targetNodes,
 		ScheduleTime:   req.scheduleTime,
 	}
 	if dag.Queue != "" {
