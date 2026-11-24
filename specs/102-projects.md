@@ -1167,10 +1167,10 @@ names `day-ahead` and `intraday`.
 - With a run of `auction` queued, deleting `day-ahead` is refused. The
   project keeps its directory, state, and grants, and is no longer marked
   deleting.
-- When every run of `auction` has finished, deleting `day-ahead` removes `/srv/dagu/projects/day-ahead/`,
-  `/srv/dagu/data/projects/day-ahead/`, the grants on `day-ahead`, and its
-  registry entry. Each API key whose only role was a grant on `day-ahead`
-  is removed.
+- When every run of `auction` has finished, deleting `day-ahead` removes
+  `/srv/dagu/projects/day-ahead/`, `/srv/dagu/data/projects/day-ahead/`,
+  the grants on `day-ahead`, and its registry entry. Each API key whose
+  only role was a grant on `day-ahead` is removed.
 - Deleting `default` is refused.
 
 ### Migrating a Workspace
