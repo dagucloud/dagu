@@ -110,8 +110,9 @@ become runs.
    failed. A poll that keeps failing notifies, and one that stopped checking
    says so.
 5. Bounded idle cost on the scheduler host.
-6. Setting or trying a poll needs the developer role or above, as the
-   per-DAG webhook does, and the audit log records it.
+6. Reading, setting, or trying a poll's settings needs the developer role
+   or above, as the per-DAG webhook does, and the audit log records each
+   change and try.
 7. DAG files, their schema, and their validation do not change.
 
 ## Non-goals
@@ -141,7 +142,7 @@ JSON records in folders of the data directory, one folder per kind of data.
 | Folder | Holds | Written by | Like |
 | --- | --- | --- | --- |
 | `polls/` | Each poll's settings, one record per poll | The API | `webhooks/` |
-| `poll-state/` | Each poll's seen keys, check log, and next due time | The scheduler | `public-webhooks/` |
+| `poll-state/` | Each poll's status, seen keys, and check log, as three records | The scheduler | `public-webhooks/` |
 | `poll-checks/` | Check now requests and their results | The server writes a request, the scheduler its result | None |
 
 Settings and state are apart so that the API and the scheduler never write
@@ -166,21 +167,28 @@ A save that sets no command, an interval under `10s`, a timeout over `5m`, an
 invalid gojq expression, or an unknown `backlog` is rejected.
 
 - **Managing.** The DAG's page has a Poll tab beside Webhook. The API is
-  `GET`, `PUT`, and `DELETE /api/v1/dags/{fileName}/poll`. Reading a poll
-  needs the role that reads the DAG; `env` values are never returned, and a
-  save that sends an `env` name without a value keeps the saved value.
-- **Who may change it.** Creating, changing, deleting, or trying a poll
-  needs the developer role or above, as the webhook does. A developer can
-  already run commands on the scheduler host through a DAG's steps, which
-  `worker_selector: local` keeps there in distributed mode too. The audit
-  log records each.
-- **All polls.** `GET /api/v1/polls` and an admin page list every poll: its
+  `GET`, `PUT`, and `DELETE /api/v1/dags/{fileName}/poll` for the settings,
+  and `GET /api/v1/dags/{fileName}/poll/status` for the poll's state, its
+  last and next check, and its check log. `env` values are never returned,
+  and a save that sends an `env` name without a value keeps the saved
+  value.
+- **Who may see and change it.** Reading, creating, changing, deleting, or
+  trying a poll's settings needs the developer role or above, as the
+  webhook's do, since a command names hosts, paths, and accounts. A
+  developer can already run commands on the scheduler host through a DAG's
+  steps, which `worker_selector: local` keeps there in distributed mode
+  too. The audit log records each change and try. The status needs only
+  the role that reads the DAG, so a viewer still sees that a poll is
+  failing or not running.
+- **All polls.** `GET /api/v1/polls` and a Polls page list every poll: its
   DAG, command, interval, state (checking, failing, late, not running,
   suspended, disabled, or no DAG), and last check. They show what runs on the
-  scheduler host without opening each DAG.
+  scheduler host without opening each DAG, and need the developer role or
+  above, as the list of webhooks does.
 - **Projects.** Under [RFC 003](003-projects.md), a poll is project data, as
   a per-DAG webhook is. It names its DAG within the project and moves with
-  the DAG to another project.
+  the DAG to another project. The list of polls shows only the polls of
+  projects in which the caller has the developer role or above.
 - **DAG rename and removal.** A rename or delete done in Dagu moves or
   deletes the poll with the DAG, as for the webhook; a moved poll keeps its
   record of seen keys. A DAG file renamed or deleted outside Dagu, by git
@@ -331,12 +339,12 @@ enabled again, and not remembered, run then. This is what `watch` does.
 Each poll keeps its latest 50 checks that started a run, failed, were cut,
 or skipped lines: start time, duration, exit code, number of items, number
 of new items, lines skipped and why, links to up to 20 runs started, and
-the stderr excerpt. Checks that found
-nothing new are not listed one by one; the log keeps their count since the
-last listed check and when the latest ended. So a log of a quiet poll still
-reaches back to its last real work. The log is kept in `poll-state/`, not in
-the run history, and is shown in the DAG's Poll tab with when the last check
-ended and when the next is due.
+the stderr excerpt. Checks that found nothing new are not listed one by
+one; the poll's status keeps their count since the last listed check and
+when the latest ended. So a log of a quiet poll still reaches back to its
+last real work. The log is kept in `poll-state/`, not in the run history,
+and is shown in the DAG's Poll tab with when the last check ended and when
+the next is due.
 
 ### Alerts
 
@@ -362,29 +370,37 @@ ended and when the next is due.
 
 **Check now** in the Poll tab, and `POST /api/v1/dags/{fileName}/poll/check`,
 run the command once with the settings being edited and show the items it
-lists and which of them are new. They start no run and leave the poll's
-keys and check log as they were, so a command can be tried before it is
-saved.
+lists, the lines it skipped, and which items the poll would take as new.
+When `command` and `key` match the saved poll, an item is new if the poll
+does not remember its key; otherwise the try answers as a first check
+would, by `backlog`. A try starts no run and leaves the poll's keys,
+status, and check log as they were, so a command can be tried before it is
+saved. An `env` name sent without a value uses the saved value.
 
 The scheduler runs it, so it runs where real checks do. The server writes a
 request to `poll-checks/`, with `env` values encrypted as the poll's are;
 the scheduler that holds the lock takes it at its next pickup, within 10
-seconds, runs it in one of the 4 check slots, and writes back the result.
+seconds, runs it in a slot kept for tries, one try at a time, and writes
+back the result. Busy check slots never hold a try up. The server reads
+the result once a second while it waits.
 
 A try stops after 30 seconds, whatever `timeout` says, and the call waits
 at most 50 seconds, inside the server's 60-second response limit. It says
-so if no scheduler answered in time. A slower command is tried by saving it
-with `backlog: skip`, whose first check starts nothing. The audit log
-records each try. A request and its result are removed once answered, or
-after 10 minutes.
+so if no scheduler answered in time. The scheduler skips a request older
+than 20 seconds, so a try it starts ends before its caller stops waiting,
+and no command runs for a caller that has gone. A slower command is
+tried by saving it with `backlog: skip`, whose first check starts nothing.
+The audit log records each try. A request and its result are removed once
+answered, or after 10 minutes.
 
 ### What is stored
 
 | Record | Size bound | Location |
 | --- | --- | --- |
-| Poll settings | One small record per poll | `polls/` |
-| Keys of the last check | 10,000 keys as 16-byte hashes, 160 KiB per poll; written only when it changes | `poll-state/` |
-| Check log | 50 entries, about 5 KiB each, and a counter of quiet checks | `poll-state/` |
+| Poll settings | One small record per poll; written by the API | `polls/` |
+| Poll status | Under 1 KiB per poll: last check, next due time, failure counts, and quiet checks; written after every check | `poll-state/` |
+| Keys of the last check | 10,000 keys as 16-byte hashes, 160 KiB per poll; written only when they change | `poll-state/` |
+| Check log | 50 entries, about 5 KiB each; written only when a check is listed | `poll-state/` |
 | Check now requests and results | Removed when answered or after 10 minutes | `poll-checks/` |
 | Runs | One per new item | Run history, as today |
 
@@ -403,9 +419,10 @@ would.
 ## Security
 
 - A poll runs a command on the scheduler host as the scheduler's user.
-  Creating, changing, or trying one needs the developer role or above,
-  which can already run commands there through a DAG's steps. Each is
-  audited, and the list of polls shows every command that runs there.
+  Reading, creating, changing, or trying one needs the developer role or
+  above, which can already run commands there through a DAG's steps. Each
+  change and try is audited, and the list of polls shows developers every
+  command that runs there.
 - `POLL_ITEM` and `POLL_KEY` are controlled by whatever the command lists. A
   value interpolated into a step's command can inject a command, so steps
   read them as environment variables. The docs say so, as Spec 082 does for
@@ -425,7 +442,7 @@ would.
 | Output over 1 MiB or 10,000 lines | The rest is read and discarded. The exit code still decides the check, which goes on with the items read and is marked as cut. |
 | More new items than 100, less the runs waiting on the DAG's queue | Items not queued are not remembered and are new again at the next check. |
 | DAG file renamed or deleted outside Dagu | The poll has no DAG and is not checked; the list of polls shows it. |
-| All 4 check slots busy | Due checks wait in the order they fell due; one past due by more than the interval plus the timeout shows as late. |
+| All 4 check slots busy | Due checks wait in the order they fell due; one past due by more than the interval plus the timeout shows as late. Check now still runs in its own slot. |
 | Scheduler fails over to a host that cannot run the command | Checks fail and alert as above. |
 | Scheduler stops between queuing runs and saving the poll's keys | The next check derives the same run IDs; nothing new starts. |
 | DAG suspended | Not checked; items still listed when it resumes run then. |
@@ -434,24 +451,37 @@ would.
 
 ## Performance
 
-- **Checks.** One process per enabled poll per interval, at most 4 at once.
-  With 100 polls at the default 1 minute and checks under 2 seconds, about
-  100 processes a minute; slower checks stretch the time between checks
-  rather than add processes. Each replaces a full run today, which starts a
-  process and writes a status record, logs, and a work directory. A failing
-  poll slows to one check every 10 minutes. Output past the limit costs
-  CPU to discard, not memory, until the command exits or times out.
+- **Checks.** One process per enabled poll per interval, at most 4 at once,
+  plus one Check now try. With 100 polls at the default 1 minute and checks
+  under 2 seconds, about 100 processes a minute; slower checks stretch the
+  time between checks rather than add processes. Each replaces a full run
+  today, which starts a process and writes a status record, logs, and a
+  work directory. A failing poll slows to one check every 10 minutes.
+  Output past the limit costs CPU to discard, not memory, until the
+  command exits or times out.
 - **Runs queued.** At most 100 per check, less the runs waiting on the
   DAG's queue.
 - **Notifications.** At most two per failing streak: one when it starts,
   one when it ends.
-- **Pickup.** One read of `polls/` and one of `poll-checks/` every 10
-  seconds. Both grow with the number of polls, not with DAGs or runs.
+- **Pickup.** Every 10 seconds, one listing of `polls/` and `poll-checks/`
+  and one read of each poll's settings, as the webhook store is reread for
+  public URLs: 100 polls cost 10 small reads a second. This grows with the
+  number of polls, not with DAGs or runs. While a Check now call waits, the
+  server reads its result once a second, for at most 50 seconds.
 - **Idle cost.** Proportional to the number of enabled polls of unsuspended
-  DAGs, plus the pickup read.
-- **Writes.** A check whose listing did not change updates one small state
-  record: its quiet-check counter, its end time, and when the next check is
-  due. A changed listing also rewrites its record of keys, up to 160 KiB.
+  DAGs, plus the pickup reads.
+- **Writes.** A quiet check rewrites only the poll's status, under 1 KiB. A
+  changed listing also rewrites its keys, up to 160 KiB, and a listed check
+  its check log, up to 250 KiB.
+- **UI.** The Poll tab subscribes to an SSE topic for the DAG's poll
+  status, and the Polls page to one for the list. The server fetches each
+  topic once, however many tabs subscribe, at most every 5 seconds for a
+  poll and every 10 seconds for the list, and stops when the last
+  subscriber leaves. A status fetch reads the scheduler lock and the
+  poll's status record, and sends the status, under 1 KiB, only when it
+  changed; the tab refetches the check log only when the status shows a
+  new listed check. A list fetch reads the lock and one status record per
+  poll.
 - **Storage.** Under 450 KiB in `poll-state/` per poll. Event store
   retention does not change.
 - **Per run.** A poll's run stores its item and key as params: at most
@@ -632,10 +662,13 @@ is backed up and restored with the data directory, as webhooks are.
 13. Check now runs on the scheduler host, lists the items and which are new,
     and is in the audit log; a check right after it still finds the same
     items new. A command that runs past 30 seconds is stopped, and the call
-    answers within 50 seconds.
-14. An operator cannot create, change, delete, or try a poll, and a
-    developer can. The audit log records each. `env` values are never in an
-    API response, and a save that omits one keeps it.
+    answers within 50 seconds, even while all 4 check slots are busy. A
+    request older than 20 seconds when the scheduler reaches it is not
+    run.
+14. An operator cannot read, create, change, delete, or try a poll's
+    settings, and a developer can; a viewer reads its status. The audit log
+    records each change and try. `env` values are never in an API response,
+    and a save that omits one keeps it.
 15. Renaming a DAG in Dagu keeps its poll and its record of keys; no item
     runs again. Deleting or renaming the DAG file through git sync leaves
     the poll unchecked and listed as having no DAG; pointing it at the new
