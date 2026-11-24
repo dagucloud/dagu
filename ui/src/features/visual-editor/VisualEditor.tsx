@@ -64,19 +64,21 @@ import type {
   VisualEditorState,
 } from './contracts';
 import {
+  applyEdit,
   groupIssues,
   parseDagDoc,
   parseDagDocLenient,
+  readRestartSettings,
   readSchedule,
   resolveStepNames,
 } from './doc';
 import { LauncherDataProbe, type LauncherData } from './launchers/LauncherData';
 import {
-  CronLauncherPanel,
   ManualLauncherPanel,
+  SlotLauncherPanel,
   WebhookLauncherPanel,
 } from './launchers/LauncherPanel';
-import type { LauncherId } from './launchers/model';
+import { drawnLauncher, type LauncherId } from './launchers/model';
 import {
   copyStepsYaml,
   duplicateStepsOp,
@@ -632,10 +634,27 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     }
   }
   const [launcherData, setLauncherData] = useState<LauncherData | null>(null);
+  // A node of the Cron and Always on slot changes its id with the YAML: the
+  // panel and the lit node follow the one that is drawn.
+  const openNode = drawnLauncher(launcherOpen, launcherData?.states);
+  const slotOpen =
+    openNode === 'schedule' || openNode === 'cron' || openNode === 'always';
   const schedule = useMemo(
     () => (launcherHost ? readSchedule(text) : null),
     [launcherHost, text]
   );
+  const restart = useMemo(
+    () => (launcherHost ? readRestartSettings(text) : null),
+    [launcherHost, text]
+  );
+  // The removal of the start expressions leaves the other entries and the
+  // `stop` and `restart` of the map form: a schedule with one of them stays.
+  // Only the panel of the slot reads it.
+  const scheduleRemovable = useMemo(() => {
+    if (!slotOpen || !restart?.schedule) return false;
+    const cleared = applyEdit(text, { kind: 'setSchedule', expressions: [] });
+    return cleared.ok && !readRestartSettings(cleared.text).schedule;
+  }, [slotOpen, restart, text]);
   const [ownFormOpen, setOwnFormOpen] = useState(false);
   const formOpen = formVisible ?? ownFormOpen;
   const setFormOpen = useCallback(
@@ -1434,6 +1453,12 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     if (!canEdit) return;
     afterEdit(session.apply({ kind: 'setScheduleParam', index, name, value }));
   };
+  const setRestartPolicy = (
+    change: Omit<Extract<DagEditOp, { kind: 'setRestartPolicy' }>, 'kind'>
+  ) => {
+    if (!canEdit) return;
+    afterEdit(session.apply({ kind: 'setRestartPolicy', ...change }));
+  };
   const toggleYaml = (open?: boolean) => {
     if (!onYamlVisibleChange) return;
     // The form shows in place of the text: the button then shows the text.
@@ -1634,7 +1659,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     selectedStepName: serverNameOf(selected),
     drawer,
     direction,
-    launcher: launcherOpen,
+    launcher: openNode,
   };
   // Called after each commit, but only when a field changed.
   const reportedState = useRef<VisualEditorState | null>(null);
@@ -1887,7 +1912,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
                   })
                 }
                 launchers={launcherHost ? launcherData?.states : undefined}
-                activeLauncher={launcherOpen}
+                activeLauncher={openNode}
                 onLauncher={openLauncher}
                 onStepClick={(key, at) => {
                   const name = serverNameOf(key);
@@ -1920,10 +1945,15 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           )}
         </div>
       </div>
-      {launcherHost && schedule && (
+      {launcherHost && schedule && restart && (
         <LauncherDataProbe
           fileName={fileName}
           scheduleCount={schedule.expressions.length + schedule.others}
+          schedulePresent={restart.schedule}
+          restartPolicy={restart.policy}
+          restartWaitSec={restart.waitSec}
+          restartRetentionRuns={restart.histRetentionRuns}
+          restartRetentionDays={restart.histRetentionDays}
           onData={setLauncherData}
         />
       )}
@@ -1984,9 +2014,12 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
               onClose={closeLauncher}
             />
           )}
-          {launcherOpen === 'cron' && schedule && (
-            <CronLauncherPanel
+          {slotOpen && schedule && restart && (
+            <SlotLauncherPanel
+              open={openNode}
               schedule={schedule}
+              scheduleRemovable={scheduleRemovable}
+              restart={restart}
               editable={canEdit}
               upcomingRuns={details?.upcomingRuns}
               upcomingRunsHold={details?.upcomingRunsHold}
@@ -1994,8 +2027,9 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
               paramDefs={details?.paramDefs}
               issues={validation?.issues}
               coincidences={details?.scheduleCoincidences}
-              onChange={setSchedule}
-              onParamChange={setScheduleParam}
+              onSchedule={setSchedule}
+              onScheduleParam={setScheduleParam}
+              onRestart={setRestartPolicy}
               onClose={closeLauncher}
             />
           )}

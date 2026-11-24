@@ -3,7 +3,7 @@
 
 import { defineMessages } from './define';
 
-// Launchers (Manual, Cron, Webhook), their panels and the tabs of the
+// Launchers (Manual, Cron, Always on, Webhook), their panels and the tabs of the
 // Workflow panel.
 export default defineMessages({
   en: {
@@ -11,6 +11,18 @@ export default defineMessages({
     'Cron, {count} schedule': 'Cron, {count} schedule',
     'Cron, {count} schedules': 'Cron, {count} schedules',
     'Always on': 'Always on',
+    'Cron or Always on': 'Cron or Always on',
+    'Not set up. Choose a cron schedule or Always on.':
+      'Not set up. Choose a cron schedule or Always on.',
+    'Choose how the workflow starts': 'Choose how the workflow starts',
+    'Start on a schedule of cron expressions.':
+      'Start on a schedule of cron expressions.',
+    'Keep one run alive and start a new one when it ends.':
+      'Keep one run alive and start a new one when it ends.',
+    'Switch to Always on': 'Switch to Always on',
+    'Switch to Cron': 'Switch to Cron',
+    'Edit the schedule in the YAML to switch to Always on.':
+      'Edit the schedule in the YAML to switch to Always on.',
     'Not set up': 'Not set up',
     Launcher: 'Launcher',
     'Manual launch is always active': 'Manual launch is always active',
@@ -52,6 +64,35 @@ export default defineMessages({
     'Times are in the time zone of the scheduler ({tz}).':
       'Times are in the time zone of the scheduler ({tz}).',
     'Workflow sections': 'Workflow sections',
+    Available: 'Available',
+    'Restarts after each run': 'Restarts after each run',
+    'Restarts unless stopped': 'Restarts unless stopped',
+    '{state}, wait {seconds} s': '{state}, wait {seconds} s',
+    'unless stopped': 'unless stopped',
+    '{seconds} s': '{seconds} s',
+    'keeps {count} runs': 'keeps {count} runs',
+    'keeps {count} run': 'keeps {count} run',
+    'keeps {count} runs, or as many as the base configuration sets':
+      'keeps {count} runs, or as many as the base configuration sets',
+    'keeps runs for {count} days': 'keeps runs for {count} days',
+    'keeps runs for {count} day': 'keeps runs for {count} day',
+    '{state}, {history}': '{state}, {history}',
+    'Restart policy': 'Restart policy',
+    'Restart settings': 'Restart settings',
+    Always: 'Always',
+    'Unless stopped': 'Unless stopped',
+    'A new run follows each run, whatever its status.':
+      'A new run follows each run, whatever its status.',
+    'A new run follows each run, except a run that an operator stopped.':
+      'A new run follows each run, except a run that an operator stopped.',
+    'The scheduler keeps one run of this workflow alive. It starts a new run when the last run ends.':
+      'The scheduler keeps one run of this workflow alive. It starts a new run when the last run ends.',
+    'Wait before a new run (s)': 'Wait before a new run (s)',
+    'Runs kept in the history': 'Runs kept in the history',
+    'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.':
+      'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.',
+    'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.':
+      'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.',
     'Workflow > {tab}': 'Workflow > {tab}',
     'Does not start at {time}: {schedule} starts instead.':
       'Does not start at {time}: {schedule} starts instead.',
@@ -75,6 +116,17 @@ export default defineMessages({
     'Cron, {count} schedule': '定时（Cron），{count} 个计划',
     'Cron, {count} schedules': '定时（Cron），{count} 个计划',
     'Always on': '始终开启',
+    'Cron or Always on': 'Cron 或始终开启',
+    'Not set up. Choose a cron schedule or Always on.':
+      '未设置。选择 cron 计划或始终开启。',
+    'Choose how the workflow starts': '选择工作流的启动方式',
+    'Start on a schedule of cron expressions.': '按 cron 表达式的计划启动。',
+    'Keep one run alive and start a new one when it ends.':
+      '保持一个运行，结束后启动新的运行。',
+    'Switch to Always on': '切换为始终开启',
+    'Switch to Cron': '切换为 Cron',
+    'Edit the schedule in the YAML to switch to Always on.':
+      '要切换为始终开启，请在 YAML 中编辑计划。',
     'Not set up': '未设置',
     Launcher: '启动方式',
     'Manual launch is always active': '手动启动始终可用',
@@ -115,6 +167,35 @@ export default defineMessages({
     'Times are in the time zone of the scheduler ({tz}).':
       '时间采用调度器的时区（{tz}）。',
     'Workflow sections': '工作流分区',
+    Available: '可用',
+    'Restarts after each run': '每次运行结束后重新启动',
+    'Restarts unless stopped': '除非被停止，否则重新启动',
+    '{state}, wait {seconds} s': '{state}，等待 {seconds} 秒',
+    'unless stopped': '除非停止',
+    '{seconds} s': '{seconds} 秒',
+    'keeps {count} runs': '保留 {count} 次运行',
+    'keeps {count} run': '保留 {count} 次运行',
+    'keeps {count} runs, or as many as the base configuration sets':
+      '保留 {count} 次运行，或基础配置设定的数量',
+    'keeps runs for {count} days': '运行保留 {count} 天',
+    'keeps runs for {count} day': '运行保留 {count} 天',
+    '{state}, {history}': '{state}，{history}',
+    'Restart policy': '重启策略',
+    'Restart settings': '重启设置',
+    Always: '始终',
+    'Unless stopped': '除非被停止',
+    'A new run follows each run, whatever its status.':
+      '每次运行结束后都会启动新的运行，无论其状态如何。',
+    'A new run follows each run, except a run that an operator stopped.':
+      '每次运行结束后都会启动新的运行，但操作员停止的运行除外。',
+    'The scheduler keeps one run of this workflow alive. It starts a new run when the last run ends.':
+      '调度器让此工作流始终保持一个运行。上一个运行结束时，它会启动新的运行。',
+    'Wait before a new run (s)': '新运行前的等待时间（秒）',
+    'Runs kept in the history': '历史中保留的运行数',
+    'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.':
+      '未设置时，历史保留最近 100 次运行，或基础配置设定的数量。',
+    'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.':
+      '请先删除工作流的 retry_policy：始终开启的工作流不能有它。',
     'Workflow > {tab}': '工作流 > {tab}',
     'Does not start at {time}: {schedule} starts instead.':
       '在 {time} 不会启动：改为由 {schedule} 启动。',
@@ -136,6 +217,18 @@ export default defineMessages({
     'Cron, {count} schedule': '定期実行（Cron）、スケジュール {count} 件',
     'Cron, {count} schedules': '定期実行（Cron）、スケジュール {count} 件',
     'Always on': '常に有効',
+    'Cron or Always on': 'Cron または常に有効',
+    'Not set up. Choose a cron schedule or Always on.':
+      '未設定。cron スケジュールか常に有効を選びます。',
+    'Choose how the workflow starts': 'ワークフローの開始方法を選択',
+    'Start on a schedule of cron expressions.':
+      'cron 式のスケジュールで開始します。',
+    'Keep one run alive and start a new one when it ends.':
+      '実行を 1 つ維持し、終了したら新しい実行を開始します。',
+    'Switch to Always on': '常に有効に切り替え',
+    'Switch to Cron': 'Cron に切り替え',
+    'Edit the schedule in the YAML to switch to Always on.':
+      '常に有効に切り替えるには、YAML でスケジュールを編集してください。',
     'Not set up': '未設定',
     Launcher: '起動方法',
     'Manual launch is always active': '手動起動は常に有効です',
@@ -178,6 +271,35 @@ export default defineMessages({
     'Times are in the time zone of the scheduler ({tz}).':
       '時刻はスケジューラーのタイムゾーン（{tz}）です。',
     'Workflow sections': 'ワークフローのセクション',
+    Available: '利用可能',
+    'Restarts after each run': '実行が終わるたびに再起動',
+    'Restarts unless stopped': '停止されない限り再起動',
+    '{state}, wait {seconds} s': '{state}、待機 {seconds} 秒',
+    'unless stopped': '停止時を除く',
+    '{seconds} s': '{seconds} 秒',
+    'keeps {count} runs': '実行 {count} 件を保持',
+    'keeps {count} run': '実行 {count} 件を保持',
+    'keeps {count} runs, or as many as the base configuration sets':
+      '実行 {count} 件、または基本設定の件数を保持',
+    'keeps runs for {count} days': '実行を {count} 日間保持',
+    'keeps runs for {count} day': '実行を {count} 日間保持',
+    '{state}, {history}': '{state}、{history}',
+    'Restart policy': '再起動ポリシー',
+    'Restart settings': '再起動の設定',
+    Always: '常に',
+    'Unless stopped': '停止されない限り',
+    'A new run follows each run, whatever its status.':
+      '実行が終わるたびに、状態にかかわらず新しい実行を開始します。',
+    'A new run follows each run, except a run that an operator stopped.':
+      '実行が終わるたびに新しい実行を開始します。ただし、操作者が停止した実行の後は開始しません。',
+    'The scheduler keeps one run of this workflow alive. It starts a new run when the last run ends.':
+      'スケジューラーは、このワークフローの実行を 1 つ維持します。前の実行が終わると、新しい実行を開始します。',
+    'Wait before a new run (s)': '新しい実行までの待機時間（秒）',
+    'Runs kept in the history': '履歴に残す実行数',
+    'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.':
+      '値がない場合、履歴には直近 100 件、または基本設定の件数の実行が残ります。',
+    'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.':
+      '先にワークフローの retry_policy を削除してください。常に有効なワークフローには置けません。',
     'Workflow > {tab}': 'ワークフロー > {tab}',
     'Does not start at {time}: {schedule} starts instead.':
       '{time} には起動しません。代わりに {schedule} が起動します。',
@@ -201,6 +323,18 @@ export default defineMessages({
     'Cron, {count} schedule': 'Cron, {count} Zeitplan',
     'Cron, {count} schedules': 'Cron, {count} Zeitpläne',
     'Always on': 'Immer an',
+    'Cron or Always on': 'Cron oder Immer an',
+    'Not set up. Choose a cron schedule or Always on.':
+      'Nicht eingerichtet. Einen Cron-Zeitplan oder „Immer an“ wählen.',
+    'Choose how the workflow starts': 'Wählen, wie der Ablauf startet',
+    'Start on a schedule of cron expressions.':
+      'Nach einem Zeitplan aus Cron-Ausdrücken starten.',
+    'Keep one run alive and start a new one when it ends.':
+      'Einen Lauf am Leben halten und einen neuen starten, wenn er endet.',
+    'Switch to Always on': 'Zu „Immer an“ wechseln',
+    'Switch to Cron': 'Zu Cron wechseln',
+    'Edit the schedule in the YAML to switch to Always on.':
+      'Für den Wechsel zu „Immer an“ den Zeitplan im YAML bearbeiten.',
     'Not set up': 'Nicht eingerichtet',
     Launcher: 'Starter',
     'Manual launch is always active': 'Manueller Start ist immer möglich',
@@ -243,6 +377,35 @@ export default defineMessages({
     'Times are in the time zone of the scheduler ({tz}).':
       'Zeiten in der Zeitzone des Schedulers ({tz}).',
     'Workflow sections': 'Ablauf-Abschnitte',
+    Available: 'Verfügbar',
+    'Restarts after each run': 'Startet nach jedem Lauf neu',
+    'Restarts unless stopped': 'Startet neu, außer nach einem Stopp',
+    '{state}, wait {seconds} s': '{state}, Wartezeit {seconds} Sek.',
+    'unless stopped': 'außer nach Stopp',
+    '{seconds} s': '{seconds} Sek.',
+    'keeps {count} runs': 'behält {count} Läufe',
+    'keeps {count} run': 'behält {count} Lauf',
+    'keeps {count} runs, or as many as the base configuration sets':
+      'behält {count} Läufe oder so viele, wie die Grundkonfiguration festlegt',
+    'keeps runs for {count} days': 'behält Läufe {count} Tage lang',
+    'keeps runs for {count} day': 'behält Läufe {count} Tag lang',
+    '{state}, {history}': '{state}, {history}',
+    'Restart policy': 'Neustart-Richtlinie',
+    'Restart settings': 'Neustart-Einstellungen',
+    Always: 'Immer',
+    'Unless stopped': 'Außer nach Stopp',
+    'A new run follows each run, whatever its status.':
+      'Auf jeden Lauf folgt ein neuer Lauf, unabhängig von seinem Status.',
+    'A new run follows each run, except a run that an operator stopped.':
+      'Auf jeden Lauf folgt ein neuer Lauf, außer auf einen Lauf, den ein Operator gestoppt hat.',
+    'The scheduler keeps one run of this workflow alive. It starts a new run when the last run ends.':
+      'Der Scheduler hält einen Lauf dieses Ablaufs am Leben. Er startet einen neuen Lauf, wenn der letzte Lauf endet.',
+    'Wait before a new run (s)': 'Wartezeit vor einem neuen Lauf (s)',
+    'Runs kept in the history': 'Läufe im Verlauf',
+    'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.':
+      'Ohne Wert behält der Verlauf die letzten 100 Läufe oder so viele, wie die Grundkonfiguration festlegt.',
+    'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.':
+      'Zuerst die retry_policy des Ablaufs entfernen: Ein Ablauf, der immer an ist, kann keine haben.',
     'Workflow > {tab}': 'Ablauf > {tab}',
     'Does not start at {time}: {schedule} starts instead.':
       'Startet nicht um {time}: Stattdessen startet {schedule}.',

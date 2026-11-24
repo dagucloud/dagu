@@ -1,8 +1,20 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { AlertTriangle, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
-import { useState, type ReactElement, type ReactNode } from 'react';
+import {
+  AlertTriangle,
+  ArrowLeftRight,
+  Plus,
+  SlidersHorizontal,
+  Trash2,
+} from 'lucide-react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import {
   ScheduleKind,
   type components,
@@ -10,6 +22,7 @@ import {
 } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
 import { IconButton } from '@/components/ui/icon-button';
+import { ToggleButton, ToggleGroup } from '@/components/ui/toggle-group';
 import { useConfig } from '@/contexts/ConfigContext';
 import WebhookTab from '@/features/dags/components/dag-details/WebhookTab';
 import {
@@ -23,9 +36,13 @@ import {
   describeScheduleCoincidence,
   getScheduleSummary,
 } from '@/lib/dagSchedule';
+import { cn } from '@/lib/utils';
 import type { ValidationIssue } from '../contracts';
 import {
+  isServicePolicy,
   scheduleParamIssueIndex,
+  type RestartPolicy,
+  type RestartSettings,
   type ScheduleEntryView,
   type ScheduleView,
 } from '../doc';
@@ -357,19 +374,7 @@ function describesEntry(
  * cover every start entry; without them each expression is previewed in the
  * browser.
  */
-export function CronLauncherPanel({
-  schedule,
-  editable,
-  upcomingRuns,
-  upcomingRunsHold,
-  schedules = [],
-  paramDefs = [],
-  issues = [],
-  coincidences,
-  onChange,
-  onParamChange,
-  onClose,
-}: {
+interface CronProps {
   schedule: ScheduleView;
   editable: boolean;
   /** Next runs of the saved or validated schedule, from the server. */
@@ -392,8 +397,20 @@ export function CronLauncherPanel({
     name: string,
     value: OverrideValue | null
   ): void;
-  onClose(): void;
-}): ReactElement {
+}
+
+function CronBody({
+  schedule,
+  editable,
+  upcomingRuns,
+  upcomingRunsHold,
+  schedules = [],
+  paramDefs = [],
+  issues = [],
+  coincidences,
+  onChange,
+  onParamChange,
+}: CronProps): ReactElement {
   const { ts, locale } = useI18n();
   const dayjsLocale = locale === 'zh-CN' ? 'zh-cn' : locale;
   const [added, setAdded] = useState('');
@@ -433,7 +450,7 @@ export function CronLauncherPanel({
         scheduleParamIssueIndex(issue.fieldPath) === entryIndex
     );
   return (
-    <Shell id="cron" onClose={onClose}>
+    <>
       <p className="text-sm text-muted-foreground">
         {ts('The workflow starts on each of these schedules.')}
       </p>
@@ -544,6 +561,423 @@ export function CronLauncherPanel({
             ))}
           </div>
         </section>
+      )}
+    </>
+  );
+}
+
+export function CronLauncherPanel({
+  onClose,
+  ...props
+}: CronProps & { onClose(): void }): ReactElement {
+  return (
+    <Shell id="cron" onClose={onClose}>
+      <CronBody {...props} />
+    </Shell>
+  );
+}
+
+const POLICIES: readonly RestartPolicy[] = ['no', 'always', 'unless-stopped'];
+const POLICY_LABELS: Record<RestartPolicy, string> = {
+  no: 'Off',
+  always: 'Always',
+  'unless-stopped': 'Unless stopped',
+};
+const POLICY_HINTS: Record<Exclude<RestartPolicy, 'no'>, string> = {
+  always: 'A new run follows each run, whatever its status.',
+  'unless-stopped':
+    'A new run follows each run, except a run that an operator stopped.',
+};
+
+/** The wait that a new policy gets when the file has none: the policy needs one. */
+const DEFAULT_WAIT_SEC = 5;
+
+/** A field of a positive integer. A value that is not one goes back to the saved value. */
+function CountField({
+  label,
+  value,
+  editable,
+  optional,
+  onCommit,
+}: {
+  label: string;
+  value: number | null;
+  editable: boolean;
+  /** True when an empty field removes the value. */
+  optional: boolean;
+  onCommit(next: number | null): void;
+}): ReactElement {
+  const saved = value === null ? '' : String(value);
+  const [draft, setDraft] = useState(saved);
+  // The field stays mounted when its value changes, so that it keeps the
+  // focus. A new value replaces the draft.
+  const [shown, setShown] = useState(saved);
+  if (shown !== saved) {
+    setShown(saved);
+    setDraft(saved);
+  }
+  const commit = () => {
+    const text = draft.trim();
+    if (text === saved) return;
+    if (text === '' && optional) onCommit(null);
+    else if (/^[0-9]+$/.test(text) && Number(text) >= 1) onCommit(Number(text));
+    else setDraft(saved);
+  };
+  return (
+    <label className="flex items-center justify-between gap-3 text-sm">
+      <span className="text-foreground">{label}</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={draft}
+        readOnly={!editable}
+        spellCheck={false}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === 'Enter') commit();
+          if (event.key === 'Escape') setDraft(saved);
+        }}
+        className="h-8 w-24 rounded-md border bg-background px-2 text-right font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      />
+    </label>
+  );
+}
+
+/**
+ * The restart policy of the workflow: the scheduler keeps one run alive and
+ * starts a new one when it ends. It cannot go with a schedule or a
+ * retry_policy, so the panel does not turn it on while the file has one.
+ */
+interface AlwaysProps {
+  restart: RestartSettings;
+  editable: boolean;
+  /** A field that is left out stays; `null` removes the key. */
+  onChange(change: {
+    policy?: RestartPolicy;
+    waitSec?: number | null;
+    histRetentionRuns?: number | null;
+  }): void;
+}
+
+function AlwaysBody({
+  restart,
+  editable,
+  onChange,
+}: AlwaysProps): ReactElement {
+  const { ts } = useI18n();
+  const on = isServicePolicy(restart.policy);
+  const conflict = restart.retryPolicy
+    ? ts(
+        'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.'
+      )
+    : null;
+  const choose = (policy: RestartPolicy) => {
+    if (policy === restart.policy) return;
+    // The loader refuses a service DAG with no wait, and the base
+    // configuration is not known here.
+    const needsWait = isServicePolicy(policy) && !(restart.waitSec ?? 0);
+    onChange({ policy, ...(needsWait && { waitSec: DEFAULT_WAIT_SEC }) });
+  };
+  // The 100 runs are the default only while the file sets no days.
+  const defaultRuns = restart.histRetentionDays === null;
+  return (
+    <>
+      <p className="text-sm text-muted-foreground">
+        {ts(
+          'The scheduler keeps one run of this workflow alive. It starts a new run when the last run ends.'
+        )}
+      </p>
+      {conflict && (
+        <p
+          role="note"
+          className="rounded-md border border-warning px-2 py-1.5 text-xs text-foreground"
+        >
+          {conflict}
+        </p>
+      )}
+      <ToggleGroup aria-label={ts('Restart policy')} className="flex">
+        {POLICIES.map((policy) => (
+          <ToggleButton
+            key={policy}
+            value={policy}
+            groupValue={restart.policy}
+            disabled={
+              !editable || (!on && policy !== 'no' && conflict !== null)
+            }
+            onClick={() => choose(policy)}
+            className="flex-1"
+          >
+            {ts(POLICY_LABELS[policy])}
+          </ToggleButton>
+        ))}
+      </ToggleGroup>
+      {restart.policy !== 'no' && (
+        <>
+          <p className="text-xs text-muted-foreground">
+            {ts(POLICY_HINTS[restart.policy])}
+          </p>
+          <section className="space-y-2" aria-label={ts('Restart settings')}>
+            <CountField
+              label={ts('Wait before a new run (s)')}
+              value={restart.waitSec}
+              editable={editable}
+              optional={false}
+              onCommit={(waitSec) => onChange({ waitSec })}
+            />
+            <CountField
+              label={ts('Runs kept in the history')}
+              value={restart.histRetentionRuns}
+              editable={editable}
+              optional
+              onCommit={(histRetentionRuns) => onChange({ histRetentionRuns })}
+            />
+            {defaultRuns && (
+              <p className="text-xs text-muted-foreground">
+                {ts(
+                  'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.'
+                )}
+              </p>
+            )}
+          </section>
+        </>
+      )}
+    </>
+  );
+}
+
+/** The action at the bottom of a form of the slot: it removes the setting and offers the other. */
+function SwitchButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick(): void;
+}): ReactElement {
+  const { ts } = useI18n();
+  return (
+    <Button type="button" variant="outline" size="sm" onClick={onClick}>
+      <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden="true" />
+      {ts(label)}
+    </Button>
+  );
+}
+
+type SlotChoice = 'cron' | 'always';
+
+const SLOT_CHOICES: ReadonlyArray<{
+  id: SlotChoice;
+  label: string;
+  hint: string;
+}> = [
+  {
+    id: 'cron',
+    label: 'Cron',
+    hint: 'Start on a schedule of cron expressions.',
+  },
+  {
+    id: 'always',
+    label: 'Always on',
+    hint: 'Keep one run alive and start a new one when it ends.',
+  },
+];
+
+/** The first control of a form that can take the focus. */
+const FIRST_CONTROL =
+  'button:not([disabled]), input:not([readonly]), select, textarea';
+
+/**
+ * The panel of the slot that Cron and Always on share. With neither set, it
+ * has a chooser: the choice opens a form and writes nothing until the author
+ * sets a value. With one set, it shows that form and an action that removes
+ * the setting and goes back to the chooser, with the focus in the other
+ * form. A schedule that the action cannot remove whole has a note in its
+ * place. A file with both (invalid) shows the form of the open node, with
+ * the same action on each.
+ */
+export function SlotLauncherPanel({
+  open,
+  schedule,
+  scheduleRemovable,
+  restart,
+  editable,
+  upcomingRuns,
+  upcomingRunsHold,
+  schedules,
+  paramDefs,
+  issues,
+  coincidences,
+  onSchedule,
+  onScheduleParam,
+  onRestart,
+  onClose,
+}: {
+  /** The node of the slot that opened the panel. */
+  open: 'schedule' | 'cron' | 'always';
+  schedule: ScheduleView;
+  /**
+   * True when the removal of the start expressions leaves no schedule entry:
+   * a restart policy cannot go with what is left of one.
+   */
+  scheduleRemovable: boolean;
+  restart: RestartSettings;
+  editable: boolean;
+  upcomingRuns?: UpcomingRun[];
+  upcomingRunsHold?: UpcomingRunsHold;
+  schedules?: Schedule[];
+  /** Parameters of the workflow, whose defaults each schedule inherits. */
+  paramDefs?: readonly ParamDef[];
+  /** Issues of the validated workflow; those of schedule overrides show on their rows. */
+  issues?: ValidationIssue[];
+  /** Start schedules that another one starts in place of, indexing schedules. */
+  coincidences?: ScheduleCoincidence[];
+  /** The new list of start expressions, and the index of a removed one. */
+  onSchedule(expressions: string[], removedIndex?: number): void;
+  /** Sets (value) or clears (null) a parameter override of an expression. */
+  onScheduleParam?(
+    entryIndex: number,
+    name: string,
+    value: OverrideValue | null
+  ): void;
+  onRestart: AlwaysProps['onChange'];
+  onClose(): void;
+}): ReactElement {
+  const { ts } = useI18n();
+  const [choice, setChoice] = useState<SlotChoice | null>(null);
+  const scheduled = restart.schedule;
+  const service = isServicePolicy(restart.policy);
+  const both = scheduled && service;
+  const shown: SlotChoice | null = both
+    ? open === 'cron'
+      ? 'cron'
+      : 'always'
+    : scheduled
+      ? 'cron'
+      : service
+        ? 'always'
+        : choice;
+  // The chooser shows while neither is set.
+  const choosing = !scheduled && !service;
+  const formRef = useRef<HTMLDivElement>(null);
+  // The form that takes the focus when it shows: the other one, after a switch.
+  const focusNext = useRef<SlotChoice | null>(null);
+  useEffect(() => {
+    if (focusNext.current === shown) {
+      formRef.current?.querySelector<HTMLElement>(FIRST_CONTROL)?.focus();
+      focusNext.current = null;
+    }
+    // A setting is still in the file: the switch is over, or was refused.
+    if (!choosing) focusNext.current = null;
+  });
+  const switchTo = (next: SlotChoice) => {
+    focusNext.current = next;
+    setChoice(next);
+    if (next === 'always') onSchedule([]);
+    // The wait belongs to the policy. The runs kept also apply to a schedule.
+    else onRestart({ policy: 'no', waitSec: null });
+  };
+  // Off keeps the Always on form open: without a choice, only the chooser
+  // would show.
+  const changeRestart: typeof onRestart = (change) => {
+    if (change.policy === 'no') setChoice('always');
+    onRestart(change);
+  };
+  return (
+    <Shell id={open} onClose={onClose}>
+      {both && (
+        <p
+          role="note"
+          className="rounded-md border border-warning px-2 py-1.5 text-xs text-foreground"
+        >
+          {ts(
+            'A service DAG cannot have a schedule or a retry_policy. Remove it first.'
+          )}
+        </p>
+      )}
+      {choosing && (
+        <ToggleGroup
+          aria-label={ts('Choose how the workflow starts')}
+          className="flex flex-col gap-1.5 bg-transparent p-0"
+        >
+          {SLOT_CHOICES.map((option) => {
+            const Icon = LAUNCHER_ICONS[option.id];
+            return (
+              <ToggleButton
+                key={option.id}
+                value={option.id}
+                groupValue={choice ?? undefined}
+                onClick={() => setChoice(option.id)}
+                className={cn(
+                  'h-auto w-full items-start justify-start gap-2 border px-2.5 py-2 text-left hover:bg-accent',
+                  choice === option.id && 'border-primary bg-accent'
+                )}
+              >
+                <Icon
+                  className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-foreground">
+                    {ts(option.label)}
+                  </span>
+                  <span className="block text-xs font-normal text-muted-foreground">
+                    {ts(option.hint)}
+                  </span>
+                </span>
+              </ToggleButton>
+            );
+          })}
+        </ToggleGroup>
+      )}
+      {shown !== null && (
+        <div ref={formRef} className="space-y-4">
+          {shown === 'cron' ? (
+            <CronBody
+              schedule={schedule}
+              editable={editable}
+              upcomingRuns={upcomingRuns}
+              upcomingRunsHold={upcomingRunsHold}
+              schedules={schedules}
+              paramDefs={paramDefs}
+              issues={issues}
+              coincidences={coincidences}
+              onChange={onSchedule}
+              onParamChange={onScheduleParam}
+            />
+          ) : (
+            <AlwaysBody
+              restart={restart}
+              editable={editable}
+              onChange={changeRestart}
+            />
+          )}
+          {editable &&
+            shown === 'cron' &&
+            scheduled &&
+            (restart.retryPolicy ? (
+              <p className="text-xs text-muted-foreground">
+                {ts(
+                  'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.'
+                )}
+              </p>
+            ) : scheduleRemovable ? (
+              <SwitchButton
+                label="Switch to Always on"
+                onClick={() => switchTo('always')}
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {ts('Edit the schedule in the YAML to switch to Always on.')}
+              </p>
+            ))}
+          {editable && shown === 'always' && service && (
+            <SwitchButton
+              label="Switch to Cron"
+              onClick={() => switchTo('cron')}
+            />
+          )}
+        </div>
       )}
     </Shell>
   );

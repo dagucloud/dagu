@@ -268,7 +268,8 @@ steps:
         await expect(canvas.getByTestId('ve-launcher-manual')).toBeVisible({
           timeout: 30_000,
         });
-        await expect(canvas.getByTestId('ve-launcher-cron')).toBeVisible();
+        // Neither Cron nor Always on is set: one dashed node holds the slot.
+        await expect(canvas.getByTestId('ve-launcher-schedule')).toBeVisible();
         await expect(canvas.getByTestId('ve-launcher-webhook')).toHaveCount(0);
         expect(seen.filter((entry) => /\/webhook/.test(entry.path))).toEqual(
           []

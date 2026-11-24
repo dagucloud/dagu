@@ -275,7 +275,9 @@ function draftStepTitle(
 /** The key of the file that a trigger stands for; a webhook has none. */
 const TRIGGER_KEYS: Record<LauncherId, string | null> = {
   manual: 'params',
+  schedule: null,
   cron: 'schedule',
+  always: 'restart_policy',
   webhook: null,
 };
 
