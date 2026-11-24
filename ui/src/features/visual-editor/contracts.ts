@@ -145,6 +145,13 @@ export type DagEditOp =
       index: number;
       name: string;
       value: string | number | boolean | null;
+    }
+  /** Sets `restart_policy`, `restart_wait_sec` and `hist_retention_runs`. A field that is left out stays; `null` removes the key. */
+  | {
+      kind: 'setRestartPolicy';
+      policy?: 'no' | 'always' | 'unless-stopped';
+      waitSec?: number | null;
+      histRetentionRuns?: number | null;
     };
 
 export interface StepNameMap {
@@ -166,6 +173,8 @@ export type EditErrorCode =
   | 'cycle'
   | 'invalidYaml'
   | 'handlerStep'
+  | 'restartConflict'
+  | 'invalidValue'
   | 'noop';
 export type EditResult =
   | { ok: true; text: string; edits: TextEdit[]; select?: StepKey }

@@ -46,6 +46,13 @@ describe('readRestart', () => {
     expect(readRestart('retry_policy:\n').retryPolicy).toBe(false);
   });
 
+  // The server reads an alias as the value of its anchor.
+  it('tells a schedule written as an alias', () => {
+    const cron = 'x-cron: &c "0 8 * * *"\n';
+    expect(readRestart(`${cron}schedule: *c\n`).schedule).toBe(true);
+    expect(readRestart(`${cron}schedule:\n  start: *c\n`).schedule).toBe(true);
+  });
+
   it('reads document 0 and does not throw on a broken text', () => {
     expect(
       readRestart(`${BASE}---\nname: sub\nschedule: "* * * * *"\n`).schedule

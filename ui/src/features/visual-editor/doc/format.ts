@@ -58,6 +58,7 @@ export const DAG_KEY_ORDER: readonly string[] = [
   'node',
   'timeout_sec',
   'delay_sec',
+  'restart_policy',
   'restart_wait_sec',
   'max_clean_up_time_sec',
   'hist_retention_days',
