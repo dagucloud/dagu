@@ -289,7 +289,7 @@ function CanvasView({
   onRefused,
   launchers = NO_LAUNCHERS,
   activeLauncher = null,
-  launcherAlive = false,
+  launcherAlive = null,
   onLauncher,
   onStepClick,
   fitPadding = FIT_PADDING,
