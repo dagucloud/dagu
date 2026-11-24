@@ -25641,13 +25641,13 @@ export interface operations {
                     "text/event-stream": components["schemas"]["InventoryNodeConnectionTestEvent"];
                 };
             };
-            /** @description The node breaks a rule, or the inventory already holds its name */
+            /** @description The node breaks a rule, or the inventory already holds its name. `errors` lists each broken rule, and `message` names them too */
             400: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Error"];
+                    "application/json": components["schemas"]["InventoryImportError"];
                 };
             };
             /** @description Not authenticated */

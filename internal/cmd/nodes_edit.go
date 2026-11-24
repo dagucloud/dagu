@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/user"
@@ -50,7 +51,8 @@ func nodesAddCommand() *cobra.Command {
 	return NewCommand(&cobra.Command{
 		Use:   "add <name>",
 		Short: "Add a node to an inventory",
-		Long: `Add an SSH node to an inventory, or replace the node of that name.
+		Long: `Add a new SSH node to an inventory. A name the inventory already
+holds is refused before anything is tested.
 
 Before it saves, add tests the connection: it checks the host key,
 authenticates, and runs true. When the node's host key is unknown, add
@@ -73,85 +75,179 @@ func runNodesAdd(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	stores, err := ctx.nodeStores()
-	if err != nil {
-		return err
-	}
-	target, err := addTarget(ctx, stores.inventories)
-	if err != nil {
-		return err
-	}
-	// Check the node against every rule before it is tested.
-	nodes, err := resolveWithNode(ctx, stores.inventories, target, node)
+	adder, err := nodesAdder(ctx, node)
 	if err != nil {
 		return err
 	}
 
 	out := ctx.Command.OutOrStdout()
-	service := nodeconn.New(stores.hostKeys, ctx.secretResolver())
 	var accepted []nodeconn.Accepted
 	if noTest, _ := ctx.Command.Flags().GetBool("no-test"); !noTest {
-		if nodes, accepted, err = testBeforeSave(ctx, service, nodes, node.Name); err != nil {
-			return fmt.Errorf("node %q not added: %w", node.Name, err)
+		if accepted, err = testBeforeSave(ctx, adder); err != nil {
+			return notAdded(node.Name, err)
 		}
 		_, _ = fmt.Fprintf(out, "connection test of %s passed\n", node.Name)
 	}
 
-	stored, added, err := inventory.PutNode(ctx, stores.inventories, target.ID, node, target.Version)
-	if errors.Is(err, inventory.ErrInvalid) {
-		return fmt.Errorf("node %q not added:\n%w", node.Name, err)
-	}
-	if err != nil {
-		return err
-	}
-	verb := "added"
-	if !added {
-		verb = "replaced"
-	}
-	_, _ = fmt.Fprintf(out, "%s %s in %s\n", verb, node.Name, stored.Name)
-
 	by, _ := localOSSubject(user.Current)
-	trusted, err := service.TrustAccepted(ctx, nodes, accepted, by)
+	stored, trusted, err := adder.add(ctx, accepted, by)
+	if stored.ID == "" {
+		if _, ok := errors.AsType[uncertainAdd](err); ok {
+			return err
+		}
+		return notAdded(node.Name, err)
+	}
+	_, _ = fmt.Fprintf(out, "added %s in %s\n", node.Name, stored.Name)
 	for _, key := range trusted {
 		_, _ = fmt.Fprintf(out, "trusted host key %s of %s\n", key.Fingerprint, key.Node)
 	}
 	if err != nil {
+		// A remote add reports the stored node in its own words.
+		if partial, ok := errors.AsType[partialAdd](err); ok {
+			return partial
+		}
 		return fmt.Errorf("node %q was added, but a host key was not trusted: %w", node.Name, err)
 	}
 	return nil
 }
 
-// testBeforeSave tests the node named name among nodes until the test passes
-// or fails for good. When a hop presents an unknown key, it asks the user,
-// and on yes tests again with that key accepted for that hop in memory only,
-// so the node is authenticated and runs true before anything is stored. It
-// returns nodes with the accepted keys staged, and those keys, to trust once
-// the node is stored.
-func testBeforeSave(ctx *Context, service *nodeconn.Service, nodes []inventory.ResolvedNode, name string) ([]inventory.ResolvedNode, []nodeconn.Accepted, error) {
+// notAdded reports why the node named name was not added, listing each rule
+// it breaks on its own line.
+func notAdded(name string, err error) error {
+	if errors.Is(err, inventory.ErrInvalid) {
+		return fmt.Errorf("node %q not added:\n%w", name, err)
+	}
+	return fmt.Errorf("node %q not added: %w", name, err)
+}
+
+// nodeAdder tests a node that is not stored yet, and adds it, in this
+// process or on the server of a remote context.
+type nodeAdder interface {
+	// test tests the node with the accepted keys accepted for that test
+	// only.
+	test(ctx context.Context, accepted []nodeconn.Accepted) (nodeconn.TestResult, error)
+	// add stores the node, then trusts the accepted keys. The inventory it
+	// returns has no ID when the node was not stored.
+	add(ctx context.Context, accepted []nodeconn.Accepted, by string) (inventory.Stored, []inventory.TrustedHostKey, error)
+}
+
+// nodesAdder returns the adder of node to the inventory --inventory names,
+// or the only one. A name that inventory holds is refused before anything
+// is tested.
+func nodesAdder(ctx *Context, node inventory.Node) (nodeAdder, error) {
+	if ctx.IsRemote() {
+		all, err := ctx.Remote.remoteInventories(ctx)
+		if err != nil {
+			return nil, err
+		}
+		target, err := addTarget(ctx, all)
+		if err != nil {
+			return nil, err
+		}
+		if target, err = ctx.Remote.remoteInventory(ctx, target.ID); err != nil {
+			return nil, err
+		}
+		if err := refuseHeldName(target, node.Name); err != nil {
+			return nil, err
+		}
+		return remoteAdder{client: ctx.Remote, target: target, node: node}, nil
+	}
+	stores, err := ctx.nodeStores()
+	if err != nil {
+		return nil, err
+	}
+	all, err := stores.inventories.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	target, err := addTarget(ctx, all)
+	if err != nil {
+		return nil, err
+	}
+	if err := refuseHeldName(target, node.Name); err != nil {
+		return nil, err
+	}
+	// Check the node against every rule before it is tested.
+	nodes, err := resolveWithNode(all, target, node)
+	if err != nil {
+		return nil, err
+	}
+	return &localAdder{
+		service: nodeconn.New(stores.hostKeys, ctx.secretResolver()),
+		store:   stores.inventories,
+		target:  target,
+		node:    node,
+		nodes:   nodes,
+		staged:  nodes,
+	}, nil
+}
+
+// refuseHeldName fails when target holds a node named name: add adds new
+// nodes only.
+func refuseHeldName(target inventory.Stored, name string) error {
+	if i := slices.IndexFunc(target.Nodes, func(n inventory.Node) bool { return strings.EqualFold(n.Name, name) }); i >= 0 {
+		return fmt.Errorf("node %q not added: inventory %q already has a node %q", name, target.Name, target.Nodes[i].Name)
+	}
+	return nil
+}
+
+// localAdder tests and adds a node in this process.
+type localAdder struct {
+	service *nodeconn.Service
+	store   inventory.Store
+	target  inventory.Stored
+	node    inventory.Node
+	// nodes are the project's nodes with node added; staged are those with
+	// the keys of the last test pinned, which add trusts.
+	nodes  []inventory.ResolvedNode
+	staged []inventory.ResolvedNode
+}
+
+func (l *localAdder) test(ctx context.Context, accepted []nodeconn.Accepted) (nodeconn.TestResult, error) {
+	staged, err := l.service.Stage(ctx, l.nodes, l.node.Name, accepted)
+	if err != nil {
+		return nodeconn.TestResult{}, err
+	}
+	l.staged = staged
+	var result nodeconn.TestResult
+	l.service.Test(ctx, staged, []inventory.ResolvedNode{staged[nodeIndex(staged, l.node.Name)]}, func(r nodeconn.TestResult) { result = r })
+	return result, nil
+}
+
+func (l *localAdder) add(ctx context.Context, accepted []nodeconn.Accepted, by string) (inventory.Stored, []inventory.TrustedHostKey, error) {
+	stored, err := inventory.AddNode(ctx, l.store, l.target.ID, l.node, l.target.Version)
+	if err != nil {
+		return inventory.Stored{}, nil, err
+	}
+	trusted, err := l.service.TrustAccepted(ctx, l.staged, accepted, by)
+	return stored, trusted, err
+}
+
+// testBeforeSave tests the node until the test passes or fails for good. When a hop presents an unknown key, it asks the user, and on yes
+// tests again with that key accepted for that test only, so the node is
+// authenticated and runs true before anything is stored. It returns the
+// keys the user accepted, to trust once the node is stored.
+func testBeforeSave(ctx *Context, adder nodeAdder) ([]nodeconn.Accepted, error) {
 	out := ctx.Command.OutOrStdout()
-	staged := nodes
 	var accepted []nodeconn.Accepted
 	for {
-		var result nodeconn.TestResult
-		service.Test(ctx, staged, []inventory.ResolvedNode{staged[nodeIndex(staged, name)]}, func(r nodeconn.TestResult) { result = r })
+		result, err := adder.test(ctx, accepted)
+		if err != nil {
+			return nil, err
+		}
 		if result.Err == nil {
-			return staged, accepted, nil
+			return accepted, nil
 		}
 		refused := result.Refused
 		unknown := refused != nil && len(refused.Expected) == 0 && refused.Presented != ""
 		if !unknown || slices.ContainsFunc(accepted, func(k nodeconn.Accepted) bool { return strings.EqualFold(k.Node, refused.Node) }) {
-			return nil, nil, fmt.Errorf("its connection test failed: %w", result.Err)
+			return nil, fmt.Errorf("its connection test failed: %w", result.Err)
 		}
 		_, _ = fmt.Fprintf(out, "The host key of %s %q is unknown: %s\n", refused.Hop, refused.Node, refused.Presented)
 		if !confirmAction("Trust this key and add the node?") {
-			return nil, nil, errors.New("its host key was not trusted")
+			return nil, errors.New("its host key was not trusted")
 		}
-		key := nodeconn.Accepted{Node: refused.Node, Fingerprint: refused.Presented}
-		var err error
-		if staged, err = service.Stage(ctx, staged, name, []nodeconn.Accepted{key}); err != nil {
-			return nil, nil, err
-		}
-		accepted = append(accepted, key)
+		accepted = append(accepted, nodeconn.Accepted{Node: refused.Node, Fingerprint: refused.Presented})
 	}
 }
 
@@ -165,6 +261,9 @@ again.`,
 		Example: `  dagu nodes remove tokyo-web01`,
 		Args:    cobra.ExactArgs(1),
 	}, nil, func(ctx *Context, args []string) error {
+		if ctx.IsRemote() {
+			return remoteNodesRemove(ctx, args[0])
+		}
 		stores, err := ctx.nodeStores()
 		if err != nil {
 			return err
@@ -234,7 +333,7 @@ func nodeFromFlags(ctx *Context, name string) (inventory.Node, error) {
 	case key != "" && keySecret != "":
 		return inventory.Node{}, errors.New("--key and --key-secret cannot be combined")
 	case key != "":
-		path, err := keyFilePath(key)
+		path, err := nodeKeyPath(key, ctx.IsRemote())
 		if err != nil {
 			return inventory.Node{}, fmt.Errorf("invalid --key %q: %w", key, err)
 		}
@@ -256,6 +355,34 @@ func nodeFromFlags(ctx *Context, name string) (inventory.Node, error) {
 	return node, nil
 }
 
+// nodeKeyPath returns the --key path as the node stores it. A remote server
+// reads the key on its own host, so its path is kept as given, and must be
+// one that server can read; a local path is made absolute.
+func nodeKeyPath(path string, remote bool) (string, error) {
+	if !remote {
+		return keyFilePath(path)
+	}
+	if !serverKeyPath(path) {
+		return "", errors.New("the server reads the key on its own host, so give an absolute path, or one that starts with ~ or $")
+	}
+	return path, nil
+}
+
+// serverKeyPath reports whether a remote server can read the --key path as
+// given: an absolute path on a POSIX or a Windows server, or one that starts
+// with ~ or $ for the server to expand. The server's platform is not known
+// here, so a path absolute on either is taken.
+func serverKeyPath(path string) bool {
+	switch {
+	case strings.HasPrefix(path, "/"), strings.HasPrefix(path, `\\`),
+		strings.HasPrefix(path, "~"), strings.HasPrefix(path, "$"):
+		return true
+	default:
+		return len(path) > 2 && path[1] == ':' && (path[2] == '\\' || path[2] == '/') &&
+			(path[0] >= 'a' && path[0] <= 'z' || path[0] >= 'A' && path[0] <= 'Z')
+	}
+}
+
 // keyFilePath returns the --key path as the node stores it. The node is
 // later connected from processes with other working directories, so a
 // relative path is made absolute here. A path that starts with ~ or $ is
@@ -267,14 +394,11 @@ func keyFilePath(path string) (string, error) {
 	return filepath.Abs(path)
 }
 
-// addTarget returns the inventory --inventory names, or the only one.
-func addTarget(ctx *Context, inventories inventory.Store) (inventory.Stored, error) {
+// addTarget returns the inventory of all that --inventory names, or the
+// only one.
+func addTarget(ctx *Context, all []inventory.Stored) (inventory.Stored, error) {
 	if ref, _ := ctx.Command.Flags().GetString("inventory"); strings.TrimSpace(ref) != "" {
-		return findInventory(ctx, inventories, strings.TrimSpace(ref))
-	}
-	all, err := inventories.List(ctx)
-	if err != nil {
-		return inventory.Stored{}, err
+		return findInventoryIn(all, strings.TrimSpace(ref))
 	}
 	switch len(all) {
 	case 0:
@@ -286,13 +410,9 @@ func addTarget(ctx *Context, inventories inventory.Store) (inventory.Stored, err
 	}
 }
 
-// resolveWithNode resolves the inventories as they would be with node in
-// target, with each inventory's defaults applied.
-func resolveWithNode(ctx *Context, inventories inventory.Store, target inventory.Stored, node inventory.Node) ([]inventory.ResolvedNode, error) {
-	all, err := inventories.List(ctx)
-	if err != nil {
-		return nil, err
-	}
+// resolveWithNode resolves the inventories of all as they would be with node
+// in target, with each inventory's defaults applied.
+func resolveWithNode(all []inventory.Stored, target inventory.Stored, node inventory.Node) ([]inventory.ResolvedNode, error) {
 	invs, err := inventory.WithNode(all, target.ID, node)
 	if errors.Is(err, inventory.ErrNotFound) {
 		return nil, fmt.Errorf("inventory %q was deleted", target.Name)
@@ -302,7 +422,7 @@ func resolveWithNode(ctx *Context, inventories inventory.Store, target inventory
 	}
 	nodes, err := inventory.Resolve(invs)
 	if err != nil {
-		return nil, fmt.Errorf("node %q not added:\n%w", node.Name, err)
+		return nil, notAdded(node.Name, err)
 	}
 	return nodes, nil
 }

@@ -128,7 +128,9 @@ func (a *API) TestNewInventoryNode(ctx context.Context, request api.TestNewInven
 	switch {
 	case errors.Is(err, inventory.ErrNotFound):
 		return api.TestNewInventoryNode404JSONResponse(inventoryNotFound(request.InventoryId)), nil
-	case errors.Is(err, inventory.ErrInvalid), errors.Is(err, inventory.ErrNodeExists):
+	case errors.Is(err, inventory.ErrInvalid):
+		return api.TestNewInventoryNode400JSONResponse{Code: api.ErrorCodeBadRequest, Message: err.Error(), Errors: appendRuleErrors(nil, err)}, nil
+	case errors.Is(err, inventory.ErrNodeExists):
 		return newNodeTestRefused(err.Error()), nil
 	case err != nil:
 		return nil, err
@@ -261,7 +263,7 @@ func nodeTestRefused(message string) api.TestInventoryNodeConnections400JSONResp
 }
 
 func newNodeTestRefused(message string) api.TestNewInventoryNode400JSONResponse {
-	return api.TestNewInventoryNode400JSONResponse{Code: api.ErrorCodeBadRequest, Message: message}
+	return api.TestNewInventoryNode400JSONResponse(changeRefused(message))
 }
 
 func hostKeyTrustRefused(message string) api.TrustInventoryNodeHostKeys400JSONResponse {
