@@ -91,7 +91,9 @@ function StartFeedback({
  * caret has its slot whenever the user may run a draft, so that Start keeps
  * its place when the draft becomes dirty. While the editor equals the saved
  * file, its menu says that there is no draft to run. With unsaved changes,
- * the menu also offers to save and run to a user who may do both.
+ * the menu also offers to save and run to a user who may do both. While the
+ * shown run has Dequeue, Stop, Reject or Retry, that action takes the slot of
+ * Start and the menu offers Start.
  */
 export function RunSplitButton(props: BarSlotProps) {
   const { canRunDags, canExecute } = useWorkspacePermissions();
@@ -139,9 +141,6 @@ function SplitButton({
     !!run.details &&
     (getDAGRunTerminateAction(run.details) !== 'none' ||
       (isWaiting && waitingApprovalNodes.length > 0));
-  // A run that failed has Retry in the slot of Start. A service workflow
-  // that has an active run, or that the scheduler restarts by itself, keeps
-  // the button disabled: it has one run at a time.
   const retryShown =
     !stopShown &&
     !dequeueShown &&
@@ -178,7 +177,9 @@ function SplitButton({
   // A backfill runs the saved definition's past slots, so it needs a
   // schedule and the right to run.
   const canBackfill = canRunDags && (dag.schedule?.length ?? 0) > 0;
-  const hasMenu = canRunDraft || canSaveAndRun || canBackfill;
+  // While another action has the slot of Start, the menu offers Start.
+  const startInMenu = canRunDags && replaced;
+  const hasMenu = startInMenu || canRunDraft || canSaveAndRun || canBackfill;
   if (!canRunDags && !hasMenu) return null;
 
   return (
@@ -209,7 +210,7 @@ function SplitButton({
               />
             )}
             {/* Start stays mounted, hidden: the palette and the menu open its
-                dialog while Stop or Retry has the slot. */}
+                dialog while another action has the slot. */}
             <div className={replaced ? 'hidden' : 'contents'}>
               <DAGActions
                 only={['start']}
@@ -279,7 +280,7 @@ function SplitButton({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className={cn(Z.menu, 'w-64')}>
-            {retryShown && canRunDags && (
+            {startInMenu && (
               <DropdownMenuItem
                 onSelect={() => startFlow.requestStart()}
                 className="gap-2"

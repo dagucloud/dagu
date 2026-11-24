@@ -218,16 +218,20 @@ steps:
           }),
           gates.canWrite
         );
-        // The run menu holds the unsaved draft only. A clean editor keeps
-        // its caret in place for a role that may execute.
+        // Stop has the slot of Start, so the run menu offers Start to every
+        // role with run_dags. The unsaved draft follows canExecute.
         const runOptions = page
           .getByTestId('ww-run-split')
           .getByRole('button', { name: 'More run options' });
-        if (gates.canExecute) {
-          await expect(runOptions).toBeVisible();
-        } else {
-          await expect(runOptions).toHaveCount(0);
-        }
+        await runOptions.click();
+        await expect(
+          page.getByRole('menuitem', { name: 'Start', exact: true })
+        ).toBeVisible();
+        await expectPresent(
+          page.getByRole('menuitem', { name: /Run unsaved draft/ }),
+          gates.canExecute
+        );
+        await page.keyboard.press('Escape');
 
         // The bar has no menu: Rename and Delete are buttons that follow
         // canWrite, and no entry leads to the run page.

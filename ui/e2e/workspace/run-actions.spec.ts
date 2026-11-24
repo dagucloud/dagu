@@ -354,8 +354,13 @@ steps:
 
       await openWorkspace(page, gotoWorkspace, dagPath(fileName));
       // The first run is active, so Stop has the slot of Start and Start is
-      // hidden. A script click opens its dialog, as the command palette does.
-      await runButton(page).dispatchEvent('click');
+      // in the run options menu.
+      await expect(runButton(page)).toBeHidden({ timeout: 30_000 });
+      await page
+        .getByTestId('ww-run-split')
+        .getByRole('button', { name: 'More run options' })
+        .click();
+      await page.getByRole('menuitem', { name: 'Start', exact: true }).click();
       const dialog = page.getByRole('dialog', { name: 'Start workflow' });
       await expect(dialog).toBeVisible();
       const enqueue = dialog.getByRole('checkbox', { name: 'Enqueue' });

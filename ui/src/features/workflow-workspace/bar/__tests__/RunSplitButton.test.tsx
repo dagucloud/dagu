@@ -481,16 +481,6 @@ describe('RunSplitButton', () => {
       );
     });
 
-    // The caret menu has the Start item only while Retry has the slot.
-    it('has no Start item in the caret menu', async () => {
-      setup({ latest: queued() });
-
-      const menu = await openMenu();
-      expect(
-        within(menu).queryByRole('menuitem', { name: 'Start' })
-      ).toBeNull();
-    });
-
     // Only a queued run is dequeued: any other state has its own button.
     it.each([
       ['succeeded', Status.Success],
@@ -756,53 +746,82 @@ describe('RunSplitButton', () => {
         )
       );
     });
+  });
 
-    // Retry replaces Start, so the caret menu keeps a way to the Start dialog.
-    describe('caret menu', () => {
-      it("has 'Start' first, and it opens the Start dialog", async () => {
-        setup({ latest: failedRun(), editor: { dirty: true, buffer: 'a: b' } });
+  // Another action has the slot of Start, so the caret menu keeps a way to
+  // the Start dialog.
+  describe('Start in the caret menu', () => {
+    it("has 'Start' first, and it opens the Start dialog", async () => {
+      setup({ latest: failedRun(), editor: { dirty: true, buffer: 'a: b' } });
 
-        const menu = await openMenu();
-        expect(
-          within(menu)
-            .getAllByRole('menuitem')
-            .map((item) => item.textContent)
-        ).toEqual(['Start', 'Run unsaved draft']);
+      const menu = await openMenu();
+      expect(
+        within(menu)
+          .getAllByRole('menuitem')
+          .map((item) => item.textContent)
+      ).toEqual(['Start', 'Run unsaved draft']);
 
-        await userEvent.click(
-          within(menu).getByRole('menuitem', { name: 'Start' })
-        );
-        expect(await screen.findByTestId('start-modal')).toBeInTheDocument();
-        expect(h.client.POST).not.toHaveBeenCalled();
-      });
+      await userEvent.click(
+        within(menu).getByRole('menuitem', { name: 'Start' })
+      );
+      expect(await screen.findByTestId('start-modal')).toBeInTheDocument();
+      expect(h.client.POST).not.toHaveBeenCalled();
+    });
 
-      it('asks before the Start dialog while the definition is unsaved', async () => {
-        setup({ latest: failedRun(), dirtyFlag: true });
+    it('asks before the Start dialog while the definition is unsaved', async () => {
+      setup({ latest: failedRun(), dirtyFlag: true });
 
-        const menu = await openMenu();
-        await userEvent.click(
-          within(menu).getByRole('menuitem', { name: 'Start' })
-        );
-        const guard = await screen.findByRole('dialog');
-        expect(
-          within(guard).getByRole('heading', { name: 'Unsaved Changes' })
-        ).toBeInTheDocument();
-        expect(screen.queryByTestId('start-modal')).toBeNull();
-      });
+      const menu = await openMenu();
+      await userEvent.click(
+        within(menu).getByRole('menuitem', { name: 'Start' })
+      );
+      const guard = await screen.findByRole('dialog');
+      expect(
+        within(guard).getByRole('heading', { name: 'Unsaved Changes' })
+      ).toBeInTheDocument();
+      expect(screen.queryByTestId('start-modal')).toBeNull();
+    });
 
-      it.each([
-        ['succeeded', Status.Success],
-        ['aborted', Status.Aborted],
-        ['running', Status.Running],
-      ])('has no Start item for a %s run', async (_label, status) => {
-        setup({ latest: runDetails('run-3', status) });
+    it.each([
+      ['queued', Status.Queued],
+      ['running', Status.Running],
+      ['waiting', Status.Waiting],
+    ])('has Start first for a %s run', async (_label, status) => {
+      setup({ latest: runDetails('run-3', status) });
 
-        const menu = await openMenu();
-        expect(
-          within(menu).queryByRole('menuitem', { name: 'Start' })
-        ).toBeNull();
-        expect(within(menu).getAllByRole('menuitem')).toHaveLength(1);
-      });
+      const menu = await openMenu();
+      expect(
+        within(menu)
+          .getAllByRole('menuitem')
+          .map((item) => item.textContent)
+      ).toEqual(['Start', 'Run unsaved draftNo unsaved changes']);
+    });
+
+    // Start is in its own slot: the menu does not repeat it.
+    it.each([
+      ['succeeded', Status.Success],
+      ['aborted', Status.Aborted],
+    ])('has no Start item for a %s run', async (_label, status) => {
+      setup({ latest: runDetails('run-3', status) });
+
+      const menu = await openMenu();
+      expect(
+        within(menu).queryByRole('menuitem', { name: 'Start' })
+      ).toBeNull();
+      expect(within(menu).getAllByRole('menuitem')).toHaveLength(1);
+    });
+
+    // A user who may start but not run a draft has a menu for Start alone.
+    it('has a menu with Start alone without canExecute', async () => {
+      h.canExecute = false;
+      setup({ latest: runDetails('run-3', Status.Running) });
+
+      const menu = await openMenu();
+      expect(
+        within(menu)
+          .getAllByRole('menuitem')
+          .map((item) => item.textContent)
+      ).toEqual(['Start']);
     });
   });
 
