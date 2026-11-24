@@ -1696,13 +1696,6 @@ function DAGRuns() {
             selectedRunKeys={selectedKeys}
             onToggleBulkSelect={toggleSelection}
           />
-        ) : (
-          <DAGRunGroupedView
-            dagRuns={dagRuns}
-            isLoading={isInitialLoading}
-            selectedRunKeys={selectedKeys}
-            onToggleBulkSelect={toggleSelection}
-          />
         )}
         <div className="mt-3 flex flex-col items-center gap-2">
           {loadMoreError && (
