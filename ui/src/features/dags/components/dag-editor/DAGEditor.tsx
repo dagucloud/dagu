@@ -285,13 +285,20 @@ function DAGEditor({
       registration.dispose();
     };
   }, [isEditorMounted, wantsStepLenses]);
-  const settled = useEditorSettled(
-    isEditorMounted ? editorRef.current : null,
-    (stepLenses?.steps.length ?? 0) > 0,
-    effectiveModelUri
-  );
   // The skeleton stays for the fade of the editor, which takes its place.
   const [fadedIn, setFadedIn] = useState<string | null>(null);
+  const skeleton = fadedIn !== effectiveModelUri;
+  // The steps of the text that the skeleton shows. Only the skeleton reads
+  // them: an edit of the editor that took its place parses nothing here.
+  const skeletonLenses = useMemo(
+    () => (skeleton ? stepLenses?.steps(value ?? '') : undefined),
+    [skeleton, stepLenses, value]
+  );
+  const settled = useEditorSettled(
+    isEditorMounted ? editorRef.current : null,
+    (skeletonLenses?.length ?? 0) > 0,
+    effectiveModelUri
+  );
   useEffect(() => {
     if (!settled) return;
     const timer = setTimeout(
@@ -300,14 +307,14 @@ function DAGEditor({
     );
     return () => clearTimeout(timer);
   }, [settled, effectiveModelUri]);
-  const skeleton = fadedIn !== effectiveModelUri;
 
-  const lensKey = stepLenses
-    ? `${stepLenses.label}\n${stepLenses.steps.map((step) => `${step.line}:${step.name}`).join('\n')}`
-    : '';
+  // The lenses read the text of the model when Monaco asks. A new source comes
+  // with each parse of the page and each result of the server: ask again, for
+  // the names it can change and for a query that the editor dropped when it
+  // lost the focus.
   useEffect(() => {
     stepLensRegistration.current?.refresh();
-  }, [lensKey]);
+  }, [stepLenses]);
   useEffect(() => {
     if (!isEditorMounted) {
       return;
@@ -423,7 +430,7 @@ function DAGEditor({
       {skeleton && (
         <EditorSkeleton
           text={value ?? ''}
-          lenses={stepLenses?.steps}
+          lenses={skeletonLenses}
           className={cn(
             'transition-opacity duration-80 ease-out motion-reduce:transition-none',
             settled && 'opacity-0'

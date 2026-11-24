@@ -50,6 +50,39 @@ describe('DAGEditorWithDocs deferred editor', () => {
     expect(screen.getByTestId('editor')).toBeInTheDocument();
   });
 
+  // The steps come from a parse of the text: only a skeleton that shows asks
+  // for them, so an edit of a hidden or a loaded editor costs no parse here.
+  it('reads no steps while the editor is hidden or loaded', async () => {
+    const steps = vi.fn(() => [{ line: 2, name: 'a' }]);
+    const lenses = { label: 'Open step', open: vi.fn(), steps };
+    const { rerender } = render(
+      <DAGEditorWithDocs
+        value={'steps:\n  - id: a'}
+        stepLenses={lenses}
+        shown={false}
+      />
+    );
+    expect(steps).not.toHaveBeenCalled();
+
+    rerender(
+      <DAGEditorWithDocs
+        value={'steps:\n  - id: a'}
+        stepLenses={lenses}
+        shown
+      />
+    );
+    expect(await screen.findByTestId('editor')).toBeInTheDocument();
+    steps.mockClear();
+    rerender(
+      <DAGEditorWithDocs
+        value={'steps:\n  - id: ab'}
+        stepLenses={lenses}
+        shown
+      />
+    );
+    expect(steps).not.toHaveBeenCalled();
+  });
+
   it('mounts the editor at once without the prop', async () => {
     render(<DAGEditorWithDocs value="steps: []" />);
     expect(await screen.findByTestId('editor')).toBeInTheDocument();

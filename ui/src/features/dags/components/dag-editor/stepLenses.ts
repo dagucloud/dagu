@@ -2,6 +2,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { editor, IDisposable, languages } from 'monaco-editor';
+import type {
+  ApiDAGDetails,
+  DagDocModel,
+  StepNameMap,
+} from '@/features/visual-editor/contracts';
+import {
+  parseDagDocLenient,
+  resolveStepNames,
+} from '@/features/visual-editor/doc/parse';
 
 type Monaco = typeof import('monaco-editor');
 
@@ -13,17 +22,50 @@ export interface StepLensPoint {
 
 /** What the lenses of a whole-file editor need of their host. */
 export interface StepLensSource {
-  /** The steps of the text, in order. */
-  steps: readonly StepLensPoint[];
+  /**
+   * The steps of `text`, in order. The lenses ask for the steps of the text of
+   * the model at the time of the query: Monaco can query before the host has
+   * read an edit, and it drops the query that follows when the editor loses
+   * the focus. A list that the host kept from an older text would put the
+   * lenses on the wrong rows.
+   */
+  steps(text: string): readonly StepLensPoint[];
   /** The text of the lens. */
   label: string;
   /** Opens the step in the full-screen step view. */
   open(name: string): void;
 }
 
+/**
+ * Reads the steps of a text for `StepLensSource.steps`. `checked` is the
+ * model of the text that the host parsed last, and `names` its step names:
+ * that text costs no parse. Another text is parsed, and its steps are named
+ * after `details`. The reader keeps the steps of the last text it read.
+ */
+export function stepLensReader(
+  checked: DagDocModel,
+  names: StepNameMap,
+  details?: ApiDAGDetails
+): (text: string) => readonly StepLensPoint[] {
+  let last: { text: string; steps: StepLensPoint[] } | null = null;
+  return (text) => {
+    if (last?.text === text) return last.steps;
+    const model = text === checked.text ? checked : parseDagDocLenient(text);
+    const byKey =
+      model === checked ? names.byKey : resolveStepNames(model, details).byKey;
+    const steps = model.steps.flatMap((step) => {
+      // A step with no name runs under its id.
+      const name = byKey[step.key] ?? step.explicitName ?? step.id;
+      return name ? [{ line: step.range.startLine, name }] : [];
+    });
+    last = { text, steps };
+    return steps;
+  };
+}
+
 /** The registration of the lenses of one editor. */
 export interface StepLensRegistration extends IDisposable {
-  /** Draws the lenses again: the steps or the label changed. */
+  /** Draws the lenses again: the names or the label changed. */
   refresh(): void;
 }
 
@@ -51,7 +93,8 @@ export function registerStepLenses(
       }
       const lines = model.getLineCount();
       return {
-        lenses: source.steps
+        lenses: source
+          .steps(model.getValue())
           .filter((step) => step.line >= 1 && step.line <= lines)
           .map((step) => ({
             range: {

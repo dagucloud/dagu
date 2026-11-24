@@ -99,6 +99,7 @@ import { YamlReferenceButton } from '@/features/visual-editor/references/YamlRef
 import ExternalChangeDialog from './ExternalChangeDialog';
 import { useStepViewForm } from './stepViewMode';
 import { preloadDAGEditor } from './loadDAGEditor';
+import { stepLensReader } from './stepLenses';
 import { ReadOnlyMarker, YamlFileBody, YamlFilePanel } from './YamlFilePanel';
 import { useYamlSection } from './useYamlSection';
 import { useDAGSpecQuery } from './useDAGSpecQuery';
@@ -841,26 +842,18 @@ function DAGSpec({
     [textModel, visualValidation.dag]
   );
   // A lens above each step of the whole file opens the step in the
-  // full-screen step view. The steps follow the checked text.
-  const lensSteps = React.useMemo(
-    () =>
-      textModel.steps.flatMap((step) => {
-        // A step with no name runs under its id.
-        const name = textNames.byKey[step.key] ?? step.explicitName ?? step.id;
-        return name ? [{ line: step.range.startLine, name }] : [];
-      }),
-    [textModel, textNames]
-  );
+  // full-screen step view. The lines come from the text that the editor has
+  // when Monaco asks, not from the checked text, which can be older.
   const stepLensLabel = ts('Open step');
   const stepLenses = React.useMemo(
     () => ({
-      steps: lensSteps,
+      steps: stepLensReader(textModel, textNames, visualValidation.dag),
       label: stepLensLabel,
       open: (name: string) => {
         visualHandleRef.current?.openYaml(name);
       },
     }),
-    [lensSteps, stepLensLabel]
+    [textModel, textNames, visualValidation.dag, stepLensLabel]
   );
   const allIssues = React.useMemo(
     () =>
