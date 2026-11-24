@@ -611,12 +611,13 @@ Rules:
 - A run that is not finished includes one queued in the project's own
   queues or in a queue defined in `config.yaml`.
 - Delete is refused for the default project.
-- Delete is refused while the project's DAG directory is in a git checkout
-  and exists. The checkout owns the directory, so it is removed there first.
+- Delete is refused while the project's DAG directory exists and is in a
+  git checkout or contains one. The checkout owns those files, so they are
+  removed there first.
 - Delete is refused while a file runs in place as the project's.
-- Delete is refused while `<dags_dir>` or `paths.alt_dags_dir` lies inside
-  the project's DAG directory, so deleting a project never removes the
-  default project's or the library's files.
+- Delete is refused while `<dags_dir>` or `paths.alt_dags_dir` is the
+  project's DAG directory or lies inside it, so deleting a project never
+  removes the default project's or the library's files.
 - A refused delete changes nothing. A mark it set is removed.
 
 #### Changed on Disk
@@ -988,10 +989,11 @@ Delete is refused, and changes nothing, when:
 
 - the project is the default project;
 - the project has a run that is not finished;
-- the project's DAG directory is in a git checkout and exists;
+- the project's DAG directory exists and is in a git checkout or contains
+  one;
 - a file runs in place as the project's;
-- `<dags_dir>` or `paths.alt_dags_dir` lies inside the project's DAG
-  directory.
+- `<dags_dir>` or `paths.alt_dags_dir` is the project's DAG directory or
+  lies inside it.
 
 ### Choosing a Project
 
