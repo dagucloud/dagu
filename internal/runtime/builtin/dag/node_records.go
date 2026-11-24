@@ -97,8 +97,16 @@ func (e *parallelExecutor) writeNodeRuns(ctx context.Context, dir string, ended 
 	// The counts follow the records they count, so a reader of both never
 	// sees counts ahead of the records.
 	counts := ir.CountNodeRuns(runs)
-	writeNodeRecord(ctx, filepath.Join(dir, logpath.NodeRunsFile), ir.NodeRuns{Runs: runs})
-	writeNodeRecord(ctx, filepath.Join(dir, logpath.NodeRunsSummaryFile), counts)
+	written := writeNodeRecord(ctx, filepath.Join(dir, logpath.NodeRunsFile), ir.NodeRuns{Runs: runs}) &&
+		writeNodeRecord(ctx, filepath.Join(dir, logpath.NodeRunsSummaryFile), counts)
+	if !written {
+		// The next write tries again, and reports the counts once they are
+		// stored.
+		e.lock.Lock()
+		e.nodes.changed = true
+		e.lock.Unlock()
+		return
+	}
 	// The status write at the end of the step follows the last records.
 	if !ended {
 		e.reportNodeCounts(counts)
@@ -154,7 +162,8 @@ func (e *parallelExecutor) nodeRuns(ended bool) []ir.NodeRun {
 	return runs
 }
 
-func writeNodeRecord(ctx context.Context, path string, record any) {
+// writeNodeRecord writes one record file and reports whether it did.
+func writeNodeRecord(ctx context.Context, path string, record any) bool {
 	data, err := json.Marshal(record)
 	if err == nil {
 		err = fileutil.MkdirAll(filepath.Dir(path), 0750)
@@ -164,5 +173,7 @@ func writeNodeRecord(ctx context.Context, path string, record any) {
 	}
 	if err != nil {
 		logger.Warn(ctx, "Failed to write node run record", tag.Error(err), tag.File(path))
+		return false
 	}
+	return true
 }

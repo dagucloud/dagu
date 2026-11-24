@@ -6,6 +6,7 @@ package dag
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -141,6 +142,30 @@ func TestNodeRunRecordsReport(t *testing.T) {
 		{Total: 5, NotStarted: 4, Disabled: 1},
 		{Total: 5, NotStarted: 3, Running: 1, Disabled: 1},
 	}, reported)
+}
+
+// A write that fails tells the runner nothing and stays due, so the next
+// write stores the records and reports their counts.
+func TestNodeRunRecordsReportAfterFailedWrite(t *testing.T) {
+	t.Parallel()
+
+	e, ctx, _ := recordingStep(t)
+	reports := 0
+	(&nodesExecutor{parallelExecutor: e}).SetProgressCallback(func() { reports++ })
+	// A file where the directory of the records goes stops their writes.
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	require.NoError(t, os.WriteFile(blocked, nil, 0o600))
+	dir := filepath.Join(blocked, "deploy")
+
+	e.noteNodeStart("a")
+	e.writeNodeRuns(ctx, dir, false)
+	require.Zero(t, reports)
+
+	require.NoError(t, os.Remove(blocked))
+	e.writeNodeRuns(ctx, dir, false)
+	require.Equal(t, 1, reports)
+	statuses, _, _ := readNodeRecords(t, dir)
+	require.Equal(t, "web01=running", statuses[0])
 }
 
 // A node runs while a step retry of it is queued. Once its last retry
