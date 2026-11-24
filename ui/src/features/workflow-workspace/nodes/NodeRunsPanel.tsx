@@ -1,8 +1,9 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useCallback, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useState, type MouseEvent } from 'react';
 import { NodeRunStatus, type components } from '@/api/v1/schema';
+import { Button } from '@/components/ui/button';
 import { NodeRunCounts } from '@/components/ui/node-run-counts';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { buildDAGRunPageURL } from '@/features/dag-runs/lib/dagRunUrls';
@@ -34,8 +35,35 @@ export function NodeRunsPanel({
   const { ts } = useI18n();
   const [failedOnly, setFailedOnly] = useState(false);
   const [page, setPage] = useState(1);
-  const { data, isLoading } = useNodeRuns(details, { failedOnly, page });
+  const { data, isLoading, error, mutate } = useNodeRuns(details, {
+    failedOnly,
+    page,
+  });
   const open = useOpenNodeRun(details);
+  // Fewer rows, such as failed rows that a retry fixed, can leave the page
+  // past the last one: it reads the last page instead.
+  const lastPage = data ? Math.max(1, data.pagination.totalPages) : undefined;
+  useEffect(() => {
+    if (lastPage !== undefined && page > lastPage) setPage(lastPage);
+  }, [lastPage, page]);
+
+  if (error && !data) {
+    return (
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-destructive">
+          {ts('Could not load the node runs.')}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="xs"
+          onClick={() => void mutate()}
+        >
+          {ts('Retry')}
+        </Button>
+      </div>
+    );
+  }
 
   if (!data || data.steps.length === 0) {
     return (

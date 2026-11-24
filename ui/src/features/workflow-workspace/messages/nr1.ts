@@ -9,6 +9,7 @@ export default defineMessages({
   en: {
     'Loading node runs...': 'Loading node runs...',
     'No node runs recorded yet.': 'No node runs recorded yet.',
+    'Could not load the node runs.': 'Could not load the node runs.',
     'Failed only': 'Failed only',
     'The step did not select this node': 'The step did not select this node',
     'Open the run of {node} for {step}': 'Open the run of {node} for {step}',
@@ -19,6 +20,7 @@ export default defineMessages({
   'zh-CN': {
     'Loading node runs...': '正在加载节点运行...',
     'No node runs recorded yet.': '尚未记录节点运行。',
+    'Could not load the node runs.': '无法加载节点运行。',
     'Failed only': '仅失败',
     'The step did not select this node': '该步骤未选中此节点',
     'Open the run of {node} for {step}': '打开 {node} 上 {step} 的运行',
@@ -29,6 +31,7 @@ export default defineMessages({
   ja: {
     'Loading node runs...': 'ノードの実行を読み込み中...',
     'No node runs recorded yet.': 'ノードの実行はまだ記録されていません。',
+    'Could not load the node runs.': 'ノードの実行を読み込めませんでした。',
     'Failed only': '失敗のみ',
     'The step did not select this node':
       'このステップはこのノードを選択していません',
@@ -41,6 +44,8 @@ export default defineMessages({
   de: {
     'Loading node runs...': 'Knotenläufe werden geladen...',
     'No node runs recorded yet.': 'Noch keine Knotenläufe aufgezeichnet.',
+    'Could not load the node runs.':
+      'Die Knotenläufe konnten nicht geladen werden.',
     'Failed only': 'Nur fehlgeschlagene',
     'The step did not select this node':
       'Der Schritt hat diesen Knoten nicht ausgewählt',

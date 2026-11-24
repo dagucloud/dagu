@@ -21,6 +21,7 @@ const api = vi.hoisted(() => ({
     query: Record<string, unknown>;
     params: Record<string, string>;
   }>,
+  error: undefined as Error | undefined,
   mutate: vi.fn(),
 }));
 
@@ -43,7 +44,8 @@ vi.mock('@/hooks/api', () => ({
     });
     return {
       data: api.list ?? undefined,
-      isLoading: !api.list,
+      isLoading: !api.list && !api.error,
+      error: api.error,
       mutate: api.mutate,
     };
   },
@@ -160,6 +162,7 @@ describe('NodeRunsPanel', () => {
   beforeEach(() => {
     api.list = list;
     api.calls = [];
+    api.error = undefined;
     api.mutate.mockReset();
   });
 
@@ -289,6 +292,39 @@ describe('NodeRunsPanel', () => {
       dagRunId: 'root-0',
       subDAGRunId: 'root-1',
     });
+  });
+
+  it('says that the node runs could not be read, and reads them again', () => {
+    api.list = null;
+    api.error = new Error('boom');
+    renderPanel(details());
+
+    expect(
+      screen.getByText('Could not load the node runs.')
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(api.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  // Fewer rows can leave the page past the last one, such as failed rows
+  // that a retry fixed.
+  it('reads the last page when the page is past it', () => {
+    const pages = (totalPages: number) => ({
+      ...list,
+      pagination: { ...list.pagination, totalPages, totalRecords: totalPages },
+    });
+    api.list = pages(3);
+    const { rerender } = renderPanel(details());
+    fireEvent.click(screen.getByRole('button', { name: /Page 3/ }));
+    expect(api.calls.at(-1)?.query).toMatchObject({ page: 3 });
+
+    api.list = pages(1);
+    rerender(
+      <SubRunOpenProvider value={vi.fn()}>
+        <NodeRunsPanel details={details()} />
+      </SubRunOpenProvider>
+    );
+    expect(api.calls.at(-1)?.query).toMatchObject({ page: 1 });
   });
 
   it('says when the run recorded no node runs', () => {
