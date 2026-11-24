@@ -10,9 +10,18 @@ import {
 } from '@testing-library/react';
 import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NodeStatus, Status, StatusLabel } from '@/api/v1/schema';
+import {
+  NodeStatus,
+  RestartPolicy,
+  ServiceDAGRestartHold,
+  ServiceDAGState,
+  Status,
+  StatusLabel,
+} from '@/api/v1/schema';
 import DAGActions from '../DAGActions';
+import type { ServiceRestartFields } from '@/lib/dagSchedule';
 import { AppBarContext } from '@/contexts/AppBarContext';
 import { DAGContext } from '@/features/dags/contexts/DAGContext';
 
@@ -413,5 +422,218 @@ describe('DAGActions', () => {
         screen.getAllByRole('button', { name: 'Submit start' })
       ).toHaveLength(1);
     });
+  });
+
+  // A service workflow has one run at a time: the list rows and the cards
+  // (retryInPlaceOfStop) and the bar show Stop or Start, never both.
+  describe('service workflow', () => {
+    const run = (status: Status) =>
+      ({
+        name: 'svc',
+        dagRunId: 'run-1',
+        status,
+        statusLabel: StatusLabel.running,
+        autoRetryCount: 0,
+        startedAt: '2026-11-08T10:00:00Z',
+        finishedAt: '',
+      }) as never;
+    const always = {
+      name: 'svc',
+      restartPolicy: RestartPolicy.always,
+      restartWaitSec: 5,
+    };
+    const unlessStopped = {
+      name: 'svc',
+      restartPolicy: RestartPolicy.unless_stopped,
+      restartWaitSec: 5,
+    };
+
+    function renderService(
+      dag: { name: string; restartPolicy?: RestartPolicy },
+      status: Status,
+      extra: Partial<React.ComponentProps<typeof DAGActions>> = {}
+    ) {
+      render(
+        <MemoryRouter>
+          <DAGActions
+            fileName="svc"
+            dag={dag}
+            status={run(status)}
+            retryInPlaceOfStop
+            markActions
+            {...extra}
+          />
+        </MemoryRouter>
+      );
+    }
+
+    const names = () =>
+      screen
+        .queryAllByRole('button')
+        .map((b) => b.getAttribute('data-ww-action'));
+
+    it.each([Status.Running, Status.Queued, Status.Waiting])(
+      'shows only Stop while a run is active (status %s)',
+      (status) => {
+        renderService(always, status);
+        expect(names()).toEqual(['stop']);
+      }
+    );
+
+    it('shows Start and Retry, not Stop, when the latest run failed', () => {
+      renderService(always, Status.Failed);
+      expect(names()).toEqual(['start', 'retry']);
+      expect(screen.getByRole('button', { name: /Retry/ })).toBeEnabled();
+    });
+
+    it('shows Start and Retry, as for a plain workflow, when the latest run ended', () => {
+      renderService(unlessStopped, Status.Success);
+      expect(names()).toEqual(['start', 'retry']);
+      expect(screen.getByRole('button', { name: /Retry/ })).toBeEnabled();
+    });
+
+    // The scheduler starts the next run alone in these states.
+    it.each([ServiceDAGState.restarting, ServiceDAGState.failing])(
+      'shows neither Start nor Retry in the state %s',
+      (state) => {
+        renderService(always, Status.Success, { service: { state } });
+        expect(names()).toEqual([]);
+      }
+    );
+
+    it.each([
+      ServiceDAGState.pending,
+      ServiceDAGState.suspended,
+      ServiceDAGState.stopped,
+    ])('keeps Start and Retry in the state %s', (state) => {
+      renderService(always, Status.Failed, { service: { state } });
+      expect(names()).toEqual(['start', 'retry']);
+    });
+
+    it('keeps only Stop in the state running', () => {
+      renderService(always, Status.Running, {
+        service: { state: ServiceDAGState.running },
+      });
+      expect(names()).toEqual(['stop']);
+    });
+
+    it('keeps Stop while a run is alive in the state failing', () => {
+      renderService(always, Status.Running, {
+        service: { state: ServiceDAGState.failing },
+      });
+      expect(names()).toEqual(['stop']);
+    });
+
+    it('ignores the state of a plain workflow', () => {
+      renderService({ name: 'svc' }, Status.Success, {
+        service: { state: ServiceDAGState.restarting },
+      });
+      expect(names()).toEqual(['start', 'retry']);
+    });
+
+    it('hides Start for a run that has not started for 5 minutes at most', () => {
+      render(
+        <MemoryRouter>
+          <DAGActions
+            fileName="svc"
+            dag={always}
+            status={
+              {
+                name: 'svc',
+                dagRunId: 'run-1',
+                status: Status.NotStarted,
+                statusLabel: StatusLabel.not_started,
+                queuedAt: new Date().toISOString(),
+                startedAt: '-',
+              } as never
+            }
+            markActions
+          />
+        </MemoryRouter>
+      );
+      expect(names()).not.toContain('start');
+      expect(names()).not.toContain('retry');
+    });
+
+    it('does not open the Start dialog on request while a run is active', () => {
+      render(
+        <MemoryRouter>
+          <DAGContext.Provider value={{ autoOpenStartModal: true } as never}>
+            <DAGActions
+              fileName="svc"
+              dag={always}
+              status={run(Status.Running)}
+            />
+          </DAGContext.Provider>
+        </MemoryRouter>
+      );
+      expect(screen.queryByRole('button', { name: 'Submit start' })).toBeNull();
+    });
+
+    it('keeps the Start of a bar in place, disabled and closed, while a run is active', () => {
+      render(
+        <MemoryRouter>
+          <DAGContext.Provider value={{ autoOpenStartModal: true } as never}>
+            <DAGActions
+              fileName="svc"
+              dag={always}
+              status={run(Status.Running)}
+              barStart
+              markActions
+            />
+          </DAGContext.Provider>
+        </MemoryRouter>
+      );
+      expect(names()).toEqual(['start', 'stop']);
+      expect(screen.getByRole('button', { name: 'Start' })).toBeDisabled();
+      expect(screen.queryByRole('button', { name: 'Submit start' })).toBeNull();
+    });
+
+    it('keeps Start and Stop together for a plain workflow', () => {
+      renderService({ name: 'svc' }, Status.Running);
+      expect(names()).toEqual(['start', 'stop']);
+      expect(screen.getByRole('button', { name: /Start/ })).toBeEnabled();
+    });
+
+    it('shows the restart wait in the Stop tooltip for always', async () => {
+      renderService(always, Status.Running);
+      await userEvent.hover(screen.getByRole('button'));
+      expect(
+        (await screen.findAllByText(/It restarts after 5 s/))[0]
+      ).toHaveTextContent(
+        'Stop this run. It restarts after 5 s. Suspend the restarts to stop it for good.'
+      );
+    });
+
+    it('keeps the plain Stop tooltip for unless-stopped', async () => {
+      renderService(unlessStopped, Status.Running);
+      await userEvent.hover(screen.getByRole('button'));
+      expect(
+        (await screen.findAllByText('Stop the latest run'))[0]
+      ).toBeTruthy();
+      expect(screen.queryByText(/It restarts after/)).toBeNull();
+    });
+
+    // The scheduler starts no run after the stop of such a DAG.
+    it.each<[string, ServiceRestartFields]>([
+      ['suspended', { state: ServiceDAGState.running, suspended: true }],
+      [
+        'on hold',
+        {
+          state: ServiceDAGState.restarting,
+          restartHold: ServiceDAGRestartHold.paused,
+        },
+      ],
+    ])(
+      'keeps the plain Stop tooltip for an always DAG that is %s',
+      async (_, service) => {
+        renderService(always, Status.Running, { service });
+        await userEvent.hover(screen.getByRole('button'));
+        expect(
+          (await screen.findAllByText('Stop the latest run'))[0]
+        ).toBeTruthy();
+        expect(screen.queryByText(/It restarts after/)).toBeNull();
+      }
+    );
   });
 });

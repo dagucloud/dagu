@@ -6,6 +6,7 @@ import {
   components,
   ServiceDAGRestartHold,
   ServiceDAGState,
+  Status,
 } from '@/api/v1/schema';
 import { Badge } from '@/components/ui/badge';
 import Ticker from '@/components/ui/ticker';
@@ -70,9 +71,17 @@ export function describeServiceDAG(
       const nextRestart = dag.nextRestartAt
         ? Date.parse(dag.nextRestartAt)
         : NaN;
-      // A DAG whose state cannot be read, or one from an older server, has no
-      // restart time, so nothing says that a restart is under way.
       if (Number.isNaN(nextRestart)) {
+        // The next run waits in the queue: it has no restart time.
+        const status = dag.latestRun?.status;
+        if (
+          dag.state === ServiceDAGState.restarting &&
+          (status === Status.Queued || status === Status.NotStarted)
+        ) {
+          return { text: 'Restarting…' };
+        }
+        // A DAG whose state cannot be read, or one from an older server, has
+        // no restart time, so nothing says that a restart is under way.
         return { text: 'Next restart unknown' };
       }
       const remaining = Math.ceil((nextRestart - now) / 1000);

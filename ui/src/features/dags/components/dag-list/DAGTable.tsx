@@ -166,6 +166,8 @@ interface DAGCardProps {
    * does not count as stopped.
    */
   isStopped?: boolean;
+  /** The workflow as a service DAG, when it is one and its state is known. */
+  service?: components['schemas']['ServiceDAG'];
   className?: string;
 }
 
@@ -244,6 +246,7 @@ function DAGCard({
   onTogglePin,
   isShown = false,
   isStopped = false,
+  service,
   className = '',
 }: DAGCardProps) {
   const fileName = dag.fileName;
@@ -387,6 +390,7 @@ function DAGCard({
             fileName={fileName}
             label={false}
             refresh={refreshFn}
+            service={service}
           />
           {canEdit && <EditDAGButton dag={dag} />}
           {canDeleteDAGs && (
@@ -536,6 +540,8 @@ declare module '@tanstack/react-table' {
   interface TableMeta<TData extends RowData> {
     group: string;
     refreshFn: () => void;
+    /** Each service DAG that the server lists, by file name. */
+    services?: ReadonlyMap<string, components['schemas']['ServiceDAG']>;
     // Add label click handler to meta for direct access in cell
     onLabelClick?: (label: string) => void;
     getDeleteSelectionState?: () => boolean | 'indeterminate';
@@ -974,6 +980,7 @@ const defaultColumns = [
             fileName={data.dag.fileName}
             label={false}
             refresh={table.options.meta?.refreshFn}
+            service={table.options.meta?.services?.get(data.dag.fileName)}
           />
           {table.options.meta?.canEditDAG?.(data.dag) && (
             <EditDAGButton dag={data.dag} />
@@ -1190,6 +1197,10 @@ function DAGTable({
           .filter((dag) => dag.state === ServiceDAGState.stopped)
           .map((dag) => dag.fileName)
       ),
+    [serviceDAGs]
+  );
+  const services = useMemo(
+    () => new Map(serviceDAGs.map((dag) => [dag.fileName, dag])),
     [serviceDAGs]
   );
   const columns = useMemo(
@@ -1482,6 +1493,7 @@ function DAGTable({
     meta: {
       group,
       refreshFn,
+      services,
       onLabelClick: handleLabelClick,
       getDeleteSelectionState,
       isDeleteSelected: (fileName) => deleteSelection.has(fileName),
@@ -2001,6 +2013,7 @@ function DAGTable({
                               isStopped={stoppedServiceDAGs.has(
                                 dagRow.dag.fileName
                               )}
+                              service={services.get(dagRow.dag.fileName)}
                               className="ml-2"
                             />
                           );
@@ -2041,6 +2054,7 @@ function DAGTable({
                     onTogglePin={(dag) => void togglePin(dag)}
                     isShown={isShown({ dag: dagRow.dag.fileName })}
                     isStopped={stoppedServiceDAGs.has(dagRow.dag.fileName)}
+                    service={services.get(dagRow.dag.fileName)}
                   />
                   {endsPinnedSection && (
                     <div className="border-t-2 border-border" />

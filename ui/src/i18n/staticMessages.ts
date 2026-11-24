@@ -2251,6 +2251,8 @@ const baseEnglish = {
     'Resume the restarts of "{name}"? The scheduler starts a run when one is due.',
   'Suspend the restarts of "{name}"? A running run keeps running.':
     'Suspend the restarts of "{name}"? A running run keeps running.',
+  'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.':
+    'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.',
   'Are you sure you want to {action} the webhook for "{name}"?':
     'Are you sure you want to {action} the webhook for "{name}"?',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -5537,6 +5539,8 @@ const baseChinese = {
     '恢复“{name}”的重启吗？调度器会在需要时启动运行。',
   'Suspend the restarts of "{name}"? A running run keeps running.':
     '暂停“{name}”的重启吗？正在进行的运行会继续运行。',
+  'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.':
+    '停止此运行。它将在 {seconds} 秒后重启。暂停重启即可永久停止。',
   'Are you sure you want to {action} the webhook for "{name}"?':
     '确定要{action}“{name}”的 Webhook 吗？',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -8860,6 +8864,8 @@ const baseJapanese = {
     '「{name}」の再起動を再開しますか？実行が必要になると、スケジューラーが実行を開始します。',
   'Suspend the restarts of "{name}"? A running run keeps running.':
     '「{name}」の再起動を一時停止しますか？実行中の実行はそのまま続行されます。',
+  'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.':
+    'この実行を停止します。{seconds} 秒後に再起動します。再起動を一時停止すると完全に停止します。',
   'Are you sure you want to {action} the webhook for "{name}"?':
     '「{name}」の Webhook を{action}にしますか？',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':
@@ -12222,6 +12228,8 @@ const baseGerman = {
     'Neustarts von "{name}" fortsetzen? Der Scheduler startet einen Lauf, wenn einer fällig ist.',
   'Suspend the restarts of "{name}"? A running run keeps running.':
     'Neustarts von "{name}" anhalten? Ein laufender Lauf läuft weiter.',
+  'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.':
+    'Diesen Lauf stoppen. Er startet nach {seconds} s neu. Halten Sie die Neustarts an, um ihn endgültig zu stoppen.',
   'Are you sure you want to {action} the webhook for "{name}"?':
     'Webhook für "{name}" wirklich {action}?',
   'Are you sure you want to delete remote node "{name}"? This action cannot be undone.':

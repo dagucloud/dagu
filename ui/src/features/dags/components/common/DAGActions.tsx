@@ -36,6 +36,13 @@ import LabeledItem from '@/components/ui/labeled-item';
 import { getManualActionState } from '@/features/dag-runs/lib/manualActionState';
 import { getDAGRunTerminateActionDetails } from '../../../dag-runs/components/common/terminateAction';
 import { RejectDAGRunDialog } from '../../../dag-runs/components/common/RejectDAGRunDialog';
+import {
+  getRestartAfterStopSec,
+  hasActiveServiceRun,
+  isServiceDAG,
+  restartsByItself,
+  type ServiceRestartFields,
+} from '@/lib/dagSchedule';
 import { DAGContext } from '../../contexts/DAGContext';
 import { useProfiles } from '../../hooks/useProfiles';
 import { pushRunProgress } from '../dag-execution/RunProgressStack';
@@ -89,6 +96,16 @@ type Props = {
    * A host that draws a feedback icon over the button sets it.
    */
   startIconHidden?: boolean;
+  /**
+   * The Retry button takes the place of the Stop button while the workflow has
+   * nothing to stop, and Stop takes it back when a run is in progress.
+   */
+  retryInPlaceOfStop?: boolean;
+  /**
+   * The service DAG, when the host knows it. While the scheduler restarts the
+   * DAG by itself, Start and Retry are not shown.
+   */
+  service?: ServiceRestartFields;
 };
 
 /**
@@ -104,10 +121,22 @@ function DAGActions({
   markActions = false,
   barStart = false,
   startIconHidden = false,
+  retryInPlaceOfStop = false,
+  service,
 }: Props) {
   const shows = (action: 'start' | 'stop' | 'retry') =>
     !only || only.includes(action);
-  const hasStartButton = shows('start');
+  // A service workflow has one run at a time: while a run is active, only
+  // Stop applies, and Start and Retry are not shown. They are not shown
+  // either while the scheduler starts the next run by itself.
+  const isService = dag ? isServiceDAG(dag) : false;
+  const serviceActive = hasActiveServiceRun(dag, status);
+  const serviceRestarts = isService && restartsByItself(service);
+  // The Start of a bar keeps its place for every run, disabled while the
+  // service has an active run or starts the next one by itself.
+  const hasStartButton =
+    shows('start') && (barStart || (!serviceActive && !serviceRestarts));
+  const serviceBusy = serviceActive || serviceRestarts;
   const mark = (action: 'start' | 'stop' | 'retry') =>
     markActions ? action : undefined;
   const { ts } = useI18n();
@@ -210,10 +239,10 @@ function DAGActions({
 
   // Auto-open start modal when requested (e.g., from cockpit preview)
   React.useEffect(() => {
-    if (dagContext.autoOpenStartModal && hasStartButton) {
+    if (dagContext.autoOpenStartModal && hasStartButton && !serviceBusy) {
       setIsEnqueueModal(true);
     }
-  }, [dagContext.autoOpenStartModal, hasStartButton]);
+  }, [dagContext.autoOpenStartModal, hasStartButton, serviceBusy]);
 
   React.useEffect(() => {
     if (!isEnqueueModal) {
@@ -319,6 +348,9 @@ function DAGActions({
       !isWaiting,
   };
 
+  const stopApplies = buttonState.terminate || buttonState.reject;
+  const restartAfterSec = getRestartAfterStopSec(dag, service);
+
   if (!dag || !config.permissions.runDags) {
     return <></>;
   }
@@ -329,7 +361,7 @@ function DAGActions({
         className={`flex items-center ${displayMode === 'compact' ? 'space-x-1' : 'space-x-2'}`}
       >
         {/* Start Button */}
-        {shows('start') && (
+        {hasStartButton && (
           <Tooltip>
             <TooltipTrigger asChild>
               <ActionButton
@@ -343,7 +375,7 @@ function DAGActions({
                   />
                 }
                 aria-label={barStart ? ts('Start') : undefined}
-                disabled={!buttonState['enqueue']}
+                disabled={!buttonState['enqueue'] || serviceBusy}
                 data-ww-action={mark('start')}
                 onClick={() => {
                   if (hasUnsavedChanges) {
@@ -369,137 +401,158 @@ function DAGActions({
         )}
 
         {/* Reject Button */}
-        {shows('stop') && buttonState.reject && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <ActionButton
-                label={displayMode !== 'compact'}
-                icon={<Ban className="h-4 w-4" />}
-                onClick={() => setIsRejectModal(true)}
-                className="cursor-pointer"
-              >
-                <I18nText text={'Reject'} />
-              </ActionButton>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>
-                <I18nText text={'Reject this run'} />
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        )}
+        {shows('stop') &&
+          (isService ? serviceActive : !(retryInPlaceOfStop && !stopApplies)) &&
+          buttonState.reject && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ActionButton
+                  label={displayMode !== 'compact'}
+                  icon={<Ban className="h-4 w-4" />}
+                  onClick={() => setIsRejectModal(true)}
+                  className="cursor-pointer"
+                >
+                  <I18nText text={'Reject'} />
+                </ActionButton>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>
+                  <I18nText text={'Reject this run'} />
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
 
         {/* Stop Button */}
-        {shows('stop') && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <ActionButton
-                label={displayMode !== 'compact'}
-                icon={
-                  terminateAction === 'cancel' ? (
-                    <X className="h-4 w-4" />
-                  ) : (
-                    <CircleStop className="h-4 w-4" />
-                  )
-                }
-                disabled={!buttonState['terminate']}
-                data-ww-action={mark('stop')}
-                onClick={() => {
-                  setStopAllRunning(false);
-                  setIsStopModal(true);
-                }}
-                className="cursor-pointer"
-              >
-                {terminateDetails.buttonText}
-              </ActionButton>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{terminateDetails.tooltipText}</p>
-            </TooltipContent>
-          </Tooltip>
-        )}
+        {shows('stop') &&
+          (isService
+            ? serviceActive
+            : !(retryInPlaceOfStop && !stopApplies)) && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ActionButton
+                  label={displayMode !== 'compact'}
+                  icon={
+                    terminateAction === 'cancel' ? (
+                      <X className="h-4 w-4" />
+                    ) : (
+                      <CircleStop className="h-4 w-4" />
+                    )
+                  }
+                  disabled={!buttonState['terminate']}
+                  data-ww-action={mark('stop')}
+                  onClick={() => {
+                    setStopAllRunning(false);
+                    setIsStopModal(true);
+                  }}
+                  className="cursor-pointer"
+                >
+                  {terminateDetails.buttonText}
+                </ActionButton>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>
+                  {terminateAction === 'stop' && restartAfterSec !== null
+                    ? ts(
+                        'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.',
+                        { seconds: restartAfterSec }
+                      )
+                    : terminateDetails.tooltipText}
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
 
         {/* Retry Button */}
-        {shows('retry') && !isSubDAGRun && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <ActionButton
-                label={displayMode !== 'compact'}
-                icon={<RotateCcw className="h-4 w-4" />}
-                disabled={!buttonState['retry']}
-                data-ww-action={mark('retry')}
-                onClick={async () => {
-                  // Get the current URL parameters
-                  const urlParams = new URLSearchParams(window.location.search);
-                  const idxParam = urlParams.get('idx');
+        {shows('retry') &&
+          !isSubDAGRun &&
+          !serviceActive &&
+          !serviceRestarts &&
+          !(retryInPlaceOfStop && stopApplies) && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ActionButton
+                  label={displayMode !== 'compact'}
+                  icon={<RotateCcw className="h-4 w-4" />}
+                  disabled={!buttonState['retry']}
+                  data-ww-action={mark('retry')}
+                  onClick={async () => {
+                    // Get the current URL parameters
+                    const urlParams = new URLSearchParams(
+                      window.location.search
+                    );
+                    const idxParam = urlParams.get('idx');
 
-                  // Default to current status dagRunId
-                  let dagRunIdToUse = status?.dagRunId || '';
+                    // Default to current status dagRunId
+                    let dagRunIdToUse = status?.dagRunId || '';
 
-                  // If we're in the history page or modal history tab with a specific run selected
-                  const isInHistoryPage =
-                    window.location.pathname.includes('/history');
-                  const isInModalHistoryTab =
-                    document.querySelector(
-                      '.dag-modal-content [data-tab="history"]'
-                    ) !== null;
+                    // If we're in the history page or modal history tab with a specific run selected
+                    const isInHistoryPage =
+                      window.location.pathname.includes('/history');
+                    const isInModalHistoryTab =
+                      document.querySelector(
+                        '.dag-modal-content [data-tab="history"]'
+                      ) !== null;
 
-                  if (
-                    (isInHistoryPage || isInModalHistoryTab) &&
-                    idxParam !== null
-                  ) {
-                    try {
-                      // Get all dag-runs for this DAG to find the correct dagRunId
-                      const { data } = await client.GET(
-                        '/dags/{fileName}/dag-runs',
-                        {
-                          params: {
-                            path: {
-                              fileName: fileName,
+                    if (
+                      (isInHistoryPage || isInModalHistoryTab) &&
+                      idxParam !== null
+                    ) {
+                      try {
+                        // Get all dag-runs for this DAG to find the correct dagRunId
+                        const { data } = await client.GET(
+                          '/dags/{fileName}/dag-runs',
+                          {
+                            params: {
+                              path: {
+                                fileName: fileName,
+                              },
+                              query: {
+                                remoteNode,
+                              },
                             },
-                            query: {
-                              remoteNode,
-                            },
-                          },
+                          }
+                        );
+
+                        if (data?.dagRuns && data.dagRuns.length > 0) {
+                          // Convert idx to integer
+                          const selectedIdx = parseInt(idxParam);
+
+                          // Get the dag-run at the selected index (reversed order)
+                          const selectedDagRun = [...data.dagRuns].reverse()[
+                            selectedIdx
+                          ];
+
+                          if (selectedDagRun && selectedDagRun.dagRunId) {
+                            dagRunIdToUse = selectedDagRun.dagRunId;
+                          }
                         }
-                      );
-
-                      if (data?.dagRuns && data.dagRuns.length > 0) {
-                        // Convert idx to integer
-                        const selectedIdx = parseInt(idxParam);
-
-                        // Get the dag-run at the selected index (reversed order)
-                        const selectedDagRun = [...data.dagRuns].reverse()[
-                          selectedIdx
-                        ];
-
-                        if (selectedDagRun && selectedDagRun.dagRunId) {
-                          dagRunIdToUse = selectedDagRun.dagRunId;
-                        }
+                      } catch (err) {
+                        console.error(
+                          'Error fetching dag-runs for retry:',
+                          err
+                        );
                       }
-                    } catch (err) {
-                      console.error('Error fetching dag-runs for retry:', err);
                     }
-                  }
 
-                  // Set the dagRunId to use for retry
-                  setRetryDagRunId(dagRunIdToUse);
+                    // Set the dagRunId to use for retry
+                    setRetryDagRunId(dagRunIdToUse);
 
-                  // Show the modal
-                  setIsRetryModal(true);
-                }}
-                className="cursor-pointer"
-              >
-                <I18nText text={'Retry'} />
-              </ActionButton>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>
-                <I18nText text={'Retry this run'} />
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        )}
+                    // Show the modal
+                    setIsRetryModal(true);
+                  }}
+                  className="cursor-pointer"
+                >
+                  <I18nText text={'Retry'} />
+                </ActionButton>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>
+                  <I18nText text={'Retry this run'} />
+                </p>
+              </TooltipContent>
+            </Tooltip>
+          )}
         {status && waitingApprovalStepName && (
           <RejectDAGRunDialog
             open={isRejectModal}
