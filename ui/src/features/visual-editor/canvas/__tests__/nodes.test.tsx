@@ -2108,12 +2108,14 @@ function SetZoom({ zoom }: { zoom: number }) {
 }
 
 // The box of the canvas and of the node, for a layout that jsdom lacks.
+// The card that holds the toolbar has the box of the node.
 function stubBoxes(canvas: DOMRect, node: DOMRect) {
   return vi
     .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
     .mockImplementation(function (this: HTMLElement) {
       if (this.hasAttribute('data-flow-root')) return canvas;
-      if (this.hasAttribute('data-flow-node')) return node;
+      if (this.hasAttribute('data-flow-node') || this.dataset.shape)
+        return node;
       return new DOMRect(0, 0, 0, 0);
     });
 }
