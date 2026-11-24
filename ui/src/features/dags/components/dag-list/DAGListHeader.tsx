@@ -24,8 +24,8 @@ const DAGListHeader: React.FC<DAGListHeaderProps> = ({
 }) => {
   const { ts } = useI18n();
   return (
-    <div className="flex flex-row items-center justify-between mb-2">
-      <div className="flex min-w-0 items-baseline gap-2">
+    <div className="flex flex-row flex-wrap items-center justify-between gap-2 mb-2">
+      <div className="flex min-w-0 flex-wrap items-baseline gap-2">
         <Title>
           <I18nText text={'Workflows'} />
         </Title>
@@ -50,7 +50,7 @@ const DAGListHeader: React.FC<DAGListHeaderProps> = ({
           </span>
         )}
       </div>
-      <div className="flex gap-2">
+      <div className="ml-auto flex gap-2">
         <CreateDAGButton />
         {onRefresh && <RefreshButton onRefresh={onRefresh} />}
       </div>
