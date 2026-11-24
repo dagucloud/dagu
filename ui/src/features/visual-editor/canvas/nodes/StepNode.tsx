@@ -25,6 +25,7 @@ import {
   reusedOutline,
   reuseTitle,
 } from './NodeParts';
+import { LoopArcs } from './LoopArcs';
 
 /**
  * A short line and a "+" button beyond a source handle. `at` is the point of
@@ -194,6 +195,8 @@ function StepNodeComponent({
       )}
       {!compact && sourceHandle}
       {!compact && stalk}
+      {/* The arcs sit on the upper edge, which has no handle at its corners. */}
+      <LoopArcs node={node} compact={compact} />
     </div>
   );
   if (!compact) {

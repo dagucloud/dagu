@@ -175,6 +175,62 @@ describe('buildExportSvg', () => {
     expect(rects[0]?.hasAttribute('stroke-dasharray')).toBe(false);
   });
 
+  const LOOPS = {
+    retry: { limit: 12 },
+    repeat: { mode: 'while', limit: 8 },
+  } as Partial<CanvasNode>;
+
+  // The arcs sit at the left of the upper edge in both directions, as on the
+  // canvas: the retry, then the repeat, which is dashed.
+  it.each(['LR', 'TB'] as const)(
+    'draws the arcs of a step above its card in a %s graph',
+    (direction) => {
+      const doc = parse(
+        buildExportSvg(graphOf([node('a', LOOPS)]), ONE, direction).svg
+      );
+      const g = nodeEl(doc, 'a');
+      const arcs = [...g.querySelectorAll('[data-loop]')];
+      expect(arcs.map((arc) => arc.getAttribute('data-loop'))).toEqual([
+        'retry',
+        'repeat',
+      ]);
+      expect(arcs[0]?.getAttribute('transform')).toBe(
+        'translate(22 0) scale(1.4 -1.4)'
+      );
+      expect(arcs[1]?.getAttribute('transform')).toBe(
+        'translate(46.4 0) scale(1.4 -1.4)'
+      );
+      expect(
+        arcs[0]?.querySelector('path')?.hasAttribute('stroke-dasharray')
+      ).toBe(false);
+      expect(
+        arcs[1]?.querySelector('path')?.hasAttribute('stroke-dasharray')
+      ).toBe(true);
+      expect([...g.querySelectorAll('text')].map((t) => t.textContent)).toEqual(
+        expect.arrayContaining(['max 12', 'max 8'])
+      );
+      // The colours are literal, as in the rest of the file.
+      expect(g.outerHTML).not.toMatch(/var\(--/);
+    }
+  );
+
+  // The canvas draws the arcs on step cards only.
+  it.each([
+    ['handler', { lane: 'handler' }],
+    ['tool', { tool: {} }],
+  ] as const)('draws no arc on a %s card', (_, extra) => {
+    const card = node('a', { ...LOOPS, ...extra } as Partial<CanvasNode>);
+    const doc = parse(buildExportSvg(graphOf([card]), ONE, 'TB').svg);
+    expect(nodeEl(doc, 'a').querySelectorAll('[data-loop]')).toHaveLength(0);
+  });
+
+  it('grows the margin for the arcs and their labels', () => {
+    const plainBox = buildExportSvg(graphOf([node('a')]), ONE, 'LR');
+    const looping = buildExportSvg(graphOf([node('a', LOOPS)]), ONE, 'LR');
+    expect(looping.width).toBeGreaterThan(plainBox.width);
+    expect(looping.height).toBeGreaterThan(plainBox.height);
+  });
+
   // The image has the status colours of the canvas in the same theme.
   it.each([
     [false, GRAPH_TONE_COLORS.light],
