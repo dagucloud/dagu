@@ -40,6 +40,10 @@ const (
 	// lockStaleThreshold frees the lock of a process that died holding it.
 	lockStaleThreshold = 30 * time.Second
 	lockRetryInterval  = 20 * time.Millisecond
+	// writeBudget is how long a writer may hold the lock before it starts to
+	// replace the file. The rest of lockStaleThreshold bounds the replacement
+	// itself.
+	writeBudget = lockStaleThreshold * 3 / 4
 )
 
 // Registry is a [project.Registry] kept in projects.json. Every process that
@@ -50,6 +54,7 @@ type Registry struct {
 	// pollTicks returns the ticks on which Watch checks the file, and a
 	// function that stops them.
 	pollTicks func() (<-chan time.Time, func())
+	now       func() time.Time
 }
 
 var _ project.Registry = (*Registry)(nil)
@@ -80,6 +85,7 @@ func New(dataDir string) *Registry {
 		path:      filepath.Join(dataDir, fileName),
 		lockDir:   filepath.Join(dataDir, lockDirName),
 		pollTicks: newPollTicker,
+		now:       time.Now,
 	}
 }
 
@@ -123,7 +129,7 @@ func (r *Registry) Create(ctx context.Context, in project.CreateInput) (project.
 		ID:           uuid.NewString(),
 		Name:         in.Name,
 		DisplayName:  cmp.Or(in.DisplayName, in.Name),
-		CreatedAt:    time.Now().UTC(),
+		CreatedAt:    r.now().UTC(),
 		MigratedFrom: in.MigratedFrom,
 	}
 	if err := project.ValidateDisplayName(created.DisplayName); err != nil {
@@ -154,7 +160,7 @@ func (r *Registry) EnsureDefault(ctx context.Context) (project.Project, error) {
 			ID:          uuid.NewString(),
 			Name:        project.DefaultName,
 			DisplayName: project.DefaultName,
-			CreatedAt:   time.Now().UTC(),
+			CreatedAt:   r.now().UTC(),
 		}
 		return append(projects, result), true, nil
 	})
@@ -227,6 +233,7 @@ func (r *Registry) update(ctx context.Context, change func([]project.Project) ([
 		return fmt.Errorf("project registry: lock %s: %w", r.lockDir, err)
 	}
 	defer func() { _ = lock.Unlock() }()
+	lockedAt := r.now()
 
 	projects, err := r.load()
 	if err != nil {
@@ -236,8 +243,14 @@ func (r *Registry) update(ctx context.Context, change func([]project.Project) ([
 	if err != nil || !changed {
 		return err
 	}
-	// A holder that stalled past the stale threshold has lost the lock, and
-	// another writer may have stored a newer registry since.
+	// Shared storage offers no compare-and-swap for a rename, so a writer
+	// that lost the lock would replace a newer registry. A contender takes
+	// the lock over only after seeing it unchanged for lockStaleThreshold,
+	// so a replacement that starts within writeBudget has the rest of that
+	// time to finish.
+	if r.now().Sub(lockedAt) > writeBudget {
+		return fmt.Errorf("project registry: lock held too long before the write: %w", dirlock.ErrLockNotHeld)
+	}
 	if !lock.IsHeldByMe() {
 		return fmt.Errorf("project registry: lock lost before the write: %w", dirlock.ErrLockNotHeld)
 	}
