@@ -44,6 +44,13 @@ describe('readRestartSettings', () => {
     });
   });
 
+  it('reads the retention in days', () => {
+    expect(
+      readRestartSettings('hist_retention_days: 7\n').histRetentionDays
+    ).toBe(7);
+    expect(readRestartSettings(SERVICE).histRetentionDays).toBeNull();
+  });
+
   it('reads a wait that is not an integer as none', () => {
     expect(readRestartSettings('restart_wait_sec: "5"\n').waitSec).toBeNull();
     expect(readRestartSettings('restart_wait_sec: 1.5\n').waitSec).toBeNull();
@@ -170,6 +177,12 @@ steps:
   it('refuses a key with an anchor', () => {
     const text = `restart_wait_sec: &w 5\ndelay_sec: *w\n${BASE}`;
     expect(refused(text, { waitSec: 10 })).toBe('unsupportedForm');
+  });
+
+  // A count of runs removes the days, which an alias may still read.
+  it('refuses a count of runs while the days have an anchor', () => {
+    const text = `hist_retention_days: &d 7\ndelay_sec: *d\n${BASE}`;
+    expect(refused(text, { histRetentionRuns: 20 })).toBe('unsupportedForm');
   });
 
   it('refuses a text that does not parse', () => {

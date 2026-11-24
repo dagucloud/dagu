@@ -11,7 +11,7 @@ import { parseAllDocumentsAsServer } from '../serverYaml';
 import {
   isServicePolicy,
   parseRestartPolicy,
-  readRestart,
+  restartOf,
   type RestartPolicy,
   type RestartView,
 } from './restart';
@@ -24,6 +24,8 @@ export interface RestartSettings extends RestartView {
   waitSec: number | null;
   /** The `hist_retention_runs` of the file, when it is an integer. */
   histRetentionRuns: number | null;
+  /** The `hist_retention_days` of the file, when it is an integer. */
+  histRetentionDays: number | null;
 }
 
 const RESTART_KEYS = [
@@ -48,29 +50,36 @@ function readInteger(node: unknown): number | null {
     : null;
 }
 
-/** Reads the restart keys of document 0. Never throws. */
-export function readRestartSettings(text: string): RestartSettings {
+/** The restart keys of a parsed document 0. */
+function settingsOf(doc: Document | undefined): RestartSettings {
   const settings: RestartSettings = {
-    ...readRestart(text),
+    ...restartOf(doc),
     policy: 'no',
     waitSec: null,
     histRetentionRuns: null,
+    histRetentionDays: null,
   };
-  try {
-    const doc = parseAllDocumentsAsServer(text)[0];
-    if (doc && doc.errors.length === 0 && isMap(doc.contents)) {
-      settings.policy = readPolicy(doc.contents.get('restart_policy', true));
-      settings.waitSec = readInteger(
-        doc.contents.get('restart_wait_sec', true)
-      );
-      settings.histRetentionRuns = readInteger(
-        doc.contents.get('hist_retention_runs', true)
-      );
-    }
-  } catch {
-    // The settings say no policy.
+  if (doc && doc.errors.length === 0 && isMap(doc.contents)) {
+    const root = doc.contents;
+    settings.policy = readPolicy(root.get('restart_policy', true));
+    settings.waitSec = readInteger(root.get('restart_wait_sec', true));
+    settings.histRetentionRuns = readInteger(
+      root.get('hist_retention_runs', true)
+    );
+    settings.histRetentionDays = readInteger(
+      root.get('hist_retention_days', true)
+    );
   }
   return settings;
+}
+
+/** Reads the restart keys of document 0. Never throws. */
+export function readRestartSettings(text: string): RestartSettings {
+  try {
+    return settingsOf(parseAllDocumentsAsServer(text)[0]);
+  } catch {
+    return settingsOf(undefined);
+  }
 }
 
 function isPositiveInteger(value: number): boolean {
@@ -102,7 +111,6 @@ function setKey(root: YAMLMap, key: string, value: string | number): void {
 
 function setRestart(
   doc: Document,
-  text: string,
   op: Extract<DagEditOp, { kind: 'setRestartPolicy' }>
 ): MutateOutcome {
   if (!isMap(doc.contents)) {
@@ -113,9 +121,15 @@ function setRestart(
     };
   }
   const root: YAMLMap = doc.contents;
-  // A new value of an anchored key would also change its aliases.
+  const { policy, waitSec, histRetentionRuns } = op;
+  // A new value of an anchored key would also change its aliases. A count of
+  // runs removes the days, so their anchor counts too.
+  const edited: readonly string[] =
+    typeof histRetentionRuns === 'number'
+      ? [...RESTART_KEYS, 'hist_retention_days']
+      : RESTART_KEYS;
   if (
-    RESTART_KEYS.some((key) => {
+    edited.some((key) => {
       const node = root.get(key, true);
       return isScalar(node) && !!node.anchor;
     })
@@ -126,8 +140,7 @@ function setRestart(
       message: 'A restart key has an anchor. Edit it in the YAML.',
     };
   }
-  const { policy, waitSec, histRetentionRuns } = op;
-  const before = readRestartSettings(text);
+  const before = settingsOf(doc);
   if (
     policy !== undefined &&
     isServicePolicy(policy) &&
@@ -169,13 +182,13 @@ function setRestart(
  * of the DAG. A field that the operation leaves out does not change, and
  * `null` removes the key. The policy `no` removes `restart_policy`, and a
  * count of runs to keep removes `hist_retention_days`. A service policy fails
- * when the DAG has a schedule or a retry_policy and is not a service yet, and
- * any edit fails when a restart key has an anchor. The other lines of the
- * text do not change.
+ * when the DAG has a schedule or a retry_policy and is not a service yet. Any
+ * edit fails when a restart key has an anchor, and a count of runs also when
+ * `hist_retention_days` has one. The other lines of the text do not change.
  */
 export function opSetRestartPolicy(
   text: string,
   op: Extract<DagEditOp, { kind: 'setRestartPolicy' }>
 ): EditResult {
-  return editDocument(text, (doc) => setRestart(doc, text, op));
+  return editDocument(text, (doc) => setRestart(doc, op));
 }
