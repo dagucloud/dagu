@@ -106,8 +106,7 @@ func LoadRunStepSources(ctx context.Context, repo *persis.DAGRunRepository, dagN
 // CheckRunStepSources makes sure that every step of fromRuns exists, is not
 // selected to run, and can be reused from its run: the run is finished and its
 // node for the step succeeded, or carries outputs of an earlier run or of the
-// caller. The error
-// names the step and the run.
+// caller. The error names the step and the run.
 func CheckRunStepSources(dag *ir.DAG, steps []string, fromRuns RunStepSources) error {
 	selected := make(map[string]struct{}, len(steps))
 	for _, ref := range steps {
