@@ -34,6 +34,7 @@ function toState(node: Node): StepRunState {
   if (startedAt) state.startedAt = startedAt;
   if (finishedAt) state.finishedAt = finishedAt;
   if (node.error) state.error = node.error;
+  if (node.nodeRuns) state.nodeRuns = node.nodeRuns;
   return state;
 }
 
