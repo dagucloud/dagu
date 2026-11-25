@@ -86,8 +86,16 @@ func egressProxyServe() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("flag --allow: %w", err)
 			}
+			maxConnections, err := cmd.Flags().GetInt("max-connections")
+			if err != nil {
+				return err
+			}
+			if maxConnections < 1 {
+				return fmt.Errorf("flag --max-connections: expected a number above zero, got %d", maxConnections)
+			}
 			proxy, err := egress.New(egress.Options{
-				Rules: rules,
+				Rules:          rules,
+				MaxConnections: maxConnections,
 				Log: func(format string, args ...any) {
 					_, _ = fmt.Fprintf(os.Stderr, format+"\n", args...)
 				},
@@ -111,6 +119,7 @@ func egressProxyServe() *cobra.Command {
 	}
 	command.Flags().String("listen", "", "address to listen on, as host:port (required)")
 	command.Flags().StringArray("allow", nil, "allowed destination, as host, host:port or [IPv6 address]:port; repeat the flag (required)")
+	command.Flags().Int("max-connections", egress.DefaultMaxConnections, "most client connections open at once, tunnels included; the proxy closes a connection over it")
 	return command
 }
 

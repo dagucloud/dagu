@@ -40,6 +40,10 @@ type Options struct {
 	Dial DialFunc
 	// Log receives one line for each decision. It can be nil.
 	Log func(format string, args ...any)
+	// MaxConnections bounds the client connections that the proxy holds at
+	// once, tunnels included. The proxy closes a connection over the bound as
+	// soon as it accepts it. Zero or less means DefaultMaxConnections.
+	MaxConnections int
 }
 
 // Proxy is an HTTP proxy that forwards a connection to a listed destination
@@ -56,12 +60,18 @@ type Proxy struct {
 	tunnelIdle time.Duration
 	// keepAliveIdle ends a kept connection with no request for this time.
 	keepAliveIdle time.Duration
+	// maxConnections bounds the client connections that Serve holds at once.
+	maxConnections int
 
 	reverse *httputil.ReverseProxy
 }
 
 // connectTimeout limits the time to open one upstream connection.
 const connectTimeout = 15 * time.Second
+
+// DefaultMaxConnections is the bound of client connections when
+// Options.MaxConnections is not set.
+const DefaultMaxConnections = 512
 
 // New makes a proxy.
 func New(opts Options) (*Proxy, error) {
@@ -71,6 +81,10 @@ func New(opts Options) (*Proxy, error) {
 	p := &Proxy{
 		rules: opts.Rules, resolver: opts.Resolver, dial: opts.Dial, log: opts.Log,
 		tunnelIdle: tunnelIdleTimeout, keepAliveIdle: keepAliveIdleTimeout,
+		maxConnections: opts.MaxConnections,
+	}
+	if p.maxConnections <= 0 {
+		p.maxConnections = DefaultMaxConnections
 	}
 	if p.resolver == nil {
 		p.resolver = net.DefaultResolver
@@ -397,19 +411,73 @@ func (a activityWriter) Write(p []byte) (int, error) {
 	return a.w.Write(p)
 }
 
+// closeWriter is a connection that can end its write side alone, as
+// *net.TCPConn can.
+type closeWriter interface {
+	CloseWrite() error
+}
+
 func closeWrite(conn net.Conn) {
-	if tcp, ok := conn.(*net.TCPConn); ok {
-		_ = tcp.CloseWrite()
+	if half, ok := conn.(closeWriter); ok {
+		_ = half.CloseWrite()
 	}
 }
 
-// Serve accepts connections on the listener until it closes.
+// Serve accepts connections on the listener until it closes. It holds at most
+// the bound of Options.MaxConnections at once.
 func (p *Proxy) Serve(l net.Listener) error {
+	limited := &limitListener{Listener: l, slots: make(chan struct{}, p.maxConnections), log: p.log}
 	// No WriteTimeout: it would cut a long stream of a model answer.
 	server := &http.Server{Handler: p, ReadHeaderTimeout: 30 * time.Second, IdleTimeout: p.keepAliveIdle}
-	err := server.Serve(l)
+	err := server.Serve(limited)
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		return nil
 	}
 	return err
+}
+
+// limitListener closes each connection that it accepts while all slots are
+// taken. It closes rather than waits, so a closed listener always ends Accept.
+type limitListener struct {
+	net.Listener
+	slots chan struct{}
+	log   func(format string, args ...any)
+}
+
+func (l *limitListener) Accept() (net.Conn, error) {
+	for {
+		conn, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		select {
+		case l.slots <- struct{}{}:
+			return &slotConn{Conn: conn, release: sync.OnceFunc(func() { <-l.slots })}, nil
+		default:
+			l.log("egress proxy: refuse a connection from %s: %d connections are open", conn.RemoteAddr(), cap(l.slots))
+			_ = conn.Close()
+		}
+	}
+}
+
+// slotConn frees its slot when it closes. A hijacked tunnel keeps the slot
+// until pipe closes it.
+type slotConn struct {
+	net.Conn
+	release func()
+}
+
+func (c *slotConn) Close() error {
+	err := c.Conn.Close()
+	c.release()
+	return err
+}
+
+// CloseWrite keeps the half close of the connection, so a tunnel still passes
+// the end of one direction.
+func (c *slotConn) CloseWrite() error {
+	if half, ok := c.Conn.(closeWriter); ok {
+		return half.CloseWrite()
+	}
+	return nil
 }

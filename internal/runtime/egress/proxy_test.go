@@ -221,6 +221,106 @@ func TestConnectToAListedDestination(t *testing.T) {
 	assert.Equal(t, []string{net.JoinHostPort(host, port)}, dials.seen(), "only the listed destination was dialed")
 }
 
+// serveTCP runs handle for each connection to a local port and returns its
+// address.
+func serveTCP(t *testing.T, handle func(net.Conn)) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = conn.Close() }()
+				handle(conn)
+			}()
+		}
+	}()
+	return listener.Addr().String()
+}
+
+// openTunnel sends CONNECT for the target and reads the answer 200.
+func openTunnel(t *testing.T, proxyAddr, target string) (net.Conn, *bufio.Reader) {
+	t.Helper()
+	conn, err := net.Dial("tcp", proxyAddr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target)
+	require.NoError(t, err)
+	reader := bufio.NewReader(conn)
+	response, err := http.ReadResponse(reader, &http.Request{Method: http.MethodConnect})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	return conn, reader
+}
+
+// A destination that ends its side of a tunnel ends the side of the client too,
+// while the client can still send. A client that reads until the end, such as
+// one that gets an HTTP/1.0 answer, then does not wait for the idle timeout.
+func TestTunnelPassesTheEndOfTheDestination(t *testing.T) {
+	t.Parallel()
+
+	destination := serveTCP(t, func(conn net.Conn) { _, _ = io.WriteString(conn, "bye\n") })
+	proxyAddr := startProxy(t, []string{destination}, nil, nil)
+
+	conn, reader := openTunnel(t, proxyAddr, destination)
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	rest, err := io.ReadAll(reader)
+	require.NoError(t, err, "the client reads up to the end of the destination")
+	assert.Equal(t, "bye\n", string(rest))
+}
+
+// The proxy holds a bounded number of client connections, tunnels included, so a
+// client cannot exhaust its descriptors and goroutines. A connection over the
+// bound is closed at once, and a closed tunnel frees its place.
+func TestConnectionsOverTheBoundAreClosed(t *testing.T) {
+	t.Parallel()
+
+	destination := serveTCP(t, func(conn net.Conn) { _, _ = io.Copy(conn, conn) })
+	rules, err := egress.ParseRules([]string{destination})
+	require.NoError(t, err)
+	proxy, err := egress.New(egress.Options{Rules: rules, MaxConnections: 1})
+	require.NoError(t, err)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() { done <- proxy.Serve(listener) }()
+	t.Cleanup(func() {
+		_ = listener.Close()
+		<-done
+	})
+	proxyAddr := listener.Addr().String()
+
+	tunnel, _ := openTunnel(t, proxyAddr, destination)
+	extra, err := net.Dial("tcp", proxyAddr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = extra.Close() })
+	require.NoError(t, extra.SetReadDeadline(time.Now().Add(5*time.Second)))
+	n, err := extra.Read(make([]byte, 1))
+	assert.Zero(t, n)
+	require.Error(t, err)
+	if netErr, ok := errors.AsType[net.Error](err); ok {
+		assert.False(t, netErr.Timeout(), "the proxy closes the connection over the bound")
+	}
+
+	require.NoError(t, tunnel.Close())
+	assert.Eventually(t, func() bool {
+		conn, err := net.Dial("tcp", proxyAddr)
+		if err != nil {
+			return false
+		}
+		defer func() { _ = conn.Close() }()
+		_, _ = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", destination, destination)
+		_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+		status, err := bufio.NewReader(conn).ReadString('\n')
+		return err == nil && strings.TrimSpace(status) == "HTTP/1.1 200 Connection Established"
+	}, 5*time.Second, 20*time.Millisecond, "a closed tunnel frees its place")
+}
+
 // pipeListener is a net.Listener of in-memory connections. Their reads and writes
 // block without I/O, so a synctest bubble can move its clock past them.
 type pipeListener struct {
