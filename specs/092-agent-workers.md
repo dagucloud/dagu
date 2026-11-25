@@ -1339,12 +1339,11 @@ steps:
     working_dir: repo
     untrusted: false
     secrets: [GIT_TOKEN]
-    env:
-      - MESSAGE: ${COMMIT_MSG}
+    with: { shell: bash }
     run: |
       git checkout -b "${BRANCH}"
       git add -A
-      git -c user.name=dagu -c user.email=dagu@localhost commit -m "$MESSAGE"
+      git -c user.name=dagu -c user.email=dagu@localhost commit -m "$COMMIT_MSG"
       git -c credential.helper='!f() { echo username=git; echo "password=$GIT_TOKEN"; }; f' push origin "${BRANCH}"
 ```
 
@@ -1362,8 +1361,10 @@ If `verify_1` passes, Dagu skips `code_2`, `verify_2`, `code_3` and `verify_3`, 
 and nothing is pushed.
 
 The commit message of the step `message` comes from the text of the task, not from a result of the
-agent. The step `push` takes it through `env` and uses `"$MESSAGE"` in the script. So no value of
-the agent becomes shell code of a trusted step.
+agent. A model can still write any text, so the step `push` reads the reply as data of the agent is
+read: only as `"$COMMIT_MSG"`, in a `run` that `bash` runs. Dagu does not put the reply in the
+script and does not expand a `$NAME` in it, so a reply cannot run as code or pull `GIT_TOKEN` into
+the message.
 
 The step `code_1` gives Claude Code the DAGs `lookup-ticket` and `ops_notify` through the
 tool bridge of Spec 091, and the MCP server `docs` of `MCP_URL`. A call of a Dagu tool runs a
