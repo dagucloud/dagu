@@ -10,8 +10,6 @@ export default defineMessages({
     'Older run': 'Older run',
     'Newer run': 'Newer run',
     Latest: 'Latest',
-    'Follow latest': 'Follow latest',
-    'A newer run is active': 'A newer run is active',
   },
   'zh-CN': {
     'No runs yet': '尚无运行',
@@ -19,8 +17,6 @@ export default defineMessages({
     'Older run': '较早的运行',
     'Newer run': '较新的运行',
     Latest: '最新',
-    'Follow latest': '跟随最新',
-    'A newer run is active': '有较新的运行正在进行',
   },
   ja: {
     'No runs yet': 'まだ実行がありません',
@@ -28,8 +24,6 @@ export default defineMessages({
     'Older run': '前の実行',
     'Newer run': '新しい実行',
     Latest: '最新',
-    'Follow latest': '最新に追従',
-    'A newer run is active': '新しい実行が進行中です',
   },
   de: {
     'No runs yet': 'Noch keine Läufe',
@@ -37,7 +31,5 @@ export default defineMessages({
     'Older run': 'Älterer Lauf',
     'Newer run': 'Neuerer Lauf',
     Latest: 'Neueste',
-    'Follow latest': 'Neuestem folgen',
-    'A newer run is active': 'Ein neuerer Lauf ist aktiv',
   },
 });

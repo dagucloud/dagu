@@ -13,8 +13,6 @@ export default defineMessages({
     'An action is waiting.': 'An action is waiting.',
     '{count} actions are waiting.': '{count} actions are waiting.',
     'Open agent': 'Open agent',
-    'A newer run is active': 'A newer run is active',
-    'Follow latest': 'Follow latest',
     'Sub-run {name} is waiting for an action.':
       'Sub-run {name} is waiting for an action.',
   },
@@ -27,8 +25,6 @@ export default defineMessages({
     'An action is waiting.': '有一个操作正在等待。',
     '{count} actions are waiting.': '有 {count} 个操作正在等待。',
     'Open agent': '打开代理',
-    'A newer run is active': '有较新的运行正在进行',
-    'Follow latest': '跟随最新',
     'Sub-run {name} is waiting for an action.': '子运行 {name} 正在等待操作。',
   },
   ja: {
@@ -42,8 +38,6 @@ export default defineMessages({
     'An action is waiting.': 'アクションが 1 件待機しています。',
     '{count} actions are waiting.': 'アクションが {count} 件待機しています。',
     'Open agent': 'エージェントを開く',
-    'A newer run is active': '新しい実行が進行中です',
-    'Follow latest': '最新に追従',
     'Sub-run {name} is waiting for an action.':
       'サブ実行 {name} がアクションを待っています。',
   },
@@ -58,8 +52,6 @@ export default defineMessages({
     'An action is waiting.': 'Eine Aktion wartet.',
     '{count} actions are waiting.': '{count} Aktionen warten.',
     'Open agent': 'Agent öffnen',
-    'A newer run is active': 'Ein neuerer Lauf ist aktiv',
-    'Follow latest': 'Neuestem folgen',
     'Sub-run {name} is waiting for an action.':
       'Unterlauf {name} wartet auf eine Aktion.',
   },

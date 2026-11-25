@@ -371,82 +371,6 @@ describe('useWorkspaceNotices', () => {
     });
   });
 
-  describe('newer-run-active', () => {
-    const pinned = (latestStatus: Status, latestRunId = 'run-9'): Setup => ({
-      run: {
-        selection: { runId: 'run-7' },
-        isLatest: false,
-        latestRef: { runId: latestRunId, status: latestStatus },
-      },
-    });
-
-    it('shows when a run is pinned and the latest run is active', () => {
-      const { result } = renderNotices(pinned(Status.Running));
-      const notice = find(result.current, 'newer-run-active');
-      expect(notice.message).toBe('A newer run is active');
-      expect(notice.action?.label).toBe('Follow latest');
-      notice.action?.run();
-      expect(run.select).toHaveBeenCalledWith('latest');
-    });
-
-    it.each([Status.Queued, Status.Waiting, Status.NotStarted])(
-      'counts status %s as active',
-      (status) => {
-        expect(ids(renderNotices(pinned(status)).result.current)).toContain(
-          'newer-run-active'
-        );
-      }
-    );
-
-    it('stays hidden when no run is pinned', () => {
-      const { result } = renderNotices({
-        run: { latestRef: { runId: 'run-7', status: Status.Running } },
-      });
-      expect(ids(result.current)).not.toContain('newer-run-active');
-    });
-
-    it('stays hidden when the latest run is finished', () => {
-      const { result } = renderNotices(pinned(Status.Success));
-      expect(ids(result.current)).not.toContain('newer-run-active');
-    });
-
-    // The API names an older run that is still active as the latest one.
-    it('stays hidden when the active latest run is older than the pinned run', () => {
-      const { result } = renderNotices({
-        details: { dagRunId: 'run-7', startedAt: '2026-01-01T10:00:05Z' },
-        run: {
-          selection: { runId: 'run-7' },
-          latestRef: {
-            runId: 'run-9',
-            status: Status.Running,
-            at: Date.parse('2026-01-01T10:00:00Z'),
-          },
-        },
-      });
-      expect(ids(result.current)).not.toContain('newer-run-active');
-    });
-
-    it('shows when the active latest run is newer than the pinned run', () => {
-      const { result } = renderNotices({
-        details: { dagRunId: 'run-7', startedAt: '2026-01-01T10:00:00Z' },
-        run: {
-          selection: { runId: 'run-7' },
-          latestRef: {
-            runId: 'run-9',
-            status: Status.Queued,
-            at: Date.parse('2026-01-01T10:00:05Z'),
-          },
-        },
-      });
-      expect(ids(result.current)).toContain('newer-run-active');
-    });
-
-    it('stays hidden when the pinned run is the latest run', () => {
-      const { result } = renderNotices(pinned(Status.Running, 'run-7'));
-      expect(ids(result.current)).not.toContain('newer-run-active');
-    });
-  });
-
   // parity:overview-monitoring-offer parity:shell-monitoring-offer
   describe('monitoring-offer', () => {
     it('offers monitoring for a scheduled workflow and links to Settings', () => {
@@ -613,7 +537,6 @@ describe('useWorkspaceNotices', () => {
       'approval-resume',
       'agent-waiting',
       'actions-waiting',
-      'newer-run-active',
       'backfill',
       'monitoring-offer',
     ]);
