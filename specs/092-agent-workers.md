@@ -1011,8 +1011,9 @@ These points describe behavior that Dagu has without this spec. The verify loop 
 - a reference `${NAME}` to a secret that the step does not get, in a DAG with step scope
 - `untrusted` on a step that does not run a process, on a step with `container`, or in `defaults`
 - `untrusted: false` on an `agent.run` step with a CLI provider
-- a reference to an output of an untrusted step in the `run`, the `command` or the `script` of a
-  trusted step. A step that is untrusted by default is an untrusted step.
+- a reference to an output of an untrusted step in the `run`, the `command`, the `script`, the
+  `shell` or the `shell_args` of a trusted step. A step that is untrusted by default is an untrusted
+  step.
 
 These cases stop a process at start with the exit code 1:
 
