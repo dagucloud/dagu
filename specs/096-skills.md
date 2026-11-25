@@ -27,10 +27,12 @@ This spec does not define:
 
 ## Goal
 
-A skill gives instructions to a model. A skill that follows the Agent Skills standard works in Dagu
-without a change. A skill that does not follow the standard never reaches a model: Dagu refuses it
-and tells the author why. The skill is a folder of files. A person, a git repository or the API can
-change it. Several Dagu instances can share the folder.
+A skill gives instructions to a model. A skill that follows the Agent Skills standard and the rules
+that Dagu adds to it works in Dagu without a change. [Source of the rules](#source-of-the-rules)
+lists the added rules, such as the ban on another entry at the root of the folder. A skill that
+breaks a rule of an error never reaches a model: Dagu refuses it and tells the author why. The skill
+is a folder of files. A person, a git repository or the API can change it. Several Dagu instances
+can share the folder.
 
 ## Related Specs
 
@@ -133,7 +135,8 @@ These rules are Dagu rules. The standard does not state them in its specificatio
 - The 64 KiB limit of the body.
 - The ban on an XML tag in the description. The Anthropic API variant of the standard states it.
 - The limit of 128 characters for `license`. The standard asks for a short value.
-- The ban on every key that the standard does not list. The standard does not forbid other files or keys, and many clients ignore them.
+- The ban on every key that the standard does not list. The standard does not forbid other keys, and many clients ignore them.
+- The rules of [The folder](#the-folder), such as the ban on an entry at the root other than `SKILL.md`, `references/`, `assets/` and `scripts/`. The standard does not forbid other files.
 - The warning for a description of fewer than 20 characters.
 
 ## The folder
