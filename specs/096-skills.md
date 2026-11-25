@@ -51,8 +51,9 @@ and writes the skills there.
 
 DAG discovery never enters the directory `skills` at the root of a directory that it scans for DAG
 files, also when it is recursive. On a file system that ignores case, this is also a directory
-spelled `Skills`, because the path `skills` names it. The DAG list and the scheduler never include a
-file below it. A directory `skills` deeper in the tree is an ordinary directory for discovery.
+spelled `Skills`, because the path `skills` names it. Discovery lists no file below it. A file
+symlink outside it that points into it is read as any other file symlink. A directory `skills`
+deeper in the tree is an ordinary directory for discovery.
 
 A refused skill is a skill that breaks one rule of an error in this spec. Dagu never loads a
 refused skill. The API lists it with the state ERROR.
