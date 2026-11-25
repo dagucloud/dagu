@@ -34,21 +34,22 @@ function renderDialog(
   primary: StepRunChoice['id'] | null,
   onCancel = vi.fn()
 ) {
-  const ui = (p: StepRunChoice['id'] | null) => (
+  const ui = (p: StepRunChoice['id'] | null, items: StepRunChoice[]) => (
     <StepRunConfirmDialog
       open
       title="Run step"
-      choices={list}
+      choices={items}
       primary={p}
       onCancel={onCancel}
     >
       <p>body</p>
     </StepRunConfirmDialog>
   );
-  const view = render(ui(primary));
+  const view = render(ui(primary, list));
   return {
     onCancel,
-    rerender: (p: StepRunChoice['id'] | null) => view.rerender(ui(p)),
+    rerender: (p: StepRunChoice['id'] | null, items = list) =>
+      view.rerender(ui(p, items)),
   };
 }
 
@@ -125,6 +126,19 @@ describe('StepRunConfirmDialog', () => {
     expect(screen.getByRole('button', { name: 'Run' })).toHaveFocus();
 
     rerender('only');
+
+    expect(screen.getByRole('button', { name: 'Step only' })).toHaveFocus();
+  });
+
+  // Step only can be the primary choice while it waits for a run to finish.
+  it('gives the focus to the primary choice once it is enabled', () => {
+    const waiting = choices({
+      only: { disabled: true, title: 'Waits for run run-1 to finish' },
+    });
+    const { rerender } = renderDialog(waiting.list, 'only');
+    expect(screen.getByRole('button', { name: 'Step only' })).not.toHaveFocus();
+
+    rerender('only', choices().list);
 
     expect(screen.getByRole('button', { name: 'Step only' })).toHaveFocus();
   });

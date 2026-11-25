@@ -90,8 +90,9 @@ const CHOICE_ICON = { only: Target, changed: ListChecks, run: Play } as const;
  * The question of a step run. The node view is on Z.ndv and a shared dialog
  * is under it, so the overlay and the content sit on Z.dialog here. The frame
  * is the one of ConfirmDialog; it has more buttons, and `primary` is the one
- * that has the focus, so that Enter picks it. While `primary` is null, no
- * button has the focus; it moves to the primary button when there is one.
+ * that has the focus, so that Enter picks it. While `primary` is null or
+ * disabled, no button has the focus; it moves to the primary button once
+ * there is one that is enabled.
  */
 export function StepRunConfirmDialog({
   open,
@@ -116,7 +117,8 @@ export function StepRunConfirmDialog({
   const focusPrimary = () => {
     const root = content.current;
     const target = root?.querySelector<HTMLElement>('[data-confirm]');
-    if (!root || !target) return;
+    // A disabled button takes no focus; it gets it once it is enabled.
+    if (!root || !target || target.matches(':disabled')) return;
     const active = document.activeElement;
     const free =
       active === root ||
@@ -127,9 +129,13 @@ export function StepRunConfirmDialog({
     target.focus({ preventScroll: true });
     focused.current = target;
   };
+  // The primary choice can be disabled at first, while it waits for a run.
+  const primaryReady = choices.some(
+    (choice) => choice.id === primary && !choice.disabled
+  );
   useEffect(() => {
-    if (open && primary !== null) focusPrimary();
-  }, [open, primary]);
+    if (open && primaryReady) focusPrimary();
+  }, [open, primary, primaryReady]);
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onCancel()}>
