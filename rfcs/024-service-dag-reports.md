@@ -1,6 +1,6 @@
 # RFC 024: Service DAGs in Reports to Dagu Console
 
-- **Status:** Proposed
+- **Status:** Implemented
 - **Date:** 2026-11-25
 - **Affected areas:** `cloudreport`, `samples`, `service/scheduler`
   (service DAG state), `cmd` (reporter wiring), and `docs`
@@ -93,7 +93,7 @@ scheduler (restart_scanner)
   run ends -> ServiceHistory.Observe: sample, failed/recovered events
   -> next run queued
 
-reporter (each interval, or early on a new failed/recovered event)
+reporter (each interval, or early on a new outage)
   finished, active  : runs of service DAGs left out
   service_dags      : for each service DAG
                         state, latest run     <- DescribeServiceDAG
@@ -112,12 +112,13 @@ gains read access to:
   `internal/persis/dag.go:81`), to leave service runs out of a rebuilt list
   of runs in progress, whose statuses carry no service flag
   (`activeSetOf`, `internal/cloudreport/active.go:109`);
-- the service DAG state that `GET /service-dags` gives. `DescribeServiceDAG`
-  stays in `service/scheduler`; the consecutive-failure count that the API
-  computes (`failureStreak`, `internal/service/frontend/api/v1/service_dags.go`)
-  is not needed, since the outage figures replace it;
+- the service DAG state that `GET /service-dags` gives, read by
+  `scheduler.ListServiceDAGs`, which the API now calls too; the
+  consecutive-failure count that the API computes (`failureStreak`) is not
+  needed, since the outage figures replace it;
 - the run history reader (`internal/samples`), for the availability, the
-  events, and the hour tier of each service DAG.
+  events, and the hour tier of each service DAG, and `samples.ReadOutage`
+  for the open outage.
 
 ### What it sends
 
@@ -158,19 +159,24 @@ protocol stays 2.
   after the newest event in the last report Console accepted, oldest first,
   at most 20 per DAG. A `recovered` event carries `failed_count` and
   `outage_seconds`; a `gap` event carries `gap_seconds`.
-- **Hours** are the run history's hour tier from the earlier of two hours to
-  the current hour: the hour of the last report Console accepted, and the
-  hour in which the run in progress started, since Spec 100 files a sample
-  under the hour its run started. Each bucket gives count, failures, min,
-  max, and p95 duration, the sum of durations, and the uptime with the run
-  in progress, as the run history API does with `WithActive`
+- **Hours** are the run history's hour tier: the hours since the last
+  report Console accepted (the last 24 for the first report), and the start
+  hours of the run in progress then and now, since Spec 100 files a sample
+  under the hour its run started, all within the 30 days the history keeps
+  hours. Each bucket gives count, failures, min, max, and p95 duration, the
+  sum of durations, and the uptime with the run in progress, as the run
+  history API does with `WithActive`
   (`internal/service/frontend/api/v1/run_history.go:129`). `up_ms` is null
-  for a history with no uptime record. `samples.Bucket`
-  (`internal/samples/contract.go:101`) gains `Sum`; the stored aggregate
-  already keeps it.
+  for a history with no uptime record and for the hours that start before
+  it first recorded a run's active time, so the time before a new service
+  ran does not count as down. An hour with no run and no known uptime is left
+  out. `samples.Bucket` (`internal/samples/contract.go:101`) gains `Sum`;
+  the stored aggregate already keeps it.
 - **Limits.** At most 500 entries and 256 KiB. Past them the reporter drops
   the oldest hours first, then the oldest events, then whole entries, and
-  sets `service_dags_total` to the count of service DAGs. The report stays
+  sets `service_dags_total` to the count of service DAGs. A DAG cut whole
+  keeps what the last accepted report sent of it, and so does the newest
+  event of an entry whose events were all cut. The report stays
   under the 2 MiB Console accepts with the finished runs (512 KiB) and the
   runs in progress it carries today.
 
@@ -178,11 +184,20 @@ protocol stays 2.
 
 - The list goes in every report sent at the runs level by the process that
   holds the events lease.
-- A new `failed` or `recovered` event in any service DAG's run history makes
-  the next check send an early report, as a failed run does today. The
-  reporter keeps the newest event time it has sent and Console has accepted,
-  with the events position, so a restart of the server does not resend old
-  events as new.
+- A new `failed` event in the run history of a service DAG whose run just
+  ended makes the next check send an early report, at most once per DAG in
+  10 minutes: Console keeps the service's alert open until it goes that long
+  without a failure, so a service that fails now and then waits for the next
+  report. The reporter reads the newest event only of the DAGs whose run
+  ended in the events it read, for the next three checks.
+- A recovery waits for the next report, since Console resolves the alert
+  only after the same 10 minutes.
+- The reporter keeps, per DAG, the newest event time and the hour that the
+  last accepted report sent, and the start of a run whose sample the history
+  had yet to file: the run then in progress, or one that ended before the
+  history filed its sample, until the history holds a sample ending after
+  that start. It keeps them with the events position, so a restart of the
+  server resends no event and only the hours since.
 - Nothing else about a service DAG sends early: a restart, a change from
   `running` to `waiting`, or a new hour waits for the next report.
 
@@ -199,8 +214,10 @@ protocol stays 2.
 ## Failure behavior
 
 - A run history that cannot be read leaves that DAG's outage, events, and
-  hours out of the report; the state and latest run are still sent. The
-  error is logged at most once a minute per DAG.
+  hours out of the report; the state and latest run are still sent. What
+  the reporter keeps of the DAG stays as the last accepted report left it,
+  so the next report sends what this one could not. The error is logged at
+  most once a minute per DAG.
 - A report Console does not accept leaves the events and hours to be sent
   again in the next report.
 - An older Console ignores `service_dags` and receives no service runs. Its
@@ -265,4 +282,5 @@ optional and Console ignores fields it does not know.
 - The list follows the `schedules` precedent: full list on each report,
   by the events-lease holder, at the runs level, with a total for
   truncation.
-- Only a new `failed` or `recovered` event sends a report early.
+- Only a new outage sends a report early, at most once per DAG in 10
+  minutes.
