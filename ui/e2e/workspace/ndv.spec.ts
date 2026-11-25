@@ -661,7 +661,9 @@ test.describe('workspace node details view', () => {
     );
 
     // The stale dot opens the definition of the run in place of the editor.
-    await page.goto(workflowPath(fileName, runId));
+    // The run is the latest one: a link to it would open Activity, not the
+    // YAML panel that the editor left open.
+    await page.goto(workflowPath(fileName));
     const dot = page.getByTestId('ww-run-stale-dot');
     await expect(dot).toBeVisible({ timeout: 30_000 });
     await expect(dot).toHaveAttribute('aria-pressed', 'false');

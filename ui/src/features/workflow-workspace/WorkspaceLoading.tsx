@@ -51,11 +51,13 @@ function panelsAtLoad(
   const tab = WORKFLOW_TAB.exec(pathname)?.[1];
   const query = new URLSearchParams(search);
   const url = parseWorkspaceUrl(tab, query);
+  const runLinked = url.run !== null && !isRunRedirect(routeState);
   const restorable =
     url.ndv === null &&
     url.step === null &&
     url.panel === null &&
     url.dock === null &&
+    !runLinked &&
     url.def === null &&
     tab === undefined &&
     !query.has('yaml');
@@ -70,11 +72,7 @@ function panelsAtLoad(
   const stepPanel = url.step !== null && url.ndv === null && url.dock === null;
   const yields =
     stepView || (url.def === null && (right !== null || stepPanel));
-  const dock =
-    !yields &&
-    (url.dock !== null ||
-      (url.run !== null && !isRunRedirect(routeState)) ||
-      storedDockOpen());
+  const dock = !yields && (url.dock !== null || runLinked || storedDockOpen());
   return { right, dock };
 }
 

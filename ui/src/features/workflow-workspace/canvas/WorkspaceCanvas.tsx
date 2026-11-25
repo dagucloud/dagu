@@ -10,7 +10,12 @@ import {
   type ReactNode,
 } from 'react';
 import { subscribeClock } from '@/hooks/useClock';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import {
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
 import {
   useActiveRightPanel,
   useCloseRightPanel,
@@ -58,7 +63,7 @@ import { PaneActiveContext, useModePaneActive } from '../layout/paneActive';
 import { WorkflowTabsPanel } from '../panel/WorkflowTabsPanel';
 import { useSettingsLeaveGuard } from '../settings/useSettingsLeaveGuard';
 import { useWorkspaceNotices } from '../notices/useWorkspaceNotices';
-import { useWorkspaceUrl } from '../state/workspaceUrl';
+import { isRunRedirect, useWorkspaceUrl } from '../state/workspaceUrl';
 import { StepPanel } from '../step/StepPanel';
 import { StepRunTabs } from '../step/StepRunTabs';
 import { useReuseSource } from '../step/useReuseSource';
@@ -436,13 +441,15 @@ export function WorkspaceCanvas({
     () => setUrl({ ndv: 'docked' }, { replace: true }),
     [setUrl]
   );
-  // A link that names a step, a panel or a tab of the Run panel opens that
-  // view instead.
+  // A link that names a step, a panel, a run or a tab of the Run panel opens
+  // that view instead. The redirect to the latest run is no link.
+  const { state: routeState } = useLocation();
   const restorable =
     url.ndv === null &&
     url.step === null &&
     url.panel === null &&
     url.dock === null &&
+    (url.run === null || isRunRedirect(routeState)) &&
     legacyTab === undefined &&
     !snapshot &&
     !wantsYaml &&

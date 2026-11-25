@@ -16,6 +16,7 @@ import {
   Routes,
   useLocation,
   useNavigationType,
+  type InitialEntry,
 } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, Status } from '@/api/v1/schema';
@@ -41,7 +42,7 @@ import type { StepPanelProps } from '../../step/StepPanel';
 import { useCanvasOverlayInset } from '@/features/visual-editor/canvas/overlayInset';
 import { PANEL_WATCH_MS } from '../useRightPanelClearance';
 import type { StepRunActions } from '../../step/useStepRunActions';
-import { useWorkspaceUrl } from '../../state/workspaceUrl';
+import { RUN_REDIRECT_STATE, useWorkspaceUrl } from '../../state/workspaceUrl';
 import { RIGHT_COLUMN_KEY } from '../useRightColumn';
 import {
   WORKFLOW_PANEL_OPEN_KEY,
@@ -449,7 +450,7 @@ function PanelProbe() {
 }
 
 function renderCanvas(
-  url = '/dags/example.yaml',
+  url: InitialEntry = '/dags/example.yaml',
   opts: { panels?: boolean } = {}
 ) {
   const canvas = (
@@ -1555,11 +1556,16 @@ describe('WorkspaceCanvas', () => {
     }
 
     // The editor lays out the graph with the panel from its first render: a
-    // panel that opened later shrank the graph that had just shown.
+    // panel that opened later shrank the graph that had just shown. The
+    // ?run of the redirect to the latest run is no link to the run.
     it('opens the YAML panel when it was open last, from the first render', () => {
       localStorage.setItem(YAML_PANEL_OPEN_KEY, 'true');
       yamlEditor();
-      renderCanvas('/dags/example.yaml?run=r1');
+      renderCanvas({
+        pathname: '/dags/example.yaml',
+        search: '?run=r1',
+        state: RUN_REDIRECT_STATE,
+      });
       expect(host.ndvStates[0]).toBe('docked');
       expect(host.ndvStates).not.toContain(null);
       expect(location()).toHaveTextContent(
@@ -1581,6 +1587,8 @@ describe('WorkspaceCanvas', () => {
       ['it was closed last', 'false', '/dags/example.yaml'],
       ['a link opens a step', 'true', '/dags/example.yaml?step=extract'],
       ['a link opens a panel', 'true', '/dags/example.yaml?panel=workflow'],
+      // A run link opens Activity, which takes turns with the panel.
+      ['a link opens a run', 'true', '/dags/example.yaml?run=r1'],
       // A legacy /history link lands on the History tab of the Run panel.
       [
         'a link opens a tab of the Run panel',
@@ -1714,15 +1722,32 @@ describe('WorkspaceCanvas', () => {
     });
 
     // The Workflow panel that the page restores folds Activity too, before
-    // the editor has loaded and claimed it. A ?run link opens Activity.
+    // the editor has loaded and claimed it.
     it('yields to the restored Workflow panel from the first render', () => {
       localStorage.setItem(WORKFLOW_PANEL_OPEN_KEY, 'true');
       const yieldToView = vi.fn();
       ws.dock = { ...dock, open: true, yieldToView };
-      renderCanvas('/dags/example.yaml?run=r1');
+      renderCanvas('/dags/example.yaml');
       expect(props().initialWorkflowOpen).toBe(true);
       expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
     });
+
+    // A run link, as from the Executions list, opens Activity for the logs
+    // of the run: no stored panel comes back to fold it.
+    it.each([
+      ['YAML', YAML_PANEL_OPEN_KEY],
+      ['Workflow', WORKFLOW_PANEL_OPEN_KEY],
+    ])(
+      'keeps Activity open for a run link over a stored %s panel',
+      (_panel, key) => {
+        localStorage.setItem(key, 'true');
+        const yieldToView = vi.fn();
+        ws.dock = { ...dock, open: true, yieldToView };
+        renderCanvas('/dags/example.yaml?run=r1');
+        expect(props().initialWorkflowOpen).toBe(false);
+        expect(yieldToView).not.toHaveBeenCalled();
+      }
+    );
 
     // A graph that fit the zone above the open Activity fit again, and
     // jumped, when Activity collapsed for the step view.

@@ -2,19 +2,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, type InitialEntry } from 'react-router-dom';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   WORKFLOW_PANEL_OPEN_KEY,
   YAML_PANEL_OPEN_KEY,
 } from '../canvas/useYamlPanelMemory';
 import { DOCK_HEIGHT_KEY, DOCK_OPEN_KEY } from '../dock/DockContext';
+import { RUN_REDIRECT_STATE } from '../state/workspaceUrl';
 import { WorkspaceLoading } from '../WorkspaceLoading';
 
 // The width of the right panels that the user left (StepSideDrawer).
 const PANEL_WIDTH_KEY = 'dagu.stepDetailsDrawer.width';
 
-function renderAt(path: string, url?: string) {
+function renderAt(path: InitialEntry, url?: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <WorkspaceLoading fileName="graph-etl" url={url} />
@@ -59,6 +60,26 @@ describe('WorkspaceLoading', () => {
     renderAt('/dags/graph-etl?def=run&ndv=docked');
     expect(screen.getByTestId('ww-loading-yaml')).toBeInTheDocument();
     expect(screen.getByTestId('ww-loading-dock')).toBeInTheDocument();
+  });
+
+  // A run link opens the Run panel for the run: no stored panel comes back
+  // to take its turn. The redirect to the latest run is no link.
+  it('shows the Run panel, not a stored panel, for a run link', () => {
+    localStorage.setItem(YAML_PANEL_OPEN_KEY, 'true');
+    renderAt('/dags/graph-etl?run=r1');
+    expect(screen.getByTestId('ww-loading-dock')).toBeInTheDocument();
+    expect(screen.queryByTestId('ww-loading-yaml')).toBeNull();
+  });
+
+  it('restores the stored panel over the redirect to the latest run', () => {
+    localStorage.setItem(YAML_PANEL_OPEN_KEY, 'true');
+    renderAt({
+      pathname: '/dags/graph-etl',
+      search: '?run=r1',
+      state: RUN_REDIRECT_STATE,
+    });
+    expect(screen.getByTestId('ww-loading-yaml')).toBeInTheDocument();
+    expect(screen.queryByTestId('ww-loading-dock')).toBeNull();
   });
 
   it('shows the Workflow panel that the page restores', () => {
