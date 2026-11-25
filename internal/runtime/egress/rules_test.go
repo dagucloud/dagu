@@ -74,10 +74,11 @@ func TestRulesAllowIPv6(t *testing.T) {
 // A name with letters outside ASCII matches in its IDNA ASCII form, the form
 // that HTTP clients and the proxy transport send, and in its Unicode form. A
 // dot that IDNA maps to ".", such as U+3002, ends a name as the root dot does.
+// Case follows IDNA, not Go: U+0130 is not "i", which Go lowercases it to.
 func TestRulesAllowInternationalizedNames(t *testing.T) {
 	t.Parallel()
 
-	rules, err := egress.ParseRules([]string{"Bücher.example:443", "*.xn--mnchen-3ya.example", "zürich.example。"})
+	rules, err := egress.ParseRules([]string{"Bücher.example:443", "*.xn--mnchen-3ya.example", "zürich.example。", "ai.example", "bİ.example"})
 	require.NoError(t, err)
 
 	for _, tc := range []struct {
@@ -94,6 +95,10 @@ func TestRulesAllowInternationalizedNames(t *testing.T) {
 		{"api.münchen.example", true},
 		{"münchen.example", false},
 		{"bucher.example", false},
+		{"aİ.example", false},
+		{"bİ.example", true},
+		{"xn--bi-sub.example", true},
+		{"bi.example", false},
 	} {
 		assert.Equal(t, tc.want, rules.Allows(tc.host, 443), "%s", tc.host)
 	}

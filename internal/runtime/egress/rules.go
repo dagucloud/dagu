@@ -59,10 +59,12 @@ func ParseRule(text string) (Rule, error) {
 	if strings.ContainsAny(host, "/\\@*[]") || strings.ContainsFunc(host, notHostRune) {
 		return Rule{}, invalid
 	}
-	host, err := asciiHost(strings.ToLower(host))
+	// IDNA maps the name before it is lowercased, as in normalizeHost.
+	host, err := asciiHost(host)
 	if err != nil {
 		return Rule{}, fmt.Errorf("egress destination %q: the host name is not a valid internationalized name", text)
 	}
+	host = strings.ToLower(host)
 	// IDNA maps dots such as U+3002 to ".", so the one optional root dot is
 	// removed after the mapping.
 	host = strings.TrimSuffix(host, ".")
@@ -126,11 +128,12 @@ func canonicalAddr(host string) string {
 }
 
 // normalizeHost puts a host of a request in the form of Rule.Host. A name that
-// has no IDNA ASCII form stays in Unicode and matches no rule.
+// has no IDNA ASCII form stays in Unicode and matches no rule. IDNA maps the
+// name before it is lowercased, so the name that matches is the name that the
+// proxy resolves: Go lowercases U+0130 to "i", where IDNA keeps another label.
 func normalizeHost(host string) string {
-	host = strings.ToLower(host)
 	if ascii, err := asciiHost(host); err == nil {
-		host = ascii
+		host = strings.ToLower(ascii)
 	}
 	return canonicalAddr(strings.TrimSuffix(host, "."))
 }

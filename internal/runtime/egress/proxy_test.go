@@ -265,6 +265,31 @@ func TestConnectResolvesTheASCIIName(t *testing.T) {
 	assert.Equal(t, "HTTP/1.1 200 Connection Established", status)
 }
 
+// The rules match the name that the proxy resolves. Go lowercases U+0130 to "i",
+// but IDNA maps it to another label, so aİ.example.test is not the listed
+// ai.example.test, and x.gİthub.example.test is not below *.github.example.test.
+func TestConnectMatchesTheNameThatItResolves(t *testing.T) {
+	t.Parallel()
+
+	host, port, err := net.SplitHostPort(serveTCP(t, func(net.Conn) {}))
+	require.NoError(t, err)
+	// The unlisted names resolve, so a check that let them pass would dial.
+	local := []netip.Addr{netip.MustParseAddr(host)}
+	resolver := &fakeResolver{answers: map[string][]netip.Addr{
+		"xn--ai-sub.example.test":       local,
+		"x.xn--github-qyd.example.test": local,
+	}}
+	dials := &dialRecord{}
+	proxyAddr := startProxy(t, []string{"ai.example.test:" + port, "*.github.example.test:" + port}, resolver, dials.dial)
+
+	for _, target := range []string{"aİ.example.test:" + port, "x.gİthub.example.test:" + port} {
+		status := requestStatus(t, proxyAddr, "CONNECT "+target+" HTTP/1.1\r\nHost: x\r\n\r\n")
+		assert.Equal(t, "HTTP/1.1 403 Forbidden", status, target)
+	}
+	assert.Empty(t, resolver.calls, "a name that no rule lists is not resolved")
+	assert.Empty(t, dials.seen(), "a name that no rule lists is not dialed")
+}
+
 // openTunnel sends CONNECT for the target and reads the answer 200.
 func openTunnel(t *testing.T, proxyAddr, target string) (net.Conn, *bufio.Reader) {
 	t.Helper()
