@@ -16,8 +16,10 @@
 ## Summary
 
 Let a user connect an account once and use it everywhere. A connection is a
-named, server-managed OAuth sign-in: a Google Workspace account, a Microsoft
-365 account, any OAuth2 API, or any remote MCP server. The user creates one
+named OAuth sign-in: a Google Workspace account, a Microsoft 365 account, any
+OAuth2 API, or any remote MCP server. It belongs to one project, or, for an
+account that several projects share, to the server, which lends it to the
+projects an admin lists. A grant is never copied. The user creates one
 from the UI, the CLI, or the REST API, and consents in a browser. Steps
 then refer to it by name, and RFC 026 gives AI steps its MCP tools. Dagu
 stores the tokens encrypted, refreshes them when they expire, and sends them
@@ -38,7 +40,7 @@ bearer token, which expires after an hour.
                                   |
                                   v
   <data_dir>/oauth-apps/           client ID, client secret, agent flag, status
-             connections/          account, services, workspaces, added scopes
+             connections/          scope, account, services, added scopes
                                    and hosts
              connection-tokens/    refresh token, access token per resource,
                                    expiry, status, generation, connect session
@@ -96,7 +98,10 @@ bearer token, which expires after an hour.
    offers Reconnect.
 7. Connections work in a single process, behind several frontend replicas,
    and for runs on workers that share no filesystem with the server.
-8. DAGs that use no connection behave as before.
+8. A connection belongs to one project, or to the server for an account that
+   projects share. Sharing is by reference, so one grant has one record and
+   one refresh token.
+9. DAGs that use no connection behave as before.
 
 ## Non-goals
 
@@ -104,9 +109,12 @@ bearer token, which expires after an hour.
   brings their own client in this RFC, and the server keeps the tokens. The
   records reserve both, as [Dagu Cloud](#dagu-cloud) describes. Dagu Cloud
   takes part only in the connect flow, through the Cloud relay.
-- **Personal connections and run-as-user identity.** Connections are
-  server-wide. A user's own account, used by runs they start, needs its own
-  design.
+- **Personal connections and run-as-user identity.** Connections belong to
+  projects or to the server. A user's own account, used by runs they start,
+  needs its own design.
+- **Hiding tokens from DAG authors in local mode.** Steps run as Dagu's OS
+  user. Key custody that changes this, for secrets and connections together,
+  needs its own RFC. [Guarantees](#guarantees) states the limit.
 - **MCP sampling and URL-mode elicitation.** Dagu advertises form
   elicitation only, as [Confirmation requests](#confirmation-requests)
   describes.
@@ -127,7 +135,11 @@ Promised:
   only over HTTPS. It does not follow a redirect to another host or to plain
   HTTP.
 - A run receives a token only for a connection that its DAG declares, and
-  only when the connection's allow-list includes the run's workspace.
+  only when the connection belongs to the run's project or is a server
+  connection that lists it.
+- A grant is never copied. A connection that several projects use is one
+  record with one refresh token, so a provider that rotates refresh tokens
+  never invalidates a copy.
 - A refresh result never overwrites a newer reconnect.
 - A connection becomes `needs_reconnect`, or an app `invalid`, once per
   failure. Only a confirmed reconnect, or an update to the app, clears it.
@@ -140,11 +152,13 @@ Promised:
 
 Not promised:
 
-- **Isolation from the run process in local mode.** The run process can
-  read the encryption key, and it decrypts the refresh token in memory when
-  it refreshes. So a workspace allow-list is a policy there, not an
-  operating system boundary. In distributed mode the worker never holds
-  the key.
+- **Isolation from DAG authors in local mode.** Steps run as Dagu's OS
+  user, so a DAG author can read the encryption key and every connection's
+  tokens, as they can read secrets today. Scopes, roles, and export settings
+  prevent mistakes and govern the API and UI. They do not stop a malicious
+  author. Workers are the isolation boundary: a worker never holds the key,
+  and receives only the tokens its DAG declares. The wizard says this when a
+  connection is created on a server that runs DAGs locally.
 - **Secrecy of an exported token.** A token exported to an environment
   variable can be printed by the script that receives it. Masking hides the
   exact value in Dagu's logs, nothing more. Export is off unless an admin
@@ -193,11 +207,13 @@ coordinator. Dagu Cloud takes part only while a connect waits, through the
 
 ### Records
 
-Server-wide records in four collections under the data directory, each
+Records in four collections under the data directory, each
 created with mode `0o700` as the license store's is
 (`internal/persis/file/shared_stores.go:102`). Secret fields are encrypted
 with `internal/cmn/crypto`, using the key from `DAGU_ENCRYPTION_KEY` or
-`<data_dir>/auth/encryption_key`.
+`<data_dir>/auth/encryption_key`. Before v3.0 every connection lives here,
+keyed by its scope and name. From v3.0, project connections move into their
+project's state directory, as [Scopes](#scopes) describes.
 
 **OAuth app** (`<data_dir>/oauth-apps/`): a client registration that several
 connections share.
@@ -222,7 +238,8 @@ admins:
 
 | Field | Notes |
 | --- | --- |
-| `name` | Lowercase letters, digits, and hyphens, up to 63 characters. Unique on the server |
+| `name` | Lowercase letters, digits, and hyphens, up to 63 characters. Unique among the connections one project can use. See [Scopes](#scopes) |
+| `scope` | `project`, with the project it belongs to, or `server`. See [Scopes](#scopes) |
 | `provider`, `app` | The app holds the client, or, for a service account, its key. A key is rotated by updating the app |
 | `grant` | `authorization_code`, `device_code`, `client_credentials`, or `service_account` |
 | `services` | Presets such as `gmail` or `calendar`, each with `read` or `write` |
@@ -231,7 +248,7 @@ admins:
 | `subject` | Service accounts only: the impersonated user, fixed by the admin |
 | `bound_hosts` | Hosts added beyond the services' presets that may receive the token. Required for `oauth2` |
 | `resource` | MCP connections: the canonical server URL (RFC 8707) |
-| `workspaces` | The allow-list: workspace names, `.global` for DAGs without a workspace label as secrets name that scope (`internal/secret/secret.go:42`), or `*` for every workspace. Defaults to the workspace the creator has selected, or `.global` when none is |
+| `projects` | Server connections only: the projects that may use it, or `*` for every project. Set by admins |
 | `allow_token_export` | Admin opt-in for the `connection` secret provider. Off by default |
 | `holder` | Who keeps the tokens: `local`, this server. `cloud` is reserved for a connection Dagu Cloud keeps, which this server reads but does not change. The app's `kind` says who owns the client; `holder` says who keeps the tokens |
 
@@ -273,6 +290,52 @@ RFC 026 all read it.
   service once.
 - A failed listing returns the provider's error and keeps the previous
   catalog for the next attempt.
+
+### Scopes
+
+A connection belongs to one project, or to the server:
+
+| | Project connection | Server connection |
+| --- | --- | --- |
+| Belongs to | One project | The server |
+| Managed by | Managers of that project | Admins |
+| Used by | That project's DAGs | DAGs in the projects it lists, or every project for `*` |
+| For | A team's own account | An account that several projects share, and every service account |
+
+This RFC says project for the boundary. Before v3.0 that is a workspace, and
+a project connection in `.global` serves DAGs without a workspace label.
+Unlike a `.global` secret, which every workspace falls back to
+(`internal/secret/resolver.go:82`), a `.global` connection serves no other
+workspace.
+
+- **Sharing is by reference.** A server connection is one record with one
+  refresh token, however many projects use it. A grant is never copied,
+  because each copy refreshes on its own: when a provider rotates refresh
+  tokens, the first copy to refresh invalidates the others.
+- **Name lookup.** A DAG's `connection: x` resolves to its project's
+  connection `x`, or to a server connection `x` that lists its project.
+  Creating a project connection, or listing a project on a server
+  connection, fails when the name would collide in that project, so neither
+  kind ever hides the other.
+- **Service accounts are server connections only.** Domain-wide delegation
+  lets a key act as any user, so only an admin fixes the `subject`.
+- **Moving to the server.** An admin can turn a project connection into a
+  server connection that lists its project, keeping its tokens. DAGs keep
+  working, since the name does not change.
+- **OAuth apps stay server-wide and admin-only,** as notification channels
+  do. A project connection uses an app an admin registered. Registering a
+  client is a one-time task, and consent stays with each connection's owner.
+- **v3.0.** RFC 003's migration moves each project connection, with its
+  token state and catalogs, into its project's state directory, and a
+  `.global` one into the default project. A server connection stays
+  server-wide, and its `projects` entries become project IDs, so renaming a
+  project keeps them. Nothing is copied, unlike global secrets, which the
+  migration copies into each project (`rfcs/003-projects.md:737`).
+
+This follows Spec 102: a project owns its connections as it owns its
+secrets, and a server connection is admin-owned infrastructure that a
+project uses only when listed, as projects use notification channels
+(`specs/102-projects.md:402`).
 
 ### Providers and services
 
@@ -355,6 +418,11 @@ UI or CLI                 Dagu server                         provider
   when starting, and a matching account is then confirmed without asking.
   With authentication off, any caller of the API may confirm, as it may take
   any other API action.
+- **Sign-in by someone else.** The account's owner need not use Dagu. In
+  server callback and Cloud relay modes, the starter can copy the
+  authorization URL to the owner, who consents in their own browser. The
+  starter then confirms the account, as for any session, so an admin can
+  connect a shared mailbox that someone else owns.
 - **PKCE (S256) everywhere.** Google requests also send
   `access_type=offline` and `prompt=consent`, so a refresh token is always
   returned.
@@ -395,7 +463,8 @@ client type, and show the exact redirect URI to register.
   before the token expires.
 - **Duplicates.** A second connection for the same account and client
   triggers a warning. Google keeps only 100 refresh tokens per account per
-  client and silently revokes the oldest.
+  client and silently revokes the oldest. When the other connection belongs
+  to another project, the warning suggests one server connection instead.
 
 **Reconnect** runs the same flow for an existing connection. The previous
 tokens stay live until the user confirms, and confirming increments
@@ -562,7 +631,8 @@ a new coordinator RPC, `ResolveConnectionToken`, modeled on
   (`internal/service/coordinator/secret_reference.go:233`, `:259`).
 - The run's DAG snapshot must declare the connection, checked as
   `secretReferenceDeclared` checks secret refs (`:354`).
-- The connection's allow-list must include the run's workspace.
+- The name must resolve for the run's project, as [Scopes](#scopes)
+  describes.
 - The coordinator calls the local broker and returns the access token, its
   lifetime in seconds, and the connection's binding: provider, services,
   bound hosts, and resource URL. The binding holds no secret, and the worker
@@ -615,9 +685,10 @@ delivery by run and attempt
 reader for `connection` events. Their delivery key is the event ID, and
 their message is plain text, also on channels that format run events.
 
-Each event goes to the notification settings of every workspace on the
-allow-list, and to the server-wide settings for `*` and `.global`. It is in
-the default event set for new channels. A failure produces one message,
+A project connection's events go to its project's notification settings.
+A server connection's events go to the server-wide settings and to each
+project it lists. Both events are in the default event set for new
+channels. A failure produces one message,
 however many runs then fail on it.
 
 Runs that fail on a broken connection would still send their own
@@ -659,7 +730,7 @@ reads the records, and a run on a worker reads the binding through the token
 RPC with `check_only`. The editor's server-side diagnostics run the same
 checks:
 
-- the connection exists, and its allow-list includes the run's workspace;
+- the name resolves for the run's project, as [Scopes](#scopes) describes;
 - `server` names one of the connection's services;
 - a literal `http.request` URL is on the bound hosts;
 - a Google MCP preset on a user connection, not a service account, uses an
@@ -750,7 +821,8 @@ mail_accounts:
     connection: work-google
 ```
 
-`connection` replaces `oauth` and `password`, and works in base config too.
+`connection` replaces `oauth` and `password`, and works in base config too,
+where it resolves for each DAG's project.
 A Google account needs the `gmail` service with `write`, since mail actions
 use the Gmail API. A Microsoft account needs the `mailbox` service, since
 mail actions use IMAP and SMTP. The existing `oauth` form keeps working,
@@ -845,12 +917,12 @@ Cloud kept the connection instead:
 On a server, such a connection would appear in the list read-only, with its
 name and binding from Dagu Cloud. A worker would still ask its coordinator,
 and the coordinator would ask Dagu Cloud through the broker's third source.
-Dagu Cloud would grant the connection to servers, and each server's admin
-would map it to workspaces, as for a local connection. A cloud connection
-whose name a local connection already uses would not be offered on that
-server until one is renamed. Status and notifications would come from Dagu
-Cloud once, not from each server, though each run would still record its
-failure cause.
+Dagu Cloud would grant the connection to servers, where it would act as a
+server connection: each server's admin would list the projects that may use
+it. A cloud connection whose name collides with a connection on that server
+would not be offered there until one is renamed. Status and notifications
+would come from Dagu Cloud once, not from each server, though each run would
+still record its failure cause.
 
 It breaks two of RFC 002's rules. Dagu Cloud would store refresh tokens for
 users' accounts, a valuable target that also gives Dagu Cloud the ability to
@@ -867,7 +939,7 @@ scopes also needs Google's verification and a yearly security assessment.
 ```sh
 dagu connection providers
 dagu connection add google [NAME] --services gmail,calendar:write --agent \
-    [--client-file client_secret.json] [--no-browser] [--workspace ops]
+    [--client-file client_secret.json] [--no-browser] [--workspace ops | --server]
 dagu connection add google NAME --service-account key.json --subject ops@example.com
 dagu connection add microsoft NAME --services mail,calendar [--device-code]
 dagu connection add mcp NAME --url https://mcp.example.com/mcp
@@ -879,11 +951,14 @@ dagu connection show NAME
 dagu connection test NAME
 dagu connection reconnect NAME
 dagu connection remove NAME
+dagu connection share NAME --projects ops,billing
 dagu connection tools NAME [--server gmail] [--json]
 dagu connection call NAME --server gmail --tool search_threads --args '{"query":"is:unread"}' [--yes]
 dagu connection apps list | remove APP
 ```
 
+- A connection belongs to the context's workspace unless `--server` is
+  given, which needs `admin`. `share` sets a server connection's projects.
 - `connections` is an alias. The group follows
   `internal/cmd/context_command.go`, and is context-aware in
   `internal/cmd/command_scope.go`, so it works against a remote server
@@ -935,6 +1010,9 @@ Connection work-google is ready. Try: dagu connection tools work-google --server
 
 - `GET /oauth/callback` sits outside the generated API, as `oidc-callback`
   does.
+- Paths address a connection by scope and name, as secret paths take a
+  workspace. `POST /connections` takes the scope, and `PATCH` sets a server
+  connection's `projects`.
 - Responses never include a secret. They report `clientSecretConfigured`,
   `refreshTokenConfigured`, and similar flags, as notification channels do
   (`internal/notification/model.go:253`). A `PATCH` with a blank secret keeps
@@ -956,16 +1034,17 @@ page (`ui/src/pages/integrations/index.tsx`).
 ┌ Connections ─────────────────────────────────────────────────────────┐
 │ [+ New connection]                                                   │
 │                                                                      │
-│ name          provider   account            services     status      │
-│ work-google   Google     ops@example.com    gmail, cal   ● connected │
-│ m365          Microsoft  ops@example.com    mail         ● connected │
-│ notion        MCP        workspace "Ops"    —            ▲ reconnect │
+│ name          scope     provider   account            status         │
+│ work-google   project   Google     ops@example.com    ● connected    │
+│ shared-mail   server    Google     mail@example.com   ● connected    │
+│ notion        project   MCP        workspace "Ops"    ▲ reconnect    │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
 **New connection** opens a gallery with four tiles: Google Workspace,
-Microsoft 365, Any MCP server, and Custom OAuth2. The Google wizard has five
-steps:
+Microsoft 365, Any MCP server, and Custom OAuth2. An admin also chooses
+whether the connection belongs to the current project or to the server. The
+Google wizard has five steps:
 
 1. **Services.** Cards for Gmail, Calendar, Drive, Docs, Sheets, Slides,
    Chat, People, and Search, each with a read or read-and-write choice. The
@@ -994,19 +1073,21 @@ steps:
 4. **Consent.** A popup, opened before any request so that browsers do not
    block it, as `ui/src/pages/license/useLicenseConnect.ts` does. The page
    polls until the popup's callback completes. A blocked popup falls back to
-   a link. In paste mode, the page says before opening the popup that the
+   a link, and **Copy sign-in link** gives the URL to the account's owner
+   instead. In paste mode, the page says before opening the popup that the
    browser will end on an error page, and that its address is what to copy.
    It then shows a field for that address.
 5. **Done.** The account to confirm, granted scopes, a result per service,
    and two buttons: **Start from a template** and **Browse tools**.
 
 The connection page shows status and the reason for it, the account,
-services and scopes, the workspace allow-list, and Reconnect, Test, and
-Remove, with three panels:
+services and scopes, its project or, for a server connection, the projects
+it lists, and Reconnect, Test, and Remove, with three panels:
 
 - **Used by:** the DAGs that name the connection, read from the DAG index.
-  Remove, a reconnect with a different account, and a change that drops a
-  workspace from the allow-list each show this list before they apply.
+  Remove, a reconnect with a different account, and dropping a project
+  from a server connection each show this list before they apply, across
+  projects for a server connection.
 - **Add service:** runs the wizard's Services, OAuth app, and Consent steps
   again for the new service only. The OAuth app step shows just the APIs to
   enable for it, and Consent reconnects with the added scopes.
@@ -1027,9 +1108,8 @@ Elsewhere in the UI:
   from `GET /connections/{name}/tools`. Completion lists the connections that
   fit the field: agent connections for `mcp.call` with a Google preset, and
   the others for `mail_accounts` and `http.request`. The server also reports
-  unknown connections and connections the DAG's workspace may not use. For a
-  user allowed to change the connection, the second offers to add the DAG's
-  workspace to the allow-list.
+  unknown connections, and server connections that do not list the DAG's
+  project. For an admin, the second offers to list the project.
 - **Run page.** A step that used a connection shows its name and account.
   A step that failed with `reconnect_required` shows **Reconnect** next to its
   error.
@@ -1091,27 +1171,24 @@ and the tiers are new. Instead, the docs:
 | --- | --- |
 | Create, change, or delete an OAuth app | `admin` |
 | Set `allow_token_export` | `admin` |
-| Create, connect, reconnect, change, or remove a connection | `manager` or above in every workspace on its allow-list. A `*` allow-list needs `admin` |
-| Test a connection, list its tools | `developer` or above |
-| Try a tool | `developer` or above, audited |
-| Use a connection in a DAG | Whoever may edit the DAG, if the DAG's workspace is on the allow-list |
-| See connections: name, provider, account, status | `viewer` |
+| Create, connect, reconnect, change, or remove a project connection | `manager` or above in its project |
+| The same for a server connection, and set its `projects` | `admin` |
+| Add a service account connection | `admin`, as a server connection only |
+| Test a connection, list its tools | `developer` or above in a project that can use it |
+| Try a tool | `developer` or above in a project that can use it, audited |
+| Use a connection in a DAG | Whoever may edit the DAG, if the name resolves for the DAG's project |
+| See a connection: name, scope, provider, account, status | `viewer` in a project that can use it. Never its tokens |
 
-A service account key is an app, so adding a service account connection
-needs `admin`. A manager's `mcp` connect may register a client through RFC
-7591. The resulting `dcr` app belongs to that connection alone: it is created
-and deleted with it, and no other connection may use it.
+A manager's `mcp` connect may register a client through RFC 7591. The
+resulting `dcr` app belongs to that connection alone: it is created and
+deleted with it, and no other connection may use it.
 
-These follow the secret store, where managers manage a workspace's secrets
-(`requireSecretManageForWorkspace`, `secrets.go:383`). OAuth apps follow
-notification channels, which stay server-wide and admin-only under RFC 003.
-`.global` is checked as the secret store checks it.
-
-RFC 003 replaces workspaces with projects in v3.0. Its migration rewrites
-each allow-list entry to the project made from that workspace, and
-`.global` to the default project, so RFC 003's migration gains connections.
-After that, allow-lists name projects by ID, so renaming a project keeps its
-connections.
+Project connections follow the secret store, where managers manage a
+workspace's secrets (`requireSecretManageForWorkspace`, `secrets.go:383`).
+Server connections and OAuth apps follow notification channels, which stay
+server-wide and admin-only under RFC 003. A server connection's `projects`
+list is set by admins, not by each project, because a connection opens an
+account's data, while a route only sends to a channel.
 
 ## Security
 
@@ -1121,12 +1198,12 @@ connections.
 - **Audience binding.** A token goes only to its connection's bound hosts or
   resource, over HTTPS, and never follows a redirect off them. A worker
   enforces the binding it receives from the coordinator.
-- **Allow-list enforcement.** It is checked twice: at run admission, and by
-  the coordinator for each token. In local mode the run process can read
-  the encryption key, so the check there is a policy, as
+- **Scope enforcement.** It is checked twice: at run admission, and by the
+  coordinator for each token. On workers it is a boundary. In local mode it
+  prevents mistakes, not a malicious DAG author, as
   [Guarantees](#guarantees) states.
-- **Service accounts.** The admin fixes the impersonated user. No step,
-  parameter, or tool argument can change it.
+- **Service accounts.** Server connections only, so only an admin fixes the
+  impersonated user. No step, parameter, or tool argument can change it.
 - **The connect flow.**
   - Every request carries an encrypted state and PKCE.
   - A callback is single-use and expires.
@@ -1182,7 +1259,9 @@ connections.
 | Listing a service's tools fails | The reader gets the provider's error. The previous catalog stays for the next attempt |
 | One provider's token endpoint hangs | Only that connection's refreshes wait, up to the token call's timeout. Other connections are unaffected |
 | A service account key is deleted at Google | Its app becomes `invalid`, and its connections fail at once without calling Google. Uploading a new key restores them |
-| A DAG names an unknown connection, or one its workspace may not use | The editor reports it. A run fails before its first step, naming the connection |
+| A DAG names an unknown connection, or a server connection that does not list its project | The editor reports it. A run fails before its first step, naming the connection |
+| A name would collide between a project connection and a server connection that lists the project | Creating the connection, or listing the project, fails and names both |
+| An admin drops a project from a server connection | That project's runs that name it fail at admission, naming it. Other projects are unaffected |
 | A worker's coordinator is older and lacks the token RPC | The step fails, saying the coordinator must be upgraded |
 | A worker is older than the token RPC | The coordinator does not dispatch a DAG that declares connections to it |
 | A server sends a confirmation request | `mcp.call` declines it and fails with `confirmation_required`. Try it shows the form to the person |
@@ -1206,7 +1285,8 @@ connections.
   locally, or two coordinator RPCs on a worker. Steps and `foreach` items
   share the run's cache, so the cost grows with runs that use connections,
   not with steps. At one run per second, that is at most two reads or RPCs
-  per second for each connection a run uses.
+  per second for each connection a run uses. Resolving a name reads at most
+  two small records: the project's and the server's.
 - **Cloud relay.** One request to Dagu Cloud every 3 seconds per waiting
   session, for at most the session's 10 minutes. It stops when the session
   completes, fails, or is cancelled, and nothing polls outside a connect.
@@ -1238,8 +1318,8 @@ connections.
   and tool calls from the UI.
 - **Upgrade.** No migration. The DAG index version goes up, so the first
   start rebuilds the index once, reading each DAG file as a rebuild does
-  today. RFC 003's v3.0 migration rewrites allow-lists, as
-  [Permissions](#permissions) describes.
+  today. RFC 003's v3.0 migration moves project connections, as
+  [Scopes](#scopes) describes.
 
 ## Compatibility and rollout
 
@@ -1263,6 +1343,8 @@ connections.
   coordinator dispatches a DAG that declares connections only to workers new
   enough for the token RPC.
 - **API.** New paths only. Existing schemas are unchanged.
+- **v3.0.** RFC 003's migration gains connections. It moves them and never
+  copies them, as [Scopes](#scopes) describes.
 - **Dagu Cloud.** Cloud relay needs two new Dagu Cloud endpoints: register
   a callback, and fetch it. A server checks for them and offers the mode
   only when they exist, so either side can upgrade first.
@@ -1279,42 +1361,44 @@ connections.
   (secret providers) gain the new fields. A new spec defines connections, the
   broker, and the connect flow.
 
-Rollout, in pull requests that each work on their own. All of it ships
-before Google's enforcement on 2027-02-01. RFC 026 follows, once
-confirmation requests are tested against Google's servers.
+Rollout, in milestones of pull requests that each work on their own. The
+milestones span this RFC and RFC 026.
 
-0. **Mask worker log streams.** `setupRemoteWriters` writes step output to
-   the coordinator without `MaskingWriter`. This is an existing bug that
-   already exposes `secrets` values, fixed first and separately.
-1. **Records and broker.**
-   - The four collections, providers, and the broker with locking,
-     generation checks, per-resource tokens, the re-read on
-     `invalid_grant`, and saving rotated tokens.
-   - The `connection` event kind, its two events, and the notification
-     monitor's reader for them.
-   - `dagu connection import`, plus `add` for service accounts and client
-     credentials, which need no consent screen.
-   - `mail_accounts.*.connection`, with the Microsoft `mailbox` preset. This
-     alone fixes Microsoft rotation for mail.
-2. **Connect flows.** All five redirect modes, with Cloud relay once Dagu
-   Cloud serves its endpoints. Sessions and confirmation, the REST API, the
-   Connections page, the Google wizard with paired connections and consent
-   error fixes, the expiry display, `dagu connection add`, test, and
-   reconnect.
-3. **Steps.**
-   - `ir.DAG.Connections`, admission checks, and the coordinator RPC with
-     the binding, `check_only`, and the worker version check.
-   - `http.request` with bound hosts.
-   - `mcp.call` with connections, the Google presets, and the
-     `rate_limited` and `confirmation_required` kinds.
-   - Run records of the connection, account, and failure cause, and
-     skipping the run failure messages a broken connection causes.
-4. **Any MCP server.** Discovery, registration, and the gallery tile.
-5. **Authoring.** Editor completion and the workspace quick fix, the tool
-   browser and Try it with inline confirmation, the Used by list from the
-   DAG index, Add service, templates, `dagu_read`, and the docs.
-6. **Token export.** The `connection` secret provider, behind
-   `allow_token_export`.
+- **M0, about a week: test against Google.** Before building on them,
+  confirm:
+  - what Google enforces on 2027-02-01, and for which clients;
+  - which tools send confirmation requests, and how long one stays open;
+  - whether Google's MCP tools carry `readOnlyHint`;
+  - whether a client that does not advertise elicitation is refused.
+- **M1, before 2027-02-01.**
+  0. Mask worker log streams. `setupRemoteWriters` writes step output to
+     the coordinator without `MaskingWriter`. This is an existing bug that
+     already exposes `secrets` values, fixed first and separately.
+  1. Records with both scopes, the broker, notifications, the coordinator
+     RPC with the worker version check, and the tool catalog.
+  2. Google authorization code in server callback, loopback, and paste
+     modes: sessions and confirmation, sign-in by someone else, consent
+     error fixes, the REST API, the Connections page, the Google wizard, and
+     `dagu connection add`, test, reconnect, and share.
+  3. `mcp.call` with connections and the Google presets, with the
+     `rate_limited` and `confirmation_required` kinds, and
+     `mail_accounts.*.connection` for Google.
+  4. RFC 026's gateway and harness steps.
+- **M2.**
+  - Microsoft: device code, client credentials, and the `mailbox` preset,
+    which fixes Microsoft rotation for mail, with `dagu connection import`.
+  - Service account connections.
+  - `http.request` with bound hosts.
+  - Token export, behind `allow_token_export`.
+  - Authoring: editor completion, the tool browser and Try it, Used by from
+    the DAG index, Add service, paired Google connections, the expiry
+    display, templates, and `dagu_read`.
+  - Run records of the connection and account, and skipping the run
+    failure messages a broken connection causes.
+- **M3.**
+  - Any MCP server: discovery, registration, and the gallery tile.
+  - Cloud relay, once Dagu Cloud serves its endpoints.
+  - RFC 026's agent DAGs and chat steps.
 
 ## Verification and acceptance criteria
 
@@ -1334,32 +1418,46 @@ Connect:
    Cloud relay. Dagu Cloud's stored data then holds no token, PKCE verifier,
    or client secret, and the code is gone once the server fetched it.
 5. Each consent error in [Consent errors](#consent-errors) shows its fix.
+6. A person without a Dagu login consents through a copied sign-in link,
+   and the starter confirms the account.
+
+Scopes:
+
+7. A project connection serves only its project's DAGs, locally and on a
+   worker.
+8. A server connection that lists two projects serves both from one token
+   state record. Dropping a project from it stops that project's runs at
+   admission.
+9. A name that would collide in a project is refused when the connection is
+   created and when the project is listed.
+10. After RFC 003's migration, each connection exists once, and its refresh
+    keeps working.
 
 Broker:
 
-6. With 100 concurrent runs using one connection whose access token has
-   expired, the provider receives exactly one refresh request, and only one
-   process takes the connection's lock.
-7. A rotated refresh token is saved, and the next refresh uses it, across
-   process restarts.
-8. A reconnect confirmed during a refresh leaves the reconnected token in
-   place. Runs keep the previous token until the reconnect is confirmed.
-9. A connect session written during a Microsoft refresh keeps the rotated
-   refresh token. A connection removed during a refresh stays removed, and
-   a new connection with its name starts without tokens.
-10. A token endpoint that hangs for one connection does not delay another
+11. With 100 concurrent runs using one connection whose access token has
+    expired, the provider receives exactly one refresh request, and only one
+    process takes the connection's lock.
+12. A rotated refresh token is saved, and the next refresh uses it, across
+    process restarts.
+13. A reconnect confirmed during a refresh leaves the reconnected token in
+    place. Runs keep the previous token until the reconnect is confirmed.
+14. A connect session written during a Microsoft refresh keeps the rotated
+    refresh token. A connection removed during a refresh stays removed, and
+    a new connection with its name starts without tokens.
+15. A token endpoint that hangs for one connection does not delay another
     connection's refresh.
-11. Two hosts sharing the data directory both keep working after one of them
+16. Two hosts sharing the data directory both keep working after one of them
     rotates a Microsoft refresh token.
-12. One Microsoft connection serves a Graph `http.request` and an IMAP mail
+17. One Microsoft connection serves a Graph `http.request` and an IMAP mail
     action in the same run, each with a token for its own resource.
 
 Failures and notifications:
 
-13. Revoking access at the provider makes the connection `needs_reconnect`
+18. Revoking access at the provider makes the connection `needs_reconnect`
     once. Every later step fails without calling the token endpoint.
     Reconnect restores it.
-14. While 100 runs fail on a revoked connection, exactly one
+19. While 100 runs fail on a revoked connection, exactly one
     `connection.needs_attention` is sent, and a reconnect sends one
     `connection.restored`. A channel that receives connection events sends
     no run failure messages for those runs. A channel that does not
@@ -1367,36 +1465,37 @@ Failures and notifications:
 
 Security:
 
-15. No refresh token, access token, or client secret appears in any API
+20. No refresh token, access token, or client secret appears in any API
     response, CLI output, MCP result, run status, step log, worker log
     stream, or audit entry. A test searches each of them for the values.
-16. `http.request` with a connection, locally and on a worker, never sends
+21. `http.request` with a connection, locally and on a worker, never sends
     the token to a host outside the bound hosts or over plain HTTP,
     including through a redirect.
-17. A run on a worker cannot obtain a token for a connection its DAG does
-    not declare, or one whose allow-list excludes its workspace.
-18. Each role can do what [Permissions](#permissions) lists and nothing
+22. A run on a worker cannot obtain a token for a connection its DAG does
+    not declare, or one its project may not use.
+23. Each role can do what [Permissions](#permissions) lists and nothing
     more.
 
 Steps:
 
-19. An `mcp.call` step with `connection` and `server: gmail` succeeds, both
+24. An `mcp.call` step with `connection` and `server: gmail` succeeds, both
     locally and on a worker with no shared filesystem.
-20. A Google tool that sends a confirmation request fails with
+25. A Google tool that sends a confirmation request fails with
     `confirmation_required` in `mcp.call`, and Try it shows its form. No path
     accepts a request without a person.
 
 All:
 
-21. Every case in [Failure behavior](#failure-behavior) ends as stated.
+26. Every case in [Failure behavior](#failure-behavior) ends as stated.
 
 ## Alternatives considered
 
 - **Storing tokens in the secret store.** It would give encryption, masking,
   and coordinator resolution for free. But every write adds a version, and
   Microsoft rotates refresh tokens on every refresh. The secret RPC returns
-  a stored value and cannot refresh. RFC 003 also moves secrets into
-  projects, while connections are server-wide.
+  a stored value and cannot refresh. And a secret shared across projects is
+  copied into each one at the v3.0 migration, which a rotating refresh token
+  cannot survive.
 - **Refresh tokens in YAML or base config, as mail does today.** No consent
   flow, no place to save a rotated token, and a long-lived credential in a
   file that is often under version control.
@@ -1406,9 +1505,17 @@ All:
 - **A separate session store for the connect flow.** Needs a store shared
   by frontend replicas. The token state record already is one, and the
   encrypted state carries the PKCE verifier.
-- **Per-project connections only.** Simpler scoping. But one Google account
-  often serves several teams, and RFC 003 keeps credential-holding services
-  such as notification channels server-wide.
+- **Project connections only.** One kind instead of two. But an account
+  that several projects share would need a copy, or a consent, per project.
+  A copy breaks when the provider rotates the refresh token, and separate
+  consents mean reconnecting each one.
+- **Server-wide connections that managers manage, with an allow-list on the
+  connection.** One kind instead of two. But a manager could change what
+  another project's DAGs act as, which Spec 102 rules out, and the
+  connection, not its owner, would decide where it is used.
+- **The scope written in YAML, such as `server:shared-mail`.** Explicit. But
+  moving a connection between kinds would mean editing every DAG that names
+  it.
 - **A Dagu-hosted Google app now.** One-click connect, without Google Cloud
   setup. But Gmail scopes are restricted, which takes Google verification
   and a yearly security assessment, and the app would depend on Dagu Cloud.
@@ -1433,8 +1540,9 @@ All:
 
 ## Open questions
 
-1. May any manager reconnect a connection with a different account, or only
-   when the account stays the same?
+1. Should a project manager be able to ask for a server connection for
+   their project in Dagu, for an admin to approve, rather than asking
+   outside it?
 2. Should a second connection for the same account and client be refused,
    rather than warned about?
 3. Should a later Dagu-hosted app use Client ID Metadata Documents, which
