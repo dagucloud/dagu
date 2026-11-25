@@ -90,8 +90,11 @@ func TestProjectStoresEncryptWithServerKey(t *testing.T) {
 
 	assert.FileExists(t, filepath.Join(cfg.Paths.DataDir, "auth", "encryption_key"))
 	require.NoError(t, filepath.WalkDir(stores.Paths.StateDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
 		assert.NotEqual(t, "encryption_key", d.Name(), "key in project state: %s", path)
-		return err
+		return nil
 	}))
 
 	elsewhere, err := persisfile.NewProjectSettings(cfg, persisfile.NewServerStores(cfg), "weather")
