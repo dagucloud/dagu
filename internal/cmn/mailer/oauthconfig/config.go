@@ -1,7 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package oauthconfig defines OAuth configuration for SMTP and mail accounts.
+// Package oauthconfig defines OAuth configuration for SMTP, mail accounts, and
+// HTTP API steps.
 package oauthconfig
 
 import (
@@ -16,8 +17,8 @@ const (
 	ProviderMicrosoft            Provider = "microsoft"
 	ProviderGoogleServiceAccount Provider = "google_service_account"
 	ProviderGoogleRefresh        Provider = "google_refresh"
-	// ProviderMicrosoftRefresh uses a delegated refresh token. Only mail
-	// accounts accept it.
+	// ProviderMicrosoftRefresh uses a delegated refresh token. SMTP OAuth does
+	// not accept it.
 	ProviderMicrosoftRefresh Provider = "microsoft_refresh"
 
 	microsoftSMTPHost = "smtp.office365.com"
@@ -33,8 +34,8 @@ type Config struct {
 	ClientSecret       string   `json:"clientSecret,omitempty" yaml:"client_secret,omitempty"`
 	ServiceAccountJSON string   `json:"serviceAccountJson,omitempty" yaml:"service_account_json,omitempty"`
 	RefreshToken       string   `json:"refreshToken,omitempty" yaml:"refresh_token,omitempty"`
-	// Scopes replaces the scopes a microsoft_refresh token is refreshed for.
-	// Only mail accounts accept it.
+	// Scopes are the scopes a token is requested for. SMTP OAuth rejects
+	// them, and a mail account accepts them only for microsoft_refresh.
 	Scopes []string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 }
 

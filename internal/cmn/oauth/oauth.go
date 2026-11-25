@@ -224,23 +224,29 @@ func providerRefresh(username string, cfg oauthconfig.Config) (refreshFunc, erro
 			}).TokenSource(ctx).Token()
 		}, nil
 	case oauthconfig.ProviderGoogleServiceAccount:
-		jwtConfig, err := google.JWTConfigFromJSON([]byte(cfg.ServiceAccountJSON), googleMailScope)
-		if err != nil {
-			return nil, fmt.Errorf("invalid Google service account JSON: %w", err)
-		}
-		if strings.TrimSpace(jwtConfig.Email) == "" || strings.TrimSpace(string(jwtConfig.PrivateKey)) == "" {
-			return nil, errors.New("google service account JSON requires client_email and private_key")
-		}
-		jwtConfig.Subject = username
-		jwtConfig.TokenURL = googleTokenURL
-		return func(ctx context.Context, _ *oauth2.Token) (*oauth2.Token, error) {
-			return jwtConfig.TokenSource(tokenHTTPContext(ctx)).Token()
-		}, nil
+		return serviceAccountGrant(cfg.ServiceAccountJSON, googleTokenURL, username, []string{googleMailScope})
 	case oauthconfig.ProviderGoogleRefresh:
 		return refreshTokenGrant(cfg, googleTokenURL, nil), nil
 	default:
 		return nil, fmt.Errorf("unsupported SMTP OAuth provider %q", cfg.Provider)
 	}
+}
+
+// serviceAccountGrant signs in as a Google service account, acting for
+// subject when it is set.
+func serviceAccountGrant(keyJSON, tokenURL, subject string, scopes []string) (refreshFunc, error) {
+	jwtConfig, err := google.JWTConfigFromJSON([]byte(keyJSON), scopes...)
+	if err != nil {
+		return nil, fmt.Errorf("invalid Google service account JSON: %w", err)
+	}
+	if strings.TrimSpace(jwtConfig.Email) == "" || strings.TrimSpace(string(jwtConfig.PrivateKey)) == "" {
+		return nil, errors.New("google service account JSON requires client_email and private_key")
+	}
+	jwtConfig.Subject = subject
+	jwtConfig.TokenURL = tokenURL
+	return func(ctx context.Context, _ *oauth2.Token) (*oauth2.Token, error) {
+		return jwtConfig.TokenSource(tokenHTTPContext(ctx)).Token()
+	}, nil
 }
 
 func tokenHTTPContext(ctx context.Context) context.Context {
@@ -308,12 +314,33 @@ func (s *tokenState) get(ctx context.Context, refresh refreshFunc) (*oauth2.Toke
 	return token, nil
 }
 
+// invalidate drops the cached access token when it is still token, keeping
+// the refresh token so a rotated one stays in use.
+func (s *tokenState) invalidate(token *oauth2.Token) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.token != nil && token != nil && s.token.AccessToken == token.AccessToken {
+		s.token = &oauth2.Token{RefreshToken: s.token.RefreshToken}
+	}
+}
+
 var tokenCache = struct {
 	sync.Mutex
 	entries map[[sha256.Size]byte]*tokenState
 }{entries: make(map[[sha256.Size]byte]*tokenState)}
 
 func cachedTokenFunc(key [sha256.Size]byte, refresh refreshFunc) TokenFunc {
+	state := cachedState(key)
+	return func(ctx context.Context) (*oauth2.Token, error) {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		return state.get(ctx, refresh)
+	}
+}
+
+// cachedState returns the process-wide token state of key.
+func cachedState(key [sha256.Size]byte) *tokenState {
 	tokenCache.Lock()
 	state := tokenCache.entries[key]
 	if state == nil {
@@ -327,11 +354,5 @@ func cachedTokenFunc(key [sha256.Size]byte, refresh refreshFunc) TokenFunc {
 		tokenCache.entries[key] = state
 	}
 	tokenCache.Unlock()
-
-	return func(ctx context.Context) (*oauth2.Token, error) {
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		return state.get(ctx, refresh)
-	}
+	return state
 }
