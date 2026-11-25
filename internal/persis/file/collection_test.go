@@ -67,9 +67,11 @@ func TestFileBackendPreservesCollectionLayout(t *testing.T) {
 		{persis.CollectionDAGState, paths.DAGStateDir, false},
 		{persis.CollectionDispatchTasks, distributedDir, false},
 		{persis.CollectionHostKeys, filepath.Join(dataDir, "host-keys"), true},
+		{persis.CollectionIncidentProviders, filepath.Join(dataDir, "incidents"), true},
 		{persis.CollectionIncidents, filepath.Join(dataDir, "incidents"), true},
 		{persis.CollectionInventories, filepath.Join(dataDir, "inventories"), true},
 		{persis.CollectionLicense, filepath.Join(dataDir, "license"), true},
+		{persis.CollectionNotificationChannels, filepath.Join(dataDir, "notifications"), true},
 		{persis.CollectionNotifications, filepath.Join(dataDir, "notifications"), true},
 		{persis.CollectionProfiles, filepath.Join(dataDir, "profiles"), true},
 		{persis.CollectionQueue, paths.QueueDir, false},
@@ -90,9 +92,13 @@ func TestFileBackendPreservesCollectionLayout(t *testing.T) {
 	// Collections that accept only some record IDs are probed with one of
 	// their own.
 	probeIDs := map[string]string{
-		persis.CollectionDispatchTasks:    "pending/probe",
-		persis.CollectionSchedulerProcess: "paused",
-		persis.CollectionSchedulerState:   "state",
+		persis.CollectionDispatchTasks:        "pending/probe",
+		persis.CollectionIncidentProviders:    "providers/probe",
+		persis.CollectionIncidents:            "states/probe",
+		persis.CollectionNotificationChannels: "channels/probe",
+		persis.CollectionNotifications:        "routes/probe",
+		persis.CollectionSchedulerProcess:     "paused",
+		persis.CollectionSchedulerState:       "state",
 	}
 	compact := []byte(`{"value":1}`)
 	var indented bytes.Buffer
@@ -155,6 +161,16 @@ func TestFileBackendSplitCollectionsKeepTheirRecords(t *testing.T) {
 			persis.CollectionSchedulerProcess, persis.CollectionSchedulerState,
 			[]string{"down", "paused", "restart_backoff"},
 			[]string{"catchup", "checkpoint", "dags/etl", "state"},
+		},
+		{
+			persis.CollectionNotificationChannels, persis.CollectionNotifications,
+			[]string{"channels/ops", "workspace"},
+			[]string{"dags/etl", "routes/global", "routes/workspaces/ops"},
+		},
+		{
+			persis.CollectionIncidentProviders, persis.CollectionIncidents,
+			[]string{"providers/pagerduty"},
+			[]string{"policies/global", "policies/dags/etl", "states/open"},
 		},
 	}
 	for _, tt := range tests {

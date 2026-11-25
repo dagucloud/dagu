@@ -334,17 +334,25 @@ type PublicTelegramTarget struct {
 	MessageTemplate    string `json:"messageTemplate,omitempty"`
 }
 
+// Store keeps a project's DAG routes and route sets, and reaches the
+// server-wide channels and notification settings through its ChannelStore.
 type Store interface {
+	ChannelStore
 	Save(ctx context.Context, settings *Settings) error
 	GetByDAGName(ctx context.Context, dagName string) (*Settings, error)
 	List(ctx context.Context) ([]*Settings, error)
 	DeleteByDAGName(ctx context.Context, dagName string) error
-	SaveWorkspaceSettings(ctx context.Context, settings *WorkspaceSettings) error
-	GetWorkspaceSettings(ctx context.Context) (*WorkspaceSettings, error)
 	SaveRouteSet(ctx context.Context, routeSet *RouteSet) error
 	GetRouteSet(ctx context.Context, scope RouteScope, workspace string) (*RouteSet, error)
 	ListRouteSets(ctx context.Context) ([]*RouteSet, error)
 	DeleteRouteSet(ctx context.Context, scope RouteScope, workspace string) error
+}
+
+// ChannelStore keeps the notification channels and notification settings
+// that every project shares.
+type ChannelStore interface {
+	SaveWorkspaceSettings(ctx context.Context, settings *WorkspaceSettings) error
+	GetWorkspaceSettings(ctx context.Context) (*WorkspaceSettings, error)
 	SaveChannel(ctx context.Context, channel *Channel) error
 	GetChannel(ctx context.Context, channelID string) (*Channel, error)
 	ListChannels(ctx context.Context) ([]*Channel, error)
