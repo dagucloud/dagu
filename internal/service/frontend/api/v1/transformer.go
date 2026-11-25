@@ -529,6 +529,7 @@ func toDAGRunDetails(s ir.DAGRunStatus, convertNode func(*ir.Node) api.Node) api
 		ParentDAGRunName:       ptrOf(s.Parent.Name),
 		ParentDAGRunId:         ptrOf(s.Parent.ID),
 		BoundNode:              ptrOf(s.BoundNode),
+		TargetNodes:            ptrOf(s.TargetNodes),
 		ArtifactsAvailable:     artifactsAvailable,
 		NoReuse:                ptrOf(s.NoReuse),
 		Ephemeral:              ephemeralFlag(s),

@@ -38,6 +38,10 @@ type seededRun struct {
 	slot *requestedSlot
 	// backfillID names the backfill the run belongs to.
 	backfillID string
+	// targetNodes and nodeList carry a narrowed source run's node list and
+	// its record.
+	targetNodes []string
+	nodeList    *ir.NodeListRecord
 }
 
 // launchSeededDAGRun persists run as a queued attempt and hands it to the
@@ -66,6 +70,8 @@ func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued boo
 		ScheduleTime:     run.slot.scheduleTimeOrEmpty(),
 		ScheduleWindow:   run.slot.windowOrZero(),
 		BackfillID:       run.backfillID,
+		TargetNodes:      run.targetNodes,
+		NodeList:         run.nodeList,
 		LogBaseDir:       a.config.Paths.LogDir,
 		ArtifactBaseDir:  a.config.Paths.ArtifactDir,
 	})

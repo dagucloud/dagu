@@ -94,6 +94,7 @@ func NewDAGRepository(cfg *config.Config, opts ...DAGRepositoryOption) (*persis.
 		filedag.WithRecursiveDiscovery(cfg.DAGDiscovery.Recursive),
 		filedag.WithSymlinks(options.Symlinks),
 		filedag.WithSkipDirs(cfg.DAGDiscovery.SkipDirs),
+		filedag.WithSkipRoots(cfg.DiscoverySkipRoots()),
 		filedag.WithSkipDirectoryCreation(options.SkipDirectoryCreation),
 		filedag.WithDAGRecords(dagRecords(cfg.Paths)),
 	)

@@ -638,9 +638,14 @@ type reportRequest struct {
 	Gap    *reportGap `json:"gap,omitempty"`
 	// Schedules lists the scheduled DAGs and SchedulesTotal counts them all.
 	// Both are left out while unknown; an empty list says none is scheduled.
-	Schedules      []schedule   `json:"schedules,omitzero"`
-	SchedulesTotal *int         `json:"schedules_total,omitempty"`
-	Audit          *auditReport `json:"audit,omitempty"`
+	Schedules      []schedule `json:"schedules,omitzero"`
+	SchedulesTotal *int       `json:"schedules_total,omitempty"`
+	// ServiceDAGs lists the service DAGs as services and ServiceDAGsTotal
+	// counts them all. Both are left out while unknown; an empty list says
+	// the server has none.
+	ServiceDAGs      *[]serviceDAGEntry `json:"service_dags,omitempty"`
+	ServiceDAGsTotal *int               `json:"service_dags_total,omitempty"`
+	Audit            *auditReport       `json:"audit,omitempty"`
 }
 
 // auditReport is what waits to go to Dagu Console at the audit level. The
@@ -795,6 +800,9 @@ func (r *Reporter) send(ctx context.Context, creds license.CloudCredentials, lev
 		if read && level.ReportsRuns() && r.events.reports() {
 			schedules, total := schedulesOf(state, now)
 			report.Schedules, report.SchedulesTotal = schedules, &total
+		}
+		if level.ReportsRuns() && r.events.reports() {
+			report.ServiceDAGs, report.ServiceDAGsTotal = r.events.serviceDAGs(ctx, level == config.ReportErrors, now)
 		}
 		if level.ReportsRuns() {
 			report.Health.Queues, report.Health.QueuesTotal = r.readQueues(ctx, now)

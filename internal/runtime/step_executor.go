@@ -130,6 +130,13 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 				tag.Error(cleanupErr))
 		}
 	}()
+	if errors.Is(err, errStepNotListed) {
+		node.SetStatus(ir.NodeSkipped)
+		node.SetSkippedByNodeList(true)
+		GetDAGContext(ctx).NodeList.MarkSkipped()
+		logger.Info(ctx, "Step skipped: the run's node list names none of its nodes", tag.Step(node.Name()))
+		return nil
+	}
 	if err != nil {
 		// Setup can fail on starred text, which the masked read explains.
 		err = preferMaskedRead(ctx, node, wrapStepSetupError(err))

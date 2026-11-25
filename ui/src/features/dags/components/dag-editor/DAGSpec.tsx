@@ -2117,17 +2117,16 @@ function DAGSpec({
               </I18nProps>
             )}
             {editable && (
-              // Save and the issues button share this box: the same place and
-              // the same height. The box starts at the end of the YAML button,
-              // so that Save has no gap before it.
+              // Save and the issues button share this box: the same place,
+              // the same height and the same width, so that nothing moves.
               // In the tools sheet of a phone the Save button says its name.
               <IconButtonLabelsConsumer>
                 {(saveLabeled) => (
                   <div
                     data-testid="save-slot"
                     className={cn(
-                      'flex h-7 items-center',
-                      saveLabeled ? 'h-9 w-full justify-start' : 'justify-start'
+                      'flex h-7 items-center justify-start',
+                      saveLabeled ? 'h-9 w-full' : 'w-14'
                     )}
                   >
                     {savingBlocked && issuesPopover}

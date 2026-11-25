@@ -8032,6 +8032,7 @@ export interface components {
             parentDAGRunId?: components["schemas"]["DAGRunId"] & unknown;
             /** @description Inventory node that a child run of a step with nodes is bound to. Absent for other runs. */
             boundNode?: string;
+            targetNodes?: components["schemas"]["TargetNodes"];
             /** @description Path to the log file */
             log: string;
             /** @description Dates the run resolved from its DAG's dates block when it was created, in declaration order */
@@ -9997,6 +9998,8 @@ export interface components {
         RuntimeProfileName: string;
         /** @description Runtime profile override. Empty string means no profile. */
         RuntimeProfileOverride: string;
+        /** @description Inventory nodes the run is narrowed to (RFC 013): its steps with nodes, and those of its child runs, run only on nodes the list names. A node: required DAG takes exactly one node and runs bound to it. Each name must be a node of the project, and the DAG must be node: required or have a step with nodes or a dag.run step. A narrowed run runs on the Dagu host, and retries, restarts, and queued runs keep the list. */
+        TargetNodes: string[];
         /** @description Worker labels this DAG-run requires. Replaces the DAG-level worker_selector for this run, including its "local" value, and is kept with the run so retries, reschedules, and queued dispatch route the same way. Not allowed for DAGs with approval steps. */
         WorkerSelectorOverride: {
             [key: string]: string;
@@ -12261,6 +12264,7 @@ export interface operations {
                     /** @description Optional DAG name override to use for the created dag-run */
                     dagName?: string;
                     workerSelector?: components["schemas"]["WorkerSelectorOverride"];
+                    targetNodes?: components["schemas"]["TargetNodes"];
                     /** @description Runtime profile override. Omit to use the DAG default profile, set to an empty string to run without a profile, or set to a profile name to override the DAG default. */
                     profile?: components["schemas"]["RuntimeProfileOverride"];
                     /**
@@ -12377,6 +12381,7 @@ export interface operations {
                     /** @description Optional DAG name override to use for the created dag-run */
                     dagName?: string;
                     workerSelector?: components["schemas"]["WorkerSelectorOverride"];
+                    targetNodes?: components["schemas"]["TargetNodes"];
                     /** @description Runtime profile override. Omit to use the DAG default profile, set to an empty string to run without a profile, or set to a profile name to override the DAG default. */
                     profile?: components["schemas"]["RuntimeProfileOverride"];
                     /**
@@ -12477,6 +12482,7 @@ export interface operations {
                     /** @description Override the DAG-level queue definition */
                     queue?: string;
                     workerSelector?: components["schemas"]["WorkerSelectorOverride"];
+                    targetNodes?: components["schemas"]["TargetNodes"];
                     /**
                      * @description If true, prevent enqueuing if DAG is already running or queued (returns 409 conflict)
                      * @default false
@@ -14253,6 +14259,7 @@ export interface operations {
                     /** @description Runtime profile to apply to this DAG-run. Set to an empty string or omit to run without a profile. */
                     profile?: components["schemas"]["RuntimeProfileOverride"];
                     workerSelector?: components["schemas"]["WorkerSelectorOverride"];
+                    targetNodes?: components["schemas"]["TargetNodes"];
                     /** @description Parameters to pass to the DAG-run in JSON format */
                     params?: string;
                     dagRunId?: components["schemas"]["DAGRunId"] & unknown;
@@ -14365,6 +14372,7 @@ export interface operations {
                     /** @description Override the queue to use for this DAG-run */
                     queue?: string;
                     workerSelector?: components["schemas"]["WorkerSelectorOverride"];
+                    targetNodes?: components["schemas"]["TargetNodes"];
                     /**
                      * @description If true, prevent enqueuing if DAG is already running or queued (returns 409 conflict)
                      * @default false

@@ -93,6 +93,8 @@ export interface DagDocModel {
   parseErrors: { message: string; line: number; column: number }[];
   documentCount: number; // only document 0 is edited; later documents are never changed
   dagType: DagType;
+  /** True when document 0 has a DAG-level `llm` block, which steps inherit. */
+  hasLLM: boolean;
   stepsForm: StepsForm;
   steps: StepView[];
   handlers: StepView[];
@@ -834,7 +836,6 @@ export interface StepRunInputs {
   reused?: readonly InputProvenance[];
 }
 export interface EditorRunActions {
-  runDag(): Promise<string | null>; // saved definition
   runDraft(): Promise<string | null>; // unsaved buffer through POST /dag-runs
   runStep(stepName: string, opts?: StepRunInputs): Promise<string | null>;
   /**

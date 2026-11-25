@@ -24,6 +24,11 @@ const maxStepNodes = 1000
 // errNoNodeInventory reports a run that cannot read the inventory.
 var errNoNodeInventory = errors.New("the node inventory is not available to this run")
 
+// errStepNotListed reports a step whose matched nodes the run's node list
+// names none of. The step is skipped, and does not block the steps after it
+// (RFC 013 §Narrowing a run).
+var errStepNotListed = errors.New("the run's node list names none of the nodes the step selects")
+
 // runsOnEachNode reports a command step with nodes. Its timeout and retry
 // policy apply to each node's child run, so one hung or failing host does not
 // use up the others' time or rerun them.
@@ -49,6 +54,7 @@ func (n *Node) setupNodesExecutor(ctx context.Context, override ExecutorOverride
 	if err != nil {
 		return ctx, nil, err
 	}
+	GetDAGContext(ctx).NodeList.MarkRan()
 
 	child, err := n.resolveNodeChild(ctx)
 	if err != nil {
@@ -143,8 +149,9 @@ func stepOutputEnvs(scope *cmnvalue.EnvScope) []string {
 	return envs
 }
 
-// matchStepNodes returns the nodes a step's selector matches, in name order.
-// A step that would run on no node, or on more than maxStepNodes, fails.
+// matchStepNodes returns the nodes a step's selector matches and the run's
+// node list names, in name order. A step that would run on no node, or on
+// more than maxStepNodes, fails, unless only the list leaves it no node.
 func matchStepNodes(ctx context.Context, selector string) ([]inventory.ResolvedNode, error) {
 	resolved, err := resolveNodeSelector(ctx, selector)
 	if err != nil {
@@ -160,6 +167,14 @@ func matchStepNodes(ctx context.Context, selector string) ([]inventory.ResolvedN
 	}
 	if len(matched) == 0 {
 		return nil, fmt.Errorf("selector matched no nodes: %s", resolved)
+	}
+	if listed := GetDAGContext(ctx).TargetNodes; len(listed) > 0 {
+		matched = slices.DeleteFunc(matched, func(node inventory.ResolvedNode) bool {
+			return !slices.ContainsFunc(listed, func(name string) bool { return strings.EqualFold(name, node.Name) })
+		})
+		if len(matched) == 0 {
+			return nil, errStepNotListed
+		}
 	}
 	if len(matched) > maxStepNodes {
 		return nil, fmt.Errorf("selector %s matched %d nodes, more than the %d a step runs on", resolved, len(matched), maxStepNodes)

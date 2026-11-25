@@ -56,8 +56,32 @@ describe('actionTemplate', () => {
     });
   });
 
+  // The server rejects an extract step without a model; the user picks one.
+  it.each(['browser.extract', 'computer.extract', 'xlsx.extract'])(
+    'starts a %s step with a model to fill in',
+    (action) => {
+      expect(actionTemplate(action, null).with?.llm).toEqual({
+        provider: 'anthropic',
+        model: 'TODO',
+      });
+    }
+  );
+
+  // A step-level llm block replaces the DAG-level one.
+  it('lets a step inherit the llm block of the DAG', () => {
+    expect(
+      actionTemplate('browser.extract', null, { dagHasLLM: true }).with
+    ).toEqual({
+      url: 'https://example.com',
+      instruction: 'TODO',
+      schema: { type: 'object' },
+    });
+  });
+
   it('leaves the starter values out for a custom action', () => {
-    expect(actionTemplate('http.request', withSchema, true).with).toEqual({
+    expect(
+      actionTemplate('http.request', withSchema, { keepEmptyWith: true }).with
+    ).toEqual({
       method: '',
       url: '',
       headers: {},
@@ -72,7 +96,9 @@ describe('actionTemplate', () => {
   });
 
   it('keeps an empty with block on request', () => {
-    expect(actionTemplate('send-slack', { type: 'object' }, true)).toEqual({
+    expect(
+      actionTemplate('send-slack', { type: 'object' }, { keepEmptyWith: true })
+    ).toEqual({
       action: 'send-slack',
       with: {},
     });

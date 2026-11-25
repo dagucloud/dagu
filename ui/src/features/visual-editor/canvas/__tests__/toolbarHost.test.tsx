@@ -39,7 +39,14 @@ describe('toolbar row of a graph zone', () => {
     expect(TOOLBAR_ZONE_CLASS).toContain(
       'has-[[data-panel-close=row]]:[--ww-close-slot:2.5rem]'
     );
-    expect(tokens(TOOLBAR_ROW_CLASS)).toContain('pr-(--ww-close-slot,0.5rem)');
+    expect(tokens(TOOLBAR_ROW_CLASS)).toContain('pr-(--ww-close-slot)');
+  });
+
+  // The run zone sits in the editor zone, whose hidden panels stay mounted. A
+  // custom property inherits, so each zone sets the slot itself: a panel of
+  // the outer zone never shortens the toolbars of the inner one.
+  it('keeps the Close slot of a zone to its own panels', () => {
+    expect(tokens(TOOLBAR_ZONE_CLASS)).toContain('[--ww-close-slot:0.5rem]');
   });
 
   it('keeps the height of the row for the panels', () => {
@@ -159,50 +166,58 @@ describe('title of a panel in the row', () => {
     expect(screen.queryByTestId('panel-row-title')).toBeNull();
   });
 
-  it('stops before the buttons and follows their width', () => {
-    let notify: ResizeObserverCallback = () => {};
+  // The observer of the title, which a test calls by hand once it has set the
+  // boxes of the groups and of the title.
+  function stubResizeObserver() {
+    let notify = () => {};
     vi.stubGlobal(
       'ResizeObserver',
       class {
         constructor(callback: ResizeObserverCallback) {
-          notify = callback;
+          notify = () => act(() => callback([], {} as ResizeObserver));
         }
         observe() {}
         disconnect() {}
       }
     );
+    return () => notify();
+  }
+
+  // Gives `element` a box from `left` to `right`, in px of the window.
+  function setBox(element: Element, left: number, right: number) {
+    vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
+      left,
+      right,
+      width: right - left,
+    } as DOMRect);
+  }
+
+  // A row with the two groups that the canvas puts in it.
+  function rowWithGroups() {
     const host = document.createElement('div');
-    host.append(document.createElement('div'), document.createElement('div'));
+    const first = document.createElement('div');
+    const last = document.createElement('div');
+    host.append(first, last);
+    return { host, first, last };
+  }
+
+  it('stops before the buttons and follows their width', () => {
+    const notify = stubResizeObserver();
+    const { host, last } = rowWithGroups();
     renderTitle(host);
     const title = screen.getByTestId('panel-row-title');
-    const resize = (width: number) =>
-      act(() =>
-        notify(
-          [{ contentRect: { width } } as ResizeObserverEntry],
-          {} as ResizeObserver
-        )
-      );
-    resize(284);
-    expect(title.style.right).toBe('296px');
-    resize(216);
-    expect(title.style.right).toBe('228px');
+    setBox(last, 716, 1000);
+    notify();
+    expect(title.style.paddingRight).toBe('296px');
+    setBox(last, 784, 1000);
+    notify();
+    expect(title.style.paddingRight).toBe('228px');
   });
 
   // The title also leaves the slot of the Close button, 40px at the right end.
   it('stops before the Close slot when the panel has a Close button', () => {
-    let notify: ResizeObserverCallback = () => {};
-    vi.stubGlobal(
-      'ResizeObserver',
-      class {
-        constructor(callback: ResizeObserverCallback) {
-          notify = callback;
-        }
-        observe() {}
-        disconnect() {}
-      }
-    );
-    const host = document.createElement('div');
-    host.append(document.createElement('div'), document.createElement('div'));
+    const notify = stubResizeObserver();
+    const { host, last } = rowWithGroups();
     render(
       <PanelPlacementProvider value="zone">
         <CanvasToolbarHostContext.Provider value={host}>
@@ -210,12 +225,30 @@ describe('title of a panel in the row', () => {
         </CanvasToolbarHostContext.Provider>
       </PanelPlacementProvider>
     );
-    act(() =>
-      notify(
-        [{ contentRect: { width: 284 } } as ResizeObserverEntry],
-        {} as ResizeObserver
-      )
+    setBox(last, 716, 1000);
+    notify();
+    expect(screen.getByTestId('panel-row-title').style.paddingRight).toBe(
+      '336px'
     );
-    expect(screen.getByTestId('panel-row-title').style.right).toBe('336px');
+  });
+
+  // The first group of the row stays over a wide panel: the title starts
+  // 12px after it, in place of its own 16px of padding, and follows the left
+  // edge of the panel.
+  it('starts after the buttons of the row that reach over the panel', () => {
+    const notify = stubResizeObserver();
+    const { host, first } = rowWithGroups();
+    renderTitle(host);
+    const title = screen.getByTestId('panel-row-title');
+    setBox(first, 8, 420);
+    setBox(title, 300, 1000);
+    notify();
+    expect(title.style.paddingLeft).toBe('116px');
+    setBox(title, 400, 1000);
+    notify();
+    expect(title.style.paddingLeft).toBe('16px');
+    setBox(title, 600, 1000);
+    notify();
+    expect(title.style.paddingLeft).toBe('0px');
   });
 });

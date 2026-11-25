@@ -611,6 +611,8 @@ describe('RunChip healthy', () => {
     expect(screen.queryByText('0/1')).toBeNull();
   });
 
+  // The empty slot keeps its width: the facts do not move when the count
+  // comes.
   it('shows no count before the continuous step has run', () => {
     definition.service = true;
     state.run = makeRun(
@@ -621,10 +623,11 @@ describe('RunChip healthy', () => {
     expect(screen.getByRole('img', { name: 'Healthy' })).toBeInTheDocument();
     expect(screen.queryByTestId('repeat-badge')).toBeNull();
     expect(screen.queryByRole('group', { name: 'Run progress' })).toBeNull();
+    expect(screen.getByTestId('ww-run-count-slot')).not.toHaveClass('hidden');
   });
 
   // The empty slot would leave a gap between the heart and the next fact.
-  it('leaves no slot for the count of a healthy run that has no repeat count', () => {
+  it('leaves no slot for the count of a healthy run with no continuous step', () => {
     definition.service = true;
     state.run = makeRun(
       runDetails('r3', [node('work', NodeStatus.Running)], Status.Running),
@@ -803,6 +806,7 @@ describe('RunChip navigation', () => {
     state.run = makeRun(runDetails('r2'), {
       selection: { runId: 'r2' },
       isLatest: false,
+      latestRef: { runId: 'r3', status: Status.Running },
     });
     renderChip();
     const latest = screen.getByRole('button', { name: 'Latest run' });
@@ -905,37 +909,6 @@ describe('RunChip spec-differs dot', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
       'Back to the current definition'
     );
-  });
-});
-
-// The chip has no "A newer run is active" button: a newer active run shows
-// only in the history, as the Newer run arrow and the Latest run button.
-describe('RunChip newer run', () => {
-  const text = 'A newer run is active';
-
-  it.each([
-    ['running', Status.Running],
-    ['queued', Status.Queued],
-    ['waiting', Status.Waiting],
-  ])('has no notice while a pinned run has a %s latest run', (_l, status) => {
-    state.run = makeRun(runDetails('r2'), {
-      selection: { runId: 'r2' },
-      isLatest: false,
-      latestRef: { runId: 'r3', status },
-    });
-    renderChip();
-    expect(screen.queryByText(text)).toBeNull();
-    expect(screen.queryByRole('button', { name: text })).toBeNull();
-    expect(screen.getByRole('button', { name: 'Latest run' })).toBeEnabled();
-  });
-
-  it('has no notice while the chip follows an active latest run', () => {
-    state.run = makeRun(runDetails('r3', [node('a')], Status.Running), {
-      latestRef: { runId: 'r3', status: Status.Running },
-    });
-    renderChip();
-    expect(screen.queryByText(text)).toBeNull();
-    expect(screen.queryByRole('button', { name: text })).toBeNull();
   });
 });
 

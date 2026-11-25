@@ -212,7 +212,7 @@ export interface VisualEditorProps extends EditorHostProps {
   toolbarStart?: ReactNode;
   /**
    * The text tools of the YAML panel of the file. In the row of a host, they
-   * stand at the start of the toolbar while that panel is open.
+   * join the toolbar while that panel is open in the zone.
    */
   yamlTools?: ReactNode;
   /**
@@ -493,8 +493,8 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     [model, validation?.issues, names]
   );
   const catalog = useMemo(
-    () => buildActionCatalog(schema ?? {}, customActions),
-    [schema, customActions]
+    () => buildActionCatalog(schema ?? {}, customActions, model.hasLLM),
+    [schema, customActions, model.hasLLM]
   );
   const formSchema = useMemo(
     () => withLocalHarnesses(schema ?? {}, harnesses),
@@ -1949,10 +1949,11 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   });
 
   const yamlShown = yamlVisible && !(inDrawer && formOpen);
-  // In the row of a host (from md), the open Workflow and YAML panels have no
-  // title bar: their toggles show the name, and the YAML tools join the row.
+  // In the row of a host (from md), the YAML panel of the file docked in the
+  // zone has no title bar: its tools join the row. In the right column the
+  // panel keeps its bar and its tools.
   const panelsInRow = usePanelInToolbarRow();
-  const inRow = panelsInRow && !compactTools;
+  const inRow = panelsInRow && !compactTools && !inColumn;
   const toolsInRow = inRow && wholeFileShown && !!yamlTools;
   const toolbarEnd = (
     <>

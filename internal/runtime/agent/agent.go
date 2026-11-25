@@ -222,6 +222,13 @@ type Agent struct {
 	// boundNode names the inventory node a bound child run runs on.
 	boundNode string
 
+	// targetNodes narrows the run's steps with nodes to the nodes it names.
+	targetNodes []string
+
+	// nodeList records what the steps with nodes of a narrowed run do with
+	// its list. A dag.run child run shares its parent's.
+	nodeList *runctx.NodeListOutcome
+
 	// nodeSelector finds the inventory nodes of steps with nodes.
 	nodeSelector runtime.NodeSelector
 
@@ -479,6 +486,14 @@ type Options struct {
 	ParallelItem string
 	// BoundNode names the inventory node a bound child run runs on (RFC 013).
 	BoundNode string
+	// TargetNodes narrows the run's steps with nodes, and those of its child
+	// runs, to the nodes it names (RFC 013 §Narrowing a run). A node: required
+	// DAG started with one node is bound to it.
+	TargetNodes []string
+	// NodeList is the record of the narrowed run a dag.run child run runs
+	// inside, which the child's steps with nodes add to. Nil for a run that
+	// keeps its own.
+	NodeList *runctx.NodeListOutcome
 	// NodeSelector finds the inventory nodes of steps with nodes (RFC 012).
 	NodeSelector runtime.NodeSelector
 	// HostKeys finds the host keys trusted for nodes (RFC 012).
@@ -605,7 +620,9 @@ func New(
 		triggerType:              opts.TriggerType,
 		triggerActor:             opts.TriggerActor,
 		parallelItem:             opts.ParallelItem,
-		boundNode:                boundNodeOf(opts),
+		boundNode:                boundNodeOf(dag, opts),
+		targetNodes:              targetNodesOf(opts),
+		nodeList:                 nodeListOf(opts),
 		nodeSelector:             opts.NodeSelector,
 		hostKeys:                 opts.HostKeys,
 		defaultExecMode:          opts.DefaultExecMode,
@@ -993,6 +1010,9 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 	}
 	if a.binding != nil {
 		contextOpts = append(contextOpts, runtime.WithBoundNode(a.binding.valueNode()))
+	}
+	if len(a.targetNodes) > 0 {
+		contextOpts = append(contextOpts, runtime.WithTargetNodes(a.targetNodes, a.nodeList))
 	}
 	if a.noReuse {
 		contextOpts = append(contextOpts, runtime.WithNoReuse(true))
@@ -1856,6 +1876,8 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 			ir.WithTriggerActor(a.triggerActor),
 			ir.WithParallelItem(parallelItem),
 			ir.WithBoundNode(a.boundNode),
+			ir.WithTargetNodes(a.targetNodes),
+			ir.WithNodeListRecord(a.nodeListRecord()),
 			ir.WithAutoRetryCount(a.currentAutoRetryCount()),
 			ir.WithPIDStartedAt(currentPIDStartedAt()),
 			ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
@@ -1918,6 +1940,8 @@ func (a *Agent) Status(ctx context.Context) ir.DAGRunStatus {
 		ir.WithTriggerActor(a.triggerActor),
 		ir.WithParallelItem(parallelItem),
 		ir.WithBoundNode(a.boundNode),
+		ir.WithTargetNodes(a.targetNodes),
+		ir.WithNodeListRecord(a.nodeListRecord()),
 		ir.WithAutoRetryCount(a.currentAutoRetryCount()),
 		ir.WithPIDStartedAt(currentPIDStartedAt()),
 		ir.WithRuntimeProfile(a.profileName, a.profileResolvedAt, a.profileEntries),
@@ -2427,6 +2451,7 @@ func (a *Agent) newRunner(attempt runstate.Attempt) *runtime.Runner {
 		DAGRunAutoRetryCount: a.currentAutoRetryCount(),
 		DAGRunAutoRetryLimit: autoRetryLimit,
 		DAGRunIsRoot:         a.parentDAGRun.Zero(),
+		CheckNodeList:        a.checksNodeList(),
 		SkipHandlers:         a.retryTarget != nil && a.retryTarget.SkipHandlers,
 		ExecutorOverride:     a.executorOverride,
 		ConditionOverride:    a.conditionOverride,
@@ -2897,6 +2922,9 @@ func (a *Agent) dryRun(ctx context.Context) error {
 	}
 	if a.binding != nil {
 		contextOpts = append(contextOpts, runtime.WithBoundNode(a.binding.valueNode()))
+	}
+	if len(a.targetNodes) > 0 {
+		contextOpts = append(contextOpts, runtime.WithTargetNodes(a.targetNodes, a.nodeList))
 	}
 	if a.noReuse {
 		contextOpts = append(contextOpts, runtime.WithNoReuse(true))

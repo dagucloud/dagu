@@ -18,6 +18,8 @@ type Paths struct {
 	ConfigDir string
 	// DAGsDir is the directory containing DAG definitions.
 	DAGsDir string
+	// ProjectsDir is the directory containing the DAG directories of projects.
+	ProjectsDir string
 	// SuspendFlagsDir is the directory for storing flags that indicate DAG suspension.
 	SuspendFlagsDir string
 	// LegacySuspendFlagsDir is the fallback directory for existing suspend flags.
@@ -114,6 +116,7 @@ func setXDGPaths(xdg XDGConfig, configDir string) Paths {
 		// Suspend flags lived next to the data directory before they moved under it.
 		LegacySuspendFlagsDir: filepath.Join(xdg.DataHome, AppSlug, "suspend"),
 		DAGsDir:               filepath.Join(xdg.ConfigHome, AppSlug, "dags"),
+		ProjectsDir:           filepath.Join(xdg.ConfigHome, AppSlug, "projects"),
 	}
 }
 
@@ -134,5 +137,6 @@ func setUnifiedPaths(configDir string) Paths {
 		// Suspend flags lived next to the data directory before they moved under it.
 		LegacySuspendFlagsDir: filepath.Join(configDir, "suspend"),
 		DAGsDir:               filepath.Join(configDir, "dags"),
+		ProjectsDir:           filepath.Join(configDir, "projects"),
 	}
 }

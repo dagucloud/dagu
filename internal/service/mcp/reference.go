@@ -299,6 +299,7 @@ Fields:
 - noReuse: when true for start or enqueue, execute eligible build steps instead of reusing prior materializations.
 - profile: runtime profile name for start and enqueue. Selects the profile for this run only. When omitted, a stored DAG keeps its default profile resolution and an inline spec runs without a profile. The profile must exist and be usable by the caller.
 - labels: labels for start and enqueue.
+- targetNodes: for start and enqueue, the inventory nodes the run is narrowed to. Its steps with nodes, and those of its child runs, run only on listed nodes; a step none of whose nodes is listed is skipped without blocking later steps, and a run whose list leaves every such step without a node fails. A node: required DAG takes exactly one node and runs bound to it. Each name must be an inventory node, and the run runs on the Dagu host.
 - stepName: optional step name for retry. Required for approve, reject, and push_back: the waiting step to decide.
 - includeDownstream: when true, retry the selected step and every reachable descendant. Requires stepName.
 - subDAGRunId: for approve, reject, and push_back, the sub-DAG run that owns the waiting step when it runs inside a sub-DAG run of dagRunId.
@@ -315,7 +316,7 @@ Action behavior:
 - retry retries an existing DAG-run and may target a step with stepName, optionally including downstream steps.
 - stop stops an existing DAG-run.
 - approve, reject, and push_back decide a step that dagu_read target=run reports as waiting with approval or humanTask. For an approval gate, approve lets the step continue with inputs, reject rejects it with reason, and push_back sends it back for re-execution with inputs as feedback. For a human task, approve completes it and push_back pushes it back; human tasks cannot be rejected.
-- Fields unsupported by an action are invalid. params, singleton, noReuse, profile, and labels apply only to start and enqueue; queue only to enqueue; includeDownstream only to retry; stepName only to retry, approve, reject, and push_back; subDAGRunId and attemptId only to approve, reject, and push_back; inputs only to approve and push_back; reason only to reject.
+- Fields unsupported by an action are invalid. params, singleton, noReuse, profile, labels, and targetNodes apply only to start and enqueue; queue only to enqueue; includeDownstream only to retry; stepName only to retry, approve, reject, and push_back; subDAGRunId and attemptId only to approve, reject, and push_back; inputs only to approve and push_back; reason only to reject.
 - With wait=true, the call returns once the run reaches a terminal state, stops at a waiting checkpoint, or the timeout elapses. A run stopped at a checkpoint has completed=false and reports each waiting step under run.steps as humanTask or approval with its prompt; resolve them to resume the run. On timeout the run keeps executing and the output has completed=false.
 
 Output:

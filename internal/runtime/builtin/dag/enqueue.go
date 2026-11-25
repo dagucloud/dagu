@@ -239,6 +239,13 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 	if err := validateSubDAG(dagCopy, target, dagCopy.WorkerSelector); err != nil {
 		return enqueueRunOutput{}, err
 	}
+	// A child of a narrowed run keeps the list, and so runs on the Dagu host.
+	if len(rCtx.TargetNodes) > 0 {
+		if len(dagCopy.WorkerSelector) > 0 {
+			return enqueueRunOutput{}, fmt.Errorf("DAG %q: %w", dagCopy.Name, ir.ErrNodeListOnWorkers)
+		}
+		dagCopy.ForceLocal = true
+	}
 
 	queueName := dagCopy.ProcGroup()
 	if queueOverride := e.queueOverride(); queueOverride != "" {
@@ -257,6 +264,7 @@ func (e *enqueueExecutor) enqueueOne(ctx context.Context, runParams executor.Run
 		WorkerSelector: maps.Clone(dagCopy.WorkerSelector),
 		ScheduleTime:   rCtx.ScheduleTime,
 		ScheduleWindow: rCtx.ScheduleWindow,
+		TargetNodes:    rCtx.TargetNodes,
 	})
 	if err != nil {
 		return enqueueRunOutput{}, err

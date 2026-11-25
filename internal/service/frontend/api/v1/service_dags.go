@@ -5,7 +5,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/url"
 	"sync"
@@ -16,8 +15,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/pagination"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/service/scheduler"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
@@ -63,46 +60,25 @@ func (a *API) readServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFi
 }
 
 func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFilter) (api.ServiceDAGsResponse, error) {
-	paginator := pagination.NewPaginator(1, int(^uint(0)>>1))
-	result, errList, err := a.dagRepository.List(ctx, persis.DAGListOptions{
-		Paginator:       &paginator,
-		OnlyServiceDAGs: true,
-		Sort:            "name",
-		Order:           "asc",
-		WorkspaceFilter: filter,
+	hold := a.restartHold(ctx)
+	views, errList, err := scheduler.ListServiceDAGs(ctx, scheduler.ServiceDAGSources{
+		DAGs: a.dagRepository, Runs: a.dagRunRepository, History: a.dagRunMgr,
+		Backoff: a.restartBackoff(ctx), Held: hold != nil, Filter: filter,
 	})
 	if err != nil {
-		return api.ServiceDAGsResponse{}, fmt.Errorf("error listing service DAGs: %w", err)
+		return api.ServiceDAGsResponse{}, err
 	}
-
-	history := a.dagRunMgr.AllHistory()
-	backoff := a.restartBackoff(ctx)
-	hold := a.restartHold(ctx)
-	dags := make([]api.ServiceDAG, 0, len(result.Items))
-	for _, item := range result.Items {
-		latest, statusErr := history.ReadLatestStatus(ctx, item.DAG)
-		// A run keeps the workspace its DAG had when it started, so after a move
-		// the latest run may belong to a workspace the caller cannot see.
-		if !filter.MatchesLabels(ir.NewLabels(latest.Labels)) {
-			latest = ir.InitialStatus(item.DAG)
-		}
-		state, stateErr := scheduler.DescribeServiceDAG(item.RestartPolicy, &latest, item.Suspended, func() (bool, error) {
-			return scheduler.IsStopRequested(ctx, a.dagRunRepository, item.DAG, latest.DAGRunID)
-		})
+	dags := make([]api.ServiceDAG, 0, len(views))
+	for _, v := range views {
+		item := v.Item
 		var readError *string
-		if readErr := errors.Join(statusErr, stateErr); readErr != nil {
-			state = scheduler.ServiceDAGStateFailing
-			message := readErr.Error()
+		if v.ReadError != nil {
+			message := v.ReadError.Error()
 			readError = &message
 		}
-		var nextRestartAt *time.Time
 		var restartHold *api.ServiceDAGRestartHold
-		if readError == nil && (state == scheduler.ServiceDAGStateRestarting || state == scheduler.ServiceDAGStateFailing) {
-			if hold != nil {
-				restartHold = hold
-			} else if at, ok := scheduler.NextRestart(item.RestartWait, &latest, backoff[item.Name]); ok {
-				nextRestartAt = &at
-			}
+		if readError == nil && hold != nil && (v.State == scheduler.ServiceDAGStateRestarting || v.State == scheduler.ServiceDAGStateFailing) {
+			restartHold = hold
 		}
 		dags = append(dags, api.ServiceDAG{
 			FileName:       item.ID,
@@ -110,22 +86,22 @@ func (a *API) listServiceDAGs(ctx context.Context, filter *workspace.WorkspaceFi
 			RestartPolicy:  api.RestartPolicy(item.RestartPolicy),
 			RestartWaitSec: int(item.RestartWait.Seconds()),
 			Queue:          item.ProcGroup(),
-			State:          api.ServiceDAGState(state),
+			State:          api.ServiceDAGState(v.State),
 			Suspended:      item.Suspended,
-			LatestRun:      toServiceDAGRun(latest),
+			LatestRun:      toServiceDAGRun(v.Latest),
 			ReadError:      readError,
-			NextRestartAt:  nextRestartAt,
+			NextRestartAt:  v.NextRestartAt,
 			RestartHold:    restartHold,
 
-			ConsecutiveFailures: a.failureStreak(ctx, item.DAG, latest),
+			ConsecutiveFailures: a.failureStreak(ctx, item.DAG, v.Latest),
 		})
 	}
 	// A list of every service DAG tells which ones were deleted. A list of some
 	// workspaces does not, so it keeps the counts of the other DAGs.
 	if filter == nil || !filter.Enabled {
-		names := make(map[string]struct{}, len(result.Items))
-		for _, item := range result.Items {
-			names[item.Name] = struct{}{}
+		names := make(map[string]struct{}, len(views))
+		for _, v := range views {
+			names[v.Item.Name] = struct{}{}
 		}
 		a.serviceDAGFailures.retain(names)
 	}

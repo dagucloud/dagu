@@ -53,6 +53,10 @@ type SeedRequest struct {
 	// Ephemeral stores the run apart from the history and marks it so that it
 	// leaves no trace.
 	Ephemeral bool
+	// TargetNodes narrows the run's steps with nodes to the nodes it names,
+	// and NodeList continues the record of what they did with the list.
+	TargetNodes []string
+	NodeList    *ir.NodeListRecord
 
 	LogBaseDir      string
 	ArtifactBaseDir string
@@ -114,6 +118,8 @@ func SeedRun(ctx context.Context, req SeedRequest) (dagrun.Attempt, *ir.DAGRunSt
 		ir.WithSkipHandlers(req.SkipHandlers),
 		ir.WithScheduleTime(req.ScheduleTime),
 		ir.WithScheduleWindow(req.ScheduleWindow),
+		ir.WithTargetNodes(req.TargetNodes),
+		ir.WithNodeListRecord(req.NodeList),
 	)
 	status.Params = req.Params
 	status.ParamsList = dag.Params

@@ -45,7 +45,6 @@ vi.mock('@/hooks/useDAGRunSSE', () => ({
   }),
 }));
 vi.mock('@/contexts/AuthContext', () => ({
-  useCanExecute: () => true,
   useCanExecuteForWorkspace: () => true,
 }));
 vi.mock('@/contexts/RemoteNodeContext', () => ({

@@ -463,6 +463,8 @@ func TestExecuteInputValidation(t *testing.T) {
 		{name: "stop rejects step name", input: `{"action":"stop","name":"etl","dagRunId":"run-1","stepName":"build"}`, wantField: executeFieldStepName},
 		{name: "stop rejects disabled downstream", input: `{"action":"stop","name":"etl","dagRunId":"run-1","includeDownstream":false}`, wantField: executeFieldIncludeDownstream},
 		{name: "stop rejects empty labels", input: `{"action":"stop","name":"etl","dagRunId":"run-1","labels":[]}`, wantField: executeFieldLabels},
+		{name: "retry rejects target nodes", input: `{"action":"retry","name":"etl","dagRunId":"run-1","targetNodes":["web01"]}`, wantField: executeFieldTargetNodes},
+		{name: "target nodes must be strings", input: `{"action":"start","name":"etl","targetNodes":"web01"}`, wantField: executeFieldTargetNodes},
 		{name: "wait timeout requires wait", input: `{"action":"start","name":"etl","waitTimeoutSeconds":30}`, wantField: executeFieldWaitTimeoutSeconds},
 		{name: "wait timeout rejects zero", input: `{"action":"start","name":"etl","wait":true,"waitTimeoutSeconds":0}`, wantField: executeFieldWaitTimeoutSeconds},
 		{name: "wait timeout range", input: `{"action":"start","name":"etl","wait":true,"waitTimeoutSeconds":301}`, wantField: executeFieldWaitTimeoutSeconds},

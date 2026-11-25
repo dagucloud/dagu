@@ -6,11 +6,21 @@ import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Status, StatusLabel } from '@/api/v1/schema';
+import { AppBarContext } from '@/contexts/AppBarContext';
 import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
 import RunProgressStack, { pushRunProgress } from '../RunProgressStack';
 
-const { runStatuses } = vi.hoisted(() => ({
+const { runStatuses, query } = vi.hoisted(() => ({
   runStatuses: new Map<string, Status>(),
+  query: vi.fn(),
+}));
+
+vi.mock('@/hooks/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/api')>()),
+  useQuery: (path: string, init: unknown) => {
+    query(path, init);
+    return { data: undefined };
+  },
 }));
 
 vi.mock('@/features/dag-runs/hooks/useBoundedDAGRunDetails', () => ({
@@ -44,6 +54,7 @@ vi.mock('@/features/dag-runs/hooks/useBoundedDAGRunDetails', () => ({
 
 beforeEach(() => {
   runStatuses.clear();
+  query.mockClear();
   vi.mocked(useBoundedDAGRunDetails).mockClear();
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
@@ -201,6 +212,28 @@ describe('RunProgressStack', () => {
     expect(
       screen.queryByRole('button', { name: 'Open run progress for run-1' })
     ).toBeNull();
+  });
+
+  // The run was started on its own node: the app bar may show another one.
+  it('reads the status chip of a run on the node of the run', () => {
+    render(
+      <AppBarContext.Provider
+        value={{ setTitle: vi.fn(), selectedRemoteNode: 'main' } as never}
+      >
+        <MemoryRouter>
+          <AddRunButton dagName="example" dagRunId="run-1" />
+          <RunProgressStack />
+        </MemoryRouter>
+      </AppBarContext.Provider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add run-1' }));
+
+    expect(query).toHaveBeenCalledWith('/service-dags', {
+      params: { query: { remoteNode: 'edge' } },
+    });
+    expect(query).not.toHaveBeenCalledWith('/service-dags', {
+      params: { query: { remoteNode: 'main' } },
+    });
   });
 
   it('dismisses a stacked run without leaving the page', () => {

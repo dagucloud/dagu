@@ -276,3 +276,23 @@ func decodeCursor(c string) (int64, error) {
 	}
 	return v, nil
 }
+
+// Outage is the open outage of a run history: its failed runs and the time
+// it started. Open is false when the latest event ended the outage or no run
+// failed.
+type Outage struct {
+	Open        bool
+	FailedCount uint64
+	Since       time.Time
+}
+
+// ReadOutage reads the open outage of the run history in dir, as the
+// recorder restores it after a restart. A directory with no run history has
+// no outage.
+func ReadOutage(dir string) (Outage, error) {
+	t, _, err := newStore(dir).loadTracker()
+	if err != nil || !t.inOutage {
+		return Outage{}, err
+	}
+	return Outage{Open: true, FailedCount: t.failed, Since: time.UnixMilli(t.outageStart).UTC()}, nil
+}

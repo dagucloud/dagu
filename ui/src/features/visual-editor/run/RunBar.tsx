@@ -26,8 +26,6 @@ export function RunBar(p: {
   const { actions } = p;
   const busy = actions.isStarting;
   const noPermission = ts('You do not have permission to run workflows.');
-  // The saved definition starts from the Start button of the header, which
-  // opens the start dialog. Only the draft has no other way to run.
 
   // Starting a run shows it, so the overlay colors the canvas with the new run.
   const start = async (run: () => Promise<string | null>) => {
@@ -37,6 +35,8 @@ export function RunBar(p: {
 
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs">
+      {/* The saved definition starts from the Start button of the header,
+          which opens the start dialog. */}
       {p.isDirty && (
         <Button
           size="xs"

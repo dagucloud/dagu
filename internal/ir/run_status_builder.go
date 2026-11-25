@@ -187,6 +187,21 @@ func WithBoundNode(node string) StatusOption {
 	}
 }
 
+// WithTargetNodes sets the nodes the run is narrowed to.
+func WithTargetNodes(nodes []string) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.TargetNodes = nodes
+	}
+}
+
+// WithNodeListRecord sets what a narrowed run's steps with nodes did with
+// its list.
+func WithNodeListRecord(record *NodeListRecord) StatusOption {
+	return func(status *DAGRunStatus) {
+		status.NodeList = record
+	}
+}
+
 // WithAutoRetryCount sets the current automatic retry count.
 func WithAutoRetryCount(autoRetryCount int) StatusOption {
 	return func(status *DAGRunStatus) {

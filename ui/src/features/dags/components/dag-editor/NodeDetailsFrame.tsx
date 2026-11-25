@@ -337,14 +337,16 @@ export function NodeDetailsFrame({
   // tab for the file, over the zone and the column for a step. One container
   // keeps its editor, with the undo history, when it changes place. Over the
   // tab it claims no right-panel slot.
-  const inRow = usePanelInToolbarRow();
   const column = usePanelColumn();
   const layer = column?.layer ?? null;
   const inColumn = !!layer && !!column?.yaml && state !== 'expanded';
+  // A frame over the YAML tab of the column keeps its bar: the row of the
+  // toolbars is for a frame docked in the zone.
+  const inRow = usePanelInToolbarRow() && !inColumn;
   // The row of the toolbars has the Close button of the docked file, and its
   // title unless the bar has a note; an open frame only, as the zone keeps a
   // slot free for the button.
-  const rowTitle = inRow && fileScope && open && !inColumn;
+  const rowTitle = inRow && fileScope && open;
   const columnBox = useBoxIn(inColumn ? column.yaml : null, layer);
   useRightPanelClaim('ndv', open && !inColumn, onClose, onRestore);
   const sectionRef = React.useRef<HTMLElement>(null);
@@ -630,8 +632,8 @@ export function NodeDetailsFrame({
             PANEL_HEADER_CLASS,
             '@container',
             // The YAML toggle and the tools of the row take its place from
-            // md. A note (the lock of a read-only text, a run) keeps it, but
-            // the row has the title and the Close button.
+            // md. A note (the lock of a read-only text, a run) keeps it with
+            // the title; the row has the Close button.
             inRow && fileScope && !headerNote && ROW_PANEL_HEADER_CLASS
           )}
         >

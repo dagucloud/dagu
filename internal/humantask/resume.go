@@ -343,7 +343,7 @@ func dependencyAllowsRun(dep *ir.Node) bool {
 	case ir.NodeSucceeded, ir.NodePartiallySucceeded:
 		return true
 	case ir.NodeSkipped:
-		return dep.SkippedByRetry || dep.Step.ContinueOn.Skipped
+		return dep.SkippedByRetry || dep.SkippedByNodeList || dep.Step.ContinueOn.Skipped
 	case ir.NodeNotStarted, ir.NodeRunning, ir.NodeFailed, ir.NodeAborted,
 		ir.NodeWaiting, ir.NodeRejected, ir.NodeRetrying:
 		return false

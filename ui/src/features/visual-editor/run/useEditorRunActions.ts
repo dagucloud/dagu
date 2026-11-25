@@ -71,20 +71,6 @@ export function useEditorRunActions(args: Args): EditorRunActions {
     []
   );
 
-  const runDag = useCallback(async () => {
-    const { fileName, isDirty, remoteNode, ts } = latest.current;
-    if (isDirty) {
-      setError(ts('Save the DAG first, or run the unsaved draft.'));
-      return null;
-    }
-    return start(() =>
-      client.POST('/dags/{fileName}/start', {
-        params: { path: { fileName }, query: { remoteNode } },
-        body: buildStartBody(),
-      })
-    );
-  }, [client, start]);
-
   const runDraft = useCallback(async () => {
     const { dagName, spec, remoteNode } = latest.current;
     return start(() =>
@@ -132,7 +118,6 @@ export function useEditorRunActions(args: Args): EditorRunActions {
   );
 
   return {
-    runDag,
     runDraft,
     runStep,
     runSteps,

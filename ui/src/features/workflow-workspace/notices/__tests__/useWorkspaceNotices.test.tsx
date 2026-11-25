@@ -371,30 +371,6 @@ describe('useWorkspaceNotices', () => {
     });
   });
 
-  // The notice "A newer run is active" does not exist: the run bar does not
-  // tell it, whatever the pinned run and the latest run are.
-  describe('no newer-run notice', () => {
-    it.each([Status.Running, Status.Queued, Status.Waiting, Status.NotStarted])(
-      'gives none for a pinned run while the latest run has status %s',
-      (status) => {
-        const { result } = renderNotices({
-          run: {
-            selection: { runId: 'run-7' },
-            isLatest: false,
-            latestRef: { runId: 'run-9', status },
-          },
-        });
-        expect(ids(result.current)).not.toContain('newer-run-active');
-        expect(
-          result.current.some((n) => n.message === 'A newer run is active')
-        ).toBe(false);
-        expect(
-          result.current.some((n) => n.action?.label === 'Follow latest')
-        ).toBe(false);
-      }
-    );
-  });
-
   // parity:overview-monitoring-offer parity:shell-monitoring-offer
   describe('monitoring-offer', () => {
     it('offers monitoring for a scheduled workflow and links to Settings', () => {

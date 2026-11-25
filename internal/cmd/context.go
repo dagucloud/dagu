@@ -251,6 +251,11 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	for _, warning := range cfg.Warnings {
 		logger.Warn(ctx, warning)
 	}
+	if servesProjects(cmd.Name()) {
+		for _, warning := range cfg.ProjectWarnings() {
+			logger.Warn(ctx, warning)
+		}
+	}
 	if contextStoreWarning != nil {
 		logger.Warn(ctx, contextStoreWarning.Error())
 	}
@@ -529,6 +534,17 @@ func serviceForCommand(cmdName string) config.Service {
 	default:
 		// For all other commands (status, stop, validate, etc.), load all config
 		return config.ServiceNone
+	}
+}
+
+// servesProjects reports whether the command starts a process that serves
+// every project.
+func servesProjects(cmdName string) bool {
+	switch cmdName {
+	case "server", "scheduler", "coordinator", "start-all":
+		return true
+	default:
+		return false
 	}
 }
 

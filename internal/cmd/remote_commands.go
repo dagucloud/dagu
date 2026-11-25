@@ -246,6 +246,10 @@ func remoteRunStart(ctx *Context, args []string) error {
 		if len(args) != 1 || ctx.Command.Flags().Changed("params") || ctx.Command.ArgsLenAtDash() != -1 || stdinParamsRequested(ctx) {
 			return fmt.Errorf("parameters cannot be provided when using --from-run-id")
 		}
+		// A remote reschedule carries no node list.
+		if ctx.Command.Flags().Changed(flagNode) {
+			return fmt.Errorf("--%s cannot be combined with --from-run-id in a remote context", flagNode)
+		}
 		scheduledAt, err := ctx.StringParam(scheduledAtFlag.name)
 		if err != nil {
 			return err
@@ -309,6 +313,10 @@ func remoteRunStart(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	targetNodes, err := remoteTargetNodes(ctx)
+	if err != nil {
+		return err
+	}
 	scheduledAt, err := ctx.StringParam("scheduled-at")
 	if err != nil {
 		return err
@@ -325,6 +333,7 @@ func remoteRunStart(ctx *Context, args []string) error {
 		Outputs:          outputs,
 		ReuseFrom:        stringPtrOrNil(selection.reuseFrom),
 		WorkerSelector:   workerSelector,
+		TargetNodes:      targetNodes,
 		ScheduleTime:     stringPtrOrNil(scheduledAt),
 	})
 	if err != nil {
@@ -367,6 +376,10 @@ func remoteRunEnqueue(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	targetNodes, err := remoteTargetNodes(ctx)
+	if err != nil {
+		return err
+	}
 	scheduledAt, err := ctx.StringParam("scheduled-at")
 	if err != nil {
 		return err
@@ -379,6 +392,7 @@ func remoteRunEnqueue(ctx *Context, args []string) error {
 		Labels:         labels,
 		NoReuse:        &noReuse,
 		WorkerSelector: workerSelector,
+		TargetNodes:    targetNodes,
 		ScheduleTime:   stringPtrOrNil(scheduledAt),
 	})
 	if err != nil {

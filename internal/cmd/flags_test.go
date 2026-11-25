@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,6 +53,17 @@ func TestHiddenHierarchyFlagsStillParse(t *testing.T) {
 	rootRetry, err := retryCmd.Flags().GetString("root")
 	require.NoError(t, err)
 	assert.Equal(t, "root-dag:root-run", rootRetry)
+}
+
+// Commands that take --dags also take --projects-dir, kept out of usage
+// while projects are off by default.
+func TestProjectsDirFlagHiddenFromUsage(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []*cobra.Command{cmd.Server(), cmd.Scheduler(), cmd.StartAll()} {
+		require.NotNil(t, command.Flags().Lookup("projects-dir"), command.Name())
+		assert.NotContains(t, command.UsageString(), "--projects-dir", command.Name())
+	}
 }
 
 func TestRetryCommandAcceptsDefaultWorkingDirFlag(t *testing.T) {

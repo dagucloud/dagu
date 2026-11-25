@@ -199,5 +199,6 @@ func (a *agg) bucket() Bucket {
 		Max:      us(a.Max),
 		P50:      us(a.quantile(0.50)),
 		P95:      us(a.quantile(0.95)),
+		Sum:      us(a.Sum),
 	}
 }

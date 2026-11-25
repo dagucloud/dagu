@@ -27,8 +27,8 @@ vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
 
-const definitionFetches = () =>
-  h.fetch.mock.calls.filter(([url]) => String(url).includes('/dags/'));
+const serviceListFetches = () =>
+  h.fetch.mock.calls.filter(([url]) => String(url).includes('/service-dags'));
 
 beforeEach(() => {
   vi.useFakeTimers({
@@ -42,7 +42,7 @@ beforeEach(() => {
   });
   h.fetch.mockImplementation(
     async () =>
-      new Response(JSON.stringify({ dag: { steps: [{}] } }), {
+      new Response(JSON.stringify({ dags: [] }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
@@ -54,11 +54,9 @@ afterEach(() => {
   h.fetch.mockReset();
 });
 
-// The definition of a workflow is reused for 5 minutes and read again by the
-// first row that mounts after that.
 // A row of a list.
-function Row() {
-  useListRunDisplay('etl', 'r1', Status.Running);
+function Row({ name }: { name: string }) {
+  useListRunDisplay(name, 'r1', Status.Running);
   return null;
 }
 
@@ -67,7 +65,7 @@ function List({ rows }: { rows: number }) {
   return (
     <SWRConfig value={{ provider: () => new Map() }}>
       {Array.from({ length: rows }, (_, i) => (
-        <Row key={i} />
+        <Row key={i} name={`wf-${i}`} />
       ))}
     </SWRConfig>
   );
@@ -78,44 +76,49 @@ const settle = (ms: number) =>
     await vi.advanceTimersByTimeAsync(ms);
   });
 
-// The definition of a workflow is reused for 5 minutes and read again by the
+// The list of service DAGs is reused for 5 minutes and read again by the
 // first row that mounts after that.
-describe('useListRunDisplay definition cache', () => {
-  it('reads the definition again only after the dedupe interval', async () => {
+describe('useListRunDisplay service list cache', () => {
+  it('reads the service list again only after the dedupe interval', async () => {
     const { rerender } = render(<List rows={3} />);
     await settle(50);
-    // The three rows of one workflow share one request.
-    expect(definitionFetches()).toHaveLength(1);
+    // The rows of three workflows share one request.
+    expect(serviceListFetches()).toHaveLength(1);
 
     rerender(<List rows={0} />);
     await settle(4 * 60_000);
     rerender(<List rows={1} />);
     await settle(50);
-    expect(definitionFetches()).toHaveLength(1);
+    expect(serviceListFetches()).toHaveLength(1);
 
     rerender(<List rows={0} />);
     await settle(2 * 60_000);
     rerender(<List rows={1} />);
     await settle(50);
-    expect(definitionFetches()).toHaveLength(2);
+    expect(serviceListFetches()).toHaveLength(2);
   });
 });
 
-// Only a service DAG (restart_policy in its definition) can read Healthy.
-describe('useListRunDisplay of a continuous step', () => {
+// Only a service DAG (restart_policy) can read Healthy.
+describe('useListRunDisplay of a running run', () => {
   const forever = { repeatPolicy: { repeat: 'while', interval: 10 } };
 
-  function serve(definition: object) {
+  function serve(
+    services: object[],
+    nodes: () => object[] = () => [
+      { status: NodeStatus.Running, step: forever },
+    ]
+  ) {
     h.fetch.mockImplementation(async (url: string) => {
       const body = String(url).includes('/dag-runs/')
         ? {
             dagRunDetails: {
               dagRunId: 'r1',
               status: Status.Running,
-              nodes: [{ status: NodeStatus.Running, step: forever }],
+              nodes: nodes(),
             },
           }
-        : { dag: { steps: [forever], ...definition } };
+        : { dags: services };
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -123,7 +126,8 @@ describe('useListRunDisplay of a continuous step', () => {
     });
   }
 
-  async function read(): Promise<RunDisplayStatus | undefined> {
+  // Mounts a row and returns its latest display status.
+  async function mount(): Promise<() => RunDisplayStatus | undefined> {
     let display: RunDisplayStatus | undefined;
     function Probe() {
       display = useListRunDisplay('etl', 'r1', Status.Running);
@@ -135,20 +139,37 @@ describe('useListRunDisplay of a continuous step', () => {
       </SWRConfig>
     );
     await settle(50);
-    return display;
+    return () => display;
   }
 
-  it('reads Healthy when the definition has a restart policy', async () => {
-    serve({ restartPolicy: RestartPolicy.always });
+  const read = async () => (await mount())();
+
+  it('reads Healthy when the service list names the workflow', async () => {
+    serve([{ name: 'etl', restartPolicy: RestartPolicy.always }]);
     expect(await read()).toMatchObject({ healthy: true, text: 'Healthy' });
   });
 
-  it('reads Running when the definition has no restart policy', async () => {
-    serve({});
+  it('reads Running when the service list does not name the workflow', async () => {
+    serve([{ name: 'other', restartPolicy: RestartPolicy.always }]);
     expect(await read()).toMatchObject({ healthy: false, text: 'Running' });
     // The run is not read: it cannot turn Healthy.
     expect(
       h.fetch.mock.calls.filter(([url]) => String(url).includes('/dag-runs/'))
     ).toHaveLength(0);
+  });
+
+  // A step that fails leaves the run Running in the list: only a new read of
+  // the details shows the failure, also when the run has no continuous step.
+  it('turns Running when a later read shows a failed step', async () => {
+    const work = { status: NodeStatus.Running, step: {} };
+    let nodes: object[] = [work];
+    serve([{ name: 'etl', restartPolicy: RestartPolicy.always }], () => nodes);
+    const display = await mount();
+    expect(display()).toMatchObject({ healthy: true, text: 'Healthy' });
+
+    nodes = [work, { status: NodeStatus.Failed, step: {} }];
+    await settle(60_000);
+    await settle(50);
+    expect(display()).toMatchObject({ healthy: false, text: 'Running' });
   });
 });

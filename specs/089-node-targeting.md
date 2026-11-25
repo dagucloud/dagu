@@ -4,12 +4,13 @@
 
 Partially implemented. The `nodes` step field, the `node` DAG field, their
 validation, running a step as one child run per node, binding SSH nodes into
-their child runs, the `node` namespace, and the records of node runs with
-the API that reads them are implemented. Conformance covers validation
-through `dagu validate`, runs through `dagu start` against SSH servers the
-test harness starts, and node runs through the API. Bound runs and steps
-with nodes do not run on workers yet, and the UI does not show node runs
-yet. Further sections are added as RFC 013 lands.
+their child runs, the `node` namespace, the records of node runs with the
+API that reads them, and narrowing a run to listed nodes are implemented.
+Conformance covers validation through `dagu validate`, runs through `dagu
+start` against SSH servers the test harness starts, node runs through the
+API, and narrowed runs through `dagu start` and `dagu retry`. Bound runs and
+steps with nodes do not run on workers yet, and the run dialog has no node
+picker yet. Further sections are added as RFC 013 lands.
 
 ## Scope
 
@@ -153,6 +154,56 @@ runtime-only notice. A run with a variable named `node`, such as a step
 output, reads `${node.<path>}` as a JSON path into that variable instead,
 as it did before the namespace.
 
+### Narrowing a run
+
+A run can carry a list of node names. In every step with `nodes` of the
+run and of its child runs, a node runs only when the step's selector matches
+it and the list names it. The 1,000-node limit applies after the list.
+
+| Surface | List |
+| --- | --- |
+| `dagu start`, `dagu enqueue` | `--node`, repeatable |
+| API start, start-sync, and enqueue, for a DAG file or an inline spec | `targetNodes` |
+| MCP `dagu_execute` start and enqueue | `targetNodes` |
+
+The list is checked when the run is started or enqueued, before it exists,
+and a mistake fails the request:
+
+- each name must be a node of the project, compared without case, so a
+  mistyped name never starts a run;
+- a `node: required` DAG takes exactly one node, and the run is bound to it
+  as a child of a `dag.run` step with `nodes` is;
+- any other DAG takes a list only when a step, a `foreach` body, or a
+  handler sets `nodes` or runs a child DAG;
+- the run must run on the Dagu host, so a DAG or request that selects
+  workers takes no list, and a narrowed run is not dispatched to workers
+  under the distributed default;
+- a start of selected steps takes no list.
+
+The run keeps the list, spelled as the inventory spells the names, in its
+status. Queued runs, retries, edit-and-retry runs, and `dagu restart` keep
+it, run details carry it as `targetNodes`, and the audit entry of the start
+records it.
+
+A step whose selector matches nodes, none of which the list names, is
+`skipped`, and the skip does not block the steps after it, as a step skipped
+by a precondition would. A run whose list leaves every step with nodes that
+matched nodes without a node, those of `foreach` bodies and of its `dag.run`
+child runs included, fails with `no listed node was selected`. The steps
+decide this before the handlers run, as they decide any other failure, so
+the handlers that run are those of the failure. A run whose steps leave no
+listed node and match none, and whose handlers with nodes then leave every
+one of them without a node, fails the same way after its handlers. A step
+that matched no node, such as one a precondition skipped or a `foreach`
+with no items, does not count. A retry counts what the attempts before it
+did, so the steps it keeps still count.
+
+A child run of a narrowed run, started by `dag.run` or `dag.enqueue`, keeps
+the list and runs on the Dagu host, so a child DAG that selects workers
+fails the step that starts it. A `dag.run` child run does not fail for the
+list: its steps count toward the run it is part of. A `dag.enqueue` child
+run is a run of its own, and fails for the list as any run does.
+
 ### Viewing node runs
 
 A step with nodes records the run of each node it matched beside its log
@@ -212,6 +263,11 @@ this version has no rows and no counts.
   `nodes`, since inventories belong to the installation's one project until
   workspaces become projects.
 
+`dagu start`, `dagu enqueue`, and the start and enqueue requests fail
+before any run exists when a node list names a name that is not a node of
+the project (`node "web1" is not a node of the project`), is given for a DAG
+that has nothing to narrow, selects workers, or starts selected steps.
+
 A step with `nodes` fails before any node starts, with the error, when:
 
 - a reference in its selector resolves to anything but one label key or
@@ -223,7 +279,8 @@ A step with `nodes` fails before any node starts, with the error, when:
 
 A run fails before any step starts when:
 
-- it is a `node: required` DAG started without a node;
+- it is a `node: required` DAG started without a node, or with a list of
+  other than one node;
 - it is bound to a node that is not in the inventories, or is disabled;
 - it reads `${node.labels.<key>}` for a label its node lacks, naming the
   node and the key;

@@ -79,6 +79,15 @@ var (
 		bindViper: true,
 	}
 
+	// projectsDirFlag stays hidden while projects are off by default.
+	projectsDirFlag = commandLineFlag{
+		name:      "projects-dir",
+		usage:     "Directory containing the DAG directories of projects (default: $HOME/.config/dagu/projects)",
+		bindViper: true,
+		viperKey:  "paths.projects_dir",
+		hidden:    true,
+	}
+
 	hostFlag = commandLineFlag{
 		name:         "host",
 		shorthand:    "s",

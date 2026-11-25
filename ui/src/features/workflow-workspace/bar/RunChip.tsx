@@ -36,7 +36,6 @@ import { RunFacts, hasHiddenFacts, visibleFacts } from './RunFacts';
 import { RunIdMark, RunStaleDot } from './RunStaleDot';
 import { factsShownAt, useBarWidth } from './useFactTiers';
 
-// The statuses for which isRunActive is true.
 type Direction = 'older' | 'newer';
 
 // The slot of the count holds "99/99" or the repeat badge with "×1.2M". Its
@@ -111,8 +110,7 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
 
   const olderDisabled = historyReady ? olderId === null : !run.hasRun;
   // The latest run can have a newer test run in the timeline: the history
-  // decides, as it does for the older run. The first click reads it, so the
-  // arrow stays on until then.
+  // decides, as it does for the older run.
   const newerDisabled = historyReady ? newerId === null : !run.hasRun;
 
   const failedNode = run.failedStep
@@ -164,10 +162,7 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
     ? readRepeatPolicy(continuous.step.repeatPolicy)
     : null;
 
-  const noCount =
-    run.isActive &&
-    display.healthy &&
-    !(continuousPolicy && continuous && continuous.doneCount > 0);
+  const noCount = run.isActive && display.healthy && !continuous;
 
   // The skipped steps are not in the count: they did not have to run.
   const nodes = (details.nodes ?? []).filter(
@@ -328,8 +323,8 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
           chip keeps its width when a run starts or ends. */}
       <span
         data-testid="ww-run-count-slot"
-        // A healthy run with no repeat count has nothing for the slot: it
-        // leaves no gap between the heart and the next fact.
+        // A healthy run with no continuous step never has a count: it leaves
+        // no gap between the heart and the next fact.
         className={cn(COUNT_SLOT, noCount && 'hidden')}
       >
         {run.isActive && display.healthy

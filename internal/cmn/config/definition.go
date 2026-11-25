@@ -276,8 +276,9 @@ type PermissionsDef struct {
 
 // PathsDef configures file system paths.
 type PathsDef struct {
-	DAGsDir string `mapstructure:"dags_dir"`
-	WikiDir string `mapstructure:"wiki_dir"`
+	DAGsDir     string `mapstructure:"dags_dir"`
+	ProjectsDir string `mapstructure:"projects_dir"`
+	WikiDir     string `mapstructure:"wiki_dir"`
 	// DocsDir is the deprecated name for WikiDir.
 	DocsDir            string `mapstructure:"docs_dir"`
 	Executable         string `mapstructure:"executable"`

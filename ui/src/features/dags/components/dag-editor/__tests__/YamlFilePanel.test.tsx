@@ -13,7 +13,11 @@ import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { RightPanelProvider } from '@/contexts/RightPanelContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
-import { PanelPlacementProvider } from '@/features/dags/components/step-details/PanelShell';
+import {
+  PanelColumnProvider,
+  PanelPlacementProvider,
+  type PanelColumn,
+} from '@/features/dags/components/step-details/PanelShell';
 import { CanvasToolbarHostContext } from '@/features/visual-editor/canvas/toolbarHost';
 import { useYamlSection, type YamlSectionHost } from '../useYamlSection';
 import { YamlFilePanel, type YamlFilePanelProps } from '../YamlFilePanel';
@@ -46,7 +50,8 @@ const TEXT = 'name: demo\nsteps:\n  - name: a\n    command: echo\n';
 
 function renderPanel(
   extra: Partial<YamlFilePanelProps> = {},
-  host?: HTMLElement | null
+  host?: HTMLElement | null,
+  column: PanelColumn | null = null
 ) {
   const props: YamlFilePanelProps = {
     text: TEXT,
@@ -68,18 +73,20 @@ function renderPanel(
     <UserPreferencesProvider>
       <RightPanelProvider>
         <PanelPlacementProvider value="zone">
-          {host === undefined ? (
-            children
-          ) : (
-            <CanvasToolbarHostContext.Provider value={host}>
-              {children}
-            </CanvasToolbarHostContext.Provider>
-          )}
+          <PanelColumnProvider value={column}>
+            {host === undefined ? (
+              children
+            ) : (
+              <CanvasToolbarHostContext.Provider value={host}>
+                {children}
+              </CanvasToolbarHostContext.Provider>
+            )}
+          </PanelColumnProvider>
         </PanelPlacementProvider>
       </RightPanelProvider>
     </UserPreferencesProvider>
   );
-  return { props, ...render(wrap(<YamlFilePanel {...props} />)) };
+  return { props, wrap, ...render(wrap(<YamlFilePanel {...props} />)) };
 }
 
 // The structure that a reader sees: the same in the editor and in Executions.
@@ -168,6 +175,31 @@ describe('YamlFilePanel', () => {
         { name: 'Close' }
       )
     ).toHaveClass('md:hidden');
+  });
+
+  // Over the YAML tab of the right column the frame keeps its bar with the
+  // tools: the row of the zone neither names it nor closes it.
+  it('keeps the title bar and its tools over the right column', () => {
+    const yaml = document.createElement('div');
+    const layer = document.createElement('div');
+    document.body.append(yaml, layer);
+    try {
+      renderPanel(
+        { tools: <button data-testid="yaml-format">Format</button> },
+        document.createElement('div'),
+        { workflow: null, yaml, launcher: null, layer }
+      );
+      const ndv = screen.getByTestId('ndv');
+      expect(ndv).toHaveAttribute('data-placement', 'column');
+      const header = ndv.querySelector<HTMLElement>('[data-panel-header]')!;
+      expect(header).not.toHaveClass('md:hidden');
+      expect(within(header).getByTestId('yaml-format')).toBeInTheDocument();
+      expect(screen.queryByTestId('panel-row-title')).toBeNull();
+      expect(document.querySelector('[data-panel-close]')).toBeNull();
+    } finally {
+      yaml.remove();
+      layer.remove();
+    }
   });
 
   // The zone keeps a slot free for the Close button only while the panel is
@@ -288,17 +320,9 @@ describe('YamlFilePanel', () => {
   });
 
   it('keeps the editor mounted while the form shows', () => {
-    const { props, rerender } = renderPanel();
+    const { props, wrap, rerender } = renderPanel();
     const textarea = screen.getByTestId('yaml-editor');
-    rerender(
-      <UserPreferencesProvider>
-        <RightPanelProvider>
-          <PanelPlacementProvider value="zone">
-            <YamlFilePanel {...props} formMode />
-          </PanelPlacementProvider>
-        </RightPanelProvider>
-      </UserPreferencesProvider>
-    );
+    rerender(wrap(<YamlFilePanel {...props} formMode />));
     expect(screen.getByTestId('yaml-editor')).toBe(textarea);
     expect(screen.getByTestId('yaml-file-body')).toHaveAttribute('hidden');
   });

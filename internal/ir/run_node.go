@@ -122,6 +122,9 @@ type Node struct {
 	// AgentState stores the goal progress of an agent DAG's agent
 	// step, so a suspended run resumes with its task list intact.
 	AgentState json.RawMessage `json:"agentState,omitempty"`
+	// SkippedByNodeList marks a step with nodes that the run's node list left
+	// with no node. Like SkippedByRetry, it does not block later steps.
+	SkippedByNodeList bool `json:"skippedByNodeList,omitempty"`
 	// HumanTaskCompletedBy records who completed this human task.
 	HumanTaskCompletedBy string `json:"humanTaskCompletedBy,omitempty"`
 	// HumanTaskCompletedByID records the subject ID that completed this human task.

@@ -64,6 +64,7 @@ const (
 	warnActive          = "Failed to list the DAG runs in progress; reports to Dagu Console leave them out until listing succeeds"
 	warnMarkStale       = "Failed to record that DAG-run events stopped being reported to Dagu Console"
 	warnClearStale      = "Failed to clear the record that DAG-run events stopped being reported to Dagu Console"
+	warnServices        = "Failed to read the service DAGs; reports to Dagu Console leave them out until reading succeeds"
 )
 
 // Events configures the DAG runs that reports carry: the runs that finish,
@@ -90,6 +91,9 @@ type Events struct {
 	// Runs reads the steps of the runs in progress. A nil Runs sends them
 	// without steps.
 	Runs RunFinder
+	// Services reads the service DAGs, which reports list as services and
+	// whose runs they never carry. A nil Services lists none.
+	Services ServiceDAGs
 }
 
 // StateStore persists encoded reporter state.
@@ -165,12 +169,15 @@ type reportedEvent struct {
 	// finished is set for an event that ends an attempt.
 	finished *finishedRun
 	urgent   bool
+	// service is set for the end of a run of a service DAG, which reports
+	// never carry: it only takes the run out of the runs in progress.
+	service bool
 }
 
 // newReportedEvent describes event for Dagu Console. It reports false for an
 // event that reports leave out: an unreported type, a sub-DAG run, an event
-// without a valid status snapshot, or one with a name or ID longer than Dagu
-// Console keeps.
+// without a valid status snapshot, one with a name or ID longer than Dagu
+// Console keeps, or one of a service DAG's run other than its end.
 func newReportedEvent(event *eventstore.Event) (reportedEvent, bool) {
 	traits, ok := reportedEventTypes[event.Type]
 	if !ok {
@@ -186,6 +193,14 @@ func newReportedEvent(event *eventstore.Event) (reportedEvent, bool) {
 	}
 
 	run := newActiveRun(status)
+	if eventstore.IsServiceDAGEvent(event) {
+		// A run of a DAG that became a service while it ran may be in
+		// progress, so its end still takes it out.
+		if !traits.finished {
+			return reportedEvent{}, false
+		}
+		return reportedEvent{change: runChange{run: run, ended: true}, service: true}, true
+	}
 	reported := reportedEvent{change: runChange{run: run, ended: traits.finished}, urgent: traits.urgent}
 	if traits.finished {
 		finished := newFinishedRun(status, event.OccurredAt)
@@ -349,6 +364,8 @@ type eventState struct {
 	// Active holds the runs in progress as of the position. It is nil while
 	// they are unknown.
 	Active activeSet `json:"active,omitzero"`
+	// Services holds what the last accepted report sent of each service DAG.
+	Services map[string]serviceMark `json:"services,omitempty"`
 }
 
 // eventBatch is what the next report carries from the event store.
@@ -433,6 +450,16 @@ type eventFeed struct {
 	rebuildAfter time.Time
 	standby      bool
 	warning      string
+	// services reads the service DAGs; serviceWatch counts down the checks
+	// that read a service DAG whose run ended for a new failed or recovered
+	// event, and sentServices is what the prepared report sent of each, nil
+	// when it listed none.
+	services     ServiceDAGs
+	serviceWatch map[string]int
+	sentServices map[string]serviceMark
+	// serviceUrgent is when each service DAG last called for an early
+	// report.
+	serviceUrgent map[string]time.Time
 }
 
 // newEventFeed returns nil when events has no Reader.
@@ -448,6 +475,7 @@ func newEventFeed(events Events) *eventFeed {
 		lease:         events.Lease,
 		statuses:      events.Statuses,
 		steps:         &stepReader{runs: events.Runs},
+		services:      events.Services,
 		now:           time.Now,
 		spawn:         func(fn func()) { go fn() },
 	}
@@ -467,7 +495,7 @@ func (f *eventFeed) poll(ctx context.Context, serverID string, read bool) bool {
 		return false
 	}
 	urgent := f.read(ctx)
-	return urgent || f.activeChanged()
+	return urgent || f.serviceNews(ctx) || f.activeChanged()
 }
 
 // hold takes or keeps the lease.
@@ -536,6 +564,7 @@ func (f *eventFeed) load(ctx context.Context, serverID string) bool {
 			ServerID:    serverID,
 			LastEventAt: f.state.LastEventAt,
 			GapSince:    f.gapSince(),
+			Services:    f.state.Services,
 		})
 	default:
 		return true
@@ -624,6 +653,9 @@ func (f *eventFeed) read(ctx context.Context) bool {
 		reported, ok := newReportedEvent(event)
 		if !ok {
 			continue
+		}
+		if reported.service {
+			f.watchService(reported.change.run.Workflow)
 		}
 		size := 0
 		if reported.finished != nil {
@@ -737,6 +769,13 @@ func (f *eventFeed) startRebuild(ctx context.Context) {
 			From:      persis.NewUTC(since),
 			Unbounded: true,
 		})
+		if err == nil && f.services != nil {
+			// Reports carry no run of a service DAG.
+			var names []string
+			if names, err = f.services.Names(ctx); err == nil {
+				statuses = slices.DeleteFunc(statuses, func(s *ir.DAGRunStatus) bool { return slices.Contains(names, s.Name) })
+			}
+		}
 		r.runs, r.err = activeSetOf(statuses), err
 	})
 }
@@ -763,6 +802,7 @@ func (f *eventFeed) fill(ctx context.Context, req *reportRequest) {
 	if f == nil || !f.loaded {
 		return
 	}
+	f.sentServices = nil
 	if f.batch != nil {
 		req.Finished = f.batch.finished
 		if req.Level != config.ReportErrors {
@@ -797,6 +837,16 @@ func (f *eventFeed) acknowledge(ctx context.Context, ack string) bool {
 	f.batch, f.sent = nil, ""
 	accepted := f.sentActive
 	f.accepted = &accepted
+	// What the report sent of the service DAGs counts once Dagu Console
+	// accepts it, whatever else it carried.
+	if services := f.sentServices; services != nil {
+		f.sentServices = nil
+		next := f.state
+		next.Services = services
+		if !f.save(ctx, next) {
+			return false
+		}
+	}
 	// Only an acknowledgement of the cursor the report carried confirms its
 	// events and gap.
 	confirmed := sent != "" && ack == sent
@@ -931,6 +981,7 @@ func (f *eventFeed) drop() {
 	f.stopRebuild()
 	f.held, f.loaded, f.fresh = false, false, false
 	f.state, f.batch, f.notified, f.accepted = eventState{}, nil, nil, nil
+	f.serviceWatch, f.sentServices, f.serviceUrgent = nil, nil, nil
 	f.rebuildAfter = time.Time{}
 }
 

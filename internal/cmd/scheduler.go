@@ -46,7 +46,7 @@ This process runs continuously in the foreground until terminated.
 	)
 }
 
-var schedulerFlags = []commandLineFlag{dagsFlag}
+var schedulerFlags = []commandLineFlag{dagsFlag, projectsDirFlag}
 
 func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Scheduler, error) {
 	if deps.DAGSettingsStore == nil {
@@ -70,6 +70,7 @@ func newScheduler(ctx *Context, deps scheduler.Dependencies) (*scheduler.Schedul
 			filedag.WithChangeMarker(file.DAGChangeMarkerPath(ctx.Config), 0),
 			filedag.WatchCalendars(ctx.Config.Paths.CalendarsDir),
 			filedag.SkipDirectories(ctx.Config.DAGDiscovery.SkipDirs),
+			filedag.SkipRoots(ctx.Config.DiscoverySkipRoots()),
 		)
 	}
 	deps.DAGRepository = ctx.Persistence.DAGRepository

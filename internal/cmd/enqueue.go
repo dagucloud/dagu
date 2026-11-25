@@ -39,7 +39,7 @@ Examples:
 	)
 }
 
-var enqueueFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, queueFlag, workerLabelFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, noReuseFlag}
+var enqueueFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, queueFlag, workerLabelFlag, nodeFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, noReuseFlag}
 
 func runEnqueue(ctx *Context, args []string) error {
 	if ctx.IsRemote() {
@@ -77,6 +77,10 @@ func runEnqueue(ctx *Context, args []string) error {
 	}
 
 	if err := parseAndAppendLabels(ctx, dag); err != nil {
+		return err
+	}
+	targetNodes, err := narrowRun(ctx, dag)
+	if err != nil {
 		return err
 	}
 
@@ -118,6 +122,7 @@ func runEnqueue(ctx *Context, args []string) error {
 		profileName:    profileName,
 		definitionID:   dagDefinitionIDFromEnv(),
 		noReuse:        noReuse,
+		targetNodes:    targetNodes,
 	})
 }
 
@@ -157,6 +162,7 @@ func enqueueDAGRun(ctx *Context, dag *ir.DAG, dagRunID string, opts runOptions) 
 		ProfileName:             opts.profileName,
 		DefinitionID:            opts.definitionID,
 		NoReuse:                 opts.noReuse,
+		TargetNodes:             opts.targetNodes,
 		ProceedOnStatusCloseErr: true,
 	})
 	if err != nil {

@@ -52,21 +52,23 @@ export const ROW_PANEL_HEADER_CLASS = 'md:hidden';
  * the row in --ww-toolbar-row, where the right panels read the top that they
  * start at. The row floats over the canvas, which fills the whole zone; the
  * panels start under it. Below md the row is hidden and the variable is 0.
- * While a panel has its Close button in the row (PanelRowTitle), the zone sets
- * --ww-close-slot to the width that the button keeps at the right end of the
- * row: the toolbars end before it. Without such a panel the variable is unset.
+ * The zone also sets --ww-close-slot, the right padding of the row: 8px, or
+ * the width that the Close button of a panel keeps at the right end of the
+ * row while it is there (PanelRowTitle), so that the toolbars end before it.
+ * Each zone sets its own value: a zone nested in another never inherits the
+ * slot of a panel in the outer one.
  */
 export const TOOLBAR_ZONE_CLASS =
-  '[--ww-toolbar-row:2.5rem] max-md:[--ww-toolbar-row:0px] has-[[data-panel-close=row]]:[--ww-close-slot:2.5rem]';
+  '[--ww-toolbar-row:2.5rem] max-md:[--ww-toolbar-row:0px] [--ww-close-slot:0.5rem] has-[[data-panel-close=row]]:[--ww-close-slot:2.5rem]';
 
 /**
  * Classes of the row of the toolbars: one line of 40px over the top of the
  * zone, never wrapped, with no background. The row lets a click through to
  * the canvas; each group takes its own (see TOOLBAR_GROUP_CLASS). Its right
- * padding is 8px, or --ww-close-slot when a panel has its Close button there.
+ * padding is --ww-close-slot, which its zone sets (TOOLBAR_ZONE_CLASS).
  */
 export const TOOLBAR_ROW_CLASS =
-  'pointer-events-none absolute inset-x-0 top-0 z-10 flex h-10 min-w-0 items-center justify-between gap-2 pl-2 pr-(--ww-close-slot,0.5rem) max-md:hidden';
+  'pointer-events-none absolute inset-x-0 top-0 z-10 flex h-10 min-w-0 items-center justify-between gap-2 pl-2 pr-(--ww-close-slot) max-md:hidden';
 
 /**
  * With a right panel docked in the zone, the row goes above the panel (z 60),
@@ -103,21 +105,67 @@ export function useToolbarHostWidth(
 
 /** Gap between the title of a panel and the buttons of the row. */
 const TITLE_GAP = 12;
+/** The left padding of the title in its band (pl-4). */
+const TITLE_INSET = 16;
+
+/** Room in px that the groups of the host row take from the title of a panel. */
+interface RowClearance {
+  /**
+   * How far the first group, the buttons at the left end of the row, reaches
+   * past the left padding of the title, the gap included; 0 when it ends
+   * before.
+   */
+  start: number;
+  /**
+   * The width of the last group, the buttons at the right end of the row;
+   * null while unknown.
+   */
+  end: number | null;
+}
+
+const NO_CLEARANCE: RowClearance = { start: 0, end: null };
 
 /**
- * The width of the last group of the host row, the buttons at its right end;
- * null while unknown. It follows the group when its buttons change.
+ * The room that the groups of the host row take from `band`, the title of a
+ * panel under the row. It follows the groups when their buttons change, and
+ * the row and the band when they resize, which moves the left edge of the
+ * panel under the first group. The band spans the panel and takes the result
+ * as its padding: the result never resizes it, nor notifies the observer.
  */
-function useToolbarEndWidth(host: HTMLElement | null | undefined) {
-  const [width, setWidth] = useState<number | null>(null);
+function useRowClearance(
+  host: HTMLElement | null | undefined,
+  band: HTMLElement | null
+): RowClearance {
+  const [clearance, setClearance] = useState(NO_CLEARANCE);
   useLayoutEffect(() => {
-    if (!host || typeof ResizeObserver !== 'function') return;
-    const sizes = new ResizeObserver((entries) => {
-      const entry = entries[entries.length - 1];
-      setWidth(entry ? Math.round(entry.contentRect.width) : null);
-    });
+    if (!host || !band || typeof ResizeObserver !== 'function') return;
+    const measure = () => {
+      const first = host.firstElementChild;
+      const last = host.lastElementChild;
+      const start = first
+        ? Math.max(
+            0,
+            Math.round(
+              first.getBoundingClientRect().right +
+                TITLE_GAP -
+                (band.getBoundingClientRect().left + TITLE_INSET)
+            )
+          )
+        : 0;
+      const end = last ? Math.round(last.getBoundingClientRect().width) : null;
+      setClearance((current) =>
+        current.start === start && current.end === end
+          ? current
+          : { start, end }
+      );
+    };
+    const sizes = new ResizeObserver(measure);
     const watch = () => {
       sizes.disconnect();
+      sizes.observe(host);
+      // The border box: the padding that the result sets does not count.
+      sizes.observe(band, { box: 'border-box' });
+      if (host.firstElementChild) sizes.observe(host.firstElementChild);
       if (host.lastElementChild) sizes.observe(host.lastElementChild);
     };
     watch();
@@ -127,8 +175,8 @@ function useToolbarEndWidth(host: HTMLElement | null | undefined) {
       sizes.disconnect();
       children.disconnect();
     };
-  }, [host]);
-  return width;
+  }, [host, band]);
+  return clearance;
 }
 
 /** Width in px that the Close button of a panel keeps at the end of the row. */
@@ -136,8 +184,9 @@ const CLOSE_SLOT = 40;
 
 /**
  * The title of a panel in the row (usePanelInToolbarRow): it stands at the
- * left end of the row band, where the title bar was, and ends before the
- * buttons. It hides when less than 4rem is left (16px of padding and room
+ * left end of the row band, where the title bar was, after the buttons of
+ * the row that reach over the panel, and ends before the buttons at the
+ * right end. It hides when less than 4rem is left (16px of padding and room
  * for a short word). With `onClose`, the Close button of the panel stands in
  * the band at the right end of the panel, and the toolbars of the row end
  * before it (TOOLBAR_ZONE_CLASS). Put it first in the panel, which is
@@ -162,21 +211,23 @@ export function PanelRowTitle({
 }): ReactElement | null {
   const host = useCanvasToolbarHost();
   const inRow = usePanelInToolbarRow();
-  const buttons = useToolbarEndWidth(host);
+  const [band, setBand] = useState<HTMLDivElement | null>(null);
+  const { start, end } = useRowClearance(host, band);
   if (!inRow) return null;
   const withClose = !!onClose && !!closeLabel;
   const style: CSSProperties = {
-    right:
-      (withClose ? CLOSE_SLOT : 0) +
-      (buttons === null ? 0 : buttons + TITLE_GAP),
+    paddingLeft: start,
+    paddingRight:
+      (withClose ? CLOSE_SLOT : 0) + (end === null ? 0 : end + TITLE_GAP),
   };
   return (
     <>
       {title !== undefined && (
         <div
+          ref={setBand}
           data-testid="panel-row-title"
           style={style}
-          className="pointer-events-none absolute left-0 top-0 z-0 flex h-(--ww-toolbar-row) items-center @container max-md:hidden"
+          className="pointer-events-none absolute inset-x-0 top-0 z-0 flex h-(--ww-toolbar-row) items-center @container max-md:hidden"
         >
           <div
             className={cn(

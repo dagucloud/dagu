@@ -6,7 +6,9 @@ import { useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import {
+  PanelColumnProvider,
   PanelPlacementProvider,
+  type PanelColumn,
   type PanelPlacement,
 } from '@/features/dags/components/step-details/PanelShell';
 import { realSchema } from '../inspector/__tests__/realSchema';
@@ -36,7 +38,6 @@ vi.mock('@/hooks/useDAGRunSSE', () => ({
   }),
 }));
 vi.mock('@/contexts/AuthContext', () => ({
-  useCanExecute: () => true,
   useCanExecuteForWorkspace: () => true,
 }));
 vi.mock('@/contexts/RemoteNodeContext', () => ({
@@ -346,8 +347,9 @@ describe.skipIf(realSchema === null)('VisualEditor step scope path', () => {
   });
 });
 
-// The toolbar row of the zone holds the toggles. With the Workflow or the YAML
-// panel open, the toggle shows its name, and the YAML tools join the row.
+// The toolbar row of the zone holds the toggles, which stay icons: the open
+// panel shows its own title in the row. The tools of the YAML panel of the
+// file join the row while that panel is open in the zone.
 describe.skipIf(realSchema === null)('VisualEditor toolbar row', () => {
   let row: HTMLElement;
   beforeEach(() => {
@@ -358,15 +360,18 @@ describe.skipIf(realSchema === null)('VisualEditor toolbar row', () => {
 
   function renderInRow(
     width: number,
-    overrides: Partial<VisualEditorProps> = {}
+    overrides: Partial<VisualEditorProps> = {},
+    column: PanelColumn | null = null
   ) {
     setWidth(width);
     return render(
       <UserPreferencesProvider>
         <PanelPlacementProvider value="zone">
-          <CanvasToolbarHostContext.Provider value={row}>
-            <Harness chrome={CHROME} {...overrides} />
-          </CanvasToolbarHostContext.Provider>
+          <PanelColumnProvider value={column}>
+            <CanvasToolbarHostContext.Provider value={row}>
+              <Harness chrome={CHROME} {...overrides} />
+            </CanvasToolbarHostContext.Provider>
+          </PanelColumnProvider>
         </PanelPlacementProvider>
       </UserPreferencesProvider>
     );
@@ -378,6 +383,7 @@ describe.skipIf(realSchema === null)('VisualEditor toolbar row', () => {
     fireEvent.click(button);
     expect(button).toHaveAttribute('aria-pressed', 'true');
     expect(button).not.toHaveTextContent('Workflow');
+    expect(screen.getByTestId('panel-row-title')).toHaveTextContent('Workflow');
   });
 
   it('shows the YAML tools in the row only while the file panel is open', () => {
@@ -405,22 +411,43 @@ describe.skipIf(realSchema === null)('VisualEditor toolbar row', () => {
     ).not.toHaveTextContent('YAML');
   });
 
-  // A touch has no tooltip: the sheet shows the names of the toggles, with a
-  // panel open or not, and the YAML tools stay out of the row.
-  it('shows the names of the toggles in the Tools sheet of a narrow window', () => {
+  // Below md the row is hidden and the panel keeps its bar with the tools:
+  // the Tools sheet of a narrow window does not take them.
+  it('leaves the YAML tools out of the Tools sheet of a narrow window', () => {
     renderInRow(600, {
       yamlTools: <button data-testid="yaml-format">Format</button>,
+      yamlVisible: true,
       initialYamlMode: 'file',
     });
     fireEvent.click(screen.getByRole('button', { name: 'Tools' }));
     const sheet = screen.getByTestId('ve-tools-sheet-actions');
-    fireEvent.click(within(sheet).getByRole('button', { name: 'Workflow' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Tools' }));
     expect(
-      within(screen.getByTestId('ve-tools-sheet-actions')).getByRole('button', {
-        name: 'Workflow',
-      })
-    ).toHaveTextContent('Workflow');
+      within(sheet).getByRole('button', { name: 'YAML' })
+    ).toBeInTheDocument();
     expect(screen.queryByTestId('yaml-format')).toBeNull();
+  });
+
+  // The right column of the host holds the YAML of the file with its own bar
+  // and tools: the row of the zone does not take them.
+  it('leaves the YAML tools to the panel in the right column', () => {
+    const column = () => document.createElement('div');
+    renderInRow(
+      1280,
+      {
+        yamlTools: <button data-testid="yaml-format">Format</button>,
+        yamlVisible: true,
+        initialYamlMode: 'file',
+      },
+      {
+        workflow: column(),
+        yaml: column(),
+        launcher: column(),
+        layer: column(),
+      }
+    );
+    expect(
+      within(row).getByRole('button', { name: 'Undo' })
+    ).toBeInTheDocument();
+    expect(within(row).queryByTestId('yaml-format')).toBeNull();
   });
 });

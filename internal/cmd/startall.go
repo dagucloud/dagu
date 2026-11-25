@@ -85,6 +85,7 @@ This process runs continuously in the foreground until terminated.
 
 var startAllFlags = []commandLineFlag{
 	dagsFlag,
+	projectsDirFlag,
 	hostFlag,
 	portFlag,
 	coordinatorHostFlag,

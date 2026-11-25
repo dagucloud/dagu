@@ -44,11 +44,13 @@ function builtinNames(schema: JSONSchema): string[] {
 /**
  * Builds the action catalog: the core `run` entry, one entry for each
  * builtin action of the schema (sorted by name), then the custom actions
- * (sorted by name). A custom action with a builtin name is left out.
+ * (sorted by name). A custom action with a builtin name is left out. With
+ * `dagHasLLM`, the builtin templates inherit the DAG-level `llm` block.
  */
 export function buildActionCatalog(
   schema: JSONSchema,
-  customActions: EditorCustomActionHint[]
+  customActions: EditorCustomActionHint[],
+  dagHasLLM = false
 ): ActionCatalogEntry[] {
   const entries: ActionCatalogEntry[] = [RUN_ENTRY];
   const taken = new Set<string>([RUN_ENTRY.name]);
@@ -61,7 +63,7 @@ export function buildActionCatalog(
       title: actionTitle(name),
       description: actionDescription(withSchema?.description),
       source: 'builtin',
-      template: actionTemplate(name, withSchema),
+      template: actionTemplate(name, withSchema, { dagHasLLM }),
     });
     taken.add(name);
   }
@@ -84,7 +86,7 @@ export function buildActionCatalog(
       template: actionTemplate(
         hint.name,
         getActionWithSchema(schema, hint.name, [hint]),
-        true
+        { keepEmptyWith: true }
       ),
     });
   }

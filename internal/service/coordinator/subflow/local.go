@@ -341,6 +341,7 @@ func (r *Local) Enqueue(ctx context.Context, req executor.EnqueueRequest) (execu
 		ProfileName:      req.ProfileName,
 		ScheduleTime:     req.ScheduleTime,
 		ScheduleWindow:   req.ScheduleWindow,
+		TargetNodes:      req.TargetNodes,
 	})
 	if err != nil {
 		return executor.EnqueueResult{}, fmt.Errorf("failed to enqueue DAG run: %w", err)
@@ -521,6 +522,8 @@ func (r *Local) newAgent(
 	opts.TriggerActor = req.TriggerActor
 	opts.ParallelItem = req.ParallelItem
 	opts.BoundNode = req.Node
+	opts.TargetNodes = req.TargetNodes
+	opts.NodeList = rCtx.NodeList
 	opts.NodeSelector = rCtx.Nodes
 	opts.HostKeys = rCtx.HostKeys
 	opts.ScheduleTime = req.ScheduleTime

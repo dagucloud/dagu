@@ -280,6 +280,76 @@ func assertListUsesDataDirIndex(t *testing.T, repo *persis.DAGRepository, dataDi
 	assert.Len(t, indexes, 1)
 }
 
+// With projects on, the default project's repository neither lists nor
+// finds by path a DAG in paths.projects_dir or paths.alt_dags_dir nested in
+// paths.dags_dir. With projects off, it reaches them as v2 does.
+func TestDAGRepositorySkipsNestedRoots(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		projects bool
+		want     []string
+	}{
+		{name: "Off", projects: false, want: []string{"alpha", "beta", "gamma"}},
+		{name: "On", projects: true, want: []string{"alpha"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			home := t.TempDir()
+			data := filepath.Join(home, "data")
+			cfg := suspendFlagsTestConfig(home, data, filepath.Join(data, "suspend"), "")
+			cfg.ProjectsEnabled = tc.projects
+			cfg.DAGDiscovery.Recursive = true
+			cfg.Paths.ProjectsDir = filepath.Join(cfg.Paths.DAGsDir, "projects")
+			cfg.Paths.AltDAGsDir = filepath.Join(cfg.Paths.DAGsDir, "library")
+			for _, file := range []string{
+				filepath.Join(cfg.Paths.DAGsDir, "alpha.yaml"),
+				filepath.Join(cfg.Paths.ProjectsDir, "weather", "beta.yaml"),
+				filepath.Join(cfg.Paths.AltDAGsDir, "gamma.yaml"),
+			} {
+				require.NoError(t, os.MkdirAll(filepath.Dir(file), 0o750))
+				require.NoError(t, os.WriteFile(file, []byte("steps: []\n"), 0o600))
+			}
+
+			repo, err := persisfile.NewDAGRepository(cfg, persisfile.WithDAGSkipExamples(true))
+			require.NoError(t, err)
+			result, _, err := repo.List(context.Background(), persis.DAGListOptions{})
+			require.NoError(t, err)
+			var names []string
+			for _, dag := range result.Items {
+				names = append(names, dag.Name)
+			}
+			assert.ElementsMatch(t, tc.want, names)
+
+			nestedFile := filepath.Join(cfg.Paths.ProjectsDir, "weather", "beta.yaml")
+			for _, path := range []string{"projects/weather/beta", nestedFile} {
+				_, err := repo.GetMetadata(context.Background(), path)
+				if tc.projects {
+					assert.ErrorIs(t, err, os.ErrNotExist, "path %s", path)
+				} else {
+					assert.NoError(t, err, "path %s", path)
+				}
+			}
+			_, err = repo.GetMetadata(context.Background(), "alpha")
+			assert.NoError(t, err)
+
+			t.Run("SymlinkIntoNestedRoot", func(t *testing.T) {
+				alias := filepath.Join(cfg.Paths.DAGsDir, "alias.yaml")
+				if err := os.Symlink(nestedFile, alias); err != nil {
+					t.Skipf("symlinks are unavailable: %v", err)
+				}
+				_, err := repo.GetMetadata(context.Background(), "./alias.yaml")
+				if tc.projects {
+					assert.ErrorIs(t, err, os.ErrNotExist)
+				} else {
+					assert.NoError(t, err)
+				}
+			})
+		})
+	}
+}
+
 func suspendFlagsTestConfig(homeDir, dataDir, flagsDir, legacyDir string) *config.Config {
 	cfg := &config.Config{}
 	cfg.Paths.DAGsDir = filepath.Join(homeDir, "dags")

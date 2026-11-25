@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest';
 import { NodeStatus, Status } from '@/api/v1/schema';
 import {
   continuousRunCount,
-  hasContinuousStep,
   isContinuousStep,
   runDisplayStatus,
   summaryDisplayStatus,
@@ -27,12 +26,6 @@ describe('isContinuousStep', () => {
     ['a step that does not repeat', {}, false],
   ])('%s', (_, step, expected) => {
     expect(isContinuousStep(step)).toBe(expected);
-  });
-
-  it('looks through a definition', () => {
-    expect(hasContinuousStep([{}, forever])).toBe(true);
-    expect(hasContinuousStep([{}, limited])).toBe(false);
-    expect(hasContinuousStep(undefined)).toBe(false);
   });
 });
 
@@ -168,22 +161,18 @@ describe('runDisplayStatus', () => {
 });
 
 describe('summaryDisplayStatus', () => {
-  it('lets the definition decide for a run known by its summary', () => {
-    const svc = { service: true };
+  // The same rule as runDisplayStatus for a run whose steps are not known.
+  it('reads Healthy for a running run of a service DAG', () => {
     expect(
-      summaryDisplayStatus(Status.Running, { ...svc, continuous: true }).healthy
-    ).toBe(true);
-    expect(
-      summaryDisplayStatus(Status.Running, { ...svc, continuous: false }).text
-    ).toBe('Running');
-    expect(
-      summaryDisplayStatus(Status.Failed, { ...svc, continuous: true }).text
-    ).toBe('Failed');
+      summaryDisplayStatus(Status.Running, { service: true })
+    ).toMatchObject({ healthy: true, text: 'Healthy' });
+    expect(summaryDisplayStatus(Status.Failed, { service: true }).text).toBe(
+      'Failed'
+    );
     // A workflow that is not a service DAG never reads Healthy.
-    expect(
-      summaryDisplayStatus(Status.Running, { service: false, continuous: true })
-        .text
-    ).toBe('Running');
+    expect(summaryDisplayStatus(Status.Running, { service: false }).text).toBe(
+      'Running'
+    );
   });
 });
 
