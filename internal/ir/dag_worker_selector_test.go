@@ -76,6 +76,36 @@ func TestApplyWorkerSelector(t *testing.T) {
 	})
 }
 
+func TestMatchWorkerSelector(t *testing.T) {
+	t.Parallel()
+
+	labels := map[string]string{"type": "compute", "region": "us-east", "gpu": ""}
+	tests := []struct {
+		name     string
+		labels   map[string]string
+		selector map[string]string
+		want     bool
+	}{
+		{name: "NilSelector", labels: labels, want: true},
+		{name: "EmptySelector", labels: labels, selector: map[string]string{}, want: true},
+		{name: "Exact", labels: labels, selector: map[string]string{"type": "compute", "region": "us-east"}, want: true},
+		{name: "Subset", labels: labels, selector: map[string]string{"type": "compute"}, want: true},
+		{name: "OtherValue", labels: labels, selector: map[string]string{"type": "storage"}, want: false},
+		{name: "MissingKey", labels: labels, selector: map[string]string{"type": "compute", "zone": "a"}, want: false},
+		{name: "NoLabels", selector: map[string]string{"type": "compute"}, want: false},
+		{name: "SelectorCase", labels: labels, selector: map[string]string{"Type": "COMPUTE"}, want: true},
+		// Labels reported by workers from before labels were lowercased.
+		{name: "LabelCase", labels: map[string]string{"Region": "US-East"}, selector: map[string]string{"region": "us-east"}, want: true},
+		{name: "KeyOnlyLabel", labels: labels, selector: map[string]string{"GPU": ""}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, ir.MatchWorkerSelector(tt.labels, tt.selector))
+		})
+	}
+}
+
 func TestFormatWorkerSelector(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "{}", ir.FormatWorkerSelector(nil))
