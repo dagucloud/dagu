@@ -2,51 +2,11 @@
 
 ## Status
 
-Partially implemented.
+Not implemented.
 
-Implemented:
-
-- the option `--agent` of `dagu worker`, its checks at start, one run and the exit
-- the implied selector, the dispatch of a run that needs a provider, the match rules and the reserved
-  labels
-- the worker pools and the dispatchers of the coordinator
-- the step key `secrets`, the step scope and the registry secrets of a step
-- the step key `untrusted` and its default in a DAG that has an `agent.run` step
-- the rules of an untrusted step in each process, and the isolation with the restricted user
-- the verify loop: rounds of `code_<n>` and `verify_<n>` in one DAG
-- the key injection of `dagu egress-proxy serve`, with an API key or an OAuth token
-- the destinations of the proxy that need the proxy credential
-- the examples in `deploy/agent-worker/` and the demo in `examples/agent-worker-demo/`
-
-Verified with real runs on 2026-11-03, with the model `claude-haiku-4-5` and an OAuth token
-behind the proxy:
-
-- the real mode of the demo (`run-real.sh`): Claude Code 2.1.311 fixed a test, and a trusted
-  step pushed a branch to GitHub
-- the extra tests of the demo (`extras/`): `max_tool_iterations`, a retry of a run, and a request to
-  read the credentials
-- the verify loop of the demo (`run-real.sh loop`), in two runs. The verify failed after round 1.
-  Claude Code read the log of the verify in round 2 and fixed the second bug. A trusted step pushed
-  one branch.
-- the tool bridge of Spec 091, in a separate stack. The stack had a local `dagu start` with the
-  restricted user, the egress proxy, and a Dagu server as the MCP server. Claude Code 2.1.311 reported
-  the servers `dagu` and `docs` as `connected`. It called a DAG tool with a fixed param and a param
-  `from_ai`, and the MCP tool `dagu_read`. Dagu ran the DAG as a child run. Without `127.0.0.1` in
-  `NO_PROXY`, the proxy refused the requests to the bridge, and the attempt failed with the reason
-  `bridge_unavailable`.
-
-The AI gateway of [Spec 094](094-ai-gateway.md) is implemented. See [The AI
-gateway](#the-ai-gateway).
-
-Not verified:
-
-- the manifests for Kubernetes on a cluster. They have a schema check only.
-- a real rate limit with `retry_policy` and `exit_code: [75]`
-- a verify loop in which each round fails with the real CLI. The fake CLI covers such a loop.
-- the tool bridge on the agent worker of the demo (`run-demo.sh`, `run-real.sh`, and the extras
-  `extra-cli-tools` and `extra-cli-limits`)
-
-The tests and the main demo use a fake CLI and a fake model API.
+No version of Dagu reads the keys of this spec yet. A configuration that sets
+`coordinator.worker_pools`, `coordinator.dispatchers` or `untrusted` has no effect, and
+`dagu validate` rejects the step keys `secrets` and `untrusted` and the action `agent.run`.
 
 This spec is the companion of [Spec 091: Agent Node](091-agent-node.md) and [Spec 090: Agent
 Tools](090-agent-tools.md). Spec 090 defines the tools that an `agent.run` step selects. Spec 091
