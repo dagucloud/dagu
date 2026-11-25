@@ -36,19 +36,20 @@ bearer token, which expires after an hour.
       connect engine: state + PKCE; server callback | cloud relay | loopback
                       | paste | device code
                                   |
-          +-----------------------+------------------------+
-          v                       v                        v
-     oauth-apps/            connections/<name>        connection-tokens/<name>
-     client ID,             account, services,        refresh token, access token
-     client secret,         workspaces, added         per resource, expiry, status,
-     agent flag, status     scopes and hosts          generation, connect session
+                                  v
+  <data_dir>/oauth-apps/           client ID, client secret, agent flag, status
+             connections/          account, services, workspaces, added scopes
+                                   and hosts
+             connection-tokens/    refresh token, access token per resource,
+                                   expiry, status, generation, connect session
+             connection-catalogs/  MCP tools per connection and service
                                   |
-     +--------------+-------------+-------------+---------------------------+
-     v              v                           v                           v
-  mcp.call     http.request               mail_accounts           AI steps (RFC 026)
-  server: gmail  bound hosts only          connection:            through an MCP gateway
-     |              |                           |                           |
-     +--------------+-- Token(conn, resource) --+---------------------------+
+     +--------------+-------------+-------------+------------------+
+     v              v                           v                  v
+  mcp.call      http.request               mail_accounts   AI steps (RFC 026)
+  server: gmail bound hosts only           connection:     MCP gateway
+     |              |                           |                  |
+     +--------------+-- Token(conn, resource) --+------------------+
                      local: lock and refresh; worker: coordinator RPC
 ```
 
@@ -155,6 +156,40 @@ Not promised:
   come.
 
 ## Design
+
+### Where it runs
+
+Every process that has the data directory runs the token broker. A worker
+has neither the data directory nor the encryption key, and asks its
+coordinator. Dagu Cloud takes part only while a connect waits, through the
+[Cloud relay](#cloud-relay).
+
+```text
+  Dagu Cloud (optional, RFC 002)
+  Cloud relay: holds a callback's code until the server fetches it
+     ^
+     | outbound poll, only while a connect waits
+ +---+-------------------------------------------------------------------+
+ |  hosts that share <data_dir>                                          |
+ |                                                                       |
+ |  server              scheduler       local run        coordinator     |
+ |  API, UI, connect    starts runs     steps            worker RPCs     |
+ |  flow, tool browser                                                   |
+ |  broker              broker          broker, cache    broker, cache   |
+ |     |                   |               |                 |           |
+ |     +-------------------+-------+-------+-----------------+           |
+ |                                 | lock per connection, CAS writes     |
+ |                                 v                                     |
+ |  <data_dir>/  oauth-apps/  connections/  connection-tokens/           |
+ |               connection-catalogs/        encryption key              |
+ +--------------------------------------------------------^--------------+
+                                                          |
+     ResolveConnectionToken: token, lifetime, binding     | gRPC
+     ResolveConnectionTools (RFC 026): tool catalog       |
+                                                          |
+ worker: no <data_dir>, no encryption key                 |
+   run: steps, token cache; never refreshes --------------+
+```
 
 ### Records
 
@@ -378,6 +413,18 @@ never inherits an old one's tokens.
 A server without a public URL still gets a fixed HTTPS callback, without
 paste mode and without Dagu Cloud holding any secret:
 
+```text
+ server                          Dagu Cloud                  browser, Google
+   |-- register callback ------->| callback ID                     |
+   |   state = ID + enc{session, verifier, expiry}                 |
+   |   verifier and client secret never leave the server           |
+   |                             |<-- /oauth/callback?code&state --| consent
+   |                             |    store code under the ID      |
+   |-- poll every 3 s ---------->|                                 |
+   |<-- code and state; deleted -|                                 |
+   |-- check enc state, exchange code with verifier and secret --> Google
+```
+
 - Starting a session, the server registers a callback with Dagu Cloud under
   its license credentials, and gets a callback ID. The `state` parameter
   starts with that ID in clear, followed by the encrypted state, so Dagu
@@ -463,6 +510,23 @@ Local path, used by the server, the scheduler, and local runs:
      Drop the result and return the reconnected token.
    - If the record is gone, the connection was removed. Drop the result and
      fail. The broker never creates a token state record.
+
+When many runs reach an expired token together, one refreshes and the
+others only read:
+
+```text
+ run A                   runs B to Z           token state, lock       provider
+   | token near expiry     | token near expiry       |                     |
+   |-- try lock ---------------------------------->  | taken by A          |
+   |                       |-- try lock ---------->  | held: do not queue  |
+   |                       |   check every 50 ms     |                     |
+   |-- read again -------------------------------->  |                     |
+   |-- refresh ---------------------------------------------------------->|
+   |<------------------------------------------- new token, maybe a new --|
+   |                                                 |      refresh token  |
+   |-- CAS write, unlock ------------------------->  | released            |
+   |                       |-- read once --------->  | new token           |
+```
 
 Each run process also caches tokens in memory, behind the single-flight gate
 the mail code uses today (`oauth.go:261-330`). So a run reads the state at

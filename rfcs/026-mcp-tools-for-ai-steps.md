@@ -133,6 +133,17 @@ show them to the person present. AI steps handle them by the kind of step:
 - **Harness and chat steps.** Dagu declines at once, since these steps
   cannot wait mid-call. The agent receives a tool error that names the rule.
 
+The answer's path:
+
+```text
+ MCP server --form--> gateway, in the run --> confirmation task in the UI
+                                                         |
+                                        person answers --+--> server
+ local run:    server --> run socket, beside /stop --> run process
+ on a worker:  server --> coordinator --> RunHeartbeat response --> worker run
+ run process --answer--> MCP server, and the call in flight goes on
+```
+
 Dagu never accepts a request on its own, even for a tool in `unattended`.
 The request is the provider's own check that a person is present, and
 `unattended` waives only Dagu's.
@@ -146,6 +157,28 @@ gateway in process. A harness step's agent is a separate process, so for it
 the gateway also serves MCP on a loopback listener, built on go-sdk's server
 as `internal/service/mcp/` is. It is not a byte-level proxy, so sessions,
 server-sent events, and protocol versions work as each side expects.
+
+```text
+ run process, local or on a worker
+ +---------------------------------------------------------------------+
+ |  harness step                      agent DAG or chat step           |
+ |  agent process: Claude Code,       agent loop or tool loop          |
+ |  Codex, or an ACP agent                  |                          |
+ |      | loopback MCP, step's bearer       | in process               |
+ |      v                                   v                          |
+ |  +---------------------------------------------------------------+  |
+ |  | MCP gateway, one per step                                     |  |
+ |  | allow-list, pinned hashes, approvals, confirmations,          |  |
+ |  | Retry-After hold                                              |  |
+ |  +---------------------------------------------------------------+  |
+ |      |                     |                          |             |
+ |  tool catalog          Token(conn, resource)      MCP calls         |
+ |  file, or coordinator  broker, or coordinator         |             |
+ |  RPC on a worker       RPC on a worker                |             |
+ +-------------------------------------------------------+-------------+
+                                                         v
+                                        MCP server: Gmail, Calendar, ...
+```
 
 - The listener binds `127.0.0.1` on a random port. It accepts only a random
   bearer token created for the step, and rejects a request whose `Host` or
