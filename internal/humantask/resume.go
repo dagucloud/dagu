@@ -30,7 +30,7 @@ func (s *Service) Resume(ctx context.Context, dagName, dagRunID string) (Result,
 		if !hasCompletedHumanTask(nodes) && !hasPendingPushBack(nodes) {
 			return Result{}, errorf(ErrorConflict, "DAG-run %s has no completed human-task checkpoint to resume", target.ref)
 		}
-		return resultFor(target.status, "", true), nil
+		return s.enqueueResume(ctx, target, resultFor(target.status, "", true))
 	}
 	if !pushBackResumeReady(nodes) {
 		if !resumeReady(nodes) {
@@ -45,8 +45,8 @@ func (s *Service) Resume(ctx context.Context, dagName, dagRunID string) (Result,
 }
 
 func (s *Service) enqueueResume(ctx context.Context, target *target, result Result) (Result, error) {
-	if target.status == nil || target.status.Status != ir.Waiting ||
-		(!resumeReady(target.status.Nodes) && !pushBackResumeReady(target.status.Nodes)) {
+	if target.status == nil || (!queue.ResumeAdmissionPending(target.status) &&
+		(target.status.Status != ir.Waiting || (!resumeReady(target.status.Nodes) && !pushBackResumeReady(target.status.Nodes)))) {
 		return result, nil
 	}
 	result.ResumeRequested = true
@@ -376,6 +376,9 @@ func HasCompletedTask(status *ir.DAGRunStatus) bool {
 
 // ResumePending reports whether a run is waiting for its human-task retry to be queued.
 func ResumePending(status *ir.DAGRunStatus) bool {
+	if queue.ResumeAdmissionPending(status) {
+		return true
+	}
 	if status == nil || status.Status != ir.Waiting {
 		return false
 	}

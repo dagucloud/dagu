@@ -11,6 +11,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/google/uuid"
 )
 
 // ErrRetryStaleLatest indicates the caller tried to retry a non-latest attempt.
@@ -135,9 +136,30 @@ func EnqueueRetry(
 	if queueStore == nil {
 		return false, errors.New("enqueue retry: queue store is not configured")
 	}
-	admission, err := PrepareRetry(ctx, dagRunRepository, dag, status, opts)
-	if err != nil || admission == nil {
+	admissionStore, recoverable := queueStore.(RetryAdmissionStore)
+	recoverable = recoverable && opts.Resume
+	admission, err := prepareRetry(ctx, dagRunRepository, dag, status, opts, recoverable)
+	if err != nil {
 		return false, err
+	}
+	if recoverable {
+		target := status
+		if admission != nil {
+			target = admission.Status
+		}
+		queued, enqueueErr := ensureResumeAdmission(ctx, dagRunRepository, admissionStore, dag, target, opts.RootDAGRun)
+		if enqueueErr == nil {
+			return queued, nil
+		}
+		if admission != nil {
+			if rollbackErr := admission.Rollback(ctx); rollbackErr != nil {
+				return false, fmt.Errorf("enqueue retry: %w; rollback queued retry status: %w", enqueueErr, rollbackErr)
+			}
+		}
+		return false, fmt.Errorf("enqueue retry: %w", enqueueErr)
+	}
+	if admission == nil {
+		return false, nil
 	}
 	var enqueueErr error
 	if procGroup := retryProcGroup(dag, admission.Status); procGroup == "" {
@@ -163,6 +185,17 @@ func PrepareRetry(
 	dag *ir.DAG,
 	status *ir.DAGRunStatus,
 	opts EnqueueRetryOptions,
+) (*RetryAdmission, error) {
+	return prepareRetry(ctx, dagRunRepository, dag, status, opts, false)
+}
+
+func prepareRetry(
+	ctx context.Context,
+	dagRunRepository *persis.DAGRunRepository,
+	dag *ir.DAG,
+	status *ir.DAGRunStatus,
+	opts EnqueueRetryOptions,
+	recoverable bool,
 ) (*RetryAdmission, error) {
 	if dagRunRepository == nil {
 		return nil, errors.New("enqueue retry: DAG-run repository is not configured")
@@ -203,6 +236,10 @@ func PrepareRetry(
 			latest.LeaseAt = 0
 			latest.TriggerType = ir.TriggerTypeRetry
 			latest.Resume = opts.Resume
+			latest.ResumeAdmission = nil
+			if recoverable {
+				latest.ResumeAdmission = &ir.ResumeAdmission{ID: uuid.NewString()}
+			}
 			if opts.TriggerActor != nil {
 				latest.TriggerActor = *opts.TriggerActor
 			}
@@ -255,7 +292,11 @@ func rollbackQueuedRetry(
 		queued.AttemptID,
 		ir.Queued,
 		func(latest *ir.DAGRunStatus) error {
-			if latest.QueuedAt != queued.QueuedAt {
+			ownsAdmission := latest.ResumeAdmission == nil && queued.ResumeAdmission == nil
+			if latest.ResumeAdmission != nil && queued.ResumeAdmission != nil {
+				ownsAdmission = latest.ResumeAdmission.ID == queued.ResumeAdmission.ID && !latest.ResumeAdmission.Admitted
+			}
+			if latest.QueuedAt != queued.QueuedAt || !ownsAdmission {
 				return ErrRetryStaleLatest
 			}
 			latest.Status = original.Status
@@ -268,10 +309,11 @@ func rollbackQueuedRetry(
 			latest.TriggerType = original.TriggerType
 			latest.TriggerActor = original.TriggerActor
 			latest.Resume = original.Resume
+			latest.ResumeAdmission = original.ResumeAdmission
 			latest.AutoRetryCount = original.AutoRetryCount
 			latest.Root = original.Root
 			return nil
-		}, persis.DAGRunCompareAndSwapOptions{RootDAGRun: root},
+		}, persis.DAGRunCompareAndSwapOptions{RootDAGRun: root, ExpectedAttemptKey: queued.AttemptKey},
 	)
 	if err != nil {
 		return err

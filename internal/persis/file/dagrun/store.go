@@ -278,6 +278,13 @@ func (store *Store) CompareAndSwapLatestAttemptStatus(
 	if err := req.Mutate(status); err != nil {
 		return nil, false, err
 	}
+	// Mutate may wait on side effects, such as a queue publication, and nothing
+	// renews the lock meanwhile. Past the stale threshold a contender can take
+	// the lock and write a newer status, which this snapshot would overwrite.
+	// Renewing first fails once ownership is lost and restarts the lease.
+	if err := root.Heartbeat(ctx); err != nil {
+		return nil, false, fmt.Errorf("lock for dag-run %s was lost before the status write: %w", dagRun.ID, err)
+	}
 	if err := attempt.Write(ctx, *status); err != nil {
 		return nil, false, err
 	}
