@@ -16,6 +16,7 @@ import { useDAGListActivitySSE } from '@/hooks/useDAGListActivitySSE';
 import { usePageVisible } from '@/hooks/usePageVisible';
 import { sseFallbackOptions, useSSECacheSync } from '@/hooks/useSSECacheSync';
 import { getQueryErrorStatus, isNotFoundQueryError } from '@/lib/queryErrors';
+import { isAbortLikeError, shouldRetryQueryError } from '@/lib/requestTimeout';
 
 type Activity = components['schemas']['DAGListActivity'];
 type ActivityEntry = components['schemas']['DAGListActivityEntry'];
@@ -76,6 +77,18 @@ function isMissingEndpointError(error: unknown): boolean {
 }
 
 /**
+ * SWR does not poll a key that holds an error, so a failed read is retried,
+ * with a growing delay, unless the node lacks the endpoint or the session
+ * expired.
+ */
+function shouldRetryRead(error: unknown): boolean {
+  return (
+    !isMissingEndpointError(error) &&
+    (isAbortLikeError(error) || shouldRetryQueryError(error))
+  );
+}
+
+/**
  * The activity of the DAGs that a DAG list holds, by file name, over the
  * window of its strips. `firstPage` is the query of the first page of the
  * list. That page is live: its `daglistactivity` topic sends its activity,
@@ -103,7 +116,7 @@ export function useDAGListActivity(
     {
       ...sseFallbackOptions(sse, FALLBACK_INTERVAL_MS),
       keepPreviousData: true,
-      shouldRetryOnError: false,
+      shouldRetryOnError: shouldRetryRead,
     }
   );
   useSSECacheSync(sse, mutate);
