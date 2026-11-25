@@ -536,7 +536,7 @@ steps:
 	t.Run("a handler that runs no listed node fails the run", func(t *testing.T) {
 		t.Parallel()
 
-		runNarrowed(t, nodes, `
+		status := runNarrowed(t, nodes, `
 steps:
   - action: noop
 handler_on:
@@ -546,6 +546,8 @@ handler_on:
       dag: deploy-one
     nodes: web
 `+boundChildSucceeds, []string{"db01"}, "no listed node was selected")
+		require.Equal(t, ir.NodeSkipped, status.OnExit.Status)
+		require.True(t, status.OnExit.SkippedByNodeList)
 	})
 
 	t.Run("a child whose steps the list skips does not fail", func(t *testing.T) {

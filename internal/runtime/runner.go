@@ -1777,7 +1777,10 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 		return err
 	}
 
-	node.SetStatus(ir.NodeSucceeded)
+	// A handler the node list left with no node stays skipped.
+	if !node.State().SkippedByNodeList {
+		node.SetStatus(ir.NodeSucceeded)
+	}
 	return nil
 }
 
