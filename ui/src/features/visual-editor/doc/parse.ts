@@ -130,6 +130,7 @@ function buildModel(source: string, original?: Original): DagDocModel {
     })),
     documentCount: docs.length,
     dagType: getDagType(doc),
+    hasLLM: hasLLMBlock(doc),
     stepsForm: stepsFormOf(doc),
     steps: steps.map((s) => stepView(s, doc, ctx)),
     handlers: handlers.map((s) => stepView(s, doc, ctx)),
@@ -151,6 +152,7 @@ function modelWithoutSteps(
     parseErrors,
     documentCount,
     dagType,
+    hasLLM: false,
     stepsForm: 'none',
     steps: [],
     handlers: [],
@@ -164,6 +166,11 @@ function safeDagType(doc: Document): DagType {
   } catch {
     return 'graph';
   }
+}
+
+/** True when the document has a DAG-level `llm` block. */
+function hasLLMBlock(doc: Document): boolean {
+  return isMap(doc.contents) && isMap(doc.contents.get('llm'));
 }
 
 /** First line of a parser message, without its " at line N, column M:" tail. */

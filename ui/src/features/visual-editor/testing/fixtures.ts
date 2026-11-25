@@ -200,6 +200,7 @@ export const modelArraySteps: DagDocModel = {
   parseErrors: [],
   documentCount: 1,
   dagType: 'graph',
+  hasLLM: false,
   stepsForm: 'array',
   steps: [
     {

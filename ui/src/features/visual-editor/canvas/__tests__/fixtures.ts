@@ -49,6 +49,7 @@ export function makeModel(
     parseErrors: [],
     documentCount: 1,
     dagType: 'graph',
+    hasLLM: false,
     stepsForm: 'array',
     steps,
     handlers: [],
