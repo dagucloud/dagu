@@ -463,7 +463,6 @@ describe('MiniMap', () => {
     expect(screen.getByTestId('flow-minimap')).toBeInTheDocument();
   });
 
-
   // The Activity tab of the workspace lies over the foot of the canvas: the
   // host gives the room of the tab with `--canvas-inset-bottom`.
   it('lifts the overview by the room that the host keeps at the foot of the canvas', () => {
