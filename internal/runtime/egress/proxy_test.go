@@ -76,13 +76,7 @@ func startProxy(t *testing.T, rules []string, resolver egress.Resolver, dial egr
 	t.Helper()
 	parsed, err := egress.ParseRules(rules)
 	require.NoError(t, err)
-	var logs []string
-	var logMu sync.Mutex
-	proxy, err := egress.New(egress.Options{Rules: parsed, Resolver: resolver, Dial: dial, Log: func(format string, args ...any) {
-		logMu.Lock()
-		logs = append(logs, fmt.Sprintf(format, args...))
-		logMu.Unlock()
-	}})
+	proxy, err := egress.New(egress.Options{Rules: parsed, Resolver: resolver, Dial: dial})
 	require.NoError(t, err)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
