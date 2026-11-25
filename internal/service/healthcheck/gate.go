@@ -23,6 +23,7 @@ const (
 	// gateRetryAfter is the Retry-After, in seconds, of a request the gate
 	// refuses.
 	gateRetryAfter  = "10"
+	gateReadTimeout = 10 * time.Second
 	gateStopTimeout = 5 * time.Second
 )
 
@@ -65,8 +66,10 @@ func StartMigrationGate(ctx context.Context, endpoints []GateEndpoint, report fu
 		}
 		server := &http.Server{
 			Handler:           g.handler(endpoint.HealthPath),
-			ReadHeaderTimeout: 10 * time.Second,
-			TLSConfig:         endpoint.TLS,
+			ReadHeaderTimeout: gateReadTimeout,
+			// Bounds the read of a body the gate never uses.
+			ReadTimeout: gateReadTimeout,
+			TLSConfig:   endpoint.TLS,
 		}
 		g.servers = append(g.servers, server)
 		g.listeners = append(g.listeners, listener)

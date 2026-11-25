@@ -56,7 +56,7 @@ func TestFirstStartWaitsForV2Scheduler(t *testing.T) {
 		return strings.Contains(body, `"status":"healthy"`)
 	})
 	code, body = get(t, base+"/dags")
-	require.NotEqual(t, http.StatusServiceUnavailable, code, "%s", body)
+	require.NotContains(t, []int{0, http.StatusServiceUnavailable}, code, "%s", body)
 }
 
 // waitForHealth polls the health endpoint until it answers 200 with a body
