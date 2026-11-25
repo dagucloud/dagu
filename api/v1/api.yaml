@@ -20849,10 +20849,10 @@ components:
           $ref: "#/components/schemas/NodeRunStatus"
         dagName:
           type: string
-          description: "Name of the DAG of the child run. Absent for a disabled node."
+          description: "Name of the DAG of the child run. Absent for a node that has none, such as one disabled when the step first matched it."
         dagRunId:
           type: string
-          description: "ID of the child run, a sub DAG-run of the root run. Absent for a disabled node."
+          description: "ID of the child run, a sub DAG-run of the root run. Absent for a node that has none, such as one disabled when the step first matched it."
         startedAt:
           type: string
           description: "RFC 3339 timestamp with millisecond precision when the child run started"
@@ -20870,7 +20870,7 @@ components:
 
     NodeRunStatus:
       type: string
-      description: "Status of a node's run: the status its child run reached, or not_started, running, or disabled"
+      description: "Status of a node's run: the status its child run reached, or not_started, running, disabled, or removed. A removed node is one a retry kept from the step's first attempt that has left the inventory since."
       enum:
         - "not_started"
         - "running"
@@ -20881,6 +20881,7 @@ components:
         - "aborted"
         - "rejected"
         - "disabled"
+        - "removed"
 
     NodeRunCounts:
       type: object
@@ -20902,6 +20903,8 @@ components:
           type: integer
         disabled:
           type: integer
+        removed:
+          type: integer
       required:
         - total
         - notStarted
@@ -20911,6 +20914,7 @@ components:
         - failed
         - aborted
         - disabled
+        - removed
 
     StepProgress:
       type: object

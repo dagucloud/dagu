@@ -5,17 +5,14 @@ package dag
 
 import (
 	"context"
-	"encoding/json"
-	"path/filepath"
 	"time"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/noderuns"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 )
 
@@ -74,11 +71,8 @@ func nodeRunsDir(ctx context.Context, stepName string) string {
 	if scope == nil {
 		return ""
 	}
-	stdout, ok := scope.Get(runenv.EnvKeyDAGRunStepStdoutFile)
-	if !ok || stdout == "" {
-		return ""
-	}
-	return logpath.NodeRunsDir(filepath.Dir(stdout), stepName)
+	stdout, _ := scope.Get(runenv.EnvKeyDAGRunStepStdoutFile)
+	return noderuns.Dir(stdout, stepName)
 }
 
 // writeNodeRuns writes the records and their counts when they changed since
@@ -94,12 +88,9 @@ func (e *parallelExecutor) writeNodeRuns(ctx context.Context, dir string, ended 
 	runs := e.nodeRuns(ended)
 	e.lock.Unlock()
 
-	// The counts follow the records they count, so a reader of both never
-	// sees counts ahead of the records.
-	counts := ir.CountNodeRuns(runs)
-	written := writeNodeRecord(ctx, filepath.Join(dir, logpath.NodeRunsFile), ir.NodeRuns{Runs: runs}) &&
-		writeNodeRecord(ctx, filepath.Join(dir, logpath.NodeRunsSummaryFile), counts)
-	if !written {
+	counts, err := noderuns.Write(dir, runs)
+	if err != nil {
+		logger.Warn(ctx, "Failed to write node run records", tag.Dir(dir), tag.Error(err))
 		// The next write tries again, and reports the counts once they are
 		// stored.
 		e.lock.Lock()
@@ -141,7 +132,7 @@ func (e *parallelExecutor) nodeRuns(ended bool) []ir.NodeRun {
 	runs := make([]ir.NodeRun, 0, len(e.nodes.matched))
 	for _, node := range e.nodes.matched {
 		run := ir.NodeRun{Node: node.Node, Status: e.nodeRunStatus(node, ended)}
-		if !node.Disabled {
+		if node.Run.RunID != "" {
 			id := node.Run.RunID
 			run.DAGName, run.DAGRunID = node.Run.DAGName, id
 			run.StartedAt = stringutil.FormatTime(e.nodes.started[id])
@@ -160,20 +151,4 @@ func (e *parallelExecutor) nodeRuns(ended bool) []ir.NodeRun {
 		runs = append(runs, run)
 	}
 	return runs
-}
-
-// writeNodeRecord writes one record file and reports whether it did.
-func writeNodeRecord(ctx context.Context, path string, record any) bool {
-	data, err := json.Marshal(record)
-	if err == nil {
-		err = fileutil.MkdirAll(filepath.Dir(path), 0750)
-	}
-	if err == nil {
-		err = fileutil.WriteFileAtomic(path, data, 0600)
-	}
-	if err != nil {
-		logger.Warn(ctx, "Failed to write node run record", tag.Error(err), tag.File(path))
-		return false
-	}
-	return true
 }

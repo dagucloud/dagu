@@ -51,6 +51,7 @@ import {
 import { isHarnessStep } from '@/lib/harness-step';
 import { isActiveNodeStatus, nodeStatusText } from '@/lib/status-utils';
 import { statusClasses, toneClasses } from '@/lib/statusPalette';
+import { nodesToRetry } from '@/lib/nodeRuns';
 import { cn } from '@/lib/utils';
 import type { ApiDAGRunDetails, ApiNode } from '../contracts';
 import { useWorkspaceData } from '../data/context';
@@ -561,6 +562,8 @@ export function StepFacts({
   }
 
   const gates = actions.can(node.step.name);
+  // A retry of a step with nodes runs only the nodes that did not succeed.
+  const failedNodes = node.nodeRuns ? nodesToRetry(node.nodeRuns) : 0;
   const logHref = (stream: 'stdout' | 'stderr') =>
     stepLogPageURL({
       fileName,
@@ -659,7 +662,9 @@ export function StepFacts({
               onClick={() => actions.retryStep(node.step.name)}
             >
               <RotateCcw aria-hidden="true" />
-              {ts('Retry step')}
+              {failedNodes > 0
+                ? ts('Retry failed nodes ({count})', { count: failedNodes })
+                : ts('Retry step')}
             </Button>
           )}
           {gates.setStatus && (

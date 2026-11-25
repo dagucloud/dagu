@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/noderuns"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,7 @@ import (
 //
 //	node    deploy        clean
 //	web01   succeeded     succeeded
-//	web02   disabled      -
+//	web02   disabled      removed
 //	web03   failed        not_started
 //	web04   running       -
 //
@@ -42,12 +43,12 @@ func seedNodeRuns(t *testing.T, deployStatus ir.NodeStatus) test.Server {
 	}
 	clean := []ir.NodeRun{
 		{Node: "web01", Status: ir.NodeRunSucceeded, DAGName: "node-runs-api", DAGRunID: "c1", Steps: done},
+		{Node: "web02", Status: ir.NodeRunRemoved, DAGName: "node-runs-api", DAGRunID: "c2"},
 		{Node: "web03", Status: ir.NodeRunNotStarted, DAGName: "node-runs-api", DAGRunID: "c3"},
 	}
 	for step, runs := range map[string][]ir.NodeRun{"deploy": deploy, "clean": clean} {
-		dir := logpath.NodeRunsDir(logDir, step)
-		writeJSON(t, filepath.Join(dir, logpath.NodeRunsFile), ir.NodeRuns{Runs: runs})
-		writeJSON(t, filepath.Join(dir, logpath.NodeRunsSummaryFile), ir.CountNodeRuns(runs))
+		_, err := noderuns.Write(logpath.NodeRunsDir(logDir, step), runs)
+		require.NoError(t, err)
 	}
 
 	nodes := &ir.NodeTargets{Selector: "web", MaxConcurrent: 1}
@@ -112,11 +113,11 @@ func TestNodeRuns(t *testing.T) {
 				"web03 deploy=failed clean=not_started",
 				"web04 deploy=running",
 				"web01 deploy=succeeded clean=succeeded",
-				"web02 deploy=disabled",
+				"web02 deploy=disabled clean=removed",
 			}, rowsOf(list))
 			require.Equal(t, []api.NodeRunStep{
 				{Name: "deploy", Counts: api.NodeRunCounts{Total: 4, Running: 1, Succeeded: 1, Failed: 1, Disabled: 1}},
-				{Name: "clean", Counts: api.NodeRunCounts{Total: 2, NotStarted: 1, Succeeded: 1}},
+				{Name: "clean", Counts: api.NodeRunCounts{Total: 3, NotStarted: 1, Succeeded: 1, Removed: 1}},
 			}, list.Steps)
 			require.Equal(t, 4, list.Pagination.TotalRecords)
 
@@ -146,7 +147,7 @@ func TestNodeRuns(t *testing.T) {
 		nodes := details.DagRunDetails.Nodes
 		require.Nil(t, nodes[0].NodeRuns)
 		require.Equal(t, &api.NodeRunCounts{Total: 4, Running: 1, Succeeded: 1, Failed: 1, Disabled: 1}, nodes[1].NodeRuns)
-		require.Equal(t, &api.NodeRunCounts{Total: 2, NotStarted: 1, Succeeded: 1}, nodes[2].NodeRuns)
+		require.Equal(t, &api.NodeRunCounts{Total: 3, NotStarted: 1, Succeeded: 1, Removed: 1}, nodes[2].NodeRuns)
 		require.Nil(t, details.DagRunDetails.BoundNode)
 	})
 

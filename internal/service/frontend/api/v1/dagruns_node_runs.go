@@ -8,13 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
-	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/noderuns"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
 )
 
@@ -119,8 +118,8 @@ func readNodeRuns(node *ir.Node) (*ir.NodeRuns, error) {
 	if dir == "" {
 		return nil, nil
 	}
-	var records ir.NodeRuns
-	if err := readJSONFile(filepath.Join(dir, logpath.NodeRunsFile), &records); err != nil {
+	records, err := noderuns.Read(dir)
+	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
 		}
@@ -151,8 +150,8 @@ func nodeRunCounts(node *ir.Node) *api.NodeRunCounts {
 	if dir == "" {
 		return nil
 	}
-	var counts ir.NodeRunCounts
-	if err := readJSONFile(filepath.Join(dir, logpath.NodeRunsSummaryFile), &counts); err != nil {
+	counts, err := noderuns.ReadCounts(dir)
+	if err != nil {
 		return nil
 	}
 	if status := endedNodeRunStatus(node); status != "" {
@@ -188,10 +187,10 @@ func endedNodeRunStatus(step *ir.Node) ir.NodeRunStatus {
 // nodeRunsDir returns the directory of a step's node run records, or "" for
 // a step without nodes or without a log file.
 func nodeRunsDir(node *ir.Node) string {
-	if node == nil || node.Step.Nodes == nil || node.Stdout == "" {
+	if node == nil || node.Step.Nodes == nil {
 		return ""
 	}
-	return logpath.NodeRunsDir(filepath.Dir(node.Stdout), node.Step.Name)
+	return noderuns.Dir(node.Stdout, node.Step.Name)
 }
 
 // Ranks of the rows of node runs: rows with a failed run come first, then
@@ -211,7 +210,8 @@ func nodeRunRowRank(row api.NodeRunRow) int {
 		case api.NodeRunStatusRunning, api.NodeRunStatusWaiting:
 			rank = nodeRunRankActive
 		case api.NodeRunStatusNotStarted, api.NodeRunStatusSucceeded,
-			api.NodeRunStatusPartiallySucceeded, api.NodeRunStatusDisabled:
+			api.NodeRunStatusPartiallySucceeded, api.NodeRunStatusDisabled,
+			api.NodeRunStatusRemoved:
 		}
 	}
 	return rank
@@ -243,5 +243,6 @@ func toNodeRunCounts(counts ir.NodeRunCounts) api.NodeRunCounts {
 		Failed:     counts.Failed,
 		Aborted:    counts.Aborted,
 		Disabled:   counts.Disabled,
+		Removed:    counts.Removed,
 	}
 }

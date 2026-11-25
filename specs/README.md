@@ -88,7 +88,7 @@ It must not be treated as product behavior until implementation catches up.
 | [087: Label Filters](087-label-filters.md) | Implemented |
 | [088: Node Inventory](088-node-inventory.md) | Partially implemented |
 | [089: Node Targeting](089-node-targeting.md) | Partially implemented |
-| [092: Agent Workers](092-agent-workers.md) | Partially implemented |
+| [092: Agent Workers](092-agent-workers.md) | Not implemented |
 | [096: Skills](096-skills.md) | Partially implemented |
 | [097: Derived Dates](097-derived-dates.md) | Partially implemented |
 | [098: MCP Call Action](098-mcp-call.md) | Implemented |
@@ -96,6 +96,9 @@ It must not be treated as product behavior until implementation catches up.
 | [100: Service Run History](100-service-run-history.md) | Partially implemented |
 | [101: Workflow Tests](101-workflow-tests.md) | Partially implemented |
 | [102: Projects](102-projects.md) | Not implemented |
+| [103: Untrusted Steps and Step Secrets](103-untrusted-steps.md) | Partially implemented |
+| [104: References to Agent Output](104-agent-output.md) | Not implemented |
+| [105: Egress Proxy](105-egress-proxy.md) | Partially implemented |
 
 **Writing guidelines:**
 

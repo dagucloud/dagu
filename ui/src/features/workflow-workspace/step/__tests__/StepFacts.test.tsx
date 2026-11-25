@@ -267,6 +267,7 @@ describe('StepFacts of a step with nodes', () => {
         failed: 0,
         aborted: 0,
         disabled: 0,
+        removed: 0,
       },
     });
     render(
@@ -287,5 +288,33 @@ describe('StepFacts of a step with nodes', () => {
     );
     act(() => screen.getByRole('button', { name: 'Open Nodes' }).click());
     expect(onOpenNodes).toHaveBeenCalledTimes(1);
+  });
+
+  // The retry runs only the nodes that failed, were aborted, or never
+  // started, so its button counts them.
+  it('retries the nodes that did not succeed', () => {
+    gates.retry = true;
+    renderFacts(
+      node('deploy', NodeStatus.Failed, {
+        statusLabel: NodeStatusLabel.failed,
+        nodeRuns: {
+          total: 5,
+          notStarted: 1,
+          running: 0,
+          waiting: 0,
+          succeeded: 1,
+          failed: 1,
+          aborted: 1,
+          disabled: 0,
+          removed: 1,
+        },
+      }),
+      Status.Failed
+    );
+
+    expect(
+      screen.getByRole('button', { name: 'Retry failed nodes (3)' })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry step' })).toBeNull();
   });
 });

@@ -4,7 +4,9 @@
 package dag_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 
@@ -114,6 +116,96 @@ func TestNodesRetryPathRunsTargetAfterFailedSibling(t *testing.T) {
 	require.Len(t, retryRequests, 1)
 	require.Equal(t, "run-web03", retryRequests[0].RunID)
 	require.Equal(t, "web03", retryRequests[0].Node)
+}
+
+// retriedNodesStep returns a step with nodes over deploy-one, the context of
+// its run, and the runner that records the child runs it asks for.
+func retriedNodesStep(t *testing.T, runner *retryRecorder, matched []executor.NodeRun) (executor.Executor, context.Context) {
+	t.Helper()
+
+	child := &ir.DAG{
+		Name:         "deploy-one",
+		NodeRequired: true,
+		YamlData:     []byte("name: deploy-one\nnode: required\nsteps:\n  - name: target\n    action: noop\n"),
+		Steps:        []ir.Step{{Name: "target"}},
+	}
+	parent := &ir.DAG{Name: "root", LocalDAGs: map[string]*ir.DAG{child.Name: child}}
+	rootRef := ir.NewDAGRunRef(parent.Name, "root-run")
+	ctx := runtime.NewContext(
+		executor.WithSubWorkflowRunner(context.Background(), runner),
+		parent,
+		rootRef.ID,
+		"",
+		runtime.WithRootDAGRun(rootRef),
+	)
+	step := ir.Step{
+		Name:           "deploy",
+		ExecutorConfig: ir.ExecutorConfig{Type: ir.ExecutorTypeNodes},
+		SubDAG:         &ir.SubDAG{Name: child.Name},
+		Nodes:          &ir.NodeTargets{Selector: "web", MaxConcurrent: 1},
+	}
+	impl, err := executor.NewExecutor(ctx, step)
+	require.NoError(t, err)
+	for i := range matched {
+		matched[i].Run.DAGName = child.Name
+	}
+	impl.(executor.NodesExecutor).SetNodes(matched)
+	return impl, ctx
+}
+
+// A retried step with nodes keeps the result of a node whose child run
+// succeeded and does not run a removed node. A node that fails again stops
+// the nodes that never started, but not one whose result the step keeps.
+func TestNodesRetryKeepsSucceededNodes(t *testing.T) {
+	runner := &retryRecorder{failed: map[string]bool{"run-web02": true}}
+	impl, ctx := retriedNodesStep(t, runner, []executor.NodeRun{
+		{Node: "web01", Removed: true, Run: executor.RunParams{RunID: "run-web01"}},
+		{Node: "web02", Run: executor.RunParams{RunID: "run-web02"}},
+		{Node: "web03", Reuse: true, Run: executor.RunParams{RunID: "run-web03"}},
+		{Node: "web04", Run: executor.RunParams{RunID: "run-web04"}},
+	})
+	var out bytes.Buffer
+	impl.SetStdout(&out)
+	require.Error(t, impl.Run(ctx), "web02 failed again")
+
+	runRequests, retryRequests := runner.requests()
+	require.Empty(t, retryRequests)
+	reused := map[string]bool{}
+	for _, req := range runRequests {
+		reused[req.RunID] = req.Reuse
+	}
+	require.Equal(t, map[string]bool{"run-web02": false, "run-web03": true}, reused)
+
+	var aggregate struct {
+		Summary struct{ Total, Succeeded, Failed int } `json:"summary"`
+		Results []struct{ Node, Status string }        `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal(out.Bytes(), &aggregate))
+	var statuses []string
+	for _, result := range aggregate.Results {
+		statuses = append(statuses, result.Node+"="+result.Status)
+	}
+	require.Equal(t, []string{"web01=removed", "web02=failed", "web03=succeeded", "web04=not_started"}, statuses)
+	require.Equal(t, 4, aggregate.Summary.Total)
+	require.Equal(t, 1, aggregate.Summary.Succeeded)
+	require.Equal(t, 1, aggregate.Summary.Failed)
+}
+
+// A removed node does not fail the step.
+func TestNodesRetryRemovedNodeSucceeds(t *testing.T) {
+	runner := &retryRecorder{}
+	impl, ctx := retriedNodesStep(t, runner, []executor.NodeRun{
+		{Node: "web01", Run: executor.RunParams{RunID: "run-web01"}},
+		{Node: "web02", Removed: true, Run: executor.RunParams{RunID: "run-web02"}},
+	})
+	require.NoError(t, impl.Run(ctx))
+	status, err := impl.(executor.NodeStatusDeterminer).DetermineNodeStatus()
+	require.NoError(t, err)
+	require.Equal(t, ir.NodeSucceeded, status)
+	require.Equal(t, []ir.NodeStatusDetail{
+		{Label: "web01", Status: ir.NodeSucceeded},
+		{Label: "web02", Status: ir.NodeSkipped},
+	}, impl.(executor.StatusDetailsProvider).GetStatusDetails())
 }
 
 // A path that ends at a parallel child run continues that run as a plain

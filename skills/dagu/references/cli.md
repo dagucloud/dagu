@@ -105,6 +105,8 @@ dagu retry <dag> --run-id/-r <id> [--step <name>] [--downstream] [--bypass-preco
 
 `--step` retries only the selected step. Add `--downstream` to also reset every reachable descendant; unrelated branches keep their current status. `--downstream` requires `--step`. Add `--bypass-preconditions` to skip step precondition evaluation for this retry; it also requires `--step` and a local CLI context. DAG-level preconditions and lifecycle handlers still apply. With `--sub-run-id <child-id>`, the bypass also reaches the selected child retry, including children dispatched to workers.
 
+A retried step with `nodes` runs again only on the nodes that did not succeed, keeping the nodes it last recorded, or matching its selector again when it has no readable records; see `nodes:` in the step types reference.
+
 ### dagu human-task complete
 
 Complete a waiting human task in a root DAG run. The run may be local or distributed, but the command operates on the local Dagu data store.

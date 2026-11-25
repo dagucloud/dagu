@@ -60,6 +60,7 @@ const counts = (over: Partial<NodeRunCounts>): NodeRunCounts => ({
   failed: 0,
   aborted: 0,
   disabled: 0,
+  removed: 0,
   ...over,
 });
 
@@ -202,6 +203,21 @@ describe('NodeRunsPanel', () => {
 
     const row = screen.getByTestId('node-runs-row');
     expect(within(row).getByText('5s')).toBeInTheDocument();
+  });
+
+  it('shows a node that left the inventory before a retry as removed', () => {
+    api.list = {
+      ...list,
+      items: [
+        {
+          node: 'web04',
+          runs: [{ step: 'deploy', status: NodeRunStatus.removed }],
+        },
+      ],
+    };
+    renderPanel(details());
+
+    expect(screen.getByText('Removed')).toBeInTheDocument();
   });
 
   it('opens the child run of a cell on the sub-run stack', () => {

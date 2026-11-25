@@ -45,6 +45,9 @@ const (
 	NodeRunAborted            NodeRunStatus = "aborted"
 	NodeRunRejected           NodeRunStatus = "rejected"
 	NodeRunDisabled           NodeRunStatus = "disabled"
+	// NodeRunRemoved is a node of a retried step's first attempt that has
+	// left the inventory since. It does not run (RFC 013 §Retry).
+	NodeRunRemoved NodeRunStatus = "removed"
 )
 
 // NodeRunStatusOf returns the status of a node whose child run returned with
@@ -82,6 +85,7 @@ type NodeRunCounts struct {
 	Failed     int `json:"failed"`
 	Aborted    int `json:"aborted"`
 	Disabled   int `json:"disabled"`
+	Removed    int `json:"removed"`
 }
 
 // CountNodeRuns counts runs by status.
@@ -101,6 +105,8 @@ func CountNodeRuns(runs []NodeRun) NodeRunCounts {
 			counts.Aborted++
 		case NodeRunDisabled:
 			counts.Disabled++
+		case NodeRunRemoved:
+			counts.Removed++
 		case NodeRunFailed, NodeRunRejected:
 			counts.Failed++
 		default:

@@ -8478,9 +8478,9 @@ export interface components {
             /** @description Name of the step with nodes */
             step: string;
             status: components["schemas"]["NodeRunStatus"];
-            /** @description Name of the DAG of the child run. Absent for a disabled node. */
+            /** @description Name of the DAG of the child run. Absent for a node that has none, such as one disabled when the step first matched it. */
             dagName?: string;
-            /** @description ID of the child run, a sub DAG-run of the root run. Absent for a disabled node. */
+            /** @description ID of the child run, a sub DAG-run of the root run. Absent for a node that has none, such as one disabled when the step first matched it. */
             dagRunId?: string;
             /** @description RFC 3339 timestamp with millisecond precision when the child run started */
             startedAt?: string;
@@ -8491,7 +8491,7 @@ export interface components {
             failedStep?: string;
         };
         /**
-         * @description Status of a node's run: the status its child run reached, or not_started, running, or disabled
+         * @description Status of a node's run: the status its child run reached, or not_started, running, disabled, or removed. A removed node is one a retry kept from the step's first attempt that has left the inventory since.
          * @enum {string}
          */
         NodeRunStatus: NodeRunStatus;
@@ -8505,6 +8505,7 @@ export interface components {
             failed: number;
             aborted: number;
             disabled: number;
+            removed: number;
         };
         /** @description Number of a run's steps that succeeded, once the run finished. Handlers are not counted. */
         StepProgress: {
@@ -27844,7 +27845,8 @@ export enum NodeRunStatus {
     failed = "failed",
     aborted = "aborted",
     rejected = "rejected",
-    disabled = "disabled"
+    disabled = "disabled",
+    removed = "removed"
 }
 export enum ForeachItemStatusFilter {
     not_started = "not_started",
