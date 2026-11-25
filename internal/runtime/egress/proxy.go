@@ -104,6 +104,15 @@ func New(opts Options) (*Proxy, error) {
 			declineUpgrade(r.Out.Header)
 		},
 		Transport: transport,
+		// No forwarded request asks for an upgrade, so a 101 answer is an error.
+		// Refusing it here also closes the connection that the answer hands
+		// over, which the reverse proxy leaves open on its own refusal.
+		ModifyResponse: func(res *http.Response) error {
+			if res.StatusCode == http.StatusSwitchingProtocols {
+				return errors.New("the destination switched protocols without an upgrade request")
+			}
+			return nil
+		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			p.log("egress proxy: %s %s failed: %v", r.Method, r.URL.Host, err)
 			if denied, ok := errors.AsType[*DeniedError](err); ok {

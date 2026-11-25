@@ -484,7 +484,8 @@ func TestMalformedAndFailedRequests(t *testing.T) {
 
 // A switched protocol would hold a raw connection that no idle limit covers, and
 // no plain request needs one. The proxy sends the request without the upgrade,
-// and a destination that switches protocols anyway gives 502.
+// and a destination that switches protocols anyway gives 502 and loses its
+// connection, which the proxy would otherwise keep open.
 func TestProtocolUpgradeIsNotForwarded(t *testing.T) {
 	t.Parallel()
 
@@ -500,7 +501,9 @@ func TestProtocolUpgradeIsNotForwarded(t *testing.T) {
 			t.Parallel()
 
 			upgrades := make(chan string, 1)
+			released := make(chan struct{})
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				defer close(released)
 				upgrades <- r.Header.Get("Upgrade")
 				if !tc.always && r.Header.Get("Upgrade") == "" {
 					_, _ = io.WriteString(w, "ok")
@@ -531,6 +534,11 @@ func TestProtocolUpgradeIsNotForwarded(t *testing.T) {
 			_ = response.Body.Close()
 			assert.Equal(t, tc.want, response.StatusCode)
 			assert.Empty(t, <-upgrades, "the destination gets no upgrade")
+			select {
+			case <-released:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the proxy keeps the connection of the destination open")
+			}
 		})
 	}
 }
