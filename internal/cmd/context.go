@@ -35,6 +35,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileartifact "github.com/dagucloud/dagu/v2/internal/persis/file/artifact"
 	filebaseconfig "github.com/dagucloud/dagu/v2/internal/persis/file/baseconfig"
+	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/proc"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -374,6 +375,15 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 		}, pubKey, licStore, slog.Default())
 		if err := licMgr.Start(ctx); err != nil {
 			logger.Warn(ctx, "License manager initialization failed", tag.Error(err))
+		}
+	}
+
+	// Steps that take access tokens from Dagu Cloud use the activation the
+	// server saved.
+	if serviceForCommand(commandName) == config.ServiceAgent {
+		if pubKey, err := license.PublicKey(); err == nil {
+			activations := store.NewLicenseStore(backend.Collection(persis.CollectionLicense))
+			ctx = license.WithCloudCredentials(ctx, license.StoredCloudCredentials(activations, pubKey, cfg.License.CloudURL))
 		}
 	}
 
