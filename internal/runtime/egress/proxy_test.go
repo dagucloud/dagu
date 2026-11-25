@@ -481,3 +481,56 @@ func TestMalformedAndFailedRequests(t *testing.T) {
 	assert.Equal(t, "HTTP/1.1 502 Bad Gateway", raw("GET http://gone.example.test/ HTTP/1.1\r\nHost: gone.example.test\r\nConnection: close\r\n\r\n"))
 	assert.Equal(t, "HTTP/1.1 502 Bad Gateway", raw("CONNECT gone.example.test:443 HTTP/1.1\r\nHost: gone.example.test:443\r\nConnection: close\r\n\r\n"))
 }
+
+// A switched protocol would hold a raw connection that no idle limit covers, and
+// no plain request needs one. The proxy sends the request without the upgrade,
+// and a destination that switches protocols anyway gives 502.
+func TestProtocolUpgradeIsNotForwarded(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		always bool
+		want   int
+	}{
+		{name: "switches when asked", want: http.StatusOK},
+		{name: "always switches", always: true, want: http.StatusBadGateway},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			upgrades := make(chan string, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				upgrades <- r.Header.Get("Upgrade")
+				if !tc.always && r.Header.Get("Upgrade") == "" {
+					_, _ = io.WriteString(w, "ok")
+					return
+				}
+				conn, buffered, err := http.NewResponseController(w).Hijack()
+				if err != nil {
+					return
+				}
+				defer func() { _ = conn.Close() }()
+				_, _ = io.WriteString(conn, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+				_, _ = io.Copy(io.Discard, buffered)
+			}))
+			t.Cleanup(server.Close)
+			host, port, err := net.SplitHostPort(server.Listener.Addr().String())
+			require.NoError(t, err)
+			destination := "allowed.example.test:" + port
+			resolver := &fakeResolver{answers: map[string][]netip.Addr{"allowed.example.test": {netip.MustParseAddr(host)}}}
+			proxyAddr := startProxy(t, []string{destination}, resolver, nil)
+
+			conn, err := net.Dial("tcp", proxyAddr)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = conn.Close() })
+			_, err = fmt.Fprintf(conn, "GET http://%s/ws HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n", destination, destination)
+			require.NoError(t, err)
+			response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+			require.NoError(t, err)
+			_ = response.Body.Close()
+			assert.Equal(t, tc.want, response.StatusCode)
+			assert.Empty(t, <-upgrades, "the destination gets no upgrade")
+		})
+	}
+}
