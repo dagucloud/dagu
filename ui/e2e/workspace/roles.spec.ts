@@ -196,19 +196,19 @@ steps:
           await expect(page.locator('#save-config')).toHaveCount(0);
         }
 
-        // Run controls. The run is active: Stop is in the slot of Start, and
-        // there is no Retry, which is for a run that ended. Stop is gated by
-        // the server permission run_dags, which this stack gives to every
-        // role; the viewer has it too, so it is checked from operator up.
+        // Run controls. Start is on the bar. Stop is one of the flat run
+        // icons. Both are gated by the server permission run_dags, which
+        // this stack gives to every role; the viewer has them too, so they
+        // are checked from operator up.
         if (gates.canExecute) {
           await expect(
+            page.getByTestId('ww-run-split').locator('[data-ww-action="start"]')
+          ).toBeVisible();
+          await expect(
             page
-              .getByTestId('ww-run-start-slot')
+              .getByTestId('ww-run-actions')
               .getByRole('button', { name: 'Stop', exact: true })
           ).toBeVisible({ timeout: 30_000 });
-          await expect(
-            page.getByRole('button', { name: 'Retry', exact: true })
-          ).toHaveCount(0);
         }
         // Restoring the definition of a run writes the editor: it needs write access, and the
         // stale run gives it.
@@ -218,20 +218,16 @@ steps:
           }),
           gates.canWrite
         );
-        // Stop has the slot of Start, so the run menu offers Start to every
-        // role with run_dags. The unsaved draft follows canExecute.
+        // The run menu holds the unsaved draft only. A clean editor keeps
+        // its caret in place for a role that may execute.
         const runOptions = page
           .getByTestId('ww-run-split')
           .getByRole('button', { name: 'More run options' });
-        await runOptions.click();
-        await expect(
-          page.getByRole('menuitem', { name: 'Start', exact: true })
-        ).toBeVisible();
-        await expectPresent(
-          page.getByRole('menuitem', { name: /Run unsaved draft/ }),
-          gates.canExecute
-        );
-        await page.keyboard.press('Escape');
+        if (gates.canExecute) {
+          await expect(runOptions).toBeVisible();
+        } else {
+          await expect(runOptions).toHaveCount(0);
+        }
 
         // The bar has no menu: Rename and Delete are buttons that follow
         // canWrite, and no entry leads to the run page.
@@ -306,15 +302,15 @@ test.describe('workspace without the run permission', () => {
 name: ${dagName}
 steps:
   - name: hello
-    run: exit 1
+    run: echo hello
 `
     );
     try {
       await waitForDAGAvailable(request, adminToken, fileName);
-      // The run fails: with runDags, Retry would have the slot of Start, so
-      // its absence below shows the gate.
       const runId = await startDAG(request, adminToken, fileName);
-      await waitForRunStatus(request, adminToken, dagName, runId, ['failed']);
+      await waitForRunStatus(request, adminToken, dagName, runId, [
+        'succeeded',
+      ]);
 
       await page.route('**/*', async (route) => {
         if (route.request().resourceType() !== 'document') {
@@ -347,9 +343,10 @@ steps:
       const bar = page.getByTestId('ww-bar');
       await expect(page.getByTestId('ww-run-split')).toHaveCount(0);
       await expect(bar.locator('[data-ww-action="start"]')).toHaveCount(0);
+      const actions = page.getByTestId('ww-run-actions');
       for (const name of ['Stop', 'Retry', 'Reschedule']) {
         await expect(
-          bar.getByRole('button', { name, exact: true })
+          actions.getByRole('button', { name, exact: true })
         ).toHaveCount(0);
       }
       await expect(bar.getByRole('button', { name: 'Start' })).toHaveCount(0);

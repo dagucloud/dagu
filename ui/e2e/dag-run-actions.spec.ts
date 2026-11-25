@@ -342,7 +342,7 @@ steps:
     // The old run page redirects to the workflow page with the run.
     await page.goto(`/dag-runs/${dagName}/${dagRunId}`);
     await page
-      .getByTestId('ww-run-start-slot')
+      .getByTestId('ww-run-actions')
       .getByRole('button', { name: 'Stop', exact: true })
       .click();
 
@@ -396,7 +396,7 @@ steps:
 
     await page.goto(`/dag-runs/${dagName}/${dagRunId}`);
     await page
-      .getByTestId('ww-run-start-slot')
+      .getByTestId('ww-run-actions')
       .getByRole('button', { name: 'Stop', exact: true })
       .click();
 
@@ -490,7 +490,7 @@ steps:
       .toContain('retry succeeded');
   });
 
-  test('reschedules a failed queue-backed DAG run from the UI', async ({
+  test('reschedules a completed queue-backed DAG run from the UI', async ({
     page,
     request,
   }) => {
@@ -511,21 +511,18 @@ worker_selector:
   role: e2e
 steps:
   - name: reschedule-step
-    run: |
-      echo "reschedule complete"
-      exit 1
+    run: echo "reschedule complete"
 `
     );
 
     await waitForDAGAvailable(request, token, fileName);
-    // The run fails, so Retry and its Reschedule have the slot of Start.
     const originalRunId = await startDAG(request, token, fileName);
     await waitForRunStatus(
       request,
       token,
       dagName,
       originalRunId,
-      ['failed'],
+      ['succeeded'],
       'local',
       30_000
     );
@@ -533,8 +530,8 @@ steps:
     const newRunId = uniqueName('rescheduled-run');
     await page.goto(`/dag-runs/${dagName}/${originalRunId}`);
     await page
-      .getByTestId('ww-run-start-slot')
       .getByRole('button', { name: 'Retry', exact: true })
+      .first()
       .click();
 
     const dialog = page.getByRole('dialog');
@@ -560,21 +557,11 @@ steps:
       token,
       dagName,
       newRunId,
-      ['failed'],
+      ['succeeded'],
       'local',
       30_000
     );
     expect(rescheduledRun.dagRunId).toBe(newRunId);
-    // The new run fails in its step, not before the step runs.
-    await expect
-      .poll(
-        () =>
-          getStepStdout(request, token, dagName, newRunId, 'reschedule-step', {
-            retryNotFound: true,
-          }),
-        { timeout: 15_000 }
-      )
-      .toContain('reschedule complete');
 
     const latestRun = await getDAGRun(request, token, dagName, newRunId);
     expect(latestRun.dagRunId).toBe(newRunId);

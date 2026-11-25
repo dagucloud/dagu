@@ -7,11 +7,9 @@ import {
   FilePen,
   History,
   Play,
-  RotateCcw,
   Save,
 } from 'lucide-react';
-import { Status } from '@/api/v1/schema';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
@@ -23,8 +21,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
-import DAGRunActions from '@/features/dag-runs/components/common/DAGRunActions';
-import { getDAGRunTerminateAction } from '@/features/dag-runs/components/common/terminateAction';
 import { useUnsavedChanges } from '@/contexts/UnsavedChangesContext';
 import { daysBack } from '@/features/backfills/components/BackfillRangePicker';
 import { StartBackfillDialog } from '@/features/backfills/components/StartBackfillDialog';
@@ -35,13 +31,10 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { cn } from '@/lib/utils';
 import { useWorkspaceEditor } from '../canvas/WorkspaceEditorContext';
 import type { BarSlotProps } from '../contracts';
-import { useStandaloneRun, useWorkspaceData } from '../data/context';
-import { useWorkspaceRun } from '../data/useWorkspaceRun';
+import { useWorkspaceData } from '../data/context';
 import { useWorkspacePermissions } from '../data/useWorkspacePermissions';
 import { useWorkspaceRefresh } from '../data/useWorkspaceRefresh';
-import { useWorkspaceUrl } from '../state/workspaceUrl';
 import { Z } from '../zLayers';
-import { EditRetryDialog } from './EditRetryDialog';
 import { RunStartTarget, useRunStart } from './RunStartContext';
 import { useShowRun } from './useShowRun';
 
@@ -63,10 +56,7 @@ function useShownError(error: string | null, busy: boolean): string | null {
   return shown;
 }
 
-/**
- * Spinner while the start is pending, a destructive alert after it failed.
- * The spinner takes the text colour of the button that it sits on.
- */
+/** Spinner while the start is pending, a destructive alert after it failed. */
 function StartFeedback({
   busy,
   error,
@@ -77,7 +67,7 @@ function StartFeedback({
   label: string;
 }) {
   if (busy) {
-    return <Spinner label={label} className="size-4" />;
+    return <Spinner label={label} className="size-4 text-primary-foreground" />;
   }
   return (
     <span role="alert" className="grid place-items-center">
@@ -94,13 +84,7 @@ function StartFeedback({
  * caret has its slot whenever the user may run a draft, so that Start keeps
  * its place when the draft becomes dirty. While the editor equals the saved
  * file, its menu says that there is no draft to run. With unsaved changes,
- * the menu also offers to save and run to a user who may do both. While the
- * shown run has Dequeue, Stop (with Reject while it waits for an approval),
- * Cancel of a pending auto-retry or, after a failure, Retry, that action
- * takes the slot of Start and the menu offers Start. Any other run that is
- * not active, and a failed run with Cancel in the slot, has Retry in the
- * menu. A run without its workflow file has its actions alone, Retry for any
- * run that is not active: no Start and no menu.
+ * the menu also offers to save and run to a user who may do both.
  */
 export function RunSplitButton(props: BarSlotProps) {
   const { canRunDags, canExecute } = useWorkspacePermissions();
@@ -123,6 +107,7 @@ function SplitButton({
   const { handle, state } = useWorkspaceEditor();
   const dirty = state?.dirty ?? false;
   const { hasUnsavedChanges } = useUnsavedChanges();
+  const { canSaveAndStart, requestSaveAndStart } = useRunStart();
   const navigate = useNavigate();
   const remoteNode = useRemoteNode();
   const [backfilling, setBackfilling] = useState(false);
@@ -134,40 +119,6 @@ function SplitButton({
     spec,
     isDirty: dirty,
   });
-  const run = useWorkspaceRun();
-  // Each state of the shown run has its action in the slot of Start: Dequeue
-  // for a queued run; Stop for an active run, with Reject beside it while the
-  // run waits for an approval; Cancel for a failed run with a pending
-  // auto-retry; Retry for any other failed run; else Start.
-  const status = run.details?.status;
-  const dequeueShown = !!run.ref && status === Status.Queued;
-  const stopShown =
-    !dequeueShown &&
-    !!run.ref &&
-    !!run.details &&
-    getDAGRunTerminateAction(run.details) !== 'none';
-  // A run without its workflow file has nothing to start: only its actions.
-  const standalone = useStandaloneRun() !== null;
-  // A run that is not active can be retried, as the server allows, while an
-  // auto-retry is pending too. Retry is in the slot for a failed run without
-  // Cancel, and for any such run without Start (beside Cancel while an
-  // auto-retry is pending); otherwise the menu offers it.
-  const retryable =
-    !!run.ref &&
-    !!run.details &&
-    status !== Status.Running &&
-    status !== Status.Waiting &&
-    status !== Status.Queued;
-  const retryShown =
-    retryable && (standalone || (!stopShown && status === Status.Failed));
-  const retryInMenu = canRunDags && retryable && !retryShown;
-  const replaced = stopShown || retryShown || dequeueShown;
-  const runActions = useRef<HTMLDivElement>(null);
-  const [url] = useWorkspaceUrl();
-  const [editRetry, setEditRetry] = useState(false);
-  const startFlow = useRunStart();
-  const { canSaveAndStart, requestSaveAndStart } = startFlow;
-  const stopAll = useMemo(() => ({ fileName }), [fileName]);
   const busy = actions.isStarting;
   const shownError = useShownError(actions.error, busy);
 
@@ -193,91 +144,39 @@ function SplitButton({
   // A backfill runs the saved definition's past slots, so it needs a
   // schedule and the right to run.
   const canBackfill = canRunDags && (dag.schedule?.length ?? 0) > 0;
-  // While another action has the slot of Start, the menu offers Start.
-  const startInMenu = canRunDags && replaced;
-  const hasMenu =
-    !standalone &&
-    (startInMenu || retryInMenu || canRunDraft || canSaveAndRun || canBackfill);
-  // While another action has the slot of Start, a draft run shows its
-  // spinner or its alert on the caret.
-  const caretFeedback = canRunDags && replaced && (busy || shownError !== null);
+  const hasMenu = canRunDraft || canSaveAndRun || canBackfill;
   if (!canRunDags && !hasMenu) return null;
-  if (standalone && !replaced) return null;
 
   return (
     <div data-testid="ww-run-split" className="flex min-w-0 items-center gap-1">
       {canRunDags && (
         <div
           data-testid="ww-run-start-slot"
-          className="relative flex items-center gap-1"
-          title={replaced ? undefined : (shownError ?? undefined)}
+          className="relative"
+          title={shownError ?? undefined}
         >
           <RunStartTarget>
-            {(dequeueShown || stopShown) && run.ref && run.details && (
-              <DAGRunActions
-                part={dequeueShown ? 'dequeue' : 'stop'}
-                dagRun={run.details}
-                name={run.ref.name}
-                refresh={() => void run.refresh()}
-                displayMode="bar"
-                hideUnavailable
-                stopAll={stopAll}
-                markActions
-              />
-            )}
-            {(retryShown || retryInMenu) && run.ref && run.details && (
-              // While the menu offers Retry, its button stays mounted, hidden:
-              // the menu and the palette click it to open its dialog.
-              <div
-                ref={runActions}
-                className={retryShown ? 'contents' : 'hidden'}
-              >
-                <DAGRunActions
-                  part="retry"
-                  dagRun={run.details}
-                  name={run.ref.name}
-                  refresh={() => void run.refresh()}
-                  displayMode="bar"
-                  hideUnavailable
-                  markActions
-                  // A new run is shown at once. A run under another DAG name
-                  // is not a run of this workflow.
-                  onRescheduled={(runId, runName) => {
-                    if (runName === dag.name) showRun(runId, url.runName);
-                  }}
-                  onEditRetry={() => setEditRetry(true)}
-                />
-              </div>
-            )}
-            {/* Start stays mounted, hidden: the palette and the menu open its
-                dialog while another action has the slot. */}
-            {!standalone && (
-              <div className={replaced ? 'hidden' : 'contents'}>
-                <DAGActions
-                  only={['start']}
-                  displayMode="full"
-                  barStart
-                  // While the slot shows busy or error, the feedback icon takes
-                  // the place of the Play icon: the button keeps its size.
-                  startIconHidden={busy || Boolean(shownError)}
-                  status={dagData.latestDAGRun}
-                  dag={dag}
-                  fileName={fileName}
-                  refresh={() => void refresh()}
-                  markActions
-                />
-              </div>
-            )}
+            <DAGActions
+              only={['start']}
+              displayMode="full"
+              barStart
+              // While the slot shows busy or error, the feedback icon takes the
+              // place of the Play icon: the button keeps its size.
+              startIconHidden={busy || Boolean(shownError)}
+              status={dagData.latestDAGRun}
+              dag={dag}
+              fileName={fileName}
+              refresh={() => void refresh()}
+              markActions
+            />
           </RunStartTarget>
-          {(busy || shownError) && !replaced && (
+          {(busy || shownError) && (
             <span
               className={cn(
                 'pointer-events-none absolute inset-0 grid place-items-center',
-                // The spinner sits on the Start button; the alert icon needs a
-                // surface that it reads on.
-                busy
-                  ? 'text-primary-foreground'
-                  : 'rounded-md bg-background ring-1 ring-inset ring-destructive/50'
+                // The alert icon needs a surface that it reads on.
+                !busy &&
+                  'rounded-md bg-background ring-1 ring-inset ring-destructive/50'
               )}
             >
               <StartFeedback
@@ -289,29 +188,13 @@ function SplitButton({
           )}
         </div>
       )}
-      {canRunDags && run.ref && (
-        <EditRetryDialog
-          open={editRetry}
-          onClose={() => setEditRetry(false)}
-          dagName={run.ref.name}
-          dagRunId={run.ref.runId}
-          fileName={fileName}
-          // The new run shows at once, as after Start or Reschedule. It keeps
-          // the DAG name of the retried run.
-          onRetried={(runId) => showRun(runId, url.runName)}
-        />
-      )}
       {hasMenu && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               size={canRunDags ? 'icon-sm' : 'sm'}
               aria-label={ts('More run options')}
-              title={
-                caretFeedback && shownError
-                  ? shownError
-                  : ts('More run options')
-              }
+              title={ts('More run options')}
             >
               {!canRunDags &&
                 (busy || shownError ? (
@@ -324,40 +207,10 @@ function SplitButton({
                   <Play aria-hidden="true" />
                 ))}
               {!canRunDags && ts('Run')}
-              {caretFeedback ? (
-                <StartFeedback
-                  busy={busy}
-                  error={shownError}
-                  label={ts('Starting run')}
-                />
-              ) : (
-                <ChevronDown aria-hidden="true" />
-              )}
+              <ChevronDown aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className={cn(Z.menu, 'w-64')}>
-            {startInMenu && (
-              <DropdownMenuItem
-                onSelect={() => startFlow.requestStart()}
-                className="gap-2"
-              >
-                <Play aria-hidden="true" className="size-4 shrink-0" />
-                {ts('Start')}
-              </DropdownMenuItem>
-            )}
-            {retryInMenu && (
-              <DropdownMenuItem
-                onSelect={() =>
-                  runActions.current
-                    ?.querySelector<HTMLElement>('[data-ww-action="retry"]')
-                    ?.click()
-                }
-                className="gap-2"
-              >
-                <RotateCcw aria-hidden="true" className="size-4 shrink-0" />
-                {ts('Retry')}
-              </DropdownMenuItem>
-            )}
             {canSaveAndRun && (
               <DropdownMenuItem
                 disabled={busy}

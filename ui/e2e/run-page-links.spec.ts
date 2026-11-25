@@ -130,16 +130,7 @@ steps:
   await expect(page.getByTestId('ww-run-snapshot-back')).toHaveCount(0);
   const bar = page.getByTestId('ww-bar');
   await expect(bar).toContainText(dagName);
-  await expect(bar.locator('[data-ww-action="start"]')).toHaveCount(0);
-  await expect(
-    bar.getByRole('button', { name: 'More run options' })
-  ).toHaveCount(0);
-  // The run keeps its definition, so it can still be retried.
-  await expect(
-    bar
-      .getByTestId('ww-run-start-slot')
-      .getByRole('button', { name: 'Retry', exact: true })
-  ).toBeVisible();
+  await expect(bar.getByTestId('ww-run-split')).toHaveCount(0);
 
   // The Log of a step reads the run.
   await page.goto(`/dags/${dagName}?run=${runId}&step=report&dock=log`);

@@ -13,7 +13,7 @@ import userEvent from '@testing-library/user-event';
 import { useEffect, type ReactNode } from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NodeStatus, Status, StatusLabel } from '@/api/v1/schema';
+import { Status, StatusLabel } from '@/api/v1/schema';
 import {
   UnsavedChangesProvider,
   useUnsavedChanges,
@@ -96,25 +96,6 @@ vi.mock('@/features/backfills/components/StartBackfillDialog', () => ({
   ),
 }));
 
-// The dialog itself is covered by its own tests: this stub shows what the
-// button gives it and ends the retry as the dialog does.
-vi.mock('../EditRetryDialog', () => ({
-  EditRetryDialog: (p: {
-    open: boolean;
-    dagName: string;
-    dagRunId: string;
-    onClose(): void;
-    onRetried(dagRunId: string): void;
-  }) =>
-    p.open ? (
-      <div data-testid="edit-retry" data-run={`${p.dagName}/${p.dagRunId}`}>
-        <button type="button" onClick={() => p.onRetried('run-9')}>
-          Finish edit retry
-        </button>
-      </div>
-    ) : null,
-}));
-
 const FILE = 'etl.yaml';
 const dag = { name: 'etl' } as ApiDAGDetails;
 
@@ -148,8 +129,6 @@ interface Setup {
   url?: string;
   /** The DAG has a start schedule. */
   scheduled?: boolean;
-  /** The shown run has no workflow file. */
-  standalone?: boolean;
 }
 
 function EditorBinder({ dirty, buffer }: { dirty: boolean; buffer: string }) {
@@ -200,7 +179,6 @@ function setup({
   cluster = false,
   url = `/dags/${FILE}`,
   scheduled = false,
-  standalone = false,
 }: Setup = {}) {
   const shown = scheduled
     ? ({ ...dag, schedule: [{ expression: '0 2 * * *' }] } as ApiDAGDetails)
@@ -250,7 +228,6 @@ function setup({
             run,
             refresh,
             registerHistory: () => () => {},
-            standaloneRun: standalone ? selected : null,
           }}
         >
           <WorkspaceEditorProvider>
@@ -293,32 +270,6 @@ async function openMenu() {
   return screen.findByRole('menu');
 }
 
-// jsdom has no stylesheet: a control under a 'hidden' class (display: none)
-// still has a role. Start is mounted and hidden while Stop or Retry has its
-// slot, so the queries of a shown control skip it.
-function shown(buttons: HTMLElement[]): HTMLElement[] {
-  return buttons.filter((b) => !b.closest('.hidden'));
-}
-
-function shownButtons(scope: HTMLElement = document.body): HTMLElement[] {
-  return shown(within(scope).queryAllByRole('button'));
-}
-
-function shownByName(name: string, scope: HTMLElement = document.body) {
-  return shown(within(scope).queryAllByRole('button', { name }));
-}
-
-const failedRun = (id = 'run-3') =>
-  runDetails(id, Status.Failed, { statusLabel: StatusLabel.failed });
-
-// A failed run that waits for its next auto-retry.
-const autoRetryRun = () =>
-  runDetails('run-3', Status.Failed, {
-    statusLabel: StatusLabel.failed,
-    autoRetryCount: 1,
-    autoRetryLimit: 3,
-  });
-
 beforeEach(() => {
   vi.clearAllMocks();
   h.runDags = true;
@@ -335,16 +286,17 @@ describe('RunSplitButton', () => {
   // parity:actions-split-copies
   // parity:test-start-modal
   it("opens the Start dialog from 'Run…', the start-only DAGActions", async () => {
-    setup({ latest: runDetails('run-3', Status.Success) });
+    setup({ latest: runDetails('run-3', Status.Failed) });
 
     // The only DAGActions copy is start only: no Stop, Retry or Reject. The
     // second button is the caret of the draft menu, an icon without text.
     const split = screen.getByTestId('ww-run-split');
-    expect(shownButtons(split).map((b) => b.textContent)).toEqual([
-      'Start',
-      '',
-    ]);
-    expect(shownByName('Retry')).toHaveLength(0);
+    expect(
+      within(split)
+        .getAllByRole('button')
+        .map((b) => b.textContent)
+    ).toEqual(['Start', '']);
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Start' }));
@@ -356,7 +308,7 @@ describe('RunSplitButton', () => {
   // Like Retry, Start says its name on a wide bar (container query) and is
   // an icon below.
   it('shows Start with its name, as text on a wide bar only', () => {
-    setup({ latest: runDetails('run-3', Status.Success) });
+    setup({ latest: runDetails('run-3', Status.Failed) });
 
     const start = screen.getByRole('button', { name: 'Start' });
     expect(start).toHaveAttribute('aria-label', 'Start');
@@ -367,613 +319,31 @@ describe('RunSplitButton', () => {
   });
 
   // The palette commands Run…, Stop and Retry click the bar controls that
-  // carry data-ww-action. Stop or Retry has the slot of Start while the run is
-  // active or failed; the hidden Start stays, so that Run… still opens its
-  // dialog. A run that ended without a failure keeps a hidden Retry.
+  // carry data-ww-action.
   it('marks Start, Stop and Retry for the command palette', () => {
-    const startControl = () =>
-      document.querySelector<HTMLElement>('[data-ww-action="start"]');
-
-    const running = setup({ latest: runDetails('run-3', Status.Running) });
-    expect(startControl()!.closest('.hidden')).not.toBeNull();
+    const running = runDetails('run-3', Status.Running);
+    const first = setup({ latest: running, cluster: true });
+    const start = document.querySelector<HTMLElement>(
+      '[data-ww-action="start"]'
+    );
+    expect(start).toHaveTextContent('Start');
+    expect(barControlAvailable('start')).toBe(true);
     expect(barControlAvailable('stop')).toBe(true);
     expect(
       document.querySelector('[data-ww-action="stop"]')
     ).toHaveAccessibleName('Stop');
-    expect(document.querySelector('[data-ww-action="retry"]')).toBeNull();
     expect(barControlAvailable('retry')).toBe(false);
-    running.unmount();
+    // The palette clicks the control as a script does.
+    act(() => start!.click());
+    expect(screen.getByTestId('start-modal')).toBeInTheDocument();
+    first.unmount();
 
-    const failed = setup({ latest: failedRun() });
-    expect(startControl()!.closest('.hidden')).not.toBeNull();
+    setup({ latest: runDetails('run-3', Status.Failed), cluster: true });
     expect(barControlAvailable('stop')).toBe(false);
     expect(barControlAvailable('retry')).toBe(true);
     expect(
       document.querySelector('[data-ww-action="retry"]')
     ).toHaveAccessibleName('Retry');
-    // The palette clicks the hidden Start as a script does.
-    expect(barControlAvailable('start')).toBe(true);
-    act(() => startControl()!.click());
-    expect(screen.getByTestId('start-modal')).toBeInTheDocument();
-    failed.unmount();
-
-    setup({ latest: runDetails('run-3', Status.Success) });
-    expect(startControl()).toHaveTextContent('Start');
-    expect(startControl()!.closest('.hidden')).toBeNull();
-    expect(barControlAvailable('start')).toBe(true);
-    expect(barControlAvailable('stop')).toBe(false);
-    act(() => startControl()!.click());
-    expect(screen.getByTestId('start-modal')).toBeInTheDocument();
-    // The palette clicks the hidden Retry as a script does.
-    expect(barControlAvailable('retry')).toBe(true);
-    act(() =>
-      document.querySelector<HTMLElement>('[data-ww-action="retry"]')!.click()
-    );
-    expect(
-      screen.getByRole('heading', { name: 'Retry this run?' })
-    ).toBeInTheDocument();
-  });
-
-  // The displayed run is active: Stop sits in the slot of Start, which is hidden.
-  it('puts Stop in the slot of Start while the displayed run runs', () => {
-    setup({
-      cluster: true,
-      latest: runDetails('run-3', Status.Running, {
-        statusLabel: StatusLabel.running,
-      }),
-    });
-
-    const slot = screen.getByTestId('ww-run-start-slot');
-    expect(within(slot).getByRole('button', { name: 'Stop' })).toBeEnabled();
-    expect(shownByName('Start')).toHaveLength(0);
-    expect(shownByName('Retry')).toHaveLength(0);
-    // Stop is not in the cluster: it has the one Stop button of the bar.
-    expect(screen.getAllByRole('button', { name: 'Stop' })).toHaveLength(1);
-  });
-
-  // The displayed run is a past one: Start is back and Stop is gone, even
-  // while the latest run is active.
-  it('puts Start back in its slot for a finished run', () => {
-    setup({
-      cluster: true,
-      pinned: 'run-1',
-      details: runDetails('run-1', Status.Success),
-      latest: runDetails('run-3', Status.Running),
-    });
-
-    const slot = screen.getByTestId('ww-run-start-slot');
-    expect(within(slot).getByRole('button', { name: 'Start' })).toBeEnabled();
-    expect(shownByName('Start', slot)).toHaveLength(1);
-    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
-    expect(shownByName('Retry')).toHaveLength(0);
-  });
-
-  // A queued run has Dequeue in the slot of Start, not in the cluster.
-  describe('Dequeue in the slot of Start', () => {
-    const queued = () =>
-      runDetails('run-3', Status.Queued, { statusLabel: StatusLabel.queued });
-
-    it('replaces Start for a queued run, not in the cluster', () => {
-      setup({ cluster: true, latest: queued() });
-
-      const slot = screen.getByTestId('ww-run-start-slot');
-      expect(
-        within(slot).getByRole('button', { name: 'Dequeue' })
-      ).toBeEnabled();
-      expect(screen.getAllByRole('button', { name: 'Dequeue' })).toHaveLength(
-        1
-      );
-      expect(shownByName('Start')).toHaveLength(0);
-      expect(shownByName('Retry')).toHaveLength(0);
-      expect(shownByName('Stop')).toHaveLength(0);
-      // Start stays mounted and hidden.
-      expect(
-        within(slot)
-          .getAllByRole('button', { name: 'Start' })
-          .filter((b) => b.closest('.hidden'))
-      ).toHaveLength(1);
-      expect(
-        shownButtons(screen.getByTestId('ww-run-split')).map(
-          (b) => b.getAttribute('aria-label') ?? b.textContent
-        )
-      ).toEqual(['Dequeue', 'More run options']);
-    });
-
-    it('dequeues the displayed run after a confirmation', async () => {
-      const view = setup({ latest: queued() });
-
-      fireEvent.click(screen.getByRole('button', { name: 'Dequeue' }));
-      fireEvent.click(
-        within(screen.getByRole('dialog')).getByRole('button', {
-          name: 'Dequeue',
-        })
-      );
-      await waitFor(() => expect(view.run.refresh).toHaveBeenCalled());
-      expect(h.client.GET).toHaveBeenCalledWith(
-        '/dag-runs/{name}/{dagRunId}/dequeue',
-        expect.objectContaining({
-          params: expect.objectContaining({
-            path: { name: 'etl', dagRunId: 'run-3' },
-          }),
-        })
-      );
-      // The run stays shown: it is kept as aborted, and can be retried.
-      expect(view.run.select).not.toHaveBeenCalled();
-      expect(screen.getByTestId('location')).toHaveTextContent(
-        /^\/dags\/etl\.yaml$/
-      );
-    });
-
-    // Only a queued run is dequeued: any other state has its own button.
-    it.each([
-      ['succeeded', Status.Success],
-      ['aborted', Status.Aborted],
-      ['partially succeeded', Status.PartialSuccess],
-      ['failed', Status.Failed],
-      ['running', Status.Running],
-    ])('has no Dequeue for a %s run', (_label, status) => {
-      setup({ cluster: true, latest: runDetails('run-3', status) });
-      expect(screen.queryByRole('button', { name: 'Dequeue' })).toBeNull();
-    });
-  });
-
-  // Retry replaces Start in its slot for a failed run only.
-  describe('Retry in the slot of Start', () => {
-    it('replaces Start for a failed run, not in the cluster', () => {
-      setup({ cluster: true, latest: failedRun() });
-
-      const slot = screen.getByTestId('ww-run-start-slot');
-      expect(within(slot).getByRole('button', { name: 'Retry' })).toBeEnabled();
-      expect(shownByName('Start')).toHaveLength(0);
-      // The cluster has no Retry: the one Retry button is in the slot.
-      expect(screen.getAllByRole('button', { name: 'Retry' })).toHaveLength(1);
-      // The shown buttons of the group: Retry and the caret.
-      expect(
-        shownButtons(screen.getByTestId('ww-run-split')).map(
-          (b) => b.getAttribute('aria-label') ?? b.textContent
-        )
-      ).toEqual(['Retry', 'More run options']);
-    });
-
-    // Start is mounted under a 'hidden' class, in the slot.
-    it('keeps Start mounted and hidden', () => {
-      setup({ latest: failedRun() });
-
-      const slot = screen.getByTestId('ww-run-start-slot');
-      const hidden = within(slot)
-        .getAllByRole('button', { name: 'Start' })
-        .filter((b) => b.closest('.hidden'));
-      expect(hidden).toHaveLength(1);
-    });
-
-    it('is for the displayed run, a past one too', () => {
-      setup({
-        pinned: 'run-1',
-        details: failedRun('run-1'),
-        latest: runDetails('run-3', Status.Success),
-      });
-
-      expect(shownByName('Retry')).toHaveLength(1);
-      expect(shownByName('Start')).toHaveLength(0);
-    });
-
-    it('is not in the slot while the displayed run is a success after a failed one', () => {
-      setup({
-        pinned: 'run-1',
-        details: runDetails('run-1', Status.Success),
-        latest: failedRun(),
-      });
-
-      expect(shownByName('Retry')).toHaveLength(0);
-      expect(shownByName('Start')).toHaveLength(1);
-    });
-
-    // A run that has not ended cannot be retried.
-    it.each([
-      ['queued', Status.Queued],
-      ['running', Status.Running],
-      ['waiting', Status.Waiting],
-    ])('has no Retry for a %s run', (_label, status) => {
-      setup({ cluster: true, latest: runDetails('run-3', status) });
-
-      expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
-      expect(document.querySelector('[data-ww-action="retry"]')).toBeNull();
-      expect(barControlAvailable('retry')).toBe(false);
-    });
-
-    it.each([
-      ['succeeded', Status.Success],
-      ['aborted', Status.Aborted],
-      ['partially succeeded', Status.PartialSuccess],
-    ])('keeps Start in the slot for a %s run', (_label, status) => {
-      setup({ latest: runDetails('run-3', status) });
-
-      const slot = screen.getByTestId('ww-run-start-slot');
-      expect(shownByName('Start', slot)).toHaveLength(1);
-      expect(within(slot).getByRole('button', { name: 'Start' })).toBeEnabled();
-    });
-
-    // A failed run that waits for its auto-retry has Cancel in the slot. It
-    // can still be retried now, so the menu offers Retry after Start.
-    it('gives the slot to Cancel and the menu to Retry for a pending auto-retry', async () => {
-      setup({ latest: autoRetryRun() });
-
-      expect(shownByName('Cancel')).toHaveLength(1);
-      expect(shownByName('Retry')).toHaveLength(0);
-      expect(barControlAvailable('retry')).toBe(true);
-      const menu = await openMenu();
-      expect(
-        within(menu)
-          .getAllByRole('menuitem')
-          .map((item) => item.textContent)
-      ).toEqual(['Start', 'Retry', 'Run unsaved draftNo unsaved changes']);
-
-      await userEvent.click(
-        within(menu).getByRole('menuitem', { name: 'Retry' })
-      );
-      const dialog = await screen.findByRole('dialog');
-      expect(
-        within(dialog).getByRole('heading', { name: 'Retry this run?' })
-      ).toBeInTheDocument();
-      expect(
-        within(dialog).getByRole('checkbox', {
-          name: 'Reschedule as a new run',
-        })
-      ).toBeInTheDocument();
-    });
-
-    // parity:retry-modal
-    // parity:retry-modal-reschedule
-    it('retries the selected run, with Reschedule', async () => {
-      setup({
-        cluster: true,
-        pinned: 'run-1',
-        details: failedRun('run-1'),
-      });
-
-      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-      const dialog = screen.getByRole('dialog');
-      expect(
-        within(dialog).getByRole('heading', { name: 'Retry this run?' })
-      ).toBeInTheDocument();
-      expect(within(dialog).getByText('run-1')).toBeInTheDocument();
-
-      fireEvent.click(
-        within(dialog).getByRole('checkbox', {
-          name: 'Reschedule as a new run',
-        })
-      );
-      expect(
-        within(dialog).getByRole('heading', {
-          name: 'Reschedule as a new run?',
-        })
-      ).toBeInTheDocument();
-      fireEvent.click(
-        within(dialog).getByRole('button', { name: 'Reschedule' })
-      );
-
-      await waitFor(() =>
-        expect(h.client.POST).toHaveBeenCalledWith(
-          '/dag-runs/{name}/{dagRunId}/reschedule',
-          expect.objectContaining({
-            params: {
-              path: { name: 'etl', dagRunId: 'run-1' },
-              query: { remoteNode: 'local' },
-            },
-          })
-        )
-      );
-    });
-
-    it('offers Reschedule in the Retry confirm', () => {
-      setup({ latest: failedRun() });
-
-      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-      const dialog = screen.getByRole('dialog');
-      expect(
-        within(dialog).getByRole('checkbox', {
-          name: 'Reschedule as a new run',
-        })
-      ).toBeInTheDocument();
-    });
-
-    it('shows the new run after a reschedule', async () => {
-      h.client.POST.mockResolvedValue({ data: { dagRunId: 'run-9' } });
-      setup({ latest: failedRun('run-1'), pinned: 'run-1' });
-      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-      const dialog = screen.getByRole('dialog');
-      fireEvent.click(
-        within(dialog).getByRole('checkbox', {
-          name: 'Reschedule as a new run',
-        })
-      );
-      fireEvent.click(
-        within(dialog).getByRole('button', { name: 'Reschedule' })
-      );
-      await waitFor(() =>
-        expect(screen.getByTestId('location')).toHaveTextContent(
-          '/dags/etl.yaml?run=run-9'
-        )
-      );
-    });
-
-    // A run started with --name lives under a name that only the URL holds,
-    // and a reschedule keeps the name.
-    it('names the new run of a reschedule as the run it comes from', async () => {
-      h.client.POST.mockResolvedValue({ data: { dagRunId: 'run-9' } });
-      setup({
-        latest: failedRun('run-1'),
-        pinned: 'run-1',
-        url: '/dags/nightly?run=run-1&dagRunName=etl',
-      });
-      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-      const dialog = screen.getByRole('dialog');
-      fireEvent.click(
-        within(dialog).getByRole('checkbox', {
-          name: 'Reschedule as a new run',
-        })
-      );
-      fireEvent.click(
-        within(dialog).getByRole('button', { name: 'Reschedule' })
-      );
-      await waitFor(() =>
-        expect(screen.getByTestId('location')).toHaveTextContent(
-          '/dags/nightly?run=run-9&dagRunName=etl'
-        )
-      );
-    });
-
-    // A name override makes a run of another DAG, which this workflow does not
-    // list: the page stays on the run that it shows.
-    it('stays on the run after a reschedule under another DAG name', async () => {
-      h.client.POST.mockResolvedValue({ data: { dagRunId: 'run-9' } });
-      setup({
-        latest: failedRun('run-1'),
-        pinned: 'run-1',
-        url: '/dags/etl.yaml?run=run-1',
-      });
-      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-      const dialog = screen.getByRole('dialog');
-      fireEvent.click(
-        within(dialog).getByRole('checkbox', {
-          name: 'Reschedule as a new run',
-        })
-      );
-      fireEvent.change(
-        within(dialog).getByLabelText('DAG Name Override (optional)'),
-        { target: { value: 'etl-copy' } }
-      );
-      fireEvent.click(
-        within(dialog).getByRole('button', { name: 'Reschedule' })
-      );
-      await waitFor(() =>
-        expect(h.showToast).toHaveBeenCalledWith(
-          expect.stringContaining('run-9')
-        )
-      );
-      expect(screen.getByTestId('location')).toHaveTextContent(
-        '/dags/etl.yaml?run=run-1'
-      );
-    });
-
-    // The edited retry opens from the Retry dialog, and its new run is shown.
-    it('opens the edited retry from the Retry dialog and shows its run', async () => {
-      setup({ latest: failedRun('run-1'), pinned: 'run-1' });
-      expect(screen.queryByTestId('edit-retry')).toBeNull();
-
-      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
-      fireEvent.click(
-        within(screen.getByRole('dialog')).getByRole('button', {
-          name: 'Edit the definition and choose the steps to run',
-        })
-      );
-
-      const edit = screen.getByTestId('edit-retry');
-      expect(edit).toHaveAttribute('data-run', 'etl/run-1');
-      expect(screen.queryByRole('dialog')).toBeNull();
-      fireEvent.click(
-        within(edit).getByRole('button', { name: 'Finish edit retry' })
-      );
-      await waitFor(() =>
-        expect(screen.getByTestId('location')).toHaveTextContent(
-          '/dags/etl.yaml?run=run-9'
-        )
-      );
-    });
-  });
-
-  // A run that ended without a failure keeps Start in its slot, and the
-  // caret menu keeps a way to its Retry and Reschedule.
-  describe('Retry in the caret menu', () => {
-    it.each([
-      ['succeeded', Status.Success],
-      ['aborted', Status.Aborted],
-      ['partially succeeded', Status.PartialSuccess],
-      ['rejected', Status.Rejected],
-    ])('has Retry first for a %s run', async (_label, status) => {
-      setup({ latest: runDetails('run-3', status) });
-
-      expect(shownByName('Retry')).toHaveLength(0);
-      const menu = await openMenu();
-      expect(
-        within(menu)
-          .getAllByRole('menuitem')
-          .map((item) => item.textContent)
-      ).toEqual(['Retry', 'Run unsaved draftNo unsaved changes']);
-    });
-
-    // A dequeued or stopped run is kept as aborted, and can be retried.
-    it('retries the displayed run, and offers Reschedule', async () => {
-      setup({
-        pinned: 'run-1',
-        details: runDetails('run-1', Status.Aborted),
-        latest: runDetails('run-3', Status.Success),
-      });
-
-      const menu = await openMenu();
-      await userEvent.click(
-        within(menu).getByRole('menuitem', { name: 'Retry' })
-      );
-      const dialog = await screen.findByRole('dialog');
-      expect(
-        within(dialog).getByRole('heading', { name: 'Retry this run?' })
-      ).toBeInTheDocument();
-      expect(within(dialog).getByText('run-1')).toBeInTheDocument();
-      expect(
-        within(dialog).getByRole('checkbox', {
-          name: 'Reschedule as a new run',
-        })
-      ).toBeInTheDocument();
-
-      fireEvent.click(within(dialog).getByRole('button', { name: 'Retry' }));
-      await waitFor(() =>
-        expect(h.client.POST).toHaveBeenCalledWith(
-          '/dag-runs/{name}/{dagRunId}/retry',
-          expect.objectContaining({
-            params: {
-              path: { name: 'etl', dagRunId: 'run-1' },
-              query: { remoteNode: 'local' },
-            },
-          })
-        )
-      );
-    });
-
-    it('has no Retry item while Retry has the slot', async () => {
-      setup({ latest: failedRun() });
-
-      const menu = await openMenu();
-      expect(
-        within(menu).queryByRole('menuitem', { name: 'Retry' })
-      ).toBeNull();
-    });
-  });
-
-  // Another action has the slot of Start, so the caret menu keeps a way to
-  // the Start dialog.
-  describe('Start in the caret menu', () => {
-    it("has 'Start' first, and it opens the Start dialog", async () => {
-      setup({ latest: failedRun(), editor: { dirty: true, buffer: 'a: b' } });
-
-      const menu = await openMenu();
-      expect(
-        within(menu)
-          .getAllByRole('menuitem')
-          .map((item) => item.textContent)
-      ).toEqual(['Start', 'Run unsaved draft']);
-
-      await userEvent.click(
-        within(menu).getByRole('menuitem', { name: 'Start' })
-      );
-      expect(await screen.findByTestId('start-modal')).toBeInTheDocument();
-      expect(h.client.POST).not.toHaveBeenCalled();
-    });
-
-    it('asks before the Start dialog while the definition is unsaved', async () => {
-      setup({ latest: failedRun(), dirtyFlag: true });
-
-      const menu = await openMenu();
-      await userEvent.click(
-        within(menu).getByRole('menuitem', { name: 'Start' })
-      );
-      const guard = await screen.findByRole('dialog');
-      expect(
-        within(guard).getByRole('heading', { name: 'Unsaved Changes' })
-      ).toBeInTheDocument();
-      expect(screen.queryByTestId('start-modal')).toBeNull();
-    });
-
-    it.each([
-      ['queued', Status.Queued],
-      ['running', Status.Running],
-      ['waiting', Status.Waiting],
-    ])('has Start first for a %s run', async (_label, status) => {
-      setup({ latest: runDetails('run-3', status) });
-
-      const menu = await openMenu();
-      expect(
-        within(menu)
-          .getAllByRole('menuitem')
-          .map((item) => item.textContent)
-      ).toEqual(['Start', 'Run unsaved draftNo unsaved changes']);
-    });
-
-    // Start is in its own slot: the menu does not repeat it.
-    it.each([
-      ['succeeded', Status.Success],
-      ['aborted', Status.Aborted],
-    ])('has no Start item for a %s run', async (_label, status) => {
-      setup({ latest: runDetails('run-3', status) });
-
-      const menu = await openMenu();
-      expect(
-        within(menu).queryByRole('menuitem', { name: 'Start' })
-      ).toBeNull();
-      expect(within(menu).getAllByRole('menuitem')).toHaveLength(2);
-    });
-
-    // A user who may start but not run a draft has a menu for Start alone.
-    it('has a menu with Start alone without canExecute', async () => {
-      h.canExecute = false;
-      setup({ latest: runDetails('run-3', Status.Running) });
-
-      const menu = await openMenu();
-      expect(
-        within(menu)
-          .getAllByRole('menuitem')
-          .map((item) => item.textContent)
-      ).toEqual(['Start']);
-    });
-  });
-
-  // A run without its workflow file has nothing to start or draft: the bar
-  // keeps the action of the run alone, Retry for any run that ended.
-  describe('a run without its workflow file', () => {
-    it('has Stop in the slot, with no Start and no menu', () => {
-      setup({
-        standalone: true,
-        editor: { dirty: true, buffer: 'steps: []\n' },
-        latest: runDetails('run-3', Status.Running),
-      });
-
-      const slot = screen.getByTestId('ww-run-start-slot');
-      expect(within(slot).getByRole('button', { name: 'Stop' })).toBeEnabled();
-      expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
-      expect(document.querySelector('[data-ww-action="start"]')).toBeNull();
-      expect(
-        screen.queryByRole('button', { name: 'More run options' })
-      ).toBeNull();
-    });
-
-    it.each([
-      ['failed', Status.Failed],
-      ['succeeded', Status.Success],
-      ['aborted', Status.Aborted],
-    ])('has Retry in the slot for a %s run', (_label, status) => {
-      setup({ standalone: true, latest: runDetails('run-3', status) });
-
-      const slot = screen.getByTestId('ww-run-start-slot');
-      expect(within(slot).getByRole('button', { name: 'Retry' })).toBeEnabled();
-      expect(shownByName('Retry', slot)).toHaveLength(1);
-      expect(
-        screen.queryByRole('button', { name: 'More run options' })
-      ).toBeNull();
-    });
-
-    // Without a menu, Retry sits beside Cancel while an auto-retry is pending.
-    it('has Cancel and Retry in the slot for a pending auto-retry', () => {
-      setup({ standalone: true, latest: autoRetryRun() });
-
-      const slot = screen.getByTestId('ww-run-start-slot');
-      expect(shownButtons(slot).map((b) => b.textContent)).toEqual([
-        'Cancel',
-        'Retry',
-      ]);
-      expect(within(slot).getByRole('button', { name: 'Retry' })).toBeEnabled();
-      expect(
-        screen.queryByRole('button', { name: 'More run options' })
-      ).toBeNull();
-    });
   });
 
   // parity:shell-unsaved-guard
@@ -1072,9 +442,9 @@ describe('RunSplitButton', () => {
   // right-aligned group never gains a button, so Start keeps its x position.
   it('has the same buttons, in the same order, clean and dirty', () => {
     const names = () =>
-      shownButtons(screen.getByTestId('ww-run-split')).map((b) =>
-        b.getAttribute('aria-label')
-      );
+      within(screen.getByTestId('ww-run-split'))
+        .getAllByRole('button')
+        .map((b) => b.getAttribute('aria-label'));
     const clean = setup({ editor: { dirty: false, buffer: 'steps: []\n' } });
     const before = names();
     clean.unmount();
@@ -1100,7 +470,7 @@ describe('RunSplitButton', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent)
-    ).toEqual(['Retry', 'Run unsaved draft']);
+    ).toEqual(['Run unsaved draft']);
 
     await userEvent.click(
       within(menu).getByRole('menuitem', { name: 'Run unsaved draft' })
@@ -1157,21 +527,9 @@ describe('RunSplitButton', () => {
     await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 
-  const menuItems = async () =>
-    within(await openMenu())
-      .getAllByRole('menuitem')
-      .map((item) => item.textContent);
-
-  it('offers no draft run without canExecute', async () => {
+  it('offers no draft run without canExecute', () => {
     h.canExecute = false;
     setup({ editor: { dirty: true, buffer: 'steps: []\n' } });
-
-    expect(await menuItems()).toEqual(['Retry']);
-  });
-
-  it('has no menu without canExecute and without a run to retry', () => {
-    h.canExecute = false;
-    setup({ details: null, editor: { dirty: true, buffer: 'steps: []\n' } });
 
     expect(
       screen.queryByRole('button', { name: 'More run options' })
@@ -1187,13 +545,15 @@ describe('RunSplitButton', () => {
     expect(
       within(menu).getByRole('menuitem', { name: 'Run unsaved draft' })
     ).not.toHaveAttribute('aria-disabled');
-    expect(within(menu).queryByRole('menuitem', { name: 'Retry' })).toBeNull();
   });
 
-  // The save and run tests show no run, so the menu has no Retry.
+  const menuItems = async () =>
+    within(await openMenu())
+      .getAllByRole('menuitem')
+      .map((item) => item.textContent);
+
   it('offers to save and run to a user who can save and run', async () => {
     setup({
-      details: null,
       canSave: true,
       dirtyFlag: true,
       editor: { dirty: true, buffer: 'steps: []\n' },
@@ -1203,7 +563,7 @@ describe('RunSplitButton', () => {
   });
 
   it('offers no save and run while there is nothing to save', async () => {
-    setup({ details: null, canSave: true });
+    setup({ canSave: true });
 
     expect(await menuItems()).toEqual(['Run unsaved draftNo unsaved changes']);
   });
@@ -1222,7 +582,6 @@ describe('RunSplitButton', () => {
   it('offers only save and run without canExecute', async () => {
     h.canExecute = false;
     setup({
-      details: null,
       canSave: true,
       dirtyFlag: true,
       editor: { dirty: true, buffer: 'steps: []\n' },
@@ -1267,55 +626,6 @@ describe('RunSplitButton', () => {
     // No run started: the page stays on the editor.
     expect(screen.getByTestId('location')).toHaveTextContent(`/dags/${FILE}`);
     expect(screen.getByTestId('location')).not.toHaveTextContent('executions');
-  });
-
-  // Retry has the slot of Start: the alert of a failed draft run is on the
-  // caret, with the message as its tooltip, and not on Retry.
-  it('shows why the draft run could not start on the caret', async () => {
-    h.client.POST.mockResolvedValue({
-      error: { message: 'worker unavailable' },
-      response: { status: 503 },
-    });
-    setup({
-      latest: failedRun(),
-      editor: { dirty: true, buffer: 'steps: []\n' },
-    });
-
-    const menu = await openMenu();
-    await userEvent.click(
-      within(menu).getByRole('menuitem', { name: 'Run unsaved draft' })
-    );
-
-    const caret = screen.getByRole('button', { name: 'More run options' });
-    expect(await within(caret).findByRole('alert')).toHaveTextContent(
-      'worker unavailable'
-    );
-    expect(caret).toHaveAttribute('title', 'worker unavailable');
-    const slot = screen.getByTestId('ww-run-start-slot');
-    expect(within(slot).queryByRole('alert')).toBeNull();
-    expect(slot).not.toHaveAttribute('title');
-  });
-
-  // Retry has the slot of Start: a pending draft run shows its spinner on
-  // the caret, not on Retry.
-  it('shows a pending draft run on the caret', async () => {
-    h.client.POST.mockReturnValue(new Promise(() => undefined));
-    setup({
-      latest: failedRun(),
-      editor: { dirty: true, buffer: 'steps: []\n' },
-    });
-
-    const menu = await openMenu();
-    await userEvent.click(
-      within(menu).getByRole('menuitem', { name: 'Run unsaved draft' })
-    );
-
-    const caret = screen.getByRole('button', { name: 'More run options' });
-    expect(
-      await within(caret).findByRole('status', { name: 'Starting run' })
-    ).toBeInTheDocument();
-    const slot = screen.getByTestId('ww-run-start-slot');
-    expect(within(slot).queryByRole('status')).toBeNull();
   });
 
   // The feedback of a start sits in the Start button: its size does not
@@ -1386,7 +696,7 @@ describe('RunSplitButton', () => {
 
   // parity:dup-13
   // parity:common-run-state-helpers
-  it('has one Stop, in the slot of Start, and it stops the selected run', async () => {
+  it('has one Stop with the cluster, and it stops the selected run', async () => {
     setup({
       cluster: true,
       pinned: 'run-1',
@@ -1417,94 +727,43 @@ describe('RunSplitButton', () => {
     );
   });
 
-  // parity:actions-stop
-  // parity:api-stop
-  it('stops every running instance from the Stop in the slot of Start', async () => {
-    const { run } = setup({
-      latest: runDetails('run-3', Status.Running, {
-        statusLabel: StatusLabel.running,
+  // parity:retry-modal
+  // parity:retry-modal-reschedule
+  it('retries the selected run from the cluster, with Reschedule', async () => {
+    setup({
+      cluster: true,
+      pinned: 'run-1',
+      details: runDetails('run-1', Status.Failed, {
+        statusLabel: StatusLabel.failed,
       }),
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
-    const dialog = screen.getByRole('dialog');
-    fireEvent.click(
-      within(dialog).getByRole('checkbox', {
-        name: 'Stop all running instances',
-      })
-    );
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Stop' }));
-    await waitFor(() => expect(run.refresh).toHaveBeenCalledTimes(1));
-    expect(h.client.POST).toHaveBeenLastCalledWith(
-      '/dags/{fileName}/stop-all',
-      {
-        params: {
-          path: { fileName: FILE },
-          query: { remoteNode: 'local' },
-        },
-      }
-    );
-  });
-
-  // parity:actions-cancel-auto-retry
-  it('has Cancel in the slot of Start for a run with a pending auto-retry', async () => {
-    setup({ cluster: true, latest: autoRetryRun() });
-
-    const slot = screen.getByTestId('ww-run-start-slot');
-    expect(shownByName('Start')).toHaveLength(0);
-    fireEvent.click(within(slot).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getAllByRole('button', { name: 'Retry' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     const dialog = screen.getByRole('dialog');
     expect(
-      within(dialog).getByRole('heading', { name: 'Cancel auto-retry?' })
+      within(dialog).getByRole('heading', { name: 'Retry this run?' })
     ).toBeInTheDocument();
-    const [, submit] = within(dialog).getAllByRole('button', {
-      name: 'Cancel',
-    });
-    fireEvent.click(submit!);
+    expect(within(dialog).getByText('run-1')).toBeInTheDocument();
+
+    fireEvent.click(
+      within(dialog).getByRole('checkbox', { name: 'Reschedule as a new run' })
+    );
+    expect(
+      within(dialog).getByRole('heading', { name: 'Reschedule as a new run?' })
+    ).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reschedule' }));
+
     await waitFor(() =>
       expect(h.client.POST).toHaveBeenCalledWith(
-        '/dag-runs/{name}/{dagRunId}/stop',
-        expect.anything()
-      )
-    );
-  });
-
-  // parity:actions-reject
-  // parity:run-action-reject
-  it('has Reject in the slot of Start for a run that waits for approval', async () => {
-    const { run } = setup({
-      cluster: true,
-      latest: runDetails('run-3', Status.Waiting, {
-        statusLabel: StatusLabel.waiting,
-        nodes: [
-          {
-            step: { name: 'approve', approval: {} },
-            status: NodeStatus.Waiting,
+        '/dag-runs/{name}/{dagRunId}/reschedule',
+        expect.objectContaining({
+          params: {
+            path: { name: 'etl', dagRunId: 'run-1' },
+            query: { remoteNode: 'local' },
           },
-        ],
-      } as unknown as Partial<ApiDAGRunDetails>),
-    });
-
-    const slot = screen.getByTestId('ww-run-start-slot');
-    expect(shownByName('Start')).toHaveLength(0);
-    // Stop stays beside Reject: the run can also be stopped.
-    expect(within(slot).getByRole('button', { name: 'Stop' })).toBeEnabled();
-    fireEvent.click(within(slot).getByRole('button', { name: 'Reject' }));
-    const dialog = screen.getByRole('dialog');
-    fireEvent.change(within(dialog).getByRole('textbox'), {
-      target: { value: 'not now' },
-    });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Reject' }));
-    await waitFor(() => expect(run.refresh).toHaveBeenCalled());
-    expect(h.client.POST).toHaveBeenCalledWith(
-      '/dag-runs/{name}/{dagRunId}/steps/{stepName}/reject',
-      {
-        params: {
-          path: { name: 'etl', dagRunId: 'run-3', stepName: 'approve' },
-          query: { remoteNode: 'local' },
-        },
-        body: { reason: 'not now' },
-      }
+        })
+      )
     );
   });
 });

@@ -202,7 +202,7 @@ export function WorkflowBar({
         </div>
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1">
-        <RunSplitButton {...slot} />
+        {!standalone && <RunSplitButton {...slot} />}
         <div data-testid="ww-bar-refresh" className={SECONDARY}>
           <RefreshButton
             onRefresh={onRefresh}

@@ -566,20 +566,6 @@ export async function startRunNow(dialog: Locator): Promise<void> {
   await dialog.getByRole('button', { name: 'Start', exact: true }).click();
 }
 
-/**
- * Opens the Start dialog of the workflow page. While Stop, Retry or Dequeue
- * has the slot of Start, the Start button stays mounted, hidden. The helper
- * clicks it in either state, as the palette command "Run…" does, so a run
- * that changes state meanwhile cannot move Start away from the click.
- */
-export async function openStartDialog(page: Page): Promise<void> {
-  const start = page
-    .getByTestId('ww-run-split')
-    .locator('[data-ww-action="start"]');
-  await expect(start).toBeAttached({ timeout: 30_000 });
-  await start.dispatchEvent('click');
-}
-
 export async function enqueueRunFromUI(
   page: Page,
   fileName: string
@@ -592,7 +578,7 @@ export async function enqueueRunFromUI(
         .includes(`/api/v1/dags/${encodeURIComponent(fileName)}/enqueue`)
   );
 
-  await openStartDialog(page);
+  await page.getByRole('button', { name: 'Start' }).first().click();
 
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();

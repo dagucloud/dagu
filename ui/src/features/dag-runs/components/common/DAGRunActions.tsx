@@ -65,11 +65,6 @@ type Props = {
    */
   hideUnavailable?: boolean;
   /**
-   * Shows one group of actions only: Stop and Reject, Retry, or Dequeue.
-   * Unset, every action shows.
-   */
-  part?: 'stop' | 'retry' | 'dequeue';
-  /**
    * Offers 'Stop all running instances' in the Stop confirmation. A checked
    * submit stops every running instance of this workflow file.
    */
@@ -101,7 +96,6 @@ function DAGRunActions({
   displayMode = 'compact',
   isRootLevel = true,
   hideUnavailable = false,
-  part,
   stopAll,
   markActions = false,
   onRescheduled,
@@ -233,11 +227,6 @@ function DAGRunActions({
     dequeue: isRootLevel && dagRun?.status === Status.Queued,
   };
 
-  const shows = (group: NonNullable<Props['part']>) =>
-    part === undefined || part === group;
-  const showRetry =
-    shows('retry') && (!hideUnavailable || buttonState.retry || !isRootLevel);
-
   if (!dagRun || !config.permissions.runDags) {
     return <></>;
   }
@@ -257,8 +246,7 @@ function DAGRunActions({
         className={`flex items-center ${displayMode === 'full' ? 'space-x-2' : 'space-x-1'}`}
       >
         {/* Reject Button */}
-        {shows('stop') &&
-          isWaiting &&
+        {isWaiting &&
           hasWaitingApprovals &&
           !(hideUnavailable && !buttonState.reject) && (
             <Tooltip>
@@ -284,7 +272,7 @@ function DAGRunActions({
           )}
 
         {/* Stop Button */}
-        {shows('stop') && !(hideUnavailable && !buttonState.terminate) && (
+        {!(hideUnavailable && !buttonState.terminate) && (
           <Tooltip>
             <TooltipTrigger asChild>
               <span>
@@ -316,7 +304,7 @@ function DAGRunActions({
         )}
 
         {/* Retry Button */}
-        {showRetry && (
+        {(!hideUnavailable || buttonState.retry || !isRootLevel) && (
           <Tooltip>
             {/* On a sub-run the disabled button cannot take focus, so the
                 wrapper does, letting keyboard users read why. */}
@@ -349,7 +337,7 @@ function DAGRunActions({
         )}
 
         {/* Dequeue Button */}
-        {shows('dequeue') && (!hideUnavailable || buttonState.dequeue) && (
+        {(!hideUnavailable || buttonState.dequeue) && (
           <Tooltip>
             <TooltipTrigger asChild>
               <span>

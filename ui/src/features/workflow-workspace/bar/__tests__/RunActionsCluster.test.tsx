@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -25,6 +31,9 @@ const h = vi.hoisted(() => ({
     handle: null as { replaceBuffer: ReturnType<typeof vi.fn> } | null,
     state: null as Record<string, unknown> | null,
   },
+  client: { GET: vi.fn(), POST: vi.fn() },
+  showToast: vi.fn(),
+  showError: vi.fn(),
   setDockTab: vi.fn(),
 }));
 
@@ -47,6 +56,7 @@ vi.mock('@/contexts/AuthContext', () => ({
   useCanManageNotifications: () => false,
 }));
 vi.mock('@/hooks/api', () => ({
+  useClient: () => h.client,
   useQuery: (path: string, init: unknown) => {
     if (init === null) return { data: undefined, isLoading: false };
     if (path === '/dag-runs/{name}/{dagRunId}/spec') {
@@ -63,6 +73,12 @@ vi.mock('@/contexts/RemoteNodeContext', () => ({
 }));
 vi.mock('../../canvas/WorkspaceEditorContext', () => ({
   useWorkspaceEditor: () => h.editor,
+}));
+vi.mock('@/components/ui/simple-toast', () => ({
+  useSimpleToast: () => ({ showToast: h.showToast }),
+}));
+vi.mock('@/components/ui/error-modal', () => ({
+  useErrorModal: () => ({ showError: h.showError }),
 }));
 
 const FILE = 'etl.yaml';
@@ -216,7 +232,7 @@ function setup(
 // The name of a button: the label of an icon, else its (visually hidden) text.
 function buttonNames(): string[] {
   return screen
-    .queryAllByRole('button')
+    .getAllByRole('button')
     .map((b) => b.getAttribute('aria-label') ?? b.textContent ?? '');
 }
 
@@ -232,6 +248,8 @@ beforeEach(() => {
     handle: { replaceBuffer: vi.fn() },
     state: { dirty: false, editable: true, loaded: true },
   };
+  h.client.GET.mockResolvedValue({ data: {} });
+  h.client.POST.mockResolvedValue({ data: {} });
 });
 
 describe('RunActionsCluster', () => {
@@ -239,17 +257,14 @@ describe('RunActionsCluster', () => {
   // parity:run-actions-visibility
   // parity:test-dag-actions
   // parity:test-run-header-meta
-  // Stop, Cancel, Reject, Retry, Dequeue and Start are in the slot of Start
-  // (RunSplitButton.test). The cluster keeps the Action required button and
-  // the revert to the YAML of the run.
   it.each<[RunCase, string[]]>([
-    ['running', []],
-    ['queued', []],
-    ['waiting-approval', ['Action required']],
-    ['waiting-human-task', ['Action required']],
-    ['failed-auto-retry', []],
-    ['failed', []],
-    ['succeeded', []],
+    ['running', ['Stop']],
+    ['queued', ['Dequeue']],
+    ['waiting-approval', ['Action required', 'Reject', 'Stop']],
+    ['waiting-human-task', ['Action required', 'Stop']],
+    ['failed-auto-retry', ['Cancel', 'Retry']],
+    ['failed', ['Retry']],
+    ['succeeded', ['Retry']],
   ])('with runDags, a %s run shows %j', (kind, names) => {
     setup(details(kind));
     expect(buttonNames()).toEqual(names);
@@ -317,38 +332,202 @@ describe('RunActionsCluster', () => {
     expect(screen.queryByTestId('ww-run-actions')).toBeNull();
   });
 
-  // Stop, Cancel, Reject, Retry and Dequeue have the slot of Start, not a
-  // place in the cluster, whatever the status of the run.
-  it.each<RunCase>([
-    'running',
-    'queued',
-    'waiting-approval',
-    'failed-auto-retry',
-    'failed',
-    'succeeded',
-  ])('has no Stop, Cancel, Reject, Retry or Dequeue for a %s run', (kind) => {
-    setup(details(kind));
-    for (const name of ['Stop', 'Cancel', 'Reject', 'Retry', 'Dequeue']) {
-      expect(screen.queryByRole('button', { name })).toBeNull();
-    }
-    expect(screen.queryByRole('dialog')).toBeNull();
+  // parity:actions-stop
+  // parity:api-stop
+  it('stops the selected run, or every running instance', async () => {
+    const run = setup(details('running'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    let dialog = screen.getByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Stop' }));
+    await waitFor(() => expect(run.refresh).toHaveBeenCalledTimes(1));
+    expect(h.client.POST).toHaveBeenLastCalledWith(
+      '/dag-runs/{name}/{dagRunId}/stop',
+      {
+        params: {
+          query: { remoteNode: 'local' },
+          path: { name: 'etl', dagRunId: 'run-1' },
+        },
+      }
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    dialog = screen.getByRole('dialog');
+    fireEvent.click(
+      within(dialog).getByRole('checkbox', {
+        name: 'Stop all running instances',
+      })
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Stop' }));
+    await waitFor(() => expect(run.refresh).toHaveBeenCalledTimes(2));
+    expect(h.client.POST).toHaveBeenLastCalledWith(
+      '/dags/{fileName}/stop-all',
+      {
+        params: {
+          path: { fileName: FILE },
+          query: { remoteNode: 'local' },
+        },
+      }
+    );
   });
 
-  // The selected run can be a past one or the active one: the cluster is the
-  // same for the selection, and the bar shows it on the one tab.
-  it('shows no icon of a past run that finished', () => {
+  // parity:actions-cancel-auto-retry
+  it('cancels the pending auto-retry of the selected run', async () => {
+    setup(details('failed-auto-retry'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    const dialog = screen.getByRole('dialog');
+    expect(
+      within(dialog).getByRole('heading', { name: 'Cancel auto-retry?' })
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByRole('checkbox')).toBeNull();
+    const [, submit] = within(dialog).getAllByRole('button', {
+      name: 'Cancel',
+    });
+    fireEvent.click(submit!);
+    await waitFor(() =>
+      expect(h.client.POST).toHaveBeenCalledWith(
+        '/dag-runs/{name}/{dagRunId}/stop',
+        expect.anything()
+      )
+    );
+  });
+
+  // parity:actions-reject
+  // parity:run-action-reject
+  it('rejects the waiting approval of the selected run', async () => {
+    const run = setup(details('waiting-approval'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reject' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByRole('textbox'), {
+      target: { value: 'not now' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reject' }));
+    await waitFor(() => expect(run.refresh).toHaveBeenCalled());
+    expect(h.client.POST).toHaveBeenCalledWith(
+      '/dag-runs/{name}/{dagRunId}/steps/{stepName}/reject',
+      {
+        params: {
+          path: { name: 'etl', dagRunId: 'run-1', stepName: 'approve' },
+          query: { remoteNode: 'local' },
+        },
+        body: { reason: 'not now' },
+      }
+    );
+  });
+
+  it('offers Reschedule in the Retry confirm', () => {
+    setup(details('succeeded'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    const dialog = screen.getByRole('dialog');
+    expect(
+      within(dialog).getByRole('checkbox', { name: 'Reschedule as a new run' })
+    ).toBeInTheDocument();
+  });
+
+  // A dequeued run is kept as aborted, so the page stays on it and reads it
+  // again, where Retry is offered.
+  it('stays on the run after a dequeue', async () => {
+    const run = setup(details('queued'));
+    fireEvent.click(screen.getByRole('button', { name: 'Dequeue' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Dequeue' }));
+    await waitFor(() => expect(run.refresh).toHaveBeenCalled());
+    expect(run.select).not.toHaveBeenCalled();
+  });
+
+  it('shows the new run after a reschedule', async () => {
+    h.client.POST.mockResolvedValue({ data: { dagRunId: 'run-9' } });
+    setup(details('failed'));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(
+      within(dialog).getByRole('checkbox', { name: 'Reschedule as a new run' })
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reschedule' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('where')).toHaveTextContent(
+        '/dags/etl.yaml?run=run-9'
+      )
+    );
+  });
+
+  // A run started with --name lives under a name that only the URL holds, and
+  // a reschedule keeps the name.
+  it('names the new run of a reschedule as the run it comes from', async () => {
+    h.client.POST.mockResolvedValue({ data: { dagRunId: 'run-9' } });
+    setup(details('failed'), '/dags/nightly?run=run-1&dagRunName=etl');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(
+      within(dialog).getByRole('checkbox', { name: 'Reschedule as a new run' })
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reschedule' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('where')).toHaveTextContent(
+        '/dags/nightly?run=run-9&dagRunName=etl'
+      )
+    );
+  });
+
+  // A name override makes a run of another DAG, which this workflow does not
+  // list: the page stays on the run that it shows.
+  it('stays on the run after a reschedule under another DAG name', async () => {
+    h.client.POST.mockResolvedValue({ data: { dagRunId: 'run-9' } });
+    setup(details('failed'));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(
+      within(dialog).getByRole('checkbox', { name: 'Reschedule as a new run' })
+    );
+    fireEvent.change(
+      within(dialog).getByLabelText('DAG Name Override (optional)'),
+      { target: { value: 'etl-copy' } }
+    );
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Reschedule' }));
+    await waitFor(() =>
+      expect(h.showToast).toHaveBeenCalledWith(expect.stringContaining('run-9'))
+    );
+    expect(screen.getByTestId('where')).toHaveTextContent(
+      '/dags/etl.yaml?run=run-1'
+    );
+  });
+
+  it('dequeues only a queued run', async () => {
+    const run = setup(details('queued'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dequeue' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Dequeue' }));
+    await waitFor(() => expect(run.refresh).toHaveBeenCalled());
+    expect(h.client.GET).toHaveBeenCalledWith(
+      '/dag-runs/{name}/{dagRunId}/dequeue',
+      {
+        params: {
+          path: { name: 'etl', dagRunId: 'run-1' },
+          query: { remoteNode: 'local' },
+        },
+      }
+    );
+  });
+
+  // The selected run can be a past one or the active one: the icons are the
+  // same for the selection, and the bar shows them on the one tab.
+  it('shows the icons of a past run: Retry', () => {
     setup(details('succeeded'), '/dags/etl.yaml?run=run-1');
-    expect(buttonNames()).toEqual([]);
+    expect(buttonNames()).toEqual(['Retry']);
   });
 
-  it('shows no icon of the active run', () => {
+  it('shows the icons of the active run: Stop', () => {
     setup(details('running'), '/dags/etl.yaml');
-    expect(buttonNames()).toEqual([]);
+    expect(buttonNames()).toEqual(['Stop']);
   });
 
   // parity:test-run-header-meta
   it('flattens the actions: no menu, no run page link, no Open in editor', () => {
-    setup(details('waiting-approval'));
+    setup(details('failed'));
     expect(screen.queryByRole('menu')).toBeNull();
     expect(screen.queryByRole('link')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Open in editor' })).toBeNull();
@@ -369,21 +548,11 @@ describe('RunActionsCluster', () => {
       h.runSpec = 'name: etl\nsteps: [a]\n';
     });
 
-    // The icon follows Action required, when the run waits for a person.
+    // The icon follows the run actions.
     // parity:test-run-header-meta
-    it('shows after Action required while the run is stale', () => {
-      setup(details('waiting-approval'));
-      expect(buttonNames()).toEqual(['Action required', COPY]);
-    });
-
-    it('is the only icon of a stale run that needs no action', () => {
+    it('shows after the run actions while the run is stale', () => {
       setup(details('failed'));
-      expect(buttonNames()).toEqual([COPY]);
-    });
-
-    it('is the only icon of a stale queued run', () => {
-      setup(details('queued'));
-      expect(buttonNames()).toEqual([COPY]);
+      expect(buttonNames()).toEqual(['Retry', COPY]);
     });
 
     it('is absent while the run used the saved definition', () => {
@@ -396,7 +565,7 @@ describe('RunActionsCluster', () => {
       h.canWrite = false;
       setup(details('failed'));
       expect(screen.queryByRole('button', { name: COPY })).toBeNull();
-      expect(buttonNames()).toEqual([]);
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeVisible();
     });
 
     it('is the only icon of a writer without runDags', () => {
