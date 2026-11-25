@@ -54,6 +54,7 @@ type Options struct {
 	Recursive              bool                     // Discover DAG definitions in subdirectories
 	Symlinks               bool                     // Include recursive file symlinks and external targets
 	SkipDirs               []string                 // Root-level directories recursive discovery omits
+	SkipRoots              []string                 // Directories discovery and lookups omit wherever they lie
 	SkipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
 	legacyFlagsBaseDir     string
 	indexDir               string
@@ -78,6 +79,15 @@ func WithSymlinks(enabled bool) Option {
 func WithSkipDirs(dirs []string) Option {
 	return func(o *Options) {
 		o.SkipDirs = dirs
+	}
+}
+
+// WithSkipRoots sets the directories that discovery and lookups by path omit
+// wherever they lie below a scanned directory, along with file symlinks into
+// them.
+func WithSkipRoots(dirs []string) Option {
+	return func(o *Options) {
+		o.SkipRoots = dirs
 	}
 }
 
@@ -197,6 +207,7 @@ func NewStore(baseDir string, opts ...Option) *Store {
 		recursive:              options.Recursive,
 		symlinks:               options.Symlinks,
 		skipDirs:               options.SkipDirs,
+		skipRoots:              options.SkipRoots,
 		skipDirectoryCreation:  options.SkipDirectoryCreation,
 	}
 }
@@ -220,6 +231,7 @@ type Store struct {
 	recursive              bool                     // Discover DAG definitions in subdirectories
 	symlinks               bool                     // Include recursive file symlinks and external targets
 	skipDirs               []string                 // Root-level directories recursive discovery omits
+	skipRoots              []string                 // Directories discovery and lookups omit wherever they lie
 	skipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
 	baseConfigMu           sync.Mutex               // Protects base config state refresh and invalidation
 	indexMu                sync.Mutex               // Protects index load/rebuild/invalidate
@@ -913,19 +925,26 @@ func (store *Store) locateDAG(ctx context.Context, nameOrPath string) (ResolvedF
 			}
 		}
 		if len(store.searchPaths) > 1 {
-			return locateDAGInDirectories(nameOrPath, store.searchPaths[1:], store.symlinks)
+			return locateDAGInDirectories(nameOrPath, store.searchPaths[1:], store.symlinks, store.skipRoots)
 		}
 		return ResolvedFile{}, fmt.Errorf("DAG %s not found: %w", nameOrPath, os.ErrNotExist)
 	}
 
-	return locateDAGInDirectories(nameOrPath, store.searchPaths, store.symlinks)
+	return locateDAGInDirectories(nameOrPath, store.searchPaths, store.symlinks, store.skipRoots)
 }
 
+// locateDAGInDirectories resolves nameOrPath in the first of directories
+// that holds it. A file below one of skipRootDirs, or a file symlink into
+// one, is not found there, as discovery does not list it.
 func locateDAGInDirectories(
 	nameOrPath string,
 	directories []string,
 	symlinks bool,
+	skipRootDirs []string,
 ) (ResolvedFile, error) {
+	// A skip root that cannot be looked up is not applied, so a lookup finds
+	// what discovery lists. Discovery reports the error.
+	skipRoots, _ := statSkipRoots(skipRootDirs)
 	var externalSymlinkDisabled bool
 	for _, dir := range directories {
 		absDir, err := filepath.Abs(dir)
@@ -943,7 +962,7 @@ func locateDAGInDirectories(
 
 		for _, candidatePath := range dagFileCandidates(relativePath) {
 			resolved, err := ResolveFile(absDir, candidatePath)
-			if err != nil {
+			if err != nil || inSkipRoot(skipRoots, absDir, resolved) {
 				continue
 			}
 			if resolved.ExternalSymlink && !symlinks {
@@ -971,6 +990,7 @@ func (store *Store) stemExists(name, exceptPath string) bool {
 		Recursive: true,
 		Symlinks:  store.symlinks,
 		SkipDirs:  store.skipDirs,
+		SkipRoots: store.skipRoots,
 	})
 	if err != nil {
 		return false

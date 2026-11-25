@@ -37,6 +37,11 @@ type DiscoveryOptions struct {
 	// discovery omits, so child-DAG subtrees stay resolvable by path but out
 	// of the catalog and scheduler. A name deeper in the tree is not skipped.
 	SkipDirs []string
+	// SkipRoots lists directories that discovery omits wherever it meets
+	// them below root, such as another owner's DAG directory nested in this
+	// one, along with file symlinks into them. A directory matches by
+	// identity, whatever the case or links of its path.
+	SkipRoots []string
 }
 
 // ResolvedFile describes a DAG file entry and its canonical read target.
@@ -58,7 +63,7 @@ type DiscoveryResult struct {
 func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 	root = filepath.Clean(root)
 	if !opts.Recursive {
-		return scanRoot(root, opts.Symlinks)
+		return scanRoot(root, opts.Symlinks, opts.SkipRoots)
 	}
 
 	walkRoot, err := filepath.EvalSymlinks(root)
@@ -73,7 +78,12 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 		return DiscoveryResult{}, fmt.Errorf("%s is not a directory", root)
 	}
 
-	result := DiscoveryResult{}
+	skipRoots, skipErrs := statSkipRoots(opts.SkipRoots)
+	realRoot, err := realDir(skipRoots, root)
+	if err != nil {
+		return DiscoveryResult{}, err
+	}
+	result := DiscoveryResult{Errors: skipErrs}
 	err = filepath.WalkDir(walkRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		relPath, err := filepath.Rel(walkRoot, path)
 		if err != nil {
@@ -107,6 +117,10 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 				}
 				return nil
 			}
+			// The walk has already skipped the skip roots above the entry.
+			if targetInSkipRoot(skipRoots, realRoot, resolved) {
+				return nil
+			}
 			appendResolvedFile(&result, relPath, resolved)
 			return nil
 		}
@@ -115,7 +129,8 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 			if relPath != "." {
 				if strings.HasPrefix(entry.Name(), ".") ||
 					relPath == workspace.BaseConfigDirName ||
-					slices.Contains(opts.SkipDirs, relPath) {
+					slices.Contains(opts.SkipDirs, relPath) ||
+					isSkipRoot(skipRoots, path, entry.Name()) {
 					return filepath.SkipDir
 				}
 			}
@@ -146,13 +161,136 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 	return result, nil
 }
 
-func scanRoot(root string, symlinks bool) (DiscoveryResult, error) {
+// skipRoot is an existing directory that discovery and lookups by path omit.
+type skipRoot struct {
+	name string
+	info os.FileInfo
+}
+
+// statSkipRoots returns the directories among dirs that exist now. One
+// created later is omitted from the next discovery on. A directory that
+// cannot be looked up for a reason other than its absence is reported, since
+// discovery may then read what it should skip.
+func statSkipRoots(dirs []string) ([]skipRoot, []error) {
+	var (
+		roots []skipRoot
+		errs  []error
+	)
+	for _, dir := range dirs {
+		info, resolved, err := statResolved(dir)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			continue
+		case err != nil:
+			errs = append(errs, fmt.Errorf("skip %s: %w", dir, err))
+			continue
+		case !info.IsDir():
+			continue
+		}
+		roots = append(roots, skipRoot{name: filepath.Base(resolved), info: info})
+	}
+	return roots, errs
+}
+
+// realDir returns dir, absolute with its links resolved, for comparing file
+// symlink targets against roots. It returns "" when roots is empty.
+func realDir(roots []skipRoot, dir string) (string, error) {
+	if len(roots) == 0 {
+		return "", nil
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(resolved)
+}
+
+// inSkipRoot reports whether resolved, looked up by path below absDir, lies
+// in one of roots or is a file symlink into one.
+func inSkipRoot(roots []skipRoot, absDir string, resolved ResolvedFile) bool {
+	if underSkipRoot(roots, absDir, resolved.EntryPath) {
+		return true
+	}
+	if !resolved.Symlink {
+		return false
+	}
+	realAbsDir, err := realDir(roots, absDir)
+	return err == nil && targetInSkipRoot(roots, realAbsDir, resolved)
+}
+
+// targetInSkipRoot reports whether resolved is a file symlink whose target
+// lies in one of roots below realRoot, the scanned directory with its links
+// resolved. A target outside realRoot is left to the symlink rules.
+func targetInSkipRoot(roots []skipRoot, realRoot string, resolved ResolvedFile) bool {
+	return resolved.Symlink && underSkipRoot(roots, realRoot, resolved.ResolvedPath)
+}
+
+// underSkipRoot reports whether path lies in one of roots below dir. Every
+// ancestor is compared by identity, since a path given to a lookup may spell
+// a root's name otherwise, such as by a Windows short name.
+func underSkipRoot(roots []skipRoot, dir, path string) bool {
+	if len(roots) == 0 {
+		return false
+	}
+	for current := filepath.Dir(path); strictlyWithin(current, dir); current = filepath.Dir(current) {
+		if sameAsSkipRoot(roots, current) {
+			return true
+		}
+	}
+	return false
+}
+
+// strictlyWithin reports whether path lies below dir.
+func strictlyWithin(path, dir string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+func statResolved(path string) (os.FileInfo, string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, "", err
+	}
+	info, err := os.Stat(resolved)
+	return info, resolved, err
+}
+
+// isSkipRoot reports whether the directory at path, listed in its parent as
+// name, is one of roots. Only a directory whose name matches a root's without
+// regard to case is compared by identity, so other directories cost no
+// system call.
+func isSkipRoot(roots []skipRoot, path, name string) bool {
+	for _, root := range roots {
+		if strings.EqualFold(name, root.name) {
+			return sameAsSkipRoot(roots, path)
+		}
+	}
+	return false
+}
+
+// sameAsSkipRoot reports whether the directory at path is one of roots.
+func sameAsSkipRoot(roots []skipRoot, path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(roots, func(root skipRoot) bool {
+		return os.SameFile(info, root.info)
+	})
+}
+
+func scanRoot(root string, symlinks bool, skipRootDirs []string) (DiscoveryResult, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return DiscoveryResult{}, err
 	}
 
-	result := DiscoveryResult{Dirs: []string{root}}
+	skipRoots, skipErrs := statSkipRoots(skipRootDirs)
+	realRoot, err := realDir(skipRoots, root)
+	if err != nil {
+		return DiscoveryResult{}, err
+	}
+	result := DiscoveryResult{Dirs: []string{root}, Errors: skipErrs}
 	for _, entry := range entries {
 		if entry.IsDir() || !isDAGFile(entry.Name()) {
 			continue
@@ -164,6 +302,10 @@ func scanRoot(root string, symlinks bool) (DiscoveryResult, error) {
 		}
 		if resolved.ExternalSymlink && !symlinks {
 			result.Errors = append(result.Errors, externalSymlinkDisabledError(entry.Name()))
+			continue
+		}
+		// An entry of root lies below no skip root; only its target can.
+		if targetInSkipRoot(skipRoots, realRoot, resolved) {
 			continue
 		}
 		appendResolvedFile(&result, filepath.ToSlash(entry.Name()), resolved)

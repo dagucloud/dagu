@@ -84,6 +84,20 @@ func TestSettingsAutomaticEnv(t *testing.T) {
 	assert.Equal(t, Setting{Key: "metrics", Value: "public", Source: "env:DAGU_METRICS"}, settings["metrics"])
 }
 
+// Keys for projects stay out of the report while projects are off, so the
+// report reads as it does without them.
+func TestSettingsProjectKeys(t *testing.T) {
+	t.Run("Off", func(t *testing.T) {
+		settings := loadSettings(t, "")
+		assert.NotContains(t, settings, "paths.projects_dir")
+	})
+
+	t.Run("On", func(t *testing.T) {
+		settings := loadSettings(t, "experimental_projects: true\npaths:\n  projects_dir: /srv/projects\n")
+		assert.Equal(t, Setting{Key: "paths.projects_dir", Value: "/srv/projects", Source: SourceFile}, settings["paths.projects_dir"])
+	})
+}
+
 func TestSettingsListsAPIBasePath(t *testing.T) {
 	t.Setenv("DAGU_API_BASE_PATH", "")
 

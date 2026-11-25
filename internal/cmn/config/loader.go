@@ -488,6 +488,7 @@ func (l *ConfigLoader) buildConfig(def Definition) (*Config, error) {
 	if err := l.loadPathsConfig(&cfg, def); err != nil {
 		return nil, err
 	}
+	cfg.ProjectsEnabled = l.v.GetBool(projectsSwitchKey)
 	if err := l.loadSecretFiles(&def); err != nil {
 		return nil, err
 	}
@@ -528,6 +529,7 @@ func (l *ConfigLoader) buildConfig(def Definition) (*Config, error) {
 		return nil, err
 	}
 	l.loadLegacyEnv(&cfg)
+	cfg.Paths.Explicit = l.explicitPaths(cfg.Paths, def)
 	if err := l.finalizePaths(&cfg); err != nil {
 		return nil, err
 	}
@@ -660,6 +662,7 @@ func (l *ConfigLoader) loadPathsConfig(cfg *Config, def Definition) error {
 		source string
 	}{
 		{"DAGsDir", &cfg.Paths.DAGsDir, def.Paths.DAGsDir},
+		{"ProjectsDir", &cfg.Paths.ProjectsDir, def.Paths.ProjectsDir},
 		{"AltDAGsDir", &cfg.Paths.AltDAGsDir, def.Paths.AltDagsDir},
 		{"SuspendFlagsDir", &cfg.Paths.SuspendFlagsDir, def.Paths.SuspendFlagsDir},
 		{"DataDir", &cfg.Paths.DataDir, def.Paths.DataDir},
@@ -2087,6 +2090,26 @@ func (l *ConfigLoader) loadCacheConfig(cfg *Config, def Definition) {
 	}
 }
 
+// explicitPaths reports which paths the configuration sets. It runs before
+// finalizePaths fills in derived defaults. log_dir and artifact_dir have
+// Viper defaults, so their source decides.
+func (l *ConfigLoader) explicitPaths(paths PathsConfig, def Definition) ExplicitPaths {
+	return ExplicitPaths{
+		LogDir:          def.LogDir != "" || l.setBySource("paths.log_dir"),
+		ArtifactDir:     def.ArtifactDir != "" || l.setBySource("paths.artifact_dir"),
+		DAGRunsDir:      paths.DAGRunsDir != "",
+		DAGRunWorkDir:   paths.DAGRunWorkDir != "",
+		QueueDir:        paths.QueueDir != "",
+		SuspendFlagsDir: paths.SuspendFlagsDir != "",
+		ProcDir:         paths.ProcDir != "",
+	}
+}
+
+// setBySource reports whether the config file or the environment sets key.
+func (l *ConfigLoader) setBySource(key string) bool {
+	return l.settingSource(key, envNames(key)) != SourceDefault
+}
+
 func (l *ConfigLoader) finalizePaths(cfg *Config) error {
 	derivedPaths := []struct {
 		target      *string
@@ -2351,6 +2374,7 @@ func (l *ConfigLoader) setViperDefaultValues(paths Paths) {
 	l.v.SetDefault("dag_discovery.symlinks", false)
 	l.v.SetDefault("dag_discovery.skip_directories", []string{})
 	l.v.SetDefault("paths.dags_dir", paths.DAGsDir)
+	l.v.SetDefault("paths.projects_dir", paths.ProjectsDir)
 	l.v.SetDefault("paths.data_dir", paths.DataDir)
 	l.v.SetDefault("paths.log_dir", paths.LogsDir)
 	l.v.SetDefault("paths.artifact_dir", paths.ArtifactsDir)
@@ -2443,6 +2467,9 @@ type envBinding struct {
 	// secret marks a setting that carries a credential, which workflow steps
 	// never inherit; see IsCredentialEnv.
 	secret bool
+	// projects marks a setting that Settings reports only while projects
+	// are on.
+	projects bool
 }
 
 var envBindings = []envBinding{
@@ -2597,6 +2624,7 @@ var envBindings = []envBinding{
 	// Paths
 	{key: "paths.dags_dir", env: "DAGS", isPath: true},
 	{key: "paths.dags_dir", env: "DAGS_DIR", isPath: true},
+	{key: "paths.projects_dir", env: "PROJECTS_DIR", isPath: true, projects: true},
 	{key: "paths.alt_dags_dir", env: "ALT_DAGS_DIR", isPath: true},
 	{key: "paths.wiki_dir", env: "WIKI_DIR", isPath: true},
 	{key: "paths.docs_dir", env: "DOCS_DIR", isPath: true},

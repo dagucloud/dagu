@@ -32,10 +32,9 @@ type Setting struct {
 // Settings reports every key in the environment binding table, in table
 // order, with the value read from its source before Dagu applies its own
 // defaults. The exception is auth.mode, which reports the mode cfg runs in.
-// Secret values are masked. cfg is the Config that Load returned.
+// Keys for projects are left out while projects are off. Secret values are
+// masked. cfg is the Config that Load returned.
 func (l *ConfigLoader) Settings(cfg *Config) []Setting {
-	prefix := strings.ToUpper(AppSlug) + "_"
-
 	type keyInfo struct {
 		envs   []string
 		secret bool
@@ -46,14 +45,15 @@ func (l *ConfigLoader) Settings(cfg *Config) []Setting {
 		if b.requires != SectionNone && !l.requires(b.requires) {
 			continue
 		}
+		if b.projects && !cfg.ProjectsEnabled {
+			continue
+		}
 		info, ok := infos[b.key]
 		if !ok {
-			// AutomaticEnv reads DAGU_<KEY> before any bound variable.
-			info = &keyInfo{envs: []string{prefix + strings.ToUpper(b.key)}}
+			info = &keyInfo{envs: envNames(b.key)}
 			infos[b.key] = info
 			keys = append(keys, b.key)
 		}
-		info.envs = append(info.envs, prefix+b.env)
 		info.secret = info.secret || b.secret
 	}
 
@@ -76,6 +76,19 @@ func (l *ConfigLoader) Settings(cfg *Config) []Setting {
 		})
 	}
 	return settings
+}
+
+// envNames returns the environment variables that set key, in the order
+// Viper reads them: DAGU_<KEY> through AutomaticEnv, then each bound variable.
+func envNames(key string) []string {
+	prefix := strings.ToUpper(AppSlug) + "_"
+	envs := []string{prefix + strings.ToUpper(key)}
+	for _, b := range envBindings {
+		if b.key == key {
+			envs = append(envs, prefix+b.env)
+		}
+	}
+	return envs
 }
 
 // settingSource follows Viper's precedence: the first variable in envs that

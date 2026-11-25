@@ -565,10 +565,11 @@ func TestCasePaths(t *testing.T) {
 	t.Parallel()
 
 	// The inputs of a run, and the tools directory, where declared tools
-	// install as in a real run.
+	// install as in a real run. Explicit only says which paths were set; the
+	// paths it names are moved.
 	kept := []string{
-		"DAGsDir", "AltDAGsDir", "BaseConfig", "CalendarsDir", "WikiDir", "WikiDirLegacy",
-		"Executable", "ToolsDir", "ConfigFileUsed", "ConfigFilesUsed",
+		"DAGsDir", "ProjectsDir", "AltDAGsDir", "BaseConfig", "CalendarsDir", "WikiDir", "WikiDirLegacy",
+		"Executable", "ToolsDir", "ConfigFileUsed", "ConfigFilesUsed", "Explicit",
 	}
 
 	configured := filepath.Join(t.TempDir(), "configured")
@@ -584,6 +585,8 @@ func TestCasePaths(t *testing.T) {
 			*ptr = true
 		case *[]string:
 			*ptr = []string{filepath.Join(configured, name)}
+		case *config.ExplicitPaths:
+			*ptr = config.ExplicitPaths{LogDir: true, DAGRunsDir: true}
 		default:
 			t.Fatalf("PathsConfig.%s has unexpected kind %s", name, field.Kind())
 		}

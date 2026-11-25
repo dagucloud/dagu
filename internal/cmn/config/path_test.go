@@ -28,6 +28,7 @@ func TestResolver(t *testing.T) {
 		assert.Equal(t, config.Paths{
 			ConfigDir:             filepath.Join(tmpDir, config.AppSlug),
 			DAGsDir:               filepath.Join(tmpDir, config.AppSlug, "dags"),
+			ProjectsDir:           filepath.Join(tmpDir, config.AppSlug, "projects"),
 			SuspendFlagsDir:       filepath.Join(tmpDir, config.AppSlug, "data", "suspend"),
 			LegacySuspendFlagsDir: filepath.Join(tmpDir, config.AppSlug, "suspend"),
 			DataDir:               filepath.Join(tmpDir, config.AppSlug, "data"),
@@ -71,6 +72,7 @@ func TestResolver(t *testing.T) {
 		assert.Equal(t, config.Paths{
 			ConfigDir:             legacyPath,
 			DAGsDir:               filepath.Join(legacyPath, "dags"),
+			ProjectsDir:           filepath.Join(legacyPath, "projects"),
 			SuspendFlagsDir:       filepath.Join(legacyPath, "data", "suspend"),
 			LegacySuspendFlagsDir: filepath.Join(legacyPath, "suspend"),
 			DataDir:               filepath.Join(legacyPath, "data"),
@@ -101,6 +103,7 @@ func TestResolver(t *testing.T) {
 		assert.Equal(t, config.Paths{
 			ConfigDir:             filepath.Join(configHome, config.AppSlug),
 			DAGsDir:               filepath.Join(configHome, config.AppSlug, "dags"),
+			ProjectsDir:           filepath.Join(configHome, config.AppSlug, "projects"),
 			SuspendFlagsDir:       filepath.Join(dataHome, config.AppSlug, "data", "suspend"),
 			LegacySuspendFlagsDir: filepath.Join(dataHome, config.AppSlug, "suspend"),
 			DataDir:               filepath.Join(dataHome, config.AppSlug, "data"),

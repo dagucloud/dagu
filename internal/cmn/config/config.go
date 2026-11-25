@@ -49,6 +49,9 @@ type Config struct {
 	// WorkspaceAccessKeys lists the workspace access keys the configuration
 	// sets. v3.0 reads them as their project equivalents until v3.1.
 	WorkspaceAccessKeys []string
+	// ProjectsEnabled turns projects on. It comes from the undocumented
+	// experimental_projects key and is off by default.
+	ProjectsEnabled bool
 }
 
 // OpenCodeConfig configures the process-local managed OpenCode service.
@@ -620,6 +623,7 @@ const (
 // PathsConfig represents the file system paths configuration.
 type PathsConfig struct {
 	DAGsDir         string
+	ProjectsDir     string
 	WikiDir         string
 	WikiDirLegacy   bool
 	Executable      string
@@ -651,6 +655,21 @@ type PathsConfig struct {
 	ViewsDir              string
 	ConfigFileUsed        string
 	ConfigFilesUsed       []string
+	// Explicit reports which paths the configuration sets rather than
+	// leaving to their defaults.
+	Explicit ExplicitPaths
+}
+
+// ExplicitPaths reports, for each path, whether config.yaml or the
+// environment sets it.
+type ExplicitPaths struct {
+	LogDir          bool
+	ArtifactDir     bool
+	DAGRunsDir      bool
+	DAGRunWorkDir   bool
+	QueueDir        bool
+	SuspendFlagsDir bool
+	ProcDir         bool
 }
 
 // SecretsConfig holds global defaults for external secret providers.

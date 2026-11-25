@@ -4,10 +4,13 @@
 package dag
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -112,6 +115,117 @@ func TestDiscoverRecursiveSkipsConfiguredDirectories(t *testing.T) {
 	}
 	// A directory deeper in the tree with a skipped name is still read.
 	assert.Equal(t, []string{"entrypoint.yaml", "pipelines/batch.yaml", "pipelines/jobs/nested.yaml"}, files)
+}
+
+// A skip root is omitted wherever it lies below root, and matched by
+// identity, so another spelling of its path still matches.
+func TestDiscoverRecursiveSkipsNestedRoots(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "dags")
+	nested := filepath.Join(root, "team", "projects")
+	writeDAGFiles(t,
+		filepath.Join(root, "root.yaml"),
+		filepath.Join(nested, "weather", "nested.yaml"),
+		filepath.Join(root, "other", "projects", "kept.yaml"),
+	)
+	discovered := func(t *testing.T, skipRoots ...string) []string {
+		t.Helper()
+		result, err := Discover(root, DiscoveryOptions{Recursive: true, SkipRoots: skipRoots})
+		require.NoError(t, err)
+		require.Empty(t, result.Errors)
+		return relPaths(result)
+	}
+	want := []string{"other/projects/kept.yaml", "root.yaml"}
+
+	assert.Equal(t, want, discovered(t, nested, filepath.Join(base, "missing")))
+
+	t.Run("RootItself", func(t *testing.T) {
+		assert.Equal(t, append(want, "team/projects/weather/nested.yaml"), discovered(t, root))
+	})
+
+	t.Run("SymlinkedPath", func(t *testing.T) {
+		link := filepath.Join(base, "link")
+		if err := os.Symlink(nested, link); err != nil {
+			t.Skipf("symlinks are unavailable: %v", err)
+		}
+		assert.Equal(t, want, discovered(t, link))
+	})
+
+	t.Run("OtherCase", func(t *testing.T) {
+		if !fileutil.IsCaseInsensitiveFS(root) {
+			t.Skip("file system distinguishes case")
+		}
+		assert.Equal(t, want, discovered(t, filepath.Join(root, "TEAM", "Projects")))
+	})
+}
+
+// A file symlink whose target lies in a nested skip root is omitted, in
+// recursive and root-only discovery alike. One into another directory stays.
+func TestDiscoverSkipsSymlinksIntoNestedRoots(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "projects")
+	writeDAGFiles(t,
+		filepath.Join(nested, "weather", "beta.yaml"),
+		filepath.Join(root, "team", "kept.yaml"),
+	)
+	if err := os.Symlink(filepath.Join(nested, "weather", "beta.yaml"), filepath.Join(root, "alias.yaml")); err != nil {
+		t.Skipf("symlinks are unavailable: %v", err)
+	}
+	require.NoError(t, os.Symlink(filepath.Join(root, "team", "kept.yaml"), filepath.Join(root, "link.yaml")))
+
+	for _, recursive := range []bool{true, false} {
+		result, err := Discover(root, DiscoveryOptions{Recursive: recursive, Symlinks: true, SkipRoots: []string{nested}})
+		require.NoError(t, err)
+		require.Empty(t, result.Errors)
+		files := relPaths(result)
+		assert.NotContains(t, files, "alias.yaml", "recursive=%v", recursive)
+		assert.Contains(t, files, "link.yaml", "recursive=%v", recursive)
+	}
+}
+
+// A skip root that cannot be looked up is reported, and discovery goes on.
+func TestDiscoverReportsUnreadableSkipRoot(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory permissions do not deny lookups on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	base := t.TempDir()
+	root := filepath.Join(base, "dags")
+	writeDAGFiles(t, filepath.Join(root, "root.yaml"))
+	locked := filepath.Join(base, "locked")
+	require.NoError(t, os.MkdirAll(filepath.Join(locked, "projects"), 0750))
+	require.NoError(t, os.Chmod(locked, 0))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0750) })
+
+	result, err := Discover(root, DiscoveryOptions{
+		Recursive: true,
+		SkipRoots: []string{filepath.Join(locked, "projects"), filepath.Join(base, "missing")},
+	})
+	require.NoError(t, err)
+	require.Len(t, result.Errors, 1)
+	assert.ErrorIs(t, result.Errors[0], fs.ErrPermission)
+	assert.Equal(t, []string{"root.yaml"}, relPaths(result))
+}
+
+// writeDAGFiles writes a minimal DAG file at each path, creating its
+// directory.
+func writeDAGFiles(t *testing.T, paths ...string) {
+	t.Helper()
+	for _, path := range paths {
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0750))
+		require.NoError(t, os.WriteFile(path, []byte("steps: []\n"), 0600))
+	}
+}
+
+// relPaths returns the relative paths of the files in result.
+func relPaths(result DiscoveryResult) []string {
+	var paths []string
+	for _, file := range result.Files {
+		paths = append(paths, file.RelPath)
+	}
+	return paths
 }
 
 func TestDiscoverNonRecursiveOnlyReadsRoot(t *testing.T) {

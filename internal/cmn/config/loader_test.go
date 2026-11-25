@@ -164,6 +164,7 @@ func TestLoad_Env(t *testing.T) {
 		"DAGU_KEY_FILE":  filepath.Join(testPaths, "key.pem"),
 
 		"DAGU_DAGS_DIR":             filepath.Join(testPaths, "dags"),
+		"DAGU_PROJECTS_DIR":         filepath.Join(testPaths, "projects"),
 		"DAGU_WIKI_DIR":             filepath.Join(testPaths, "wiki"),
 		"DAGU_EXECUTABLE":           filepath.Join(testPaths, "bin", "dagu"),
 		"DAGU_LOG_DIR":              filepath.Join(testPaths, "logs"),
@@ -321,6 +322,7 @@ func TestLoad_Env(t *testing.T) {
 		},
 		Paths: PathsConfig{
 			DAGsDir:            filepath.Join(testPaths, "dags"),
+			ProjectsDir:        filepath.Join(testPaths, "projects"),
 			WikiDir:            filepath.Join(testPaths, "wiki"),
 			AltDAGsDir:         filepath.Join(testPaths, "alt-dags"),
 			Executable:         filepath.Join(testPaths, "bin", "dagu"),
@@ -346,6 +348,14 @@ func TestLoad_Env(t *testing.T) {
 			RemoteNodesDir:     filepath.Join(testPaths, "data", "remote-nodes"), // Derived from DataDir
 			WorkspacesDir:      filepath.Join(testPaths, "data", "workspaces"),   // Derived from DataDir
 			ViewsDir:           filepath.Join(testPaths, "data", "views"),        // Derived from DataDir
+			Explicit: ExplicitPaths{
+				LogDir:          true,
+				ArtifactDir:     true,
+				DAGRunsDir:      true,
+				QueueDir:        true,
+				SuspendFlagsDir: true,
+				ProcDir:         true,
+			},
 		},
 		Secrets: SecretsConfig{
 			Vault: VaultSecretsConfig{
@@ -541,6 +551,7 @@ func TestLoad_WithAppHomeDir(t *testing.T) {
 	cfg := testLoad(t, WithAppHomeDir(tempDir))
 
 	assert.Equal(t, filepath.Join(tempDir, "dags"), cfg.Paths.DAGsDir)
+	assert.Equal(t, filepath.Join(tempDir, "projects"), cfg.Paths.ProjectsDir)
 	assert.Equal(t, filepath.Join(tempDir, "data"), cfg.Paths.DataDir)
 	assert.Equal(t, filepath.Join(tempDir, "logs"), cfg.Paths.LogDir)
 	assert.Equal(t, filepath.Join(tempDir, "data", "artifacts"), cfg.Paths.ArtifactDir)
@@ -1073,6 +1084,7 @@ default_shell: "/bin/bash"
 skip_examples: true
 paths:
   dags_dir: "/var/dagu/dags"
+  projects_dir: "/var/dagu/projects"
   log_dir: "/var/dagu/logs"
   data_dir: "/var/dagu/data"
   tools_dir: "/var/dagu/tools"
@@ -1264,6 +1276,7 @@ scheduler:
 		},
 		Paths: PathsConfig{
 			DAGsDir:            resolvedTestPath(t, "/var/dagu/dags"),
+			ProjectsDir:        resolvedTestPath(t, "/var/dagu/projects"),
 			LogDir:             resolvedTestPath(t, "/var/dagu/logs"),
 			WikiDir:            resolvedTestPath(t, "/var/dagu/dags/wiki"),
 			DataDir:            resolvedTestPath(t, "/var/dagu/data"),
@@ -1288,6 +1301,7 @@ scheduler:
 			RemoteNodesDir:     resolvedTestPath(t, "/var/dagu/data/remote-nodes"),
 			WorkspacesDir:      resolvedTestPath(t, "/var/dagu/data/workspaces"),
 			ViewsDir:           resolvedTestPath(t, "/var/dagu/data/views"),
+			Explicit:           ExplicitPaths{LogDir: true, SuspendFlagsDir: true},
 		},
 		UI: UI{
 			LogEncodingCharset:    "iso-8859-1",
@@ -1430,6 +1444,61 @@ paths:
 		})
 
 		assert.Equal(t, resolvedTestPath(t, "/env/dag-run-work"), cfg.Paths.DAGRunWorkDir)
+	})
+}
+
+func TestLoad_ProjectsSwitch(t *testing.T) {
+	t.Run("OffByDefault", func(t *testing.T) {
+		assert.False(t, loadFromYAML(t, "# empty").ProjectsEnabled)
+	})
+
+	t.Run("Config", func(t *testing.T) {
+		assert.True(t, loadFromYAML(t, "experimental_projects: true\n").ProjectsEnabled)
+	})
+
+	t.Run("Environment", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{"DAGU_EXPERIMENTAL_PROJECTS": "true"})
+		assert.True(t, cfg.ProjectsEnabled)
+	})
+}
+
+// A path counts as explicit when config.yaml or the environment sets it,
+// even when Viper also holds a default for it.
+func TestLoad_ExplicitPaths(t *testing.T) {
+	t.Run("Defaults", func(t *testing.T) {
+		assert.Equal(t, ExplicitPaths{}, loadFromYAML(t, "# empty").Paths.Explicit)
+	})
+
+	t.Run("Config", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+paths:
+  artifact_dir: "/custom/artifacts"
+  dag_runs_dir: "/custom/dag-runs"
+  dag_run_work_dir: "/custom/dag-run-work"
+  queue_dir: "/custom/queue"
+  proc_dir: "/custom/proc"
+`)
+		assert.Equal(t, ExplicitPaths{
+			ArtifactDir:   true,
+			DAGRunsDir:    true,
+			DAGRunWorkDir: true,
+			QueueDir:      true,
+			ProcDir:       true,
+		}, cfg.Paths.Explicit)
+	})
+
+	t.Run("LegacyKeys", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+log_dir: "/legacy/logs"
+artifact_dir: "/legacy/artifacts"
+suspend_flags_dir: "/legacy/suspend"
+`)
+		assert.Equal(t, ExplicitPaths{LogDir: true, ArtifactDir: true, SuspendFlagsDir: true}, cfg.Paths.Explicit)
+	})
+
+	t.Run("Environment", func(t *testing.T) {
+		cfg := loadWithEnv(t, "# empty", map[string]string{"DAGU_LOG_DIR": "/env/logs"})
+		assert.Equal(t, ExplicitPaths{LogDir: true}, cfg.Paths.Explicit)
 	})
 }
 

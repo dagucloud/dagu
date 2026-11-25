@@ -329,6 +329,29 @@ func TestRecursiveEntryReaderSkipsDirectories(t *testing.T) {
 	require.Len(t, er.Entries(), 1)
 }
 
+// A DAG under a nested skip root is neither scheduled nor watched, wired
+// as the scheduler wires the store and the reader.
+func TestRecursiveEntryReaderSkipsNestedRoots(t *testing.T) {
+	tmpDir := t.TempDir()
+	for _, dir := range []string{"team", filepath.Join("nested", "projects")} {
+		require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, dir), 0750))
+		writeDAGFile(t, filepath.Join(tmpDir, dir), filepath.Base(dir)+".yaml", filepath.Base(dir))
+	}
+
+	skip := []string{filepath.Join(tmpDir, "nested", "projects")}
+	store := newRepository(tmpDir, WithSkipExamples(true), WithRecursiveDiscovery(true), WithSkipRoots(skip))
+	er := NewFileEntryReader(tmpDir, store, true, "", "", SkipRoots(skip))
+	require.NoError(t, er.Init(context.Background()))
+	t.Cleanup(er.Stop)
+
+	require.Len(t, er.Entries(), 1)
+	assert.Equal(t, "team", er.Entries()[0].DAG.Name)
+	assert.NotContains(t, er.watchedDirs, skip[0])
+
+	require.NoError(t, er.refreshRegistry(context.Background()))
+	require.Len(t, er.Entries(), 1)
+}
+
 func TestRecursiveEntryReaderRecoversFromNameConflict(t *testing.T) {
 	tmpDir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "team"), 0750))
