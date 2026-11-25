@@ -56,6 +56,17 @@ describe('actionTemplate', () => {
     });
   });
 
+  // The provider retires claude-sonnet-4-5, so a new step must not name it.
+  it.each(['browser.extract', 'computer.extract', 'xlsx.extract'])(
+    'starts a %s step with a model that is still served',
+    (action) => {
+      expect(actionTemplate(action, null).with?.llm).toEqual({
+        provider: 'anthropic',
+        model: 'claude-sonnet-5-5',
+      });
+    }
+  );
+
   it('leaves the starter values out for a custom action', () => {
     expect(actionTemplate('http.request', withSchema, true).with).toEqual({
       method: '',

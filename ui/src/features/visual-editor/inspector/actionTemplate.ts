@@ -58,7 +58,7 @@ export function requiredWithValues(
   return values;
 }
 
-const LLM = { provider: 'anthropic', model: 'claude-sonnet-4-5' };
+const LLM = { provider: 'anthropic', model: 'claude-sonnet-5-5' };
 const XLSX = 'file.xlsx';
 
 /**
