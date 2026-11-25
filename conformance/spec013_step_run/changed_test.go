@@ -5,6 +5,7 @@ package spec013_step_run_test
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
 	"runtime"
 	"strings"
@@ -52,9 +53,7 @@ func TestChangedCarriedStep(t *testing.T) {
 	path := "/api/v1/dags/" + name + "/start"
 	from := func(runID string, extra map[string]any) map[string]any {
 		body := map[string]any{"steps": []string{"consume"}, "outputsFromRunId": runID}
-		for key, value := range extra {
-			body[key] = value
-		}
+		maps.Copy(body, extra)
 		return body
 	}
 

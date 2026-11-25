@@ -6,6 +6,7 @@ package spec070_profiles_test
 import (
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 
 	api "github.com/dagucloud/dagu/v2/api/v1"
@@ -50,6 +51,6 @@ func TestDraftTakesTheDefaultProfileOfItsFile(t *testing.T) {
 		return string(content)
 	}
 
-	require.Contains(t, run(new(name)), "draft=from-profile")
-	require.Contains(t, run(nil), "draft=\n")
+	require.Equal(t, "draft=from-profile", strings.TrimSpace(run(new(name))))
+	require.Equal(t, "draft=", strings.TrimSpace(run(nil)))
 }
