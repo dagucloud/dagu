@@ -264,7 +264,8 @@ auth:
 	require.Equal(t, map[string][]ProjectMappingGrant{"sre": {{Project: "payments", Role: "developer"}}}, policy.RoleMapping.ProjectMappings)
 	require.Equal(t, projectAccessNone, policy.RoleMapping.DefaultProjectAccess)
 
-	policy, err = NewOIDCPolicyLoader([]string{configFile}, OIDCPolicy{}, false).Load()
-	require.Error(t, err, "while projects are off, workspace_mappings needs default_workspace_access")
-	require.Nil(t, policy.RoleMapping.ProjectMappings)
+	// While projects are off, the workspace rules apply and the project key
+	// does not stand in for default_workspace_access.
+	_, err = NewOIDCPolicyLoader([]string{configFile}, OIDCPolicy{}, false).Load()
+	require.ErrorContains(t, err, "defaultWorkspaceAccess must be explicitly set")
 }
