@@ -646,6 +646,8 @@ func TestMalformedAndFailedRequests(t *testing.T) {
 	assert.Equal(t, "HTTP/1.1 400 Bad Request", raw("GET / HTTP/1.1\r\nHost: gone.example.test\r\nConnection: close\r\n\r\n"))
 	assert.Equal(t, "HTTP/1.1 400 Bad Request", raw("GET https://gone.example.test/ HTTP/1.1\r\nHost: gone.example.test\r\nConnection: close\r\n\r\n"))
 	assert.Equal(t, "HTTP/1.1 400 Bad Request", raw("CONNECT nohost HTTP/1.1\r\nHost: nohost\r\nConnection: close\r\n\r\n"))
+	assert.Equal(t, "HTTP/1.1 400 Bad Request", raw("GET http://gone.example.test:65536/ HTTP/1.1\r\nHost: gone.example.test\r\nConnection: close\r\n\r\n"))
+	assert.Equal(t, "HTTP/1.1 400 Bad Request", raw("GET http://gone.example.test:0/ HTTP/1.1\r\nHost: gone.example.test\r\nConnection: close\r\n\r\n"))
 	assert.Equal(t, "HTTP/1.1 502 Bad Gateway", raw("GET http://gone.example.test/ HTTP/1.1\r\nHost: gone.example.test\r\nConnection: close\r\n\r\n"))
 	assert.Equal(t, "HTTP/1.1 502 Bad Gateway", raw("CONNECT gone.example.test:443 HTTP/1.1\r\nHost: gone.example.test:443\r\nConnection: close\r\n\r\n"))
 }

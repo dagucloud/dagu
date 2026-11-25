@@ -301,8 +301,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host, port := r.URL.Hostname(), 80
 	if text := r.URL.Port(); text != "" {
 		parsed, err := strconv.Atoi(text)
-		if err != nil {
-			http.Error(w, "egress proxy: the port is not a number", http.StatusBadRequest)
+		if err != nil || parsed < 1 || parsed > 65535 {
+			http.Error(w, "egress proxy: the port is not valid", http.StatusBadRequest)
 			return
 		}
 		port = parsed
