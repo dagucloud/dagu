@@ -19,7 +19,7 @@ Flags:
 - `--params/-p` — Parameters (key=value or positional)
 - `--name/-N` — Override DAG name
 - `--run-id/-r` — Custom run ID
-- `--from-run-id` — Historic dag-run ID to use as the template for a new run
+- `--from-run-id` — Historic dag-run ID to use as the template for a new run; the new run keeps its params and node list
 - `--only` — Run only this step (name or ID) in a new run of the current definition; repeatable. Other steps are recorded as skipped. Not with `--from-run-id`
 - `--outputs-from` — Finished run of the same DAG whose work directory, and the outputs of the skipped steps that the `--only` steps depend on, feed the run (requires `--only`)
 - `--reuse-from` — Finished run of the same DAG whose unchanged steps this run reuses instead of running: a step whose definition, the DAG's other settings, the parameters, and the steps it depends on are as they were, and that succeeded there, carries its outputs; the changed steps, the steps after them, and the steps sharing a browser (`browser.share`) with them run. Use it while editing a DAG to rerun only what an edit changed. When nothing changed, or nothing can be reused, every step runs and nothing is carried. Not combinable with `--only` and its output flags
@@ -32,7 +32,7 @@ Flags:
 - `--recursive-output` — Expand sub-DAG runs in the final summary tree, showing each child's steps and output inline. Failed sub-runs are expanded first; when a run has more sub-runs than the limits allow, the rest keep their reference line and a notice counts them. Not supported with a remote context
 - `--worker-id` — Worker ID executing this DAG run; auto-set in distributed mode and defaults to `local`
 - `--worker-label` — Worker label (`key=value`) this run requires, replacing the DAG's `worker_selector` for this run and kept with the run for retries; repeatable. Not with `--worker-id`
-- `--node` — Inventory node to narrow the run to; repeatable. Steps with `nodes`, in the run and its child runs, run only on listed nodes; a step none of whose nodes is listed is skipped without blocking later steps, and the run fails with `no listed node was selected` when every such step is left without a node. A `node: required` DAG takes exactly one `--node` and runs bound to it. Each name must be an inventory node; retries and `dagu restart` keep the list. Not with `--only`
+- `--node` — Inventory node to narrow the run to; repeatable. Steps with `nodes`, in the run and its child runs, run only on listed nodes; a step none of whose nodes is listed is skipped without blocking later steps, and the run fails with `no listed node was selected` when every such step is left without a node. A `node: required` DAG takes exactly one `--node` and runs bound to it. Each name must be an inventory node; retries, `dagu restart`, and `--from-run-id` keep the list. Not with `--only` or `--from-run-id`
 - `--trigger-type` — Trigger source (`scheduler`, `manual`, `webhook`, `subdag`, `retry`, `catchup`, `restart`); defaults to `manual`
 
 A DAG with `restart_policy: always` or `unless-stopped` has one run at a time: while a run is active, `dagu start`, `dagu enqueue` and `dagu retry` are refused. With no active run they work, which is how a stopped service comes back.
