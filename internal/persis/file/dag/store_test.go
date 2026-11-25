@@ -580,6 +580,20 @@ func TestGetSpecRejectsSymlinkOutsideConfiguredDirectories(t *testing.T) {
 	assert.ErrorIs(t, err, persis.ErrDAGNotFound)
 }
 
+// A lookup by path refuses a file below a nested skip root however the path
+// spells the root's name, as discovery omits the root.
+func TestGetSpecRefusesSkipRootByOtherName(t *testing.T) {
+	baseDir := t.TempDir()
+	nested, otherName := mkdirWithOtherName(t, baseDir)
+	writeDAGFile(t, nested, "beta.yaml", "beta")
+
+	store := newRepository(baseDir, WithSkipExamples(true), WithSkipRoots([]string{nested}))
+	for _, path := range []string{otherName + "/beta", filepath.Join(baseDir, otherName, "beta.yaml")} {
+		_, err := store.GetSpec(context.Background(), path)
+		assert.ErrorIs(t, err, persis.ErrDAGNotFound, "path %s", path)
+	}
+}
+
 func TestExternalDAGFileSymlink(t *testing.T) {
 	baseDir := t.TempDir()
 	targetDir := t.TempDir()

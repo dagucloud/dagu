@@ -211,10 +211,12 @@ func inSkipRoot(roots []skipRoot, root string, resolved ResolvedFile) bool {
 	return underSkipRoot(roots, realRoot, resolved.ResolvedPath)
 }
 
-// underSkipRoot reports whether path lies in one of roots below dir.
+// underSkipRoot reports whether path lies in one of roots below dir. Every
+// ancestor is compared by identity, since a path given to a lookup may spell
+// a root's name otherwise, such as by a Windows short name.
 func underSkipRoot(roots []skipRoot, dir, path string) bool {
 	for current := filepath.Dir(path); strictlyWithin(current, dir); current = filepath.Dir(current) {
-		if isSkipRoot(roots, current, filepath.Base(current)) {
+		if sameAsSkipRoot(roots, current) {
 			return true
 		}
 	}
@@ -236,19 +238,28 @@ func statResolved(path string) (os.FileInfo, string, error) {
 	return info, resolved, err
 }
 
-// isSkipRoot reports whether the directory at path, called name, is one of
-// roots. Only a directory whose name matches a root's without regard to case
-// is compared by identity, so other directories cost no system call.
+// isSkipRoot reports whether the directory at path, listed in its parent as
+// name, is one of roots. Only a directory whose name matches a root's without
+// regard to case is compared by identity, so other directories cost no
+// system call.
 func isSkipRoot(roots []skipRoot, path, name string) bool {
 	for _, root := range roots {
-		if !strings.EqualFold(name, root.name) {
-			continue
-		}
-		if info, err := os.Stat(path); err == nil && os.SameFile(info, root.info) {
-			return true
+		if strings.EqualFold(name, root.name) {
+			return sameAsSkipRoot(roots, path)
 		}
 	}
 	return false
+}
+
+// sameAsSkipRoot reports whether the directory at path is one of roots.
+func sameAsSkipRoot(roots []skipRoot, path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return slices.ContainsFunc(roots, func(root skipRoot) bool {
+		return os.SameFile(info, root.info)
+	})
 }
 
 func scanRoot(root string, symlinks bool, skipRootDirs []string) (DiscoveryResult, error) {
