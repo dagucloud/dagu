@@ -45,6 +45,20 @@ func TestParseTopicSharesActivityAcrossConnections(t *testing.T) {
 	assert.Equal(t, "dagrunactivity:hours=24&workspace=ops", parsed.Key)
 }
 
+// The change feed has one topic, with a fixed identifier that an older
+// server rejects for this topic alone.
+func TestParseTopicTakesOneRunChangesTopic(t *testing.T) {
+	parsed, err := ParseTopic("dagrunchanges:all")
+	require.NoError(t, err)
+	assert.Equal(t, TopicTypeDAGRunChanges, parsed.Type)
+	assert.Equal(t, "dagrunchanges:all", parsed.Key)
+
+	for _, bad := range []string{"dagrunchanges:", "dagrunchanges:window=86400"} {
+		_, err := ParseTopic(bad)
+		assert.Error(t, err, bad)
+	}
+}
+
 func TestParseTopicRejectsMalformedQuery(t *testing.T) {
 	_, err := ParseTopic("dagruns:%ZZ")
 	require.Error(t, err)

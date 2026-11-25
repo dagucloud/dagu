@@ -132,6 +132,7 @@ type API struct {
 	workspaceDeprecation deprecation.Sources
 	serviceDAGFailures   failureStreaks
 	activities           activityCache
+	runChanges           runChanges
 	restartBackoffStore  schedulerstate.RestartBackoffStore
 	periodStore          schedulerstate.PeriodStore
 }

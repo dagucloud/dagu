@@ -21,7 +21,7 @@ const (
 	// activityCacheMaxAge bounds how long lists reuse a kept activity.
 	activityCacheMaxAge = 30 * time.Second
 	// serviceActivityMaxAge bounds how long lists reuse the activity of a
-	// service DAG, whose runs update the list at most once in 10 seconds.
+	// service DAG while its run is in progress and its up time grows.
 	serviceActivityMaxAge = 10 * time.Second
 	// activityFollowGrace is how long after the last read of the run events a
 	// kept activity still waits for them. The events are read each second.
@@ -46,23 +46,14 @@ func (a *API) cachedDAGActivity(ctx context.Context, dag *ir.DAG, latest ir.DAGR
 	return activity, err
 }
 
-// DAGRunsChanged is told, after each read of the DAG-run events, the names of
-// the DAGs whose runs changed in them, possibly none. A list then reads the
-// runs of those DAGs again, and reuses the activity of the other DAGs for at
-// most one bucket of its window. When it is not told for a while, a list
-// reuses an activity for a shorter time.
-func (a *API) DAGRunsChanged(dagNames []string) {
-	a.activities.changed(dagNames, time.Now())
-}
-
 // activityCache keeps the activity of each listed DAG with the latest run
 // that it was read for, and reuses it for at most one bucket of its window.
-// While the run events are followed, the activity of a plain DAG lasts until
-// an event tells that the runs of the DAG changed. Otherwise it lasts at most
-// activityCacheMaxAge, which bounds the changes that the latest run does not
-// show, such as the retry of an older run. A service DAG starts a run each
-// few seconds, so its activity is reused whatever its runs, for at most
-// serviceActivityMaxAge.
+// While the run events are followed, the activity of a DAG lasts until an
+// event tells that the runs of the DAG changed. Otherwise the activity of a
+// plain DAG lasts at most activityCacheMaxAge, which bounds the changes that
+// the latest run does not show, such as the retry of an older run. A service
+// DAG starts a run each few seconds, so its activity does not wait for its
+// latest run to stay the same, and lasts at most serviceActivityMaxAge.
 type activityCache struct {
 	once    sync.Once
 	entries *lru.Cache[activityKey, keptActivity]
@@ -119,9 +110,9 @@ func (c *activityCache) changes() *lru.Cache[string, time.Time] {
 	return c.changedAt
 }
 
-// get returns the activity kept for key when it is still recent at now and,
-// for a plain DAG, was read for the same latest run and after the last change
-// of its runs.
+// get returns the activity kept for key when it is still recent at now, was
+// read after the last change of the runs of its DAG and, for a plain DAG, for
+// the same latest run.
 func (c *activityCache) get(key activityKey, latest ir.DAGRunStatus, now time.Time) (*api.DAGListActivity, bool) {
 	kept, ok := c.store().Get(key)
 	if !ok {
@@ -130,10 +121,13 @@ func (c *activityCache) get(key activityKey, latest ir.DAGRunStatus, now time.Ti
 	if age := now.Sub(kept.readAt); age < 0 || age >= c.maxAge(key, now) {
 		return nil, false
 	}
+	if c.changedSince(key.dag, kept.readAt) {
+		return nil, false
+	}
 	if key.service {
 		return kept.activity, true
 	}
-	if kept.latest != latestRunKeyOf(latest) || c.changedSince(key.dag, kept.readAt) {
+	if kept.latest != latestRunKeyOf(latest) {
 		return nil, false
 	}
 	if !c.follows(now) && changesUnseen(latest, kept.activity) {
@@ -163,9 +157,8 @@ func (c *activityCache) put(key activityKey, latest ir.DAGRunStatus, now time.Ti
 }
 
 // changed records that the run events were read at, and that the runs of the
-// DAGs of names changed then. It drops the activity kept for those DAGs,
-// except the activity of a service DAG, which lasts by age only. The time of
-// the change keeps out an activity whose read began before it.
+// DAGs of names changed then. It drops the activity kept for those DAGs. The
+// time of the change keeps out an activity whose read began before it.
 func (c *activityCache) changed(names []string, at time.Time) {
 	c.followedAt.Store(at.UnixNano())
 	if len(names) == 0 {
@@ -179,7 +172,7 @@ func (c *activityCache) changed(names []string, at time.Time) {
 	}
 	entries := c.store()
 	for _, key := range entries.Keys() {
-		if _, ok := changedDAGs[key.dag]; ok && !key.service {
+		if _, ok := changedDAGs[key.dag]; ok {
 			entries.Remove(key)
 		}
 	}

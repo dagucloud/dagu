@@ -88,6 +88,13 @@ const (
 	// when no run event wakes it, such as when a queued run records why it
 	// cannot start or the data disk fills.
 	dagRunActivityMaxInterval = 30 * time.Second
+	// dagRunChangesMinInterval is the shortest gap between two refetches of
+	// the change feed, so that a DAG list reads activity at most once a
+	// minute. The strip of a list may lag behind the list.
+	dagRunChangesMinInterval = time.Minute
+	// dagRunChangesMaxInterval bounds how long a list goes without the feed:
+	// the feed tells it when the run events stop being read.
+	dagRunChangesMaxInterval = time.Minute
 	// dagRunsMaxInterval bounds how stale a live run list gets when no run
 	// event wakes it, such as when a DAG gains or loses a restart policy and
 	// its runs move in or out of the lists that leave service DAG runs out.
@@ -1568,6 +1575,11 @@ func (srv *Server) wakeMultiplexedTopicsForAppEvent(event sse.AppEvent) {
 	case sse.AppEventTypeWiki:
 		srv.wakeWikiTopics()
 	case sse.AppEventTypeReset:
+		// Missed DAG file events can change activity with no run event, such
+		// as a change of name in place, so the lists read all of it again.
+		if srv.apiV1 != nil {
+			srv.apiV1.ResetDAGRunChanges()
+		}
 		srv.wakeAllMultiplexedFileBackedTopics()
 	}
 }
@@ -1581,6 +1593,7 @@ func (srv *Server) wakeAllMultiplexedFileBackedTopics() {
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueueItems)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeQueues)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGsList)
+	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeDAGRunChanges)
 	srv.sseMultiplexer.WakeTopicType(sse.TopicTypeServiceDAGs)
 	srv.wakeWikiTopics()
 }
@@ -1689,6 +1702,12 @@ func (srv *Server) registerDedicatedSSEFetchers(registrar *sse.Multiplexer) {
 			registrar.SetRefreshMode(topicType, sse.TopicRefreshModeOnDemand)
 		}
 		registrar.SetMaxInterval(sse.TopicTypeBackfill, backfillMaxInterval)
+		// Only the run events feed the change feed, so without them the
+		// topic is unsupported and a list polls the activity instead.
+		registrar.RegisterFetcher(sse.TopicTypeDAGRunChanges, srv.apiV1.GetDAGRunChangesData)
+		registrar.SetRefreshMode(sse.TopicTypeDAGRunChanges, sse.TopicRefreshModeOnDemand)
+		registrar.SetMinInterval(sse.TopicTypeDAGRunChanges, dagRunChangesMinInterval)
+		registrar.SetMaxInterval(sse.TopicTypeDAGRunChanges, dagRunChangesMaxInterval)
 		if appStreamAvailable {
 			registrar.SetRefreshMode(sse.TopicTypeDAGsList, sse.TopicRefreshModeOnDemand)
 			registrar.SetPublishOnWake(sse.TopicTypeDAGsList, true)

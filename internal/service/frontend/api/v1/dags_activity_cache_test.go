@@ -95,8 +95,8 @@ func TestActivityCacheSkipsActivitiesThatChangeUnseen(t *testing.T) {
 // While the run events are followed, a list reuses the activity of a plain
 // DAG for one bucket of its window, also when an older run is in progress,
 // until an event tells that the runs of the DAG changed. An activity whose read
-// began before that change is not reused. A service DAG keeps its activity by
-// age only.
+// began before that change is not reused. A change drops the activity of a
+// service DAG too, so that a list that reads after the change sees it.
 func TestActivityCacheFollowsRunChanges(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
@@ -127,9 +127,8 @@ func TestActivityCacheFollowsRunChanges(t *testing.T) {
 	assert.False(t, ok, "a run of the DAG changed")
 	_, ok = cache.get(other, running, later)
 	assert.True(t, ok, "the runs of another DAG did not change")
-	cache.put(service, running, later.Add(-time.Second), olderRunning)
 	_, ok = cache.get(service, running, later)
-	assert.True(t, ok, "a service DAG keeps its activity by age")
+	assert.False(t, ok, "a run of the service DAG changed")
 
 	cache.put(plain, running, later.Add(-time.Second), olderRunning)
 	_, ok = cache.get(plain, running, later)

@@ -2865,6 +2865,34 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /dag-run-changes:
+    get:
+      summary: "List the DAG files whose runs changed lately"
+      description: |
+        Lists the DAG files whose root runs changed lately, as the run events
+        that this server reads tell, so that a DAG list reads the activity of
+        those DAGs again. The `dagrunchanges:all` topic of the stream gives the
+        same feed, at most once a minute. A file is listed when the caller can
+        see the run, by the workspace label of the run.
+      operationId: "getDAGRunChanges"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      responses:
+        "200":
+          description: "A successful response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DAGRunChanges"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /dag-runs:
     get:
       summary: "List all DAG-runs"
@@ -18732,6 +18760,44 @@ components:
         - dags
         - errors
         - readAt
+
+    DAGRunChanges:
+      type: object
+      description: "Every change of the root runs of a DAG file that the caller can see, after `since` and up to `readAt`. A list reads the activity again of a row whose file has a `changedAt` at or after the `readAt` of its activity, and of every row whose activity it read before `since`. Any other row is current as of `readAt`."
+      properties:
+        since:
+          type: string
+          format: date-time
+          description: "The feed holds every change after this time, rounded up to the millisecond. It moves when the server starts or resumes reading run events, when its stream of app events resets, and when the feed drops a change older than 3 minutes or beyond 500 files. Equal to `readAt` while the server does not read run events."
+        readAt:
+          type: string
+          format: date-time
+          description: "Server time when the feed was read, rounded down to the millisecond"
+        changes:
+          type: array
+          maxItems: 500
+          description: "Each DAG file once, with its latest change, the newest first"
+          items:
+            $ref: "#/components/schemas/DAGRunChange"
+      required:
+        - since
+        - readAt
+        - changes
+
+    DAGRunChange:
+      type: object
+      description: "The latest change of the root runs of a DAG file"
+      properties:
+        fileName:
+          type: string
+          description: "The fileName of the DAG in `GET /dags`"
+        changedAt:
+          type: string
+          format: date-time
+          description: "Server time of the change, rounded up to the millisecond. A read of the activity of the DAG that begins after it shows the change."
+      required:
+        - fileName
+        - changedAt
 
     DAGListActivityEntry:
       type: object
