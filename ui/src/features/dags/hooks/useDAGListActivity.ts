@@ -142,6 +142,14 @@ export function useDAGListActivity(
     pages: ReadonlyMap<number, LaterPageActivity>;
   }>({ listKey: '', pages: NO_PAGES });
   const held = later.listKey === listKey ? later.pages : NO_PAGES;
+  // A page that the list drops, as on a reload, is read again once the list
+  // loads it again: its rows may have new runs by then.
+  if ([...held.keys()].some((page) => page > through)) {
+    setLater({
+      listKey,
+      pages: new Map([...held].filter(([page]) => page <= through)),
+    });
+  }
   const unread = live
     ? laterPageNumbers(through)
         .filter((page) => held.get(page)?.readWith !== readWith)

@@ -1346,6 +1346,46 @@ describe('DagsPage', () => {
     const settle = async () => {
       for (let tick = 0; tick < 10; tick++) await Promise.resolve();
     };
+    // The list has a second page, next.yaml, whose activity has three runs.
+    const answerNextPage = () => {
+      dagsPageResponse.pagination = {
+        totalRecords: 2,
+        currentPage: 1,
+        totalPages: 2,
+        nextPage: 2,
+        prevPage: 0,
+      };
+      clientGetMock.mockImplementation(async (path: string) =>
+        path === '/dags'
+          ? {
+              data: {
+                dags: [dagFile('next')],
+                errors: [],
+                pagination: {
+                  totalRecords: 2,
+                  currentPage: 2,
+                  totalPages: 2,
+                  nextPage: 0,
+                  prevPage: 1,
+                },
+              },
+            }
+          : { data: { dags: [activityOf('next.yaml', 3)], errors: [] } }
+      );
+    };
+    const loadMore = async () => {
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole('button', { name: 'Load more workflows' })
+        );
+        await settle();
+      });
+      await act(settle);
+    };
+    const activityReads = () =>
+      clientGetMock.mock.calls.filter(
+        ([path]) => path === '/dag-list-activity'
+      );
 
     it('asks the activity of the page with the query of the list', () => {
       renderPage();
@@ -1402,44 +1442,13 @@ describe('DagsPage', () => {
     });
 
     it('reads the activity of a later page once, with its page number', async () => {
-      dagsPageResponse.pagination = {
-        totalRecords: 2,
-        currentPage: 1,
-        totalPages: 2,
-        nextPage: 2,
-        prevPage: 0,
-      };
-      clientGetMock.mockImplementation(async (path: string) =>
-        path === '/dags'
-          ? {
-              data: {
-                dags: [dagFile('next')],
-                errors: [],
-                pagination: {
-                  totalRecords: 2,
-                  currentPage: 2,
-                  totalPages: 2,
-                  nextPage: 0,
-                  prevPage: 1,
-                },
-              },
-            }
-          : { data: { dags: [activityOf('next.yaml', 3)], errors: [] } }
-      );
+      answerNextPage();
       renderPage();
 
-      await act(async () => {
-        fireEvent.click(
-          screen.getByRole('button', { name: 'Load more workflows' })
-        );
-        await settle();
-      });
-      await act(settle);
+      await loadMore();
 
       expect(runsOf('next.yaml')).toBe('3');
-      const reads = clientGetMock.mock.calls.filter(
-        ([path]) => path === '/dag-list-activity'
-      );
+      const reads = activityReads();
       expect(reads).toHaveLength(1);
       expect(reads[0]?.[1]).toEqual(
         expect.objectContaining({
@@ -1451,6 +1460,26 @@ describe('DagsPage', () => {
           },
         })
       );
+    });
+
+    // A pin reloads the list from its first page. The second page that the
+    // list then loads again may hold new runs, though the first page kept its
+    // order.
+    it('reads a later page again once the list loads it again', async () => {
+      answerNextPage();
+      renderPage();
+      await loadMore();
+
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole('button', { name: 'Pin demo workflow' })
+        );
+        await settle();
+      });
+      await loadMore();
+
+      expect(activityReads()).toHaveLength(2);
+      expect(runsOf('next.yaml')).toBe('3');
     });
   });
 
