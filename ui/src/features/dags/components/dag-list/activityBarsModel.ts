@@ -45,6 +45,22 @@ function time(value: string | undefined): number | null {
 }
 
 /**
+ * The runs of the window that ends at `now`: those that started in it and
+ * those still in progress. A list may draw its activity long after it read
+ * it, by when a finished run can have left the window.
+ */
+export function runsInWindow(
+  runs: readonly ActivityRun[],
+  now: number
+): ActivityRun[] {
+  const from = now - ACTIVITY_WINDOW_SECONDS * 1000;
+  return runs.filter((run) => {
+    const start = time(run.startedAt);
+    return start === null || start >= from || time(run.finishedAt) === null;
+  });
+}
+
+/**
  * The bars of the runs in the window that ends at `now`. The strip is cut in
  * slots of ACTIVITY_SLOT_PX, one run to a slot, as the activity chart of the
  * deployments in Prefect does. A run stands in the slot of its start. When

@@ -1348,6 +1348,19 @@ describe('DAGTable', () => {
       expect(strip.querySelectorAll('[data-run-id]')).toHaveLength(0);
     });
 
+    // A list page keeps the activity that it read, while its strip moves on.
+    it('neither draws nor counts a run that has left the window', () => {
+      renderTable('', {
+        dags: [withActivity([run('r1', HOUR), run('old', 25 * HOUR)])],
+      });
+      const strip = within(screen.getByRole('table')).getByTestId(
+        'dag-activity'
+      );
+
+      expect(strip).toHaveAttribute('aria-label', '1 run in the last 24 hours');
+      expect(strip.querySelectorAll('[data-run-id]')).toHaveLength(1);
+    });
+
     it('says when the window holds no run', () => {
       renderTable('', { dags: [withActivity([])] });
       expect(

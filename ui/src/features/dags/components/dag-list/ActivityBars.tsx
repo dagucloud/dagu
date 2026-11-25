@@ -15,6 +15,7 @@ import {
   ACTIVITY_HEIGHT_PX,
   ACTIVITY_WIDTH_PX,
   activityBars,
+  runsInWindow,
   type ActivityBar,
 } from './activityBarsModel';
 
@@ -79,12 +80,16 @@ function ActivityBars({
   const minute = useClock(activity?.runs.length ? REFRESH_MS : null, (now) =>
     Math.floor(now / REFRESH_MS)
   );
-  const runs = activity?.runs;
+  const runs = useMemo(
+    () =>
+      activity ? runsInWindow(activity.runs, minute * REFRESH_MS) : undefined,
+    [activity, minute]
+  );
   const bars = useMemo(
     () => (runs ? activityBars(runs, minute * REFRESH_MS, width) : []),
     [runs, minute, width]
   );
-  if (!activity) {
+  if (!activity || !runs) {
     return (
       <div
         ref={ref}
@@ -93,7 +98,7 @@ function ActivityBars({
       />
     );
   }
-  const count = activity.runs.length;
+  const count = runs.length;
   const summary = activity.truncated
     ? ts('{count}+ runs in the last 24 hours', { count })
     : count === 0

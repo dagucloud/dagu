@@ -10,6 +10,7 @@ import {
   ACTIVITY_HEIGHT_PX,
   ACTIVITY_WIDTH_PX,
   activityBars,
+  runsInWindow,
   type ActivityRun,
 } from '../activityBarsModel';
 
@@ -86,6 +87,23 @@ describe('activityBarsModel', () => {
       NOW
     );
     expect(bar?.left).toBe(0);
+  });
+
+  // The activity of a later list page is read once, so its runs age past the
+  // window while the strip moves on.
+  it('leaves out a finished run that started before the window', () => {
+    const runs = [
+      run('recent', HOUR, 1000),
+      run('expired', 24 * HOUR + 60_000, 1000),
+      run('long', 30 * HOUR, 0, {
+        status: Status.Running,
+        finishedAt: undefined,
+      }),
+    ];
+    expect(runsInWindow(runs, NOW).map((r) => r.dagRunId)).toEqual([
+      'recent',
+      'long',
+    ]);
   });
 
   it('gives the longest run the whole strip and no run less than the minimum', () => {
