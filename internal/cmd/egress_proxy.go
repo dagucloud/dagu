@@ -19,9 +19,9 @@ import (
 )
 
 // EgressProxy returns the hidden command that runs the egress proxy of an agent
-// worker (Spec 092, "Network"). It loads no Dagu configuration: the
-// arguments are the whole configuration, and an unknown flag, a missing flag or
-// a value that is not valid stops the command before it serves.
+// worker. It loads no Dagu configuration: the arguments are the whole
+// configuration, and an unknown flag, a missing flag or a value that is not
+// valid stops the command before it serves.
 func EgressProxy() *cobra.Command {
 	command := &cobra.Command{
 		Use:           "egress-proxy",

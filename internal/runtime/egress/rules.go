@@ -1,9 +1,8 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Package egress holds the egress proxy of Spec 092, "The egress proxy". The
-// command dagu egress-proxy runs it. The proxy forwards a connection to a listed
-// destination only. It resolves the names itself, so a client that has no route
+// Package egress holds the egress proxy that the command dagu egress-proxy
+// runs. The proxy forwards a connection to a listed destination only. It resolves the names itself, so a client that has no route
 // and no DNS can still reach the destinations of its policy.
 package egress
 
@@ -17,7 +16,7 @@ import (
 	"golang.org/x/net/idna"
 )
 
-// Rule is one destination of the key network.egress: a host name or an address,
+// Rule is one destination of the allow list: a host name or an address,
 // with an optional port. A host name can start with "*.". A rule with no port
 // allows each port of the host.
 type Rule struct {
