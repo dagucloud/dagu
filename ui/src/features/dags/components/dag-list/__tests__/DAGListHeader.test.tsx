@@ -24,4 +24,50 @@ describe('DAGListHeader', () => {
       screen.queryByRole('heading', { name: /dag definitions/i })
     ).toBeNull();
   });
+
+  it('shows the number of workflows next to the title', () => {
+    render(
+      <MemoryRouter>
+        <DAGListHeader resultCount={1234} />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('workflow-count')).toHaveTextContent(
+      /1,?234 workflows/
+    );
+  });
+
+  it('shows the number of runs in the runs mode', () => {
+    render(
+      <MemoryRouter>
+        <DAGListHeader mode="runs" resultCount={1} />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('workflow-count')).toHaveTextContent(/^1 run$/);
+  });
+
+  it('marks the number of runs with a plus when more are available', () => {
+    render(
+      <MemoryRouter>
+        <DAGListHeader mode="runs" resultCount={100} hasMore />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('workflow-count')).toHaveTextContent(
+      /^100\+ runs$/
+    );
+  });
+
+  it('keeps the plural for one run when more are available', () => {
+    render(
+      <MemoryRouter>
+        <DAGListHeader mode="runs" resultCount={1} hasMore />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('workflow-count')).toHaveTextContent(
+      /^1\+ runs$/
+    );
+  });
 });

@@ -25,6 +25,7 @@ import {
   DAGTable,
   type DAGDeleteResult,
 } from '../../features/dags/components/dag-list';
+import { useHideBreadcrumb } from '@/contexts/LayoutChromeContext';
 import DAGListHeader from '../../features/dags/components/dag-list/DAGListHeader';
 import {
   isRunSortField,
@@ -261,6 +262,8 @@ function supportsIntersectionObserver(): boolean {
 }
 
 function DAGsContent() {
+  // The page has its own title row: no breadcrumb strip above it.
+  useHideBreadcrumb(true);
   const location = useLocation();
   const navigate = useNavigate();
   const { ts } = useI18n();
@@ -1236,7 +1239,10 @@ function DAGsContent() {
 
   return (
     <div>
-      <DAGListHeader onRefresh={refreshFn} />
+      <DAGListHeader
+        onRefresh={refreshFn}
+        resultCount={data?.pagination.totalRecords}
+      />
       {filtersReady && data ? (
         <>
           <DAGErrors
@@ -1314,10 +1320,6 @@ function DAGsContent() {
                   </Button>
                 )}
               </>
-            ) : dagFiles.length > 0 ? (
-              <div className="text-sm text-muted-foreground">
-                <I18nText text={'All workflows are displayed.'} />
-              </div>
             ) : null}
           </div>
         </>

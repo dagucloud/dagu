@@ -11,7 +11,6 @@ import {
   FileCog,
   Gauge,
   GitBranch,
-  History,
   KeyRound,
   Layers,
   Network,
@@ -94,11 +93,8 @@ export function useNavigationSections(): {
       to: '/dags',
       text: t('navigation.workflows'),
       icon: <Network size={16} />,
-    },
-    {
-      to: '/dag-runs',
-      text: t('navigation.executions'),
-      icon: <History size={16} />,
+      // The runs of all the workflows are the Runs mode of this page.
+      activePaths: ['/dags', '/dag-runs'],
     },
     {
       to: '/queues',

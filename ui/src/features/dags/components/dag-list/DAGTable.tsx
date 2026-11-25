@@ -1853,14 +1853,6 @@ function DAGTable({
           </p>
         )}
 
-        {resultCount !== undefined && (
-          <div className="text-xs text-muted-foreground">
-            {ts(resultCount === 1 ? '{count} workflow' : '{count} workflows', {
-              count: resultCount.toLocaleString(),
-            })}
-          </div>
-        )}
-
         {useCardView && onSortChange && (
           <div className="flex flex-wrap items-center gap-2 pt-1 pl-1">
             <div className="flex flex-wrap items-center gap-2 min-w-0">

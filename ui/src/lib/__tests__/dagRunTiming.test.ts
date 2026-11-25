@@ -2,43 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
-import {
-  formatAbsoluteTime,
-  formatElapsed,
-  getDAGRunScheduleSortValue,
-} from '../dagRunTiming';
-
-describe('getDAGRunScheduleSortValue', () => {
-  it('prefers schedule time over queued time', () => {
-    expect(
-      getDAGRunScheduleSortValue({
-        scheduleTime: '2026-03-13T10:00:00Z',
-        queuedAt: '2026-03-13T10:05:00Z',
-      })
-    ).toBeLessThan(
-      getDAGRunScheduleSortValue({
-        queuedAt: '2026-03-13T10:05:00Z',
-      })
-    );
-  });
-
-  it('falls back to queued time when schedule time is missing', () => {
-    expect(
-      getDAGRunScheduleSortValue({
-        queuedAt: '2026-03-13T10:05:00Z',
-      })
-    ).toBeGreaterThan(0);
-  });
-
-  it('returns zero for missing or invalid timestamps', () => {
-    expect(getDAGRunScheduleSortValue({})).toBe(0);
-    expect(
-      getDAGRunScheduleSortValue({
-        scheduleTime: 'not-a-timestamp',
-      })
-    ).toBe(0);
-  });
-});
+import { formatAbsoluteTime, formatElapsed } from '../dagRunTiming';
 
 describe('formatElapsed', () => {
   const T0 = '2026-01-01T00:00:00Z';

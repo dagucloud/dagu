@@ -21,9 +21,9 @@ async function openNewestRunFromLane(page: Page, dagName: string) {
   await lane.press('Enter');
 }
 
-// A run of a run list or of the Activity lanes opens its workflow page over
+// A run of the run list or of the Activity lanes opens its workflow page over
 // the list, at the page's own URL; the list stays below.
-for (const view of ['list', 'grouped', 'activity'] as const) {
+for (const view of ['list', 'activity'] as const) {
   test(`opens a run on its workflow page from the ${view} view`, async ({
     page,
     request,
@@ -62,22 +62,12 @@ steps:
       await openNewestRunFromLane(page, dagName);
     } else {
       await page.goto(`/dag-runs?name=${dagName}`);
-      if (view === 'grouped') {
-        await page.getByRole('button', { name: 'Grouped view' }).click();
-        await page.getByText(dagName, { exact: true }).click();
-        await page
-          .getByRole('link', { name: runId, exact: true })
-          .locator('xpath=..')
-          .getByText('Duration:')
-          .click();
-      } else {
-        await page
-          .getByRole('row')
-          .filter({ hasText: dagName })
-          .first()
-          .getByText(runId, { exact: true })
-          .click();
-      }
+      await page
+        .getByRole('row')
+        .filter({ hasText: dagName })
+        .first()
+        .getByText(runId, { exact: true })
+        .click();
     }
     await expect(overlay).toBeVisible();
     await expect

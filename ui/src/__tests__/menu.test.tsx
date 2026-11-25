@@ -295,7 +295,6 @@ describe('sidebar menu', () => {
     expectLinks(document.body, [
       ['Overview', '/'],
       ['Workflows', '/dags'],
-      ['Executions', '/dag-runs'],
       ['Queues', '/queues'],
       ['Artifacts', '/artifacts'],
       ['Wiki', '/wiki'],
@@ -322,6 +321,10 @@ describe('sidebar menu', () => {
     ]);
     expect(
       screen.queryByRole('button', { name: 'Workflows' })
+    ).not.toBeInTheDocument();
+    // The runs are the Runs mode of the Workflows page, not a sidebar entry.
+    expect(
+      screen.queryByRole('link', { name: 'Executions' })
     ).not.toBeInTheDocument();
   });
 
@@ -618,8 +621,9 @@ describe('sidebar menu', () => {
     expect(runViewLink).toHaveAttribute('href', '/dag-runs?view=run-1');
     expect(runViewLink).toHaveAttribute('aria-current', 'page');
     expect(runViewLink.querySelector('svg')).toHaveClass('lucide-star');
-    const executionsLink = screen.getByRole('link', { name: 'Executions' });
-    expect(executionsLink).not.toHaveAttribute('aria-current');
+    // Workflows owns /dag-runs, but the starred view is the active entry.
+    const workflowsLink = screen.getByRole('link', { name: 'Workflows' });
+    expect(workflowsLink).not.toHaveAttribute('aria-current');
   });
 
   it('renders starred artifact views for the current scope in the sidebar', () => {
@@ -708,7 +712,7 @@ describe('sidebar menu', () => {
   });
 
   it.each([
-    ['/dag-runs', 'Executions'],
+    ['/dag-runs', 'Workflows'],
     ['/dags/example', 'Workflows'],
     ['/queues', 'Queues'],
     ['/artifacts', 'Artifacts'],

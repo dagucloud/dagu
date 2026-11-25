@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Status, StatusLabel, TriggerType } from '@/api/v1/schema';
 import { Input } from '@/components/ui/input';
 import { Config, ConfigContext } from '@/contexts/ConfigContext';
+import { getDAGRunSelectionKey } from '@/features/dag-runs/hooks/useBulkDAGRunSelection';
 import { PeekContext, type PeekController } from '@/features/peek/PeekContext';
 import DAGRunTable from '../DAGRunTable';
 
@@ -353,6 +354,38 @@ describe('DAGRunTable', () => {
     expect(screen.getByTestId('location')).toHaveTextContent('/dag-runs');
     expect(screen.getByTestId('location')).not.toHaveTextContent('/dags/');
   });
+
+  it.each([
+    { selected: false, expected: true },
+    { selected: true, expected: false },
+  ])(
+    'selects or clears all the loaded runs from the header (selected: $selected)',
+    ({ selected, expected }) => {
+      const onSelectAll = vi.fn();
+      const dagRun = { ...queuedRun, name: 'bulk-dag' };
+
+      render(
+        <MemoryRouter>
+          <ConfigContext.Provider value={config}>
+            <DAGRunTable
+              dagRuns={[dagRun]}
+              selectedRunKeys={
+                new Set(selected ? [getDAGRunSelectionKey(dagRun)] : [])
+              }
+              onToggleBulkSelect={vi.fn()}
+              onSelectAll={onSelectAll}
+            />
+          </ConfigContext.Provider>
+        </MemoryRouter>
+      );
+
+      fireEvent.click(
+        screen.getByRole('checkbox', { name: 'Select all loaded' })
+      );
+
+      expect(onSelectAll).toHaveBeenCalledWith(expected);
+    }
+  );
 
   it('opens the run on its workflow page when a row is clicked', () => {
     render(

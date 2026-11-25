@@ -34,6 +34,7 @@ import {
 } from '@/features/peek/usePeekOrOpen';
 import { StepDetailsTooltip } from './StepDetailsTooltip';
 import { DAGRunArtifactsButton } from './DAGRunArtifactsButton';
+import { I18nProps } from '@/i18n/I18nProps';
 import { I18nText } from '@/i18n/I18nText';
 import { RunListDuration } from './RunListDuration';
 
@@ -43,6 +44,8 @@ interface DAGRunTableProps {
   isLoading?: boolean;
   selectedRunKeys?: Set<string>;
   onToggleBulkSelect?: (dagRun: DAGRunSelectionItem) => void;
+  /** Selects all the loaded runs, or clears the selection. */
+  onSelectAll?: (checked: boolean) => void;
 }
 
 function isInteractiveEventTarget(target: EventTarget | null): boolean {
@@ -66,6 +69,7 @@ function DAGRunTable({
   isLoading = false,
   selectedRunKeys,
   onToggleBulkSelect,
+  onSelectAll,
 }: DAGRunTableProps) {
   const config = useConfig();
   const peekOrOpen = usePeekOrOpen();
@@ -421,7 +425,23 @@ function DAGRunTable({
           <TableRow>
             {onToggleBulkSelect && (
               <TableHead className="w-10">
-                <I18nText text={'Select'} />
+                <I18nProps>
+                  <Checkbox
+                    aria-label="Select all loaded"
+                    disabled={!onSelectAll}
+                    checked={
+                      dagRuns.some(isBulkSelected)
+                        ? dagRuns.every(isBulkSelected)
+                          ? true
+                          : 'indeterminate'
+                        : false
+                    }
+                    onCheckedChange={(checked) =>
+                      onSelectAll?.(checked === true)
+                    }
+                    className="h-5 w-5"
+                  />
+                </I18nProps>
               </TableHead>
             )}
             <TableHead>

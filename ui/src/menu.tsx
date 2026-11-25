@@ -456,8 +456,9 @@ export const mainListItems = React.forwardRef<
   const { t } = useI18n();
   const navigation = useNavigationSections();
   const pinnedViewActive: Record<string, boolean> = {
-    '/dags': isPinnedWorkflowViewActive,
-    '/dag-runs': isPinnedRunViewActive,
+    // The runs are a mode of the Workflows page: a starred run view takes
+    // the active mark from the Workflows entry too.
+    '/dags': isPinnedWorkflowViewActive || isPinnedRunViewActive,
     '/artifacts': isPinnedArtifactViewActive,
   };
   const mainItems = navigation.mainItems.map((item) => ({

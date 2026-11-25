@@ -35,7 +35,6 @@ const {
   searchStateMock,
   serviceDAGsState,
   sharedRunViewState,
-  runViewMode,
   updateRunViewMock,
   viewsLoadingState,
   writeSearchStateMock,
@@ -53,7 +52,6 @@ const {
     searchStateMock: { readState, writeState },
     serviceDAGsState: { count: 0 },
     sharedRunViewState: { views: [] as View[] },
-    runViewMode: { current: 'list' },
     viewsLoadingState: { current: false },
     writeSearchStateMock: writeState,
   };
@@ -64,6 +62,7 @@ vi.mock('@/contexts/SearchStateContext', () => ({
 }));
 
 vi.mock('@/contexts/AuthContext', () => ({
+  useCanWrite: () => true,
   useCanWriteForWorkspace: () => true,
 }));
 
@@ -79,16 +78,9 @@ vi.mock('@/hooks/useViews', () => ({
   }),
 }));
 
-vi.mock('@/contexts/UserPreference', () => ({
-  useUserPreferences: () => ({
-    preferences: {
-      dagRunsViewMode: runViewMode.current,
-    },
-    updatePreference: vi.fn(),
-  }),
-}));
-
+// The header renders the Create button, which takes the API client.
 vi.mock('@/hooks/api', () => ({
+  useClient: () => ({ POST: vi.fn() }),
   useQuery: (path: string, init?: unknown) => ({
     data:
       init === null
@@ -135,15 +127,8 @@ vi.mock('@/features/dag-runs/hooks/useBulkDAGRunSelection', () => ({
 }));
 
 vi.mock('@/features/dag-runs/components/common/DAGRunBatchActions', () => ({
-  default: () => null,
+  default: () => <div data-testid="batch-actions" />,
 }));
-
-vi.mock(
-  '@/features/dag-runs/components/dag-run-list/DAGRunGroupedView',
-  () => ({
-    default: () => <div>Grouped Runs</div>,
-  })
-);
 
 const dagRunTableProps = vi.hoisted(() => ({
   current: {} as { isLoading?: boolean },
@@ -175,7 +160,6 @@ const config = {
 } as Config;
 
 beforeEach(() => {
-  runViewMode.current = 'list';
   readSearchStateMock.mockReset();
   readSearchStateMock.mockReturnValue(null);
   writeSearchStateMock.mockReset();
@@ -252,6 +236,14 @@ function locationSearchParams(): URLSearchParams {
   );
 }
 
+async function choosePeriod(
+  user: ReturnType<typeof userEvent.setup>,
+  name: string
+): Promise<void> {
+  await user.click(screen.getByRole('combobox', { name: 'Time range' }));
+  await user.click(await screen.findByRole('option', { name }));
+}
+
 function renderPage(
   setTitle = vi.fn(),
   initialEntry = '/dag-runs',
@@ -325,6 +317,14 @@ describe('DAGRuns page', () => {
     expect(lastRunQuery()['backfillId']).toBeUndefined();
   });
 
+  // The scope of a backfill replaces the filter row that holds the batch
+  // actions; they stay on the page.
+  it('keeps the batch actions in the list of a backfill', () => {
+    renderPage(vi.fn(), '/dag-runs?backfillId=bf123456');
+
+    expect(screen.getByTestId('batch-actions')).toBeInTheDocument();
+  });
+
   // A backfill page links to its runs on the backfill's node, whatever
   // node the app bar selects.
   it('lists the runs of a backfill on the node that the link names', () => {
@@ -355,16 +355,18 @@ describe('DAGRuns page', () => {
     }
   );
 
-  it('uses the Executions page title', () => {
+  it('uses the Workflows page title with the Runs mode selected', () => {
     const setTitle = vi.fn();
 
     renderPage(setTitle);
 
-    expect(
-      screen.getByRole('heading', { name: /^executions$/i })
-    ).toBeVisible();
+    expect(screen.getByRole('heading', { name: /^workflows$/i })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: /executions/i })).toBeNull();
     expect(screen.queryByRole('heading', { name: /dag runs/i })).toBeNull();
-    expect(setTitle).toHaveBeenCalledWith('Executions');
+    expect(setTitle).toHaveBeenCalledWith('Workflows');
+    expect(screen.getByRole('button', { name: 'Runs' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Workflows' })).toBeVisible();
+    expect(screen.getByTestId('workflow-count')).toHaveTextContent('0 runs');
   });
 
   // A preset range means "relative to now", so a session left open across a
@@ -447,6 +449,40 @@ describe('DAGRuns page', () => {
     expect(dagRunTableProps.current.isLoading).toBe(true);
   });
 
+  it('shows no run count before the first page arrives', () => {
+    usePaginatedDAGRunsMock.mockReturnValue({
+      dagRuns: [],
+      isInitialLoading: true,
+      isLoadingMore: false,
+      loadMoreError: null,
+      hasMore: false,
+      refresh: vi.fn(),
+      loadMore: vi.fn(),
+    });
+
+    renderPage();
+
+    expect(screen.queryByTestId('workflow-count')).toBeNull();
+  });
+
+  it('shows no run count when the first page fails', () => {
+    usePaginatedDAGRunsMock.mockReturnValue({
+      dagRuns: [],
+      error: new Error('server down'),
+      isInitialLoading: false,
+      isLoadingMore: false,
+      loadMoreError: null,
+      hasMore: false,
+      refresh: vi.fn(),
+      loadMore: vi.fn(),
+    });
+
+    renderPage();
+
+    expect(screen.getByText("Couldn't load runs")).toBeInTheDocument();
+    expect(screen.queryByTestId('workflow-count')).toBeNull();
+  });
+
   it('uses consistent filter control sizing', () => {
     renderPage();
 
@@ -460,7 +496,7 @@ describe('DAGRuns page', () => {
       screen.getByRole('combobox', { name: 'Status' }).className
     ).toContain('h-9');
     expect(
-      screen.getByRole('combobox', { name: 'Date preset' }).className
+      screen.getByRole('combobox', { name: 'Time range' }).className
     ).toContain('h-9');
     expect(screen.getByRole('button', { name: 'Search' }).className).toContain(
       'h-9'
@@ -590,6 +626,7 @@ describe('DAGRuns page', () => {
   });
 
   it('keeps only active date-mode parameters after Search', async () => {
+    const user = userEvent.setup();
     renderPage();
 
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
@@ -601,9 +638,7 @@ describe('DAGRuns page', () => {
       expect(params.has('specificPeriod')).toBe(false);
     });
 
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Specific date/month/year' })
-    );
+    await choosePeriod(user, 'Specific period');
     await waitFor(() => {
       const params = locationSearchParams();
       expect(params.get('dateMode')).toBe('specific');
@@ -616,7 +651,7 @@ describe('DAGRuns page', () => {
       expect(params.get('specificPeriod')).toBe('date');
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Custom range' }));
+    await choosePeriod(user, 'Custom range');
     await waitFor(() => {
       const params = locationSearchParams();
       expect(params.get('dateMode')).toBe('custom');
@@ -630,11 +665,52 @@ describe('DAGRuns page', () => {
     });
   });
 
+  it('shows only the inputs of the chosen period', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await choosePeriod(user, 'Specific period');
+    expect(
+      await screen.findByRole('combobox', { name: 'Specific period' })
+    ).toBeVisible();
+    expect(screen.queryByRole('combobox', { name: 'Date preset' })).toBeNull();
+    expect(
+      screen.queryAllByPlaceholderText('YYYY-MM-DD HH:mm:ss')
+    ).toHaveLength(0);
+
+    await choosePeriod(user, 'Custom range');
+    expect(
+      await screen.findAllByPlaceholderText('YYYY-MM-DD HH:mm:ss')
+    ).toHaveLength(2);
+    expect(
+      screen.queryByRole('combobox', { name: 'Specific period' })
+    ).toBeNull();
+  });
+
+  it('drops the specific date parameters when a preset is chosen', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await choosePeriod(user, 'Specific period');
+    await waitFor(() => {
+      expect(locationSearchParams().get('specificPeriod')).toBe('date');
+    });
+
+    await choosePeriod(user, 'Last 7 days');
+    await waitFor(() => {
+      const params = locationSearchParams();
+      expect(params.get('dateMode')).toBe('preset');
+      expect(params.get('preset')).toBe('last7days');
+      expect(params.has('specificValue')).toBe(false);
+      expect(params.has('specificPeriod')).toBe(false);
+    });
+  });
+
   it('interprets custom dates in the configured timezone', async () => {
     const user = userEvent.setup();
     renderPage(vi.fn(), '/dag-runs', { tzOffsetInSec: -5 * 60 * 60 });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Custom range' }));
+    await choosePeriod(user, 'Custom range');
     const inputs = await screen.findAllByPlaceholderText('YYYY-MM-DD HH:mm:ss');
     const fromInput = inputs[0]!;
     const toInput = inputs[1]!;

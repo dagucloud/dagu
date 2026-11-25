@@ -5,6 +5,7 @@
  */
 import { Button } from '@/components/ui/button';
 import { useCanWrite } from '@/contexts/AuthContext';
+import { useConfig } from '@/contexts/ConfigContext';
 import { Plus } from 'lucide-react';
 import React from 'react';
 import { DAGNameInputModal } from '../../../../components/DAGNameInputModal';
@@ -25,6 +26,7 @@ import { I18nText } from '@/i18n/I18nText';
 function CreateDAGButton() {
   const appBarContext = React.useContext(AppBarContext);
   const canWrite = useCanWrite();
+  const config = useConfig();
   const client = useClient();
   const [error, setError] = React.useState<string | null>(null);
   const [isOpen, setIsOpen] = React.useState(false);
@@ -72,8 +74,9 @@ function CreateDAGButton() {
       // Success - close modal and redirect
       setIsOpen(false);
 
-      // Redirect to the DAG specification page
-      const basePath = window.location.pathname.split('/dags')[0] || '';
+      // Redirect to the DAG specification page. The base path comes from the
+      // config: the current page may be any page, such as /dag-runs.
+      const basePath = config.basePath === '/' ? '' : (config.basePath ?? '');
       window.location.href = `${basePath}/dags/${name}/spec`;
     } catch {
       setError('An unexpected error occurred');
