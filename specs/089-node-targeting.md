@@ -218,12 +218,13 @@ run is a run of its own, and fails for the list as any run does.
 A retry of a run, by `dagu retry` or the retry request, with or without a
 step, runs a step with nodes again only on the nodes that did not succeed:
 
-- The step takes its nodes from the records of its previous attempt
-  ([Viewing node runs](#viewing-node-runs)) when it can read them, so it
-  keeps the nodes its first attempt matched and does not match its selector
-  again. A node added to
-  the inventory since is not added. A later retry keeps the same nodes, also
-  after an attempt that reset the step without running it.
+- The step takes its nodes from the records of the latest attempt that
+  recorded them ([Viewing node runs](#viewing-node-runs)) when it can read
+  them, and does not match its selector again. Those are the nodes its first
+  attempt matched, unless an attempt since matched the selector again, as
+  described below. A node added to the inventory since is not added. A later
+  retry keeps the same nodes, also after an attempt that reset the step
+  without running it.
 - A node whose child run succeeded or partially succeeded keeps its result
   and does not run.
 - Any other node runs its recorded child run again, as `dagu retry` retries
@@ -239,7 +240,8 @@ step, runs a step with nodes again only on the nodes that did not succeed:
 A step whose previous attempt recorded no nodes, such as one whose selector
 failed or one recorded before this version, matches its selector again, and
 so does a step whose records cannot be read or parsed, with a warning in the
-run log. Such a step can then run on a node added since. A step that a run
+run log. Such a step can then run on a node added since, and a later retry
+keeps the nodes it records then. A step that a run
 reused from another run, as `--reuse-from`, `--only` with `--outputs-from`,
 and edit and retry reuse steps, matches its selector too, since that run's
 child runs are not this run's.
