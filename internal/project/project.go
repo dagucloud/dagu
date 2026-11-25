@@ -20,6 +20,12 @@ type Project struct {
 	// MigratedFrom is the name of the v2 workspace a migrated project came
 	// from. It is empty for any other project.
 	MigratedFrom string
+	// SlotSeed goes into the run ID of each slot of the project's
+	// schedules. It is paths.data_dir, spelled as configured, for the
+	// default project and each migrated one, so their slots keep the run
+	// IDs v2 gave them, and the ID for any other project. It is set when
+	// the project is registered and never changes.
+	SlotSeed string
 	// Binding is the project's Dagu Cloud binding.
 	Binding Binding
 	// Deleting reports that a delete of the project is in progress.

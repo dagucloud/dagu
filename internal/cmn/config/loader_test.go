@@ -1409,6 +1409,43 @@ worker:
 			"cpu-arch":      "amd64",
 		}, cfg.Worker.Labels)
 	})
+
+	t.Run("KeyOnlyLabelsAreKept", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+worker:
+  labels: "gpu, region=us-east-1"
+`)
+		assert.Equal(t, map[string]string{"gpu": "", "region": "us-east-1"}, cfg.Worker.Labels)
+
+		cfg = loadFromYAML(t, `
+worker:
+  labels:
+    gpu:
+    ssd: ""
+`)
+		assert.Equal(t, map[string]string{"gpu": "", "ssd": ""}, cfg.Worker.Labels)
+	})
+
+	t.Run("LabelsFromList", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+worker:
+  labels:
+    - gpu=true
+    - zone=us-east
+    - ssd
+`)
+		assert.Equal(t, map[string]string{"gpu": "true", "zone": "us-east", "ssd": ""}, cfg.Worker.Labels)
+	})
+
+	t.Run("ScalarValuesAreKeptAsText", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+worker:
+  labels:
+    gpu: true
+    cores: 64
+`)
+		assert.Equal(t, map[string]string{"gpu": "true", "cores": "64"}, cfg.Worker.Labels)
+	})
 }
 
 func TestLoad_EdgeCases_DerivedPaths(t *testing.T) {
@@ -1868,10 +1905,10 @@ func TestLoad_LegacyEnv(t *testing.T) {
 
 func TestLoad_LoadLegacyFields(t *testing.T) {
 	t.Parallel()
-	loader := &ConfigLoader{}
 
 	t.Run("AllFieldsSet", func(t *testing.T) {
 		t.Parallel()
+		loader := NewConfigLoader(viper.New())
 		tempDir := t.TempDir()
 		testPaths := filepath.Join(tempDir, "test")
 
@@ -1916,6 +1953,7 @@ func TestLoad_LoadLegacyFields(t *testing.T) {
 
 	t.Run("DAGsPrecedence", func(t *testing.T) {
 		t.Parallel()
+		loader := NewConfigLoader(viper.New())
 		tempDir := t.TempDir()
 
 		def := Definition{

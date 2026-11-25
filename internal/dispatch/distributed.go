@@ -215,12 +215,7 @@ func WorkerHeartbeatMatches(record WorkerHeartbeatRecord, selector map[string]st
 	if targetWorkerID != "" && record.WorkerID != targetWorkerID {
 		return false
 	}
-	for key, value := range selector {
-		if record.Labels[key] != value {
-			return false
-		}
-	}
-	return true
+	return ir.MatchWorkerSelector(record.Labels, selector)
 }
 
 // WorkerHeartbeatStore persists shared worker presence across coordinators.

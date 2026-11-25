@@ -32,26 +32,30 @@ type dagRecord struct {
 	Dismissed *schedulerstate.Dismissal `json:"dismissed,omitempty"`
 }
 
-// PeriodStore keeps the ended periods in which slots could not run as records
-// of the scheduler state collection: the scheduler's outages in one, and
-// each DAG's suspensions in its own. It gives with them the operator's
-// pauses the pause record keeps.
+// PeriodStore keeps the ended periods in which slots could not run: each
+// DAG's suspensions in a record of its own in the scheduler state
+// collection, and the scheduler's outages in one record of the scheduler
+// process collection. It gives with them the operator's pauses the pause
+// record keeps.
 type PeriodStore struct {
-	col    persis.Collection
-	pauses *SchedulerPauseStore
+	col     persis.Collection
+	process persis.Collection
+	pauses  *SchedulerPauseStore
 }
 
 var _ schedulerstate.PeriodStore = (*PeriodStore)(nil)
 
-// NewPeriodStore creates a period store on the scheduler state collection col
-// that gives the ended pauses of pauses, when it is not nil.
-func NewPeriodStore(col persis.Collection, pauses *SchedulerPauseStore) *PeriodStore {
-	return &PeriodStore{col: col, pauses: pauses}
+// NewPeriodStore creates a period store that keeps DAG records in the
+// scheduler state collection col and outages in the scheduler process
+// collection process. It also gives the ended pauses of pauses, when pauses
+// is not nil.
+func NewPeriodStore(col, process persis.Collection, pauses *SchedulerPauseStore) *PeriodStore {
+	return &PeriodStore{col: col, process: process, pauses: pauses}
 }
 
 // AddDown records a time no scheduler ran.
 func (s *PeriodStore) AddDown(ctx context.Context, down schedulerstate.Period) error {
-	return changeRecord(ctx, s.col, downRecordID, func(record *downRecord) bool {
+	return changeRecord(ctx, s.process, downRecordID, func(record *downRecord) bool {
 		var added bool
 		record.Down, added = appendPeriod(record.Down, down, time.Now())
 		return added
@@ -87,7 +91,7 @@ func (s *PeriodStore) Dismiss(ctx context.Context, dag string, dismissal schedul
 func (s *PeriodStore) Ended(ctx context.Context, dag string) ([]schedulerstate.Period, schedulerstate.Dismissal, error) {
 	var none schedulerstate.Dismissal
 	var down downRecord
-	if _, err := loadRecord(ctx, s.col, downRecordID, &down); err != nil {
+	if _, err := loadRecord(ctx, s.process, downRecordID, &down); err != nil {
 		return nil, none, err
 	}
 	var own dagRecord

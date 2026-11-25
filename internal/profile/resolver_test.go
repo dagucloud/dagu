@@ -60,6 +60,40 @@ func TestResolverResolvesVariablesAndSecrets(t *testing.T) {
 	assert.Equal(t, []string{"CLICKHOUSE_DSN_PY=clickhouse://local"}, resolved.EnvVars(profile.EntryKindSecret))
 }
 
+// A profile entry bound to a secret under the reserved prefix must not put its
+// value in the environment of a run.
+func TestResolverRefusesReservedSecret(t *testing.T) {
+	ctx := context.Background()
+
+	profileStore, err := store.NewProfileStore(testutil.NewMemoryBackend().Collection("profiles"))
+	require.NoError(t, err)
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+	secretStore, err := store.NewSecretStore(testutil.NewMemoryBackend().Collection("secrets"), enc)
+	require.NoError(t, err)
+
+	sec, err := secret.New(secret.CreateInput{
+		Workspace:    secret.GlobalWorkspace,
+		Ref:          "ai/endpoint/anthropic",
+		ProviderType: secret.ProviderDaguManaged,
+		CreatedBy:    "admin",
+	}, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, secretStore.Create(ctx, sec, &secret.WriteValueInput{
+		Value:     "provider-key",
+		CreatedBy: "admin",
+	}))
+
+	p, err := profile.New(profile.CreateInput{Name: "local", CreatedBy: "alice"}, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, p.SetSecret("API_KEY", sec.ID, "alice", time.Now()))
+	require.NoError(t, profileStore.Create(ctx, p))
+
+	resolved, err := profile.NewResolver(profileStore, secretStore).Resolve(ctx, "local")
+	require.ErrorIs(t, err, secret.ErrReservedRef)
+	assert.Nil(t, resolved)
+}
+
 func TestResolverFailsForDisabledProfile(t *testing.T) {
 	ctx := context.Background()
 	profileStore, err := store.NewProfileStore(testutil.NewMemoryBackend().Collection("profiles"))

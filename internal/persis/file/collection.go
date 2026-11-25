@@ -656,6 +656,11 @@ func (c *Collection) walkRoots(prefix string) ([]string, error) {
 			}
 		}
 	}
+	// The collection directory holds every other root, so walking it alone
+	// visits each record once.
+	if slices.Contains(roots, c.dir) {
+		return []string{c.dir}, nil
+	}
 	return roots, nil
 }
 

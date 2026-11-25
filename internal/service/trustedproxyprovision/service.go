@@ -58,6 +58,9 @@ type Service struct {
 	autoSignup      bool
 	requireMapping  bool
 	skipOrgRoleSync bool
+	// projects reports that the mapper selects project grants, which login
+	// then stores on the user.
+	projects        bool
 	mapper          *authmapping.Mapper
 	workspaceExists func(context.Context, string) (bool, error)
 	logger          *slog.Logger
@@ -86,6 +89,7 @@ func New(userStore auth.UserStore, config Config) (*Service, error) {
 		autoSignup:      config.AutoSignup,
 		requireMapping:  config.RoleMapping.Strict,
 		skipOrgRoleSync: config.SkipOrgRoleSync,
+		projects:        config.RoleMapping.Projects != nil,
 		mapper:          mapper,
 		workspaceExists: config.WorkspaceExists,
 		logger:          slog.Default().With(slog.String("service", "trustedproxyprovision")),
@@ -165,7 +169,11 @@ func (s *Service) processExisting(ctx context.Context, user *auth.User, groups [
 		return nil, false, err
 	}
 
-	syncResult, err := s.userStore.SyncAuthorization(ctx, user.ID, mapping.Role, mapping.WorkspaceAccess)
+	var projectGrants *[]auth.ProjectGrant
+	if s.projects {
+		projectGrants = &mapping.ProjectGrants
+	}
+	syncResult, err := s.userStore.SyncAuthorization(ctx, user.ID, mapping.Role, mapping.WorkspaceAccess, projectGrants)
 	if errors.Is(err, auth.ErrUserDisabled) {
 		return nil, false, authservice.ErrUserDisabled
 	}
@@ -184,14 +192,21 @@ func (s *Service) processExisting(ctx context.Context, user *auth.User, groups [
 		return updated, false, nil
 	}
 
-	s.logger.Info("proxy user authorization updated",
+	attrs := []any{
 		slog.String("user_id", updated.ID),
 		slog.String("old_role", string(syncResult.PreviousRole)),
 		slog.String("new_role", string(updated.Role)),
 		slog.Any("old_workspace_access", canonicalWorkspaceAccess(syncResult.PreviousWorkspaceAccess)),
 		slog.Any("new_workspace_access", canonicalWorkspaceAccess(updated.WorkspaceAccess)),
 		slog.Int("group_count", len(groups)),
-		slog.Int("mapping_match_count", mapping.MatchCount))
+		slog.Int("mapping_match_count", mapping.MatchCount),
+	}
+	if s.projects {
+		attrs = append(attrs,
+			slog.Any("old_project_grants", syncResult.PreviousProjectGrants),
+			slog.Any("new_project_grants", updated.ProjectGrants))
+	}
+	s.logger.Info("proxy user authorization updated", attrs...)
 	return updated, false, nil
 }
 
@@ -209,6 +224,7 @@ func (s *Service) createUser(
 			PasswordHash:       "",
 			Role:               mapping.Role,
 			WorkspaceAccess:    auth.CloneWorkspaceAccess(mapping.WorkspaceAccess),
+			ProjectGrants:      mapping.ProjectGrants,
 			CreatedAt:          now,
 			UpdatedAt:          now,
 			AuthProvider:       auth.AuthProviderProxy,
@@ -216,12 +232,17 @@ func (s *Service) createUser(
 			TrustedProxyUser:   identity,
 		}
 		if err := s.userStore.Create(ctx, user); err == nil {
-			s.logger.Info("proxy user created",
+			attrs := []any{
 				slog.String("user_id", user.ID),
 				slog.String("role", string(user.Role)),
 				slog.Any("workspace_access", canonicalWorkspaceAccess(user.WorkspaceAccess)),
 				slog.Int("group_count", len(groups)),
-				slog.Int("mapping_match_count", mapping.MatchCount))
+				slog.Int("mapping_match_count", mapping.MatchCount),
+			}
+			if s.projects {
+				attrs = append(attrs, slog.Any("project_grants", user.ProjectGrants))
+			}
+			s.logger.Info("proxy user created", attrs...)
 			return user, true, nil
 		} else if !errors.Is(err, auth.ErrUserAlreadyExists) &&
 			!errors.Is(err, auth.ErrTrustedProxyIdentityAlreadyExists) {
@@ -240,7 +261,7 @@ func (s *Service) createUser(
 }
 
 func (s *Service) mapAccess(ctx context.Context, groups []string) (authmapping.Result, error) {
-	result, err := s.mapper.Map(groups)
+	result, err := s.mapper.Map(ctx, groups)
 	if errors.Is(err, authmapping.ErrNoMatch) {
 		return authmapping.Result{}, ErrAuthorizationMapping
 	}
@@ -248,6 +269,9 @@ func (s *Service) mapAccess(ctx context.Context, groups []string) (authmapping.R
 		return authmapping.Result{}, fmt.Errorf("map proxy authorization: %w", err)
 	}
 	s.warnForDormantGrants(ctx, result.WorkspaceAccess)
+	for _, name := range result.UnknownProjects {
+		s.logger.Warn("proxy project grant references a nonexistent project", slog.String("project", name))
+	}
 	return result, nil
 }
 

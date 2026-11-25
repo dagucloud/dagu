@@ -30,6 +30,7 @@ import (
 	filedag "github.com/dagucloud/dagu/v2/internal/persis/file/dag"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
 	filewiki "github.com/dagucloud/dagu/v2/internal/persis/file/wiki"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	authservice "github.com/dagucloud/dagu/v2/internal/service/auth"
@@ -94,6 +95,10 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 		} else {
 			stores.BaseConfig = baseConfigStore
 		}
+	}
+
+	if cfg.ProjectsEnabled {
+		stores.Projects = projectregistry.New(cfg.Paths.DataDir)
 	}
 
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
@@ -265,6 +270,7 @@ func initEncryptedStores(ctx context.Context, cfg *config.Config, backend persis
 
 	notificationStore, err := persisfile.NewNotificationStore(
 		backend.Collection(persis.CollectionNotifications),
+		backend.Collection(persis.CollectionNotificationChannels),
 		encryptor,
 	)
 	if err != nil {
@@ -278,6 +284,7 @@ func initEncryptedStores(ctx context.Context, cfg *config.Config, backend persis
 
 	incidentStore, err := persisfile.NewIncidentStore(
 		backend.Collection(persis.CollectionIncidents),
+		backend.Collection(persis.CollectionIncidentProviders),
 		encryptor,
 	)
 	if err != nil {

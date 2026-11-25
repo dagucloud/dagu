@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/spec"
+	"github.com/dagucloud/dagu/v2/internal/test/othername"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 
 	"github.com/stretchr/testify/assert"
@@ -584,7 +585,7 @@ func TestGetSpecRejectsSymlinkOutsideConfiguredDirectories(t *testing.T) {
 // spells the root's name, as discovery omits the root.
 func TestGetSpecRefusesSkipRootByOtherName(t *testing.T) {
 	baseDir := t.TempDir()
-	nested, otherName := mkdirWithOtherName(t, baseDir)
+	nested, otherName := othername.Mkdir(t, baseDir)
 	writeDAGFile(t, nested, "beta.yaml", "beta")
 
 	store := newRepository(baseDir, WithSkipExamples(true), WithSkipRoots([]string{nested}))
@@ -1317,8 +1318,9 @@ func (c *writeAfterPut) Put(ctx context.Context, rec *persis.Record) error {
 func TestRenameKeepsAWriteDuringTheMove(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	col := testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState)
-	periods := pstore.NewPeriodStore(col, nil)
+	backend := testutil.NewMemoryBackend()
+	col := backend.Collection(persis.CollectionSchedulerState)
+	periods := pstore.NewPeriodStore(col, backend.Collection(persis.CollectionSchedulerProcess), nil)
 	suspended := schedulerstate.Period{From: time.Now().Add(-2 * time.Hour), To: time.Now().Add(-time.Hour)}
 	require.NoError(t, periods.AddSuspended(ctx, "old-name", suspended))
 	dismissal := schedulerstate.Dismissal{At: time.Now().UTC(), By: "alice"}

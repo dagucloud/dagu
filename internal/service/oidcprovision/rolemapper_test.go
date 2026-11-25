@@ -4,6 +4,7 @@
 package oidcprovision
 
 import (
+	"context"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/auth"
@@ -511,16 +512,16 @@ func TestRoleMapper_MapAccess(t *testing.T) {
 			mapper, err := NewRoleMapper(tc.config)
 			require.NoError(t, err)
 
-			role, access, err := mapper.MapAccess(tc.claims)
+			result, err := mapper.MapAccess(context.Background(), tc.claims)
 			if tc.expectedError != nil {
 				assert.ErrorIs(t, err, tc.expectedError)
-				assert.Nil(t, access)
+				assert.Nil(t, result.WorkspaceAccess)
 				return
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, tc.expectedRole, role)
-			assert.Equal(t, tc.expectedAccess, access)
+			assert.Equal(t, tc.expectedRole, result.Role)
+			assert.Equal(t, tc.expectedAccess, result.WorkspaceAccess)
 		})
 	}
 }
@@ -542,16 +543,16 @@ func TestRoleMapper_MapAccessMergesHighestRoleDeterministically(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	role, access, err := mapper.MapAccess(map[string]any{
+	result, err := mapper.MapAccess(context.Background(), map[string]any{
 		"realm_access": map[string]any{"roles": "operators developers operators"},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, auth.RoleViewer, role)
+	assert.Equal(t, auth.RoleViewer, result.Role)
 	assert.Equal(t, &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{
 		{Workspace: "alpha", Role: auth.RoleManager},
 		{Workspace: "payments", Role: auth.RoleDeveloper},
 		{Workspace: "zeta", Role: auth.RoleViewer},
-	}}, access)
+	}}, result.WorkspaceAccess)
 }
 
 func TestNewRoleMapper_ValidatesWorkspaceMappings(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/runpath"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 )
 
@@ -31,6 +32,7 @@ const latestAttemptLookback = 10
 type Store struct {
 	baseDir         string
 	artifactDir     string
+	paths           runpath.Mapper
 	cache           *fileutil.Cache[*ir.DAGRunStatus]
 	retryCandidates retryCandidateCache
 	listTuning      statusListTuning
@@ -42,6 +44,7 @@ type StoreOption func(*options)
 type options struct {
 	fileCache                *fileutil.Cache[*ir.DAGRunStatus]
 	artifactDir              string
+	paths                    runpath.Mapper
 	retryCandidateCacheLimit int
 }
 
@@ -56,6 +59,14 @@ func WithHistoryFileCache(cache *fileutil.Cache[*ir.DAGRunStatus]) StoreOption {
 func WithArtifactDir(dir string) StoreOption {
 	return func(o *options) {
 		o.artifactDir = dir
+	}
+}
+
+// WithRunPaths sets how run records store the paths of their logs, step
+// output, and artifact directories.
+func WithRunPaths(paths runpath.Mapper) StoreOption {
+	return func(o *options) {
+		o.paths = paths
 	}
 }
 
@@ -85,6 +96,7 @@ func NewStore(baseDir string, opts ...StoreOption) *Store {
 	return &Store{
 		baseDir:         baseDir,
 		artifactDir:     cfg.artifactDir,
+		paths:           cfg.paths,
 		cache:           cfg.fileCache,
 		retryCandidates: retryCandidateCache{limit: cfg.retryCandidateCacheLimit},
 		listTuning:      defaultStatusListTuning,
@@ -95,7 +107,15 @@ func NewStore(baseDir string, opts ...StoreOption) *Store {
 // which every caller needs so that artifact paths resolve against the root the
 // deployment configured rather than one inferred from the run directory.
 func (store *Store) dataRoot(dagName string) DataRoot {
-	return NewDataRootWithArtifactDir(store.baseDir, dagName, store.artifactDir)
+	root := NewDataRootWithArtifactDir(store.baseDir, dagName, store.artifactDir)
+	root.paths = store.paths
+	return root
+}
+
+// dagRun opens the run in dir with the store's record paths attached. Only
+// writes need the artifact root, so it is left out for runs that are read.
+func (store *Store) dagRun(dir string) (*DAGRun, error) {
+	return newDAGRun(dir, "", store.paths)
 }
 
 // runHistoryDirName is the directory of the run history of a DAG, beside the
@@ -174,7 +194,7 @@ func (store *Store) resolveStatus(
 			AutoRetryMaxInterval: s.AutoRetryMaxInterval,
 			ProcGroup:            s.ProcGroup,
 			DefinitionID:         s.DefinitionID,
-			ArchiveDir:           s.ArchiveDir,
+			ArchiveDir:           store.paths.ResolveArtifact(s.ArchiveDir),
 			BackfillID:           s.BackfillID,
 			Dates:                s.Dates,
 		}

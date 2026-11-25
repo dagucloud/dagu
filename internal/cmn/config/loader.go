@@ -71,7 +71,12 @@ type ConfigLoader struct {
 	trustedProxyGroupMappingsSet     bool
 	trustedProxyWorkspaceMappings    map[string][]TrustedProxyWorkspaceGrant
 	trustedProxyWorkspaceMappingsSet bool
+	trustedProxyProjectMappings      map[string][]ProjectMappingGrant
+	trustedProxyProjectMappingsSet   bool
 	legacySuspendFlagsDir            string
+	// legacySettings holds, by setting key, what Settings reports for a
+	// setting that Load filled from a deprecated key or variable.
+	legacySettings map[string]Setting
 }
 
 // ConfigLoaderOption defines a functional option for configuring a ConfigLoader.
@@ -411,9 +416,21 @@ func (l *ConfigLoader) Load() (*Config, error) {
 	if err := l.loadOIDCWorkspaceMappingsEnv(); err != nil {
 		return nil, err
 	}
+	// While projects are off, the project mapping variables are not read.
+	projects := l.v.GetBool(projectsSwitchKey)
+	if projects {
+		if err := l.loadOIDCProjectMappingsEnv(); err != nil {
+			return nil, err
+		}
+	}
 	if l.requires(SectionServer) {
 		if err := l.loadTrustedProxyMappingsEnv(); err != nil {
 			return nil, err
+		}
+		if projects {
+			if err := l.loadTrustedProxyProjectMappingsEnv(); err != nil {
+				return nil, err
+			}
 		}
 		if err := l.validateTrustedProxyConfigKeys(); err != nil {
 			return nil, err
@@ -532,6 +549,11 @@ func (l *ConfigLoader) buildConfig(def Definition) (*Config, error) {
 	cfg.Paths.Explicit = l.explicitPaths(cfg.Paths, def)
 	if err := l.finalizePaths(&cfg); err != nil {
 		return nil, err
+	}
+	if l.requires(SectionServer) {
+		if err := l.readProjectAccess(&cfg); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -705,6 +727,7 @@ func (l *ConfigLoader) loadPathsConfig(cfg *Config, def Definition) error {
 	} else if def.Paths.DocsDir != "" {
 		wikiDir = def.Paths.DocsDir
 		cfg.Paths.WikiDirLegacy = true
+		l.reportLegacyKey("paths.wiki_dir", "paths.docs_dir")
 		l.warnings = append(l.warnings, "paths.docs_dir is deprecated; use paths.wiki_dir instead")
 	}
 	if wikiDir != "" {
@@ -975,6 +998,8 @@ func (l *ConfigLoader) loadOIDCRoleMapping(cfg *Config, rm *OIDCRoleMappingDef) 
 	if rm.SkipOrgRoleSync != nil {
 		cfg.Server.Auth.OIDC.RoleMapping.SkipOrgRoleSync = *rm.SkipOrgRoleSync
 	}
+	cfg.Server.Auth.OIDC.RoleMapping.ProjectMappings = rm.ProjectMappings
+	cfg.Server.Auth.OIDC.RoleMapping.DefaultProjectAccess = rm.DefaultProjectAccess
 }
 
 func (l *ConfigLoader) loadOIDCWorkspaceMappingsEnv() error {
@@ -1004,6 +1029,15 @@ func (l *ConfigLoader) loadOIDCWorkspaceMappingsEnv() error {
 		return fmt.Errorf("invalid %s JSON: expected a single object", envName)
 	}
 	l.v.Set(configKey, mappings)
+	return nil
+}
+
+func (l *ConfigLoader) loadOIDCProjectMappingsEnv() error {
+	mappings, exists, err := loadStrictJSONObjectEnv[[]ProjectMappingGrant]("AUTH_OIDC_PROJECT_MAPPINGS")
+	if err != nil || !exists {
+		return err
+	}
+	l.v.Set("auth.oidc.role_mapping.project_mappings", mappings)
 	return nil
 }
 
@@ -1050,6 +1084,10 @@ func (l *ConfigLoader) loadTrustedProxyAuth(cfg *Config, authDef *AuthDef) {
 	if roleMappingDef.SkipOrgRoleSync != nil {
 		roleMapping.SkipOrgRoleSync = *roleMappingDef.SkipOrgRoleSync
 	}
+	roleMapping.ProjectMappings = roleMappingDef.ProjectMappings
+	if roleMappingDef.DefaultProjectAccess != nil {
+		roleMapping.DefaultProjectAccess = *roleMappingDef.DefaultProjectAccess
+	}
 }
 
 func (l *ConfigLoader) loadTrustedProxyMappingsEnv() error {
@@ -1080,6 +1118,17 @@ func (l *ConfigLoader) loadTrustedProxyMappingsEnv() error {
 		l.trustedProxyWorkspaceMappingsSet = true
 		l.v.Set("auth.proxy.role_mapping.workspace_mappings", workspaceMappings)
 	}
+	return nil
+}
+
+func (l *ConfigLoader) loadTrustedProxyProjectMappingsEnv() error {
+	mappings, exists, err := loadStrictJSONObjectEnv[[]ProjectMappingGrant]("AUTH_PROXY_PROJECT_MAPPINGS")
+	if err != nil || !exists {
+		return err
+	}
+	l.trustedProxyProjectMappings = cloneProjectMappings(mappings)
+	l.trustedProxyProjectMappingsSet = true
+	l.v.Set("auth.proxy.role_mapping.project_mappings", mappings)
 	return nil
 }
 
@@ -1173,6 +1222,13 @@ func (l *ConfigLoader) mergeTrustedProxyMappingsFile(filename string) error {
 		}
 		l.trustedProxyWorkspaceMappingsSet = true
 	}
+	if roleMapping.ProjectMappings != nil {
+		if l.trustedProxyProjectMappings == nil {
+			l.trustedProxyProjectMappings = make(map[string][]ProjectMappingGrant, len(roleMapping.ProjectMappings))
+		}
+		maps.Copy(l.trustedProxyProjectMappings, cloneProjectMappings(roleMapping.ProjectMappings))
+		l.trustedProxyProjectMappingsSet = true
+	}
 	return nil
 }
 
@@ -1186,7 +1242,7 @@ func containsCaseVariantKey(fields map[string]yaml.Node, canonical string) bool 
 }
 
 func (l *ConfigLoader) applyTrustedProxyMappings(def *Definition) {
-	if !l.trustedProxyGroupMappingsSet && !l.trustedProxyWorkspaceMappingsSet {
+	if !l.trustedProxyGroupMappingsSet && !l.trustedProxyWorkspaceMappingsSet && !l.trustedProxyProjectMappingsSet {
 		return
 	}
 	if def.Auth == nil {
@@ -1205,6 +1261,9 @@ func (l *ConfigLoader) applyTrustedProxyMappings(def *Definition) {
 	}
 	if l.trustedProxyWorkspaceMappingsSet {
 		roleMapping.WorkspaceMappings = cloneTrustedProxyWorkspaceMappings(l.trustedProxyWorkspaceMappings)
+	}
+	if l.trustedProxyProjectMappingsSet {
+		roleMapping.ProjectMappings = cloneProjectMappings(l.trustedProxyProjectMappings)
 	}
 }
 
@@ -1396,6 +1455,7 @@ func (l *ConfigLoader) setTrustedProxyDefaults(cfg *Config) {
 	trustedProxy.AutoSignup = true
 	trustedProxy.RoleMapping.DefaultRole = "viewer"
 	trustedProxy.RoleMapping.DefaultWorkspaceAccess = TrustedProxyDefaultWorkspaceAccessNone
+	trustedProxy.RoleMapping.DefaultProjectAccess = projectAccessNone
 	trustedProxy.RoleMapping.RequireMapping = false
 	trustedProxy.RoleMapping.SkipOrgRoleSync = false
 }
@@ -1834,6 +1894,7 @@ func (l *ConfigLoader) applyDeprecatedProcAlias(
 	}
 
 	*target = l.parseDuration(legacyKey, legacyValue)
+	l.reportLegacyKey(canonicalKey, legacyKey)
 	l.warnings = append(l.warnings, fmt.Sprintf("%s is deprecated; use %s instead", legacyKey, canonicalKey))
 }
 
@@ -2061,8 +2122,9 @@ func (l *ConfigLoader) loadExecutionModeConfig(cfg *Config, _ Definition) {
 func (l *ConfigLoader) loadSignalHandlingConfig(cfg *Config, def Definition) {
 	if l.v.IsSet("signal_handling.enable_propagation") {
 		cfg.SignalHandling.EnablePropagation = l.v.GetBool("signal_handling.enable_propagation")
-	} else {
+	} else if l.v.IsSet("signalhandling.enablepropagation") {
 		cfg.SignalHandling.EnablePropagation = l.v.GetBool("signalhandling.enablepropagation")
+		l.reportLegacyKey("signal_handling.enable_propagation", "signalhandling.enablepropagation")
 	}
 
 	if def.SignalHandling == nil || def.SignalHandling.DrainTimeout == "" {
@@ -2228,7 +2290,7 @@ func pathExists(path string) (bool, error) {
 // LoadLegacyFields applies deprecated configuration fields to the current Config.
 func (l *ConfigLoader) LoadLegacyFields(cfg *Config, def Definition) error {
 	if l.requires(SectionServer) {
-		setIfNotEmpty(&cfg.Server.APIBasePath, def.APIBaseURL)
+		l.applyLegacyString(&cfg.Server.APIBasePath, def.APIBaseURL, "api_base_path", "api_base_url")
 	}
 
 	if err := l.loadLegacyPaths(cfg, def); err != nil {
@@ -2236,44 +2298,57 @@ func (l *ConfigLoader) LoadLegacyFields(cfg *Config, def Definition) error {
 	}
 
 	if l.requires(SectionUI) {
-		setIfNotEmpty(&cfg.UI.LogEncodingCharset, def.LogEncodingCharset)
-		setIfNotEmpty(&cfg.UI.NavbarColor, def.NavbarColor)
-		setIfNotEmpty(&cfg.UI.NavbarTitle, def.NavbarTitle)
+		l.applyLegacyString(&cfg.UI.LogEncodingCharset, def.LogEncodingCharset, "ui.log_encoding_charset", "log_encoding_charset")
+		l.applyLegacyString(&cfg.UI.NavbarColor, def.NavbarColor, "ui.navbar_color", "navbar_color")
+		l.applyLegacyString(&cfg.UI.NavbarTitle, def.NavbarTitle, "ui.navbar_title", "navbar_title")
 		if def.MaxDashboardPageLimit > 0 {
 			cfg.UI.MaxDashboardPageLimit = def.MaxDashboardPageLimit
+			l.reportLegacyKey("ui.max_dashboard_page_limit", "max_dashboard_page_limit")
 		}
 	}
 
 	return nil
 }
 
+// applyLegacyString sets target to value, read from the deprecated key
+// legacyKey in place of setting, when value is not empty.
+func (l *ConfigLoader) applyLegacyString(target *string, value, setting, legacyKey string) {
+	if value == "" {
+		return
+	}
+	*target = value
+	l.reportLegacyKey(setting, legacyKey)
+}
+
 func (l *ConfigLoader) loadLegacyPaths(cfg *Config, def Definition) error {
 	legacyPaths := []struct {
-		name   string
-		target *string
-		source string
+		key     string
+		setting string
+		target  *string
+		value   string
 	}{
-		{"legacy DAGs", &cfg.Paths.DAGsDir, def.DAGs},
-		{"legacy DAGsDir", &cfg.Paths.DAGsDir, def.DAGsDir},
-		{"legacy Executable", &cfg.Paths.Executable, def.Executable},
-		{"legacy LogDir", &cfg.Paths.LogDir, def.LogDir},
-		{"legacy ArtifactDir", &cfg.Paths.ArtifactDir, def.ArtifactDir},
-		{"legacy DataDir", &cfg.Paths.DataDir, def.DataDir},
-		{"legacy SuspendFlagsDir", &cfg.Paths.SuspendFlagsDir, def.SuspendFlagsDir},
-		{"legacy AdminLogsDir", &cfg.Paths.AdminLogsDir, def.AdminLogsDir},
-		{"legacy EventStoreDir", &cfg.Paths.EventStoreDir, def.EventStoreDir},
-		{"legacy BaseConfig", &cfg.Paths.BaseConfig, def.BaseConfig},
+		{"dags", "paths.dags_dir", &cfg.Paths.DAGsDir, def.DAGs},
+		{"dags_dir", "paths.dags_dir", &cfg.Paths.DAGsDir, def.DAGsDir},
+		{"executable", "paths.executable", &cfg.Paths.Executable, def.Executable},
+		{"log_dir", "paths.log_dir", &cfg.Paths.LogDir, def.LogDir},
+		{"artifact_dir", "paths.artifact_dir", &cfg.Paths.ArtifactDir, def.ArtifactDir},
+		{"data_dir", "paths.data_dir", &cfg.Paths.DataDir, def.DataDir},
+		{"suspend_flags_dir", "paths.suspend_flags_dir", &cfg.Paths.SuspendFlagsDir, def.SuspendFlagsDir},
+		{"admin_logs_dir", "paths.admin_logs_dir", &cfg.Paths.AdminLogsDir, def.AdminLogsDir},
+		{"event_store_dir", "paths.event_store_dir", &cfg.Paths.EventStoreDir, def.EventStoreDir},
+		{"base_config", "paths.base_config", &cfg.Paths.BaseConfig, def.BaseConfig},
 	}
 
 	for _, lp := range legacyPaths {
-		if lp.source == "" {
+		if lp.value == "" {
 			continue
 		}
-		resolved, err := l.resolvePath(lp.name, lp.source)
+		resolved, err := l.resolvePath(lp.key, lp.value)
 		if err != nil {
 			return err
 		}
 		*lp.target = resolved
+		l.reportLegacyKey(lp.setting, lp.key)
 	}
 
 	return nil
@@ -2282,54 +2357,67 @@ func (l *ConfigLoader) loadLegacyPaths(cfg *Config, def Definition) error {
 // loadLegacyEnv maps deprecated environment variables to current configuration.
 func (l *ConfigLoader) loadLegacyEnv(cfg *Config) {
 	type legacyEnvMapping struct {
-		newKey   string
-		setter   func(*Config, string)
+		newKey  string
+		setting string
+		// setter applies the value and reports whether it accepted it.
+		setter   func(*Config, string) bool
 		requires ConfigSection
 	}
 
 	legacyEnvs := map[string]legacyEnvMapping{
 		"DAGU__ADMIN_NAVBAR_COLOR": {
 			newKey:   "DAGU_NAVBAR_COLOR",
-			setter:   func(c *Config, v string) { c.UI.NavbarColor = v },
+			setting:  "ui.navbar_color",
+			setter:   func(c *Config, v string) bool { c.UI.NavbarColor = v; return true },
 			requires: SectionUI,
 		},
 		"DAGU__ADMIN_NAVBAR_TITLE": {
 			newKey:   "DAGU_NAVBAR_TITLE",
-			setter:   func(c *Config, v string) { c.UI.NavbarTitle = v },
+			setting:  "ui.navbar_title",
+			setter:   func(c *Config, v string) bool { c.UI.NavbarTitle = v; return true },
 			requires: SectionUI,
 		},
 		"DAGU__ADMIN_PORT": {
-			newKey: "DAGU_PORT",
-			setter: func(c *Config, v string) {
-				if i, err := strconv.Atoi(v); err == nil {
-					c.Server.Port = i
+			newKey:  "DAGU_PORT",
+			setting: "port",
+			setter: func(c *Config, v string) bool {
+				i, err := strconv.Atoi(v)
+				if err != nil {
+					return false
 				}
+				c.Server.Port = i
+				return true
 			},
 			requires: SectionServer,
 		},
 		"DAGU__ADMIN_HOST": {
 			newKey:   "DAGU_HOST",
-			setter:   func(c *Config, v string) { c.Server.Host = v },
+			setting:  "host",
+			setter:   func(c *Config, v string) bool { c.Server.Host = v; return true },
 			requires: SectionServer,
 		},
 		"DAGU__DATA": {
 			newKey:   "DAGU_DATA_DIR",
-			setter:   func(c *Config, v string) { c.Paths.DataDir = fileutil.ResolvePathOrBlank(v) },
+			setting:  "paths.data_dir",
+			setter:   func(c *Config, v string) bool { c.Paths.DataDir = fileutil.ResolvePathOrBlank(v); return true },
 			requires: SectionNone,
 		},
 		"DAGU__SUSPEND_FLAGS_DIR": {
 			newKey:   "DAGU_SUSPEND_FLAGS_DIR",
-			setter:   func(c *Config, v string) { c.Paths.SuspendFlagsDir = fileutil.ResolvePathOrBlank(v) },
+			setting:  "paths.suspend_flags_dir",
+			setter:   func(c *Config, v string) bool { c.Paths.SuspendFlagsDir = fileutil.ResolvePathOrBlank(v); return true },
 			requires: SectionNone,
 		},
 		"DAGU__ADMIN_LOGS_DIR": {
 			newKey:   "DAGU_ADMIN_LOG_DIR",
-			setter:   func(c *Config, v string) { c.Paths.AdminLogsDir = fileutil.ResolvePathOrBlank(v) },
+			setting:  "paths.admin_logs_dir",
+			setter:   func(c *Config, v string) bool { c.Paths.AdminLogsDir = fileutil.ResolvePathOrBlank(v); return true },
 			requires: SectionNone,
 		},
 		"DAGU__EVENT_STORE_DIR": {
 			newKey:   "DAGU_EVENT_STORE_DIR",
-			setter:   func(c *Config, v string) { c.Paths.EventStoreDir = fileutil.ResolvePathOrBlank(v) },
+			setting:  "paths.event_store_dir",
+			setter:   func(c *Config, v string) bool { c.Paths.EventStoreDir = fileutil.ResolvePathOrBlank(v); return true },
 			requires: SectionNone,
 		},
 	}
@@ -2341,7 +2429,9 @@ func (l *ConfigLoader) loadLegacyEnv(cfg *Config) {
 
 		if value := os.Getenv(oldKey); value != "" {
 			log.Printf("%s is deprecated. Use %s instead.", oldKey, mapping.newKey)
-			mapping.setter(cfg, value)
+			if mapping.setter(cfg, value) {
+				l.reportLegacy(mapping.setting, value, SourceEnvPrefix+oldKey)
+			}
 		}
 	}
 }
@@ -2595,6 +2685,7 @@ var envBindings = []envBinding{
 	{key: "auth.oidc.role_mapping.groups_claim", env: "AUTH_OIDC_GROUPS_CLAIM"},
 	{key: "auth.oidc.role_mapping.group_mappings", env: "AUTH_OIDC_GROUP_MAPPINGS"},
 	{key: "auth.oidc.role_mapping.default_workspace_access", env: "AUTH_OIDC_DEFAULT_WORKSPACE_ACCESS"},
+	{key: "auth.oidc.role_mapping.default_project_access", env: "AUTH_OIDC_DEFAULT_PROJECT_ACCESS", projects: true},
 	{key: "auth.oidc.role_mapping.role_attribute_path", env: "AUTH_OIDC_ROLE_ATTRIBUTE_PATH"},
 	{key: "auth.oidc.role_mapping.role_attribute_strict", env: "AUTH_OIDC_ROLE_ATTRIBUTE_STRICT"},
 	{key: "auth.oidc.role_mapping.skip_org_role_sync", env: "AUTH_OIDC_SKIP_ORG_ROLE_SYNC"},
@@ -2607,6 +2698,7 @@ var envBindings = []envBinding{
 	{key: "auth.proxy.auto_signup", env: "AUTH_PROXY_AUTO_SIGNUP", requires: SectionServer},
 	{key: "auth.proxy.role_mapping.default_role", env: "AUTH_PROXY_DEFAULT_ROLE", requires: SectionServer},
 	{key: "auth.proxy.role_mapping.default_workspace_access", env: "AUTH_PROXY_DEFAULT_WORKSPACE_ACCESS", requires: SectionServer},
+	{key: "auth.proxy.role_mapping.default_project_access", env: "AUTH_PROXY_DEFAULT_PROJECT_ACCESS", requires: SectionServer, projects: true},
 	{key: "auth.proxy.role_mapping.require_mapping", env: "AUTH_PROXY_REQUIRE_MAPPING", requires: SectionServer},
 	{key: "auth.proxy.role_mapping.skip_org_role_sync", env: "AUTH_PROXY_SKIP_ORG_ROLE_SYNC", requires: SectionServer},
 	// Auth (builtin)
@@ -2774,45 +2866,52 @@ func (l *ConfigLoader) configureViper(configDir, configFile string) {
 	l.v.AutomaticEnv()
 }
 
-// parseLabels parses labels from comma-separated strings or map types.
+// parseLabels parses worker labels from a comma-separated string or a list of
+// key or key=value entries, or from a map. A key with no value or a null value
+// is a label with no value. Entries are kept as written: the worker applies the
+// label rules, so a malformed entry stops it instead of being dropped.
 func parseLabels(input any) map[string]string {
 	labels := make(map[string]string)
 
 	switch v := input.(type) {
 	case string:
-		if v == "" {
-			return labels
+		for entry := range strings.SplitSeq(v, ",") {
+			addLabelEntry(labels, entry)
 		}
-		for pair := range strings.SplitSeq(v, ",") {
-			pair = strings.TrimSpace(pair)
-			if pair == "" {
-				continue
-			}
-			if key, value, found := strings.Cut(pair, "="); found {
-				key = strings.TrimSpace(key)
-				value = strings.TrimSpace(value)
-				if key != "" {
-					labels[key] = value
-				}
-			}
+	case []any:
+		for _, entry := range v {
+			addLabelEntry(labels, labelValue(entry))
 		}
 	case map[string]any:
 		for key, val := range v {
-			if strVal, ok := val.(string); ok {
-				labels[key] = strVal
-			}
+			labels[key] = labelValue(val)
 		}
 	case map[any]any:
 		for key, val := range v {
-			if keyStr, ok := key.(string); ok {
-				if valStr, ok := val.(string); ok {
-					labels[keyStr] = valStr
-				}
-			}
+			labels[fmt.Sprint(key)] = labelValue(val)
 		}
 	}
 
 	return labels
+}
+
+// addLabelEntry adds one key or key=value entry, skipping a blank one.
+func addLabelEntry(labels map[string]string, entry string) {
+	entry = strings.TrimSpace(entry)
+	if entry == "" {
+		return
+	}
+	key, value, _ := strings.Cut(entry, "=")
+	labels[strings.TrimSpace(key)] = strings.TrimSpace(value)
+}
+
+// labelValue renders a label value from a config map or list, where YAML may
+// give a bool or a number, and null means no value.
+func labelValue(val any) string {
+	if val == nil {
+		return ""
+	}
+	return fmt.Sprint(val)
 }
 
 // parseStringList parses comma-separated strings or string slices, filtering empty entries.

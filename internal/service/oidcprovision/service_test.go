@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 
@@ -146,6 +147,7 @@ func (m *mockUserStore) SyncAuthorization(
 	id string,
 	role auth.Role,
 	workspaceAccess *auth.WorkspaceAccess,
+	projectGrants *[]auth.ProjectGrant,
 ) (auth.AuthorizationSyncResult, error) {
 	user, exists := m.users[id]
 	if !exists {
@@ -160,7 +162,8 @@ func (m *mockUserStore) SyncAuthorization(
 		PreviousWorkspaceAccess: auth.CloneWorkspaceAccess(user.WorkspaceAccess),
 	}
 	if user.Role == role &&
-		(workspaceAccess == nil || auth.WorkspaceAccessEqual(user.WorkspaceAccess, workspaceAccess)) {
+		(workspaceAccess == nil || auth.WorkspaceAccessEqual(user.WorkspaceAccess, workspaceAccess)) &&
+		(projectGrants == nil || slices.Equal(user.ProjectGrants, *projectGrants)) {
 		return result, nil
 	}
 	m.updateCalls++
@@ -170,6 +173,9 @@ func (m *mockUserStore) SyncAuthorization(
 	user.Role = role
 	if workspaceAccess != nil {
 		user.WorkspaceAccess = auth.CloneWorkspaceAccess(workspaceAccess)
+	}
+	if projectGrants != nil {
+		user.ProjectGrants = slices.Clone(*projectGrants)
 	}
 	result.Changed = true
 	return result, nil

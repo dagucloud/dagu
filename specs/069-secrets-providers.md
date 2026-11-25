@@ -64,6 +64,8 @@ Build-time validation, independent of any provider:
   followed by ASCII lowercase letters, digits, or hyphens. Internal and
   trailing hyphens are allowed. Empty segments, leading or trailing slashes,
   uppercase letters, underscores, and Unicode characters are rejected.
+- `ref` must not start with `ai/`. Dagu reserves this prefix for the secrets
+  of its AI features. The error names the ref and the rule.
 
 All secrets are resolved once, before any step runs. A DAG run fails
 immediately if any secret fails to resolve; no steps execute.

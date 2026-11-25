@@ -23,6 +23,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -456,6 +457,12 @@ func startServiceCommand(t *testing.T, th test.Command, args ...string) *signalR
 	return run
 }
 
+var (
+	schedulerStartedLog = regexp.MustCompile(`Scheduler started`)
+	// serverStartedLog captures the address the server listens on.
+	serverStartedLog = regexp.MustCompile(`msg="Server is starting" addr=(\S+)`)
+)
+
 type signalRun struct {
 	th       test.Command
 	dag      test.DAG
@@ -520,12 +527,12 @@ steps:
 	}
 	run.dag = th.DAG(t, yaml)
 	args := []string{commandName}
-	port := ""
-	startupLog := "Scheduler started"
+	startupLog := schedulerStartedLog
 	if commandName != "scheduler" {
-		port = findPort(t)
-		args = append(args, "--host=127.0.0.1", "--port="+port)
-		startupLog = "Server is starting"
+		// The server picks a free port as it binds. A port picked earlier
+		// can be taken by another process before then.
+		args = append(args, "--host=127.0.0.1", "--port=0")
+		startupLog = serverStartedLog
 	}
 	run.command = exec.Command(th.Config.Paths.Executable, test.WithConfigFlag(args, th.Config)...) //nolint:gosec // Test executes the repository binary.
 	run.command.Env = append(append(th.ChildEnv, "DAGU_SIGNAL_PROPAGATION=true", "GOMAXPROCS=1"), env...)
@@ -556,12 +563,10 @@ steps:
 			run.dag.AssertLatestStatus(t, ir.Aborted)
 		}
 	})
-	require.Eventually(t, func() bool {
-		return strings.Contains(run.output(), startupLog)
-	}, commandLogWaitTimeout(), 20*time.Millisecond, "output: %s", run.output())
+	startup := run.waitForOutput(t, startupLog)
 	if commandName == "server" {
 		client := &http.Client{Timeout: time.Second}
-		baseURL := "http://127.0.0.1:" + port + "/api/v1"
+		baseURL := "http://" + startup[1] + "/api/v1"
 		require.Eventually(t, func() bool {
 			resp, err := client.Get(baseURL + "/health")
 			if err != nil {
@@ -621,10 +626,25 @@ func (r *signalRun) waitForProbeExit() {
 
 func (r *signalRun) waitForFile(t *testing.T, path string) {
 	t.Helper()
-	require.Eventually(t, func() bool {
+	if !assert.Eventually(t, func() bool {
 		_, err := os.Stat(path)
 		return err == nil
-	}, commandLogWaitTimeout(), 20*time.Millisecond, "output: %s", r.output())
+	}, commandLogWaitTimeout(), 20*time.Millisecond) {
+		t.Fatalf("%s did not appear; output: %s", path, r.output())
+	}
+}
+
+// waitForOutput waits until the supervisor's output matches pattern and
+// returns the match. A failure reports the output at the deadline.
+func (r *signalRun) waitForOutput(t *testing.T, pattern *regexp.Regexp) []string {
+	t.Helper()
+	if !assert.Eventually(t, func() bool {
+		return pattern.MatchString(r.output())
+	}, commandLogWaitTimeout(), 20*time.Millisecond) {
+		t.Fatalf("supervisor did not log %q; output: %s", pattern, r.output())
+	}
+	// The output only grows, so the match is still there.
+	return pattern.FindStringSubmatch(r.output())
 }
 
 func (r *signalRun) assertAlive(t *testing.T, duration time.Duration) {

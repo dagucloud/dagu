@@ -21,26 +21,69 @@ import (
 
 const incidentGlobalPolicySetID = "policies/global"
 
-var _ incident.Store = (*IncidentStore)(nil)
+var (
+	_ incident.Store         = (*IncidentStore)(nil)
+	_ incident.ProviderStore = (*IncidentProviderStore)(nil)
+)
 
-// IncidentStore persists incident configuration and state in a collection.
+// IncidentStore persists a project's incident policies and incident states in
+// a collection, and reaches the server-wide providers through an
+// incident.ProviderStore.
 type IncidentStore struct {
+	recordHelper
+	providers incident.ProviderStore
+}
+
+// NewIncidentStore creates an incident store that keeps policies and states
+// in col and reaches providers through providers.
+func NewIncidentStore(col persis.Collection, providers incident.ProviderStore) (*IncidentStore, error) {
+	if col == nil {
+		return nil, errors.New("incident store: collection cannot be nil")
+	}
+	if providers == nil {
+		return nil, errors.New("incident store: provider store cannot be nil")
+	}
+	return &IncidentStore{
+		recordHelper: recordHelper{col: col, name: "incident store"},
+		providers:    providers,
+	}, nil
+}
+
+func (s *IncidentStore) SaveProvider(ctx context.Context, provider *incident.Provider) error {
+	return s.providers.SaveProvider(ctx, provider)
+}
+
+func (s *IncidentStore) GetProvider(ctx context.Context, providerID string) (*incident.Provider, error) {
+	return s.providers.GetProvider(ctx, providerID)
+}
+
+func (s *IncidentStore) ListProviders(ctx context.Context) ([]*incident.Provider, error) {
+	return s.providers.ListProviders(ctx)
+}
+
+func (s *IncidentStore) DeleteProvider(ctx context.Context, providerID string) error {
+	return s.providers.DeleteProvider(ctx, providerID)
+}
+
+// IncidentProviderStore persists the incident providers that every project
+// shares in a collection.
+type IncidentProviderStore struct {
 	recordHelper
 	encryptor *crypto.Encryptor
 }
 
-// NewIncidentStore creates an incident store backed by col.
-func NewIncidentStore(col persis.Collection, enc *crypto.Encryptor) (*IncidentStore, error) {
+// NewIncidentProviderStore creates an incident provider store backed by col.
+func NewIncidentProviderStore(col persis.Collection, enc *crypto.Encryptor) (*IncidentProviderStore, error) {
 	if col == nil {
-		return nil, errors.New("incident store: collection cannot be nil")
+		return nil, errors.New("incident store: provider collection cannot be nil")
 	}
-	return &IncidentStore{
+	return &IncidentProviderStore{
 		recordHelper: recordHelper{col: col, name: "incident store"},
 		encryptor:    enc,
 	}, nil
 }
 
-func (s *IncidentStore) SaveProvider(ctx context.Context, provider *incident.Provider) error {
+func (s *IncidentProviderStore) SaveProvider(ctx context.Context, provider *incident.Provider) error {
 	if provider == nil {
 		return errors.New("incident store: provider cannot be nil")
 	}
@@ -51,7 +94,7 @@ func (s *IncidentStore) SaveProvider(ctx context.Context, provider *incident.Pro
 	return s.put(ctx, incidentProviderID(provider.ID), stored)
 }
 
-func (s *IncidentStore) GetProvider(ctx context.Context, providerID string) (*incident.Provider, error) {
+func (s *IncidentProviderStore) GetProvider(ctx context.Context, providerID string) (*incident.Provider, error) {
 	if providerID == "" {
 		return nil, incident.ErrProviderNotFound
 	}
@@ -62,7 +105,7 @@ func (s *IncidentStore) GetProvider(ctx context.Context, providerID string) (*in
 	return s.providerFromRecord(rec)
 }
 
-func (s *IncidentStore) ListProviders(ctx context.Context) ([]*incident.Provider, error) {
+func (s *IncidentProviderStore) ListProviders(ctx context.Context) ([]*incident.Provider, error) {
 	recs, err := s.listTolerant(ctx, "providers/", "provider")
 	if err != nil {
 		return nil, fmt.Errorf("incident store: list providers: %w", err)
@@ -79,7 +122,7 @@ func (s *IncidentStore) ListProviders(ctx context.Context) ([]*incident.Provider
 	return providers, nil
 }
 
-func (s *IncidentStore) DeleteProvider(ctx context.Context, providerID string) error {
+func (s *IncidentProviderStore) DeleteProvider(ctx context.Context, providerID string) error {
 	if providerID == "" {
 		return incident.ErrProviderNotFound
 	}
@@ -282,7 +325,7 @@ type stateRecord struct {
 	UpdatedAt     string                  `json:"updatedAt"`
 }
 
-func (s *IncidentStore) providerToStorage(provider *incident.Provider) (*providerRecord, error) {
+func (s *IncidentProviderStore) providerToStorage(provider *incident.Provider) (*providerRecord, error) {
 	stored := &providerRecord{
 		ID:        provider.ID,
 		Name:      provider.Name,
@@ -313,7 +356,7 @@ func (s *IncidentStore) providerToStorage(provider *incident.Provider) (*provide
 	return stored, nil
 }
 
-func (s *IncidentStore) providerFromRecord(rec *persis.Record) (*incident.Provider, error) {
+func (s *IncidentProviderStore) providerFromRecord(rec *persis.Record) (*incident.Provider, error) {
 	var stored providerRecord
 	if err := persis.Decode(rec, &stored); err != nil {
 		return nil, fmt.Errorf("incident store: parse provider: %w", err)
@@ -445,7 +488,7 @@ func parseIncidentTime(value string) time.Time {
 	return parsed
 }
 
-func (s *IncidentStore) encryptSecret(value string) (string, error) {
+func (s *IncidentProviderStore) encryptSecret(value string) (string, error) {
 	if value == "" {
 		return "", nil
 	}
@@ -455,7 +498,7 @@ func (s *IncidentStore) encryptSecret(value string) (string, error) {
 	return s.encryptor.Encrypt(value)
 }
 
-func (s *IncidentStore) decryptSecret(value string) (string, error) {
+func (s *IncidentProviderStore) decryptSecret(value string) (string, error) {
 	if value == "" {
 		return "", nil
 	}

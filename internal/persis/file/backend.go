@@ -35,15 +35,36 @@ var _ persis.Backend = (*Backend)(nil)
 
 const schedulerStateDirName = "scheduler"
 
-// SchedulerStateDir returns the file-backend directory for scheduler state.
+// SchedulerStateDir returns the file-backend directory for scheduler state:
+// watermarks, checkpoints, catch-up slots, and DAG records.
 func SchedulerStateDir(paths config.PathsConfig) string {
 	return filepath.Join(paths.DataDir, schedulerStateDirName)
 }
+
+// SchedulerProcessDir returns the file-backend directory for the scheduler
+// process's state: its HA lock, pause flag, restart backoff, and outages. It
+// is the scheduler state directory, whose records it does not share.
+func SchedulerProcessDir(paths config.PathsConfig) string {
+	return SchedulerStateDir(paths)
+}
+
+// The record IDs each collection accepts where a server-wide collection and
+// a project collection share a directory, so neither reads the other's.
+var (
+	incidentProviderIDPrefixes    = []string{"providers/"}
+	incidentIDPrefixes            = []string{"policies/", "states/"}
+	notificationChannelIDPrefixes = []string{"channels/", "workspace"}
+	notificationIDPrefixes        = []string{"dags/", "routes/"}
+	schedulerProcessIDPrefixes    = []string{"down", "paused", "restart_backoff"}
+	schedulerStateIDPrefixes      = []string{"catchup", "checkpoint", "dags/", "state"}
+)
 
 // NewBackend creates a file backend from the configured persistence paths.
 // It does not access the filesystem; collections create directories lazily.
 func NewBackend(paths config.PathsConfig) *Backend {
 	distributedDir := filepath.Join(paths.DataDir, "distributed")
+	incidentsDir := filepath.Join(paths.DataDir, "incidents")
+	notificationsDir := filepath.Join(paths.DataDir, "notifications")
 	return &Backend{
 		dataDir: paths.DataDir,
 		specs: map[string]collectionSpec{
@@ -58,20 +79,28 @@ func NewBackend(paths config.PathsConfig) *Backend {
 				dir:        distributedDir,
 				idPrefixes: []string{"pending/", "claims/", "admissions/"},
 			},
-			persis.CollectionHostKeys:         {dir: filepath.Join(paths.DataDir, "host-keys"), indented: true},
-			persis.CollectionIncidents:        {dir: filepath.Join(paths.DataDir, "incidents"), indented: true},
-			persis.CollectionInventories:      {dir: filepath.Join(paths.DataDir, "inventories"), indented: true},
-			persis.CollectionLicense:          {dir: filepath.Join(paths.DataDir, "license"), indented: true},
-			persis.CollectionNotifications:    {dir: filepath.Join(paths.DataDir, "notifications"), indented: true},
+			persis.CollectionHostKeys:          {dir: filepath.Join(paths.DataDir, "host-keys"), indented: true},
+			persis.CollectionIncidentProviders: {dir: incidentsDir, idPrefixes: incidentProviderIDPrefixes, indented: true},
+			persis.CollectionIncidents:         {dir: incidentsDir, idPrefixes: incidentIDPrefixes, indented: true},
+			persis.CollectionInventories:       {dir: filepath.Join(paths.DataDir, "inventories"), indented: true},
+			persis.CollectionLicense:           {dir: filepath.Join(paths.DataDir, "license"), indented: true},
+			persis.CollectionNotificationChannels: {
+				dir:        notificationsDir,
+				idPrefixes: notificationChannelIDPrefixes,
+				indented:   true,
+			},
+			persis.CollectionNotifications:    {dir: notificationsDir, idPrefixes: notificationIDPrefixes, indented: true},
 			persis.CollectionProfiles:         {dir: filepath.Join(paths.DataDir, "profiles"), indented: true},
 			persis.CollectionPublicWebhooks:   {dir: filepath.Join(paths.DataDir, "public-webhooks"), indented: true},
 			persis.CollectionQueue:            {dir: paths.QueueDir},
 			persis.CollectionRemoteNodes:      {dir: paths.RemoteNodesDir, indented: true},
-			persis.CollectionSchedulerState:   {dir: SchedulerStateDir(paths), indented: true},
+			persis.CollectionSchedulerProcess: {dir: SchedulerProcessDir(paths), idPrefixes: schedulerProcessIDPrefixes, indented: true},
+			persis.CollectionSchedulerState:   {dir: SchedulerStateDir(paths), idPrefixes: schedulerStateIDPrefixes, indented: true},
 			persis.CollectionSecrets:          {dir: filepath.Join(paths.DataDir, "secrets"), indented: true},
 			persis.CollectionUpgradeCheck:     {dir: filepath.Join(paths.DataDir, "upgrade"), indented: true},
 			persis.CollectionUsers:            {dir: paths.UsersDir, indented: true},
 			persis.CollectionViews:            {dir: paths.ViewsDir, indented: true},
+			persis.CollectionWatchState:       {dir: filepath.Join(paths.DataDir, "watch_state")},
 			persis.CollectionWebhooks:         {dir: paths.WebhooksDir, indented: true},
 			persis.CollectionWebhookDAGClaims: {dir: filepath.Join(filepath.Dir(paths.WebhooksDir), "webhook-dag-claims"), indented: true},
 			persis.CollectionWorkerHeartbeats: {dir: filepath.Join(distributedDir, "workers")},

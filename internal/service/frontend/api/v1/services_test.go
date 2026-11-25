@@ -158,8 +158,12 @@ func TestSchedulerPause_RecordsPeriod(t *testing.T) {
 		}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
 	}
 
-	pauses := store.NewSchedulerPauseStore(server.Backend.Collection(persis.CollectionSchedulerState))
-	periods, _, err := store.NewPeriodStore(server.Backend.Collection(persis.CollectionSchedulerState), pauses).Ended(t.Context(), "")
+	pauses := store.NewSchedulerPauseStore(server.Backend.Collection(persis.CollectionSchedulerProcess))
+	periods, _, err := store.NewPeriodStore(
+		server.Backend.Collection(persis.CollectionSchedulerState),
+		server.Backend.Collection(persis.CollectionSchedulerProcess),
+		pauses,
+	).Ended(t.Context(), "")
 	require.NoError(t, err)
 	require.Len(t, periods, 1)
 	assert.Equal(t, schedulerstate.PeriodPaused, periods[0].Reason)

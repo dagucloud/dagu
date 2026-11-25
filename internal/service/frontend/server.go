@@ -49,6 +49,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/license"
 	_ "github.com/dagucloud/dagu/v2/internal/llm/allproviders" // Register LLM providers
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/remotenode"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
@@ -67,6 +68,7 @@ import (
 	dagumcp "github.com/dagucloud/dagu/v2/internal/service/mcp"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/oidcprovision"
+	"github.com/dagucloud/dagu/v2/internal/service/projectaccess"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/trustedproxyprovision"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -263,22 +265,45 @@ func toOIDCWorkspaceMappings(mappings map[string][]config.OIDCWorkspaceGrant) ma
 	return result
 }
 
-func toOIDCPolicy(policy config.OIDCPolicy) oidcprovision.Policy {
+// toOIDCPolicy converts policy. projects is the project registry, which is
+// nil while projects are off.
+func toOIDCPolicy(policy config.OIDCPolicy, projects project.Registry) oidcprovision.Policy {
+	roleMapping := oidcprovision.RoleMapperConfig{
+		GroupsClaim:            policy.RoleMapping.GroupsClaim,
+		GroupMappings:          policy.RoleMapping.GroupMappings,
+		WorkspaceMappings:      toOIDCWorkspaceMappings(policy.RoleMapping.WorkspaceMappings),
+		DefaultWorkspaceAccess: policy.RoleMapping.DefaultWorkspaceAccess,
+		RoleAttributePath:      policy.RoleMapping.RoleAttributePath,
+		RoleAttributeStrict:    policy.RoleMapping.RoleAttributeStrict,
+		SkipOrgRoleSync:        policy.RoleMapping.SkipOrgRoleSync,
+		DefaultRole:            authmodel.Role(policy.RoleMapping.DefaultRole),
+	}
+	if projects != nil {
+		roleMapping.Projects = projects
+		roleMapping.ProjectMappings = toProjectGrantConfigs(policy.RoleMapping.ProjectMappings)
+		roleMapping.DefaultProjectAccess = policy.RoleMapping.DefaultProjectAccess
+	}
 	return oidcprovision.Policy{
 		AutoSignup:     policy.AutoSignup,
 		AllowedDomains: policy.AllowedDomains,
 		Whitelist:      policy.Whitelist,
-		RoleMapping: oidcprovision.RoleMapperConfig{
-			GroupsClaim:            policy.RoleMapping.GroupsClaim,
-			GroupMappings:          policy.RoleMapping.GroupMappings,
-			WorkspaceMappings:      toOIDCWorkspaceMappings(policy.RoleMapping.WorkspaceMappings),
-			DefaultWorkspaceAccess: policy.RoleMapping.DefaultWorkspaceAccess,
-			RoleAttributePath:      policy.RoleMapping.RoleAttributePath,
-			RoleAttributeStrict:    policy.RoleMapping.RoleAttributeStrict,
-			SkipOrgRoleSync:        policy.RoleMapping.SkipOrgRoleSync,
-			DefaultRole:            authmodel.Role(policy.RoleMapping.DefaultRole),
-		},
+		RoleMapping:    roleMapping,
 	}
+}
+
+func toProjectGrantConfigs(mappings map[string][]config.ProjectMappingGrant) map[string][]authmapping.ProjectGrantConfig {
+	if len(mappings) == 0 {
+		return nil
+	}
+	result := make(map[string][]authmapping.ProjectGrantConfig, len(mappings))
+	for group, grants := range mappings {
+		converted := make([]authmapping.ProjectGrantConfig, len(grants))
+		for i, grant := range grants {
+			converted[i] = authmapping.ProjectGrantConfig{Project: grant.Project, Role: authmodel.Role(grant.Role)}
+		}
+		result[group] = converted
+	}
+	return result
 }
 
 func toConfigOIDCWorkspaceMappings(mappings map[string][]oidcprovision.WorkspaceGrantConfig) map[string][]config.OIDCWorkspaceGrant {
@@ -309,7 +334,24 @@ func toConfigOIDCMapping(mapping oidcprovision.RoleMapperConfig) config.OIDCRole
 		RoleAttributeStrict:    mapping.RoleAttributeStrict,
 		SkipOrgRoleSync:        mapping.SkipOrgRoleSync,
 		DefaultRole:            string(mapping.DefaultRole),
+		ProjectMappings:        toConfigProjectMappings(mapping.ProjectMappings),
+		DefaultProjectAccess:   mapping.DefaultProjectAccess,
 	}
+}
+
+func toConfigProjectMappings(mappings map[string][]authmapping.ProjectGrantConfig) map[string][]config.ProjectMappingGrant {
+	if len(mappings) == 0 {
+		return nil
+	}
+	result := make(map[string][]config.ProjectMappingGrant, len(mappings))
+	for group, grants := range mappings {
+		converted := make([]config.ProjectMappingGrant, len(grants))
+		for i, grant := range grants {
+			converted[i] = config.ProjectMappingGrant{Project: grant.Project, Role: string(grant.Role)}
+		}
+		result[group] = converted
+	}
+	return result
 }
 
 func toTrustedProxyGroupMappings(mappings map[string]string) map[string]authmodel.Role {
@@ -481,6 +523,13 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		}
 	}
 
+	if cfg.ProjectsEnabled && stores.Projects == nil {
+		return nil, errors.New("project registry is not configured")
+	}
+	if stores.Projects != nil {
+		apiOpts = append(apiOpts, apiv1.WithProjectAccess(projectaccess.New(stores.Projects)))
+	}
+
 	var authSvc *authservice.Service
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
 		if stores.AuthService == nil || stores.UserStore == nil {
@@ -492,19 +541,25 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 
 		trustedProxy := cfg.Server.Auth.Proxy
 		if trustedProxy.Enabled {
+			roleMapping := authmapping.Config{
+				DefaultRole:            authmodel.Role(trustedProxy.RoleMapping.DefaultRole),
+				GroupMappings:          toTrustedProxyGroupMappings(trustedProxy.RoleMapping.GroupMappings),
+				WorkspaceMappings:      toTrustedProxyWorkspaceMappings(trustedProxy.RoleMapping.WorkspaceMappings),
+				DefaultWorkspaceAccess: trustedProxy.RoleMapping.DefaultWorkspaceAccess,
+				Strict:                 trustedProxy.RoleMapping.RequireMapping,
+			}
+			if cfg.ProjectsEnabled {
+				roleMapping.Projects = stores.Projects
+				roleMapping.ProjectMappings = toProjectGrantConfigs(trustedProxy.RoleMapping.ProjectMappings)
+				roleMapping.DefaultProjectAccess = trustedProxy.RoleMapping.DefaultProjectAccess
+			}
 			trustedProvisionSvc, err := trustedproxyprovision.New(stores.UserStore, trustedproxyprovision.Config{
 				UsersDir:        cfg.Paths.UsersDir,
 				Source:          trustedProxy.Source,
 				AutoSignup:      trustedProxy.AutoSignup,
 				SkipOrgRoleSync: trustedProxy.RoleMapping.SkipOrgRoleSync,
 				WorkspaceExists: workspaceExists,
-				RoleMapping: authmapping.Config{
-					DefaultRole:            authmodel.Role(trustedProxy.RoleMapping.DefaultRole),
-					GroupMappings:          toTrustedProxyGroupMappings(trustedProxy.RoleMapping.GroupMappings),
-					WorkspaceMappings:      toTrustedProxyWorkspaceMappings(trustedProxy.RoleMapping.WorkspaceMappings),
-					DefaultWorkspaceAccess: trustedProxy.RoleMapping.DefaultWorkspaceAccess,
-					Strict:                 trustedProxy.RoleMapping.RequireMapping,
-				},
+				RoleMapping:     roleMapping,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to create proxy authentication provisioning service: %w", err)
@@ -513,11 +568,14 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 			if err != nil {
 				return nil, fmt.Errorf("configure IP access: %w", err)
 			}
+			groupsRequired := len(trustedProxy.RoleMapping.GroupMappings) > 0 ||
+				len(trustedProxy.RoleMapping.WorkspaceMappings) > 0 ||
+				len(trustedProxy.RoleMapping.ProjectMappings) > 0
 			trustedProxyCfg = &auth.TrustedProxyLoginConfig{
 				Enabled:        true,
 				UserHeader:     trustedProxy.Headers.User,
 				GroupsHeader:   trustedProxy.Headers.Groups,
-				GroupsRequired: len(trustedProxy.RoleMapping.GroupMappings) > 0 || len(trustedProxy.RoleMapping.WorkspaceMappings) > 0,
+				GroupsRequired: groupsRequired,
 				Provision:      trustedProvisionSvc,
 				AuthService:    stores.AuthService,
 				InitialSetupComplete: func(ctx context.Context) (bool, error) {
@@ -539,10 +597,11 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 			oidcEnabled = true
 			oidcButtonLabel = oidcCfg.ButtonLabel
 			configPolicy := oidcCfg.Policy()
-			policy := toOIDCPolicy(configPolicy)
+			policy := toOIDCPolicy(configPolicy, stores.Projects)
 			loader := config.NewOIDCPolicyLoader(
 				cfg.Paths.ConfigFilesUsed,
 				configPolicy,
+				cfg.ProjectsEnabled,
 			)
 
 			provisionCfg := oidcprovision.Config{
@@ -557,7 +616,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 					if err != nil {
 						return oidcprovision.Policy{}, err
 					}
-					return toOIDCPolicy(policy), nil
+					return toOIDCPolicy(policy, stores.Projects), nil
 				},
 			}
 			provisionCfg.WorkspaceExists = workspaceExists

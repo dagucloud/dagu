@@ -21851,6 +21851,25 @@ components:
         - all
         - grants
 
+    ProjectGrant:
+      type: object
+      description: "Role granted in one project. Read and written only while projects are on."
+      properties:
+        project:
+          type: string
+          description: "Project name"
+        role:
+          $ref: "#/components/schemas/UserRole"
+      required:
+        - project
+        - role
+
+    ProjectGrants:
+      type: array
+      description: "Roles in single projects, read and written only while projects are on. A key whose workspaceAccess has all=false and no grants has no role outside these grants."
+      items:
+        $ref: "#/components/schemas/ProjectGrant"
+
     SetupRequest:
       type: object
       description: "Request body for initial admin account setup"
@@ -22248,6 +22267,8 @@ components:
           $ref: "#/components/schemas/UserRole"
         workspaceAccess:
           $ref: "#/components/schemas/WorkspaceAccess"
+        projectGrants:
+          $ref: "#/components/schemas/ProjectGrants"
         allowedSurfaces:
           type: array
           minItems: 1
@@ -22343,6 +22364,8 @@ components:
           $ref: "#/components/schemas/UserRole"
         workspaceAccess:
           $ref: "#/components/schemas/WorkspaceAccess"
+        projectGrants:
+          $ref: "#/components/schemas/ProjectGrants"
         allowedSurfaces:
           type: array
           minItems: 1
@@ -22397,6 +22420,8 @@ components:
           $ref: "#/components/schemas/UserRole"
         workspaceAccess:
           $ref: "#/components/schemas/WorkspaceAccess"
+        projectGrants:
+          $ref: "#/components/schemas/ProjectGrants"
         allowedSurfaces:
           type: array
           minItems: 1
