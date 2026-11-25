@@ -93,7 +93,7 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 				tag.Error(cleanupErr))
 		}
 	}()
-	if errors.Is(err, errNoListedNode) {
+	if errors.Is(err, errStepNotListed) {
 		node.SetStatus(ir.NodeSkipped)
 		node.SetSkippedByNodeList(true)
 		GetDAGContext(ctx).NodeList.MarkSkipped()

@@ -24,10 +24,10 @@ const maxStepNodes = 1000
 // errNoNodeInventory reports a run that cannot read the inventory.
 var errNoNodeInventory = errors.New("the node inventory is not available to this run")
 
-// errNoListedNode reports a step whose matched nodes the run's node list
+// errStepNotListed reports a step whose matched nodes the run's node list
 // names none of. The step is skipped, and does not block the steps after it
 // (RFC 013 §Narrowing a run).
-var errNoListedNode = errors.New("the run's node list names none of the nodes the step selects")
+var errStepNotListed = errors.New("the run's node list names none of the nodes the step selects")
 
 // runsOnEachNode reports a command step with nodes. Its timeout and retry
 // policy apply to each node's child run, so one hung or failing host does not
@@ -173,7 +173,7 @@ func matchStepNodes(ctx context.Context, selector string) ([]inventory.ResolvedN
 			return !slices.ContainsFunc(listed, func(name string) bool { return strings.EqualFold(name, node.Name) })
 		})
 		if len(matched) == 0 {
-			return nil, errNoListedNode
+			return nil, errStepNotListed
 		}
 	}
 	if len(matched) > maxStepNodes {
