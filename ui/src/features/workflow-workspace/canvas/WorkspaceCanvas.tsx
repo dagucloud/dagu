@@ -64,7 +64,7 @@ import { StepRunTabs } from '../step/StepRunTabs';
 import { useReuseSource } from '../step/useReuseSource';
 import { useStepRunActions } from '../step/useStepRunActions';
 import { useCanvasRunSource } from './canvasRunPolicy';
-import { useDock } from '../dock/DockContext';
+import { useDock, useDockCommands } from '../dock/DockContext';
 import { useDockYield } from './useDockYield';
 import { useTestRunNotice } from './useTestRunNotice';
 import { useEscInStepYaml } from './useEscInStepYaml';
@@ -270,18 +270,25 @@ function MountAfterDockYield({
 }
 
 /**
- * Closes the right panel and the step panel when Activity opens. It is a
- * component of its own: the state of the dock changes with each toggle, and
- * the canvas must not render again for it.
+ * Closes the right panel and the step panel when Activity opens. A right
+ * panel with a draft or a one-time secret at risk stays instead, and
+ * Activity folds back until it closes: its close would ask first, and
+ * Activity can open with no user action. It is a component of its own: the
+ * state of the dock changes with each toggle, and the canvas must not render
+ * again for it.
  */
 function CloseRightPanelOnActivity({
   paneActive,
+  atRisk,
   closeStepPanel,
 }: {
   paneActive: boolean;
+  /** A draft or a one-time secret would be lost (useSettingsLeaveGuard). */
+  atRisk: boolean;
   closeStepPanel: () => void;
 }) {
   const dock = useDock();
+  const { yieldToView } = useDockCommands();
   const closeRightPanel = useCloseRightPanel();
   const activePanel = useActiveRightPanel();
   const panelRef = useRef(activePanel);
@@ -291,9 +298,22 @@ function CloseRightPanelOnActivity({
     const opened = dock.open && !dockWasOpen.current;
     dockWasOpen.current = dock.open;
     if (!opened || !paneActive) return;
-    if (panelRef.current !== null) closeRightPanel();
+    if (panelRef.current !== null) {
+      if (atRisk) {
+        yieldToView?.(true, { restore: true });
+        return;
+      }
+      closeRightPanel();
+    }
     closeStepPanel();
-  }, [dock.open, paneActive, closeRightPanel, closeStepPanel]);
+  }, [
+    dock.open,
+    paneActive,
+    atRisk,
+    yieldToView,
+    closeRightPanel,
+    closeStepPanel,
+  ]);
   return null;
 }
 
@@ -322,7 +342,7 @@ export function WorkspaceCanvas({
   // A run without its workflow file shows its own definition only: there is
   // no file to edit.
   const standaloneRun = useStandaloneRun();
-  const { guard, setSecretVisible } = useSettingsLeaveGuard();
+  const { guard, setSecretVisible, atRisk } = useSettingsLeaveGuard();
   // The runs of the step view start and show without leaving the editor.
   const actions = useStepRunActions({ stay: true });
   const [url, setUrl, readUrl] = useWorkspaceUrl();
@@ -720,6 +740,7 @@ export function WorkspaceCanvas({
       >
         <CloseRightPanelOnActivity
           paneActive={paneActive}
+          atRisk={atRisk}
           closeStepPanel={stepPanel.close}
         />
         <div

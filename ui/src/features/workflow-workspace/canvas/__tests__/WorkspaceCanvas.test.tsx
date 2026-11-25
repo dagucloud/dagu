@@ -1694,6 +1694,25 @@ describe('WorkspaceCanvas', () => {
       expect(yieldToView).not.toHaveBeenCalledWith(false);
     });
 
+    // A draft or a one-time secret in the panel would be lost, and Activity
+    // can open with no user action: the panel stays, and Activity folds back
+    // until the panel closes.
+    it('keeps a panel with a secret at risk when Activity opens', () => {
+      const yieldToView = vi.fn();
+      ws.dock = { ...dock, open: false, yieldToView };
+      renderCanvas('/dags/example.yaml', { panels: true });
+      act(() => panels.workflow?.claim());
+      act(() => props().launcherHost?.setSecretVisible(true));
+      yieldToView.mockClear();
+
+      act(() => {
+        ws.dock = { ...(ws.dock as DockController), open: true };
+        host.dockListeners.forEach((listener) => listener());
+      });
+      expect(panels.evicted).not.toHaveBeenCalled();
+      expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
+    });
+
     // The Workflow panel that the page restores folds Activity too, before
     // the editor has loaded and claimed it. A ?run link opens Activity.
     it('yields to the restored Workflow panel from the first render', () => {
