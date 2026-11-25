@@ -28,15 +28,15 @@ var (
 
 // IncidentStore persists a project's incident policies and incident states in
 // a collection, and reaches the server-wide providers through an
-// IncidentProviderStore.
+// incident.ProviderStore.
 type IncidentStore struct {
 	recordHelper
-	providers *IncidentProviderStore
+	providers incident.ProviderStore
 }
 
 // NewIncidentStore creates an incident store that keeps policies and states
 // in col and reaches providers through providers.
-func NewIncidentStore(col persis.Collection, providers *IncidentProviderStore) (*IncidentStore, error) {
+func NewIncidentStore(col persis.Collection, providers incident.ProviderStore) (*IncidentStore, error) {
 	if col == nil {
 		return nil, errors.New("incident store: collection cannot be nil")
 	}

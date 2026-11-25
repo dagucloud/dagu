@@ -25,18 +25,18 @@ const notificationGlobalRouteSetID = "routes/global"
 
 // NotificationStore persists a project's DAG routes and route sets in a
 // collection, and reaches the server-wide channels and notification settings
-// through a NotificationChannelStore.
+// through a notification.ChannelStore.
 type NotificationStore struct {
 	recordHelper
 	notificationCodec
-	channels *NotificationChannelStore
+	channels notification.ChannelStore
 }
 
 // NewNotificationStore creates a notification store that keeps routes in col
 // and reaches channels and notification settings through channels.
 func NewNotificationStore(
 	col persis.Collection,
-	channels *NotificationChannelStore,
+	channels notification.ChannelStore,
 	enc *crypto.Encryptor,
 ) (*NotificationStore, error) {
 	if col == nil {

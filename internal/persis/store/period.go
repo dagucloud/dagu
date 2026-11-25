@@ -45,9 +45,10 @@ type PeriodStore struct {
 
 var _ schedulerstate.PeriodStore = (*PeriodStore)(nil)
 
-// NewPeriodStore creates a period store on the scheduler state collection col
-// and the scheduler process collection process that gives the ended pauses
-// of pauses, when it is not nil.
+// NewPeriodStore creates a period store that keeps DAG records in the
+// scheduler state collection col and outages in the scheduler process
+// collection process. It also gives the ended pauses of pauses, when pauses
+// is not nil.
 func NewPeriodStore(col, process persis.Collection, pauses *SchedulerPauseStore) *PeriodStore {
 	return &PeriodStore{col: col, process: process, pauses: pauses}
 }
