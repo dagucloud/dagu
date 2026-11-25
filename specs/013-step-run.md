@@ -353,7 +353,9 @@ A step changed since a run when one of these differs between that run and the ne
 | `settings` | the DAG's definition other than its steps, with the local sub-DAGs that follow it in the file | the top-level settings |
 
 - The base config counts by its values: comments, spacing, and SMTP do not count.
-- `settings` leaves out `params`, which count as resolved. Of the handlers, only `handler_on.init` counts, since it runs before the steps; the other handlers run after them. The handlers of the base config count the same way.
+- `settings` leaves out `params`, which count as resolved. Of the handlers, only `handler_on.init` counts, since it runs before the steps; the other handlers run after them.
+- `settings` also leaves out the keys that describe, schedule, notify, retain, or limit runs, which cannot change what a step that succeeded gave: `group`, `description`, `labels`, `tags`, `schedule`, `skip_if_successful`, `catchup_window`, `overlap_policy`, `webhook`, `watch`, `smtp`, `mail_accounts`, `mail_on`, `error_mail`, `info_mail`, `wait_mail`, `hist_retention_days`, `hist_retention_runs`, `slot_retention_days`, `log_dir`, `otel`, `queue`, `max_active_runs`, `max_active_steps`, `timeout_sec`, `delay_sec`, `restart_wait_sec`, `restart_policy`, `retry_policy`, and `max_clean_up_time_sec`.
+- The base config counts the same way: its handlers other than init and the keys above do not count.
 - The reason names every change in the order of the table, joined as a sentence and followed by `changed since that run`, such as `the step and the parameters changed since that run`.
 - A step gives the change `carried` when, in that run, it or a step it depends on took outputs of a changed step with consent, as `changes` of [Reused Inputs](#reused-inputs) records. Its outputs there came from what the step did before, although the definitions now match. The reason is `in that run it or a step it depends on took outputs of a changed step`.
 - A run that keeps no definition that can be compared gives the change `unknown`, with the reason `what that run ran cannot be compared`.

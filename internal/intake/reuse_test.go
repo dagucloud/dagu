@@ -137,6 +137,8 @@ func TestPlanSelectedStepsChanges(t *testing.T) {
 		{name: "Unchanged", yaml: reuseSpec},
 		{name: "ChangedStepThatItDoesNotNeed", yaml: strings.Replace(reuseSpec, "echo notes", "echo all notes", 1)},
 		{name: "AddedSuccessHandler", yaml: withHandler(reuseSpec, "success")},
+		// What describes, schedules or limits runs does not count.
+		{name: "AddedMetadata", yaml: strings.Replace(reuseSpec, "env:", "description: Listings under a price\nlabels: [team=homes]\nschedule: \"0 * * * *\"\nhist_retention_days: 3\nmax_active_runs: 1\nenv:", 1)},
 		{name: "ChangedStep", yaml: strings.Replace(reuseSpec, "under 7000", "under 5000", 1), wantErr: refused + "the step changed since that run"},
 		{name: "ChangedStepThatItNeeds", yaml: strings.Replace(reuseSpec, "echo rows", "echo all rows", 1), wantErr: refused + "a step it depends on changed since that run"},
 		{name: "ChangedParameters", yaml: reuseSpec, params: []string{"MAX=5000"}, wantErr: refused + "the parameters changed since that run"},
@@ -178,7 +180,8 @@ func TestPlanSelectedStepsBaseConfig(t *testing.T) {
 		{name: "SameValues", base: ran},
 		{name: "OtherSMTP", base: strings.Replace(ran, "mail.example.com", "mail.example.org", 1)},
 		{name: "OtherSuccessHandler", base: ran + "handler_on:\n  success:\n    run: echo done\n"},
-		{name: "OtherValue", base: strings.Replace(ran, "max_active_steps: 10", "max_active_steps: 5", 1), wantErr: "step filter cannot be reused from run earlier: the base config changed since that run"},
+		{name: "OtherLimits", base: strings.Replace(ran, "max_active_steps: 10", "max_active_steps: 5", 1) + "hist_retention_days: 7\nmail_on:\n  failure: true\n"},
+		{name: "OtherValue", base: strings.Replace(ran, "REGION: eu", "REGION: us", 1), wantErr: "step filter cannot be reused from run earlier: the base config changed since that run"},
 		{name: "OtherInitHandler", base: ran + "handler_on:\n  init:\n    run: echo ready\n", wantErr: "step filter cannot be reused from run earlier: the base config changed since that run"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

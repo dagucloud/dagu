@@ -98,6 +98,19 @@ steps:
     expect([...diff.changed]).toEqual([]);
   });
 
+  // A description, labels or a schedule do not change what a step gives.
+  it('does not count the keys that describe or schedule runs as the head', () => {
+    const described = `${BASE}description: nightly
+labels: [team=a]
+schedule: "0 * * * *"
+hist_retention_days: 3
+`;
+    expect(diffRunSpec(BASE, described).headChanged).toBe(false);
+    expect(
+      diffRunSpec(described, described.replace('nightly', 'hourly')).headChanged
+    ).toBe(false);
+  });
+
   // init runs before the steps, so it can change what they do.
   it('counts the init handler as the head', () => {
     const withInit = `${BASE}handler_on:

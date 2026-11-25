@@ -239,10 +239,24 @@ func (f *fingerprint) changes(earlier *fingerprint, name string) []ir.StepChange
 	return changes
 }
 
+// metadataKeys are the top-level keys of a definition that describe, schedule,
+// notify, retain, or limit runs. They cannot change what a step that succeeded
+// gave, so a change of them does not count. The web UI leaves out the same keys
+// (runSpecDiff.ts).
+var metadataKeys = []string{
+	"group", "description", "labels", "tags",
+	"schedule", "skip_if_successful", "catchup_window", "overlap_policy", "webhook", "watch",
+	"smtp", "mail_accounts", "mail_on", "error_mail", "info_mail", "wait_mail",
+	"hist_retention_days", "hist_retention_runs", "slot_retention_days", "log_dir", "otel",
+	"queue", "max_active_runs", "max_active_steps", "timeout_sec", "delay_sec",
+	"restart_wait_sec", "restart_policy", "retry_policy", "max_clean_up_time_sec",
+}
+
 // settingsDigest is a digest of the DAG's definition other than its steps, as
 // written, with the local sub-DAGs that follow it in the file. The parameters
-// count as the run resolved them instead, and of the handlers only init
-// counts: it runs before the steps, the others after them.
+// count as the run resolved them instead, of the handlers only init counts
+// (it runs before the steps, the others after them), and metadataKeys do not
+// count.
 func settingsDigest(yamlData []byte) (string, error) {
 	if len(yamlData) == 0 {
 		return "", errors.New("the DAG keeps no definition to compare")
@@ -255,23 +269,32 @@ func settingsDigest(yamlData []byte) (string, error) {
 		head := documents[0]
 		delete(head, "steps")
 		delete(head, "params")
-		keepInitHandler(head)
+		keepBehavior(head)
 	}
 	return digestOf(documents)
 }
 
 // baseConfigDigest is a digest of the base config as values. SMTP only sends
-// mail, and of the handlers only init counts.
+// mail, and the base config counts as a definition does.
 func baseConfigDigest(data []byte) (string, error) {
 	values, err := spec.BaseConfigValues(data)
 	if err != nil {
 		return "", fmt.Errorf("read the base config: %w", err)
 	}
-	keepInitHandler(values)
+	keepBehavior(values)
 	if len(values) == 0 {
 		return "", nil
 	}
 	return digestOf(values)
+}
+
+// keepBehavior leaves in the values of a definition what can change what a
+// step does: no metadataKeys, and only the init handler.
+func keepBehavior(values map[string]any) {
+	for _, key := range metadataKeys {
+		delete(values, key)
+	}
+	keepInitHandler(values)
 }
 
 // keepInitHandler leaves only the init handler in the values of a definition:
