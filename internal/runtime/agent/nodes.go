@@ -13,6 +13,7 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/sshconn"
@@ -47,6 +48,38 @@ func targetNodesOf(opts Options) []string {
 		return opts.RetryTarget.TargetNodes
 	}
 	return opts.TargetNodes
+}
+
+// nodeListOf returns the record of what a narrowed run's steps with nodes do
+// with its list. A dag.run child run adds to its parent's, and a retry
+// continues the record of the attempt it retries.
+func nodeListOf(opts Options) *runctx.NodeListOutcome {
+	if opts.NodeList != nil {
+		return opts.NodeList
+	}
+	if len(targetNodesOf(opts)) == 0 {
+		return nil
+	}
+	var from *ir.NodeListRecord
+	if opts.RetryTarget != nil {
+		from = opts.RetryTarget.NodeList
+	}
+	return runctx.NewNodeListOutcome(from)
+}
+
+// checksNodeList reports whether the run fails when its node list selected
+// no node. A child run does not: its steps count toward its parent's record.
+func (a *Agent) checksNodeList() bool {
+	return len(a.targetNodes) > 0 && a.parentDAGRun.Zero()
+}
+
+// nodeListRecord returns the record a run that checks its node list keeps
+// in its status, so a retry continues it.
+func (a *Agent) nodeListRecord() *ir.NodeListRecord {
+	if !a.checksNodeList() {
+		return nil
+	}
+	return a.nodeList.Record()
 }
 
 // nodeTargetingError fails, before any step starts, a run that uses node

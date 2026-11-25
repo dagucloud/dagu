@@ -184,7 +184,7 @@ func TestEnqueueNarrowedChild(t *testing.T) {
 				runtime.WithRootDAGRun(parentRun),
 				runtime.WithDAGRunLogDir(th.Config.Paths.LogDir),
 				runtime.WithDAGRunArtifactDir(th.Config.Paths.ArtifactDir),
-				runtime.WithTargetNodes([]string{"web01"}),
+				runtime.WithTargetNodes([]string{"web01"}, nil),
 			)
 			ctx = withEnqueuer(ctx, th.DAGRunRepository, th.QueueStore, th.Config)
 

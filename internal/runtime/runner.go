@@ -319,7 +319,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 	if !r.isError() {
 		if err := upstreamBlock(plan); err != nil {
 			r.setLastError(err)
-		} else if r.noListedNode(ctx, plan) {
+		} else if r.noListedNode(ctx) {
 			r.setLastError(ErrNoListedNode)
 		}
 	}
@@ -423,7 +423,7 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 		r.report(handlerCtx, progressCh, handlerNode)
 	}
 	// A handler with nodes counts too, and runs after the check above.
-	if !r.isError() && r.noListedNode(ctx, plan) {
+	if !r.isError() && r.noListedNode(ctx) {
 		r.setLastError(ErrNoListedNode)
 	}
 
@@ -1622,24 +1622,15 @@ func upstreamBlock(plan *Plan) error {
 }
 
 // noListedNode reports a narrowed run whose node list skipped a step with
-// nodes and let no step with nodes run on a listed node. It reads what the
-// steps did in this attempt, foreach bodies and handlers included, and the
-// steps a retry kept from an earlier attempt.
-func (r *Runner) noListedNode(ctx context.Context, plan *Plan) bool {
+// nodes and let no step with nodes run on a listed node. It reads the run's
+// record, which holds its foreach bodies, handlers, and dag.run child runs,
+// and the attempts a retry continues.
+func (r *Runner) noListedNode(ctx context.Context) bool {
 	if !r.checkNodeList {
 		return false
 	}
 	outcome := GetDAGContext(ctx).NodeList
-	skipped, ran := outcome.Skipped(), outcome.Ran()
-	for _, node := range plan.Nodes() {
-		state := node.State()
-		if state.SkippedByNodeList {
-			skipped = true
-		} else if node.Step().Nodes != nil && len(state.SubRuns) > 0 {
-			ran = true
-		}
-	}
-	return skipped && !ran
+	return outcome.Skipped() && !outcome.Ran()
 }
 
 func blockedByUpstream(plan *Plan, node *Node) bool {

@@ -504,6 +504,7 @@ func (r *Local) newAgent(
 	opts.ParallelItem = req.ParallelItem
 	opts.BoundNode = req.Node
 	opts.TargetNodes = req.TargetNodes
+	opts.NodeList = rCtx.NodeList
 	opts.NodeSelector = rCtx.Nodes
 	opts.HostKeys = rCtx.HostKeys
 	opts.ScheduleTime = req.ScheduleTime

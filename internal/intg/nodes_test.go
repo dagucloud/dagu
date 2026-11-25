@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -499,8 +500,9 @@ steps:
 	})
 }
 
-// The node list counts the steps with nodes of foreach bodies and handlers
-// too, and a child of a narrowed run stays on the Dagu host.
+// The node list counts the steps with nodes of foreach bodies, handlers, and
+// dag.run child runs toward the run it was given to, and a child of a
+// narrowed run stays on the Dagu host.
 func TestNodeSteps_NarrowedBodiesAndHandlers(t *testing.T) {
 	t.Parallel()
 
@@ -546,6 +548,61 @@ handler_on:
 `+boundChildSucceeds, []string{"db01"}, "no listed node was selected")
 	})
 
+	t.Run("a child whose steps the list skips does not fail", func(t *testing.T) {
+		t.Parallel()
+
+		// The child runs before any listed node does.
+		status := runNarrowed(t, nodes, `
+steps:
+  - id: maint
+    action: dag.run
+    with:
+      dag: db-maint
+  - id: deploy
+    depends: [maint]
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: web
+---
+name: db-maint
+steps:
+  - id: migrate
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: db
+`+boundChildSucceeds, []string{"web01"}, "")
+		require.Equal(t, ir.NodeSucceeded, status.Nodes[0].Status)
+	})
+
+	t.Run("a listed node that runs in a child counts", func(t *testing.T) {
+		t.Parallel()
+
+		status := runNarrowed(t, nodes, `
+steps:
+  - id: web
+    action: dag.run
+    with:
+      dag: web-tier
+  - id: migrate
+    depends: [web]
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: db
+---
+name: web-tier
+steps:
+  - id: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: web
+`+boundChildSucceeds, []string{"web01"}, "")
+		require.True(t, status.Nodes[1].SkippedByNodeList)
+	})
+
 	t.Run("a child that selects workers is refused", func(t *testing.T) {
 		t.Parallel()
 
@@ -574,4 +631,65 @@ steps:
   - action: noop
 `, []string{"web01"}, "cannot select workers")
 	})
+}
+
+// A retry continues the node list record of the attempt it retries, so the
+// steps it keeps, and their child runs, still count toward the list.
+func TestNodeSteps_NarrowedRetry(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		steps   string
+		wantErr string
+	}{
+		{name: "a listed node that ran in a kept child counts", steps: `
+  - id: web
+    action: dag.run
+    with:
+      dag: web-tier`},
+		{name: "a kept skip fails the run once the steps succeed", wantErr: "no listed node was selected"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// check fails until its marker exists, so the first attempt fails
+			// for check alone, and the retry reruns only check.
+			marker := filepath.Join(t.TempDir(), "ready")
+			th := test.Setup(t)
+			dag := th.DAG(t, fmt.Sprintf(`
+steps:%s
+  - id: migrate
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: db
+  - id: check
+    depends: [migrate]
+    run: test -f %q
+---
+name: web-tier
+steps:
+  - id: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: web
+`, tc.steps, marker)+boundChildSucceeds)
+			opts := agent.Options{NodeSelector: staticNodes{dbNode("db01"), webNode("web01")}, TargetNodes: []string{"web01"}}
+			dag.Agent(test.WithAgentOptions(opts)).RunError(t)
+			status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+			require.NoError(t, err)
+
+			require.NoError(t, os.WriteFile(marker, nil, 0o600))
+			// The retry keeps the list of the run it retries.
+			opts.TargetNodes, opts.RetryTarget = nil, &status
+			retry := dag.Agent(test.WithAgentOptions(opts))
+			if tc.wantErr == "" {
+				retry.RunSuccess(t)
+			} else {
+				retry.RunCheckErr(t, tc.wantErr)
+			}
+		})
+	}
 }

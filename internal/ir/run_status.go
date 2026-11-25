@@ -274,6 +274,10 @@ type DAGRunStatus struct {
 	// TargetNodes narrows the run's steps with nodes to the nodes it names
 	// (RFC 013 §Narrowing a run). Empty for a run that is not narrowed.
 	TargetNodes []string `json:"targetNodes,omitempty"`
+	// NodeList records what the steps with nodes of a narrowed run, and of
+	// its dag.run child runs, did with the list, so a retry continues it. Nil
+	// for a run that is not narrowed, and for a child run.
+	NodeList *NodeListRecord `json:"nodeList,omitempty"`
 
 	// Ephemeral marks a run that leaves no trace: it is stored apart from the
 	// history, is not listed, emits no events, and is removed after it ends.
@@ -287,6 +291,15 @@ type DAGRunStatus struct {
 	// ReusedInputs records, for each skipped step of a selected-steps run,
 	// where its carried outputs come from. The order is the DAG step order.
 	ReusedInputs []ReusedInput `json:"reusedInputs,omitempty"`
+}
+
+// NodeListRecord is what the steps with nodes of a narrowed run did with its
+// node list (RFC 013 §Narrowing a run).
+type NodeListRecord struct {
+	// Skipped is set once the list named none of a step's matched nodes.
+	Skipped bool `json:"skipped,omitempty"`
+	// Ran is set once a step ran on a listed node.
+	Ran bool `json:"ran,omitempty"`
 }
 
 // ReusedInputVia tells how the outputs of a skipped step reached a run.

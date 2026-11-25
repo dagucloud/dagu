@@ -77,7 +77,8 @@ type Context struct {
 	// runs to the nodes it names (RFC 013 §Narrowing a run).
 	TargetNodes []string
 	// NodeList records what the steps with nodes of a narrowed run did with
-	// its list, foreach bodies and handlers included. Nil without a list.
+	// its list, foreach bodies, handlers, and dag.run child runs included.
+	// Nil without a list.
 	NodeList *NodeListOutcome
 }
 
@@ -87,6 +88,25 @@ type Context struct {
 type NodeListOutcome struct {
 	skipped atomic.Bool
 	ran     atomic.Bool
+}
+
+// NewNodeListOutcome starts the record of a narrowed run from what the
+// attempt it retries recorded, or empty when from is nil.
+func NewNodeListOutcome(from *ir.NodeListRecord) *NodeListOutcome {
+	o := &NodeListOutcome{}
+	if from != nil {
+		o.skipped.Store(from.Skipped)
+		o.ran.Store(from.Ran)
+	}
+	return o
+}
+
+// Record returns what o holds, for the run's status, or nil for a nil o.
+func (o *NodeListOutcome) Record() *ir.NodeListRecord {
+	if o == nil {
+		return nil
+	}
+	return &ir.NodeListRecord{Skipped: o.Skipped(), Ran: o.Ran()}
 }
 
 // MarkSkipped records a step skipped because the list named none of its
@@ -475,14 +495,13 @@ func WithNodeSelector(nodes NodeSelector) ContextOption {
 	}
 }
 
-// WithTargetNodes sets the nodes the run is narrowed to, and starts the
-// record of what its steps with nodes do with them.
-func WithTargetNodes(names []string) ContextOption {
+// WithTargetNodes sets the nodes the run is narrowed to, and the record of
+// what its steps with nodes do with them, which a dag.run child run shares
+// with its parent.
+func WithTargetNodes(names []string, record *NodeListOutcome) ContextOption {
 	return func(o *contextOptions) {
 		o.TargetNodes = names
-		if len(names) > 0 {
-			o.NodeList = &NodeListOutcome{}
-		}
+		o.NodeList = record
 	}
 }
 
