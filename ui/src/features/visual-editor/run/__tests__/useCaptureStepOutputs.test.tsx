@@ -9,7 +9,6 @@ import { outputCache } from '../outputCache';
 import { stepHashes } from '../stepHashes';
 import {
   cacheableValues,
-  dropRefusedEntry,
   forgetCaptures,
   useCaptureStepOutputs,
 } from '../useCaptureStepOutputs';
@@ -210,27 +209,6 @@ describe('useCaptureStepOutputs', () => {
       }),
     });
     expect(outputCache.entries(SCOPE)['fetch']?.values).toEqual({ data: '2' });
-  });
-
-  // After a reload the memo of captures is empty, and the open view of the
-  // refused run holds the same values as the stored entry.
-  it('does not store again an entry that was dropped as refused', () => {
-    outputCache.put(SCOPE, 'fetch', {
-      values: { data: '{"n":1}' },
-      runId: 'r1',
-      capturedAt: 1,
-      stepHash: stepHashes(SPEC).get('fetch') ?? '',
-    });
-    const view = capture({ data: outputs() });
-    dropRefusedEntry(SCOPE, 'fetch', 'r1');
-    view.rerender({ data: outputs() });
-    expect(outputCache.entries(SCOPE)['fetch']).toBeUndefined();
-  });
-
-  it('keeps an entry that names another run than the refused one', () => {
-    capture({ data: outputs(), runId: 'r2' });
-    dropRefusedEntry(SCOPE, 'fetch', 'r1');
-    expect(outputCache.entries(SCOPE)['fetch']?.runId).toBe('r2');
   });
 
   // The user looks at an older run: its step is not the step of the saved

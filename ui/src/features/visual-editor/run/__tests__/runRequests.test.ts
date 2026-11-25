@@ -44,11 +44,13 @@ describe('runRequests', () => {
     expect('outputsFromRunId' in body).toBe(false);
   });
 
-  it('builds a draft body with spec, name and label', () => {
-    const body = buildDraftBody('steps: []', 'my-dag');
+  // draftOf names the file, whose default profile the server gives the run.
+  it('builds a draft body with spec, name, file and label', () => {
+    const body = buildDraftBody('steps: []', 'my-dag', 'my-dag.yaml');
     expect(body).toEqual({
       spec: 'steps: []',
       name: 'my-dag',
+      draftOf: 'my-dag.yaml',
       labels: [EDITOR_RUN_LABEL],
     });
     expect('steps' in body).toBe(false);
@@ -56,16 +58,17 @@ describe('runRequests', () => {
 
   it('builds a draft step body', () => {
     expect(
-      buildDraftBody('s', 'n', { steps: ['a'], outputsFromRunId: 'r2' })
+      buildDraftBody('s', 'n', 'f', { steps: ['a'], outputsFromRunId: 'r2' })
     ).toEqual({
       spec: 's',
       name: 'n',
+      draftOf: 'f',
       steps: ['a'],
       outputsFromRunId: 'r2',
       labels: [EDITOR_RUN_LABEL, 'dagu.outputs-from=r2'],
     });
     expect(
-      'outputsFromRunId' in buildDraftBody('s', 'n', { steps: ['a'] })
+      'outputsFromRunId' in buildDraftBody('s', 'n', 'f', { steps: ['a'] })
     ).toBe(false);
   });
 
@@ -75,7 +78,7 @@ describe('runRequests', () => {
       steps: ['a', 'b'],
       labels: [EDITOR_RUN_LABEL],
     });
-    expect(buildDraftBody('s', 'n', { steps: ['a', 'b'] })).toMatchObject({
+    expect(buildDraftBody('s', 'n', 'f', { steps: ['a', 'b'] })).toMatchObject({
       steps: ['a', 'b'],
     });
   });
@@ -101,7 +104,10 @@ describe('runRequests', () => {
       outputsFromRuns,
       labels: [EDITOR_RUN_LABEL, 'dagu.outputs-from=r1'],
     });
-    const alone = buildDraftBody('s', 'n', { steps: ['c'], outputsFromRuns });
+    const alone = buildDraftBody('s', 'n', 'f', {
+      steps: ['c'],
+      outputsFromRuns,
+    });
     expect(alone).toMatchObject({ steps: ['c'], outputsFromRuns });
     expect('outputsFromRunId' in alone).toBe(false);
   });
@@ -110,7 +116,7 @@ describe('runRequests', () => {
     const bodies = [
       buildStartBody({ steps: ['c'], outputsFromRuns: { a: 'RunA' } }),
       buildStartBody({ steps: ['c'], outputsFromRunId: 'r1' }),
-      buildDraftBody('s', 'n', { steps: ['c'], ephemeral: true }),
+      buildDraftBody('s', 'n', 'f', { steps: ['c'], ephemeral: true }),
       buildStartBody(),
     ];
     for (const body of bodies) {
@@ -128,17 +134,31 @@ describe('runRequests', () => {
     expect('outputsFromRuns' in body).toBe(false);
   });
 
+  // The user chose to reuse these changed steps anyway.
+  it('names the changed steps the run reuses anyway, and no key for none', () => {
+    expect(
+      buildStartBody({
+        steps: ['c'],
+        outputsFromRuns: { a: 'RunA' },
+        allowChangedSteps: ['a'],
+      })
+    ).toMatchObject({ allowChangedSteps: ['a'] });
+    const body = buildStartBody({ steps: ['c'], allowChangedSteps: [] });
+    expect('allowChangedSteps' in body).toBe(false);
+  });
+
   // The server records and flags a test run: no label is needed.
   it('marks an ephemeral step run with the flag only', () => {
-    expect(buildDraftBody('s', 'n', { steps: ['a'], ephemeral: true })).toEqual(
-      {
-        spec: 's',
-        name: 'n',
-        steps: ['a'],
-        ephemeral: true,
-        labels: [EDITOR_RUN_LABEL],
-      }
-    );
+    expect(
+      buildDraftBody('s', 'n', 'f', { steps: ['a'], ephemeral: true })
+    ).toEqual({
+      spec: 's',
+      name: 'n',
+      draftOf: 'f',
+      steps: ['a'],
+      ephemeral: true,
+      labels: [EDITOR_RUN_LABEL],
+    });
     expect('ephemeral' in buildStartBody({ steps: ['a'] })).toBe(false);
     expect('ephemeral' in buildStartBody()).toBe(false);
   });
@@ -178,7 +198,7 @@ describe('the labels of the reused inputs', () => {
 
   it('writes a label for a draft body too, and none without reused steps', () => {
     expect(
-      buildDraftBody('s', 'n', {
+      buildDraftBody('s', 'n', 'f', {
         steps: ['b'],
         reused: [
           {

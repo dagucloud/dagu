@@ -748,6 +748,15 @@ export interface StepRunInputs {
   outputsFromRuns?: Readonly<Record<string, string>>;
   /** Where the outputs of the skipped steps come from, for the run record shown at once. */
   reused?: readonly InputProvenance[];
+  /** The skipped steps that changed since their run and that the user reuses anyway. */
+  allowChangedSteps?: readonly string[];
+  /**
+   * Called, in place of an error, when the server refuses carried steps: a
+   * step changed, or its run is gone, after the user chose the run.
+   */
+  onRefused?(
+    refused: readonly components['schemas']['CarriedStepCheck'][]
+  ): void;
 }
 export interface EditorRunActions {
   runDraft(): Promise<string | null>; // unsaved buffer through POST /dag-runs
