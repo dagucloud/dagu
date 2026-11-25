@@ -8980,6 +8980,14 @@ export interface components {
             /** @description Workspace-specific grants used when all=false */
             grants: components["schemas"]["WorkspaceGrant"][];
         };
+        /** @description Role granted in one project. Read and written only while projects are on. */
+        ProjectGrant: {
+            /** @description Project name */
+            project: string;
+            role: components["schemas"]["UserRole"];
+        };
+        /** @description Roles in single projects, read and written only while projects are on. A key whose workspaceAccess has all=false and no grants has no role outside these grants. */
+        ProjectGrants: components["schemas"]["ProjectGrant"][];
         /** @description Request body for initial admin account setup */
         SetupRequest: {
             /** @description Admin username */
@@ -9201,6 +9209,7 @@ export interface components {
             description?: string;
             role: components["schemas"]["UserRole"];
             workspaceAccess: components["schemas"]["WorkspaceAccess"];
+            projectGrants?: components["schemas"]["ProjectGrants"];
             /** @description Interfaces where this API key may be accepted */
             allowedSurfaces: APIKeyAllowedSurfaces[];
             /**
@@ -9254,6 +9263,7 @@ export interface components {
             description?: string;
             role: components["schemas"]["UserRole"];
             workspaceAccess?: components["schemas"]["WorkspaceAccess"];
+            projectGrants?: components["schemas"]["ProjectGrants"];
             /** @description Interfaces where this API key may be accepted */
             allowedSurfaces: CreateAPIKeyRequestAllowedSurfaces[];
             /**
@@ -9280,6 +9290,7 @@ export interface components {
             description?: string;
             role?: components["schemas"]["UserRole"];
             workspaceAccess?: components["schemas"]["WorkspaceAccess"];
+            projectGrants?: components["schemas"]["ProjectGrants"];
             /** @description Interfaces where this API key may be accepted */
             allowedSurfaces?: UpdateAPIKeyRequestAllowedSurfaces[];
             /**

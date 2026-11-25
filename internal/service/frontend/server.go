@@ -68,6 +68,7 @@ import (
 	dagumcp "github.com/dagucloud/dagu/v2/internal/service/mcp"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
 	"github.com/dagucloud/dagu/v2/internal/service/oidcprovision"
+	"github.com/dagucloud/dagu/v2/internal/service/projectaccess"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/service/trustedproxyprovision"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -522,6 +523,13 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		}
 	}
 
+	if cfg.ProjectsEnabled && stores.Projects == nil {
+		return nil, errors.New("project registry is not configured")
+	}
+	if stores.Projects != nil {
+		apiOpts = append(apiOpts, apiv1.WithProjectAccess(projectaccess.New(stores.Projects)))
+	}
+
 	var authSvc *authservice.Service
 	if cfg.Server.Auth.Mode == config.AuthModeBuiltin {
 		if stores.AuthService == nil || stores.UserStore == nil {
@@ -530,10 +538,6 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 		authSvc = stores.AuthService
 		setupRequired = stores.AuthSetupRequired
 		apiOpts = append(apiOpts, apiv1.WithAuthService(stores.AuthService))
-
-		if cfg.ProjectsEnabled && stores.Projects == nil {
-			return nil, errors.New("project registry is not configured")
-		}
 
 		trustedProxy := cfg.Server.Auth.Proxy
 		if trustedProxy.Enabled {
