@@ -199,10 +199,11 @@ function usePanelRoom(
 
 /**
  * The resize handle on the left edge of the right panel that holds it, as
- * its child. A drag, the arrow keys, Home and End set the width of every
- * right panel; the layout beside the panels follows during a drag. The panel
- * may take all of its zone but a strip that keeps the canvas in reach, and
- * beside the page it keeps the cap of a narrow window (see panelWidth).
+ * its child. A drag, the arrow keys, Home and End set the width of that
+ * panel, which the step details and the YAML share; the layout beside the
+ * panel follows during a drag. The panel may take all of its zone but the
+ * room that the graph keeps, and beside the page it keeps the cap of a
+ * narrow window (see panelWidth).
  */
 export function PanelResizeHandle({
   shown,
