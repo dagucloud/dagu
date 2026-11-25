@@ -2107,14 +2107,7 @@ func (l *ConfigLoader) explicitPaths(paths PathsConfig, def Definition) Explicit
 
 // setBySource reports whether the config file or the environment sets key.
 func (l *ConfigLoader) setBySource(key string) bool {
-	prefix := strings.ToUpper(AppSlug) + "_"
-	envs := []string{prefix + strings.ToUpper(key)}
-	for _, b := range envBindings {
-		if b.key == key {
-			envs = append(envs, prefix+b.env)
-		}
-	}
-	return l.settingSource(key, envs) != SourceDefault
+	return l.settingSource(key, envNames(key)) != SourceDefault
 }
 
 func (l *ConfigLoader) finalizePaths(cfg *Config) error {
