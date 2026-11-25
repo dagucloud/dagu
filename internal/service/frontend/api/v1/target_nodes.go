@@ -13,12 +13,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-// checkTargetNodes checks a request's node list against the project's nodes
-// and returns it as the run carries it, or nil without one (RFC 013
-// §Narrowing a run). The run starts in a subprocess, so a mistake in the list
-// is answered here, before the launch.
-func (a *API) checkTargetNodes(ctx context.Context, dag *ir.DAG, names *api.TargetNodes) ([]string, error) {
-	if names == nil || len(*names) == 0 {
+// checkTargetNodes checks the node list a run starts with against the
+// project's nodes and returns it as the run carries it, or nil without one
+// (RFC 013 §Narrowing a run). A node: required DAG needs one node. The run
+// starts in a subprocess, so a mistake in the list is answered here, before
+// the launch.
+func (a *API) checkTargetNodes(ctx context.Context, dag *ir.DAG, names []string) ([]string, error) {
+	if len(names) == 0 && !dag.NodeRequired {
 		return nil, nil
 	}
 	if a.inventoryStore == nil {
@@ -28,7 +29,7 @@ func (a *API) checkTargetNodes(ctx context.Context, dag *ir.DAG, names *api.Targ
 	if err != nil {
 		return nil, fmt.Errorf("failed to read inventory nodes: %w", err)
 	}
-	listed, err := intake.CheckTargetNodes(dag, *names, known)
+	listed, err := intake.CheckTargetNodes(dag, names, known)
 	if err != nil {
 		return nil, &Error{
 			HTTPStatus: http.StatusBadRequest,

@@ -8,9 +8,9 @@ their child runs, the `node` namespace, the records of node runs with the
 API that reads them, and narrowing a run to listed nodes are implemented.
 Conformance covers validation through `dagu validate`, runs through `dagu
 start` against SSH servers the test harness starts, node runs through the
-API, and narrowed runs through `dagu start` and `dagu retry`. Bound runs and
-steps with nodes do not run on workers yet, and the run dialog has no node
-picker yet. Further sections are added as RFC 013 lands.
+API, and narrowed runs through `dagu start`, `dagu start --from-run-id`,
+and `dagu retry`. Bound runs and steps with nodes do not run on workers
+yet. Further sections are added as RFC 013 lands.
 
 ## Scope
 
@@ -165,6 +165,7 @@ it and the list names it. The 1,000-node limit applies after the list.
 | `dagu start`, `dagu enqueue` | `--node`, repeatable |
 | API start, start-sync, and enqueue, for a DAG file or an inline spec | `targetNodes` |
 | MCP `dagu_execute` start and enqueue | `targetNodes` |
+| Web UI run dialog | a Node field, for a `node: required` DAG only |
 
 The list is checked when the run is started or enqueued, before it exists,
 and a mistake fails the request:
@@ -172,7 +173,9 @@ and a mistake fails the request:
 - each name must be a node of the project, compared without case, so a
   mistyped name never starts a run;
 - a `node: required` DAG takes exactly one node, and the run is bound to it
-  as a child of a `dag.run` step with `nodes` is;
+  as a child of a `dag.run` step with `nodes` is. The start and enqueue
+  requests refuse such a DAG without a node; `dagu start` and `dagu enqueue`
+  record a run that fails before any step;
 - any other DAG takes a list only when a step, a `foreach` body, or a
   handler sets `nodes` or runs a child DAG;
 - the run must run on the Dagu host, so a DAG or request that selects
@@ -182,7 +185,11 @@ and a mistake fails the request:
 
 The run keeps the list, spelled as the inventory spells the names, in its
 status. Queued runs, retries, edit-and-retry runs, and `dagu restart` keep
-it, run details carry it as `targetNodes`, and the audit entry of the start
+it. A new run from a run, by `dagu start --from-run-id` or the reschedule
+request, keeps it too, as it keeps the run's params, and checks it again as
+a start does, so `--from-run-id` takes no `--node`. Run details carry the
+list as `targetNodes`, the run header shows it unless it names only the
+node the run is bound to, and the audit entry of the start or reschedule
 records it.
 
 A step whose selector matches nodes, none of which the list names, is
@@ -266,7 +273,10 @@ this version has no rows and no counts.
 `dagu start`, `dagu enqueue`, and the start and enqueue requests fail
 before any run exists when a node list names a name that is not a node of
 the project (`node "web1" is not a node of the project`), is given for a DAG
-that has nothing to narrow, selects workers, or starts selected steps.
+that has nothing to narrow, selects workers, or starts selected steps. The
+start, enqueue, and reschedule requests also fail so for a `node: required`
+DAG without exactly one node, and a reschedule for a list that no longer
+passes these checks. `dagu start` refuses `--node` with `--from-run-id`.
 
 A step with `nodes` fails before any node starts, with the error, when:
 

@@ -117,7 +117,11 @@ vi.mock('../canvas/WorkspaceCanvas', () => ({
           type="button"
           onClick={() =>
             void Promise.resolve(
-              ctx.onEnqueue?.('p=1', 'chosen-id', true, undefined, undefined)
+              ctx.onEnqueue?.({
+                params: 'p=1',
+                dagRunId: 'chosen-id',
+                immediate: true,
+              })
             ).catch(startFailed)
           }
         >
@@ -126,9 +130,9 @@ vi.mock('../canvas/WorkspaceCanvas', () => ({
         <button
           type="button"
           onClick={() =>
-            void Promise.resolve(ctx.onEnqueue?.('', undefined, false)).catch(
-              startFailed
-            )
+            void Promise.resolve(
+              ctx.onEnqueue?.({ params: '', immediate: false })
+            ).catch(startFailed)
           }
         >
           start queued
@@ -427,14 +431,11 @@ describe('WorkflowWorkspace start', () => {
     renderAt('/dags/x?step=extract');
     await clickStart('start now');
     // The page enqueue gets every field of the dialog, a slot included.
-    expect(onEnqueue).toHaveBeenCalledWith(
-      'p=1',
-      'chosen-id',
-      true,
-      undefined,
-      undefined,
-      undefined
-    );
+    expect(onEnqueue).toHaveBeenCalledWith({
+      params: 'p=1',
+      dagRunId: 'chosen-id',
+      immediate: true,
+    });
     await waitFor(() =>
       expect(screen.getByTestId('location')).toHaveTextContent(
         '/dags/x?run=chosen-id'

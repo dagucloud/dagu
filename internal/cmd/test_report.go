@@ -49,6 +49,9 @@ type caseResult struct {
 	notifications []testNotification
 	// caseDir is the absolute path of the case directory that --keep kept.
 	caseDir string
+	// update is what --update did with the case's expect, or nil without
+	// it.
+	update *caseUpdate
 }
 
 // Fields of a case failure (Spec 101, JSON Report).
@@ -205,6 +208,9 @@ func (r *testReport) writeCase(c caseResult) {
 	}
 	if c.caseDir != "" {
 		r.printf("  case directory %s\n", c.caseDir)
+	}
+	if c.update != nil {
+		r.printf("  %s\n", c.update.line())
 	}
 }
 

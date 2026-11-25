@@ -31,6 +31,7 @@ type jsonReport struct {
 		AutoApproved  []string         `json:"auto_approved"`
 		Notifications []map[string]any `json:"notifications"`
 		CaseDir       string           `json:"case_dir"`
+		Update        string           `json:"update"`
 	} `json:"cases"`
 	InvalidFiles []struct {
 		File   string           `json:"file"`

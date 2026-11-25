@@ -18172,6 +18172,9 @@ components:
         maxActiveSteps:
           type: integer
           description: "Maximum number of concurrent steps allowed in a DAG run"
+        nodeRequired:
+          type: boolean
+          description: "The DAG declares `node: required`: it runs only bound to one inventory node, so a start or enqueue names exactly one node in `targetNodes`. Omitted when false."
         params:
           type: array
           description: "List of parameter names that can be passed to DAG-runs created from this DAG"

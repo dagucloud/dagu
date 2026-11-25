@@ -13,6 +13,7 @@ import { DialogLayerProvider } from '@/components/ui/dialog';
 import { useSimpleToast } from '@/components/ui/simple-toast';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { RightPanelProvider } from '@/contexts/RightPanelContext';
+import { startRequestBody } from '@/features/dags/components/dag-execution/startRequest';
 import { DAGContext } from '@/features/dags/contexts/DAGContext';
 import { useClient } from '@/hooks/api';
 import { WorkflowBar } from './bar/WorkflowBar';
@@ -56,39 +57,22 @@ function useStartThenShow(
   const { noteUserRun } = useDockCommands();
   const { showToast } = useSimpleToast();
   return useCallback(
-    async (params, dagRunId, immediate, profile, noReuse, scheduleTime) => {
+    async (request) => {
       if (parentEnqueue) {
-        const result = await parentEnqueue(
-          params,
-          dagRunId,
-          immediate,
-          profile,
-          noReuse,
-          scheduleTime
-        );
-        const id = typeof result === 'string' && result ? result : dagRunId;
+        const result = await parentEnqueue(request);
+        const id =
+          typeof result === 'string' && result ? result : request.dagRunId;
         if (id) {
           noteUserRun?.(id);
           showRun(id);
         }
         return result;
       }
-      const body: {
-        params: string;
-        dagRunId?: string;
-        profile?: string;
-        noReuse?: boolean;
-        scheduleTime?: string;
-      } = { params };
-      if (dagRunId) body.dagRunId = dagRunId;
-      if (profile !== undefined) body.profile = profile;
-      if (noReuse !== undefined) body.noReuse = noReuse;
-      if (scheduleTime) body.scheduleTime = scheduleTime;
       const init = {
         params: { path: { fileName }, query: { remoteNode } },
-        body,
+        body: startRequestBody(request),
       };
-      const { data, error } = await (immediate
+      const { data, error } = await (request.immediate
         ? client.POST('/dags/{fileName}/start', init)
         : client.POST('/dags/{fileName}/enqueue', init));
       if (error) {
@@ -104,7 +88,15 @@ function useStartThenShow(
       }
       return data?.dagRunId;
     },
-    [parentEnqueue, client, remoteNode, fileName, showRun, noteUserRun, showToast]
+    [
+      parentEnqueue,
+      client,
+      remoteNode,
+      fileName,
+      showRun,
+      noteUserRun,
+      showToast,
+    ]
   );
 }
 

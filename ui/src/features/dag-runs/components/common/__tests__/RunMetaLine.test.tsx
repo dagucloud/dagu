@@ -146,6 +146,26 @@ describe('RunMetaLine', () => {
     expect(screen.getByText('region=eu')).toBeInTheDocument();
   });
 
+  // A run started with one node of a node: required DAG is bound to it, and
+  // the Node item names it alone.
+  it('lists the nodes of a narrowed run', () => {
+    const { rerender } = render(<RunMetaLine dagRun={run} />);
+    expect(screen.queryByTitle('Narrowed to')).toBeNull();
+
+    rerender(
+      <RunMetaLine dagRun={{ ...run, targetNodes: ['web01', 'web03'] }} />
+    );
+    expect(screen.getByTitle('Narrowed to')).toHaveTextContent('web01, web03');
+
+    rerender(
+      <RunMetaLine
+        dagRun={{ ...run, boundNode: 'web01', targetNodes: ['web01'] }}
+      />
+    );
+    expect(screen.getByTitle('Node')).toHaveTextContent('web01');
+    expect(screen.queryByTitle('Narrowed to')).toBeNull();
+  });
+
   it('names the node of a bound run', () => {
     const { rerender } = render(<RunMetaLine dagRun={run} />);
     expect(screen.queryByTitle('Node')).toBeNull();
