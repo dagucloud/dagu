@@ -498,6 +498,9 @@ type CreateAPIKeyInput struct {
 	AttributionClass   auth.APIKeyAttributionClass
 	OwnerUserID        string
 	ServiceAccountName string
+	// ProjectGrants limit the key to projects. With them, workspace access
+	// limited to no workspace leaves the key no server-wide role.
+	ProjectGrants []auth.ProjectGrant
 }
 
 // CreateAPIKeyResult contains the result of creating an API key.
@@ -519,7 +522,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, input CreateAPIKeyInput, cre
 	if !input.Role.Valid() {
 		return nil, fmt.Errorf("invalid role: %s", input.Role)
 	}
-	if err := auth.ValidateWorkspaceAccess(input.Role, input.WorkspaceAccess, nil); err != nil {
+	if err := validateAPIKeyAccess(input.Role, input.WorkspaceAccess, input.ProjectGrants); err != nil {
 		return nil, err
 	}
 
@@ -539,6 +542,7 @@ func (s *Service) CreateAPIKey(ctx context.Context, input CreateAPIKeyInput, cre
 	}
 	apiKey.KeyDigest = keyParts.keyDigest
 	apiKey.WorkspaceAccess = auth.CloneWorkspaceAccess(input.WorkspaceAccess)
+	apiKey.ProjectGrants = slices.Clone(input.ProjectGrants)
 	if err := s.applyAPIKeyCreateMetadata(ctx, apiKey, input); err != nil {
 		return nil, err
 	}
@@ -623,6 +627,8 @@ type UpdateAPIKeyInput struct {
 	AttributionClass   *auth.APIKeyAttributionClass
 	OwnerUserID        *string
 	ServiceAccountName *string
+	// ProjectGrants, when non-nil, replaces the key's project grants.
+	ProjectGrants *[]auth.ProjectGrant
 }
 
 // UpdateAPIKey updates an existing API key.
@@ -669,11 +675,14 @@ func (s *Service) UpdateAPIKey(ctx context.Context, id string, input UpdateAPIKe
 	if input.ServiceAccountName != nil {
 		apiKey.ServiceAccountName = *input.ServiceAccountName
 	}
+	if input.ProjectGrants != nil {
+		apiKey.ProjectGrants = slices.Clone(*input.ProjectGrants)
+	}
 	if err := s.applyAPIKeyUpdateMetadata(ctx, apiKey); err != nil {
 		return nil, err
 	}
 
-	if err := auth.ValidateWorkspaceAccess(apiKey.Role, apiKey.WorkspaceAccess, nil); err != nil {
+	if err := validateAPIKeyAccess(apiKey.Role, apiKey.WorkspaceAccess, apiKey.ProjectGrants); err != nil {
 		return nil, err
 	}
 
@@ -845,6 +854,23 @@ func (s *Service) validateAPIKeyOwner(ctx context.Context, key *auth.APIKey) err
 		return ErrInvalidAPIKey
 	}
 	return nil
+}
+
+// validateAPIKeyAccess checks a key's role, workspace access, and project
+// grants. A key with project grants may have workspace access limited to no
+// workspace, which leaves it no server-wide role.
+func validateAPIKeyAccess(role auth.Role, workspaceAccess *auth.WorkspaceAccess, projectGrants []auth.ProjectGrant) error {
+	if err := auth.ValidateProjectGrants(projectGrants, nil); err != nil {
+		return err
+	}
+	access := auth.NormalizeWorkspaceAccess(workspaceAccess)
+	if len(projectGrants) > 0 && !access.All && len(access.Grants) == 0 {
+		if role != auth.RoleViewer {
+			return fmt.Errorf("%w: scoped workspace access requires global role viewer", auth.ErrInvalidWorkspaceAccess)
+		}
+		return nil
+	}
+	return auth.ValidateWorkspaceAccess(role, workspaceAccess, nil)
 }
 
 func validateAPIKeySurfaces(surfaces []auth.APIKeySurface) error {

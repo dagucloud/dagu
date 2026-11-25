@@ -71,6 +71,8 @@ type ConfigLoader struct {
 	trustedProxyGroupMappingsSet     bool
 	trustedProxyWorkspaceMappings    map[string][]TrustedProxyWorkspaceGrant
 	trustedProxyWorkspaceMappingsSet bool
+	trustedProxyProjectMappings      map[string][]ProjectMappingGrant
+	trustedProxyProjectMappingsSet   bool
 	legacySuspendFlagsDir            string
 	// legacySettings holds, by setting key, what Settings reports for a
 	// setting that Load filled from a deprecated key or variable.
@@ -414,9 +416,21 @@ func (l *ConfigLoader) Load() (*Config, error) {
 	if err := l.loadOIDCWorkspaceMappingsEnv(); err != nil {
 		return nil, err
 	}
+	// While projects are off, the project mapping variables are not read.
+	projects := l.v.GetBool(projectsSwitchKey)
+	if projects {
+		if err := l.loadOIDCProjectMappingsEnv(); err != nil {
+			return nil, err
+		}
+	}
 	if l.requires(SectionServer) {
 		if err := l.loadTrustedProxyMappingsEnv(); err != nil {
 			return nil, err
+		}
+		if projects {
+			if err := l.loadTrustedProxyProjectMappingsEnv(); err != nil {
+				return nil, err
+			}
 		}
 		if err := l.validateTrustedProxyConfigKeys(); err != nil {
 			return nil, err
@@ -535,6 +549,11 @@ func (l *ConfigLoader) buildConfig(def Definition) (*Config, error) {
 	cfg.Paths.Explicit = l.explicitPaths(cfg.Paths, def)
 	if err := l.finalizePaths(&cfg); err != nil {
 		return nil, err
+	}
+	if l.requires(SectionServer) {
+		if err := l.readProjectAccess(&cfg); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -979,6 +998,8 @@ func (l *ConfigLoader) loadOIDCRoleMapping(cfg *Config, rm *OIDCRoleMappingDef) 
 	if rm.SkipOrgRoleSync != nil {
 		cfg.Server.Auth.OIDC.RoleMapping.SkipOrgRoleSync = *rm.SkipOrgRoleSync
 	}
+	cfg.Server.Auth.OIDC.RoleMapping.ProjectMappings = rm.ProjectMappings
+	cfg.Server.Auth.OIDC.RoleMapping.DefaultProjectAccess = rm.DefaultProjectAccess
 }
 
 func (l *ConfigLoader) loadOIDCWorkspaceMappingsEnv() error {
@@ -1008,6 +1029,15 @@ func (l *ConfigLoader) loadOIDCWorkspaceMappingsEnv() error {
 		return fmt.Errorf("invalid %s JSON: expected a single object", envName)
 	}
 	l.v.Set(configKey, mappings)
+	return nil
+}
+
+func (l *ConfigLoader) loadOIDCProjectMappingsEnv() error {
+	mappings, exists, err := loadStrictJSONObjectEnv[[]ProjectMappingGrant]("AUTH_OIDC_PROJECT_MAPPINGS")
+	if err != nil || !exists {
+		return err
+	}
+	l.v.Set("auth.oidc.role_mapping.project_mappings", mappings)
 	return nil
 }
 
@@ -1054,6 +1084,10 @@ func (l *ConfigLoader) loadTrustedProxyAuth(cfg *Config, authDef *AuthDef) {
 	if roleMappingDef.SkipOrgRoleSync != nil {
 		roleMapping.SkipOrgRoleSync = *roleMappingDef.SkipOrgRoleSync
 	}
+	roleMapping.ProjectMappings = roleMappingDef.ProjectMappings
+	if roleMappingDef.DefaultProjectAccess != nil {
+		roleMapping.DefaultProjectAccess = *roleMappingDef.DefaultProjectAccess
+	}
 }
 
 func (l *ConfigLoader) loadTrustedProxyMappingsEnv() error {
@@ -1084,6 +1118,17 @@ func (l *ConfigLoader) loadTrustedProxyMappingsEnv() error {
 		l.trustedProxyWorkspaceMappingsSet = true
 		l.v.Set("auth.proxy.role_mapping.workspace_mappings", workspaceMappings)
 	}
+	return nil
+}
+
+func (l *ConfigLoader) loadTrustedProxyProjectMappingsEnv() error {
+	mappings, exists, err := loadStrictJSONObjectEnv[[]ProjectMappingGrant]("AUTH_PROXY_PROJECT_MAPPINGS")
+	if err != nil || !exists {
+		return err
+	}
+	l.trustedProxyProjectMappings = cloneProjectMappings(mappings)
+	l.trustedProxyProjectMappingsSet = true
+	l.v.Set("auth.proxy.role_mapping.project_mappings", mappings)
 	return nil
 }
 
@@ -1177,6 +1222,13 @@ func (l *ConfigLoader) mergeTrustedProxyMappingsFile(filename string) error {
 		}
 		l.trustedProxyWorkspaceMappingsSet = true
 	}
+	if roleMapping.ProjectMappings != nil {
+		if l.trustedProxyProjectMappings == nil {
+			l.trustedProxyProjectMappings = make(map[string][]ProjectMappingGrant, len(roleMapping.ProjectMappings))
+		}
+		maps.Copy(l.trustedProxyProjectMappings, cloneProjectMappings(roleMapping.ProjectMappings))
+		l.trustedProxyProjectMappingsSet = true
+	}
 	return nil
 }
 
@@ -1190,7 +1242,7 @@ func containsCaseVariantKey(fields map[string]yaml.Node, canonical string) bool 
 }
 
 func (l *ConfigLoader) applyTrustedProxyMappings(def *Definition) {
-	if !l.trustedProxyGroupMappingsSet && !l.trustedProxyWorkspaceMappingsSet {
+	if !l.trustedProxyGroupMappingsSet && !l.trustedProxyWorkspaceMappingsSet && !l.trustedProxyProjectMappingsSet {
 		return
 	}
 	if def.Auth == nil {
@@ -1209,6 +1261,9 @@ func (l *ConfigLoader) applyTrustedProxyMappings(def *Definition) {
 	}
 	if l.trustedProxyWorkspaceMappingsSet {
 		roleMapping.WorkspaceMappings = cloneTrustedProxyWorkspaceMappings(l.trustedProxyWorkspaceMappings)
+	}
+	if l.trustedProxyProjectMappingsSet {
+		roleMapping.ProjectMappings = cloneProjectMappings(l.trustedProxyProjectMappings)
 	}
 }
 
@@ -1400,6 +1455,7 @@ func (l *ConfigLoader) setTrustedProxyDefaults(cfg *Config) {
 	trustedProxy.AutoSignup = true
 	trustedProxy.RoleMapping.DefaultRole = "viewer"
 	trustedProxy.RoleMapping.DefaultWorkspaceAccess = TrustedProxyDefaultWorkspaceAccessNone
+	trustedProxy.RoleMapping.DefaultProjectAccess = projectAccessNone
 	trustedProxy.RoleMapping.RequireMapping = false
 	trustedProxy.RoleMapping.SkipOrgRoleSync = false
 }
@@ -2629,6 +2685,7 @@ var envBindings = []envBinding{
 	{key: "auth.oidc.role_mapping.groups_claim", env: "AUTH_OIDC_GROUPS_CLAIM"},
 	{key: "auth.oidc.role_mapping.group_mappings", env: "AUTH_OIDC_GROUP_MAPPINGS"},
 	{key: "auth.oidc.role_mapping.default_workspace_access", env: "AUTH_OIDC_DEFAULT_WORKSPACE_ACCESS"},
+	{key: "auth.oidc.role_mapping.default_project_access", env: "AUTH_OIDC_DEFAULT_PROJECT_ACCESS", projects: true},
 	{key: "auth.oidc.role_mapping.role_attribute_path", env: "AUTH_OIDC_ROLE_ATTRIBUTE_PATH"},
 	{key: "auth.oidc.role_mapping.role_attribute_strict", env: "AUTH_OIDC_ROLE_ATTRIBUTE_STRICT"},
 	{key: "auth.oidc.role_mapping.skip_org_role_sync", env: "AUTH_OIDC_SKIP_ORG_ROLE_SYNC"},
@@ -2641,6 +2698,7 @@ var envBindings = []envBinding{
 	{key: "auth.proxy.auto_signup", env: "AUTH_PROXY_AUTO_SIGNUP", requires: SectionServer},
 	{key: "auth.proxy.role_mapping.default_role", env: "AUTH_PROXY_DEFAULT_ROLE", requires: SectionServer},
 	{key: "auth.proxy.role_mapping.default_workspace_access", env: "AUTH_PROXY_DEFAULT_WORKSPACE_ACCESS", requires: SectionServer},
+	{key: "auth.proxy.role_mapping.default_project_access", env: "AUTH_PROXY_DEFAULT_PROJECT_ACCESS", requires: SectionServer, projects: true},
 	{key: "auth.proxy.role_mapping.require_mapping", env: "AUTH_PROXY_REQUIRE_MAPPING", requires: SectionServer},
 	{key: "auth.proxy.role_mapping.skip_org_role_sync", env: "AUTH_PROXY_SKIP_ORG_ROLE_SYNC", requires: SectionServer},
 	// Auth (builtin)

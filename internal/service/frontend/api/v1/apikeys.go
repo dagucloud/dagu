@@ -19,12 +19,13 @@ import (
 // unlocks paid features, which includes the free plan.
 const communityAPIKeyLimit = 2
 
-// ListAPIKeys returns a list of all API keys. Requires admin role.
+// ListAPIKeys returns the API keys the caller manages (see apiKeyManager).
 func (a *API) ListAPIKeys(ctx context.Context, _ api.ListAPIKeysRequestObject) (api.ListAPIKeysResponseObject, error) {
 	if err := a.requireAPIKeyManagement(); err != nil {
 		return nil, err
 	}
-	if err := a.requireAdmin(ctx); err != nil {
+	manager, err := a.apiKeyManager(ctx)
+	if err != nil {
 		return nil, err
 	}
 
@@ -33,17 +34,24 @@ func (a *API) ListAPIKeys(ctx context.Context, _ api.ListAPIKeysRequestObject) (
 		return nil, err
 	}
 
+	apiKeys := make([]api.APIKey, 0, len(keys))
+	for _, key := range keys {
+		if manager.manages(key) {
+			apiKeys = append(apiKeys, manager.toAPIKey(key))
+		}
+	}
 	return api.ListAPIKeys200JSONResponse{
-		ApiKeys: toAPIKeys(keys),
+		ApiKeys: apiKeys,
 	}, nil
 }
 
-// CreateAPIKey creates a new API key. Requires admin role.
+// CreateAPIKey creates a new API key the caller manages (see apiKeyManager).
 func (a *API) CreateAPIKey(ctx context.Context, request api.CreateAPIKeyRequestObject) (api.CreateAPIKeyResponseObject, error) {
 	if err := a.requireAPIKeyManagement(); err != nil {
 		return nil, err
 	}
-	if err := a.requireAdmin(ctx); err != nil {
+	manager, err := a.apiKeyManager(ctx)
+	if err != nil {
 		return nil, err
 	}
 
@@ -63,7 +71,13 @@ func (a *API) CreateAPIKey(ctx context.Context, request api.CreateAPIKeyRequestO
 			HTTPStatus: http.StatusBadRequest,
 		}
 	}
-	workspaceAccess, err := a.parseAndValidateWorkspaceAccess(ctx, role, request.Body.WorkspaceAccess)
+	var projectGrants []auth.ProjectGrant
+	if manager.projectsOn && request.Body.ProjectGrants != nil {
+		if projectGrants, err = manager.projectGrants(*request.Body.ProjectGrants); err != nil {
+			return nil, err
+		}
+	}
+	workspaceAccess, err := a.parseAPIKeyWorkspaceAccess(ctx, role, request.Body.WorkspaceAccess, len(projectGrants) > 0)
 	if err != nil {
 		return nil, err
 	}
@@ -85,9 +99,17 @@ func (a *API) CreateAPIKey(ctx context.Context, request api.CreateAPIKeyRequestO
 			HTTPStatus: http.StatusUnauthorized,
 		}
 	}
+	if !manager.manages(&auth.APIKey{
+		WorkspaceAccess:  workspaceAccess,
+		ProjectGrants:    projectGrants,
+		AttributionClass: attributionClass,
+		OwnerUserID:      valueOf(request.Body.OwnerUserId),
+	}) {
+		return nil, errAPIKeyNeedsAdmin
+	}
 
-	a.apiKeyCreateMu.Lock()
-	defer a.apiKeyCreateMu.Unlock()
+	a.apiKeyWriteMu.Lock()
+	defer a.apiKeyWriteMu.Unlock()
 
 	if err := a.requireCommunityAPIKeyLimit(ctx); err != nil {
 		return nil, err
@@ -102,6 +124,7 @@ func (a *API) CreateAPIKey(ctx context.Context, request api.CreateAPIKeyRequestO
 		AttributionClass:   attributionClass,
 		OwnerUserID:        valueOf(request.Body.OwnerUserId),
 		ServiceAccountName: valueOf(request.Body.ServiceAccountName),
+		ProjectGrants:      projectGrants,
 	}, currentUser.ID)
 	if err != nil {
 		if errors.Is(err, auth.ErrAPIKeyAlreadyExists) {
@@ -121,6 +144,9 @@ func (a *API) CreateAPIKey(ctx context.Context, request api.CreateAPIKeyRequestO
 		if errors.Is(err, auth.ErrInvalidWorkspaceAccess) {
 			return nil, badWorkspaceAccessError(err.Error())
 		}
+		if errors.Is(err, auth.ErrInvalidProjectGrant) {
+			return nil, badProjectGrantError(err.Error())
+		}
 		if errors.Is(err, auth.ErrInvalidAPIKeySurface) {
 			return nil, invalidAPIKeySurfaceError()
 		}
@@ -130,52 +156,53 @@ func (a *API) CreateAPIKey(ctx context.Context, request api.CreateAPIKeyRequestO
 		return nil, err
 	}
 
-	a.logAudit(ctx, audit.CategoryAPIKey, "api_key_create", map[string]any{
+	createDetails := map[string]any{
 		"key_id":            result.APIKey.ID,
 		"key_name":          result.APIKey.Name,
 		"role":              string(result.APIKey.Role),
 		"allowed_surfaces":  auth.APIKeySurfaceStrings(result.APIKey.AllowedSurfaces),
 		"attribution_class": string(result.APIKey.AttributionClass),
-	})
+	}
+	if len(projectGrants) > 0 {
+		createDetails["project_grants"] = projectGrants
+	}
+	a.logAudit(ctx, audit.CategoryAPIKey, "api_key_create", createDetails)
 
 	return api.CreateAPIKey201JSONResponse{
-		ApiKey: toAPIKey(result.APIKey),
+		ApiKey: manager.toAPIKey(result.APIKey),
 		Key:    result.FullKey,
 	}, nil
 }
 
-// GetAPIKey returns a specific API key by ID. Requires admin role.
+// GetAPIKey returns an API key the caller manages (see apiKeyManager). Any
+// other key is not found.
 func (a *API) GetAPIKey(ctx context.Context, request api.GetAPIKeyRequestObject) (api.GetAPIKeyResponseObject, error) {
 	if err := a.requireAPIKeyManagement(); err != nil {
 		return nil, err
 	}
-	if err := a.requireAdmin(ctx); err != nil {
+	manager, err := a.apiKeyManager(ctx)
+	if err != nil {
 		return nil, err
 	}
 
-	key, err := a.authService.GetAPIKey(ctx, request.KeyId)
+	key, err := a.managedAPIKey(ctx, manager, request.KeyId)
 	if err != nil {
-		if errors.Is(err, auth.ErrAPIKeyNotFound) {
-			return nil, &Error{
-				Code:       api.ErrorCodeNotFound,
-				Message:    "API key not found",
-				HTTPStatus: http.StatusNotFound,
-			}
-		}
 		return nil, err
 	}
 
 	return api.GetAPIKey200JSONResponse{
-		ApiKey: toAPIKey(key),
+		ApiKey: manager.toAPIKey(key),
 	}, nil
 }
 
-// UpdateAPIKey updates an API key's information. Requires admin role.
+// UpdateAPIKey updates an API key the caller manages, which it must still
+// manage after the update (see apiKeyManager).
 func (a *API) UpdateAPIKey(ctx context.Context, request api.UpdateAPIKeyRequestObject) (api.UpdateAPIKeyResponseObject, error) {
 	if err := a.requireAPIKeyManagement(); err != nil {
 		return nil, err
 	}
-	if err := a.requireAdmin(ctx); err != nil {
+	manager, err := a.apiKeyManager(ctx)
+	if err != nil {
 		return nil, err
 	}
 
@@ -184,6 +211,18 @@ func (a *API) UpdateAPIKey(ctx context.Context, request api.UpdateAPIKeyRequestO
 			Code:       api.ErrorCodeBadRequest,
 			Message:    "Invalid request body",
 			HTTPStatus: http.StatusBadRequest,
+		}
+	}
+
+	// While projects are on, the key's current grants decide who may change
+	// it and how its workspace access is checked. The lock keeps the key as
+	// read here until the update writes it.
+	a.apiKeyWriteMu.Lock()
+	defer a.apiKeyWriteMu.Unlock()
+	var currentKey *auth.APIKey
+	if manager.projectsOn {
+		if currentKey, err = a.managedAPIKey(ctx, manager, request.KeyId); err != nil {
+			return nil, err
 		}
 	}
 
@@ -205,25 +244,30 @@ func (a *API) UpdateAPIKey(ctx context.Context, request api.UpdateAPIKeyRequestO
 		}
 		input.Role = &role
 	}
+	if manager.projectsOn && request.Body.ProjectGrants != nil {
+		projectGrants, err := manager.projectGrants(*request.Body.ProjectGrants)
+		if err != nil {
+			return nil, err
+		}
+		input.ProjectGrants = &projectGrants
+	}
 	if request.Body.WorkspaceAccess != nil {
 		var roleForAccess auth.Role
 		if input.Role != nil {
 			roleForAccess = *input.Role
 		} else {
-			currentKey, err := a.authService.GetAPIKey(ctx, request.KeyId)
-			if err != nil {
-				if errors.Is(err, auth.ErrAPIKeyNotFound) {
-					return nil, &Error{
-						Code:       api.ErrorCodeNotFound,
-						Message:    "API key not found",
-						HTTPStatus: http.StatusNotFound,
-					}
+			if currentKey == nil {
+				if currentKey, err = a.managedAPIKey(ctx, manager, request.KeyId); err != nil {
+					return nil, err
 				}
-				return nil, err
 			}
 			roleForAccess = currentKey.Role
 		}
-		workspaceAccess, err := a.parseAndValidateWorkspaceAccess(ctx, roleForAccess, request.Body.WorkspaceAccess)
+		hasProjectGrants := currentKey != nil && len(currentKey.ProjectGrants) > 0
+		if input.ProjectGrants != nil {
+			hasProjectGrants = len(*input.ProjectGrants) > 0
+		}
+		workspaceAccess, err := a.parseAPIKeyWorkspaceAccess(ctx, roleForAccess, request.Body.WorkspaceAccess, hasProjectGrants)
 		if err != nil {
 			return nil, err
 		}
@@ -245,6 +289,24 @@ func (a *API) UpdateAPIKey(ctx context.Context, request api.UpdateAPIKeyRequestO
 	}
 	if request.Body.ServiceAccountName != nil {
 		input.ServiceAccountName = request.Body.ServiceAccountName
+	}
+	if !manager.admin {
+		updated := *currentKey
+		if input.WorkspaceAccess != nil {
+			updated.WorkspaceAccess = input.WorkspaceAccess
+		}
+		if input.ProjectGrants != nil {
+			updated.ProjectGrants = *input.ProjectGrants
+		}
+		if input.AttributionClass != nil {
+			updated.AttributionClass = *input.AttributionClass
+		}
+		if input.OwnerUserID != nil {
+			updated.OwnerUserID = *input.OwnerUserID
+		}
+		if !manager.manages(&updated) {
+			return nil, errAPIKeyNeedsAdmin
+		}
 	}
 
 	key, err := a.authService.UpdateAPIKey(ctx, request.KeyId, input)
@@ -272,6 +334,9 @@ func (a *API) UpdateAPIKey(ctx context.Context, request api.UpdateAPIKeyRequestO
 		}
 		if errors.Is(err, auth.ErrInvalidWorkspaceAccess) {
 			return nil, badWorkspaceAccessError(err.Error())
+		}
+		if errors.Is(err, auth.ErrInvalidProjectGrant) {
+			return nil, badProjectGrantError(err.Error())
 		}
 		if errors.Is(err, auth.ErrInvalidAPIKeySurface) {
 			return nil, invalidAPIKeySurfaceError()
@@ -307,26 +372,36 @@ func (a *API) UpdateAPIKey(ctx context.Context, request api.UpdateAPIKeyRequestO
 	if input.ServiceAccountName != nil {
 		updateDetails["service_account_name"] = *input.ServiceAccountName
 	}
+	if input.ProjectGrants != nil {
+		updateDetails["project_grants"] = *input.ProjectGrants
+	}
 	a.logAudit(ctx, audit.CategoryAPIKey, "api_key_update", updateDetails)
 
 	return api.UpdateAPIKey200JSONResponse{
-		ApiKey: toAPIKey(key),
+		ApiKey: manager.toAPIKey(key),
 	}, nil
 }
 
-// DeleteAPIKey deletes an API key. Requires admin role.
+// DeleteAPIKey deletes an API key the caller manages (see apiKeyManager).
 func (a *API) DeleteAPIKey(ctx context.Context, request api.DeleteAPIKeyRequestObject) (api.DeleteAPIKeyResponseObject, error) {
 	if err := a.requireAPIKeyManagement(); err != nil {
 		return nil, err
 	}
-	if err := a.requireAdmin(ctx); err != nil {
+	manager, err := a.apiKeyManager(ctx)
+	if err != nil {
 		return nil, err
 	}
 
+	a.apiKeyWriteMu.Lock()
+	defer a.apiKeyWriteMu.Unlock()
+
 	// Get API key info before deletion for audit logging
 	targetKey, _ := a.authService.GetAPIKey(ctx, request.KeyId)
+	if !manager.admin && (targetKey == nil || !manager.manages(targetKey)) {
+		return nil, apiKeyNotFoundError()
+	}
 
-	err := a.authService.DeleteAPIKey(ctx, request.KeyId)
+	err = a.authService.DeleteAPIKey(ctx, request.KeyId)
 	if err != nil {
 		if errors.Is(err, auth.ErrAPIKeyNotFound) {
 			return nil, &Error{
@@ -345,6 +420,22 @@ func (a *API) DeleteAPIKey(ctx context.Context, request api.DeleteAPIKeyRequestO
 	a.logAudit(ctx, audit.CategoryAPIKey, "api_key_delete", deleteDetails)
 
 	return api.DeleteAPIKey204Response{}, nil
+}
+
+// managedAPIKey returns the key with the given ID when the caller manages it,
+// and the not-found error of a missing key otherwise.
+func (a *API) managedAPIKey(ctx context.Context, manager *apiKeyManager, id string) (*auth.APIKey, error) {
+	key, err := a.authService.GetAPIKey(ctx, id)
+	if errors.Is(err, auth.ErrAPIKeyNotFound) {
+		return nil, apiKeyNotFoundError()
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !manager.manages(key) {
+		return nil, apiKeyNotFoundError()
+	}
+	return key, nil
 }
 
 // requireAPIKeyManagement checks if API key management is enabled.
@@ -450,13 +541,4 @@ func toAPIAPIKeySurfaces(surfaces []auth.APIKeySurface) []api.APIKeyAllowedSurfa
 		out = append(out, api.APIKeyAllowedSurfaces(surface))
 	}
 	return out
-}
-
-// toAPIKeys converts a slice of core auth.APIKey into their API representations.
-func toAPIKeys(keys []*auth.APIKey) []api.APIKey {
-	result := make([]api.APIKey, len(keys))
-	for i, k := range keys {
-		result[i] = toAPIKey(k)
-	}
-	return result
 }

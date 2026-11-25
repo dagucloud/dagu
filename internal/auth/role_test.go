@@ -95,6 +95,28 @@ func TestRole_IsAdmin(t *testing.T) {
 	}
 }
 
+func TestRole_Outranks(t *testing.T) {
+	ordered := []Role{RoleAdmin, RoleManager, RoleDeveloper, RoleOperator, RoleViewer}
+	for i, higher := range ordered {
+		for _, lower := range ordered[i+1:] {
+			if !higher.Outranks(lower) || lower.Outranks(higher) {
+				t.Errorf("%q must outrank %q", higher, lower)
+			}
+		}
+		if higher.Outranks(higher) {
+			t.Errorf("%q must not outrank itself", higher)
+		}
+		for _, unranked := range []Role{RoleNone, Role("custom")} {
+			if !higher.Outranks(unranked) || unranked.Outranks(higher) {
+				t.Errorf("%q must outrank %q", higher, unranked)
+			}
+		}
+	}
+	if Role("custom").Outranks(RoleNone) || RoleNone.Outranks(Role("custom")) {
+		t.Error("RoleNone and an unknown role must rank equal")
+	}
+}
+
 func TestRole_CanManageAudit(t *testing.T) {
 	tests := []struct {
 		role           Role

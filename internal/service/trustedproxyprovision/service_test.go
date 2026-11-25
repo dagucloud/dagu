@@ -425,6 +425,7 @@ func (f failingAuthorizationSyncStore) SyncAuthorization(
 	string,
 	auth.Role,
 	*auth.WorkspaceAccess,
+	*[]auth.ProjectGrant,
 ) (auth.AuthorizationSyncResult, error) {
 	return auth.AuthorizationSyncResult{}, errors.New("write failed")
 }
@@ -457,6 +458,7 @@ func (s *disableBeforeAuthorizationSyncStore) SyncAuthorization(
 	id string,
 	role auth.Role,
 	workspaceAccess *auth.WorkspaceAccess,
+	projectGrants *[]auth.ProjectGrant,
 ) (auth.AuthorizationSyncResult, error) {
 	var disableErr error
 	s.once.Do(func() {
@@ -471,7 +473,7 @@ func (s *disableBeforeAuthorizationSyncStore) SyncAuthorization(
 	if disableErr != nil {
 		return auth.AuthorizationSyncResult{}, disableErr
 	}
-	return s.AuthorizationSyncUserStore.SyncAuthorization(ctx, id, role, workspaceAccess)
+	return s.AuthorizationSyncUserStore.SyncAuthorization(ctx, id, role, workspaceAccess, projectGrants)
 }
 
 func TestProcessLoginPreservesConcurrentDisable(t *testing.T) {
