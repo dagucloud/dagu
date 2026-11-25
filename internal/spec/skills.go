@@ -3,6 +3,6 @@
 
 package spec
 
-// SkillsDirName is the name of the directory, next to the DAG files, that
-// holds the skill folders.
+// SkillsDirName is the name of the directory, at the root of a DAG
+// directory, that holds the skill folders. DAG discovery does not enter it.
 const SkillsDirName = "skills"
