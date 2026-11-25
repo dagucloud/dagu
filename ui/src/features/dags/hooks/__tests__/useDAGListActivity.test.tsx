@@ -152,6 +152,25 @@ describe('useDAGListActivity', () => {
     });
   });
 
+  // Long names fill the 8 KiB request line that common proxies accept before
+  // 100 of them do.
+  it('keeps each request line under 8 KiB with long names', async () => {
+    const names = Array.from(
+      { length: 120 },
+      (_, index) => `${'n'.repeat(96)}-${String(index).padStart(3, '0')}`
+    );
+    const { result } = renderActivity(names);
+
+    await waitFor(() => expect(result.current?.size).toBe(120));
+    expect(requested().flat()).toEqual(names);
+    for (const batch of requested()) {
+      const query = new URLSearchParams(
+        batch.map((name) => ['fileName', name])
+      ).toString();
+      expect(query.length).toBeLessThan(8 * 1024);
+    }
+  });
+
   // A filter, a sort or a later page changes the rows: the rows that stay
   // keep the activity they have.
   it('reads only the workflows it does not hold', async () => {

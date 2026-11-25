@@ -19,6 +19,11 @@ type Client = ReturnType<typeof useClient>;
 /** The most DAGs that one activity request names, as the server allows. */
 const NAMES_PER_READ = 100;
 /**
+ * The most bytes of names in one activity request, so that long names keep
+ * the request line under the 8 KiB that common proxies accept.
+ */
+const NAME_BYTES_PER_READ = 6_000;
+/**
  * The most activity requests in flight, so that a long list leaves the other
  * requests of the page a connection.
  */
@@ -126,7 +131,7 @@ export function useDAGListActivity(
     if (!live || !signal || state.reading.size > 0 || state.retryAt !== null) {
       return;
     }
-    const batches = chunk(namesToRead(state, fileNames), NAMES_PER_READ).slice(
+    const batches = readBatches(namesToRead(state, fileNames)).slice(
       0,
       READS_AT_ONCE
     );
@@ -382,10 +387,29 @@ function shownActivity(
   return shown;
 }
 
-function chunk<T>(items: readonly T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    chunks.push(items.slice(i, i + size));
+/**
+ * The names of each activity request: at most NAMES_PER_READ names and
+ * NAME_BYTES_PER_READ bytes of them. A longer name goes alone.
+ */
+function readBatches(names: readonly string[]): string[][] {
+  const batches: string[][] = [];
+  let batch: string[] = [];
+  let bytes = 0;
+  for (const name of names) {
+    const size = '&fileName='.length + encodeURIComponent(name).length;
+    if (
+      batch.length > 0 &&
+      (batch.length === NAMES_PER_READ || bytes + size > NAME_BYTES_PER_READ)
+    ) {
+      batches.push(batch);
+      batch = [];
+      bytes = 0;
+    }
+    batch.push(name);
+    bytes += size;
   }
-  return chunks;
+  if (batch.length > 0) {
+    batches.push(batch);
+  }
+  return batches;
 }
