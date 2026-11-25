@@ -4,7 +4,7 @@
 
 Partially implemented.
 
-DAG discovery skips the skills directory, as [Terms](#terms) states. A unit test and a conformance
+DAG discovery skips the skills directory, as [Terms](#terms) states. Unit tests and a conformance
 test cover it. The format, the folder rules, the files and the hash, the API and the ZIP download are
 specified but not built yet.
 
@@ -50,8 +50,9 @@ The skills directory is the directory `skills` at the root of the DAGs directory
 and writes the skills there.
 
 DAG discovery never enters the directory `skills` at the root of a directory that it scans for DAG
-files, also when it is recursive. The DAG list and the scheduler never include a file below it. A
-directory `skills` deeper in the tree is an ordinary directory for discovery.
+files, also when it is recursive. On a file system that ignores case, this is also a directory
+spelled `Skills`, because the path `skills` names it. The DAG list and the scheduler never include a
+file below it. A directory `skills` deeper in the tree is an ordinary directory for discovery.
 
 A refused skill is a skill that breaks one rule of an error in this spec. Dagu never loads a
 refused skill. The API lists it with the state ERROR.
@@ -436,6 +437,7 @@ The binary-level tests are in `conformance/spec096_skills/`. The unit tests are 
 | --- | --- |
 | `TestRecursiveDiscoverySkipsTheSkillsDirectory` | With recursive discovery, `dagu ls` lists no DAG file below `skills/` at the root of the DAGs directory, and lists the DAG files of a `skills` directory deeper in the tree. |
 | `TestDiscoverRecursiveSkipsSkillsDir` (unit) | Discovery neither lists nor returns for watching anything below `skills/` at the root, and reads a `skills` directory deeper in the tree. |
+| `TestDiscoverRecursiveSkipsSkillsDirInOtherCase` (unit) | On a file system that ignores case, discovery also skips a root directory spelled `Skills`. Where case matters, it reads it. |
 
 The format, the folder rules, the hash, the API and the ZIP download have no test yet.
 
