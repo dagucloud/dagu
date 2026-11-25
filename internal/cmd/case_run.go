@@ -547,11 +547,12 @@ func (c *testCase) close() error {
 func (c *Context) inCaseDir(dir string) (*Context, error) {
 	cfg := *c.Config
 	cfg.Paths = casePaths(c.Config.Paths, dir)
-	backend := file.NewBackend(cfg.Paths)
-	persistence, err := newFilePersistence(c.Context, &cfg, backend, filePersistenceOptions{})
+	server := file.NewServerStores(&cfg)
+	stores, err := openDefaultProject(c.Context, &cfg, server, file.ProjectStoreOptions{})
 	if err != nil {
 		return nil, err
 	}
+	persistence := newPersistence(server, stores)
 
 	clone := *c
 	clone.Context = config.WithConfig(c.Context, &cfg)
@@ -560,7 +561,10 @@ func (c *Context) inCaseDir(dir string) (*Context, error) {
 	clone.Quiet = true
 	clone.Persistence = persistence
 	clone.DAGRunMgr = runtime.NewManager(persistence.DAGRunRepository, persistence.ProcRepository, &cfg)
-	clone.backend = backend
+	clone.backend = file.NewBackend(cfg.Paths)
+	clone.serverStores = server
+	clone.projectStores = stores
+	clone.settings = stores.ProjectSettings
 	clone.Caches = nil
 	clone.Proc = nil
 	if c.event == nil {

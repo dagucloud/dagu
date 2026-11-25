@@ -109,6 +109,7 @@ func runCoordinator(ctx *Context, _ []string) error {
 	if err := svc.Start(coordCtx); err != nil {
 		return fmt.Errorf("failed to start coordinator: %w", err)
 	}
+	coordCtx.followProjects(coordCtx)
 
 	// Wait for context cancellation
 	<-coordCtx.Done()

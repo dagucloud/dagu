@@ -10,17 +10,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/agentsession"
 	"github.com/dagucloud/dagu/v2/internal/backfill"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
-	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
-	fileartifact "github.com/dagucloud/dagu/v2/internal/persis/file/artifact"
-	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
-	"github.com/dagucloud/dagu/v2/internal/persis/store"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/queue"
-	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/schedulerstate"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 )
@@ -47,98 +43,62 @@ type Persistence struct {
 	BackfillStore             backfill.Store
 }
 
-type filePersistenceOptions struct {
-	DAGCache            *fileutil.Cache[*ir.DAG]
-	DAGRunStatusCache   *fileutil.Cache[*ir.DAGRunStatus]
-	ArtifactRecordCache *fileutil.Cache[*fileartifact.Record]
-}
-
-func newFilePersistence(
+// openDefaultProject opens the default project's stores.
+func openDefaultProject(
 	ctx context.Context,
 	cfg *config.Config,
-	backend persis.Backend,
-	opts filePersistenceOptions,
-) (Persistence, error) {
-	procRepository := file.NewProcRepository(cfg)
-	if err := procRepository.Validate(ctx); err != nil {
-		return Persistence{}, fmt.Errorf("failed to validate proc directory %s: %w", cfg.Paths.ProcDir, err)
-	}
-
-	cleanupQueue := agentsession.NewCleanupQueue(
-		backend.Collection(persis.CollectionAgentSessionCleanups),
-	)
-	var dagRunOpts []file.DAGRunRepositoryOption
-	if opts.DAGRunStatusCache != nil {
-		dagRunOpts = append(dagRunOpts, file.WithDAGRunHistoryFileCache(opts.DAGRunStatusCache))
-	}
-	dagRunOpts = append(dagRunOpts, file.WithDAGRunRemovalEnqueuer(cleanupQueue))
-	dagRunRepository := file.NewDAGRunRepository(cfg, dagRunOpts...)
-
-	var artifactOpts []file.ArtifactRepositoryOption
-	if opts.ArtifactRecordCache != nil {
-		artifactOpts = append(artifactOpts, file.WithArtifactRecordCache(opts.ArtifactRecordCache))
-	}
-	artifactRepository := file.NewArtifactRepository(cfg, artifactOpts...)
-
-	dagRunLeaseStore := store.NewDAGRunLeaseStore(
-		backend.Collection(persis.CollectionDAGRunLeases),
-	)
-	activeDistributedRunStore := store.NewActiveDistributedRunStore(
-		backend.Collection(persis.CollectionActiveDistributedRuns),
-	)
-	queueStore := store.NewQueueStore(backend.Collection(persis.CollectionQueue))
-	stateStore := store.NewDAGStateStore(backend.Collection(persis.CollectionDAGState))
-	schedulerStateStore := store.NewSchedulerStateStore(
-		backend.Collection(persis.CollectionSchedulerState),
-	)
-	schedulerPauseStore := store.NewSchedulerPauseStore(
-		backend.Collection(persis.CollectionSchedulerProcess),
-	)
-	restartBackoffStore := store.NewRestartBackoffStore(
-		backend.Collection(persis.CollectionSchedulerProcess),
-	)
-	periodStore := store.NewPeriodStore(
-		backend.Collection(persis.CollectionSchedulerState),
-		backend.Collection(persis.CollectionSchedulerProcess),
-		schedulerPauseStore,
-	)
-	watchStateStore := store.NewWatchStateStore(backend.Collection(persis.CollectionWatchState))
-	serviceRegistry := file.NewServiceRegistry(cfg)
-	bundleStore := workspacebundle.NewStore(
-		workspacebundle.StoreDir(cfg.Paths.DataDir),
-		workspacebundle.DefaultLimits(),
-	)
-	dispatchTaskStore := store.NewDispatchTaskStore(
-		backend.Collection(persis.CollectionDispatchTasks),
-		store.WithDispatchAdmissionLiveness(dagRunLeaseStore, activeDistributedRunStore),
-		store.WithDispatchTransitionLock(bundleStore.WithLock),
-	)
-	workerHeartbeatStore := store.NewWorkerHeartbeatStore(
-		backend.Collection(persis.CollectionWorkerHeartbeats),
-	)
-	dagRepository, err := newDAGRepository(cfg, dagRepositoryConfig{Cache: opts.DAGCache})
+	server *file.ServerStores,
+	opts file.ProjectStoreOptions,
+) (*file.ProjectStores, error) {
+	stores, err := file.NewProjectStores(ctx, cfg, server, project.Project{Name: project.DefaultName}, opts)
 	if err != nil {
-		return Persistence{}, fmt.Errorf("failed to create DAG store: %w", err)
+		return nil, fmt.Errorf("failed to open the stores of the default project: %w", err)
 	}
+	if err := stores.ProcRepository.Validate(ctx); err != nil {
+		return nil, fmt.Errorf("failed to validate proc directory %s: %w", stores.Paths.ProcDir, err)
+	}
+	return stores, nil
+}
 
+// followProjects keeps the stores of every registered project open, and
+// records the projects it releases, until ctx ends. It does nothing while
+// projects are off, since the default project is then the only one.
+func (c *Context) followProjects(ctx context.Context) {
+	if !c.Config.ProjectsEnabled {
+		return
+	}
+	cache := file.NewProjectStoreCache(
+		projectregistry.New(c.Config.Paths.DataDir),
+		c.projectStores,
+		func(ctx context.Context, p project.Project) (*file.ProjectStores, error) {
+			return file.NewProjectStores(ctx, c.Config, c.serverStores, p, c.storeOptions)
+		},
+		c.serverStores.ProjectReleases,
+	)
+	go cache.Run(ctx)
+}
+
+// newPersistence gathers the stores that commands and services use from
+// the server-wide stores and one project's stores.
+func newPersistence(server *file.ServerStores, stores *file.ProjectStores) Persistence {
 	return Persistence{
-		DAGRepository:             dagRepository,
-		DAGRunRepository:          dagRunRepository,
-		ArtifactRepository:        artifactRepository,
-		ProcRepository:            procRepository,
-		QueueStore:                queueStore,
-		StateStore:                stateStore,
-		SchedulerStateStore:       schedulerStateStore,
-		SchedulerPauseStore:       schedulerPauseStore,
-		RestartBackoffStore:       restartBackoffStore,
-		PeriodStore:               periodStore,
-		WatchStateStore:           watchStateStore,
-		ServiceRegistry:           serviceRegistry,
-		DispatchTaskStore:         dispatchTaskStore,
-		WorkerHeartbeatStore:      workerHeartbeatStore,
-		DAGRunLeaseStore:          dagRunLeaseStore,
-		ActiveDistributedRunStore: activeDistributedRunStore,
-		AgentSessionCleanupQueue:  cleanupQueue,
-		BackfillStore:             filebackfill.New(filebackfill.Dir(cfg.Paths.DataDir)),
-	}, nil
+		DAGRepository:             stores.DAGRepository,
+		DAGRunRepository:          stores.DAGRunRepository,
+		ArtifactRepository:        stores.ArtifactRepository,
+		ProcRepository:            stores.ProcRepository,
+		QueueStore:                stores.QueueStore,
+		StateStore:                stores.StateStore,
+		SchedulerStateStore:       stores.SchedulerStateStore,
+		SchedulerPauseStore:       server.SchedulerPauseStore,
+		RestartBackoffStore:       server.RestartBackoffStore,
+		PeriodStore:               stores.PeriodStore,
+		WatchStateStore:           stores.WatchStateStore,
+		ServiceRegistry:           server.ServiceRegistry,
+		DispatchTaskStore:         server.DispatchTaskStore,
+		WorkerHeartbeatStore:      server.WorkerHeartbeatStore,
+		DAGRunLeaseStore:          server.DAGRunLeaseStore,
+		ActiveDistributedRunStore: server.ActiveDistributedRunStore,
+		AgentSessionCleanupQueue:  stores.AgentSessionCleanupQueue,
+		BackfillStore:             stores.BackfillStore,
+	}
 }
