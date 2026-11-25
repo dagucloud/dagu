@@ -15,19 +15,36 @@ export const ACTIVITY_COLUMN_MIN_WIDTH = 1100;
 /** The xl breakpoint of Tailwind, from which the page shows the column. */
 const ACTIVITY_COLUMN_QUERY = '(min-width: 1280px)';
 
+/** Where the Workflows list shows the activity of its rows. */
+export interface ActivityPlacement {
+  /** The cards show, each with its strip. */
+  cards: boolean;
+  /** The table shows, with its Activity column. */
+  column: boolean;
+}
+
 /**
- * Whether the Workflows list shows the activity of its rows: in the cards, or
- * in the Activity column of the table. A table too narrow for the column
- * shows no activity at all.
+ * Where the Workflows list shows the activity of its rows: in the cards, in
+ * the Activity column of the table, or nowhere when the table is too narrow
+ * for the column.
  */
-export function useListShowsActivity(): boolean {
+export function useActivityPlacement(): ActivityPlacement {
   const panelWidth = useContext(PanelWidthContext);
   const phone = !useMediaQuery(WIDE_QUERY, true);
   const columnFits = useMediaQuery(ACTIVITY_COLUMN_QUERY, true);
   // A phone shows the cards at any width of the panel.
-  if (phone) return true;
-  return panelWidth === null
-    ? columnFits
-    : panelWidth < CARD_VIEW_THRESHOLD ||
-        panelWidth >= ACTIVITY_COLUMN_MIN_WIDTH;
+  const cards =
+    phone || (panelWidth !== null && panelWidth < CARD_VIEW_THRESHOLD);
+  const column =
+    !cards &&
+    (panelWidth === null
+      ? columnFits
+      : panelWidth >= ACTIVITY_COLUMN_MIN_WIDTH);
+  return { cards, column };
+}
+
+/** Whether the Workflows list shows the activity of its rows at all. */
+export function useListShowsActivity(): boolean {
+  const { cards, column } = useActivityPlacement();
+  return cards || column;
 }

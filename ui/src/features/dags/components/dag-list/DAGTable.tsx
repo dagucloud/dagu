@@ -114,6 +114,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import {
   ACTIVITY_COLUMN_MIN_WIDTH,
   CARD_VIEW_THRESHOLD,
+  useActivityPlacement,
 } from './activityVisibility';
 
 /**
@@ -1262,6 +1263,11 @@ function DAGTable({
   );
   const openRun = (fileName: string, run: string, event: React.MouseEvent) =>
     peekOrOpen({ dag: fileName, run }, event);
+  // The view off screen stays in the DOM, hidden: only the view on screen
+  // draws strips.
+  const placement = useActivityPlacement();
+  const rowActivity = placement.column ? activity : undefined;
+  const cardActivity = placement.cards ? activity : undefined;
   const [deleteTargets, setDeleteTargets] = useState<
     components['schemas']['DAGFile'][] | null
   >(null);
@@ -1674,7 +1680,7 @@ function DAGTable({
       showGroupPrefix: !groupByGroup,
       onOpenRun: openRun,
       services,
-      activity,
+      activity: rowActivity,
     },
   });
   // The peek steps through the workflows that the table shows, in their
@@ -2196,7 +2202,7 @@ function DAGTable({
                               onTogglePin={(dag) => void togglePin(dag)}
                               isShown={isShown({ dag: dagRow.dag.fileName })}
                               service={services.get(dagRow.dag.fileName)}
-                              activity={activity?.get(dagRow.dag.fileName)}
+                              activity={cardActivity?.get(dagRow.dag.fileName)}
                               className="ml-2"
                             />
                           );
@@ -2242,7 +2248,7 @@ function DAGTable({
                     onTogglePin={(dag) => void togglePin(dag)}
                     isShown={isShown({ dag: dagRow.dag.fileName })}
                     service={services.get(dagRow.dag.fileName)}
-                    activity={activity?.get(dagRow.dag.fileName)}
+                    activity={cardActivity?.get(dagRow.dag.fileName)}
                     showGroup={!groupByGroup}
                   />
                   {endsPinnedSection && (

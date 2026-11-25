@@ -60,7 +60,8 @@ function ActivityBars({
   const present = activity !== undefined;
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!fluid || !el) return;
+    // A strip without activity draws nothing and needs no width.
+    if (!fluid || !present || !el) return;
     const width = Math.floor(el.getBoundingClientRect().width);
     if (width > 0) setMeasured(width);
     if (typeof ResizeObserver === 'undefined') {

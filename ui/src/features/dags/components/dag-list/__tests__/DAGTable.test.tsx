@@ -1395,21 +1395,48 @@ describe('DAGTable', () => {
       );
     });
 
+    // The table and the cards are both in the DOM, one of them hidden. jsdom
+    // has no matchMedia, so the window counts as a wide one.
+    it('draws the strips of the view on screen only', () => {
+      const dags = [withActivity([run('r1', HOUR)])];
+      const table = renderTable('', { dags });
+
+      expect(
+        within(screen.getByRole('table')).getByTestId('dag-activity')
+      ).toBeInTheDocument();
+      expect(screen.getAllByTestId('dag-activity')).toHaveLength(1);
+
+      table.unmount();
+      renderTable('', { dags, panelWidth: 600 });
+
+      expect(
+        within(screen.getByTestId('workflow-card-view')).getByTestId(
+          'dag-activity'
+        )
+      ).toBeInTheDocument();
+      expect(screen.getAllByTestId('dag-activity')).toHaveLength(1);
+    });
+
     // A service DAG has no runs to draw: its row and its card hold no strip.
     it('draws no strip for a service DAG', () => {
-      renderTable('', {
-        dags: [
-          withActivity([run('r1', HOUR)]),
-          {
-            ...workflow({ name: 'service' }),
-            dag: { name: 'service', restartPolicy: RestartPolicy.always },
-            activity: { runs: [], truncated: false },
-          } as never,
-        ],
-      });
+      const dags = [
+        withActivity([run('r1', HOUR)]),
+        {
+          ...workflow({ name: 'service' }),
+          dag: { name: 'service', restartPolicy: RestartPolicy.always },
+          activity: { runs: [], truncated: false },
+        } as never,
+      ];
+      const table = renderTable('', { dags });
 
-      // The row and the card of alpha.
-      expect(screen.getAllByTestId('dag-activity')).toHaveLength(2);
+      // The row of alpha.
+      expect(screen.getAllByTestId('dag-activity')).toHaveLength(1);
+
+      table.unmount();
+      renderTable('', { dags, panelWidth: 600 });
+
+      // The card of alpha.
+      expect(screen.getAllByTestId('dag-activity')).toHaveLength(1);
     });
   });
 
