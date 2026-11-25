@@ -92,7 +92,7 @@ credential of the model API.
 | --- | --- | --- |
 | The agent reads a secret of the DAG. | The step gets no secret. The restricted user cannot read the memory, the environment or the files of the worker. The coordinator gives a registry secret only to the step that lists it. | None for a secret that the agent step does not list. A step cannot list one. |
 | The agent reads or misuses the API key of the model. | A step of the provider `claude` names an endpoint. The key stays in the coordinator, and the agent has the secret of the relay only (Spec 094). For another CLI provider, the agent has a placeholder, and the proxy adds the real key. | The agent can send requests to the model API at the cost of the owner of the key. |
-| The agent sends data out. | The worker reaches only the coordinator and the proxy. The proxy allows a list of destinations. A destination that needs the proxy credential is closed to the agent. | Data can go to an allowed destination, such as the model API or the git server. |
+| The agent sends data out. | The worker reaches only the coordinator and the proxy. No DNS query of the worker leaves the deployment. The proxy allows a list of destinations. A destination that needs the proxy credential is closed to the agent. | Data can go to an allowed destination, such as the model API or the git server. |
 | The agent changes `.git` so that a later trusted step runs its code (hooks, `core.fsmonitor`, a new `.git`). | The restricted user cannot write `.git` and cannot rename or replace it. | A trusted step that runs a file of the work directory runs code of the agent. The author does not do this. |
 | An output of the agent becomes code that Dagu or a trusted step runs. | A reference to data of the agent is valid only as the whole value of an `env` entry in the form `${steps.<id>.outputs.<name>}`, and as `"$NAME"` in a `run` that `sh` or `bash` runs on the host of Dagu. See [Trusted steps after an untrusted step](#trusted-steps-after-an-untrusted-step). | A program that runs a value or reads a variable by its name. Data that reaches a step with no reference, such as a file of the work directory. |
 | The agent leaves a process that watches a later step. | At the end of an untrusted step, Dagu stops each process of the restricted user. Untrusted steps run one at a time. | None. |
@@ -1026,6 +1026,13 @@ other route. The proxy reaches the allowed destinations. The proxy is a separate
 Docker and a separate pod on Kubernetes. A proxy in the same pod as the worker does not limit the
 worker, because the pod has one network namespace.
 
+No DNS query of the worker leaves the deployment. A resolver forwards the query for a name to the
+server of that name, so the agent could send data out in the labels of names, past the proxy. The
+worker needs the names of the coordinator and the proxy only. The proxy resolves each other name.
+On Docker, the DNS of an internal network answers for its containers and, from Docker Engine 26.0,
+forwards no other name (CVE-2024-29018). On Kubernetes, the `NetworkPolicy` allows no DNS, and
+`hostAliases` give the worker the Service IPs of the coordinator and the proxy.
+
 ### Security settings
 
 | Property | Docker Compose | Kubernetes |
@@ -1036,7 +1043,7 @@ worker, because the pod has one network namespace.
 | Root file system | `read_only: true`, `tmpfs` with the option `exec` for `/tmp` and the Dagu home | `readOnlyRootFilesystem: true`, `emptyDir` with `medium: Memory` |
 | Seccomp | The default profile | `seccompProfile: RuntimeDefault` |
 | Account token | None | `automountServiceAccountToken: false` |
-| Network | An internal network with the coordinator and the proxy | A `NetworkPolicy` that allows the coordinator, the proxy and DNS |
+| Network | An internal network with the coordinator and the proxy, on Docker Engine 26.0 or later | A `NetworkPolicy` that allows the coordinator and the proxy, and no DNS. `hostAliases` with their Service IPs |
 | Certificate | A read-only file, owner 0, mode `0400` | A `Secret` volume with `defaultMode: 0400` |
 | Restart | `restart: always` | A `Deployment` |
 
