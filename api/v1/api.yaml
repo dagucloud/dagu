@@ -20832,7 +20832,7 @@ components:
 
     NodeRunStatus:
       type: string
-      description: "Status of a node's run: the status its child run reached, or not_started, running, or disabled"
+      description: "Status of a node's run: the status its child run reached, or not_started, running, disabled, or removed. A removed node is one a retry kept from the step's first attempt that has left the inventory since."
       enum:
         - "not_started"
         - "running"
@@ -20843,6 +20843,7 @@ components:
         - "aborted"
         - "rejected"
         - "disabled"
+        - "removed"
 
     NodeRunCounts:
       type: object
@@ -20864,6 +20865,8 @@ components:
           type: integer
         disabled:
           type: integer
+        removed:
+          type: integer
       required:
         - total
         - notStarted
@@ -20873,6 +20876,7 @@ components:
         - failed
         - aborted
         - disabled
+        - removed
 
     StepProgress:
       type: object

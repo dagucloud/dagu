@@ -211,7 +211,8 @@ func nodeRunRowRank(row api.NodeRunRow) int {
 		case api.NodeRunStatusRunning, api.NodeRunStatusWaiting:
 			rank = nodeRunRankActive
 		case api.NodeRunStatusNotStarted, api.NodeRunStatusSucceeded,
-			api.NodeRunStatusPartiallySucceeded, api.NodeRunStatusDisabled:
+			api.NodeRunStatusPartiallySucceeded, api.NodeRunStatusDisabled,
+			api.NodeRunStatusRemoved:
 		}
 	}
 	return rank
@@ -243,5 +244,6 @@ func toNodeRunCounts(counts ir.NodeRunCounts) api.NodeRunCounts {
 		Failed:     counts.Failed,
 		Aborted:    counts.Aborted,
 		Disabled:   counts.Disabled,
+		Removed:    counts.Removed,
 	}
 }
