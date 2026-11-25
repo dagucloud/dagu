@@ -36,7 +36,8 @@ Flags:
   --worker.id string                       Worker instance ID (default: hostname@PID)
   --worker.max-active-runs int             Maximum number of active runs (default: 100)
   --worker.health-port int                 Port number for the HTTP health check server (default: 8092, 0 disables)
-  --worker.labels -l string                Worker labels for capability matching (format: key1=value1,key2=value2)
+  --worker.labels -l string                Worker labels for capability matching (format: key1=value1,key2);
+                                           keys and values are lowercased, and an invalid label stops the worker
   --worker.coordinators string             Coordinator addresses (format: host1:port1,host2:port2)
   --worker.shutdown-timeout string         How long to drain running DAG runs on SIGINT/SIGTERM before
                                            canceling them (default: 60s, 0 waits without a bound)
@@ -55,7 +56,7 @@ Example:
   dagu worker --worker.coordinators=coordinator-1:50055 --worker.health-port=0
 
   # Worker with labels for capability matching:
-  dagu worker --worker.coordinators=coordinator-1:50055 --worker.labels gpu=true,memory=64G,region=us-east-1
+  dagu worker --worker.coordinators=coordinator-1:50055 --worker.labels gpu,memory=64g,region=us-east-1
   dagu worker --worker.coordinators=coordinator-1:50055 --worker.labels cpu-arch=amd64,instance-type=m5.xlarge
 
   # For TLS connections (when coordinator has TLS enabled):
