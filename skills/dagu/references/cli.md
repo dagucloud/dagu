@@ -418,22 +418,24 @@ dagu config
 
 ### dagu nodes
 
-Work with node inventories: named lists of SSH hosts with labels, stored as JSON records (Spec 088). Every subcommand also runs against a remote context (`--context`), through the server's API, with the same output; `add` and `test` then connect from the server, and a remote `add` needs a `--key` path the server can read: absolute, or starting with `~` or `$`.
+Work with nodes: the hosts of node inventories, named lists of SSH hosts with labels stored as JSON records, and the workers that set `worker.id` (Spec 088). Every subcommand also runs against a remote context (`--context`), through the server's API, with the same output; `add` and `test` then connect from the server, and a remote `add` needs a `--key` path the server can read: absolute, or starting with `~` or `$`.
 
 ```sh
 dagu nodes list [--labels <selector>] [--inventory <name|id>] [--format/-f table|json]
 dagu nodes show <name> [--format/-f table|json]
 dagu nodes add <name> --host <host> [--inventory <name|id>] [--port N] [--user U] [--key <path>|--key-secret <ref>] [--password-secret <ref>] [--passphrase-secret <ref>] [--bastion <node>] [--labels a,b] [--description <text>] [--no-test]
 dagu nodes remove <name>
+dagu nodes forget <name>
 dagu nodes test [<name>...] [--labels <selector>]
 dagu nodes import <file> [--replace] [--dry-run]
 dagu nodes export [--inventory <name|id>]
 ```
 
-- `list` — Nodes the selector matches, in name order, with each inventory's defaults applied; every node without `--labels`. The selector takes the terms of `dagu history --labels`. Disabled nodes are listed with status `disabled`
+- `list` — Nodes the selector matches, in name order, with each inventory's defaults applied; every node without `--labels`. The selector takes the terms of `dagu history --labels`. The table's `KIND` is `ssh` or `worker`. Disabled nodes are listed with status `disabled`. Worker nodes have inventory `-` and status `online` or `offline`, and are left out with `--inventory`; JSON gives them `kind`, `host`, `labels`, `online`, and `last_seen_at`. A worker whose ID names an inventory node is not a node, and `list` says so on stderr
 - `show` — One node with its inventory, labels, and connection settings. The name is compared without case
 - `add` — Adds a new node; a name the inventory already holds is refused, before any test. It first tests the connection (host key, authentication, `true`); when the host key is unknown it shows the fingerprint and asks, then tests again with that key accepted and saves the node and trusts the key only if that test passes. A node whose test fails is not added unless `--no-test`. `--inventory` may be left out when there is one inventory
 - `remove` — Removes a node. Removing, renaming, or adding a node forgets the host key trusted for that name, so the next host of that name is trusted again
+- `forget` — Forgets an offline worker node until its worker connects again; refused while the worker is online and for an inventory node. Remotely it needs the admin role
 - `test` — Tests the named nodes, the nodes `--labels` selects, or every node: host key, authentication, `true`, printing each result as it ends. It lists unknown keys and asks once before it trusts them, and lists changed keys with the trusted and presented fingerprints and asks again before it replaces them. It then tests again the nodes a trusted key stopped. Fails when any node fails its last test. A key that differs only from the node's `host_key` is not offered; fix `host_key` in the inventory
 - `import` — Reads a JSON array of inventories. A new name is created; an existing name is refused unless `--replace`, which replaces it and keeps its ID. When any inventory breaks a rule, nothing is stored and every broken rule is listed. `--dry-run` only checks. A record that sets `id` is refused
 - `export` — Prints inventories as a JSON array without IDs, which `import` reads back unchanged
@@ -478,7 +480,7 @@ Start gRPC coordinator: `dagu coordinator [--coordinator.host/-H <host>] [--coor
 
 ### dagu worker
 
-Start distributed worker: `dagu worker --worker.coordinators <host:port,...> [--worker.id/-w <id>] [--worker.max-active-runs/-m <n>] [--worker.labels/-l <k=v,...>] [--peer.*]`. Coordinator addresses are required. Every worker advertises immutable `os` and `arch` platform labels in addition to configured labels. `worker.labels` takes a comma-separated string, a list of `key=value` entries, or a map. Worker labels follow the DAG label rules: keys and values are lowercased, a label with no value (`gpu`) is kept, and a worker with an invalid label, or with one key given twice in different case, does not start and names the label. `worker_selector` and `--worker-label` match worker labels without case.
+Start distributed worker: `dagu worker --worker.coordinators <host:port,...> [--worker.id/-w <id>] [--worker.max-active-runs/-m <n>] [--worker.labels/-l <k=v,...>] [--peer.*]`. Coordinator addresses are required. Every worker advertises immutable `os` and `arch` platform labels in addition to configured labels. `worker.labels` takes a comma-separated string, a list of `key=value` entries, or a map. Worker labels follow the DAG label rules: keys and values are lowercased, a label with no value (`gpu`) is kept, and a worker with an invalid label, or with one key given twice in different case, does not start and names the label. `worker_selector` and `--worker-label` match worker labels without case. A worker whose `worker.id` is a valid node name (a letter or digit, then letters, digits, `-`, `_`, or `.`) is a node of kind `worker` that `dagu nodes list` shows with its labels, `online` or `offline` with its last-seen time; without `worker.id` it gets a new `hostname@pid` ID on every start and is not a node.
 
 ## Git Sync
 
