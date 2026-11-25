@@ -1374,7 +1374,9 @@ the message.
 
 The step `code_1` gives Claude Code the DAGs `lookup-ticket` and `ops_notify` through the
 tool bridge of Spec 091, and the MCP server `docs` of `MCP_URL`. A call of a Dagu tool runs a
-trusted child run on the agent worker. The rounds 2 and 3 have the built-in tools only.
+trusted child run on the agent worker. The agent sets `CUSTOMER_ID` and `text`, so each tool reads
+its input only as `"$NAME"` in a `run` that `bash` runs. The rounds 2 and 3 have the built-in tools
+only.
 
 The tool `lookup-ticket.yaml`:
 
@@ -1387,7 +1389,8 @@ params:
     required: true
 steps:
   - id: lookup
-    run: echo "{\"id\":\"$CUSTOMER_ID\",\"plan\":\"gold\",\"open_tickets\":2}"
+    with: { shell: bash }
+    run: jq -nc --arg id "$CUSTOMER_ID" '{id: $id, plan: "gold", open_tickets: 2}'
     output: CUSTOMER
 ```
 
@@ -1402,9 +1405,8 @@ params:
     required: true
 steps:
   - id: post
-    action: log.write
-    with:
-      message: ${text}
+    with: { shell: bash }
+    run: printf '%s\n' "$text"
 ```
 
 ### Configuration of an agent worker
