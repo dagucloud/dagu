@@ -305,7 +305,7 @@ func (a *API) planSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedSt
 			return nil, err
 		}
 	}
-	fromRuns, definitions, unavailable, err := a.selectedStepsFromRuns(ctx, dag.Name, selection.outputsFromRuns)
+	loaded, err := a.selectedStepsFromRuns(ctx, dag.Name, selection.outputsFromRuns)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +314,8 @@ func (a *API) planSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedSt
 		if err != nil {
 			return nil, err
 		}
-		selection, source, sourceDAG, fromRuns, definitions = reuse.selection, reuse.source, reuse.sourceDAG, reuse.fromRuns, reuse.definitions
+		selection, source, sourceDAG = reuse.selection, reuse.source, reuse.sourceDAG
+		loaded = intake.LoadedRunSteps{Sources: reuse.fromRuns, Definitions: reuse.definitions}
 	}
 	if err := intake.CheckOutputSources(dag, selection.outputs, selection.outputsSources); err != nil {
 		return nil, badSelectedStepsRequest(err.Error())
@@ -323,9 +324,9 @@ func (a *API) planSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedSt
 		Steps:            selection.steps,
 		Source:           source,
 		SourceDefinition: sourceDAG,
-		FromRuns:         fromRuns,
-		Definitions:      definitions,
-		Unavailable:      unavailable,
+		FromRuns:         loaded.Sources,
+		Definitions:      loaded.Definitions,
+		Unavailable:      loaded.Unavailable,
 		Outputs:          selection.outputs,
 		Sources:          selection.outputsSources,
 		AllowChanged:     selection.allowChanged,
@@ -416,7 +417,7 @@ func (a *API) reuseSource(ctx context.Context, dagName, dagRunID string) (*ir.DA
 // its outputs from, and the definition that each run ran. The entries whose
 // run does not exist for the DAG (it was removed, or belongs to another DAG)
 // come back unavailable.
-func (a *API) selectedStepsFromRuns(ctx context.Context, dagName string, refs map[string]string) (intake.RunStepSources, intake.RunDefinitions, []intake.CarriedStep, error) {
+func (a *API) selectedStepsFromRuns(ctx context.Context, dagName string, refs map[string]string) (intake.LoadedRunSteps, error) {
 	return intake.LoadRunStepSources(ctx, a.dagRunRepository, dagName, refs, func(status *ir.DAGRunStatus) error {
 		return a.requireDAGRunStatusExecute(ctx, status)
 	})

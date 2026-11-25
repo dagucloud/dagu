@@ -372,7 +372,7 @@ func retryRefusedStart(ctx *Context, fileName string, body api.ExecuteDAGJSONBod
 		return nil, err
 	}
 	for _, step := range refused.Refused {
-		fmt.Fprintf(ctx.Command.ErrOrStderr(), "reusing step %s from run %s although %s\n", step.Step, step.RunId, refusalReason(step))
+		_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "reusing step %s from run %s although %s\n", step.Step, step.RunId, refusalReason(step))
 	}
 	return resp, nil
 }

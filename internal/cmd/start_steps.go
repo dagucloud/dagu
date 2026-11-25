@@ -233,7 +233,7 @@ func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts r
 		// A definition that cannot be read leaves the source steps unknown.
 		sourceDAG, _ = attempt.ReadDAG(ctx)
 	}
-	fromRuns, definitions, unavailable, err := intake.LoadRunStepSources(ctx, repo, dag.Name, selection.outputFrom, nil)
+	loaded, err := intake.LoadRunStepSources(ctx, repo, dag.Name, selection.outputFrom, nil)
 	if err != nil {
 		return err
 	}
@@ -241,9 +241,9 @@ func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts r
 		Steps:            selection.steps,
 		Source:           source,
 		SourceDefinition: sourceDAG,
-		FromRuns:         fromRuns,
-		Definitions:      definitions,
-		Unavailable:      unavailable,
+		FromRuns:         loaded.Sources,
+		Definitions:      loaded.Definitions,
+		Unavailable:      loaded.Unavailable,
 		Outputs:          selection.outputs,
 		AllowAllChanged:  selection.allowChanged,
 	})
@@ -255,7 +255,7 @@ func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts r
 	}
 	for _, step := range plan.Carried {
 		if step.Changed() {
-			fmt.Fprintf(ctx.Command.ErrOrStderr(), "reusing step %s from run %s although %s\n", step.Step, step.DAGRunID, step.Reason())
+			_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "reusing step %s from run %s although %s\n", step.Step, step.DAGRunID, step.Reason())
 		}
 	}
 	nodes, reused := plan.Nodes, plan.Reused

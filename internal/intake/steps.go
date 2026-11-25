@@ -59,6 +59,17 @@ type RunStepSources map[string]*ir.DAGRunStatus
 // RunDefinitions holds, by run ID, the definition that a run ran.
 type RunDefinitions map[string]*ir.DAG
 
+// LoadedRunSteps is what LoadRunStepSources read for the steps of
+// outputsFromRuns.
+type LoadedRunSteps struct {
+	// Sources holds the run of each step whose run exists, and Definitions
+	// the definition that each of those runs ran.
+	Sources     RunStepSources
+	Definitions RunDefinitions
+	// Unavailable lists the entries whose run does not exist for the DAG.
+	Unavailable []CarriedStep
+}
+
 // LoadRunStepSources reads the run that each step of refs carries its outputs
 // from, and the definition that each run ran. refs maps a step name or ID to a
 // run ID. A run that does not exist for the DAG (it was removed, or it belongs
@@ -66,9 +77,9 @@ type RunDefinitions map[string]*ir.DAG
 // its step as refs does. A definition that cannot be read is left out. A run
 // ID that refs repeats is read once. check, when set, accepts or rejects each
 // run read; its error is returned as it is.
-func LoadRunStepSources(ctx context.Context, repo *persis.DAGRunRepository, dagName string, refs map[string]string, check func(*ir.DAGRunStatus) error) (RunStepSources, RunDefinitions, []CarriedStep, error) {
+func LoadRunStepSources(ctx context.Context, repo *persis.DAGRunRepository, dagName string, refs map[string]string, check func(*ir.DAGRunStatus) error) (LoadedRunSteps, error) {
 	if len(refs) == 0 {
-		return nil, nil, nil, nil
+		return LoadedRunSteps{}, nil
 	}
 	runs := make(map[string]*ir.DAGRunStatus)
 	missing := make(map[string]bool)
@@ -83,14 +94,14 @@ func LoadRunStepSources(ctx context.Context, repo *persis.DAGRunRepository, dagN
 			if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
 				missing[runID] = true
 			} else if err != nil {
-				return nil, nil, nil, fmt.Errorf("failed to find dag-run %s: %w", runID, err)
+				return LoadedRunSteps{}, fmt.Errorf("failed to find dag-run %s: %w", runID, err)
 			} else {
 				if run, err = attempt.ReadStatus(ctx); err != nil {
-					return nil, nil, nil, fmt.Errorf("failed to read status for dag-run %s: %w", runID, err)
+					return LoadedRunSteps{}, fmt.Errorf("failed to read status for dag-run %s: %w", runID, err)
 				}
 				if check != nil {
 					if err := check(run); err != nil {
-						return nil, nil, nil, err
+						return LoadedRunSteps{}, err
 					}
 				}
 				if definition, err := attempt.ReadDAG(ctx); err == nil {
@@ -105,7 +116,7 @@ func LoadRunStepSources(ctx context.Context, repo *persis.DAGRunRepository, dagN
 		}
 		result[step] = run
 	}
-	return result, definitions, unavailable, nil
+	return LoadedRunSteps{Sources: result, Definitions: definitions, Unavailable: unavailable}, nil
 }
 
 // CheckRunStepSources makes sure that every step of fromRuns exists, is not

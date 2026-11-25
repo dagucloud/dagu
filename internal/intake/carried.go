@@ -25,7 +25,7 @@ type StepSelection struct {
 	SourceDefinition *ir.DAG
 	// FromRuns names another run for single steps, Definitions holds the
 	// definitions those runs ran, and Unavailable the entries whose run
-	// could not be read (LoadRunStepSources).
+	// could not be read, as LoadRunStepSources gives them.
 	FromRuns    RunStepSources
 	Definitions RunDefinitions
 	Unavailable []CarriedStep
