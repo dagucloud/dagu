@@ -7587,6 +7587,13 @@ export interface components {
             status: CarriedStepCheckStatus;
             /** @description What changed since the run, in the order of StepChangeKind. Empty unless status is changed. */
             changes: components["schemas"]["StepChangeKind"][];
+            /** @description Names of the parameters whose values changed, when changes holds params and the run kept its list of parameters. A positional parameter is named $1, $2, and so on. */
+            changedParams?: string[];
+            /**
+             * @description Why the run cannot give the step, when status is unavailable. gone: the run does not exist for the DAG. unfinished: the run has not finished. noStep: the run has no node of the step. failed: the step neither succeeded there nor carried outputs.
+             * @enum {string}
+             */
+            unavailable?: CarriedStepCheckUnavailable;
             /** @description Why the start refuses the step, as step X cannot be reused from run Y: <reason>. Absent when status is unchanged. */
             message?: string;
             /** @description When the step started in the run, as the run stored it. Absent when unknown. */
@@ -7600,6 +7607,8 @@ export interface components {
             carried: components["schemas"]["CarriedStepCheck"][];
             /** @description Steps that a selected step depends on and that take outputs from nowhere, in the order of the DAG */
             missing: string[];
+            /** @description The runtime profile the run would use, resolved as the start resolves it; empty for none */
+            profile: string;
         };
         /** @description Error response of a start request. When the request refuses carried steps, details.refusedSteps lists them. */
         StepReuseError: {
@@ -27685,6 +27694,12 @@ export enum CarriedStepCheckStatus {
     unchanged = "unchanged",
     changed = "changed",
     unavailable = "unavailable"
+}
+export enum CarriedStepCheckUnavailable {
+    gone = "gone",
+    unfinished = "unfinished",
+    noStep = "noStep",
+    failed = "failed"
 }
 export enum ArtifactNodeType {
     directory = "directory",

@@ -211,8 +211,9 @@ func refusedStepsError(refused *intake.RefusedStepsError) *Error {
 	return err
 }
 
-// stepReuseCheck is the response of a preview of a selected-steps run.
-func stepReuseCheck(plan *intake.SelectedStepsPlan) api.StepReuseCheck {
+// stepReuseCheck is the response of a preview of a selected-steps run that
+// would use the runtime profile profile.
+func stepReuseCheck(plan *intake.SelectedStepsPlan, profile string) api.StepReuseCheck {
 	carried := make([]api.CarriedStepCheck, 0, len(plan.Carried))
 	for _, step := range plan.Carried {
 		carried = append(carried, carriedStepCheck(step))
@@ -221,7 +222,7 @@ func stepReuseCheck(plan *intake.SelectedStepsPlan) api.StepReuseCheck {
 	if missing == nil {
 		missing = []string{}
 	}
-	return api.StepReuseCheck{Carried: carried, Missing: missing}
+	return api.StepReuseCheck{Carried: carried, Missing: missing, Profile: profile}
 }
 
 // carriedStepCheck is a carried step of a selected-steps run as the API
@@ -239,9 +240,13 @@ func carriedStepCheck(step intake.CarriedStep) api.CarriedStepCheck {
 	case step.Unavailable != "":
 		check.Status = api.CarriedStepCheckStatusUnavailable
 		check.Message = ptrOf(step.Message())
+		check.Unavailable = ptrOf(api.CarriedStepCheckUnavailable(step.UnavailableKind))
 	case step.Changed():
 		check.Status = api.CarriedStepCheckStatusChanged
 		check.Message = ptrOf(step.Message())
+		if len(step.ChangedParams) > 0 {
+			check.ChangedParams = ptrOf(step.ChangedParams)
+		}
 	}
 	return check
 }

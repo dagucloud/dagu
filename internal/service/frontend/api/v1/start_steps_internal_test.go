@@ -291,7 +291,7 @@ func TestStartStepsRejectsAChangedStep(t *testing.T) {
 			name:      "OtherParameters",
 			dag:       dag,
 			selection: stepSelection{steps: []string{"consume"}, outputsFromRuns: map[string]string{"build": "params-run"}},
-			wantMsg:   "step build cannot be reused from run params-run: the parameters changed since that run",
+			wantMsg:   "step build cannot be reused from run params-run: the parameters (problem) changed since that run",
 		},
 		{
 			name:      "ChangedStep",
@@ -356,6 +356,23 @@ func TestPreviewSelectedSteps(t *testing.T) {
 	require.Equal(t, "step build cannot be reused from run same-run: the step changed since that run", *build.Message)
 	// consume is new: no run gives it.
 	require.Equal(t, []string{"consume"}, check.Missing)
+	// The draft has no file, so it uses no profile.
+	require.Empty(t, check.Profile)
+
+	// A run that does not exist is reported with its kind.
+	resp, err = api.PreviewExecuteDAGRunFromSpec(ctx, gen.PreviewExecuteDAGRunFromSpecRequestObject{
+		Body: &gen.PreviewExecuteDAGRunFromSpecJSONRequestBody{
+			Spec:            editRetryEditedYAML(),
+			Steps:           []string{"notify"},
+			OutputsFromRuns: &map[string]gen.DAGRunId{"build": "gone-run"},
+		},
+	})
+	require.NoError(t, err)
+	gone := resp.(gen.PreviewExecuteDAGRunFromSpec200JSONResponse).Carried
+	require.Len(t, gone, 1)
+	require.Equal(t, gen.CarriedStepCheckStatusUnavailable, gone[0].Status)
+	require.NotNil(t, gone[0].Unavailable)
+	require.Equal(t, gen.CarriedStepCheckUnavailableGone, *gone[0].Unavailable)
 }
 
 // An ephemeral run takes explicit outputs with no source run, is found by its

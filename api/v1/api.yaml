@@ -19180,6 +19180,19 @@ components:
           items:
             $ref: "#/components/schemas/StepChangeKind"
           description: "What changed since the run, in the order of StepChangeKind. Empty unless status is changed."
+        changedParams:
+          type: array
+          items:
+            type: string
+          description: "Names of the parameters whose values changed, when changes holds params and the run kept its list of parameters. A positional parameter is named $1, $2, and so on."
+        unavailable:
+          type: string
+          enum:
+            - gone
+            - unfinished
+            - noStep
+            - failed
+          description: "Why the run cannot give the step, when status is unavailable. gone: the run does not exist for the DAG. unfinished: the run has not finished. noStep: the run has no node of the step. failed: the step neither succeeded there nor carried outputs."
         message:
           type: string
           description: "Why the start refuses the step, as step X cannot be reused from run Y: <reason>. Absent when status is unchanged."
@@ -19209,9 +19222,13 @@ components:
           items:
             type: string
           description: "Steps that a selected step depends on and that take outputs from nowhere, in the order of the DAG"
+        profile:
+          type: string
+          description: "The runtime profile the run would use, resolved as the start resolves it; empty for none"
       required:
         - carried
         - missing
+        - profile
 
     StepReuseError:
       type: object

@@ -53,7 +53,7 @@ func (a *API) PreviewExecuteDAG(ctx context.Context, request api.PreviewExecuteD
 	if err != nil {
 		return nil, err
 	}
-	return api.PreviewExecuteDAG200JSONResponse(stepReuseCheck(planned.plan)), nil
+	return api.PreviewExecuteDAG200JSONResponse(stepReuseCheck(planned.plan, profileName)), nil
 }
 
 // PreviewExecuteDAGRunFromSpec implements api.StrictServerInterface. It plans
@@ -104,5 +104,5 @@ func (a *API) PreviewExecuteDAGRunFromSpec(ctx context.Context, request api.Prev
 	if err != nil {
 		return nil, err
 	}
-	return api.PreviewExecuteDAGRunFromSpec200JSONResponse(stepReuseCheck(planned.plan)), nil
+	return api.PreviewExecuteDAGRunFromSpec200JSONResponse(stepReuseCheck(planned.plan, profileName)), nil
 }

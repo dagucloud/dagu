@@ -57,7 +57,7 @@ func withHandler(spec, event string) string {
 }
 
 func succeededRun(dag *ir.DAG) *ir.DAGRunStatus {
-	status := &ir.DAGRunStatus{DAGRunID: "earlier", Status: ir.Succeeded, Params: strings.Join(dag.Params, " ")}
+	status := &ir.DAGRunStatus{DAGRunID: "earlier", Status: ir.Succeeded, Params: strings.Join(dag.Params, " "), ParamsList: dag.Params}
 	for _, step := range dag.Steps {
 		status.Nodes = append(status.Nodes, &ir.Node{Step: step, Status: ir.NodeSucceeded})
 	}
@@ -141,14 +141,14 @@ func TestPlanSelectedStepsChanges(t *testing.T) {
 		{name: "AddedMetadata", yaml: strings.Replace(reuseSpec, "env:", "description: Listings under a price\nlabels: [team=homes]\nschedule: \"0 * * * *\"\nhist_retention_days: 3\nmax_active_runs: 1\nenv:", 1)},
 		{name: "ChangedStep", yaml: strings.Replace(reuseSpec, "under 7000", "under 5000", 1), wantErr: refused + "the step changed since that run"},
 		{name: "ChangedStepThatItNeeds", yaml: strings.Replace(reuseSpec, "echo rows", "echo all rows", 1), wantErr: refused + "a step it depends on changed since that run"},
-		{name: "ChangedParameters", yaml: reuseSpec, params: []string{"MAX=5000"}, wantErr: refused + "the parameters changed since that run"},
+		{name: "ChangedParameters", yaml: reuseSpec, params: []string{"MAX=5000"}, wantErr: refused + "the parameters (MAX) changed since that run"},
 		// The default counts once, as the parameters the run resolves.
-		{name: "ChangedParameterDefault", yaml: strings.Replace(reuseSpec, "MAX: 7000", "MAX: 5000", 1), wantErr: refused + "the parameters changed since that run"},
+		{name: "ChangedParameterDefault", yaml: strings.Replace(reuseSpec, "MAX: 7000", "MAX: 5000", 1), wantErr: refused + "the parameters (MAX) changed since that run"},
 		{name: "ChangedProfile", yaml: reuseSpec, profile: "staging", wantErr: refused + "the runtime profile changed since that run"},
 		{name: "ChangedEnvironment", yaml: strings.Replace(reuseSpec, "homes.example.com", "homes.example.org", 1), wantErr: refused + "the top-level settings changed since that run"},
 		{name: "AddedInitHandler", yaml: withHandler(reuseSpec, "init"), wantErr: refused + "the top-level settings changed since that run"},
 		{name: "AddedLocalDAG", yaml: reuseSpec + localDAGSpec, wantErr: refused + "the top-level settings changed since that run"},
-		{name: "ChangedStepAndParameters", yaml: strings.Replace(reuseSpec, "under 7000", "under 5000", 1), params: []string{"MAX=5000"}, profile: "staging", wantErr: refused + "the step, the parameters, and the runtime profile changed since that run"},
+		{name: "ChangedStepAndParameters", yaml: strings.Replace(reuseSpec, "under 7000", "under 5000", 1), params: []string{"MAX=5000"}, profile: "staging", wantErr: refused + "the step, the parameters (MAX), and the runtime profile changed since that run"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

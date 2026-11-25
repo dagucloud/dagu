@@ -211,7 +211,7 @@ func TestOutputsFromRunsRejects(t *testing.T) {
 	params := startRun(t, server, path, map[string]any{"params": "FAIL=2"})
 	waitForStatus(t, server, name, params, api.StatusSuccess)
 	assert.Contains(t, reject(map[string]string{"build": params}),
-		fmt.Sprintf("step build cannot be reused from run %s: the parameters changed since that run", params))
+		fmt.Sprintf("step build cannot be reused from run %s: the parameters (FAIL) changed since that run", params))
 	server.Client().Put("/api/v1/dags/"+name+"/spec", map[string]any{
 		"spec": strings.Replace(fromRunsDAG, `echo "built $T"`, `echo "built again $T"`, 1),
 	}).ExpectStatus(http.StatusOK).Send(t)

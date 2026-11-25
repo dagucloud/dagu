@@ -111,7 +111,7 @@ func LoadRunStepSources(ctx context.Context, repo *persis.DAGRunRepository, dagN
 			}
 		}
 		if missing[runID] {
-			unavailable = append(unavailable, CarriedStep{Ref: step, DAGRunID: runID, Unavailable: fmt.Sprintf("the run does not exist for DAG %s", dagName)})
+			unavailable = append(unavailable, CarriedStep{Ref: step, DAGRunID: runID, Unavailable: fmt.Sprintf("the run does not exist for DAG %s", dagName), UnavailableKind: UnavailableGone})
 			continue
 		}
 		result[step] = run
@@ -185,18 +185,21 @@ func usableRunStepSources(dag *ir.DAG, fromRuns RunStepSources) (RunStepSources,
 		if run == nil {
 			return nil, nil, fmt.Errorf("step %s cannot be reused from run: no run is given", ref)
 		}
-		reason := ""
+		var (
+			reason string
+			kind   UnavailableKind
+		)
 		index := slices.IndexFunc(run.Nodes, func(node *ir.Node) bool { return node != nil && node.Step.Name == name })
 		switch {
 		case run.Status.IsActive() || run.Status == ir.NotStarted:
-			reason = fmt.Sprintf("the run is %s, not finished", run.Status)
+			reason, kind = fmt.Sprintf("the run is %s, not finished", run.Status), UnavailableUnfinished
 		case index < 0:
-			reason = "the run has no such step"
+			reason, kind = "the run has no such step", UnavailableNoStep
 		case !carriesOutputs(run.Nodes[index]):
-			reason = "the step did not succeed there"
+			reason, kind = "the step did not succeed there", UnavailableFailed
 		}
-		if reason != "" {
-			unavailable = append(unavailable, CarriedStep{Step: name, Ref: ref, DAGRunID: run.DAGRunID, Unavailable: reason})
+		if kind != "" {
+			unavailable = append(unavailable, CarriedStep{Step: name, Ref: ref, DAGRunID: run.DAGRunID, Unavailable: reason, UnavailableKind: kind})
 			continue
 		}
 		usable[ref] = run

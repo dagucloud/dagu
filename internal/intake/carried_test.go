@@ -9,6 +9,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -172,4 +173,37 @@ func TestPlanSelectedStepsCarriedChange(t *testing.T) {
 
 	require.EqualError(t, plan.Refusal(), "step filter cannot be reused from run earlier: in that run it or a step it depends on took outputs of a changed step; "+
 		"step page cannot be reused from run earlier: in that run it or a step it depends on took outputs of a changed step")
+}
+
+// The refusal names the parameters whose values changed: a changed, an added
+// and a removed one, and a positional one by its place. A run that kept no
+// list of its parameters cannot name them.
+func TestPlanSelectedStepsNamesChangedParams(t *testing.T) {
+	t.Parallel()
+
+	earlier := loadReuseDAG(t, reuseSpec)
+	dag := loadReuseDAG(t, reuseSpec)
+	dag.Params = []string{"MAX=5000", "MODE=fast", "first"}
+	run := succeededRun(earlier)
+	run.ParamsList = []string{"MAX=7000", "SITE=homes", "other"}
+	run.Params = strings.Join(run.ParamsList, " ")
+	plan, err := intake.PlanSelectedSteps(dag, "", intake.StepSelection{
+		Steps:            []string{"filter"},
+		Source:           run,
+		SourceDefinition: earlier,
+	})
+	require.NoError(t, err)
+	require.Len(t, plan.Carried, 1)
+	assert.Equal(t, []string{"MAX", "MODE", "$1", "SITE"}, plan.Carried[0].ChangedParams)
+	assert.Equal(t, "step page cannot be reused from run earlier: the parameters (MAX, MODE, $1, SITE) changed since that run", plan.Carried[0].Message())
+
+	run.ParamsList = nil
+	plan, err = intake.PlanSelectedSteps(dag, "", intake.StepSelection{
+		Steps:            []string{"filter"},
+		Source:           run,
+		SourceDefinition: earlier,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, plan.Carried[0].ChangedParams)
+	assert.Equal(t, "step page cannot be reused from run earlier: the parameters changed since that run", plan.Carried[0].Message())
 }

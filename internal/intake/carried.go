@@ -65,16 +65,34 @@ type CarriedStep struct {
 	Step     string
 	Ref      string
 	DAGRunID string
-	// Unavailable says why the run cannot give the step. It is empty when the
-	// run can give it.
-	Unavailable string
+	// Unavailable says why the run cannot give the step, and UnavailableKind
+	// names that reason. Both are empty when the run can give it.
+	Unavailable     string
+	UnavailableKind UnavailableKind
 	// Changes lists what changed for the step since the run, in the order of
-	// the ir.StepChange constants.
-	Changes []ir.StepChange
+	// the ir.StepChange constants, and ChangedParams names the parameters
+	// whose values changed, when Changes holds ir.StepChangeParams.
+	Changes       []ir.StepChange
+	ChangedParams []string
 	// StartedAt and FinishedAt are the times of the step in the run.
 	StartedAt  string
 	FinishedAt string
 }
+
+// UnavailableKind names why a run cannot give a step.
+type UnavailableKind string
+
+const (
+	// UnavailableGone marks a run that does not exist for the DAG.
+	UnavailableGone UnavailableKind = "gone"
+	// UnavailableUnfinished marks a run that has not finished.
+	UnavailableUnfinished UnavailableKind = "unfinished"
+	// UnavailableNoStep marks a run that has no node of the step.
+	UnavailableNoStep UnavailableKind = "noStep"
+	// UnavailableFailed marks a run in which the step neither succeeded nor
+	// carried outputs.
+	UnavailableFailed UnavailableKind = "failed"
+)
 
 // Changed reports whether the run can give the step, which changed since.
 func (c CarriedStep) Changed() bool {
@@ -87,7 +105,7 @@ func (c CarriedStep) Reason() string {
 	if c.Unavailable != "" {
 		return c.Unavailable
 	}
-	return changeReason(c.Changes)
+	return changeReason(c.Changes, c.ChangedParams)
 }
 
 // Message says why the step cannot be reused from its run, as
@@ -267,14 +285,19 @@ func carriedSteps(dag *ir.DAG, profile string, reused []ir.ReusedInput, sel Step
 		if then == nil {
 			changes = append(changes, ir.StepChangeUnknown)
 		}
-		carried = append(carried, CarriedStep{
+		step := CarriedStep{
 			Step:       input.Step,
 			Ref:        ref,
 			DAGRunID:   run.DAGRunID,
 			Changes:    changes,
 			StartedAt:  input.StartedAt,
 			FinishedAt: input.FinishedAt,
-		})
+		}
+		// A run that kept no list of its parameters cannot name them.
+		if slices.Contains(changes, ir.StepChangeParams) && (len(run.ParamsList) > 0 || run.Params == "") {
+			step.ChangedParams = changedParams(dag.Params, run.ParamsList)
+		}
+		carried = append(carried, step)
 	}
 	return carried, nil
 }

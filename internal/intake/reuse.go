@@ -98,14 +98,20 @@ var changeNouns = map[ir.StepChange]string{
 }
 
 // changeReason says what changed for a step since a run, such as "the step
-// and the parameters changed since that run".
-func changeReason(changes []ir.StepChange) string {
+// and the parameters (MAX) changed since that run". params names the
+// parameters whose values changed, when it knows them.
+func changeReason(changes []ir.StepChange, params []string) string {
 	nouns := make([]string, 0, len(changes))
 	var parts []string
 	for _, change := range changes {
-		if noun, ok := changeNouns[change]; ok {
-			nouns = append(nouns, noun)
+		noun, ok := changeNouns[change]
+		if !ok {
+			continue
 		}
+		if change == ir.StepChangeParams && len(params) > 0 {
+			noun += " (" + strings.Join(params, ", ") + ")"
+		}
+		nouns = append(nouns, noun)
 	}
 	if len(nouns) > 0 {
 		parts = append(parts, joinWords(nouns)+" changed since that run")
@@ -117,6 +123,44 @@ func changeReason(changes []ir.StepChange) string {
 		parts = append(parts, "what that run ran cannot be compared")
 	}
 	return strings.Join(parts, ", and ")
+}
+
+// changedParams names the parameters whose values differ between now and
+// earlier, two lists of resolved parameters as NAME=value or a positional
+// value, which is named $1, $2, and so on: in the order of now, then the
+// names that only earlier has.
+func changedParams(now, earlier []string) []string {
+	byName := func(params []string) ([]string, map[string]string) {
+		names := make([]string, 0, len(params))
+		values := make(map[string]string, len(params))
+		position := 0
+		for _, param := range params {
+			name, value, named := strings.Cut(param, "=")
+			if !named || name == "" {
+				position++
+				name, value = fmt.Sprintf("$%d", position), param
+			}
+			if _, seen := values[name]; !seen {
+				names = append(names, name)
+			}
+			values[name] = value
+		}
+		return names, values
+	}
+	nowNames, nowValues := byName(now)
+	earlierNames, earlierValues := byName(earlier)
+	var changed []string
+	for _, name := range nowNames {
+		if value, ok := earlierValues[name]; !ok || value != nowValues[name] {
+			changed = append(changed, name)
+		}
+	}
+	for _, name := range earlierNames {
+		if _, ok := nowValues[name]; !ok {
+			changed = append(changed, name)
+		}
+	}
+	return changed
 }
 
 // taintedSteps returns, by name, the steps of dag that took outputs of a
