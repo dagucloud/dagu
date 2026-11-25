@@ -469,9 +469,15 @@ func renderYAML(n *yaml.Node) string {
 	if len(n.Content) == 0 {
 		return ""
 	}
+	return encodeYAML(n, defaultIndent)
+}
+
+// encodeYAML writes n as YAML indented by indent spaces, or "" when it does
+// not encode.
+func encodeYAML(n *yaml.Node, indent int) string {
 	var buf bytes.Buffer
 	encoder := yaml.NewEncoder(&buf)
-	encoder.SetIndent(2)
+	encoder.SetIndent(indent)
 	if encoder.Encode(n) != nil || encoder.Close() != nil {
 		return ""
 	}
