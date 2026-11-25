@@ -483,7 +483,9 @@ type Props = {
   dags: components['schemas']['DAGFile'][];
   /**
    * The activity of the listed workflows, by file name. A workflow with no
-   * entry draws no strip.
+   * entry draws no strip. Without it, as on a node that gives no activity,
+   * the table leaves the Activity column out and the cards keep no room for a
+   * strip.
    */
   activity?: ReadonlyMap<string, components['schemas']['DAGListActivity']>;
   /** Current group filter */
@@ -1740,11 +1742,12 @@ function DAGTable({
   const useCardView = panelWidth !== null && panelWidth < CARD_VIEW_THRESHOLD;
   // Whole class names, so that the style sheet keeps them.
   const activityColumn =
-    panelWidth === null
-      ? { cell: 'hidden xl:table-cell', col: 'hidden xl:table-column' }
-      : panelWidth >= ACTIVITY_COLUMN_MIN_WIDTH
-        ? { cell: '', col: '' }
-        : { cell: 'hidden', col: 'hidden' };
+    activity === undefined ||
+    (panelWidth !== null && panelWidth < ACTIVITY_COLUMN_MIN_WIDTH)
+      ? { cell: 'hidden', col: 'hidden' }
+      : panelWidth === null
+        ? { cell: 'hidden xl:table-cell', col: 'hidden xl:table-column' }
+        : { cell: '', col: '' };
 
   const { data: uniqueLabels } = useQuery('/dags/labels', {
     params: {

@@ -122,6 +122,11 @@ function renderTable(
     isRequestFiltered?: boolean;
     isLoading?: boolean;
     remoteNode?: string;
+    /**
+     * The activity of the rows, by default the activity that the fixtures
+     * carry. Undefined stands for a node that gives no activity.
+     */
+    activity?: React.ComponentProps<typeof DAGTable>['activity'];
   } = {}
 ) {
   const onSortChange = vi.fn();
@@ -167,7 +172,9 @@ function renderTable(
           <PanelWidthContext.Provider value={options.panelWidth ?? null}>
             <DAGTable
               dags={dags}
-              activity={activityOf(dags)}
+              activity={
+                'activity' in options ? options.activity : activityOf(dags)
+              }
               group=""
               refreshFn={vi.fn()}
               searchText={searchText}
@@ -1452,7 +1459,22 @@ describe('DAGTable', () => {
       const pending = within(cards).getByTestId('dag-activity-pending');
       expect(pending.style.height).not.toBe('');
       expect(pending.style.height).toBe(strip.style.height);
-    });  });
+    });
+
+    // A node without the activity endpoint, such as an older remote node,
+    // would never fill the column.
+    it('leaves the column out on a node that gives no activity', () => {
+      const dags = [withActivity([run('r1', HOUR)])];
+      const header = () =>
+        screen.getByRole('columnheader', { name: 'Activity' });
+      const table = renderTable('', { dags, panelWidth: 1200 });
+      expect(header()).not.toHaveClass('hidden');
+
+      table.unmount();
+      renderTable('', { dags, activity: undefined, panelWidth: 1200 });
+      expect(header()).toHaveClass('hidden');
+    });
+  });
 
   // The Last Run column of a service DAG shows the state of the service.
   describe('state of a service DAG', () => {
