@@ -109,7 +109,7 @@ export const PANEL_CAP_RATIO = 0.45;
 /** A capped panel keeps this width, so that its form stays usable. */
 export const PANEL_CAP_FLOOR = 360;
 /** On a wide viewport the graph beside a panel keeps this width at least. */
-export const PANEL_GRAPH_FLOOR = 360;
+const PANEL_GRAPH_FLOOR = 360;
 
 /** The narrowest width that the resize handle gives a panel. */
 export const PANEL_MIN_WIDTH = 420;
