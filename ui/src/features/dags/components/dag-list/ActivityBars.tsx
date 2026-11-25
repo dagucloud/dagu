@@ -3,7 +3,6 @@
 
 import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Status, type components } from '@/api/v1/schema';
-import { CACHED_WASH } from '@/features/workflow-workspace/dock/runTimelineModel';
 import { useClock } from '@/hooks/useClock';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
@@ -45,10 +44,10 @@ interface ActivityBarsProps {
 
 /**
  * The runs of a workflow in the last 24 hours as one thin vertical bar for
- * each run, at the time that it started. The height of a bar is the total
- * time of its run, with the cached time as a pale foot, as in the timeline of
- * the workflow page. The strip is cheap on purpose: a list shows hundreds of
- * them, so a bar is a plain element with a native tooltip.
+ * each run, at the time that it started. The height of a bar is the time of
+ * its run, as in the timeline of the workflow page. The strip is cheap on
+ * purpose: a list shows hundreds of them, so a bar is a plain element with a
+ * native tooltip.
  */
 function ActivityBars({
   activity,
@@ -160,13 +159,7 @@ function barTitle(bar: ActivityBar, ts: ReturnType<typeof useI18n>['ts']) {
   const parts = [
     formatAbsoluteTime(bar.startedAt),
     ts(runStatusText(bar.status)),
-    bar.cached > 0
-      ? ts('Total {total} = own {own} + cached {cached}', {
-          total: formatDurationMs(bar.own + bar.cached),
-          own: formatDurationMs(bar.own),
-          cached: formatDurationMs(bar.cached),
-        })
-      : formatDurationMs(bar.own),
+    formatDurationMs(bar.durationMs),
   ];
   return parts.filter(Boolean).join(' · ');
 }
@@ -235,18 +228,7 @@ function Bar({
         bar.tone !== 'partial' && toneClasses(bar.tone).dot,
         onOpenRun && 'cursor-pointer'
       )}
-    >
-      {bar.cachedPx > 0 && (
-        <span
-          aria-hidden="true"
-          style={{
-            height: bar.cachedPx,
-            backgroundColor: CACHED_WASH,
-          }}
-          className="absolute inset-x-0 bottom-0 block"
-        />
-      )}
-    </span>
+    />
   );
 }
 

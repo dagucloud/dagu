@@ -97,21 +97,6 @@ describe('activityBarsModel', () => {
     expect(bars[0]?.height).toBe(ACTIVITY_BAR_MIN_PX);
   });
 
-  it('counts the cached time in the height and shows it as a foot', () => {
-    const [own, cached] = activityBars(
-      [
-        run('own', HOUR, 10_000),
-        run('cached', 2 * HOUR, 1_000, { cachedMs: 9_000 }),
-      ],
-      NOW
-    );
-    expect(own?.cachedPx).toBe(0);
-    expect(cached?.cached).toBe(9_000);
-    expect(cached?.cachedPx).toBeGreaterThan(0);
-    // 1 s own + 9 s cached stands as tall as 10 s of own time.
-    expect(cached?.height).toBe(own?.height);
-  });
-
   it('draws a running run up to now', () => {
     const [bar] = activityBars(
       [
@@ -122,7 +107,7 @@ describe('activityBarsModel', () => {
       ],
       NOW
     );
-    expect(bar?.own).toBe(5 * 60_000);
+    expect(bar?.durationMs).toBe(5 * 60_000);
     expect(bar?.tone).toBe('running');
   });
 
