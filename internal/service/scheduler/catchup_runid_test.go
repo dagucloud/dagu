@@ -6,12 +6,12 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -223,8 +223,8 @@ func TestSlotRunIDAcrossMigration(t *testing.T) {
 			require.NoError(t, err)
 			paths, err := cfg.ProjectPaths(registered.Name)
 			require.NoError(t, err)
-			require.NoError(t, os.MkdirAll(filepath.Dir(paths.DAGRunsDir), 0o750))
-			require.NoError(t, os.Rename(v2Paths.DAGRunsDir, paths.DAGRunsDir))
+			require.NoError(t, fileutil.MkdirAll(filepath.Dir(paths.DAGRunsDir), 0o750))
+			require.NoError(t, fileutil.Rename(v2Paths.DAGRunsDir, paths.DAGRunsDir))
 
 			restarted, err := projectregistry.New(cfg.Paths.DataDir).GetByID(ctx, registered.ID)
 			require.NoError(t, err)
