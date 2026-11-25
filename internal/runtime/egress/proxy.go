@@ -411,7 +411,8 @@ func pipe(client net.Conn, buffered io.Reader, upstream net.Conn, idle time.Dura
 	_ = upstream.Close()
 }
 
-// activityWriter notes the time of each write of a tunnel, since start.
+// activityWriter notes, since start, the time at which each write of a tunnel
+// that moved bytes ended. A peer that reads slowly holds a write open.
 type activityWriter struct {
 	w     io.Writer
 	start time.Time
@@ -419,8 +420,11 @@ type activityWriter struct {
 }
 
 func (a activityWriter) Write(p []byte) (int, error) {
-	a.last.Store(int64(time.Since(a.start)))
-	return a.w.Write(p)
+	n, err := a.w.Write(p)
+	if n > 0 {
+		a.last.Store(int64(time.Since(a.start)))
+	}
+	return n, err
 }
 
 // closeWriter is a connection that can end its write side alone, as

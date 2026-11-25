@@ -392,6 +392,42 @@ type pipeAddr struct{}
 func (pipeAddr) Network() string { return "pipe" }
 func (pipeAddr) String() string  { return "pipe" }
 
+// openPipeTunnel serves a proxy with the idle time on in-memory connections and
+// opens a tunnel to a destination that serve runs. It returns the client side
+// after the answer 200. It runs in a synctest bubble.
+func openPipeTunnel(t *testing.T, idle time.Duration, serve func(net.Conn)) (net.Conn, *bufio.Reader) {
+	t.Helper()
+	const destination = "192.0.2.10:7"
+	rules, err := egress.ParseRules([]string{destination})
+	require.NoError(t, err)
+	dial := func(context.Context, string, string) (net.Conn, error) {
+		conn, peer := net.Pipe()
+		go func() {
+			defer func() { _ = peer.Close() }()
+			serve(peer)
+		}()
+		return conn, nil
+	}
+	proxy, err := egress.New(egress.Options{Rules: rules, Dial: dial})
+	require.NoError(t, err)
+	proxy.SetTunnelIdleForTest(idle)
+	listener := newPipeListener()
+	go func() { _ = proxy.Serve(listener) }()
+	t.Cleanup(func() { _ = listener.Close() })
+
+	conn := listener.dial()
+	t.Cleanup(func() { _ = conn.Close() })
+	_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", destination, destination)
+	require.NoError(t, err)
+	reader := bufio.NewReader(conn)
+	status, err := reader.ReadString('\n')
+	require.NoError(t, err)
+	require.Equal(t, "HTTP/1.1 200 Connection Established", strings.TrimSpace(status))
+	_, err = reader.ReadString('\n')
+	require.NoError(t, err)
+	return conn, reader
+}
+
 // A tunnel in which no byte moves ends, so a client that opens tunnels and sends
 // nothing cannot hold the descriptors of the proxy for ever. A tunnel in use
 // stays. The test runs in a synctest bubble on in-memory connections: the clock
@@ -401,38 +437,11 @@ func TestIdleTunnelEnds(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		const idle = 300 * time.Millisecond
-		const destination = "192.0.2.10:7"
-		rules, err := egress.ParseRules([]string{destination})
-		require.NoError(t, err)
-		echo := func(context.Context, string, string) (net.Conn, error) {
-			conn, peer := net.Pipe()
-			go func() {
-				defer func() { _ = peer.Close() }()
-				_, _ = io.Copy(peer, peer)
-			}()
-			return conn, nil
-		}
-		proxy, err := egress.New(egress.Options{Rules: rules, Dial: echo})
-		require.NoError(t, err)
-		proxy.SetTunnelIdleForTest(idle)
-		listener := newPipeListener()
-		go func() { _ = proxy.Serve(listener) }()
-		t.Cleanup(func() { _ = listener.Close() })
-
-		conn := listener.dial()
-		t.Cleanup(func() { _ = conn.Close() })
-		_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", destination, destination)
-		require.NoError(t, err)
-		reader := bufio.NewReader(conn)
-		status, err := reader.ReadString('\n')
-		require.NoError(t, err)
-		require.Equal(t, "HTTP/1.1 200 Connection Established", strings.TrimSpace(status))
-		_, err = reader.ReadString('\n')
-		require.NoError(t, err)
+		conn, reader := openPipeTunnel(t, idle, func(peer net.Conn) { _, _ = io.Copy(peer, peer) })
 		// Traffic every half idle time keeps the tunnel open for twice the idle time.
 		for range 4 {
 			time.Sleep(idle / 2)
-			_, err = io.WriteString(conn, "ping\n")
+			_, err := io.WriteString(conn, "ping\n")
 			require.NoError(t, err)
 			line, err := reader.ReadString('\n')
 			require.NoError(t, err)
@@ -441,9 +450,34 @@ func TestIdleTunnelEnds(t *testing.T) {
 		// Then nothing moves, and the proxy closes the tunnel after the idle time.
 		quiet := time.Now()
 		require.NoError(t, conn.SetReadDeadline(quiet.Add(10*idle)))
-		_, err = reader.ReadString('\n')
+		_, err := reader.ReadString('\n')
 		require.ErrorIs(t, err, io.EOF)
 		assert.GreaterOrEqual(t, time.Since(quiet), idle)
+	})
+}
+
+// The idle time counts from the end of the last write. A client that reads
+// slowly holds a write of the proxy open, and the tunnel stays for the idle
+// time after that write ends.
+func TestIdleTimeCountsFromTheEndOfAWrite(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		const idle = 300 * time.Millisecond
+		conn, reader := openPipeTunnel(t, idle, func(peer net.Conn) {
+			_, _ = io.WriteString(peer, "hello\n")
+			_, _ = io.Copy(io.Discard, peer)
+		})
+		// The write of hello to the client lasts until the client reads it.
+		time.Sleep(idle - idle/10)
+		line, err := reader.ReadString('\n')
+		require.NoError(t, err)
+		require.Equal(t, "hello\n", line)
+
+		read := time.Now()
+		require.NoError(t, conn.SetReadDeadline(read.Add(10*idle)))
+		_, err = reader.ReadString('\n')
+		require.ErrorIs(t, err, io.EOF)
+		assert.GreaterOrEqual(t, time.Since(read), idle)
 	})
 }
 
