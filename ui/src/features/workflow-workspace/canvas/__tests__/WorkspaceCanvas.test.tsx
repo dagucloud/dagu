@@ -24,10 +24,12 @@ import { AppBarContext } from '@/contexts/AppBarContext';
 import {
   RightPanelProvider,
   useRightPanel,
+  useRightPanelClaim,
   type RightPanelHandle,
 } from '@/contexts/RightPanelContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import type DAGSpec from '@/features/dags/components/dag-editor/DAGSpec';
+import { useYamlSection } from '@/features/dags/components/dag-editor/useYamlSection';
 import { usePanelPlacement } from '@/features/dags/components/step-details/PanelShell';
 import type {
   ApiDAGRunDetails,
@@ -85,6 +87,8 @@ const host = vi.hoisted(() => ({
   dockOpen: [] as boolean[],
   /** Renders the readers of useDock again, as a change of DockProvider does. */
   dockListeners: new Set<() => void>(),
+  /** The stand-in renders the YAML frame of the editor (YamlFrameProbe). */
+  yamlFrame: false,
 }));
 
 // Captures the props; the stand-in gives the handle as DAGSpec does once loaded.
@@ -105,10 +109,13 @@ vi.mock(
         []
       );
       return (
-        <div
-          data-testid="dag-spec-stand-in"
-          data-placement={usePanelPlacement()}
-        />
+        <>
+          <div
+            data-testid="dag-spec-stand-in"
+            data-placement={usePanelPlacement()}
+          />
+          {host.yamlFrame && props.ndv && <YamlFrameProbe ndv={props.ndv} />}
+        </>
       );
     }
     function CapturingDAGSpec(props: SpecProps) {
@@ -449,6 +456,15 @@ function PanelProbe() {
   return null;
 }
 
+// The YAML frame of the editor, as DAGSpec and NodeDetailsFrame wire it: it
+// claims the right panel while the YAML or a step view shows, and its close
+// gives the YAML back to a step view that opened from it.
+function YamlFrameProbe({ ndv }: { ndv: NonNullable<SpecProps['ndv']> }) {
+  const { sectionOpen, setSectionOpen } = useYamlSection(ndv);
+  useRightPanelClaim('ndv', sectionOpen, () => setSectionOpen(false));
+  return null;
+}
+
 function renderCanvas(
   url: InitialEntry = '/dags/example.yaml',
   opts: { panels?: boolean } = {}
@@ -515,6 +531,7 @@ beforeEach(() => {
   panel.props = null;
   host.real = false;
   host.handle = null;
+  host.yamlFrame = false;
   api.queries = [];
   api.specLoading = false;
   api.saved = 0;
@@ -1793,6 +1810,25 @@ describe('WorkspaceCanvas', () => {
         host.dockListeners.forEach((listener) => listener());
       });
       expect(screen.queryByTestId('step-panel')).toBeNull();
+      expect(location()).toHaveTextContent('step=extract');
+    });
+
+    // A step view opened from the YAML gives the YAML back when it closes.
+    // Activity takes the room of both: the YAML must not stay beside it.
+    it('closes a step view opened from the YAML when Activity opens', () => {
+      host.yamlFrame = true;
+      ws.dock = { ...dock, open: false, yieldToView: vi.fn() };
+      renderCanvas('/dags/example.yaml?step=extract&ndv=docked', {
+        panels: true,
+      });
+      act(() => props().ndv?.onStateChange('expanded'));
+      expect(location()).toHaveTextContent('ndv=expanded');
+
+      act(() => {
+        ws.dock = { ...(ws.dock as DockController), open: true };
+        host.dockListeners.forEach((listener) => listener());
+      });
+      expect(location()).not.toHaveTextContent('ndv=');
       expect(location()).toHaveTextContent('step=extract');
     });
 

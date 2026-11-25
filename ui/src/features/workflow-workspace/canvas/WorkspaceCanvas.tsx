@@ -285,11 +285,17 @@ function MountAfterDockYield({
 function CloseRightPanelOnActivity({
   paneActive,
   atRisk,
+  stepView,
+  closeStepView,
   closeStepPanel,
 }: {
   paneActive: boolean;
   /** A draft or a one-time secret would be lost (useSettingsLeaveGuard). */
   atRisk: boolean;
+  /** The step view is open (?ndv=expanded). */
+  stepView: boolean;
+  /** Closes the step view and gives no YAML panel back under it. */
+  closeStepView: () => void;
   closeStepPanel: () => void;
 }) {
   const dock = useDock();
@@ -308,15 +314,20 @@ function CloseRightPanelOnActivity({
         yieldToView?.(true, { restore: true });
         return;
       }
-      closeRightPanel();
+      // The close of a step view opened from the YAML gives the YAML back,
+      // which would then show beside Activity with no claim.
+      if (stepView) closeStepView();
+      else closeRightPanel();
     }
     closeStepPanel();
   }, [
     dock.open,
     paneActive,
     atRisk,
+    stepView,
     yieldToView,
     closeRightPanel,
+    closeStepView,
     closeStepPanel,
   ]);
   return null;
@@ -644,6 +655,10 @@ export function WorkspaceCanvas({
     if (!columnMode && yamlUnderView.current && handle) handle.toggleYaml(true);
     else setUrl({ ndv: null }, { replace: true });
   };
+  const closeStepViewAlone = useCallback(
+    () => setUrl({ ndv: null }, { replace: true }),
+    [setUrl]
+  );
   // Esc closes the expanded node view when no dialog or menu is above it.
   // The YAML panel stays: it is a panel that the page keeps, not a view to
   // leave. With no panel or node view open, Esc clears the step and ?step.
@@ -748,6 +763,8 @@ export function WorkspaceCanvas({
         <CloseRightPanelOnActivity
           paneActive={paneActive}
           atRisk={atRisk}
+          stepView={url.ndv === 'expanded'}
+          closeStepView={closeStepViewAlone}
           closeStepPanel={stepPanel.close}
         />
         <div
