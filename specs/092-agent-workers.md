@@ -765,9 +765,15 @@ The log is data of the agent: an untrusted step wrote it. No trusted step puts i
 The restricted user writes the file in the work directory of the run. The agent starts the next
 round from the files that the previous round left.
 
-The verdict is the exit code of the verify script. The script can choose its exit code, and it is
-in the repository. So the step `check_paths` refuses a change to the verify script, to the tests
-and to the CI.
+The verdict is the exit code of the verify script. The verify runs the script, the tests and the
+code that they test, and the agent can change each of them. An untrusted step can also change a
+file and put it back before a later step checks it. So no check of the files after the verify
+shows that the verdict is true. The verdict tells whether an agent that works as asked fixed the
+code. An agent that a prompt controls can make a verify pass.
+
+The step `check_paths` refuses a change to the verify script, to the tests and to the CI that is
+still in the files when it runs. So the push carries no such change. A review of the pushed branch
+decides whether the change is used.
 
 ### Limits of the loop
 
@@ -1252,7 +1258,7 @@ steps:
       exit $rc
 
   # The steps after the loop run on the last verify. They are trusted: untrusted: false.
-  # The verify script is a file of the repository, so the agent must not change it.
+  # check_paths keeps a change to a test, a script or the CI out of the push.
   - id: check_paths
     depends: [verify_3]
     untrusted: false
@@ -1431,8 +1437,10 @@ sends `POST https://api.openai.com/v1/chat/completions` with the real key.
 - A group of steps cannot repeat in one run. The verify loop writes each round as a pair of steps.
   The number of rounds is fixed, and each round costs a full run of the agent. See [Limits of the
   loop](#limits-of-the-loop).
-- The verdict of a verify step is the exit code of a script of the repository. The agent can change
-  the script. The step `check_paths` must refuse a change to it.
+- An agent that a prompt controls can make a verify pass. The verify runs files that the agent can
+  change, and an untrusted step can put a changed file back before a later check. The step
+  `check_paths` keeps a change to the verify script, the tests and the CI out of the push. See [The
+  log](#the-log).
 - A trusted step that runs a file of the work directory runs code of the agent.
 - Each user can read the arguments of a process in `/proc/<pid>/cmdline`. No process of the
   restricted user runs at the same time as a trusted step of its run. But a process of another run
