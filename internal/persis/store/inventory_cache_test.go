@@ -112,6 +112,35 @@ func TestCachedInventoryStore_ReadsOwnChangeUnderCoarseVersions(t *testing.T) {
 	assert.Equal(t, []string{"web02"}, nodeNames(nodes))
 }
 
+// A change by another client that leaves the record versions as they were
+// is read once the cached nodes reach their age limit.
+func TestCachedInventoryStore_ReadsUnseenChangeAfterAgeLimit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	backend := testutil.NewMemoryBackend()
+	col := &versionedCollection{Collection: backend.Collection(persis.CollectionInventories), coarse: true}
+	lock := backend.Lock(persis.CollectionInventories)
+	cached := newCachedInventoryStore(t, col, lock)
+	other, err := store.NewInventoryStore(col, lock, nil)
+	require.NoError(t, err)
+	tokyo, err := other.Create(ctx, testInventory("Tokyo", "web01"))
+	require.NoError(t, err)
+	_, err = cached.Nodes(ctx)
+	require.NoError(t, err)
+
+	disabled := testInventory("Tokyo", "web01")
+	disabled.ID = tokyo.ID
+	disabled.Nodes[0].Disabled = true
+	_, err = other.Replace(ctx, disabled, tokyo.Version)
+	require.NoError(t, err)
+
+	store.ExpireInventoryCacheForTest(t, cached)
+	nodes, err := cached.Nodes(ctx)
+	require.NoError(t, err)
+	require.Len(t, nodes, 1)
+	assert.True(t, nodes[0].Disabled)
+}
+
 // A read that finds no inventory changed reads no record, and a caller that
 // changes the nodes it was given leaves the cache intact.
 func TestCachedInventoryStore_ReadsNoRecordWhenUnchanged(t *testing.T) {

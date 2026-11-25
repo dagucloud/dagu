@@ -9,16 +9,26 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
 
+// maxInventorySnapshotAge bounds how long cached nodes are served before the
+// inventories are read again. A record version comes from a file's status,
+// which a network file system may answer from its cache, and which a write
+// within one timestamp tick may leave unchanged, so a change by another
+// process could otherwise go unseen until a later one.
+const maxInventorySnapshotAge = 10 * time.Second
+
 // NewCachedInventoryStore creates an InventoryStore that keeps the project's
 // resolved nodes in memory, for a long-running service. A read that finds no
 // inventory changed since the last one lists the collection's records and
-// their versions, and reads none of them. A change made through this store,
-// or by any other client of the collection, is read again on the next read.
+// their versions, and reads none of them. A change made through this store
+// is read on the next read. A change by any other client of the collection
+// is read on the next read that finds its record version changed, and at
+// the latest on the first read 10 seconds after the nodes were last read.
 func NewCachedInventoryStore(col persis.Collection, lock persis.Lock, hostKeys inventory.HostKeyStore) (*InventoryStore, error) {
 	s, err := NewInventoryStore(col, lock, hostKeys)
 	if err != nil {
@@ -41,6 +51,7 @@ type inventoryCache struct {
 type inventorySnapshot struct {
 	stamp      string
 	generation uint64
+	loadedAt   time.Time
 	nodes      []inventory.ResolvedNode
 	// err reports stored inventories that break a rule. It is kept, since
 	// reading them again gives the same error until one changes.
@@ -73,7 +84,7 @@ func (s *InventoryStore) cachedNodes(ctx context.Context) ([]inventory.ResolvedN
 	snap, generation := s.cache.snap, s.cache.generation
 	s.cache.mu.Unlock()
 
-	if !stamped || snap == nil || snap.stamp != stamp {
+	if !stamped || snap == nil || snap.stamp != stamp || time.Since(snap.loadedAt) >= maxInventorySnapshotAge {
 		snap, err = s.loadSnapshot(ctx, generation)
 		if err != nil {
 			return nil, err
@@ -97,6 +108,7 @@ func (s *InventoryStore) cachedNodes(ctx context.Context) ([]inventory.ResolvedN
 func (s *InventoryStore) loadSnapshot(ctx context.Context, generation uint64) (*inventorySnapshot, error) {
 	var snap *inventorySnapshot
 	err := s.lock.Do(ctx, func(held func() error) error {
+		loadedAt := time.Now()
 		stamp, _, err := s.stamp(ctx)
 		if err != nil {
 			return err
@@ -109,7 +121,7 @@ func (s *InventoryStore) loadSnapshot(ctx context.Context, generation uint64) (*
 			return err
 		}
 		nodes, err := inventory.Resolve(inventoriesOf(all))
-		snap = &inventorySnapshot{stamp: stamp, generation: generation, nodes: nodes, err: err}
+		snap = &inventorySnapshot{stamp: stamp, generation: generation, loadedAt: loadedAt, nodes: nodes, err: err}
 		return nil
 	})
 	return snap, err
