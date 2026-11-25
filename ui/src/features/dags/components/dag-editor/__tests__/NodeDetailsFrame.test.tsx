@@ -1522,4 +1522,62 @@ describe('NodeDetailsFrame focus and width', () => {
     expect(probe).toHaveTextContent('760');
     expect(drawerEdge).toHaveAttribute('aria-valuenow', '760');
   });
+
+  // The frame claims its place in an effect: on the render that opens it,
+  // the panel that shows is still the one that it replaces.
+  it('opens at its own width, not at that of the panel it replaces', () => {
+    localStorage.setItem('dagu.stepDetailsDrawer.width.workflow', '900');
+    const widths: string[] = [];
+    function YamlOverWorkflow() {
+      const [workflow, setWorkflow] = React.useState(true);
+      const [yaml, setYaml] = React.useState(false);
+      // Each commit while the frame is open: the width that it painted.
+      React.useLayoutEffect(() => {
+        if (yaml) widths.push(frame().style.width);
+      });
+      return (
+        <>
+          <button type="button" onClick={() => setYaml(true)}>
+            Open YAML
+          </button>
+          <StepSideDrawer
+            isOpen={workflow}
+            onClose={() => setWorkflow(false)}
+            hasContent={workflow}
+            modal={false}
+            label="Workflow"
+            panelId="workflow"
+          >
+            <p>Workflow</p>
+          </StepSideDrawer>
+          <NodeDetailsFrame
+            state={yaml ? 'docked' : null}
+            scope="file"
+            onClose={() => setYaml(false)}
+            stepName="transform"
+            dag={dag as React.ComponentProps<typeof NodeDetailsFrame>['dag']}
+            onSelectStep={vi.fn()}
+            formMode
+            canForm
+            onFormModeChange={vi.fn()}
+            toolbarRef={() => {}}
+            inputRef={() => {}}
+            outputRef={() => {}}
+          >
+            <input aria-label="Step field" />
+          </NodeDetailsFrame>
+        </>
+      );
+    }
+    render(
+      <RightPanelProvider>
+        <YamlOverWorkflow />
+      </RightPanelProvider>
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open YAML' }));
+    expect(screen.queryByText('Workflow')).toBeNull();
+    expect(widths.length).toBeGreaterThan(0);
+    expect(widths).not.toContain('900px');
+    expect(frame().style.width).toBe('560px');
+  });
 });

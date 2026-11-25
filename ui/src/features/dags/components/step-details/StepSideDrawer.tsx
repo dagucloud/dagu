@@ -162,12 +162,13 @@ function usePanelWidth(panelId: RightPanelId | null): number {
 }
 
 /**
- * The width of the drawer of the panel that shows, live: it changes while
- * the user drags the handle, so that a layout that leaves room for the drawer
- * keeps the same width.
+ * The width of the drawer of `panelId`, or of the panel that shows when it
+ * is omitted, live: it changes while the user drags the handle, so that a
+ * layout that leaves room for the drawer keeps the same width.
  */
-export function useDrawerWidth(): number {
-  return usePanelWidth(useActiveRightPanel());
+export function useDrawerWidth(panelId?: RightPanelId): number {
+  const activePanel = useActiveRightPanel();
+  return usePanelWidth(panelId ?? activePanel);
 }
 
 /**

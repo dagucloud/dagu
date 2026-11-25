@@ -350,7 +350,8 @@ export function NodeDetailsFrame({
   const columnBox = useBoxIn(inColumn ? column.yaml : null, layer);
   useRightPanelClaim('ndv', open && !inColumn, onClose, onRestore);
   const sectionRef = React.useRef<HTMLElement>(null);
-  const width = useDrawerWidth();
+  // Its own width: the claim lands after the render that opens the frame.
+  const width = useDrawerWidth('ndv');
 
   const viewport = useViewportWidth();
   // Without matchMedia (tests) the viewport is wide.
@@ -618,7 +619,7 @@ export function NodeDetailsFrame({
         }
       >
         {/* The docked frame takes a new width from its left edge. */}
-        {docked && <PanelResizeHandle shown={open} />}
+        {docked && <PanelResizeHandle shown={open} panelId="ndv" />}
         {rowTitle && (
           <PanelRowTitle
             title={headerNote ? undefined : ts('YAML')}
