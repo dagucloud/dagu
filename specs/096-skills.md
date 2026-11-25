@@ -1,0 +1,430 @@
+# Spec 096: Skills
+
+## Status
+
+Implemented.
+
+The API, the loader, `chat.completion`, `agent.run`, the ZIP download and the editor of the UI follow
+this spec. Items that are not built are in [Open items](#open-items).
+
+## Scope
+
+This spec defines:
+
+- the format of a skill: the front matter of `SKILL.md`, the limits, and the rules that Dagu enforces
+- the folder of a skill: the layout, the files, and the limits of the files
+- the files as the only source of truth of the skills, the hash of a skill, and the preconditions of a write
+- the skill routes of the REST API, and the download of skills as a ZIP file
+- the use of a skill by `chat.completion` (the tools `load_skill` and `read_skill_file`) and by `agent.run`
+- the transfer of a skill to a worker, and the record of the version that a run received
+- the contract of the UI for skills
+- `dagu validate` for skills
+
+This spec does not define:
+
+- the `skills` key of a step, the system message of the catalog and the tool map. See [Spec 090](090-agent-tools.md).
+- the other keys of `agent.run`, the CLI flags and the sandbox of the CLI. See [Spec 091](091-agent-node.md).
+- the agent worker, the coordinator and the workspace bundle of a run. See [Spec 092](092-agent-workers.md) and [Spec 035](035-file-dependencies.md).
+- the upload of a ZIP file, a command that checks a skill, and the other items of [Open items](#open-items)
+
+## Goal
+
+A skill gives instructions to a model. A skill that follows the Agent Skills standard works in Dagu
+without a change. A skill that does not follow the standard never reaches a model: Dagu refuses it
+and tells the author why. The skill is a folder of files. A person, a git repository or the UI can
+change it. Several Dagu instances can share the folder, and a run keeps the exact version that it
+received.
+
+## Related Specs
+
+- [Spec 035: File Dependencies](035-file-dependencies.md)
+- [Spec 090: Agent Tools](090-agent-tools.md)
+- [Spec 091: Agent Node](091-agent-node.md)
+- [Spec 092: Agent Workers](092-agent-workers.md)
+- [Spec 093: AI Endpoints](093-ai-endpoints.md)
+
+## Terms
+
+A skill is a folder `skills/<name>/` of the skills directory. The file `SKILL.md` of the folder
+defines it.
+
+The skills directory is the directory `skills` that Dagu finds next to a DAG file, as
+[Spec 090](090-agent-tools.md) defines. The API uses `skills` in the DAGs directory.
+
+DAG discovery never enters the directory `skills` at the root of the DAGs directory, also when it
+is recursive. A YAML file of a skill is never a DAG. A directory `skills` deeper in the tree is an
+ordinary directory for discovery.
+
+A refused skill is a skill that breaks one rule of an error in this spec. Dagu never loads a
+refused skill. The API and the UI list it with the state ERROR.
+
+An error is a broken rule that refuses the skill. A warning is a hint. A warning does not refuse
+the skill.
+
+The hash of a skill identifies one version of the skill. See [The hash](#the-hash).
+
+The standard is the Agent Skills specification at `https://agentskills.io/specification`. This spec
+follows it as it stood on 2026-11-05.
+
+## The format
+
+`SKILL.md` has a front matter block and a Markdown body. The first line of the file MUST be `---`.
+The front matter is the YAML text up to the next line that holds only `---`. The body is the text
+after that line. Dagu accepts the line ends LF and CRLF.
+
+The front matter has a closed schema. A key that is not in the table is an error, and the message
+names the key. This includes the extension keys of Claude Code, such as `argument-hint`,
+`when_to_use` and `model`. A key that occurs twice is an error. Custom data goes in `metadata`.
+
+| Key | Type | Rule |
+| --- | --- | --- |
+| `name` | string | Required. 1 to 64 characters. Unicode lower case letters, digits and `-`. No `-` at the start or at the end. No `--`. MUST be equal to the folder name. |
+| `description` | string | Required. 1 to 1024 characters after Dagu replaces each run of white space with one space. MUST NOT contain an XML tag. |
+| `license` | string | Optional. 1 to 128 characters. |
+| `compatibility` | string | Optional. 1 to 500 characters. |
+| `metadata` | map | Optional. A map from string keys to string values. A number or a boolean value is an error: quote it. |
+| `allowed-tools` | string | Optional. A string of tool names, separated by spaces. Informational. See [Security](#security). |
+
+The body MUST NOT be empty. The body MUST NOT be larger than 65536 bytes (64 KiB).
+
+### The rules
+
+Each rule has an identifier. The message of an issue gives the identifier, the file and the reason.
+
+| Rule | Severity | Meaning |
+| --- | --- | --- |
+| `skill-md-missing` | error | The folder has no file `SKILL.md`. |
+| `not-utf8` | error | `SKILL.md` or a file of `references/` or `scripts/` is not valid UTF-8. |
+| `front-matter-start` | error | The file does not start with a `---` line. |
+| `front-matter-end` | error | The front matter has no closing `---` line. |
+| `front-matter-yaml` | error | The front matter is not valid YAML. |
+| `front-matter-duplicate-key` | error | A key occurs twice. |
+| `front-matter-key` | error | A key is not in the table. |
+| `name-missing`, `name-type` | error | `name` is absent or is not a string. |
+| `name-length` | error | The name has fewer than 1 or more than 64 characters. |
+| `name-charset` | error | The name has a character that is not a lower case letter, a digit or `-`. |
+| `name-hyphen-edge` | error | The name starts or ends with `-`. |
+| `name-hyphen-double` | error | The name holds `--`. |
+| `name-folder` | error | The name differs from the folder name. |
+| `description-missing`, `description-type` | error | `description` is absent, empty or not a string. |
+| `description-length` | error | The description has more than 1024 characters. |
+| `description-xml` | error | The description holds an XML tag. |
+| `license`, `compatibility`, `metadata`, `allowed-tools` | error | The value breaks the rule of its key. |
+| `body-empty` | error | The body is empty. |
+| `body-too-large` | error | The body is larger than 64 KiB. |
+| `body-lines` | warning | The body has more than 500 lines. |
+| `body-tokens` | warning | The body is above about 5000 tokens. The estimate is the size in bytes divided by 3.7. |
+| `description-short` | warning | The description has fewer than 20 characters. |
+| `reference-depth` | warning | A file of `references/` lies deeper than one folder level. |
+| `file-too-large-to-read` | warning | A file of `references/` or `scripts/` is larger than 262144 bytes. The tool `read_skill_file` cannot return it. |
+
+The folder rules are in [The folder](#the-folder).
+
+### Source of the rules
+
+These rules come from the standard:
+
+- the table of keys
+- the limits of `name`: 1 to 64 characters, no `--`, equal to the folder
+- the limits of `description` (1 to 1024) and of `compatibility` (1 to 500)
+- the type of `metadata` and the string form of `allowed-tools`
+- the 500 lines and the 5000 tokens
+
+Dagu makes the standard limits errors, except the 500 lines and the 5000 tokens, which stay warnings.
+
+These rules are Dagu rules. The standard does not state them in its specification page:
+
+- The 64 KiB limit of the body.
+- The ban on an XML tag in the description. The Anthropic API variant of the standard states it.
+- The limit of 128 characters for `license`. The standard asks for a short value.
+- The ban on every key that the standard does not list. The standard does not forbid other files or keys, and many clients ignore them.
+- The warning for a description of fewer than 20 characters.
+
+## The folder
+
+A skill folder holds `SKILL.md` at its root and three optional directories: `references/`,
+`assets/` and `scripts/`. Each directory holds files at any depth. The standard asks that
+references stay one level deep. A deeper file is a warning, not an error.
+
+Any other file or directory at the root of the folder is an error. The message names the entry.
+
+| Rule | Severity | Meaning |
+| --- | --- | --- |
+| `root-entry` | error | The root holds an entry other than `SKILL.md`, `references/`, `assets/` or `scripts/`. |
+| `symlink` | error | An entry is a symbolic link. Dagu never follows a link. |
+| `hardlink` | error | A regular file, also `SKILL.md`, has more than one hard link. |
+| `special-file` | error | An entry is not a regular file or a directory. |
+| `hidden-file` | error | A name starts with `.`. Only the file `.gitkeep` below the root is allowed. |
+| `path` | error | A name has a control character, a backslash or invalid UTF-8, or a path is longer than 512 bytes. |
+| `file-too-large` | error | A file is larger than 4194304 bytes (4 MiB). |
+| `total-too-large` | error | The files of the skill are larger than 16777216 bytes (16 MiB) in total. |
+| `too-many-files` | error | The skill has more than 256 files, or the folder has more than 1024 entries (files and directories). |
+| `folder-link` | error | The folder of the skill is a symbolic link. |
+| `changing` | error | The folder changed while Dagu read it, and it did not settle. |
+| `unreadable` | error | Dagu cannot read a file or a folder of the skill, for example because of its permissions. |
+
+Dagu stores a file as bytes. `SKILL.md`, the files of `references/` and the files of `scripts/` MUST
+be valid UTF-8 text. A file of `assets/` can be text or binary.
+
+A name that ends with `.tmp.` and digits is the temporary file of an atomic write. Dagu ignores
+such a file. A skill cannot hold a file with such a name: a write of such a path is refused with the
+rule `path`. An empty directory is not part of the
+skill: it has no file, so the hash and the ZIP file ignore it.
+
+The limits are constants of this spec. They are not configuration keys. The limits of the
+workspace bundle of [Spec 035](035-file-dependencies.md) also apply, to the whole bundle of a run. They
+are 64 MiB compressed, 256 MiB extracted and 8192 entries.
+
+## Files and HA
+
+### Source of truth
+
+The folder `skills/<name>/` in the DAGs directory is the only source of truth of a skill. Dagu
+keeps no state of a skill in the memory of a process. Every operation reads the folder from the disk
+when it needs it: the API, the loader of a DAG and the dispatch of a run.
+
+Dagu supports several instances that share the same DAGs directory (a shared volume, or git-based
+sync) and use the scheduler lock for failover. The instances need no coordination of skills beyond
+the shared files and the hash precondition of a write. Dagu does not depend on a file watcher.
+
+A read can use a cache in the process. The key of the cache is the path of the folder and the data of
+each entry: the path, the kind, the mode, the size and the time of the last change. The cache gives a result only
+when every key matches. It does not give a result when the newest change is younger than 2 seconds.
+It keeps at most 128 folders and at most 64 MiB of file content. The cache is a function of the disk.
+It never decides alone.
+
+### Atomic writes
+
+Every write of a file is atomic: Dagu writes a temporary file next to the target, makes it durable
+and renames it. A reader sees the old file or the new file, never a part of it.
+
+A write or a delete never goes through a symbolic link. This holds for the skill folder, for each
+folder below it and for the file. Dagu checks each part of the path before the write and again
+before the rename. It refuses the request with the status 400 and the rule `folder-link` or
+`symlink`, and it changes nothing. A delete can remove a link at the end of the path, and never its
+target. A client that sends the hash of such a skill gets the same refusal.
+
+A change of several files is several writes. A client writes the files of `references/`,
+`assets/` and `scripts/` first and `SKILL.md` last. Each write returns the new hash.
+
+A reader tolerates a skill that a writer changes at the same time. It lists the folder, reads the files and lists the
+folder again. When the two lists differ, the reader starts again, at most 4 times. A skill that
+does not settle is refused with the rule `changing`. A reader validates what it reads. A skill with
+a new file and the old `SKILL.md` is a complete skill. A folder with no `SKILL.md` is refused.
+
+### The hash
+
+The hash of a skill is the SHA-256 of a text, in lower case hexadecimal (64 characters). The text
+has one line for each regular file of the folder. The lines are in the byte order of the path, from
+the lowest:
+
+```text
+<sha256 of the file in hexadecimal><two spaces><path><line feed>
+```
+
+This is the output of `sha256sum` for the files. The path is relative to the skill folder. It uses
+`/` as separator. It has no `./` prefix. The line feed is `\n`, also on Windows. The text has no
+other line.
+
+The hash does not depend on the order of the directory entries, the time stamps or the modes of the
+files. A change of one byte, of one name, or the addition or the removal of a file changes it.
+
+A skill with an error has a hash too, so that a client can repair it. An entry that is not a regular
+file (a link, a special file) gives the line `<64 zeros><two spaces><path>`. A file larger than 4
+MiB is not read: its digest is the SHA-256 of the text `oversize:<size>`. A skill folder that is a
+link has one line with an empty path and the SHA-256 of the text `symlink:<target>`. So its hash is
+not the hash of an empty skill.
+
+### Preconditions and conflicts
+
+Every write of the API carries the precondition of the client:
+
+- `If-Match: <hash>` applies the write only when the skill still has this hash. The value can be in quotes,
+  and a prefix `W/` is ignored. A value that is not 64 hexadecimal characters gives 400.
+- `If-None-Match: *` applies the write only when the skill folder does not exist. This creates a skill.
+  Another value of `If-None-Match` gives 400. Only `PUT /skills/{name}` accepts this header.
+
+A write with neither header is refused with the HTTP status 428. A write with a stale hash or with
+`If-None-Match: *` on an existing skill gives 409 with the code `conflict` and the current hash
+(`hash`). The write changes nothing. The check and the write are one step under the lock of the
+skill. So two writers that hold the same hash never both succeed, also on two Dagu instances.
+
+The lock is a directory lock (`dirlock`) at `skills/.locks/<name>/`. It is held for the time of one
+write. A holder that crashes gives the lock free after 30 seconds. A writer waits at most 15 seconds
+and then gets 409. The directory `.locks` is hidden: the listing ignores it. A repository that syncs
+the DAGs directory SHOULD ignore `.locks/`.
+
+### Secrets
+
+A skill holds no secret. Dagu does not evaluate a value reference in a skill. A person who has
+read access to the DAGs directory, to the API or to the ZIP file can read every file of a skill.
+
+## The API
+
+The routes are under `/api/v1`. They use camelCase names. All routes accept the `remoteNode` query
+parameter. A read needs a signed-in user when authentication is on. A write, a delete and a file
+write need the developer role or above, and the permission `write_dags`.
+
+A JSON body of a skill route has a closed schema. An unknown field gives the status 400. A JSON body
+above 8 MiB gives the status 413. The error never quotes a value of the body.
+
+| Route | Meaning |
+| --- | --- |
+| `GET /skills` | List the folders of the skills directory, sorted by name. |
+| `GET /skills/{name}` | Read one skill: the raw `SKILL.md`, the hash, the files, the errors and the warnings. |
+| `PUT /skills/{name}` | Create or replace `SKILL.md`. Body `{content}`. |
+| `DELETE /skills/{name}` | Delete the whole folder with every file. |
+| `GET /skills/{name}/files?path=` | Stream one file, exactly as stored. The header `ETag` holds the hash. |
+| `PUT /skills/{name}/files?path=` | Write one file of `references/`, `assets/` or `scripts/`. The body holds the bytes. |
+| `DELETE /skills/{name}/files?path=` | Delete one file, or an entry that breaks the layout. |
+| `GET /skills/{name}/download` | Download one skill as a ZIP file. |
+| `POST /skills/download` | Download several skills as one ZIP file. Body `{names}`. |
+
+The listing contains every folder of the skills directory, also a folder with no `SKILL.md` and a
+folder that breaks the format. It does not contain a plain file, a link or a hidden folder. A read of a
+skill folder that is a link gives the error `folder-link`. A skill with an
+error is a skill with the state ERROR.
+
+`SkillSummary` has `name`, `description`, `hash`, `valid`, `errors`, `warnings`, `fileCount`,
+`totalBytes`, `bodyLines` and `bodyTokens`. `SkillDetail` has `name`, `content`, `hash`, `errors`,
+`warnings`, `files`, the values of `license`, `compatibility`, `allowedTools` and `metadata`, and the
+`SkillSummary` of the skill in `summary`. A `SkillIssue` has `severity`, `rule`,
+`file` and `message`. A `SkillFile` has `path`, `size`, `sha256` and `text`.
+
+A write returns `SkillWriteResult`: the new `hash`, the `errors`, the `warnings` and the `files`.
+The client uses the new hash for its next write. `DELETE /skills/{name}` returns 204 with no body.
+`DELETE /skills/{name}/files` returns 200 with `SkillWriteResult`. `PUT /skills/{name}/files` refuses
+the path `SKILL.md` with 400, because `SKILL.md` has its own route. `GET /skills/{name}/files` gives 409
+when the skill changed while the server read the file. It gives 413 for a file above 4 MiB; the ZIP
+download includes such a file.
+
+A write validates the file that it writes. `PUT /skills/{name}` refuses a `SKILL.md` that breaks a
+rule of the file. A write of another file refuses a path that breaks the layout, and a file above the
+limits. It also refuses a file of `references/` or `scripts/` that is not UTF-8. The refusal is 400 with
+the issues in `issues`. A write can leave the skill with another error, for example a file at the root
+that a person added. Such a write succeeds, and the result lists the error.
+
+The status codes:
+
+| Status | Code | Case |
+| --- | --- | --- |
+| 400 | `bad_request` | The name, the path or the content breaks a rule. The body lists the issues. |
+| 404 | `not_found` | The skill or the file does not exist. |
+| 409 | `conflict` | The precondition fails. The body has the current `hash`. |
+| 413 | `payload_too_large` | The body of `PUT /skills/{name}/files` is larger than 4 MiB, or `GET /skills/{name}/files` reads a file above 4 MiB. A `SKILL.md` above 4 MiB gives 400 with the rule `file-too-large`. |
+| 428 | `bad_request` | The request has no `If-Match` and no `If-None-Match`. |
+
+A path MUST be relative, with `/` separators, and without an empty, `.` or `..` part. A route never
+reads or writes a file outside the folder of the skill. The name of a skill in a route MUST be a
+folder name: no separator, no leading dot, at most 255 bytes. A new skill MUST follow the name rule.
+
+The API writes an audit event for each change: `skill_update`, `skill_delete`, `skill_file_write`,
+`skill_file_delete` and `skill_download`.
+
+## Download as ZIP
+
+`GET /skills/{name}/download` downloads one skill. `POST /skills/download` downloads up to 100
+skills. The request is a POST with a JSON body, because a list of names can be long for a URL. The
+rules for roles are the same as for the read of a skill.
+
+The response has the type `application/zip`. The header `Content-Disposition` is an attachment. The
+file name is `<name>.zip` for one skill with an ASCII name. For another name, it is `skill.zip` with a
+`filename*` value. For several skills, it is `skills-<date>.zip`, with the date in UTC.
+
+The ZIP file has one top-level folder `<name>/` for each skill. The folder holds the files of the
+skill, exactly as stored, also a file `.gitkeep`. Dagu sorts the skills by name and the files by
+path in byte order. It removes a name that occurs twice. Every entry has the time 1980-01-01 00:00:00
+UTC, the mode 0644 and the method deflate. The same skills give the same bytes.
+
+A skill with an error can be downloaded, so that the owner can repair it. The ZIP file marks
+nothing. An unknown name gives 404 and no ZIP file: Dagu checks every name before it sends the first
+byte. A request for more than 100 skills, or for files above 256 MiB in total, gives 400. Dagu
+streams the ZIP file. A file that changes during the stream stops the stream with an error.
+
+## Security
+
+The text of a skill is untrusted content. A skill can try to direct a model against its purpose.
+Only a person with the developer role writes a skill, and the audit log records each change.
+
+A skill never adds a tool and never adds a permission. The keys `dags` and `tools` of the step are the
+only authority. The key `allowed-tools` is informational: Dagu stores it, shows it, and never applies it.
+Dagu never gives a step a tool because of `allowed-tools`.
+
+Dagu never runs a file of a skill. A file in `scripts/` is data. It is stored, mounted, and shown
+to the model as text. The model can ask a tool of the step to run it, and the tools of the step decide
+whether this is allowed. A skill folder has no link, no hard link and no special file, so a skill
+cannot read a file outside its folder. A path never leaves the folder.
+
+A skill holds no secret. See [Secrets](#secrets).
+
+## Errors
+
+| Case | Result |
+| --- | --- |
+| A write has no precondition | 428. |
+| A write has a stale hash | 409 with the current hash. |
+| A download names an unknown skill | 404, no ZIP file. |
+
+## Examples
+
+A skill with the full layout:
+
+```text
+skills/pdf-processing/
+  SKILL.md
+  references/forms.md
+  scripts/extract.py
+  assets/template.docx
+```
+
+```yaml
+---
+name: pdf-processing
+description: Extract text and tables from PDF files and fill PDF forms. Use when the user works with PDF files.
+license: Apache-2.0
+metadata:
+  author: example-org
+  version: "1.0"
+---
+# PDF processing
+
+Read the form rules in references/forms.md before you fill a form.
+```
+
+An update with the hash, then the conflict:
+
+```text
+PUT /api/v1/skills/pdf-processing/files?path=references/forms.md
+If-Match: 3b9c...e41a
+
+200 {"hash":"77d0...a2c1","errors":[],"warnings":[],"files":[...]}
+
+PUT /api/v1/skills/pdf-processing/files?path=references/forms.md
+If-Match: 3b9c...e41a
+
+409 {"code":"conflict","message":"the skill \"pdf-processing\" changed after the client read it (current hash 77d0...a2c1)","hash":"77d0...a2c1"}
+```
+
+## Conformance
+
+These rows have no binary-level test. Go tests of `internal/skill/` check them: the rule
+`folder-link`, the cache, the lock that a holder leaves after a crash, and the refusal of a write
+through a link. The roles of the API need a license, so a Go test of the handlers covers them. The
+UI contract has the tests of the UI.
+
+These rows are not covered: the rules `special-file`, `changing` and `total-too-large`. A test of
+`total-too-large` writes more than 16 MiB, and a test of `changing` needs a writer that races the
+reader.
+
+## Open items
+
+- The upload of a ZIP file to create or replace skills (import).
+- A command `dagu skills validate` that checks a folder without a DAG.
+- A `preload` mode that puts a short skill in the system message, with no tool call.
+- Extra skill directories, such as `.agents/skills`, with an explicit key in the configuration file.
+- A mode `name-only` for one skill of a step, and a way to hide a skill from the model.
+- A check that warns when `allowed-tools` names a tool that the step does not have.
+- A check that every relative link in the body names an existing file.
+- The limits of the skills (4 MiB, 16 MiB, 256 files, 20 skills, 2000 tokens) are constants. They become configuration keys when a user needs another value.
+- The rules that this spec adds to the standard (see [Source of the rules](#source-of-the-rules)) are not verified against another client. The rule for XML tags comes from the Anthropic API variant of the standard.
+- Dagu does not apply the Unicode NFKC normalization of the name, which the reference validator of the standard applies.

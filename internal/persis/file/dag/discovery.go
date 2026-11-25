@@ -129,6 +129,7 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 			if relPath != "." {
 				if strings.HasPrefix(entry.Name(), ".") ||
 					relPath == workspace.BaseConfigDirName ||
+					relPath == spec.SkillsDirName ||
 					slices.Contains(opts.SkipDirs, relPath) ||
 					isSkipRoot(skipRoots, path, entry.Name()) {
 					return filepath.SkipDir
