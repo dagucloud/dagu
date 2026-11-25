@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strconv"
 
@@ -16,10 +17,11 @@ import (
 )
 
 const (
-	planFileName   = "plan.json"
-	movedFileName  = "moved.log"
-	statusFileName = "status.json"
-	filePerm       = 0o600
+	planFileName       = "plan.json"
+	movedFileName      = "moved.log"
+	installingFileName = "installing.log"
+	statusFileName     = "status.json"
+	filePerm           = 0o600
 )
 
 // journal keeps the plan, the moves made so far, and the progress in one
@@ -66,21 +68,7 @@ func (j journal) writePlan(moves []move) error {
 // moved. A line that a crash cut short is skipped; its move runs again and
 // finds itself done.
 func (j journal) readMoved(total int) (map[int]struct{}, error) {
-	moved := make(map[int]struct{})
-	data, err := fileutil.ReadFile(j.path(movedFileName))
-	if errors.Is(err, fs.ErrNotExist) {
-		return moved, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", j.path(movedFileName), err)
-	}
-	for line := range bytes.Lines(data) {
-		index, err := strconv.Atoi(string(bytes.TrimSpace(line)))
-		if err == nil && index >= 0 && index < total {
-			moved[index] = struct{}{}
-		}
-	}
-	return moved, nil
+	return j.readIndexes(movedFileName, total)
 }
 
 func (j journal) markMoved(index int) error {
@@ -88,6 +76,56 @@ func (j journal) markMoved(index int) error {
 		return fmt.Errorf("record move %d in %s: %w", index, j.path(movedFileName), err)
 	}
 	return nil
+}
+
+// readInstalling returns the indexes below total whose copy the journal
+// records as about to take its destination's name.
+func (j journal) readInstalling(total int) (map[int]struct{}, error) {
+	return j.readIndexes(installingFileName, total)
+}
+
+// markInstalling records that the copy of the move at index is about to take
+// its destination's name. The record is durable once it returns, so no
+// installed copy outlasts a crash without it.
+func (j journal) markInstalling(index int) error {
+	path := j.path(installingFileName)
+	if err := fileutil.AppendLines(path, filePerm, []byte(strconv.Itoa(index))); err != nil {
+		return fmt.Errorf("record the copy of move %d in %s: %w", index, path, err)
+	}
+	if err := syncFile(path); err != nil {
+		return fmt.Errorf("sync %s: %w", path, err)
+	}
+	return fileutil.SyncDir(j.dir)
+}
+
+func (j journal) readIndexes(name string, total int) (map[int]struct{}, error) {
+	indexes := make(map[int]struct{})
+	data, err := fileutil.ReadFile(j.path(name))
+	if errors.Is(err, fs.ErrNotExist) {
+		return indexes, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", j.path(name), err)
+	}
+	for line := range bytes.Lines(data) {
+		index, err := strconv.Atoi(string(bytes.TrimSpace(line)))
+		if err == nil && index >= 0 && index < total {
+			indexes[index] = struct{}{}
+		}
+	}
+	return indexes, nil
+}
+
+func syncFile(path string) error {
+	f, err := os.OpenFile(path, os.O_RDWR, 0) //nolint:gosec // path lies in the journal directory
+	if err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func (j journal) readJSON(name string, v any) (bool, error) {

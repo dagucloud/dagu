@@ -234,6 +234,7 @@ func TestRunSkipsInstalledCopyInSpaceCheck(t *testing.T) {
 	mv := move{From: from, To: to}
 	m, ticks := newTestMigrator(t, dataDir, &fakeServices{}, nil)
 	require.NoError(t, m.journal.writePlan([]move{mv}), "the plan of the killed attempt")
+	require.NoError(t, m.journal.markInstalling(0), "the copy it installed")
 	m.planMoves = refusePlan(t)
 	m.mover.sameFileSystem = otherFileSystem
 	m.mover.freeSpace = func(string) (uint64, error) { return 0, nil }
@@ -241,6 +242,25 @@ func TestRunSkipsInstalledCopyInSpaceCheck(t *testing.T) {
 	requireNoWait(t, runAsync(m), ticks)
 	assert.NoDirExists(t, from)
 	assert.FileExists(t, filepath.Join(to, "item.json"))
+}
+
+// A destination that appeared after the plan, beside a source the journal
+// records no copy of, stops the migration and keeps both.
+func TestRunRefusesForeignDestination(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	from := v2Dir(t, dataDir, "queue", "etl", "item.json")
+	to := v2Dir(t, filepath.Join(dataDir, "projects", "default", "state"), "queue", "etl", "item.json")
+	m, _ := newTestMigrator(t, dataDir, &fakeServices{}, nil)
+	require.NoError(t, m.journal.writePlan([]move{{From: from, To: to}}))
+	m.planMoves = refusePlan(t)
+
+	require.ErrorIs(t, m.Run(context.Background()), errForeignDestination)
+	assert.FileExists(t, filepath.Join(from, "item.json"))
+	assert.FileExists(t, filepath.Join(to, "item.json"))
+	done, err := m.Done()
+	require.NoError(t, err)
+	assert.False(t, done)
 }
 
 // A copy that fills its file system despite the estimate frees its space

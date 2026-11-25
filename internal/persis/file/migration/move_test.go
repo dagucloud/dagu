@@ -34,7 +34,7 @@ func TestMoveCopyKeepsModesAndTimes(t *testing.T) {
 	to := filepath.Join(root, "projects", "default", "state", "proc")
 	mr := newMover()
 	mr.sameFileSystem = otherFileSystem
-	require.NoError(t, mr.move(context.Background(), move{From: from, To: to}, holding))
+	require.NoError(t, mr.move(context.Background(), move{From: from, To: to}, fresh, holding))
 
 	assert.NoDirExists(t, from)
 	copied := filepath.Join(to, "etl", "2026", "heartbeat")
@@ -49,18 +49,59 @@ func TestMoveCopyKeepsModesAndTimes(t *testing.T) {
 	assert.True(t, dirInfo.ModTime().Equal(old), "directory time kept")
 }
 
-// A destination beside its source is a copy an earlier attempt installed
-// before it was killed; the move only removes the source.
-func TestMoveFinishesInstalledCopy(t *testing.T) {
+// A destination beside its source that the journal records is the copy of
+// an earlier attempt killed before it removed the source; the move only
+// removes the source.
+func TestMoveFinishesRecordedCopy(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	from := v2Dir(t, root, "queue", "etl", "item.json")
+	to := v2Dir(t, filepath.Join(root, "projects"), "queue", "etl", "item.json")
+	install := installRecord{recorded: true, record: holding}
+
+	require.NoError(t, newMover().move(context.Background(), move{From: from, To: to}, install, holding))
+
+	assert.NoDirExists(t, from)
+	assert.FileExists(t, filepath.Join(to, "item.json"))
+}
+
+// A destination beside its source that the journal does not record is state
+// the migration did not make, so the move refuses and both stay.
+func TestMoveRefusesForeignDestination(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	from := v2Dir(t, root, "queue", "etl", "item.json")
 	to := v2Dir(t, filepath.Join(root, "projects"), "queue", "etl", "item.json")
 
-	require.NoError(t, newMover().move(context.Background(), move{From: from, To: to}, holding))
+	err := newMover().move(context.Background(), move{From: from, To: to}, fresh, holding)
 
-	assert.NoDirExists(t, from)
+	require.ErrorIs(t, err, errForeignDestination)
+	assert.FileExists(t, filepath.Join(from, "item.json"))
 	assert.FileExists(t, filepath.Join(to, "item.json"))
+}
+
+// A copy is recorded once it is complete and before it takes the
+// destination's name, so no installed copy lacks its record.
+func TestMoveRecordsCopyBeforeInstall(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	from := v2Dir(t, root, "queue", "etl", "item.json")
+	to := filepath.Join(root, "projects", "default", "state", "queue", "etl")
+	mr := newMover()
+	mr.sameFileSystem = otherFileSystem
+	recorded := false
+	install := installRecord{record: func() error {
+		recorded = true
+		assert.NoDirExists(t, to)
+		assert.FileExists(t, filepath.Join(to+copySuffix, "item.json"))
+		return nil
+	}}
+
+	require.NoError(t, mr.move(context.Background(), move{From: from, To: to}, install, holding))
+
+	assert.True(t, recorded)
+	assert.FileExists(t, filepath.Join(to, "item.json"))
+	assert.NoDirExists(t, from)
 }
 
 // A move whose process lost the lock changes nothing, so the process that
@@ -84,7 +125,7 @@ func TestMoveStopsWithoutLock(t *testing.T) {
 			mr := newMover()
 			mr.sameFileSystem = tc.sameFileSystem
 
-			err := mr.move(context.Background(), move{From: from, To: to}, lost)
+			err := mr.move(context.Background(), move{From: from, To: to}, fresh, lost)
 			require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
 			assert.FileExists(t, filepath.Join(from, "item.json"))
 			assert.NoDirExists(t, to)
@@ -108,3 +149,6 @@ func TestCopySizeCountsAllocationUnits(t *testing.T) {
 }
 
 func holding() error { return nil }
+
+// fresh is the install record of a move that no earlier attempt started.
+var fresh = installRecord{record: holding}

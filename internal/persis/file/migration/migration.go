@@ -6,10 +6,11 @@
 // every other process waits for it.
 //
 //	<data_dir>/migration/
-//	├── .dagu_lock/   held by the process that migrates
-//	├── plan.json     the moves, written once before the first move
-//	├── moved.log     the index of each finished move
-//	└── status.json   progress, which waiting processes read
+//	├── .dagu_lock/     held by the process that migrates
+//	├── plan.json       the moves, written once before the first move
+//	├── moved.log       the index of each finished move
+//	├── installing.log  the index of each copy, before it takes its destination's name
+//	└── status.json     progress, which waiting processes read
 package migration
 
 import (
@@ -219,6 +220,10 @@ func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) er
 	if err != nil {
 		return err
 	}
+	installing, err := m.journal.readInstalling(len(moves))
+	if err != nil {
+		return err
+	}
 	progress := Progress{Phase: phaseMoving, Moved: len(moved), Total: len(moves)}
 	// floors holds, by destination, the space a copy needs at least, learned
 	// when its file system filled up during the copy.
@@ -237,7 +242,8 @@ func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) er
 			i++
 			continue
 		}
-		err := m.moveOne(ctx, i, moves[i], held)
+		_, recorded := installing[i]
+		err := m.moveOne(ctx, i, moves[i], recorded, held)
 		if isNoSpace(err) {
 			// The estimate fell short, or another writer took the room.
 			err = m.waitAfterFull(ctx, ticks, moves[i], pendingMoves(moves, moved, i), floors, progress, held)
@@ -269,9 +275,14 @@ func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) er
 	return nil
 }
 
-// moveOne makes the move at index and records it in the journal.
-func (m *Migrator) moveOne(ctx context.Context, index int, mv move, held func() error) error {
-	if err := m.mover.move(ctx, mv, held); err != nil {
+// moveOne makes the move at index and records it in the journal. recorded
+// reports that the journal records the move's copy as installing.
+func (m *Migrator) moveOne(ctx context.Context, index int, mv move, recorded bool, held func() error) error {
+	install := installRecord{
+		recorded: recorded,
+		record:   func() error { return m.journal.markInstalling(index) },
+	}
+	if err := m.mover.move(ctx, mv, install, held); err != nil {
 		return fmt.Errorf("move %s to %s: %w", mv.From, mv.To, err)
 	}
 	if m.afterMove != nil {

@@ -42,28 +42,45 @@ type pendingCopy struct {
 	size uint64
 }
 
+// installRecord is the journal's record of a move's copy. The copy is
+// recorded before it takes the destination's name, so a resumed move tells
+// its own copy from state that the migration did not make.
+type installRecord struct {
+	// recorded reports that an earlier attempt recorded the copy.
+	recorded bool
+	// record records the copy.
+	record func() error
+}
+
+// errForeignDestination reports a destination beside its source that the
+// journal records no copy for.
+var errForeignDestination = errors.New("the destination exists, and the journal records no copy there")
+
 func newMover() mover {
 	return mover{sameFileSystem: fileutil.SameFileSystem, freeSpace: fileutil.FreeSpace}
 }
 
 // move moves mv.From to mv.To. It finishes a move that an earlier attempt
 // stopped partway: a missing source was moved already, and a destination
-// beside its source is a copy that was installed before the source was
-// removed. The plan guarantees that no destination existed before. held
-// is called before each step that changes state, and an error from it
-// stops the move.
-func (mr mover) move(ctx context.Context, mv move, held func() error) error {
+// beside its source is that attempt's copy when install says the journal
+// recorded it. Any other destination beside its source is an error, and the
+// source stays. held is called before each step that changes state, and an
+// error from it stops the move.
+func (mr mover) move(ctx context.Context, mv move, install installRecord, held func() error) error {
 	if _, err := os.Lstat(mv.From); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
 		return err
 	}
-	installed, err := exists(mv.To)
+	found, err := exists(mv.To)
 	if err != nil {
 		return err
 	}
-	if installed {
+	if found {
+		if !install.recorded {
+			return fmt.Errorf("%s: %w", mv.To, errForeignDestination)
+		}
 		if err := held(); err != nil {
 			return err
 		}
@@ -84,13 +101,14 @@ func (mr mover) move(ctx context.Context, mv move, held func() error) error {
 		}
 		return fileutil.Rename(mv.From, mv.To)
 	}
-	return mr.copyMove(ctx, mv, held)
+	return mr.copyMove(ctx, mv, install.record, held)
 }
 
-// copyMove copies mv.From beside mv.To, gives the copy mv.To's name once
-// it is durable, and then removes mv.From. A copy that fills its file
-// system is discarded, so its space is free again while the caller waits.
-func (mr mover) copyMove(ctx context.Context, mv move, held func() error) error {
+// copyMove copies mv.From beside mv.To, records the copy once it is
+// durable, gives it mv.To's name, and then removes mv.From. A copy that
+// fills its file system is discarded, so its space is free again while the
+// caller waits.
+func (mr mover) copyMove(ctx context.Context, mv move, record func() error, held func() error) error {
 	staging := mv.To + copySuffix
 	if err := discardStaging(staging, held); err != nil {
 		return err
@@ -106,6 +124,9 @@ func (mr mover) copyMove(ctx context.Context, mv move, held func() error) error 
 		return err
 	}
 	if err := held(); err != nil {
+		return err
+	}
+	if err := record(); err != nil {
 		return err
 	}
 	if err := fileutil.Rename(staging, mv.To); err != nil {
@@ -142,12 +163,13 @@ func (mr mover) pendingCopies(moves []move, floors map[string]uint64, held func(
 		if _, err := os.Lstat(mv.From); errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
-		// An installed copy only waits for its source to be removed.
-		installed, err := exists(mv.To)
+		// A destination that exists needs no room: the move removes the
+		// source of an installed copy, or refuses.
+		found, err := exists(mv.To)
 		if err != nil {
 			return nil, err
 		}
-		if installed {
+		if found {
 			continue
 		}
 		same, err := mr.sameFileSystem(mv.From, mv.To)
