@@ -141,7 +141,7 @@ func (m *Mapper) Map(groups []string) (Result, error) {
 		matched := false
 		if role, ok := m.groupMappings[group]; ok {
 			matched = true
-			if rolePriority(role) > rolePriority(bestGlobal) {
+			if role.Outranks(bestGlobal) {
 				bestGlobal = role
 			}
 		}
@@ -149,7 +149,7 @@ func (m *Mapper) Map(groups []string) (Result, error) {
 			matched = true
 			for _, grant := range grants {
 				current, exists := mergedGrants[grant.Workspace]
-				if !exists || rolePriority(grant.Role) > rolePriority(current) {
+				if !exists || grant.Role.Outranks(current) {
 					mergedGrants[grant.Workspace] = grant.Role
 				}
 			}
@@ -192,7 +192,7 @@ func (m *Mapper) MapRole(groups []string) (auth.Role, error) {
 	var best auth.Role
 	for _, group := range groups {
 		role, ok := m.groupMappings[group]
-		if ok && rolePriority(role) > rolePriority(best) {
+		if ok && role.Outranks(best) {
 			best = role
 		}
 	}
@@ -208,23 +208,4 @@ func (m *Mapper) MapRole(groups []string) (auth.Role, error) {
 // WorkspaceAccessPolicyActive reports whether mapping controls workspace access.
 func (m *Mapper) WorkspaceAccessPolicyActive() bool {
 	return len(m.workspaceMappings) > 0 || m.defaultWorkspaceAccess == DefaultWorkspaceAccessNone
-}
-
-func rolePriority(role auth.Role) int {
-	switch role {
-	case auth.RoleAdmin:
-		return 5
-	case auth.RoleManager:
-		return 4
-	case auth.RoleDeveloper:
-		return 3
-	case auth.RoleOperator:
-		return 2
-	case auth.RoleViewer:
-		return 1
-	case auth.RoleNone:
-		return 0
-	default:
-		return 0
-	}
 }

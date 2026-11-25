@@ -29,7 +29,7 @@ func RoleInProject(serverRole Role, grants []ProjectGrant, projectID string) Rol
 		role = serverRole
 	}
 	for _, grant := range grants {
-		if grant.ProjectID == projectID && grant.Role != RoleAdmin && grant.Role.rank() > role.rank() {
+		if grant.ProjectID == projectID && grant.Role != RoleAdmin && grant.Role.Outranks(role) {
 			role = grant.Role
 		}
 	}
