@@ -419,6 +419,35 @@ function ActionSlot({ children }: { children: React.ReactNode }) {
   return <span className="flex w-10 shrink-0 justify-center">{children}</span>;
 }
 
+/**
+ * The strip of a table row. Its click handler keeps its identity while
+ * `onOpenRun` does, so a render of the table alone does not redraw the strip.
+ */
+function ActivityCell({
+  fileName,
+  activity,
+  onOpenRun,
+}: {
+  fileName: string;
+  activity?: components['schemas']['DAGListActivity'];
+  onOpenRun?: (
+    fileName: string,
+    runId: string,
+    event: React.MouseEvent
+  ) => void;
+}) {
+  const openRun = useCallback(
+    (runId: string, event: React.MouseEvent) =>
+      onOpenRun?.(fileName, runId, event),
+    [fileName, onOpenRun]
+  );
+  return (
+    <div className="flex items-center">
+      <ActivityBars activity={activity} fluid onOpenRun={openRun} />
+    </div>
+  );
+}
+
 // Pinned groups and DAGs lead the rows; the card view puts a divider after them.
 function countLeadingPinnedRows(rows: Row<Data>[]): number {
   let count = 0;
@@ -950,15 +979,11 @@ const defaultColumns = [
       const meta = table.options.meta;
       const fileName = data.dag.fileName;
       return (
-        <div className="flex items-center">
-          <ActivityBars
-            activity={meta?.activity?.get(fileName)}
-            fluid
-            onOpenRun={(runId, event) =>
-              meta?.onOpenRun?.(fileName, runId, event)
-            }
-          />
-        </div>
+        <ActivityCell
+          fileName={fileName}
+          activity={meta?.activity?.get(fileName)}
+          onOpenRun={meta?.onOpenRun}
+        />
       );
     },
   }),
@@ -1261,8 +1286,11 @@ function DAGTable({
   const [deleteSelection, setDeleteSelection] = useState<Set<string>>(
     () => new Set()
   );
-  const openRun = (fileName: string, run: string, event: React.MouseEvent) =>
-    peekOrOpen({ dag: fileName, run }, event);
+  const openRun = useCallback(
+    (fileName: string, run: string, event: React.MouseEvent) =>
+      peekOrOpen({ dag: fileName, run }, event),
+    [peekOrOpen]
+  );
   // The view off screen stays in the DOM, hidden: only the view on screen
   // draws strips.
   const placement = useActivityPlacement();
