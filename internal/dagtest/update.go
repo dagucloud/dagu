@@ -315,6 +315,27 @@ func (ed *expectEditor) step(at *slot, written, s StepExpect) {
 	for i, o := range s.Outputs {
 		ed.value(outputs.child(o.Name), written.Outputs[i].Value, o.Value)
 	}
+	if s.CalledWith != nil {
+		ed.call(at.child("called_with"), *written.CalledWith, *s.CalledWith)
+	}
+}
+
+// call changes the called_with entry at from written to c. A run given as
+// contains and matches keeps its map.
+func (ed *expectEditor) call(at *slot, written, c CallExpect) {
+	if c.Run != nil && c.Run.Text != nil && *c.Run.Text != *written.Run.Text {
+		ed.set(at.child("run"), *c.Run.Text)
+	}
+	with := at.child("with")
+	for i, in := range c.With {
+		ed.value(with.child(in.Name), written.With[i].Value, in.Value)
+	}
+	env := at.child("env")
+	for i, e := range c.Env {
+		if e.Value != written.Env[i].Value {
+			ed.set(env.child(e.Name), e.Value)
+		}
+	}
 }
 
 // value changes the value at from written to v. An object that stays an

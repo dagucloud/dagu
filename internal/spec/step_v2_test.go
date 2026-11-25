@@ -1325,6 +1325,70 @@ steps:
 	assert.Equal(t, "object", step.OutputSchema["type"])
 }
 
+// KeepActionWith keeps the with that each action step writes, also the
+// inputs that move into other fields, such as ssh.run's command, and the
+// inputs of a custom action rather than its template's. A run step and a
+// handler written with run keep none, and a load without the option keeps
+// nothing.
+func TestStepSchemaV2_KeepActionWith(t *testing.T) {
+	t.Parallel()
+
+	const yaml = `
+actions:
+  slack.notify:
+    input_schema:
+      type: object
+      properties:
+        text:
+          type: string
+    template:
+      action: http.request
+      with:
+        method: POST
+        url: https://hooks.example.invalid
+        body: {$input: text}
+steps:
+  - id: deploy
+    action: ssh.run
+    with:
+      host: prod.example.invalid
+      command: ./deploy.sh ${params.tag}
+  - id: notify
+    action: slack.notify
+    with:
+      text: deployed ${params.tag}
+  - id: wait
+    action: noop
+  - id: check
+    run: ./check.sh
+    with:
+      shell: bash
+handler_on:
+  failure:
+    action: log.write
+    with:
+      message: failed
+  exit:
+    run: ./cleanup.sh
+`
+	dag, err := LoadYAML(context.Background(), []byte(yaml), KeepActionWith())
+	require.NoError(t, err)
+	require.Len(t, dag.Steps, 4)
+	assert.Equal(t, map[string]any{"host": "prod.example.invalid", "command": "./deploy.sh ${params.tag}"}, dag.Steps[0].ActionWith)
+	assert.Equal(t, map[string]any{"text": "deployed ${params.tag}"}, dag.Steps[1].ActionWith)
+	assert.Equal(t, map[string]any{}, dag.Steps[2].ActionWith)
+	assert.Nil(t, dag.Steps[3].ActionWith)
+	assert.Equal(t, map[string]any{"message": "failed"}, dag.HandlerOn.Failure.ActionWith)
+	assert.Nil(t, dag.HandlerOn.Exit.ActionWith)
+
+	dag, err = LoadYAML(context.Background(), []byte(yaml))
+	require.NoError(t, err)
+	for _, step := range dag.Steps {
+		assert.Nil(t, step.ActionWith, step.Name)
+	}
+	assert.Nil(t, dag.HandlerOn.Failure.ActionWith)
+}
+
 func TestStepSchemaV2_CustomActionRejectsLegacyTemplateFields(t *testing.T) {
 	t.Parallel()
 

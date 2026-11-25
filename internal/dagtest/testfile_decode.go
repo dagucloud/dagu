@@ -101,6 +101,22 @@ type stepExpectSpec struct {
 	outputs  []OutputExpect
 	stdout   *streamSpec
 	stderr   *streamSpec
+	// calledWith is nil when the step sets no called_with.
+	calledWith *callSpec
+}
+
+// callSpec is a called_with assertion as written. A field it leaves out is
+// nil, and one written as an empty map is empty but not nil.
+type callSpec struct {
+	run  *runSpec
+	with []InputExpect
+	env  []entry
+}
+
+// runSpec is a run assertion: text, or a map with contains and matches.
+type runSpec struct {
+	text   *string
+	stream *streamSpec
 }
 
 type streamSpec struct {
@@ -448,11 +464,41 @@ func (d *decoder) stepExpect(f field) stepExpectSpec {
 			s.stdout = d.stream(fd.value, fd.path)
 		case "stderr":
 			s.stderr = d.stream(fd.value, fd.path)
+		case "called_with":
+			s.calledWith = d.call(fd.value, fd.path)
 		default:
 			d.unknown(fd)
 		}
 	}
 	return s
+}
+
+func (d *decoder) call(n *yaml.Node, path string) *callSpec {
+	c := &callSpec{}
+	for _, fd := range d.fields(n, path) {
+		switch fd.key {
+		case "run":
+			c.run = &runSpec{}
+			if resolve(fd.value).Kind == yaml.MappingNode {
+				c.run.stream = d.stream(fd.value, fd.path)
+			} else {
+				c.run.text = d.optStr(fd.value, fd.path)
+			}
+		case "with":
+			c.with = []InputExpect{}
+			for _, in := range d.fields(fd.value, fd.path) {
+				c.with = append(c.with, InputExpect{Name: in.key, Value: d.value(in.value, in.path)})
+			}
+		case "env":
+			c.env = d.entries(fd.value, fd.path)
+			if c.env == nil {
+				c.env = []entry{}
+			}
+		default:
+			d.unknown(fd)
+		}
+	}
+	return c
 }
 
 func (d *decoder) stream(n *yaml.Node, path string) *streamSpec {

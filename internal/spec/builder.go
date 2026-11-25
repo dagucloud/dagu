@@ -109,6 +109,7 @@ const (
 	// buildFlagDeferAllParamEvals keeps every params[].eval waiting for the
 	// run, also when the worker selector reads a value.
 	buildFlagDeferAllParamEvals
+	buildFlagKeepActionWith // Each action step keeps its with as written
 )
 
 // buildOpts is used to control the behavior of the builder.
@@ -483,7 +484,22 @@ func buildStepFromRaw(ctx stepBuildContext, idx int, raw map[string]any, names m
 	if err != nil {
 		return nil, err
 	}
+	keepActionWith(ctx, builtStep, raw)
 	return builtStep, nil
+}
+
+// keepActionWith sets the with object that raw, a step as written, gives
+// its action, when the build keeps it. A step written without action keeps
+// none.
+func keepActionWith(ctx stepBuildContext, builtStep *ir.Step, raw map[string]any) {
+	if _, ok := raw["action"]; !ok || !ctx.opts.Has(buildFlagKeepActionWith) {
+		return
+	}
+	with, _ := raw["with"].(map[string]any)
+	builtStep.ActionWith = cloneMap(with)
+	if builtStep.ActionWith == nil {
+		builtStep.ActionWith = map[string]any{}
+	}
 }
 
 func buildStepFromSpec(
@@ -495,6 +511,7 @@ func buildStepFromSpec(
 	defs *defaults,
 	forcedName string,
 ) (*ir.Step, error) {
+	written := raw
 	if raw != nil {
 		_, hasRun := raw["run"]
 		_, hasAction := raw["action"]
@@ -539,6 +556,7 @@ func buildStepFromSpec(
 		}
 	}
 	finalizeBuiltStepName(names, builtStep, idx)
+	keepActionWith(ctx, builtStep, written)
 	return builtStep, nil
 }
 

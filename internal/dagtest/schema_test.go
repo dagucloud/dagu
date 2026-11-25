@@ -81,6 +81,9 @@ func TestSchemaRejects(t *testing.T) {
 		{name: "UnknownExpectField", yaml: "{cases: [{name: c, expect: {status: succeeded, duration: 1s}}]}"},
 		{name: "UnknownStepAssertion", yaml: "{cases: [{name: c, expect: {steps: {build: {exit_code: 0}}}}]}"},
 		{name: "UnknownStreamAssertion", yaml: "{cases: [{name: c, expect: {steps: {build: {stdout: {equals: ok}}}}}]}"},
+		{name: "UnknownCallAssertion", yaml: "{cases: [{name: c, expect: {steps: {build: {called_with: {args: [a]}}}}}]}"},
+		{name: "CallRunList", yaml: "{cases: [{name: c, expect: {steps: {build: {called_with: {run: [a]}}}}}]}"},
+		{name: "CallEnvNotScalar", yaml: "{cases: [{name: c, expect: {steps: {build: {called_with: {env: {A: [b]}}}}}}]}"},
 		{name: "UnknownNotificationField", yaml: "{cases: [{name: c, expect: {notifications: [{kind: mail_on.failure, subject: x}]}}]}"},
 		{name: "ReadsAsDAG", yaml: "{steps: [{run: ./smoke.sh}]}"},
 		{name: "NoCases", yaml: "{mocks: {build: {}}}"},
@@ -146,6 +149,7 @@ func TestSchemaFields(t *testing.T) {
 		{resultSpec{}, root.Definitions["result"]},
 		{reviewSpec{}, root.Definitions["review"]},
 		{streamSpec{}, root.Definitions["stream"]},
+		{callSpec{}, root.Definitions["calledWith"]},
 		{notificationSpec{}, root.Definitions["notification"]},
 	}
 	for _, tt := range tests {

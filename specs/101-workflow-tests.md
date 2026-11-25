@@ -24,7 +24,8 @@ This spec covers:
   run-level side effects, and secrets
 - the trigger type and schedule slot of a case
 - assertions on run status and attempts, step status, attempts, outputs,
-  and streams, and the notifications a run would send
+  streams, and what a step was called with, and the notifications a run
+  would send
 - the `--init` and `--update` authoring flags
 - test files being skipped by DAG discovery
 
@@ -987,11 +988,12 @@ expect:
 | --- | --- |
 | `status` | Run status: `succeeded`, `failed`, `aborted`, `partially_succeeded`, or `rejected` |
 | `attempts` | Run attempts, counting the retries of a DAG-level `retry_policy`. See [Run Retries](#run-retries) |
-| `steps.<key>` | A step status token, or a map with one or more of `status`, `attempts`, `outputs`, `stdout`, and `stderr` |
+| `steps.<key>` | A step status token, or a map with one or more of `status`, `attempts`, `outputs`, `stdout`, `stderr`, and `called_with` |
 | `steps.<key>.status` | Node status: `succeeded`, `failed`, `aborted`, `skipped`, `partially_succeeded`, `rejected`, or `not_started` |
 | `steps.<key>.attempts` | Executions of the step's action, counting retries and repeat iterations |
 | `steps.<key>.outputs` | Expected named outputs, by name |
 | `steps.<key>.stdout`, `steps.<key>.stderr` | A map with `contains`, `matches`, or both |
+| `steps.<key>.called_with` | What the step's last execution was called with. See [Called With](#called-with) |
 | `notifications` | The notifications the run would have sent |
 
 Rules:
@@ -1051,6 +1053,69 @@ Notifications:
   of its `step` and its `to`, compared as a set of recipients.
 - `notifications: []` asserts that the run would have sent none.
 
+#### Called With
+
+`called_with` checks the call of a step's last execution: the values Dagu
+resolved for its action from params, upstream outputs, env, and secrets,
+before the action ran or its mock replaced it. It holds for a replaced step
+and a real step alike, so a test checks the data that flows into a step
+whose action never runs.
+
+```yaml
+expect:
+  steps:
+    deploy:
+      called_with:
+        run: ./deploy.sh "v1.2.3"
+        env:
+          IMAGE_TAG: v1.2.3
+    notify:
+      called_with:
+        with:
+          channel: "#releases"
+```
+
+| Field | Meaning |
+| --- | --- |
+| `run` | The resolved command or script text of a step written with `run`. A string matches it exactly. A map takes `contains`, `matches`, or both, as a stream assertion does |
+| `with` | The resolved `with` inputs of a step written with `action`, by name |
+| `env` | The step's resolved environment, by name |
+
+Rules:
+
+- The last execution is the latest execution of the step's action in every
+  run attempt, as for streams. A step with no execution, such as a skipped
+  step or a handler that never ran, fails `called_with` with one failure,
+  whatever it lists.
+- `run` is the script of a multi-line `run`, the command of a one-line
+  `run` without leading and trailing whitespace, or the commands of a
+  list-form `run`, one per line, each with its references resolved.
+- `with` holds the inputs as the step writes them under `with`, each
+  resolved as the action's `with` resolves. For a custom action, they are
+  the inputs the step passes to it, not the fields of its definition.
+- Only the listed `with` inputs are checked. A string matches an input
+  whose text equals it exactly, and any other value matches by the JSON
+  rule of outputs, against the input's text read as JSON: listed keys only,
+  recursively. An input that the step does not set does not match.
+- `env` holds every variable the step's action receives: the host
+  environment, the DAG's and the step's `env`, and secrets. Only the listed
+  names are checked, each against its exact text. A variable that is not
+  set does not match.
+- A secret compares as the step saw it: its placeholder `<secret:NAME>` in
+  a case without a real step, and its value under `secrets` in a case with
+  one. The report masks it.
+- `run` on a step written with `action`, or on a step with no command or
+  script, makes the case invalid. So does `with` on a step that is not
+  written with `action`, such as a step written with `run`, whose `with`
+  selects only its shell.
+- `called_with` on a `human.task` step, a `foreach` step, or a step with
+  `nodes` makes the case invalid: the first has no action, the second calls
+  only its body steps, and the third resolves its command in the child run
+  of each node.
+- `called_with` without a field, an empty `with` or `env`, a `run` map
+  without `contains` and `matches`, and a `matches` value that is not a
+  valid RE2 expression make the case invalid.
+
 ### Report
 
 The report goes to stdout. Its `<file>` is the test file's path relative to
@@ -1109,6 +1174,15 @@ Rules:
 - A failed stream assertion reads `step <key> stdout: does not contain
   <text>` or `step <key> stdout: does not match <regexp>`, with `stderr` for
   the stderr stream. `<text>` and `<regexp>` are JSON strings.
+- A failed `called_with` assertion reads
+  `step <key> called_with.run: expected <expected>, got <actual>`, with
+  `called_with.with.<name>` for a `with` input and `called_with.env.<name>`
+  for a variable. A failed `contains` or `matches` reads
+  `step <key> called_with.run: expected to contain <text>, got <actual>` or
+  `step <key> called_with.run: expected to match <regexp>, got <actual>`.
+  Both values are compact JSON with secrets masked, and `<actual>` is
+  `nothing` when the call has no such input or variable. A step with no
+  execution reads `step <key> called_with: expected a call, got none`.
 - A failed notifications assertion reads
   `notifications: expected <list>, got <list>`. Each list writes each
   notification as its `kind`, followed by ` step <step>` and
@@ -1161,7 +1235,7 @@ Case object:
 | `name` | always | Case name |
 | `result` | always | `pass`, `fail`, or `invalid` |
 | `duration_ms` | when the case ran | Wall-clock time of the case, in whole milliseconds |
-| `failures` | when `result` is `fail` | Failure objects. The run status and run attempts come first, then steps in the order `expect.steps` lists them, then `notifications`. Within a step: status, attempts, outputs in the order listed, stdout, then stderr, with `contains` before `matches` |
+| `failures` | when `result` is `fail` | Failure objects. The run status and run attempts come first, then steps in the order `expect.steps` lists them, then `notifications`. Within a step: status, attempts, outputs in the order listed, stdout, stderr, with `contains` before `matches`, then `called_with`: its run text, `contains`, and `matches`, then its `with` inputs and its variables in the order listed |
 | `errors` | when `result` is `invalid` | Error objects, in the order of the text report |
 | `fix` | when an invalid case has a fix | The fix for the case, as YAML text |
 | `file_fix` | when an invalid case's fix has `secrets` | The fix for the test file, as YAML text |
@@ -1176,9 +1250,9 @@ Failure object:
 | Field | Present | Meaning |
 | --- | --- | --- |
 | `step` | for a step assertion, and for `limit` | Step key as `expect.steps` writes it. For `limit`, the step label |
-| `field` | always | `status`, `attempts`, `outputs.<name>`, `stdout.contains`, `stdout.matches`, `stderr.contains`, `stderr.matches`, `notifications`, `timeout`, `limit`, or `error` |
-| `expected` | except for `limit` and `error` | For `status` and `attempts`, the expected token or number. For `outputs.<name>`, the expected value. For a stream, the text or expression. For `notifications`, the expected list of notification objects. For `timeout`, the `--timeout` limit in milliseconds |
-| `actual` | for `status`, `attempts`, `notifications`, `limit`, `error`, and a published output | The actual token or number, the published value (a string for a text output, the JSON value for a `type: json` output), the actual list of notification objects, for `limit`, the resolved limit as a string, or, for `error`, the reason a run could not complete (see [Timeout, Limits, and Interrupt](#timeout-limits-and-interrupt)) |
+| `field` | always | `status`, `attempts`, `outputs.<name>`, `stdout.contains`, `stdout.matches`, `stderr.contains`, `stderr.matches`, `called_with`, `called_with.run`, `called_with.run.contains`, `called_with.run.matches`, `called_with.with.<name>`, `called_with.env.<name>`, `notifications`, `timeout`, `limit`, or `error` |
+| `expected` | except for `called_with`, `limit`, and `error` | For `status` and `attempts`, the expected token or number. For `outputs.<name>`, the expected value. For a stream, the text or expression. For a `called_with` part, the expected text, expression, or value, with secrets masked. For `notifications`, the expected list of notification objects. For `timeout`, the `--timeout` limit in milliseconds |
+| `actual` | for `status`, `attempts`, `notifications`, `limit`, `error`, a published output, and a `called_with` part that the call has | The actual token or number, the published value (a string for a text output, the JSON value for a `type: json` output), the resolved run text, `with` input, or variable, with secrets masked, the actual list of notification objects, for `limit`, the resolved limit as a string, or, for `error`, the reason a run could not complete (see [Timeout, Limits, and Interrupt](#timeout-limits-and-interrupt)) |
 
 Error object: `source`, the label, present when the error has one, and
 `message`.
@@ -1290,6 +1364,14 @@ a step it adds in the same shape:
   the text.
 - `stdout` and `stderr` assertions, `contains` and `matches`, stay as
   written.
+- A `called_with` value that does not hold takes the step's call: a `run`
+  string takes the resolved text, each listed `with` input takes its
+  resolved value as an asserted output takes its published value, the
+  listed keys only of an object, and each listed variable takes its text.
+  A secret is written as the step saw it. A `run` given as `contains` or
+  `matches`, an input or variable that the call lacks, and the
+  `called_with` of a step with no execution stay as written, and the case
+  reports them as failures. No `called_with` is added.
 - A case that is invalid, or whose run does not finish, such as one that
   times out or has a repeat limit that leaves a step without a limit,
   keeps its `expect`.
@@ -1393,6 +1475,9 @@ merge into it:
 - an output assertion names an output that a step with known outputs does
   not declare;
 - a `matches` value is not a valid RE2 expression;
+- a `called_with` assertion is one that [Called With](#called-with) rejects,
+  such as `run` on a step written with `action` or `with` on a step written
+  with `run`. The error names the field;
 - a `notifications` item has an unknown `kind`, or sets `step` with a `kind`
   other than `mail_on_error`.
 
@@ -2204,6 +2289,85 @@ cases:
 assertion lists one of two keys and matches. With `notifications: []` in the
 second case instead, the case fails, and stdout contains
 `notifications: expected none, got mail_on.failure to oncall@example.com`.
+
+### What a Step Was Called With
+
+```yaml
+# workflows/called.yaml
+secrets:
+  - name: API_TOKEN
+    provider: env
+    key: NOTIFY_TOKEN
+steps:
+  - id: build
+    run: ./build.sh
+    outputs:
+      - name: image_tag
+  - id: deploy
+    depends: build
+    run: ./deploy.sh "${steps.build.outputs.image_tag}"
+    env:
+      - IMAGE_TAG: ${steps.build.outputs.image_tag}
+  - id: notify
+    depends: deploy
+    action: http.request
+    with:
+      method: POST
+      url: https://hooks.example.com/releases
+      headers:
+        Authorization: Bearer ${API_TOKEN}
+      body: deployed ${steps.build.outputs.image_tag}
+```
+
+```yaml
+# workflows/called.test.yaml
+mocks:
+  build:
+    outputs:
+      image_tag: v1.2.3
+  deploy: {}
+  notify: {}
+cases:
+  - name: deploys the built image
+    expect:
+      steps:
+        deploy:
+          called_with:
+            run: ./deploy.sh "v1.2.3"
+            env:
+              IMAGE_TAG: v1.2.3
+        notify:
+          called_with:
+            with:
+              headers:
+                Authorization: Bearer <secret:API_TOKEN>
+              body: deployed v1.2.3
+  - name: a wrong tag reaches the deploy
+    mocks:
+      build:
+        outputs:
+          image_tag: v1.2.4
+    expect:
+      steps:
+        deploy:
+          called_with:
+            run:
+              contains: v1.2.3
+  - name: an action step takes no run
+    expect:
+      steps:
+        notify:
+          called_with:
+            run: ./notify.sh
+```
+
+`dagu test workflows/called.test.yaml` exits with status 2 with
+`NOTIFY_TOKEN` unset, and no process starts. The first case passes: the
+`with` assertion lists two of four inputs, and `API_TOKEN` compares as its
+placeholder. The second case fails, and stdout contains
+`step deploy called_with.run: expected to contain "v1.2.3", got "./deploy.sh \"v1.2.4\""`.
+The third case is invalid, and its error line reads
+`expect.steps.notify.called_with.run: the step runs action http.request, which takes no run; assert with`.
 
 ### A Repeat Limit From a Param
 
