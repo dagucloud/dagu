@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -406,16 +408,22 @@ func (m *Migrator) loadOrPlan(ctx context.Context, held func() error) ([]move, e
 	return moves, nil
 }
 
-// checkPlan refuses a plan whose moves could overwrite state. A destination
-// that exists when the plan is made would read, on resume, as a copy that
-// an earlier attempt finished.
+// checkPlan refuses a plan that would stop partway or lose state, before any
+// move is made:
+//   - a destination that exists, which its move would refuse;
+//   - a path, source or destination, that names another path of the plan
+//     again or lies in one, so that one move would change what another
+//     moves, or create the destination another finds.
 func checkPlan(moves []move) error {
-	targets := make(map[string]struct{}, len(moves))
+	paths := make(map[string]string, 2*len(moves))
 	for _, mv := range moves {
-		if _, dup := targets[mv.To]; dup {
-			return fmt.Errorf("plan the migration: two moves to %s", mv.To)
+		for _, path := range []string{mv.From, mv.To} {
+			key := planKey(path)
+			if other, dup := paths[key]; dup {
+				return fmt.Errorf("plan the migration: %s and %s name one path", other, path)
+			}
+			paths[key] = path
 		}
-		targets[mv.To] = struct{}{}
 		found, err := exists(mv.To)
 		switch {
 		case err != nil:
@@ -424,7 +432,28 @@ func checkPlan(moves []move) error {
 			return fmt.Errorf("plan the migration: %s already exists", mv.To)
 		}
 	}
+	for _, mv := range moves {
+		for _, path := range []string{mv.From, mv.To} {
+			key := planKey(path)
+			for parent := filepath.Dir(key); parent != key; key, parent = parent, filepath.Dir(parent) {
+				if other, ok := paths[parent]; ok {
+					return fmt.Errorf("plan the migration: %s lies in %s", path, other)
+				}
+			}
+		}
+	}
 	return nil
+}
+
+// planKey returns the key under which checkPlan compares path. The file
+// systems of macOS and Windows ignore case by default, so there two paths
+// that differ in case only name one entry.
+func planKey(path string) string {
+	path = filepath.Clean(path)
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		return strings.ToLower(path)
+	}
+	return path
 }
 
 // pendingMoves returns the moves from index from on that the journal does

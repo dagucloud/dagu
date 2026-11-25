@@ -330,8 +330,8 @@ func TestRunStopsWaitingForV2WithoutLock(t *testing.T) {
 	assert.True(t, done, "the status of the finished migration stays")
 }
 
-// A destination that exists when the plan is made would read, on resume,
-// as a finished copy whose source may be removed.
+// A destination that exists when the plan is made is refused before any
+// move, rather than at its move after earlier ones were made.
 func TestRunRefusesPlanOverExistingState(t *testing.T) {
 	t.Parallel()
 
@@ -365,6 +365,66 @@ func TestRunRefusesPlanOverExistingState(t *testing.T) {
 			done, err := m.Done()
 			require.NoError(t, err)
 			assert.False(t, done)
+		})
+	}
+}
+
+// A plan whose paths overlap is refused before any move: one move would
+// change what another moves, or create the destination another finds.
+func TestRunRefusesOverlappingPlan(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		// plan returns moves of the sources a and b in dataDir.
+		plan func(dataDir, a, b string) []move
+		// foldsCase marks a plan that overlaps only where case is ignored.
+		foldsCase bool
+	}{
+		{name: "NestedDestinations", plan: func(dataDir, a, b string) []move {
+			return []move{
+				{From: b, To: filepath.Join(dataDir, "projects", "x", "y")},
+				{From: a, To: filepath.Join(dataDir, "projects", "x")},
+			}
+		}},
+		{name: "NestedSources", plan: func(dataDir, a, _ string) []move {
+			return []move{
+				{From: a, To: filepath.Join(dataDir, "projects", "a")},
+				{From: filepath.Join(a, "f"), To: filepath.Join(dataDir, "projects", "f")},
+			}
+		}},
+		{name: "DestinationInSource", plan: func(_, a, _ string) []move {
+			return []move{{From: a, To: filepath.Join(a, "moved")}}
+		}},
+		{name: "SameSource", plan: func(dataDir, a, _ string) []move {
+			return []move{
+				{From: a, To: filepath.Join(dataDir, "projects", "a")},
+				{From: a, To: filepath.Join(dataDir, "projects", "b")},
+			}
+		}},
+		{name: "DestinationsDifferInCase", foldsCase: true, plan: func(dataDir, a, b string) []move {
+			return []move{
+				{From: a, To: filepath.Join(dataDir, "projects", "Etl")},
+				{From: b, To: filepath.Join(dataDir, "projects", "etl")},
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if tc.foldsCase && runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+				t.Skip("file systems here tell case apart by default")
+			}
+			dataDir := t.TempDir()
+			a := v2Dir(t, dataDir, "dag-runs", "a", "f")
+			b := v2Dir(t, dataDir, "dag-runs", "b", "f")
+			m, _ := newTestMigrator(t, dataDir, &fakeServices{}, tc.plan(dataDir, a, b))
+
+			err := m.Run(context.Background())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "plan the migration")
+			assert.FileExists(t, filepath.Join(a, "f"))
+			assert.FileExists(t, filepath.Join(b, "f"))
+			assert.NoDirExists(t, filepath.Join(dataDir, "projects"))
 		})
 	}
 }
