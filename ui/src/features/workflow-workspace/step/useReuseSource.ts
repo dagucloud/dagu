@@ -38,7 +38,7 @@ import { useClient } from '@/hooks/api';
 import { useWorkspaceData } from '../data/context';
 import { useRunHistory } from '../data/useRunHistory';
 
-/** The most requests, to check the runs of the cache, that wait for an answer at one time. */
+/** The most run checks of the cache that wait for an answer at one time. */
 const MAX_RUN_CHECKS = 5;
 
 /** The most outputs requests that one evaluation makes. */
@@ -281,14 +281,12 @@ export function useReuseSource(p: {
   // The runs already requested stay requested: a pass that starts again (a new
   // answer, a polled selected run) must not cancel or repeat them. The answers
   // of another workflow or node are ignored.
-  const scopeRef = useRef(scopeKey);
-  scopeRef.current = scopeKey;
   const requested = useRef({ scopeKey, ids: new Set<string>() });
   useEffect(() => {
-    if (history.isLoading) return;
     if (requested.current.scopeKey !== scopeKey) {
       requested.current = { scopeKey, ids: new Set() };
     }
+    if (history.isLoading) return;
     const sent = requested.current.ids;
     // At most `MAX_RUN_CHECKS` requests wait for an answer at one time.
     const inFlight = [...sent].filter((id) => asked[id] === undefined).length;
@@ -296,7 +294,7 @@ export function useReuseSource(p: {
       .filter((id) => !sent.has(id) && runOfId(id) === undefined)
       .slice(0, Math.max(0, MAX_RUN_CHECKS - inFlight));
     const answer = (id: string, value: RunAnswer) => {
-      if (scopeRef.current !== scopeKey) return;
+      if (requested.current.scopeKey !== scopeKey) return;
       setAnswers((held) => ({
         scopeKey,
         runs: {
@@ -349,7 +347,6 @@ export function useReuseSource(p: {
     },
     [runOfId]
   );
-  const defaultParams = dagData.dag?.defaultParams;
 
   // The run that the user chose, when it still exists and holds the reads.
   const chosen = choice.kind === 'run' ? runOfId(choice.runId) : null;
@@ -372,10 +369,9 @@ export function useReuseSource(p: {
         hasSource: false,
         entries,
         hashes,
-        defaultParams,
         check,
       }),
-    [check, defaultParams, entries, hashes, previous]
+    [check, entries, hashes, previous]
   );
 
   // A choice of the cache gives way to the automatic choice once no fresh
@@ -427,19 +423,9 @@ export function useReuseSource(p: {
         hasSource: source !== null,
         entries,
         hashes,
-        defaultParams,
         check,
       }),
-    [
-      check,
-      defaultParams,
-      entries,
-      hashes,
-      previous,
-      runMissing,
-      runStale,
-      source,
-    ]
+    [check, entries, hashes, previous, runMissing, runStale, source]
   );
   const options = useMemo(() => {
     const runs: SourceRun[] = [...history.runs];

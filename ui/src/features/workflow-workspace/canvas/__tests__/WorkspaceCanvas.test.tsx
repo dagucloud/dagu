@@ -278,6 +278,18 @@ vi.mock('@/components/ui/error-modal', () => ({
 vi.mock('@/components/ui/simple-toast', () => ({
   useSimpleToast: () => ({ showToast: vi.fn() }),
 }));
+// The real DAGSpec preloads the code editor 1.5 s after it mounts, an import
+// that no test waits for. Under load it can outlast the test file and load
+// Monaco after the environment is gone. The editor still loads when shown.
+vi.mock(
+  '@/features/dags/components/dag-editor/loadDAGEditor',
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import('@/features/dags/components/dag-editor/loadDAGEditor')
+    >()),
+    preloadDAGEditor: () => {},
+  })
+);
 vi.mock(
   '@monaco-editor/react',
   async () =>

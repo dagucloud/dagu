@@ -317,7 +317,7 @@ func parseSecretRefs(ctx buildContext, d *dag) ([]secretref.Ref, error) {
 		}
 
 		if hasRef && secretref.IsReserved(def.Ref) {
-			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("secret %q: registry ref %q is reserved for the AI feature: no registry ref may start with %q", def.Name, def.Ref, secretref.ReservedPrefix))
+			return nil, ir.NewValidationError("secrets", def, fmt.Errorf("secret %q: %w", def.Name, reservedRefError(def.Ref)))
 		}
 
 		secrets = append(secrets, secretref.Ref{
@@ -330,6 +330,12 @@ func parseSecretRefs(ctx buildContext, d *dag) ([]secretref.Ref, error) {
 	}
 
 	return secrets, nil
+}
+
+// reservedRefError reports a registry ref under the reserved prefix, which no
+// DAG may name.
+func reservedRefError(ref string) error {
+	return fmt.Errorf("registry ref %q is reserved for the AI feature: no registry ref may start with %q", ref, secretref.ReservedPrefix)
 }
 
 func reservedSecretNameConflicts() map[string]string {

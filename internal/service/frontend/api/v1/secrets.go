@@ -124,7 +124,7 @@ func (a *API) CreateSecret(ctx context.Context, request api.CreateSecretRequestO
 		return nil, err
 	}
 
-	if isAIManagedSecretRef(body.Ref) {
+	if secretref.IsReserved(body.Ref) {
 		if err := a.requireAdmin(ctx); err != nil {
 			return nil, err
 		}
@@ -385,17 +385,10 @@ func (a *API) WriteSecretVersion(ctx context.Context, request api.WriteSecretVer
 	return api.WriteSecretVersion200JSONResponse(toSecretResponse(updated)), nil
 }
 
-// isAIManagedSecretRef reports whether a ref is under the prefix that the AI feature
-// reserves (Spec 093): the key of an endpoint or a credential of a MCP server entry.
-// The routes of those entries own these secrets.
-func isAIManagedSecretRef(ref string) bool {
-	return secretref.IsReserved(ref)
-}
-
-// requireSecretWritable lets only an administrator change a secret that holds the
-// key of an AI endpoint or a credential of a MCP server entry (Spec 093).
+// requireSecretWritable lets only an administrator change a secret whose ref
+// is under the reserved prefix.
 func (a *API) requireSecretWritable(ctx context.Context, sec *secretpkg.Secret) error {
-	if isAIManagedSecretRef(sec.Ref) {
+	if secretref.IsReserved(sec.Ref) {
 		return a.requireAdmin(ctx)
 	}
 	return nil

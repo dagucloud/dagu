@@ -34,6 +34,7 @@ import (
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/intake"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/pagination"
@@ -1247,7 +1248,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 		}
 	}
 
-	selection, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId, request.Body.OutputsFromRuns, request.Body.Outputs, request.Body.OutputsSources, request.Body.Ephemeral, request.Body.ReuseFrom)
+	selection, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId, request.Body.OutputsFromRuns, request.Body.Outputs, request.Body.OutputsSources, request.Body.Ephemeral, request.Body.ReuseFrom, request.Body.AllowChangedSteps)
 	if err != nil {
 		return nil, err
 	}
@@ -1275,7 +1276,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 	if err != nil {
 		return nil, err
 	}
-	targetNodes, err := a.checkTargetNodes(ctx, dag, request.Body.TargetNodes)
+	targetNodes, err := a.checkTargetNodes(ctx, dag, valueOf(request.Body.TargetNodes))
 	if err != nil {
 		return nil, err
 	}
@@ -1321,8 +1322,9 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 	if len(targetNodes) > 0 && (len(selection.steps) > 0 || selection.reuseFrom != "") {
 		return nil, targetNodesWithSelectedSteps()
 	}
+	var consented []intake.CarriedStep
 	if len(selection.steps) > 0 || selection.reuseFrom != "" {
-		if err := a.startSelectedSteps(ctx, dag, selectedStepsStart{
+		if consented, err = a.startSelectedSteps(ctx, dag, selectedStepsStart{
 			selection:      selection,
 			params:         params,
 			dagRunID:       dagRunId,
@@ -1364,7 +1366,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 	if slot != nil {
 		detailsMap["schedule_time"] = slot.scheduleTime
 	}
-	addSelectedStepsAudit(detailsMap, selection)
+	addSelectedStepsAudit(detailsMap, selection, consented)
 	a.logAudit(ctx, audit.CategoryDAG, "dag_execute", detailsMap)
 
 	scheduleTime, warnings := slot.slotResponse()
@@ -1430,7 +1432,7 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 	if err != nil {
 		return nil, err
 	}
-	targetNodes, err := a.checkTargetNodes(ctx, dag, request.Body.TargetNodes)
+	targetNodes, err := a.checkTargetNodes(ctx, dag, valueOf(request.Body.TargetNodes))
 	if err != nil {
 		return nil, err
 	}
@@ -2120,7 +2122,7 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 	if err != nil {
 		return nil, err
 	}
-	targetNodes, err := a.checkTargetNodes(ctx, dag, request.Body.TargetNodes)
+	targetNodes, err := a.checkTargetNodes(ctx, dag, valueOf(request.Body.TargetNodes))
 	if err != nil {
 		return nil, err
 	}

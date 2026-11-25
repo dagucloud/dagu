@@ -952,12 +952,16 @@ func (a *API) handleError(w http.ResponseWriter, r *http.Request, err error) {
 		logger.Errorf(r.Context(), "Internal server error: %v", err)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(httpStatusCode)
-	_ = json.NewEncoder(w).Encode(api.Error{
+	resp := api.Error{
 		Code:    code,
 		Message: message,
-	})
+	}
+	if apiErr, ok := errors.AsType[*Error](err); ok && apiErr.Details != nil {
+		resp.Details = &apiErr.Details
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(httpStatusCode)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (a *API) resolveError(err error) (api.ErrorCode, string, int) {

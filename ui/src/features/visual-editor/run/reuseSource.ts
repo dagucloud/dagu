@@ -2,21 +2,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { components } from '@/api/v1/schema';
-import { NodeStatus } from '@/api/v1/schema';
+import { CarriedStepCheckStatus, NodeStatus } from '@/api/v1/schema';
+import { parseParams } from '@/lib/parseParams';
 import type { CacheEntries, CacheEntry } from './outputCache';
 import type { RunSpecDiff } from './runSpecDiff';
-import { hashText } from './stepHashes';
 import { isReusedNode, isRunActive } from './stepRunInfo';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 type Node = components['schemas']['Node'];
+type CarriedStepCheck = components['schemas']['CarriedStepCheck'];
+type StepChangeKind = components['schemas']['StepChangeKind'];
+type UnavailableKind = NonNullable<CarriedStepCheck['unavailable']>;
 
 /** What the choice of a source needs of a run. */
 export type ReuseRun = Pick<DAGRunDetails, 'dagRunId' | 'status'> &
   Partial<
     Pick<
       DAGRunDetails,
-      'nodes' | 'params' | 'labels' | 'startedAt' | 'finishedAt'
+      'nodes' | 'params' | 'labels' | 'startedAt' | 'finishedAt' | 'profileName'
     >
   >;
 
@@ -234,11 +237,9 @@ export interface CacheCover {
  * does not cover: a step that the source run holds and that did not change
  * takes its outputs from that run, never from the cache. An entry covers a
  * step when its hash is the current hash of the step, which includes the
- * steps that it needs, its run used `defaultParams` (the parameters that a
- * new step run uses; see `defaultParamsHash`), and its run can still give the
- * step (`check`); a stale entry, or one whose run is gone, covers nothing.
- * `hashes` is null while the current definition is not known: then nothing is
- * covered.
+ * steps that it needs, and its run can still give the step (`check`); a stale
+ * entry, or one whose run is gone, covers nothing. `hashes` is null while the
+ * current definition is not known: then nothing is covered.
  */
 export function coverFromCache(p: {
   previous: readonly string[];
@@ -247,8 +248,6 @@ export function coverFromCache(p: {
   hasSource: boolean;
   entries: CacheEntries;
   hashes: ReadonlyMap<string, string> | null;
-  /** `defaultParams` of the workflow, as the server sends it (quoted). */
-  defaultParams: string | null | undefined;
   check: (step: string, entry: CacheEntry) => RunCheck;
 }): CacheCover {
   const cached: string[] = [];
@@ -259,12 +258,10 @@ export function coverFromCache(p: {
   let checking = false;
   // With a source run, only the steps that it cannot give look at the cache.
   const open = new Set([...p.stale, ...p.missing]);
-  const defaults = defaultParamsHash(p.defaultParams);
   for (const name of p.previous) {
     if (p.hasSource && !open.has(name)) continue;
     const entry = p.entries[name];
     if (!entry || p.hashes?.get(name) !== entry.stepHash) continue;
-    if (entry.params !== defaults) continue;
     const state = p.check(name, entry);
     if (state === 'checking') {
       checking = true;
@@ -303,6 +300,85 @@ export function coverFromCache(p: {
   };
 }
 
+/**
+ * Where a previous step of a step run takes its outputs from, as the server
+ * checked it, and what changed for the step since that run.
+ */
+export interface Carrier {
+  from: 'source' | 'cache';
+  runId: string;
+  /** What changed since that run, in the server's order; empty when nothing did. */
+  changes: readonly StepChangeKind[];
+  /** The parameters whose values changed, when the server names them. */
+  changedParams?: readonly string[];
+  /** The times of the step in that run. */
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface CarrierPlan {
+  /** The carrier of each previous step that a run gives, by step name. */
+  carriers: Record<string, Carrier>;
+  /** The previous steps whose carrier changed, in the order of `previous`. */
+  changed: string[];
+  /** The previous steps that no run gives, in the order of `previous`. */
+  missing: string[];
+  /** The run of a step's cache entry that cannot give it, and why, by step. */
+  unavailable: Record<string, { runId: string; kind?: UnavailableKind }>;
+}
+
+/**
+ * Chooses, from what the server answered, the run that gives each previous
+ * step: an unchanged step of the source run, else an unchanged cache entry,
+ * else the changed step of the source run, else a changed cache entry. A
+ * step that the source run holds and that did not change takes its outputs
+ * from that run, never from the cache, as `coverFromCache` does.
+ */
+export function composeCarriers(p: {
+  previous: readonly string[];
+  /** The verdict of each step that the source run gives, by step name. */
+  fromSource: Readonly<Record<string, CarriedStepCheck>>;
+  /** The verdict of the cache entry of each step, by step name. */
+  fromCache: Readonly<Record<string, CarriedStepCheck>>;
+}): CarrierPlan {
+  const carriers: Record<string, Carrier> = {};
+  const changed: string[] = [];
+  const missing: string[] = [];
+  const unavailable: CarrierPlan['unavailable'] = {};
+  const usable = (check: CarriedStepCheck | undefined) =>
+    check !== undefined && check.status !== CarriedStepCheckStatus.unavailable
+      ? check
+      : undefined;
+  const unchanged = (check: CarriedStepCheck | undefined) =>
+    check?.status === CarriedStepCheckStatus.unchanged ? check : undefined;
+  for (const step of p.previous) {
+    const gone = p.fromCache[step];
+    if (gone?.status === CarriedStepCheckStatus.unavailable) {
+      unavailable[step] = {
+        runId: gone.runId,
+        ...(gone.unavailable ? { kind: gone.unavailable } : {}),
+      };
+    }
+    const source = usable(p.fromSource[step]);
+    const cache = usable(p.fromCache[step]);
+    const pick = unchanged(source) ?? unchanged(cache) ?? source ?? cache;
+    if (!pick) {
+      missing.push(step);
+      continue;
+    }
+    carriers[step] = {
+      from: pick === source ? 'source' : 'cache',
+      runId: pick.runId,
+      changes: pick.changes,
+      ...(pick.changedParams ? { changedParams: pick.changedParams } : {}),
+      ...(pick.startedAt ? { startedAt: pick.startedAt } : {}),
+      ...(pick.finishedAt ? { finishedAt: pick.finishedAt } : {}),
+    };
+    if (pick.changes.length > 0) changed.push(step);
+  }
+  return { carriers, changed, missing, unavailable };
+}
+
 export type RunChoice = 'only' | 'changed' | 'run';
 
 /**
@@ -325,83 +401,20 @@ export function defaultChoice(p: {
 // The server lists the parameters of a run unquoted (`A=1`) and the defaults
 // of a workflow quoted (`A="1"`): both read as unquoted pairs.
 function normalizeParams(params: string | null | undefined): string {
-  return (params ?? '').trim();
-}
-
-// One parameter of `defaultParams`: an optional `NAME=` and a double-quoted,
-// back-quoted or bare value. An escape is read as a pair, so that a value
-// ending in a backslash (`"C:\\"`) ends at its own quote.
-const PARAM_TOKEN = /(?:([^\s="]+)=)?("(?:\\.|[^"\\])*"|`[^`]*`|[^"\s]+)/g;
-const GO_ESCAPES: Record<string, string> = {
-  a: '\x07',
-  b: '\b',
-  f: '\f',
-  n: '\n',
-  r: '\r',
-  t: '\t',
-  v: '\v',
-  '\\': '\\',
-  '"': '"',
-};
-
-function unquoteValue(value: string): string {
-  if (!value.startsWith('"')) return value;
-  if (value.length < 2 || !value.endsWith('"')) {
-    return value.replace(/^"+|"+$/g, '').replace(/\\"/g, '"');
-  }
-  return value
-    .slice(1, -1)
-    .replace(
-      /\\(?:([abfnrtv\\"])|x([0-9a-fA-F]{2})|u([0-9a-fA-F]{4})|U([0-9a-fA-F]{8}))/g,
-      (_all, simple?: string, x?: string, u?: string, big?: string) =>
-        simple !== undefined
-          ? (GO_ESCAPES[simple] as string)
-          : String.fromCodePoint(parseInt((x ?? u ?? big) as string, 16))
-    );
-}
-
-/**
- * The `defaultParams` of a workflow in the form of a run's `params`. The
- * server quotes each value in `defaultParams` (`ENV="dev"`) and does not
- * quote it in the `params` of a run (`ENV=dev`).
- */
-function unquoteParams(defaults: string | null | undefined): string {
-  return [...(defaults ?? '').matchAll(PARAM_TOKEN)]
-    .map(([, name, value]) =>
-      name
-        ? `${name}=${unquoteValue(value as string)}`
-        : unquoteValue(value as string)
-    )
-    .join(' ');
+  return parseParams(params ?? '')
+    .map((param) => (param.Name ? `${param.Name}=${param.Value}` : param.Value))
+    .join(' ')
+    .trim()
+    .replace(/\s+/g, ' ');
 }
 
 /**
  * True when the parameters of the source run differ from the defaults of the
- * workflow. A new step run uses the defaults. `runParams` is the `params` of
- * a run and `defaults` the `defaultParams` of the workflow, in the forms that
- * the server sends. Spaces inside a value count; the ends of the text do not.
+ * workflow. A new step run uses the defaults. Spacing and quotes do not count.
  */
 export function paramsDiffer(
   runParams: string | null | undefined,
   defaults: string | null | undefined
 ): boolean {
-  return (
-    normalizeParams(runParams) !== normalizeParams(unquoteParams(defaults))
-  );
-}
-
-/**
- * The hash that a cache entry keeps of the `params` of its run: the text can
- * be large, and every entry of a workflow would hold it.
- */
-export function runParamsHash(runParams: string | null | undefined): string {
-  return hashText(normalizeParams(runParams));
-}
-
-/**
- * The hash of the `defaultParams` of a workflow: equal to `runParamsHash` of
- * a run that used the defaults.
- */
-export function defaultParamsHash(defaults: string | null | undefined): string {
-  return hashText(normalizeParams(unquoteParams(defaults)));
+  return normalizeParams(runParams) !== normalizeParams(defaults);
 }

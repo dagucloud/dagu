@@ -213,11 +213,16 @@ Rules:
 
 - The registry is `projects.json` in `<data_dir>`.
 - For each project, it holds the ID, the name, the display name, the
-  creation time, the Dagu Cloud binding (RFC 002), and, for a project that
-  migration made, the v2 workspace name it came from. It also records the
-  files that run in place as the project's, and whether the project is
-  marked deleting. Server-wide, it records the DAG files that migration
-  found with an [unsettled label](#unsettled-labels).
+  creation time, the slot seed, the Dagu Cloud binding (RFC 002), and, for a
+  project that migration made, the v2 workspace name it came from. It also
+  records the files that run in place as the project's, and whether the
+  project is marked deleting. Server-wide, it records the DAG files that
+  migration found with an [unsettled label](#unsettled-labels).
+- A project's slot seed goes into the run ID of each slot of its schedules
+  (Spec 085). It is `paths.data_dir`, spelled as configured, for the default
+  project and each project that migration made, and the project's ID for any
+  other. It is set when the project is registered and never changes, so it is
+  the same after a restart and on every host that shares the storage.
 - The registry is the only list of projects. Creating a project, changing
   its display name, deleting it, and migration change it. Nothing on disk
   adds to it.

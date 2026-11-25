@@ -60,8 +60,8 @@ func TestResolverResolvesVariablesAndSecrets(t *testing.T) {
 	assert.Equal(t, []string{"CLICKHOUSE_DSN_PY=clickhouse://local"}, resolved.EnvVars(profile.EntryKindSecret))
 }
 
-// A profile entry that points at the managed secret of an AI endpoint key must not
-// put the key in the environment of a run (Spec 093).
+// A profile entry bound to a secret under the reserved prefix must not put its
+// value in the environment of a run.
 func TestResolverRefusesReservedSecret(t *testing.T) {
 	ctx := context.Background()
 

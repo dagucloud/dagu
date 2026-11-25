@@ -290,7 +290,7 @@ func (idx *dispatchTaskIndex) candidatePendingIDs(workerID string, workerLabels 
 		if entry.targetWorkerID != "" && entry.targetWorkerID != workerID {
 			continue
 		}
-		if !matchesDispatchSelector(workerLabels, entry.workerSelector) {
+		if !ir.MatchWorkerSelector(workerLabels, entry.workerSelector) {
 			continue
 		}
 		if !ir.WorkerHasCapabilities(capabilities, entry.requiredCapabilities) {

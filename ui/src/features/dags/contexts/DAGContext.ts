@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import React from 'react';
+import type { StartRequest } from '../components/dag-execution/startRequest';
 
 export const DAGContext = React.createContext<{
   refresh: () => void;
@@ -9,14 +10,7 @@ export const DAGContext = React.createContext<{
   fileName: string;
   forceEnqueue?: boolean;
   autoOpenStartModal?: boolean;
-  onEnqueue?: (
-    params: string,
-    dagRunId?: string,
-    immediate?: boolean,
-    profile?: string,
-    noReuse?: boolean,
-    scheduleTime?: string
-  ) => string | void | Promise<string | void>;
+  onEnqueue?: (request: StartRequest) => string | void | Promise<string | void>;
 }>({
   refresh: () => {
     return;

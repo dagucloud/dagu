@@ -394,22 +394,66 @@ func TestWorkerWithLabels(t *testing.T) {
 	})
 }
 
-func TestWorkerRejectsConflictingPlatformLabels(t *testing.T) {
+// A worker lowercases its labels, keeps a label with no value, and polls with
+// them.
+func TestWorkerLowercasesLabels(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	w := worker.NewWorker(
-		"conflicting-platform",
-		1,
-		newMockCoordinatorCli(),
-		map[string]string{"os": "not-" + runtime.GOOS},
-		&config.Config{},
-	)
+	polled := make(chan map[string]string, 1)
+	cli := newMockCoordinatorCli()
+	cli.SetPollFunc(func(ctx context.Context, _ backoff.RetryPolicy, req *coordinatorv1.PollRequest) (*coordinatorv1.Task, error) {
+		select {
+		case polled <- req.Labels:
+		default:
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	w := worker.NewWorker("lowercase", 1, cli, map[string]string{"Zone": "US-East", "GPU": ""}, &config.Config{})
 	w.SetHandler(&mockHandler{})
+	go func() { _ = w.Start(context.Background()) }()
 
-	err := w.Start(ctx)
-	require.ErrorContains(t, err, `worker label "os" conflicts with built-in platform value`)
+	select {
+	case labels := <-polled:
+		assert.Equal(t, map[string]string{
+			"zone": "us-east",
+			"gpu":  "",
+			"os":   runtime.GOOS,
+			"arch": runtime.GOARCH,
+		}, labels)
+	case <-time.After(5 * time.Second):
+		t.Fatal("worker did not poll")
+	}
+	require.NoError(t, w.Stop(context.Background()))
+}
+
+// A worker whose labels break the label rules does not start, and the error
+// names the label.
+func TestWorkerRejectsInvalidLabels(t *testing.T) {
+	t.Parallel()
+
+	for name, tt := range map[string]struct {
+		labels map[string]string
+		want   string
+	}{
+		"BadKey":           {labels: map[string]string{"node/type": "gpu"}, want: `worker label "node/type=gpu": label key`},
+		"BadValue":         {labels: map[string]string{"team": "data eng"}, want: `worker label "team=data eng": label value`},
+		"EmptyKey":         {labels: map[string]string{"": "x"}, want: `worker label "=x": label key cannot be empty`},
+		"KeyWithEquals":    {labels: map[string]string{"team=prod": ""}, want: `worker label "team=prod": label key "team=prod" contains invalid characters`},
+		"KeyInTwoCases":    {labels: map[string]string{"Zone": "a", "zone": "b"}, want: `worker label "zone=b": key "zone" is set more than once`},
+		"PlatformConflict": {labels: map[string]string{"OS": "not-" + runtime.GOOS}, want: `worker label "os" conflicts with built-in platform value`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			w := worker.NewWorker("invalid-labels", 1, newMockCoordinatorCli(), tt.labels, &config.Config{})
+			w.SetHandler(&mockHandler{})
+
+			require.ErrorContains(t, w.Start(ctx), tt.want)
+		})
+	}
 }
 
 func TestWorkerHeartbeat(t *testing.T) {

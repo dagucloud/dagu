@@ -2,16 +2,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it, vi } from 'vitest';
-import { NodeStatus, Status, type components } from '@/api/v1/schema';
 import {
+  CarriedStepCheckStatus,
+  CarriedStepCheckUnavailable,
+  NodeStatus,
+  Status,
+  StepChangeKind,
+  type components,
+} from '@/api/v1/schema';
+import {
+  composeCarriers,
   coverFromCache,
   defaultChoice,
-  defaultParamsHash,
   missingIn,
   paramsDiffer,
   pickReuseSource,
   planRun,
-  runParamsHash,
   staleUpstream,
   stepNeeds,
   type ReuseRun,
@@ -288,7 +294,6 @@ function entry(p: Partial<CacheEntry> = {}): CacheEntry {
     runId: 'r1',
     capturedAt: 1000,
     stepHash: 'h-a',
-    params: runParamsHash(''),
     ...p,
   };
 }
@@ -310,41 +315,12 @@ describe('coverFromCache', () => {
       hasSource: true,
       entries: { a: entry() },
       hashes,
-      defaultParams: undefined,
       check: ok,
     });
     expect(cover.cached).toEqual(['a']);
     expect(cover.stale).toEqual(['b']);
     expect(Object.keys(cover.runs)).toEqual(['a']);
     expect(cover.capturedAt).toBe(1000);
-  });
-
-  // The step run sends no parameters: it uses the defaults of the workflow.
-  // An entry of a run with other parameters holds other values.
-  it('does not cover a step whose entry was read from a run with other parameters', () => {
-    const base = {
-      previous,
-      stale: [],
-      missing: [],
-      hasSource: false,
-      hashes,
-      defaultParams: undefined,
-      check: ok,
-    };
-    // The run holds `ENV=dev`, the server sends the default as `ENV="dev"`.
-    const dev = { a: entry({ params: runParamsHash('ENV=dev') }) };
-    const prod = { a: entry({ params: runParamsHash('ENV=prod') }) };
-    const defaults = 'ENV="dev"';
-    expect(
-      coverFromCache({ ...base, entries: dev, defaultParams: defaults }).cached
-    ).toEqual(['a']);
-    expect(
-      coverFromCache({ ...base, entries: prod, defaultParams: defaults }).cached
-    ).toEqual([]);
-    expect(
-      coverFromCache({ ...base, entries: prod, defaultParams: undefined })
-        .cached
-    ).toEqual([]);
   });
 
   // Every cached value is sent with the run that it was read from.
@@ -359,7 +335,6 @@ describe('coverFromCache', () => {
         b: entry({ stepHash: 'h-b', runId: 'run-b', capturedAt: 2000 }),
       },
       hashes,
-      defaultParams: undefined,
       check: ok,
     });
     expect(cover.runs).toEqual({
@@ -376,7 +351,6 @@ describe('coverFromCache', () => {
       hasSource: true,
       entries: { a: entry(), b: entry({ stepHash: 'h-b' }) },
       hashes,
-      defaultParams: undefined,
       check: ok,
     });
     expect(cover.cached).toEqual(['b']);
@@ -392,7 +366,6 @@ describe('coverFromCache', () => {
       hasSource: true,
       entries: { a: entry({ stepHash: 'old' }) },
       hashes,
-      defaultParams: undefined,
       check: ok,
     });
     expect(cover.cached).toEqual([]);
@@ -411,7 +384,6 @@ describe('coverFromCache', () => {
       hasSource: true,
       entries: { a: entry(), b: entry({ stepHash: 'h-b', runId: 'r2' }) },
       hashes,
-      defaultParams: undefined,
       check: (_step, e) => (e.runId === 'r2' ? 'gone' : 'ok'),
     });
     expect(cover.cached).toEqual(['a']);
@@ -428,7 +400,6 @@ describe('coverFromCache', () => {
       hasSource: false,
       entries: { a: entry() },
       hashes,
-      defaultParams: undefined,
       check: () => 'checking',
     });
     expect(cover.checking).toBe(true);
@@ -443,7 +414,6 @@ describe('coverFromCache', () => {
       hasSource: false,
       entries: { a: entry(), b: entry() },
       hashes: null,
-      defaultParams: undefined,
       check: ok,
     });
     expect(cover.cached).toEqual([]);
@@ -458,7 +428,6 @@ describe('coverFromCache', () => {
       hasSource: false,
       entries: { a: entry() },
       hashes,
-      defaultParams: undefined,
       check: ok,
     });
     expect(cover.cached).toEqual(['a']);
@@ -473,7 +442,6 @@ describe('coverFromCache', () => {
       hasSource: false,
       entries: {},
       hashes,
-      defaultParams: undefined,
       check: ok,
     });
     expect(cover.missing).toEqual([]);
@@ -490,7 +458,6 @@ describe('coverFromCache', () => {
         b: entry({ stepHash: 'h-b', capturedAt: 2000 }),
       },
       hashes,
-      defaultParams: undefined,
       check: ok,
     });
     expect(cover.capturedAt).toBe(2000);
@@ -519,39 +486,13 @@ describe('defaultChoice with the cache', () => {
 });
 
 describe('paramsDiffer', () => {
-  // The run gives `params` unquoted, the workflow gives `defaultParams` quoted.
-  it('reads the quoted defaults of the server', () => {
-    expect(paramsDiffer('ENV=dev', 'ENV="dev"')).toBe(false);
-    expect(paramsDiffer('ENV=prod', 'ENV="dev"')).toBe(true);
-    expect(paramsDiffer('A=1 B=x', 'A="1" B="x"')).toBe(false);
-  });
-
-  it('reads values with spaces, quotes, equal signs and no name', () => {
-    expect(paramsDiffer('MSG=hello world', 'MSG="hello world"')).toBe(false);
-    expect(paramsDiffer('MSG=say "hi"', 'MSG="say \\"hi\\""')).toBe(false);
-    expect(paramsDiffer('URL=a=b', 'URL="a=b"')).toBe(false);
-    expect(paramsDiffer('P=C:\\tmp', 'P="C:\\\\tmp"')).toBe(false);
-    expect(paramsDiffer('one two', '"one" "two"')).toBe(false);
-    expect(paramsDiffer('X=', 'X=""')).toBe(false);
-    // Spaces inside a value are part of the value.
-    expect(paramsDiffer('ENV=hello  world', 'ENV="hello world"')).toBe(true);
-    expect(paramsDiffer('ENV=a\nb', 'ENV="a b"')).toBe(true);
-    expect(paramsDiffer('X=1', 'X=""')).toBe(true);
-  });
-
-  // The quote after an escaped backslash ends the value.
-  it('reads a value that ends in a backslash before another parameter', () => {
-    expect(paramsDiffer('P=C:\\ Q=x', 'P="C:\\\\" Q="x"')).toBe(false);
-    expect(paramsDiffer('P=C:\\ Q=y', 'P="C:\\\\" Q="x"')).toBe(true);
-  });
-
   it('is true for other parameters', () => {
     expect(paramsDiffer('A=2', 'A=1')).toBe(true);
     expect(paramsDiffer('A=1', undefined)).toBe(true);
   });
 
-  it('ignores the ends of the text and treats no parameters as equal', () => {
-    expect(paramsDiffer(' A=1 B=2 ', 'A=1 B=2')).toBe(false);
+  it('ignores spacing and treats no parameters as equal', () => {
+    expect(paramsDiffer(' A=1   B=2 ', 'A=1 B=2')).toBe(false);
     expect(paramsDiffer(undefined, '')).toBe(false);
   });
 
@@ -564,12 +505,83 @@ describe('paramsDiffer', () => {
   });
 });
 
-describe('runParamsHash and defaultParamsHash', () => {
-  it('are equal for a run that used the defaults', () => {
-    expect(runParamsHash('A=1 MSG=hi there')).toBe(
-      defaultParamsHash('A="1" MSG="hi there"')
-    );
-    expect(runParamsHash(undefined)).toBe(defaultParamsHash(null));
-    expect(runParamsHash('A=2')).not.toBe(defaultParamsHash('A="1"'));
+describe('composeCarriers', () => {
+  type Check = components['schemas']['CarriedStepCheck'];
+  const check = (
+    step: string,
+    runId: string,
+    status: CarriedStepCheckStatus,
+    changes: StepChangeKind[] = []
+  ): Check => ({
+    step,
+    runId,
+    status,
+    changes,
+    ...(status !== CarriedStepCheckStatus.unchanged
+      ? { message: `step ${step} cannot be reused from run ${runId}: why` }
+      : {}),
+    ...(status === CarriedStepCheckStatus.unavailable
+      ? { unavailable: CarriedStepCheckUnavailable.gone }
+      : {}),
+  });
+  const { unchanged, changed, unavailable } = CarriedStepCheckStatus;
+
+  // An unchanged step of the source run wins, then an unchanged cache
+  // entry, then the changed step of the source run, then a changed entry.
+  it('prefers what did not change, and the source run over the cache', () => {
+    const plan = composeCarriers({
+      previous: ['a', 'b', 'c', 'd'],
+      fromSource: {
+        a: check('a', 'src', unchanged),
+        b: check('b', 'src', changed, [StepChangeKind.step]),
+        c: check('c', 'src', changed, [StepChangeKind.params]),
+      },
+      fromCache: {
+        a: check('a', 'RunA', unchanged),
+        b: check('b', 'RunB', unchanged),
+        c: check('c', 'RunC', changed, [StepChangeKind.step]),
+        d: check('d', 'RunD', changed, [StepChangeKind.dependency]),
+      },
+    });
+    expect(
+      Object.fromEntries(
+        Object.entries(plan.carriers).map(([name, c]) => [
+          name,
+          `${c.from}:${c.runId}`,
+        ])
+      )
+    ).toEqual({
+      a: 'source:src',
+      b: 'cache:RunB',
+      c: 'source:src',
+      d: 'cache:RunD',
+    });
+    expect(plan.changed).toEqual(['c', 'd']);
+    expect(plan.missing).toEqual([]);
+  });
+
+  // The source run gives the step, changed; the run of its entry is gone.
+  it('keeps why a cache entry cannot give a step that another run gives', () => {
+    const plan = composeCarriers({
+      previous: ['a'],
+      fromSource: { a: check('a', 'src', changed, [StepChangeKind.step]) },
+      fromCache: { a: check('a', 'gone', unavailable) },
+    });
+    expect(plan.carriers['a']?.from).toBe('source');
+    expect(plan.unavailable).toEqual({
+      a: { runId: 'gone', kind: CarriedStepCheckUnavailable.gone },
+    });
+  });
+
+  it('reports a step that no run gives, and why its cache entry cannot', () => {
+    const plan = composeCarriers({
+      previous: ['a', 'b'],
+      fromSource: {},
+      fromCache: { a: check('a', 'gone', unavailable) },
+    });
+    expect(plan.missing).toEqual(['a', 'b']);
+    expect(plan.unavailable).toEqual({
+      a: { runId: 'gone', kind: CarriedStepCheckUnavailable.gone },
+    });
   });
 });

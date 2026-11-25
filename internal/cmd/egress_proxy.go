@@ -21,10 +21,20 @@ import (
 )
 
 // EgressProxy returns the hidden command that runs the egress proxy of an agent
-// worker (Spec 092, "Network"). It loads no Dagu configuration: the
-// arguments are the whole configuration, and an unknown flag, a missing flag or
-// a value that is not valid stops the command before it serves.
+// worker. It loads no Dagu configuration: the arguments are the whole
+// configuration, and an unknown flag, a missing flag or a value that is not
+// valid stops the command before it serves.
 func EgressProxy() *cobra.Command {
+	dialer := &net.Dialer{Timeout: time.Second}
+	return egressProxy(net.Listen, dialer.DialContext)
+}
+
+// listenFunc opens the listener of an address, as net.Listen does.
+type listenFunc func(network, address string) (net.Listener, error)
+
+// egressProxy builds the command on the function that opens the listener of
+// serve and the function that makes each connection attempt of wait.
+func egressProxy(listen listenFunc, dial egress.DialFunc) *cobra.Command {
 	command := &cobra.Command{
 		Use:           "egress-proxy",
 		Short:         "Run the egress proxy of an agent worker",
@@ -36,7 +46,7 @@ func EgressProxy() *cobra.Command {
 			return cmd.Help()
 		},
 	}
-	command.AddCommand(egressProxyServe(), egressProxyWait())
+	command.AddCommand(egressProxyServe(listen), egressProxyWait(dial))
 	return command
 }
 
@@ -65,7 +75,7 @@ func requireFlag(cmd *cobra.Command, name string) (string, error) {
 	return value, nil
 }
 
-func egressProxyServe() *cobra.Command {
+func egressProxyServe(listen listenFunc) *cobra.Command {
 	command := &cobra.Command{
 		Use:           "serve",
 		Short:         "Serve the HTTP proxy for the allow list",
@@ -73,11 +83,11 @@ func egressProxyServe() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: false,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			listen, err := requireFlag(cmd, "listen")
+			address, err := requireFlag(cmd, "listen")
 			if err != nil {
 				return err
 			}
-			if err := checkHostPort("listen", listen); err != nil {
+			if err := checkHostPort("listen", address); err != nil {
 				return err
 			}
 			allow, err := cmd.Flags().GetStringArray("allow")
@@ -96,11 +106,19 @@ func egressProxyServe() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			maxConnections, err := cmd.Flags().GetInt("max-connections")
+			if err != nil {
+				return err
+			}
+			if maxConnections < 1 {
+				return fmt.Errorf("flag --max-connections: expected a number above zero, got %d", maxConnections)
+			}
 			proxy, err := egress.New(egress.Options{
 				Rules:           rules,
 				Upstream:        upstream,
 				CredentialRules: credentialRules,
 				ProxyCredential: credential,
+				MaxConnections:  maxConnections,
 				Log: func(format string, args ...any) {
 					_, _ = fmt.Fprintf(os.Stderr, format+"\n", args...)
 				},
@@ -114,9 +132,9 @@ func egressProxyServe() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			listener, err := net.Listen("tcp", listen)
+			listener, err := listen("tcp", address)
 			if err != nil {
-				return fmt.Errorf("flag --listen: cannot listen on %q: %w", listen, err)
+				return fmt.Errorf("flag --listen: cannot listen on %q: %w", address, err)
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
@@ -143,6 +161,7 @@ func egressProxyServe() *cobra.Command {
 	command.Flags().StringArray("allow-with-credential", nil, "destination, as host, host:port or [IPv6 address]:port, for a client that sends the proxy credential; repeat the flag")
 	command.Flags().String("proxy-credential-env", "", "name of the environment variable that holds the proxy credential")
 	command.Flags().String("proxy-credential-file", "", "path of the file that holds the proxy credential")
+	command.Flags().Int("max-connections", egress.DefaultMaxConnections, "most client connections open at once, tunnels included; the proxy closes a connection over it")
 	return command
 }
 
@@ -287,7 +306,7 @@ func readKeyFile(path string) ([]byte, error) {
 	return data, nil
 }
 
-func egressProxyWait() *cobra.Command {
+func egressProxyWait(dial egress.DialFunc) *cobra.Command {
 	command := &cobra.Command{
 		Use:           "wait",
 		Short:         "Wait until an address accepts connections",
@@ -309,18 +328,21 @@ func egressProxyWait() *cobra.Command {
 			if timeout <= 0 {
 				return fmt.Errorf("flag --timeout: expected a duration above zero, got %s", timeout)
 			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+			timedOut := fmt.Errorf("%s does not accept connections after %s", addr, timeout)
+			ctx, cancel := context.WithTimeoutCause(cmd.Context(), timeout, timedOut)
 			defer cancel()
 			for {
-				dialer := net.Dialer{Timeout: time.Second}
-				conn, dialErr := dialer.DialContext(ctx, "tcp", addr)
+				conn, dialErr := dial(ctx, "tcp", addr)
 				if dialErr == nil {
 					_ = conn.Close()
 					return nil
 				}
 				select {
 				case <-ctx.Done():
-					return errors.Join(fmt.Errorf("%s does not accept connections after %s", addr, timeout), dialErr)
+					if cause := context.Cause(ctx); !errors.Is(cause, timedOut) {
+						return fmt.Errorf("wait for %s: %w", addr, cause)
+					}
+					return errors.Join(timedOut, dialErr)
 				case <-time.After(50 * time.Millisecond):
 				}
 			}

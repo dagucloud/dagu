@@ -344,7 +344,37 @@ type ReusedInput struct {
 	StartedAt  string         `json:"startedAt,omitempty"`
 	FinishedAt string         `json:"finishedAt,omitempty"`
 	Via        ReusedInputVia `json:"via"`
+	// Changes lists what had changed for the step since the run the outputs
+	// come from, when the request consented to reuse them anyway. It is empty
+	// when nothing changed.
+	Changes []StepChange `json:"changes,omitempty"`
 }
+
+// StepChange names what changed for a step since a run that it carries
+// outputs from.
+type StepChange string
+
+const (
+	// StepChangeStep marks a change of the step's own definition.
+	StepChangeStep StepChange = "step"
+	// StepChangeDependency marks a change of a step it depends on.
+	StepChangeDependency StepChange = "dependency"
+	// StepChangeParams marks other resolved parameters.
+	StepChangeParams StepChange = "params"
+	// StepChangeProfile marks another runtime profile.
+	StepChangeProfile StepChange = "profile"
+	// StepChangeBaseConfig marks other values of the base config.
+	StepChangeBaseConfig StepChange = "baseConfig"
+	// StepChangeSettings marks a change of the DAG's definition other than its
+	// steps.
+	StepChangeSettings StepChange = "settings"
+	// StepChangeCarried marks a step that, in the run, took outputs from a
+	// changed step, or depends on a step that did.
+	StepChangeCarried StepChange = "carried"
+	// StepChangeUnknown marks a run whose definition cannot be compared, such
+	// as one that keeps no definition.
+	StepChangeUnknown StepChange = "unknown"
+)
 
 // EffectiveClaimKey returns ClaimKey, falling back to AttemptKey when no claim
 // is recorded.

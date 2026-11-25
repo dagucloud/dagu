@@ -96,7 +96,7 @@ func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, d
 		return nil, err
 	}
 	if needsRebuild {
-		if err := rebuildRetryCandidatesForDay(ctx, dayPath, store.cache); err != nil {
+		if err := store.rebuildRetryCandidatesForDay(ctx, dayPath); err != nil {
 			return nil, err
 		}
 	}
@@ -130,7 +130,7 @@ func (store *Store) listRetryCandidatesForDayAfterRebuild(ctx context.Context, d
 			if err := markRetryCandidatesDirtyForDay(dayPath); err != nil {
 				return nil, err
 			}
-			if err := rebuildRetryCandidatesForDay(ctx, dayPath, store.cache); err != nil {
+			if err := store.rebuildRetryCandidatesForDay(ctx, dayPath); err != nil {
 				return nil, err
 			}
 			return store.listRetryCandidatesForDayAfterRebuild(ctx, dayPath, from, scan, true)
@@ -237,7 +237,7 @@ func retryCandidatesNeedRebuild(dayPath string) (bool, error) {
 	return false, fmt.Errorf("stat retry candidate directory %s: %w", candidateDir, err)
 }
 
-func rebuildRetryCandidatesForDay(ctx context.Context, dayPath string, cache *fileutil.Cache[*ir.DAGRunStatus]) error {
+func (store *Store) rebuildRetryCandidatesForDay(ctx context.Context, dayPath string) error {
 	candidateDir := filepath.Join(dayPath, retryCandidateDirName)
 	if err := fileutil.RemoveAll(candidateDir); err != nil {
 		return fmt.Errorf("remove retry candidate directory: %w", err)
@@ -261,11 +261,13 @@ func rebuildRetryCandidatesForDay(ctx context.Context, dayPath string, cache *fi
 		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), DAGRunDirPrefix) {
 			continue
 		}
-		run, err := NewDAGRun(filepath.Join(dayPath, entry.Name()))
+		// The run reads through the shared status cache, so it resolves
+		// paths as every other reader of the cache does.
+		run, err := store.dagRun(filepath.Join(dayPath, entry.Name()))
 		if err != nil {
 			continue
 		}
-		attempt, err := run.LatestAttempt(ctx, cache)
+		attempt, err := run.LatestAttempt(ctx, store.cache)
 		if err != nil {
 			continue
 		}

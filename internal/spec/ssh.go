@@ -18,7 +18,7 @@ const (
 // collectCredentialRefs records the secret refs that the DAG's SSH
 // connections use: the DAG-level ssh and every ssh or sftp step, including
 // foreach bodies and handlers. Each ref is listed once, under the first field
-// that names it.
+// that names it. A ref under the reserved prefix is an error.
 func (s *dagBuildState) collectCredentialRefs() {
 	refs := s.result.SSH.SecretRefs("ssh")
 	walkSteps(s.result, func(step ir.Step, path string) {
@@ -42,6 +42,10 @@ func (s *dagBuildState) collectCredentialRefs() {
 			continue
 		}
 		seen[ref.Ref] = struct{}{}
+		if secretref.IsReserved(ref.Ref) {
+			s.errs = append(s.errs, ir.NewValidationError(ref.Name+".secret", nil, reservedRefError(ref.Ref)))
+			continue
+		}
 		unique = append(unique, ref)
 	}
 	s.result.CredentialRefs = unique

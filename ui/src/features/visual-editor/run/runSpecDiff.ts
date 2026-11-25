@@ -38,12 +38,46 @@ export interface RunSpecNames {
   live?: ApiDAGDetails;
 }
 
-// Top-level keys that hold steps and not the head of the DAG.
+// Top-level keys that are not the head of the DAG: the steps, and the keys
+// that describe, schedule, notify, retain, or limit runs, which cannot change
+// what a step gives. The server leaves out the same keys (intake/reuse.go).
 const NON_HEAD_KEYS: ReadonlySet<string> = new Set([
   'steps',
-  'handler_on',
-  'handlerOn',
+  'group',
+  'description',
+  'labels',
+  'tags',
+  'schedule',
+  'skip_if_successful',
+  'catchup_window',
+  'overlap_policy',
+  'webhook',
+  'watch',
+  'smtp',
+  'mail_accounts',
+  'mail_on',
+  'error_mail',
+  'info_mail',
+  'wait_mail',
+  'hist_retention_days',
+  'hist_retention_runs',
+  'slot_retention_days',
+  'log_dir',
+  'otel',
+  'queue',
+  'max_active_runs',
+  'max_active_steps',
+  'timeout_sec',
+  'delay_sec',
+  'restart_wait_sec',
+  'restart_policy',
+  'retry_policy',
+  'max_clean_up_time_sec',
 ]);
+
+// Keys of the handlers. Of them only init is the head: it runs before the
+// steps, and the others after them.
+const HANDLER_KEYS: ReadonlySet<string> = new Set(['handler_on', 'handlerOn']);
 
 /** JSON text with sorted keys: equal values give equal text. */
 export function canonical(value: unknown): string {
@@ -65,16 +99,23 @@ function headValue(js: unknown): unknown {
   if (js === null || js === undefined) return {};
   if (typeof js !== 'object' || Array.isArray(js)) return js;
   return Object.fromEntries(
-    Object.entries(js as Record<string, unknown>).filter(
-      ([key]) => !NON_HEAD_KEYS.has(key)
-    )
+    Object.entries(js as Record<string, unknown>).flatMap(([key, value]) => {
+      if (NON_HEAD_KEYS.has(key)) return [];
+      if (!HANDLER_KEYS.has(key)) return [[key, value]];
+      const init =
+        value !== null && typeof value === 'object' && !Array.isArray(value)
+          ? (value as Record<string, unknown>)['init']
+          : undefined;
+      return init === undefined ? [] : [[key, { init }]];
+    })
   );
 }
 
 /**
- * The parsed top-level keys without the steps and the handlers, with the
- * later documents: they define the local sub-DAGs that steps can call. Null
- * when the text cannot be read.
+ * The parsed top-level keys without the steps, the keys that only describe
+ * or schedule runs, and the handlers other than init, with the later
+ * documents: they define the local sub-DAGs that steps can call. The server
+ * compares the same head. Null when the text cannot be read.
  */
 export function headOf(model: DagDocModel): string | null {
   try {

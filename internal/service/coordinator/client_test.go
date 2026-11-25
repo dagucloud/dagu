@@ -2034,8 +2034,10 @@ func TestClientHeartbeatHonorsCallerDeadline(t *testing.T) {
 }
 
 func TestClientHeartbeatReturnsDeadlineAfterFailoverExhaustion(t *testing.T) {
+	t.Parallel()
+
 	config := coordinator.DefaultConfig()
-	config.HeartbeatTimeout = 400 * time.Millisecond
+	config.HeartbeatTimeout = failoverHeartbeatTimeout
 
 	var heartbeatCalls atomic.Int32
 	mockCoord := &mockCoordinatorService{

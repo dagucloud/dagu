@@ -28,10 +28,13 @@ type selectedSteps struct {
 	// reuseFrom is the run whose unchanged steps the run reuses, choosing
 	// the steps to run itself.
 	reuseFrom string
+	// allowChanged consents to reuse the carried steps that changed since
+	// their run.
+	allowChanged bool
 }
 
 // selectedStepsParams reads and validates --only, --outputs-from,
-// --output-from, and the deprecated --output.
+// --output-from, --allow-changed, and the deprecated --output.
 func selectedStepsParams(ctx *Context) (selectedSteps, error) {
 	steps, err := ctx.Command.Flags().GetStringArray(onlyFlag.name)
 	if err != nil {
@@ -53,12 +56,16 @@ func selectedStepsParams(ctx *Context) (selectedSteps, error) {
 	if err != nil {
 		return selectedSteps{}, fmt.Errorf("failed to get reuse-from: %w", err)
 	}
+	allowChanged, err := ctx.Command.Flags().GetBool(allowChangedFlag.name)
+	if err != nil {
+		return selectedSteps{}, fmt.Errorf("failed to get allow-changed: %w", err)
+	}
 	if reuseFrom = strings.TrimSpace(reuseFrom); reuseFrom == "" && ctx.Command.Flags().Changed(reuseFromFlag.name) {
 		return selectedSteps{}, fmt.Errorf("--reuse-from must name a run")
 	}
 	if reuseFrom != "" {
-		if len(steps) > 0 || outputsFrom != "" || len(entries) > 0 || len(outputEntries) > 0 || ctx.Command.Flags().Changed(fromRunIDFlag.name) {
-			return selectedSteps{}, fmt.Errorf("--reuse-from chooses the steps to run itself; it cannot be combined with --only, --outputs-from, --output-from, --output, or --from-run-id")
+		if len(steps) > 0 || outputsFrom != "" || len(entries) > 0 || len(outputEntries) > 0 || allowChanged || ctx.Command.Flags().Changed(fromRunIDFlag.name) {
+			return selectedSteps{}, fmt.Errorf("--reuse-from chooses the steps to run itself; it cannot be combined with --only, --outputs-from, --output-from, --output, --allow-changed, or --from-run-id")
 		}
 		if err := validateRunID(reuseFrom); err != nil {
 			return selectedSteps{}, fmt.Errorf("invalid reuse-from: %w", err)
@@ -74,6 +81,9 @@ func selectedStepsParams(ctx *Context) (selectedSteps, error) {
 		}
 		if len(outputEntries) > 0 {
 			return selectedSteps{}, fmt.Errorf("--output requires --only")
+		}
+		if allowChanged {
+			return selectedSteps{}, fmt.Errorf("--allow-changed requires --only")
 		}
 		return selectedSteps{}, nil
 	}
@@ -93,7 +103,16 @@ func selectedStepsParams(ctx *Context) (selectedSteps, error) {
 	if err != nil {
 		return selectedSteps{}, err
 	}
-	return selectedSteps{steps: steps, outputsFrom: outputsFrom, outputFrom: outputFrom, outputs: outputs}, nil
+	return selectedSteps{steps: steps, outputsFrom: outputsFrom, outputFrom: outputFrom, outputs: outputs, allowChanged: allowChanged}, nil
+}
+
+// withAllowChangedHint adds to a refusal that names a changed step how to
+// reuse it anyway.
+func withAllowChangedHint(refused *intake.RefusedStepsError) error {
+	if !slices.ContainsFunc(refused.Steps, intake.CarriedStep.Changed) {
+		return refused
+	}
+	return fmt.Errorf("%w; pass --allow-changed to reuse the changed steps anyway", refused)
 }
 
 // reuseUnchangedSteps turns a selection reusing selection.reuseFrom into the
@@ -198,7 +217,10 @@ func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts r
 			return err
 		}
 	}
-	var source *ir.DAGRunStatus
+	var (
+		source    *ir.DAGRunStatus
+		sourceDAG *ir.DAG
+	)
 	if selection.outputsFrom != "" {
 		attempt, err := repo.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, selection.outputsFrom))
 		if err != nil {
@@ -208,15 +230,35 @@ func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts r
 		if err != nil {
 			return fmt.Errorf("failed to read status for dag-run %s: %w", selection.outputsFrom, err)
 		}
+		// A definition that cannot be read leaves the source steps unknown.
+		sourceDAG, _ = attempt.ReadDAG(ctx)
 	}
-	fromRuns, err := intake.LoadRunStepSources(ctx, repo, dag.Name, selection.outputFrom, nil)
+	loaded, err := intake.LoadRunStepSources(ctx, repo, dag.Name, selection.outputFrom, nil)
 	if err != nil {
 		return err
 	}
-	nodes, reused, err := intake.SelectedStepNodes(dag, selection.steps, source, fromRuns, selection.outputs, nil)
+	plan, err := intake.PlanSelectedSteps(dag, opts.profileName, intake.StepSelection{
+		Steps:            selection.steps,
+		Source:           source,
+		SourceDefinition: sourceDAG,
+		FromRuns:         loaded.Sources,
+		Definitions:      loaded.Definitions,
+		Unavailable:      loaded.Unavailable,
+		Outputs:          selection.outputs,
+		AllowAllChanged:  selection.allowChanged,
+	})
 	if err != nil {
 		return err
 	}
+	if refused := plan.Refusal(); refused != nil {
+		return withAllowChangedHint(refused)
+	}
+	for _, step := range plan.Carried {
+		if step.Changed() {
+			_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "reusing step %s from run %s although %s\n", step.Step, step.DAGRunID, step.Reason())
+		}
+	}
+	nodes, reused := plan.Nodes, plan.Reused
 	skipHandlers, err := intake.SelectionSkipsHandlers(dag, selection.steps)
 	if err != nil {
 		return err

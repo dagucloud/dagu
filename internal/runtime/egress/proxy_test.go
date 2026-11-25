@@ -76,13 +76,7 @@ func startProxy(t *testing.T, rules []string, resolver egress.Resolver, dial egr
 	t.Helper()
 	parsed, err := egress.ParseRules(rules)
 	require.NoError(t, err)
-	var logs []string
-	var logMu sync.Mutex
-	proxy, err := egress.New(egress.Options{Rules: parsed, Resolver: resolver, Dial: dial, Log: func(format string, args ...any) {
-		logMu.Lock()
-		logs = append(logs, fmt.Sprintf(format, args...))
-		logMu.Unlock()
-	}})
+	proxy, err := egress.New(egress.Options{Rules: parsed, Resolver: resolver, Dial: dial})
 	require.NoError(t, err)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -221,6 +215,162 @@ func TestConnectToAListedDestination(t *testing.T) {
 	assert.Equal(t, []string{net.JoinHostPort(host, port)}, dials.seen(), "only the listed destination was dialed")
 }
 
+// serveTCP runs handle for each connection to a local port and returns its
+// address.
+func serveTCP(t *testing.T, handle func(net.Conn)) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = conn.Close() }()
+				handle(conn)
+			}()
+		}
+	}()
+	return listener.Addr().String()
+}
+
+// requestStatus sends a raw request to the proxy and returns the status line of
+// the answer.
+func requestStatus(t *testing.T, proxyAddr, request string) string {
+	t.Helper()
+	conn, err := net.Dial("tcp", proxyAddr)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+	_, err = io.WriteString(conn, request)
+	require.NoError(t, err)
+	line, err := bufio.NewReader(conn).ReadString('\n')
+	require.NoError(t, err)
+	return strings.TrimSpace(line)
+}
+
+// A CONNECT can name a host in Unicode, which the rules match. The proxy
+// resolves the IDNA ASCII form, the only form that the pure Go resolver takes.
+func TestConnectResolvesTheASCIIName(t *testing.T) {
+	t.Parallel()
+
+	host, port, err := net.SplitHostPort(serveTCP(t, func(net.Conn) {}))
+	require.NoError(t, err)
+	resolver := &fakeResolver{answers: map[string][]netip.Addr{"xn--bcher-kva.example": {netip.MustParseAddr(host)}}}
+	proxyAddr := startProxy(t, []string{"Bücher.example:" + port}, resolver, nil)
+
+	status := requestStatus(t, proxyAddr, "CONNECT bücher.example:"+port+" HTTP/1.1\r\nHost: xn--bcher-kva.example:"+port+"\r\n\r\n")
+	assert.Equal(t, "HTTP/1.1 200 Connection Established", status)
+}
+
+// The rules match the name that the proxy resolves. Go lowercases U+0130 to "i",
+// but IDNA maps it to another label, so aİ.example.test is not the listed
+// ai.example.test, and x.gİthub.example.test is not below *.github.example.test.
+func TestConnectMatchesTheNameThatItResolves(t *testing.T) {
+	t.Parallel()
+
+	host, port, err := net.SplitHostPort(serveTCP(t, func(net.Conn) {}))
+	require.NoError(t, err)
+	// The unlisted names resolve, so a check that let them pass would dial.
+	local := []netip.Addr{netip.MustParseAddr(host)}
+	resolver := &fakeResolver{answers: map[string][]netip.Addr{
+		"xn--ai-sub.example.test":       local,
+		"x.xn--github-qyd.example.test": local,
+	}}
+	dials := &dialRecord{}
+	proxyAddr := startProxy(t, []string{"ai.example.test:" + port, "*.github.example.test:" + port}, resolver, dials.dial)
+
+	for _, target := range []string{"aİ.example.test:" + port, "x.gİthub.example.test:" + port} {
+		status := requestStatus(t, proxyAddr, "CONNECT "+target+" HTTP/1.1\r\nHost: x\r\n\r\n")
+		assert.Equal(t, "HTTP/1.1 403 Forbidden", status, target)
+	}
+	assert.Empty(t, resolver.calls, "a name that no rule lists is not resolved")
+	assert.Empty(t, dials.seen(), "a name that no rule lists is not dialed")
+}
+
+// openTunnel sends CONNECT for the target and reads the answer 200.
+func openTunnel(t *testing.T, proxyAddr, target string) (net.Conn, *bufio.Reader) {
+	t.Helper()
+	conn, err := net.Dial("tcp", proxyAddr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target)
+	require.NoError(t, err)
+	reader := bufio.NewReader(conn)
+	response, err := http.ReadResponse(reader, &http.Request{Method: http.MethodConnect})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	// The answer has no length, so its body ends the connection: Close reads
+	// nothing, and the tunnel bytes stay in reader.
+	require.NoError(t, response.Body.Close())
+	return conn, reader
+}
+
+// A destination that ends its side of a tunnel ends the side of the client too,
+// while the client can still send. A client that reads until the end, such as
+// one that gets an HTTP/1.0 answer, then does not wait for the idle timeout.
+func TestTunnelPassesTheEndOfTheDestination(t *testing.T) {
+	t.Parallel()
+
+	destination := serveTCP(t, func(conn net.Conn) { _, _ = io.WriteString(conn, "bye\n") })
+	proxyAddr := startProxy(t, []string{destination}, nil, nil)
+
+	conn, reader := openTunnel(t, proxyAddr, destination)
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	rest, err := io.ReadAll(reader)
+	require.NoError(t, err, "the client reads up to the end of the destination")
+	assert.Equal(t, "bye\n", string(rest))
+}
+
+// The proxy holds a bounded number of client connections, tunnels included, so a
+// client cannot exhaust its descriptors and goroutines. A connection over the
+// bound is closed at once, and a closed tunnel frees its place.
+func TestConnectionsOverTheBoundAreClosed(t *testing.T) {
+	t.Parallel()
+
+	destination := serveTCP(t, func(conn net.Conn) { _, _ = io.Copy(conn, conn) })
+	rules, err := egress.ParseRules([]string{destination})
+	require.NoError(t, err)
+	proxy, err := egress.New(egress.Options{Rules: rules, MaxConnections: 1})
+	require.NoError(t, err)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() { done <- proxy.Serve(listener) }()
+	t.Cleanup(func() {
+		_ = listener.Close()
+		<-done
+	})
+	proxyAddr := listener.Addr().String()
+
+	tunnel, _ := openTunnel(t, proxyAddr, destination)
+	extra, err := net.Dial("tcp", proxyAddr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = extra.Close() })
+	require.NoError(t, extra.SetReadDeadline(time.Now().Add(5*time.Second)))
+	n, err := extra.Read(make([]byte, 1))
+	assert.Zero(t, n)
+	require.Error(t, err)
+	if netErr, ok := errors.AsType[net.Error](err); ok {
+		assert.False(t, netErr.Timeout(), "the proxy closes the connection over the bound")
+	}
+
+	require.NoError(t, tunnel.Close())
+	assert.Eventually(t, func() bool {
+		conn, err := net.Dial("tcp", proxyAddr)
+		if err != nil {
+			return false
+		}
+		defer func() { _ = conn.Close() }()
+		_, _ = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", destination, destination)
+		_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+		status, err := bufio.NewReader(conn).ReadString('\n')
+		return err == nil && strings.TrimSpace(status) == "HTTP/1.1 200 Connection Established"
+	}, 5*time.Second, 20*time.Millisecond, "a closed tunnel frees its place")
+}
+
 // pipeListener is a net.Listener of in-memory connections. Their reads and writes
 // block without I/O, so a synctest bubble can move its clock past them.
 type pipeListener struct {
@@ -261,6 +411,42 @@ type pipeAddr struct{}
 func (pipeAddr) Network() string { return "pipe" }
 func (pipeAddr) String() string  { return "pipe" }
 
+// openPipeTunnel serves a proxy with the idle time on in-memory connections and
+// opens a tunnel to a destination that serve runs. It returns the client side
+// after the answer 200. It runs in a synctest bubble.
+func openPipeTunnel(t *testing.T, idle time.Duration, serve func(net.Conn)) (net.Conn, *bufio.Reader) {
+	t.Helper()
+	const destination = "192.0.2.10:7"
+	rules, err := egress.ParseRules([]string{destination})
+	require.NoError(t, err)
+	dial := func(context.Context, string, string) (net.Conn, error) {
+		conn, peer := net.Pipe()
+		go func() {
+			defer func() { _ = peer.Close() }()
+			serve(peer)
+		}()
+		return conn, nil
+	}
+	proxy, err := egress.New(egress.Options{Rules: rules, Dial: dial})
+	require.NoError(t, err)
+	proxy.SetTunnelIdleForTest(idle)
+	listener := newPipeListener()
+	go func() { _ = proxy.Serve(listener) }()
+	t.Cleanup(func() { _ = listener.Close() })
+
+	conn := listener.dial()
+	t.Cleanup(func() { _ = conn.Close() })
+	_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", destination, destination)
+	require.NoError(t, err)
+	reader := bufio.NewReader(conn)
+	status, err := reader.ReadString('\n')
+	require.NoError(t, err)
+	require.Equal(t, "HTTP/1.1 200 Connection Established", strings.TrimSpace(status))
+	_, err = reader.ReadString('\n')
+	require.NoError(t, err)
+	return conn, reader
+}
+
 // A tunnel in which no byte moves ends, so a client that opens tunnels and sends
 // nothing cannot hold the descriptors of the proxy for ever. A tunnel in use
 // stays. The test runs in a synctest bubble on in-memory connections: the clock
@@ -270,38 +456,11 @@ func TestIdleTunnelEnds(t *testing.T) {
 	t.Parallel()
 	synctest.Test(t, func(t *testing.T) {
 		const idle = 300 * time.Millisecond
-		const destination = "192.0.2.10:7"
-		rules, err := egress.ParseRules([]string{destination})
-		require.NoError(t, err)
-		echo := func(context.Context, string, string) (net.Conn, error) {
-			conn, peer := net.Pipe()
-			go func() {
-				defer func() { _ = peer.Close() }()
-				_, _ = io.Copy(peer, peer)
-			}()
-			return conn, nil
-		}
-		proxy, err := egress.New(egress.Options{Rules: rules, Dial: echo})
-		require.NoError(t, err)
-		proxy.SetTunnelIdleForTest(idle)
-		listener := newPipeListener()
-		go func() { _ = proxy.Serve(listener) }()
-		t.Cleanup(func() { _ = listener.Close() })
-
-		conn := listener.dial()
-		t.Cleanup(func() { _ = conn.Close() })
-		_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", destination, destination)
-		require.NoError(t, err)
-		reader := bufio.NewReader(conn)
-		status, err := reader.ReadString('\n')
-		require.NoError(t, err)
-		require.Equal(t, "HTTP/1.1 200 Connection Established", strings.TrimSpace(status))
-		_, err = reader.ReadString('\n')
-		require.NoError(t, err)
+		conn, reader := openPipeTunnel(t, idle, func(peer net.Conn) { _, _ = io.Copy(peer, peer) })
 		// Traffic every half idle time keeps the tunnel open for twice the idle time.
 		for range 4 {
 			time.Sleep(idle / 2)
-			_, err = io.WriteString(conn, "ping\n")
+			_, err := io.WriteString(conn, "ping\n")
 			require.NoError(t, err)
 			line, err := reader.ReadString('\n')
 			require.NoError(t, err)
@@ -310,9 +469,34 @@ func TestIdleTunnelEnds(t *testing.T) {
 		// Then nothing moves, and the proxy closes the tunnel after the idle time.
 		quiet := time.Now()
 		require.NoError(t, conn.SetReadDeadline(quiet.Add(10*idle)))
-		_, err = reader.ReadString('\n')
+		_, err := reader.ReadString('\n')
 		require.ErrorIs(t, err, io.EOF)
 		assert.GreaterOrEqual(t, time.Since(quiet), idle)
+	})
+}
+
+// The idle time counts from the end of the last write. A client that reads
+// slowly holds a write of the proxy open, and the tunnel stays for the idle
+// time after that write ends.
+func TestIdleTimeCountsFromTheEndOfAWrite(t *testing.T) {
+	t.Parallel()
+	synctest.Test(t, func(t *testing.T) {
+		const idle = 300 * time.Millisecond
+		conn, reader := openPipeTunnel(t, idle, func(peer net.Conn) {
+			_, _ = io.WriteString(peer, "hello\n")
+			_, _ = io.Copy(io.Discard, peer)
+		})
+		// The write of hello to the client lasts until the client reads it.
+		time.Sleep(idle - idle/10)
+		line, err := reader.ReadString('\n')
+		require.NoError(t, err)
+		require.Equal(t, "hello\n", line)
+
+		read := time.Now()
+		require.NoError(t, conn.SetReadDeadline(read.Add(10*idle)))
+		_, err = reader.ReadString('\n')
+		require.ErrorIs(t, err, io.EOF)
+		assert.GreaterOrEqual(t, time.Since(read), idle)
 	})
 }
 
@@ -363,9 +547,32 @@ func TestWildcardAndAddresses(t *testing.T) {
 	}())
 }
 
+// The filter of a wildcard leaves the answer of the resolver as it is. A
+// resolver can share one answer between names, as a cache does, and a name that
+// a rule lists keeps its address.
+func TestWildcardKeepsTheResolverAnswer(t *testing.T) {
+	t.Parallel()
+
+	host, port := originServer(t, "origin-ok")
+	shared := []netip.Addr{netip.MustParseAddr(host)}
+	resolver := &fakeResolver{answers: map[string][]netip.Addr{"a.cdn.example.test": shared, "listed.cdn.example.test": shared}}
+	client := proxyClient(t, startProxy(t, []string{"*.cdn.example.test:" + port, "listed.cdn.example.test:" + port}, resolver, nil))
+	get := func(target string) int {
+		resp, err := client.Get(target)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	assert.Equal(t, http.StatusForbidden, get("http://a.cdn.example.test:"+port+"/"), "a wildcard reaches no loopback address")
+	assert.Equal(t, http.StatusOK, get("http://listed.cdn.example.test:"+port+"/"))
+}
+
 // A name that only a wildcard allows reaches public addresses only. The
 // special-purpose ranges are not public, and a NAT64 or 6to4 address is public
-// only when the IPv4 address in it is.
+// only when the IPv4 address in it is. An IPv6 address outside 2000::/3 is not
+// public, such as the IPv4-compatible and IPv4-translated forms of 127.0.0.1
+// and 10.0.0.1, or a site-local address.
 func TestWildcardRefusesSpecialAddresses(t *testing.T) {
 	t.Parallel()
 
@@ -373,6 +580,7 @@ func TestWildcardRefusesSpecialAddresses(t *testing.T) {
 		"0.1.2.3", "192.0.0.8", "198.18.0.1", "203.0.113.5", "240.0.0.1", "255.255.255.255",
 		"64:ff9b::a9fe:a9fe", "64:ff9b::a00:1", "64:ff9b:1::1", "2002:a9fe:a9fe::1",
 		"2001::1", "2001:db8::1", "100::1",
+		"::7f00:1", "::ffff:0:a00:1", "fec0::1",
 	}
 	allowed := []string{"8.8.8.8", "64:ff9b::808:808", "2002:808:808::1", "2606:4700::1111"}
 	resolver := &fakeResolver{answers: map[string][]netip.Addr{}}
@@ -424,6 +632,28 @@ func TestWildcardRefusesPrivateAddressLiterals(t *testing.T) {
 	assert.Equal(t, []string{"8.8.8.8:80"}, dials.seen(), "only the public address is dialed")
 }
 
+// A wildcard also matches an IPv6 literal whose zone ends with its name. A zone
+// hides no address from the check: such a literal is refused, and nothing is
+// dialed. Without the check, the NAT64 form of 10.0.0.1 would be dialed, and so
+// would the mapped form of 8.8.8.8, which no rule lists.
+func TestWildcardRefusesZonedAddressLiterals(t *testing.T) {
+	t.Parallel()
+
+	dials := &dialRecord{}
+	resolver := &fakeResolver{answers: map[string][]netip.Addr{}}
+	proxyAddr := startProxy(t, []string{"*.wild.example.test"}, resolver, dials.noRoute)
+
+	for _, target := range []string{
+		"64:ff9b::a00:1%25x.wild.example.test", "2001:db8::1%25x.wild.example.test", "::ffff:8.8.8.8%25x.wild.example.test",
+	} {
+		assert.Equal(t, "HTTP/1.1 403 Forbidden",
+			requestStatus(t, proxyAddr, "GET http://["+target+"]/ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"), target)
+		assert.Equal(t, "HTTP/1.1 403 Forbidden",
+			requestStatus(t, proxyAddr, "CONNECT ["+target+"]:443 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"), "CONNECT %s", target)
+	}
+	assert.Empty(t, dials.seen(), "a zoned literal is not dialed")
+}
+
 // A kept connection on which no next request comes ends, so a client cannot
 // hold the descriptors of the proxy with idle connections.
 func TestIdleKeepAliveEnds(t *testing.T) {
@@ -464,20 +694,74 @@ func TestMalformedAndFailedRequests(t *testing.T) {
 
 	resolver := &fakeResolver{answers: map[string][]netip.Addr{}}
 	proxyAddr := startProxy(t, []string{"gone.example.test"}, resolver, nil)
+	raw := func(request string) string { return requestStatus(t, proxyAddr, request) }
 
-	raw := func(request string) string {
-		conn, err := net.Dial("tcp", proxyAddr)
-		require.NoError(t, err)
-		defer func() { _ = conn.Close() }()
-		_, err = io.WriteString(conn, request)
-		require.NoError(t, err)
-		status, err := bufio.NewReader(conn).ReadString('\n')
-		require.NoError(t, err)
-		return strings.TrimSpace(status)
-	}
 	assert.Equal(t, "HTTP/1.1 400 Bad Request", raw("GET / HTTP/1.1\r\nHost: gone.example.test\r\nConnection: close\r\n\r\n"))
 	assert.Equal(t, "HTTP/1.1 400 Bad Request", raw("GET https://gone.example.test/ HTTP/1.1\r\nHost: gone.example.test\r\nConnection: close\r\n\r\n"))
 	assert.Equal(t, "HTTP/1.1 400 Bad Request", raw("CONNECT nohost HTTP/1.1\r\nHost: nohost\r\nConnection: close\r\n\r\n"))
+	assert.Equal(t, "HTTP/1.1 400 Bad Request", raw("GET http://gone.example.test:65536/ HTTP/1.1\r\nHost: gone.example.test\r\nConnection: close\r\n\r\n"))
+	assert.Equal(t, "HTTP/1.1 400 Bad Request", raw("GET http://gone.example.test:0/ HTTP/1.1\r\nHost: gone.example.test\r\nConnection: close\r\n\r\n"))
 	assert.Equal(t, "HTTP/1.1 502 Bad Gateway", raw("GET http://gone.example.test/ HTTP/1.1\r\nHost: gone.example.test\r\nConnection: close\r\n\r\n"))
 	assert.Equal(t, "HTTP/1.1 502 Bad Gateway", raw("CONNECT gone.example.test:443 HTTP/1.1\r\nHost: gone.example.test:443\r\nConnection: close\r\n\r\n"))
+}
+
+// A switched protocol would hold a raw connection that no idle limit covers, and
+// no plain request needs one. The proxy sends the request without the upgrade,
+// and a destination that switches protocols anyway gives 502 and loses its
+// connection, which the proxy would otherwise keep open.
+func TestProtocolUpgradeIsNotForwarded(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		always bool
+		want   int
+	}{
+		{name: "switches when asked", want: http.StatusOK},
+		{name: "always switches", always: true, want: http.StatusBadGateway},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			upgrades := make(chan string, 1)
+			released := make(chan struct{})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				defer close(released)
+				upgrades <- r.Header.Get("Upgrade")
+				if !tc.always && r.Header.Get("Upgrade") == "" {
+					_, _ = io.WriteString(w, "ok")
+					return
+				}
+				conn, buffered, err := http.NewResponseController(w).Hijack()
+				if err != nil {
+					return
+				}
+				defer func() { _ = conn.Close() }()
+				_, _ = io.WriteString(conn, "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+				_, _ = io.Copy(io.Discard, buffered)
+			}))
+			t.Cleanup(server.Close)
+			host, port, err := net.SplitHostPort(server.Listener.Addr().String())
+			require.NoError(t, err)
+			destination := "allowed.example.test:" + port
+			resolver := &fakeResolver{answers: map[string][]netip.Addr{"allowed.example.test": {netip.MustParseAddr(host)}}}
+			proxyAddr := startProxy(t, []string{destination}, resolver, nil)
+
+			conn, err := net.Dial("tcp", proxyAddr)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = conn.Close() })
+			_, err = fmt.Fprintf(conn, "GET http://%s/ws HTTP/1.1\r\nHost: %s\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n", destination, destination)
+			require.NoError(t, err)
+			response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+			require.NoError(t, err)
+			_ = response.Body.Close()
+			assert.Equal(t, tc.want, response.StatusCode)
+			assert.Empty(t, <-upgrades, "the destination gets no upgrade")
+			select {
+			case <-released:
+			case <-time.After(5 * time.Second):
+				t.Fatal("the proxy keeps the connection of the destination open")
+			}
+		})
+	}
 }

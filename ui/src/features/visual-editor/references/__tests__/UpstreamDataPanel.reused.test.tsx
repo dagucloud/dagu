@@ -220,7 +220,6 @@ describe('UpstreamDataPanel reused inputs of a followed run', () => {
       runId: 'r0abcdef12',
       capturedAt: T0,
       stepHash: 'h',
-      params: '',
     });
     renderRun({
       followed: { reused: [reused('fetch', { source: 'cache' })] },
@@ -393,7 +392,6 @@ describe('usedValues', () => {
     runId: 'r0abcdef12',
     capturedAt: T0 + 400,
     stepHash: 'h',
-    params: '',
     ...extra,
   });
 

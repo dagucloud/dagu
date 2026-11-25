@@ -30,6 +30,8 @@ type jsonTestCase struct {
 	AutoApproved  []string           `json:"auto_approved,omitempty"`
 	Notifications []testNotification `json:"notifications,omitempty"`
 	CaseDir       string             `json:"case_dir,omitempty"`
+	// Update is what --update did with the case's expect.
+	Update string `json:"update,omitempty"`
 }
 
 type jsonFailure struct {
@@ -69,6 +71,9 @@ func jsonCaseOf(c caseResult) jsonTestCase {
 	if out.Result != resultInvalid {
 		ms := c.duration.Milliseconds()
 		out.DurationMS = &ms
+	}
+	if c.update != nil {
+		out.Update = c.update.outcome
 	}
 	for _, f := range c.failures {
 		failure := jsonFailure{Step: f.step, Field: f.field, Expected: f.expected, Actual: f.actual}

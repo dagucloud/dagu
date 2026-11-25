@@ -369,6 +369,44 @@ describe('UpstreamDataPanel input run', () => {
     );
   });
 
+  // A cached step that changed is marked against its own run.
+  it('marks a changed step against the run that it comes from', () => {
+    renderPanel({
+      scope: scopeChain,
+      stepName: 'load',
+      runId: RUN,
+      inputRun: input({
+        stale: new Set(['extract']),
+        staleRuns: new Map([['extract', 'fedcba9876543210']]),
+      }),
+    });
+    expect(screen.getByTestId('upstream-mark-extract')).toHaveTextContent(
+      'changed since run fedcba98'
+    );
+  });
+
+  // The marks are the browser's guess until the server checks them, when
+  // the user runs the step.
+  it('says that the server has not checked the marks yet', () => {
+    const unchecked = renderPanel({
+      scope: scopeChain,
+      stepName: 'load',
+      runId: RUN,
+      inputRun: input({ checked: false }),
+    });
+    expect(screen.getByTestId('upstream-input-unchecked')).toHaveTextContent(
+      'The server checks these marks when you run the step.'
+    );
+    unchecked.unmount();
+    renderPanel({
+      scope: scopeChain,
+      stepName: 'load',
+      runId: RUN,
+      inputRun: input({ checked: true }),
+    });
+    expect(screen.queryByTestId('upstream-input-unchecked')).toBeNull();
+  });
+
   it('has no mark for a step that did not change', () => {
     renderPanel({
       scope: scopeChain,

@@ -1555,17 +1555,29 @@
           "oneOf": [
             {
               "type": "string",
-              "description": "Comma-separated key=value pairs (e.g., 'env=prod,region=us')."
+              "description": "Comma-separated key=value entries (e.g., 'env=prod,region=us'). An entry without '=' is a label with no value."
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "List of key=value entries (e.g., ['env=prod', 'region=us']). An entry without '=' is a label with no value."
             },
             {
               "type": "object",
-              "description": "Key-value map of worker labels.",
+              "description": "Key-value map of worker labels. Numbers and booleans become text, and an empty or null value is a label with no value.",
               "additionalProperties": {
-                "type": "string"
+                "oneOf": [
+                  { "type": "string" },
+                  { "type": "number" },
+                  { "type": "boolean" },
+                  { "type": "null" }
+                ]
               }
             }
           ],
-          "description": "Worker labels for selective execution. Accepts a comma-separated string or an object."
+          "description": "Worker labels for selective execution. Accepts a comma-separated string, a list, or an object. Labels follow the DAG label rules: keys and values are lowercased, and a worker with an invalid label does not start. worker_selector matches them without case."
         },
         "coordinators": {
           "oneOf": [

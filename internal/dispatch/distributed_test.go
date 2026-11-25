@@ -113,6 +113,7 @@ func TestWorkerHeartbeatMatches(t *testing.T) {
 	}{
 		{name: "no requirements", want: true},
 		{name: "matching selector", selector: map[string]string{"type": "gpu"}, want: true},
+		{name: "selector in another case", selector: map[string]string{"Type": "GPU"}, want: true},
 		{name: "matching target", targetWorkerID: "worker-1", want: true},
 		{name: "selector mismatch", selector: map[string]string{"type": "cpu"}, want: false},
 		{name: "missing label", selector: map[string]string{"pool": "batch"}, want: false},

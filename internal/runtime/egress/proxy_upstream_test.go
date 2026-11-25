@@ -465,7 +465,7 @@ func TestUpstreamRedirectDoesNotLeave(t *testing.T) {
 // A switched protocol would hold a raw connection that no idle limit covers, and
 // no route needs one. On both routes the proxy sends the request without the
 // upgrade, and a destination that switches protocols anyway gives 502.
-func TestProtocolUpgradeIsNotForwarded(t *testing.T) {
+func TestUpstreamProtocolUpgradeIsNotForwarded(t *testing.T) {
 	t.Parallel()
 
 	switchProtocols := func(w http.ResponseWriter, _ *http.Request) {

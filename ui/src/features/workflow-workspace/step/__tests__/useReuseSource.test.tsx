@@ -11,7 +11,6 @@ import {
   type components,
 } from '@/api/v1/schema';
 import { outputCache } from '@/features/visual-editor/run/outputCache';
-import { runParamsHash } from '@/features/visual-editor/run/reuseSource';
 import { sourceChoiceStore } from '@/features/visual-editor/run/runSourceChoice';
 import { stepHashes } from '@/features/visual-editor/run/stepHashes';
 import { WorkspaceDataContext } from '../../data/context';
@@ -226,7 +225,6 @@ function cacheStep(
     runId,
     capturedAt: 5000,
     stepHash: stepHashes(text).get(step) ?? '',
-    params: runParamsHash(''),
   });
 }
 

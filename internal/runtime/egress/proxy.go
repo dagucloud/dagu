@@ -57,6 +57,10 @@ type Options struct {
 	ProxyCredential string
 	// Log receives one line for each decision. It can be nil.
 	Log func(format string, args ...any)
+	// MaxConnections bounds the client connections that the proxy holds at
+	// once, tunnels included. The proxy closes a connection over the bound as
+	// soon as it accepts it. Zero or less means DefaultMaxConnections.
+	MaxConnections int
 }
 
 // Proxy is an HTTP proxy that forwards a connection to a listed destination
@@ -78,6 +82,8 @@ type Proxy struct {
 	tunnelIdle time.Duration
 	// keepAliveIdle ends a kept connection with no request for this time.
 	keepAliveIdle time.Duration
+	// maxConnections bounds the client connections that Serve holds at once.
+	maxConnections int
 
 	transport *http.Transport
 	reverse   *httputil.ReverseProxy
@@ -95,6 +101,10 @@ const minProxyCredentialLen = 16
 
 // proxyRealm is the realm of the header Proxy-Authenticate of a 407 answer.
 const proxyRealm = "dagu egress proxy"
+
+// DefaultMaxConnections is the bound of client connections when
+// Options.MaxConnections is not set.
+const DefaultMaxConnections = 512
 
 // New makes a proxy. The upstream can match a rule of Rules or of
 // CredentialRules. With a rule of CredentialRules, a client reaches the host of
@@ -119,6 +129,10 @@ func New(opts Options) (*Proxy, error) {
 		rules: opts.Rules, resolver: opts.Resolver, dial: opts.Dial, log: opts.Log, upstream: opts.Upstream,
 		credentialRules: opts.CredentialRules, credential: opts.ProxyCredential,
 		tunnelIdle: tunnelIdleTimeout, keepAliveIdle: keepAliveIdleTimeout,
+		maxConnections: opts.MaxConnections,
+	}
+	if p.maxConnections <= 0 {
+		p.maxConnections = DefaultMaxConnections
 	}
 	if p.resolver == nil {
 		p.resolver = net.DefaultResolver
@@ -152,6 +166,15 @@ func New(opts Options) (*Proxy, error) {
 			declineUpgrade(r.Out.Header)
 		},
 		Transport: p.transport,
+		// No forwarded request asks for an upgrade, so a 101 answer is an error.
+		// Refusing it here also closes the connection that the answer hands
+		// over, which the reverse proxy leaves open on its own refusal.
+		ModifyResponse: func(res *http.Response) error {
+			if res.StatusCode == http.StatusSwitchingProtocols {
+				return errors.New("the destination switched protocols without an upgrade request")
+			}
+			return nil
+		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			p.log("egress proxy: %s %s failed: %v", r.Method, r.URL.Host, err)
 			if denied, ok := errors.AsType[*DeniedError](err); ok {
@@ -330,7 +353,12 @@ func (p *Proxy) dialAllowed(ctx context.Context, network, address string) (net.C
 	if ip, parseErr := netip.ParseAddr(host); parseErr == nil {
 		addrs = []netip.Addr{ip}
 	} else {
-		addrs, err = p.resolver.LookupNetIP(ctx, "ip", host)
+		// The pure Go resolver takes the IDNA ASCII form only, and a CONNECT can
+		// name the host in Unicode.
+		var ascii string
+		if ascii, err = asciiHost(host); err == nil {
+			addrs, err = p.resolver.LookupNetIP(ctx, "ip", ascii)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("resolve %s: %w", host, err)
 		}
@@ -338,9 +366,10 @@ func (p *Proxy) dialAllowed(ctx context.Context, network, address string) (net.C
 	// Anybody can make a name below a wildcard point to an address of the network
 	// of the proxy, and a wildcard such as *.0.0.1 matches address literals. A
 	// destination that only a wildcard allows gets public addresses only. A rule
-	// that names the host can reach any address.
+	// that names the host can reach any address. The answer belongs to the
+	// resolver, so the filter works on a copy.
 	if !p.rules.AllowsExactly(host, port) && !p.credentialRules.AllowsExactly(host, port) {
-		addrs = slices.DeleteFunc(addrs, func(addr netip.Addr) bool { return !publicAddr(addr) })
+		addrs = slices.DeleteFunc(slices.Clone(addrs), func(addr netip.Addr) bool { return !publicAddr(addr) })
 		if len(addrs) == 0 {
 			return nil, &DeniedError{Host: host, Port: port}
 		}
@@ -386,12 +415,21 @@ var (
 	// sixToFourPrefix is the 6to4 prefix: the 32 bits after it are an IPv4
 	// address (RFC 3056).
 	sixToFourPrefix = netip.MustParsePrefix("2002::/16")
+	// globalUnicast6 is the only IPv6 range that IANA allocates for global
+	// unicast. The rest is reserved, such as ::/96, which embeds an IPv4
+	// address, and the site-local fec0::/10.
+	globalUnicast6 = netip.MustParsePrefix("2000::/3")
 )
 
 // publicAddr reports whether addr is an address of the internet: not loopback,
-// private, link-local, multicast, unspecified or special-purpose. A NAT64 or
-// 6to4 address is public when the IPv4 address in it is.
+// private, link-local, multicast, unspecified, special-purpose or reserved. A
+// NAT64 or 6to4 address is public when the IPv4 address in it is. An address
+// with a zone is not public: no prefix contains it, so it would pass the range
+// checks. The zone is checked before Unmap, which drops it.
 func publicAddr(addr netip.Addr) bool {
+	if addr.Zone() != "" {
+		return false
+	}
 	addr = addr.Unmap()
 	if !addr.IsGlobalUnicast() || addr.IsPrivate() {
 		return false
@@ -408,7 +446,7 @@ func publicAddr(addr netip.Addr) bool {
 	case sixToFourPrefix.Contains(addr):
 		return publicAddr(netip.AddrFrom4([4]byte(raw[2:6])))
 	}
-	return true
+	return addr.Is4() || globalUnicast6.Contains(addr)
 }
 
 // DeniedError is the error of a destination that the policy does not list.
@@ -450,8 +488,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	host, port := r.URL.Hostname(), 80
 	if text := r.URL.Port(); text != "" {
 		parsed, err := strconv.Atoi(text)
-		if err != nil {
-			http.Error(w, "egress proxy: the port is not a number", http.StatusBadRequest)
+		if err != nil || parsed < 1 || parsed > 65535 {
+			http.Error(w, "egress proxy: the port is not valid", http.StatusBadRequest)
 			return
 		}
 		port = parsed
@@ -525,8 +563,10 @@ const keepAliveIdleTimeout = 2 * time.Minute
 // pipe copies the bytes of both directions until each side has ended, and closes
 // both connections. It closes both at once when no byte moved for idle.
 func pipe(client net.Conn, buffered io.Reader, upstream net.Conn, idle time.Duration) {
+	// last holds the time of the last write as a duration since start, which
+	// keeps the monotonic clock: a step of the wall clock ends no tunnel.
+	start := time.Now()
 	var last atomic.Int64
-	last.Store(time.Now().UnixNano())
 	done := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(idle / 4)
@@ -536,7 +576,7 @@ func pipe(client net.Conn, buffered io.Reader, upstream net.Conn, idle time.Dura
 			case <-done:
 				return
 			case <-ticker.C:
-				if time.Since(time.Unix(0, last.Load())) >= idle {
+				if time.Since(start)-time.Duration(last.Load()) >= idle {
 					_ = client.Close()
 					_ = upstream.Close()
 					return
@@ -548,12 +588,12 @@ func pipe(client net.Conn, buffered io.Reader, upstream net.Conn, idle time.Dura
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(activityWriter{upstream, &last}, buffered)
+		_, _ = io.Copy(activityWriter{upstream, start, &last}, buffered)
 		closeWrite(upstream)
 	}()
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(activityWriter{client, &last}, upstream)
+		_, _ = io.Copy(activityWriter{client, start, &last}, upstream)
 		closeWrite(client)
 	}()
 	wg.Wait()
@@ -562,30 +602,89 @@ func pipe(client net.Conn, buffered io.Reader, upstream net.Conn, idle time.Dura
 	_ = upstream.Close()
 }
 
-// activityWriter notes the time of each write of a tunnel.
+// activityWriter notes, since start, the time at which each write of a tunnel
+// that moved bytes ended. A peer that reads slowly holds a write open.
 type activityWriter struct {
-	w    io.Writer
-	last *atomic.Int64
+	w     io.Writer
+	start time.Time
+	last  *atomic.Int64
 }
 
 func (a activityWriter) Write(p []byte) (int, error) {
-	a.last.Store(time.Now().UnixNano())
-	return a.w.Write(p)
+	n, err := a.w.Write(p)
+	if n > 0 {
+		a.last.Store(int64(time.Since(a.start)))
+	}
+	return n, err
+}
+
+// closeWriter is a connection that can end its write side alone, as
+// *net.TCPConn can.
+type closeWriter interface {
+	CloseWrite() error
 }
 
 func closeWrite(conn net.Conn) {
-	if tcp, ok := conn.(*net.TCPConn); ok {
-		_ = tcp.CloseWrite()
+	if half, ok := conn.(closeWriter); ok {
+		_ = half.CloseWrite()
 	}
 }
 
-// Serve accepts connections on the listener until it closes.
+// Serve accepts connections on the listener until it closes. It holds at most
+// the bound of Options.MaxConnections at once.
 func (p *Proxy) Serve(l net.Listener) error {
+	limited := &limitListener{Listener: l, slots: make(chan struct{}, p.maxConnections), log: p.log}
 	// No WriteTimeout: it would cut a long stream of a model answer.
 	server := &http.Server{Handler: p, ReadHeaderTimeout: 30 * time.Second, IdleTimeout: p.keepAliveIdle}
-	err := server.Serve(l)
+	err := server.Serve(limited)
 	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		return nil
 	}
 	return err
+}
+
+// limitListener closes each connection that it accepts while all slots are
+// taken. It closes rather than waits, so a closed listener always ends Accept.
+type limitListener struct {
+	net.Listener
+	slots chan struct{}
+	log   func(format string, args ...any)
+}
+
+func (l *limitListener) Accept() (net.Conn, error) {
+	for {
+		conn, err := l.Listener.Accept()
+		if err != nil {
+			return nil, err
+		}
+		select {
+		case l.slots <- struct{}{}:
+			return &slotConn{Conn: conn, release: sync.OnceFunc(func() { <-l.slots })}, nil
+		default:
+			l.log("egress proxy: refuse a connection from %s: %d connections are open", conn.RemoteAddr(), cap(l.slots))
+			_ = conn.Close()
+		}
+	}
+}
+
+// slotConn frees its slot when it closes. A hijacked tunnel keeps the slot
+// until pipe closes it.
+type slotConn struct {
+	net.Conn
+	release func()
+}
+
+func (c *slotConn) Close() error {
+	err := c.Conn.Close()
+	c.release()
+	return err
+}
+
+// CloseWrite keeps the half close of the connection, so a tunnel still passes
+// the end of one direction.
+func (c *slotConn) CloseWrite() error {
+	if half, ok := c.Conn.(closeWriter); ok {
+		return half.CloseWrite()
+	}
+	return nil
 }

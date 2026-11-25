@@ -1,0 +1,209 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package intake_test
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/dagucloud/dagu/v2/internal/intake"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// A step carried from the source run counts as one named in outputsFromRuns
+// does, and the caller can consent to reuse it anyway.
+func TestPlanSelectedStepsChecksTheSource(t *testing.T) {
+	t.Parallel()
+
+	earlier := loadReuseDAG(t, reuseSpec)
+	dag := loadReuseDAG(t, strings.Replace(reuseSpec, "echo rows", "echo all rows", 1))
+	plan, err := intake.PlanSelectedSteps(dag, "", intake.StepSelection{
+		Steps:            []string{"report"},
+		Source:           succeededRun(earlier),
+		SourceDefinition: earlier,
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, []intake.CarriedStep{
+		{Step: "page", Ref: "page", DAGRunID: "earlier", Changes: []ir.StepChange{ir.StepChangeStep}},
+		{Step: "filter", Ref: "filter", DAGRunID: "earlier", Changes: []ir.StepChange{ir.StepChangeDependency}},
+	}, plan.Carried)
+	require.EqualError(t, plan.Refusal(), "step filter cannot be reused from run earlier: a step it depends on changed since that run; "+
+		"step page cannot be reused from run earlier: the step changed since that run")
+
+	for _, tc := range []struct {
+		name    string
+		sel     intake.StepSelection
+		wantErr string
+	}{
+		{name: "AllowedOne", sel: intake.StepSelection{AllowChanged: []string{"page"}}, wantErr: "step filter cannot be reused from run earlier: a step it depends on changed since that run"},
+		{name: "AllowedEach", sel: intake.StepSelection{AllowChanged: []string{"page", "filter"}}},
+		{name: "AllowedAll", sel: intake.StepSelection{AllowAllChanged: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sel := tc.sel
+			sel.Steps, sel.Source, sel.SourceDefinition = []string{"report"}, succeededRun(earlier), earlier
+			require.Equal(t, tc.wantErr, refusal(t, dag, "", sel))
+		})
+	}
+}
+
+// Consent names steps of the DAG.
+func TestPlanSelectedStepsRejectsAnUnknownAllowedStep(t *testing.T) {
+	t.Parallel()
+
+	dag := loadReuseDAG(t, reuseSpec)
+	_, err := intake.PlanSelectedSteps(dag, "", intake.StepSelection{Steps: []string{"report"}, AllowChanged: []string{"archive"}})
+	require.ErrorContains(t, err, `allowChangedSteps: unknown step "archive"`)
+}
+
+// Only the steps whose outputs a selected step reads are checked: a changed
+// step after the selection carries nothing and does not count.
+func TestPlanSelectedStepsIgnoresTheStepsAfter(t *testing.T) {
+	t.Parallel()
+
+	earlier := loadReuseDAG(t, reuseSpec)
+	dag := loadReuseDAG(t, strings.Replace(reuseSpec, "echo report", "echo final report", 1))
+	plan, err := intake.PlanSelectedSteps(dag, "", intake.StepSelection{
+		Steps:            []string{"filter"},
+		Source:           succeededRun(earlier),
+		SourceDefinition: earlier,
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, []intake.CarriedStep{
+		{Step: "page", Ref: "page", DAGRunID: "earlier"},
+	}, plan.Carried)
+	require.Nil(t, plan.Refusal())
+}
+
+// An entry whose run cannot give the step is reported with the others
+// instead of failing the plan, and the steps that nothing gives are missing.
+func TestPlanSelectedStepsCollectsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	dag := loadReuseDAG(t, reuseSpec)
+	running := succeededRun(dag)
+	running.DAGRunID = "running"
+	running.Status = ir.Running
+	plan, err := intake.PlanSelectedSteps(dag, "", intake.StepSelection{
+		Steps:    []string{"report"},
+		FromRuns: intake.RunStepSources{"page": running},
+		Unavailable: []intake.CarriedStep{
+			{Ref: "notes", DAGRunID: "gone", Unavailable: "the run does not exist for DAG listings"},
+		},
+		AllowAllChanged: true,
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, []string{"filter"}, plan.Missing)
+	require.EqualError(t, plan.Refusal(),
+		"step notes cannot be reused from run gone: the run does not exist for DAG listings; "+
+			"step page cannot be reused from run running: the run is running, not finished")
+}
+
+// A run whose definition is not known cannot be compared; the caller can
+// still consent to reuse its steps.
+func TestPlanSelectedStepsUnknownDefinition(t *testing.T) {
+	t.Parallel()
+
+	dag := loadReuseDAG(t, reuseSpec)
+	sel := intake.StepSelection{Steps: []string{"filter"}, Source: succeededRun(dag)}
+	require.Equal(t, "step page cannot be reused from run earlier: what that run ran cannot be compared", refusal(t, dag, "", sel))
+	sel.AllowChanged = []string{"page"}
+	require.Empty(t, refusal(t, dag, "", sel))
+}
+
+// An unavailable entry still names a step, which must not be selected.
+func TestPlanSelectedStepsRejectsASelectedStep(t *testing.T) {
+	t.Parallel()
+
+	dag := loadReuseDAG(t, reuseSpec)
+	_, err := intake.PlanSelectedSteps(dag, "", intake.StepSelection{
+		Steps:       []string{"report"},
+		Unavailable: []intake.CarriedStep{{Ref: "report", DAGRunID: "gone", Unavailable: "the run does not exist for DAG listings"}},
+	})
+	require.EqualError(t, err, `outputsFromRuns names step "report", which is selected to run`)
+}
+
+// The run keeps what changed for each step that the caller consented to
+// reuse anyway.
+func TestPlanSelectedStepsRecordsConsent(t *testing.T) {
+	t.Parallel()
+
+	earlier := loadReuseDAG(t, reuseSpec)
+	dag := loadReuseDAG(t, strings.Replace(reuseSpec, "echo rows", "echo all rows", 1))
+	plan, err := intake.PlanSelectedSteps(dag, "", intake.StepSelection{
+		Steps:            []string{"report"},
+		Source:           succeededRun(earlier),
+		SourceDefinition: earlier,
+		AllowAllChanged:  true,
+	})
+	require.NoError(t, err)
+
+	changes := make(map[string][]ir.StepChange, len(plan.Reused))
+	for _, input := range plan.Reused {
+		changes[input.Step] = input.Changes
+	}
+	require.Equal(t, map[string][]ir.StepChange{
+		"page":   {ir.StepChangeStep},
+		"filter": {ir.StepChangeDependency},
+	}, changes)
+}
+
+// A run that reused a changed step with consent passes the change on: the
+// step, and each step that read it there, counts as changed when a later
+// run takes it from that run, although its definition is the same.
+func TestPlanSelectedStepsCarriedChange(t *testing.T) {
+	t.Parallel()
+
+	dag := loadReuseDAG(t, reuseSpec)
+	consented := succeededRun(dag)
+	consented.ReusedInputs = []ir.ReusedInput{{Step: "page", RunID: "older", Via: ir.ReusedInputViaRun, Changes: []ir.StepChange{ir.StepChangeStep}}}
+	plan, err := intake.PlanSelectedSteps(dag, "", intake.StepSelection{
+		Steps:            []string{"report"},
+		Source:           consented,
+		SourceDefinition: dag,
+	})
+	require.NoError(t, err)
+
+	require.EqualError(t, plan.Refusal(), "step filter cannot be reused from run earlier: in that run it or a step it depends on took outputs of a changed step; "+
+		"step page cannot be reused from run earlier: in that run it or a step it depends on took outputs of a changed step")
+}
+
+// The refusal names the parameters whose values changed: a changed, an added
+// and a removed one, and a positional one by its place. A run that kept no
+// list of its parameters cannot name them.
+func TestPlanSelectedStepsNamesChangedParams(t *testing.T) {
+	t.Parallel()
+
+	earlier := loadReuseDAG(t, reuseSpec)
+	dag := loadReuseDAG(t, reuseSpec)
+	dag.Params = []string{"MAX=5000", "MODE=fast", "first"}
+	run := succeededRun(earlier)
+	run.ParamsList = []string{"MAX=7000", "SITE=homes", "other"}
+	run.Params = strings.Join(run.ParamsList, " ")
+	plan, err := intake.PlanSelectedSteps(dag, "", intake.StepSelection{
+		Steps:            []string{"filter"},
+		Source:           run,
+		SourceDefinition: earlier,
+	})
+	require.NoError(t, err)
+	require.Len(t, plan.Carried, 1)
+	assert.Equal(t, []string{"MAX", "MODE", "$1", "SITE"}, plan.Carried[0].ChangedParams)
+	assert.Equal(t, "step page cannot be reused from run earlier: the parameters (MAX, MODE, $1, SITE) changed since that run", plan.Carried[0].Message())
+
+	run.ParamsList = nil
+	plan, err = intake.PlanSelectedSteps(dag, "", intake.StepSelection{
+		Steps:            []string{"filter"},
+		Source:           run,
+		SourceDefinition: earlier,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, plan.Carried[0].ChangedParams)
+	assert.Equal(t, "step page cannot be reused from run earlier: the parameters changed since that run", plan.Carried[0].Message())
+}

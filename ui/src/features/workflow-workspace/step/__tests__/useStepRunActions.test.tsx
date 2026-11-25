@@ -20,15 +20,19 @@ import {
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  CarriedStepCheckStatus,
+  CarriedStepCheckUnavailable,
   NodeStatus,
   NodeStatusLabel,
   Status,
   StatusLabel,
+  StepChangeKind,
   type components,
 } from '@/api/v1/schema';
 import { RemoteNodeProvider } from '@/contexts/RemoteNodeContext';
 import { SubRunOpenProvider } from '@/features/dags/components/common/SubRunStackModal';
 import type { RunOverlay } from '@/features/visual-editor/contracts';
+import { outputCache } from '@/features/visual-editor/run/outputCache';
 import { WorkspaceDataContext } from '../../data/context';
 import { nodesByStep } from '../../data/runFacts';
 import type {
@@ -36,6 +40,7 @@ import type {
   WorkspacePermissions,
   WorkspaceRunValue,
 } from '../../data/types';
+import type { ReuseCheck } from '../useReuseCheck';
 import type { ReuseSourceState } from '../useReuseSource';
 import {
   useStepRunActions,
@@ -45,6 +50,7 @@ import {
 
 type Node = components['schemas']['Node'];
 type Details = components['schemas']['DAGRunDetails'];
+type CarriedStepCheck = components['schemas']['CarriedStepCheck'];
 
 const api = vi.hoisted(() => ({
   get: vi.fn(),
@@ -74,6 +80,7 @@ const reuse = vi.hoisted(() => ({
   value: null as unknown,
   calls: [] as Record<string, unknown>[],
 }));
+const reuseCheck = vi.hoisted(() => ({ value: null as unknown }));
 const errors = vi.hoisted(() => ({ showError: vi.fn() }));
 const testRunNoted = vi.hoisted(() => vi.fn());
 
@@ -128,6 +135,22 @@ vi.mock('../useReuseSource', () => ({
     return reuse.value;
   },
 }));
+// The check of the server has its own tests (useReuseCheck.test.tsx). By
+// default it gives no answer, so the browser's view of useReuseSource stands.
+vi.mock('../useReuseCheck', () => ({
+  useReuseCheck: () => reuseCheck.value,
+}));
+
+function uncheckedReuse(): ReuseCheck {
+  return {
+    state: 'failed',
+    fromSource: {},
+    fromCache: {},
+    profile: null,
+    error: null,
+    retry: vi.fn(),
+  };
+}
 
 /** A fresh source: run-1 holds every output and nothing changed. */
 function freshReuse(extra: Partial<ReuseSourceState> = {}): ReuseSourceState {
@@ -357,6 +380,7 @@ beforeEach(() => {
   editorRun.real = false;
   reuse.value = freshReuse();
   reuse.calls = [];
+  reuseCheck.value = uncheckedReuse();
   editorRun.runStep.mockReset().mockResolvedValue('run-2');
   editorRun.runSteps.mockReset().mockResolvedValue('run-2');
   errors.showError.mockReset();
@@ -1287,10 +1311,11 @@ describe('useStepRunActions run with references', () => {
       missing: ['extract users'],
     });
     await open();
+    // A changed or missing step has a box to run it again.
     expect(items()).toEqual([
       'seedreused',
-      'extract orderschanged since run run-1',
-      'extract usersno output in run run-1',
+      'extract orderschanged since run run-1rerun',
+      'extract usersno output in run run-1rerun',
     ]);
   });
 
@@ -1684,6 +1709,314 @@ describe('useStepRunActions step run choices', () => {
           .querySelector('.animate-spin')
       ).toBeNull();
     });
+  });
+});
+
+describe('useStepRunActions with the check of the server', () => {
+  const etl = () => [
+    { name: 'seed' },
+    { name: 'extract orders', id: 'extract_orders', depends: ['seed'] },
+    { name: 'extract users', id: 'extract_users' },
+    {
+      name: 'merge',
+      run: 'echo ${steps.extract_orders.outputs.orders}',
+      depends: ['extract orders', 'extract users'],
+    },
+  ];
+  const open = async () => {
+    renderActions(runValue(details()), vi.fn(), '/dags/example.yaml');
+    act(() => actions.runStep('merge'));
+    await screen.findByTestId('step-run-dialog');
+  };
+  const primary = () =>
+    footerButtons()
+      .filter((button) => button.hasAttribute('data-confirm'))
+      .map((button) => button.textContent);
+  const row = (name: string) =>
+    screen
+      .getAllByTestId('run-step-item')
+      .find((item) => item.textContent?.startsWith(name)) as HTMLElement;
+  const verdict = (
+    step: string,
+    runId: string,
+    changes: StepChangeKind[] = []
+  ): CarriedStepCheck => ({
+    step,
+    runId,
+    status:
+      changes.length > 0
+        ? CarriedStepCheckStatus.changed
+        : CarriedStepCheckStatus.unchanged,
+    changes,
+    ...(changes.length > 0
+      ? { message: `step ${step} cannot be reused from run ${runId}: changed` }
+      : {}),
+  });
+  const checked = (
+    fromSource: Record<string, CarriedStepCheck>,
+    fromCache: Record<string, CarriedStepCheck> = {}
+  ): ReuseCheck => ({
+    state: 'ready',
+    fromSource,
+    fromCache,
+    profile: '',
+    error: null,
+    retry: vi.fn(),
+  });
+  const fromRun1 = (changed: Record<string, StepChangeKind[]> = {}) =>
+    Object.fromEntries(
+      ['seed', 'extract orders', 'extract users'].map((name) => [
+        name,
+        verdict(name, 'run-1', changed[name] ?? []),
+      ])
+    );
+
+  beforeEach(() => {
+    dagSteps = etl();
+  });
+
+  it('names what changed for a step and reuses it anyway with Step only', async () => {
+    reuseCheck.value = checked(
+      fromRun1({ 'extract orders': [StepChangeKind.step] })
+    );
+    await open();
+
+    expect(
+      within(row('extract orders')).getByTestId('run-step-changed')
+    ).toHaveTextContent('changed since run run-1: the step');
+    expect(primary()).toEqual(['Changed steps']);
+    expect(screen.getByTestId('run-step-consent')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Step only' }));
+    await waitFor(() => expect(editorRun.runSteps).toHaveBeenCalledTimes(1));
+    expect(editorRun.runSteps).toHaveBeenCalledWith(
+      ['merge'],
+      expect.objectContaining({
+        reuseOutputsFrom: 'run-1',
+        allowChangedSteps: ['extract orders'],
+      })
+    );
+  });
+
+  it('runs the steps that the server found changed with Changed steps', async () => {
+    reuseCheck.value = checked(
+      fromRun1({ 'extract orders': [StepChangeKind.step] })
+    );
+    await open();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Changed steps' }));
+    await waitFor(() => expect(editorRun.runSteps).toHaveBeenCalledTimes(1));
+    const [steps, inputs] = editorRun.runSteps.mock.calls[0] ?? [];
+    expect(steps).toEqual(['extract orders', 'merge']);
+    expect(inputs).not.toHaveProperty('allowChangedSteps');
+  });
+
+  // The source run holds a changed step, and the cache an unchanged one.
+  it('takes an unchanged cached step over a changed step of the source run', async () => {
+    reuseCheck.value = checked(
+      fromRun1({ 'extract users': [StepChangeKind.step] }),
+      { 'extract users': verdict('extract users', 'Run-users') }
+    );
+    await open();
+
+    expect(primary()).toEqual(['Step only']);
+    fireEvent.click(screen.getByRole('button', { name: 'Step only' }));
+    await waitFor(() => expect(editorRun.runSteps).toHaveBeenCalledTimes(1));
+    const [, inputs] = editorRun.runSteps.mock.calls[0] ?? [];
+    expect(inputs).toMatchObject({
+      reuseOutputsFrom: 'run-1',
+      outputsFromRuns: { 'extract users': 'Run-users' },
+    });
+    expect(inputs).not.toHaveProperty('allowChangedSteps');
+  });
+
+  it('names a change of the whole run once, above the steps', async () => {
+    const params = [StepChangeKind.params];
+    reuseCheck.value = checked(
+      fromRun1({
+        seed: params,
+        'extract orders': params,
+        'extract users': params,
+      })
+    );
+    await open();
+
+    expect(screen.getAllByTestId('run-step-run-changes')).toHaveLength(1);
+    expect(screen.getByTestId('run-step-run-changes')).toHaveTextContent(
+      'Since run run-1, the parameters changed.'
+    );
+    expect(
+      within(row('seed')).getByTestId('run-step-changed')
+    ).toHaveTextContent(/^changed since run run-1$/);
+  });
+
+  // The choices work on the browser's view until the server answers.
+  it('keeps the choices open while the server checks', async () => {
+    reuseCheck.value = { ...checked({}), state: 'checking' };
+    await open();
+    expect(screen.getByTestId('run-step-checking')).toHaveTextContent(
+      'Checking with the server'
+    );
+    expect(screen.getByRole('button', { name: 'Step only' })).toBeEnabled();
+    expect(primary()).toEqual(['Step only']);
+  });
+
+  // An older remote node has no check: the browser's view stands, quietly.
+  it('says that the node does not check, and keeps the view of the browser', async () => {
+    reuseCheck.value = { ...uncheckedReuse(), state: 'unsupported' };
+    await open();
+    expect(
+      screen.getByTestId('run-step-check-unsupported')
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId('run-step-check-failed')).toBeNull();
+    expect(primary()).toEqual(['Step only']);
+  });
+
+  // Changed steps runs the changed steps that stay checked; an unchecked one
+  // is reused as it is, with consent.
+  it('reuses a changed step that the user unchecks', async () => {
+    reuseCheck.value = checked(
+      fromRun1({
+        seed: [StepChangeKind.step],
+        'extract orders': [StepChangeKind.dependency],
+      })
+    );
+    await open();
+
+    fireEvent.click(within(row('seed')).getByTestId('run-step-rerun'));
+    expect(
+      screen.getByRole('button', { name: 'Selected steps' })
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Selected steps' }));
+    await waitFor(() => expect(editorRun.runSteps).toHaveBeenCalledTimes(1));
+    const [steps, inputs] = editorRun.runSteps.mock.calls[0] ?? [];
+    expect(steps).toEqual(['extract orders', 'merge']);
+    expect(inputs).toMatchObject({ allowChangedSteps: ['seed'] });
+  });
+
+  it('names the parameters that changed', async () => {
+    const params = [StepChangeKind.params];
+    reuseCheck.value = checked(
+      Object.fromEntries(
+        ['seed', 'extract orders', 'extract users'].map((name) => [
+          name,
+          { ...verdict(name, 'run-1', params), changedParams: ['DATE'] },
+        ])
+      )
+    );
+    await open();
+    expect(screen.getByTestId('run-step-run-changes')).toHaveTextContent(
+      'Since run run-1, the parameters (DATE) changed.'
+    );
+  });
+
+  it('shows the profile that the run uses', async () => {
+    reuseCheck.value = { ...checked(fromRun1()), profile: 'prod' };
+    await open();
+    expect(screen.getByTestId('run-step-profile')).toHaveTextContent(
+      'Runtime profile: prod'
+    );
+  });
+
+  // A user who manages profiles can take the profile of the source run, so
+  // that its steps no longer differ by profile.
+  it('runs with the profile of the source run on request', async () => {
+    perms.value = { ...perms.value, canManageProfiles: true };
+    reuse.value = freshReuse({
+      source: {
+        dagRunId: 'run-1',
+        status: Status.Success,
+        profileName: 'staging',
+      } as ReuseSourceState['source'],
+    });
+    const profile = [StepChangeKind.profile];
+    reuseCheck.value = checked(
+      fromRun1({
+        seed: profile,
+        'extract orders': profile,
+        'extract users': profile,
+      })
+    );
+    await open();
+
+    fireEvent.click(screen.getByTestId('run-step-use-profile'));
+    fireEvent.click(screen.getByRole('button', { name: 'Step only' }));
+    await waitFor(() => expect(editorRun.runSteps).toHaveBeenCalledTimes(1));
+    const [, inputs] = editorRun.runSteps.mock.calls[0] ?? [];
+    expect(inputs).toMatchObject({ profile: 'staging' });
+  });
+
+  // A cache entry whose run is gone gives nothing again: the user can drop it.
+  it('forgets a cache entry whose run is gone', async () => {
+    const scope = { remoteNode: 'edge', fileName: 'example.yaml' };
+    outputCache.put(scope, 'extract users', {
+      values: { OUT: 'x' },
+      runId: 'Run-gone',
+      capturedAt: 1,
+      stepHash: 'h',
+    });
+    reuseCheck.value = checked(
+      fromRun1({ 'extract users': [StepChangeKind.step] }),
+      {
+        'extract users': {
+          step: 'extract users',
+          runId: 'Run-gone',
+          status: CarriedStepCheckStatus.unavailable,
+          changes: [],
+          unavailable: CarriedStepCheckUnavailable.gone,
+        },
+      }
+    );
+    await open();
+
+    expect(
+      within(row('extract users')).getByTestId('run-step-gone')
+    ).toHaveTextContent('source run no longer available');
+    fireEvent.click(
+      within(row('extract users')).getByTestId('run-step-forget')
+    );
+    expect(outputCache.entries(scope)['extract users']).toBeUndefined();
+  });
+
+  it('says that the check failed, keeps the view of the browser, and checks again', async () => {
+    const retry = vi.fn();
+    reuseCheck.value = { ...uncheckedReuse(), error: 'HTTP 502', retry };
+    await open();
+
+    expect(screen.getByTestId('run-step-check-failed')).toHaveTextContent(
+      'Could not check the earlier runs: HTTP 502'
+    );
+    expect(primary()).toEqual(['Step only']);
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  // Something changed after the check: the dialog opens again and shows the
+  // refusal, with no error dialog, and the refused step counts as changed.
+  it('opens the dialog again with the refused steps instead of an error', async () => {
+    editorRun.runSteps.mockImplementation(
+      async (
+        _steps: string[],
+        inputs?: { onRefused?(refused: CarriedStepCheck[]): void }
+      ) => {
+        inputs?.onRefused?.([
+          {
+            ...verdict('seed', 'run-1', [StepChangeKind.baseConfig]),
+            message:
+              'step seed cannot be reused from run run-1: the base config changed since that run',
+          },
+        ]);
+        return null;
+      }
+    );
+    await open();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Step only' }));
+    expect(await screen.findByTestId('run-step-refused')).toHaveTextContent(
+      'seed: changed since run run-1: the base config'
+    );
+    expect(primary()).toEqual(['Changed steps']);
+    expect(errors.showError).not.toHaveBeenCalled();
   });
 });
 

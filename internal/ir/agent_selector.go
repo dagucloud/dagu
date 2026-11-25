@@ -164,10 +164,8 @@ func SelectorAgentProviders(selector map[string]string) []string {
 // agent.provider.<P> matches only a selector that has that label too. The
 // coordinator, the dispatch store, the scheduler and the worker use this rule.
 func WorkerLabelsMatchSelector(workerLabels, selector map[string]string) bool {
-	for key, value := range selector {
-		if workerValue, ok := workerLabels[key]; !ok || workerValue != value {
-			return false
-		}
+	if !MatchWorkerSelector(workerLabels, selector) {
+		return false
 	}
 	for key := range workerLabels {
 		if !strings.HasPrefix(key, AgentProviderLabelPrefix) {

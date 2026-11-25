@@ -6,7 +6,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, NodeStatusLabel } from '@/api/v1/schema';
 import type { StepOutputs } from '../../contracts';
 import { outputCache } from '../outputCache';
-import { defaultParamsHash } from '../reuseSource';
 import { stepHashes } from '../stepHashes';
 import {
   cacheableValues,
@@ -173,25 +172,6 @@ describe('useCaptureStepOutputs', () => {
     capture({ data: outputs({ status: NodeStatus.Failed }) });
     expect(h.paths).toEqual([]);
     expect(outputCache.entries(SCOPE)).toEqual({});
-  });
-
-  // The server keeps the parameters of a run outside its definition: a run
-  // with ENV=prod and one with the default give the same step hash.
-  it('stores a hash of the parameters of the run with the entry', () => {
-    // A run is kept only with the defaults of the workflow.
-    h.runParams = 'ENV=prod';
-    h.defaultParams = 'ENV="prod"';
-    capture({ data: outputs() });
-    expect(outputCache.entries(SCOPE)['fetch']?.params).toBe(
-      defaultParamsHash('ENV="prod"')
-    );
-  });
-
-  it('stores the hash of no parameters for a run that has none', () => {
-    capture({ data: outputs() });
-    expect(outputCache.entries(SCOPE)['fetch']?.params).toBe(
-      defaultParamsHash('')
-    );
   });
 
   it('waits for the definition of the run', () => {

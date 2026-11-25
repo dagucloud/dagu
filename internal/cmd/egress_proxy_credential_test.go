@@ -97,10 +97,9 @@ func TestEgressProxyCommandNeedsTheProxyCredential(t *testing.T) {
 			t.Cleanup(origin.Close)
 			originAddr := origin.Listener.Addr().String()
 
-			proxyAddr := freePort(t)
+			root, proxyAddr := servingRoot(t)
 			args := append([]string{"egress-proxy", "serve", "--listen", proxyAddr, "--allow=other.example.com:443",
 				"--allow-with-credential", originAddr}, tc.options(t)...)
-			root := egressRoot()
 			root.SetOut(io.Discard)
 			root.SetErr(io.Discard)
 			root.SetArgs(args)

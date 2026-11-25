@@ -3331,6 +3331,9 @@ const baseEnglish = {
   '{count} nodes': '{count} nodes',
   '1 node': '1 node',
   Node: 'Node',
+  'Narrowed to': 'Narrowed to',
+  'This workflow runs bound to one node.':
+    'This workflow runs bound to one node.',
   '{succeeded} succeeded, {failed} failed, {active} running of {total} nodes':
     '{succeeded} succeeded, {failed} failed, {active} running of {total} nodes',
   Kind: 'Kind',
@@ -6598,6 +6601,8 @@ const baseChinese = {
   '{count} nodes': '{count} 个节点',
   '1 node': '1 个节点',
   Node: '节点',
+  'Narrowed to': '限定节点',
+  'This workflow runs bound to one node.': '此工作流绑定到一个节点运行。',
   '{succeeded} succeeded, {failed} failed, {active} running of {total} nodes':
     '{total} 个节点中 {succeeded} 个成功、{failed} 个失败、{active} 个运行中',
   Kind: '类型',
@@ -9973,6 +9978,9 @@ const baseJapanese = {
   '{count} nodes': '{count} 件のノード',
   '1 node': '1 件のノード',
   Node: 'ノード',
+  'Narrowed to': '対象ノード',
+  'This workflow runs bound to one node.':
+    'このワークフローは 1 つのノードにバインドされて実行されます。',
   '{succeeded} succeeded, {failed} failed, {active} running of {total} nodes':
     '{total} 件のノードのうち成功 {succeeded}、失敗 {failed}、実行中 {active}',
   Kind: '種類',
@@ -13350,6 +13358,9 @@ const baseGerman = {
   '{count} nodes': '{count} Knoten',
   '1 node': '1 Knoten',
   Node: 'Knoten',
+  'Narrowed to': 'Eingegrenzt auf',
+  'This workflow runs bound to one node.':
+    'Dieser Workflow läuft an einen Knoten gebunden.',
   '{succeeded} succeeded, {failed} failed, {active} running of {total} nodes':
     '{succeeded} erfolgreich, {failed} fehlgeschlagen, {active} laufend von {total} Knoten',
   Kind: 'Art',

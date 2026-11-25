@@ -361,6 +361,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/dags/{fileName}/start-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview the carried steps of a selected-steps run
+         * @description Plans a run of selected steps as /dags/{fileName}/start would, without starting it, and returns each skipped step that would carry outputs from a run, with what changed for it since that run. The start refuses a changed step unless allowChangedSteps names it. The preview evaluates the parameters as the start does, including command substitution, and needs the same permission. It takes no outputs, reuseFrom, or labels, and reserves no run ID.
+         */
+        post: operations["previewExecuteDAG"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/dags/{fileName}/start-sync": {
         parameters: {
             query?: never;
@@ -1049,6 +1069,26 @@ export interface paths {
          *
          */
         post: operations["executeDAGRunFromSpec"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/dag-runs/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview the carried steps of a selected-steps run from inline spec
+         * @description Plans a run of selected steps of a submitted DAG specification as POST /dag-runs would, without starting it, and returns each skipped step that would carry outputs from a run, with what changed for it since that run. The preview evaluates the parameters as the start does, including command substitution, and needs the same permission. It takes no outputs, reuseFrom, or labels, and reserves no run ID.
+         */
+        post: operations["previewExecuteDAGRunFromSpec"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7615,6 +7655,8 @@ export interface components {
             queue?: string;
             /** @description Maximum number of concurrent steps allowed in a DAG run */
             maxActiveSteps?: number;
+            /** @description The DAG declares `node: required`: it runs only bound to one inventory node, so a start or enqueue names exactly one node in `targetNodes`. Omitted when false. */
+            nodeRequired?: boolean;
             /** @description List of parameter names that can be passed to DAG-runs created from this DAG */
             params?: string[];
             /** @description Ordered parameter definitions derived from DAG params for typed UI rendering and validation */
@@ -8021,6 +8063,60 @@ export interface components {
              * @enum {string}
              */
             via: ReusedInputVia;
+            /** @description What had changed for the step since the run its outputs come from, when the request consented to reuse them anyway (allowChangedSteps). Absent when nothing changed. */
+            changes?: components["schemas"]["StepChangeKind"][];
+        };
+        /**
+         * @description What changed for a carried step since the run it carries outputs from. step: its own definition. dependency: a step it depends on (by depends, an inferred dependency, or a router). params: the resolved parameters. profile: the runtime profile. baseConfig: the values of the base config, where SMTP and the handlers other than init do not count. settings: the DAG's definition other than its steps, with the local sub-DAGs of the file, where params count as resolved and only handler_on.init of the handlers counts. carried: in that run, it or a step it depends on took outputs of a changed step with consent. unknown: that run keeps no definition that can be compared.
+         * @enum {string}
+         */
+        StepChangeKind: StepChangeKind;
+        /** @description A skipped step of a selected-steps run that carries outputs from a run, and whether the run can give them. */
+        CarriedStepCheck: {
+            /** @description Name of the skipped step */
+            step: string;
+            runId: components["schemas"]["DAGRunId"];
+            /**
+             * @description unchanged: the step can be reused. changed: the step changed since the run; the start refuses it unless allowChangedSteps names it. unavailable: the run cannot give the step (gone, not finished, no node, or the step did not succeed there).
+             * @enum {string}
+             */
+            status: CarriedStepCheckStatus;
+            /** @description What changed since the run, in the order of StepChangeKind. Empty unless status is changed. */
+            changes: components["schemas"]["StepChangeKind"][];
+            /** @description Names of the parameters whose values changed, when changes holds params and the run kept its list of parameters. A positional parameter is named $1, $2, and so on. */
+            changedParams?: string[];
+            /**
+             * @description Why the run cannot give the step, when status is unavailable. gone: the run does not exist for the DAG. unfinished: the run has not finished. noStep: the run has no node of the step. failed: the step neither succeeded there nor carried outputs.
+             * @enum {string}
+             */
+            unavailable?: CarriedStepCheckUnavailable;
+            /** @description Why the start refuses the step, as step X cannot be reused from run Y: <reason>. Absent when status is unchanged. */
+            message?: string;
+            /** @description When the step started in the run, as the run stored it. Absent when unknown. */
+            startedAt?: string;
+            /** @description When the step finished in the run, as the run stored it. Absent when unknown. */
+            finishedAt?: string;
+        };
+        /** @description The carried steps of a planned selected-steps run. */
+        StepReuseCheck: {
+            /** @description Each skipped step that carries outputs from a run, in the order of the DAG, and each entry of outputsFromRuns that its run cannot give */
+            carried: components["schemas"]["CarriedStepCheck"][];
+            /** @description Steps that a selected step depends on and that take outputs from nowhere, in the order of the DAG */
+            missing: string[];
+            /** @description The runtime profile the run would use, resolved as the start resolves it; empty for none */
+            profile: string;
+        };
+        /** @description Error response of a start request. When the request refuses carried steps, details.refusedSteps lists them. */
+        StepReuseError: {
+            code: components["schemas"]["ErrorCode"];
+            /** @description Short error message */
+            message: string;
+            details?: components["schemas"]["StepReuseRefusal"];
+        };
+        /** @description The carried steps that a start request refuses */
+        StepReuseRefusal: {
+            /** @description First the steps whose run cannot give them, then the changed steps */
+            refusedSteps: components["schemas"]["CarriedStepCheck"][];
         };
         /** @description Detailed status of a DAG-run including sub DAG-run nodes */
         DAGRunDetails: components["schemas"]["DAGRunSummary"] & {
@@ -12284,7 +12380,7 @@ export interface operations {
                     steps?: string[];
                     reuseFrom?: components["schemas"]["DAGRunId"] & unknown;
                     outputsFromRunId?: components["schemas"]["DAGRunId"] & unknown;
-                    /** @description The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries outputs, copied from a run or supplied with outputs; otherwise the request returns 400 with a message that names the step and the run. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps. */
+                    /** @description The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries outputs, copied from a run or supplied with outputs. The step must not have changed since that run (see StepChangeKind) unless allowChangedSteps names it. Otherwise the request returns 400, and details.refusedSteps lists each refused step with its run and why. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps. */
                     outputsFromRuns?: {
                         [key: string]: components["schemas"]["DAGRunId"];
                     };
@@ -12298,6 +12394,8 @@ export interface operations {
                     outputsSources?: {
                         [key: string]: components["schemas"]["ReusedOutputSource"];
                     };
+                    /** @description Carried steps, by step name or ID, that this run reuses although they changed since the run they carry outputs from. Without consent such a step is refused with 400. The run records what changed in reusedInputs[].changes, and the audit log keeps the consent. A name of a step that did not change has no effect. Requires steps. */
+                    allowChangedSteps?: string[];
                     /**
                      * @description If true, the run leaves no trace. It runs like any run and is readable by its ID (details, step logs, step outputs, spec, SSE) while it exists, but it is not listed anywhere by default (run lists, DAG history unless includeEphemeral is set, last run, queues, dashboard, artifacts, events and notifications), it does not count in retention, and it cannot be retried, rescheduled or edited (409). The server removes it 10 minutes after it ends and at server start. Allowed only together with steps; a request for the whole DAG with ephemeral true returns 400. The audit log keeps the request, marked ephemeral.
                      * @default false
@@ -12330,7 +12428,76 @@ export interface operations {
                     };
                 };
             };
-            /** @description Invalid request parameters or labels */
+            /** @description Invalid request parameters or labels. When the request refuses carried steps, details.refusedSteps lists them. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepReuseError"];
+                };
+            };
+            /** @description DAG is already running (singleton mode) or dagRunId already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    previewExecuteDAG: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path: {
+                /** @description the name of the DAG file */
+                fileName: components["parameters"]["DAGFileName"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The steps the run would execute, by step name or ID. */
+                    steps: string[];
+                    outputsFromRunId?: components["schemas"]["DAGRunId"] & unknown;
+                    /** @description As for the start: the run that each skipped step carries its outputs from, keyed by step name or ID. */
+                    outputsFromRuns?: {
+                        [key: string]: components["schemas"]["DAGRunId"];
+                    };
+                    /** @description Parameters of the run, as for the start */
+                    params?: string;
+                    /** @description Runtime profile override, as for the start. Omit to use the DAG default profile. */
+                    profile?: components["schemas"]["RuntimeProfileOverride"];
+                };
+            };
+        };
+        responses: {
+            /** @description The carried steps of the run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepReuseCheck"];
+                };
+            };
+            /** @description Invalid request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12339,8 +12506,8 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description DAG is already running (singleton mode) or dagRunId already exists */
-            409: {
+            /** @description DAG or outputsFromRunId not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -14256,8 +14423,10 @@ export interface operations {
                     spec: string;
                     /** @description Optional name to use when the spec omits a name */
                     name?: string;
-                    /** @description Runtime profile to apply to this DAG-run. Set to an empty string or omit to run without a profile. */
+                    /** @description Runtime profile to apply to this DAG-run. Set to an empty string to run without a profile. When omitted, the run takes the default profile of the DAG file that draftOf names, as a start of that file would, and runs without a profile when draftOf is omitted. */
                     profile?: components["schemas"]["RuntimeProfileOverride"];
+                    /** @description File name of the DAG that the spec is an unsaved edit of, such as the web UI sends for a run from the editor. When profile is omitted, the run takes that DAG's default profile. The caller needs write permission for the workspace of that DAG; a DAG that does not exist returns 404. */
+                    draftOf?: string;
                     workerSelector?: components["schemas"]["WorkerSelectorOverride"];
                     targetNodes?: components["schemas"]["TargetNodes"];
                     /** @description Parameters to pass to the DAG-run in JSON format */
@@ -14279,7 +14448,7 @@ export interface operations {
                     steps?: string[];
                     reuseFrom?: components["schemas"]["DAGRunId"] & unknown;
                     outputsFromRunId?: components["schemas"]["DAGRunId"] & unknown;
-                    /** @description The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries outputs, copied from a run or supplied with outputs; otherwise the request returns 400 with a message that names the step and the run. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps. */
+                    /** @description The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries outputs, copied from a run or supplied with outputs. The step must not have changed since that run (see StepChangeKind) unless allowChangedSteps names it. Otherwise the request returns 400, and details.refusedSteps lists each refused step with its run and why. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps. */
                     outputsFromRuns?: {
                         [key: string]: components["schemas"]["DAGRunId"];
                     };
@@ -14293,6 +14462,8 @@ export interface operations {
                     outputsSources?: {
                         [key: string]: components["schemas"]["ReusedOutputSource"];
                     };
+                    /** @description Carried steps, by step name or ID, that this run reuses although they changed since the run they carry outputs from. Without consent such a step is refused with 400. The run records what changed in reusedInputs[].changes, and the audit log keeps the consent. A name of a step that did not change has no effect. Requires steps. */
+                    allowChangedSteps?: string[];
                     /**
                      * @description If true, the run leaves no trace. It runs like any run and is readable by its ID (details, step logs, step outputs, spec, SSE) while it exists, but it is not listed anywhere by default (run lists, DAG history unless includeEphemeral is set, last run, queues, dashboard, artifacts, events and notifications), it does not count in retention, and it cannot be retried, rescheduled or edited (409). The server removes it 10 minutes after it ends and at server start. Allowed only together with steps; a request for the whole DAG with ephemeral true returns 400. The audit log keeps the request, marked ephemeral.
                      * @default false
@@ -14318,7 +14489,79 @@ export interface operations {
                     };
                 };
             };
-            /** @description Invalid DAG spec or parameters */
+            /** @description Invalid DAG spec or parameters. When the request refuses carried steps, details.refusedSteps lists them. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepReuseError"];
+                };
+            };
+            /** @description A DAG with the same name is already running and singleton is enabled */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    previewExecuteDAGRunFromSpec: {
+        parameters: {
+            query?: {
+                /** @description name of the remote node */
+                remoteNode?: components["parameters"]["RemoteNode"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description DAG specification in YAML format */
+                    spec: string;
+                    /** @description Optional name to use when the spec omits a name */
+                    name?: string;
+                    /** @description The steps the run would execute, by step name or ID. */
+                    steps: string[];
+                    outputsFromRunId?: components["schemas"]["DAGRunId"] & unknown;
+                    /** @description As for the start: the run that each skipped step carries its outputs from, keyed by step name or ID. */
+                    outputsFromRuns?: {
+                        [key: string]: components["schemas"]["DAGRunId"];
+                    };
+                    /** @description Parameters of the run, as for the start */
+                    params?: string;
+                    /** @description Runtime profile of the run, as for POST /dag-runs. */
+                    profile?: components["schemas"]["RuntimeProfileOverride"];
+                    /** @description File name of the DAG that the spec is an unsaved edit of, as for POST /dag-runs. */
+                    draftOf?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The carried steps of the run */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StepReuseCheck"];
+                };
+            };
+            /** @description Invalid DAG spec or request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -14327,8 +14570,8 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description A DAG with the same name is already running and singleton is enabled */
-            409: {
+            /** @description outputsFromRunId or the DAG of draftOf not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -29959,6 +30202,27 @@ export enum DAGRunConditionStatus {
 export enum ReusedInputVia {
     run = "run",
     cache = "cache"
+}
+export enum StepChangeKind {
+    step = "step",
+    dependency = "dependency",
+    params = "params",
+    profile = "profile",
+    baseConfig = "baseConfig",
+    settings = "settings",
+    carried = "carried",
+    unknown = "unknown"
+}
+export enum CarriedStepCheckStatus {
+    unchanged = "unchanged",
+    changed = "changed",
+    unavailable = "unavailable"
+}
+export enum CarriedStepCheckUnavailable {
+    gone = "gone",
+    unfinished = "unfinished",
+    noStep = "noStep",
+    failed = "failed"
 }
 export enum ArtifactNodeType {
     directory = "directory",

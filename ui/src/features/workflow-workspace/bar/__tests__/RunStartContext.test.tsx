@@ -411,6 +411,33 @@ describe('RunStartContext', () => {
   // parity:start-modal-keyboard
   // parity:start-modal-submit
   // parity:embed-run-progress
+  // A node: required DAG starts bound to the node the dialog names.
+  it('starts a node: required DAG on the named node', async () => {
+    serveDag({ nodeRequired: true });
+    renderWorkspace();
+
+    const dialog = await requestFromOtherZone();
+    fireEvent.change(
+      await within(dialog).findByRole('combobox', { name: 'Node' }),
+      {
+        target: { value: 'web01' },
+      }
+    );
+    await userEvent.click(
+      within(dialog).getByRole('checkbox', { name: 'Enqueue' })
+    );
+    await userEvent.click(
+      within(dialog).getByRole('button', { name: 'Start' })
+    );
+
+    await waitFor(() =>
+      expect(h.client.POST).toHaveBeenCalledWith('/dags/{fileName}/start', {
+        params: { path: { fileName: FILE }, query: { remoteNode: 'local' } },
+        body: { params: '', targetNodes: ['web01'] },
+      })
+    );
+  });
+
   it('starts with a custom run ID on Enter and shows the progress', async () => {
     renderWorkspace();
 

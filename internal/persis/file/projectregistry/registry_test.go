@@ -214,6 +214,65 @@ func TestDefaultProject(t *testing.T) {
 	require.Equal(t, "Main", renamed.DisplayName)
 }
 
+// A project's slot seed is fixed when it is registered, so a restart or a
+// host that mounts the data directory under another path reads the same one.
+func TestSlotSeed(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	dataDir := t.TempDir()
+	reg := projectregistry.New(dataDir)
+
+	def, err := reg.EnsureDefault(ctx)
+	require.NoError(t, err)
+	require.Equal(t, dataDir, def.SlotSeed)
+	migrated, err := reg.Create(ctx, project.CreateInput{Name: "billing", MigratedFrom: "billing"})
+	require.NoError(t, err)
+	require.Equal(t, dataDir, migrated.SlotSeed)
+	created, err := reg.Create(ctx, project.CreateInput{Name: "weather"})
+	require.NoError(t, err)
+	require.Equal(t, created.ID, created.SlotSeed)
+
+	elsewhere := projectregistry.New(dataDir + string(filepath.Separator))
+	again, err := elsewhere.EnsureDefault(ctx)
+	require.NoError(t, err)
+	require.Equal(t, def, again)
+	list, err := elsewhere.List(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []project.Project{migrated, def, created}, list)
+}
+
+// v2 hashed paths.data_dir as configured, so the seed keeps that spelling:
+// it is neither cleaned nor resolved through a link.
+func TestSlotSeedKeepsSpelling(t *testing.T) {
+	t.Parallel()
+
+	for name, spell := range map[string]func(t *testing.T, dataDir string) string{
+		"TrailingSeparator": func(_ *testing.T, dataDir string) string {
+			return dataDir + string(filepath.Separator)
+		},
+		"Link": func(t *testing.T, dataDir string) string {
+			link := filepath.Join(t.TempDir(), "link")
+			if err := os.Symlink(dataDir, link); err != nil {
+				t.Skipf("symlinks are unavailable: %v", err)
+			}
+			return link
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			spelled := spell(t, t.TempDir())
+			reg := projectregistry.New(spelled)
+
+			def, err := reg.EnsureDefault(t.Context())
+			require.NoError(t, err)
+			require.Equal(t, spelled, def.SlotSeed)
+			migrated, err := reg.Create(t.Context(), project.CreateInput{Name: "billing", MigratedFrom: "billing"})
+			require.NoError(t, err)
+			require.Equal(t, spelled, migrated.SlotSeed)
+		})
+	}
+}
+
 // Writers in separate registries stand for separate processes, which only the
 // file lock serializes.
 func TestConcurrentWriters(t *testing.T) {

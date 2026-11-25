@@ -12,7 +12,7 @@ import {
   type CacheEntry,
   type CacheScope,
 } from './outputCache';
-import { paramsDiffer, runParamsHash } from './reuseSource';
+import { paramsDiffer } from './reuseSource';
 import { useCacheScope, useOutputCacheEntries } from './useOutputCacheEntries';
 import { useLiveStepHashes, useRunStepHashes } from './useStepHashes';
 
@@ -46,7 +46,7 @@ function capturedKey(scope: CacheScope, step: string): string {
 
 /**
  * Lets the next read of a step capture again, after its entry was removed
- * from the cache (the page never removes one; the tests do).
+ * from the cache: the step run dialog forgets an entry whose run is gone.
  */
 export function forgetCaptures(scope: CacheScope, step: string): void {
   captured.delete(capturedKey(scope, step));
@@ -54,15 +54,15 @@ export function forgetCaptures(scope: CacheScope, step: string): void {
 
 /**
  * Keeps the outputs of a step that succeeded in the cache of the workflow,
- * with the hash of the step as the run saw it and a hash of the parameters of
- * the run. The caller passes the data that it already loaded
- * (`useStepOutputs`): this hook makes no request for outputs. It reads the
- * definition and the parameters of the run, and the defaults of the workflow,
- * once. Nothing happens without a file name. Every entry names the run that
- * it was read from. An entry that is fresh for the saved definition is not
- * replaced by the step of an older run that the user looks at. A run with
- * other parameters than the defaults of the workflow is not kept: a step run
- * uses the defaults, and the hash does not cover the parameters of a run.
+ * with the hash of the step as the run saw it. The caller passes the data
+ * that it already loaded (`useStepOutputs`): this hook makes no request for
+ * outputs. It reads the definition and the parameters of the run, and the
+ * defaults of the workflow, once. Nothing happens without a file name. Every
+ * entry names the run that it was read from. An entry that is fresh for the
+ * saved definition is not replaced by the step of an older run that the user
+ * looks at. A run with other parameters than the defaults of the workflow is
+ * not kept: a step run uses the defaults, and the hash does not cover the
+ * parameters of a run.
  */
 export function useCaptureStepOutputs(p: {
   /** The workflow file; no capture without it. */
@@ -105,10 +105,6 @@ export function useCaptureStepOutputs(p: {
         : undefined,
     [dagName, runNodes]
   );
-  // Undefined until the run answers.
-  const params = run.data
-    ? runParamsHash(run.data.dagRunDetails.params)
-    : undefined;
   const hashes = useRunStepHashes({
     dagName,
     runId,
@@ -136,7 +132,6 @@ export function useCaptureStepOutputs(p: {
   const savedHash = saved?.get(step);
   useEffect(() => {
     if (!fileName || !runId || values === null || hash === undefined) return;
-    if (params === undefined) return;
     // Wait for the saved definition, so that a stale read never replaces a
     // fresh entry for a moment.
     if (saved === null) return;
@@ -154,7 +149,6 @@ export function useCaptureStepOutputs(p: {
       runId,
       capturedAt: Date.now(),
       stepHash: hash,
-      params,
     };
     const seen = captured.get(capturedKey(scope, step)) ?? new Set<string>();
     const pair = `${runId}\u0000${JSON.stringify(values)}`;
@@ -169,7 +163,6 @@ export function useCaptureStepOutputs(p: {
     runId,
     step,
     hash,
-    params,
     savedHash,
     saved === null,
     ranWithDefaults,

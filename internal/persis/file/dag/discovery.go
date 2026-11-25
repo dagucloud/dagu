@@ -129,7 +129,7 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 			if relPath != "." {
 				if strings.HasPrefix(entry.Name(), ".") ||
 					relPath == workspace.BaseConfigDirName ||
-					relPath == spec.SkillsDirName ||
+					isSkillsDir(walkRoot, path, relPath) ||
 					slices.Contains(opts.SkipDirs, relPath) ||
 					isSkipRoot(skipRoots, path, entry.Name()) {
 					return filepath.SkipDir
@@ -160,6 +160,25 @@ func Discover(root string, opts DiscoveryOptions) (DiscoveryResult, error) {
 
 	sortResult(&result)
 	return result, nil
+}
+
+// isSkillsDir reports whether the directory at path, at relPath below root,
+// is the reserved skills directory. A name that matches only without regard
+// to case is compared by identity, since a file system that ignores case
+// serves that directory for root/skills.
+func isSkillsDir(root, path, relPath string) bool {
+	if relPath == spec.SkillsDirName {
+		return true
+	}
+	if !strings.EqualFold(relPath, spec.SkillsDirName) {
+		return false
+	}
+	reserved, err := os.Stat(filepath.Join(root, spec.SkillsDirName))
+	if err != nil {
+		return false
+	}
+	info, err := os.Stat(path)
+	return err == nil && os.SameFile(info, reserved)
 }
 
 // skipRoot is an existing directory that discovery and lookups by path omit.

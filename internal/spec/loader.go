@@ -654,6 +654,20 @@ func decodeDocuments(data []byte) ([]dagDocument, error) {
 	return docs, nil
 }
 
+// Documents returns the non-empty documents of a DAG file as values, in
+// order: the DAG, then the local sub-DAGs that the file defines.
+func Documents(data []byte) ([]map[string]any, error) {
+	docs, err := decodeDocuments(data)
+	if err != nil {
+		return nil, err
+	}
+	values := make([]map[string]any, 0, len(docs))
+	for _, doc := range docs {
+		values = append(values, doc.data)
+	}
+	return values, nil
+}
+
 // loadBaseDefinition loads and decodes the optional base manifest.
 func loadBaseDefinition(opts buildOpts) (*baseDefinition, error) {
 	source, description, err := readBaseDefinitionData(opts)

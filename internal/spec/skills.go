@@ -15,14 +15,13 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-const (
-	// SkillsDirName is the name of the directory, next to the DAG files, that
-	// holds the skill folders.
-	SkillsDirName = "skills"
-	// SkillFileName is the name of the file that defines a skill. It is in the
-	// folder of the skill.
-	SkillFileName = skill.FileName
-)
+// SkillsDirName is the name of the directory, at the root of a DAG
+// directory, that holds the skill folders. DAG discovery does not enter it.
+const SkillsDirName = "skills"
+
+// SkillFileName is the name of the file that defines a skill. It is in the
+// folder of the skill.
+const SkillFileName = skill.FileName
 
 // skillResolver returns the checked skill that the name gives.
 type skillResolver func(name string) (*skill.Skill, error)

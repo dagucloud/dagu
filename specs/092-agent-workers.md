@@ -4,49 +4,18 @@
 
 Partially implemented.
 
-Implemented:
+Two parts are built:
 
-- the option `--agent` of `dagu worker`, its checks at start, one run and the exit
-- the implied selector, the dispatch of a run that needs a provider, the match rules and the reserved
-  labels
-- the worker pools and the dispatchers of the coordinator
-- the step key `secrets`, the step scope and the registry secrets of a step
-- the step key `untrusted` and its default in a DAG that has an `agent.run` step
-- the rules of an untrusted step in each process, and the isolation with the restricted user
-- the verify loop: rounds of `code_<n>` and `verify_<n>` in one DAG
-- the key injection of `dagu egress-proxy serve`, with an API key or an OAuth token
-- the destinations of the proxy that need the proxy credential
-- the examples in `deploy/agent-worker/` and the demo in `examples/agent-worker-demo/`
+- `dagu validate` rejects a secret `ref` that starts with `ai/`, as [Secrets of a step](#secrets-of-a-step)
+  and Spec 069 state.
+- `dagu egress-proxy serve` forwards a request only to a destination of `--allow` and refuses the
+  others with the status 403. See [Key injection](#key-injection). The options
+  `--allow-with-credential`, `--proxy-credential-env`, `--proxy-credential-file` and `--upstream`
+  with its key options are not built yet.
 
-Verified with real runs on 2026-11-03, with the model `claude-haiku-4-5` and an OAuth token
-behind the proxy:
-
-- the real mode of the demo (`run-real.sh`): Claude Code 2.1.311 fixed a test, and a trusted
-  step pushed a branch to GitHub
-- the extra tests of the demo (`extras/`): `max_tool_iterations`, a retry of a run, and a request to
-  read the credentials
-- the verify loop of the demo (`run-real.sh loop`), in two runs. The verify failed after round 1.
-  Claude Code read the log of the verify in round 2 and fixed the second bug. A trusted step pushed
-  one branch.
-- the tool bridge of Spec 091, in a separate stack. The stack had a local `dagu start` with the
-  restricted user, the egress proxy, and a Dagu server as the MCP server. Claude Code 2.1.311 reported
-  the servers `dagu` and `docs` as `connected`. It called a DAG tool with a fixed param and a param
-  `from_ai`, and the MCP tool `dagu_read`. Dagu ran the DAG as a child run. Without `127.0.0.1` in
-  `NO_PROXY`, the proxy refused the requests to the bridge, and the attempt failed with the reason
-  `bridge_unavailable`.
-
-The AI gateway of [Spec 094](094-ai-gateway.md) is implemented. See [The AI
-gateway](#the-ai-gateway).
-
-Not verified:
-
-- the manifests for Kubernetes on a cluster. They have a schema check only.
-- a real rate limit with `retry_policy` and `exit_code: [75]`
-- a verify loop in which each round fails with the real CLI. The fake CLI covers such a loop.
-- the tool bridge on the agent worker of the demo (`run-demo.sh`, `run-real.sh`, and the extras
-  `extra-cli-tools` and `extra-cli-limits`)
-
-The tests and the main demo use a fake CLI and a fake model API.
+No version of Dagu reads the new keys of this spec yet. A configuration that sets
+`coordinator.worker_pools`, `coordinator.dispatchers` or `untrusted` has no effect, and
+`dagu validate` rejects the step keys `secrets` and `untrusted` and the action `agent.run`.
 
 This spec is the companion of [Spec 091: Agent Node](091-agent-node.md) and [Spec 090: Agent
 Tools](090-agent-tools.md). Spec 090 defines the tools that an `agent.run` step selects. Spec 091
@@ -132,13 +101,14 @@ credential of the model API.
 | --- | --- | --- |
 | The agent reads a secret of the DAG. | The step gets no secret. The restricted user cannot read the memory, the environment or the files of the worker. The coordinator gives a registry secret only to the step that lists it. | None for a secret that the agent step does not list. A step cannot list one. |
 | The agent reads or misuses the API key of the model. | A step of the provider `claude` names an endpoint. The key stays in the coordinator, and the agent has the secret of the relay only (Spec 094). For another CLI provider, the agent has a placeholder, and the proxy adds the real key. | The agent can send requests to the model API at the cost of the owner of the key. |
-| The agent sends data out. | The worker reaches only the coordinator and the proxy. The proxy allows a list of destinations. A destination that needs the proxy credential is closed to the agent. | Data can go to an allowed destination, such as the model API or the git server. |
+| The agent sends data out. | The worker reaches only the coordinator and the proxy. No DNS query of the worker leaves the deployment. The proxy allows a list of destinations. A destination that needs the proxy credential is closed to the agent. | Data can go to an allowed destination, such as the model API or the git server. |
 | The agent changes `.git` so that a later trusted step runs its code (hooks, `core.fsmonitor`, a new `.git`). | The restricted user cannot write `.git` and cannot rename or replace it. | A trusted step that runs a file of the work directory runs code of the agent. The author does not do this. |
+| An output of the agent becomes code that Dagu or a trusted step runs. | A reference to data of the agent is valid only as the whole value of an `env` entry in the form `${steps.<id>.outputs.<name>}`, and as `"$NAME"` in a `run` that `sh` or `bash` runs on the host of Dagu. See [Trusted steps after an untrusted step](#trusted-steps-after-an-untrusted-step). | A program that runs a value or reads a variable by its name. Data that reaches a step with no reference, such as a file of the work directory. |
 | The agent leaves a process that watches a later step. | At the end of an untrusted step, Dagu stops each process of the restricted user. Untrusted steps run one at a time. | None. |
 | The agent connects to the coordinator. | The coordinator needs a client certificate. The restricted user cannot read it. | None. |
-| The agent calls a tool of the tool bridge with wrong arguments. | The tools are DAGs of the author. The bridge needs the secret of the attempt. The agent cannot set a fixed input of `params`, or an input that the tool does not show. The child run gets the inputs as one JSON object. | A tool that trusts its arguments. The author designs each tool for any argument. |
+| The agent calls a tool of the tool bridge with wrong arguments. | The tools are DAGs of the author. The bridge needs the secret of the attempt. The agent cannot set a fixed input of `params`, or an input that the tool does not show. The child run gets the inputs as one JSON object. Each input that the agent sets is data of the agent in the child run. | A tool that trusts its arguments. The author designs each tool for any argument. |
 | A general worker claims an agent run, or an agent worker claims another run. | The coordinator takes the labels from the pool of the certificate. An agent pool claims only runs of its provider. | A stolen certificate of a pool acts as that pool. |
-| Files or processes of one run reach the next run. | An agent worker takes one run, then exits. The deployment gives a new file system for each start. | None in the examples. A deployment that keeps a volume keeps its files. |
+| Files or processes of one run reach the next run. | An agent worker takes one run, then exits. On Docker, each start of the container gets a new `tmpfs`. | On Kubernetes, an `emptyDir` lives as long as the pod. A container that restarts in the same pod keeps the files of `/tmp` and of the Dagu home, and the next run on the pod can read them. See [Open items](#open-items). A deployment that keeps another volume keeps its files too. |
 | The agent returns a false result. | The typed result fixes the form. A gate that Dagu runs and `human.task` protect an action. | The content of a result can be false. |
 | The agent breaks out of the restricted user with a kernel flaw. | Out of scope. A user namespace or a runtime such as gVisor reduces the risk. | The flaw. |
 
@@ -647,6 +617,13 @@ A value out of the range, one key without the other, a value of the wrong type, 
 expected range and the value. The user needs no entry in `/etc/passwd`. Only untrusted steps use this
 user ID.
 
+Each process that runs untrusted steps MUST have its own restricted user. Two processes can have
+the same restricted user only when each has its own PID namespace, with its own `/proc`, and
+neither sees the work directories of the other. Two containers that share no PID namespace and no
+volume meet this rule. The rule one at a time of [Isolation](#isolation) holds in one process only.
+Two processes with the same restricted user that break this rule could stop each other's untrusted
+step at its end, and an untrusted step of one could reach the work directory of the other.
+
 The block `untrusted` is file only. If the variable `DAGU_UNTRUSTED` exists in the environment, Dagu
 stops at start. The error names the variable and the key, and never shows the value:
 
@@ -686,22 +663,57 @@ restricted user. An agent worker (`--agent`) does not start with `untrusted.isol
 
 ### Trusted steps after an untrusted step
 
-A trusted step reads the files of an untrusted step as data. Each output of an untrusted step is
-also data of the agent. This includes the typed result of an `agent.run` step, its `tool_calls`, and
-the outputs of each other untrusted step. This includes a step that is untrusted by default. The agent
-controls each value. An output of an untrusted step is not a gate. A gate is a check that Dagu
-decides, such as the exit code of the tests of the repository.
+A trusted step reads the files of an untrusted step as data. The agent controls each value that an
+untrusted step produces. Such a value is not a gate. A gate is a check that Dagu decides, such as
+the exit code of the tests of the repository.
 
-Dagu puts the value of a reference `${steps.<id>.outputs.<name>}` in the text of a command. A
-reference to an output of an untrusted step is a validation error in these fields of a trusted step:
-`run`, `command`, `script`, `shell` and `shell_args`. The error names the step, the field and the reference:
+**Data of the agent.** These values are data of the agent:
+
+- each output of an untrusted step, published or in its `output:` variable, such as the typed
+  result and the `tool_calls` of an `agent.run` step. A step that is untrusted by default is an
+  untrusted step.
+- each output of a `foreach` step whose body has an untrusted step, and of a step that runs a
+  sub-DAG with an untrusted step at any depth. A step whose sub-DAG Dagu cannot name when it loads
+  the DAG counts as one.
+- in the child run of a tool call of the agent (Spec 090), each param that the agent sets: each
+  input that the `params` of its entry of `with.dags` do not fix
+- each output of a step that refers to data of the agent, the variable of an `env` entry that
+  refers to it, and each other variable that Dagu sets from it, such as `DAG_PARAMS_JSON`
+
+`${<id>.exit_code}`, `${<id>.stdout}` and `${<id>.stderr}` are not data of the agent: Dagu records
+the exit code and the paths of the log files.
+
+**The two places.** A reference to data of the agent is valid in two places only, each in one
+form:
+
+1. **An `env` entry.** The whole value of an entry of the step `env` is
+   `${steps.<id>.outputs.<name>}`. Dagu inserts the value of this form once and expands nothing in
+   it.
+2. **A shell variable.** `"$NAME"` in the `run` of a step, where `NAME` is a variable that is data
+   of the agent. The step sets `with.shell`, or else the DAG sets the root `shell`, to `sh` or
+   `bash`. The default shell depends on the host, so it does not qualify. Dagu starts the shell on
+   its own host: a step that runs in a container, over SSH, on a node of the inventory or through
+   another executor does not qualify, whichever key of the step or of the DAG sends it there. Dagu
+   leaves `"$NAME"` to the shell, which reads the value from the environment as one word.
+
+Each other reference to data of the agent is a validation error: in any other field, such as
+`preconditions`, `repeat_policy`, `eval`, `with`, `params` or `working_dir`, and in any other form,
+such as `$NAME`, `${NAME}`, `"${NAME}"`, `${env.NAME}`, `${params.NAME}`, `${NAME.<path>}`,
+`$NAME.<path>`, `${<id>.outputs}` or `${<id>.output}` with a path or a slice. In most of them Dagu
+puts the value in a text that it builds, where a shell or a remote host can read it as code, or a
+second expansion can replace a `$NAME` in it with a secret. The rule refuses them all, so it does
+not depend on how each field, shell or host treats a reference.
+
+Dagu checks each step when it loads the DAG, handler steps included. It checks an untrusted step
+too, because Dagu resolves its fields and runs its preconditions and handlers as the process user.
+It checks each DAG of `with.dags` of an `agent.run` step when the step starts, and again when a call
+starts its child run. A tool DAG that breaks the rule fails the step at its start. At a call, the
+call gets an error result, and no child run starts. The error names the step, the field and the
+reference, and the DAG of a tool:
 
 ```text
-step "gate": the field steps[2].run refers to ${steps.code.outputs.tool_calls}, an output of the untrusted step "code"; Dagu would put the value of the agent in the command: pass it through env and use "$VAR" in the command
+step "gate": the field steps[2].run refers to ${steps.code.outputs.tool_calls}, data of the untrusted step "code": make it the whole value of an env entry, and read it as "$NAME" in a run that sh or bash runs on this host
 ```
-
-The reference is valid in the `env`, the `preconditions` and the `repeat_policy` of a step, and in
-the `with` of an action. Pass the value through `env`, and use `"$VAR"` in the command:
 
 ```yaml
   - id: gate
@@ -709,11 +721,26 @@ the `with` of an action. Pass the value through `env`, and use `"$VAR"` in the c
     untrusted: false
     env:
       - TOOL_CALLS: ${steps.code.outputs.tool_calls}
+    with: { shell: bash }
     run: printf '%s' "$TOOL_CALLS" | jq -e 'index("shell") != null'
 ```
 
 The step `gate` has `untrusted: false`. In a DAG that has an `agent.run` step, a step with `run` is
 untrusted by default.
+
+**What the check cannot see.** The check reads references, not values. It cannot see:
+
+- What a program does with a value. `eval "$NAME"`, `sh -c "$NAME"` or `python3 -c "$NAME"` runs
+  it, and a value that starts with `-` can be read as an option. Give the value to a program as
+  data, on the standard input as `gate` does.
+- A variable that a program reads by its name. An `output:` variable is in the environment of each
+  step that depends on its step, at any depth, and of each handler step, with no reference. A
+  program reads some names as code or as a path to run, such as `BASH_ENV`, `PATH`, `LD_PRELOAD`
+  or `GIT_SSH_COMMAND`. Give data of the agent a name that only this data uses.
+- Data of the agent that reaches a step with no reference: the files of the work directory, the
+  log files of an untrusted step, and each output of a step that reads them. For example,
+  `git diff --name-only` prints a file named `$(id)` as it is. Dagu cannot tell that such an output
+  is data of the agent, so the author reads it only in the two places above.
 
 In a run with an untrusted step, each process gets `safe.bareRepository=explicit` for git. Dagu adds it
 through `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, after the entries that
@@ -744,7 +771,7 @@ worker, with the repository that the first step cloned.
 ### Why a chain
 
 - `repeat_policy` repeats one step. A group of steps does not repeat. The agent step and the
-  verify step are two steps. See [Verified points](#verified-points).
+  verify step are two steps. See [Existing behavior](#existing-behavior).
 - A sub-DAG is another run. An agent worker takes one run and exits, so a run of a sub-DAG that
   needs a provider goes to another agent worker. That worker does not have the repository.
 
@@ -758,28 +785,37 @@ has three rounds.
 
 | Step | Keys | Effect |
 | --- | --- | --- |
-| `verify_<n>`, not the last | `depends: [code_<n>]`, `continue_on: {failure: true}` | A failed verify does not stop the run. |
+| `verify_<n>`, not the last | `depends: [code_<n>]`, `continue_on: {exit_code: [1]}`, and a `run` that exits 1 for each failure of the script | A failed verify script does not stop the run. A verify that fails in another way stops it. |
 | `code_<n+1>` | `depends: [verify_<n>]`, a precondition on `${verify_<n>.exit_code}` | The step runs only when `verify_<n>` failed. Otherwise Dagu skips it. |
 | `verify_<last>` | `depends: [code_<last>]`, `continue_on: {skipped: true}` | A failed verify fails the run. A skipped verify does not stop the steps after the loop. |
 | The steps after the loop | `depends: [verify_<last>]` | They run after the last verify, once. |
 
 The precondition has `condition: "${verify_<n>.exit_code}"`, `expected: "0"` and `negate: true`.
-Dagu records the exit code of the step. The step cannot write it as an output. Each exit code that
-is not 0 starts the next round.
+Dagu records the exit code of the step. The step cannot write it as an output.
+
+A verify step continues only on the exit code 1, not on each failure. `${verify_<n>.exit_code}` is
+`0` for a step that fails before its process starts (see [Existing behavior](#existing-behavior)),
+and can be `0` for a step whose script passed and that then fails a check of
+[Isolation](#isolation). With `continue_on: {failure: true}`, the precondition would skip the next
+round after such a failure, and the steps after the loop would push a change that no verify passed.
 
 Dagu then does this:
 
 - A verify passes in round `n`. Dagu skips each later `code` step and each later `verify` step.
   The steps after the loop run.
-- A verify fails and a round remains. The next `code` step runs, and then its verify.
+- A verify script fails and a round remains. The step exits 1, so the next `code` step runs, and
+  then its verify.
+- A verify step fails and its script did not exit 1. For example, the step fails before its script
+  starts, fails a check of Isolation after its script passed, or times out. The next steps do not
+  run, and the run fails. Nothing is pushed.
 - The last verify fails. The run fails. The steps after the loop do not run, so nothing is pushed.
 - A `code` step fails, also after its retries. The next steps do not run, and the run fails. The
   `verify` step of this round does not run.
 
 A run in which a verify failed and a later verify passed ends with the status `partially
 succeeded`. The steps after the loop ran, so the push is done. `dagu start` returns the exit code 1
-for this status. A run in which no verify failed ends with `succeeded`. A run in which the last
-verify failed ends with `failed`.
+for this run, because a step failed. A run in which no verify failed ends with `succeeded`. A run in
+which the last verify failed ends with `failed`.
 
 ### The log
 
@@ -791,15 +827,21 @@ The log is data of the agent: an untrusted step wrote it. No trusted step puts i
 The restricted user writes the file in the work directory of the run. The agent starts the next
 round from the files that the previous round left.
 
-The verdict is the exit code of the verify script. The script can choose its exit code, and it is
-in the repository. So the step `check_paths` refuses a change to the verify script, to the tests
-and to the CI.
+The verdict is the exit code of the verify script. The verify runs the script, the tests and the
+code that they test, and the agent can change each of them. An untrusted step can also change a
+file and put it back before a later step checks it. So no check of the files after the verify
+shows that the verdict is true. The verdict tells whether an agent that works as asked fixed the
+code. An agent that a prompt controls can make a verify pass.
+
+The step `check_paths` refuses a change to the verify script, to the tests and to the CI that is
+still in the files when it runs. So the push carries no such change. A review of the pushed branch
+decides whether the change is used.
 
 ### Limits of the loop
 
 - The number of rounds is fixed. To add a round, do these steps:
   1. Copy a pair.
-  2. Change `continue_on` of the old last verify to `{failure: true}`.
+  2. Change `continue_on` of the old last verify to `{exit_code: [1]}`.
   3. Change the `depends` of the steps after the loop.
 - Each round is a full run of the agent. The cost in tokens and in time is up to the number of
   rounds times the cost of one round. `timeout_sec` and `max_tool_iterations` apply to each round.
@@ -993,6 +1035,13 @@ other route. The proxy reaches the allowed destinations. The proxy is a separate
 Docker and a separate pod on Kubernetes. A proxy in the same pod as the worker does not limit the
 worker, because the pod has one network namespace.
 
+No DNS query of the worker leaves the deployment. A resolver forwards the query for a name to the
+server of that name, so the agent could send data out in the labels of names, past the proxy. The
+worker needs the names of the coordinator and the proxy only. The proxy resolves each other name.
+On Docker, the DNS of an internal network answers for its containers and, from Docker Engine 26.0,
+forwards no other name (CVE-2024-29018). On Kubernetes, the `NetworkPolicy` allows no DNS, and
+`hostAliases` give the worker the Service IPs of the coordinator and the proxy.
+
 ### Security settings
 
 | Property | Docker Compose | Kubernetes |
@@ -1003,29 +1052,20 @@ worker, because the pod has one network namespace.
 | Root file system | `read_only: true`, `tmpfs` with the option `exec` for `/tmp` and the Dagu home | `readOnlyRootFilesystem: true`, `emptyDir` with `medium: Memory` |
 | Seccomp | The default profile | `seccompProfile: RuntimeDefault` |
 | Account token | None | `automountServiceAccountToken: false` |
-| Network | An internal network with the coordinator and the proxy | A `NetworkPolicy` that allows the coordinator, the proxy and DNS |
+| Network | An internal network with the coordinator and the proxy, on Docker Engine 26.0 or later | A `NetworkPolicy` that allows the coordinator and the proxy, and no DNS. `hostAliases` with their Service IPs |
 | Certificate | A read-only file, owner 0, mode `0400` | A `Secret` volume with `defaultMode: 0400` |
 | Restart | `restart: always` | A `Deployment` |
 
 The worker starts as user ID 0 because the change to the restricted user needs `CAP_SETUID`. The
-Pod Security Standard `restricted` forbids it. The examples use the level `baseline`. See [Open
+Pod Security Standard `restricted` forbids it. A deployment uses the level `baseline`. See [Open
 items](#open-items).
 
-The repository has the examples:
+## Existing behavior
 
-- `deploy/agent-worker/Dockerfile`: the image of an agent worker, with a static `dagu`, `git`,
-  `python3` and the CLI of the agent
-- `deploy/agent-worker/compose.yaml`: the coordinator, a general worker, an agent worker and the
-  proxy
-- `deploy/agent-worker/k8s/`: the manifests for Kubernetes
-- `examples/agent-worker-demo/`: a demo for one host, with a fake CLI and a fake model API. Its real
-  mode `run-real.sh` uses Claude Code, the Anthropic API and a GitHub repository. Its DAG
-  `agent-dev-isolation` probes the isolation of an untrusted step.
+These points describe behavior that Dagu has without this spec. The verify loop relies on them.
 
-## Verified points
-
-- `repeat_policy` on an `agent.run` step repeats the whole step. Each repetition is a new execution,
-  with new attempts. A group of steps does not repeat.
+- `repeat_policy` repeats one whole step. Each repetition is a new execution of the step. A group of
+  steps does not repeat.
 - A parent step reads the outputs that a sub-DAG publishes (`outputs.write` or `stdout.outputs`)
   as `${steps.<id>.outputs.<name>}`. A plain `output:` variable of the sub-DAG is not an output of
   the parent step.
@@ -1033,16 +1073,19 @@ The repository has the examples:
   capture above the limit fails the step, and a published output above the limit fails the step
   too. Dagu does not cut the value. Keep a diff in a file of the work directory, or in an artifact,
   and publish its path.
-- A `repeat_policy` condition cannot read an output of its own step (Spec 007). The reference stays
-  as text. Use a command condition that reads the stdout file of the step.
-- A step with `continue_on: {failure: true}` stays `failed` in the run view, and the next step
-  runs. A precondition on `${verify_1.exit_code}` with `expected: "0"` and `negate: true` skips the
-  next step when the exit code is 0. It runs the next step for each other exit code. A skipped step makes
-  the steps that depend on it skip, until a step has `continue_on: {skipped: true}`. A failed
-  step makes the steps that depend on it `aborted`. The conformance tests of the loop check these
-  statuses.
-- `${DAG_RUN_STEP_NAME}` is the name of the current step. A `run` can use it in the name of a file
-  in `${DAG_RUN_WORK_DIR}`, so the same text serves each `verify` step.
+- A `repeat_policy` condition cannot read `${steps.<id>.outputs.<name>}` of its own step (Spec 007,
+  reason `self_reference`). The reference stays as text. Use a command condition that reads the
+  stdout file of the step.
+- A step with `continue_on: {exit_code: [1]}` that exits 1 stays `failed` in the run view, and the
+  next step runs. A step that fails before its process starts has no exit code, so it never matches
+  `exit_code`, and `${<id>.exit_code}` is `0` for it. A precondition on `${verify_1.exit_code}`
+  with `expected: "0"` and `negate: true` skips the next step when the exit code is 0. It runs the
+  next step for each other exit code. A skipped step makes the steps that depend on it skip, until a
+  step has `continue_on: {skipped: true}`. A failed step makes the steps that depend on it
+  `aborted`.
+- `${DAG_RUN_STEP_NAME}` is the name of the current step. A step with an `id` and no `name` has its
+  `id` as its name. A `run` can use it in the name of a file in `${DAG_RUN_WORK_DIR}`, so the same
+  text serves each `verify` step.
 
 ## Errors
 
@@ -1059,8 +1102,10 @@ The repository has the examples:
 - a reference `${NAME}` to a secret that the step does not get, in a DAG with step scope
 - `untrusted` on a step that does not run a process, on a step with `container`, or in `defaults`
 - `untrusted: false` on an `agent.run` step with a CLI provider
-- a reference to an output of an untrusted step in the `run`, the `command` or the `script` of a
-  trusted step. A step that is untrusted by default is an untrusted step.
+- a reference to data of the agent, on any step, outside the two places of [Trusted steps after an
+  untrusted step](#trusted-steps-after-an-untrusted-step): the whole value of an `env` entry as
+  `${steps.<id>.outputs.<name>}`, and `"$NAME"` in a `run` that `sh` or `bash` runs on the host of
+  Dagu. A step that is untrusted by default is an untrusted step.
 
 These cases stop a process at start with the exit code 1:
 
@@ -1089,6 +1134,9 @@ These cases fail a call or a step at run time:
   fails
 - an untrusted step in a process with no restricted user and no `untrusted.isolation: off`: the step
   fails with the reason `isolation_required`
+- a DAG of `with.dags` of an `agent.run` step that refers to an input that the agent sets outside
+  the two places of [Trusted steps after an untrusted step](#trusted-steps-after-an-untrusted-step):
+  the step fails at its start, or the call gets an error result
 - no agent worker for the provider within `coordinator.worker_wait_timeout`: the run fails
 
 ## Examples
@@ -1097,8 +1145,7 @@ These cases fail a call or a step at run time:
 
 The file `dev-with-agent.yaml` sets each key of `agent.run` that the provider `claude` accepts. It
 is one DAG and one run, with three rounds of the [verify loop](#a-verify-loop). It needs the tools
-`lookup-ticket.yaml` and `ops_notify.yaml` that follow it. The conformance fixture `conformance/spec092_agent_workers/testdata/dev-with-agent.yaml` holds the same text, and
-`dagu validate` accepts it.
+`lookup-ticket.yaml` and `ops_notify.yaml` that follow it. `dagu validate` accepts it.
 
 ```yaml
 description: Claude develops, a script verifies, the code pushes to a branch. A failed verify gives Claude its log for a new round, with 3 rounds at most. One DAG, one run.
@@ -1180,15 +1227,16 @@ steps:
             deny: ["git push *", "git remote *"]
 
   # The verify runs a stricter script than the one that Claude knows. This step is untrusted
-  # by default, so it runs as the restricted user. Its exit code is the verdict. The log goes
-  # to a file in the work directory, for the next round.
+  # by default, so it runs as the restricted user. Its exit code is the verdict: each failure
+  # of the script exits 1, and only 1 starts the next round. Any other failure of the step
+  # fails the run. The log goes to a file in the work directory, for the next round.
   - id: verify_1
     depends: [code_1]
     working_dir: repo
-    continue_on: { failure: true }
+    continue_on: { exit_code: [1] }
     run: |
       rc=0
-      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=$?
+      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=1
       cat "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log"
       exit $rc
 
@@ -1229,10 +1277,10 @@ steps:
   - id: verify_2
     depends: [code_2]
     working_dir: repo
-    continue_on: { failure: true }
+    continue_on: { exit_code: [1] }
     run: |
       rc=0
-      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=$?
+      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=1
       cat "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log"
       exit $rc
 
@@ -1270,25 +1318,30 @@ steps:
             allow: ["./scripts/test.sh", "git diff *", "git status *", "git log *"]
             deny: ["git push *", "git remote *"]
 
-  # This step also runs when a round before it passed. Then Dagu skipped code_3.
+  # Dagu skips this step when a round before it passed, because it skipped code_3. With
+  # continue_on skipped, the steps after the loop still run.
   - id: verify_3
     depends: [code_3]
     working_dir: repo
     continue_on: { skipped: true }
     run: |
       rc=0
-      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=$?
+      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=1
       cat "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log"
       exit $rc
 
   # The steps after the loop run on the last verify. They are trusted: untrusted: false.
-  # The verify script is a file of the repository, so the agent must not change it.
+  # check_paths keeps a change to a test, a script or the CI out of the push.
   - id: check_paths
     depends: [verify_3]
     untrusted: false
     working_dir: repo
     run: |
-      if [ -n "$(git status --porcelain -- scripts/ 'test_*' .github/)" ]; then
+      # The globs match a test file or a folder tests/ at any depth. A repository that keeps
+      # its tests in other paths adds them.
+      changed=$(git status --porcelain -- scripts/ .github/ \
+        ':(glob)**/test_*' ':(glob)**/*_test.*' ':(glob)**/tests/**')
+      if [ -n "$changed" ]; then
         echo "the agent changed a test, a script or the CI" >&2; exit 1
       fi
 
@@ -1308,12 +1361,11 @@ steps:
     working_dir: repo
     untrusted: false
     secrets: [GIT_TOKEN]
-    env:
-      - MESSAGE: ${COMMIT_MSG}
+    with: { shell: bash }
     run: |
       git checkout -b "${BRANCH}"
       git add -A
-      git -c user.name=dagu -c user.email=dagu@localhost commit -m "$MESSAGE"
+      git -c user.name=dagu -c user.email=dagu@localhost commit -m "$COMMIT_MSG"
       git -c credential.helper='!f() { echo username=git; echo "password=$GIT_TOKEN"; }; f' push origin "${BRANCH}"
 ```
 
@@ -1326,16 +1378,21 @@ are untrusted by default, because the DAG has an `agent.run` step and the steps 
 `agent.provider.claude`.
 
 If `verify_1` passes, Dagu skips `code_2`, `verify_2`, `code_3` and `verify_3`, and the run goes to
-`check_paths`. If `verify_1` fails, `code_2` runs. Its prompt gives the file `verify_1.log`. If
-`verify_3` fails, the run fails and nothing is pushed.
+`check_paths`. If the script of `verify_1` fails, `code_2` runs. Its prompt gives the file
+`verify_1.log`. If `verify_3` fails, or a verify step fails without the exit code 1, the run fails
+and nothing is pushed.
 
 The commit message of the step `message` comes from the text of the task, not from a result of the
-agent. The step `push` takes it through `env` and uses `"$MESSAGE"` in the script. So no value of
-the agent becomes shell code of a trusted step.
+agent. A model can still write any text, so the step `push` reads the reply as data of the agent is
+read: only as `"$COMMIT_MSG"`, in a `run` that `bash` runs. Dagu does not put the reply in the
+script and does not expand a `$NAME` in it, so a reply cannot run as code or pull `GIT_TOKEN` into
+the message.
 
 The step `code_1` gives Claude Code the DAGs `lookup-ticket` and `ops_notify` through the
 tool bridge of Spec 091, and the MCP server `docs` of `MCP_URL`. A call of a Dagu tool runs a
-trusted child run on the agent worker. The rounds 2 and 3 have the built-in tools only.
+trusted child run on the agent worker. The agent sets `CUSTOMER_ID` and `text`, so each tool reads
+its input only as `"$NAME"` in a `run` that `bash` runs. The rounds 2 and 3 have the built-in tools
+only.
 
 The tool `lookup-ticket.yaml`:
 
@@ -1348,7 +1405,8 @@ params:
     required: true
 steps:
   - id: lookup
-    run: echo "{\"id\":\"$CUSTOMER_ID\",\"plan\":\"gold\",\"open_tickets\":2}"
+    with: { shell: bash }
+    run: jq -nc --arg id "$CUSTOMER_ID" '{id: $id, plan: "gold", open_tickets: 2}'
     output: CUSTOMER
 ```
 
@@ -1363,9 +1421,8 @@ params:
     required: true
 steps:
   - id: post
-    action: log.write
-    with:
-      message: ${text}
+    with: { shell: bash }
+    run: printf '%s\n' "$text"
 ```
 
 ### Configuration of an agent worker
@@ -1456,9 +1513,16 @@ sends `POST https://api.openai.com/v1/chat/completions` with the real key.
 - A group of steps cannot repeat in one run. The verify loop writes each round as a pair of steps.
   The number of rounds is fixed, and each round costs a full run of the agent. See [Limits of the
   loop](#limits-of-the-loop).
-- The verdict of a verify step is the exit code of a script of the repository. The agent can change
-  the script. The step `check_paths` must refuse a change to it.
+- An agent that a prompt controls can make a verify pass. The verify runs files that the agent can
+  change, and an untrusted step can put a changed file back before a later check. The step
+  `check_paths` keeps a change to the verify script, the tests and the CI out of the push. See [The
+  log](#the-log).
 - A trusted step that runs a file of the work directory runs code of the agent.
+- Dagu checks the references to data of the agent, not the data. A program that runs a value or
+  reads a variable by its name, and a step that reads the files of the work directory, handle data
+  of the agent that no check sees. See [Trusted steps after an untrusted step](#trusted-steps-after-an-untrusted-step).
+- On Kubernetes, the next run on a pod can read the files that an earlier run on the pod left in
+  `/tmp` and in the Dagu home, because an `emptyDir` lives as long as the pod.
 - Each user can read the arguments of a process in `/proc/<pid>/cmdline`. No process of the
   restricted user runs at the same time as a trusted step of its run. But a process of another run
   can read them. Pass a secret in the environment, never in an argument.
@@ -1471,35 +1535,24 @@ Each item has a default. The default applies until the owner decides.
 | --- | --- |
 | The change of user in a pod of the level `restricted`, which forbids `CAP_SETUID`. A path with no capability, such as Landlock, is a candidate. | Level `baseline`, user ID 0 with six capabilities, `hostUsers: false` when the cluster supports it. A worker that cannot change user stops at start. |
 | The restart delay of Kubernetes after each exit of a container, also with the code 0. | A `Deployment`. A controller that starts one Job for each run is a later item. |
+| The files of an earlier run on a pod of Kubernetes. A container that restarts in the same pod keeps its `emptyDir` volumes. | The files stay. A worker that empties `/tmp` and its run folders before it polls, or one Job for each run, is a later item. |
 | The paths that the route of the upstream allows. | Each path. A list of allowed paths is a later item. |
-| A real rate limit with `retry_policy` and `exit_code: [75]`. | Not verified. The tests of Spec 091 use a fake CLI. |
+| A real rate limit with `retry_policy` and `exit_code: [75]`. | Not verified. |
 | The name of the label `agent.provider.<provider>` and of the key `untrusted`. | As in this spec. |
 
 ## Conformance
 
-Black-box tests are in `conformance/spec092_agent_workers/`. They use static fixtures, test
-certificates, a fake CLI and a fake model API. The demo in `examples/agent-worker-demo/` covers the
-whole chain on one host, with a fake CLI or, in its real mode, with Claude Code.
+Black-box tests go in `conformance/spec092_agent_workers/`. They use static fixtures, test
+certificates, a fake CLI and a fake model API. No test is there yet.
+
+The built parts have these tests:
+
+| Test | Proves |
+| --- | --- |
+| `TestSecretValidation` (`conformance/spec069_secrets/`) | `dagu validate` rejects a secret `ref` that starts with `ai/`. |
+| `internal/runtime/egress/` (unit) | The proxy allows the destinations of `--allow` and refuses the others. |
+
+The proxy has no black-box test yet.
 
 A test that changes to the restricted user needs Linux, the user ID 0 and the flag no-new-privileges.
-The helper `harness.RequireRestrictedUserHost` skips it on another host. Run these tests in a root
-container with the flag no-new-privileges. The table marks them "root".
-
-| Section | Tests |
-| --- | --- |
-| The agent worker: Start | `TestWorkerAgentStartChecks`. The checks 7 and 8: not covered, because a test cannot remove a capability of its own container. Go tests of `internal/runtime/untrusted` check them. |
-| The agent worker: one run and the end | `TestWorkerAgentTakesOneRunAndExits` (root). |
-| Routing: implied selector, dispatch, reserved labels | `TestRoutingValidateRejects`, `TestRoutingValidateAccepts`, `TestWorkerReservedLabelStopsTheWorker`. The match of a task with an agent worker: `TestWorkerAgentTakesOneRunAndExits` (root). No match within `coordinator.worker_wait_timeout`: not covered here. |
-| Worker pools: configuration | `TestPoolsInvalidConfigurationStopsTheCoordinator`, `TestPoolsConfigPrintsThePools`. |
-| Worker pools: behavior | `TestWorkerAgentTakesOneRunAndExits` (root) for an allowed pool. A call from another identity or pool: not covered here. Go tests of `internal/service/coordinator` check it with mutual TLS. |
-| Secrets of a step | `TestSecretsAndUntrustedValidation`, `TestSecretsStepScope`. The registry secret of a step on a worker: Spec 094, `TestRelayOnAnAgentWorker` (root) runs it. The refusal of a registry secret for another step: Go tests of the coordinator. |
-| Untrusted steps: the key and its default | `TestSecretsAndUntrustedValidation`, `TestUntrustedDefaultInAgentDAG`, `TestUntrustedDefaultWithoutAgentDAG`, `TestUntrustedDefaultGateWithEnvValidates`. |
-| Untrusted steps: no isolation | `TestUntrustedStepFailsWithoutIsolation`, `TestIsolationOffRunsWithAWarning`, `TestIsolationKeyErrorsStopTheProcess`, `TestFileOnlyBlockVariablesStopTheProcess`. The conformance tests that run without a restricted user set `untrusted.isolation: off` with the helper `harness.WriteIsolationOff`. |
-| Untrusted steps: isolation | `TestUntrustedIsolation` (root), `TestReviewSecretInArguments` (root), `TestReviewLeftoverThreadWatchesLaterStep` (root), `TestReviewBareRepository` (root). |
-| Trusted steps after an untrusted step | `TestReviewOutputInjection` (the validation part runs for each user; the run part is root), `TestUntrustedDefaultGateWithEnvValidates`. |
-| A verify loop | `TestLoopFixesInRoundTwo`, `TestLoopFailsWhenAllRoundsFail`, `TestLoopPassesInRoundOne`, `TestLoopFailsWhenARoundFails`. |
-| The egress proxy | `TestProxyInjectsTheKeyFromAFile`, `TestProxyInjectsTheKeyFromTheEnvironment`, `TestProxyInjectsTheKeyOverTLS`, `TestProxyAnthropicOAuthAddsTheBeta`, `TestProxyCredentialDestinations`, `TestProxyWithoutUpstreamRefusesOriginForm`, `TestProxyStartErrors`. |
-| The AI gateway | Spec 094. |
-| Verified points | `TestVerifyRepeatPolicyUntilCommand`, `TestVerifyRepeatPolicyUntilStdoutFile`, `TestVerifyRepeatPolicyLimit`, `TestVerifyRepeatPolicyWhileExitCode`, `TestVerifyRepeatPolicyOwnOutputIsNotReadable`, `TestVerifySubDAGOutputs`, `TestVerifyMaxOutputSize*`. |
-| Examples | `TestCompleteExampleValidates`, `TestCompleteExampleMatchesSpec`. |
-| Deployment | Not covered. The files of `deploy/agent-worker/` have a schema check only. |
+It skips on another host. Run these tests in a root container with the flag no-new-privileges.

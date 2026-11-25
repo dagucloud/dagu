@@ -1603,8 +1603,10 @@ steps:
     // third and the last step never start.
     const runA = await startDAG(request, token, fileName, { params: 'FAIL=1' });
     await waitForRunStatus(request, token, dagName, runA, ['failed']);
-    // Run B runs the third step alone, with the outputs of run A.
+    // Run B runs the third step alone, with the outputs of run A and its
+    // parameters: with others, the server refuses the steps it carries.
     const runB = await startDAG(request, token, fileName, {
+      params: 'FAIL=1',
       steps: ['third'],
       outputsFromRunId: runA,
       labels: ['dagu.source=editor', `dagu.outputs-from=${runA}`],

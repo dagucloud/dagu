@@ -94,7 +94,7 @@ It must not be treated as product behavior until implementation catches up.
 | [093: AI Endpoints](093-ai-endpoints.md) | Implemented |
 | [094: AI Gateway](094-ai-gateway.md) | Implemented |
 | [095: MCP Servers](095-mcp-servers.md) | Implemented |
-| [096: Skills](096-skills.md) | Implemented |
+| [096: Skills](096-skills.md) | Partially implemented |
 | [097: Derived Dates](097-derived-dates.md) | Partially implemented |
 | [098: MCP Call Action](098-mcp-call.md) | Implemented |
 | [099: A2A Actions](099-a2a.md) | Implemented |

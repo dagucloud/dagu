@@ -328,21 +328,38 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	return nil
 }
 
+// workerLabels applies the label rules to the configured labels and adds the
+// built-in platform labels. Keys and values are lowercased and a label with no
+// value is kept. The error names every label that breaks the rules.
 func workerLabels(configured map[string]string) (map[string]string, error) {
-	// The labels of the agent workers come from the option --agent. A configured
-	// label with one of these keys would make a false claim.
+	labels := make(map[string]string, len(configured)+2)
+	var errs []error
 	for _, key := range slices.Sorted(maps.Keys(configured)) {
 		if ir.IsAgentLabel(key) {
 			// Spec 092, "Reserved labels": only the option --agent sets them.
-			return nil, fmt.Errorf(
+			errs = append(errs, fmt.Errorf(
 				"worker label %q is reserved: Dagu sets the labels that start with %s; start the worker with --agent <provider>=<path> to make an agent worker",
 				key, ir.AgentLabelPrefix,
-			)
+			))
+			continue
 		}
+		// Validate the label as configured, so a key holding "=" fails instead
+		// of being reparsed as key=value.
+		configuredLabel := ir.Label{Key: key, Value: configured[key]}
+		text := configuredLabel.String()
+		if err := ir.ValidateLabel(configuredLabel); err != nil {
+			errs = append(errs, fmt.Errorf("worker label %q: %w", text, err))
+			continue
+		}
+		label := ir.ParseLabel(text)
+		if _, ok := labels[label.Key]; ok {
+			errs = append(errs, fmt.Errorf("worker label %q: key %q is set more than once", text, label.Key))
+			continue
+		}
+		labels[label.Key] = label.Value
 	}
-	labels := maps.Clone(configured)
-	if labels == nil {
-		labels = make(map[string]string, 2)
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 	for _, platform := range []struct {
 		key   string
