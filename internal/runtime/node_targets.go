@@ -152,7 +152,6 @@ func stepOutputEnvs(scope *cmnvalue.EnvScope) []string {
 // matchStepNodes returns the nodes a step's selector matches and the run's
 // node list names, in name order. A step that would run on no node, or on
 // more than maxStepNodes, fails, unless only the list leaves it no node.
-
 func matchStepNodes(ctx context.Context, selector string) ([]inventory.ResolvedNode, error) {
 	resolved, err := resolveNodeSelector(ctx, selector)
 	if err != nil {
