@@ -155,6 +155,19 @@ describe('StartDAGModal', () => {
       );
     });
 
+    // The Enter that ends an IME composition confirms the name, so it does
+    // not start the run.
+    it('does not start on the Enter that ends an IME composition', () => {
+      const onSubmit = renderModal({ name: 'deploy-one', nodeRequired: true });
+
+      const node = screen.getByRole('combobox', { name: 'Node' });
+      fireEvent.change(node, { target: { value: 'web01' } });
+      node.focus();
+      fireEvent.keyDown(node, { key: 'Enter', keyCode: 229 });
+
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+
     it('holds the start until a node is named', async () => {
       const user = userEvent.setup();
       const onSubmit = renderModal({ name: 'deploy-one', nodeRequired: true });

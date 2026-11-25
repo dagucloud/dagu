@@ -380,8 +380,14 @@ function StartDAGModal({
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       // A field that handles Enter itself, such as choosing a suggestion,
-      // prevents its default.
-      if (!visible || event.isComposing || event.defaultPrevented) {
+      // prevents its default. Safari sends the Enter that ends an IME
+      // composition with keyCode 229 and isComposing false.
+      if (
+        !visible ||
+        event.isComposing ||
+        event.keyCode === 229 ||
+        event.defaultPrevented
+      ) {
         return;
       }
 
