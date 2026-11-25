@@ -8,7 +8,8 @@ import { useNavigate } from 'react-router-dom';
 import { Status } from '@/api/v1/schema';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import { getNotificationRoot } from '@/components/ui/notification-root';
-import StatusChip from '@/components/ui/status-chip';
+import { RemoteNodeProvider } from '@/contexts/RemoteNodeContext';
+import { RunStatusChip } from '@/features/dag-runs/components/common/RunStatusChip';
 import { Button } from '@/components/ui/button';
 import { useBoundedDAGRunDetails } from '@/features/dag-runs/hooks/useBoundedDAGRunDetails';
 import { buildDAGPageURL } from '@/features/dag-runs/lib/dagRunUrls';
@@ -154,9 +155,17 @@ function RunProgressCard({
             {dagRun?.name || run.dagName}
           </span>
           {dagRun?.status != null ? (
-            <StatusChip status={dagRun.status} size="xs">
-              {dagRun.statusLabel}
-            </StatusChip>
+            // The chip reads the node of the run, not the one of the app bar.
+            <RemoteNodeProvider remoteNode={run.remoteNode}>
+              <RunStatusChip
+                name={dagRun.name}
+                dagRunId={dagRun.dagRunId}
+                status={dagRun.status}
+                size="xs"
+              >
+                {dagRun.statusLabel}
+              </RunStatusChip>
+            </RemoteNodeProvider>
           ) : isLoading ? (
             <LoadingIndicator />
           ) : null}

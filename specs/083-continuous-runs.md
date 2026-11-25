@@ -264,11 +264,12 @@ The page of a run shows a continuous step with:
 The chart draws at most the `points` buckets of the response. It never draws
 one element for each sample.
 
-A run whose status is Running reads Healthy while a continuous step runs or
-waits for its next iteration and no node has failed or been rejected. This
-holds for every DAG, whatever its schedule. A failed node, a stopped
-continuous step or any other run status shows the normal status, so a
-failure stays visible.
+A run whose status is Running reads Healthy only when its DAG is a service
+DAG ([Spec 080](080-restart-policy.md)) and no node has failed or been
+rejected. When the run has a continuous step, that step must run or wait for
+its next iteration. A run of a cron DAG or a manual DAG reads Running, also
+with a continuous step. A failed node, a stopped continuous step or any other
+run status shows the normal status, so a failure stays visible.
 
 ## Constraints
 
@@ -322,6 +323,7 @@ fixtures in `conformance/spec083_continuous_runs/testdata` give both.
   `samples` has at most `points` buckets for a window of three years.
 - A request for a step that is not continuous gets `404`.
 - A running run with a running continuous step and no failed node reads
-  Healthy. A failed node, a stopped continuous step or a run that is not
-  Running shows the normal status.
+  Healthy for a service DAG and Running for a cron DAG. A failed node, a
+  stopped continuous step or a run that is not Running shows the normal
+  status.
 - The compact count rounds down, and the tooltip gives the whole count.

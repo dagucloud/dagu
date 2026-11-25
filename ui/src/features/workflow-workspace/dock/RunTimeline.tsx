@@ -28,11 +28,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime, formatElapsed } from '@/lib/dagRunTiming';
 import dayjs from '@/lib/dayjs';
 import { shortRunId } from '@/lib/shortRunId';
-import {
-  hasContinuousStep,
-  runDisplayStatus,
-  summaryDisplayStatus,
-} from '@/lib/runDisplayStatus';
+import { runDisplayStatus, summaryDisplayStatus } from '@/lib/runDisplayStatus';
 import { runStatusText, isLiveRunStatus } from '@/lib/status-utils';
 import { toneClasses } from '@/lib/statusPalette';
 import { cn } from '@/lib/utils';
@@ -1436,17 +1432,16 @@ export function RunTimeline({ compact = false }: { compact?: boolean }) {
   const loading = visible.isLoading;
 
   const { dagData } = useWorkspaceData('RunTimeline');
-  const continuous = hasContinuousStep(dagData.dag?.steps);
   const selected = run.details;
   // A bar knows its summary only: the definition decides, and the selected
   // run also has its steps.
   const statusTextOf = useCallback<StatusTextOf>(
     (item) =>
       (selected && item.dagRunId === selected.dagRunId
-        ? runDisplayStatus(selected)
-        : summaryDisplayStatus(item.status, continuous)
+        ? runDisplayStatus(selected, { service })
+        : summaryDisplayStatus(item.status, { service })
       ).text,
-    [selected, continuous]
+    [selected, service]
   );
   const inRange = settings.mode === 'range';
   const select = (id: string) => run.select(id, { replace: true });

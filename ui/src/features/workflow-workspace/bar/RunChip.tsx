@@ -23,6 +23,7 @@ import { readRepeatPolicy } from '@/components/ui/repeat-summary';
 import { isEphemeralRun } from '@/features/visual-editor/run/inputProvenance';
 import AutoRetryBadge from '@/features/dag-runs/components/common/AutoRetryBadge';
 import { useI18n } from '@/i18n/I18nProvider';
+import { isServiceDAG } from '@/lib/dagSchedule';
 import { runDisplayStatus } from '@/lib/runDisplayStatus';
 import { readableToneText, toneClasses } from '@/lib/statusPalette';
 import { cn } from '@/lib/utils';
@@ -141,7 +142,9 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
     dock.openStep({ step, stream: 'stderr' });
   };
 
-  const display = runDisplayStatus(details);
+  const display = runDisplayStatus(details, {
+    service: !!dag && isServiceDAG(dag),
+  });
   const visible = visibleFacts(shownFacts, failedRun);
   // The warning dot of a run of another definition stands in front of the run
   // ID, in place of the #. Without the ID in the row it keeps its own slot.
@@ -158,6 +161,8 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
   const continuousPolicy = continuous
     ? readRepeatPolicy(continuous.step.repeatPolicy)
     : null;
+
+  const noCount = run.isActive && display.healthy && !continuous;
 
   // The skipped steps are not in the count: they did not have to run.
   const nodes = (details.nodes ?? []).filter(
@@ -316,7 +321,12 @@ export function RunChip({ fileName, dag }: BarSlotProps) {
           done; a run that never ends shows how many times its continuous
           step ran. The slot is there, empty, at any other time, so that the
           chip keeps its width when a run starts or ends. */}
-      <span data-testid="ww-run-count-slot" className={COUNT_SLOT}>
+      <span
+        data-testid="ww-run-count-slot"
+        // A healthy run with no continuous step never has a count: it leaves
+        // no gap between the heart and the next fact.
+        className={cn(COUNT_SLOT, noCount && 'hidden')}
+      >
         {run.isActive && display.healthy
           ? continuousPolicy &&
             continuous &&
