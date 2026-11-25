@@ -559,6 +559,38 @@ func (store *Store) Initialize() error {
 	return store.ensureDirExist()
 }
 
+// MetadataByIDs returns the metadata of each DAG that an id names, by id. A
+// flat store reads the named files only, so the cost follows the count of
+// ids, not of DAGs; a recursive store finds them in one catalog read.
+func (store *Store) MetadataByIDs(ctx context.Context, ids []string) (map[string]*ir.DAG, error) {
+	dags := make(map[string]*ir.DAG, len(ids))
+	if store.recursive {
+		catalog, err := store.loadCatalog(ctx, false)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read DAGs directory %s: %w", store.baseDir, err)
+		}
+		for _, id := range ids {
+			if entry, ok := catalog.byStem[id]; ok {
+				dag := dagindex.DAGFromEntry(entry, store.baseDir)
+				spec.BindScheduleCalendars(dag.Schedule, store.calendars)
+				dags[id] = dag
+			}
+		}
+		return dags, nil
+	}
+	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		dag, err := store.GetMetadata(ctx, id)
+		if err != nil {
+			continue
+		}
+		dags[id] = dag
+	}
+	return dags, nil
+}
+
 // GetMetadata retrieves the metadata of a DAG by its name.
 func (store *Store) GetMetadata(ctx context.Context, name string) (*ir.DAG, error) {
 	resolved, err := store.locateDAG(ctx, name)

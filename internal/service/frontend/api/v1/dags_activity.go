@@ -6,14 +6,14 @@ package api
 import (
 	"context"
 	"fmt"
-	"math"
+	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/dagucloud/dagu/v2/internal/pagination"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/samples"
 )
@@ -119,29 +119,22 @@ func (a *API) dagActivities(ctx context.Context, names []string, window time.Dur
 	return page, nil
 }
 
-// visibleDAGsByFile reads the DAG index once and returns the DAGs of the list
-// that a name names and the caller can see, by file name. One read of the
-// index costs the same whatever the count of names, and no file path is built
-// from a name.
+// visibleDAGsByFile returns the DAGs that a name names and the caller can
+// see, by file name. It reads the named DAGs only, so a request costs the
+// count of its names, not of all DAGs. A name that is not a file name of the
+// list, such as a path, names no DAG.
 func (a *API) visibleDAGsByFile(ctx context.Context, names []string) (map[string]*ir.DAG, error) {
-	wanted := make(map[string]struct{}, len(names))
-	for _, name := range names {
-		wanted[name] = struct{}{}
-	}
-	all := pagination.NewPaginator(1, math.MaxInt)
-	result, _, err := a.dagRepository.List(ctx, persis.DAGListOptions{
-		Paginator:       &all,
-		WorkspaceFilter: a.workspaceFilterForContext(ctx),
+	fileNames := slices.DeleteFunc(slices.Clone(names), func(name string) bool {
+		return name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`)
 	})
+	dags, err := a.dagRepository.MetadataByIDs(ctx, fileNames)
 	if err != nil {
-		return nil, fmt.Errorf("error listing DAGs: %w", err)
+		return nil, fmt.Errorf("error reading DAGs: %w", err)
 	}
-	dags := make(map[string]*ir.DAG, len(names))
-	for _, item := range result.Items {
-		if _, ok := wanted[item.ID]; ok {
-			dags[item.ID] = item.DAG
-		}
-	}
+	filter := a.workspaceFilterForContext(ctx)
+	maps.DeleteFunc(dags, func(_ string, dag *ir.DAG) bool {
+		return !filter.MatchesLabels(dag.Labels)
+	})
 	return dags, nil
 }
 
