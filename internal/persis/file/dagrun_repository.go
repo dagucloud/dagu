@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	filebackfill "github.com/dagucloud/dagu/v2/internal/persis/file/backfill"
 	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/runpath"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/slotindex"
 )
 
@@ -65,6 +66,7 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *pe
 
 	storeOpts := []filedagrun.StoreOption{
 		filedagrun.WithArtifactDir(cfg.Paths.ArtifactDir),
+		filedagrun.WithRunPaths(runPaths(cfg)),
 		filedagrun.WithRetryCandidateCacheLimit(cfg.Cache.Limits().DAGRun.Limit),
 	}
 	if options.HistoryFileCache != nil {
@@ -92,6 +94,14 @@ func NewDAGRunRepository(cfg *config.Config, opts ...DAGRunRepositoryOption) *pe
 		CalendarsDir:      cfg.Paths.CalendarsDir,
 		OnRetry:           onRetry,
 	})
+}
+
+// runPaths returns how run records store the paths of logs, step output, and
+// artifacts. Runs write them under paths.log_dir and paths.artifact_dir, and
+// records store them relative to those directories while projects are on.
+func runPaths(cfg *config.Config) runpath.Mapper {
+	dirs := runpath.Dirs{Log: cfg.Paths.LogDir, Artifact: cfg.Paths.ArtifactDir}
+	return runpath.New(dirs, dirs, cfg.ProjectsEnabled)
 }
 
 // followBackfillRetry has the backfill of a retried run follow the retry.

@@ -30,6 +30,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/dagrunindex"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/runpath"
 )
 
 // DataRoot manages the directory structure for run history data.
@@ -38,11 +39,12 @@ import (
 type DataRoot struct {
 	dirlock.DirLock // Directory lock for concurrent access
 
-	baseDir     string // Base directory for all DAGs
-	artifactDir string // Trusted root for artifact cleanup
-	prefix      string // Sanitized prefix for directory names
-	dagRunsDir  string // Path to the dag-runs directory
-	globPattern string // Pattern for finding run directories
+	baseDir     string         // Base directory for all DAGs
+	artifactDir string         // Trusted root for artifact cleanup
+	paths       runpath.Mapper // How run records store their paths
+	prefix      string         // Sanitized prefix for directory names
+	dagRunsDir  string         // Path to the dag-runs directory
+	globPattern string         // Pattern for finding run directories
 }
 
 // NewDataRoot creates a new DataRoot instance for managing a DAG's run history.
@@ -151,7 +153,7 @@ func (dr *DataRoot) FindByDAGRunID(ctx context.Context, dagRunID string) (*DAGRu
 					return nil, err
 				}
 				dayPath := filepath.Join(monthPath, day)
-				run, err := findDAGRunInDay(ctx, dayPath, dagRunID, dr.artifactDir)
+				run, err := findDAGRunInDay(ctx, dayPath, dagRunID, dr.artifactDir, dr.paths)
 				if err != nil {
 					return nil, fmt.Errorf("failed to scan day directory %s: %w", dayPath, err)
 				}
@@ -165,7 +167,7 @@ func (dr *DataRoot) FindByDAGRunID(ctx context.Context, dagRunID string) (*DAGRu
 	return nil, fmt.Errorf("%w: %s", dagrun.ErrDAGRunIDNotFound, dagRunID)
 }
 
-func findDAGRunInDay(ctx context.Context, dayPath, dagRunID, artifactDir string) (*DAGRun, error) {
+func findDAGRunInDay(ctx context.Context, dayPath, dagRunID, artifactDir string, paths runpath.Mapper) (*DAGRun, error) {
 	entries, err := readDirUnsorted(dayPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -189,7 +191,7 @@ func findDAGRunInDay(ctx context.Context, dayPath, dagRunID, artifactDir string)
 	if newest == "" {
 		return nil, nil
 	}
-	return newDAGRun(filepath.Join(dayPath, newest), artifactDir)
+	return newDAGRun(filepath.Join(dayPath, newest), artifactDir, paths)
 }
 
 // readDirUnsorted lists a directory in the order the file system returns it,
@@ -279,7 +281,7 @@ func (dr *DataRoot) CreateDAGRun(ts persis.TimeInUTC, dagRunID string) (*DAGRun,
 		return nil, fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
-	return newDAGRun(dir, dr.artifactDir)
+	return newDAGRun(dir, dr.artifactDir, dr.paths)
 }
 
 // Exists checks if the dag-runs directory exists in the file system.
@@ -579,7 +581,7 @@ SCAN:
 				if indexEntries != nil && len(indexEntries) == dagRunDirCount {
 					for _, ie := range indexEntries {
 						runPath := filepath.Join(dayPath, ie.DagRunDir)
-						run, err := newDAGRun(runPath, dr.artifactDir)
+						run, err := newDAGRun(runPath, dr.artifactDir, dr.paths)
 						if err != nil {
 							continue
 						}
@@ -605,7 +607,7 @@ SCAN:
 					}
 
 					if errs := processFilesParallel(files, func(filePath string) error {
-						run, err := newDAGRun(filePath, dr.artifactDir)
+						run, err := newDAGRun(filePath, dr.artifactDir, dr.paths)
 						if err != nil {
 							logger.Debug(ctx, "Failed to create run from file",
 								tag.File(filePath),
@@ -690,7 +692,7 @@ YEAR_LOOP:
 
 	var result []*DAGRun
 	for _, f := range founds {
-		run, err := newDAGRun(f, dr.artifactDir)
+		run, err := newDAGRun(f, dr.artifactDir, dr.paths)
 		if err != nil {
 			continue
 		}

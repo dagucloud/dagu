@@ -25,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/runpath"
 )
 
 // Error definitions for directory structure validation
@@ -99,6 +100,7 @@ type DAGRunSummary struct {
 type DAGRun struct {
 	baseDir     string         // Base directory path for this run
 	artifactDir string         // Trusted root for artifact cleanup
+	paths       runpath.Mapper // How the run's records store their paths
 	timestamp   time.Time      // Timestamp when the run was created
 	dagRunID    string         // Unique identifier for the dag-run
 	summary     *DAGRunSummary // Optional pre-loaded summary from index
@@ -107,16 +109,17 @@ type DAGRun struct {
 // NewDAGRun creates a new Run instance from a directory path.
 // It parses the directory name to extract the timestamp and dag-run ID.
 func NewDAGRun(dir string) (*DAGRun, error) {
-	return newDAGRun(dir, "")
+	return newDAGRun(dir, "", runpath.Mapper{})
 }
 
-func newDAGRun(dir, artifactDir string) (*DAGRun, error) {
+func newDAGRun(dir, artifactDir string, paths runpath.Mapper) (*DAGRun, error) {
 	// Determine if the run is a sub dag-run or a regular dag-run.
 	parentDir := filepath.Dir(dir)
 	if dagRunID, ok := subDAGRunIDFromDir(filepath.Base(parentDir), filepath.Base(dir)); ok {
 		return &DAGRun{
 			baseDir:     dir,
 			artifactDir: artifactDir,
+			paths:       paths,
 			dagRunID:    dagRunID,
 		}, nil
 	}
@@ -132,6 +135,7 @@ func newDAGRun(dir, artifactDir string) (*DAGRun, error) {
 	return &DAGRun{
 		baseDir:     dir,
 		artifactDir: artifactDir,
+		paths:       paths,
 		timestamp:   ts,
 		dagRunID:    matches[2],
 	}, nil
@@ -160,7 +164,7 @@ func (dr DAGRun) CreateAttempt(_ context.Context, ts persis.TimeInUTC, cache *fi
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create the run directory: %w", err)
 	}
-	return NewAttempt(filepath.Join(dir, JSONLStatusFile), cache, WithArtifactRoot(dr.artifactDir))
+	return NewAttempt(filepath.Join(dir, JSONLStatusFile), cache, dr.attemptOptions()...)
 }
 
 // CreateSubDAGRun creates a new sub dag-run with the given timestamp and dag-run ID.
@@ -172,7 +176,7 @@ func (dr DAGRun) CreateSubDAGRun(_ context.Context, dagRunID string) (*DAGRun, e
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return nil, fmt.Errorf("failed to create sub dag-run directory: %w", err)
 	}
-	return newDAGRun(dir, dr.artifactDir)
+	return newDAGRun(dir, dr.artifactDir, dr.paths)
 }
 
 // FindSubDAGRun searches for a sub dag-run by its run ID.
@@ -186,7 +190,7 @@ func (dr DAGRun) FindSubDAGRun(_ context.Context, dagRunID string) (*DAGRun, err
 	} {
 		info, err := fileutil.Stat(dir)
 		if err == nil && info.IsDir() {
-			return newDAGRun(dir, dr.artifactDir)
+			return newDAGRun(dir, dr.artifactDir, dr.paths)
 		}
 		if err != nil && !os.IsNotExist(err) {
 			return nil, fmt.Errorf("failed to read sub dag-run %s: %w", dir, err)
@@ -220,7 +224,7 @@ func (dr DAGRun) ListSubDAGRuns(ctx context.Context) ([]*DAGRun, error) {
 				continue
 			}
 
-			subDAGRun, err := newDAGRun(filepath.Join(subDir, entry.Name()), dr.artifactDir)
+			subDAGRun, err := newDAGRun(filepath.Join(subDir, entry.Name()), dr.artifactDir, dr.paths)
 			if err != nil {
 				logger.Error(ctx, "Failed to read sub dag-run data",
 					tag.Error(err),
@@ -248,7 +252,7 @@ func (dr DAGRun) LatestAttempt(ctx context.Context, cache *fileutil.Cache[*ir.DA
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		att, err := NewAttempt(filepath.Join(dr.baseDir, attDir, JSONLStatusFile), cache, WithArtifactRoot(dr.artifactDir))
+		att, err := NewAttempt(filepath.Join(dr.baseDir, attDir, JSONLStatusFile), cache, dr.attemptOptions()...)
 		if err != nil {
 			logger.Error(ctx, "Failed to read a run data", tag.Error(err))
 			continue
@@ -284,7 +288,12 @@ func (dr DAGRun) newestAttemptID() (string, error) {
 // AttemptByDir constructs an Attempt directly from a known attempt directory name,
 // skipping the directory listing and sorting done by LatestAttempt.
 func (dr DAGRun) AttemptByDir(attemptDir string, cache *fileutil.Cache[*ir.DAGRunStatus]) (*Attempt, error) {
-	return NewAttempt(filepath.Join(dr.baseDir, attemptDir, JSONLStatusFile), cache, WithArtifactRoot(dr.artifactDir))
+	return NewAttempt(filepath.Join(dr.baseDir, attemptDir, JSONLStatusFile), cache, dr.attemptOptions()...)
+}
+
+// attemptOptions returns the options of the run's attempts.
+func (dr DAGRun) attemptOptions() []AttemptOption {
+	return []AttemptOption{WithArtifactRoot(dr.artifactDir), withRunPaths(dr.paths)}
 }
 
 // Remove deletes the entire dag-run directory and all its contents.
@@ -493,7 +502,7 @@ func (dr DAGRun) listLogFiles(ctx context.Context) ([]string, error) {
 
 	var logFiles, nodeLogs, logDirs []string
 	for _, attDir := range attDirs {
-		attempt, err := NewAttempt(filepath.Join(dr.baseDir, attDir, JSONLStatusFile), nil)
+		attempt, err := NewAttempt(filepath.Join(dr.baseDir, attDir, JSONLStatusFile), nil, withRunPaths(dr.paths))
 		if err != nil {
 			logger.Error(ctx, "Failed to read attempt data",
 				tag.Error(err),
@@ -549,7 +558,7 @@ func (dr DAGRun) listArtifactDirs(ctx context.Context) ([]string, error) {
 
 	var artifactDirs []string
 	for _, attDir := range attDirs {
-		attempt, err := NewAttempt(filepath.Join(dr.baseDir, attDir, JSONLStatusFile), nil)
+		attempt, err := NewAttempt(filepath.Join(dr.baseDir, attDir, JSONLStatusFile), nil, withRunPaths(dr.paths))
 		if err != nil {
 			logger.Error(ctx, "Failed to read attempt data",
 				tag.Error(err),

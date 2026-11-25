@@ -41,8 +41,8 @@ type Record struct {
 	// Ephemeral keeps the run out of listings.
 	Ephemeral bool `json:"ephemeral,omitempty"`
 
-	// Dir is absolute, and points outside the date tree when the DAG relocates
-	// its artifacts with artifacts.dir.
+	// Dir is in the form runpath stores, and points outside the date tree
+	// when the DAG relocates its artifacts with artifacts.dir.
 	Dir string `json:"dir"`
 }
 
