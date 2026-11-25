@@ -326,6 +326,60 @@ describe('SSEManager', () => {
     unsubscribePrimary();
   });
 
+  // A rejected change that also removes topics asks for the removals again on
+  // their own, so that the server stops sending topics nothing reads.
+  it('asks again to remove the topics of a rejected change', async () => {
+    const manager = new SSEManager();
+    const unsubscribePrimary = manager.subscribeTopic(
+      'dag:test.yaml',
+      'local',
+      '/api/v1',
+      { onData: () => undefined, onStateChange: () => undefined }
+    );
+    const unsubscribeRemoved = manager.subscribeTopic(
+      'queueitems:default',
+      'local',
+      '/api/v1',
+      { onData: () => undefined, onStateChange: () => undefined }
+    );
+    MockEventSource.instances[0]!.emit('control', {
+      sessionID: 'session-1',
+      subscribed: ['dag:test.yaml', 'queueitems:default'],
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: async () => ({ code: 'invalid_topic', message: 'bad topic' }),
+      } as Response)
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ subscribed: ['dag:test.yaml'], errors: [] }),
+      } as Response);
+
+    unsubscribeRemoved();
+    const unsubscribeAdded = manager.subscribeTopic(
+      'queues:',
+      'local',
+      '/api/v1',
+      { onData: () => undefined, onStateChange: () => undefined }
+    );
+    await vi.advanceTimersByTimeAsync(200);
+    await vi.advanceTimersByTimeAsync(5000);
+
+    const bodies = vi
+      .mocked(fetch)
+      .mock.calls.map(([, init]) => JSON.parse(String(init?.body)));
+    expect(bodies).toMatchObject([
+      { add: ['queues:'], remove: ['queueitems:default'] },
+      { add: [], remove: ['queueitems:default'] },
+    ]);
+
+    unsubscribeAdded();
+    unsubscribePrimary();
+  });
+
   // A server that fails a topic change can take it later: it is asked again
   // after a wait that grows with each failure, not at once.
   it('asks again for a failed topic change after a wait', async () => {

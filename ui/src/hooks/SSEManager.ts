@@ -728,12 +728,16 @@ export class SSEManager {
             : 'Failed to update SSE topics';
         if (response.status >= 400 && response.status < 500) {
           // The server rejects the same change again: the topics that it
-          // would add fall back to polling instead.
+          // would add fall back to polling instead. Its removals are asked
+          // for again on their own, so that the server stops sending those
+          // topics, unless they were the whole change.
           for (const topic of add) {
             conn.pendingAdd.delete(topic);
           }
-          for (const topic of remove) {
-            conn.pendingRemove.delete(topic);
+          if (add.length === 0) {
+            for (const topic of remove) {
+              conn.pendingRemove.delete(topic);
+            }
           }
           this.updateState(conn, { error: new Error(message) });
           return;
