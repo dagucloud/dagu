@@ -181,8 +181,9 @@ and a mistake fails the request:
 - a start of selected steps takes no list.
 
 The run keeps the list, spelled as the inventory spells the names, in its
-status. Queued runs, retries, and `dagu restart` keep it, run details carry
-it as `targetNodes`, and the audit entry of the start records it.
+status. Queued runs, retries, edit-and-retry runs, and `dagu restart` keep
+it, run details carry it as `targetNodes`, and the audit entry of the start
+records it.
 
 A step whose selector matches nodes, none of which the list names, is
 `skipped`, and the skip does not block the steps after it, as a step skipped
