@@ -342,6 +342,7 @@ A step changed since a run when one of these differs between that run and the ne
 - The base config counts by its values: comments, spacing, and SMTP do not count.
 - `settings` leaves out `params`, which count as resolved. Of the handlers, only `handler_on.init` counts, since it runs before the steps; the other handlers run after them. The handlers of the base config count the same way.
 - The reason names every change in the order of the table, joined as a sentence and followed by `changed since that run`, such as `the step and the parameters changed since that run`.
+- A step gives the change `carried` when, in that run, it or a step it depends on took outputs of a changed step with consent, as `changes` of [Reused Inputs](#reused-inputs) records. Its outputs there came from what the step did before, although the definitions now match. The reason is `in that run it or a step it depends on took outputs of a changed step`.
 - A run that keeps no definition that can be compared gives the change `unknown`, with the reason `what that run ran cannot be compared`.
 
 #### Reusing Unchanged Steps
@@ -398,7 +399,9 @@ A selected-steps run records where the carried outputs of its skipped steps come
 
 - Only a skipped step that a selected step depends on, directly or through other steps, carries outputs. This includes a step that `outputs` or `outputsFromRuns` names. A skipped step that no selected step depends on, such as a step after the selected steps, carries no outputs, no log and no times. It is recorded as skipped, has no entry, and shows no mark of reuse.
 
-- An entry has `step` (the step name), `runId`, `capturedAt`, `startedAt`, `finishedAt` and `via`. `capturedAt` is absent when it is unknown.
+- An entry has `step` (the step name), `runId`, `capturedAt`, `startedAt`, `finishedAt`, `via`, and `changes`. `capturedAt` is absent when it is unknown.
+
+- `changes` lists, by the names of [Changed Steps](#changed-steps), what had changed for a step of `via` `run` that the request consented to reuse anyway. It is absent when nothing changed.
 
 - `via` is `run` for a step whose outputs come from `outputsFromRunId`, or from `outputsFromRuns` for that step. Then `runId` is the run that gave the outputs. `startedAt` and `finishedAt` are the times that the step had in that run, with the precision that the source run stored (millisecond for a new run), and `capturedAt` is the finish time of the step in that run. A time is absent when the node of that run has none.
 

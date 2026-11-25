@@ -328,6 +328,10 @@ type ReusedInput struct {
 	StartedAt  string         `json:"startedAt,omitempty"`
 	FinishedAt string         `json:"finishedAt,omitempty"`
 	Via        ReusedInputVia `json:"via"`
+	// Changes lists what had changed for the step since the run the outputs
+	// come from, when the request consented to reuse them anyway. It is empty
+	// when nothing changed.
+	Changes []StepChange `json:"changes,omitempty"`
 }
 
 // StepChange names what changed for a step since a run that it carries
@@ -348,6 +352,9 @@ const (
 	// StepChangeSettings marks a change of the DAG's definition other than its
 	// steps.
 	StepChangeSettings StepChange = "settings"
+	// StepChangeCarried marks a step that, in the run, took outputs from a
+	// changed step, or depends on a step that did.
+	StepChangeCarried StepChange = "carried"
 	// StepChangeUnknown marks a run whose definition cannot be compared, such
 	// as one that keeps no definition.
 	StepChangeUnknown StepChange = "unknown"

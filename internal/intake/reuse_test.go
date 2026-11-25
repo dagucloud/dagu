@@ -77,7 +77,10 @@ func TestStepsToRun(t *testing.T) {
 		profile string
 		// failed is a step that failed in the earlier run.
 		failed string
-		want   []string
+		// consented is a step that the earlier run reused although it
+		// changed.
+		consented string
+		want      []string
 	}{
 		{name: "Unchanged", yaml: reuseSpec, want: nil},
 		{name: "ChangedStepAndTheStepsAfterIt", yaml: strings.Replace(reuseSpec, "under 7000", "under 5000", 1), want: []string{"filter", "report"}},
@@ -90,10 +93,14 @@ func TestStepsToRun(t *testing.T) {
 		{name: "AddedSuccessHandler", yaml: withHandler(reuseSpec, "success"), want: nil},
 		{name: "AddedInitHandler", yaml: withHandler(reuseSpec, "init"), want: []string{"page", "filter", "report", "notes"}},
 		{name: "AddedLocalDAG", yaml: reuseSpec + localDAGSpec, want: []string{"page", "filter", "report", "notes"}},
+		{name: "ConsentedStepAndTheStepsAfterIt", yaml: reuseSpec, consented: "page", want: []string{"page", "filter", "report"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			source := succeededRun(earlier)
+			if tc.consented != "" {
+				source.ReusedInputs = []ir.ReusedInput{{Step: tc.consented, RunID: "older", Via: ir.ReusedInputViaRun, Changes: []ir.StepChange{ir.StepChangeStep}}}
+			}
 			for _, node := range source.Nodes {
 				if node.Step.Name == tc.failed {
 					node.Status = ir.NodeFailed

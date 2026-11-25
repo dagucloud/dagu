@@ -192,7 +192,25 @@ func PlanSelectedSteps(dag *ir.DAG, profile string, sel StepSelection) (*Selecte
 	for name := range allowed {
 		plan.allowed[name] = struct{}{}
 	}
+	plan.recordConsent()
 	return plan, nil
+}
+
+// recordConsent writes onto Reused what changed for each carried step that
+// the caller consents to reuse anyway, so that the run keeps the record and
+// a later reuse of it sees that the outputs came from a changed step.
+func (p *SelectedStepsPlan) recordConsent() {
+	for _, step := range p.Carried {
+		if !step.Changed() || !p.Allowed(step.Step) {
+			continue
+		}
+		for i := range p.Reused {
+			input := &p.Reused[i]
+			if input.Step == step.Step && input.Via == ir.ReusedInputViaRun && input.RunID == step.DAGRunID {
+				input.Changes = slices.Clone(step.Changes)
+			}
+		}
+	}
 }
 
 // carriedSteps works out what changed for each step of reused that carries
@@ -209,8 +227,10 @@ func carriedSteps(dag *ir.DAG, profile string, reused []ir.ReusedInput, sel Step
 	}
 	var current *fingerprint
 	// earlier holds the fingerprint of each run, nil when its definition
-	// cannot be compared.
+	// cannot be compared, and tainted the steps of each run that took outputs
+	// of a changed step there.
 	earlier := make(map[string]*fingerprint)
+	tainted := make(map[string]map[string]bool)
 	var carried []CarriedStep
 	for _, input := range reused {
 		if input.Via != ir.ReusedInputViaRun {
@@ -230,10 +250,17 @@ func carriedSteps(dag *ir.DAG, profile string, reused []ir.ReusedInput, sel Step
 		if !ok {
 			then = runFingerprint(run, definitionOf(run, sel))
 			earlier[run.DAGRunID] = then
+			tainted[run.DAGRunID] = taintedSteps(dag, run)
 		}
-		changes := []ir.StepChange{ir.StepChangeUnknown}
+		var changes []ir.StepChange
 		if then != nil {
 			changes = current.changes(then, input.Step)
+		}
+		if tainted[run.DAGRunID][input.Step] {
+			changes = append(changes, ir.StepChangeCarried)
+		}
+		if then == nil {
+			changes = append(changes, ir.StepChangeUnknown)
 		}
 		carried = append(carried, CarriedStep{
 			Step:       input.Step,

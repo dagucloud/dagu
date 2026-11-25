@@ -55,10 +55,11 @@ func StepsToRun(dag *ir.DAG, profile string, sourceDAG *ir.DAG, source *ir.DAGRu
 			sharedRuns[share] = true
 		}
 	}
+	tainted := taintedSteps(dag, source)
 	for i := range dag.Steps {
 		step := &dag.Steps[i]
 		node := nodes[step.Name]
-		if len(current.changes(earlier, step.Name)) > 0 || node == nil || !carriesOutputs(node) {
+		if len(current.changes(earlier, step.Name)) > 0 || tainted[step.Name] || node == nil || !carriesOutputs(node) {
 			run(step)
 		}
 	}
@@ -109,10 +110,54 @@ func changeReason(changes []ir.StepChange) string {
 	if len(nouns) > 0 {
 		parts = append(parts, joinWords(nouns)+" changed since that run")
 	}
+	if slices.Contains(changes, ir.StepChangeCarried) {
+		parts = append(parts, "in that run it or a step it depends on took outputs of a changed step")
+	}
 	if slices.Contains(changes, ir.StepChangeUnknown) {
 		parts = append(parts, "what that run ran cannot be compared")
 	}
 	return strings.Join(parts, ", and ")
+}
+
+// taintedSteps returns, by name, the steps of dag that took outputs of a
+// changed step in run, with consent, and every step that depends on one of
+// them, directly or not.
+func taintedSteps(dag *ir.DAG, run *ir.DAGRunStatus) map[string]bool {
+	changed := make(map[string]bool)
+	for _, input := range run.ReusedInputs {
+		if len(input.Changes) > 0 {
+			changed[input.Step] = true
+		}
+	}
+	if len(changed) == 0 {
+		return nil
+	}
+	steps := make(map[string]*ir.Step, len(dag.Steps))
+	for i := range dag.Steps {
+		steps[dag.Steps[i].Name] = &dag.Steps[i]
+	}
+	tainted := make(map[string]bool, len(dag.Steps))
+	visited := make(map[string]bool, len(dag.Steps))
+	var visit func(name string) bool
+	visit = func(name string) bool {
+		if visited[name] {
+			return tainted[name]
+		}
+		visited[name] = true
+		tainted[name] = changed[name]
+		if step, ok := steps[name]; ok {
+			for _, dep := range step.AllDepends() {
+				if visit(dep) {
+					tainted[name] = true
+				}
+			}
+		}
+		return tainted[name]
+	}
+	for name := range steps {
+		visit(name)
+	}
+	return tainted
 }
 
 // joinWords joins words as a list in an English sentence.

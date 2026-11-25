@@ -128,3 +128,48 @@ func TestPlanSelectedStepsRejectsASelectedStep(t *testing.T) {
 	})
 	require.EqualError(t, err, `outputsFromRuns names step "report", which is selected to run`)
 }
+
+// The run keeps what changed for each step that the caller consented to
+// reuse anyway.
+func TestPlanSelectedStepsRecordsConsent(t *testing.T) {
+	t.Parallel()
+
+	earlier := loadReuseDAG(t, reuseSpec)
+	dag := loadReuseDAG(t, strings.Replace(reuseSpec, "echo rows", "echo all rows", 1))
+	plan, err := intake.PlanSelectedSteps(dag, "", intake.StepSelection{
+		Steps:            []string{"report"},
+		Source:           succeededRun(earlier),
+		SourceDefinition: earlier,
+		AllowAllChanged:  true,
+	})
+	require.NoError(t, err)
+
+	changes := make(map[string][]ir.StepChange, len(plan.Reused))
+	for _, input := range plan.Reused {
+		changes[input.Step] = input.Changes
+	}
+	require.Equal(t, map[string][]ir.StepChange{
+		"page":   {ir.StepChangeStep},
+		"filter": {ir.StepChangeDependency},
+	}, changes)
+}
+
+// A run that reused a changed step with consent passes the change on: the
+// step, and each step that read it there, counts as changed when a later
+// run takes it from that run, although its definition is the same.
+func TestPlanSelectedStepsCarriedChange(t *testing.T) {
+	t.Parallel()
+
+	dag := loadReuseDAG(t, reuseSpec)
+	consented := succeededRun(dag)
+	consented.ReusedInputs = []ir.ReusedInput{{Step: "page", RunID: "older", Via: ir.ReusedInputViaRun, Changes: []ir.StepChange{ir.StepChangeStep}}}
+	plan, err := intake.PlanSelectedSteps(dag, "", intake.StepSelection{
+		Steps:            []string{"report"},
+		Source:           consented,
+		SourceDefinition: dag,
+	})
+	require.NoError(t, err)
+
+	require.EqualError(t, plan.Refusal(), "step filter cannot be reused from run earlier: in that run it or a step it depends on took outputs of a changed step; "+
+		"step page cannot be reused from run earlier: in that run it or a step it depends on took outputs of a changed step")
+}
