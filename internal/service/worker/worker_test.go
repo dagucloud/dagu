@@ -439,6 +439,7 @@ func TestWorkerRejectsInvalidLabels(t *testing.T) {
 		"BadKey":           {labels: map[string]string{"node/type": "gpu"}, want: `worker label "node/type=gpu": label key`},
 		"BadValue":         {labels: map[string]string{"team": "data eng"}, want: `worker label "team=data eng": label value`},
 		"EmptyKey":         {labels: map[string]string{"": "x"}, want: `worker label "=x": label key cannot be empty`},
+		"KeyWithEquals":    {labels: map[string]string{"team=prod": ""}, want: `worker label "team=prod": label key "team=prod" contains invalid characters`},
 		"KeyInTwoCases":    {labels: map[string]string{"Zone": "a", "zone": "b"}, want: `worker label "zone=b": key "zone" is set more than once`},
 		"PlatformConflict": {labels: map[string]string{"OS": "not-" + runtime.GOOS}, want: `worker label "os" conflicts with built-in platform value`},
 	} {

@@ -293,12 +293,15 @@ func workerLabels(configured map[string]string) (map[string]string, error) {
 	labels := make(map[string]string, len(configured)+2)
 	var errs []error
 	for _, key := range slices.Sorted(maps.Keys(configured)) {
-		text := ir.Label{Key: key, Value: configured[key]}.String()
-		label := ir.ParseLabel(text)
-		if err := ir.ValidateLabel(label); err != nil {
+		// Validate the label as configured, so a key holding "=" fails instead
+		// of being reparsed as key=value.
+		configuredLabel := ir.Label{Key: key, Value: configured[key]}
+		text := configuredLabel.String()
+		if err := ir.ValidateLabel(configuredLabel); err != nil {
 			errs = append(errs, fmt.Errorf("worker label %q: %w", text, err))
 			continue
 		}
+		label := ir.ParseLabel(text)
 		if _, ok := labels[label.Key]; ok {
 			errs = append(errs, fmt.Errorf("worker label %q: key %q is set more than once", text, label.Key))
 			continue
