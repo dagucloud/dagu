@@ -1554,13 +1554,20 @@ describe('DagsPage', () => {
       await Promise.resolve();
       await Promise.resolve();
     };
-    // Answers the reads of the next page in turn. The activity of a page reads
-    // nothing.
+    // Answers the reads of the next page in turn, and the activity of the
+    // rows with no run.
     const nextPageReads = (...responses: unknown[]) =>
       clientGetMock.mockImplementation((path: string) =>
         path === '/dags'
           ? responses.shift()
-          : Promise.resolve({ data: { dags: [], errors: [] } })
+          : Promise.resolve({
+              data: {
+                dags: [],
+                errors: [],
+                readAt: '2026-11-25T00:00:00.000Z',
+              },
+              response: { status: 200 },
+            })
       );
     const expectEveryWorkflow = () => {
       for (const name of ['a', 'b', 'c', 'd']) {

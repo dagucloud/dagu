@@ -62,8 +62,8 @@ export function runsInWindow(
 
 /**
  * The bars of the runs in the window that ends at `now`. The strip is cut in
- * slots of ACTIVITY_SLOT_PX, one run to a slot, as the activity chart of the
- * deployments in Prefect does. A run stands in the slot of its start. When
+ * slots of ACTIVITY_SLOT_PX, one run to a slot. A run stands in the slot of
+ * its start. When
  * that slot is taken by a newer run, it moves to the next free slot toward the
  * past, so that bars never overlap; a run that finds no free slot is left out.
  * A workflow that runs every few minutes thus draws its latest runs side by
