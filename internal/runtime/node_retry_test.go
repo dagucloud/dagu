@@ -40,11 +40,7 @@ func TestRetryRemovedNodeWithoutRun(t *testing.T) {
 		Plan:       plan,
 		workDir:    t.TempDir(),
 		steps:      dag.Steps,
-		localDAGs: map[string]*ir.DAG{"deploy-one": {
-			Name:         "deploy-one",
-			NodeRequired: true,
-			YamlData:     []byte("name: deploy-one\nnode: required\nsteps:\n  - run: ./deploy.sh\n"),
-		}},
+		localDAGs:  map[string]*ir.DAG{"deploy-one": deployOneDAG()},
 		contextOpts: []runtime.ContextOption{
 			runtime.WithRootDAGRun(runtime.NewDAGRunRef("test_dag", r.cfg.DAGRunID)),
 			runtime.WithNodeSelector(webNodes{}),

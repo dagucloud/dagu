@@ -6,7 +6,6 @@ package dag
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -86,14 +85,7 @@ func TestNodeRunRecordsKeepDisabledRun(t *testing.T) {
 	}, records.Runs)
 	require.Equal(t, ir.NodeRunCounts{Total: 2, Disabled: 2}, counts)
 
-	var aggregate struct {
-		Summary struct{ Total, Succeeded, Failed int } `json:"summary"`
-		Results []struct {
-			Node     string `json:"node"`
-			DAGRunID string `json:"dagRunId"`
-		} `json:"results"`
-	}
-	require.NoError(t, json.Unmarshal(out.Bytes(), &aggregate))
+	aggregate := readNodeAggregate(t, out.Bytes())
 	require.Equal(t, 2, aggregate.Summary.Total)
 	require.Zero(t, aggregate.Summary.Succeeded+aggregate.Summary.Failed)
 	require.Equal(t, "a", aggregate.Results[0].DAGRunID)

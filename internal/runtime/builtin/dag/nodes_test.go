@@ -31,6 +31,35 @@ func nodesExecutorWith(limit int, matched []executor.NodeRun, results map[string
 	return e
 }
 
+// nodeAggregate is the aggregate a step with nodes writes to its stdout.
+type nodeAggregate struct {
+	Summary struct{ Total, Succeeded, Failed int } `json:"summary"`
+	Results []struct {
+		Node     string            `json:"node"`
+		Status   string            `json:"status"`
+		DAGRunID string            `json:"dagRunId"`
+		Outputs  map[string]string `json:"outputs"`
+	} `json:"results"`
+	Outputs []map[string]string `json:"outputs"`
+}
+
+func readNodeAggregate(t *testing.T, data []byte) nodeAggregate {
+	t.Helper()
+
+	var aggregate nodeAggregate
+	require.NoError(t, json.Unmarshal(data, &aggregate))
+	return aggregate
+}
+
+// statuses returns each node with its status, in the aggregate's order.
+func (a nodeAggregate) statuses() []string {
+	statuses := make([]string, 0, len(a.Results))
+	for _, result := range a.Results {
+		statuses = append(statuses, result.Node+"="+result.Status)
+	}
+	return statuses
+}
+
 // An aggregate over max_output_size keeps every node's status and leaves out
 // the outputs, which each child run keeps.
 func TestNodeAggregateLimit(t *testing.T) {
@@ -62,24 +91,11 @@ func TestNodeAggregateLimit(t *testing.T) {
 			e.SetStdout(&out)
 			require.NoError(t, e.outputNodeResults())
 
-			var aggregate struct {
-				Summary struct{ Total, Succeeded, Failed int } `json:"summary"`
-				Results []struct {
-					Node    string            `json:"node"`
-					Status  string            `json:"status"`
-					Outputs map[string]string `json:"outputs"`
-				} `json:"results"`
-				Outputs []map[string]string `json:"outputs"`
-			}
-			require.NoError(t, json.Unmarshal(out.Bytes(), &aggregate))
+			aggregate := readNodeAggregate(t, out.Bytes())
 			require.Equal(t, 3, aggregate.Summary.Total)
 			require.Equal(t, 1, aggregate.Summary.Succeeded)
 			require.Equal(t, 0, aggregate.Summary.Failed)
-			var statuses []string
-			for _, r := range aggregate.Results {
-				statuses = append(statuses, r.Node+"="+r.Status)
-			}
-			require.Equal(t, []string{"web01=succeeded", "web02=disabled", "web03=not_started"}, statuses)
+			require.Equal(t, []string{"web01=succeeded", "web02=disabled", "web03=not_started"}, aggregate.statuses())
 			if tc.wantOutputs {
 				require.Equal(t, big, aggregate.Results[0].Outputs["OUT"])
 				require.Len(t, aggregate.Outputs, 1)
