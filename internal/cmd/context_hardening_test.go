@@ -186,7 +186,8 @@ func TestNewContext_OverlappingPaths(t *testing.T) {
 	newCommand := func(t *testing.T, switchOn bool) (*cobra.Command, string) {
 		t.Helper()
 		home := t.TempDir()
-		content := "paths:\n  data_dir: " + home + "\n"
+		// Quoted, so a temp path with a YAML control character stays whole.
+		content := "paths:\n  data_dir: " + strconv.Quote(home) + "\n"
 		if switchOn {
 			content += "experimental_projects: true\n"
 		}
