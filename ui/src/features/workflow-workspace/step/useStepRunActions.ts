@@ -89,6 +89,7 @@ export interface StepRunActions {
 }
 
 type SubRun = components['schemas']['SubDAGRun'];
+type CarriedStepCheck = components['schemas']['CarriedStepCheck'];
 
 /** The child runs of a step: the parallel ones, then the repeated ones. */
 export function allSubRunsOf(node: ApiNode | undefined): SubRun[] {
@@ -348,9 +349,10 @@ export function useStepRunActions(
     [handle]
   );
 
-  // One dialog for 'Run step', on the node and in the step view.
+  // One dialog for 'Run step', on the node and in the step view. `refused`
+  // names the carried steps that the server refused at the last pick.
   const openRun = useCallback(
-    (step: string) => {
+    (step: string, refused?: readonly CarriedStepCheck[]) => {
       if (!can(step).runStep) return;
       const dag = runDefinition();
       const steps = dag?.steps;
@@ -371,11 +373,12 @@ export function useStepRunActions(
           followed.find((f) => f.kind === 'upstream' && f.step === step)
             ?.runId ?? null,
         liveText: handle?.getBuffer() || undefined,
+        ...(refused && refused.length > 0 ? { refused } : {}),
       });
     },
     [can, followed, handle, runDefinition, stepTextOf]
   );
-  const runStep = openRun;
+  const runStep = useCallback((step: string) => openRun(step), [openRun]);
 
   const runUpstream = useCallback(
     (step: string) => {
@@ -466,18 +469,33 @@ export function useStepRunActions(
     async (
       pick: Pick<
         StepRunPick,
-        'steps' | 'reuseFrom' | 'outputsFromRuns' | 'reused'
+        | 'steps'
+        | 'reuseFrom'
+        | 'outputsFromRuns'
+        | 'allowChangedSteps'
+        | 'reused'
       >
     ) => {
       const pending = confirm;
       setConfirm(null);
       if (pending === null) return;
       const { kind, step } = pending;
-      const { steps, reuseFrom, outputsFromRuns, reused } = pick;
+      const { steps, reuseFrom, outputsFromRuns, allowChangedSteps, reused } =
+        pick;
+      const carries = reuseFrom !== null || outputsFromRuns !== null;
       const inputs = {
         ...(reuseFrom !== null ? { reuseOutputsFrom: reuseFrom } : {}),
         ...(outputsFromRuns !== null ? { outputsFromRuns } : {}),
         ...(reused.length > 0 ? { reused } : {}),
+        ...(allowChangedSteps.length > 0 ? { allowChangedSteps } : {}),
+        // Something changed after the check: the dialog opens again and
+        // shows what, for the user to decide again. The cache stays.
+        ...(carries && kind === 'step'
+          ? {
+              onRefused: (refused: readonly CarriedStepCheck[]) =>
+                openRun(step, refused),
+            }
+          : {}),
       };
       const id = await editorActions.runSteps(
         steps,
@@ -548,6 +566,7 @@ export function useStepRunActions(
       editorActions,
       ephemeral,
       fileName,
+      openRun,
       refresh,
       setUrl,
       stay,
@@ -596,6 +615,7 @@ export function useStepRunActions(
               ? { liveText: confirm.liveText }
               : {}),
             unsaved: dirty,
+            ...(confirm.refused ? { refused: confirm.refused } : {}),
             onPick: (pick: StepRunPick) => void confirmRun(pick),
             onCancel: () => setConfirm(null),
             onSelectRun: (id: string) => {
@@ -622,6 +642,7 @@ export function useStepRunActions(
                         : [confirm.step],
                     reuseFrom: null,
                     outputsFromRuns: null,
+                    allowChangedSteps: [],
                     reused: [],
                   }),
               },
@@ -676,6 +697,8 @@ interface RunConfirm {
   followedRunId: string | null;
   /** The editor text at the moment of the question. */
   liveText: string | undefined;
+  /** The carried steps that the server refused at the last pick. */
+  refused?: readonly CarriedStepCheck[];
 }
 
 type Translate = ReturnType<typeof useI18n>['ts'];

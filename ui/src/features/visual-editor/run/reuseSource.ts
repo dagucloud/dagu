@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { components } from '@/api/v1/schema';
-import { NodeStatus } from '@/api/v1/schema';
+import { CarriedStepCheckStatus, NodeStatus } from '@/api/v1/schema';
 import { parseParams } from '@/lib/parseParams';
 import type { CacheEntries, CacheEntry } from './outputCache';
 import type { RunSpecDiff } from './runSpecDiff';
@@ -10,6 +10,8 @@ import { isReusedNode, isRunActive } from './stepRunInfo';
 
 type DAGRunDetails = components['schemas']['DAGRunDetails'];
 type Node = components['schemas']['Node'];
+type CarriedStepCheck = components['schemas']['CarriedStepCheck'];
+type StepChangeKind = components['schemas']['StepChangeKind'];
 
 /** What the choice of a source needs of a run. */
 export type ReuseRun = Pick<DAGRunDetails, 'dagRunId' | 'status'> &
@@ -295,6 +297,82 @@ export function coverFromCache(p: {
     capturedAt,
     times,
   };
+}
+
+/**
+ * Where a previous step of a step run takes its outputs from, as the server
+ * checked it, and what changed for the step since that run.
+ */
+export interface Carrier {
+  from: 'source' | 'cache';
+  runId: string;
+  /** What changed since that run, in the server's order; empty when nothing did. */
+  changes: readonly StepChangeKind[];
+  /** Why the server refuses the step without consent; absent when unchanged. */
+  message?: string;
+  /** The times of the step in that run. */
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface CarrierPlan {
+  /** The carrier of each previous step that a run gives, by step name. */
+  carriers: Record<string, Carrier>;
+  /** The previous steps whose carrier changed, in the order of `previous`. */
+  changed: string[];
+  /** The previous steps that no run gives, in the order of `previous`. */
+  missing: string[];
+  /** Why the run of a missing step's cache entry cannot give it, by step. */
+  unavailable: Record<string, string>;
+}
+
+/**
+ * Chooses, from what the server answered, the run that gives each previous
+ * step: an unchanged step of the source run, else an unchanged cache entry,
+ * else the changed step of the source run, else a changed cache entry. A
+ * step that the source run holds and that did not change takes its outputs
+ * from that run, never from the cache, as `coverFromCache` does.
+ */
+export function composeCarriers(p: {
+  previous: readonly string[];
+  /** The verdict of each step that the source run gives, by step name. */
+  fromSource: Readonly<Record<string, CarriedStepCheck>>;
+  /** The verdict of the cache entry of each step, by step name. */
+  fromCache: Readonly<Record<string, CarriedStepCheck>>;
+}): CarrierPlan {
+  const carriers: Record<string, Carrier> = {};
+  const changed: string[] = [];
+  const missing: string[] = [];
+  const unavailable: Record<string, string> = {};
+  const usable = (check: CarriedStepCheck | undefined) =>
+    check !== undefined && check.status !== CarriedStepCheckStatus.unavailable
+      ? check
+      : undefined;
+  const unchanged = (check: CarriedStepCheck | undefined) =>
+    check?.status === CarriedStepCheckStatus.unchanged ? check : undefined;
+  for (const step of p.previous) {
+    const source = usable(p.fromSource[step]);
+    const cache = usable(p.fromCache[step]);
+    const pick = unchanged(source) ?? unchanged(cache) ?? source ?? cache;
+    if (!pick) {
+      missing.push(step);
+      const gone = p.fromCache[step];
+      if (gone?.status === CarriedStepCheckStatus.unavailable && gone.message) {
+        unavailable[step] = gone.message;
+      }
+      continue;
+    }
+    carriers[step] = {
+      from: pick === source ? 'source' : 'cache',
+      runId: pick.runId,
+      changes: pick.changes,
+      ...(pick.message ? { message: pick.message } : {}),
+      ...(pick.startedAt ? { startedAt: pick.startedAt } : {}),
+      ...(pick.finishedAt ? { finishedAt: pick.finishedAt } : {}),
+    };
+    if (pick.changes.length > 0) changed.push(step);
+  }
+  return { carriers, changed, missing, unavailable };
 }
 
 export type RunChoice = 'only' | 'changed' | 'run';

@@ -20,10 +20,12 @@ import {
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  CarriedStepCheckStatus,
   NodeStatus,
   NodeStatusLabel,
   Status,
   StatusLabel,
+  StepChangeKind,
   type components,
 } from '@/api/v1/schema';
 import { RemoteNodeProvider } from '@/contexts/RemoteNodeContext';
@@ -36,6 +38,7 @@ import type {
   WorkspacePermissions,
   WorkspaceRunValue,
 } from '../../data/types';
+import type { ReuseCheck } from '../useReuseCheck';
 import type { ReuseSourceState } from '../useReuseSource';
 import {
   useStepRunActions,
@@ -45,6 +48,7 @@ import {
 
 type Node = components['schemas']['Node'];
 type Details = components['schemas']['DAGRunDetails'];
+type CarriedStepCheck = components['schemas']['CarriedStepCheck'];
 
 const api = vi.hoisted(() => ({
   get: vi.fn(),
@@ -74,6 +78,7 @@ const reuse = vi.hoisted(() => ({
   value: null as unknown,
   calls: [] as Record<string, unknown>[],
 }));
+const reuseCheck = vi.hoisted(() => ({ value: null as unknown }));
 const errors = vi.hoisted(() => ({ showError: vi.fn() }));
 const testRunNoted = vi.hoisted(() => vi.fn());
 
@@ -128,6 +133,21 @@ vi.mock('../useReuseSource', () => ({
     return reuse.value;
   },
 }));
+// The check of the server has its own tests (useReuseCheck.test.tsx). By
+// default it gives no answer, so the browser's view of useReuseSource stands.
+vi.mock('../useReuseCheck', () => ({
+  useReuseCheck: () => reuseCheck.value,
+}));
+
+function uncheckedReuse(): ReuseCheck {
+  return {
+    state: 'failed',
+    fromSource: {},
+    fromCache: {},
+    error: null,
+    retry: vi.fn(),
+  };
+}
 
 /** A fresh source: run-1 holds every output and nothing changed. */
 function freshReuse(extra: Partial<ReuseSourceState> = {}): ReuseSourceState {
@@ -357,6 +377,7 @@ beforeEach(() => {
   editorRun.real = false;
   reuse.value = freshReuse();
   reuse.calls = [];
+  reuseCheck.value = uncheckedReuse();
   editorRun.runStep.mockReset().mockResolvedValue('run-2');
   editorRun.runSteps.mockReset().mockResolvedValue('run-2');
   errors.showError.mockReset();
@@ -1684,6 +1705,191 @@ describe('useStepRunActions step run choices', () => {
           .querySelector('.animate-spin')
       ).toBeNull();
     });
+  });
+});
+
+describe('useStepRunActions with the check of the server', () => {
+  const etl = () => [
+    { name: 'seed' },
+    { name: 'extract orders', id: 'extract_orders', depends: ['seed'] },
+    { name: 'extract users', id: 'extract_users' },
+    {
+      name: 'merge',
+      run: 'echo ${steps.extract_orders.outputs.orders}',
+      depends: ['extract orders', 'extract users'],
+    },
+  ];
+  const open = async () => {
+    renderActions(runValue(details()), vi.fn(), '/dags/example.yaml');
+    act(() => actions.runStep('merge'));
+    await screen.findByTestId('step-run-dialog');
+  };
+  const primary = () =>
+    footerButtons()
+      .filter((button) => button.hasAttribute('data-confirm'))
+      .map((button) => button.textContent);
+  const row = (name: string) =>
+    screen
+      .getAllByTestId('run-step-item')
+      .find((item) => item.textContent?.startsWith(name)) as HTMLElement;
+  const verdict = (
+    step: string,
+    runId: string,
+    changes: StepChangeKind[] = []
+  ): CarriedStepCheck => ({
+    step,
+    runId,
+    status:
+      changes.length > 0
+        ? CarriedStepCheckStatus.changed
+        : CarriedStepCheckStatus.unchanged,
+    changes,
+    ...(changes.length > 0
+      ? { message: `step ${step} cannot be reused from run ${runId}: changed` }
+      : {}),
+  });
+  const checked = (
+    fromSource: Record<string, CarriedStepCheck>,
+    fromCache: Record<string, CarriedStepCheck> = {}
+  ): ReuseCheck => ({
+    state: 'ready',
+    fromSource,
+    fromCache,
+    error: null,
+    retry: vi.fn(),
+  });
+  const fromRun1 = (changed: Record<string, StepChangeKind[]> = {}) =>
+    Object.fromEntries(
+      ['seed', 'extract orders', 'extract users'].map((name) => [
+        name,
+        verdict(name, 'run-1', changed[name] ?? []),
+      ])
+    );
+
+  beforeEach(() => {
+    dagSteps = etl();
+  });
+
+  it('names what changed for a step and reuses it anyway with Step only', async () => {
+    reuseCheck.value = checked(
+      fromRun1({ 'extract orders': [StepChangeKind.step] })
+    );
+    await open();
+
+    expect(
+      within(row('extract orders')).getByTestId('run-step-changed')
+    ).toHaveTextContent('changed since run run-1: the step');
+    expect(primary()).toEqual(['Changed steps']);
+    expect(screen.getByTestId('run-step-consent')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Step only' }));
+    await waitFor(() => expect(editorRun.runSteps).toHaveBeenCalledTimes(1));
+    expect(editorRun.runSteps).toHaveBeenCalledWith(
+      ['merge'],
+      expect.objectContaining({
+        reuseOutputsFrom: 'run-1',
+        allowChangedSteps: ['extract orders'],
+      })
+    );
+  });
+
+  it('runs the steps that the server found changed with Changed steps', async () => {
+    reuseCheck.value = checked(
+      fromRun1({ 'extract orders': [StepChangeKind.step] })
+    );
+    await open();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Changed steps' }));
+    await waitFor(() => expect(editorRun.runSteps).toHaveBeenCalledTimes(1));
+    const [steps, inputs] = editorRun.runSteps.mock.calls[0] ?? [];
+    expect(steps).toEqual(['extract orders', 'merge']);
+    expect(inputs).not.toHaveProperty('allowChangedSteps');
+  });
+
+  // The source run holds a changed step, and the cache an unchanged one.
+  it('takes an unchanged cached step over a changed step of the source run', async () => {
+    reuseCheck.value = checked(
+      fromRun1({ 'extract users': [StepChangeKind.step] }),
+      { 'extract users': verdict('extract users', 'Run-users') }
+    );
+    await open();
+
+    expect(primary()).toEqual(['Step only']);
+    fireEvent.click(screen.getByRole('button', { name: 'Step only' }));
+    await waitFor(() => expect(editorRun.runSteps).toHaveBeenCalledTimes(1));
+    const [, inputs] = editorRun.runSteps.mock.calls[0] ?? [];
+    expect(inputs).toMatchObject({
+      reuseOutputsFrom: 'run-1',
+      outputsFromRuns: { 'extract users': 'Run-users' },
+    });
+    expect(inputs).not.toHaveProperty('allowChangedSteps');
+  });
+
+  it('names a change of the whole run once, above the steps', async () => {
+    const params = [StepChangeKind.params];
+    reuseCheck.value = checked(
+      fromRun1({
+        seed: params,
+        'extract orders': params,
+        'extract users': params,
+      })
+    );
+    await open();
+
+    expect(screen.getAllByTestId('run-step-run-changes')).toHaveLength(1);
+    expect(screen.getByTestId('run-step-run-changes')).toHaveTextContent(
+      'Since run run-1, the parameters changed.'
+    );
+    expect(
+      within(row('seed')).getByTestId('run-step-changed')
+    ).toHaveTextContent(/^changed since run run-1$/);
+  });
+
+  it('disables Step only while the server checks', async () => {
+    reuseCheck.value = { ...checked({}), state: 'checking' };
+    await open();
+    expect(screen.getByRole('button', { name: 'Step only' })).toBeDisabled();
+  });
+
+  it('says that the check failed, keeps the view of the browser, and checks again', async () => {
+    const retry = vi.fn();
+    reuseCheck.value = { ...uncheckedReuse(), error: 'HTTP 502', retry };
+    await open();
+
+    expect(screen.getByTestId('run-step-check-failed')).toHaveTextContent(
+      'Could not check the earlier runs: HTTP 502'
+    );
+    expect(primary()).toEqual(['Step only']);
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  // Something changed after the check: the dialog opens again and shows the
+  // refusal, with no error dialog, and the refused step counts as changed.
+  it('opens the dialog again with the refused steps instead of an error', async () => {
+    editorRun.runSteps.mockImplementation(
+      async (
+        _steps: string[],
+        inputs?: { onRefused?(refused: CarriedStepCheck[]): void }
+      ) => {
+        inputs?.onRefused?.([
+          {
+            ...verdict('seed', 'run-1', [StepChangeKind.baseConfig]),
+            message:
+              'step seed cannot be reused from run run-1: the base config changed since that run',
+          },
+        ]);
+        return null;
+      }
+    );
+    await open();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Step only' }));
+    expect(await screen.findByTestId('run-step-refused')).toHaveTextContent(
+      'the base config changed since that run'
+    );
+    expect(primary()).toEqual(['Changed steps']);
+    expect(errors.showError).not.toHaveBeenCalled();
   });
 });
 
