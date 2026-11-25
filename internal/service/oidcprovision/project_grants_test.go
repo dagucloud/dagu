@@ -60,6 +60,41 @@ func TestProcessLogin_MapsProjectGrants(t *testing.T) {
 	assert.Empty(t, stored.ProjectGrants)
 }
 
+// A role from role_attribute_path is the server-wide role and keeps the
+// project grants, as a role from group_mappings does.
+func TestProcessLogin_RoleAttributePathKeepsProjectGrants(t *testing.T) {
+	ctx := context.Background()
+	registry := projectregistry.New(t.TempDir())
+	payments, err := registry.Create(ctx, project.CreateInput{Name: "payments"})
+	require.NoError(t, err)
+
+	svc, err := New(newMockUserStore(), Config{
+		Issuer:      "https://issuer.example.com",
+		AutoSignup:  true,
+		DefaultRole: auth.RoleViewer,
+		RoleMapping: RoleMapperConfig{
+			DefaultRole:       auth.RoleViewer,
+			RoleAttributePath: ".dagu_role",
+			Projects:          registry,
+			ProjectMappings: map[string][]authmapping.ProjectGrantConfig{
+				"payments-team": {{Project: "payments", Role: auth.RoleManager}},
+			},
+			DefaultProjectAccess: authmapping.DefaultWorkspaceAccessNone,
+		},
+	})
+	require.NoError(t, err)
+
+	user, _, err := svc.ProcessLogin(ctx, OIDCClaims{
+		Subject:   "subject",
+		Email:     "lead@example.com",
+		RawClaims: map[string]any{"groups": []any{"payments-team"}, "dagu_role": "operator"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, auth.RoleOperator, user.Role)
+	assert.True(t, auth.NormalizeWorkspaceAccess(user.WorkspaceAccess).All)
+	assert.Equal(t, []auth.ProjectGrant{{ProjectID: payments.ID, Role: auth.RoleManager}}, user.ProjectGrants)
+}
+
 // While projects are off, login leaves project grants as stored.
 func TestProcessLogin_KeepsProjectGrantsWhileProjectsOff(t *testing.T) {
 	ctx := context.Background()
