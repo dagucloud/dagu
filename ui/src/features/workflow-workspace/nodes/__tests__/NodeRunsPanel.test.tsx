@@ -1,7 +1,13 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   NodeRunStatus,
@@ -29,6 +35,7 @@ const api = vi.hoisted(() => ({
   error: undefined as Error | undefined,
   mutate: vi.fn(),
   post: vi.fn(),
+  showError: vi.fn(),
   runDags: true,
 }));
 
@@ -41,6 +48,9 @@ vi.mock('@/contexts/ConfigContext', () => ({
 }));
 vi.mock('@/components/ui/simple-toast', () => ({
   useSimpleToast: () => ({ showToast: vi.fn() }),
+}));
+vi.mock('@/components/ui/error-modal', () => ({
+  useErrorModal: () => ({ showError: api.showError }),
 }));
 vi.mock('@/hooks/api', () => ({
   useClient: () => ({ POST: api.post }),
@@ -182,6 +192,7 @@ describe('NodeRunsPanel', () => {
     api.mutate.mockReset();
     api.post.mockReset();
     api.post.mockResolvedValue({ error: undefined });
+    api.showError.mockReset();
     api.runDags = true;
   });
 
@@ -378,6 +389,38 @@ describe('NodeRunsPanel', () => {
       },
       body: { dagRunId: 'root-1' },
     });
+  });
+
+  // A second retry would race the first one into starting the run twice.
+  it('sends one retry while one is in flight', async () => {
+    api.post.mockReturnValue(new Promise(() => {}));
+    renderPanel(details(deployCounts, {}, Status.Failed));
+
+    const button = screen.getByRole('button', {
+      name: 'Retry failed nodes (2)',
+    });
+    fireEvent.click(button);
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+
+    expect(button).toBeDisabled();
+    expect(api.post).toHaveBeenCalledTimes(1);
+  });
+
+  it('says that a retry that could not be sent failed', async () => {
+    api.post.mockRejectedValue(new Error('network down'));
+    renderPanel(details(deployCounts, {}, Status.Failed));
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Retry failed nodes (2)' })
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+
+    await waitFor(() =>
+      expect(api.showError).toHaveBeenCalledWith('network down')
+    );
+    expect(
+      screen.getByRole('button', { name: 'Retry failed nodes (2)' })
+    ).toBeEnabled();
   });
 
   it.each([

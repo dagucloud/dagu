@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { Status } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
@@ -42,6 +42,10 @@ export function RetryFailedNodes({
   const { showToast } = useSimpleToast();
   const { showError } = useErrorModal();
   const [confirming, setConfirming] = useState(false);
+  // One retry at a time: the ref guards a second submit before the button
+  // turns disabled.
+  const inFlight = useRef(false);
+  const [pending, setPending] = useState(false);
 
   if (
     count === 0 ||
@@ -54,18 +58,31 @@ export function RetryFailedNodes({
 
   const retry = async () => {
     setConfirming(false);
-    const { error } = await client.POST('/dag-runs/{name}/{dagRunId}/retry', {
-      params: {
-        path: { name: details.name, dagRunId: details.dagRunId },
-        query: { remoteNode },
-      },
-      body: { dagRunId: details.dagRunId },
-    });
-    if (error) {
-      showError(error.message || ts('Failed to retry the run'));
-      return;
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setPending(true);
+    try {
+      const { error } = await client.POST('/dag-runs/{name}/{dagRunId}/retry', {
+        params: {
+          path: { name: details.name, dagRunId: details.dagRunId },
+          query: { remoteNode },
+        },
+        body: { dagRunId: details.dagRunId },
+      });
+      if (error) {
+        showError(error.message || ts('Failed to retry the run'));
+        return;
+      }
+      showToast(ts('Retry started'));
+    } catch (e) {
+      // The request did not reach the server, or timed out.
+      showError(
+        (e instanceof Error && e.message) || ts('Failed to retry the run')
+      );
+    } finally {
+      inFlight.current = false;
+      setPending(false);
     }
-    showToast(ts('Retry started'));
   };
 
   return (
@@ -74,6 +91,7 @@ export function RetryFailedNodes({
         type="button"
         variant="outline"
         size="xs"
+        disabled={pending}
         onClick={() => setConfirming(true)}
       >
         <RotateCcw aria-hidden="true" />
