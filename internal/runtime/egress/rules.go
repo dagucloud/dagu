@@ -40,9 +40,10 @@ type Rule struct {
 // The port is a whole number from 1 to 65535.
 func ParseRule(text string) (Rule, error) {
 	rule := Rule{Text: text}
+	invalid := fmt.Errorf("egress destination %q: expected a host name with an optional port, such as api.example.com:443", text)
 	host, rest, ok := splitRule(text)
 	if !ok {
-		return Rule{}, fmt.Errorf("egress destination %q: expected a host name with an optional port, such as api.example.com:443", text)
+		return Rule{}, invalid
 	}
 	if p, hasPort := strings.CutPrefix(rest, ":"); hasPort {
 		port, err := strconv.Atoi(p)
@@ -55,17 +56,21 @@ func ParseRule(text string) (Rule, error) {
 		rule.Wildcard = true
 		host = strings.TrimPrefix(host, "*.")
 	}
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
-	if host == "" || strings.ContainsAny(host, "/\\@*[]") || strings.ContainsFunc(host, notHostRune) ||
-		strings.HasPrefix(host, ".") || strings.Contains(host, "..") {
-		return Rule{}, fmt.Errorf("egress destination %q: expected a host name with an optional port, such as api.example.com:443", text)
+	if strings.ContainsAny(host, "/\\@*[]") || strings.ContainsFunc(host, notHostRune) {
+		return Rule{}, invalid
+	}
+	host, err := asciiHost(strings.ToLower(host))
+	if err != nil {
+		return Rule{}, fmt.Errorf("egress destination %q: the host name is not a valid internationalized name", text)
+	}
+	// IDNA maps dots such as U+3002 to ".", so the one optional root dot is
+	// removed after the mapping.
+	host = strings.TrimSuffix(host, ".")
+	if host == "" || strings.HasPrefix(host, ".") || strings.HasSuffix(host, ".") || strings.Contains(host, "..") {
+		return Rule{}, invalid
 	}
 	if rule.Wildcard && net.ParseIP(host) != nil {
 		return Rule{}, fmt.Errorf("egress destination %q: a wildcard needs a host name, not an address", text)
-	}
-	host, err := asciiHost(host)
-	if err != nil {
-		return Rule{}, fmt.Errorf("egress destination %q: the host name is not a valid internationalized name", text)
 	}
 	rule.Host = canonicalAddr(host)
 	return rule, nil
@@ -123,11 +128,11 @@ func canonicalAddr(host string) string {
 // normalizeHost puts a host of a request in the form of Rule.Host. A name that
 // has no IDNA ASCII form stays in Unicode and matches no rule.
 func normalizeHost(host string) string {
-	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	host = strings.ToLower(host)
 	if ascii, err := asciiHost(host); err == nil {
 		host = ascii
 	}
-	return canonicalAddr(host)
+	return canonicalAddr(strings.TrimSuffix(host, "."))
 }
 
 // matches reports whether the rule allows the host and the port. The host is in
