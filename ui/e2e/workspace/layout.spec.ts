@@ -7,6 +7,7 @@ import {
   loginViaAPI,
   openStepForm,
   startDAG,
+  viewSettled,
   waitForRunStatus,
 } from '../helpers/e2e';
 import { expect, signIn, test } from './fixtures';
@@ -20,6 +21,11 @@ const DOCK_KEYS = [
   'dagu.workspace.dockOpen',
   'dagu.workspace.dockOpen.v2',
 ];
+
+// The first moments of a canvas that has just shown (AUTO_FIT_SETTLE_MS,
+// 1000 ms): a change of its room fits the graph again, at a new zoom. The
+// zoom is kept only after them.
+const CANVAS_SETTLE_MS = 1_000;
 
 function canvasFrame(page: Page): Locator {
   return page.getByTestId('ww-canvas').getByTestId('ve-canvas-frame');
@@ -623,6 +629,7 @@ test.describe('workspace layout', () => {
       exact: true,
     });
     const zoom = page.getByTestId('flow-zoom-reset');
+    await viewSettled(page, CANVAS_SETTLE_MS);
     const before = await zoom.innerText();
 
     await yaml.click();

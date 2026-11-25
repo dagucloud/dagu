@@ -801,3 +801,28 @@ export async function showStepOutput(root: Page | Locator): Promise<void> {
   await expect(tab.or(region)).toBeVisible({ timeout: 30_000 });
   if (await tab.isVisible()) await tab.click();
 }
+
+/**
+ * Waits until the view of the workspace canvas has kept still for more than
+ * `quietMs`.
+ */
+export async function viewSettled(page: Page, quietMs: number): Promise<void> {
+  const layer = page.getByTestId('ww-canvas').getByTestId('flow-layer');
+  const transform = () =>
+    layer.evaluate((element) => (element as HTMLElement).style.transform);
+  let last = await transform();
+  let stillSince = Date.now();
+  await expect
+    .poll(
+      async () => {
+        const now = await transform();
+        if (now !== last) {
+          last = now;
+          stillSince = Date.now();
+        }
+        return Date.now() - stillSince;
+      },
+      { intervals: [50], timeout: 10_000 }
+    )
+    .toBeGreaterThan(quietMs);
+}
