@@ -300,6 +300,27 @@ steps:
 `,
 			wantErr: "field 'ssh.key': set either secret or file, not both",
 		},
+		{
+			name: "DAGLevelReservedRef",
+			yaml: `
+ssh:
+  host: app
+  key: {secret: ai/endpoint/anthropic}
+steps:
+  - run: "true"
+`,
+			wantErr: `field 'ssh.key.secret': registry ref "ai/endpoint/anthropic" is reserved for the AI feature`,
+		},
+		{
+			name: "StepReservedRef",
+			yaml: `
+steps:
+  - id: deploy
+    action: ssh.run
+    with: {host: app, command: "true", bastion: {host: jump, password: {secret: ai/other}}}
+`,
+			wantErr: `field 'steps.deploy.with.bastion.password.secret': registry ref "ai/other" is reserved`,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
