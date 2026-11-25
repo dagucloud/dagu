@@ -337,8 +337,8 @@ describe('workspace selection', () => {
   });
 
   it('clears the row selection when ?step goes', () => {
-    // A selection without a click opens no step panel, which would fold the
-    // Activity panel (the owner decided that they take turns).
+    // A selection without a click: a link to the step would open its panel,
+    // which takes turns with the Activity panel and folds it.
     renderWorkspace('/dags/f');
     act(() => props().onSelectedStepNameChange?.('fetch'));
     expect(stepRow('fetch')).toHaveAttribute('aria-current', 'true');
@@ -434,8 +434,8 @@ describe('workspace selection', () => {
 
   it('restores a maximized Activity panel on Esc, then keeps it open', async () => {
     const user = userEvent.setup();
-    // A selection without a click opens no step panel, which would fold the
-    // Activity panel (the owner decided that they take turns).
+    // A selection without a click: a link to the step would open its panel,
+    // which takes turns with the Activity panel and folds it.
     renderWorkspace('/dags/f', freshRun(), <Menu />);
     loadSpec();
     act(() => props().onSelectedStepNameChange?.('fetch'));
@@ -479,7 +479,7 @@ describe('workspace selection', () => {
   });
 });
 
-// The real step panel beside the real Run panel: each keeps its own state.
+// The real step panel and the real Run panel, which take turns.
 describe('step panel', () => {
   const stepPanel = () =>
     screen.queryByRole('complementary', { name: /^Details of / });
@@ -490,8 +490,8 @@ describe('step panel', () => {
     });
   }
 
-  // The owner decided that the step panel and the Run panel take turns, as the
-  // YAML and Workflow panels do with it: a click on a step folds the Run panel.
+  // The step panel and the Run panel take turns, as the YAML and Workflow
+  // panels do with it: a click on a step folds the Run panel.
   it('opens on a click with the Details tab, and folds the Run panel', () => {
     renderWorkspace('/dags/f');
     loadSpec();

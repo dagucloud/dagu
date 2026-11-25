@@ -196,8 +196,8 @@ describe('DockProvider on a narrow window', () => {
   });
 });
 
-// No window opens the panel by itself (the owner decided that no panel opens
-// by default): it opens as the user left it.
+// No window opens the panel by itself, as no right panel does: it opens as
+// the user left it.
 describe('DockProvider default by window', () => {
   function windowOf(width: number) {
     window.matchMedia ??= (() => ({}) as MediaQueryList) as typeof matchMedia;

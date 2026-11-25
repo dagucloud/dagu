@@ -1658,7 +1658,7 @@ describe('WorkspaceCanvas', () => {
     });
 
     // The step panel and Activity take turns, as the YAML panel and Activity
-    // do (the owner decided it).
+    // do.
     it('yields to the step panel and comes back when it closes', () => {
       const yieldToView = vi.fn();
       ws.dock = { ...dock, open: true, yieldToView };
