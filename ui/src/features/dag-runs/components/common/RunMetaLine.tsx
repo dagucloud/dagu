@@ -644,10 +644,7 @@ export function RunMetaLine({
             label="Narrowed to"
             className={compact && !keepSecondary ? SECONDARY : undefined}
           >
-            <span
-              className="block max-w-64 truncate font-mono text-xs"
-              title={narrowed}
-            >
+            <span className="font-mono text-xs whitespace-normal break-words">
               {narrowed}
             </span>
           </MetaItem>
