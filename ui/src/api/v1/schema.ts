@@ -13635,8 +13635,10 @@ export interface operations {
                     spec: string;
                     /** @description Optional name to use when the spec omits a name */
                     name?: string;
-                    /** @description Runtime profile to apply to this DAG-run. Set to an empty string or omit to run without a profile. */
+                    /** @description Runtime profile to apply to this DAG-run. Set to an empty string to run without a profile. When omitted, the run takes the default profile of the DAG file that draftOf names, as a start of that file would, and runs without a profile when draftOf is omitted. */
                     profile?: components["schemas"]["RuntimeProfileOverride"];
+                    /** @description File name of the DAG that the spec is an unsaved edit of, such as the web UI sends for a run from the editor. When profile is omitted, the run takes that DAG's default profile. The caller needs write permission for the workspace of that DAG; a DAG that does not exist returns 404. */
+                    draftOf?: string;
                     workerSelector?: components["schemas"]["WorkerSelectorOverride"];
                     targetNodes?: components["schemas"]["TargetNodes"];
                     /** @description Parameters to pass to the DAG-run in JSON format */
@@ -13756,6 +13758,8 @@ export interface operations {
                     params?: string;
                     /** @description Runtime profile of the run, as for POST /dag-runs. */
                     profile?: components["schemas"]["RuntimeProfileOverride"];
+                    /** @description File name of the DAG that the spec is an unsaved edit of, as for POST /dag-runs. */
+                    draftOf?: string;
                 };
             };
         };
@@ -13778,7 +13782,7 @@ export interface operations {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description outputsFromRunId not found */
+            /** @description outputsFromRunId or the DAG of draftOf not found */
             404: {
                 headers: {
                     [name: string]: unknown;

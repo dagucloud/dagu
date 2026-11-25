@@ -91,7 +91,7 @@ func (a *API) PreviewExecuteDAGRunFromSpec(ctx context.Context, request api.Prev
 	if err := a.requireDAGWriteForWorkspace(ctx, runtimeWorkspaceName(dag, "")); err != nil {
 		return nil, err
 	}
-	profileName, _, err := a.explicitRunProfile(ctx, request.Body.Profile)
+	profileName, err := a.draftRunProfile(ctx, request.Body.Profile, request.Body.DraftOf)
 	if err != nil {
 		return nil, err
 	}
