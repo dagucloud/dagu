@@ -1017,3 +1017,51 @@ func BenchmarkRecord(b *testing.B) {
 	}
 	_ = r.Close(context.Background())
 }
+
+// The open outage of a run history counts its failed runs from its start,
+// and ends with the run that recovers.
+func TestReadOutage(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	ctx := context.Background()
+	none, err := ReadOutage(dir)
+	require.NoError(t, err)
+	require.False(t, none.Open, "no run history")
+
+	for i := range 3 {
+		at := t0.Add(time.Duration(i) * time.Minute)
+		clk.t = at
+		require.NoError(t, r.Record(ctx, Sample{Time: at, Duration: time.Second, ExitCode: 1, Message: "boom"}))
+	}
+	require.NoError(t, r.Close(ctx))
+	open, err := ReadOutage(dir)
+	require.NoError(t, err)
+	require.Equal(t, Outage{Open: true, FailedCount: 3, Since: t0}, open)
+
+	r = openWith(t, dir, runOpts(clk))
+	clk.t = t0.Add(5 * time.Minute)
+	require.NoError(t, r.Record(ctx, Sample{Time: clk.t, Duration: time.Second}))
+	require.NoError(t, r.Close(ctx))
+	closed, err := ReadOutage(dir)
+	require.NoError(t, err)
+	require.False(t, closed.Open, "a run that succeeds ends the outage")
+}
+
+// A bucket sums the durations of its samples.
+func TestBucketSum(t *testing.T) {
+	dir := t.TempDir()
+	clk := &clock{t: t0}
+	r := openWith(t, dir, runOpts(clk))
+	ctx := context.Background()
+	for i := range 3 {
+		at := t0.Add(time.Duration(i) * time.Minute)
+		clk.t = at
+		require.NoError(t, r.Record(ctx, Sample{Time: at, Duration: time.Duration(i+1) * time.Second}))
+	}
+	require.NoError(t, r.Close(ctx))
+	series, err := OpenReaderWith(dir, Options{Now: clk.now}).Samples(ctx, SampleQuery{From: t0, To: t0.Add(time.Hour), MaxPoints: 1})
+	require.NoError(t, err)
+	require.Len(t, series.Buckets, 1)
+	require.Equal(t, 6*time.Second, series.Buckets[0].Sum)
+}

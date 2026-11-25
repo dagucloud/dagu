@@ -107,6 +107,8 @@ type Bucket struct {
 	Max      time.Duration
 	P50      time.Duration
 	P95      time.Duration
+	// Sum is the sum of the durations of the bucket's samples.
+	Sum time.Duration
 	// Up is the time of the bucket in which a run was active. A run history
 	// gives it, also for a bucket that has no sample. It is zero for a step,
 	// for the raw tier and for a bucket with no recorded active time.
