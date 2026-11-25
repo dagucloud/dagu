@@ -274,6 +274,20 @@ describe('useEditorRunActions', () => {
     expect(Object.keys(outputCache.entries(SCOPE))).toEqual(['d']);
   });
 
+  // The refusal of "x step a" ends with the text that a refusal of "a" holds.
+  it('keeps the entry of a step whose name ends a refused step name', async () => {
+    outputCache.put(SCOPE, 'a', cacheEntry('RunA'));
+    outputCache.put(SCOPE, 'x step a', cacheEntry('RunA'));
+    refuse(['x step a', 'RunA']);
+    const { result } = setup();
+    await act(async () => {
+      await result.current.runStep('b', {
+        outputsFromRuns: { a: 'RunA', 'x step a': 'RunA' },
+      });
+    });
+    expect(Object.keys(outputCache.entries(SCOPE))).toEqual(['a']);
+  });
+
   it('falls back to the HTTP status without a server message', async () => {
     POST.mockResolvedValue({ error: {}, response: { status: 502 } });
     const { result } = setup();

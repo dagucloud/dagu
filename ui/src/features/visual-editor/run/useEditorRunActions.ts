@@ -29,15 +29,18 @@ function serverMessage(error: unknown): string | null {
 }
 
 // The entries of `fromRuns` that the server refused, as [step, run id]. The
-// server names each one as `step X cannot be reused from run Y: <reason>`.
+// server names each one as `step X cannot be reused from run Y: <reason>`,
+// joined by "; ". Each is matched from its start: a step name may contain
+// spaces, so one refusal can end with the text of another.
 function refusedRuns(
   message: string | null,
   fromRuns: Readonly<Record<string, string>>
 ): [string, string][] {
   if (message === null) return [];
-  return Object.entries(fromRuns).filter(([step, runId]) =>
-    message.includes(`step ${step} cannot be reused from run ${runId}:`)
-  );
+  return Object.entries(fromRuns).filter(([step, runId]) => {
+    const refusal = `step ${step} cannot be reused from run ${runId}:`;
+    return message.startsWith(refusal) || message.includes(`; ${refusal}`);
+  });
 }
 
 export function useEditorRunActions(args: Args): EditorRunActions {
