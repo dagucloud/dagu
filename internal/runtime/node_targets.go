@@ -68,9 +68,10 @@ func (n *Node) setupNodesExecutor(ctx context.Context, override ExecutorOverride
 	}
 
 	for i, node := range runs {
-		// A disabled node keeps the child run an earlier attempt gave it, so
-		// a retry that finds it enabled again retries that run.
-		if node.Disabled && node.Run.RunID == "" {
+		// A disabled or removed node keeps the child run an earlier attempt
+		// gave it, so a retry that finds it able to run again retries that
+		// run. One that never had a child run gets none.
+		if (node.Disabled || node.Removed) && node.Run.RunID == "" {
 			continue
 		}
 		run := child
