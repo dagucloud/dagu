@@ -128,7 +128,7 @@ func TestRunWaitsForV2Processes(t *testing.T) {
 	status, found, err := m.journal.readStatus()
 	require.NoError(t, err)
 	require.True(t, found)
-	assert.Equal(t, waiting, status, "waiting processes report the same progress")
+	assert.Equal(t, waiting, status.Progress, "waiting processes report the same progress")
 
 	services.set(serviceregistry.ServiceNameScheduler)
 	services.set(serviceregistry.ServiceNameCoordinator)
@@ -233,7 +233,7 @@ func TestRunSkipsInstalledCopyInSpaceCheck(t *testing.T) {
 	to := v2Dir(t, filepath.Join(dataDir, "projects", "default", "state"), "queue", "etl", "item.json")
 	mv := move{From: from, To: to}
 	m, ticks := newTestMigrator(t, dataDir, &fakeServices{}, nil)
-	require.NoError(t, m.journal.writePlan([]move{mv}), "the plan of the killed attempt")
+	require.NoError(t, m.journal.writePlan(planFile{Version: planVersion, Moves: []move{mv}}), "the plan of the killed attempt")
 	require.NoError(t, m.journal.markInstalling(0), "the copy it installed")
 	m.planMoves = refusePlan(t)
 	m.mover.sameFileSystem = otherFileSystem
@@ -252,7 +252,7 @@ func TestRunRefusesForeignDestination(t *testing.T) {
 	from := v2Dir(t, dataDir, "queue", "etl", "item.json")
 	to := v2Dir(t, filepath.Join(dataDir, "projects", "default", "state"), "queue", "etl", "item.json")
 	m, _ := newTestMigrator(t, dataDir, &fakeServices{}, nil)
-	require.NoError(t, m.journal.writePlan([]move{{From: from, To: to}}))
+	require.NoError(t, m.journal.writePlan(planFile{Version: planVersion, Moves: []move{{From: from, To: to}}}))
 	m.planMoves = refusePlan(t)
 
 	require.ErrorIs(t, m.Run(context.Background()), errForeignDestination)
@@ -425,6 +425,58 @@ func TestRunRefusesOverlappingPlan(t *testing.T) {
 			assert.FileExists(t, filepath.Join(a, "f"))
 			assert.FileExists(t, filepath.Join(b, "f"))
 			assert.NoDirExists(t, filepath.Join(dataDir, "projects"))
+		})
+	}
+}
+
+// A migration that an earlier release planned does not count as done,
+// finished or not: Run finishes its plan, then plans and makes the moves of
+// this release.
+func TestRunPlansAgainAfterEarlierRelease(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		// earlier records the journal that the earlier release left for its
+		// move of the source a to the destination to.
+		earlier func(t *testing.T, j journal, a, to string)
+	}{
+		{name: "Finished", earlier: func(t *testing.T, j journal, a, to string) {
+			require.NoError(t, os.MkdirAll(filepath.Dir(to), 0o750))
+			require.NoError(t, os.Rename(a, to))
+			require.NoError(t, j.writePlan(planFile{Version: planVersion - 1, Moves: []move{{From: a, To: to}}}))
+			require.NoError(t, j.markMoved(0))
+			require.NoError(t, j.writeStatus(statusFile{
+				Progress: Progress{Phase: phaseDone, Moved: 1, Total: 1},
+				Version:  planVersion - 1,
+			}))
+		}},
+		{name: "Interrupted", earlier: func(t *testing.T, j journal, a, to string) {
+			require.NoError(t, j.writePlan(planFile{Version: planVersion - 1, Moves: []move{{From: a, To: to}}}))
+			require.NoError(t, j.writeStatus(statusFile{Progress: Progress{Phase: phaseMoving, Total: 1}}))
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dataDir := t.TempDir()
+			earlier := move{From: v2Dir(t, dataDir, "dag-runs", "a", "f"), To: filepath.Join(dataDir, "projects", "default", "runs", "a")}
+			later := move{From: v2Dir(t, dataDir, "logs", "a", "f"), To: filepath.Join(dataDir, "projects", "default", "logs", "a")}
+			m, _ := newTestMigrator(t, dataDir, &fakeServices{}, []move{later})
+			tc.earlier(t, m.journal, earlier.From, earlier.To)
+
+			done, err := m.Done()
+			require.NoError(t, err)
+			require.False(t, done)
+
+			require.NoError(t, m.Run(context.Background()))
+			for _, mv := range []move{earlier, later} {
+				assert.NoDirExists(t, mv.From)
+				assert.FileExists(t, filepath.Join(mv.To, "f"))
+			}
+			assert.Equal(t, Progress{Phase: phaseDone, Moved: 1, Total: 1}, m.Progress())
+			done, err = New(dataDir, &fakeServices{}).Done()
+			require.NoError(t, err)
+			assert.True(t, done)
 		})
 	}
 }

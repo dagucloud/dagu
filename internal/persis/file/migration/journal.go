@@ -30,38 +30,66 @@ type journal struct {
 	dir string
 }
 
+// planFile is what plan.json holds.
 type planFile struct {
-	Moves []move `json:"moves"`
+	// Version is the planVersion of the release that made the plan.
+	Version int    `json:"version"`
+	Moves   []move `json:"moves"`
 }
 
-// readStatus returns the progress last written, and false when none was.
+// statusFile is what status.json holds.
+type statusFile struct {
+	Progress
+	// Version is the version of the plan that a finished migration made.
+	Version int `json:"version,omitempty"`
+}
+
+// done reports whether the migration is finished, up to the moves that this
+// release plans.
+func (s statusFile) done() bool {
+	return s.Phase == phaseDone && s.Version >= planVersion
+}
+
+// readStatus returns the status last written, and false when none was.
 // An unreadable status is an error rather than "not done": migrating again
 // after a finished migration could undo moves that later processes built on.
-func (j journal) readStatus() (Progress, bool, error) {
-	var status Progress
+func (j journal) readStatus() (statusFile, bool, error) {
+	var status statusFile
 	found, err := j.readJSON(statusFileName, &status)
 	if err != nil || !found {
-		return Progress{}, found, err
+		return statusFile{}, found, err
 	}
 	if status.Phase == "" {
-		return Progress{}, false, fmt.Errorf("read %s: no phase", j.path(statusFileName))
+		return statusFile{}, false, fmt.Errorf("read %s: no phase", j.path(statusFileName))
 	}
 	return status, true, nil
 }
 
-func (j journal) writeStatus(status Progress) error {
+func (j journal) writeStatus(status statusFile) error {
 	return j.writeJSON(statusFileName, status)
 }
 
-// readPlan returns the recorded moves, and false when no plan was recorded.
-func (j journal) readPlan() ([]move, bool, error) {
+// readPlan returns the recorded plan, and false when none was recorded.
+func (j journal) readPlan() (planFile, bool, error) {
 	var plan planFile
 	found, err := j.readJSON(planFileName, &plan)
-	return plan.Moves, found, err
+	return plan, found, err
 }
 
-func (j journal) writePlan(moves []move) error {
-	return j.writeJSON(planFileName, planFile{Moves: moves})
+func (j journal) writePlan(plan planFile) error {
+	return j.writeJSON(planFileName, plan)
+}
+
+// reset removes a finished plan and the records of its moves, so the next
+// migration plans again. The records go first: a crash before the plan goes
+// replays the finished plan, whose sources are gone, so it moves nothing.
+func (j journal) reset() error {
+	for _, name := range []string{movedFileName, installingFileName, planFileName} {
+		if err := fileutil.Remove(j.path(name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("remove %s: %w", j.path(name), err)
+		}
+	}
+	return nil
 }
 
 // readMoved returns the indexes below total that the journal records as

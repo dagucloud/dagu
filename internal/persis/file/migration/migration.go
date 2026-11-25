@@ -2,15 +2,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package migration moves v2 state into the state directories of projects
-// on the first start with projects on. One process migrates under a lock;
-// every other process waits for it.
+// on the first start with projects on, and on the first start of a release
+// that plans more moves. One process migrates under a lock; every other
+// process waits for it.
 //
 //	<data_dir>/migration/
 //	├── .dagu_lock/     held by the process that migrates
-//	├── plan.json       the moves, written once before the first move
+//	├── plan.json       the moves and their version, written before the first move
 //	├── moved.log       the index of each finished move
 //	├── installing.log  the index of each copy, before it takes its destination's name
-//	└── status.json     progress, which waiting processes read
+//	└── status.json     progress, and the version of a finished migration
 package migration
 
 import (
@@ -44,6 +45,10 @@ const (
 	// statusEvery is how many moves pass between two writes of the status
 	// that waiting processes report.
 	statusEvery = 100
+	// planVersion identifies the moves that this release plans. A release
+	// that plans moves an earlier one did not make raises it, so the
+	// migration runs again where the earlier one finished.
+	planVersion = 1
 )
 
 // Phase is a stage of the migration.
@@ -139,13 +144,14 @@ func newPollTicker() (<-chan time.Time, func()) {
 	return ticker.C, ticker.Stop
 }
 
-// Done reports whether the state is migrated. It changes nothing on disk.
+// Done reports whether the state is migrated, up to the moves that this
+// release plans. It changes nothing on disk.
 func (m *Migrator) Done() (bool, error) {
 	status, found, err := m.journal.readStatus()
 	if err != nil || !found {
 		return false, err
 	}
-	return status.Phase == phaseDone, nil
+	return status.done(), nil
 }
 
 // Progress returns the progress of the migration, whichever process runs it.
@@ -196,8 +202,8 @@ func (m *Migrator) checkDone() (bool, error) {
 	if err != nil || !found {
 		return false, err
 	}
-	m.setProgress(status)
-	return status.Phase == phaseDone, nil
+	m.setProgress(status.Progress)
+	return status.done(), nil
 }
 
 func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) error {
@@ -214,27 +220,55 @@ func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) er
 	if err := m.waitForV2(ctx, ticks, held); err != nil {
 		return err
 	}
-	moves, err := m.loadOrPlan(ctx, held)
-	if err != nil {
-		return err
+	for {
+		plan, err := m.loadOrPlan(ctx, held)
+		if err != nil {
+			return err
+		}
+		progress, err := m.makeMoves(ctx, ticks, plan.Moves, held)
+		if err != nil {
+			return err
+		}
+		if plan.Version >= planVersion {
+			progress.Phase = phaseDone
+			if err := m.publishStatus(statusFile{Progress: progress, Version: plan.Version}, held); err != nil {
+				return err
+			}
+			logger.Info(ctx, "Migrated state to projects", slog.Int("moves", len(plan.Moves)))
+			return nil
+		}
+		// The plan of an earlier release is finished; plan this release's.
+		logger.Info(ctx, "Planning the moves that this release adds to the migration",
+			slog.Int("from-version", plan.Version), slog.Int("version", planVersion))
+		if err := held(); err != nil {
+			return err
+		}
+		if err := m.journal.reset(); err != nil {
+			return err
+		}
 	}
+}
+
+// makeMoves makes each move that the journal does not record, and returns
+// the progress once all are made.
+func (m *Migrator) makeMoves(ctx context.Context, ticks <-chan time.Time, moves []move, held func() error) (Progress, error) {
 	moved, err := m.journal.readMoved(len(moves))
 	if err != nil {
-		return err
+		return Progress{}, err
 	}
 	installing, err := m.journal.readInstalling(len(moves))
 	if err != nil {
-		return err
+		return Progress{}, err
 	}
 	progress := Progress{Phase: phaseMoving, Moved: len(moved), Total: len(moves)}
 	// floors holds, by destination, the space a copy needs at least, learned
 	// when its file system filled up during the copy.
 	floors := make(map[string]uint64)
 	if err := m.waitForSpace(ctx, ticks, pendingMoves(moves, moved, 0), floors, progress, held); err != nil {
-		return err
+		return Progress{}, err
 	}
 	if err := m.publishHeld(progress, held); err != nil {
-		return err
+		return Progress{}, err
 	}
 	logger.Info(ctx, "Migrating state to projects",
 		slog.Int("moves", len(moves)), slog.Int("done", len(moved)))
@@ -250,31 +284,25 @@ func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) er
 			// The estimate fell short, or another writer took the room.
 			err = m.waitAfterFull(ctx, ticks, moves[i], pendingMoves(moves, moved, i), floors, progress, held)
 			if err != nil {
-				return err
+				return Progress{}, err
 			}
 			if err := m.publishHeld(progress, held); err != nil {
-				return err
+				return Progress{}, err
 			}
 			continue
 		}
 		if err != nil {
-			return err
+			return Progress{}, err
 		}
 		i++
 		progress.Moved++
 		if progress.Moved%statusEvery != 0 {
 			m.setProgress(progress)
 		} else if err := m.publishHeld(progress, held); err != nil {
-			return err
+			return Progress{}, err
 		}
 	}
-
-	progress.Phase = phaseDone
-	if err := m.publishHeld(progress, held); err != nil {
-		return err
-	}
-	logger.Info(ctx, "Migrated state to projects", slog.Int("moves", len(moves)))
-	return nil
+	return progress, nil
 }
 
 // moveOne makes the move at index and records it in the journal. recorded
@@ -385,27 +413,29 @@ func (m *Migrator) liveV2(ctx context.Context) ([]string, error) {
 	return live, nil
 }
 
-// loadOrPlan returns the plan of an earlier attempt, or plans the moves and
-// records them before the first one.
-func (m *Migrator) loadOrPlan(ctx context.Context, held func() error) ([]move, error) {
-	moves, found, err := m.journal.readPlan()
+// loadOrPlan returns the plan of an earlier attempt, which an earlier
+// release may have made, or plans the moves and records them before the
+// first one.
+func (m *Migrator) loadOrPlan(ctx context.Context, held func() error) (planFile, error) {
+	plan, found, err := m.journal.readPlan()
 	if err != nil || found {
-		return moves, err
+		return plan, err
 	}
-	moves, err = m.planMoves(ctx)
+	moves, err := m.planMoves(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("plan the migration: %w", err)
+		return planFile{}, fmt.Errorf("plan the migration: %w", err)
 	}
 	if err := checkPlan(moves); err != nil {
-		return nil, err
+		return planFile{}, err
 	}
 	if err := held(); err != nil {
-		return nil, err
+		return planFile{}, err
 	}
-	if err := m.journal.writePlan(moves); err != nil {
-		return nil, err
+	plan = planFile{Version: planVersion, Moves: moves}
+	if err := m.journal.writePlan(plan); err != nil {
+		return planFile{}, err
 	}
-	return moves, nil
+	return plan, nil
 }
 
 // checkPlan refuses a plan that would stop partway or lose state, before any
@@ -541,11 +571,17 @@ func (m *Migrator) publishShortage(progress Progress, shortage *SpaceShortage, h
 // writes nothing, so it never replaces the status of the one that took the
 // lock over.
 func (m *Migrator) publishHeld(progress Progress, held func() error) error {
+	return m.publishStatus(statusFile{Progress: progress}, held)
+}
+
+// publishStatus is publishHeld for a status that also names the version a
+// finished migration made.
+func (m *Migrator) publishStatus(status statusFile, held func() error) error {
 	if err := held(); err != nil {
 		return err
 	}
-	m.setProgress(progress)
-	return m.journal.writeStatus(progress)
+	m.setProgress(status.Progress)
+	return m.journal.writeStatus(status)
 }
 
 func (m *Migrator) setProgress(progress Progress) {
