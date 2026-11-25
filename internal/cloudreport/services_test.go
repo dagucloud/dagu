@@ -265,3 +265,26 @@ func TestFitServiceDAGsDropsTheOldestHoursFirst(t *testing.T) {
 	assert.Len(t, fitted[199].Events, 1, "hours go before events")
 	assert.Less(t, len(fitted[0].Hours), len(fitted[199].Hours), "the oldest hours go first")
 }
+
+// A list far past the size of a report, as from a server that could not
+// report for days, is cut to fit without encoding it again for each cut.
+func TestFitServiceDAGsCutsALargeList(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	var entries []serviceDAGEntry
+	for i := range maxServiceDAGs {
+		hours := make([]serviceHour, 24*7)
+		for h := range hours {
+			hours[h] = serviceHour{Start: formatTime(start.Add(time.Duration(h) * time.Hour)), Count: 100, Failures: 1}
+		}
+		entries = append(entries, serviceDAGEntry{Workflow: fmt.Sprintf("dag-%03d", i), State: "running", Hours: hours})
+	}
+
+	fitted := fitServiceDAGs(entries)
+
+	data, err := json.Marshal(fitted)
+	require.NoError(t, err)
+	assert.LessOrEqual(t, len(data), maxServiceDAGBytes)
+	assert.Len(t, fitted, maxServiceDAGs)
+}

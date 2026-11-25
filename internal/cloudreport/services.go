@@ -325,12 +325,10 @@ func readServiceHours(ctx context.Context, reader samples.Reader, from, to, runS
 }
 
 // fitServiceDAGs cuts the entries to maxServiceDAGBytes: the oldest hours go
-// first, then the oldest events, then the last entries.
+// first, then the oldest events, then the last entries. The size counts down
+// by what each cut item takes with its comma, which never falls short of
+// what the encoding loses, so the entries are encoded once.
 func fitServiceDAGs(entries []serviceDAGEntry) []serviceDAGEntry {
-	size := func() int {
-		data, _ := json.Marshal(entries)
-		return len(data)
-	}
 	firstHour := func(e serviceDAGEntry) (string, bool) {
 		if len(e.Hours) == 0 {
 			return "", false
@@ -343,18 +341,28 @@ func fitServiceDAGs(entries []serviceDAGEntry) []serviceDAGEntry {
 		}
 		return e.Events[0].At, true
 	}
-	for len(entries) > 0 && size() > maxServiceDAGBytes {
+	size := encodedLen(entries)
+	for len(entries) > 0 && size > maxServiceDAGBytes {
 		if i := oldestFirst(entries, firstHour); i >= 0 {
+			size -= encodedLen(entries[i].Hours[0]) + len(",")
 			entries[i].Hours = entries[i].Hours[1:]
 			continue
 		}
 		if i := oldestFirst(entries, firstEvent); i >= 0 {
+			size -= encodedLen(entries[i].Events[0]) + len(",")
 			entries[i].Events = entries[i].Events[1:]
 			continue
 		}
+		size -= encodedLen(entries[len(entries)-1]) + len(",")
 		entries = entries[:len(entries)-1]
 	}
 	return entries
+}
+
+// encodedLen is how many bytes v takes in JSON.
+func encodedLen(v any) int {
+	data, _ := json.Marshal(v)
+	return len(data)
 }
 
 // oldestFirst returns the entry whose first item, by key, is the oldest; -1
