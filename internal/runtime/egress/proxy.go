@@ -244,10 +244,13 @@ var (
 // private, link-local, multicast, unspecified, special-purpose or reserved. A
 // NAT64 or 6to4 address is public when the IPv4 address in it is. An address
 // with a zone is not public: no prefix contains it, so it would pass the range
-// checks.
+// checks. The zone is checked before Unmap, which drops it.
 func publicAddr(addr netip.Addr) bool {
+	if addr.Zone() != "" {
+		return false
+	}
 	addr = addr.Unmap()
-	if addr.Zone() != "" || !addr.IsGlobalUnicast() || addr.IsPrivate() {
+	if !addr.IsGlobalUnicast() || addr.IsPrivate() {
 		return false
 	}
 	for _, prefix := range specialPrefixes {

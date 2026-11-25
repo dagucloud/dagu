@@ -532,7 +532,8 @@ func TestWildcardRefusesPrivateAddressLiterals(t *testing.T) {
 
 // A wildcard also matches an IPv6 literal whose zone ends with its name. A zone
 // hides no address from the check: such a literal is refused, and nothing is
-// dialed. Without the check, the NAT64 form of 10.0.0.1 would be dialed.
+// dialed. Without the check, the NAT64 form of 10.0.0.1 would be dialed, and so
+// would the mapped form of 8.8.8.8, which no rule lists.
 func TestWildcardRefusesZonedAddressLiterals(t *testing.T) {
 	t.Parallel()
 
@@ -550,7 +551,9 @@ func TestWildcardRefusesZonedAddressLiterals(t *testing.T) {
 		return strings.TrimSpace(line)
 	}
 
-	for _, target := range []string{"64:ff9b::a00:1%25x.wild.example.test", "2001:db8::1%25x.wild.example.test"} {
+	for _, target := range []string{
+		"64:ff9b::a00:1%25x.wild.example.test", "2001:db8::1%25x.wild.example.test", "::ffff:8.8.8.8%25x.wild.example.test",
+	} {
 		assert.Equal(t, "HTTP/1.1 403 Forbidden",
 			status("GET http://["+target+"]/ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"), target)
 		assert.Equal(t, "HTTP/1.1 403 Forbidden",
