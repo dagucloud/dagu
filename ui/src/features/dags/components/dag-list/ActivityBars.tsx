@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Status, type components } from '@/api/v1/schema';
+import type { components } from '@/api/v1/schema';
 import { useClock } from '@/hooks/useClock';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
@@ -11,7 +11,6 @@ import { runStatusText } from '@/lib/status-utils';
 import { toneClasses } from '@/lib/statusPalette';
 import { cn } from '@/lib/utils';
 import {
-  ACTIVITY_BAND_PX,
   ACTIVITY_BAR_PX,
   ACTIVITY_HEIGHT_PX,
   ACTIVITY_WIDTH_PX,
@@ -26,11 +25,6 @@ const REFRESH_MS = 60_000;
 
 interface ActivityBarsProps {
   activity?: Activity;
-  /**
-   * The workflow is a heartbeat that runs well: its run is a band from its
-   * start to now, not a bar, since it has no end and no length to tell.
-   */
-  healthy?: boolean;
   /**
    * The strip fills the width of its cell and holds as many bars as fit, so
    * that the cell takes the changes of the width of the page. Without it, the
@@ -51,7 +45,6 @@ interface ActivityBarsProps {
  */
 function ActivityBars({
   activity,
-  healthy = false,
   fluid = false,
   onOpenRun,
   className,
@@ -144,7 +137,6 @@ function ActivityBars({
             <Bar
               key={bar.id}
               bar={bar}
-              band={healthy && bar.status === Status.Running}
               title={barTitle(bar, ts)}
               onOpenRun={onOpenRun}
             />
@@ -166,41 +158,13 @@ function barTitle(bar: ActivityBar, ts: ReturnType<typeof useI18n>['ts']) {
 
 function Bar({
   bar,
-  band,
   title,
   onOpenRun,
 }: {
   bar: ActivityBar;
-  /** Drawn as the band of a heartbeat, from its start to the end of the strip. */
-  band: boolean;
   title: string;
   onOpenRun?(runId: string, event: React.MouseEvent): void;
 }) {
-  const { ts } = useI18n();
-  if (band) {
-    return (
-      <span
-        title={`${ts('Healthy')} · ${formatAbsoluteTime(bar.startedAt) ?? ''}`}
-        data-run-id={bar.id}
-        data-tone="success"
-        data-band="true"
-        onClick={
-          onOpenRun
-            ? (event) => {
-                event.stopPropagation();
-                onOpenRun(bar.id, event);
-              }
-            : undefined
-        }
-        style={{ left: bar.left, right: 0, height: ACTIVITY_BAND_PX }}
-        className={cn(
-          'absolute bottom-px block rounded-sm opacity-60 hover:opacity-100',
-          toneClasses('success').dot,
-          onOpenRun && 'cursor-pointer'
-        )}
-      />
-    );
-  }
   return (
     <span
       title={title}

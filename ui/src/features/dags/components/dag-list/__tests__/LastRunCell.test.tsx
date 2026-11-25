@@ -7,7 +7,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ServiceDAGState, Status } from '@/api/v1/schema';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { I18nProvider } from '@/i18n/I18nProvider';
-import ActivityBars from '../ActivityBars';
 import { LastRunCell } from '../LastRunCell';
 
 // Reads the locale from stored preferences, as the app does.
@@ -131,41 +130,5 @@ describe('LastRunCell of a service DAG', () => {
     const cell = screen.getByTestId('dag-last-run');
     expect(cell).toHaveTextContent('11s ago');
     expect(cell).not.toHaveAttribute('data-service-state');
-  });
-});
-
-describe('ActivityBars of a heartbeat', () => {
-  const run = (status: Status, startedAt: string) => ({
-    dagRunId: `r-${status}`,
-    status,
-    startedAt,
-  });
-
-  it('draws the running run as a band to the end of the strip, not as a bar', () => {
-    const { container } = render(
-      <ActivityBars
-        healthy
-        activity={{
-          runs: [run(Status.Running, ago(3_600_000))],
-          truncated: false,
-        }}
-      />,
-      { wrapper: Wrapper }
-    );
-    expect(container.querySelector('[data-band="true"]')).not.toBeNull();
-  });
-
-  it('keeps the bars of the other workflows', () => {
-    const { container } = render(
-      <ActivityBars
-        activity={{
-          runs: [run(Status.Running, ago(3_600_000))],
-          truncated: false,
-        }}
-      />,
-      { wrapper: Wrapper }
-    );
-    expect(container.querySelector('[data-band="true"]')).toBeNull();
-    expect(container.querySelector('[data-run-id]')).not.toBeNull();
   });
 });

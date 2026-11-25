@@ -22,8 +22,6 @@ export const ACTIVITY_HEIGHT_PX = 24;
 export const ACTIVITY_BAR_PX = 5;
 /** The least width of the slot of a bar: the bar and the space after it. */
 export const ACTIVITY_SLOT_PX = 7;
-/** The height of the band of a heartbeat that runs well. */
-export const ACTIVITY_BAND_PX = 6;
 /** The height of the shortest bar, so that an instant run stays visible. */
 export const ACTIVITY_BAR_MIN_PX = 7;
 
