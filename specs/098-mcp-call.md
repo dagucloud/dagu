@@ -36,7 +36,8 @@ without hand-written MCP session handling.
 The step connects, initializes a session with the official MCP Go SDK, sends
 one `tools/call`, closes the session, and exits. Each run makes exactly one
 call; the action never retries. Only an explicit step `retry_policy` re-runs
-it.
+it. With `oauth`, an HTTP request the server answers with 401 is sent once more
+with a new token.
 
 When the server ends the call's SSE stream after an event ID, the client
 resumes the stream with `Last-Event-ID`. Resumption replays events the server
@@ -50,6 +51,7 @@ stored and does not send `tools/call` again.
 | `tool` | yes | Tool name. |
 | `arguments` | no | JSON object passed as the tool arguments. Dagu references resolve as in other `with` values. |
 | `headers` | no | Map of request headers. Use `${SECRET}` references for credentials. |
+| `oauth` | no | Sends a refreshed OAuth access token as `Authorization: Bearer`, as `http.request` defines it (spec 045). Cannot be combined with an `Authorization` header. |
 | `include_raw` | no | When true, adds the full MCP result as `raw`, masked like the rest of the output. |
 | `save_binary` | no | When true, saves binary content as run artifacts instead of writing it as base64. See [Binary content](#binary-content). |
 
@@ -110,7 +112,7 @@ stdout still carries the kind. Kinds:
 | Kind | Meaning |
 | --- | --- |
 | `tool` | The tool ran and reported `isError: true`. The normal output is still written. |
-| `auth` | The server answered HTTP 401 or 403. |
+| `auth` | The server answered HTTP 401 or 403, or `oauth` could not obtain an access token. |
 | `protocol` | A JSON-RPC error, a lost session, an invalid response, or an HTTP 3xx redirect. Redirects are not followed; configure the final URL. |
 | `transport` | A network failure, such as a refused connection or a connection lost mid-response, or HTTP 429, 500, 502, 503, or 504. |
 | `timeout` | The step or DAG timeout elapsed. |

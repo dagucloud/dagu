@@ -187,7 +187,7 @@ Current builtin actions:
 
 | Action | Use for | Key inputs |
 |--------|---------|------------|
-| `http.request` | HTTP calls | `method`, `url`, headers/body config |
+| `http.request` | HTTP calls | `method`, `url`, headers/body config, optional `oauth` |
 | `ssh.run` | Remote shell over SSH | `command`, SSH connection config |
 | `exec` | Direct process execution without shell parsing | `command`, optional `args` |
 | `docker.run` | Docker executor | optional `command`, Docker config |
@@ -212,7 +212,7 @@ Current builtin actions:
 | `mail.send` | Email sending | mail executor config |
 | `mail.search` | Email search over IMAP or the Gmail API | `mailbox` and search filters |
 | `mail.organize` | Email marking and moving | `mailbox`, `emails`, `mark` or `move` |
-| `mcp.call` | Remote MCP tool call over Streamable HTTP | `url`, `tool`, optional `arguments`, `headers`, `include_raw`, `save_binary` |
+| `mcp.call` | Remote MCP tool call over Streamable HTTP | `url`, `tool`, optional `arguments`, `headers`, `oauth`, `include_raw`, `save_binary` |
 | `a2a.send`, `a2a.get_task` | Remote A2A agent task over JSON-RPC and HTTPS | `agent_url`, `message` or `task_id`, optional `headers`, `tenant` |
 | `xlsx.read` | Workbook reading | `path`, optional `password`, `sheet`, `range`, `header`, `columns`, `types`, `where` |
 | `xlsx.info`, `xlsx.list_sheets` | Workbook metadata | `path`, optional `password` |

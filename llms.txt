@@ -817,7 +817,38 @@ steps:
 
 Do not set the multipart `Content-Type` header manually. `body` cannot be combined with `form` or `files`.
 
-`with` fields: `method`, `url`, `timeout`, `headers`, `query`, `body`, `form`, `files`, `silent`, `debug`, `format`, `output`, `json`, `skip_tls_verify`.
+`oauth` sends `Authorization: Bearer <access token>` on every request and
+replaces the token before it expires. A request the server rejects with HTTP
+401 is sent once more with a new token. `oauth` cannot be combined with an
+`Authorization` header. `mcp.call` takes the same block.
+
+```yaml
+steps:
+  - id: list_files
+    action: http.request
+    with:
+      method: GET
+      url: https://www.googleapis.com/drive/v3/files
+      oauth:
+        provider: google
+        client_id: ${GOOGLE_CLIENT_ID}
+        client_secret: ${GOOGLE_CLIENT_SECRET}
+        refresh_token: ${GOOGLE_REFRESH_TOKEN}
+        scopes: [https://www.googleapis.com/auth/drive.file]
+      format: json
+```
+
+| `provider` | Fields |
+| --- | --- |
+| `google` | `client_id`, `client_secret`, and `refresh_token`, with optional `scopes` to narrow the grant; or `service_account_json` and `scopes` |
+| `microsoft` | `client_id`, `refresh_token`, and `scopes`; optional `client_secret` and `tenant_id` (default `common`). `offline_access` is always requested |
+| `dagu-cloud` | `account` (a Google address) and `scopes`. Dagu Console issues the token for an account connected there, so the server must be connected to Dagu Cloud |
+
+With `dagu-cloud`, an account that is not connected, lacks a scope, or must be
+reconnected fails the step with Dagu Console's message and the URL to connect
+it.
+
+`with` fields: `method`, `url`, `timeout`, `headers`, `query`, `body`, `form`, `files`, `silent`, `debug`, `format`, `output`, `json`, `skip_tls_verify`, `oauth`.
 
 ## mcp.call
 
@@ -851,9 +882,24 @@ stdout is `{"content": [...], "structured_content": ..., "json": ..., "is_error"
 
 Image, audio, and blob resource data is base64 in the output by default. With `save_binary: true`, each such item is saved to the run artifacts under `mcp/<step id>/`, and the item carries `path` (relative to `$DAG_RUN_ARTIFACTS_DIR`) instead of the data.
 
-Put credentials in `headers`, never in the URL. Values of headers and URL query parameters whose name contains `auth`, `key`, `token`, `secret`, `cookie`, or `password` are masked in the output. Redirects are not followed.
+Put credentials in `headers` or `oauth`, never in the URL. Values of headers and URL query parameters whose name contains `auth`, `key`, `token`, `secret`, `cookie`, or `password` are masked in the output. Redirects are not followed.
 
-`with` fields: `url`, `tool`, `arguments` (object, or a `${...}` reference to a JSON object), `headers`, `include_raw`, `save_binary`.
+`oauth` takes the block described under `http.request` and sends a refreshed bearer token instead of an `Authorization` header. A request the server rejects with HTTP 401 is sent once more with a new token; failing to get a token is an `auth` error.
+
+```yaml
+steps:
+  - id: events
+    action: mcp.call
+    with:
+      url: https://calendarmcp.googleapis.com/mcp/v1
+      tool: list_events
+      oauth:
+        provider: dagu-cloud
+        account: me@example.com
+        scopes: [https://www.googleapis.com/auth/calendar.events]
+```
+
+`with` fields: `url`, `tool`, `arguments` (object, or a `${...}` reference to a JSON object), `headers`, `oauth`, `include_raw`, `save_binary`.
 
 ## a2a.send and a2a.get_task
 

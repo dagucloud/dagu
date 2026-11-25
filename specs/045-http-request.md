@@ -21,6 +21,13 @@ Workflow authors can make an HTTP request and consume its result.
 
 - `with.method` and `with.url` are required.
 - `with.headers` and `with.query` supply request headers and query parameters.
+- `with.oauth` sends `Authorization: Bearer <access token>` on every request.
+  The token comes from the block's `provider`: `google` (a refresh token, or a
+  service account key with `scopes`), `microsoft` (a refresh token with
+  `scopes`), or `dagu-cloud` (`account` and `scopes`; Dagu Console issues the
+  token through this server's Dagu Cloud connection). A token is reused until
+  it nears expiry. A request the server answers with HTTP 401 is sent once
+  more with a new token.
 - With `with.format: json`, a successful JSON response produces `status_code`
   (integer), `headers` (header-name to string-array object), and `body` (the parsed
   JSON value) on stdout. A failed response whose body is not JSON reports the
@@ -39,9 +46,13 @@ Workflow authors can make an HTTP request and consume its result.
 
 Missing method or URL fields fail validation with a diagnostic naming the field.
 A `with.status_exit_codes` key or value outside its allowed range fails
-validation. A `with` field the action does not define also fails validation;
-the error names the field and, when a defined field is a likely misspelling of
-it, suggests that field. A non-success HTTP response fails the step unless
+validation. `with.oauth` combined with an `Authorization` header, or missing a
+field its provider requires, fails validation. When no access token can be
+obtained, the step fails before sending the request, with the provider's
+reason; for `dagu-cloud` this includes Dagu Console's message and the URL where
+the account is connected. A `with` field the action does not define also fails
+validation; the error names the field and, when a defined field is a likely
+misspelling of it, suggests that field. A non-success HTTP response fails the step unless
 `status_exit_codes` maps its status to `0`. When `with.output` names an
 existing file, a failed response preserves that file and writes the error body
 to stdout.
