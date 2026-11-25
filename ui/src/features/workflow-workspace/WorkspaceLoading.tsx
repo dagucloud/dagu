@@ -4,6 +4,10 @@
 import { useLocation } from 'react-router-dom';
 import LoadingIndicator from '@/components/ui/loading-indicator';
 import {
+  useFullBleed,
+  useHideBreadcrumb,
+} from '@/contexts/LayoutChromeContext';
+import {
   PANEL_HEADER_CLASS,
   PANEL_ZONE_SHELL_CLASS,
   panelMaxWidth,
@@ -87,6 +91,10 @@ export function WorkspaceLoading({
   url?: string;
 }) {
   const { ts } = useI18n();
+  // The frame takes the shape of the page while it loads: a reload shows no
+  // breadcrumb strip and no padding that go away.
+  useFullBleed(true);
+  useHideBreadcrumb(true);
   const location = useLocation();
   const target = url ? new URL(url, window.location.origin) : location;
   const { right, dock } = panelsAtLoad(
