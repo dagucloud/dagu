@@ -417,14 +417,14 @@ An update with the hash, then the conflict:
 
 ```text
 PUT /api/v1/skills/pdf-processing/files?path=references/forms.md
-If-Match: 3b9c...e41a
+If-Match: 3701b8400dca3109de303137c868e09c754b46fbe652a2694b7b3510f2ca6094
 
-200 {"hash":"77d0...a2c1","errors":[],"warnings":[],"files":[...]}
+200 {"hash":"278472fbd277db601c4e96a1f12122f298e89be4d151520090c929814a0ef386","errors":[],"warnings":[],"files":[...]}
 
 PUT /api/v1/skills/pdf-processing/files?path=references/forms.md
-If-Match: 3b9c...e41a
+If-Match: 3701b8400dca3109de303137c868e09c754b46fbe652a2694b7b3510f2ca6094
 
-409 {"code":"conflict","message":"the skill \"pdf-processing\" changed after the client read it (current hash 77d0...a2c1)","hash":"77d0...a2c1"}
+409 {"code":"conflict","message":"the skill \"pdf-processing\" changed after the client read it (current hash 278472fbd277db601c4e96a1f12122f298e89be4d151520090c929814a0ef386)","hash":"278472fbd277db601c4e96a1f12122f298e89be4d151520090c929814a0ef386"}
 ```
 
 ## Conformance
