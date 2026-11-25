@@ -49,7 +49,8 @@ func (c *Config) CheckProjectPaths() error {
 		return nil
 	}
 	return errors.New("DAG directories must not share a directory with state or with each other:\n  " +
-		strings.Join(overlaps, "\n  "))
+		strings.Join(overlaps, "\n  ") +
+		"\nSet each DAG directory above to a separate directory outside state, including any left at its default.")
 }
 
 // PathOverlaps describes each DAG root that is or contains paths.data_dir,
@@ -102,7 +103,7 @@ func (c *Config) dagRoots() []namedPath {
 func (c *Config) stateRoots() []namedPath {
 	var roots []namedPath
 	inData := func(name string) namedPath {
-		return namedPath{"paths.data_dir/" + name, filepath.Join(c.Paths.DataDir, name)}
+		return namedPath{"<data_dir>/" + name, filepath.Join(c.Paths.DataDir, name)}
 	}
 	if c.Paths.DataDir != "" {
 		roots = append(roots, inData(projectStatesDirName))
@@ -138,8 +139,13 @@ func (c *Config) stateRoots() []namedPath {
 	return roots
 }
 
+// describeOverlap leaves out the path of other when root spells it the same.
 func describeOverlap(root locatedPath, relation string, other locatedPath) string {
-	return fmt.Sprintf("%s %q %s %s %q", root.name, root.path, relation, other.name, other.path)
+	desc := fmt.Sprintf("%s %q %s %s", root.name, root.path, relation, other.name)
+	if other.path != root.path {
+		desc += fmt.Sprintf(" %q", other.path)
+	}
+	return desc
 }
 
 // locatePaths returns the location of each path that is set.

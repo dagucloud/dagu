@@ -16,9 +16,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// overlap formats an overlap as PathOverlaps describes it.
+// overlap formats an overlap as PathOverlaps describes it. An empty otherPath
+// stands for one spelled as rootPath, which the description leaves out.
 func overlap(root, rootPath, relation, other, otherPath string) string {
-	return fmt.Sprintf("%s %q %s %s %q", root, rootPath, relation, other, otherPath)
+	desc := fmt.Sprintf("%s %q %s %s", root, rootPath, relation, other)
+	if otherPath != "" {
+		desc += fmt.Sprintf(" %q", otherPath)
+	}
+	return desc
 }
 
 func TestPathOverlaps(t *testing.T) {
@@ -37,7 +42,7 @@ func TestPathOverlaps(t *testing.T) {
 			name: "DAGsDirIsDataDir",
 			edit: func(_ string, p *config.PathsConfig) []string {
 				p.DAGsDir = p.DataDir
-				return []string{overlap("paths.dags_dir", p.DAGsDir, "is", "paths.data_dir", p.DataDir)}
+				return []string{overlap("paths.dags_dir", p.DAGsDir, "is", "paths.data_dir", "")}
 			},
 		},
 		{
@@ -64,7 +69,7 @@ func TestPathOverlaps(t *testing.T) {
 			name: "ProjectsDirIsProjectState",
 			edit: func(_ string, p *config.PathsConfig) []string {
 				p.ProjectsDir = filepath.Join(p.DataDir, "projects")
-				return []string{overlap("paths.projects_dir", p.ProjectsDir, "is", "paths.data_dir/projects", p.ProjectsDir)}
+				return []string{overlap("paths.projects_dir", p.ProjectsDir, "is", "<data_dir>/projects", "")}
 			},
 		},
 		{
@@ -72,7 +77,7 @@ func TestPathOverlaps(t *testing.T) {
 			edit: func(_ string, p *config.PathsConfig) []string {
 				p.DAGsDir = filepath.Join(p.DataDir, "projects", "default")
 				return []string{overlap("paths.dags_dir", p.DAGsDir, "lies inside",
-					"paths.data_dir/projects", filepath.Join(p.DataDir, "projects"))}
+					"<data_dir>/projects", filepath.Join(p.DataDir, "projects"))}
 			},
 		},
 		{
@@ -80,7 +85,7 @@ func TestPathOverlaps(t *testing.T) {
 			edit: func(_ string, p *config.PathsConfig) []string {
 				p.DAGsDir = filepath.Join(p.DataDir, "auth", "dags")
 				return []string{overlap("paths.dags_dir", p.DAGsDir, "lies inside",
-					"paths.data_dir/auth", filepath.Join(p.DataDir, "auth"))}
+					"<data_dir>/auth", filepath.Join(p.DataDir, "auth"))}
 			},
 		},
 		{
@@ -88,7 +93,7 @@ func TestPathOverlaps(t *testing.T) {
 			name: "DAGsDirIsTunnelState",
 			edit: func(_ string, p *config.PathsConfig) []string {
 				p.DAGsDir = filepath.Join(p.DataDir, "tailscale")
-				return []string{overlap("paths.dags_dir", p.DAGsDir, "is", "paths.data_dir/tailscale", p.DAGsDir)}
+				return []string{overlap("paths.dags_dir", p.DAGsDir, "is", "<data_dir>/tailscale", "")}
 			},
 		},
 		{
@@ -103,7 +108,7 @@ func TestPathOverlaps(t *testing.T) {
 			edit: func(root string, p *config.PathsConfig) []string {
 				p.CalendarsDir = filepath.Join(root, "calendars")
 				p.AltDAGsDir = p.CalendarsDir
-				return []string{overlap("paths.alt_dags_dir", p.AltDAGsDir, "is", "paths.calendars_dir", p.CalendarsDir)}
+				return []string{overlap("paths.alt_dags_dir", p.AltDAGsDir, "is", "paths.calendars_dir", "")}
 			},
 		},
 		{
@@ -129,9 +134,9 @@ func TestPathOverlaps(t *testing.T) {
 				p.ProjectsDir = p.DAGsDir
 				p.AltDAGsDir = p.DAGsDir
 				return []string{
-					overlap("paths.dags_dir", p.DAGsDir, "is", "paths.projects_dir", p.ProjectsDir),
-					overlap("paths.dags_dir", p.DAGsDir, "is", "paths.alt_dags_dir", p.AltDAGsDir),
-					overlap("paths.projects_dir", p.ProjectsDir, "is", "paths.alt_dags_dir", p.AltDAGsDir),
+					overlap("paths.dags_dir", p.DAGsDir, "is", "paths.projects_dir", ""),
+					overlap("paths.dags_dir", p.DAGsDir, "is", "paths.alt_dags_dir", ""),
+					overlap("paths.projects_dir", p.ProjectsDir, "is", "paths.alt_dags_dir", ""),
 				}
 			},
 		},
@@ -183,7 +188,7 @@ func TestPathOverlapsByIdentity(t *testing.T) {
 
 		assert.Equal(t, []string{
 			overlap("paths.projects_dir", cfg.Paths.ProjectsDir, "is",
-				"paths.data_dir/projects", filepath.Join(cfg.Paths.DataDir, "projects")),
+				"<data_dir>/projects", filepath.Join(cfg.Paths.DataDir, "projects")),
 		}, cfg.PathOverlaps())
 	})
 
@@ -204,9 +209,9 @@ func TestPathOverlapsByIdentity(t *testing.T) {
 
 		assert.Equal(t, []string{
 			overlap("paths.projects_dir", projectsLink, "is",
-				"paths.data_dir/projects", filepath.Join(cfg.Paths.DataDir, "projects")),
+				"<data_dir>/projects", filepath.Join(cfg.Paths.DataDir, "projects")),
 			overlap("paths.alt_dags_dir", cfg.Paths.AltDAGsDir, "lies inside",
-				"paths.data_dir/auth", filepath.Join(cfg.Paths.DataDir, "auth")),
+				"<data_dir>/auth", filepath.Join(cfg.Paths.DataDir, "auth")),
 		}, cfg.PathOverlaps())
 	})
 
@@ -226,7 +231,7 @@ func TestPathOverlapsByIdentity(t *testing.T) {
 
 		assert.Equal(t, []string{
 			overlap("paths.alt_dags_dir", library, "lies inside",
-				"paths.data_dir/auth", filepath.Join(cfg.Paths.DataDir, "auth")),
+				"<data_dir>/auth", filepath.Join(cfg.Paths.DataDir, "auth")),
 		}, cfg.PathOverlaps())
 	})
 
@@ -260,7 +265,7 @@ func TestPathOverlapsByIdentity(t *testing.T) {
 
 		assert.Equal(t, []string{
 			overlap("paths.dags_dir", cfg.Paths.DAGsDir, "lies inside",
-				"paths.data_dir/projects", filepath.Join(dir, "projects")),
+				"<data_dir>/projects", filepath.Join(dir, "projects")),
 		}, cfg.PathOverlaps())
 	})
 }
@@ -285,15 +290,14 @@ func TestCheckProjectPaths(t *testing.T) {
 		assert.NoError(t, projectsTestConfig(t, true).CheckProjectPaths())
 	})
 
-	t.Run("OnNamesEveryOverlap", func(t *testing.T) {
+	t.Run("OnNamesOverlapsAndFix", func(t *testing.T) {
 		t.Parallel()
 		cfg := overlapping(true)
-		err := cfg.CheckProjectPaths()
-		require.Error(t, err)
-		for _, o := range cfg.PathOverlaps() {
-			assert.Contains(t, err.Error(), o)
-		}
-		assert.Len(t, cfg.PathOverlaps(), 2)
+		assert.EqualError(t, cfg.CheckProjectPaths(),
+			"DAG directories must not share a directory with state or with each other:\n"+
+				"  "+overlap("paths.dags_dir", cfg.Paths.DAGsDir, "is", "paths.alt_dags_dir", "")+"\n"+
+				"  "+overlap("paths.projects_dir", cfg.Paths.ProjectsDir, "is", "<data_dir>/projects", "")+"\n"+
+				"Set each DAG directory above to a separate directory outside state, including any left at its default.")
 	})
 }
 

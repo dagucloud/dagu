@@ -208,7 +208,7 @@ func TestNewContext_OverlappingPaths(t *testing.T) {
 
 		_, err := NewContext(command, nil)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "paths.projects_dir "+strconv.Quote(filepath.Join(home, "projects"))+" is paths.data_dir/projects")
+		assert.Contains(t, err.Error(), "paths.projects_dir "+strconv.Quote(filepath.Join(home, "projects"))+" is <data_dir>/projects")
 		assert.NoDirExists(t, filepath.Join(home, "contexts"), "refused before any store starts")
 	})
 

@@ -27,7 +27,7 @@ func TestOverlappingPathsRefuseStart(t *testing.T) {
 	home := filepath.Join(t.TempDir(), "dagu")
 	env := []string{"DAGU_HOME=" + home, "DAGU_DATA_DIR=" + home}
 	projectsOn := append(slices.Clone(env), "DAGU_EXPERIMENTAL_PROJECTS=true")
-	overlap := "paths.projects_dir " + strconv.Quote(filepath.Join(home, "projects")) + " is paths.data_dir/projects"
+	overlap := "paths.projects_dir " + strconv.Quote(filepath.Join(home, "projects")) + " is <data_dir>/projects"
 
 	for _, args := range [][]string{{"validate", "noop.yaml"}, {"scheduler"}} {
 		result := dagu.RunWithEnv(projectsOn, args...)
