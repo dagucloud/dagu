@@ -365,7 +365,9 @@ func TestWildcardAndAddresses(t *testing.T) {
 
 // A name that only a wildcard allows reaches public addresses only. The
 // special-purpose ranges are not public, and a NAT64 or 6to4 address is public
-// only when the IPv4 address in it is.
+// only when the IPv4 address in it is. An IPv6 address outside 2000::/3 is not
+// public, such as the IPv4-compatible and IPv4-translated forms of 127.0.0.1
+// and 10.0.0.1, or a site-local address.
 func TestWildcardRefusesSpecialAddresses(t *testing.T) {
 	t.Parallel()
 
@@ -373,6 +375,7 @@ func TestWildcardRefusesSpecialAddresses(t *testing.T) {
 		"0.1.2.3", "192.0.0.8", "198.18.0.1", "203.0.113.5", "240.0.0.1", "255.255.255.255",
 		"64:ff9b::a9fe:a9fe", "64:ff9b::a00:1", "64:ff9b:1::1", "2002:a9fe:a9fe::1",
 		"2001::1", "2001:db8::1", "100::1",
+		"::7f00:1", "::ffff:0:a00:1", "fec0::1",
 	}
 	allowed := []string{"8.8.8.8", "64:ff9b::808:808", "2002:808:808::1", "2606:4700::1111"}
 	resolver := &fakeResolver{answers: map[string][]netip.Addr{}}

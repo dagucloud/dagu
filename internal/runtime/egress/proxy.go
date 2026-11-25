@@ -220,12 +220,17 @@ var (
 	// sixToFourPrefix is the 6to4 prefix: the 32 bits after it are an IPv4
 	// address (RFC 3056).
 	sixToFourPrefix = netip.MustParsePrefix("2002::/16")
+	// globalUnicast6 is the only IPv6 range that IANA allocates for global
+	// unicast. The rest is reserved, such as ::/96, which embeds an IPv4
+	// address, and the site-local fec0::/10.
+	globalUnicast6 = netip.MustParsePrefix("2000::/3")
 )
 
 // publicAddr reports whether addr is an address of the internet: not loopback,
-// private, link-local, multicast, unspecified or special-purpose. A NAT64 or
-// 6to4 address is public when the IPv4 address in it is. An address with a zone
-// is not public: no prefix contains it, so it would pass the range checks.
+// private, link-local, multicast, unspecified, special-purpose or reserved. A
+// NAT64 or 6to4 address is public when the IPv4 address in it is. An address
+// with a zone is not public: no prefix contains it, so it would pass the range
+// checks.
 func publicAddr(addr netip.Addr) bool {
 	addr = addr.Unmap()
 	if addr.Zone() != "" || !addr.IsGlobalUnicast() || addr.IsPrivate() {
@@ -243,7 +248,7 @@ func publicAddr(addr netip.Addr) bool {
 	case sixToFourPrefix.Contains(addr):
 		return publicAddr(netip.AddrFrom4([4]byte(raw[2:6])))
 	}
-	return true
+	return addr.Is4() || globalUnicast6.Contains(addr)
 }
 
 // DeniedError is the error of a destination that the policy does not list.
