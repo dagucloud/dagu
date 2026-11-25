@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import { IconButton } from '@/components/ui/icon-button';
+import { cn } from '@/lib/utils';
 
 /** The placement that every right-side panel shares. */
 export const PANEL_DOCK_GEOMETRY =
@@ -202,16 +203,19 @@ export function PanelHeader({
   subtitle,
   closeLabel,
   onClose,
+  className,
   children,
 }: {
   title?: ReactNode;
   subtitle?: ReactNode;
   closeLabel: string;
   onClose(): void;
+  /** Extra classes for the bar. */
+  className?: string;
   children?: ReactNode;
 }): ReactElement {
   return (
-    <header data-panel-header className={PANEL_HEADER_CLASS}>
+    <header data-panel-header className={cn(PANEL_HEADER_CLASS, className)}>
       {children ?? (
         <div className="min-w-0 flex-1 leading-tight">
           <h2 className="truncate text-base font-semibold text-foreground">

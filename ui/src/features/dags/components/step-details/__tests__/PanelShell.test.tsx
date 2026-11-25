@@ -4,6 +4,7 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AddStepPanel } from '@/features/visual-editor/AddStepPanel';
+import { CanvasToolbarHostContext } from '@/features/visual-editor/canvas/toolbarHost';
 import { WorkflowDrawer } from '@/features/visual-editor/WorkflowDrawer';
 import {
   PANEL_BODY_CLASS,
@@ -83,6 +84,39 @@ describe('right-side panel shell', () => {
     expect(panelWidth(560, 1400)).toBe(
       'min(100vw, 560px, max(100% - 240px, 420px))'
     );
+  });
+
+  // From md the toolbar row of a zone names the Workflow panel and holds its
+  // Close button. The bar stays below md, where the row is hidden.
+  it('drops the title bar of the Workflow panel from md in a zone with a row', () => {
+    const zone = (row: HTMLElement | undefined) => (
+      <PanelPlacementProvider value="zone">
+        <CanvasToolbarHostContext.Provider value={row}>
+          <WorkflowDrawer open onClose={vi.fn()}>
+            <p>Nightly</p>
+          </WorkflowDrawer>
+        </CanvasToolbarHostContext.Provider>
+      </PanelPlacementProvider>
+    );
+    const row = render(zone(document.createElement('div')));
+    expect(shell().querySelector('[data-panel-header]')).toHaveClass(
+      'md:hidden'
+    );
+    // Two Close buttons: the one of the hidden header (below md) and the one
+    // of the band of the row, at the right end of the panel.
+    expect(screen.getAllByRole('button', { name: 'Close' })).toHaveLength(2);
+    // The panel names itself in the band of the row, over its first rows.
+    expect(screen.getByTestId('panel-row-title')).toHaveTextContent('Workflow');
+    expect(
+      shell().querySelector('[data-panel-close="row"]')?.querySelector('button')
+    ).toHaveAccessibleName('Close');
+    row.unmount();
+
+    render(zone(undefined));
+    expect(shell().querySelector('[data-panel-header]')).not.toHaveClass(
+      'md:hidden'
+    );
+    expect(screen.queryByTestId('panel-row-title')).toBeNull();
   });
 
   // Below 1100px a panel takes at most 45% of its zone, never under 360px.
