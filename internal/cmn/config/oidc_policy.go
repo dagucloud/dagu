@@ -65,8 +65,10 @@ func (l *OIDCPolicyLoader) Load() (OIDCPolicy, error) {
 	if err := configLoader.loadOIDCWorkspaceMappingsEnv(); err != nil {
 		return OIDCPolicy{}, err
 	}
-	if err := configLoader.loadOIDCProjectMappingsEnv(); err != nil {
-		return OIDCPolicy{}, err
+	if l.projects {
+		if err := configLoader.loadOIDCProjectMappingsEnv(); err != nil {
+			return OIDCPolicy{}, err
+		}
 	}
 
 	var def Definition

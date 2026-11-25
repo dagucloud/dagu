@@ -416,12 +416,21 @@ func (l *ConfigLoader) Load() (*Config, error) {
 	if err := l.loadOIDCWorkspaceMappingsEnv(); err != nil {
 		return nil, err
 	}
-	if err := l.loadOIDCProjectMappingsEnv(); err != nil {
-		return nil, err
+	// While projects are off, the project mapping variables are not read.
+	projects := l.v.GetBool(projectsSwitchKey)
+	if projects {
+		if err := l.loadOIDCProjectMappingsEnv(); err != nil {
+			return nil, err
+		}
 	}
 	if l.requires(SectionServer) {
 		if err := l.loadTrustedProxyMappingsEnv(); err != nil {
 			return nil, err
+		}
+		if projects {
+			if err := l.loadTrustedProxyProjectMappingsEnv(); err != nil {
+				return nil, err
+			}
 		}
 		if err := l.validateTrustedProxyConfigKeys(); err != nil {
 			return nil, err
@@ -1109,16 +1118,17 @@ func (l *ConfigLoader) loadTrustedProxyMappingsEnv() error {
 		l.trustedProxyWorkspaceMappingsSet = true
 		l.v.Set("auth.proxy.role_mapping.workspace_mappings", workspaceMappings)
 	}
+	return nil
+}
 
-	projectMappings, exists, err := loadStrictJSONObjectEnv[[]ProjectMappingGrant]("AUTH_PROXY_PROJECT_MAPPINGS")
-	if err != nil {
+func (l *ConfigLoader) loadTrustedProxyProjectMappingsEnv() error {
+	mappings, exists, err := loadStrictJSONObjectEnv[[]ProjectMappingGrant]("AUTH_PROXY_PROJECT_MAPPINGS")
+	if err != nil || !exists {
 		return err
 	}
-	if exists {
-		l.trustedProxyProjectMappings = cloneProjectMappings(projectMappings)
-		l.trustedProxyProjectMappingsSet = true
-		l.v.Set("auth.proxy.role_mapping.project_mappings", projectMappings)
-	}
+	l.trustedProxyProjectMappings = cloneProjectMappings(mappings)
+	l.trustedProxyProjectMappingsSet = true
+	l.v.Set("auth.proxy.role_mapping.project_mappings", mappings)
 	return nil
 }
 

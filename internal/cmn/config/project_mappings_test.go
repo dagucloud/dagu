@@ -59,6 +59,25 @@ func TestLoad_ProjectAccessKeysWhileProjectsOff(t *testing.T) {
 	}
 }
 
+// With projects off, the project mapping variables are not read, so a value
+// v2 never parsed cannot stop the config from loading.
+func TestLoad_ProjectMappingEnvironmentWhileProjectsOff(t *testing.T) {
+	t.Setenv("DAGU_AUTH_OIDC_PROJECT_MAPPINGS", "not json")
+	t.Setenv("DAGU_AUTH_PROXY_PROJECT_MAPPINGS", "not json")
+
+	cfg := loadFromYAML(t, "auth:\n  mode: builtin\n")
+	require.Nil(t, cfg.Server.Auth.OIDC.RoleMapping.ProjectMappings)
+	require.Nil(t, cfg.Server.Auth.Proxy.RoleMapping.ProjectMappings)
+
+	configFile := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("auth:\n  mode: builtin\n"), 0600))
+	_, err := NewOIDCPolicyLoader([]string{configFile}, OIDCPolicy{}, false).Load()
+	require.NoError(t, err)
+
+	err = loadWithErrorFromYAML(t, projectsOn+"auth:\n  mode: builtin\n")
+	require.ErrorContains(t, err, "DAGU_AUTH_OIDC_PROJECT_MAPPINGS")
+}
+
 func TestLoad_ProjectAccessKeys(t *testing.T) {
 	cfg := loadFromYAML(t, projectsOn+`
 auth:
