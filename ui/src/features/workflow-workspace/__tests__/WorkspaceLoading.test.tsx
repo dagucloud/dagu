@@ -49,7 +49,15 @@ describe('WorkspaceLoading', () => {
     expect(screen.getByTestId('ww-loading-yaml')).toHaveStyle({
       width: '640px',
     });
-    // The Run panel stays open under it.
+    // The Run panel takes turns with it.
+    expect(screen.queryByTestId('ww-loading-dock')).toBeNull();
+  });
+
+  // The definition of a run keeps its YAML beside the Run panel.
+  it('keeps the Run panel beside the YAML of a run', () => {
+    localStorage.setItem(DOCK_OPEN_KEY, 'true');
+    renderAt('/dags/graph-etl?def=run&ndv=docked');
+    expect(screen.getByTestId('ww-loading-yaml')).toBeInTheDocument();
     expect(screen.getByTestId('ww-loading-dock')).toBeInTheDocument();
   });
 
@@ -64,6 +72,13 @@ describe('WorkspaceLoading', () => {
     localStorage.setItem(YAML_PANEL_OPEN_KEY, 'true');
     renderAt('/dags/graph-etl?step=extract');
     expect(screen.queryByTestId('ww-loading-yaml')).toBeNull();
+  });
+
+  // The panel of the step takes turns with the Run panel too.
+  it('shows no Run panel when a link opens the panel of a step', () => {
+    localStorage.setItem(DOCK_OPEN_KEY, 'true');
+    renderAt('/dags/graph-etl?step=extract');
+    expect(screen.queryByTestId('ww-loading-dock')).toBeNull();
   });
 
   it('shows the Run panel that the page opens, at its stored height', () => {

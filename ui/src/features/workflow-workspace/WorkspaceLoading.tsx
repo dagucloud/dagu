@@ -39,7 +39,9 @@ const WORKFLOW_TAB = /^\/dags\/[^/]+\/([^/]+)/;
  * page: the YAML panel by ?ndv or as the user left it, else the Workflow
  * panel as the user left it (useYamlPanelMemory), and the Run panel by
  * ?dock, a ?run of a link or as the user left it (DockProvider). The Run
- * panel yields to the step view; a right panel sits above it.
+ * panel yields to the step view. In the editor it also takes turns with a
+ * right panel and with the panel of a step that a link opens; the definition
+ * of a run keeps it beside its YAML.
  */
 function panelsAtLoad(
   pathname: string,
@@ -64,8 +66,12 @@ function panelsAtLoad(
         ? 'workflow'
         : null;
   const stepView = url.ndv === 'expanded' && url.step !== null;
+  // A link to a step opens its panel (useStepPanel).
+  const stepPanel = url.step !== null && url.ndv === null && url.dock === null;
+  const yields =
+    stepView || (url.def === null && (right !== null || stepPanel));
   const dock =
-    !stepView &&
+    !yields &&
     (url.dock !== null ||
       (url.run !== null && !isRunRedirect(routeState)) ||
       storedDockOpen());
@@ -103,9 +109,7 @@ export function WorkspaceLoading({
     url ? null : location.state
   );
   // Each dock has its own stored width.
-  const panelWidth = getStoredDrawerWidth(
-    right === null ? undefined : right === 'yaml' ? 'ndv' : 'workflow'
-  );
+  const panelWidth = getStoredDrawerWidth(right);
   return (
     <div
       role="status"
