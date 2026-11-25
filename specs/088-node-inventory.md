@@ -10,16 +10,20 @@ implemented over the API and through `dagu nodes test`, and conformance
 covers both. The commands also run against a remote context, and
 conformance compares their output with a local run. MCP's `dagu_read`
 lists nodes and inventories ([Spec 021](021-mcp-read-tool.md)). Worker
-nodes are not implemented yet, and further sections are added as they land
-([RFC 012](../rfcs/012-node-inventory.md)).
+nodes are listed and forgotten through the commands and the API, and
+conformance covers listing them; going offline and forgetting are
+covered by Go tests, since a worker goes offline only after the
+coordinator's detection interval. Further sections are added as they
+land ([RFC 012](../rfcs/012-node-inventory.md)).
 
 ## Scope
 
 This spec defines the inventory record, the rules every stored inventory
 meets, how a selector matches nodes, and how inventories are imported and
-exported, and how the server tests a node's connection and trusts its host
-key. It does not define how a step runs on its nodes
-([Spec 089](089-node-targeting.md)), worker nodes, or Dagu Cloud sync.
+exported, how the server tests a node's connection and trusts its host
+key, and which workers are nodes. It does not define how a step runs on
+its nodes ([Spec 089](089-node-targeting.md)), including on worker nodes,
+or Dagu Cloud sync.
 
 ## Goal
 
@@ -117,26 +121,32 @@ order, comparing bytes.
 
 | Command | Does |
 | --- | --- |
-| `dagu nodes list [--labels <selector>] [--inventory <name or id>] [--format table\|json]` | Prints the nodes the selector matches, or every node without `--labels` |
+| `dagu nodes list [--labels <selector>] [--inventory <name or id>] [--format table\|json]` | Prints the nodes the selector matches, or every node without `--labels`, worker nodes included |
 | `dagu nodes show <name> [--format table\|json]` | Prints one node. The name is compared without case |
 | `dagu nodes add <name> --host <host> [--inventory <name or id>] [flags]` | Adds a node, as [Changing inventories](#changing-inventories) defines |
 | `dagu nodes remove <name>` | Removes a node from the inventory that holds it |
+| `dagu nodes forget <name>` | Forgets an offline worker node, as [Worker nodes](#worker-nodes) defines |
 | `dagu nodes test [<name>...] [--labels <selector>]` | Tests the named nodes, the nodes the selector matches, or every node, and trusts the host keys the user accepts, as [Host keys](#host-keys) defines |
 | `dagu nodes import <file> [--replace] [--dry-run]` | Imports a JSON array of inventories, as [Import](#import) defines |
 | `dagu nodes export [--inventory <name or id>]` | Prints inventories, as [Export](#export) defines |
 
 - `--inventory` names an inventory by its ID, or else by its name compared
-  without case, and limits the command to that inventory.
-- The table of `list` has the columns `NAME`, `INVENTORY`, `HOST`, `LABELS`,
-  and `STATUS`, which is `enabled` or `disabled`. Labels are sorted and
-  separated by commas.
-- `--format json` prints each node as an object with its fields, with
-  defaults applied: `name`, `inventory` with its `id` and `name`, `host`,
-  `port`, `user`, `key`, `password`, `passphrase`, `bastion`, `host_key`,
-  `strict_host_key`, `shell`, `timeout`, sorted `labels`, `description`, and
-  `disabled`. A field that is not set is left out, except `port`,
-  `strict_host_key`, `timeout`, `labels`, and `disabled`. `list` prints an
-  array of them.
+  without case, and limits the command to that inventory, so it lists no
+  worker node.
+- The table of `list` has the columns `NAME`, `INVENTORY`, `KIND`, `HOST`,
+  `LABELS`, and `STATUS`. `KIND` is `ssh` for an inventory node and
+  `worker` for a worker node, whose `INVENTORY` is `-`. `STATUS` is
+  `enabled` or `disabled` for an inventory node, and `online` or `offline`
+  for a worker node. Labels are sorted and separated by commas.
+- `--format json` prints each inventory node as an object with its fields,
+  with defaults applied: `name`, `kind`, which is `ssh`, `inventory` with
+  its `id` and `name`, `host`, `port`, `user`, `key`, `password`,
+  `passphrase`, `bastion`, `host_key`, `strict_host_key`, `shell`,
+  `timeout`, sorted `labels`, `description`, and `disabled`. A field that is
+  not set is left out, except `port`, `strict_host_key`, `timeout`,
+  `labels`, and `disabled`. A worker node is an object with `name`, `kind`,
+  which is `worker`, `host`, sorted `labels`, `online`, and `last_seen_at`.
+  `list` prints an array of them, in name order.
 - Credentials are printed as `{ "secret": <ref> }` or `{ "file": <path> }`,
   never as values.
 - Against a remote context, chosen with `--context` or `dagu context
@@ -216,6 +226,53 @@ node. A request body is decoded as sent: an unknown field, or data after
 the record, is refused. Changes need the developer role and are written to
 the audit log. `POST /inventories/{id}/nodes?version=` adds a node and
 refuses a name the inventory holds; §Host keys describes it.
+
+### Worker nodes
+
+A worker that sets `worker.id` to a valid node name is a node, of kind
+`worker`. Its name is the worker ID, its host is the host it reports, and
+its labels are its `worker.labels` with the `os` and `arch` labels every
+worker has. A worker without `worker.id` reports `hostname@pid`, a new ID
+at every start, which is not a valid node name, so it is not a node; nor
+is a worker whose `worker.id` is not a valid node name, which logs a
+warning when it starts.
+
+- The coordinator records each worker node in `worker-nodes/` under the
+  data directory, one record per name compared without case. It writes the
+  record when the worker first reaches it, when the worker's host or labels
+  change, and when the worker goes offline. A heartbeat that changes
+  nothing writes nothing.
+- A worker goes offline when it has sent no heartbeat for 30 seconds, as
+  the coordinator finds at its next zombie detection pass, every
+  `scheduler.zombie_detection_interval` (45 seconds by default). An offline
+  worker stays listed with status `offline` and the time of its last
+  heartbeat. It is online again at its next heartbeat.
+- A worker whose ID names a node of an inventory, compared without case, is
+  not a node: it is not listed, shown, or counted. `list` prints on stderr,
+  whatever the filters, `worker "<id>" is not a node: inventory
+  "<inventory>" has a node of that name`.
+- Worker nodes are listed in name order among the inventory nodes, and a
+  selector matches their labels as it matches an inventory node's.
+  `disabled` does not apply to a worker; a worker is kept out of a selector
+  by changing its labels.
+- `show` of a worker node prints its `Name`, `Kind`, `Host`, `Labels`,
+  `Status`, and `Last seen`, in RFC 3339.
+- **`dagu nodes forget <name>`** forgets an offline worker node, compared
+  without case, and prints `forgot <name>`. The worker is listed again when
+  it connects. Forgetting a worker that is online is refused, and so is a
+  name only an inventory node has.
+
+**Over the API**, `GET /nodes` and `GET /nodes/{name}` return worker nodes
+with `kind` `worker`, `host`, `labels`, `online`, and `lastSeenAt`, and
+without the connection fields. The list response carries `nodeCount`, the
+count of every node whatever the filters, and `workerConflicts`, each
+worker that is not a node with the inventory that holds its name.
+`DELETE /nodes/{name}` forgets an offline worker node: 409 while the worker
+is online, 400 for an inventory node, and 404 when no node has the name.
+Workers are shared by the whole server, so it needs the admin role, and it
+is written to the audit log. `GET /node-labels` includes the labels of the
+worker nodes. The CLI commands against a remote context print the same as
+against the local installation.
 
 ### Host keys
 
@@ -314,7 +371,9 @@ Each error below exits non-zero and changes nothing.
 | A selector term is invalid | `invalid label filter "<term>"`, as Spec 087 defines |
 | `--labels` is given without terms, such as `,` or a blank value | `node selector is empty` |
 | `--inventory` names no inventory | `inventory "<name or id>" not found` |
-| `show` or `test` names no node | `node "<name>" not found` |
+| `show`, `test`, or `forget` names no node | `node "<name>" not found` |
+| `forget` names a worker that is online | `worker "<name>" is online; a worker is forgotten once it is offline` |
+| `forget` names an inventory node | `node "<name>" is a node of inventory "<inventory>"; remove it from its inventory` |
 | `test` is given names and `--labels` | `give node names or --labels, not both` |
 | `test --labels` matches no node | `selector matched no nodes` |
 | The import file is not JSON, or a record has an unknown field | `invalid inventory JSON: <reason>` |
