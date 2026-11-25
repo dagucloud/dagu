@@ -219,3 +219,5 @@ Load only the file you need:
 - `references/build.md` when creating or troubleshooting a `type: build` file workflow, path references, reuse decisions, or `--no-reuse`
 - `references/file-dependencies.md` when a DAG needs scripts, configuration, or other files from its working directory
 - `references/harnesses.md` only when the DAG invokes external CLI harnesses through `harness.run`
+- `references/coming-from-rundeck.md` when moving Rundeck nodes, node filters, or jobs that dispatch to nodes to Dagu inventories and steps with `nodes`
+- `references/coming-from-ansible.md` when moving Ansible inventories, plays, `serial`, `forks`, or `--limit` to Dagu inventories and steps with `nodes`

@@ -222,6 +222,8 @@ Load only the file you need:
 - `references/build.md` when creating or troubleshooting a `type: build` file workflow, path references, reuse decisions, or `--no-reuse`
 - `references/file-dependencies.md` when a DAG needs scripts, configuration, or other files from its working directory
 - `references/harnesses.md` only when the DAG invokes external CLI harnesses through `harness.run`
+- `references/coming-from-rundeck.md` when moving Rundeck nodes, node filters, or jobs that dispatch to nodes to Dagu inventories and steps with `nodes`
+- `references/coming-from-ansible.md` when moving Ansible inventories, plays, `serial`, `forks`, or `--limit` to Dagu inventories and steps with `nodes`
 
 ---
 
@@ -743,6 +745,7 @@ steps:
 - To see which nodes failed, `GET /api/v1/dag-runs/{name}/{id}/node-runs` lists one row per node with its run for each step with `nodes`, failed first (`failedOnly=true` keeps those). Each run names its child (`dagName`, `dagRunId`) and, once finished, how many of its steps succeeded (`steps.done` of `steps.total`) and the step that failed last (`failedStep`). Run details carry each such step's counts as `nodeRuns`, and a bound child's node as `boundNode`.
 - `dagu start --node web03` (API and MCP `targetNodes`) narrows a run: its steps with `nodes` run only on listed nodes, a step none of whose nodes is listed is skipped without blocking later steps, and the run fails with `no listed node was selected` if every such step is left without a node. A `node: required` DAG started with one `--node` runs bound to it. Names must be inventory nodes; retries, restarts, and queued runs keep the list.
 - Not available yet: bound runs and steps with `nodes` on workers.
+- Coming from Rundeck or Ansible: `coming-from-rundeck.md` and `coming-from-ansible.md` map node filters, dispatch settings, plays, and `--limit` to `nodes`.
 
 ## ssh.run / sftp.upload / sftp.download
 
