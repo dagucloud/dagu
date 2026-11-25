@@ -12,13 +12,14 @@ type DAGRunDetails = components['schemas']['DAGRunDetails'];
 type Node = components['schemas']['Node'];
 type CarriedStepCheck = components['schemas']['CarriedStepCheck'];
 type StepChangeKind = components['schemas']['StepChangeKind'];
+type UnavailableKind = NonNullable<CarriedStepCheck['unavailable']>;
 
 /** What the choice of a source needs of a run. */
 export type ReuseRun = Pick<DAGRunDetails, 'dagRunId' | 'status'> &
   Partial<
     Pick<
       DAGRunDetails,
-      'nodes' | 'params' | 'labels' | 'startedAt' | 'finishedAt'
+      'nodes' | 'params' | 'labels' | 'startedAt' | 'finishedAt' | 'profileName'
     >
   >;
 
@@ -308,8 +309,8 @@ export interface Carrier {
   runId: string;
   /** What changed since that run, in the server's order; empty when nothing did. */
   changes: readonly StepChangeKind[];
-  /** Why the server refuses the step without consent; absent when unchanged. */
-  message?: string;
+  /** The parameters whose values changed, when the server names them. */
+  changedParams?: readonly string[];
   /** The times of the step in that run. */
   startedAt?: string;
   finishedAt?: string;
@@ -322,8 +323,8 @@ export interface CarrierPlan {
   changed: string[];
   /** The previous steps that no run gives, in the order of `previous`. */
   missing: string[];
-  /** Why the run of a step's cache entry cannot give it, by step. */
-  unavailable: Record<string, string>;
+  /** The run of a step's cache entry that cannot give it, and why, by step. */
+  unavailable: Record<string, { runId: string; kind?: UnavailableKind }>;
 }
 
 /**
@@ -343,7 +344,7 @@ export function composeCarriers(p: {
   const carriers: Record<string, Carrier> = {};
   const changed: string[] = [];
   const missing: string[] = [];
-  const unavailable: Record<string, string> = {};
+  const unavailable: CarrierPlan['unavailable'] = {};
   const usable = (check: CarriedStepCheck | undefined) =>
     check !== undefined && check.status !== CarriedStepCheckStatus.unavailable
       ? check
@@ -352,8 +353,11 @@ export function composeCarriers(p: {
     check?.status === CarriedStepCheckStatus.unchanged ? check : undefined;
   for (const step of p.previous) {
     const gone = p.fromCache[step];
-    if (gone?.status === CarriedStepCheckStatus.unavailable && gone.message) {
-      unavailable[step] = gone.message;
+    if (gone?.status === CarriedStepCheckStatus.unavailable) {
+      unavailable[step] = {
+        runId: gone.runId,
+        ...(gone.unavailable ? { kind: gone.unavailable } : {}),
+      };
     }
     const source = usable(p.fromSource[step]);
     const cache = usable(p.fromCache[step]);
@@ -366,7 +370,7 @@ export function composeCarriers(p: {
       from: pick === source ? 'source' : 'cache',
       runId: pick.runId,
       changes: pick.changes,
-      ...(pick.message ? { message: pick.message } : {}),
+      ...(pick.changedParams ? { changedParams: pick.changedParams } : {}),
       ...(pick.startedAt ? { startedAt: pick.startedAt } : {}),
       ...(pick.finishedAt ? { finishedAt: pick.finishedAt } : {}),
     };

@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   CarriedStepCheckStatus,
+  CarriedStepCheckUnavailable,
   NodeStatus,
   Status,
   StepChangeKind,
@@ -519,6 +520,9 @@ describe('composeCarriers', () => {
     ...(status !== CarriedStepCheckStatus.unchanged
       ? { message: `step ${step} cannot be reused from run ${runId}: why` }
       : {}),
+    ...(status === CarriedStepCheckStatus.unavailable
+      ? { unavailable: CarriedStepCheckUnavailable.gone }
+      : {}),
   });
   const { unchanged, changed, unavailable } = CarriedStepCheckStatus;
 
@@ -565,7 +569,7 @@ describe('composeCarriers', () => {
     });
     expect(plan.carriers['a']?.from).toBe('source');
     expect(plan.unavailable).toEqual({
-      a: 'step a cannot be reused from run gone: why',
+      a: { runId: 'gone', kind: CarriedStepCheckUnavailable.gone },
     });
   });
 
@@ -577,7 +581,7 @@ describe('composeCarriers', () => {
     });
     expect(plan.missing).toEqual(['a', 'b']);
     expect(plan.unavailable).toEqual({
-      a: 'step a cannot be reused from run gone: why',
+      a: { runId: 'gone', kind: CarriedStepCheckUnavailable.gone },
     });
   });
 });

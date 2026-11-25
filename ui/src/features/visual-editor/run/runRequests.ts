@@ -36,6 +36,11 @@ export interface StepRunOptions {
    * changed step.
    */
   allowChangedSteps?: readonly string[];
+  /**
+   * The runtime profile the user chose ('' for none). Absent, the server
+   * takes the default one.
+   */
+  profile?: string;
   /** The run leaves no trace. The server allows it only with `steps`. */
   ephemeral?: boolean;
 }
@@ -82,6 +87,7 @@ function stepFields(step?: StepRunOptions) {
     ...(step.allowChangedSteps && step.allowChangedSteps.length > 0
       ? { allowChangedSteps: [...step.allowChangedSteps] }
       : {}),
+    ...(step.profile !== undefined ? { profile: step.profile } : {}),
     ...(step.ephemeral ? { ephemeral: true } : {}),
   };
 }

@@ -7,15 +7,25 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type ReactElement,
   type ReactNode,
 } from 'react';
 import {
   CarriedStepCheckStatus,
+  CarriedStepCheckUnavailable,
   StepChangeKind,
   type components,
 } from '@/api/v1/schema';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import {
   Dialog,
@@ -40,6 +50,9 @@ import {
   type RunChoice,
   type RunPlan,
 } from '@/features/visual-editor/run/reuseSource';
+import { useProfiles } from '@/features/dags/hooks/useProfiles';
+import { outputCache } from '@/features/visual-editor/run/outputCache';
+import { forgetCaptures } from '@/features/visual-editor/run/useCaptureStepOutputs';
 import {
   useCacheScope,
   useOutputCacheEntries,
@@ -50,11 +63,13 @@ import dayjs from '@/lib/dayjs';
 import { shortRunId } from '@/lib/shortRunId';
 import { cn } from '@/lib/utils';
 import { useWorkspaceData } from '../data/context';
+import { useWorkspacePermissions } from '../data/useWorkspacePermissions';
 import { Z } from '../zLayers';
 import { useReuseCheck } from './useReuseCheck';
 import { useReuseSource } from './useReuseSource';
 
 type CarriedStepCheck = components['schemas']['CarriedStepCheck'];
+type UnavailableKind = NonNullable<CarriedStepCheck['unavailable']>;
 
 /** One answer to the question, as a button after Cancel. */
 export interface StepRunChoice {
@@ -201,6 +216,11 @@ export interface StepRunPick {
    * the user reuses anyway (`allowChangedSteps`).
    */
   allowChangedSteps: string[];
+  /**
+   * The runtime profile that the user chose ('' for none); undefined runs
+   * with the default one.
+   */
+  profile?: string;
   /** Where the outputs of the previous steps that the request skips come from. */
   reused: InputProvenance[];
 }
@@ -214,7 +234,7 @@ const STEP_CHANGES: readonly StepChangeKind[] = [
 ];
 
 // The noun of each change for a list; a run that cannot be compared has a
-// row of its own instead.
+// text of its own.
 const CHANGE_LABEL: Readonly<Partial<Record<StepChangeKind, string>>> = {
   [StepChangeKind.step]: 'the step',
   [StepChangeKind.dependency]: 'an upstream step',
@@ -225,15 +245,20 @@ const CHANGE_LABEL: Readonly<Partial<Record<StepChangeKind, string>>> = {
   [StepChangeKind.carried]: 'outputs of a changed step',
 };
 
+// The values of the profile picker that are not profile names.
+const DEFAULT_PROFILE = '__default__';
+const NO_PROFILE = '__none__';
+
 /**
  * The dialog of "Run step" for a step that has previous steps: the run that
  * feeds the step, the state of each previous step, and the choices Step only,
  * Changed steps and Run. The server checks each previous step against the
  * run that gives it, as the start will (`useReuseCheck`), and the rows name
- * what changed. Step only reuses the changed steps anyway; Changed steps runs
- * them. Until the server answers, the browser's own view stands; when the
- * check fails, the dialog says so and keeps that view. The default button
- * comes from `defaultChoice`; the `steps` of each button come from `planRun`.
+ * what changed; until it answers, the browser's view stands and the choices
+ * work on it. Step only reuses the changed steps anyway; Changed steps runs
+ * the changed steps that the user leaves checked and reuses the others. The
+ * default button comes from `defaultChoice`; the `steps` of each button come
+ * from `planRun`.
  */
 export function StepRunReuseDialog({
   title,
@@ -278,13 +303,15 @@ export function StepRunReuseDialog({
     followedUpstreamRunId,
     ...(liveText !== undefined ? { liveText } : {}),
   });
-  const { source, waitingFor } = reuse;
+  const { source, waitingFor, loading } = reuse;
   const sourceId = source?.dagRunId ?? null;
+  const { dagData } = useWorkspaceData('StepRunReuseDialog');
+  const { canManageProfiles, isAdmin } = useWorkspacePermissions();
 
   // The server checks the source run and every cache entry of a previous
   // step, also one that the browser finds stale: the user may reuse it.
-  const { dagData } = useWorkspaceData('StepRunReuseDialog');
-  const cache = useOutputCacheEntries(useCacheScope(fileName));
+  const scope = useCacheScope(fileName);
+  const cache = useOutputCacheEntries(scope);
   const entryRuns = useMemo(
     () =>
       Object.fromEntries(
@@ -295,15 +322,25 @@ export function StepRunReuseDialog({
       ),
     [cache, previous, step]
   );
-  const check = useReuseCheck({
-    fileName,
-    dagName: dagData.dag?.name ?? fileName,
-    step,
-    sourceRunId: sourceId,
-    entries: entryRuns,
-    draft: unsaved ? (liveText ?? null) : null,
-    enabled: !reuse.loading,
-  });
+  const [profileChoice, setProfileChoice] = useState<string | undefined>();
+  // After a refusal, an answer from before it stands no longer.
+  const [openedAt] = useState(() => Date.now());
+  const check = useReuseCheck(
+    {
+      fileName,
+      dagName: dagData.dag?.name ?? fileName,
+      step,
+      sourceRunId: sourceId,
+      entries: entryRuns,
+      draft: unsaved ? (liveText ?? null) : null,
+      ...(profileChoice !== undefined ? { profile: profileChoice } : {}),
+    },
+    {
+      enabled: !loading,
+      ask: true,
+      ...(refused.length > 0 ? { since: openedAt } : {}),
+    }
+  );
   const verified: CarrierPlan | null =
     check.state === 'ready'
       ? composeCarriers({
@@ -312,7 +349,15 @@ export function StepRunReuseDialog({
           fromCache: check.fromCache,
         })
       : null;
-  const loading = reuse.loading || check.state === 'checking';
+  const checking = !loading && check.state === 'checking';
+  // The default profile is the one that the server names while the user
+  // chose none.
+  const [defaultProfile, setDefaultProfile] = useState<string | null>(null);
+  useEffect(() => {
+    if (profileChoice === undefined && check.profile !== null) {
+      setDefaultProfile(check.profile);
+    }
+  }, [check.profile, profileChoice]);
 
   // Without the server's answer, the browser's view stands, with the steps
   // that the server refused last.
@@ -356,10 +401,23 @@ export function StepRunReuseDialog({
       )
     : reuse.stepRuns;
 
+  // The changed and missing steps that the user unchecked: Changed steps
+  // reuses them as they are instead of running them.
+  const [kept, setKept] = useState<ReadonlySet<string>>(NO_STEPS);
+  const redo = union(stale, missing);
+  const keptNow = redo.filter((name) => kept.has(name));
+  const keep = (name: string, run: boolean) =>
+    setKept((held) => {
+      const next = new Set(held);
+      if (run) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+
   const plan: RunPlan = planRun({
     previous,
-    stale,
-    missing,
+    stale: stale.filter((name) => !kept.has(name)),
+    missing: missing.filter((name) => !kept.has(name)),
     step,
     order: previous,
   });
@@ -393,6 +451,7 @@ export function StepRunReuseDialog({
       // to reuse as it is.
       allowChangedSteps:
         choice === 'run' ? [] : stale.filter((name) => !steps.includes(name)),
+      ...(profileChoice !== undefined ? { profile: profileChoice } : {}),
       reused:
         choice === 'run'
           ? []
@@ -434,19 +493,60 @@ export function StepRunReuseDialog({
   if (!loading && hasChanged) {
     choices.push({
       id: 'changed',
-      label: ts('Changed steps'),
+      label: keptNow.length > 0 ? ts('Selected steps') : ts('Changed steps'),
       onSelect: pick('changed'),
     });
   }
   choices.push({ id: 'run', label: ts('Run'), onSelect: pick('run') });
 
-  const changeList = (changes: readonly StepChangeKind[]) =>
+  // The nouns of the changes, with the names of the changed parameters.
+  const changeList = (
+    changes: readonly StepChangeKind[],
+    params?: readonly string[]
+  ) =>
     changes
       .flatMap((change) => {
+        if (change === StepChangeKind.params && params && params.length > 0) {
+          return [ts('the parameters ({names})', { names: params.join(', ') })];
+        }
         const label = CHANGE_LABEL[change];
         return label ? [ts(label)] : [];
       })
       .join(', ');
+  // What changed for a step since a run, as a sentence.
+  const changedText = (
+    runId: string,
+    changes: readonly StepChangeKind[],
+    params?: readonly string[]
+  ) => {
+    const id = shortRunId(runId);
+    if (changes.includes(StepChangeKind.unknown)) {
+      return ts('cannot compare with run {id}', { id });
+    }
+    const listed = changeList(changes, params);
+    return listed
+      ? ts('changed since run {id}: {changes}', { id, changes: listed })
+      : ts('changed since run {id}', { id });
+  };
+  // Why a run cannot give a step.
+  const unavailableText = (runId: string, kind?: UnavailableKind) => {
+    const id = shortRunId(runId);
+    switch (kind) {
+      case CarriedStepCheckUnavailable.unfinished:
+        return ts('run {id} has not finished', { id });
+      case CarriedStepCheckUnavailable.noStep:
+      case CarriedStepCheckUnavailable.failed:
+        return ts('no output in run {id}', { id });
+      default:
+        return ts('source run no longer available');
+    }
+  };
+  // A cache entry whose run is gone gives nothing ever again.
+  const forget = (name: string) => {
+    outputCache.remove(scope, name);
+    forgetCaptures(scope, name);
+  };
+
   // The run of a step that a run gives: its short id, what the step took
   // there and when it ended, so that the user sees what a run supplies.
   const detail = (name: string): ReactNode => {
@@ -468,17 +568,30 @@ export function StepRunReuseDialog({
       </span>
     );
   };
-  // The row of a step that the server checked. A cache entry whose run is
-  // gone is named unless an unchanged run gives the step, as the browser's
-  // view names it.
+  // The row of a step that the server checked. A cache entry whose run
+  // cannot give the step is named unless an unchanged run gives it.
   const verifiedMark = (checked: CarrierPlan, name: string): ReactNode => {
     const carrier = checked.carriers[name];
     const gone = checked.unavailable[name];
     const goneMark =
       gone !== undefined && (!carrier || carrier.changes.length > 0) ? (
-        <span data-testid="run-step-gone" className="text-warning" title={gone}>
-          {ts('source run no longer available')}
-        </span>
+        <>
+          <span data-testid="run-step-gone" className="text-warning">
+            {unavailableText(gone.runId, gone.kind)}
+          </span>
+          {gone.kind === undefined ||
+          gone.kind === CarriedStepCheckUnavailable.gone ? (
+            <button
+              type="button"
+              data-testid="run-step-forget"
+              className={LINK_CLASS}
+              title={ts('Forget')}
+              onClick={() => forget(name)}
+            >
+              {ts('Forget')}
+            </button>
+          ) : null}
+        </>
       ) : null;
     if (!carrier) {
       if (goneMark) return goneMark;
@@ -488,7 +601,6 @@ export function StepRunReuseDialog({
         </span>
       );
     }
-    const id = shortRunId(carrier.runId);
     if (carrier.changes.length === 0) {
       return (
         <>
@@ -504,26 +616,19 @@ export function StepRunReuseDialog({
         </>
       );
     }
-    const own = carrier.changes.filter((change) =>
-      STEP_CHANGES.includes(change)
+    const own = carrier.changes.filter(
+      (change) =>
+        STEP_CHANGES.includes(change) || change === StepChangeKind.unknown
     );
-    const text = carrier.changes.includes(StepChangeKind.unknown)
-      ? ts('cannot compare with run {id}', { id })
-      : own.length > 0
-        ? ts('changed since run {id}: {changes}', {
-            id,
-            changes: changeList(own),
-          })
-        : ts('changed since run {id}', { id });
     return (
       <>
         {goneMark}
         <span
           data-testid="run-step-changed"
           className="text-warning"
-          title={carrier.message ?? carrier.runId}
+          title={changeList(carrier.changes, carrier.changedParams)}
         >
-          {text}
+          {changedText(carrier.runId, own)}
         </span>
       </>
     );
@@ -581,6 +686,8 @@ export function StepRunReuseDialog({
   // What changed for every step of a run: the parameters, the profile, the
   // base config, or the top-level settings, in one line for each run.
   const runChanges = verified ? changesOfRuns(verified) : [];
+  const sourceProfile = source?.profileName ?? '';
+  const profileName = check.profile ?? defaultProfile;
 
   return (
     <StepRunConfirmDialog
@@ -600,7 +707,13 @@ export function StepRunReuseDialog({
             </p>
             <ul className="list-disc pl-5">
               {refused.map((r) => (
-                <li key={`${r.step}\u0000${r.runId}`}>{r.message ?? r.step}</li>
+                <li key={`${r.step}\u0000${r.runId}`}>
+                  {`${r.step}: ${
+                    r.status === CarriedStepCheckStatus.unavailable
+                      ? unavailableText(r.runId, r.unavailable)
+                      : changedText(r.runId, r.changes, r.changedParams)
+                  }`}
+                </li>
               ))}
             </ul>
           </div>
@@ -610,21 +723,44 @@ export function StepRunReuseDialog({
           readsOutputs={reads.length > 0}
           onSelectRun={onSelectRun}
         />
+        <ProfileLine
+          canChoose={canManageProfiles}
+          isAdmin={isAdmin}
+          profile={profileName}
+          defaultProfile={defaultProfile}
+          choice={profileChoice}
+          onChoose={setProfileChoice}
+        />
+        {checking ? (
+          <p
+            data-testid="run-step-checking"
+            className="flex items-center gap-1 text-muted-foreground"
+          >
+            <Spinner className="size-3" />
+            {ts('Checking with the server')}
+          </p>
+        ) : null}
+        {check.state === 'unsupported' ? (
+          <p
+            data-testid="run-step-check-unsupported"
+            className="text-muted-foreground"
+          >
+            {ts(
+              'This node does not check earlier runs. The marks come from the browser.'
+            )}
+          </p>
+        ) : null}
         {check.state === 'failed' && check.error !== null ? (
           <p data-testid="run-step-check-failed" className="text-warning">
             {ts('Could not check the earlier runs: {message}', {
               message: check.error,
             })}{' '}
-            <button
-              type="button"
-              className="rounded-sm underline underline-offset-2 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              onClick={check.retry}
-            >
+            <button type="button" className={LINK_CLASS} onClick={check.retry}>
               {ts('Check again')}
             </button>
           </p>
         ) : null}
-        {runChanges.map(({ runId, changes }) => (
+        {runChanges.map(({ runId, changes, params }) => (
           <p
             key={runId}
             data-testid="run-step-run-changes"
@@ -633,8 +769,26 @@ export function StepRunReuseDialog({
           >
             {ts('Since run {id}, {changes} changed.', {
               id: shortRunId(runId),
-              changes: changeList(changes),
+              changes: changeList(changes, params),
             })}
+            {canManageProfiles &&
+            runId === sourceId &&
+            changes.includes(StepChangeKind.profile) &&
+            profileChoice !== sourceProfile ? (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  data-testid="run-step-use-profile"
+                  className={LINK_CLASS}
+                  onClick={() => setProfileChoice(sourceProfile)}
+                >
+                  {ts('Use the profile of run {id}', {
+                    id: shortRunId(runId),
+                  })}
+                </button>
+              </>
+            ) : null}
           </p>
         ))}
         {!verified && reuse.paramsDiffer && sourceId !== null ? (
@@ -655,7 +809,7 @@ export function StepRunReuseDialog({
             <li
               key={name}
               data-testid="run-step-item"
-              className="flex min-w-0 items-center gap-2"
+              className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5"
             >
               <span
                 aria-hidden="true"
@@ -663,6 +817,16 @@ export function StepRunReuseDialog({
               />
               <span className="min-w-0 truncate">{name}</span>
               {mark(name)}
+              {!loading && hasChanged && redo.includes(name) ? (
+                <label className="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+                  <Checkbox
+                    data-testid="run-step-rerun"
+                    checked={!kept.has(name)}
+                    onCheckedChange={(value) => keep(name, value === true)}
+                  />
+                  {ts('rerun')}
+                </label>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -684,6 +848,10 @@ export function StepRunReuseDialog({
 }
 
 const NO_REFUSALS: readonly CarriedStepCheck[] = [];
+const NO_STEPS: ReadonlySet<string> = new Set();
+
+const LINK_CLASS =
+  'rounded-sm underline underline-offset-2 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
 
 /** The names of a and of b, each once, a first. */
 function union(a: readonly string[], b: readonly string[]): string[] {
@@ -692,26 +860,113 @@ function union(a: readonly string[], b: readonly string[]): string[] {
 
 /**
  * The changes of the whole run for each run that gives a changed step, in
- * the order of the steps: what the rows leave out.
+ * the order of the steps, with the parameters that changed: what the rows
+ * leave out.
  */
 function changesOfRuns(
   plan: CarrierPlan
-): { runId: string; changes: StepChangeKind[] }[] {
-  const byRun = new Map<string, Set<StepChangeKind>>();
+): { runId: string; changes: StepChangeKind[]; params?: readonly string[] }[] {
+  const byRun = new Map<
+    string,
+    { changes: Set<StepChangeKind>; params?: readonly string[] }
+  >();
   for (const carrier of Object.values(plan.carriers)) {
     for (const change of carrier.changes) {
       if (STEP_CHANGES.includes(change) || change === StepChangeKind.unknown) {
         continue;
       }
-      const changes = byRun.get(carrier.runId) ?? new Set<StepChangeKind>();
-      byRun.set(carrier.runId, changes.add(change));
+      const held = byRun.get(carrier.runId) ?? { changes: new Set() };
+      held.changes.add(change);
+      if (carrier.changedParams) held.params = carrier.changedParams;
+      byRun.set(carrier.runId, held);
     }
   }
   const order = Object.values(StepChangeKind);
-  return [...byRun].map(([runId, changes]) => ({
+  return [...byRun].map(([runId, held]) => ({
     runId,
-    changes: order.filter((change) => changes.has(change)),
+    changes: order.filter((change) => held.changes.has(change)),
+    ...(held.params ? { params: held.params } : {}),
   }));
+}
+
+/**
+ * The runtime profile that the step run uses. A user who manages profiles
+ * can choose another one, as in the start dialog: the default one, none, or
+ * an active profile; a protected one needs an administrator.
+ */
+function ProfileLine({
+  canChoose,
+  isAdmin,
+  profile,
+  defaultProfile,
+  choice,
+  onChoose,
+}: {
+  canChoose: boolean;
+  isAdmin: boolean;
+  /** The profile the run uses ('' for none); null while it is not known. */
+  profile: string | null;
+  defaultProfile: string | null;
+  choice: string | undefined;
+  onChoose(profile: string | undefined): void;
+}): ReactElement | null {
+  const { ts } = useI18n();
+  const { activeProfiles } = useProfiles({ enabled: canChoose });
+  if (!canChoose) {
+    if (profile === null) return null;
+    return (
+      <p data-testid="run-step-profile" className="text-muted-foreground">
+        {ts('Runtime profile')}: {profile || ts('No profile')}
+      </p>
+    );
+  }
+  const value =
+    choice === undefined
+      ? DEFAULT_PROFILE
+      : choice === ''
+        ? NO_PROFILE
+        : choice;
+  return (
+    <div className="flex items-center gap-2 text-muted-foreground">
+      <span>{ts('Runtime profile')}</span>
+      <Select
+        value={value}
+        onValueChange={(next) =>
+          onChoose(
+            next === DEFAULT_PROFILE
+              ? undefined
+              : next === NO_PROFILE
+                ? ''
+                : next
+          )
+        }
+      >
+        <SelectTrigger
+          data-testid="run-step-profile-picker"
+          className="h-7 w-auto min-w-40 px-2 py-1"
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={DEFAULT_PROFILE}>
+            {ts('Default')}
+            {defaultProfile ? ` (${defaultProfile})` : ''}
+          </SelectItem>
+          <SelectItem value={NO_PROFILE}>{ts('No profile')}</SelectItem>
+          {activeProfiles.map((item) => (
+            <SelectItem
+              key={item.id}
+              value={item.name}
+              disabled={item.protected && !isAdmin}
+            >
+              {item.name}
+              {item.protected ? ` (${ts('Protected')})` : ''}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
 }
 
 /** The refs of the steps that the request gives to a run of their own. */

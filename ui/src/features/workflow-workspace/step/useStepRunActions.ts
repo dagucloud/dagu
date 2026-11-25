@@ -473,6 +473,7 @@ export function useStepRunActions(
         | 'reuseFrom'
         | 'outputsFromRuns'
         | 'allowChangedSteps'
+        | 'profile'
         | 'reused'
       >
     ) => {
@@ -480,14 +481,21 @@ export function useStepRunActions(
       setConfirm(null);
       if (pending === null) return;
       const { kind, step } = pending;
-      const { steps, reuseFrom, outputsFromRuns, allowChangedSteps, reused } =
-        pick;
+      const {
+        steps,
+        reuseFrom,
+        outputsFromRuns,
+        allowChangedSteps,
+        profile,
+        reused,
+      } = pick;
       const carries = reuseFrom !== null || outputsFromRuns !== null;
       const inputs = {
         ...(reuseFrom !== null ? { reuseOutputsFrom: reuseFrom } : {}),
         ...(outputsFromRuns !== null ? { outputsFromRuns } : {}),
         ...(reused.length > 0 ? { reused } : {}),
         ...(allowChangedSteps.length > 0 ? { allowChangedSteps } : {}),
+        ...(profile !== undefined ? { profile } : {}),
         // Something changed after the check: the dialog opens again and
         // shows what, for the user to decide again. The cache stays.
         ...(carries && kind === 'step'

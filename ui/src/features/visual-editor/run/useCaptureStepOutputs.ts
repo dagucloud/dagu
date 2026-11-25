@@ -46,7 +46,7 @@ function capturedKey(scope: CacheScope, step: string): string {
 
 /**
  * Lets the next read of a step capture again, after its entry was removed
- * from the cache (the page never removes one; the tests do).
+ * from the cache: the step run dialog forgets an entry whose run is gone.
  */
 export function forgetCaptures(scope: CacheScope, step: string): void {
   captured.delete(capturedKey(scope, step));

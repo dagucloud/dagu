@@ -116,6 +116,7 @@ export function useEditorRunActions(args: Args): EditorRunActions {
         ...(opts?.allowChangedSteps
           ? { allowChangedSteps: opts.allowChangedSteps }
           : {}),
+        ...(opts?.profile !== undefined ? { profile: opts.profile } : {}),
       };
       // The steps of an unsaved buffer run from the buffer, not the saved
       // file. They are a test of a draft: the run leaves no trace.

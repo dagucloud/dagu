@@ -3,8 +3,12 @@
 
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CarriedStepCheckStatus, StepChangeKind } from '@/api/v1/schema';
-import { useReuseCheck } from '../useReuseCheck';
+import { CarriedStepCheckStatus } from '@/api/v1/schema';
+import {
+  clearReuseVerdicts,
+  useReuseCheck,
+  type ReuseCheckInput,
+} from '../useReuseCheck';
 
 const { POST, client } = vi.hoisted(() => {
   const POST = vi.fn();
@@ -16,19 +20,16 @@ vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'node-1',
 }));
 
-type Props = Parameters<typeof useReuseCheck>[0];
-
-const BASE: Props = {
+const BASE: ReuseCheckInput = {
   fileName: 'etl.yaml',
   dagName: 'etl',
   step: 'merge',
   sourceRunId: 'run-1',
   entries: { seed: 'Run-seed' },
   draft: null,
-  enabled: true,
 };
 
-function answer(carried: { step: string; runId: string }[]) {
+function answer(carried: { step: string; runId: string }[], profile = 'prod') {
   return {
     data: {
       carried: carried.map((c) => ({
@@ -37,20 +38,31 @@ function answer(carried: { step: string; runId: string }[]) {
         changes: [],
       })),
       missing: [],
+      profile,
     },
     response: { status: 200 },
   };
 }
 
-function setup(props: Partial<Props> = {}) {
-  return renderHook((p: Props) => useReuseCheck(p), {
-    initialProps: { ...BASE, ...props },
-  });
+type Options = Parameters<typeof useReuseCheck>[1];
+
+function setup(input: Partial<ReuseCheckInput> = {}, options?: Options) {
+  return renderHook(
+    (p: { input: ReuseCheckInput; options: Options }) =>
+      useReuseCheck(p.input, p.options),
+    {
+      initialProps: {
+        input: { ...BASE, ...input },
+        options: options ?? { enabled: true, ask: true },
+      },
+    }
+  );
 }
 
 describe('useReuseCheck', () => {
   beforeEach(() => {
     POST.mockReset();
+    clearReuseVerdicts();
   });
 
   // One request asks about the source run and one about the cache entries,
@@ -67,16 +79,13 @@ describe('useReuseCheck', () => {
     const { result } = setup();
 
     await waitFor(() => expect(result.current.state).toBe('ready'));
-    expect(POST).toHaveBeenCalledWith(
-      '/dags/{fileName}/start-preview',
-      expect.objectContaining({
-        params: {
-          path: { fileName: 'etl.yaml' },
-          query: { remoteNode: 'node-1' },
-        },
-        body: { steps: ['merge'], outputsFromRunId: 'run-1' },
-      })
-    );
+    expect(POST).toHaveBeenCalledWith('/dags/{fileName}/start-preview', {
+      params: {
+        path: { fileName: 'etl.yaml' },
+        query: { remoteNode: 'node-1' },
+      },
+      body: { steps: ['merge'], outputsFromRunId: 'run-1' },
+    });
     expect(POST).toHaveBeenCalledWith(
       '/dags/{fileName}/start-preview',
       expect.objectContaining({
@@ -85,13 +94,18 @@ describe('useReuseCheck', () => {
     );
     expect(Object.keys(result.current.fromSource)).toEqual(['orders']);
     expect(Object.keys(result.current.fromCache)).toEqual(['seed']);
+    expect(result.current.profile).toBe('prod');
   });
 
   // A draft is checked as the server would run it: from its text, with the
-  // profile of its file.
-  it('sends the text of a draft with its file', async () => {
-    POST.mockResolvedValue(answer([]));
-    const { result } = setup({ draft: 'steps: []', entries: {} });
+  // profile of its file or the one the user chose.
+  it('sends the text of a draft with its file and the chosen profile', async () => {
+    POST.mockResolvedValue(answer([], 'staging'));
+    const { result } = setup({
+      draft: 'steps: []',
+      entries: {},
+      profile: 'staging',
+    });
 
     await waitFor(() => expect(result.current.state).toBe('ready'));
     expect(POST).toHaveBeenCalledTimes(1);
@@ -104,22 +118,62 @@ describe('useReuseCheck', () => {
           draftOf: 'etl.yaml',
           steps: ['merge'],
           outputsFromRunId: 'run-1',
+          profile: 'staging',
         },
       })
     );
+    expect(result.current.profile).toBe('staging');
   });
 
-  it('answers at once that nothing changed when nothing gives a step', async () => {
+  // With nothing to reuse, the one request names the profile of the run.
+  it('asks once for the profile when nothing gives a step', async () => {
+    POST.mockResolvedValue(answer([], ''));
     const { result } = setup({ sourceRunId: null, entries: {} });
 
     await waitFor(() => expect(result.current.state).toBe('ready'));
-    expect(POST).not.toHaveBeenCalled();
+    expect(POST).toHaveBeenCalledTimes(1);
+    expect(result.current.profile).toBe('');
   });
 
   it('asks nothing while the source is still being chosen', () => {
-    const { result } = setup({ enabled: false });
+    const { result } = setup({}, { enabled: false, ask: true });
     expect(result.current.state).toBe('checking');
     expect(POST).not.toHaveBeenCalled();
+  });
+
+  // The INPUT column shows what the dialog asked, and never asks itself:
+  // the server evaluates the parameters to check.
+  it('shares the answer with a caller that does not ask', async () => {
+    POST.mockResolvedValue(answer([{ step: 'orders', runId: 'run-1' }]));
+    const reader = setup({ entries: {} }, { enabled: true, ask: false });
+    expect(reader.result.current.state).toBe('checking');
+    expect(POST).not.toHaveBeenCalled();
+
+    const asker = setup({ entries: {} });
+    await waitFor(() => expect(asker.result.current.state).toBe('ready'));
+    await waitFor(() => expect(reader.result.current.state).toBe('ready'));
+    expect(POST).toHaveBeenCalledTimes(1);
+
+    // Opening the dialog again shows the kept answer at once.
+    const again = setup({ entries: {} });
+    expect(again.result.current.state).toBe('ready');
+    expect(POST).toHaveBeenCalledTimes(1);
+  });
+
+  // After a refusal, the answer from before it stands no longer.
+  it('asks again for an answer older than since', async () => {
+    POST.mockResolvedValue(answer([]));
+    const first = setup({ entries: {} });
+    await waitFor(() => expect(first.result.current.state).toBe('ready'));
+    // The refusal comes after the kept answer.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const later = setup(
+      { entries: {} },
+      { enabled: true, ask: true, since: Date.now() }
+    );
+    expect(later.result.current.state).toBe('checking');
+    await waitFor(() => expect(POST).toHaveBeenCalledTimes(2));
   });
 
   it('reports the message of a failed check and asks again on retry', async () => {
@@ -138,31 +192,23 @@ describe('useReuseCheck', () => {
     expect(POST).toHaveBeenCalledTimes(2);
   });
 
-  // The answer for an earlier source never shows for the current one.
-  it('drops the answer of a source that is no longer current', async () => {
-    let finishOld: (value: unknown) => void = () => undefined;
-    POST.mockImplementationOnce(
-      () => new Promise((resolve) => (finishOld = resolve))
-    ).mockResolvedValue({
-      data: {
-        carried: [
-          {
-            step: 'orders',
-            runId: 'run-2',
-            status: CarriedStepCheckStatus.changed,
-            changes: [StepChangeKind.step],
-          },
-        ],
-        missing: [],
-      },
-      response: { status: 200 },
+  // An older remote node answers the unknown path with text, not an error
+  // of the API.
+  it('tells a server without the check from a failed check', async () => {
+    POST.mockResolvedValue({
+      error: 'no matching operation was found',
+      response: { status: 404 },
     });
-    const { result, rerender } = setup({ entries: {} });
-    rerender({ ...BASE, entries: {}, sourceRunId: 'run-2' });
+    const { result } = setup({ entries: {} });
+    await waitFor(() => expect(result.current.state).toBe('unsupported'));
 
-    await waitFor(() => expect(result.current.state).toBe('ready'));
-    finishOld(answer([{ step: 'orders', runId: 'run-1' }]));
-    await Promise.resolve();
-    expect(result.current.fromSource['orders']?.runId).toBe('run-2');
+    clearReuseVerdicts();
+    POST.mockResolvedValue({
+      error: { code: 'not_found', message: 'dag-run run-1 not found' },
+      response: { status: 404 },
+    });
+    const real = setup({ entries: {}, sourceRunId: 'run-1' });
+    await waitFor(() => expect(real.result.current.state).toBe('failed'));
+    expect(real.result.current.error).toBe('dag-run run-1 not found');
   });
 });

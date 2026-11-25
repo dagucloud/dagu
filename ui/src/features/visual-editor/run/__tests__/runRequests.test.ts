@@ -134,6 +134,17 @@ describe('runRequests', () => {
     expect('outputsFromRuns' in body).toBe(false);
   });
 
+  // '' runs with no profile; absent, the server takes the default one.
+  it('names the profile the user chose, also none, and no key for the default', () => {
+    expect(buildStartBody({ steps: ['c'], profile: 'staging' })).toMatchObject({
+      profile: 'staging',
+    });
+    expect(
+      buildDraftBody('s', 'n', 'f', { steps: ['c'], profile: '' })
+    ).toMatchObject({ profile: '' });
+    expect('profile' in buildStartBody({ steps: ['c'] })).toBe(false);
+  });
+
   // The user chose to reuse these changed steps anyway.
   it('names the changed steps the run reuses anyway, and no key for none', () => {
     expect(
