@@ -379,9 +379,9 @@ Rules:
 
 A project owns its base config, secrets, profiles, notification routes, and
 incident policies. It inherits none of them from the server or from another
-project, with one exception: a project that migration made reads the
-default project's base config first until it has a `base.yaml` of its own
-([Base Config of Migrated Projects](#base-config-of-migrated-projects)).
+project, except as
+[Base Config of Migrated Projects](#base-config-of-migrated-projects)
+states.
 
 | Setting | A project's DAG uses |
 | --- | --- |
@@ -389,16 +389,16 @@ default project's base config first until it has a `base.yaml` of its own
 | Secret | The project's secret of that name |
 | Profile | The project's profile defaults, then the selected profile. A profile named by a run resolves in the project |
 | Notification routes | The project's routes, which send to server-wide channels |
-| Incident policies | The DAG's policy, then the project's. The DAG's policy inherits the project's |
+| Incident policies | The DAG's policy, which inherits the project's |
 
 Rules:
 
 - No server-wide layer of base config, secrets, profiles, routes, or
   policies applies to any project.
 - A change to one project's settings never changes what another project's
-  DAGs run with. The one exception is a change to the default project's base
-  config, which reaches each migrated project that has no `base.yaml` of
-  its own.
+  DAGs run with, except as
+  [Base Config of Migrated Projects](#base-config-of-migrated-projects)
+  states.
 - Notification channels and notification settings, such as SMTP, are
   server-wide, and only admins change them. A project's routes name
   channels.
@@ -417,11 +417,10 @@ Rules:
 - The default project's base config is the file at `paths.base_config`.
 - Every other project's base config is `base.yaml` in its DAG directory. A
   project without that file has no base config, unless migration made it.
+  See [Base Config of Migrated Projects](#base-config-of-migrated-projects).
 - A child started with `dag.run` runs in its caller's project and gets that
   project's base config. This holds whether the child is in the caller's
   file, in its own file, or in the library.
-- A project that migration made reads base config in v2's order until it has
-  a `base.yaml`. See [Base Config of Migrated Projects](#base-config-of-migrated-projects).
 
 #### Encryption
 
@@ -868,7 +867,7 @@ the default project's state moves too.
 | Workspace `X` | Project `X` in the registry, with a new ID |
 | DAG labelled `workspace=X`, where `X` is a v2 workspace | Project `X`'s DAG. Its file stays where it is and runs in place. Its runs, logs, artifacts, DAG state, suspend flags, and DAG settings move to `X`'s state directories |
 | DAG without a `workspace` label | The default project's DAG. Its file stays in `<dags_dir>`. Its runs, logs, and state move to the default project's state directories |
-| On an install with workspaces, DAG whose `workspace` label is not a valid workspace name, has two values, or names no v2 workspace | Recorded, and does not load until its label is removed or its file moves. Its file stays in `<dags_dir>`, and its runs and state move to the default project's state directories. See [Unsettled Labels](#unsettled-labels) |
+| On an install with workspaces, DAG whose `workspace` label is not a valid workspace name, has two values, or names no v2 workspace | Recorded, and does not load. Its file stays in `<dags_dir>`, and its runs and state move to the default project's state directories. See [Unsettled Labels](#unsettled-labels) |
 | File with several documents | The first document decides the file's project. See [Files With Several Documents](#files-with-several-documents) |
 | DAG under `paths.alt_dags_dir` | A library DAG, in place |
 | Global base config (`paths.base_config`) | The default project's base config, at the same path |
