@@ -172,8 +172,7 @@ describe('node view buttons', () => {
   });
 
   // The node view always fills the zone, and the YAML panel stays a panel:
-  // neither has a button that changes it into the other. The YAML panel
-  // only maximizes its width.
+  // neither has a button that changes it into the other.
   it('has no button that docks or expands the frame', () => {
     const { rerender } = render(frame({ state: 'expanded' }));
     const names = () =>
@@ -186,7 +185,7 @@ describe('node view buttons', () => {
     rerender(frame({ state: 'docked', scope: 'file' }));
     expect(names()).not.toContain('Dock to the side');
     expect(names()).not.toContain('Expand');
-    expect(names()).toEqual(['Maximize panel', 'Close']);
+    expect(names()).toEqual(['Close']);
   });
 });
 
