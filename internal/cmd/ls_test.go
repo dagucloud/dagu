@@ -6,12 +6,14 @@ package cmd_test
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmd"
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -146,6 +148,64 @@ steps:
 		assert.Equal(t, "-", lsRowFields(t, out, suspended.Name)[1])
 		assert.Less(t, strings.Index(out, overdue.Name), strings.Index(out, inactive.Name))
 		assert.Less(t, strings.Index(out, overdue.Name), strings.Index(out, suspended.Name))
+	})
+
+	// Do not call t.Parallel here: loading cfg.Core.TZ invokes setTimezone, which mutates process TZ.
+	t.Run("NextRunLocalTimezone", func(t *testing.T) {
+		origTZ, hadTZ := os.LookupEnv("TZ")
+		t.Cleanup(func() {
+			if hadTZ {
+				_ = os.Setenv("TZ", origTZ)
+			} else {
+				_ = os.Unsetenv("TZ")
+			}
+		})
+
+		th := test.SetupCommand(t, test.WithConfigMutator(func(cfg *config.Config) {
+			cfg.Core.TZ = "Europe/Paris"
+		}))
+
+		winter := th.DAG(t, `name: ls-local-winter
+schedule: "0 12 * * *"
+steps:
+  - run: echo winter
+`)
+		summer := th.DAG(t, `name: ls-local-summer
+schedule: "0 13 * * *"
+steps:
+  - run: echo summer
+`)
+		unscheduled := th.DAG(t, `name: ls-local-none
+steps:
+  - run: echo none
+`)
+
+		winterNext := time.Date(2026, time.November, 30, 11, 0, 0, 0, time.UTC)
+		summerNext := time.Date(2026, time.July, 15, 11, 0, 0, 0, time.UTC)
+		stateStore := store.NewSchedulerStateStore(
+			file.NewCollection(filepath.Join(th.Config.Paths.DataDir, "scheduler"), file.WithIndentedJSON()),
+		)
+		require.NoError(t, stateStore.Save(th.Context, &schedulerstate.State{
+			DAGs: map[string]schedulerstate.DAGWatermark{
+				winter.Name:      {NextRun: &winterNext},
+				summer.Name:      {NextRun: &summerNext},
+				unscheduled.Name: {},
+			},
+		}))
+
+		outUTC := runLsWithStdout(t, th, cmd.Ls(), []string{"ls", "-n", "ls-local-"})
+		assert.Equal(t, "2026-11-30T11:00:00Z", lsRowFields(t, outUTC, winter.Name)[1])
+		assert.Equal(t, "2026-07-15T11:00:00Z", lsRowFields(t, outUTC, summer.Name)[1])
+		assert.Equal(t, "-", lsRowFields(t, outUTC, unscheduled.Name)[1])
+
+		outLocal := runLsWithStdout(t, th, cmd.Ls(), []string{"ls", "-n", "--local", "ls-local-"})
+		assert.Equal(t, "2026-11-30T12:00:00+01:00", lsRowFields(t, outLocal, winter.Name)[1])
+		assert.Equal(t, "2026-07-15T13:00:00+02:00", lsRowFields(t, outLocal, summer.Name)[1])
+		assert.Equal(t, "-", lsRowFields(t, outLocal, unscheduled.Name)[1])
+
+		outNoNext := runLsWithStdout(t, th, cmd.Ls(), []string{"ls", "--local", winter.Name})
+		assert.NotContains(t, outNoNext, "NEXT_RUN")
+		assert.Equal(t, []string{winter.Name}, lsRowFields(t, outNoNext, winter.Name))
 	})
 }
 
