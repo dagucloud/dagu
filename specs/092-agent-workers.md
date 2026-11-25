@@ -723,20 +723,29 @@ has three rounds.
 
 | Step | Keys | Effect |
 | --- | --- | --- |
-| `verify_<n>`, not the last | `depends: [code_<n>]`, `continue_on: {failure: true}` | A failed verify does not stop the run. |
+| `verify_<n>`, not the last | `depends: [code_<n>]`, `continue_on: {exit_code: [1]}`, and a `run` that exits 1 for each failure of the script | A failed verify script does not stop the run. A verify that fails in another way stops it. |
 | `code_<n+1>` | `depends: [verify_<n>]`, a precondition on `${verify_<n>.exit_code}` | The step runs only when `verify_<n>` failed. Otherwise Dagu skips it. |
 | `verify_<last>` | `depends: [code_<last>]`, `continue_on: {skipped: true}` | A failed verify fails the run. A skipped verify does not stop the steps after the loop. |
 | The steps after the loop | `depends: [verify_<last>]` | They run after the last verify, once. |
 
 The precondition has `condition: "${verify_<n>.exit_code}"`, `expected: "0"` and `negate: true`.
-Dagu records the exit code of the step. The step cannot write it as an output. Each exit code that
-is not 0 starts the next round.
+Dagu records the exit code of the step. The step cannot write it as an output.
+
+A verify step continues only on the exit code 1, not on each failure. `${verify_<n>.exit_code}` is
+`0` for a step that fails before its process starts (see [Existing behavior](#existing-behavior)),
+and can be `0` for a step whose script passed and that then fails a check of
+[Isolation](#isolation). With `continue_on: {failure: true}`, the precondition would skip the next
+round after such a failure, and the steps after the loop would push a change that no verify passed.
 
 Dagu then does this:
 
 - A verify passes in round `n`. Dagu skips each later `code` step and each later `verify` step.
   The steps after the loop run.
-- A verify fails and a round remains. The next `code` step runs, and then its verify.
+- A verify script fails and a round remains. The step exits 1, so the next `code` step runs, and
+  then its verify.
+- A verify step fails and its script did not exit 1. For example, the step fails before its script
+  starts, fails a check of Isolation after its script passed, or times out. The next steps do not
+  run, and the run fails. Nothing is pushed.
 - The last verify fails. The run fails. The steps after the loop do not run, so nothing is pushed.
 - A `code` step fails, also after its retries. The next steps do not run, and the run fails. The
   `verify` step of this round does not run.
@@ -764,7 +773,7 @@ and to the CI.
 
 - The number of rounds is fixed. To add a round, do these steps:
   1. Copy a pair.
-  2. Change `continue_on` of the old last verify to `{failure: true}`.
+  2. Change `continue_on` of the old last verify to `{exit_code: [1]}`.
   3. Change the `depends` of the steps after the loop.
 - Each round is a full run of the agent. The cost in tokens and in time is up to the number of
   rounds times the cost of one round. `timeout_sec` and `max_tool_iterations` apply to each round.
@@ -992,11 +1001,13 @@ These points describe behavior that Dagu has without this spec. The verify loop 
 - A `repeat_policy` condition cannot read `${steps.<id>.outputs.<name>}` of its own step (Spec 007,
   reason `self_reference`). The reference stays as text. Use a command condition that reads the
   stdout file of the step.
-- A step with `continue_on: {failure: true}` stays `failed` in the run view, and the next step
-  runs. A precondition on `${verify_1.exit_code}` with `expected: "0"` and `negate: true` skips the
-  next step when the exit code is 0. It runs the next step for each other exit code. A skipped step makes
-  the steps that depend on it skip, until a step has `continue_on: {skipped: true}`. A failed
-  step makes the steps that depend on it `aborted`.
+- A step with `continue_on: {exit_code: [1]}` that exits 1 stays `failed` in the run view, and the
+  next step runs. A step that fails before its process starts has no exit code, so it never matches
+  `exit_code`, and `${<id>.exit_code}` is `0` for it. A precondition on `${verify_1.exit_code}`
+  with `expected: "0"` and `negate: true` skips the next step when the exit code is 0. It runs the
+  next step for each other exit code. A skipped step makes the steps that depend on it skip, until a
+  step has `continue_on: {skipped: true}`. A failed step makes the steps that depend on it
+  `aborted`.
 - `${DAG_RUN_STEP_NAME}` is the name of the current step. A step with an `id` and no `name` has its
   `id` as its name. A `run` can use it in the name of a file in `${DAG_RUN_WORK_DIR}`, so the same
   text serves each `verify` step.
@@ -1137,15 +1148,16 @@ steps:
             deny: ["git push *", "git remote *"]
 
   # The verify runs a stricter script than the one that Claude knows. This step is untrusted
-  # by default, so it runs as the restricted user. Its exit code is the verdict. The log goes
-  # to a file in the work directory, for the next round.
+  # by default, so it runs as the restricted user. Its exit code is the verdict: each failure
+  # of the script exits 1, and only 1 starts the next round. Any other failure of the step
+  # fails the run. The log goes to a file in the work directory, for the next round.
   - id: verify_1
     depends: [code_1]
     working_dir: repo
-    continue_on: { failure: true }
+    continue_on: { exit_code: [1] }
     run: |
       rc=0
-      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=$?
+      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=1
       cat "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log"
       exit $rc
 
@@ -1186,10 +1198,10 @@ steps:
   - id: verify_2
     depends: [code_2]
     working_dir: repo
-    continue_on: { failure: true }
+    continue_on: { exit_code: [1] }
     run: |
       rc=0
-      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=$?
+      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=1
       cat "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log"
       exit $rc
 
@@ -1235,7 +1247,7 @@ steps:
     continue_on: { skipped: true }
     run: |
       rc=0
-      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=$?
+      ./scripts/verify.sh > "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log" 2>&1 || rc=1
       cat "${DAG_RUN_WORK_DIR}/${DAG_RUN_STEP_NAME}.log"
       exit $rc
 
@@ -1284,8 +1296,9 @@ are untrusted by default, because the DAG has an `agent.run` step and the steps 
 `agent.provider.claude`.
 
 If `verify_1` passes, Dagu skips `code_2`, `verify_2`, `code_3` and `verify_3`, and the run goes to
-`check_paths`. If `verify_1` fails, `code_2` runs. Its prompt gives the file `verify_1.log`. If
-`verify_3` fails, the run fails and nothing is pushed.
+`check_paths`. If the script of `verify_1` fails, `code_2` runs. Its prompt gives the file
+`verify_1.log`. If `verify_3` fails, or a verify step fails without the exit code 1, the run fails
+and nothing is pushed.
 
 The commit message of the step `message` comes from the text of the task, not from a result of the
 agent. The step `push` takes it through `env` and uses `"$MESSAGE"` in the script. So no value of
