@@ -1,0 +1,38 @@
+mocks:
+  build:
+    outputs:
+      image_tag: v1.2.3
+  deploy: {}
+  notify: {}
+cases:
+  - name: deploys the built image
+    expect:
+      steps:
+        deploy:
+          called_with:
+            run: touch deploy.ran "v1.2.3"
+            env:
+              IMAGE_TAG: v1.2.3
+        notify:
+          called_with:
+            with:
+              headers:
+                Authorization: Bearer <secret:API_TOKEN>
+              body: deployed v1.2.3
+  - name: a wrong tag reaches the deploy
+    mocks:
+      build:
+        outputs:
+          image_tag: v1.2.4
+    expect:
+      steps:
+        deploy:
+          called_with:
+            run:
+              contains: v1.2.3
+  - name: an action step takes no run
+    expect:
+      steps:
+        notify:
+          called_with:
+            run: ./notify.sh

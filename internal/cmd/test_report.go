@@ -71,6 +71,14 @@ const (
 	// assertion, which starts with the stream's name.
 	failureContains = ".contains"
 	failureMatches  = ".matches"
+	// failureCall is a called_with assertion on a step with no execution.
+	// The fields of its parts start with it: the run text, which a contains
+	// or matches part extends, and a with input or a variable, whose name
+	// ends its field.
+	failureCall            = "called_with"
+	failureCallRun         = failureCall + ".run"
+	failureCallInputPrefix = failureCall + ".with."
+	failureCallEnvPrefix   = failureCall + ".env."
 )
 
 // caseFailure is one failed assertion of a case, or what kept its run from
@@ -82,11 +90,12 @@ type caseFailure struct {
 	// field is one of the failure fields above.
 	field string
 	// expected and actual are the asserted and the actual value: a token or
-	// number, the compact JSON of an output, the text or expression of a
-	// stream assertion, the lists of notifications, the --timeout limit of
-	// a timeout, the resolved limit of a limit failure, or the reason of an
-	// error. A stream failure, and an output the step did not publish, have
-	// no actual.
+	// number, the compact JSON of an output or of a called_with part, the
+	// text or expression of a stream assertion, the lists of notifications,
+	// the --timeout limit of a timeout, the resolved limit of a limit
+	// failure, or the reason of an error. A stream failure, an output the
+	// step did not publish, and a called_with part the call lacks have no
+	// actual, and a step with no call has neither.
 	expected any
 	actual   any
 	// message is the reason of a limit failure, as the step's error states
@@ -112,6 +121,18 @@ func (f caseFailure) String() string {
 			actual = fmt.Sprintf("%s", f.actual)
 		}
 		return fmt.Sprintf("step %s output %s: expected %s, got %s", f.step, strings.TrimPrefix(f.field, failureOutputPrefix), f.expected, actual)
+	case f.field == failureCall:
+		return fmt.Sprintf("step %s called_with: expected a call, got none", f.step)
+	case f.field == failureCallRun+failureContains:
+		return fmt.Sprintf("step %s %s: expected to contain %s, got %s", f.step, failureCallRun, f.expected, f.actual)
+	case f.field == failureCallRun+failureMatches:
+		return fmt.Sprintf("step %s %s: expected to match %s, got %s", f.step, failureCallRun, f.expected, f.actual)
+	case strings.HasPrefix(f.field, failureCall):
+		actual := "nothing"
+		if f.actual != nil {
+			actual = fmt.Sprintf("%s", f.actual)
+		}
+		return fmt.Sprintf("step %s %s: expected %s, got %s", f.step, f.field, f.expected, actual)
 	case strings.HasSuffix(f.field, failureContains):
 		return fmt.Sprintf("step %s %s: does not contain %s", f.step, strings.TrimSuffix(f.field, failureContains), quoteJSON(f.expected))
 	case strings.HasSuffix(f.field, failureMatches):

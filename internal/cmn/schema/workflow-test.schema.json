@@ -224,10 +224,30 @@
             "stderr": {
               "$ref": "#/definitions/stream",
               "description": "Assertions on the stderr of the step's last execution."
-            }
+            },
+            "called_with": { "$ref": "#/definitions/calledWith" }
           }
         }
       ]
+    },
+    "calledWith": {
+      "type": "object",
+      "description": "Assertions on what the step's last execution was called with, as Dagu resolved it: params, upstream outputs, env, and secrets. They hold for mocked and real steps alike, and a step with no execution fails them.",
+      "additionalProperties": false,
+      "properties": {
+        "run": {
+          "description": "The resolved command or script text of a step written with run: a string it equals, or a map with contains, matches, or both. The commands of a list-form run are joined with line breaks.",
+          "anyOf": [{ "type": "string" }, { "$ref": "#/definitions/stream" }]
+        },
+        "with": {
+          "type": "object",
+          "description": "The resolved with inputs of a step written with action, by name. Only listed inputs are checked. A string matches an input's text exactly. Any other value matches by JSON: an object matches when every key it lists matches, recursively."
+        },
+        "env": {
+          "$ref": "#/definitions/scalars",
+          "description": "The step's resolved environment, by name. Only listed variables are checked, each against its exact text."
+        }
+      }
     },
     "nodeStatus": {
       "type": "string",

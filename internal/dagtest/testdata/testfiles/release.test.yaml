@@ -201,3 +201,45 @@ cases:
 
   - name: empty expect
     expect: {}
+
+  # untitled and handler_on.failure assert what their steps take.
+  - name: bad called_with
+    expect:
+      steps:
+        build:
+          called_with:
+            with:
+              tag: v1
+        route:
+          called_with:
+            run: ./route.sh
+        child:
+          called_with:
+            with: {}
+            env: {}
+        gate:
+          called_with:
+            run: {}
+        poll:
+          called_with:
+            run:
+              matches: "("
+        sign_off:
+          called_with:
+            env:
+              REASON: ok
+        fanout:
+          called_with:
+            run: ./one.sh
+        ship:
+          called_with: {}
+        untitled:
+          called_with:
+            run:
+              contains: untitled
+            env:
+              STAGE: prod
+        handler_on.failure:
+          called_with:
+            with:
+              to: oncall@example.com

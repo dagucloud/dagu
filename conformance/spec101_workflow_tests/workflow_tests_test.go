@@ -138,6 +138,17 @@ func TestWorkflowTests(t *testing.T) {
 			"  notification mail_on.failure: oncall@example.com\n",
 			"3 cases: 2 passed, 1 failed\n",
 		}},
+		// The mocked deploy is checked against the command it would have
+		// run, with the mocked tag in it, and notify against its with
+		// inputs, the secret as its placeholder.
+		{"called.test.yaml", 2, []string{
+			"PASS workflows/called.test.yaml: deploys the built image (",
+			"FAIL workflows/called.test.yaml: a wrong tag reaches the deploy (",
+			`  step deploy called_with.run: expected to contain "v1.2.3", got "touch deploy.ran \"v1.2.4\""` + "\n",
+			"INVALID workflows/called.test.yaml: an action step takes no run\n",
+			"  expect.steps.notify.called_with.run: the step runs action http.request, which takes no run; assert with\n",
+			"3 cases: 1 passed, 1 failed, 1 invalid\n",
+		}},
 		{"smoke.test.yaml", 2, []string{"INVALID workflows/smoke.test.yaml\n", "rename", "0 cases: 0 passed, 0 failed, 1 invalid file\n"}},
 		{"compile.test.yaml", 2, []string{"INVALID workflows/compile.test.yaml\n", "Spec 033"}},
 	}

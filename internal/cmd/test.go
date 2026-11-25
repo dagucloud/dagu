@@ -417,8 +417,9 @@ func prepareCase(ctx *Context, file *dagtest.File, c dagtest.Case) (*ir.DAG, cas
 		return nil, caseOptions{}, []dagtest.Finding{{Source: source, Message: err.Error()}}
 	}
 	// The params apply as dagu start -- name=value applies them, and no
-	// params[].eval runs before they do, as in LoadFile.
-	loadOpts := append(testLoadOptions(ctx), spec.WithParams(quoteStartDashArgs(c.Params)), spec.DeferAllParamEvals())
+	// params[].eval runs before they do, as in LoadFile. Each action step
+	// keeps its with as written, which called_with asserts on.
+	loadOpts := append(testLoadOptions(ctx), spec.WithParams(quoteStartDashArgs(c.Params)), spec.DeferAllParamEvals(), spec.KeepActionWith())
 	dag, err := spec.Load(ctx, file.DAGPath, loadOpts...)
 	if err != nil {
 		return invalid("params", err)

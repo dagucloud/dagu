@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/dagtest"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime/stepmock"
 )
 
 // What --update did with a case's expect, as the JSON report's update field
@@ -113,14 +114,42 @@ func (c *testCase) updatedStep(s dagtest.StepExpect, status *ir.DAGRunStatus) da
 	if s.Attempts != nil && *s.Attempts != *facts.Attempts {
 		s.Attempts = facts.Attempts
 	}
-	published := publishedOutputs(expectedNode(status, c.waited, s))
+	node := expectedNode(status, c.waited, s)
+	published := publishedOutputs(node)
 	s.Outputs = slices.Clone(s.Outputs)
 	for i, o := range s.Outputs {
 		if value, ok := published[o.Name]; ok {
 			s.Outputs[i].Value = updatedOutput(o, outputText(value))
 		}
 	}
+	if call, ok := c.lastCall(s, node); ok && s.CalledWith != nil {
+		s.CalledWith = updatedCall(*s.CalledWith, call)
+	}
 	return s
+}
+
+// updatedCall returns a called_with assertion with the values of call
+// merged in. A run text takes the call's text, and a with input or a
+// variable that the call has takes its value, the listed keys only of an
+// object, as an output does. A run given as contains and matches stays as
+// written, and so does an input or a variable the call lacks.
+func updatedCall(expect dagtest.CallExpect, call stepmock.Call) *dagtest.CallExpect {
+	if r := expect.Run; r != nil && r.Text != nil {
+		expect.Run = &dagtest.RunExpect{Text: new(call.Run)}
+	}
+	expect.With = slices.Clone(expect.With)
+	for i, in := range expect.With {
+		if value, ok := call.With[in.Name]; ok {
+			expect.With[i].Value = updatedOutput(dagtest.OutputExpect{Value: in.Value}, outputText(value))
+		}
+	}
+	expect.Env = slices.Clone(expect.Env)
+	for i, e := range expect.Env {
+		if value, ok := call.Env[e.Name]; ok {
+			expect.Env[i].Value = value
+		}
+	}
+	return &expect
 }
 
 // updatedOutput returns the value an output assertion takes from the text
