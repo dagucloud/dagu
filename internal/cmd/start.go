@@ -217,6 +217,7 @@ func runStart(ctx *Context, args []string) error {
 		params          string
 		historicNoReuse bool
 		historicSlot    runSlot
+		nodeNames       []string
 	)
 
 	if fromRunID != "" {
@@ -225,6 +226,9 @@ func runStart(ctx *Context, args []string) error {
 		}
 		if len(args) > 1 || ctx.Command.Flags().Changed("params") || ctx.Command.ArgsLenAtDash() != -1 || stdinParamsRequested(ctx) {
 			return fmt.Errorf("parameters cannot be provided when using --from-run-id")
+		}
+		if ctx.Command.Flags().Changed(flagNode) {
+			return errNodeWithFromRunID
 		}
 
 		dagName, err := extractDAGName(ctx, args[0])
@@ -246,6 +250,7 @@ func runStart(ctx *Context, args []string) error {
 		}
 		historicNoReuse = status.NoReuse
 		historicSlot = runSlot{scheduleTime: status.ScheduleTime, window: status.ScheduleWindow()}
+		nodeNames = status.TargetNodes
 
 		snapshot, err := attempt.ReadDAG(ctx)
 		if err != nil {
@@ -282,6 +287,9 @@ func runStart(ctx *Context, args []string) error {
 		if err := validateStartPositionalParamCount(ctx, args, dag, params); err != nil {
 			return err
 		}
+		if nodeNames, err = nodeFlagValues(ctx); err != nil {
+			return err
+		}
 	}
 
 	if ctx.Command.Flags().Changed(flagWorkerLabel) {
@@ -297,7 +305,7 @@ func runStart(ctx *Context, args []string) error {
 	if err := parseAndAppendLabels(ctx, dag); err != nil {
 		return err
 	}
-	targetNodes, err := narrowRun(ctx, dag)
+	targetNodes, err := narrowRun(ctx, dag, nodeNames)
 	if err != nil {
 		return err
 	}

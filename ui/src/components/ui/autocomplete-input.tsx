@@ -82,6 +82,11 @@ function AutocompleteInput({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     switch (e.key) {
       case 'Enter':
+        // The Enter that ends an IME composition confirms the text. Safari
+        // sends it with keyCode 229 and isComposing false.
+        if (e.nativeEvent.isComposing || e.keyCode === 229) {
+          break;
+        }
         e.preventDefault();
         if (isOpen && highlightedValue !== null && highlightedIndex >= 0) {
           selectSuggestion(highlightedValue);
