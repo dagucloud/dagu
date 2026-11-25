@@ -88,6 +88,7 @@ dagu nodes list --labels web                   # like `ansible-inventory --list`
 - A comma means AND in a Dagu selector. Quote a selector that starts with `!`, since YAML reads a leading `!` as a tag.
 - Keys and values take globs, `*` and `?`, as in `role=front*`, not regular expressions.
 - In a bound run, steps with no action, `ssh.run`, and `sftp.*` run on the node. Other actions run on the Dagu host.
+- A play without `serial` runs a `run_once` task after the tasks before it finish on every host, and before the tasks after it start. A step outside one bound DAG runs before or after all of that DAG's steps, so split the play at the task: a step with `nodes`, a command step or a `dag.run` of a bound DAG, for the tasks before it, the `run_once` task as a step without `nodes`, then a step with `nodes` for the tasks after it, each depending on the one before.
 - The linear strategy runs each task on every host before the next task. For that order, put `nodes` on each command step instead. A step with `nodes` fails when any of its nodes failed, and the steps after it then run on every matched node, or not at all, as `continue_on` decides.
 
 ```yaml
