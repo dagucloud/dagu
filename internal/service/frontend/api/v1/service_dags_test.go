@@ -226,7 +226,7 @@ func TestListServiceDAGsReportsWhenTheNextRunStarts(t *testing.T) {
 	seedRunAt(t, helper, "svc-uncounted", "crash-3", ir.Failed, ir.TriggerTypeRestart, end)
 	seedRunAt(t, helper, "svc-first", "crash-1", ir.Failed, ir.TriggerTypeRestart, end)
 	seedRun(t, helper, "svc-live", "run-live", ir.Running, ir.TriggerTypeRestart)
-	backoffStore := store.NewRestartBackoffStore(helper.Backend.Collection(persis.CollectionSchedulerState))
+	backoffStore := store.NewRestartBackoffStore(helper.Backend.Collection(persis.CollectionSchedulerProcess))
 	require.NoError(t, backoffStore.Save(ctx, map[string]schedulerstate.RestartBackoff{
 		"svc-counted":   {RunID: "crash-3", Failures: 3},
 		"svc-uncounted": {RunID: "crash-2", Failures: 2},
@@ -288,7 +288,7 @@ func TestListServiceDAGsReportsWhyNoRestartComes(t *testing.T) {
 			helper := test.Setup(t, test.WithStatusPersistence())
 			helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "svc", []byte(serviceDAGSpec))
 			seedRun(t, helper, "svc", "run-1", ir.Failed, ir.TriggerTypeRestart)
-			pauseStore := store.NewSchedulerPauseStore(helper.Backend.Collection(persis.CollectionSchedulerState))
+			pauseStore := store.NewSchedulerPauseStore(helper.Backend.Collection(persis.CollectionSchedulerProcess))
 			if tt.pause != nil {
 				require.NoError(t, tt.pause(ctx, pauseStore))
 			}

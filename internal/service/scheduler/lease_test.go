@@ -257,7 +257,7 @@ func TestLeaseTakenOverDuringAcquire(t *testing.T) {
 	registry := &statusRecorder{}
 	sc.serviceRegistry = registry
 
-	lockDir := filepath.Join(persisfile.SchedulerStateDir(fixture.cfg.Paths), "locks")
+	lockDir := filepath.Join(persisfile.SchedulerProcessDir(fixture.cfg.Paths), "locks")
 	standby := dirlock.New(lockDir, &dirlock.LockOptions{
 		StaleThreshold:   50 * time.Millisecond,
 		RetryInterval:    10 * time.Millisecond,

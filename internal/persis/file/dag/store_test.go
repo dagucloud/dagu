@@ -1317,8 +1317,9 @@ func (c *writeAfterPut) Put(ctx context.Context, rec *persis.Record) error {
 func TestRenameKeepsAWriteDuringTheMove(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	col := testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState)
-	periods := pstore.NewPeriodStore(col, nil)
+	backend := testutil.NewMemoryBackend()
+	col := backend.Collection(persis.CollectionSchedulerState)
+	periods := pstore.NewPeriodStore(col, backend.Collection(persis.CollectionSchedulerProcess), nil)
 	suspended := schedulerstate.Period{From: time.Now().Add(-2 * time.Hour), To: time.Now().Add(-time.Hour)}
 	require.NoError(t, periods.AddSuspended(ctx, "old-name", suspended))
 	dismissal := schedulerstate.Dismissal{At: time.Now().UTC(), By: "alice"}

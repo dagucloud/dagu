@@ -47,6 +47,14 @@ const (
 	CollectionWorkspaces            = "workspaces"
 )
 
+// Server-wide collections whose counterparts hold a project's records.
+const (
+	// CollectionSchedulerProcess holds the scheduler process's pause flag,
+	// restart backoff, and outages. A project's scheduler state is in
+	// CollectionSchedulerState.
+	CollectionSchedulerProcess = "scheduler_process"
+)
+
 // SchedulerDAGRecordID names a DAG's record in the scheduler state
 // collection: the ended periods in which its slots could not run. The name
 // is one segment of the ID on every host, and no two DAGs share a record.

@@ -283,7 +283,7 @@ func newScheduler(
 			logger.Warn(context.Background(), "Took over the scheduler lock from a failed instance")
 		},
 	}
-	lockDir := filepath.Join(persisfile.SchedulerStateDir(cfg.Paths), "locks")
+	lockDir := filepath.Join(persisfile.SchedulerProcessDir(cfg.Paths), "locks")
 	dirLock := dirlock.New(lockDir, lockOpts)
 	subCmdBuilder := launcher.NewSubCmdBuilder(cfg)
 	workspaceBaseConfigDir := workspace.BaseConfigDir(cfg.Paths.DAGsDir)

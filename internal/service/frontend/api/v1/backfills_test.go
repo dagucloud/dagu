@@ -293,7 +293,11 @@ func TestGetDAGMissedSlots(t *testing.T) {
 	}
 	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-caught", []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\ncatchup_window: 3h\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
 	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-sync", []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\nsteps:\n  - run: ./sync.sh\n"))
-	periods := store.NewPeriodStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
+	periods := store.NewPeriodStore(
+		helper.Backend.Collection(persis.CollectionSchedulerState),
+		helper.Backend.Collection(persis.CollectionSchedulerProcess),
+		nil,
+	)
 	hour := time.Now().Truncate(time.Hour)
 	ctx := context.Background()
 	require.NoError(t, periods.AddDown(ctx, schedulerstate.Period{From: hour.Add(-5*time.Hour + 30*time.Minute), To: hour.Add(-2*time.Hour + 30*time.Minute)}))
@@ -345,7 +349,11 @@ func TestDismissDAGMissedSlots(t *testing.T) {
 	t.Parallel()
 	helper := test.Setup(t)
 	helper.CreateDAGFile(t, helper.Config.Paths.DAGsDir, "ops-load", []byte("labels: [workspace=ops]\nschedule: \"0 * * * *\"\ncatchup_window: \"\"\nsteps:\n  - run: ./load.sh ${context.run.scheduled_at}\n"))
-	periods := store.NewPeriodStore(helper.Backend.Collection(persis.CollectionSchedulerState), nil)
+	periods := store.NewPeriodStore(
+		helper.Backend.Collection(persis.CollectionSchedulerState),
+		helper.Backend.Collection(persis.CollectionSchedulerProcess),
+		nil,
+	)
 	hour := time.Now().Truncate(time.Hour)
 	ctx := context.Background()
 	require.NoError(t, periods.AddDown(ctx, schedulerstate.Period{From: hour.Add(-3*time.Hour + 30*time.Minute), To: hour.Add(-90 * time.Minute)}))
