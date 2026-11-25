@@ -16,7 +16,7 @@ import (
 // checkTargetNodes checks a request's node list against the project's nodes
 // and returns it as the run carries it, or nil without one (RFC 013
 // §Narrowing a run). The run starts in a subprocess, so a mistake in the list
-// is answered here, before the launch. A narrowed run runs on the Dagu host.
+// is answered here, before the launch.
 func (a *API) checkTargetNodes(ctx context.Context, dag *ir.DAG, names *api.TargetNodes) ([]string, error) {
 	if names == nil || len(*names) == 0 {
 		return nil, nil
@@ -36,7 +36,6 @@ func (a *API) checkTargetNodes(ctx context.Context, dag *ir.DAG, names *api.Targ
 			Message:    "invalid targetNodes: " + err.Error(),
 		}
 	}
-	dag.ForceLocal = true
 	return listed, nil
 }
 
