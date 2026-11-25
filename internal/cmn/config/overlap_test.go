@@ -42,11 +42,15 @@ func TestPathOverlaps(t *testing.T) {
 		},
 		{
 			// Containing paths.data_dir accounts for the state roots in it,
-			// so they are not listed again.
+			// so they are not listed again. State roots outside it still are.
 			name: "DAGsDirContainsDataDir",
 			edit: func(root string, p *config.PathsConfig) []string {
 				p.DAGsDir = root
-				return []string{overlap("paths.dags_dir", root, "contains", "paths.data_dir", p.DataDir)}
+				p.CalendarsDir = filepath.Join(root, "calendars")
+				return []string{
+					overlap("paths.dags_dir", root, "contains", "paths.data_dir", p.DataDir),
+					overlap("paths.dags_dir", root, "contains", "paths.calendars_dir", p.CalendarsDir),
+				}
 			},
 		},
 		{
@@ -172,6 +176,29 @@ func TestPathOverlapsByIdentity(t *testing.T) {
 		assert.Equal(t, []string{
 			overlap("paths.projects_dir", cfg.Paths.ProjectsDir, "is",
 				"paths.data_dir/projects", filepath.Join(cfg.Paths.DataDir, "projects")),
+		}, cfg.PathOverlaps())
+	})
+
+	// A link to a directory not created yet places the DAG root at its
+	// target, so the first start, which would create the target, refuses.
+	t.Run("LinkToMissingDir", func(t *testing.T) {
+		t.Parallel()
+		cfg := projectsTestConfig(t, true)
+		root := filepath.Dir(cfg.Paths.DataDir)
+		require.NoError(t, os.MkdirAll(cfg.Paths.DataDir, 0750))
+		projectsLink := filepath.Join(t.TempDir(), "projects")
+		symlinkOrSkip(t, filepath.Join(cfg.Paths.DataDir, "projects"), projectsLink)
+		cfg.Paths.ProjectsDir = projectsLink
+		// A relative target resolves from the link's directory.
+		authLink := filepath.Join(root, "auth")
+		symlinkOrSkip(t, filepath.Join("data", "auth"), authLink)
+		cfg.Paths.AltDAGsDir = filepath.Join(authLink, "library")
+
+		assert.Equal(t, []string{
+			overlap("paths.projects_dir", projectsLink, "is",
+				"paths.data_dir/projects", filepath.Join(cfg.Paths.DataDir, "projects")),
+			overlap("paths.alt_dags_dir", cfg.Paths.AltDAGsDir, "lies inside",
+				"paths.data_dir/auth", filepath.Join(cfg.Paths.DataDir, "auth")),
 		}, cfg.PathOverlaps())
 	})
 

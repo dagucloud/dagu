@@ -182,13 +182,18 @@ type dirLocation struct {
 	foldCase bool
 }
 
-// locateDir returns the location of path. A directory that cannot be looked
-// up for a reason other than its absence counts as missing, so the names
-// from it down compare as spelled.
+// maxLinkHops bounds the links to missing targets that one lookup follows,
+// so a loop of links ends.
+const maxLinkHops = 16
+
+// locateDir returns the location of path. A link whose target does not
+// exist yet places the names below it at that target. A directory that
+// cannot be looked up for a reason other than its absence counts as missing,
+// so the names from it down compare as spelled.
 func locateDir(path string, fs *lookups) dirLocation {
 	var missing []string
 	current := filepath.Clean(path)
-	for {
+	for hops := 0; ; {
 		if resolved := fs.resolve(current); resolved != "" {
 			if existing := fs.ancestors(resolved); len(existing) > 0 {
 				slices.Reverse(missing)
@@ -198,6 +203,11 @@ func locateDir(path string, fs *lookups) dirLocation {
 				}
 				return loc
 			}
+		}
+		if target, ok := fs.links[current]; ok && hops < maxLinkHops {
+			hops++
+			current = target
+			continue
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
@@ -268,6 +278,8 @@ type lookups struct {
 	// resolved maps a path to the path with its links resolved, or to ""
 	// when it cannot be resolved.
 	resolved map[string]string
+	// links maps a link that cannot be resolved to its absolute target.
+	links map[string]string
 	// infos maps a resolved path to its file info, or to nil when it cannot
 	// be looked up.
 	infos map[string]os.FileInfo
@@ -279,6 +291,7 @@ type lookups struct {
 func newLookups() *lookups {
 	return &lookups{
 		resolved: map[string]string{},
+		links:    map[string]string{},
 		infos:    map[string]os.FileInfo{},
 		foldCase: map[string]bool{},
 	}
@@ -286,19 +299,39 @@ func newLookups() *lookups {
 
 // resolve returns path with its links resolved, or "" when path does not
 // exist or cannot be resolved. One Lstat rules out a missing path before
-// links are walked.
+// links are walked. When path is a link that cannot be resolved, as one to
+// a directory not created yet, it records the link's target.
 func (fs *lookups) resolve(path string) string {
 	if resolved, ok := fs.resolved[path]; ok {
 		return resolved
 	}
 	var resolved string
-	if _, err := os.Lstat(path); err == nil {
+	if info, err := os.Lstat(path); err == nil {
 		if real, err := filepath.EvalSymlinks(path); err == nil {
 			resolved = real
+		} else if info.Mode()&os.ModeSymlink != 0 {
+			fs.recordLink(path)
 		}
 	}
 	fs.resolved[path] = resolved
 	return resolved
+}
+
+// recordLink records the target of the link at path, joining a relative
+// target to the link's directory with its links resolved.
+func (fs *lookups) recordLink(path string) {
+	target, err := os.Readlink(path)
+	if err != nil {
+		return
+	}
+	if !filepath.IsAbs(target) {
+		dir := filepath.Dir(path)
+		if real := fs.resolve(dir); real != "" {
+			dir = real
+		}
+		target = filepath.Join(dir, target)
+	}
+	fs.links[path] = filepath.Clean(target)
 }
 
 // foldsCase reports whether name, and every other name below dir, compares
