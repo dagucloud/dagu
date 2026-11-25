@@ -49,8 +49,8 @@ This spec does not define:
 - scheduler high availability (Spec 085), which applies to the scheduler
   process as a whole
 - a process per project, several scheduler processes that split projects
-  between them, `dag.run` across projects, and projects found from a
-  `dagu.json` file
+  between them, letting `dag.run` run a DAG of another project, and
+  projects found from a `dagu.json` file
 
 ## Goal
 
