@@ -66,11 +66,11 @@ func remoteNodesList(ctx *Context, format string) error {
 		}
 		inventoryID = inv.ID
 	}
-	nodes, err := ctx.Remote.remoteNodes(ctx, selector, inventoryID)
+	listing, err := ctx.Remote.remoteNodes(ctx, selector, inventoryID)
 	if err != nil {
 		return err
 	}
-	return printNodes(ctx, format, nodes)
+	return printNodes(ctx, format, listing)
 }
 
 // remoteNodesExport prints the inventories of the server of a remote
@@ -101,10 +101,15 @@ func remoteNodesExport(ctx *Context, ref string) error {
 // remoteNodesRemove removes the node named name from its inventory on the
 // server of a remote context.
 func remoteNodesRemove(ctx *Context, name string) error {
-	node, err := ctx.Remote.remoteNode(ctx, name)
+	listing, err := ctx.Remote.remoteNode(ctx, name)
 	if err != nil {
 		return err
 	}
+	// A worker node is in no inventory, as a local remove finds.
+	if len(listing.nodes) == 0 {
+		return fmt.Errorf("node %q not found", name)
+	}
+	node := listing.nodes[0]
 	holder, err := ctx.Remote.remoteInventory(ctx, node.InventoryID)
 	if err != nil {
 		return err
@@ -124,9 +129,10 @@ type remoteInventory struct {
 }
 
 // remoteNodes lists the nodes the selector matches, or every node when
-// selector is nil, limited to the inventory inventoryID when it is set.
-func (c *remoteClient) remoteNodes(ctx context.Context, selector *string, inventoryID string) ([]inventory.ResolvedNode, error) {
-	var nodes []inventory.ResolvedNode
+// selector is nil, limited to the inventory inventoryID when it is set, and
+// the workers that are not nodes.
+func (c *remoteClient) remoteNodes(ctx context.Context, selector *string, inventoryID string) (nodeListing, error) {
+	var listing nodeListing
 	for page := 1; ; page++ {
 		query := map[string]string{"page": strconv.Itoa(page), "perPage": strconv.Itoa(remoteNodesPerPage), "inventory": inventoryID}
 		if selector != nil {
@@ -134,33 +140,50 @@ func (c *remoteClient) remoteNodes(ctx context.Context, selector *string, invent
 		}
 		var out api.InventoryNodeListResponse
 		if err := c.do(ctx, http.MethodGet, "/nodes", nil, &out, query); err != nil {
-			return nil, err
+			return nodeListing{}, err
 		}
 		for _, node := range out.Nodes {
-			resolved, err := resolvedNodeOf(node)
-			if err != nil {
-				return nil, err
+			if err := listing.add(node); err != nil {
+				return nodeListing{}, err
 			}
-			nodes = append(nodes, resolved)
+		}
+		// Every page lists every conflict.
+		if page == 1 {
+			for _, conflict := range out.WorkerConflicts {
+				listing.conflicts = append(listing.conflicts, inventory.WorkerConflict{
+					Worker: inventory.WorkerNode{Name: conflict.Worker},
+					Node:   inventory.ResolvedNode{InventoryID: conflict.Inventory.Id, InventoryName: conflict.Inventory.Name},
+				})
+			}
 		}
 		if !out.Pagination.HasNextPage || len(out.Nodes) == 0 {
-			return nodes, nil
+			return listing, nil
 		}
 	}
 }
 
-// remoteNode returns the node named name, or an error naming it when the
-// server holds none.
-func (c *remoteClient) remoteNode(ctx context.Context, name string) (inventory.ResolvedNode, error) {
+// remoteNode returns a listing of the one node named name, or an error
+// naming it when the server holds none.
+func (c *remoteClient) remoteNode(ctx context.Context, name string) (nodeListing, error) {
 	var out api.InventoryNode
 	err := c.do(ctx, http.MethodGet, "/nodes/"+url.PathEscape(name), nil, &out, nil)
 	if remote, ok := errors.AsType[*remoteError](err); ok && remote.NotFound() {
-		return inventory.ResolvedNode{}, fmt.Errorf("node %q not found", name)
+		return nodeListing{}, fmt.Errorf("node %q not found", name)
 	}
 	if err != nil {
-		return inventory.ResolvedNode{}, err
+		return nodeListing{}, err
 	}
-	return resolvedNodeOf(out)
+	var listing nodeListing
+	return listing, listing.add(out)
+}
+
+// remoteForgetWorkerNode forgets the offline worker node named name.
+func (c *remoteClient) remoteForgetWorkerNode(ctx context.Context, name string) error {
+	err := c.do(ctx, http.MethodDelete, "/nodes/"+url.PathEscape(name), nil, nil, nil)
+	if remote, ok := errors.AsType[*remoteError](err); ok && remote.NotFound() {
+		return fmt.Errorf("node %q not found", name)
+	}
+	return err
 }
 
 // remoteInventories lists the inventories, without their nodes.
@@ -462,35 +485,67 @@ func trustResultOf(result api.InventoryHostKeyTrust) nodeconn.TrustResult {
 	return out
 }
 
-// resolvedNodeOf maps a node of the API to the resolved node the local
+// add appends a node of the API to the listing as the local commands hold
+// it, so both print alike.
+func (l *nodeListing) add(node api.InventoryNode) error {
+	if node.Kind == api.InventoryNodeKindWorker {
+		l.workers = append(l.workers, inventory.WorkerNode{
+			Name:       node.Name,
+			Host:       node.Host,
+			Labels:     ir.NewLabels(node.Labels),
+			Online:     derefBool(node.Online),
+			LastSeenAt: valueOrZero(node.LastSeenAt),
+		})
+		return nil
+	}
+	resolved, err := resolvedNodeOf(node)
+	if err != nil {
+		return err
+	}
+	l.nodes = append(l.nodes, resolved)
+	return nil
+}
+
+// resolvedNodeOf maps an SSH node of the API to the resolved node the local
 // commands print, so both print alike.
 func resolvedNodeOf(node api.InventoryNode) (inventory.ResolvedNode, error) {
-	timeout, err := time.ParseDuration(node.Timeout)
+	timeout, err := time.ParseDuration(derefString(node.Timeout))
 	if err != nil {
-		return inventory.ResolvedNode{}, fmt.Errorf("node %q: invalid timeout %q: %w", node.Name, node.Timeout, err)
+		return inventory.ResolvedNode{}, fmt.Errorf("node %q: invalid timeout %q: %w", node.Name, derefString(node.Timeout), err)
 	}
+	ref, auth := valueOrZero(node.Inventory), valueOrZero(node.Auth)
 	return inventory.ResolvedNode{
 		Name:          node.Name,
 		Host:          node.Host,
-		InventoryID:   node.Inventory.Id,
-		InventoryName: node.Inventory.Name,
-		Port:          node.Port,
+		InventoryID:   ref.Id,
+		InventoryName: ref.Name,
+		Port:          valueOrZero(node.Port),
 		User:          derefString(node.User),
 		Auth: ir.SSHAuth{
-			Key:              derefString(node.Auth.KeyPath),
-			KeySecret:        derefString(node.Auth.KeySecret),
-			PasswordSecret:   derefString(node.Auth.PasswordSecret),
-			PassphraseSecret: derefString(node.Auth.PassphraseSecret),
+			Key:              derefString(auth.KeyPath),
+			KeySecret:        derefString(auth.KeySecret),
+			PasswordSecret:   derefString(auth.PasswordSecret),
+			PassphraseSecret: derefString(auth.PassphraseSecret),
 		},
 		Bastion:       derefString(node.Bastion),
 		HostKey:       derefString(node.HostKey),
-		StrictHostKey: node.StrictHostKey,
+		StrictHostKey: derefBool(node.StrictHostKey),
 		Shell:         derefString(node.Shell),
 		Timeout:       timeout,
 		Labels:        ir.NewLabels(node.Labels),
 		Description:   derefString(node.Description),
 		Disabled:      node.Disabled,
 	}, nil
+}
+
+// valueOrZero returns the value v points to, or the zero value when v is
+// nil, as the API leaves out the fields a node of the other kind has.
+func valueOrZero[T any](v *T) T {
+	if v == nil {
+		var zero T
+		return zero
+	}
+	return *v
 }
 
 // ruleErrorsOf returns the broken rules a refused change lists as the

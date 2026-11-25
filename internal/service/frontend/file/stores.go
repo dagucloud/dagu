@@ -153,6 +153,11 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 		return fmt.Errorf("failed to create inventory store: %w", err)
 	}
 	stores.Inventory = inventoryStore
+	workerNodeStore, err := store.NewWorkerNodeStore(backend.Collection(persis.CollectionWorkerNodes))
+	if err != nil {
+		return fmt.Errorf("failed to create worker node store: %w", err)
+	}
+	stores.WorkerNodes = workerNodeStore
 
 	dagPinStore, err := store.NewDAGPinStore(backend.Collection(persis.CollectionDAGPins))
 	if err != nil {

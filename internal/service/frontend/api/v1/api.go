@@ -113,6 +113,7 @@ type API struct {
 	viewStore            view.Store
 	inventoryStore       inventory.Store
 	hostKeyStore         inventory.HostKeyStore
+	workerNodeStore      inventory.WorkerNodeStore
 	licenseManager       *license.Manager
 	publicWebhookStore   publicwebhook.Store
 	cloudReport          CloudReportService
@@ -350,6 +351,14 @@ func WithInventoryStore(store inventory.Store) APIOption {
 func WithHostKeyStore(store inventory.HostKeyStore) APIOption {
 	return func(a *API) {
 		a.hostKeyStore = store
+	}
+}
+
+// WithWorkerNodeStore returns an APIOption that sets the store of the
+// workers that are nodes.
+func WithWorkerNodeStore(store inventory.WorkerNodeStore) APIOption {
+	return func(a *API) {
+		a.workerNodeStore = store
 	}
 }
 
