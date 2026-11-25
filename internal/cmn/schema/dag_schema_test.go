@@ -450,6 +450,34 @@ steps:
 `,
 		},
 		{
+			name: "ActionMCPCallOAuth",
+			spec: `
+steps:
+  - action: mcp.call
+    with:
+      url: https://calendarmcp.googleapis.com/mcp/v1
+      tool: list_events
+      oauth:
+        provider: dagu-cloud
+        account: me@example.com
+        scopes: [https://www.googleapis.com/auth/calendar.events]
+`,
+		},
+		{
+			name: "RejectActionMCPCallOAuthWithoutAccount",
+			spec: `
+steps:
+  - action: mcp.call
+    with:
+      url: https://calendarmcp.googleapis.com/mcp/v1
+      tool: list_events
+      oauth:
+        provider: dagu-cloud
+        scopes: [https://www.googleapis.com/auth/calendar.events]
+`,
+			wantErr: "did not validate",
+		},
+		{
 			name: "RejectActionMCPCallMissingTool",
 			spec: `
 steps:
@@ -2971,6 +2999,40 @@ steps:
       url: https://api.example.com/data
       body: '{"key": "value"}'
 `,
+		},
+		{
+			name: "HTTPRequestOAuth",
+			spec: `
+steps:
+  - id: files
+    action: http.request
+    with:
+      method: GET
+      url: https://www.googleapis.com/drive/v3/files
+      oauth:
+        provider: google
+        client_id: ${GOOGLE_CLIENT_ID}
+        client_secret: ${GOOGLE_CLIENT_SECRET}
+        refresh_token: ${GOOGLE_REFRESH_TOKEN}
+        scopes: [https://www.googleapis.com/auth/drive.file]
+`,
+		},
+		{
+			name: "RejectHTTPRequestOAuthUnknownField",
+			spec: `
+steps:
+  - id: files
+    action: http.request
+    with:
+      method: GET
+      url: https://www.googleapis.com/drive/v3/files
+      oauth:
+        provider: google
+        service_account_json: ${GOOGLE_SA_JSON}
+        scopes: [https://www.googleapis.com/auth/drive.file]
+        subject: me@example.com
+`,
+			wantErr: "did not validate",
 		},
 		{
 			name: "HTTPRequestOutputOnly",

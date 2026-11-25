@@ -20,6 +20,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/stepoauth"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/go-resty/resty/v2"
 	"github.com/go-viper/mapstructure/v2"
@@ -56,6 +57,7 @@ type httpConfig struct {
 	Output        string            `json:"output" mapstructure:"output"`
 	JSON          bool              `json:"json" mapstructure:"json"`
 	SkipTLSVerify bool              `json:"skip_tls_verify" mapstructure:"skip_tls_verify"`
+	OAuth         *stepoauth.Config `json:"oauth" mapstructure:"oauth"`
 	// StatusExitCodes maps a non-2xx status code or class (e.g. "404", "5xx")
 	// to the step exit code. An exact code wins over a class. A status mapped
 	// to 0 is a success; an unmapped one exits 1.
@@ -124,6 +126,11 @@ func newHTTP(ctx context.Context, step ir.Step) (executor.Executor, error) {
 	if reqCfg.Body != "" && (len(reqCfg.Form) > 0 || len(reqCfg.Files) > 0) {
 		return nil, fmt.Errorf("http executor: body cannot be combined with form or files")
 	}
+	if reqCfg.OAuth != nil {
+		if err := reqCfg.OAuth.Validate(reqCfg.Headers); err != nil {
+			return nil, fmt.Errorf("http executor: %w", err)
+		}
+	}
 	if err := prepareHTTPOutputConfig(ctx, &reqCfg); err != nil {
 		return nil, err
 	}
@@ -142,6 +149,14 @@ func newHTTP(ctx context.Context, step ir.Step) (executor.Executor, error) {
 		client.SetTLSClientConfig(&tls.Config{
 			InsecureSkipVerify: true, // nolint:gosec
 		})
+	}
+	if reqCfg.OAuth != nil {
+		authorized, err := stepoauth.NewTransport(ctx, reqCfg.OAuth, client.GetClient().Transport)
+		if err != nil {
+			cancel()
+			return nil, fmt.Errorf("http executor: %w", err)
+		}
+		client.SetTransport(authorized)
 	}
 	req := client.R().SetContext(ctx)
 	if len(reqCfg.Headers) > 0 {
@@ -425,6 +440,23 @@ func prepareHTTPFilePaths(ctx context.Context, cfg *httpConfig) {
 	}
 }
 
+// validateStep rejects an invalid oauth block when the DAG loads. Other
+// fields may hold references and are checked when the step runs.
+func validateStep(step ir.Step) error {
+	var cfg struct {
+		Headers map[string]string `mapstructure:"headers"`
+		OAuth   *stepoauth.Config `mapstructure:"oauth"`
+	}
+	md, _ := mapstructure.NewDecoder(&mapstructure.DecoderConfig{WeaklyTypedInput: true, Result: &cfg})
+	if md.Decode(step.ExecutorConfig.Config) != nil || cfg.OAuth == nil {
+		return nil
+	}
+	if err := cfg.OAuth.Validate(cfg.Headers); err != nil {
+		return fmt.Errorf("http executor: %w", err)
+	}
+	return nil
+}
+
 func decodeHTTPConfig(dat map[string]any, cfg *httpConfig) error {
 	md, _ := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		WeaklyTypedInput: true,
@@ -502,7 +534,7 @@ func splitMethodURL(cmdWithArgs string) (string, string) {
 }
 
 func init() {
-	executor.RegisterExecutor("http", newHTTP, nil, registry.ExecutorCapabilities{
+	executor.RegisterExecutor("http", newHTTP, validateStep, registry.ExecutorCapabilities{
 		Command:    true,
 		Script:     true,
 		PathInputs: []string{"output", "files"},

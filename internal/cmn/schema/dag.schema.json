@@ -4323,6 +4323,9 @@
           "type": "boolean",
           "description": "Skip TLS certificate verification. WARNING: Only use for testing with self-signed certificates."
         },
+        "oauth": {
+          "$ref": "#/definitions/stepOAuth"
+        },
         "status_exit_codes": {
           "type": "object",
           "propertyNames": { "pattern": "^[3-5]([0-9]{2}|xx)$" },
@@ -4733,6 +4736,67 @@
         }
       },
       "description": "OAuth refresh-token credentials."
+    },
+    "stepOAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider"],
+      "allOf": [
+        {
+          "if": { "properties": { "provider": { "const": "dagu-cloud" } } },
+          "then": { "required": ["account", "scopes"] }
+        },
+        {
+          "if": { "properties": { "provider": { "const": "microsoft" } } },
+          "then": { "required": ["client_id", "refresh_token", "scopes"] }
+        },
+        {
+          "if": { "properties": { "provider": { "const": "google" } } },
+          "then": {
+            "oneOf": [
+              { "required": ["client_id", "client_secret", "refresh_token"] },
+              { "required": ["service_account_json", "scopes"] }
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "enum": ["google", "microsoft", "dagu-cloud"],
+          "description": "google or microsoft uses the credentials in this block. dagu-cloud takes the token of a Google account connected in Dagu Console, through this server's Dagu Cloud connection."
+        },
+        "account": {
+          "type": "string",
+          "description": "dagu-cloud: Google account address whose token Dagu Console issues."
+        },
+        "client_id": {
+          "type": "string",
+          "description": "google, microsoft: OAuth client ID. Required with refresh_token."
+        },
+        "client_secret": {
+          "type": "string",
+          "description": "google, microsoft: OAuth client secret. Required for google with refresh_token."
+        },
+        "tenant_id": {
+          "type": "string",
+          "description": "microsoft: tenant. Defaults to common."
+        },
+        "refresh_token": {
+          "type": "string",
+          "description": "google, microsoft: refresh token exchanged for access tokens."
+        },
+        "service_account_json": {
+          "type": "string",
+          "description": "google: service account key JSON, instead of a refresh token."
+        },
+        "scopes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Scopes to request. Required for dagu-cloud, microsoft, and a Google service account; narrows a Google refresh token's grant. offline_access is always added for microsoft."
+        }
+      },
+      "description": "Sends Authorization: Bearer with an OAuth access token that is refreshed as it expires. A request rejected with HTTP 401 is retried once with a new token. Cannot be combined with an Authorization header."
     },
     "mailSearchConfig": {
       "type": "object",
@@ -7918,6 +7982,9 @@
           "type": "object",
           "additionalProperties": { "type": "string" },
           "description": "HTTP headers sent with every request, for example Authorization: Bearer ${SECRET}."
+        },
+        "oauth": {
+          "$ref": "#/definitions/stepOAuth"
         },
         "include_raw": {
           "type": "boolean",

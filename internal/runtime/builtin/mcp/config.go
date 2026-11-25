@@ -16,6 +16,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/stepoauth"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/jsonschema-go/jsonschema"
 )
@@ -27,6 +28,7 @@ type config struct {
 	Tool       string            `mapstructure:"tool"`
 	Arguments  map[string]any    `mapstructure:"arguments"`
 	Headers    map[string]string `mapstructure:"headers"`
+	OAuth      *stepoauth.Config `mapstructure:"oauth"`
 	IncludeRaw bool              `mapstructure:"include_raw"`
 	SaveBinary bool              `mapstructure:"save_binary"`
 }
@@ -90,6 +92,11 @@ func (c config) validate(loadTime bool) error {
 	if c.URL == "" {
 		return errors.New("mcp.call: with.url is required")
 	}
+	if c.OAuth != nil {
+		if err := c.OAuth.Validate(c.Headers); err != nil {
+			return fmt.Errorf("mcp.call: with.%w", err)
+		}
+	}
 	if loadTime && value.HasAnyReference(c.URL) {
 		return nil
 	}
@@ -123,6 +130,7 @@ var configSchema = &jsonschema.Schema{
 			{Type: "string", Description: "Whole-value reference resolving to a JSON object."},
 		}, Description: "JSON arguments passed to the tool."},
 		"headers":     {Type: "object", Description: "HTTP headers sent with every request, for example Authorization: Bearer ${SECRET}.", AdditionalProperties: &jsonschema.Schema{Type: "string"}},
+		"oauth":       stepoauth.Schema(),
 		"include_raw": {Type: "boolean", Description: "Also emit the unmodified MCP tool result under raw."},
 		"save_binary": {Type: "boolean", Description: "Save image, audio, and blob resource data as run artifacts and output each file's path instead of base64. Requires artifacts."},
 	},
