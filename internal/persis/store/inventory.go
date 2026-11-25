@@ -29,6 +29,8 @@ type InventoryStore struct {
 	lock persis.Lock
 	// hostKeys holds the keys trusted for the nodes, or is nil.
 	hostKeys inventory.HostKeyStore
+	// cache keeps the resolved nodes in memory, or is nil.
+	cache *inventoryCache
 }
 
 // inventoryStoredRecord keeps its own timestamps, since a backend may derive a
@@ -113,6 +115,7 @@ func (s *InventoryStore) Create(ctx context.Context, inv inventory.Inventory) (i
 	if inv.ID != "" {
 		return inventory.Stored{}, &inventory.Error{Inventory: inv.Name, Field: "id", Err: errIDSet}
 	}
+	defer s.cache.changed()
 	var out inventory.Stored
 	err := s.lock.Do(ctx, func(held func() error) error {
 		all, err := s.load(ctx)
@@ -137,6 +140,7 @@ func (s *InventoryStore) Create(ctx context.Context, inv inventory.Inventory) (i
 }
 
 func (s *InventoryStore) Replace(ctx context.Context, inv inventory.Inventory, version int64) (inventory.Stored, error) {
+	defer s.cache.changed()
 	var out inventory.Stored
 	err := s.lock.Do(ctx, func(held func() error) error {
 		all, err := s.load(ctx)
@@ -171,6 +175,7 @@ func (s *InventoryStore) Replace(ctx context.Context, inv inventory.Inventory, v
 }
 
 func (s *InventoryStore) Delete(ctx context.Context, id string, version int64) error {
+	defer s.cache.changed()
 	return s.lock.Do(ctx, func(held func() error) error {
 		current, err := s.get(ctx, id)
 		if err != nil {
@@ -201,6 +206,7 @@ func (s *InventoryStore) Delete(ctx context.Context, id string, version int64) e
 }
 
 func (s *InventoryStore) Import(ctx context.Context, invs []inventory.Inventory, opts inventory.ImportOptions) (inventory.ImportResult, error) {
+	defer s.cache.changed()
 	var result inventory.ImportResult
 	err := s.lock.Do(ctx, func(held func() error) error {
 		all, err := s.load(ctx)
@@ -243,6 +249,9 @@ func (s *InventoryStore) Import(ctx context.Context, invs []inventory.Inventory,
 }
 
 func (s *InventoryStore) Nodes(ctx context.Context) ([]inventory.ResolvedNode, error) {
+	if s.cache != nil {
+		return s.cachedNodes(ctx)
+	}
 	all, err := s.loadLocked(ctx)
 	if err != nil {
 		return nil, err

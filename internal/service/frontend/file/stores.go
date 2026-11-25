@@ -144,7 +144,7 @@ func initStores(ctx context.Context, cfg *config.Config, backend persis.Backend,
 		return fmt.Errorf("failed to create host key store: %w", err)
 	}
 	stores.HostKeys = hostKeyStore
-	inventoryStore, err := store.NewInventoryStore(
+	inventoryStore, err := store.NewCachedInventoryStore(
 		backend.Collection(persis.CollectionInventories),
 		backend.Lock(persis.CollectionInventories),
 		hostKeyStore,

@@ -424,6 +424,12 @@ func (c *swapHookCollection) RecordIDs(ctx context.Context, prefix string) ([]st
 	}).RecordIDs(ctx, prefix)
 }
 
+func (c *swapHookCollection) RecordVersion(ctx context.Context, id string) (string, error) {
+	return c.Collection.(interface {
+		RecordVersion(context.Context, string) (string, error)
+	}).RecordVersion(ctx, id)
+}
+
 // An import that moves web01 from Tokyo to Osaka writes Tokyo first. A read
 // between the two writes would find web01 in neither and select no node
 // without an error, so it must wait for the import.
