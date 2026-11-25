@@ -13,9 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The key of an AI endpoint and the credentials of an MCP server entry are managed
-// secrets under the reserved prefix "ai/". The DAG resolver must never return them,
-// from the workspace scope or from the global fallback (Spec 093).
+// Secrets under the reserved prefix "ai/" belong to AI features. The DAG
+// resolver must never return them, from the workspace scope or from the global
+// fallback.
 func TestReferenceResolver_RefusesReservedRefs(t *testing.T) {
 	t.Parallel()
 

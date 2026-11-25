@@ -190,7 +190,8 @@ func (r *Resolver) resolve(ctx context.Context, p *Profile) (*Resolved, error) {
 			if err != nil {
 				return nil, fmt.Errorf("resolve profile secret %s: %w", entry.Key, err)
 			}
-			// A profile can never carry the key of an AI endpoint (Spec 093).
+			// A profile binds a secret by ID, so the resolver's ref check
+			// does not cover it.
 			if secretref.IsReserved(sec.Ref) {
 				return nil, fmt.Errorf("resolve profile secret %s: %w: %q", entry.Key, secret.ErrReservedRef, sec.Ref)
 			}
