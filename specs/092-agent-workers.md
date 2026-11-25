@@ -4,7 +4,7 @@
 
 Not implemented.
 
-No version of Dagu reads the keys of this spec yet. A configuration that sets
+No version of Dagu reads the new keys of this spec yet. A configuration that sets
 `coordinator.worker_pools`, `coordinator.dispatchers` or `untrusted` has no effect, and
 `dagu validate` rejects the step keys `secrets` and `untrusted` and the action `agent.run`.
 
