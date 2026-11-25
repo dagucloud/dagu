@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -496,16 +497,17 @@ func TestSchedulerStateLoadCorruptDataFallsBackToEmpty(t *testing.T) {
 }
 
 // The records of the periods slots could not run, which share the scheduler
-// state's collection, are no part of the state it loads.
+// state's directory, are no part of the state it loads.
 func TestSchedulerStateLoadIgnoresPeriodRecords(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	col := testutil.NewMemoryBackend().Collection(persis.CollectionSchedulerState)
+	backend := file.NewBackend(config.PathsConfig{DataDir: t.TempDir()})
+	col := backend.Collection(persis.CollectionSchedulerState)
 	states := store.NewSchedulerStateStore(col)
 	saved := &schedulerstate.State{LastTick: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC), DAGs: map[string]schedulerstate.DAGWatermark{}}
 	require.NoError(t, states.Save(ctx, saved))
 
-	periods := store.NewPeriodStore(col, nil)
+	periods := store.NewPeriodStore(col, backend.Collection(persis.CollectionSchedulerProcess), nil)
 	period := schedulerstate.Period{From: time.Now().Add(-2 * time.Hour), To: time.Now().Add(-time.Hour)}
 	require.NoError(t, periods.AddDown(ctx, period))
 	require.NoError(t, periods.AddSuspended(ctx, "state", period))

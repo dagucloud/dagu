@@ -265,6 +265,7 @@ func initEncryptedStores(ctx context.Context, cfg *config.Config, backend persis
 
 	notificationStore, err := persisfile.NewNotificationStore(
 		backend.Collection(persis.CollectionNotifications),
+		backend.Collection(persis.CollectionNotificationChannels),
 		encryptor,
 	)
 	if err != nil {
@@ -278,6 +279,7 @@ func initEncryptedStores(ctx context.Context, cfg *config.Config, backend persis
 
 	incidentStore, err := persisfile.NewIncidentStore(
 		backend.Collection(persis.CollectionIncidents),
+		backend.Collection(persis.CollectionIncidentProviders),
 		encryptor,
 	)
 	if err != nil {

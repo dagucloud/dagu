@@ -71,7 +71,7 @@ func SetupScheduler(t *testing.T, opts ...HelperOption) *Scheduler {
 	dagRunRepository := file.NewDAGRunRepository(helper.Config)
 	ps := newProcRepository(helper.Config)
 	qs := store.NewQueueStore(helper.Backend.Collection(persis.CollectionQueue))
-	pauseStore := store.NewSchedulerPauseStore(helper.Backend.Collection(persis.CollectionSchedulerState))
+	pauseStore := store.NewSchedulerPauseStore(helper.Backend.Collection(persis.CollectionSchedulerProcess))
 
 	// Create DAG run manager
 	drm := runtime.NewManager(dagRunRepository, ps, helper.Config)

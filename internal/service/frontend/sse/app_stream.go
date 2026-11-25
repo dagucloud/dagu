@@ -808,12 +808,16 @@ func NewAppStreamService(cfg AppStreamConfig) (*AppStreamService, error) {
 		))
 	}
 	if cfg.Paths.DataDir != "" {
-		service.watchers = append(service.watchers, newDirectoryWatcher(
-			persisfile.SchedulerStateDir(cfg.Paths),
-			true,
-			service.handleSchedulerStateEvent,
-			service.publishReset,
-		))
+		// The scheduler state and the pause flag share one watcher while they
+		// share a directory.
+		for _, dir := range uniqueNonEmptyPaths(persisfile.SchedulerStateDir(cfg.Paths), persisfile.SchedulerProcessDir(cfg.Paths)) {
+			service.watchers = append(service.watchers, newDirectoryWatcher(
+				dir,
+				true,
+				service.handleSchedulerStateEvent,
+				service.publishReset,
+			))
+		}
 	}
 	service.watchers = append(service.watchers,
 		newWikiDirectoryWatcher(cfg.Paths.WikiDir, true, service.handleWikiPageEvent, service.publishReset),

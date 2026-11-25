@@ -26,6 +26,7 @@ func projectsTestConfig(t *testing.T, enabled bool) *config.Config {
 			ArtifactDir:   filepath.Join(root, "data", "artifacts"),
 			DAGRunsDir:    filepath.Join(root, "data", "dag-runs"),
 			DAGRunWorkDir: filepath.Join(root, "data", "dag-run-work"),
+			EventStoreDir: filepath.Join(root, "logs", "admin", "events"),
 		},
 	}
 }
@@ -46,6 +47,7 @@ func TestProjectPaths(t *testing.T) {
 			ArtifactDir:   cfg.Paths.ArtifactDir,
 			DAGRunsDir:    cfg.Paths.DAGRunsDir,
 			DAGRunWorkDir: cfg.Paths.DAGRunWorkDir,
+			EventStoreDir: cfg.Paths.EventStoreDir,
 		}, paths)
 	})
 
@@ -72,6 +74,7 @@ func TestProjectPaths(t *testing.T) {
 				ArtifactDir:   filepath.Join(state, "artifacts"),
 				DAGRunsDir:    filepath.Join(state, "runs"),
 				DAGRunWorkDir: filepath.Join(state, "state", "dag-run-work"),
+				EventStoreDir: filepath.Join(state, "state", "events"),
 				RecordDirs:    []string{state},
 			}, paths)
 		}
@@ -112,6 +115,20 @@ func TestProjectPaths(t *testing.T) {
 		assert.Equal(t, runs, paths.DAGRunsDir)
 		assert.Equal(t, work, paths.DAGRunWorkDir)
 		assert.Equal(t, []string{state, logs, artifacts, runs, work}, paths.RecordDirs)
+	})
+
+	// paths.event_store_dir only tells migration where v2 kept run events,
+	// so each project keeps its own in its state directory.
+	t.Run("OnEventStoreIgnoresPath", func(t *testing.T) {
+		t.Parallel()
+		cfg := projectsTestConfig(t, true)
+		cfg.Paths.EventStoreDir = filepath.Join(t.TempDir(), "events")
+
+		paths, err := cfg.ProjectPaths("weather")
+		require.NoError(t, err)
+		state := filepath.Join(cfg.Paths.DataDir, "projects", "weather")
+		assert.Equal(t, filepath.Join(state, "state", "events"), paths.EventStoreDir)
+		assert.Equal(t, []string{state}, paths.RecordDirs)
 	})
 
 	t.Run("OnSharedSetApartRoot", func(t *testing.T) {

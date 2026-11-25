@@ -21,6 +21,7 @@ const projectsSwitchKey = "experimental_projects"
 //	<data_dir>/projects/<name>/     state directory
 //	  logs/ artifacts/ runs/        unless the matching path is set
 //	  state/dag-run-work/           unless paths.dag_run_work_dir is set
+//	  state/events/                 whatever paths.event_store_dir says
 //	<log_dir>/.projects/<name>/     when paths.log_dir is set; likewise for
 //	                                artifact_dir, dag_runs_dir, dag_run_work_dir
 const (
@@ -32,6 +33,7 @@ const (
 	projectRunsDirName       = "runs"
 	projectOtherStateDirName = "state"
 	projectRunWorkDirName    = "dag-run-work"
+	projectEventsDirName     = "events"
 )
 
 // ProjectPaths holds the directories of one project.
@@ -44,6 +46,8 @@ type ProjectPaths struct {
 	ArtifactDir   string
 	DAGRunsDir    string
 	DAGRunWorkDir string
+	// EventStoreDir holds the project's run events.
+	EventStoreDir string
 	// RecordDirs lists the state directories that record the project's ID
 	// and name: StateDir, then each directory above that a set path places
 	// outside it. It is empty while projects are off.
@@ -67,6 +71,7 @@ func (c *Config) ProjectPaths(name string) (ProjectPaths, error) {
 			ArtifactDir:   c.Paths.ArtifactDir,
 			DAGRunsDir:    c.Paths.DAGRunsDir,
 			DAGRunWorkDir: c.Paths.DAGRunWorkDir,
+			EventStoreDir: c.Paths.EventStoreDir,
 		}, nil
 	}
 
@@ -82,9 +87,11 @@ func (c *Config) ProjectPaths(name string) (ProjectPaths, error) {
 
 	stateDir := filepath.Join(c.Paths.DataDir, projectStatesDirName, name)
 	paths := ProjectPaths{
-		DAGsDir:    dagsDir,
-		StateDir:   stateDir,
-		RecordDirs: []string{stateDir},
+		DAGsDir:  dagsDir,
+		StateDir: stateDir,
+		// paths.event_store_dir only tells migration where v2 kept events.
+		EventStoreDir: filepath.Join(stateDir, projectOtherStateDirName, projectEventsDirName),
+		RecordDirs:    []string{stateDir},
 	}
 	// place returns inState, or <root>/.projects/<name> when the
 	// configuration sets root.
