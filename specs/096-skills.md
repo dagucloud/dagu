@@ -2,10 +2,11 @@
 
 ## Status
 
-Implemented.
+Partially implemented.
 
-The API, the loader, `chat.completion`, `agent.run`, the ZIP download and the editor of the UI follow
-this spec. Items that are not built are in [Open items](#open-items).
+DAG discovery skips the skills directory, as [Terms](#terms) states. A unit test and a conformance
+test cover it. The format, the folder rules, the files and the hash, the API and the ZIP download are
+specified but not built yet.
 
 ## Scope
 
@@ -15,48 +16,43 @@ This spec defines:
 - the folder of a skill: the layout, the files, and the limits of the files
 - the files as the only source of truth of the skills, the hash of a skill, and the preconditions of a write
 - the skill routes of the REST API, and the download of skills as a ZIP file
-- the use of a skill by `chat.completion` (the tools `load_skill` and `read_skill_file`) and by `agent.run`
-- the transfer of a skill to a worker, and the record of the version that a run received
-- the contract of the UI for skills
-- `dagu validate` for skills
+- the skills directory, which DAG discovery skips
 
 This spec does not define:
 
-- the `skills` key of a step, the system message of the catalog and the tool map. See [Spec 090](090-agent-tools.md).
-- the other keys of `agent.run`, the CLI flags and the sandbox of the CLI. See [Spec 091](091-agent-node.md).
-- the agent worker, the coordinator and the workspace bundle of a run. See [Spec 092](092-agent-workers.md) and [Spec 035](035-file-dependencies.md).
+- the use of a skill by a step: the `skills` key, `chat.completion` and `agent.run`
+- the transfer of a skill to a worker, and the record of the version that a run received
+- the UI for skills, and `dagu validate` for skills
 - the upload of a ZIP file, a command that checks a skill, and the other items of [Open items](#open-items)
 
 ## Goal
 
 A skill gives instructions to a model. A skill that follows the Agent Skills standard works in Dagu
 without a change. A skill that does not follow the standard never reaches a model: Dagu refuses it
-and tells the author why. The skill is a folder of files. A person, a git repository or the UI can
-change it. Several Dagu instances can share the folder, and a run keeps the exact version that it
-received.
+and tells the author why. The skill is a folder of files. A person, a git repository or the API can
+change it. Several Dagu instances can share the folder.
 
 ## Related Specs
 
-- [Spec 035: File Dependencies](035-file-dependencies.md)
-- [Spec 090: Agent Tools](090-agent-tools.md)
-- [Spec 091: Agent Node](091-agent-node.md)
-- [Spec 092: Agent Workers](092-agent-workers.md)
-- [Spec 093: AI Endpoints](093-ai-endpoints.md)
+- Spec 090: Agent Tools
+- Spec 091: Agent Node
+- Spec 092: Agent Workers
+- Spec 093: AI Endpoints
 
 ## Terms
 
 A skill is a folder `skills/<name>/` of the skills directory. The file `SKILL.md` of the folder
 defines it.
 
-The skills directory is the directory `skills` that Dagu finds next to a DAG file, as
-[Spec 090](090-agent-tools.md) defines. The API uses `skills` in the DAGs directory.
+The skills directory is the directory `skills` at the root of the DAGs directory. The API reads
+and writes the skills there.
 
-DAG discovery never enters the directory `skills` at the root of the DAGs directory, also when it
-is recursive. A YAML file of a skill is never a DAG. A directory `skills` deeper in the tree is an
-ordinary directory for discovery.
+DAG discovery never enters the directory `skills` at the root of a directory that it scans for DAG
+files, also when it is recursive. The DAG list and the scheduler never include a file below it. A
+directory `skills` deeper in the tree is an ordinary directory for discovery.
 
 A refused skill is a skill that breaks one rule of an error in this spec. Dagu never loads a
-refused skill. The API and the UI list it with the state ERROR.
+refused skill. The API lists it with the state ERROR.
 
 An error is a broken rule that refuses the skill. A warning is a hint. A warning does not refuse
 the skill.
@@ -116,7 +112,7 @@ Each rule has an identifier. The message of an issue gives the identifier, the f
 | `body-tokens` | warning | The body is above about 5000 tokens. The estimate is the size in bytes divided by 3.7. |
 | `description-short` | warning | The description has fewer than 20 characters. |
 | `reference-depth` | warning | A file of `references/` lies deeper than one folder level. |
-| `file-too-large-to-read` | warning | A file of `references/` or `scripts/` is larger than 262144 bytes. The tool `read_skill_file` cannot return it. |
+| `file-too-large-to-read` | warning | A file of `references/` or `scripts/` is larger than 262144 bytes. A model cannot read it through Dagu. |
 
 The folder rules are in [The folder](#the-folder).
 
@@ -171,9 +167,7 @@ such a file. A skill cannot hold a file with such a name: a write of such a path
 rule `path`. An empty directory is not part of the
 skill: it has no file, so the hash and the ZIP file ignore it.
 
-The limits are constants of this spec. They are not configuration keys. The limits of the
-workspace bundle of [Spec 035](035-file-dependencies.md) also apply, to the whole bundle of a run. They
-are 64 MiB compressed, 256 MiB extracted and 8192 entries.
+The limits are constants of this spec. They are not configuration keys.
 
 ## Files and HA
 
@@ -181,7 +175,7 @@ are 64 MiB compressed, 256 MiB extracted and 8192 entries.
 
 The folder `skills/<name>/` in the DAGs directory is the only source of truth of a skill. Dagu
 keeps no state of a skill in the memory of a process. Every operation reads the folder from the disk
-when it needs it: the API, the loader of a DAG and the dispatch of a run.
+when it needs it.
 
 Dagu supports several instances that share the same DAGs directory (a shared volume, or git-based
 sync) and use the scheduler lock for failover. The instances need no coordination of skills beyond
@@ -346,14 +340,12 @@ streams the ZIP file. A file that changes during the stream stops the stream wit
 The text of a skill is untrusted content. A skill can try to direct a model against its purpose.
 Only a person with the developer role writes a skill, and the audit log records each change.
 
-A skill never adds a tool and never adds a permission. The keys `dags` and `tools` of the step are the
-only authority. The key `allowed-tools` is informational: Dagu stores it, shows it, and never applies it.
-Dagu never gives a step a tool because of `allowed-tools`.
+A skill never adds a tool and never adds a permission. The key `allowed-tools` is informational:
+Dagu stores it, shows it, and never applies it.
 
-Dagu never runs a file of a skill. A file in `scripts/` is data. It is stored, mounted, and shown
-to the model as text. The model can ask a tool of the step to run it, and the tools of the step decide
-whether this is allowed. A skill folder has no link, no hard link and no special file, so a skill
-cannot read a file outside its folder. A path never leaves the folder.
+Dagu never runs a file of a skill. A file in `scripts/` is data. A skill folder has no link, no hard
+link and no special file, so a skill cannot read a file outside its folder. A path never leaves the
+folder.
 
 A skill holds no secret. See [Secrets](#secrets).
 
@@ -420,11 +412,8 @@ reader.
 
 - The upload of a ZIP file to create or replace skills (import).
 - A command `dagu skills validate` that checks a folder without a DAG.
-- A `preload` mode that puts a short skill in the system message, with no tool call.
 - Extra skill directories, such as `.agents/skills`, with an explicit key in the configuration file.
-- A mode `name-only` for one skill of a step, and a way to hide a skill from the model.
-- A check that warns when `allowed-tools` names a tool that the step does not have.
 - A check that every relative link in the body names an existing file.
-- The limits of the skills (4 MiB, 16 MiB, 256 files, 20 skills, 2000 tokens) are constants. They become configuration keys when a user needs another value.
+- The limits of the skills (4 MiB, 16 MiB, 256 files) are constants. They become configuration keys when a user needs another value.
 - The rules that this spec adds to the standard (see [Source of the rules](#source-of-the-rules)) are not verified against another client. The rule for XML tags comes from the Anthropic API variant of the standard.
 - Dagu does not apply the Unicode NFKC normalization of the name, which the reference validator of the standard applies.
