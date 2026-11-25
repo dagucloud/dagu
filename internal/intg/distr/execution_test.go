@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
+	filedagrun "github.com/dagucloud/dagu/v2/internal/persis/file/dagrun"
 	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
@@ -842,6 +843,58 @@ steps:
 		require.Error(t, statErr)
 		assert.True(t, os.IsNotExist(statErr))
 	})
+}
+
+// With projects on, the coordinator stores the log and artifact paths of a
+// worker's run relative to its directories, and they still name the files
+// the worker sent.
+func TestExecution_RunPathsWithProjects(t *testing.T) {
+	stdout, stderr, artifact := "run-paths-stdout", "run-paths-stderr", "run-paths-artifact"
+	f := newTestFixture(t, `
+name: run-paths-test
+worker_selector:
+  test: "true"
+artifacts:
+  enabled: true
+steps:
+  - name: echo
+`+logStepShellYAML()+`    command: |
+`+indentYAMLBlock(logOutputCommands(stdout, stderr), 6)+`
+  - name: write
+`+artifactStepShellYAML()+`    command: |
+`+indentYAMLBlock(artifactWriteCommand(artifact, false), 6)+`
+    depends: [echo]
+`, withLogPersistence(), withArtifactPersistence(), withConfigMutator(func(c *config.Config) {
+		c.ProjectsEnabled = true
+	}))
+	defer f.cleanup()
+
+	require.NoError(t, f.enqueue())
+	f.waitForQueued()
+	f.startScheduler(30 * time.Second)
+
+	status := f.waitForStatus(ir.Succeeded, artifactExecutionStatusTimeout())
+
+	require.Len(t, status.Nodes, 2)
+	assert.Contains(t, getLogContent(t, status.Nodes[0].Stdout), stdout)
+	assert.Contains(t, getLogContent(t, status.Nodes[0].Stderr), stderr)
+	assert.Contains(t, getLogContent(t, status.Log), stdout)
+	assertArtifactContains(t, status.ArchiveDir, "reports/summary.md", artifact)
+
+	var statusFiles []string
+	require.NoError(t, filepath.WalkDir(f.coord.Config.Paths.DAGRunsDir, func(path string, d os.DirEntry, err error) error {
+		if err == nil && d.Name() == filedagrun.JSONLStatusFile && strings.Contains(path, status.DAGRunID) {
+			statusFiles = append(statusFiles, path)
+		}
+		return err
+	}))
+	require.Len(t, statusFiles, 1)
+	stored, err := filedagrun.ParseStatusFile(statusFiles[0])
+	require.NoError(t, err)
+	require.Len(t, stored.Nodes, 2)
+	for _, path := range []string{stored.Log, stored.ArchiveDir, stored.Nodes[0].Stdout, stored.Nodes[0].Stderr} {
+		assert.True(t, strings.HasPrefix(path, "./"), "stored path %q is not relative", path)
+	}
 }
 
 func TestExecution_StartCommand(t *testing.T) {
