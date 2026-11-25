@@ -8436,7 +8436,7 @@ export interface components {
             failedStep?: string;
         };
         /**
-         * @description Status of a node's run: the status its child run reached, or not_started, running, or disabled
+         * @description Status of a node's run: the status its child run reached, or not_started, running, disabled, or removed. A removed node is one a retry kept from the step's first attempt that has left the inventory since.
          * @enum {string}
          */
         NodeRunStatus: NodeRunStatus;
@@ -8450,6 +8450,7 @@ export interface components {
             failed: number;
             aborted: number;
             disabled: number;
+            removed: number;
         };
         /** @description Number of a run's steps that succeeded, once the run finished. Handlers are not counted. */
         StepProgress: {
@@ -27775,7 +27776,8 @@ export enum NodeRunStatus {
     failed = "failed",
     aborted = "aborted",
     rejected = "rejected",
-    disabled = "disabled"
+    disabled = "disabled",
+    removed = "removed"
 }
 export enum ForeachItemStatusFilter {
     not_started = "not_started",

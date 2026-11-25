@@ -317,6 +317,7 @@ describe('dockTabsFor run with node runs', () => {
       failed: 0,
       aborted: 0,
       disabled: 0,
+      removed: 0,
     };
     const facts = (extra: Record<string, unknown>) =>
       dockFacts(
