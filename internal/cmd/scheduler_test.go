@@ -29,4 +29,14 @@ func TestSchedulerCommand(t *testing.T) {
 			ExpectedOut: []string{"dagu_test"},
 		})
 	})
+	t.Run("WarnTestNamedDAG", func(t *testing.T) {
+		th := test.SetupCommand(t)
+		th.CreateDAGFile(t, "smoke.test.yaml", testNamedDAG)
+		cancelWhenLogContains(t, th, "Scheduler started")
+
+		th.RunCommand(t, cmd.Scheduler(), test.CmdTest{
+			Args:        []string{"scheduler"},
+			ExpectedOut: []string{"smoke.test.yaml reads as a DAG"},
+		})
+	})
 }
