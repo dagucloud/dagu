@@ -167,6 +167,26 @@ func TestNodeStepRetry(t *testing.T) {
 		run.dagu.ExpectNoFile("ran-web04")
 	})
 
+	// A run that reuses deploy from another run carries over that run's log
+	// paths, whose records name the other run's child runs. A retry that
+	// resets deploy matches its selector and runs each node under this run.
+	t.Run("matches the selector for a step reused from another run", func(t *testing.T) {
+		t.Parallel()
+
+		run := newRetriedRun(t, "retry-5-source")
+		run.start(t, "retry_seeded.yaml").ExpectNonZeroExitCode()
+
+		dir := "DIR=" + filepath.ToSlash(run.dagu.ProjectPath("."))
+		run.runID = "retry-5"
+		run.dagu.RunWithEnv(run.env, "start", "--run-id="+run.runID, "--reuse-from=retry-5-source", "retry_seeded.yaml", "--", dir).ExpectNonZeroExitCode()
+
+		run.remove(t, "ran-web01")
+		run.touch(t, "ok-verify")
+		run.retry(t, "retry_seeded", "--step=deploy", "--downstream").ExpectExitCode(0)
+		require.Equal(t, []string{"web01=succeeded", "web02=succeeded", "web03=succeeded"}, nodeStatuses(t, run.dagu))
+		run.dagu.ExpectFileContent("ran-web01", "10.0.1.11")
+	})
+
 	// The parent run dies while web02 runs. The retry keeps web01's run,
 	// reruns web02, and starts web03. A short heartbeat lets the killed run be
 	// found dead at once.

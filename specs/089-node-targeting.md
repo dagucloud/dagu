@@ -239,7 +239,10 @@ step, runs a step with nodes again only on the nodes that did not succeed:
 A step whose previous attempt recorded no nodes, such as one whose selector
 failed or one recorded before this version, matches its selector again, and
 so does a step whose records cannot be read or parsed, with a warning in the
-run log. Such a step can then run on a node added since.
+run log. Such a step can then run on a node added since. A step that a run
+reused from another run, as `--reuse-from`, `--only` with `--outputs-from`,
+and edit and retry reuse steps, matches its selector too, since that run's
+child runs are not this run's.
 
 The run view labels the retry of a step with nodes **Retry failed nodes**,
 with the number of its nodes that failed, were aborted, or did not start.

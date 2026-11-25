@@ -192,12 +192,14 @@ func readNodeRuns(dir string) (ir.NodeRuns, error) {
 
 // nodeRunsToRetry returns the directory of the records whose nodes a retry
 // of a step with nodes keeps: the records the step's last attempt wrote, or,
-// when it wrote none, the records that attempt kept.
+// when it wrote none, the records that attempt kept. A step a seeded run
+// carried over from another run holds that run's log paths, whose records
+// name that run's child runs, so it keeps none of them.
 func nodeRunsToRetry(step ir.Step, state NodeState) string {
 	if step.Nodes == nil {
 		return ""
 	}
-	if state.Stdout != "" {
+	if state.Stdout != "" && !state.SkippedByRetry {
 		dir := logpath.NodeRunsDir(filepath.Dir(state.Stdout), step.Name)
 		if fileutil.FileExists(filepath.Join(dir, logpath.NodeRunsFile)) {
 			return dir
