@@ -10,6 +10,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/secret"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 )
 
 type Resolver struct {
@@ -184,6 +185,15 @@ func (r *Resolver) resolve(ctx context.Context, p *Profile) (*Resolved, error) {
 		case EntryKindSecret:
 			if r.secretStore == nil {
 				return nil, fmt.Errorf("secret store is not configured")
+			}
+			sec, err := r.secretStore.GetByID(ctx, entry.SecretID)
+			if err != nil {
+				return nil, fmt.Errorf("resolve profile secret %s: %w", entry.Key, err)
+			}
+			// A profile binds a secret by ID, so the resolver's ref check
+			// does not cover it.
+			if secretref.IsReserved(sec.Ref) {
+				return nil, fmt.Errorf("resolve profile secret %s: %w: %q", entry.Key, secret.ErrReservedRef, sec.Ref)
 			}
 			value, _, err := r.secretStore.ResolveValue(ctx, entry.SecretID)
 			if err != nil {

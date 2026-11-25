@@ -65,7 +65,8 @@ Omitting `with.command` fails validation with a diagnostic naming that field.
 A credential object with an unknown field, with both `secret` and `file`, with
 a `secret` that does not match the ref grammar, or with `${...}` in `secret`
 fails validation with a diagnostic naming the field, such as
-`steps.deploy.with.key.secret`.
+`steps.deploy.with.key.secret`. So does a `secret` that an auth method uses and
+that starts with `ai/`, the prefix Spec 069 reserves.
 
 A ref that fails to resolve fails the run before any step runs, with an error
 naming the field and the ref. A key read from a secret that is not a private
