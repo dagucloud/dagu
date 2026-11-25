@@ -37,6 +37,7 @@ import type {
 import { RunActionsCluster } from '../RunActionsCluster';
 import { RunStartProvider } from '../RunStartContext';
 import { RunSplitButton } from '../RunSplitButton';
+import type { StartRequest } from '@/features/dags/components/dag-execution/startRequest';
 
 const h = vi.hoisted(() => ({
   runDags: true,
@@ -76,14 +77,20 @@ vi.mock('@/features/dags/components/dag-execution/RunProgressStack', () => ({
 vi.mock('@/features/dags/components/dag-execution/StartDAGModal', () => ({
   default: (p: {
     visible: boolean;
-    onSubmit(params: string, id?: string, immediate?: boolean): Promise<void>;
+    onSubmit(request: StartRequest): Promise<void>;
   }) =>
     p.visible ? (
       <div data-testid="start-modal">
-        <button type="button" onClick={() => void p.onSubmit('', '', true)}>
+        <button
+          type="button"
+          onClick={() => void p.onSubmit({ params: '', immediate: true })}
+        >
           Submit start
         </button>
-        <button type="button" onClick={() => void p.onSubmit('', '', false)}>
+        <button
+          type="button"
+          onClick={() => void p.onSubmit({ params: '', immediate: false })}
+        >
           Submit enqueue
         </button>
       </div>

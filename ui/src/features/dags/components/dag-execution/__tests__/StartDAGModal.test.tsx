@@ -16,6 +16,8 @@ import StartDAGModal from '../StartDAGModal';
 
 const renderedFormProps = vi.fn();
 const useIsAdminMock = vi.hoisted(() => vi.fn(() => true));
+const useQueryMock = vi.hoisted(() => vi.fn());
+vi.mock('@/hooks/api', () => ({ useQuery: useQueryMock }));
 
 const previewBlock = vi.hoisted(() => ({
   reason: null as string | null,
@@ -96,6 +98,76 @@ beforeEach(() => {
 });
 
 describe('StartDAGModal', () => {
+  // A node: required DAG runs bound to one node, which the dialog asks for.
+  describe('node: required', () => {
+    const renderModal = (
+      dag: Record<string, unknown>,
+      onSubmit = vi.fn().mockResolvedValue(undefined)
+    ) => {
+      render(
+        <StartDAGModal
+          visible
+          dag={dag as never}
+          dismissModal={vi.fn()}
+          onSubmit={onSubmit}
+        />
+      );
+      return onSubmit;
+    };
+
+    beforeEach(() => {
+      useQueryMock.mockReturnValue({
+        data: {
+          nodes: [
+            { name: 'web01', disabled: false },
+            { name: 'web02', disabled: true },
+            { name: 'web03', disabled: false },
+          ],
+        },
+      });
+    });
+
+    it('asks no other DAG for a node', () => {
+      renderModal({ name: 'deploy' });
+
+      expect(screen.queryByRole('combobox', { name: 'Node' })).toBeNull();
+      expect(useQueryMock).not.toHaveBeenCalled();
+    });
+
+    // A disabled node fails a bound run, so it is not offered.
+    it('starts on the chosen enabled node', async () => {
+      const user = userEvent.setup();
+      const onSubmit = renderModal({ name: 'deploy-one', nodeRequired: true });
+
+      await user.click(screen.getByRole('combobox', { name: 'Node' }));
+      expect(
+        screen.getAllByRole('option').map((option) => option.textContent)
+      ).toEqual(['web01', 'web03']);
+      await user.click(screen.getByRole('option', { name: 'web03' }));
+      await user.click(screen.getByRole('button', { name: 'Enqueue' }));
+
+      await waitFor(() =>
+        expect(onSubmit).toHaveBeenCalledWith({
+          params: '',
+          immediate: false,
+          targetNodes: ['web03'],
+        })
+      );
+    });
+
+    it('holds the start until a node is named', async () => {
+      const user = userEvent.setup();
+      const onSubmit = renderModal({ name: 'deploy-one', nodeRequired: true });
+
+      await user.click(screen.getByRole('button', { name: 'Enqueue' }));
+
+      expect(
+        screen.getByText('Choose the node to run on.')
+      ).toBeInTheDocument();
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+  });
+
   // The dialog previews the dates of a DAG that declares them, and holds the
   // start while they cannot resolve.
   describe('dates preview', () => {
@@ -397,11 +469,10 @@ describe('StartDAGModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith(
-        '{"region":"us-west-2","count":5}',
-        undefined,
-        false
-      )
+      expect(onSubmit).toHaveBeenCalledWith({
+        params: '{"region":"us-west-2","count":5}',
+        immediate: false,
+      })
     );
   });
 
@@ -591,11 +662,10 @@ describe('StartDAGModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith(
-        '[{"region":"us-west-2"},{"count":"5"}]',
-        undefined,
-        false
-      )
+      expect(onSubmit).toHaveBeenCalledWith({
+        params: '[{"region":"us-west-2"},{"count":"5"}]',
+        immediate: false,
+      })
     );
   });
 
@@ -634,11 +704,10 @@ describe('StartDAGModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith(
-        '[{"region":"us"}]',
-        undefined,
-        false
-      )
+      expect(onSubmit).toHaveBeenCalledWith({
+        params: '[{"region":"us"}]',
+        immediate: false,
+      })
     );
   });
 
@@ -696,7 +765,10 @@ describe('StartDAGModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith('{"region":"us"}', undefined, false)
+      expect(onSubmit).toHaveBeenCalledWith({
+        params: '{"region":"us"}',
+        immediate: false,
+      })
     );
   });
 
@@ -763,7 +835,11 @@ describe('StartDAGModal', () => {
     await user.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith('', undefined, false, 'prod')
+      expect(onSubmit).toHaveBeenCalledWith({
+        params: '',
+        immediate: false,
+        profile: 'prod',
+      })
     );
   });
 
@@ -784,13 +860,16 @@ describe('StartDAGModal', () => {
     expect(screen.getByRole('checkbox', { name: 'Enqueue' })).toBeChecked();
     await user.click(screen.getByRole('button', { name: 'Enqueue' }));
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenLastCalledWith('', undefined, false)
+      expect(onSubmit).toHaveBeenLastCalledWith({
+        params: '',
+        immediate: false,
+      })
     );
 
     await user.click(screen.getByRole('checkbox', { name: 'Enqueue' }));
     await user.click(screen.getByRole('button', { name: 'Start' }));
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenLastCalledWith('', undefined, true)
+      expect(onSubmit).toHaveBeenLastCalledWith({ params: '', immediate: true })
     );
   });
 
@@ -815,7 +894,7 @@ describe('StartDAGModal', () => {
     await user.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith('', undefined, false)
+      expect(onSubmit).toHaveBeenCalledWith({ params: '', immediate: false })
     );
   });
 
@@ -838,7 +917,11 @@ describe('StartDAGModal', () => {
     await user.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith('', undefined, false, '')
+      expect(onSubmit).toHaveBeenCalledWith({
+        params: '',
+        immediate: false,
+        profile: '',
+      })
     );
   });
 
@@ -873,14 +956,11 @@ describe('StartDAGModal', () => {
       await user.click(screen.getByRole('button', { name: 'Enqueue' }));
 
       await waitFor(() =>
-        expect(onSubmit).toHaveBeenCalledWith(
-          '',
-          undefined,
-          false,
-          undefined,
-          undefined,
-          '2026-11-10T02:00:00+09:00'
-        )
+        expect(onSubmit).toHaveBeenCalledWith({
+          params: '',
+          immediate: false,
+          scheduleTime: '2026-11-10T02:00:00+09:00',
+        })
       );
     });
 
@@ -915,14 +995,11 @@ describe('StartDAGModal', () => {
       );
       await user.click(screen.getByRole('button', { name: 'Enqueue' }));
       await waitFor(() =>
-        expect(onSubmit).toHaveBeenCalledWith(
-          '',
-          undefined,
-          false,
-          undefined,
-          undefined,
-          'latest'
-        )
+        expect(onSubmit).toHaveBeenCalledWith({
+          params: '',
+          immediate: false,
+          scheduleTime: 'latest',
+        })
       );
     });
 
@@ -997,13 +1074,11 @@ describe('StartDAGModal', () => {
     await user.click(screen.getByRole('button', { name: 'Enqueue' }));
 
     await waitFor(() =>
-      expect(onSubmit).toHaveBeenCalledWith(
-        '',
-        undefined,
-        false,
-        undefined,
-        true
-      )
+      expect(onSubmit).toHaveBeenCalledWith({
+        params: '',
+        immediate: false,
+        noReuse: true,
+      })
     );
   });
 });

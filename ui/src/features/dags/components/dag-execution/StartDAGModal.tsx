@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { AutocompleteInput } from '@/components/ui/autocomplete-input';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -16,6 +17,8 @@ import {
 } from '@/components/ui/select';
 import { useIsAdmin } from '@/contexts/AuthContext';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
+import { useQuery } from '@/hooks/api';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
   Dialog,
   DialogContent,
@@ -37,6 +40,7 @@ import React from 'react';
 import { components, RuntimeProfileStatus } from '../../../../api/v1/schema';
 import { DAGParamsFields, useDAGParamsForm } from './DAGParamsForm';
 import { SlotDatesPreview } from './SlotDatesPreview';
+import type { StartRequest } from './startRequest';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 
@@ -54,14 +58,7 @@ type Props = {
   loading?: boolean;
   loadError?: string | null;
   dismissModal: () => void;
-  onSubmit: (
-    params: string,
-    dagRunId?: string,
-    immediate?: boolean,
-    profile?: string,
-    noReuse?: boolean,
-    scheduleTime?: string
-  ) => Promise<void> | void;
+  onSubmit: (request: StartRequest) => Promise<void> | void;
   action?: 'start' | 'enqueue';
   profiles?: components['schemas']['RuntimeProfileResponse'][];
   profilesLoading?: boolean;
@@ -73,6 +70,10 @@ const DAG_DEFAULT_PROFILE_VALUE = '__dag_default__';
 const NO_PROFILE_VALUE = '__none__';
 const NO_SLOT_VALUE = '__no_slot__';
 const OTHER_SLOT_VALUE = '__other_slot__';
+// The nodes the Node field suggests at a time.
+const NODE_SUGGESTION_COUNT = 20;
+// How long the Node field waits after a keystroke before it reads nodes.
+const NODE_SEARCH_DELAY_MS = 250;
 
 type RecentFire = components['schemas']['RecentFire'];
 
@@ -93,6 +94,69 @@ function profileOverrideForSelection(
     return hasDefaultProfile ? '' : undefined;
   }
   return selection;
+}
+
+/**
+ * The node a node: required DAG runs bound to (RFC 013 §Narrowing a run).
+ * With `suggest`, it suggests the enabled nodes of this server's inventory
+ * whose names contain the typed text; the server checks the name the run
+ * starts with.
+ */
+function BoundNodeField({
+  value,
+  onValueChange,
+  onEnterPress,
+  disabled,
+  suggest,
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+  onEnterPress: () => void;
+  disabled: boolean;
+  suggest: boolean;
+}) {
+  const name = useDebouncedValue(value.trim(), NODE_SEARCH_DELAY_MS);
+  const { data } = useQuery(
+    '/nodes',
+    suggest
+      ? {
+          params: {
+            query: { name: name || undefined, perPage: NODE_SUGGESTION_COUNT },
+          },
+        }
+      : null
+  );
+  // A disabled node fails a bound run, so it is not suggested.
+  const suggestions = React.useMemo(
+    () =>
+      (data?.nodes ?? [])
+        .filter((node) => !node.disabled)
+        .map((node) => node.name),
+    [data]
+  );
+  return (
+    <div className="space-y-1.5 sm:col-span-full sm:max-w-sm">
+      <Label htmlFor="bound-node">
+        <I18nText text={'Node'} />
+      </Label>
+      <I18nProps>
+        <AutocompleteInput
+          id="bound-node"
+          aria-label="Node"
+          placeholder="Search by name..."
+          value={value}
+          onValueChange={onValueChange}
+          onEnterPress={onEnterPress}
+          suggestions={suggestions}
+          disabled={disabled}
+          className="h-7 px-2"
+        />
+      </I18nProps>
+      <p className="text-xs text-muted-foreground">
+        <I18nText text={'This workflow runs bound to one node.'} />
+      </p>
+    </div>
+  );
 }
 
 function StartDAGModal({
@@ -125,6 +189,9 @@ function StartDAGModal({
   const [noReuse, setNoReuse] = React.useState(false);
   const [slotSelection, setSlotSelection] = React.useState(NO_SLOT_VALUE);
   const [customSlot, setCustomSlot] = React.useState('');
+  // The node a node: required DAG runs bound to.
+  const [boundNode, setBoundNode] = React.useState('');
+  const nodeRequired = dagDetails?.nodeRequired ?? false;
   const remoteNode = useRemoteNode();
   // The preview is read only for a DAG that declares dates.
   const showDatesPreview =
@@ -233,6 +300,7 @@ function StartDAGModal({
     setNoReuse(false);
     setSlotSelection(NO_SLOT_VALUE);
     setCustomSlot('');
+    setBoundNode('');
   }, [defaultProfile, visible]);
 
   const cancelButtonRef = React.useRef<HTMLButtonElement>(null);
@@ -259,40 +327,27 @@ function StartDAGModal({
       scheduleTime = slotSelection;
     }
 
+    const node = boundNode.trim();
+    if (nodeRequired && !node) {
+      setSubmitError('Choose the node to run on.');
+      return;
+    }
+
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const profileOverride = profileOverrideForSelection(
-        profileSelection,
-        hasDefaultProfile
-      );
-      if (scheduleTime) {
-        await onSubmit(
-          paramsPayload,
-          dagRunId || undefined,
-          !enqueue,
-          profileOverride,
-          isBuild ? noReuse : undefined,
-          scheduleTime
-        );
-      } else if (isBuild) {
-        await onSubmit(
-          paramsPayload,
-          dagRunId || undefined,
-          !enqueue,
-          profileOverride,
-          noReuse
-        );
-      } else if (profileOverride === undefined) {
-        await onSubmit(paramsPayload, dagRunId || undefined, !enqueue);
-      } else {
-        await onSubmit(
-          paramsPayload,
-          dagRunId || undefined,
-          !enqueue,
-          profileOverride
-        );
-      }
+      await onSubmit({
+        params: paramsPayload,
+        dagRunId: dagRunId || undefined,
+        immediate: !enqueue,
+        profile: profileOverrideForSelection(
+          profileSelection,
+          hasDefaultProfile
+        ),
+        noReuse: isBuild ? noReuse : undefined,
+        scheduleTime,
+        targetNodes: nodeRequired ? [node] : undefined,
+      });
       dismissModal();
     } catch (error) {
       setSubmitError(
@@ -302,6 +357,7 @@ function StartDAGModal({
       setSubmitting(false);
     }
   }, [
+    boundNode,
     customSlot,
     dag,
     dagRunId,
@@ -312,6 +368,7 @@ function StartDAGModal({
     loading,
     isBuild,
     noReuse,
+    nodeRequired,
     onSubmit,
     paramsForm,
     submitting,
@@ -322,7 +379,9 @@ function StartDAGModal({
 
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!visible || event.isComposing) {
+      // A field that handles Enter itself, such as choosing a suggestion,
+      // prevents its default.
+      if (!visible || event.isComposing || event.defaultPrevented) {
         return;
       }
 
@@ -438,6 +497,16 @@ function StartDAGModal({
                     </Label>
                   </div>
                 </div>
+              )}
+
+              {nodeRequired && (
+                <BoundNodeField
+                  value={boundNode}
+                  onValueChange={setBoundNode}
+                  onEnterPress={() => void handleSubmit()}
+                  disabled={loading || submitting}
+                  suggest={visible && remoteNode === 'local'}
+                />
               )}
 
               <div className="space-y-1.5">
