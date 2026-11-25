@@ -56,60 +56,56 @@ func CheckOutputSources(dag *ir.DAG, outputs map[string]map[string]string, sourc
 // step carries, in place of the main source run. Steps are given by name or ID.
 type RunStepSources map[string]*ir.DAGRunStatus
 
-// RunStepSourceError reports a run named for a step that cannot be read. Its
-// message names the step and the run.
-type RunStepSourceError struct {
-	Message string
-}
-
-func (e *RunStepSourceError) Error() string { return e.Message }
-
 // RunDefinitions holds, by run ID, the definition that a run ran.
 type RunDefinitions map[string]*ir.DAG
 
 // LoadRunStepSources reads the run that each step of refs carries its outputs
 // from, and the definition that each run ran. refs maps a step name or ID to a
 // run ID. A run that does not exist for the DAG (it was removed, or it belongs
-// to another DAG) gives a *RunStepSourceError that names the step and the run.
-// A run ID that refs repeats is read once. check, when set, accepts or rejects
-// each run read; its error is returned as it is.
-func LoadRunStepSources(ctx context.Context, repo *persis.DAGRunRepository, dagName string, refs map[string]string, check func(*ir.DAGRunStatus) error) (RunStepSources, RunDefinitions, error) {
+// to another DAG) is not read: its entries come back unavailable, each naming
+// its step as refs does. A definition that cannot be read is left out. A run
+// ID that refs repeats is read once. check, when set, accepts or rejects each
+// run read; its error is returned as it is.
+func LoadRunStepSources(ctx context.Context, repo *persis.DAGRunRepository, dagName string, refs map[string]string, check func(*ir.DAGRunStatus) error) (RunStepSources, RunDefinitions, []CarriedStep, error) {
 	if len(refs) == 0 {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	runs := make(map[string]*ir.DAGRunStatus)
+	missing := make(map[string]bool)
 	definitions := make(RunDefinitions)
 	result := make(RunStepSources, len(refs))
+	var unavailable []CarriedStep
 	for _, step := range slices.Sorted(maps.Keys(refs)) {
 		runID := refs[step]
 		run, ok := runs[runID]
-		if !ok {
+		if !ok && !missing[runID] {
 			attempt, err := repo.FindAttempt(ctx, ir.NewDAGRunRef(dagName, runID))
 			if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
-				return nil, nil, &RunStepSourceError{Message: fmt.Sprintf("step %s cannot be reused from run %s: the run does not exist for DAG %s", step, runID, dagName)}
-			}
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to find dag-run %s: %w", runID, err)
-			}
-			run, err = attempt.ReadStatus(ctx)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to read status for dag-run %s: %w", runID, err)
-			}
-			if check != nil {
-				if err := check(run); err != nil {
-					return nil, nil, err
+				missing[runID] = true
+			} else if err != nil {
+				return nil, nil, nil, fmt.Errorf("failed to find dag-run %s: %w", runID, err)
+			} else {
+				if run, err = attempt.ReadStatus(ctx); err != nil {
+					return nil, nil, nil, fmt.Errorf("failed to read status for dag-run %s: %w", runID, err)
 				}
+				if check != nil {
+					if err := check(run); err != nil {
+						return nil, nil, nil, err
+					}
+				}
+				if definition, err := attempt.ReadDAG(ctx); err == nil {
+					definitions[runID] = definition
+				}
+				runs[runID] = run
 			}
-			definition, err := attempt.ReadDAG(ctx)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to read the definition of dag-run %s: %w", runID, err)
-			}
-			runs[runID] = run
-			definitions[runID] = definition
+		}
+		if missing[runID] {
+			unavailable = append(unavailable, CarriedStep{Ref: step, DAGRunID: runID, Unavailable: fmt.Sprintf("the run does not exist for DAG %s", dagName)})
+			continue
 		}
 		result[step] = run
 	}
-	return result, definitions, nil
+	return result, definitions, unavailable, nil
 }
 
 // CheckRunStepSources makes sure that every step of fromRuns exists, is not
@@ -117,39 +113,84 @@ func LoadRunStepSources(ctx context.Context, repo *persis.DAGRunRepository, dagN
 // node for the step succeeded, or carries outputs of an earlier run or of the
 // caller. The error names the step and the run.
 func CheckRunStepSources(dag *ir.DAG, steps []string, fromRuns RunStepSources) error {
+	selected, err := selectedStepNames(dag, steps)
+	if err != nil {
+		return err
+	}
+	if err := checkRunStepRefs(dag, selected, slices.Sorted(maps.Keys(fromRuns))); err != nil {
+		return err
+	}
+	_, unavailable, err := usableRunStepSources(dag, fromRuns)
+	if err != nil {
+		return err
+	}
+	if len(unavailable) > 0 {
+		return errors.New(unavailable[0].Message())
+	}
+	return nil
+}
+
+// selectedStepNames returns the names of the steps, each given by name or ID.
+func selectedStepNames(dag *ir.DAG, steps []string) (map[string]struct{}, error) {
 	selected := make(map[string]struct{}, len(steps))
 	for _, ref := range steps {
 		name, err := resolveStepName(dag, ref)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		selected[name] = struct{}{}
 	}
-	named, err := stepRefsByName(dag, slices.Sorted(maps.Keys(fromRuns)), true)
+	return selected, nil
+}
+
+// checkRunStepRefs makes sure that each ref of outputsFromRuns names a step
+// that is not selected to run, and that no two refs name one step.
+func checkRunStepRefs(dag *ir.DAG, selected map[string]struct{}, refs []string) error {
+	named, err := stepRefsByName(dag, refs, true)
 	if err != nil {
 		return fmt.Errorf("outputsFromRuns: %w", err)
 	}
 	for _, name := range slices.Sorted(maps.Keys(named)) {
-		ref := named[name]
-		run := fromRuns[ref]
 		if _, ok := selected[name]; ok {
-			return fmt.Errorf("outputsFromRuns names step %q, which is selected to run", ref)
-		}
-		if run == nil {
-			return fmt.Errorf("step %s cannot be reused from run: no run is given", ref)
-		}
-		if run.Status.IsActive() || run.Status == ir.NotStarted {
-			return fmt.Errorf("step %s cannot be reused from run %s: the run is %s, not finished", ref, run.DAGRunID, run.Status)
-		}
-		index := slices.IndexFunc(run.Nodes, func(node *ir.Node) bool { return node != nil && node.Step.Name == name })
-		switch {
-		case index < 0:
-			return fmt.Errorf("step %s cannot be reused from run %s: the run has no such step", ref, run.DAGRunID)
-		case !carriesOutputs(run.Nodes[index]):
-			return fmt.Errorf("step %s cannot be reused from run %s: the step did not succeed there", ref, run.DAGRunID)
+			return fmt.Errorf("outputsFromRuns names step %q, which is selected to run", named[name])
 		}
 	}
 	return nil
+}
+
+// usableRunStepSources splits fromRuns into the entries whose run can give
+// the step and those it cannot: the run is not finished, has no node for the
+// step, or the step did not succeed there and carried nothing. The refs are
+// checked already.
+func usableRunStepSources(dag *ir.DAG, fromRuns RunStepSources) (RunStepSources, []CarriedStep, error) {
+	usable := make(RunStepSources, len(fromRuns))
+	var unavailable []CarriedStep
+	for _, ref := range slices.Sorted(maps.Keys(fromRuns)) {
+		run := fromRuns[ref]
+		name, err := resolveStepName(dag, ref)
+		if err != nil {
+			return nil, nil, err
+		}
+		if run == nil {
+			return nil, nil, fmt.Errorf("step %s cannot be reused from run: no run is given", ref)
+		}
+		reason := ""
+		index := slices.IndexFunc(run.Nodes, func(node *ir.Node) bool { return node != nil && node.Step.Name == name })
+		switch {
+		case run.Status.IsActive() || run.Status == ir.NotStarted:
+			reason = fmt.Sprintf("the run is %s, not finished", run.Status)
+		case index < 0:
+			reason = "the run has no such step"
+		case !carriesOutputs(run.Nodes[index]):
+			reason = "the step did not succeed there"
+		}
+		if reason != "" {
+			unavailable = append(unavailable, CarriedStep{Step: name, Ref: ref, DAGRunID: run.DAGRunID, Unavailable: reason})
+			continue
+		}
+		usable[ref] = run
+	}
+	return usable, unavailable, nil
 }
 
 // carriesOutputs reports whether a node can give its outputs to another run. A

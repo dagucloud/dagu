@@ -111,8 +111,8 @@ func TestStepsToRun(t *testing.T) {
 }
 
 // A step carried from a run must be as StepsToRun would reuse it, and the
-// error names each kind of change.
-func TestCheckRunStepsUnchanged(t *testing.T) {
+// refusal names each kind of change.
+func TestPlanSelectedStepsChanges(t *testing.T) {
 	t.Parallel()
 
 	const refused = "step filter cannot be reused from run earlier: "
@@ -147,14 +147,11 @@ func TestCheckRunStepsUnchanged(t *testing.T) {
 			if tc.params != nil {
 				dag.Params = tc.params
 			}
-			err := intake.CheckRunStepsUnchanged(dag, tc.profile,
-				intake.RunStepSources{"filter": succeededRun(earlier)},
-				intake.RunDefinitions{"earlier": earlier})
-			if tc.wantErr == "" {
-				require.NoError(t, err)
-				return
-			}
-			require.EqualError(t, err, tc.wantErr)
+			require.Equal(t, tc.wantErr, refusal(t, dag, tc.profile, intake.StepSelection{
+				Steps:       []string{"report"},
+				FromRuns:    intake.RunStepSources{"filter": succeededRun(earlier)},
+				Definitions: intake.RunDefinitions{"earlier": earlier},
+			}))
 		})
 	}
 }
@@ -162,7 +159,7 @@ func TestCheckRunStepsUnchanged(t *testing.T) {
 // A run keeps the base config as its snapshot writes it again: without
 // comments, with SMTP taken out, and with an env mapping as a list. Only a
 // change of a value other than SMTP and the handlers after the steps counts.
-func TestCheckRunStepsUnchangedBaseConfig(t *testing.T) {
+func TestPlanSelectedStepsBaseConfig(t *testing.T) {
 	t.Parallel()
 
 	const ran = "# Base config\ntype: graph # model\nmax_active_steps: 10\nenv:\n  REGION: eu\nsmtp:\n  host: mail.example.com\n"
@@ -185,31 +182,41 @@ func TestCheckRunStepsUnchangedBaseConfig(t *testing.T) {
 			require.NoError(t, err)
 			dag := loadReuseDAG(t, reuseSpec)
 			dag.BaseConfigData = []byte(tc.base)
-			err = intake.CheckRunStepsUnchanged(dag, "",
-				intake.RunStepSources{"filter": succeededRun(snapshot)},
-				intake.RunDefinitions{"earlier": snapshot})
-			if tc.wantErr == "" {
-				require.NoError(t, err)
-				return
-			}
-			require.EqualError(t, err, tc.wantErr)
+			require.Equal(t, tc.wantErr, refusal(t, dag, "", intake.StepSelection{
+				Steps:       []string{"report"},
+				FromRuns:    intake.RunStepSources{"filter": succeededRun(snapshot)},
+				Definitions: intake.RunDefinitions{"earlier": snapshot},
+			}))
 		})
 	}
 }
 
-// One error names every changed step, so that a client can drop all of its
-// stale entries after one refusal.
-func TestCheckRunStepsUnchangedNamesEach(t *testing.T) {
+// One refusal names every changed step.
+func TestPlanSelectedStepsNamesEach(t *testing.T) {
 	t.Parallel()
 
 	earlier := loadReuseDAG(t, reuseSpec)
 	run := succeededRun(earlier)
 	dag := loadReuseDAG(t, strings.Replace(reuseSpec, "echo rows", "echo all rows", 1))
-	err := intake.CheckRunStepsUnchanged(dag, "",
-		intake.RunStepSources{"page": run, "filter": run, "notes": run},
-		intake.RunDefinitions{"earlier": earlier})
-	require.EqualError(t, err, "step filter cannot be reused from run earlier: a step it depends on changed since that run; "+
-		"step page cannot be reused from run earlier: the step changed since that run")
+	require.Equal(t, "step filter cannot be reused from run earlier: a step it depends on changed since that run; "+
+		"step page cannot be reused from run earlier: the step changed since that run",
+		refusal(t, dag, "", intake.StepSelection{
+			Steps:       []string{"report"},
+			FromRuns:    intake.RunStepSources{"page": run, "filter": run, "notes": run},
+			Definitions: intake.RunDefinitions{"earlier": earlier},
+		}))
+}
+
+// refusal plans a run of sel and returns why it refuses its carried steps,
+// empty when it takes all of them.
+func refusal(t *testing.T, dag *ir.DAG, profile string, sel intake.StepSelection) string {
+	t.Helper()
+	plan, err := intake.PlanSelectedSteps(dag, profile, sel)
+	require.NoError(t, err)
+	if refused := plan.Refusal(); refused != nil {
+		return refused.Error()
+	}
+	return ""
 }
 
 // A step that the earlier run skipped by retry is reused when the caller

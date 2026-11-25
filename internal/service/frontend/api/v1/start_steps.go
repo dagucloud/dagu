@@ -53,6 +53,9 @@ type stepSelection struct {
 	// ephemeral runs leave no trace: the run is stored apart from the history,
 	// listed nowhere, and removed shortly after it ends.
 	ephemeral bool
+	// allowChanged names, by step, the carried steps that the request
+	// consents to reuse although they changed since their run.
+	allowChanged []string
 }
 
 // selectedStepsFromBody validates the step selection fields of a start
@@ -142,22 +145,66 @@ func outputSourcesFromBody(body map[string]api.ReusedOutputSource) (map[string]i
 }
 
 // startSelectedSteps starts a new run of dag in which only the selected steps
-// execute; every other step is recorded as skipped.
+// execute; every other step is recorded as skipped. A carried step that
+// changed since its run is refused unless the request consents to it.
 func (a *API) startSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedStepsStart) error {
+	planned, err := a.planSelectedSteps(ctx, dag, req)
+	if err != nil {
+		return err
+	}
+	if refused := planned.plan.Refusal(); refused != nil {
+		return badSelectedStepsRequest(refused.Error())
+	}
+	skipHandlers, err := intake.SelectionSkipsHandlers(planned.dag, planned.selection.steps)
+	if err != nil {
+		return badSelectedStepsRequest(err.Error())
+	}
+
+	_, err = a.launchSeededDAGRun(ctx, seededRun{
+		dag:          planned.dag,
+		dagRunID:     req.dagRunID,
+		nodes:        planned.plan.Nodes,
+		reused:       planned.plan.Reused,
+		skipHandlers: skipHandlers,
+		source:       planned.source,
+		params:       req.params,
+		profileName:  req.profileName,
+		labels:       req.labels,
+		noReuse:      req.noReuse,
+		ephemeral:    planned.selection.ephemeral,
+		triggerType:  ir.TriggerTypeManual,
+		slot:         req.slot,
+	})
+	return err
+}
+
+// selectedStepsPlan is a run of selected steps as a request asks for it,
+// before it starts.
+type selectedStepsPlan struct {
+	// dag has the run's parameters resolved.
+	dag       *ir.DAG
+	selection stepSelection
+	source    *ir.DAGRunStatus
+	plan      *intake.SelectedStepsPlan
+}
+
+// planSelectedSteps resolves the parameters of the run, reads the runs that
+// its skipped steps carry outputs from, and plans the run.
+func (a *API) planSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedStepsStart) (*selectedStepsPlan, error) {
 	dag, err := spec.ResolveRuntimeParams(ctx, dag, req.params, spec.ResolveRuntimeParamsOptions{
 		BaseConfig: a.config.Paths.BaseConfig,
 	})
 	if err != nil {
-		return badSelectedStepsRequest(err.Error())
+		return nil, badSelectedStepsRequest(err.Error())
 	}
 	if err := buildErrorsToAPIError(dag.BuildErrors); err != nil {
-		return err
+		return nil, err
 	}
 	if err := spec.ValidateStartParams(dag.DefaultParams, spec.StartParamInput{RawParams: req.params}); err != nil {
-		return badSelectedStepsRequest(err.Error())
+		return nil, badSelectedStepsRequest(err.Error())
 	}
 	if err := reapplyWorkerSelector(dag, req.workerSelector); err != nil {
-		return err
+		return nil, err
 	}
 	if req.inline {
 		// The run executes from its stored snapshot, not the temporary spec file.
@@ -171,56 +218,45 @@ func (a *API) startSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedS
 		dag.Labels = append(dag.Labels, ir.NewLabels(strings.Split(req.labels, ","))...)
 	}
 
-	var source *ir.DAGRunStatus
-	if req.selection.outputsFrom != "" {
-		source, err = a.selectedStepsSource(ctx, dag.Name, req.selection.outputsFrom)
-		if err != nil {
-			return err
+	selection := req.selection
+	var (
+		source    *ir.DAGRunStatus
+		sourceDAG *ir.DAG
+	)
+	if selection.outputsFrom != "" {
+		if source, sourceDAG, err = a.reuseSource(ctx, dag.Name, selection.outputsFrom); err != nil {
+			return nil, err
 		}
 	}
-	fromRuns, definitions, err := a.selectedStepsFromRuns(ctx, dag.Name, req.selection.outputsFromRuns)
+	fromRuns, definitions, unavailable, err := a.selectedStepsFromRuns(ctx, dag.Name, selection.outputsFromRuns)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if req.selection.reuseFrom != "" {
-		plan, err := a.reuseUnchangedSteps(ctx, dag, req.profileName, req.selection)
+	if selection.reuseFrom != "" {
+		reuse, err := a.reuseUnchangedSteps(ctx, dag, req.profileName, selection)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		req.selection, source, fromRuns, definitions = plan.selection, plan.source, plan.fromRuns, plan.definitions
+		selection, source, sourceDAG, fromRuns, definitions = reuse.selection, reuse.source, reuse.sourceDAG, reuse.fromRuns, reuse.definitions
 	}
-	if err := intake.CheckOutputSources(dag, req.selection.outputs, req.selection.outputsSources); err != nil {
-		return badSelectedStepsRequest(err.Error())
+	if err := intake.CheckOutputSources(dag, selection.outputs, selection.outputsSources); err != nil {
+		return nil, badSelectedStepsRequest(err.Error())
 	}
-	nodes, reused, err := intake.SelectedStepNodes(dag, req.selection.steps, source, fromRuns, req.selection.outputs, req.selection.outputsSources)
-	if err != nil {
-		return badSelectedStepsRequest(err.Error())
-	}
-	if err := intake.CheckRunStepsUnchanged(dag, req.profileName, fromRuns, definitions); err != nil {
-		return badSelectedStepsRequest(err.Error())
-	}
-
-	skipHandlers, err := intake.SelectionSkipsHandlers(dag, req.selection.steps)
-	if err != nil {
-		return badSelectedStepsRequest(err.Error())
-	}
-
-	_, err = a.launchSeededDAGRun(ctx, seededRun{
-		dag:          dag,
-		dagRunID:     req.dagRunID,
-		nodes:        nodes,
-		reused:       reused,
-		skipHandlers: skipHandlers,
-		source:       source,
-		params:       req.params,
-		profileName:  req.profileName,
-		labels:       req.labels,
-		noReuse:      req.noReuse,
-		ephemeral:    req.selection.ephemeral,
-		triggerType:  ir.TriggerTypeManual,
-		slot:         req.slot,
+	plan, err := intake.PlanSelectedSteps(dag, req.profileName, intake.StepSelection{
+		Steps:            selection.steps,
+		Source:           source,
+		SourceDefinition: sourceDAG,
+		FromRuns:         fromRuns,
+		Definitions:      definitions,
+		Unavailable:      unavailable,
+		Outputs:          selection.outputs,
+		Sources:          selection.outputsSources,
+		AllowChanged:     selection.allowChanged,
 	})
-	return err
+	if err != nil {
+		return nil, badSelectedStepsRequest(err.Error())
+	}
+	return &selectedStepsPlan{dag: dag, selection: selection, source: source, plan: plan}, nil
 }
 
 // reusePlan is what a run reusing an earlier one runs, and the run, with
@@ -228,6 +264,7 @@ func (a *API) startSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedS
 type reusePlan struct {
 	selection   stepSelection
 	source      *ir.DAGRunStatus
+	sourceDAG   *ir.DAG
 	fromRuns    intake.RunStepSources
 	definitions intake.RunDefinitions
 }
@@ -264,64 +301,48 @@ func (a *API) reuseUnchangedSteps(ctx context.Context, dag *ir.DAG, profile stri
 	return reusePlan{
 		selection:   selection,
 		source:      source,
+		sourceDAG:   sourceDAG,
 		fromRuns:    fromRuns,
 		definitions: intake.RunDefinitions{source.DAGRunID: sourceDAG},
 	}, nil
 }
 
-// reuseSource reads the run a run reuses unchanged steps from, with the
-// definition it ran.
+// reuseSource reads the run whose outputs a run of selected steps carries,
+// with the definition it ran, which is nil when it cannot be read.
 func (a *API) reuseSource(ctx context.Context, dagName, dagRunID string) (*ir.DAGRunStatus, *ir.DAG, error) {
-	status, err := a.selectedStepsSource(ctx, dagName, dagRunID)
-	if err != nil {
-		return nil, nil, err
-	}
-	attempt, err := a.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dagName, dagRunID))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to find dag-run %s: %w", dagRunID, err)
-	}
-	sourceDAG, err := attempt.ReadDAG(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read the definition of dag-run %s: %w", dagRunID, err)
-	}
-	return status, sourceDAG, nil
-}
-
-// selectedStepsSource reads the run whose outputs a selected-steps run reuses.
-func (a *API) selectedStepsSource(ctx context.Context, dagName, dagRunID string) (*ir.DAGRunStatus, error) {
 	attempt, err := a.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dagName, dagRunID))
 	if errors.Is(err, dagrun.ErrDAGRunIDNotFound) {
-		return nil, &Error{
+		return nil, nil, &Error{
 			HTTPStatus: http.StatusNotFound,
 			Code:       api.ErrorCodeNotFound,
 			Message:    fmt.Sprintf("dag-run %s not found for DAG %s", dagRunID, dagName),
 		}
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to find dag-run %s: %w", dagRunID, err)
+		return nil, nil, fmt.Errorf("failed to find dag-run %s: %w", dagRunID, err)
 	}
 	status, err := attempt.ReadStatus(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read status for dag-run %s: %w", dagRunID, err)
+		return nil, nil, fmt.Errorf("failed to read status for dag-run %s: %w", dagRunID, err)
 	}
 	if err := a.requireDAGRunStatusExecute(ctx, status); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return status, nil
+	sourceDAG, err := attempt.ReadDAG(ctx)
+	if err != nil {
+		return status, nil, nil
+	}
+	return status, sourceDAG, nil
 }
 
 // selectedStepsFromRuns reads the run that each step of outputsFromRuns carries
-// its outputs from, and the definition that each run ran. A run that does not
-// exist for the DAG (it was removed, or belongs to another DAG) is a bad
-// request that names the step and the run.
-func (a *API) selectedStepsFromRuns(ctx context.Context, dagName string, refs map[string]string) (intake.RunStepSources, intake.RunDefinitions, error) {
-	runs, definitions, err := intake.LoadRunStepSources(ctx, a.dagRunRepository, dagName, refs, func(status *ir.DAGRunStatus) error {
+// its outputs from, and the definition that each run ran. The entries whose
+// run does not exist for the DAG (it was removed, or belongs to another DAG)
+// come back unavailable.
+func (a *API) selectedStepsFromRuns(ctx context.Context, dagName string, refs map[string]string) (intake.RunStepSources, intake.RunDefinitions, []intake.CarriedStep, error) {
+	return intake.LoadRunStepSources(ctx, a.dagRunRepository, dagName, refs, func(status *ir.DAGRunStatus) error {
 		return a.requireDAGRunStatusExecute(ctx, status)
 	})
-	if sourceErr, ok := errors.AsType[*intake.RunStepSourceError](err); ok {
-		return nil, nil, badSelectedStepsRequest(sourceErr.Message)
-	}
-	return runs, definitions, err
 }
 
 // addSelectedStepsAudit records the step selection of a start request. Only

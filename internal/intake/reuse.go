@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
@@ -87,50 +86,6 @@ func StepsToRun(dag *ir.DAG, profile string, sourceDAG *ir.DAG, source *ir.DAGRu
 	return names, nil
 }
 
-// CheckRunStepsUnchanged makes sure that each step of fromRuns is as it was in
-// its run, as StepsToRun compares a step: its definition, the DAG's definition
-// other than its steps, the base config, the run's parameters and runtime
-// profile, and the steps it depends on. dag has its run's parameters resolved,
-// profile is the runtime profile of the run, and definitions holds the
-// definition that each run of fromRuns ran. The error names every changed
-// step with its run and what changed, joined by "; ".
-func CheckRunStepsUnchanged(dag *ir.DAG, profile string, fromRuns RunStepSources, definitions RunDefinitions) error {
-	if len(fromRuns) == 0 {
-		return nil
-	}
-	current, err := newFingerprint(dag, strings.Join(dag.Params, " "), profile)
-	if err != nil {
-		return err
-	}
-	earlier := make(map[string]*fingerprint, len(definitions))
-	var changed []string
-	for _, ref := range slices.Sorted(maps.Keys(fromRuns)) {
-		run := fromRuns[ref]
-		name, err := resolveStepName(dag, ref)
-		if err != nil {
-			return err
-		}
-		then, ok := earlier[run.DAGRunID]
-		if !ok {
-			definition := definitions[run.DAGRunID]
-			if definition == nil {
-				return fmt.Errorf("step %s cannot be reused from run %s: the definition of the run is not known", ref, run.DAGRunID)
-			}
-			if then, err = newFingerprint(definition, run.Params, run.ProfileName); err != nil {
-				return fmt.Errorf("step %s cannot be reused from run %s: %w", ref, run.DAGRunID, err)
-			}
-			earlier[run.DAGRunID] = then
-		}
-		if changes := current.changes(then, name); len(changes) > 0 {
-			changed = append(changed, fmt.Sprintf("step %s cannot be reused from run %s: %s", ref, run.DAGRunID, changeReason(changes)))
-		}
-	}
-	if len(changed) > 0 {
-		return errors.New(strings.Join(changed, "; "))
-	}
-	return nil
-}
-
 // changeNouns names each change that a definition can show, for a reason.
 var changeNouns = map[ir.StepChange]string{
 	ir.StepChangeStep:       "the step",
@@ -145,12 +100,19 @@ var changeNouns = map[ir.StepChange]string{
 // and the parameters changed since that run".
 func changeReason(changes []ir.StepChange) string {
 	nouns := make([]string, 0, len(changes))
+	var parts []string
 	for _, change := range changes {
 		if noun, ok := changeNouns[change]; ok {
 			nouns = append(nouns, noun)
 		}
 	}
-	return joinWords(nouns) + " changed since that run"
+	if len(nouns) > 0 {
+		parts = append(parts, joinWords(nouns)+" changed since that run")
+	}
+	if slices.Contains(changes, ir.StepChangeUnknown) {
+		parts = append(parts, "what that run ran cannot be compared")
+	}
+	return strings.Join(parts, ", and ")
 }
 
 // joinWords joins words as a list in an English sentence.

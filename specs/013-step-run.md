@@ -306,7 +306,9 @@ Shell selection order is:
 
 - The server MUST reject an entry of `outputsFromRuns` with HTTP 400 and the message `step X cannot be reused from run Y: <reason>` when one of these is true. The run does not exist for the DAG (it was removed, or it belongs to another DAG). The run is not finished. The run has no node for the step. The step did not succeed in the run and carried no outputs into it, neither from another run nor from `outputs`. A normal run and an ephemeral run that still exists can both be the source.
 
-- The server MUST also reject an entry of `outputsFromRuns`, with the same message, when the step changed since that run, as [Changed Steps](#changed-steps) defines. These reasons come after the reasons above, and the message names every entry refused for them, joined by `; `. `outputsFromRunId` is not checked this way.
+- The server MUST also refuse a carried step, with the same message, when it changed since its run, as [Changed Steps](#changed-steps) defines. A carried step is a skipped step that takes its outputs from a run: from its entry of `outputsFromRuns`, or from `outputsFromRunId` when a selected step depends on it. A step after the selected steps carries nothing and is not checked, and neither is a step of `outputs`.
+
+- The server checks every entry and every carried step before it answers. The message names each refusal, joined by `; `: first the entries whose run cannot give the step, then the changed steps, each group in the order of the steps as the request names them.
 
 - A step selected to run MUST NOT be a key of `outputsFromRuns`. An unknown step, a run ID that is not valid, or two keys that address one step is rejected with HTTP 400.
 
@@ -340,6 +342,7 @@ A step changed since a run when one of these differs between that run and the ne
 - The base config counts by its values: comments, spacing, and SMTP do not count.
 - `settings` leaves out `params`, which count as resolved. Of the handlers, only `handler_on.init` counts, since it runs before the steps; the other handlers run after them. The handlers of the base config count the same way.
 - The reason names every change in the order of the table, joined as a sentence and followed by `changed since that run`, such as `the step and the parameters changed since that run`.
+- A run that keeps no definition that can be compared gives the change `unknown`, with the reason `what that run ran cannot be compared`.
 
 #### Reusing Unchanged Steps
 

@@ -348,6 +348,9 @@ const (
 	// StepChangeSettings marks a change of the DAG's definition other than its
 	// steps.
 	StepChangeSettings StepChange = "settings"
+	// StepChangeUnknown marks a run whose definition cannot be compared, such
+	// as one that keeps no definition.
+	StepChangeUnknown StepChange = "unknown"
 )
 
 // EffectiveClaimKey returns ClaimKey, falling back to AttemptKey when no claim

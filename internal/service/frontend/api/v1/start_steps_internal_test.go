@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	gen "github.com/dagucloud/dagu/v2/api/v1"
@@ -31,7 +32,8 @@ func TestStartStepsDispatchesSeed(t *testing.T) {
 	require.NoError(t, err)
 
 	err = api.startSelectedSteps(ctx, dag, selectedStepsStart{
-		selection: stepSelection{steps: []string{"consume"}, outputsFrom: "source-run"},
+		// The edited DAG changed build, which the request consents to reuse.
+		selection: stepSelection{steps: []string{"consume"}, outputsFrom: "source-run", allowChanged: []string{"build"}},
 		dagRunID:  "only-run",
 		labels:    "team=qa",
 	})
@@ -252,29 +254,41 @@ func TestStartStepsRejectsAChangedStep(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := []struct {
-		name    string
-		dag     *ir.DAG
-		runID   string
-		wantMsg string
+		name      string
+		dag       *ir.DAG
+		selection stepSelection
+		wantMsg   string
 	}{
 		{
-			name:    "OtherParameters",
-			dag:     dag,
-			runID:   "params-run",
-			wantMsg: "step build cannot be reused from run params-run: the parameters changed since that run",
+			name:      "OtherParameters",
+			dag:       dag,
+			selection: stepSelection{steps: []string{"consume"}, outputsFromRuns: map[string]string{"build": "params-run"}},
+			wantMsg:   "step build cannot be reused from run params-run: the parameters changed since that run",
 		},
 		{
-			name:    "ChangedStep",
-			dag:     edited,
-			runID:   "same-run",
-			wantMsg: "step build cannot be reused from run same-run: the step changed since that run",
+			name:      "ChangedStep",
+			dag:       edited,
+			selection: stepSelection{steps: []string{"consume"}, outputsFromRuns: map[string]string{"build": "same-run"}},
+			wantMsg:   "step build cannot be reused from run same-run: the step changed since that run",
+		},
+		{
+			name:      "ChangedStepOfTheSource",
+			dag:       edited,
+			selection: stepSelection{steps: []string{"consume"}, outputsFrom: "same-run"},
+			wantMsg:   "step build cannot be reused from run same-run: the step changed since that run",
+		},
+		{
+			name:      "GoneRun",
+			dag:       dag,
+			selection: stepSelection{steps: []string{"consume"}, outputsFromRuns: map[string]string{"build": "gone-run"}},
+			wantMsg:   "step build cannot be reused from run gone-run: the run does not exist for DAG",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := api.startSelectedSteps(ctx, tt.dag, selectedStepsStart{
-				selection: stepSelection{steps: []string{"consume"}, outputsFromRuns: map[string]string{"build": tt.runID}},
-				dagRunID:  "run",
+				selection: tt.selection,
+				dagRunID:  "run-" + strings.ToLower(tt.name),
 			})
 			var apiErr *Error
 			require.ErrorAs(t, err, &apiErr)

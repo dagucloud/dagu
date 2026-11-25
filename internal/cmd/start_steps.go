@@ -198,7 +198,10 @@ func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts r
 			return err
 		}
 	}
-	var source *ir.DAGRunStatus
+	var (
+		source    *ir.DAGRunStatus
+		sourceDAG *ir.DAG
+	)
 	if selection.outputsFrom != "" {
 		attempt, err := repo.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, selection.outputsFrom))
 		if err != nil {
@@ -208,18 +211,29 @@ func runSelectedSteps(ctx *Context, dag *ir.DAG, dagRunID, params string, opts r
 		if err != nil {
 			return fmt.Errorf("failed to read status for dag-run %s: %w", selection.outputsFrom, err)
 		}
+		// A definition that cannot be read leaves the source steps unknown.
+		sourceDAG, _ = attempt.ReadDAG(ctx)
 	}
-	fromRuns, definitions, err := intake.LoadRunStepSources(ctx, repo, dag.Name, selection.outputFrom, nil)
+	fromRuns, definitions, unavailable, err := intake.LoadRunStepSources(ctx, repo, dag.Name, selection.outputFrom, nil)
 	if err != nil {
 		return err
 	}
-	nodes, reused, err := intake.SelectedStepNodes(dag, selection.steps, source, fromRuns, selection.outputs, nil)
+	plan, err := intake.PlanSelectedSteps(dag, opts.profileName, intake.StepSelection{
+		Steps:            selection.steps,
+		Source:           source,
+		SourceDefinition: sourceDAG,
+		FromRuns:         fromRuns,
+		Definitions:      definitions,
+		Unavailable:      unavailable,
+		Outputs:          selection.outputs,
+	})
 	if err != nil {
 		return err
 	}
-	if err := intake.CheckRunStepsUnchanged(dag, opts.profileName, fromRuns, definitions); err != nil {
-		return err
+	if refused := plan.Refusal(); refused != nil {
+		return refused
 	}
+	nodes, reused := plan.Nodes, plan.Reused
 	skipHandlers, err := intake.SelectionSkipsHandlers(dag, selection.steps)
 	if err != nil {
 		return err
