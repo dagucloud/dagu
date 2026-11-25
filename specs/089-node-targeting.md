@@ -219,8 +219,9 @@ A retry of a run, by `dagu retry` or the retry request, with or without a
 step, runs a step with nodes again only on the nodes that did not succeed:
 
 - The step takes its nodes from the records of its previous attempt
-  ([Viewing node runs](#viewing-node-runs)), so it keeps the nodes its first
-  attempt matched and does not match its selector again. A node added to
+  ([Viewing node runs](#viewing-node-runs)) when it can read them, so it
+  keeps the nodes its first attempt matched and does not match its selector
+  again. A node added to
   the inventory since is not added. A later retry keeps the same nodes, also
   after an attempt that reset the step without running it.
 - A node whose child run succeeded or partially succeeded keeps its result
@@ -228,14 +229,17 @@ step, runs a step with nodes again only on the nodes that did not succeed:
 - Any other node runs its recorded child run again, as `dagu retry` retries
   a run, or starts it if it never started. The node is read from the
   inventory as it is now: its connection settings and credentials, and
-  whether it is disabled.
+  whether it is disabled. A node disabled now does not run, and keeps its
+  child run for a later retry.
 - A node that has left the inventory since is `removed`. It does not run,
   does not fail the step, and counts in `summary.total` only.
 - After the run's process died during the step, the retry does the same.
   A child run still recorded as running runs its unfinished steps again.
 
 A step whose previous attempt recorded no nodes, such as one whose selector
-failed or one recorded before this version, matches its selector again.
+failed or one recorded before this version, matches its selector again, and
+so does a step whose records cannot be read or parsed, with a warning in the
+run log. Such a step can then run on a node added since.
 
 The run view labels the retry of a step with nodes **Retry failed nodes**,
 with the number of its nodes that failed, were aborted, or did not start.
