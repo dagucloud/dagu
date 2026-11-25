@@ -1161,14 +1161,14 @@ paths:
                 reuseFrom:
                   allOf:
                     - $ref: "#/components/schemas/DAGRunId"
-                    - description: "Finished DAG-run of the same DAG whose unchanged steps this run reuses instead of running. A step is reused, as a skipped step carrying its outputs, when its definition, the DAG's definition other than its steps, the base config, the parameters, the runtime profile, and the steps it depends on are as they were in that run, and it succeeded there or carried outputs into it; every other step runs, with the steps after it and the steps sharing its browser (browser.share). The work directory is carried from that run. When no step can be reused, or none changed, every step runs. Cannot be sent with steps, outputsFromRunId, outputsFromRuns, outputs, or outputsSources. Not supported for agent DAGs."
+                    - description: "Finished DAG-run of the same DAG whose unchanged steps this run reuses instead of running. A step is reused, as a skipped step carrying its outputs, when nothing changed for it since that run (see StepChangeKind) and it succeeded there or carried outputs into it; every other step runs, with the steps after it and the steps sharing its browser (browser.share). The work directory is carried from that run. When no step can be reused, or none changed, every step runs. Cannot be sent with steps, outputsFromRunId, outputsFromRuns, outputs, outputsSources, or allowChangedSteps. Not supported for agent DAGs."
                 outputsFromRunId:
                   allOf:
                     - $ref: "#/components/schemas/DAGRunId"
-                    - description: "Finished DAG-run of the same DAG whose step outputs and work directory are carried into the skipped steps. Outputs come only from steps that succeeded there or that carry outputs, copied from a run or supplied with outputs. Requires steps."
+                    - description: "Finished DAG-run of the same DAG whose step outputs and work directory are carried into the skipped steps. Outputs come only from steps that succeeded there or that carry outputs, copied from a run or supplied with outputs. A carried step that changed since that run (see StepChangeKind) is refused with 400 unless allowChangedSteps names it. Requires steps."
                 outputsFromRuns:
                   type: object
-                  description: "The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries outputs, copied from a run or supplied with outputs; otherwise the request returns 400 with a message that names the step and the run. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps."
+                  description: "The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries outputs, copied from a run or supplied with outputs. The step must not have changed since that run (see StepChangeKind) unless allowChangedSteps names it. Otherwise the request returns 400, and details.refusedSteps lists each refused step with its run and why. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps."
                   additionalProperties:
                     $ref: "#/components/schemas/DAGRunId"
                 outputs:
@@ -1183,6 +1183,12 @@ paths:
                   description: "Optional. The run each step of outputs was captured from, keyed by step name or ID. Dagu records it in the reusedInputs of the new run; a step of outputs without an entry has no entry there. An entry for a step not in outputs returns 400. The run is not required to exist any more. Requires steps."
                   additionalProperties:
                     $ref: "#/components/schemas/ReusedOutputSource"
+                allowChangedSteps:
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+                  description: "Carried steps, by step name or ID, that this run reuses although they changed since the run they carry outputs from. Without consent such a step is refused with 400. The run records what changed in reusedInputs[].changes, and the audit log keeps the consent. A name of a step that did not change has no effect. Requires steps."
                 ephemeral:
                   type: boolean
                   default: false
@@ -1222,6 +1228,13 @@ paths:
                       type: object
                       required:
                         - steps
+                  - type: object
+                    required:
+                      - allowChangedSteps
+                    not:
+                      type: object
+                      required:
+                        - steps
       responses:
         "200":
           description: "A successful response"
@@ -1244,13 +1257,81 @@ paths:
                 required:
                   - dagRunId
         "400":
-          description: "Invalid request parameters or labels"
+          description: "Invalid request parameters or labels. When the request refuses carried steps, details.refusedSteps lists them."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StepReuseError"
+        "409":
+          description: "DAG is already running (singleton mode) or dagRunId already exists"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        "409":
-          description: "DAG is already running (singleton mode) or dagRunId already exists"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dags/{fileName}/start-preview:
+    post:
+      summary: "Preview the carried steps of a selected-steps run"
+      description: "Plans a run of selected steps as /dags/{fileName}/start would, without starting it, and returns each skipped step that would carry outputs from a run, with what changed for it since that run. The start refuses a changed step unless allowChangedSteps names it. The preview evaluates the parameters as the start does, including command substitution, and needs the same permission. It takes no outputs, reuseFrom, or labels, and reserves no run ID."
+      operationId: "previewExecuteDAG"
+      tags:
+        - "dags"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+        - $ref: "#/components/parameters/DAGFileName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                steps:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                    minLength: 1
+                  description: "The steps the run would execute, by step name or ID."
+                outputsFromRunId:
+                  allOf:
+                    - $ref: "#/components/schemas/DAGRunId"
+                    - description: "As for the start: the run whose outputs the skipped steps carry."
+                outputsFromRuns:
+                  type: object
+                  description: "As for the start: the run that each skipped step carries its outputs from, keyed by step name or ID."
+                  additionalProperties:
+                    $ref: "#/components/schemas/DAGRunId"
+                params:
+                  type: string
+                  description: "Parameters of the run, as for the start"
+                profile:
+                  allOf:
+                    - $ref: "#/components/schemas/RuntimeProfileOverride"
+                  description: "Runtime profile override, as for the start. Omit to use the DAG default profile."
+              required:
+                - steps
+      responses:
+        "200":
+          description: "The carried steps of the run"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StepReuseCheck"
+        "400":
+          description: "Invalid request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "DAG or outputsFromRunId not found"
           content:
             application/json:
               schema:
@@ -3032,14 +3113,14 @@ paths:
                 reuseFrom:
                   allOf:
                     - $ref: "#/components/schemas/DAGRunId"
-                    - description: "Finished DAG-run of the same DAG whose unchanged steps this run reuses instead of running. A step is reused, as a skipped step carrying its outputs, when its definition, the DAG's definition other than its steps, the base config, the parameters, the runtime profile, and the steps it depends on are as they were in that run, and it succeeded there or carried outputs into it; every other step runs, with the steps after it and the steps sharing its browser (browser.share). The work directory is carried from that run. When no step can be reused, or none changed, every step runs. Cannot be sent with steps, outputsFromRunId, outputsFromRuns, outputs, or outputsSources. Not supported for agent DAGs."
+                    - description: "Finished DAG-run of the same DAG whose unchanged steps this run reuses instead of running. A step is reused, as a skipped step carrying its outputs, when nothing changed for it since that run (see StepChangeKind) and it succeeded there or carried outputs into it; every other step runs, with the steps after it and the steps sharing its browser (browser.share). The work directory is carried from that run. When no step can be reused, or none changed, every step runs. Cannot be sent with steps, outputsFromRunId, outputsFromRuns, outputs, outputsSources, or allowChangedSteps. Not supported for agent DAGs."
                 outputsFromRunId:
                   allOf:
                     - $ref: "#/components/schemas/DAGRunId"
-                    - description: "Finished DAG-run of the same DAG whose step outputs and work directory are carried into the skipped steps. Outputs come only from steps that succeeded there or that carry outputs, copied from a run or supplied with outputs. Requires steps."
+                    - description: "Finished DAG-run of the same DAG whose step outputs and work directory are carried into the skipped steps. Outputs come only from steps that succeeded there or that carry outputs, copied from a run or supplied with outputs. A carried step that changed since that run (see StepChangeKind) is refused with 400 unless allowChangedSteps names it. Requires steps."
                 outputsFromRuns:
                   type: object
-                  description: "The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries outputs, copied from a run or supplied with outputs; otherwise the request returns 400 with a message that names the step and the run. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps."
+                  description: "The run that each skipped step carries its outputs from, keyed by step name or ID. A step named here takes its outputs from that run in place of outputsFromRunId; the work directory still comes only from outputsFromRunId. Each run must exist for the same DAG (a normal or an ephemeral run), be finished, and hold a node of the step that succeeded or that carries outputs, copied from a run or supplied with outputs. The step must not have changed since that run (see StepChangeKind) unless allowChangedSteps names it. Otherwise the request returns 400, and details.refusedSteps lists each refused step with its run and why. A step selected to run cannot be a key. The web UI names the run of each reused step with this field and never sends values. Requires steps."
                   additionalProperties:
                     $ref: "#/components/schemas/DAGRunId"
                 outputs:
@@ -3054,6 +3135,12 @@ paths:
                   description: "Optional. The run each step of outputs was captured from, keyed by step name or ID. Dagu records it in the reusedInputs of the new run; a step of outputs without an entry has no entry there. An entry for a step not in outputs returns 400. The run is not required to exist any more. Requires steps."
                   additionalProperties:
                     $ref: "#/components/schemas/ReusedOutputSource"
+                allowChangedSteps:
+                  type: array
+                  items:
+                    type: string
+                    minLength: 1
+                  description: "Carried steps, by step name or ID, that this run reuses although they changed since the run they carry outputs from. Without consent such a step is refused with 400. The run records what changed in reusedInputs[].changes, and the audit log keeps the consent. A name of a step that did not change has no effect. Requires steps."
                 ephemeral:
                   type: boolean
                   default: false
@@ -3095,6 +3182,13 @@ paths:
                       type: object
                       required:
                         - steps
+                  - type: object
+                    required:
+                      - allowChangedSteps
+                    not:
+                      type: object
+                      required:
+                        - steps
       responses:
         "200":
           description: "Run created and started"
@@ -3108,13 +3202,87 @@ paths:
                 required:
                   - dagRunId
         "400":
-          description: "Invalid DAG spec or parameters"
+          description: "Invalid DAG spec or parameters. When the request refuses carried steps, details.refusedSteps lists them."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StepReuseError"
+        "409":
+          description: "A DAG with the same name is already running and singleton is enabled"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-        "409":
-          description: "A DAG with the same name is already running and singleton is enabled"
+        default:
+          description: "Generic error response"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /dag-runs/preview:
+    post:
+      summary: "Preview the carried steps of a selected-steps run from inline spec"
+      description: "Plans a run of selected steps of a submitted DAG specification as POST /dag-runs would, without starting it, and returns each skipped step that would carry outputs from a run, with what changed for it since that run. The preview evaluates the parameters as the start does, including command substitution, and needs the same permission. It takes no outputs, reuseFrom, or labels, and reserves no run ID."
+      operationId: "previewExecuteDAGRunFromSpec"
+      tags:
+        - "dag-runs"
+      parameters:
+        - $ref: "#/components/parameters/RemoteNode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                spec:
+                  type: string
+                  description: "DAG specification in YAML format"
+                name:
+                  type: string
+                  description: "Optional name to use when the spec omits a name"
+                steps:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                    minLength: 1
+                  description: "The steps the run would execute, by step name or ID."
+                outputsFromRunId:
+                  allOf:
+                    - $ref: "#/components/schemas/DAGRunId"
+                    - description: "As for the start: the run whose outputs the skipped steps carry."
+                outputsFromRuns:
+                  type: object
+                  description: "As for the start: the run that each skipped step carries its outputs from, keyed by step name or ID."
+                  additionalProperties:
+                    $ref: "#/components/schemas/DAGRunId"
+                params:
+                  type: string
+                  description: "Parameters of the run, as for the start"
+                profile:
+                  allOf:
+                    - $ref: "#/components/schemas/RuntimeProfileOverride"
+                  description: "Runtime profile of the run, as for POST /dag-runs."
+              required:
+                - spec
+                - steps
+      responses:
+        "200":
+          description: "The carried steps of the run"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StepReuseCheck"
+        "400":
+          description: "Invalid DAG spec or request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: "outputsFromRunId not found"
           content:
             application/json:
               schema:
@@ -18960,10 +19128,109 @@ components:
             - run
             - cache
           description: "run: the outputs were carried from the run named by outputsFromRunId, or by outputsFromRuns for this step. cache: a client that is not the web UI supplied the outputs and named the run they were captured from in outputsSources."
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/StepChangeKind"
+          description: "What had changed for the step since the run its outputs come from, when the request consented to reuse them anyway (allowChangedSteps). Absent when nothing changed."
       required:
         - step
         - runId
         - via
+
+    StepChangeKind:
+      type: string
+      enum:
+        - step
+        - dependency
+        - params
+        - profile
+        - baseConfig
+        - settings
+        - carried
+        - unknown
+      description: "What changed for a carried step since the run it carries outputs from. step: its own definition. dependency: a step it depends on (by depends, an inferred dependency, or a router). params: the resolved parameters. profile: the runtime profile. baseConfig: the values of the base config, where SMTP and the handlers other than init do not count. settings: the DAG's definition other than its steps, with the local sub-DAGs of the file, where params count as resolved and only handler_on.init of the handlers counts. carried: in that run, it or a step it depends on took outputs of a changed step with consent. unknown: that run keeps no definition that can be compared."
+
+    CarriedStepCheck:
+      type: object
+      description: "A skipped step of a selected-steps run that carries outputs from a run, and whether the run can give them."
+      properties:
+        step:
+          type: string
+          description: "Name of the skipped step"
+        runId:
+          $ref: "#/components/schemas/DAGRunId"
+        status:
+          type: string
+          enum:
+            - unchanged
+            - changed
+            - unavailable
+          description: "unchanged: the step can be reused. changed: the step changed since the run; the start refuses it unless allowChangedSteps names it. unavailable: the run cannot give the step (gone, not finished, no node, or the step did not succeed there)."
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/StepChangeKind"
+          description: "What changed since the run, in the order of StepChangeKind. Empty unless status is changed."
+        message:
+          type: string
+          description: "Why the start refuses the step, as step X cannot be reused from run Y: <reason>. Absent when status is unchanged."
+        startedAt:
+          type: string
+          description: "When the step started in the run, as the run stored it. Absent when unknown."
+        finishedAt:
+          type: string
+          description: "When the step finished in the run, as the run stored it. Absent when unknown."
+      required:
+        - step
+        - runId
+        - status
+        - changes
+
+    StepReuseCheck:
+      type: object
+      description: "The carried steps of a planned selected-steps run."
+      properties:
+        carried:
+          type: array
+          items:
+            $ref: "#/components/schemas/CarriedStepCheck"
+          description: "Each skipped step that carries outputs from a run, in the order of the DAG, and each entry of outputsFromRuns that its run cannot give"
+        missing:
+          type: array
+          items:
+            type: string
+          description: "Steps that a selected step depends on and that take outputs from nowhere, in the order of the DAG"
+      required:
+        - carried
+        - missing
+
+    StepReuseError:
+      type: object
+      description: "Error response of a start request. When the request refuses carried steps, details.refusedSteps lists them."
+      properties:
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        message:
+          type: string
+          description: "Short error message"
+        details:
+          $ref: "#/components/schemas/StepReuseRefusal"
+      required:
+        - code
+        - message
+
+    StepReuseRefusal:
+      type: object
+      description: "The carried steps that a start request refuses"
+      properties:
+        refusedSteps:
+          type: array
+          items:
+            $ref: "#/components/schemas/CarriedStepCheck"
+          description: "First the steps whose run cannot give them, then the changed steps"
+      required:
+        - refusedSteps
 
     DAGRunDetails:
       type: object

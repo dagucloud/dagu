@@ -310,6 +310,10 @@ Shell selection order is:
 
 - The server checks every entry and every carried step before it answers. The message names each refusal, joined by `; `: first the entries whose run cannot give the step, then the changed steps, each group in the order of the steps as the request names them.
 
+- The response of a refusal has `details.refusedSteps`, one item per refused step in the order of the message. An item has `step` (the step name), `runId`, `status` (`unavailable` or `changed`), `changes` (the names of [Changed Steps](#changed-steps), empty for `unavailable`), and `message` (that step's part of the message).
+
+- `allowChangedSteps` names, by step name or ID, carried steps that the run reuses although they changed since their run. The server does not refuse such a step for its changes, and records them in [Reused Inputs](#reused-inputs). A name of a step that did not change has no effect. An unknown step is rejected with HTTP 400, and so is an empty name. It requires `steps`. A run that cannot give a step is refused whatever `allowChangedSteps` says.
+
 - A step selected to run MUST NOT be a key of `outputsFromRuns`. An unknown step, a run ID that is not valid, or two keys that address one step is rejected with HTTP 400.
 
 - `outputs` supplies values for the outputs of skipped steps, keyed by step name or ID and then by output name. It is for clients that are not the web UI: the web UI sends no values. It requires `steps` and works with or without `outputsFromRunId`. A supplied value takes precedence over the carried value of the same output.
@@ -325,6 +329,15 @@ Shell selection order is:
 - A request that supplies an output the step does not declare, an output of a selected step, or an output that is not valid for its declared type is rejected with HTTP 400.
 
 - A reference to an output that nobody supplied is not an error of the request. The reference stays literal text, as Spec 007 defines, and the selected step runs with that text.
+
+#### Checking a Selection
+
+`POST /api/v1/dags/{fileName}/start-preview` and `POST /api/v1/dag-runs/preview` plan a run of selected steps as the matching start endpoint would, and start nothing. The body takes `steps` (required), `outputsFromRunId`, `outputsFromRuns`, `params`, and `profile`, as the start does; `POST /api/v1/dag-runs/preview` also takes `spec` (required) and `name`.
+
+- The response has `carried` and `missing`. `carried` lists, in the order of the DAG, each skipped step that would carry outputs from a run, and each entry of `outputsFromRuns` whose run cannot give the step. An item has the fields of an item of `details.refusedSteps`, with `status` `unchanged`, `changed`, or `unavailable`, and `startedAt` and `finishedAt`, the times of the step in that run when it has them. `message` is absent for `unchanged`.
+- `missing` lists, in the order of the DAG, the steps that a selected step depends on and that take outputs from nowhere.
+- A request that the start would reject for another reason, such as an unknown step or a selected step named in `outputsFromRuns`, is rejected the same way. A run named by `outputsFromRunId` that does not exist is rejected with HTTP 404.
+- The preview evaluates the parameters as the start does, including command substitution, and needs the permission of the start.
 
 #### Changed Steps
 

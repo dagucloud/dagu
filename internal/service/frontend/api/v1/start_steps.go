@@ -60,11 +60,11 @@ type stepSelection struct {
 
 // selectedStepsFromBody validates the step selection fields of a start
 // request body. It returns no steps when the request runs the whole DAG.
-func selectedStepsFromBody(steps *[]string, outputsFromRunID *string, outputsFromRuns *map[string]string, outputs *map[string]map[string]string, outputsSources *map[string]api.ReusedOutputSource, ephemeral *bool, reuseFrom *string) (stepSelection, error) {
+func selectedStepsFromBody(steps *[]string, outputsFromRunID *string, outputsFromRuns *map[string]string, outputs *map[string]map[string]string, outputsSources *map[string]api.ReusedOutputSource, ephemeral *bool, reuseFrom *string, allowChangedSteps *[]string) (stepSelection, error) {
 	outputsFrom := strings.TrimSpace(valueOf(outputsFromRunID))
 	if reuse := strings.TrimSpace(valueOf(reuseFrom)); reuseFrom != nil {
-		if steps != nil || outputsFrom != "" || outputsFromRuns != nil || outputs != nil || outputsSources != nil {
-			return stepSelection{}, badSelectedStepsRequest("reuseFrom chooses the steps to run itself; send it without steps, outputsFromRunId, outputsFromRuns, outputs, or outputsSources")
+		if steps != nil || outputsFrom != "" || outputsFromRuns != nil || outputs != nil || outputsSources != nil || allowChangedSteps != nil {
+			return stepSelection{}, badSelectedStepsRequest("reuseFrom chooses the steps to run itself; send it without steps, outputsFromRunId, outputsFromRuns, outputs, outputsSources, or allowChangedSteps")
 		}
 		if reuse == "" {
 			return stepSelection{}, badSelectedStepsRequest("reuseFrom must name a run")
@@ -90,6 +90,9 @@ func selectedStepsFromBody(steps *[]string, outputsFromRunID *string, outputsFro
 		if outputsSources != nil {
 			return stepSelection{}, badSelectedStepsRequest("outputsSources requires steps")
 		}
+		if allowChangedSteps != nil {
+			return stepSelection{}, badSelectedStepsRequest("allowChangedSteps requires steps")
+		}
 		return stepSelection{}, nil
 	}
 	if len(*steps) == 0 {
@@ -113,7 +116,15 @@ func selectedStepsFromBody(steps *[]string, outputsFromRunID *string, outputsFro
 	if err != nil {
 		return stepSelection{}, err
 	}
-	return stepSelection{steps: *steps, outputsFrom: outputsFrom, outputsFromRuns: fromRuns, outputs: valueOf(outputs), outputsSources: sources, ephemeral: valueOf(ephemeral)}, nil
+	allowed := make([]string, 0, len(valueOf(allowChangedSteps)))
+	for _, step := range valueOf(allowChangedSteps) {
+		step = strings.TrimSpace(step)
+		if step == "" {
+			return stepSelection{}, badSelectedStepsRequest("allowChangedSteps must name steps")
+		}
+		allowed = append(allowed, step)
+	}
+	return stepSelection{steps: *steps, outputsFrom: outputsFrom, outputsFromRuns: fromRuns, outputs: valueOf(outputs), outputsSources: sources, ephemeral: valueOf(ephemeral), allowChanged: allowed}, nil
 }
 
 // outputSourcesFromBody validates the run IDs and times of outputsSources. A
@@ -146,18 +157,19 @@ func outputSourcesFromBody(body map[string]api.ReusedOutputSource) (map[string]i
 
 // startSelectedSteps starts a new run of dag in which only the selected steps
 // execute; every other step is recorded as skipped. A carried step that
-// changed since its run is refused unless the request consents to it.
-func (a *API) startSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedStepsStart) error {
+// changed since its run is refused unless the request consents to it. It
+// returns the changed steps that the run reuses with consent.
+func (a *API) startSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedStepsStart) ([]intake.CarriedStep, error) {
 	planned, err := a.planSelectedSteps(ctx, dag, req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if refused := planned.plan.Refusal(); refused != nil {
-		return badSelectedStepsRequest(refused.Error())
+		return nil, refusedStepsError(refused)
 	}
 	skipHandlers, err := intake.SelectionSkipsHandlers(planned.dag, planned.selection.steps)
 	if err != nil {
-		return badSelectedStepsRequest(err.Error())
+		return nil, badSelectedStepsRequest(err.Error())
 	}
 
 	_, err = a.launchSeededDAGRun(ctx, seededRun{
@@ -175,7 +187,72 @@ func (a *API) startSelectedSteps(ctx context.Context, dag *ir.DAG, req selectedS
 		triggerType:  ir.TriggerTypeManual,
 		slot:         req.slot,
 	})
+	if err != nil {
+		return nil, err
+	}
+	var consented []intake.CarriedStep
+	for _, step := range planned.plan.Carried {
+		if step.Changed() {
+			consented = append(consented, step)
+		}
+	}
+	return consented, nil
+}
+
+// refusedStepsError is the 400 response of a start request that refuses
+// carried steps, with the refused steps in its details.
+func refusedStepsError(refused *intake.RefusedStepsError) *Error {
+	steps := make([]api.CarriedStepCheck, 0, len(refused.Steps))
+	for _, step := range refused.Steps {
+		steps = append(steps, carriedStepCheck(step))
+	}
+	err := badSelectedStepsRequest(refused.Error())
+	err.Details = map[string]any{"refusedSteps": steps}
 	return err
+}
+
+// stepReuseCheck is the response of a preview of a selected-steps run.
+func stepReuseCheck(plan *intake.SelectedStepsPlan) api.StepReuseCheck {
+	carried := make([]api.CarriedStepCheck, 0, len(plan.Carried))
+	for _, step := range plan.Carried {
+		carried = append(carried, carriedStepCheck(step))
+	}
+	missing := plan.Missing
+	if missing == nil {
+		missing = []string{}
+	}
+	return api.StepReuseCheck{Carried: carried, Missing: missing}
+}
+
+// carriedStepCheck is a carried step of a selected-steps run as the API
+// gives it.
+func carriedStepCheck(step intake.CarriedStep) api.CarriedStepCheck {
+	check := api.CarriedStepCheck{
+		Step:       step.Step,
+		RunId:      step.DAGRunID,
+		Status:     api.CarriedStepCheckStatusUnchanged,
+		Changes:    stepChangeKinds(step.Changes),
+		StartedAt:  ptrOf(step.StartedAt),
+		FinishedAt: ptrOf(step.FinishedAt),
+	}
+	switch {
+	case step.Unavailable != "":
+		check.Status = api.CarriedStepCheckStatusUnavailable
+		check.Message = ptrOf(step.Message())
+	case step.Changed():
+		check.Status = api.CarriedStepCheckStatusChanged
+		check.Message = ptrOf(step.Message())
+	}
+	return check
+}
+
+// stepChangeKinds converts what changed for a step to the API's kinds.
+func stepChangeKinds(changes []ir.StepChange) []api.StepChangeKind {
+	kinds := make([]api.StepChangeKind, 0, len(changes))
+	for _, change := range changes {
+		kinds = append(kinds, api.StepChangeKind(change))
+	}
+	return kinds
 }
 
 // selectedStepsPlan is a run of selected steps as a request asks for it,
@@ -348,8 +425,9 @@ func (a *API) selectedStepsFromRuns(ctx context.Context, dagName string, refs ma
 // addSelectedStepsAudit records the step selection of a start request. Only
 // the names of supplied outputs are recorded, since their values may be
 // credentials. The request is recorded as ephemeral when the run leaves no
-// trace, so the audit log stays the one record of it.
-func addSelectedStepsAudit(details map[string]any, selection stepSelection) {
+// trace, so the audit log stays the one record of it. Each changed step that
+// the run reuses with consent is recorded with what changed.
+func addSelectedStepsAudit(details map[string]any, selection stepSelection, consented []intake.CarriedStep) {
 	if selection.reuseFrom != "" {
 		details["reuse_from_dag_run_id"] = selection.reuseFrom
 	}
@@ -365,6 +443,13 @@ func addSelectedStepsAudit(details map[string]any, selection stepSelection) {
 	}
 	if len(selection.outputsFromRuns) > 0 {
 		details["outputs_from_runs"] = selection.outputsFromRuns
+	}
+	if len(consented) > 0 {
+		allowed := make([]map[string]any, 0, len(consented))
+		for _, step := range consented {
+			allowed = append(allowed, map[string]any{"step": step.Step, "dag_run_id": step.DAGRunID, "changes": step.Changes})
+		}
+		details["allowed_changed_steps"] = allowed
 	}
 	if len(selection.outputsSources) > 0 {
 		sources := make(map[string]string, len(selection.outputsSources))
