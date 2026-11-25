@@ -22,6 +22,7 @@ import {
   StatusLabel,
 } from '@/api/v1/schema';
 import DAGActions from '../DAGActions';
+import type { StartRequest } from '../../dag-execution/startRequest';
 
 type ServiceDAG = components['schemas']['ServiceDAG'];
 import { AppBarContext } from '@/contexts/AppBarContext';
@@ -40,18 +41,14 @@ vi.mock('../../dag-execution/StartDAGModal', () => ({
     onSubmit,
   }: {
     visible: boolean;
-    onSubmit: (
-      params: string,
-      id?: string,
-      immediate?: boolean
-    ) => Promise<void>;
+    onSubmit: (request: StartRequest) => Promise<void>;
   }) =>
     visible ? (
       <>
-        <button onClick={() => void onSubmit('', undefined, true)}>
+        <button onClick={() => void onSubmit({ params: '', immediate: true })}>
           Submit start
         </button>
-        <button onClick={() => void onSubmit('', undefined, false)}>
+        <button onClick={() => void onSubmit({ params: '', immediate: false })}>
           Submit enqueue
         </button>
       </>

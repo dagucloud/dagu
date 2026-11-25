@@ -237,8 +237,81 @@ cases:
 	}
 }
 
-// --init takes one DAG file, and no flag that selects or reports cases. An
-// invalid argument exits with status 2 and writes nothing.
+// dagu test --update rewrites a case's stale exact facts from its run and
+// keeps the stdout assertion as written, which still fails (RFC 020
+// criterion 43). The comment and the case that already holds its run's
+// facts stay as they are, the next run reports only the stdout assertion,
+// and a second update changes nothing.
+func TestWorkflowTestUpdate(t *testing.T) {
+	t.Parallel()
+
+	const mocks = `# Cases of release.yaml. The build broke after they were written.
+mocks:
+  build:
+    exit_code: 1
+    stdout: compile error
+    outputs:
+      image_tag: v1.2.3
+  deploy: {}
+cases:
+`
+	const holds = `  - name: a failed build stops the deploy
+    expect:
+      status: failed
+      steps:
+        build: failed
+        deploy: aborted
+`
+	dagu := harness.NewRunner(t)
+	dagu.WriteFile("workflows/release.test.yaml", mocks+`  - name: the build passes
+    expect:
+      status: succeeded  # before the build broke
+      steps:
+        build:
+          status: succeeded
+          stdout:
+            contains: build ok
+`+holds)
+	const updated = mocks + `  - name: the build passes
+    expect:
+      status: failed  # before the build broke
+      steps:
+        build:
+          status: failed
+          stdout:
+            contains: build ok
+        deploy: aborted
+` + holds
+	const stdoutFailure = "  step build stdout: does not contain \"build ok\"\n"
+
+	result := dagu.Run("test", "--update", "workflows/release.test.yaml")
+	result.ExpectExitCode(1)
+	expectLines(t, result.Stdout(),
+		"FAIL workflows/release.test.yaml: the build passes (", stdoutFailure, "  expect updated\n",
+		"PASS workflows/release.test.yaml: a failed build stops the deploy (", "  expect unchanged\n")
+	dagu.ExpectFileContent("workflows/release.test.yaml", updated)
+
+	result = dagu.Run("test", "workflows/release.test.yaml")
+	result.ExpectExitCode(1)
+	expectLines(t, result.Stdout(), "FAIL workflows/release.test.yaml: the build passes (", stdoutFailure,
+		"PASS workflows/release.test.yaml: a failed build stops the deploy (", "2 cases: 1 passed, 1 failed\n")
+
+	result = dagu.Run("test", "--update", "--format", "json", "workflows/release.test.yaml")
+	result.ExpectExitCode(1)
+	report := decodeReport(t, result.Stdout())
+	require.Len(t, report.Cases, 2)
+	require.Equal(t, "unchanged", report.Cases[0].Update)
+	require.Equal(t, "unchanged", report.Cases[1].Update)
+	dagu.ExpectFileContent("workflows/release.test.yaml", updated)
+	for _, pattern := range leftovers {
+		matches, err := filepath.Glob(dagu.ProjectPath(pattern))
+		require.NoError(t, err)
+		require.Empty(t, matches)
+	}
+}
+
+// --init takes one DAG file, and neither --update nor a flag that selects or
+// reports cases. An invalid argument exits with status 2 and writes nothing.
 func TestWorkflowTestInitArguments(t *testing.T) {
 	t.Parallel()
 
@@ -252,6 +325,7 @@ func TestWorkflowTestInitArguments(t *testing.T) {
 		"run":            {[]string{"--run", "initial", "workflows/release.yaml"}, "--run cannot be used with --init"},
 		"keep":           {[]string{"--keep", "workflows/release.yaml"}, "--keep cannot be used with --init"},
 		"json":           {[]string{"--format", "json", "workflows/release.yaml"}, "--format json cannot be used with --init"},
+		"update":         {[]string{"--update", "workflows/release.yaml"}, "--update cannot be used with --init"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

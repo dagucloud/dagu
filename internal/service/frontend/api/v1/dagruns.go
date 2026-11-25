@@ -245,7 +245,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	if err != nil {
 		return nil, err
 	}
-	targetNodes, err := a.checkTargetNodes(ctx, dag, request.Body.TargetNodes)
+	targetNodes, err := a.checkTargetNodes(ctx, dag, valueOf(request.Body.TargetNodes))
 	if err != nil {
 		return nil, err
 	}
@@ -396,7 +396,7 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 	if err != nil {
 		return nil, err
 	}
-	targetNodes, err := a.checkTargetNodes(ctx, dag, request.Body.TargetNodes)
+	targetNodes, err := a.checkTargetNodes(ctx, dag, valueOf(request.Body.TargetNodes))
 	if err != nil {
 		return nil, err
 	}
@@ -3900,6 +3900,12 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 		dag.SourceFile = snapshotDAG.SourceFile
 		dag.WorkingDir = snapshotDAG.WorkingDir
 	}
+	// The new run keeps the node list of its run, checked again, since the
+	// nodes or the current file may have changed since.
+	targetNodes, err := a.checkTargetNodes(ctx, dag, status.TargetNodes)
+	if err != nil {
+		return rescheduleDAGRunResult{}, err
+	}
 
 	if err := a.ensureDAGRunIDUnique(ctx, dag, newDagRunID); err != nil {
 		return rescheduleDAGRunResult{}, err
@@ -3936,10 +3942,11 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 			profileName:  profileName,
 			noReuse:      status.NoReuse,
 			definitionID: status.DAGDefinitionID(),
+			targetNodes:  targetNodes,
 			scheduleTime: slot.scheduleTimeOrEmpty(),
 		})
 	} else {
-		enqueueErr = a.enqueuePreparedDAGRun(ctx, dag, paramsToUse, newDagRunID, ir.TriggerTypeManual, profileName, status.NoReuse, rescheduleSelector, slot)
+		enqueueErr = a.enqueuePreparedDAGRun(ctx, dag, paramsToUse, newDagRunID, ir.TriggerTypeManual, profileName, status.NoReuse, rescheduleSelector, targetNodes, slot)
 	}
 	if enqueueErr != nil {
 		return rescheduleDAGRunResult{}, fmt.Errorf("failed to enqueue dag-run: %w", enqueueErr)
@@ -3955,6 +3962,9 @@ func (a *API) rescheduleDAGRun(ctx context.Context, dagName, dagRunID string, op
 	}
 	if nameOverride != "" {
 		detailsMap["name_override"] = nameOverride
+	}
+	if len(targetNodes) > 0 {
+		detailsMap["target_nodes"] = targetNodes
 	}
 	a.logAudit(ctx, audit.CategoryDAG, "dag_reschedule", detailsMap)
 
@@ -3974,6 +3984,7 @@ func (a *API) enqueuePreparedDAGRun(
 	profileName string,
 	noReuse bool,
 	workerSelector map[string]string,
+	targetNodes []string,
 	slot *requestedSlot,
 ) error {
 	resolvedDAG, err := spec.ResolveRuntimeParams(ctx, dag, params, spec.ResolveRuntimeParamsOptions{
@@ -3991,6 +4002,10 @@ func (a *API) enqueuePreparedDAGRun(
 	// applied again here.
 	if err := reapplyWorkerSelector(resolvedDAG, workerSelector); err != nil {
 		return err
+	}
+	// A narrowed run runs on the Dagu host.
+	if len(targetNodes) > 0 {
+		resolvedDAG.ForceLocal = true
 	}
 	dag = resolvedDAG
 
@@ -4022,6 +4037,7 @@ func (a *API) enqueuePreparedDAGRun(
 		ProceedOnStatusCloseErr: true,
 		ProfileName:             profileName,
 		NoReuse:                 noReuse,
+		TargetNodes:             targetNodes,
 		ScheduleTime:            slot.scheduleTimeOrEmpty(),
 		ScheduleWindow:          slot.windowOrZero(),
 	})
