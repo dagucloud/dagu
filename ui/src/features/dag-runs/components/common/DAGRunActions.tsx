@@ -21,7 +21,7 @@ import dayjs from '@/lib/dayjs';
 import ActionButton from '@/components/ui/action-button';
 import { Ban, CircleStop, RotateCcw, X } from 'lucide-react';
 import React from 'react';
-import { components, Status } from '../../../../api/v1/schema';
+import { components, NodeStatus, Status } from '../../../../api/v1/schema';
 import { useConfig } from '../../../../contexts/ConfigContext';
 import { useRemoteNode } from '../../../../contexts/RemoteNodeContext';
 import { useClient } from '../../../../hooks/api';
@@ -37,6 +37,14 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { nodesToRetry } from '@/lib/nodeRuns';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+
+/** Step statuses that a retry of the run resets, so the step runs again. */
+const STEP_STATUSES_RETRIED: readonly NodeStatus[] = [
+  NodeStatus.Failed,
+  NodeStatus.PartialSuccess,
+  NodeStatus.Aborted,
+  NodeStatus.Rejected,
+];
 
 /**
  * Props for the DAGRunActions component
@@ -215,12 +223,16 @@ function DAGRunActions({
       dagRun.nodes?.some((node) => Boolean(node.agentSession?.sessionId))
   );
   // A retry runs a step with nodes again only on its nodes that did not
-  // succeed (RFC 013 §Retry).
+  // succeed (RFC 013 §Retry). A step that succeeded, such as one marked
+  // successful despite a failed node, does not run again.
   const nodesRetried =
     dagRun && 'nodes' in dagRun
       ? (dagRun.nodes?.reduce(
           (sum, node) =>
-            sum + (node.nodeRuns ? nodesToRetry(node.nodeRuns) : 0),
+            sum +
+            (node.nodeRuns && STEP_STATUSES_RETRIED.includes(node.status)
+              ? nodesToRetry(node.nodeRuns)
+              : 0),
           0
         ) ?? 0)
       : 0;
@@ -590,7 +602,9 @@ function DAGRunActions({
                 <p className="text-sm">
                   <I18nText
                     text={
-                      'The {count} nodes that did not succeed run again, and nodes that succeeded keep their results.'
+                      nodesRetried === 1
+                        ? 'The 1 node that did not succeed runs again, and nodes that succeeded keep their results.'
+                        : 'The {count} nodes that did not succeed run again, and nodes that succeeded keep their results.'
                     }
                     values={{ count: nodesRetried }}
                   />
