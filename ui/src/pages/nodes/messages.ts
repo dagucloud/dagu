@@ -137,3 +137,61 @@ export const nodeTestMessages = defineMessages({
     'Not tested': 'Nicht getestet',
   },
 });
+
+/** The static messages of worker nodes on the Nodes page. */
+export const workerNodeMessages = defineMessages({
+  en: {
+    "SSH hosts from this server's inventories, and workers that set an ID. Steps select them by label.":
+      "SSH hosts from this server's inventories, and workers that set an ID. Steps select them by label.",
+    Online: 'Online',
+    'Last seen': 'Last seen',
+    'Forget worker': 'Forget worker',
+    'Forget {name}? It is listed again when the worker connects.':
+      'Forget {name}? It is listed again when the worker connects.',
+    "Couldn't forget the worker.": "Couldn't forget the worker.",
+    'Worker {worker} is not a node: inventory {inventory} has a node with that name.':
+      'Worker {worker} is not a node: inventory {inventory} has a node with that name.',
+    'No SSH node matches these filters.': 'No SSH node matches these filters.',
+  },
+  'zh-CN': {
+    "SSH hosts from this server's inventories, and workers that set an ID. Steps select them by label.":
+      '此服务器清单中的 SSH 主机，以及设置了 ID 的 Worker。步骤按标签选择它们。',
+    Online: '在线',
+    'Last seen': '最后在线',
+    'Forget worker': '忘记 Worker',
+    'Forget {name}? It is listed again when the worker connects.':
+      '忘记 {name}？该 Worker 再次连接时会重新列出。',
+    "Couldn't forget the worker.": '无法忘记该 Worker。',
+    'Worker {worker} is not a node: inventory {inventory} has a node with that name.':
+      'Worker {worker} 不是节点：清单 {inventory} 中已有同名节点。',
+    'No SSH node matches these filters.': '没有与这些筛选条件匹配的 SSH 节点。',
+  },
+  ja: {
+    "SSH hosts from this server's inventories, and workers that set an ID. Steps select them by label.":
+      'このサーバーのインベントリにある SSH ホストと、ID を設定したワーカーです。ステップはラベルで選択します。',
+    Online: 'オンライン',
+    'Last seen': '最終確認',
+    'Forget worker': 'ワーカーを忘れる',
+    'Forget {name}? It is listed again when the worker connects.':
+      '{name} を忘れますか？ワーカーが再び接続すると、また一覧に表示されます。',
+    "Couldn't forget the worker.": 'ワーカーを忘れられませんでした。',
+    'Worker {worker} is not a node: inventory {inventory} has a node with that name.':
+      'ワーカー {worker} はノードではありません。インベントリ {inventory} に同じ名前のノードがあります。',
+    'No SSH node matches these filters.':
+      'これらのフィルターに一致する SSH ノードはありません。',
+  },
+  de: {
+    "SSH hosts from this server's inventories, and workers that set an ID. Steps select them by label.":
+      'SSH-Hosts aus den Inventaren dieses Servers und Worker mit gesetzter ID. Schritte wählen sie per Label.',
+    Online: 'Online',
+    'Last seen': 'Zuletzt gesehen',
+    'Forget worker': 'Worker vergessen',
+    'Forget {name}? It is listed again when the worker connects.':
+      '{name} vergessen? Der Worker wird wieder aufgeführt, sobald er sich verbindet.',
+    "Couldn't forget the worker.": 'Der Worker konnte nicht vergessen werden.',
+    'Worker {worker} is not a node: inventory {inventory} has a node with that name.':
+      'Worker {worker} ist kein Knoten: Inventar {inventory} hat einen Knoten mit diesem Namen.',
+    'No SSH node matches these filters.':
+      'Kein SSH-Knoten passt zu diesen Filtern.',
+  },
+});

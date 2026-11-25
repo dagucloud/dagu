@@ -5,7 +5,7 @@ import type { Locale } from '@/contexts/UserPreference';
 import { backfillMessages } from '@/features/backfills/messages';
 import { workspaceMessages } from '@/features/workflow-workspace/messages';
 import { inventoryMessages } from '@/pages/nodes/inventories/messages';
-import { nodeTestMessages } from '@/pages/nodes/messages';
+import { nodeTestMessages, workerNodeMessages } from '@/pages/nodes/messages';
 
 const baseEnglish = {
   'Plan & features': 'Plan & features',
@@ -3311,8 +3311,6 @@ const baseEnglish = {
   'No nodes yet': 'No nodes yet',
   'Import an inventory of SSH hosts with {command}.':
     'Import an inventory of SSH hosts with {command}.',
-  "SSH hosts from this server's inventories. Steps select them by label.":
-    "SSH hosts from this server's inventories. Steps select them by label.",
   Inventory: 'Inventory',
   'All inventories': 'All inventories',
   'Search by name...': 'Search by name...',
@@ -3353,6 +3351,7 @@ const english = {
   ...workspaceMessages.en,
   ...backfillMessages.en,
   ...nodeTestMessages.en,
+  ...workerNodeMessages.en,
   ...inventoryMessages.en,
   ...baseEnglish,
 } as const;
@@ -6570,8 +6569,6 @@ const baseChinese = {
   'No nodes yet': '还没有节点',
   'Import an inventory of SSH hosts with {command}.':
     '使用 {command} 导入 SSH 主机清单。',
-  "SSH hosts from this server's inventories. Steps select them by label.":
-    '此服务器清单中的 SSH 主机。步骤按标签选择它们。',
   Inventory: '清单',
   'All inventories': '所有清单',
   'Search by name...': '按名称搜索...',
@@ -9939,8 +9936,6 @@ const baseJapanese = {
   'No nodes yet': 'ノードはまだありません',
   'Import an inventory of SSH hosts with {command}.':
     '{command} で SSH ホストのインベントリをインポートします。',
-  "SSH hosts from this server's inventories. Steps select them by label.":
-    'このサーバーのインベントリにある SSH ホストです。ステップはラベルで選択します。',
   Inventory: 'インベントリ',
   'All inventories': 'すべてのインベントリ',
   'Search by name...': '名前で検索...',
@@ -13319,8 +13314,6 @@ const baseGerman = {
   'No nodes yet': 'Noch keine Knoten',
   'Import an inventory of SSH hosts with {command}.':
     'Ein Inventar von SSH-Hosts mit {command} importieren.',
-  "SSH hosts from this server's inventories. Steps select them by label.":
-    'SSH-Hosts aus den Inventaren dieses Servers. Schritte wählen sie per Label.',
   Inventory: 'Inventar',
   'All inventories': 'Alle Inventare',
   'Search by name...': 'Nach Namen suchen …',
@@ -13357,6 +13350,7 @@ const chinese = {
   ...workspaceMessages['zh-CN'],
   ...backfillMessages['zh-CN'],
   ...nodeTestMessages['zh-CN'],
+  ...workerNodeMessages['zh-CN'],
   ...inventoryMessages['zh-CN'],
   ...baseChinese,
 } as const satisfies Record<StaticMessage, string>;
@@ -13365,6 +13359,7 @@ const japanese = {
   ...workspaceMessages.ja,
   ...backfillMessages.ja,
   ...nodeTestMessages.ja,
+  ...workerNodeMessages.ja,
   ...inventoryMessages.ja,
   ...baseJapanese,
 } as const satisfies Record<StaticMessage, string>;
@@ -13373,6 +13368,7 @@ const german = {
   ...workspaceMessages.de,
   ...backfillMessages.de,
   ...nodeTestMessages.de,
+  ...workerNodeMessages.de,
   ...inventoryMessages.de,
   ...baseGerman,
 } as const satisfies Record<StaticMessage, string>;

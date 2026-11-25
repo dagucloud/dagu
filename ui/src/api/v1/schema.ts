@@ -4668,7 +4668,7 @@ export interface paths {
         };
         /**
          * List inventory nodes
-         * @description Lists the nodes of the inventories with their inventory's defaults applied, in name order, one page at a time. Credentials appear as secret references and key paths, never as values.
+         * @description Lists the nodes in name order, one page at a time: the nodes of the inventories, with their inventory's defaults applied, and the workers that set `worker.id`. A worker whose ID names a node of an inventory is not a node; the response lists it in `workerConflicts`. Credentials appear as secret references and key paths, never as values.
          */
         get: operations["listInventoryNodes"];
         put?: never;
@@ -4688,12 +4688,16 @@ export interface paths {
         };
         /**
          * Get an inventory node
-         * @description Returns one node with its inventory's defaults applied. Credentials appear as secret references and key paths, never as values.
+         * @description Returns one node: a node of an inventory with its inventory's defaults applied, or a worker node. Credentials appear as secret references and key paths, never as values.
          */
         get: operations["getInventoryNode"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Forget an offline worker node
+         * @description Forgets an offline worker node until its worker connects again. A node of an inventory is removed from its inventory instead. Workers are shared by the whole server, so this requires the admin role, and is audited. Remote nodes do not manage nodes, so a request for a remote node is refused with 403.
+         */
+        delete: operations["forgetWorkerNode"];
         options?: never;
         head?: never;
         patch?: never;
@@ -4708,7 +4712,7 @@ export interface paths {
         };
         /**
          * List inventory node labels
-         * @description Lists the labels of the inventory nodes, with their inventory's defaults applied, for completion.
+         * @description Lists the labels of the nodes, with their inventory's defaults applied, and of the worker nodes, for completion.
          */
         get: operations["listInventoryNodeLabels"];
         put?: never;
@@ -9876,7 +9880,7 @@ export interface components {
             views: components["schemas"]["View"][];
         };
         /**
-         * @description How Dagu reaches a node. An `ssh` node is a host of an inventory.
+         * @description How Dagu reaches a node. An `ssh` node is a host of an inventory, and a `worker` node is a worker that sets `worker.id`.
          * @enum {string}
          */
         InventoryNodeKind: InventoryNodeKind;
@@ -9896,33 +9900,52 @@ export interface components {
             /** @description Secret reference of the private key's passphrase */
             passphraseSecret?: string;
         };
-        /** @description A node of an inventory with its inventory's defaults applied */
+        /** @description A node: a host of an inventory with its inventory's defaults applied, or a worker that sets `worker.id`. The connection fields, `inventory` through `timeout`, are set for an `ssh` node only, and `online` and `lastSeenAt` for a `worker` node only. */
         InventoryNode: {
+            /** @description Node name. A worker node's name is its worker ID */
             name: string;
             kind: components["schemas"]["InventoryNodeKind"];
-            inventory: components["schemas"]["InventoryRef"];
+            inventory?: components["schemas"]["InventoryRef"];
+            /** @description Host name or IP address. A worker node's is the host its worker reports, shown only */
             host: string;
-            port: number;
+            port?: number;
             user?: string;
-            auth: components["schemas"]["InventoryNodeAuth"];
+            auth?: components["schemas"]["InventoryNodeAuth"];
             /** @description Name of the node of the same inventory that the connection goes through */
             bastion?: string;
             /** @description Public key the host must present */
             hostKey?: string;
             /** @description Whether the host key is checked */
-            strictHostKey: boolean;
+            strictHostKey?: boolean;
             shell?: string;
             /** @description Connect timeout, such as `30s` */
-            timeout: string;
+            timeout?: string;
             /** @description Labels as `key` or `key=value`, sorted */
             labels: string[];
             description?: string;
-            /** @description Whether runs are kept off the node. A disabled node is still listed and matched. */
+            /** @description Whether runs are kept off the node. A disabled node is still listed and matched. A worker node is never disabled. */
             disabled: boolean;
+            /** @description Whether the worker is connected. A worker stays listed while it is offline. */
+            online?: boolean;
+            /**
+             * Format: date-time
+             * @description When the coordinator last recorded the worker: when it connected, changed its host or labels, or went offline
+             */
+            lastSeenAt?: string;
         };
         InventoryNodeListResponse: {
             nodes: components["schemas"]["InventoryNode"][];
             pagination: components["schemas"]["Pagination"];
+            /** @description Count of every node, whatever the filters */
+            nodeCount: number;
+            /** @description Workers whose ID names a node of an inventory, so they are not nodes, whatever the filters */
+            workerConflicts: components["schemas"]["InventoryWorkerConflict"][];
+        };
+        /** @description A worker that is not a node, because a node of an inventory has its ID as its name */
+        InventoryWorkerConflict: {
+            /** @description The worker ID */
+            worker: string;
+            inventory: components["schemas"]["InventoryRef"];
         };
         /** @description A key path, `{"file": <path>}`, or `{"secret": <ref>}`. A password and a passphrase take only `{"secret": <ref>}`. */
         InventoryCredential: unknown;
@@ -25556,7 +25579,7 @@ export interface operations {
                 perPage?: components["parameters"]["PerPage"];
                 /** @description Node selector: label filter terms separated by commas, as a step's `nodes` field takes them. A node is listed when it matches every term. Each term is `key`, `key=value`, or a glob of either with `*` and `?`, and a leading `!` negates it. An invalid term returns HTTP 400 naming the term. */
                 labels?: string;
-                /** @description Lists only the nodes of one inventory, given by its ID or by its name compared without case. An inventory that does not exist returns HTTP 400. */
+                /** @description Lists only the nodes of one inventory, given by its ID or by its name compared without case, so no worker node. An inventory that does not exist returns HTTP 400. */
                 inventory?: string;
                 /** @description Lists only the nodes whose name contains this text, compared without case. */
                 name?: string;
@@ -25637,6 +25660,81 @@ export interface operations {
             };
             /** @description No node has this name */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic error response */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    forgetWorkerNode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Node name, compared without case */
+                nodeName: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The worker node was forgotten */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The node is a node of an inventory, not a worker node */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description No node has this name */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description The worker is online */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -28033,7 +28131,8 @@ export enum ViewSpecType {
     artifact = "artifact"
 }
 export enum InventoryNodeKind {
-    ssh = "ssh"
+    ssh = "ssh",
+    worker = "worker"
 }
 export enum InventoryHostKeyRefusalHop {
     node = "node",

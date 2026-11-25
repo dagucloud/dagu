@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import type { components } from '@/api/v1/schema';
+import { InventoryNodeKind, type components } from '@/api/v1/schema';
 import { EmptyState, InlineLoadError } from '@/components/PageStates';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,7 @@ import {
   useCanEditInventories,
   useCanTestNodes,
   useCanTrustNodeHostKeys,
+  useIsAdmin,
 } from '@/contexts/AuthContext';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useClient, useQuery } from '@/hooks/api';
@@ -60,9 +61,9 @@ const MAX_TEST_NODES = 1000;
 const MATCHED_PAGE_SIZE = 200;
 
 /**
- * Lists the nodes of this server's inventories, filtered by inventory,
- * labels, and name. Remote nodes do not serve their inventories, so the page
- * lists only this server's nodes.
+ * Lists the nodes of this server's inventories and its worker nodes,
+ * filtered by inventory, labels, and name. Remote nodes do not serve their
+ * inventories, so the page lists only this server's nodes.
  */
 function NodesPage(): React.ReactElement {
   const appBarContext = useContext(AppBarContext);
@@ -111,6 +112,7 @@ function NodeList(): React.ReactElement {
   const canTest = useCanTestNodes();
   const canTrust = useCanTrustNodeHostKeys();
   const canEdit = useCanEditInventories();
+  const canForget = useIsAdmin();
   const tests = useNodeTests(config.apiURL);
   const [view, setView] = useState<'nodes' | 'inventories'>('nodes');
   const [creating, setCreating] = useState(false);
@@ -138,11 +140,9 @@ function NodeList(): React.ReactElement {
   );
 
   const inventoryList = inventories.data?.inventories ?? [];
-  const totalNodes = inventoryList.reduce(
-    (sum, item) => sum + item.nodeCount,
-    0
-  );
   const nodes = data?.nodes ?? [];
+  // Only SSH nodes are tested over a connection.
+  const testable = nodes.filter((node) => node.kind === InventoryNodeKind.ssh);
   // A failed request still returns the previous filter's data, whose count
   // and pages do not describe the current filter.
   const pagination = error ? undefined : data?.pagination;
@@ -188,12 +188,12 @@ function NodeList(): React.ReactElement {
     [nodeLabels.data?.labels]
   );
   const columnCount = canTest ? COLUMN_COUNT + 1 : COLUMN_COUNT;
-  const pageChecked = nodes.filter((node) => checked.has(node.name)).length;
+  const pageChecked = testable.filter((node) => checked.has(node.name)).length;
 
   const setPageChecked = (value: boolean) => {
     setChecked((prev) => {
       const next = new Set(prev);
-      for (const node of nodes) {
+      for (const node of testable) {
         if (value) {
           next.add(node.name);
         } else {
@@ -234,8 +234,8 @@ function NodeList(): React.ReactElement {
   };
 
   /**
-   * Returns the names of every node the filters match, a page at a time, or
-   * null after it reports why they cannot be tested.
+   * Returns the names of every SSH node the filters match, a page at a time,
+   * or null after it reports why they cannot be tested.
    */
   const listMatched = async (): Promise<string[] | null> => {
     const names: string[] = [];
@@ -259,8 +259,16 @@ function NodeList(): React.ReactElement {
         );
         return null;
       }
-      names.push(...matched.data.nodes.map((node) => node.name));
+      names.push(
+        ...matched.data.nodes
+          .filter((node) => node.kind === InventoryNodeKind.ssh)
+          .map((node) => node.name)
+      );
       if (!matched.data.pagination.hasNextPage || !matched.data.nodes.length) {
+        if (names.length === 0) {
+          tests.refuse(ts('No SSH node matches these filters.'));
+          return null;
+        }
         return names;
       }
     }
@@ -273,7 +281,7 @@ function NodeList(): React.ReactElement {
     void mutate();
   };
 
-  if (inventories.data && inventoryList.length === 0) {
+  if (inventories.data && inventoryList.length === 0 && data?.nodeCount === 0) {
     return (
       <>
         <EmptyState
@@ -329,7 +337,7 @@ function NodeList(): React.ReactElement {
       <p className="text-sm text-muted-foreground">
         <I18nText
           text={
-            "SSH hosts from this server's inventories. Steps select them by label."
+            "SSH hosts from this server's inventories, and workers that set an ID. Steps select them by label."
           }
         />
       </p>
@@ -404,19 +412,15 @@ function NodeList(): React.ReactElement {
             onChange={(event) => setName(event.target.value)}
           />
         </I18nProps>
-        {pagination && (
+        {pagination && data && (
           <span className="ml-auto text-xs text-muted-foreground">
-            {inventories.data ? (
-              <I18nTemplate
-                text="{matched} of {total} nodes"
-                values={{ matched: pagination.totalRecords, total: totalNodes }}
-              />
-            ) : (
-              <I18nTemplate
-                text="{count} nodes"
-                values={{ count: pagination.totalRecords }}
-              />
-            )}
+            <I18nTemplate
+              text="{matched} of {total} nodes"
+              values={{
+                matched: pagination.totalRecords,
+                total: data.nodeCount,
+              }}
+            />
           </span>
         )}
         {canTest && (
@@ -462,6 +466,17 @@ function NodeList(): React.ReactElement {
           onRetry={() => void nodeLabels.mutate()}
         />
       )}
+      {data?.workerConflicts.map((conflict) => (
+        <p key={conflict.worker} className="text-xs text-warning">
+          <I18nTemplate
+            text="Worker {worker} is not a node: inventory {inventory} has a node with that name."
+            values={{
+              worker: <code>{conflict.worker}</code>,
+              inventory: conflict.inventory.name,
+            }}
+          />
+        </p>
+      ))}
       {tests.run && (
         <NodeTestPanel
           run={tests.run}
@@ -486,11 +501,11 @@ function NodeList(): React.ReactElement {
                       checked={
                         pageChecked === 0
                           ? false
-                          : pageChecked === nodes.length
+                          : pageChecked === testable.length
                             ? true
                             : 'indeterminate'
                       }
-                      disabled={nodes.length === 0 || isValidating}
+                      disabled={testable.length === 0 || isValidating}
                       onCheckedChange={(value) =>
                         setPageChecked(value === true)
                       }
@@ -607,6 +622,7 @@ function NodeList(): React.ReactElement {
         node={shown}
         lastTest={selected ? tests.results[nodeKey(selected.name)] : undefined}
         canEdit={canEdit}
+        canForget={canForget}
         onChanged={() => {
           refresh();
           void reloadSelected();
@@ -658,6 +674,7 @@ function NodeRow({
   onOpen: () => void;
 }): React.ReactElement {
   const { ts } = useI18n();
+  const isSSH = node.kind === InventoryNodeKind.ssh;
   return (
     <TableRow
       className="cursor-pointer"
@@ -676,12 +693,14 @@ function NodeRow({
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => event.stopPropagation()}
         >
-          <Checkbox
-            aria-label={ts('Check {name}', { name: node.name })}
-            checked={checked}
-            disabled={checkDisabled}
-            onCheckedChange={(value) => onCheckedChange(value === true)}
-          />
+          {isSSH && (
+            <Checkbox
+              aria-label={ts('Check {name}', { name: node.name })}
+              checked={checked}
+              disabled={checkDisabled}
+              onCheckedChange={(value) => onCheckedChange(value === true)}
+            />
+          )}
         </TableCell>
       )}
       <TableCell>
@@ -705,14 +724,19 @@ function NodeRow({
               <I18nText text={'Disabled'} />
             </Badge>
           )}
-          {!node.strictHostKey && (
+          {isSSH && !node.strictHostKey && (
             <Badge variant="warning">
               <I18nText text={'Any host key'} />
             </Badge>
           )}
+          {!isSSH && !node.online && (
+            <Badge variant="outline">
+              <I18nText text={'Offline'} />
+            </Badge>
+          )}
         </div>
       </TableCell>
-      <TableCell className="truncate">{node.inventory.name}</TableCell>
+      <TableCell className="truncate">{node.inventory?.name ?? '—'}</TableCell>
       <TableCell className="font-mono">{node.kind}</TableCell>
       <TableCell className="truncate font-mono">{hostOf(node)}</TableCell>
       <TableCell>
