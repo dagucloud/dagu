@@ -209,25 +209,36 @@ a new file and the old `SKILL.md` is a complete skill. A folder with no `SKILL.m
 ### The hash
 
 The hash of a skill is the SHA-256 of a text, in lower case hexadecimal (64 characters). The text
-has one line for each regular file of the folder. The lines are in the byte order of the path, from
-the lowest:
+has one line for each entry of the folder that is not a directory. The lines are in the byte order
+of the path, from the lowest. Every line has this form:
 
 ```text
-<sha256 of the file in hexadecimal><two spaces><path><line feed>
+<digest in hexadecimal><two spaces><path><line feed>
 ```
 
-This is the output of `sha256sum` for the files. The path is relative to the skill folder. It uses
-`/` as separator. It has no `./` prefix. The line feed is `\n`, also on Windows. The text has no
-other line.
+The digest of a regular file is the SHA-256 of its bytes, so for a skill of regular files the text
+is the output of `sha256sum`. The path is relative to the skill folder. It uses `/` as separator.
+It has no `./` prefix. The line feed is `\n`, also on Windows.
 
 The hash does not depend on the order of the directory entries, the time stamps or the modes of the
-files. A change of one byte, of one name, or the addition or the removal of a file changes it.
+files. A change of one byte of a file, a change of a path, or the addition or the removal of a line
+changes it.
 
-A skill with an error has a hash too, so that a client can repair it. An entry that is not a regular
-file (a link, a special file) gives the line `<64 zeros><two spaces><path>`. A file larger than 4
-MiB is not read: its digest is the SHA-256 of the text `oversize:<size>`. A skill folder that is a
-link has one line with an empty path and the SHA-256 of the text `symlink:<target>`. So its hash is
-not the hash of an empty skill.
+A skill with an error has a hash too, so that a client can repair it. Its lines have the same form:
+
+- An entry that is neither a regular file nor a directory (a link, a special file) has a digest of
+  64 zeros.
+- A file larger than 4 MiB is not read. Its digest is the SHA-256 of the text `oversize:<size>`.
+- A skill folder that is a link has one line with an empty path, `<digest><two spaces><line feed>`.
+  The digest is the SHA-256 of the text `symlink:<target>`. So its hash is not the hash of an empty
+  skill.
+- An entry that breaks the rule `path`, a temporary file of a write, and every entry below a
+  directory that Dagu does not enter have no line. Dagu does not enter a hidden directory, or a
+  directory at the root other than `references/`, `assets/` and `scripts/`.
+- In a folder of more than 1024 entries, the entries after the first 1024 have no line. The count
+  holds files and directories, depth first, with the names of each directory in byte order.
+
+The text has no other line.
 
 ### Preconditions and conflicts
 
