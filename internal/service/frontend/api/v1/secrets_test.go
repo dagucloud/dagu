@@ -6,9 +6,12 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"testing"
 
 	apigen "github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	persiststore "github.com/dagucloud/dagu/v2/internal/persis/store"
@@ -224,6 +227,108 @@ func TestSecretsAPI_CreateRejectsDefaultWorkspaceSelector(t *testing.T) {
 	rejected, ok := resp.(apigen.CreateSecret400JSONResponse)
 	require.True(t, ok)
 	assert.Contains(t, rejected.Message, "workspace cannot be default")
+}
+
+// Only an administrator may create or change a secret under the reserved
+// prefix "ai/". A manager keeps full access to every other secret.
+func TestSecretsAPI_ReservedRefNeedsAdmin(t *testing.T) {
+	api, store := newSecretsTestAPI(t)
+	asRole := func(role auth.Role) context.Context {
+		return auth.WithUser(context.Background(), &auth.User{ID: "cloud:user-1", Role: role, AuthProvider: auth.AuthProviderCloud})
+	}
+	manager, admin := asRole(auth.RoleManager), asRole(auth.RoleAdmin)
+	value := "secret-value"
+	create := func(ctx context.Context, ref string) (string, error) {
+		resp, err := api.CreateSecret(ctx, apigen.CreateSecretRequestObject{
+			Body: &apigen.CreateSecretRequest{
+				Ref:          ref,
+				ProviderType: apigen.CreateSecretRequestProviderTypeDaguManaged,
+				Value:        &value,
+			},
+		})
+		if err := expectResponse[apigen.CreateSecret201JSONResponse](resp, err); err != nil {
+			return "", err
+		}
+		return resp.(apigen.CreateSecret201JSONResponse).Id, nil
+	}
+
+	_, err := create(manager, "ai/endpoint/anthropic")
+	requireForbidden(t, err)
+	reservedID, err := create(admin, "ai/endpoint/anthropic")
+	require.NoError(t, err)
+	plainID, err := create(manager, "prod/api-key")
+	require.NoError(t, err)
+
+	description := "changed"
+	rotated := "rotated-value"
+	// Ordered so that each change applies to the state the previous one left.
+	changes := []struct {
+		name string
+		call func(ctx context.Context, id string) error
+	}{
+		{"Update", func(ctx context.Context, id string) error {
+			resp, err := api.UpdateSecret(ctx, apigen.UpdateSecretRequestObject{
+				SecretId: id,
+				Body:     &apigen.UpdateSecretRequest{Description: &description},
+			})
+			return expectResponse[apigen.UpdateSecret200JSONResponse](resp, err)
+		}},
+		{"Disable", func(ctx context.Context, id string) error {
+			resp, err := api.DisableSecret(ctx, apigen.DisableSecretRequestObject{SecretId: id})
+			return expectResponse[apigen.DisableSecret200JSONResponse](resp, err)
+		}},
+		{"Enable", func(ctx context.Context, id string) error {
+			resp, err := api.EnableSecret(ctx, apigen.EnableSecretRequestObject{SecretId: id})
+			return expectResponse[apigen.EnableSecret200JSONResponse](resp, err)
+		}},
+		{"WriteVersion", func(ctx context.Context, id string) error {
+			resp, err := api.WriteSecretVersion(ctx, apigen.WriteSecretVersionRequestObject{
+				SecretId: id,
+				Body:     &apigen.WriteSecretVersionRequest{Value: &rotated},
+			})
+			return expectResponse[apigen.WriteSecretVersion200JSONResponse](resp, err)
+		}},
+		{"Delete", func(ctx context.Context, id string) error {
+			resp, err := api.DeleteSecret(ctx, apigen.DeleteSecretRequestObject{SecretId: id})
+			return expectResponse[apigen.DeleteSecret204Response](resp, err)
+		}},
+	}
+
+	for _, change := range changes {
+		requireForbidden(t, change.call(manager, reservedID), change.name)
+		require.NoError(t, change.call(manager, plainID), change.name)
+	}
+	kept, err := store.GetByID(context.Background(), reservedID)
+	require.NoError(t, err)
+	assert.Empty(t, kept.Description)
+	assert.Equal(t, secretpkg.StatusActive, kept.Status)
+	assert.Equal(t, 1, kept.CurrentVersion)
+	_, err = store.GetByID(context.Background(), plainID)
+	require.ErrorIs(t, err, secretpkg.ErrNotFound)
+
+	for _, change := range changes {
+		require.NoError(t, change.call(admin, reservedID), change.name)
+	}
+	_, err = store.GetByID(context.Background(), reservedID)
+	require.ErrorIs(t, err, secretpkg.ErrNotFound)
+}
+
+// expectResponse returns err, or an error when resp is not a T.
+func expectResponse[T any](resp any, err error) error {
+	if err != nil {
+		return err
+	}
+	if _, ok := resp.(T); !ok {
+		return fmt.Errorf("unexpected response %T", resp)
+	}
+	return nil
+}
+
+func requireForbidden(t *testing.T, err error, msgAndArgs ...any) {
+	t.Helper()
+	var apiErr *apiv1.Error
+	require.ErrorAs(t, err, &apiErr, msgAndArgs...)
+	assert.Equal(t, http.StatusForbidden, apiErr.HTTPStatus, msgAndArgs...)
 }
 
 func newSecretsTestAPI(t *testing.T) (*apiv1.API, secretpkg.Store) {
