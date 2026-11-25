@@ -284,8 +284,10 @@ func serviceHours(ctx context.Context, reader samples.Reader, mark serviceMark, 
 }
 
 // readServiceHours reads the hours of a run history from from to to, with
-// the run in progress since runStart. An hour with no run and no known
-// uptime is left out.
+// the run in progress since runStart. The uptime of an hour is known only
+// after the hour the history first recorded a run's active time in, so that
+// the time before a new service ran does not count as down. An hour with no
+// run and no known uptime is left out.
 func readServiceHours(ctx context.Context, reader samples.Reader, from, to, runStart, now time.Time) []serviceHour {
 	n := int(to.Sub(from) / time.Hour)
 	series, err := reader.Samples(ctx, samples.SampleQuery{From: from, To: to, MaxPoints: n})
@@ -305,14 +307,15 @@ func readServiceHours(ctx context.Context, reader samples.Reader, from, to, runS
 	}
 	var out []serviceHour
 	for _, b := range series.WithActive(runStart, last, now).Buckets {
-		if b.Count == 0 && !known {
+		hourKnown := known && !b.Time.Before(uptime.Since)
+		if b.Count == 0 && !hourKnown {
 			continue
 		}
 		h := serviceHour{
 			Start: formatTime(b.Time), Count: b.Count, Failures: b.Failures, SumMs: b.Sum.Milliseconds(),
 			MinMs: b.Min.Milliseconds(), MaxMs: b.Max.Milliseconds(), P95Ms: b.P95.Milliseconds(), start: b.Time,
 		}
-		if known {
+		if hourKnown {
 			up := b.Up.Milliseconds()
 			h.UpMs = &up
 		}
