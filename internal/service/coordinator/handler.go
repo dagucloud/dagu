@@ -26,6 +26,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
@@ -178,6 +179,7 @@ type Handler struct {
 	secretStore               secretpkg.Store                    // Secret registry for workers
 	profileStore              profilepkg.Store                   // Runtime profiles for workers
 	agentSessionCleanupQueue  *agentsession.CleanupQueue         // Deferred provider cleanup owned by workers
+	workerNodes               *workerNodeRecorder                // Records workers that set an ID as nodes
 
 	// Open attempts cache for status persistence
 	attemptsMu   sync.RWMutex
@@ -258,6 +260,10 @@ type HandlerConfig struct {
 	// AgentSessionCleanupQueue stores provider cleanup claimed by owning workers.
 	AgentSessionCleanupQueue *agentsession.CleanupQueue
 
+	// WorkerNodeStore records the workers that are nodes (RFC 012).
+	// Optional - when nil, no worker node is recorded.
+	WorkerNodeStore inventory.WorkerNodeStore
+
 	// StaleHeartbeatThreshold is the duration after which a worker's heartbeat
 	// is considered stale. Defaults to 30 seconds if not set.
 	StaleHeartbeatThreshold time.Duration
@@ -324,6 +330,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		secretStore:               cfg.SecretStore,
 		profileStore:              cfg.ProfileStore,
 		agentSessionCleanupQueue:  cfg.AgentSessionCleanupQueue,
+		workerNodes:               newWorkerNodeRecorder(cfg.WorkerNodeStore),
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
 		staleLeaseThreshold:       cfg.StaleLeaseThreshold,
 		workerWaitTimeout:         cfg.WorkerWaitTimeout,
@@ -1593,6 +1600,7 @@ func (h *Handler) Heartbeat(ctx context.Context, req *coordinatorv1.HeartbeatReq
 			return nil, status.Error(codes.Internal, "failed to persist worker heartbeat: "+err.Error())
 		}
 	}
+	h.workerNodes.observe(ctx, req.WorkerId, req.Host, req.Labels, receivedAt)
 	if h.dagRunLeaseStore == nil {
 		h.refreshLeasesFromHeartbeat(ctx, req.WorkerId, req.Stats, receivedAt)
 	}
@@ -3057,6 +3065,8 @@ func (h *Handler) WaitZombieDetector() {
 
 // detectAndCleanupZombies checks for stale workers and marks their tasks as failed.
 func (h *Handler) detectAndCleanupZombies(ctx context.Context) {
+	h.reconcileWorkerNodes(ctx)
+
 	// Pass 1: clean up stale worker presence records used for discovery.
 	if h.workerHeartbeatStore != nil {
 		_, _ = h.workerHeartbeatStore.DeleteStale(ctx, time.Now().Add(-h.staleHeartbeatThreshold))

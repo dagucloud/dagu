@@ -71,6 +71,11 @@ func (c *Context) hostKeyStore() (*store.HostKeyStore, error) {
 	return store.NewHostKeyStore(c.backend.Collection(persis.CollectionHostKeys))
 }
 
+// workerNodeStore opens the worker nodes of this installation.
+func (c *Context) workerNodeStore() (*store.WorkerNodeStore, error) {
+	return store.NewWorkerNodeStore(c.backend.Collection(persis.CollectionWorkerNodes))
+}
+
 // runtimeHostKeyStore returns the host keys trusted for nodes, or nil when
 // the backend cannot hold them.
 func (c *Context) runtimeHostKeyStore() inventory.HostKeyStore {
