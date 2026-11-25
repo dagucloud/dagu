@@ -232,8 +232,10 @@ step, runs a step with nodes again only on the nodes that did not succeed:
   inventory as it is now: its connection settings and credentials, and
   whether it is disabled. A node disabled now does not run, and keeps its
   child run for a later retry.
-- A node that has left the inventory since is `removed`. It does not run,
-  does not fail the step, and counts in `summary.total` only.
+- A node that has left the inventory since, and whose child run did not
+  succeed, is `removed`. It does not run, does not fail the step, and counts
+  in `summary.total` only. The step fails when every node it keeps is
+  removed or disabled and none kept a result ([Errors](#errors)).
 - After the run's process died during the step, the retry does the same.
   A child run still recorded as running runs its unfinished steps again.
 
