@@ -202,6 +202,26 @@ func TestPathOverlapsByIdentity(t *testing.T) {
 		}, cfg.PathOverlaps())
 	})
 
+	// A ".." after a link in a missing target leaves that link's target, as
+	// for a path that exists.
+	t.Run("LinkToMissingDirThroughLink", func(t *testing.T) {
+		t.Parallel()
+		cfg := projectsTestConfig(t, true)
+		root := filepath.Dir(cfg.Paths.DataDir)
+		live := filepath.Join(cfg.Paths.DataDir, "auth", "live")
+		require.NoError(t, os.MkdirAll(live, 0750))
+		symlinkOrSkip(t, live, filepath.Join(root, "jump"))
+		library := filepath.Join(root, "library")
+		sep := string(filepath.Separator)
+		symlinkOrSkip(t, "jump"+sep+".."+sep+"library", library)
+		cfg.Paths.AltDAGsDir = library
+
+		assert.Equal(t, []string{
+			overlap("paths.alt_dags_dir", library, "lies inside",
+				"paths.data_dir/auth", filepath.Join(cfg.Paths.DataDir, "auth")),
+		}, cfg.PathOverlaps())
+	})
+
 	t.Run("LetterCase", func(t *testing.T) {
 		t.Parallel()
 		cfg := projectsTestConfig(t, true)

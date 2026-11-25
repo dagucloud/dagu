@@ -183,8 +183,9 @@ type dirLocation struct {
 }
 
 // maxLinkHops bounds the links to missing targets that one lookup follows,
-// so a loop of links ends.
-const maxLinkHops = 16
+// so a loop of links ends. It is as many as Linux follows; no directory can
+// be created through a longer chain.
+const maxLinkHops = 40
 
 // locateDir returns the location of path. A link whose target does not
 // exist yet places the names below it at that target. A directory that
@@ -317,8 +318,8 @@ func (fs *lookups) resolve(path string) string {
 	return resolved
 }
 
-// recordLink records the target of the link at path, joining a relative
-// target to the link's directory with its links resolved.
+// recordLink records the target of the link at path. A relative target
+// starts at the link's directory with its links resolved.
 func (fs *lookups) recordLink(path string) {
 	target, err := os.Readlink(path)
 	if err != nil {
@@ -329,9 +330,28 @@ func (fs *lookups) recordLink(path string) {
 		if real := fs.resolve(dir); real != "" {
 			dir = real
 		}
-		target = filepath.Join(dir, target)
+		// Joined unclean, so a ".." in target is not applied before the
+		// links ahead of it.
+		target = dir + string(filepath.Separator) + target
 	}
-	fs.links[path] = filepath.Clean(target)
+	fs.links[path] = resolveExistingPrefix(target)
+}
+
+// resolveExistingPrefix returns the absolute path with the links of its
+// longest existing prefix resolved in order, so a ".." after a link leaves
+// the link's target, as EvalSymlinks does for a path that exists. The names
+// after that prefix join as spelled.
+func resolveExistingPrefix(path string) string {
+	sep := string(filepath.Separator)
+	volume := filepath.VolumeName(path)
+	names := strings.Split(strings.TrimPrefix(path[len(volume):], sep), sep)
+	for n := len(names); n > 0; n-- {
+		prefix := volume + sep + strings.Join(names[:n], sep)
+		if real, err := filepath.EvalSymlinks(prefix); err == nil {
+			return filepath.Join(append([]string{real}, names[n:]...)...)
+		}
+	}
+	return filepath.Clean(path)
 }
 
 // foldsCase reports whether name, and every other name below dir, compares
