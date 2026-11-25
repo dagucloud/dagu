@@ -80,15 +80,16 @@ dagu nodes list --labels web                   # like `ansible-inventory --list`
 | `forks` | `nodes.max_concurrent`, 1 to 1000. The default is `1` |
 | `any_errors_fatal: true` | `keep_going: false`, the default: no node starts after one fails, and running nodes finish |
 | A play that goes on with the other hosts after one fails | `keep_going: true`: every node runs, and the step fails if any node failed |
-| A play on `localhost`, or `run_once` with `delegate_to: localhost` in a play without `serial` | A step outside the bound DAG |
+| A play on `localhost`, or `run_once` with `delegate_to: localhost` in a linear play without `serial` | A step outside the bound DAG |
 | `delegate_to: localhost` on each host, such as a load balancer call, or `run_once` with it under `serial: 1` | A step with an action such as `http.request` in the bound DAG: it runs on the Dagu host, once per node |
 | `serial` as a percentage or a list, `max_fail_percentage`, `order` | Not supported. Nodes start in name order |
-| `run_once` under `serial` above 1, which runs once per batch | Not supported. Dagu has no batches |
+| `strategy: free` | A `node: required` DAG started by `dag.run` with `nodes`: each node runs its steps without waiting for the others, `max_concurrent` nodes at a time |
+| `run_once` under `strategy: free`, or under `serial` above 1, which runs once per batch | Not supported |
 
 - A comma means AND in a Dagu selector. Quote a selector that starts with `!`, since YAML reads a leading `!` as a tag.
 - Keys and values take globs, `*` and `?`, as in `role=front*`, not regular expressions.
 - In a bound run, steps with no action, `ssh.run`, and `sftp.*` run on the node. Other actions run on the Dagu host.
-- A play without `serial` runs a `run_once` task after the tasks before it finish on every host, and before the tasks after it start. A step outside one bound DAG runs before or after all of that DAG's steps, so split the play at the task: a step with `nodes`, a command step or a `dag.run` of a bound DAG, for the tasks before it, the `run_once` task as a step without `nodes`, then a step with `nodes` for the tasks after it, each depending on the one before.
+- In a linear play without `serial`, a `run_once` task delegated to localhost runs after the tasks before it finish on every host, and before the tasks after it start. A step outside one bound DAG runs before or after all of that DAG's steps, so split the play at the task: a step with `nodes`, a command step or a `dag.run` of a bound DAG, for the tasks before it, the `run_once` task as a step without `nodes`, then a step with `nodes` for the tasks after it, each depending on the one before. A `run_once` task without `delegate_to` runs on one host instead: select that host with a label only it carries.
 - The linear strategy runs each task on every host before the next task. For that order, put `nodes` on each command step instead. A step with `nodes` fails when any of its nodes failed, and the steps after it then run on every matched node, or not at all, as `continue_on` decides.
 
 ```yaml
