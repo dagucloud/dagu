@@ -79,8 +79,9 @@ bearer token, which expires after an hour.
 
 ## Goals
 
-1. On a fresh server, a user connects a Google account from the UI in under
-   five minutes. The UI guides the Google Cloud setup and checks it.
+1. On a fresh server, a user connects a Google account from the UI by
+   following the wizard alone, without other docs. The UI guides the Google
+   Cloud setup, checks it, and turns each setup error into its fix.
 2. The CLI connects an account in one command, including over SSH with no
    local browser.
 3. `mcp.call`, `http.request`, mail, harness, agent DAG, and chat steps refer
@@ -202,7 +203,7 @@ admins:
 | `subject` | Service accounts only: the impersonated user, fixed by the admin |
 | `bound_hosts` | Hosts added beyond the services' presets that may receive the token. Required for `oauth2` |
 | `resource` | MCP connections: the canonical server URL (RFC 8707) |
-| `workspaces` | The allow-list: workspace names, `.global` for DAGs without a workspace label as secrets name that scope (`internal/secret/secret.go:42`), or `*` for every workspace |
+| `workspaces` | The allow-list: workspace names, `.global` for DAGs without a workspace label as secrets name that scope (`internal/secret/secret.go:42`), or `*` for every workspace. Defaults to the workspace the creator has selected, or `.global` when none is |
 | `allow_token_export` | Admin opt-in for the `connection` secret provider. Off by default |
 
 The token state record (`<data_dir>/connection-tokens/`) is written only by
@@ -342,10 +343,23 @@ URL and the app's client type, and shows the exact redirect URI to register.
 - **Refresh token expiry.** When the provider reports
   `refresh_token_expires_in`, as Google does for apps in Testing status, Dagu
   shows the date. It explains that publishing the app to Production, or
-  making it Internal, removes the seven-day limit.
+  making it Internal, removes the seven-day limit. The Connections page then
+  shows the time left on every read, and the navigation badge appears two
+  days before the expiry. No ticker checks it, so no notification is sent
+  before the token expires.
 - **Duplicates.** A second connection for the same account and client
   triggers a warning. Google keeps only 100 refresh tokens per account per
   client and silently revokes the oldest.
+
+**Consent errors.** Google's errors on the consent screen are mapped to the
+fix, since the raw codes do not say what to do:
+
+| Error | Shown |
+| --- | --- |
+| `access_denied` | Google does not say which cause applies, so both are shown: the user declined, or the app is in Testing status and the account is not a test user. The second comes with how to add a test user |
+| `admin_policy_enforced` | The Workspace admin blocks this client. Ask them to trust the client ID, shown with a copy button, under API controls in the Admin console |
+| `redirect_uri_mismatch` | The redirect URI to register, with a copy button |
+| `invalid_client` | The client ID or secret is wrong, or the client was deleted. Upload the client JSON again |
 
 **Reconnect** runs the same flow for an existing connection. The previous
 tokens stay live until the user confirms, and confirming increments
@@ -473,6 +487,8 @@ new kind, `connection`, and two types:
 - `connection.needs_attention`, when a connection becomes `needs_reconnect`
   or its app becomes `invalid`. It carries the connection, or the app and
   its connections, the status, the provider's reason, and a Reconnect URL.
+  Without a public URL, the message names the Connections page and the
+  command `dagu connection reconnect <name>` instead.
 - `connection.restored`, when it returns to `connected`.
 
 The notification monitor reads only DAG-run events today. It decodes each
@@ -487,6 +503,16 @@ allow-list, and to the server-wide settings for `*` and `.global`. It is in
 the default event set for new channels. A failure produces one message,
 however many runs then fail on it.
 
+Runs that fail on a broken connection would still send their own
+`dag.run.failed` messages, one per run. So a run that fails with
+`reconnect_required`, or on an `invalid` app, records the connection as its
+failure cause. A channel that receives `connection.needs_attention` skips the
+run failure message for such a run while that connection stays broken. A
+channel that does not receive connection events still gets every run
+failure, so no failure goes unreported. The DAG's own failure handlers run
+as before. Scheduled runs keep starting and fail at admission, so the run
+history shows when the connection broke and when it was restored.
+
 **Declared connections.** Building a DAG collects the connections it names
 into `ir.DAG.Connections`, as `CredentialRefs` collects SSH refs
 (`internal/ir/dag.go:298`). The sources are:
@@ -499,6 +525,17 @@ into `ir.DAG.Connections`, as `CredentialRefs` collects SSH refs
 Each name must be a literal. A name taken from a parameter or variable fails
 validation, since the coordinator checks every token request against the
 declared names.
+
+The DAG index (`internal/persis/file/dag/dagindex/dagindex.go:27`) also
+stores each DAG's connection names, so the Connections page lists the DAGs
+that use a connection without reading DAG files. An index entry loads only
+metadata today, so the names are read from the YAML's connection fields
+without a full build.
+
+**Run records.** A step that uses a connection records the connection's name
+and account in its node status, and a harness or chat step records how many
+calls the gateway refused. A run that fails on a broken connection records
+that connection as its failure cause.
 
 **Admission checks.** Spec validation stays offline: building a DAG only
 collects names. Checks that need connection records run at run admission: in
@@ -743,10 +780,34 @@ could read it there and call the gateway while the step runs. The gateway
 token is the only credential the agent sees, and it lasts only as long as
 the step.
 
+Each adapter also pre-approves the gateway's tools, and only those, since
+the gateway already enforces the allow-list and approvals. Without this the
+agent's own permission check would block every gateway call:
+
+- `claude -p` runs with no permission flags today
+  (`internal/runtime/builtin/harness/provider.go:70`), and print mode denies
+  an MCP tool that no rule allows. The adapter passes `--allowedTools` for
+  the gateway server's tools.
+- An ACP agent's permission request is denied unless `acp_permission:
+  allow`, which accepts every tool, shell included (`acp.go:358`). A request
+  for a gateway tool is accepted whatever `acp_permission` says. Other
+  requests keep the policy.
+- Codex gets the same pre-approval through its config overrides, where it
+  asks for one.
+
+The agent's other tools keep the step's permission settings.
+
 A harness agent cannot pause in the middle of a turn to wait for a person.
 So in a harness step, the gateway refuses a call to a write tool that is not
 in `unattended`. The agent receives a tool error that names the rule, and
-the step log records the refused call.
+the step log records the refused call. Such a step can still succeed, so
+the refusals are made visible:
+
+- The editor warns when a harness or chat step's `mcp_servers` offers a
+  write tool that is not in `unattended`, since the step can never call it.
+  The warning reads the cached tool list and its annotations.
+- The step records how many calls the gateway refused, and the run page
+  shows the count beside the step's status.
 
 #### Agent DAGs and chat steps
 
@@ -771,18 +832,24 @@ tasks:
   `<connection>__<server>__<tool>`, or `<connection>__<tool>` for an `mcp`
   connection, so two accounts with the same service never collide. The name
   is sanitized and kept within the 64-character limit like step tool names,
-  and the tool's input schema becomes its parameters. The catalog is saved with
-  the `__agent__` node, as Spec 032 already requires, so a run's tools stay
-  fixed while it runs.
+  and the tool's input schema becomes its parameters. The catalog is saved
+  with the `__agent__` node, as Spec 032 already requires, so a run's tools
+  stay fixed while it runs.
 - A call runs through the gateway, inside the agent loop. The result is
   added to the transcript under the observation limits that apply to step
   results.
 - A write tool that is not in `unattended` opens an approval task before
   the call. It is a synthesized human task like `ask_user`, but `ask_user`'s
   rules do not apply to it (`specs/032-agent-dag.md:169`). It does not count
-  toward the five-question limit, and an earlier decision never answers a
-  later call, even an identical one.
-  - The task shows the tool and its arguments.
+  toward the five-question limit.
+  - The task shows the tool, its arguments, and any text the agent wrote
+    with the call, so a person can judge why the agent wants it.
+  - The person approves once, approves the tool for the rest of the run, or
+    rejects. Approving for the rest of the run covers that tool only, is
+    recorded on the run, and ends with it. Otherwise an earlier decision
+    never answers a later call, even an identical one. Without this, an
+    agent that labels 30 emails would wait for 30 approvals in turn, and
+    authors would list every tool in `unattended` to avoid them.
   - The run waits without a process, and the existing `dag.run.waiting`
     event tells someone.
   - The run continues once a person decides. A rejection goes back to the
@@ -852,7 +919,7 @@ dagu connection test NAME
 dagu connection reconnect NAME
 dagu connection remove NAME
 dagu connection tools NAME [--server gmail] [--json]
-dagu connection call NAME --server gmail --tool search_threads --args '{"query":"is:unread"}'
+dagu connection call NAME --server gmail --tool search_threads --args '{"query":"is:unread"}' [--yes]
 dagu connection apps list | remove APP
 ```
 
@@ -941,15 +1008,22 @@ steps:
 1. **Services.** Cards for Gmail, Calendar, Drive, Docs, Sheets, Slides,
    Chat, People, and Search, each with a read or read-and-write choice. The
    scopes they need are listed underneath.
-2. **Agents.** "Will AI agents use this connection?" Yes sets the app's
-   agent flag. The step says that Google requires separate clients for
-   agents and for other automation.
+2. **Agents.** "Who will use this connection?" with three answers: AI
+   agents, other automation and mail, or both. The step says that Google
+   requires separate clients for agents and for other automation. **Both**
+   makes a pair from one pass through the next step, which then asks for two
+   clients, one with the agent flag. The pair is named `<name>-agent` and
+   `<name>`, and each connection's page links to the other.
 3. **OAuth app.** The user picks an existing app, or follows a checklist:
    - **Enable APIs:** a button opens `console.cloud.google.com/flows/enableapi`
      with the APIs for the chosen services filled in.
    - **Consent screen:** a link, with a warning that an app in Testing
-     status must be reconnected every seven days. Publishing to Production,
-     or making the app Internal, avoids this.
+     status must be reconnected every seven days and accepts only the
+     accounts listed as test users. Publishing to Production, or making the
+     app Internal, avoids both. Internal needs a Workspace organization. An
+     app published without Google's verification shows "Google hasn't
+     verified this app" on the consent screen. The step shows that screen
+     and says it is expected for the user's own app.
    - **Create OAuth client:** a link, the client type to choose, the
      redirect URI with a copy button, and, for agents, the checkbox to tick.
    - **Upload:** a drop zone for the downloaded `client_secret_*.json`. Dagu
@@ -958,17 +1032,30 @@ steps:
 4. **Consent.** A popup, opened before any request so that browsers do not
    block it, as `ui/src/pages/license/useLicenseConnect.ts` does. The page
    polls until the popup's callback completes. A blocked popup falls back to
-   a link. Paste mode shows a field for the redirect URL.
+   a link. In paste mode, the page says before opening the popup that the
+   browser will end on an error page, and that its address is what to copy.
+   It then shows a field for that address.
 5. **Done.** The account to confirm, granted scopes, a result per service,
    and two buttons: **Start from a template** and **Browse tools**.
 
 The connection page shows status and the reason for it, the account,
 services and scopes, the workspace allow-list, and Reconnect, Test, and
-Remove. It also has a tool browser:
+Remove. It also shows:
+
+- **Used by:** the DAGs that name the connection, read from the DAG index.
+  Remove, a reconnect with a different account, and a change that drops a
+  workspace from the allow-list each show this list before they apply.
+- **Add service:** runs the wizard's Services, OAuth app, and Consent steps
+  again for the new service only. The OAuth app step shows just the APIs to
+  enable for it, and Consent reconnects with the added scopes.
+
+It also has a tool browser:
 
 - a list of each MCP service's tools;
 - a form built from each tool's input schema;
-- **Try it**, which shows the result;
+- **Try it**, which shows the result. A tool that is not read-only acts on
+  the real account, so Try it asks first. `dagu connection call` asks the
+  same on a terminal, unless `--yes` is given;
 - **Copy as step**, which copies an `mcp.call` step in YAML.
 
 Elsewhere in the UI:
@@ -978,12 +1065,17 @@ Elsewhere in the UI:
   that completes calendar names (`ui/src/lib/calendarNameExamples.ts`,
   `ui/src/features/dags/components/dag-editor/DAGSpec.tsx`). `server`
   completes from the connection's presets. `tool` and argument keys complete
-  from `GET /connections/{name}/tools`. The server also reports unknown
-  connections and connections the DAG's workspace may not use.
-- **Run page.** A step that failed with `reconnect_required` shows
-  **Reconnect** next to its error.
+  from `GET /connections/{name}/tools`. Completion lists the connections
+  that fit the field: agent connections for `mcp_servers` on AI steps, and
+  the others for `mail_accounts` and `http.request`. The server also reports
+  unknown connections and connections the DAG's workspace may not use. For
+  a user allowed to change the connection, the second offers to add the
+  DAG's workspace to the allow-list.
+- **Run page.** A step that used a connection shows its name and account. A
+  step that failed with `reconnect_required` shows **Reconnect** next to its
+  error.
 - **Navigation.** The Connections item shows a badge while any connection
-  needs reconnecting.
+  needs reconnecting, or has a refresh token that expires within two days.
 - **Getting started.** The checklist
   (`ui/src/features/activity/hooks/useGettingStarted.ts`) gains a "Connect
   an account" step.
@@ -1110,12 +1202,14 @@ connections.
 | Event | Behavior |
 | --- | --- |
 | The user denies consent or closes the popup | The session fails or expires. The connection stays `pending`, or keeps its previous tokens on a reconnect |
+| Google returns a consent error, such as a missing test user or a Workspace admin's block | The session fails, and the UI or CLI shows the fix from [Consent errors](#connect-flow) |
 | The callback arrives after 10 minutes, twice, or for a session that a newer one replaced | Refused. Nothing changes |
 | Another user tries to confirm the account | Refused. The session stays in `confirm` |
 | Nobody confirms the account | The session expires. The previous tokens stay live |
 | The user unticks a scope | The connection is created. Services missing a scope show it, and steps that need it fail with `insufficient_scope` |
 | A Google MCP probe is rejected | The service shows the agent flag hint and a link. Other services are unaffected |
-| The refresh token is revoked or expires | `needs_reconnect` once, one `connection.needs_attention` notification, a badge in the UI, and every step that uses the connection fails with `reconnect_required` and the connection's name |
+| The refresh token is revoked or expires | `needs_reconnect` once, one `connection.needs_attention` notification, a badge in the UI, and every step that uses the connection fails with `reconnect_required` and the connection's name. Channels that receive the connection event skip those runs' failure messages |
+| A refresh token from an app in Testing status nears its seven-day expiry | The Connections page shows the time left, and the badge appears two days before. No notification is sent until it expires |
 | A refresh fails with `invalid_grant` because another host on shared storage rotated the token | The re-read finds the new refresh token and the refresh is retried once. Status is unchanged |
 | The provider answers HTTP 429 | The step fails with kind `rate_limited` and the provider's message. Status is unchanged |
 | The OAuth app's secret is rotated or deleted at the provider | The app becomes `invalid`, and its connections fail at once without calling the provider. Updating the app restores them |
@@ -1132,7 +1226,8 @@ connections.
 | A server sends a confirmation request | An agent DAG shows it to a person and waits up to the timeout. Other steps decline it, and the call fails |
 | An upstream MCP tool's description changes during a run | Calls to that tool fail until the next run, which records the new description |
 | A harness step in a container sets `mcp_servers` | Validation fails, naming the limit |
-| A harness or chat step calls a write tool that is not in `unattended` | The gateway refuses the call. The model receives a tool error that names the rule, and the step continues |
+| A harness or chat step calls a write tool that is not in `unattended` | The gateway refuses the call. The model receives a tool error that names the rule, and the step continues. The run page shows the refused count |
+| A harness agent's own permission policy would deny a gateway tool | The adapter's pre-approval lets the call through. The gateway's rules still apply |
 | Nobody answers a write tool's approval in an agent DAG | The run stays waiting, as for any human task |
 
 ## Performance
@@ -1176,15 +1271,24 @@ connections.
   monitor's reader for `connection` events runs on its existing poll interval
   (`internal/service/chatbridge/monitor.go:403`). It adds one cursor read of
   the event store per tick, which returns nothing between status changes.
+  To skip run failures caused by a broken connection, the monitor keeps the
+  set of broken connections in memory, bounded by the number of
+  connections, and rebuilds it from the connection records when it starts.
 - **Storage.** About 2 KB per connection, plus about 1 KB per extra resource
   of a Microsoft connection, and 1 KB per app. An agent DAG run with
   `mcp_servers` saves its MCP tools in the `__agent__` catalog: names,
   descriptions, input schemas, and hashes, roughly 1 to 2 KB per tool, so 10
-  to 40 KB for two Google servers. A `tools` allow-list shrinks it. Harness
-  and chat steps add nothing to run status, and nothing is added to indexes.
-  Audit grows only with management actions and tool calls from the UI.
-- **Upgrade.** No migration and no index rebuild. RFC 003's v3.0 migration
-  rewrites allow-lists, as [Permissions](#permissions) describes.
+  to 40 KB for two Google servers. A `tools` allow-list shrinks it. A step
+  that uses a connection adds about 100 bytes to its node status: the
+  connection's name and account, and for harness and chat steps the refused
+  count. A run that fails on a broken connection adds about 70 bytes for its
+  cause. The DAG index adds the connection names of each DAG that uses one,
+  tens of bytes per entry. Audit grows only with management actions and tool
+  calls from the UI.
+- **Upgrade.** No migration. The DAG index version goes up, so the first
+  start rebuilds the index once, reading each DAG file as a rebuild does
+  today. RFC 003's v3.0 migration rewrites allow-lists, as
+  [Permissions](#permissions) describes.
 
 ## Compatibility and rollout
 
@@ -1195,8 +1299,10 @@ connections.
   keys there. An older binary silently ignores `connection` in
   `mail_accounts` (`internal/spec/mail_accounts.go:110`), so that account
   has no credentials and its mail steps fail. An older binary ignores the
-  new collections, so a downgrade drops the feature and keeps the rest
-  working.
+  new collections and the new run status fields, so a downgrade drops the
+  feature and keeps the rest working. An older binary finds a DAG index of
+  a newer version and rebuilds its own, as on any version mismatch
+  (`internal/persis/file/dag/dagindex/dagindex.go:94`).
 - **Version skew in distributed mode.** A new worker under an old
   coordinator fails only the steps that use connections, as [Failure
   behavior](#failure-behavior) states. An old worker parses the DAG
@@ -1212,7 +1318,9 @@ connections.
   the new kind `confirmation_required`.
 - **Notifications.** The two `connection.*` events join the default event
   set for new channels only. Existing channels keep their event lists, and
-  must opt in.
+  must opt in. Until they do, they keep receiving every run failure, since
+  only a channel that receives connection events skips the failures they
+  cause.
 - **Specs.** 098 (`mcp.call`), 045 (`http.request`), 073 (mail), 032 (agent
   DAGs), 059 (chat), 067 (harness), and 069 (secret providers) gain the new
   fields. A new spec defines connections, the broker, and the connect flow.
@@ -1236,7 +1344,8 @@ ships after confirmation requests are tested against Google's servers
    - `mail_accounts.*.connection`, with the Microsoft `mailbox` preset. This
      alone fixes Microsoft rotation for mail.
 2. **Connect flows.** All four redirect modes, sessions and confirmation,
-   the REST API, the Connections page, the Google wizard,
+   the REST API, the Connections page, the Google wizard with paired
+   connections and consent error fixes, the expiry display,
    `dagu connection add`, test, and reconnect.
 3. **Steps.**
    - `ir.DAG.Connections`, admission checks, and the coordinator RPC with
@@ -1244,17 +1353,22 @@ ships after confirmation requests are tested against Google's servers
    - `http.request` with bound hosts.
    - `mcp.call` with connections, the Google presets, and the
      `rate_limited` and `confirmation_required` kinds.
+   - Run records of the connection, account, and failure cause, and
+     skipping the run failure messages a broken connection causes.
 4. **Any MCP server.** Discovery, registration, and the gallery tile.
-5. **Authoring.** Editor completion, the tool browser and Try it with inline
-   confirmation, templates, `dagu_read`, and the docs.
+5. **Authoring.** Editor completion and the workspace quick fix, the tool
+   browser and Try it with inline confirmation, the Used by list from the
+   DAG index, Add service, templates, `dagu_read`, and the docs.
 6. **Token export.** The `connection` secret provider, behind
    `allow_token_export`.
-7. **Gateway and harness steps.** Claude Code, Codex, and ACP adapters,
-   `unattended`, pinned tools, and declining confirmation requests. Write
-   tools not listed in `unattended` are refused.
+7. **Gateway and harness steps.** Claude Code, Codex, and ACP adapters with
+   pre-approved gateway tools, `unattended`, pinned tools, and declining
+   confirmation requests. Write tools not listed in `unattended` are
+   refused, with the editor warning and the refused count.
 8. **Agent DAGs and chat steps.** MCP tools, approval tasks before write
-   tools, confirmation tasks with their delivery over the run socket and run
-   heartbeat, and the Google policy lint.
+   tools with approval for the rest of a run, confirmation tasks with their
+   delivery over the run socket and run heartbeat, and the Google policy
+   lint.
 
 ## Verification and acceptance criteria
 
@@ -1289,7 +1403,8 @@ ships after confirmation requests are tested against Google's servers
     provider token.
 12. An agent DAG calls an MCP tool with arguments. A write tool not in
     `unattended` waits for a person before each call, including after five
-    such calls, and runs only after approval. A harness step's or a child
+    such calls, and runs only after approval, unless a person approved it
+    for the rest of the run. A harness step's or a child
     agent DAG's call to such a tool is refused.
 13. A Gmail read-only tool runs unattended. Every tool of a generic `mcp`
     connection waits for a person unless `unattended` lists it.
@@ -1315,7 +1430,15 @@ ships after confirmation requests are tested against Google's servers
     connection's refresh.
 22. An agent DAG's confirmation answer reaches the waiting call both in a
     local run and on a worker.
-23. Every case in [Failure behavior](#failure-behavior) ends as stated.
+23. A harness step with the step's default permission settings calls a
+    gateway tool through Claude Code, Codex, and an ACP agent.
+24. While 100 runs fail on a broken connection, a channel that receives
+    connection events sends one message and no run failure messages. A
+    channel that does not receive them sends every run failure.
+25. An agent DAG approves a write tool for the rest of the run. Later calls
+    to that tool run without a task, and other write tools still wait.
+26. Each consent error in [Consent errors](#connect-flow) shows its fix.
+27. Every case in [Failure behavior](#failure-behavior) ends as stated.
 
 ## Alternatives considered
 
@@ -1356,6 +1479,9 @@ ships after confirmation requests are tested against Google's servers
 - **Reusing `ask_user` for approvals.** No new task. But its five-question
   limit stalls an agent that writes more than five times, and its repeat
   rule would approve an identical second write without asking.
+- **Approving each call only.** Simpler. But an agent that writes 30 times
+  waits for 30 approvals in turn, which pushes authors to list every tool in
+  `unattended` and lose the default.
 - **Accepting confirmation requests for tools in `unattended`.** Harness and
   chat steps could then use Google's sensitive tools. But the request is
   Google's own check that a person is present, and answering it without one
@@ -1392,6 +1518,13 @@ ships after confirmation requests are tested against Google's servers
    chat steps, and needs testing against Google before Part B ships.
 7. Should hosts that share storage pick one refresh owner, for providers
    that revoke a token family on reuse?
+8. Do Google's Workspace MCP servers serve personal `@gmail.com` accounts,
+   or only Workspace accounts? The wizard should say so before the user
+   starts the Google Cloud setup.
+9. Do ACP agents name the MCP server in a permission request? The adapter
+   accepts only gateway tools, so an agent that does not name it falls back
+   to `acp_permission` for every MCP call. This needs checking against each
+   agent before Part B ships.
 
 ## Future enhancements
 
@@ -1403,6 +1536,11 @@ ships after confirmation requests are tested against Google's servers
   for the gateway and run a stdio bridge inside the container. It would also
   work with `network: none`.
 - **Personal connections,** with a run-as-user model.
+- **Approval timeouts.** A write tool's approval would be rejected after a
+  set time. Human tasks have no timeout today, and a run that waits without
+  a process needs a scheduler check to enforce one.
+- **Expiry notifications.** A message before a refresh token expires. It
+  needs a periodic check, which this RFC avoids for idle cost.
 - **More presets,** such as Slack, GitHub, and Salesforce, as their MCP
   servers settle.
 
