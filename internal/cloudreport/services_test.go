@@ -176,8 +176,9 @@ func TestReportListsServiceDAGs(t *testing.T) {
 	assert.Nil(t, report(t, config.ReportHealth).ServiceDAGs)
 }
 
-// A new outage or a recovery of a service DAG whose run just ended sends a
-// report early; a service that keeps failing in the same outage does not.
+// A new outage of a service DAG whose run just ended sends a report early,
+// once per serviceUrgentEvery; a service that keeps failing in the same
+// outage, or recovers, waits for the next report.
 func TestAServiceOutageReportsEarly(t *testing.T) {
 	t.Parallel()
 
@@ -200,6 +201,15 @@ func TestAServiceOutageReportsEarly(t *testing.T) {
 	dir.emitService(eventstore.TypeDAGRunFailed, run("loop", "run-11", ir.Failed))
 	_, passed = clock.nextReport(console)
 	assert.Greater(t, passed, eventCheckInterval, "the same outage goes at the normal pace")
+
+	history.record(clock.now().Add(-time.Second), 1, never)
+	dir.emitService(eventstore.TypeDAGRunSucceeded, run("loop", "run-12", ir.Succeeded))
+	_, passed = clock.nextReport(console)
+	assert.Greater(t, passed, eventCheckInterval, "a recovery goes at the normal pace")
+	history.record(clock.now().Add(-time.Second), 1, always(true))
+	dir.emitService(eventstore.TypeDAGRunFailed, run("loop", "run-13", ir.Failed))
+	_, passed = clock.nextReport(console)
+	assert.Greater(t, passed, eventCheckInterval, "a new outage within ten minutes of the last early report")
 }
 
 // What an accepted report sent of a service DAG holds after the server

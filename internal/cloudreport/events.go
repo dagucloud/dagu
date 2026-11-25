@@ -457,6 +457,9 @@ type eventFeed struct {
 	services     ServiceDAGs
 	serviceWatch map[string]int
 	sentServices map[string]serviceMark
+	// serviceUrgent is when each service DAG last called for an early
+	// report.
+	serviceUrgent map[string]time.Time
 }
 
 // newEventFeed returns nil when events has no Reader.
@@ -978,7 +981,7 @@ func (f *eventFeed) drop() {
 	f.stopRebuild()
 	f.held, f.loaded, f.fresh = false, false, false
 	f.state, f.batch, f.notified, f.accepted = eventState{}, nil, nil, nil
-	f.serviceWatch, f.sentServices = nil, nil
+	f.serviceWatch, f.sentServices, f.serviceUrgent = nil, nil, nil
 	f.rebuildAfter = time.Time{}
 }
 

@@ -62,9 +62,14 @@ const (
 	// stalled file system leaves them out of a report rather than holding it.
 	serviceReadTimeout = 10 * time.Second
 	// serviceWatchChecks is how many checks a service DAG whose run ended
-	// is read for a new failed or recovered event: the scheduler records the
-	// run in its history soon after the run ends.
+	// is read for a new outage: the scheduler records the run in its history
+	// soon after the run ends.
 	serviceWatchChecks = 3
+	// serviceUrgentEvery is the least time between two early reports for one
+	// service DAG. Dagu Console keeps a service's alert open until it goes
+	// as long without a failure, so a service that fails now and then waits
+	// for the next report.
+	serviceUrgentEvery = 10 * time.Minute
 )
 
 // serviceMark is what the last accepted report sent of a service DAG: its
@@ -361,8 +366,8 @@ func oldestFirst(entries []serviceDAGEntry, key func(serviceDAGEntry) (string, b
 	return best
 }
 
-// watchService has the service DAG read for a new failed or recovered event
-// at the next checks, as its run just ended.
+// watchService has the service DAG read for a new outage at the next
+// checks, as its run just ended.
 func (f *eventFeed) watchService(name string) {
 	if f.services == nil {
 		return
@@ -374,10 +379,14 @@ func (f *eventFeed) watchService(name string) {
 }
 
 // serviceNews reports whether a watched service DAG's run history has a
-// failed or recovered event newer than what the last accepted report sent,
-// which calls for an early report. Each check counts down the watch.
+// failed event newer than what the last accepted report sent, which calls
+// for an early report unless one went for the DAG within serviceUrgentEvery.
+// A recovery waits for the next report: Dagu Console resolves the alert only
+// once the service goes serviceUrgentEvery without a failure. Each check
+// counts down the watch.
 func (f *eventFeed) serviceNews(ctx context.Context) bool {
 	news := false
+	now := f.now()
 	for name, left := range f.serviceWatch {
 		if left <= 1 {
 			delete(f.serviceWatch, name)
@@ -393,9 +402,17 @@ func (f *eventFeed) serviceNews(ctx context.Context) bool {
 			continue
 		}
 		e := page.Events[0]
-		if (e.Kind == samples.EventFailed || e.Kind == samples.EventRecovered) && e.Time.After(f.state.Services[name].EventAt) {
-			news = true
+		if e.Kind != samples.EventFailed || !e.Time.After(f.state.Services[name].EventAt) {
+			continue
 		}
+		if last, ok := f.serviceUrgent[name]; ok && now.Sub(last) < serviceUrgentEvery {
+			continue
+		}
+		if f.serviceUrgent == nil {
+			f.serviceUrgent = make(map[string]time.Time)
+		}
+		f.serviceUrgent[name] = now
+		news = true
 	}
 	return news
 }
