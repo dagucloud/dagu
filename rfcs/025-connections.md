@@ -131,8 +131,9 @@ Promised:
 - A refresh token or client secret is stored only encrypted. It is never
   returned by the API, CLI, or MCP server, and it never reaches a step's
   process, a step's environment, or a worker.
-- An access token is sent only to the hosts the connection is bound to. It
-  does not follow a redirect to another host.
+- An access token is sent only to the hosts the connection is bound to, and
+  only over HTTPS. It does not follow a redirect to another host or to plain
+  HTTP.
 - A run receives a token only for a connection that its DAG declares, and
   only when the connection's allow-list includes the run's workspace.
 - A refresh result never overwrites a newer reconnect.
@@ -324,7 +325,7 @@ Redirect modes:
 | Mode | When | Client type |
 | --- | --- | --- |
 | Server callback | The server has a usable public URL: `server.public_url`, else the tunnel URL, else the UI's origin when the browser reaches Dagu at `localhost`, which Google accepts over HTTP. The redirect URI is `<public_url>/oauth/callback`, a public route beside `oidc-callback` (`internal/service/frontend/server.go:1445`) | `web` |
-| Cloud relay | The server has an online license (RFC 002) but no usable public URL. The redirect URI is Dagu Cloud's fixed callback, `<cloud_url>/oauth/callback`, and the server fetches the code from Dagu Cloud | `web` |
+| Cloud relay | The server has an online license (RFC 002) but no usable public URL. The redirect URI is Dagu Cloud's fixed callback, `<cloud_url>/oauth/callback`, and the server fetches the code from Dagu Cloud, as [Cloud relay](#cloud-relay) describes | `web` |
 | Loopback | The CLI runs where a browser can open. The CLI listens on `127.0.0.1` on a random port and sends the code to the server | `desktop` |
 | Paste | None of the above works, as for an unlicensed server on a private address. The browser lands on a loopback URL that fails to load, and the user pastes that URL into the UI or CLI | `desktop` |
 | Device code | Microsoft, over SSH. The CLI shows a code to enter on another device | `public` |
@@ -334,26 +335,6 @@ Google's device flow does not cover Gmail scopes, so a Google connection uses
 one of the first four modes. The UI and CLI pick the first mode in the
 table that works, given the server's public URL, its license, and the app's
 client type, and show the exact redirect URI to register.
-
-**Cloud relay.** A server without a public URL still gets a fixed HTTPS
-callback, without paste mode and without Dagu Cloud holding any secret:
-
-- Starting a session, the server registers a callback with Dagu Cloud under
-  its license credentials, and gets a callback ID. The `state` parameter
-  starts with that ID in clear, followed by the encrypted state, so Dagu
-  Cloud routes the callback without reading it.
-- Dagu Cloud's callback page stores the code and state under the ID, and
-  tells the person they may close the page.
-- While the session waits, the server polls Dagu Cloud for the callback
-  every 3 seconds, as license activation polls (RFC 002). It then checks the
-  encrypted state and completes the callback as if it had received it.
-  Dagu Cloud deletes the code on the first fetch, or after 10 minutes.
-- Dagu Cloud sees only the code. The PKCE verifier and the client secret
-  stay on the server, so Dagu Cloud cannot exchange the code for tokens.
-  RFC 002's rules hold: Dagu Cloud stores no secret, and runs never depend
-  on it, since only connecting does.
-- One redirect URI serves every server, so a team with several servers
-  registers it once in each OAuth client.
 
 **Checks after consent:**
 
@@ -377,16 +358,6 @@ callback, without paste mode and without Dagu Cloud holding any secret:
   triggers a warning. Google keeps only 100 refresh tokens per account per
   client and silently revokes the oldest.
 
-**Consent errors.** Google's errors on the consent screen are mapped to the
-fix, since the raw codes do not say what to do:
-
-| Error | Shown |
-| --- | --- |
-| `access_denied` | Google does not say which cause applies, so both are shown: the user declined, or the app is in Testing status and the account is not a test user. The second comes with how to add a test user |
-| `admin_policy_enforced` | The Workspace admin blocks this client. Ask them to trust the client ID, shown with a copy button, under API controls in the Admin console |
-| `redirect_uri_mismatch` | The redirect URI to register, with a copy button |
-| `invalid_client` | The client ID or secret is wrong, or the client was deleted. Upload the client JSON again |
-
 **Reconnect** runs the same flow for an existing connection. The previous
 tokens stay live until the user confirms, and confirming increments
 `generation`. A different account than before is never confirmed without
@@ -397,6 +368,40 @@ provider supports revocation, then deletes both records. A DAG that still
 names the connection fails at run start, naming it. Creating a connection
 replaces any token state record left under its name, so a new connection
 never inherits an old one's tokens.
+
+#### Cloud relay
+
+A server without a public URL still gets a fixed HTTPS callback, without
+paste mode and without Dagu Cloud holding any secret:
+
+- Starting a session, the server registers a callback with Dagu Cloud under
+  its license credentials, and gets a callback ID. The `state` parameter
+  starts with that ID in clear, followed by the encrypted state, so Dagu
+  Cloud routes the callback without reading it.
+- Dagu Cloud's callback page stores the code and state under the ID, and
+  tells the person they may close the page.
+- While the session waits, the server polls Dagu Cloud for the callback
+  every 3 seconds, as license activation polls (RFC 002). It then checks the
+  encrypted state and completes the callback as if it had received it.
+  Dagu Cloud deletes the code on the first fetch, or after 10 minutes.
+- Dagu Cloud sees only the code. The PKCE verifier and the client secret
+  stay on the server, so Dagu Cloud cannot exchange the code for tokens.
+  RFC 002's rules hold: Dagu Cloud stores no secret, and runs never depend
+  on it, since only connecting does.
+- One redirect URI serves every server, so a team with several servers
+  registers it once in each OAuth client.
+
+#### Consent errors
+
+Google's errors on the consent screen are mapped to the fix, since the raw
+codes do not say what to do:
+
+| Error | Shown |
+| --- | --- |
+| `access_denied` | Google does not say which cause applies, so both are shown: the user declined, or the app is in Testing status and the account is not a test user. The second comes with how to add a test user |
+| `admin_policy_enforced` | The Workspace admin blocks this client. Ask them to trust the client ID, shown with a copy button, under API controls in the Admin console |
+| `redirect_uri_mismatch` | The redirect URI to register, with a copy button |
+| `invalid_client` | The client ID or secret is wrong, or the client was deleted. Upload the client JSON again |
 
 ### Token broker
 
@@ -418,9 +423,9 @@ Cloud](#dagu-cloud) describes.
 Steps that use a token in process ask for a `minTTL` of 5 minutes, and ask
 again when the token runs low. Only token export asks for more, 50 minutes,
 because a script cannot ask again. A token refreshes when its remaining life
-is shorter than the `minTTL` asked for. So a connection whose token runs keep
-exporting refreshes about once per token lifetime minus 50 minutes: every 10
-minutes for a Google token, however many runs start.
+is shorter than the `minTTL` asked for. So while runs keep exporting a
+connection's token, it refreshes about once per token lifetime minus 50
+minutes: every 10 minutes for a Google token, however many runs start.
 
 Local path, used by the server, the scheduler, and local runs:
 
@@ -512,9 +517,11 @@ volume (`charts/dagu/README.md:83`):
   such providers to keep every process that has the data directory on one
   host, or to keep the data directory on local disk.
 
-**Notifications.** A status change records one event in the event store,
-written by the process whose CAS write made the change. The events have a
-new kind, `connection`, and two types:
+### Notifications
+
+A status change records one event in the event store, written by the
+process whose CAS write made the change. The events have a new kind,
+`connection`, and two types:
 
 - `connection.needs_attention`, when a connection becomes `needs_reconnect`
   or its app becomes `invalid`. It carries the connection, or the app and
@@ -536,14 +543,16 @@ the default event set for new channels. A failure produces one message,
 however many runs then fail on it.
 
 Runs that fail on a broken connection would still send their own
-`dag.run.failed` messages, one per run. So a run that fails with
-`reconnect_required`, or on an `invalid` app, records the connection as its
-failure cause. A channel that receives `connection.needs_attention` skips the
-run failure message for such a run while that connection stays broken. A
+`dag.run.failed` messages, one per run. Such a run records the connection
+as its failure cause ([Runs](#runs)). A channel that receives
+`connection.needs_attention` skips the run failure message for such a run
+while that connection stays broken. A
 channel that does not receive connection events still gets every run
 failure, so no failure goes unreported. The DAG's own failure handlers run
 as before. Scheduled runs keep starting and fail at admission, so the run
 history shows when the connection broke and when it was restored.
+
+### Runs
 
 **Declared connections.** Building a DAG collects the connections it names
 into `ir.DAG.Connections`, as `CredentialRefs` collects SSH refs
@@ -564,11 +573,6 @@ that use a connection without reading DAG files. An index entry loads only
 metadata today, so the names are read from the YAML's connection fields
 without a full build.
 
-**Run records.** A step that uses a connection records the connection's name
-and account in its node status, and a harness or chat step records how many
-calls the gateway refused. A run that fails on a broken connection records
-that connection as its failure cause.
-
 **Admission checks.** Spec validation stays offline: building a DAG only
 collects names. Checks that need connection records run at run admission: in
 the run process, before its first step, where secrets resolve. A local run
@@ -584,6 +588,11 @@ checks:
 
 A failed check fails the run before its first step, naming the connection,
 as an unresolvable secret does.
+
+**Run records.** A step that uses a connection records the connection's name
+and account in its node status, and a harness or chat step records how many
+calls the gateway refused. A run that fails with `reconnect_required`, or
+on an `invalid` app, records the connection as its failure cause.
 
 **Masking.** `setupMasker` builds each attempt's masker from the scope's
 secrets (`internal/runtime/output.go:78`). A step that uses a connection
@@ -1115,7 +1124,7 @@ steps:
 
 The connection page shows status and the reason for it, the account,
 services and scopes, the workspace allow-list, and Reconnect, Test, and
-Remove. It also shows:
+Remove, with three panels:
 
 - **Used by:** the DAGs that name the connection, read from the DAG index.
   Remove, a reconnect with a different account, and a change that drops a
@@ -1123,15 +1132,12 @@ Remove. It also shows:
 - **Add service:** runs the wizard's Services, OAuth app, and Consent steps
   again for the new service only. The OAuth app step shows just the APIs to
   enable for it, and Consent reconnects with the added scopes.
-
-It also has a tool browser:
-
-- a list of each MCP service's tools;
-- a form built from each tool's input schema;
-- **Try it**, which shows the result. A tool that is not read-only acts on
-  the real account, so Try it asks first. `dagu connection call` asks the
-  same on a terminal, unless `--yes` is given;
-- **Copy as step**, which copies an `mcp.call` step in YAML.
+- **Tools:** each MCP service's tools, with a form built from each tool's
+  input schema.
+  - **Try it** shows the result. A tool that is not read-only acts on the
+    real account, so Try it asks first. `dagu connection call` asks the same
+    on a terminal, unless `--yes` is given.
+  - **Copy as step** copies an `mcp.call` step in YAML.
 
 Elsewhere in the UI:
 
@@ -1141,12 +1147,14 @@ Elsewhere in the UI:
   `ui/src/features/dags/components/dag-editor/DAGSpec.tsx`). `server`
   completes from the connection's presets. `tool` and argument keys complete
   from `GET /connections/{name}/tools`. Completion lists the connections
-  that fit the field: agent connections for `mcp_servers` on AI steps, and
-  the others for `mail_accounts` and `http.request`. The server also reports
+  that fit the field: agent connections for `mcp_servers` on AI steps and
+  for `mcp.call` with a Google preset, and the others for `mail_accounts`
+  and `http.request`. The server also reports
   unknown connections and connections the DAG's workspace may not use. For
   a user allowed to change the connection, the second offers to add the
   DAG's workspace to the allow-list.
-- **Run page.** A step that used a connection shows its name and account. A
+- **Run page.** A step that used a connection shows its name and account,
+  and a harness or chat step shows how many calls the gateway refused. A
   step that failed with `reconnect_required` shows **Reconnect** next to its
   error.
 - **Navigation.** The Connections item shows a badge while any connection
@@ -1272,15 +1280,15 @@ connections.
   - status changes;
   - tool calls from the UI.
 
-  Token issuance is not audited, since it happens once an hour per
-  connection.
+  Token issuance is not audited. It is routine, and each run already
+  records the connection and account it used.
 
 ## Failure behavior
 
 | Event | Behavior |
 | --- | --- |
 | The user denies consent or closes the popup | The session fails or expires. The connection stays `pending`, or keeps its previous tokens on a reconnect |
-| Google returns a consent error, such as a missing test user or a Workspace admin's block | The session fails, and the UI or CLI shows the fix from [Consent errors](#connect-flow) |
+| Google returns a consent error, such as a missing test user or a Workspace admin's block | The session fails, and the UI or CLI shows the fix from [Consent errors](#consent-errors) |
 | Dagu Cloud is unreachable during a Cloud relay connect | The session fails, saying so, and offers the next mode. Runs and existing connections are unaffected |
 | Dagu Cloud lacks the relay endpoints | The server does not offer Cloud relay, and picks the next mode |
 | The callback arrives after 10 minutes, twice, or for a session that a newer one replaced | Refused. Nothing changes |
@@ -1315,7 +1323,8 @@ connections.
 - **Idle cost.** None. No ticker, watcher, or scan is added. Tokens refresh
   only when a step needs one.
 - **Refresh rate.** At most once per connection and resource per token
-  lifetime on a host, about one an hour, regardless of the number of runs.
+  lifetime on a host, about once an hour per resource, regardless of the
+  number of runs.
   Today mail refreshes once per run, so a mail DAG that runs every minute
   drops from 60 refreshes an hour to one. Token export shortens this to
   about every 10 minutes for a Google connection, while runs keep starting
@@ -1429,11 +1438,11 @@ ships after confirmation requests are tested against Google's servers
      credentials, which need no consent screen.
    - `mail_accounts.*.connection`, with the Microsoft `mailbox` preset. This
      alone fixes Microsoft rotation for mail.
-2. **Connect flows.** All five redirect modes, Cloud relay once Dagu Cloud
-   serves its endpoints, sessions and confirmation,
-   the REST API, the Connections page, the Google wizard with paired
-   connections and consent error fixes, the expiry display,
-   `dagu connection add`, test, and reconnect.
+2. **Connect flows.** All five redirect modes, with Cloud relay once Dagu
+   Cloud serves its endpoints. Sessions and confirmation, the REST API, the
+   Connections page, the Google wizard with paired connections and consent
+   error fixes, the expiry display, `dagu connection add`, test, and
+   reconnect.
 3. **Steps.**
    - `ir.DAG.Connections`, admission checks, and the coordinator RPC with
      the binding, `check_only`, and the worker version check.
@@ -1459,6 +1468,8 @@ ships after confirmation requests are tested against Google's servers
 
 ## Verification and acceptance criteria
 
+Connect:
+
 1. On a fresh server with a public URL, a user follows the Google wizard,
    uploads a client JSON, consents, and lists Gmail tools without leaving
    the UI except for the Google Cloud console and the consent screen.
@@ -1466,71 +1477,82 @@ ships after confirmation requests are tested against Google's servers
    (loopback), over SSH to a server with a public URL (server callback), over
    SSH to a licensed server without one (Cloud relay), and over SSH to an
    unlicensed server without one (paste).
-3. An `mcp.call` step with `connection` and `server: gmail` succeeds, both
-   locally and on a worker with no shared filesystem.
-4. With 100 concurrent runs using one connection whose access token has
+3. In server-callback mode started from the CLI over SSH, a browser with no
+   Dagu session completes consent, and only the user who started the
+   session can confirm it.
+4. A licensed server without a public URL connects from the UI through the
+   Cloud relay. Dagu Cloud's stored data then holds no token, PKCE verifier,
+   or client secret, and the code is gone once the server fetched it.
+5. Each consent error in [Consent errors](#consent-errors) shows its fix.
+
+Broker:
+
+6. With 100 concurrent runs using one connection whose access token has
    expired, the provider receives exactly one refresh request.
-5. A rotated refresh token is saved, and the next refresh uses it, across
+7. A rotated refresh token is saved, and the next refresh uses it, across
    process restarts.
-6. Revoking access at the provider makes the connection `needs_reconnect`
-   once. Every later step fails without calling the token endpoint.
-   Reconnect restores it.
-7. A reconnect confirmed during a refresh leaves the reconnected token in
+8. A reconnect confirmed during a refresh leaves the reconnected token in
    place. Runs keep the previous token until the reconnect is confirmed.
-8. No refresh token, access token, or client secret appears in any API
-   response, CLI output, MCP result, run status, step log, worker log
-   stream, or audit entry. A test searches each of them for the values.
-9. `http.request` with a connection, locally and on a worker, never sends
-   the token to a host outside the bound hosts or over plain HTTP, including
-   through a redirect.
-10. A run on a worker cannot obtain a token for a connection its DAG does not
-    declare, or one whose allow-list excludes its workspace.
-11. A harness step with `mcp_servers` completes a turn longer than the
-    access token's lifetime. The agent process's arguments contain neither a
-    provider token nor the gateway token, and its environment contains no
-    provider token.
-12. An agent DAG calls an MCP tool with arguments. A write tool not in
-    `unattended` waits for a person before each call, including after five
-    such calls, and runs only after approval, unless a person approved it
-    for the rest of the run. A harness step's or a child
-    agent DAG's call to such a tool is refused.
-13. A Gmail read-only tool runs unattended. Every tool of a generic `mcp`
-    connection waits for a person unless `unattended` lists it.
-14. A revoked connection that 100 runs then use sends exactly one
-    `connection.needs_attention` notification, and a reconnect sends one
-    `connection.restored`.
-15. Two hosts sharing the data directory both keep working after one of them
-    rotates a Microsoft refresh token.
-16. Each role can do what [Permissions](#permissions) lists and nothing
-    more.
-17. One Microsoft connection serves a Graph `http.request` and an IMAP mail
-    action in the same run, each with a token for its own resource.
-18. A Google tool that sends a confirmation request waits for a person in an
-    agent DAG, and fails with `confirmation_required` in `mcp.call`. No path
-    accepts a request without a person.
-19. In server-callback mode started from the CLI over SSH, a browser with no
-    Dagu session completes consent, and only the user who started the
-    session can confirm it.
-20. A connect session written during a Microsoft refresh keeps the rotated
-    refresh token. A connection removed during a refresh stays removed, and
-    a new connection with its name starts without tokens.
-21. A token endpoint that hangs for one connection does not delay another
+9. A connect session written during a Microsoft refresh keeps the rotated
+   refresh token. A connection removed during a refresh stays removed, and
+   a new connection with its name starts without tokens.
+10. A token endpoint that hangs for one connection does not delay another
     connection's refresh.
-22. An agent DAG's confirmation answer reaches the waiting call both in a
-    local run and on a worker.
-23. A harness step with the step's default permission settings calls a
+11. Two hosts sharing the data directory both keep working after one of them
+    rotates a Microsoft refresh token.
+12. One Microsoft connection serves a Graph `http.request` and an IMAP mail
+    action in the same run, each with a token for its own resource.
+
+Failures and notifications:
+
+13. Revoking access at the provider makes the connection `needs_reconnect`
+    once. Every later step fails without calling the token endpoint.
+    Reconnect restores it.
+14. While 100 runs fail on a revoked connection, exactly one
+    `connection.needs_attention` is sent, and a reconnect sends one
+    `connection.restored`. A channel that receives connection events sends
+    no run failure messages for those runs. A channel that does not
+    receive them sends every run failure.
+
+Security:
+
+15. No refresh token, access token, or client secret appears in any API
+    response, CLI output, MCP result, run status, step log, worker log
+    stream, or audit entry. A test searches each of them for the values.
+16. `http.request` with a connection, locally and on a worker, never sends
+    the token to a host outside the bound hosts or over plain HTTP,
+    including through a redirect.
+17. A run on a worker cannot obtain a token for a connection its DAG does
+    not declare, or one whose allow-list excludes its workspace.
+18. Each role can do what [Permissions](#permissions) lists and nothing
+    more.
+
+Steps:
+
+19. An `mcp.call` step with `connection` and `server: gmail` succeeds, both
+    locally and on a worker with no shared filesystem.
+20. A harness step with `mcp_servers` completes a turn longer than the
+    access token's lifetime. The agent process's arguments contain neither
+    a provider token nor the gateway token, and its environment contains no
+    provider token.
+21. A harness step with the step's default permission settings calls a
     gateway tool through Claude Code, Codex, and an ACP agent.
-24. While 100 runs fail on a broken connection, a channel that receives
-    connection events sends one message and no run failure messages. A
-    channel that does not receive them sends every run failure.
-25. An agent DAG approves a write tool for the rest of the run. Later calls
-    to that tool run without a task, and other write tools still wait.
-26. Each consent error in [Consent errors](#connect-flow) shows its fix.
-27. A licensed server without a public URL connects a Google account
-    through the Cloud relay, from the UI and from the CLI over SSH. Dagu
-    Cloud's stored data then holds no token, PKCE verifier, or client
-    secret, and the code is gone once the server fetched it.
-28. Every case in [Failure behavior](#failure-behavior) ends as stated.
+22. An agent DAG calls an MCP tool with arguments. A write tool not in
+    `unattended` waits for a person before each call, including after five
+    such calls, and runs only after approval. Once a person approves it for
+    the rest of the run, later calls to it run without a task, and other
+    write tools still wait. A harness step's or a child agent DAG's call to
+    such a tool is refused.
+23. A Gmail read-only tool runs unattended. Every tool of a generic `mcp`
+    connection waits for a person unless `unattended` lists it.
+24. A Google tool that sends a confirmation request waits for a person in
+    an agent DAG, and fails with `confirmation_required` in `mcp.call`. The
+    answer reaches the waiting call both in a local run and on a worker. No
+    path accepts a request without a person.
+
+All:
+
+25. Every case in [Failure behavior](#failure-behavior) ends as stated.
 
 ## Alternatives considered
 
