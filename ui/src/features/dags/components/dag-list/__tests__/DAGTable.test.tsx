@@ -399,9 +399,6 @@ describe('DAGTable', () => {
     expect(
       within(table).queryByRole('link', { name: 'Edit workflow example' })
     ).not.toBeInTheDocument();
-    expect(
-      within(table).queryByRole('button', { name: 'Delete workflow example' })
-    ).not.toBeInTheDocument();
   });
 
   it('selects only workflows visible through the client-side filter', async () => {

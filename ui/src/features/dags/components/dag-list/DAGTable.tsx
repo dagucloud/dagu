@@ -609,7 +609,6 @@ declare module '@tanstack/react-table' {
     onToggleGroupDeleteSelection?: (fileNames: string[]) => void;
     onToggleAllDeleteSelection?: (checked: boolean) => void;
     canEditDAG?: (dag: components['schemas']['DAGFile']) => boolean;
-    canDeleteDAGs?: boolean;
     canPinDAG?: (dag: components['schemas']['DAGFile']) => boolean;
     onToggleGroupPin?: (dags: components['schemas']['DAGFile'][]) => void;
     /**
@@ -1707,7 +1706,6 @@ function DAGTable({
       onToggleGroupDeleteSelection: toggleGroupDeleteSelection,
       onToggleAllDeleteSelection: toggleAllDeleteSelection,
       canEditDAG,
-      canDeleteDAGs,
       canPinDAG,
       isPinPending: (fileName) => pendingPins.has(fileName),
       onTogglePin: (dag) => void togglePin(dag),
