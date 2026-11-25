@@ -87,8 +87,14 @@ function ActivityBars({
     [activity, minute]
   );
   const bars = useMemo(
-    () => (runs ? activityBars(runs, minute * REFRESH_MS, width) : []),
-    [runs, minute, width]
+    () =>
+      runs
+        ? activityBars(runs, minute * REFRESH_MS, width).map((bar) => ({
+            ...bar,
+            title: barTitle(bar, ts),
+          }))
+        : [],
+    [runs, minute, width, ts]
   );
   if (!activity || !runs) {
     return (
@@ -143,7 +149,7 @@ function ActivityBars({
             <Bar
               key={bar.id}
               bar={bar}
-              title={barTitle(bar, ts)}
+              title={bar.title}
               onOpenRun={onOpenRun}
             />
           ))}
