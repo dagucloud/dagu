@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/artifactpath"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/artifact"
@@ -74,6 +75,7 @@ func (f runPathsFixture) status(dirs runpath.Dirs, dagRunID string) ir.DAGRunSta
 				Step:   ir.Step{Name: "extract"},
 				Stdout: filepath.Join(logDir, "extract.out"), Stderr: filepath.Join(logDir, "extract.err"),
 				PushBackPreviousStdout: filepath.Join(logDir, "extract.1.out"),
+				RetryNodeRunsDir:       logpath.NodeRunsDir(logDir, "extract"),
 			},
 			{Step: ir.Step{Name: "load"}, Stdout: f.outside, Stderr: f.outside},
 		},
@@ -111,6 +113,7 @@ func assertRunPaths(t *testing.T, want ir.DAGRunStatus, got *ir.DAGRunStatus) {
 		assert.Equal(t, want.Nodes[i].Stdout, got.Nodes[i].Stdout)
 		assert.Equal(t, want.Nodes[i].Stderr, got.Nodes[i].Stderr)
 		assert.Equal(t, want.Nodes[i].PushBackPreviousStdout, got.Nodes[i].PushBackPreviousStdout)
+		assert.Equal(t, want.Nodes[i].RetryNodeRunsDir, got.Nodes[i].RetryNodeRunsDir)
 	}
 	require.NotNil(t, got.OnExit)
 	assert.Equal(t, want.OnExit.Stdout, got.OnExit.Stdout)
@@ -130,6 +133,7 @@ func TestRunPathsStoredRelative(t *testing.T) {
 	assert.Equal(t, "./etl/dag-run_run-1/extract.out", stored.Nodes[0].Stdout)
 	assert.Equal(t, "./etl/dag-run_run-1/extract.err", stored.Nodes[0].Stderr)
 	assert.Equal(t, "./etl/dag-run_run-1/extract.1.out", stored.Nodes[0].PushBackPreviousStdout)
+	assert.Equal(t, "./etl/dag-run_run-1/node-runs/extract", stored.Nodes[0].RetryNodeRunsDir)
 	assert.Equal(t, f.outside, stored.Nodes[1].Stdout)
 	assert.Equal(t, "./etl/dag-run_run-1/on_exit.log", stored.OnExit.Stdout)
 
