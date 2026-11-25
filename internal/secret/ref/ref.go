@@ -4,6 +4,18 @@
 // Package ref defines references to external secrets.
 package ref
 
+import "strings"
+
+// ReservedPrefix starts every registry ref that Dagu reserves for the secrets
+// of its AI features. No DAG, runtime profile or read by ref resolves such a
+// ref.
+const ReservedPrefix = "ai/"
+
+// IsReserved reports whether a registry ref starts with ReservedPrefix.
+func IsReserved(ref string) bool {
+	return strings.HasPrefix(ref, ReservedPrefix)
+}
+
 // Ref identifies a secret that is resolved at DAG execution time.
 type Ref struct {
 	// Name is the environment variable name to set.

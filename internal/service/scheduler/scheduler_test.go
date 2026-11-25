@@ -144,18 +144,27 @@ func TestScheduler(t *testing.T) {
 		require.NoError(t, err)
 		sc.SetClock(func() time.Time { return now })
 
-		var dispatchCount atomic.Int32
-		sc.SetDispatchFunc(func(_ context.Context, _ scheduler.DAGEntry, _ string, _ ir.TriggerType, _ time.Time, _ string) error {
-			dispatchCount.Add(1)
+		runIDCh := make(chan string, 1)
+		sc.SetDispatchFunc(func(_ context.Context, _ scheduler.DAGEntry, runID string, _ ir.TriggerType, _ time.Time, _ string) error {
+			select {
+			case runIDCh <- runID:
+			default:
+			}
 			return nil
 		})
 
 		errCh := startSchedulerAsync(t, sc, ctx)
 		defer stopSchedulerAndWait(t, sc, errCh, ctx)
 
-		require.Eventually(t, func() bool {
-			return dispatchCount.Load() >= int32(1)
-		}, 5*time.Second, 10*time.Millisecond, "dispatch should have been called for start schedule")
+		select {
+		case runID := <-runIDCh:
+			// With projects off, the slot's run ID hashes paths.data_dir as
+			// v2 does.
+			require.False(t, th.Config.ProjectsEnabled)
+			require.Equal(t, scheduler.GenerateSlotRunID(th.Config.Paths.DataDir, "start-dag", now), runID)
+		case <-time.After(5 * time.Second):
+			t.Fatal("dispatch should have been called for start schedule")
+		}
 	})
 	t.Run("NextTick", func(t *testing.T) {
 		th := test.SetupScheduler(t)

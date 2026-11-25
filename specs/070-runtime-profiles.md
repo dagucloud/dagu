@@ -20,7 +20,9 @@ into a DAG-run's environment, across three layers:
   carries a matching `workspace` label.
 - The explicitly selected profile, named by `--profile`, the `profile` field
   on `POST /dag-runs`, or (for a webhook-triggered run) the `X-Dagu-Profile`
-  header or the profile bound to the webhook token.
+  header or the profile bound to the webhook token. A run of an unsaved edit
+  that names its DAG file in `draftOf` on `POST /dag-runs` takes that DAG's
+  default profile when it names none.
 
 It also covers precedence against a DAG's own `env:` and `secrets:` fields,
 and masking of profile secret values.
@@ -72,6 +74,15 @@ An admin can also create profile tokens for a webhook
 profile. A run triggered with a profile token always uses that token's
 profile; the allow-list does not apply. Profile tokens are ignored while the
 webhook authenticates with HMAC only.
+
+A run from `POST /dag-runs` with `draftOf` and no `profile` takes the
+default profile of the DAG file that `draftOf` names, resolved as a start of
+that file resolves it, so a run from the editor behaves like a run of the
+saved file. Naming the file needs write permission for its workspace, as
+saving the spec there would; a protected default profile needs no
+administrator, as for a start of the file. A file that does not exist
+returns HTTP 404. Without `draftOf`, an omitted `profile` runs without a
+profile.
 
 A resolved profile secret is masked in run output exactly like a DAG-level
 secret: the literal value is replaced with `*******` in the step's stdout

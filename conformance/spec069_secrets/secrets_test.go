@@ -226,6 +226,7 @@ func TestSecretValidation(t *testing.T) {
 		{"validate_options_with_ref.yaml", "'options' cannot be used with registry ref"},
 		{"validate_bad_ref_pattern.yaml", "registry ref must be a slash-separated lowercase slug path"},
 		{"validate_empty_ref_segment.yaml", "registry ref must be a slash-separated lowercase slug path"},
+		{"validate_reserved_ref.yaml", `registry ref "ai/endpoint/anthropic" is reserved`},
 		{"validate_valid_ref.yaml", ""},
 	}
 

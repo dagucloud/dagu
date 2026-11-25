@@ -4,6 +4,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"strconv"
@@ -246,9 +247,8 @@ func remoteRunStart(ctx *Context, args []string) error {
 		if len(args) != 1 || ctx.Command.Flags().Changed("params") || ctx.Command.ArgsLenAtDash() != -1 || stdinParamsRequested(ctx) {
 			return fmt.Errorf("parameters cannot be provided when using --from-run-id")
 		}
-		// A remote reschedule carries no node list.
 		if ctx.Command.Flags().Changed(flagNode) {
-			return fmt.Errorf("--%s cannot be combined with --from-run-id in a remote context", flagNode)
+			return errNodeWithFromRunID
 		}
 		scheduledAt, err := ctx.StringParam(scheduledAtFlag.name)
 		if err != nil {
@@ -321,7 +321,7 @@ func remoteRunStart(ctx *Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := ctx.Remote.startDAG(ctx, dag.FileName, api.ExecuteDAGJSONBody{
+	body := api.ExecuteDAGJSONBody{
 		DagName:          stringPtrOrNil(nameOverride),
 		DagRunId:         stringPtrOrNil(runID),
 		Params:           stringPtrOrNil(params),
@@ -335,13 +335,59 @@ func remoteRunStart(ctx *Context, args []string) error {
 		WorkerSelector:   workerSelector,
 		TargetNodes:      targetNodes,
 		ScheduleTime:     stringPtrOrNil(scheduledAt),
-	})
+	}
+	resp, err := ctx.Remote.startDAG(ctx, dag.FileName, body)
+	if refused, ok := errors.AsType[*remoteError](err); ok && len(refused.Refused) > 0 {
+		resp, err = retryRefusedStart(ctx, dag.FileName, body, refused, selection.allowChanged)
+	}
 	if err != nil {
 		return err
 	}
 	printRemoteWarnings(ctx, resp.Warnings)
 	fmt.Println(resp.DagRunId)
 	return nil
+}
+
+// retryRefusedStart answers a start that the server refused for its carried
+// steps. With consent, a refusal of changed steps only is sent again with
+// those steps allowed; otherwise a refusal that names a changed step says how
+// to reuse it anyway. The refused start created nothing, so sending it again
+// is safe.
+func retryRefusedStart(ctx *Context, fileName string, body api.ExecuteDAGJSONBody, refused *remoteError, allowChanged bool) (*api.ExecuteDAG200JSONResponse, error) {
+	changed := make([]string, 0, len(refused.Refused))
+	for _, step := range refused.Refused {
+		if step.Status == api.CarriedStepCheckStatusChanged {
+			changed = append(changed, step.Step)
+		}
+	}
+	if len(changed) == 0 {
+		return nil, refused
+	}
+	if !allowChanged || len(changed) < len(refused.Refused) {
+		return nil, fmt.Errorf("%w; pass --allow-changed to reuse the changed steps anyway", refused)
+	}
+	body.AllowChangedSteps = &changed
+	resp, err := ctx.Remote.startDAG(ctx, fileName, body)
+	if err != nil {
+		return nil, err
+	}
+	for _, step := range refused.Refused {
+		_, _ = fmt.Fprintf(ctx.Command.ErrOrStderr(), "reusing step %s from run %s although %s\n", step.Step, step.RunId, refusalReason(step))
+	}
+	return resp, nil
+}
+
+// refusalReason is the reason part of the message of a refused step, which
+// reads "step X cannot be reused from run Y: <reason>".
+func refusalReason(step api.CarriedStepCheck) string {
+	message := ""
+	if step.Message != nil {
+		message = *step.Message
+	}
+	if _, reason, ok := strings.Cut(message, fmt.Sprintf(" cannot be reused from run %s: ", step.RunId)); ok {
+		return reason
+	}
+	return message
 }
 
 func remoteRunEnqueue(ctx *Context, args []string) error {

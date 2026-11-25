@@ -49,6 +49,7 @@ func TestSecretResolve(t *testing.T) {
 	disabled.Status = secret.StatusDisabled
 	require.NoError(t, store.Update(th.Context, disabled))
 	seed("", "empty", nil)
+	seed("", "ai/endpoint/anthropic", value("provider-key"))
 	workspaces, err := persisstore.NewWorkspaceStore(th.Backend.Collection(persis.CollectionWorkspaces))
 	require.NoError(t, err)
 	require.NoError(t, workspaces.Create(th.Context, workspace.NewWorkspace("ops", "")))
@@ -120,6 +121,7 @@ func TestSecretResolve(t *testing.T) {
 		{name: "Disabled", args: []string{"old"}, want: secret.ErrDisabled},
 		{name: "NoValue", args: []string{"empty"}, want: secret.ErrNoValue},
 		{name: "InvalidRef", args: []string{"Not A Ref"}, want: secret.ErrInvalidRef},
+		{name: "ReservedRef", args: []string{"ai/endpoint/anthropic"}, want: secret.ErrReservedRef},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out, err := runSecretResolve(th, tc.args...)

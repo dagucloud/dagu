@@ -17,6 +17,10 @@ import (
 // run), as repeatable names.
 const flagNode = "node"
 
+// errNodeWithFromRunID refuses --node on a new run from a run, which keeps
+// the node list of that run, as it keeps its params.
+var errNodeWithFromRunID = fmt.Errorf("--%s cannot be combined with --from-run-id: the new run keeps the node list of the run it is from", flagNode)
+
 var nodeFlag = commandLineFlag{
 	name:          flagNode,
 	usage:         "Inventory node the run is narrowed to: its steps with nodes run only on listed nodes, and a node: required DAG runs bound to the one node; repeatable",
@@ -48,13 +52,12 @@ func remoteTargetNodes(ctx *Context) (*api.TargetNodes, error) {
 	return &list, nil
 }
 
-// narrowRun checks the --node flags against the project's nodes and returns
-// the list the run carries, or nil without flags. A narrowed run runs on the
-// Dagu host: steps with nodes do not run on workers.
-func narrowRun(ctx *Context, dag *ir.DAG) ([]string, error) {
-	names, err := nodeFlagValues(ctx)
-	if err != nil || len(names) == 0 {
-		return nil, err
+// narrowRun checks the node list a run starts with against the project's
+// nodes and returns the list the run carries, or nil without one. A narrowed
+// run runs on the Dagu host: steps with nodes do not run on workers.
+func narrowRun(ctx *Context, dag *ir.DAG, names []string) ([]string, error) {
+	if len(names) == 0 {
+		return nil, nil
 	}
 	nodes, err := ctx.inventoryStore()
 	if err != nil {
@@ -66,7 +69,7 @@ func narrowRun(ctx *Context, dag *ir.DAG) ([]string, error) {
 	}
 	listed, err := intake.CheckTargetNodes(dag, names, known)
 	if err != nil {
-		return nil, fmt.Errorf("invalid --%s: %w", flagNode, err)
+		return nil, fmt.Errorf("invalid node list: %w", err)
 	}
 	dag.ForceLocal = true
 	return listed, nil

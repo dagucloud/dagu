@@ -297,7 +297,7 @@ var (
 	workerLabelsFlag = commandLineFlag{
 		name:      "worker.labels",
 		shorthand: "l",
-		usage:     "Worker labels for capability matching (format: key1=value1,key2=value2)",
+		usage:     "Worker labels for capability matching (format: key1=value1,key2=value2); keys and values are lowercased",
 		bindViper: true,
 	}
 

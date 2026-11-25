@@ -79,7 +79,11 @@ func runEnqueue(ctx *Context, args []string) error {
 	if err := parseAndAppendLabels(ctx, dag); err != nil {
 		return err
 	}
-	targetNodes, err := narrowRun(ctx, dag)
+	nodeNames, err := nodeFlagValues(ctx)
+	if err != nil {
+		return err
+	}
+	targetNodes, err := narrowRun(ctx, dag, nodeNames)
 	if err != nil {
 		return err
 	}

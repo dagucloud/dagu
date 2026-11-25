@@ -40,6 +40,18 @@ func PrepareDAGSnapshot(dag *ir.DAG) (*ir.DAG, error) {
 	return &copy, nil
 }
 
+// BaseConfigValues returns the values of a base config other than SMTP, which
+// PrepareDAGSnapshot and RefreshBaseSMTP take out or read anew. A base config
+// and the copy that a run's snapshot keeps of it give equal values.
+func BaseConfigValues(data []byte) (map[string]any, error) {
+	base := parseBaseConfig(data)
+	if base.err != nil {
+		return nil, base.err
+	}
+	delete(base.values, "smtp")
+	return base.values, nil
+}
+
 // RefreshBaseSMTP returns a copy with inherited SMTP from the current base
 // configuration. Other saved settings and authored YAML remain unchanged.
 // If no base configuration was captured, the current base settings are used.

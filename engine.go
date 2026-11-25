@@ -114,6 +114,8 @@ type WorkerOptions struct {
 	// MaxActiveRuns limits concurrent DAG runs. A default is used when zero or negative.
 	MaxActiveRuns int
 	// Labels are advertised to coordinators and matched by worker selectors.
+	// Keys and values are lowercased under the DAG label rules, and Worker.Start
+	// fails on a label that breaks them.
 	Labels map[string]string
 	// Coordinators overrides DistributedOptions.Coordinators when non-empty.
 	// If empty, the worker falls back to the engine-level DistributedOptions.

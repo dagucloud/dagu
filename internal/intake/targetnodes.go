@@ -14,16 +14,16 @@ import (
 
 // CheckTargetNodes checks the node list a run is started or enqueued with
 // (RFC 013 §Narrowing a run) against the project's nodes, and returns it as
-// the inventory spells the names, in name order, each once. An empty list
-// returns nil. Every error it returns is a mistake in the request.
+// the inventory spells the names, in name order, each once, or nil for an
+// empty list. Every error it returns is a mistake in the request.
 //
 // Every name must be a node of the project, so a mistyped name never starts
-// a run. A node: required DAG takes exactly one node, which binds the run. Any
-// other DAG takes a list only when a step sets nodes or runs a child DAG, and
-// only when it runs on the Dagu host, since steps with nodes do not run on
-// workers.
+// a run. A node: required DAG takes exactly one node, which binds the run, so
+// it refuses an empty list too. Any other DAG takes a list only when a step
+// sets nodes or runs a child DAG, and only when it runs on the Dagu host,
+// since steps with nodes do not run on workers.
 func CheckTargetNodes(dag *ir.DAG, names []string, known []inventory.ResolvedNode) ([]string, error) {
-	if len(names) == 0 {
+	if len(names) == 0 && !dag.NodeRequired {
 		return nil, nil
 	}
 	if !dag.NodeRequired && !dag.HasNodeOrSubDAGSteps() {

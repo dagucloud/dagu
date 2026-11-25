@@ -526,6 +526,16 @@ export interface InputRun {
   runId: string | null;
   stale: ReadonlySet<string>;
   missing: ReadonlySet<string>;
+  /**
+   * The run that each step of `stale` changed since, when it is not `runId`:
+   * a cached step comes from its own run.
+   */
+  staleRuns?: ReadonlyMap<string, string>;
+  /**
+   * False when the marks are the browser's own view, which the server checks
+   * only when the user runs the step; true when the server checked them.
+   */
+  checked?: boolean;
   waitingFor: string | null;
   /** Run status and start time, for the header of the column. */
   status?: components['schemas']['Status'];
@@ -748,6 +758,17 @@ export interface StepRunInputs {
   outputsFromRuns?: Readonly<Record<string, string>>;
   /** Where the outputs of the skipped steps come from, for the run record shown at once. */
   reused?: readonly InputProvenance[];
+  /** The skipped steps that changed since their run and that the user reuses anyway. */
+  allowChangedSteps?: readonly string[];
+  /** The runtime profile the user chose ('' for none); absent for the default one. */
+  profile?: string;
+  /**
+   * Called, in place of an error, when the server refuses carried steps: a
+   * step changed, or its run is gone, after the user chose the run.
+   */
+  onRefused?(
+    refused: readonly components['schemas']['CarriedStepCheck'][]
+  ): void;
 }
 export interface EditorRunActions {
   runDraft(): Promise<string | null>; // unsaved buffer through POST /dag-runs

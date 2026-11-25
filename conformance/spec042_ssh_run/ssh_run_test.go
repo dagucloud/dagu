@@ -25,6 +25,7 @@ func TestSSHConfig(t *testing.T) {
 		{"credential_forms.yaml", "validate", ""},
 		{"credential_bad_ref.yaml", "validate", "field 'steps.deploy.with.key.secret': invalid secret ref"},
 		{"credential_interpolated_ref.yaml", "validate", "field 'steps.deploy.with.key.secret': secret ref must be literal"},
+		{"credential_reserved_ref.yaml", "validate", `field 'steps.deploy.with.key.secret': registry ref "ai/endpoint/anthropic" is reserved`},
 		{"credential_unknown_field.yaml", "validate", `field 'steps.deploy.with.bastion.key': unknown field "secrte"`},
 		{"credential_secret_and_file.yaml", "validate", "field 'ssh.key': set either secret or file, not both"},
 		{"credential_password_file.yaml", "validate", `field 'ssh.password': unknown field "file"`},

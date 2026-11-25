@@ -69,6 +69,6 @@ type CreateInput struct {
 	// DisplayName is the name when empty.
 	DisplayName string
 	// MigratedFrom is the name of the v2 workspace a migrated project comes
-	// from.
+	// from. It decides the project's slot seed; see Project.SlotSeed.
 	MigratedFrom string
 }

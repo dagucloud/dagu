@@ -460,6 +460,9 @@ func toReusedInputs(inputs []ir.ReusedInput) *[]api.ReusedInput {
 		if input.FinishedAt != "" {
 			item.FinishedAt = ptrOf(input.FinishedAt)
 		}
+		if len(input.Changes) > 0 {
+			item.Changes = ptrOf(stepChangeKinds(input.Changes))
+		}
 		out = append(out, item)
 	}
 	return &out
@@ -916,6 +919,7 @@ func toDAGDetails(dag *ir.DAG) *api.DAGDetails {
 		LogDir:            ptrOf(dag.LogDir),
 		MaxActiveRuns:     ptrOf(dag.MaxActiveRuns),
 		MaxActiveSteps:    ptrOf(dag.MaxActiveSteps),
+		NodeRequired:      ptrOf(dag.NodeRequired),
 		Params:            ptrOf(dag.Params),
 		ParamDefs:         paramDefs,
 		ParamSchema:       paramSchema,

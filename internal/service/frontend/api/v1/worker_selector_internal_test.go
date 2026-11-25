@@ -65,7 +65,7 @@ steps:
 	api.coordinatorCli = recorder
 	require.NoError(t, dag.ApplyWorkerSelector(map[string]string{"zone": "b"}))
 
-	err := api.startSelectedSteps(ctx, dag, selectedStepsStart{
+	_, err := api.startSelectedSteps(ctx, dag, selectedStepsStart{
 		selection:      stepSelection{steps: []string{"second"}},
 		params:         "KEY=hello",
 		dagRunID:       "run-steps",

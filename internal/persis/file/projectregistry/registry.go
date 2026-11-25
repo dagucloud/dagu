@@ -51,6 +51,8 @@ const (
 type Registry struct {
 	path    string
 	lockDir string
+	// dirSeed is the slot seed of the default project and each migrated one.
+	dirSeed string
 	// pollTicks returns the ticks on which Watch checks the file, and a
 	// function that stops them.
 	pollTicks func() (<-chan time.Time, func())
@@ -71,6 +73,7 @@ type storedProject struct {
 	DisplayName  string        `json:"display_name"`
 	CreatedAt    time.Time     `json:"created_at"`
 	MigratedFrom string        `json:"migrated_from,omitempty"`
+	SlotSeed     string        `json:"slot_seed"`
 	Binding      storedBinding `json:"binding,omitzero"`
 	Deleting     bool          `json:"deleting,omitempty"`
 }
@@ -79,11 +82,14 @@ type storedBinding struct {
 	CloudProjectID string `json:"cloud_project_id,omitempty"`
 }
 
-// New returns the registry kept in dataDir.
+// New returns the registry kept in dataDir, which is paths.data_dir spelled
+// as configured. That spelling is also the slot seed it gives the default
+// project and each migrated one.
 func New(dataDir string) *Registry {
 	return &Registry{
 		path:      filepath.Join(dataDir, fileName),
 		lockDir:   filepath.Join(dataDir, lockDirName),
+		dirSeed:   dataDir,
 		pollTicks: newPollTicker,
 		now:       time.Now,
 	}
@@ -125,12 +131,17 @@ func (r *Registry) Create(ctx context.Context, in project.CreateInput) (project.
 	if err := project.ValidateName(in.Name); err != nil {
 		return project.Project{}, err
 	}
+	id := uuid.NewString()
 	created := project.Project{
-		ID:           uuid.NewString(),
+		ID:           id,
 		Name:         in.Name,
 		DisplayName:  cmp.Or(in.DisplayName, in.Name),
 		CreatedAt:    r.now().UTC(),
 		MigratedFrom: in.MigratedFrom,
+		SlotSeed:     id,
+	}
+	if in.MigratedFrom != "" {
+		created.SlotSeed = r.dirSeed
 	}
 	if err := project.ValidateDisplayName(created.DisplayName); err != nil {
 		return project.Project{}, err
@@ -161,6 +172,7 @@ func (r *Registry) EnsureDefault(ctx context.Context) (project.Project, error) {
 			Name:        project.DefaultName,
 			DisplayName: project.DefaultName,
 			CreatedAt:   r.now().UTC(),
+			SlotSeed:    r.dirSeed,
 		}
 		return append(projects, result), true, nil
 	})
@@ -362,6 +374,7 @@ func toStored(p project.Project) storedProject {
 		DisplayName:  p.DisplayName,
 		CreatedAt:    p.CreatedAt,
 		MigratedFrom: p.MigratedFrom,
+		SlotSeed:     p.SlotSeed,
 		Binding:      storedBinding{CloudProjectID: p.Binding.CloudProjectID},
 		Deleting:     p.Deleting,
 	}
@@ -374,6 +387,7 @@ func (s storedProject) toProject() project.Project {
 		DisplayName:  s.DisplayName,
 		CreatedAt:    s.CreatedAt,
 		MigratedFrom: s.MigratedFrom,
+		SlotSeed:     s.SlotSeed,
 		Binding:      project.Binding{CloudProjectID: s.Binding.CloudProjectID},
 		Deleting:     s.Deleting,
 	}

@@ -2,8 +2,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { describe, expect, it, vi } from 'vitest';
-import { NodeStatus, Status, type components } from '@/api/v1/schema';
 import {
+  CarriedStepCheckStatus,
+  CarriedStepCheckUnavailable,
+  NodeStatus,
+  Status,
+  StepChangeKind,
+  type components,
+} from '@/api/v1/schema';
+import {
+  composeCarriers,
   coverFromCache,
   defaultChoice,
   missingIn,
@@ -494,5 +502,86 @@ describe('paramsDiffer', () => {
       false
     );
     expect(paramsDiffer('A=2', 'A="1"')).toBe(true);
+  });
+});
+
+describe('composeCarriers', () => {
+  type Check = components['schemas']['CarriedStepCheck'];
+  const check = (
+    step: string,
+    runId: string,
+    status: CarriedStepCheckStatus,
+    changes: StepChangeKind[] = []
+  ): Check => ({
+    step,
+    runId,
+    status,
+    changes,
+    ...(status !== CarriedStepCheckStatus.unchanged
+      ? { message: `step ${step} cannot be reused from run ${runId}: why` }
+      : {}),
+    ...(status === CarriedStepCheckStatus.unavailable
+      ? { unavailable: CarriedStepCheckUnavailable.gone }
+      : {}),
+  });
+  const { unchanged, changed, unavailable } = CarriedStepCheckStatus;
+
+  // An unchanged step of the source run wins, then an unchanged cache
+  // entry, then the changed step of the source run, then a changed entry.
+  it('prefers what did not change, and the source run over the cache', () => {
+    const plan = composeCarriers({
+      previous: ['a', 'b', 'c', 'd'],
+      fromSource: {
+        a: check('a', 'src', unchanged),
+        b: check('b', 'src', changed, [StepChangeKind.step]),
+        c: check('c', 'src', changed, [StepChangeKind.params]),
+      },
+      fromCache: {
+        a: check('a', 'RunA', unchanged),
+        b: check('b', 'RunB', unchanged),
+        c: check('c', 'RunC', changed, [StepChangeKind.step]),
+        d: check('d', 'RunD', changed, [StepChangeKind.dependency]),
+      },
+    });
+    expect(
+      Object.fromEntries(
+        Object.entries(plan.carriers).map(([name, c]) => [
+          name,
+          `${c.from}:${c.runId}`,
+        ])
+      )
+    ).toEqual({
+      a: 'source:src',
+      b: 'cache:RunB',
+      c: 'source:src',
+      d: 'cache:RunD',
+    });
+    expect(plan.changed).toEqual(['c', 'd']);
+    expect(plan.missing).toEqual([]);
+  });
+
+  // The source run gives the step, changed; the run of its entry is gone.
+  it('keeps why a cache entry cannot give a step that another run gives', () => {
+    const plan = composeCarriers({
+      previous: ['a'],
+      fromSource: { a: check('a', 'src', changed, [StepChangeKind.step]) },
+      fromCache: { a: check('a', 'gone', unavailable) },
+    });
+    expect(plan.carriers['a']?.from).toBe('source');
+    expect(plan.unavailable).toEqual({
+      a: { runId: 'gone', kind: CarriedStepCheckUnavailable.gone },
+    });
+  });
+
+  it('reports a step that no run gives, and why its cache entry cannot', () => {
+    const plan = composeCarriers({
+      previous: ['a', 'b'],
+      fromSource: {},
+      fromCache: { a: check('a', 'gone', unavailable) },
+    });
+    expect(plan.missing).toEqual(['a', 'b']);
+    expect(plan.unavailable).toEqual({
+      a: { runId: 'gone', kind: CarriedStepCheckUnavailable.gone },
+    });
   });
 });

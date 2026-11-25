@@ -58,6 +58,12 @@ import { useWorkspaceNotices } from '../notices/useWorkspaceNotices';
 import { useWorkspaceUrl } from '../state/workspaceUrl';
 import { StepPanel } from '../step/StepPanel';
 import { StepRunTabs } from '../step/StepRunTabs';
+import { composeCarriers } from '@/features/visual-editor/run/reuseSource';
+import {
+  useCacheScope,
+  useOutputCacheEntries,
+} from '@/features/visual-editor/run/useOutputCacheEntries';
+import { useReuseCheck } from '../step/useReuseCheck';
 import { useReuseSource } from '../step/useReuseSource';
 import { useStepRunActions } from '../step/useStepRunActions';
 import { useCanvasRunSource } from './canvasRunPolicy';
@@ -169,23 +175,89 @@ function useInputRun(p: {
     followedUpstreamRunId,
     ...(p.liveText !== undefined ? { liveText: p.liveText } : {}),
   });
-  const { source, waitingFor, stale, missing } = reuse;
-  const { cached, cacheCapturedAt, cacheTimes, cachedRuns } = reuse;
+  const { source, waitingFor } = reuse;
+  // The answer of the server for this step run, when the step run dialog
+  // asked for it: the column never asks, since the server evaluates the
+  // parameters to check.
+  const entries = useOutputCacheEntries(useCacheScope(p.fileName));
+  const entryRuns = useMemo(
+    () =>
+      Object.fromEntries(
+        previous.flatMap((name) => {
+          const entry = entries[name];
+          return name !== step && entry ? [[name, entry.runId]] : [];
+        })
+      ),
+    [entries, previous, step]
+  );
+  const check = useReuseCheck(
+    {
+      fileName: p.fileName,
+      dagName: dagData.dag?.name ?? p.fileName,
+      step: step ?? '',
+      sourceRunId: source?.dagRunId ?? null,
+      entries: entryRuns,
+      draft: p.liveText ?? null,
+    },
+    { enabled: step !== null && !reuse.loading, ask: false }
+  );
+  const verified = useMemo(
+    () =>
+      check.state === 'ready'
+        ? composeCarriers({
+            previous,
+            fromSource: source ? check.fromSource : {},
+            fromCache: check.fromCache,
+          })
+        : null,
+    [check.fromCache, check.fromSource, check.state, previous, source]
+  );
+  const stale = verified ? verified.changed : reuse.stale;
+  const missing = verified ? verified.missing : reuse.missing;
   const staleSet = useMemo(() => new Set(stale), [stale]);
   const missingSet = useMemo(() => new Set(missing), [missing]);
+  // A cached step that changed is marked against its own run.
+  const staleRuns = useMemo(
+    () =>
+      new Map(
+        Object.entries(verified?.carriers ?? {}).flatMap(([name, carrier]) =>
+          carrier.from === 'cache' && carrier.changes.length > 0
+            ? [[name, carrier.runId] as const]
+            : []
+        )
+      ),
+    [verified]
+  );
   // The steps that the browser cache covers, with the run that each value
   // was read from: the INPUT column names them.
-  const cache = useMemo(
-    () => ({
-      cached: new Set(cached),
-      capturedAt: cacheCapturedAt,
-      times: cacheTimes,
+  const { cached, cacheCapturedAt, cacheTimes, cachedRuns } = reuse;
+  const cache = useMemo(() => {
+    if (!verified) {
+      return {
+        cached: new Set(cached),
+        capturedAt: cacheCapturedAt,
+        times: cacheTimes,
+        runs: Object.fromEntries(
+          Object.entries(cachedRuns).map(([name, from]) => [name, from.runId])
+        ),
+      };
+    }
+    const fromCache = Object.entries(verified.carriers).filter(
+      ([, carrier]) => carrier.from === 'cache'
+    );
+    const times = Object.fromEntries(
+      fromCache.map(([name]) => [name, entries[name]?.capturedAt ?? 0])
+    );
+    const oldest = Object.values(times);
+    return {
+      cached: new Set(fromCache.map(([name]) => name)),
+      capturedAt: oldest.length > 0 ? Math.min(...oldest) : null,
+      times,
       runs: Object.fromEntries(
-        Object.entries(cachedRuns).map(([name, from]) => [name, from.runId])
+        fromCache.map(([name, carrier]) => [name, carrier.runId])
       ),
-    }),
-    [cached, cacheCapturedAt, cacheTimes, cachedRuns]
-  );
+    };
+  }, [verified, cached, cacheCapturedAt, cacheTimes, cachedRuns, entries]);
   // The choice of the run that the next step run takes its inputs from.
   const { options, selectedOptionId, choose } = reuse;
   const picker = useMemo(
@@ -217,6 +289,7 @@ function useInputRun(p: {
             // The reuse source and the cache are about the next run.
             stale: useSelected ? NO_SET : staleSet,
             missing: useSelected ? NO_SET : missingSet,
+            ...(useSelected ? {} : { staleRuns, checked: verified !== null }),
             waitingFor: useSelected ? null : waitingFor,
             ...(useSelected ? {} : { cache, picker }),
             provenance,
@@ -231,6 +304,8 @@ function useInputRun(p: {
       useSelected,
       staleSet,
       missingSet,
+      staleRuns,
+      verified,
       cache,
       picker,
       provenance,

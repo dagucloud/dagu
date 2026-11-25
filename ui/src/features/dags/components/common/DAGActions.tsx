@@ -45,6 +45,7 @@ import {
 import { DAGContext } from '../../contexts/DAGContext';
 import { useProfiles } from '../../hooks/useProfiles';
 import { pushRunProgress } from '../dag-execution/RunProgressStack';
+import { startRequestBody } from '../dag-execution/startRequest';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -898,25 +899,14 @@ function DAGActions({
               profilesLoading={profilesLoading}
               defaultProfile={dagSettingsData?.profile}
               defaultProfileLoading={dagSettingsLoading}
-              onSubmit={async (
-                params,
-                dagRunId,
-                immediate,
-                profile,
-                noReuse,
-                scheduleTime
-              ) => {
+              onSubmit={async (request) => {
+                const { immediate } = request;
                 if (dagContext.onEnqueue) {
-                  const result = await dagContext.onEnqueue(
-                    params,
-                    dagRunId,
-                    immediate,
-                    profile,
-                    noReuse,
-                    scheduleTime
-                  );
+                  const result = await dagContext.onEnqueue(request);
                   const startedRunId =
-                    typeof result === 'string' && result ? result : dagRunId;
+                    typeof result === 'string' && result
+                      ? result
+                      : request.dagRunId;
                   if (startedRunId) {
                     showRunProgress(startedRunId);
                   }
@@ -925,25 +915,7 @@ function DAGActions({
                   return;
                 }
 
-                const body: {
-                  params: string;
-                  dagRunId?: string;
-                  profile?: string;
-                  noReuse?: boolean;
-                  scheduleTime?: string;
-                } = { params };
-                if (dagRunId) {
-                  body.dagRunId = dagRunId;
-                }
-                if (scheduleTime) {
-                  body.scheduleTime = scheduleTime;
-                }
-                if (profile !== undefined) {
-                  body.profile = profile;
-                }
-                if (noReuse !== undefined) {
-                  body.noReuse = noReuse;
-                }
+                const body = startRequestBody(request);
 
                 // Use /start endpoint if immediate is true, otherwise use /enqueue
                 const { data, error } = await (immediate
