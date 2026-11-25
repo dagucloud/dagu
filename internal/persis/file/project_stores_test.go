@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -39,19 +41,15 @@ func TestProjectStoresOffKeepV2Layout(t *testing.T) {
 	require.NoError(t, err)
 	secretID := writeSample(t, stores, "v2")
 
-	v2 := persisfile.NewBackend(cfg.Paths)
-	assertSample(t, sampleReaders{
-		runs:    persisfile.NewDAGRunRepository(cfg),
-		state:   store.NewDAGStateStore(v2.Collection(persis.CollectionDAGState)),
-		queue:   store.NewQueueStore(v2.Collection(persis.CollectionQueue)),
-		secrets: persisfile.NewSecretStore(ctx, cfg, v2.Collection(persis.CollectionSecrets)),
-	}, secretID, "v2")
+	assertSample(t, v2Readers(ctx, cfg), secretID, "v2")
 	assert.NoDirExists(t, filepath.Join(cfg.Paths.DataDir, "projects"))
 	assert.NoFileExists(t, filepath.Join(cfg.Paths.DataDir, "projects.json"))
 }
 
-// With projects on, two projects keep the same DAG's records apart, each in
-// its own state directory, and nothing in the directories v2 used.
+// With projects on, a project keeps the same DAG's records apart from the
+// default project's, in its own state directory. The default project's stay
+// where v2 keeps them, where the server and the scheduler still read and
+// write them.
 func TestProjectStoresOnKeepProjectsApart(t *testing.T) {
 	ctx := context.Background()
 	cfg := projectStoresConfig(t, true)
@@ -68,15 +66,14 @@ func TestProjectStoresOnKeepProjectsApart(t *testing.T) {
 
 	for name, stores := range opened {
 		assertSample(t, readersOf(ctx, stores), secretIDs[name], name)
-		state := filepath.Join(cfg.Paths.DataDir, "projects", name)
-		for _, dir := range []string{"runs", "settings/secrets", "state/dag-state", "state/queue"} {
-			assert.DirExists(t, filepath.Join(state, filepath.FromSlash(dir)))
-		}
+	}
+	assertSample(t, v2Readers(ctx, cfg), secretIDs[project.DefaultName], project.DefaultName)
+	weather := filepath.Join(cfg.Paths.DataDir, "projects", "weather")
+	for _, dir := range []string{"runs", "settings/secrets", "state/dag-state", "state/queue"} {
+		assert.DirExists(t, filepath.Join(weather, filepath.FromSlash(dir)))
 	}
 	assert.DirExists(t, filepath.Join(cfg.Paths.ProjectsDir, "weather"))
-	for _, dir := range []string{cfg.Paths.DAGRunsDir, cfg.Paths.DAGStateDir, cfg.Paths.QueueDir} {
-		assert.NoDirExists(t, dir)
-	}
+	assert.NoDirExists(t, filepath.Join(cfg.Paths.DataDir, "projects", project.DefaultName))
 }
 
 // Every project encrypts its secrets with the server's key and keeps no key
@@ -111,9 +108,8 @@ func TestProjectStoresEncryptWithServerKey(t *testing.T) {
 }
 
 // A run record that holds an absolute path under the v2 log directory reads
-// it under the project's log directory for the default project and each
-// migrated one. A new project had no runs on v2, so it reads the path as
-// stored.
+// it under the project's log directory for each migrated project. A new
+// project had no runs on v2, so it reads the path as stored.
 func TestProjectStoresMapV2RunPaths(t *testing.T) {
 	ctx := context.Background()
 	cfg := projectStoresConfig(t, true)
@@ -124,7 +120,6 @@ func TestProjectStoresMapV2RunPaths(t *testing.T) {
 		project project.Project
 		mapped  bool
 	}{
-		{project: project.Project{Name: project.DefaultName}, mapped: true},
 		{project: project.Project{Name: "billing", MigratedFrom: "billing"}, mapped: true},
 		{project: project.Project{Name: "weather"}, mapped: false},
 	} {
@@ -140,6 +135,38 @@ func TestProjectStoresMapV2RunPaths(t *testing.T) {
 			assert.Equal(t, want, readRun(t, stores.DAGRunRepository).Log)
 		})
 	}
+}
+
+// With projects on, a run of the default project writes its log where a
+// command puts it, in paths.log_dir, and its record reads that file back.
+func TestProjectStoresOnDefaultRunLog(t *testing.T) {
+	ctx := context.Background()
+	cfg := projectStoresConfig(t, true)
+	stores, err := persisfile.NewProjectStores(ctx, cfg, persisfile.NewServerStores(cfg), project.Project{Name: project.DefaultName}, persisfile.ProjectStoreOptions{})
+	require.NoError(t, err)
+
+	logFile, err := logpath.Generate(ctx, cfg.Paths.LogDir, "", sampleDAG, "run-1")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(logFile), 0o750))
+	require.NoError(t, os.WriteFile(logFile, []byte("hello"), 0o600))
+	writeRun(t, stores.DAGRunRepository, ir.DAGRunStatus{Log: logFile})
+
+	assert.FileExists(t, readRun(t, stores.DAGRunRepository).Log)
+}
+
+// With projects on, a DAG edit in the default project bumps the change
+// marker that the scheduler polls.
+func TestProjectStoresOnDAGChangeMarker(t *testing.T) {
+	ctx := context.Background()
+	cfg := projectStoresConfig(t, true)
+	stores, err := persisfile.NewProjectStores(ctx, cfg, persisfile.NewServerStores(cfg), project.Project{Name: project.DefaultName}, persisfile.ProjectStoreOptions{})
+	require.NoError(t, err)
+	marker := persisfile.DAGChangeMarkerPath(cfg)
+	require.NotEmpty(t, marker)
+	require.NoFileExists(t, marker)
+
+	require.NoError(t, stores.DAGRepository.Create(ctx, "beta", []byte("steps:\n  - name: s\n    command: echo hi\n")))
+	assert.FileExists(t, marker)
 }
 
 // projectStoresConfig sets apart every path that places a project store, as
@@ -195,6 +222,18 @@ type sampleReaders struct {
 	state   dagrun.StateStore
 	queue   queue.QueueStore
 	secrets secret.Store
+}
+
+// v2Readers reads through the stores that open where v2 keeps the records,
+// as the server and the scheduler do.
+func v2Readers(ctx context.Context, cfg *config.Config) sampleReaders {
+	v2 := persisfile.NewBackend(cfg.Paths)
+	return sampleReaders{
+		runs:    persisfile.NewDAGRunRepository(cfg),
+		state:   store.NewDAGStateStore(v2.Collection(persis.CollectionDAGState)),
+		queue:   store.NewQueueStore(v2.Collection(persis.CollectionQueue)),
+		secrets: persisfile.NewSecretStore(ctx, cfg, v2.Collection(persis.CollectionSecrets)),
+	}
 }
 
 func readersOf(ctx context.Context, stores *persisfile.ProjectStores) sampleReaders {

@@ -83,7 +83,8 @@ type ProjectSettings struct {
 // NewProjectStores opens the stores of p on its paths. Only the default
 // project gets example DAGs. The run records of the default project and of
 // each migrated one map paths under the v2 log and artifact directories to
-// the project's own.
+// the project's own. The default project keeps the directories v2 uses; see
+// NewProjectSettings.
 func NewProjectStores(
 	ctx context.Context,
 	cfg *config.Config,
@@ -114,7 +115,7 @@ func NewProjectStores(
 	// A new project has no runs from v2.
 	runPaths := runPaths(cfg, paths, isDefault || p.MigratedFrom != "")
 	ephemeralDir := EphemeralDAGRunsDir(paths.DAGRunsDir)
-	if cfg.ProjectsEnabled {
+	if cfg.ProjectsEnabled && !isDefault {
 		ephemeralDir = filepath.Join(paths.OtherStateDir, ephemeralRunsDirName)
 	}
 	cleanups := agentsession.NewCleanupQueue(backend.Collection(persis.CollectionAgentSessionCleanups))
@@ -166,11 +167,18 @@ func (s *ProjectStores) OpenDAGRepository(opts ...DAGRepositoryOption) (*persis.
 
 // NewProjectSettings returns the settings of the project called name, for a
 // process that opens no other store of the project. It does not access the
-// filesystem.
+// filesystem. The default project keeps the directories v2 uses, also while
+// projects are on.
 func NewProjectSettings(cfg *config.Config, server *ServerStores, name string) (*ProjectSettings, error) {
 	paths, err := cfg.ProjectPaths(name)
 	if err != nil {
 		return nil, err
+	}
+	if strings.EqualFold(name, project.DefaultName) {
+		// The server and the scheduler still read and write the default
+		// project's logs, settings, and state there, and runs write their
+		// logs there; they move into the project together.
+		paths = v2ProjectPaths(cfg.Paths)
 	}
 	return &ProjectSettings{Paths: paths, cfg: cfg, server: server, backend: newProjectBackend(paths)}, nil
 }

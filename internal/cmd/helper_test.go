@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/dagucloud/dagu/v2/internal/testutil"
@@ -130,7 +131,9 @@ func TestExtractDAGNameYAMLCase(t *testing.T) {
 
 			cfg := &config.Config{}
 			cfg.Paths.DAGsDir = dagsDir
-			ctx := &Context{Context: context.Background(), Config: cfg}
+			stores, err := openDefaultProject(context.Background(), cfg, file.NewServerStores(cfg), file.ProjectStoreOptions{})
+			require.NoError(t, err)
+			ctx := &Context{Context: context.Background(), Config: cfg, projectStores: stores}
 
 			name, err := extractDAGName(ctx, path)
 			require.NoError(t, err)
