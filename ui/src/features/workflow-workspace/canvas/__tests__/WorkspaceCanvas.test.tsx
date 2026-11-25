@@ -20,6 +20,11 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { NodeStatus, Status } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import {
+  RightPanelProvider,
+  useRightPanel,
+  type RightPanelHandle,
+} from '@/contexts/RightPanelContext';
 import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import type DAGSpec from '@/features/dags/components/dag-editor/DAGSpec';
 import { usePanelPlacement } from '@/features/dags/components/step-details/PanelShell';
@@ -424,7 +429,36 @@ function EditorProbe() {
   );
 }
 
-function renderCanvas(url = '/dags/example.yaml') {
+// The right panels that the tests with a RightPanelProvider claim and
+// release, as the editor does: the Workflow panel, which comes back after a
+// transient panel, and Add step, a transient panel.
+const panels = {
+  workflow: null as RightPanelHandle | null,
+  addStep: null as RightPanelHandle | null,
+  evicted: vi.fn(),
+};
+
+function PanelProbe() {
+  panels.workflow = useRightPanel(
+    'workflow',
+    () => panels.evicted('workflow'),
+    () => undefined
+  );
+  panels.addStep = useRightPanel('add-step', () => panels.evicted('add-step'));
+  return null;
+}
+
+function renderCanvas(
+  url = '/dags/example.yaml',
+  opts: { panels?: boolean } = {}
+) {
+  const canvas = (
+    <WorkspaceEditorProvider>
+      <LocationProbe />
+      <EditorProbe />
+      <WorkspaceCanvas fileName="example.yaml" dagData={dagData} />
+    </WorkspaceEditorProvider>
+  );
   return render(
     <UserPreferencesProvider>
       <AppBarContext.Provider
@@ -444,14 +478,14 @@ function renderCanvas(url = '/dags/example.yaml') {
                 key={path}
                 path={path}
                 element={
-                  <WorkspaceEditorProvider>
-                    <LocationProbe />
-                    <EditorProbe />
-                    <WorkspaceCanvas
-                      fileName="example.yaml"
-                      dagData={dagData}
-                    />
-                  </WorkspaceEditorProvider>
+                  opts.panels ? (
+                    <RightPanelProvider>
+                      <PanelProbe />
+                      {canvas}
+                    </RightPanelProvider>
+                  ) : (
+                    canvas
+                  )
                 }
               />
             ))}
@@ -1643,6 +1677,21 @@ describe('WorkspaceCanvas', () => {
       renderCanvas('/dags/example.yaml?step=extract&ndv=docked');
       expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
       expect(screen.getByTestId('dag-spec-stand-in')).toBeInTheDocument();
+    });
+
+    // Add step covers the Workflow panel, which comes back when Add step
+    // closes. Activity stays folded through the swap.
+    it('stays folded while a transient panel gives the panel under it back', () => {
+      const yieldToView = vi.fn();
+      ws.dock = { ...dock, open: true, yieldToView };
+      renderCanvas('/dags/example.yaml', { panels: true });
+      act(() => panels.workflow?.claim());
+      expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
+
+      act(() => panels.addStep?.claim());
+      act(() => panels.addStep?.release());
+      act(() => panels.workflow?.claim());
+      expect(yieldToView).not.toHaveBeenCalledWith(false);
     });
 
     // The Workflow panel that the page restores folds Activity too, before
