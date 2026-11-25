@@ -20,6 +20,7 @@ import { isAbortLikeError, shouldRetryQueryError } from '@/lib/requestTimeout';
 
 type Activity = components['schemas']['DAGListActivity'];
 type ActivityEntry = components['schemas']['DAGListActivityEntry'];
+type ActivityPage = components['schemas']['DAGListActivityPage'];
 /** The query of one page of `GET /dags`. */
 type ListQuery = NonNullable<operations['listDAGs']['parameters']['query']>;
 type ActivityQuery = operations['getDAGListActivity']['parameters']['query'];
@@ -115,11 +116,17 @@ export function useDAGListActivity(
     live ? { params: { query: firstQuery } } : null,
     {
       ...sseFallbackOptions(sse, FALLBACK_INTERVAL_MS),
-      keepPreviousData: true,
       shouldRetryOnError: shouldRetryRead,
     }
   );
   useSSECacheSync(sse, mutate);
+  // While a new query loads, the rows keep the activity of the query before,
+  // but only on the same node: on another, one file name can name another
+  // workflow.
+  const [kept, setKept] = useState<{ node: string; data: ActivityPage }>();
+  if (data && kept?.data !== data) setKept({ node: remoteNode, data });
+  const firstPageData =
+    data ?? (kept?.node === remoteNode ? kept.data : undefined);
 
   useEffect(() => {
     if (isMissingEndpointError(error)) {
@@ -188,9 +195,9 @@ export function useDAGListActivity(
       }
     }
     // The first page is live: its activity wins over a later page read before.
-    for (const entry of data?.dags ?? []) {
+    for (const entry of firstPageData?.dags ?? []) {
       byFile.set(entry.fileName, entry.activity);
     }
     return byFile;
-  }, [data, held, through, unavailable]);
+  }, [firstPageData, held, through, unavailable]);
 }
