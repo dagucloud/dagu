@@ -14,13 +14,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { formatElapsed } from '@/lib/dagRunTiming';
 import { cn } from '@/lib/utils';
 import type { ApiDAGRunDetails } from '../data/types';
-import {
-  NODE_RUN_STATUS,
-  NODE_RUNS_PER_PAGE,
-  nodesToRetry,
-  useNodeRuns,
-} from './nodeRuns';
-import { RetryFailedNodes } from './RetryFailedNodes';
+import { NODE_RUN_STATUS, NODE_RUNS_PER_PAGE, useNodeRuns } from './nodeRuns';
 
 type NodeRun = components['schemas']['NodeRun'];
 type NodeRunStep = components['schemas']['NodeRunStep'];
@@ -29,8 +23,7 @@ type NodeRunStep = components['schemas']['NodeRunStep'];
  * The node runs of a run (RFC 013 §Run view): one row per node, with its run
  * for each step with nodes. Rows with a failed run come first, as the server
  * orders them. A cell opens its child run on the sub-run stack, or in a new
- * tab with Ctrl or Cmd. `step` marks the column of the step a host shows. A
- * run with nodes that did not succeed can retry them.
+ * tab with Ctrl or Cmd. `step` marks the column of the step a host shows.
  */
 export function NodeRunsPanel({
   details,
@@ -87,10 +80,6 @@ export function NodeRunsPanel({
   const anyFailed = data.steps.some(
     ({ counts }) => counts.failed + counts.aborted > 0
   );
-  const retryCount = data.steps.reduce(
-    (sum, { counts }) => sum + nodesToRetry(counts),
-    0
-  );
   const selectFailedOnly = (next: boolean) => {
     setFailedOnly(next);
     setPage(1);
@@ -99,24 +88,21 @@ export function NodeRunsPanel({
 
   return (
     <section className="space-y-2" aria-label={ts('Nodes')}>
-      <div className="flex flex-wrap items-center gap-2 empty:hidden">
-        <RetryFailedNodes details={details} count={retryCount} />
-        {(anyFailed || failedOnly) && (
-          <button
-            type="button"
-            aria-pressed={failedOnly}
-            onClick={() => selectFailedOnly(!failedOnly)}
-            className={cn(
-              'rounded-full border px-2 py-0.5 text-xs transition-colors',
-              failedOnly
-                ? 'border-primary/40 bg-primary/10 text-primary'
-                : 'border-border bg-background text-muted-foreground hover:bg-muted'
-            )}
-          >
-            {ts('Failed only')}
-          </button>
-        )}
-      </div>
+      {(anyFailed || failedOnly) && (
+        <button
+          type="button"
+          aria-pressed={failedOnly}
+          onClick={() => selectFailedOnly(!failedOnly)}
+          className={cn(
+            'rounded-full border px-2 py-0.5 text-xs transition-colors',
+            failedOnly
+              ? 'border-primary/40 bg-primary/10 text-primary'
+              : 'border-border bg-background text-muted-foreground hover:bg-muted'
+          )}
+        >
+          {ts('Failed only')}
+        </button>
+      )}
       <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm" data-testid="node-runs-table">
           <thead className="bg-muted/40 text-xs text-muted-foreground">

@@ -250,8 +250,8 @@ child runs are not this run's.
 
 The run view labels the retry of a step with nodes **Retry failed nodes**,
 with the number of its nodes that failed, were aborted, or did not start.
-The Nodes tab of a root run offers the same action for the run, with the
-number for all its steps with nodes.
+The confirmation of a retry of a root run states that number for all its
+steps with nodes.
 
 ### Viewing node runs
 

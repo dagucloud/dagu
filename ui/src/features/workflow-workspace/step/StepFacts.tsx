@@ -51,11 +51,11 @@ import {
 import { isHarnessStep } from '@/lib/harness-step';
 import { isActiveNodeStatus, nodeStatusText } from '@/lib/status-utils';
 import { statusClasses, toneClasses } from '@/lib/statusPalette';
+import { nodesToRetry } from '@/lib/nodeRuns';
 import { cn } from '@/lib/utils';
 import type { ApiDAGRunDetails, ApiNode } from '../contracts';
 import { useWorkspaceData } from '../data/context';
 import { useDockCommands } from '../dock/DockContext';
-import { nodesToRetry } from '../nodes/nodeRuns';
 import { RepeatRule } from './RepeatRule';
 import { StepForeach, isForeachStep } from './StepForeach';
 import { stepLogPageURL } from './StepLogPane';

@@ -309,6 +309,43 @@ describe('DAGRunActions', () => {
     expect(screen.getByRole('button', { name: 'Stop' })).toBeEnabled();
   });
 
+  // A retry runs a step with nodes again only on its nodes that failed, were
+  // aborted, or did not start, so the confirmation counts them.
+  it('counts the nodes a retry runs again', () => {
+    const nodeRuns = {
+      total: 5,
+      notStarted: 1,
+      running: 0,
+      waiting: 0,
+      succeeded: 1,
+      failed: 1,
+      aborted: 1,
+      disabled: 0,
+      removed: 1,
+    };
+    render(
+      <DAGRunActions
+        dagRun={
+          {
+            ...runningRun,
+            status: Status.Failed,
+            statusLabel: StatusLabel.failed,
+            nodes: [{ step: { name: 'deploy' }, nodeRuns }],
+          } as unknown as ComponentProps<typeof DAGRunActions>['dagRun']
+        }
+        name="etl"
+        displayMode="full"
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(
+      within(screen.getByRole('dialog')).getByText(
+        'The 3 nodes that did not succeed run again, and nodes that succeeded keep their results.'
+      )
+    ).toBeInTheDocument();
+  });
+
   it('hides actions that do not apply when asked', () => {
     const finishedRun = {
       name: 'nightly',

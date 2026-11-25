@@ -1,20 +1,9 @@
 // Copyright (C) 2026 Yota Hamada
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import {
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  NodeRunStatus,
-  NodeStatus,
-  Status,
-  type components,
-} from '@/api/v1/schema';
+import { NodeRunStatus, NodeStatus, type components } from '@/api/v1/schema';
 import { SubRunOpenProvider } from '@/features/dags/components/common/SubRunStackModal';
 import type { ApiDAGDetails } from '../../contracts';
 import { node, run } from '../../data/__tests__/fixtures';
@@ -34,26 +23,13 @@ const api = vi.hoisted(() => ({
   }>,
   error: undefined as Error | undefined,
   mutate: vi.fn(),
-  post: vi.fn(),
-  showError: vi.fn(),
-  runDags: true,
 }));
 
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
 vi.mock('../../dock/useDockStep', () => ({ useDockStep: () => null }));
-vi.mock('@/contexts/ConfigContext', () => ({
-  useConfig: () => ({ permissions: { runDags: api.runDags } }),
-}));
-vi.mock('@/components/ui/simple-toast', () => ({
-  useSimpleToast: () => ({ showToast: vi.fn() }),
-}));
-vi.mock('@/components/ui/error-modal', () => ({
-  useErrorModal: () => ({ showError: api.showError }),
-}));
 vi.mock('@/hooks/api', () => ({
-  useClient: () => ({ POST: api.post }),
   useQuery: (
     path: string,
     init: {
@@ -158,13 +134,12 @@ const list: NodeRunList = {
 
 function details(
   deploy: NodeRunCounts = deployCounts,
-  extra: Partial<ApiDAGRunDetails> = {},
-  status?: Status
+  extra: Partial<ApiDAGRunDetails> = {}
 ) {
   return run(
     'root-1',
     [node('deploy', NodeStatus.Failed, { nodeRuns: deploy }), node('clean')],
-    status,
+    undefined,
     extra
   );
 }
@@ -190,10 +165,6 @@ describe('NodeRunsPanel', () => {
     api.calls = [];
     api.error = undefined;
     api.mutate.mockReset();
-    api.post.mockReset();
-    api.post.mockResolvedValue({ error: undefined });
-    api.showError.mockReset();
-    api.runDags = true;
   });
 
   it('shows one row per node and a column per step, in the order of the server', () => {
@@ -232,6 +203,21 @@ describe('NodeRunsPanel', () => {
 
     const row = screen.getByTestId('node-runs-row');
     expect(within(row).getByText('5s')).toBeInTheDocument();
+  });
+
+  it('shows a node that left the inventory before a retry as removed', () => {
+    api.list = {
+      ...list,
+      items: [
+        {
+          node: 'web04',
+          runs: [{ step: 'deploy', status: NodeRunStatus.removed }],
+        },
+      ],
+    };
+    renderPanel(details());
+
+    expect(screen.getByText('Removed')).toBeInTheDocument();
   });
 
   it('opens the child run of a cell on the sub-run stack', () => {
@@ -355,89 +341,6 @@ describe('NodeRunsPanel', () => {
       </SubRunOpenProvider>
     );
     expect(api.calls.at(-1)?.query).toMatchObject({ page: 1 });
-  });
-
-  it('shows a node that left the inventory before a retry as removed', () => {
-    api.list = {
-      ...list,
-      items: [
-        {
-          node: 'web04',
-          runs: [{ step: 'deploy', status: NodeRunStatus.removed }],
-        },
-      ],
-    };
-    renderPanel(details());
-
-    expect(screen.getByText('Removed')).toBeInTheDocument();
-  });
-
-  // web03 failed in deploy and was not started in clean, so a retry runs it
-  // again in both.
-  it('retries the run with the count of nodes that did not succeed', async () => {
-    renderPanel(details(deployCounts, {}, Status.Failed));
-
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Retry failed nodes (2)' })
-    );
-    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
-
-    expect(api.post).toHaveBeenCalledWith('/dag-runs/{name}/{dagRunId}/retry', {
-      params: {
-        path: { name: 'demo', dagRunId: 'root-1' },
-        query: { remoteNode: 'local' },
-      },
-      body: { dagRunId: 'root-1' },
-    });
-  });
-
-  // A second retry would race the first one into starting the run twice.
-  it('sends one retry while one is in flight', async () => {
-    api.post.mockReturnValue(new Promise(() => {}));
-    renderPanel(details(deployCounts, {}, Status.Failed));
-
-    const button = screen.getByRole('button', {
-      name: 'Retry failed nodes (2)',
-    });
-    fireEvent.click(button);
-    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
-
-    expect(button).toBeDisabled();
-    expect(api.post).toHaveBeenCalledTimes(1);
-  });
-
-  it('says that a retry that could not be sent failed', async () => {
-    api.post.mockRejectedValue(new Error('network down'));
-    renderPanel(details(deployCounts, {}, Status.Failed));
-
-    fireEvent.click(
-      screen.getByRole('button', { name: 'Retry failed nodes (2)' })
-    );
-    fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
-
-    await waitFor(() =>
-      expect(api.showError).toHaveBeenCalledWith('network down')
-    );
-    expect(
-      screen.getByRole('button', { name: 'Retry failed nodes (2)' })
-    ).toBeEnabled();
-  });
-
-  it.each([
-    ['a running run', details(deployCounts, {}, Status.Running), true],
-    [
-      'a sub-run',
-      details(deployCounts, { rootDAGRunName: 'root', rootDAGRunId: 'root-0' }),
-      true,
-    ],
-    ['a user who cannot run DAGs', details(), false],
-  ])('offers no retry of the nodes for %s', (_, value, runDags) => {
-    api.runDags = runDags;
-    renderPanel(value);
-
-    expect(
-      screen.queryByRole('button', { name: /Retry failed nodes/ })
-    ).toBeNull();
   });
 
   it('says when the run recorded no node runs', () => {

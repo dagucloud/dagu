@@ -34,6 +34,7 @@ import { getDAGRunTerminateActionDetails } from './terminateAction';
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
+import { nodesToRetry } from '@/lib/nodeRuns';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 
@@ -213,6 +214,16 @@ function DAGRunActions({
       'nodes' in dagRun &&
       dagRun.nodes?.some((node) => Boolean(node.agentSession?.sessionId))
   );
+  // A retry runs a step with nodes again only on its nodes that did not
+  // succeed (RFC 013 §Retry).
+  const nodesRetried =
+    dagRun && 'nodes' in dagRun
+      ? (dagRun.nodes?.reduce(
+          (sum, node) =>
+            sum + (node.nodeRuns ? nodesToRetry(node.nodeRuns) : 0),
+          0
+        ) ?? 0)
+      : 0;
 
   // Determine which buttons should be enabled based on current status and root level
   const buttonState = {
@@ -572,6 +583,16 @@ function DAGRunActions({
                     text={
                       'Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation.'
                     }
+                  />
+                </p>
+              )}
+              {!retryAsNew && nodesRetried > 0 && (
+                <p className="text-sm">
+                  <I18nText
+                    text={
+                      'The {count} nodes that did not succeed run again, and nodes that succeeded keep their results.'
+                    }
+                    values={{ count: nodesRetried }}
                   />
                 </p>
               )}

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import { useEffect, useRef } from 'react';
-import { NodeRunStatus, NodeStatus, type components } from '@/api/v1/schema';
+import { NodeRunStatus, NodeStatus } from '@/api/v1/schema';
 import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { isSubDAGRun } from '@/features/dags/hooks/useStepLogQuery';
 import { useQuery } from '@/hooks/api';
@@ -28,16 +28,6 @@ export const NODE_RUN_STATUS: Record<NodeRunStatus, NodeStatus> = {
   [NodeRunStatus.disabled]: NodeStatus.Skipped,
   [NodeRunStatus.removed]: NodeStatus.Skipped,
 };
-
-/**
- * How many nodes a retry runs again: those whose run failed, was aborted, or
- * never started (RFC 013 §Retry).
- */
-export function nodesToRetry(
-  counts: components['schemas']['NodeRunCounts']
-): number {
-  return counts.failed + counts.aborted + counts.notStarted;
-}
 
 /**
  * Reads one page of the node runs of a run, a root run or a sub-run. The
