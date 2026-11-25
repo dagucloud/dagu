@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
@@ -175,6 +176,48 @@ func TestNewContext_ProjectsDirFlag(t *testing.T) {
 	ctx, err := NewContext(command, []commandLineFlag{projectsDirFlag})
 	require.NoError(t, err)
 	assert.Equal(t, projectsDir, ctx.Config.Paths.ProjectsDir)
+}
+
+// With paths.data_dir set to the Dagu home, the default projects_dir is
+// <data_dir>/projects, which holds project state.
+func TestNewContext_OverlappingPaths(t *testing.T) {
+	t.Parallel()
+
+	newCommand := func(t *testing.T, switchOn bool) (*cobra.Command, string) {
+		t.Helper()
+		home := t.TempDir()
+		content := "paths:\n  data_dir: " + home + "\n"
+		if switchOn {
+			content += "experimental_projects: true\n"
+		}
+		configPath := filepath.Join(home, "config.yaml")
+		require.NoError(t, os.WriteFile(configPath, []byte(content), 0o600))
+
+		command := &cobra.Command{Use: "status"}
+		initFlags(command)
+		command.SetContext(context.Background())
+		require.NoError(t, command.Flags().Set("dagu-home", home))
+		require.NoError(t, command.Flags().Set("config", configPath))
+		return command, home
+	}
+
+	t.Run("Refused", func(t *testing.T) {
+		t.Parallel()
+		command, home := newCommand(t, true)
+
+		_, err := NewContext(command, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "paths.projects_dir "+strconv.Quote(filepath.Join(home, "projects"))+" is paths.data_dir/projects")
+		assert.NoDirExists(t, filepath.Join(home, "contexts"), "refused before any store starts")
+	})
+
+	t.Run("SwitchOff", func(t *testing.T) {
+		t.Parallel()
+		command, _ := newCommand(t, false)
+
+		_, err := NewContext(command, nil)
+		require.NoError(t, err)
+	})
 }
 
 func writeTestConfig(t *testing.T, home, contextsDir string) string {
