@@ -155,7 +155,8 @@ func egressProxyWait(dial egress.DialFunc) *cobra.Command {
 			if timeout <= 0 {
 				return fmt.Errorf("flag --timeout: expected a duration above zero, got %s", timeout)
 			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+			timedOut := fmt.Errorf("%s does not accept connections after %s", addr, timeout)
+			ctx, cancel := context.WithTimeoutCause(cmd.Context(), timeout, timedOut)
 			defer cancel()
 			for {
 				conn, dialErr := dial(ctx, "tcp", addr)
@@ -165,7 +166,10 @@ func egressProxyWait(dial egress.DialFunc) *cobra.Command {
 				}
 				select {
 				case <-ctx.Done():
-					return errors.Join(fmt.Errorf("%s does not accept connections after %s", addr, timeout), dialErr)
+					if cause := context.Cause(ctx); !errors.Is(cause, timedOut) {
+						return fmt.Errorf("wait for %s: %w", addr, cause)
+					}
+					return errors.Join(timedOut, dialErr)
 				case <-time.After(50 * time.Millisecond):
 				}
 			}

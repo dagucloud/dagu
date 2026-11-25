@@ -203,6 +203,22 @@ func TestEgressProxyCommandWaitTimesOut(t *testing.T) {
 	assert.Less(t, time.Since(start), 5*time.Second)
 }
 
+// A wait whose context ends before its timeout returns the cause, and does not
+// claim that the timeout passed.
+func TestEgressProxyCommandWaitStopsWhenCanceled(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	root := refusingRoot()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs([]string{"egress-proxy", "wait", "--addr", "proxy.test:8081", "--timeout", "1h"})
+	err := root.ExecuteContext(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.NotContains(t, err.Error(), "does not accept connections")
+}
+
 // --max-connections bounds the connections that serve holds: while one tunnel
 // is open, a second connection is closed at once.
 func TestEgressProxyCommandBoundsConnections(t *testing.T) {
