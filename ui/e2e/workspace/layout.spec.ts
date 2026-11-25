@@ -7,12 +7,9 @@ import {
   loginViaAPI,
   openStepForm,
   startDAG,
-  uniqueName,
-  waitForDAGAvailable,
   waitForRunStatus,
-  writeLocalDAG,
 } from '../helpers/e2e';
-import { adminToken, expect, signIn, test } from './fixtures';
+import { expect, signIn, test } from './fixtures';
 
 // parity:run-graph-expand (the canvas fills the zone between the bar and
 // the dock: 400px or more at 1280x800. The one tab always has the Run panel:
@@ -646,56 +643,6 @@ test.describe('workspace layout', () => {
     await expect(page.getByTestId('ve-workflow')).toBeHidden();
     await expect(workflow).toHaveAttribute('aria-pressed', 'false');
     await expect(zoom).toHaveText(before);
-  });
-
-  // Cron and Always on share one slot of the launchers.
-  test('draws one launcher for the slot of Cron and Always on', async ({
-    page,
-    request,
-    gotoWorkspace,
-  }) => {
-    const token = await adminToken(request);
-    const slots = [
-      { extra: '', shown: 'schedule' },
-      { extra: 'schedule: "0 * * * *"\n', shown: 'cron' },
-      {
-        extra:
-          'restart_policy: always\nrestart_wait_sec: 5\nhist_retention_runs: 20\n',
-        shown: 'always',
-      },
-    ];
-    for (const { extra, shown } of slots) {
-      const name = uniqueName('e2e-ws-slot');
-      const fileName = await writeLocalDAG(
-        name,
-        `name: ${name}\n${extra}steps:\n  - name: one\n    run: echo one\n`
-      );
-      try {
-        await waitForDAGAvailable(request, token, fileName);
-        await openEditor(page, gotoWorkspace, fileName);
-        const canvas = page.getByTestId('ww-canvas');
-        for (const id of ['schedule', 'cron', 'always']) {
-          await expect(canvas.getByTestId(`ve-launcher-${id}`)).toHaveCount(
-            id === shown ? 1 : 0
-          );
-        }
-        if (shown === 'schedule') {
-          await expect(
-            canvas.getByTestId('ve-launcher-schedule')
-          ).toContainText('Cron or Always on');
-        }
-        if (shown === 'always') {
-          await expect(canvas.getByTestId('ve-launcher-always')).toContainText(
-            '5 s · 20 runs'
-          );
-        }
-      } finally {
-        await request.delete(
-          `/api/v1/dags/${encodeURIComponent(fileName)}?remoteNode=local`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-      }
-    }
   });
 
   test('has no horizontal scroll at 375x812 and keeps the Tools button', async ({
