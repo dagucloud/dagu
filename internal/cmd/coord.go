@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
+	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
 	"github.com/dagucloud/dagu/v2/internal/secret"
@@ -101,7 +102,7 @@ func runCoordinator(ctx *Context, _ []string) error {
 	defer stop()
 	coordCtx := ctx.WithContext(signalCtx).WithEventSource(eventstore.SourceServiceCoordinator)
 	stores := coordCtx.runtimeStores()
-	svc, _, err := newCoordinator(coordCtx, stores.SecretStore, stores.ProfileStore)
+	svc, _, err := newCoordinator(coordCtx, stores.SecretStore, stores.ProfileStore, coordCtx.serviceInventoryStore(), stores.HostKeys)
 	if err != nil {
 		return fmt.Errorf("failed to initialize coordinator: %w", err)
 	}
@@ -129,6 +130,8 @@ func newCoordinator(
 	ctx *Context,
 	secretStore secret.Store,
 	profileStore profile.Store,
+	nodeInventory inventory.Store,
+	hostKeys inventory.HostKeyStore,
 ) (*coordinator.Service, *coordinator.Handler, error) {
 	cfg := ctx.Config
 	persistence := ctx.Persistence
@@ -232,6 +235,8 @@ func newCoordinator(
 		DAGRepository:             persistence.DAGRepository,
 		SecretStore:               secretStore,
 		ProfileStore:              profileStore,
+		NodeInventory:             nodeInventory,
+		TrustedHostKeys:           hostKeys,
 		AgentSessionCleanupQueue:  persistence.AgentSessionCleanupQueue,
 		WorkerWaitTimeout:         cfg.Coordinator.WorkerWaitTimeout,
 		EventService:              ctx.event,
