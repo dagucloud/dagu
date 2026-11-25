@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"github.com/goccy/go-yaml"
 )
 
@@ -241,16 +242,13 @@ func definitionDigest(dag *ir.DAG, params, profile string) (string, error) {
 }
 
 // baseConfigValues is the base config as values, without SMTP. A run keeps a
-// copy that the snapshot writes again without comments, and with SMTP taken
-// out or read anew (spec.PrepareDAGSnapshot, spec.RefreshBaseSMTP), so the
-// copy equals the file it came from only as values. SMTP sends mail; it does
-// not change what a step does.
+// copy that the snapshot writes again, so the copy equals the file it came
+// from only as values. SMTP sends mail; it does not change what a step does.
 func baseConfigValues(data []byte) ([]byte, error) {
-	var values map[string]any
-	if err := yaml.Unmarshal(data, &values); err != nil {
+	values, err := spec.BaseConfigValues(data)
+	if err != nil {
 		return nil, fmt.Errorf("read the base config: %w", err)
 	}
-	delete(values, "smtp")
 	if len(values) == 0 {
 		return nil, nil
 	}

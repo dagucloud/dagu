@@ -140,29 +140,33 @@ func TestCheckRunStepsUnchanged(t *testing.T) {
 	}
 }
 
-// A run keeps the base config written again without comments and without
-// SMTP: only a change of a value counts.
+// A run keeps the base config as its snapshot writes it again: without
+// comments, with SMTP taken out, and with an env mapping as a list. Only a
+// change of a value other than SMTP counts.
 func TestCheckRunStepsUnchangedBaseConfig(t *testing.T) {
 	t.Parallel()
 
-	const saved = "max_active_steps: 10\ntype: graph\n"
+	const ran = "# Base config\ntype: graph # model\nmax_active_steps: 10\nenv:\n  REGION: eu\nsmtp:\n  host: mail.example.com\n"
 	for _, tc := range []struct {
 		name    string
 		base    string
 		wantErr string
 	}{
-		{name: "SameValues", base: "# Base config\ntype: graph # model\nmax_active_steps: 10\nsmtp:\n  host: mail.example.com\n"},
-		{name: "OtherValue", base: "type: graph\nmax_active_steps: 5\n", wantErr: "step filter cannot be reused from run earlier: the parameters, runtime profile, base config, or top-level settings differ from that run"},
+		{name: "SameValues", base: ran},
+		{name: "OtherSMTP", base: strings.Replace(ran, "mail.example.com", "mail.example.org", 1)},
+		{name: "OtherValue", base: strings.Replace(ran, "max_active_steps: 10", "max_active_steps: 5", 1), wantErr: "step filter cannot be reused from run earlier: the parameters, runtime profile, base config, or top-level settings differ from that run"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			earlier := loadReuseDAG(t, reuseSpec)
-			earlier.BaseConfigData = []byte(saved)
+			earlier.BaseConfigData = []byte(ran)
+			snapshot, err := spec.PrepareDAGSnapshot(earlier)
+			require.NoError(t, err)
 			dag := loadReuseDAG(t, reuseSpec)
 			dag.BaseConfigData = []byte(tc.base)
-			err := intake.CheckRunStepsUnchanged(dag, "",
-				intake.RunStepSources{"filter": succeededRun(earlier)},
-				intake.RunDefinitions{"earlier": earlier})
+			err = intake.CheckRunStepsUnchanged(dag, "",
+				intake.RunStepSources{"filter": succeededRun(snapshot)},
+				intake.RunDefinitions{"earlier": snapshot})
 			if tc.wantErr == "" {
 				require.NoError(t, err)
 				return
