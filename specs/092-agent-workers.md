@@ -1258,7 +1258,11 @@ steps:
     untrusted: false
     working_dir: repo
     run: |
-      if [ -n "$(git status --porcelain -- scripts/ 'test_*' .github/)" ]; then
+      # The globs match a test file or a folder tests/ at any depth. A repository that keeps
+      # its tests in other paths adds them.
+      changed=$(git status --porcelain -- scripts/ .github/ \
+        ':(glob)**/test_*' ':(glob)**/*_test.*' ':(glob)**/tests/**')
+      if [ -n "$changed" ]; then
         echo "the agent changed a test, a script or the CI" >&2; exit 1
       fi
 
