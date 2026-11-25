@@ -494,6 +494,27 @@ func TestWildcardAndAddresses(t *testing.T) {
 	}())
 }
 
+// The filter of a wildcard leaves the answer of the resolver as it is. A
+// resolver can share one answer between names, as a cache does, and a name that
+// a rule lists keeps its address.
+func TestWildcardKeepsTheResolverAnswer(t *testing.T) {
+	t.Parallel()
+
+	host, port := originServer(t, "origin-ok")
+	shared := []netip.Addr{netip.MustParseAddr(host)}
+	resolver := &fakeResolver{answers: map[string][]netip.Addr{"a.cdn.example.test": shared, "listed.cdn.example.test": shared}}
+	client := proxyClient(t, startProxy(t, []string{"*.cdn.example.test:" + port, "listed.cdn.example.test:" + port}, resolver, nil))
+	get := func(target string) int {
+		resp, err := client.Get(target)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	assert.Equal(t, http.StatusForbidden, get("http://a.cdn.example.test:"+port+"/"), "a wildcard reaches no loopback address")
+	assert.Equal(t, http.StatusOK, get("http://listed.cdn.example.test:"+port+"/"))
+}
+
 // A name that only a wildcard allows reaches public addresses only. The
 // special-purpose ranges are not public, and a NAT64 or 6to4 address is public
 // only when the IPv4 address in it is. An IPv6 address outside 2000::/3 is not

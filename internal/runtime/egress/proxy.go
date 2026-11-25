@@ -191,9 +191,10 @@ func (p *Proxy) dialAllowed(ctx context.Context, network, address string) (net.C
 	// Anybody can make a name below a wildcard point to an address of the network
 	// of the proxy, and a wildcard such as *.0.0.1 matches address literals. A
 	// destination that only a wildcard allows gets public addresses only. A rule
-	// that names the host can reach any address.
+	// that names the host can reach any address. The answer belongs to the
+	// resolver, so the filter works on a copy.
 	if !p.rules.AllowsExactly(host, port) {
-		addrs = slices.DeleteFunc(addrs, func(addr netip.Addr) bool { return !publicAddr(addr) })
+		addrs = slices.DeleteFunc(slices.Clone(addrs), func(addr netip.Addr) bool { return !publicAddr(addr) })
 		if len(addrs) == 0 {
 			return nil, &DeniedError{Host: host, Port: port}
 		}
