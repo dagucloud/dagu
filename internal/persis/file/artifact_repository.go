@@ -8,6 +8,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	fileartifact "github.com/dagucloud/dagu/v2/internal/persis/file/artifact"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/runpath"
 )
 
 // ArtifactRepositoryOption configures the file-backed artifact repository.
@@ -26,6 +27,13 @@ func WithArtifactRecordCache(cache *fileutil.Cache[*fileartifact.Record]) Artifa
 
 // NewArtifactRepository connects file storage to the shared artifact repository.
 func NewArtifactRepository(cfg *config.Config, opts ...ArtifactRepositoryOption) *persis.ArtifactRepository {
+	paths := v2ProjectPaths(cfg.Paths)
+	return newArtifactRepository(paths.ArtifactDir, runPaths(cfg, paths, true), opts...)
+}
+
+// newArtifactRepository opens the artifacts kept in dir, whose run records
+// store their paths as paths maps them.
+func newArtifactRepository(dir string, paths runpath.Mapper, opts ...ArtifactRepositoryOption) *persis.ArtifactRepository {
 	var options artifactRepositoryOptions
 	for _, opt := range opts {
 		if opt != nil {
@@ -33,9 +41,9 @@ func NewArtifactRepository(cfg *config.Config, opts ...ArtifactRepositoryOption)
 		}
 	}
 
-	storeOpts := []fileartifact.StoreOption{fileartifact.WithRunPaths(runPaths(cfg))}
+	storeOpts := []fileartifact.StoreOption{fileartifact.WithRunPaths(paths)}
 	if options.RecordCache != nil {
 		storeOpts = append(storeOpts, fileartifact.WithRecordCache(options.RecordCache))
 	}
-	return persis.NewArtifactRepository(fileartifact.NewStore(cfg.Paths.ArtifactDir, storeOpts...))
+	return persis.NewArtifactRepository(fileartifact.NewStore(dir, storeOpts...))
 }
