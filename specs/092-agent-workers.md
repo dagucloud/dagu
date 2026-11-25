@@ -98,7 +98,7 @@ credential of the model API.
 | The agent connects to the coordinator. | The coordinator needs a client certificate. The restricted user cannot read it. | None. |
 | The agent calls a tool of the tool bridge with wrong arguments. | The tools are DAGs of the author. The bridge needs the secret of the attempt. The agent cannot set a fixed input of `params`, or an input that the tool does not show. The child run gets the inputs as one JSON object. | A tool that trusts its arguments. The author designs each tool for any argument. |
 | A general worker claims an agent run, or an agent worker claims another run. | The coordinator takes the labels from the pool of the certificate. An agent pool claims only runs of its provider. | A stolen certificate of a pool acts as that pool. |
-| Files or processes of one run reach the next run. | An agent worker takes one run, then exits. The deployment gives a new file system for each start. | None in the examples. A deployment that keeps a volume keeps its files. |
+| Files or processes of one run reach the next run. | An agent worker takes one run, then exits. The deployment gives a new file system for each start. | None. A deployment that keeps a volume keeps its files. |
 | The agent returns a false result. | The typed result fixes the form. A gate that Dagu runs and `human.task` protect an action. | The content of a result can be false. |
 | The agent breaks out of the restricted user with a kernel flaw. | Out of scope. A user namespace or a runtime such as gVisor reduces the risk. | The flaw. |
 
@@ -968,19 +968,8 @@ worker, because the pod has one network namespace.
 | Restart | `restart: always` | A `Deployment` |
 
 The worker starts as user ID 0 because the change to the restricted user needs `CAP_SETUID`. The
-Pod Security Standard `restricted` forbids it. The examples use the level `baseline`. See [Open
+Pod Security Standard `restricted` forbids it. A deployment uses the level `baseline`. See [Open
 items](#open-items).
-
-The repository has the examples:
-
-- `deploy/agent-worker/Dockerfile`: the image of an agent worker, with a static `dagu`, `git`,
-  `python3` and the CLI of the agent
-- `deploy/agent-worker/compose.yaml`: the coordinator, a general worker, an agent worker and the
-  proxy
-- `deploy/agent-worker/k8s/`: the manifests for Kubernetes
-- `examples/agent-worker-demo/`: a demo for one host, with a fake CLI and a fake model API. Its real
-  mode `run-real.sh` uses Claude Code, the Anthropic API and a GitHub repository. Its DAG
-  `agent-dev-isolation` probes the isolation of an untrusted step.
 
 ## Verified points
 
@@ -1057,8 +1046,7 @@ These cases fail a call or a step at run time:
 
 The file `dev-with-agent.yaml` sets each key of `agent.run` that the provider `claude` accepts. It
 is one DAG and one run, with three rounds of the [verify loop](#a-verify-loop). It needs the tools
-`lookup-ticket.yaml` and `ops_notify.yaml` that follow it. The conformance fixture `conformance/spec092_agent_workers/testdata/dev-with-agent.yaml` holds the same text, and
-`dagu validate` accepts it.
+`lookup-ticket.yaml` and `ops_notify.yaml` that follow it. `dagu validate` accepts it.
 
 ```yaml
 description: Claude develops, a script verifies, the code pushes to a branch. A failed verify gives Claude its log for a new round, with 3 rounds at most. One DAG, one run.
@@ -1432,34 +1420,13 @@ Each item has a default. The default applies until the owner decides.
 | The change of user in a pod of the level `restricted`, which forbids `CAP_SETUID`. A path with no capability, such as Landlock, is a candidate. | Level `baseline`, user ID 0 with six capabilities, `hostUsers: false` when the cluster supports it. A worker that cannot change user stops at start. |
 | The restart delay of Kubernetes after each exit of a container, also with the code 0. | A `Deployment`. A controller that starts one Job for each run is a later item. |
 | The paths that the route of the upstream allows. | Each path. A list of allowed paths is a later item. |
-| A real rate limit with `retry_policy` and `exit_code: [75]`. | Not verified. The tests of Spec 091 use a fake CLI. |
+| A real rate limit with `retry_policy` and `exit_code: [75]`. | Not verified. |
 | The name of the label `agent.provider.<provider>` and of the key `untrusted`. | As in this spec. |
 
 ## Conformance
 
-Black-box tests are in `conformance/spec092_agent_workers/`. They use static fixtures, test
-certificates, a fake CLI and a fake model API. The demo in `examples/agent-worker-demo/` covers the
-whole chain on one host, with a fake CLI or, in its real mode, with Claude Code.
+Black-box tests go in `conformance/spec092_agent_workers/`. They use static fixtures, test
+certificates, a fake CLI and a fake model API. No test covers this spec yet.
 
 A test that changes to the restricted user needs Linux, the user ID 0 and the flag no-new-privileges.
-The helper `harness.RequireRestrictedUserHost` skips it on another host. Run these tests in a root
-container with the flag no-new-privileges. The table marks them "root".
-
-| Section | Tests |
-| --- | --- |
-| The agent worker: Start | `TestWorkerAgentStartChecks`. The checks 7 and 8: not covered, because a test cannot remove a capability of its own container. Go tests of `internal/runtime/untrusted` check them. |
-| The agent worker: one run and the end | `TestWorkerAgentTakesOneRunAndExits` (root). |
-| Routing: implied selector, dispatch, reserved labels | `TestRoutingValidateRejects`, `TestRoutingValidateAccepts`, `TestWorkerReservedLabelStopsTheWorker`. The match of a task with an agent worker: `TestWorkerAgentTakesOneRunAndExits` (root). No match within `coordinator.worker_wait_timeout`: not covered here. |
-| Worker pools: configuration | `TestPoolsInvalidConfigurationStopsTheCoordinator`, `TestPoolsConfigPrintsThePools`. |
-| Worker pools: behavior | `TestWorkerAgentTakesOneRunAndExits` (root) for an allowed pool. A call from another identity or pool: not covered here. Go tests of `internal/service/coordinator` check it with mutual TLS. |
-| Secrets of a step | `TestSecretsAndUntrustedValidation`, `TestSecretsStepScope`. The registry secret of a step on a worker: Spec 094, `TestRelayOnAnAgentWorker` (root) runs it. The refusal of a registry secret for another step: Go tests of the coordinator. |
-| Untrusted steps: the key and its default | `TestSecretsAndUntrustedValidation`, `TestUntrustedDefaultInAgentDAG`, `TestUntrustedDefaultWithoutAgentDAG`, `TestUntrustedDefaultGateWithEnvValidates`. |
-| Untrusted steps: no isolation | `TestUntrustedStepFailsWithoutIsolation`, `TestIsolationOffRunsWithAWarning`, `TestIsolationKeyErrorsStopTheProcess`, `TestFileOnlyBlockVariablesStopTheProcess`. The conformance tests that run without a restricted user set `untrusted.isolation: off` with the helper `harness.WriteIsolationOff`. |
-| Untrusted steps: isolation | `TestUntrustedIsolation` (root), `TestReviewSecretInArguments` (root), `TestReviewLeftoverThreadWatchesLaterStep` (root), `TestReviewBareRepository` (root). |
-| Trusted steps after an untrusted step | `TestReviewOutputInjection` (the validation part runs for each user; the run part is root), `TestUntrustedDefaultGateWithEnvValidates`. |
-| A verify loop | `TestLoopFixesInRoundTwo`, `TestLoopFailsWhenAllRoundsFail`, `TestLoopPassesInRoundOne`, `TestLoopFailsWhenARoundFails`. |
-| The egress proxy | `TestProxyInjectsTheKeyFromAFile`, `TestProxyInjectsTheKeyFromTheEnvironment`, `TestProxyInjectsTheKeyOverTLS`, `TestProxyAnthropicOAuthAddsTheBeta`, `TestProxyCredentialDestinations`, `TestProxyWithoutUpstreamRefusesOriginForm`, `TestProxyStartErrors`. |
-| The AI gateway | Spec 094. |
-| Verified points | `TestVerifyRepeatPolicyUntilCommand`, `TestVerifyRepeatPolicyUntilStdoutFile`, `TestVerifyRepeatPolicyLimit`, `TestVerifyRepeatPolicyWhileExitCode`, `TestVerifyRepeatPolicyOwnOutputIsNotReadable`, `TestVerifySubDAGOutputs`, `TestVerifyMaxOutputSize*`. |
-| Examples | `TestCompleteExampleValidates`, `TestCompleteExampleMatchesSpec`. |
-| Deployment | Not covered. The files of `deploy/agent-worker/` have a schema check only. |
+It skips on another host. Run these tests in a root container with the flag no-new-privileges.
