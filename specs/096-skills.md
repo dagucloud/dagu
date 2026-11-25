@@ -221,14 +221,15 @@ is the output of `sha256sum`. The path is relative to the skill folder. It uses 
 It has no `./` prefix. The line feed is `\n`, also on Windows.
 
 The hash does not depend on the order of the directory entries, the time stamps or the modes of the
-files. A change of one byte of a file, a change of a path, or the addition or the removal of a line
-changes it.
+files. A change of one byte of a file of 4 MiB or less, a change of a path, or the addition or the
+removal of a line changes it.
 
 A skill with an error has a hash too, so that a client can repair it. Its lines have the same form:
 
 - An entry that is neither a regular file nor a directory (a link, a special file) has a digest of
   64 zeros.
 - A file larger than 4 MiB is not read. Its digest is the SHA-256 of the text `oversize:<size>`.
+  So an edit of such a file that keeps its size does not change the hash.
 - A skill folder that is a link has one line with an empty path, `<digest><two spaces><line feed>`.
   The digest is the SHA-256 of the text `symlink:<target>`. So its hash is not the hash of an empty
   skill.
@@ -253,6 +254,11 @@ A write with neither header is refused with the HTTP status 428. A write with a 
 `If-None-Match: *` on an existing skill gives 409 with the code `conflict` and the current hash
 (`hash`). The write changes nothing. The check and the write are one step under the lock of the
 skill. So two writers that hold the same hash never both succeed, also on two Dagu instances.
+
+The precondition does not see an edit of a file above 4 MiB that keeps its size, because the hash
+holds only the size of such a file. Such a file is the error `file-too-large`, and the API never
+writes one. A write of another file keeps it as it is. A delete or a replacement of it, or a delete
+of the skill, removes it, which is what the client asked for.
 
 The lock is a directory lock (`dirlock`) at `skills/.locks/<name>/`. It is held for the time of one
 write. A holder that crashes gives the lock free after 30 seconds. A writer waits at most 15 seconds
