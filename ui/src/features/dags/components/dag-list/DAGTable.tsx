@@ -410,10 +410,10 @@ function DAGCard({
 }
 
 // The actions of a row sit in fixed slots of 40 px, as in DAGActions: Start,
-// Retry, Stop, Edit and Delete, plus the padding of the cell.
-const ACTIONS_WIDTH = 5 * 40 + 16;
+// Retry, Stop and Edit, plus the padding of the cell.
+const ACTIONS_WIDTH = 4 * 40 + 16;
 
-/** The fixed slot of Edit or Delete, beside the slots of DAGActions. */
+/** The fixed slot of Edit, beside the slots of DAGActions. */
 function ActionSlot({ children }: { children: React.ReactNode }) {
   return <span className="flex w-10 shrink-0 justify-center">{children}</span>;
 }
@@ -1971,7 +1971,7 @@ function DAGTable({
           className={`w-full text-xs ${isLoading ? 'opacity-70' : ''}`}
           style={{ tableLayout: 'fixed' }}
         >
-          {/* Column widths: Select 24px, Pin 24px, Name 28%, LastRun 88px, Schedule 220px, Webhook 88px when shown, Actions ACTIONS_WIDTH */}
+          {/* Column widths: Select 24px, Pin 24px, Name 28%, LastRun 88px, Activity the rest when shown, Schedule 220px, Webhook 88px when shown, Actions ACTIONS_WIDTH */}
           <colgroup>
             {canDeleteDAGs && <col style={{ width: '24px' }} />}
             <col style={{ width: '24px' }} />
