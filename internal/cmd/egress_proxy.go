@@ -23,6 +23,16 @@ import (
 // configuration, and an unknown flag, a missing flag or a value that is not
 // valid stops the command before it serves.
 func EgressProxy() *cobra.Command {
+	dialer := &net.Dialer{Timeout: time.Second}
+	return egressProxy(net.Listen, dialer.DialContext)
+}
+
+// listenFunc opens the listener of an address, as net.Listen does.
+type listenFunc func(network, address string) (net.Listener, error)
+
+// egressProxy builds the command on the function that opens the listener of
+// serve and the function that makes each connection attempt of wait.
+func egressProxy(listen listenFunc, dial egress.DialFunc) *cobra.Command {
 	command := &cobra.Command{
 		Use:           "egress-proxy",
 		Short:         "Run the egress proxy of an agent worker",
@@ -34,7 +44,7 @@ func EgressProxy() *cobra.Command {
 			return cmd.Help()
 		},
 	}
-	command.AddCommand(egressProxyServe(), egressProxyWait())
+	command.AddCommand(egressProxyServe(listen), egressProxyWait(dial))
 	return command
 }
 
@@ -63,7 +73,7 @@ func requireFlag(cmd *cobra.Command, name string) (string, error) {
 	return value, nil
 }
 
-func egressProxyServe() *cobra.Command {
+func egressProxyServe(listen listenFunc) *cobra.Command {
 	command := &cobra.Command{
 		Use:           "serve",
 		Short:         "Serve the HTTP proxy for the allow list",
@@ -71,11 +81,11 @@ func egressProxyServe() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: false,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			listen, err := requireFlag(cmd, "listen")
+			address, err := requireFlag(cmd, "listen")
 			if err != nil {
 				return err
 			}
-			if err := checkHostPort("listen", listen); err != nil {
+			if err := checkHostPort("listen", address); err != nil {
 				return err
 			}
 			allow, err := cmd.Flags().GetStringArray("allow")
@@ -103,9 +113,9 @@ func egressProxyServe() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			listener, err := net.Listen("tcp", listen)
+			listener, err := listen("tcp", address)
 			if err != nil {
-				return fmt.Errorf("flag --listen: cannot listen on %q: %w", listen, err)
+				return fmt.Errorf("flag --listen: cannot listen on %q: %w", address, err)
 			}
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
@@ -123,7 +133,7 @@ func egressProxyServe() *cobra.Command {
 	return command
 }
 
-func egressProxyWait() *cobra.Command {
+func egressProxyWait(dial egress.DialFunc) *cobra.Command {
 	command := &cobra.Command{
 		Use:           "wait",
 		Short:         "Wait until an address accepts connections",
@@ -148,8 +158,7 @@ func egressProxyWait() *cobra.Command {
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
 			for {
-				dialer := net.Dialer{Timeout: time.Second}
-				conn, dialErr := dialer.DialContext(ctx, "tcp", addr)
+				conn, dialErr := dial(ctx, "tcp", addr)
 				if dialErr == nil {
 					_ = conn.Close()
 					return nil

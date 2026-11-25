@@ -21,19 +21,78 @@ import (
 )
 
 func egressRoot() *cobra.Command {
+	return rootOf(cmd.EgressProxy())
+}
+
+func rootOf(command *cobra.Command) *cobra.Command {
 	root := &cobra.Command{Use: "root", SilenceUsage: true, SilenceErrors: true}
-	root.AddCommand(cmd.EgressProxy())
+	root.AddCommand(command)
 	return root
 }
 
-// freePort returns a port that is free now.
-func freePort(t *testing.T) string {
+// servingRoot returns a root command whose serve takes over a listener on a
+// local port, and the address of that port. The port stays bound from the
+// start, so no other test can take it before serve runs.
+func servingRoot(t *testing.T) (*cobra.Command, string) {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	held, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	addr := l.Addr().String()
-	require.NoError(t, l.Close())
-	return addr
+	t.Cleanup(func() { _ = held.Close() })
+	addr := held.Addr().String()
+	listen := func(_, address string) (net.Listener, error) {
+		if address != addr {
+			return nil, fmt.Errorf("serve listens on %q, not on %q", address, addr)
+		}
+		return held, nil
+	}
+	var dialer net.Dialer
+	return rootOf(cmd.EgressProxyForTest(listen, dialer.DialContext)), addr
+}
+
+// refusingRoot returns a root command whose wait finds no address that
+// accepts connections.
+func refusingRoot() *cobra.Command {
+	refuse := func(context.Context, string, string) (net.Conn, error) {
+		return nil, errors.New("connection refused")
+	}
+	return rootOf(cmd.EgressProxyForTest(net.Listen, refuse))
+}
+
+// connect sends CONNECT for the target through the proxy and returns the status
+// line of the answer. The connection stays open until the test ends.
+func connect(t *testing.T, proxyAddr, target string) string {
+	t.Helper()
+	conn, err := net.Dial("tcp", proxyAddr)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(10*time.Second)))
+	_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target)
+	require.NoError(t, err)
+	status, err := bufio.NewReader(conn).ReadString('\n')
+	require.NoError(t, err)
+	return strings.TrimSpace(status)
+}
+
+// runInBackground executes root with ctx in a goroutine and returns the channel
+// that gets the result of the command.
+func runInBackground(ctx context.Context, root *cobra.Command) chan error {
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	served := make(chan error, 1)
+	go func() { served <- root.ExecuteContext(ctx) }()
+	return served
+}
+
+// requireEnded fails unless the command ends without an error soon after its
+// context ends.
+func requireEnded(t *testing.T, served chan error) {
+	t.Helper()
+	select {
+	case err := <-served:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the command does not end when its context ends")
+	}
 }
 
 // startEcho serves a local port that sends back each byte and returns its
@@ -104,8 +163,7 @@ func TestEgressProxyCommandIsHidden(t *testing.T) {
 }
 
 // serve forwards a CONNECT to a listed destination and refuses another. wait
-// returns when the address accepts connections, and fails after the timeout
-// when it does not.
+// returns when the address accepts connections.
 func TestEgressProxyCommandServesAndWaits(t *testing.T) {
 	t.Parallel()
 
@@ -113,59 +171,36 @@ func TestEgressProxyCommandServesAndWaits(t *testing.T) {
 	defer cancel()
 
 	echo := startEcho(t)
+	root, proxyAddr := servingRoot(t)
+	root.SetArgs([]string{"egress-proxy", "serve", "--listen", proxyAddr, "--allow=" + echo})
+	served := runInBackground(ctx, root)
 
-	run := func(args ...string) chan error {
-		root := egressRoot()
-		root.SetOut(io.Discard)
-		root.SetErr(io.Discard)
-		root.SetArgs(append([]string{"egress-proxy"}, args...))
-		done := make(chan error, 1)
-		go func() { done <- root.ExecuteContext(ctx) }()
-		return done
-	}
-	waitFor := func(addr string) {
-		t.Helper()
-		root := egressRoot()
-		root.SetArgs([]string{"egress-proxy", "wait", "--addr", addr, "--timeout", "10s"})
-		require.NoError(t, root.ExecuteContext(t.Context()))
-	}
+	waitRoot := egressRoot()
+	waitRoot.SetArgs([]string{"egress-proxy", "wait", "--addr", proxyAddr, "--timeout", "10s"})
+	require.NoError(t, waitRoot.ExecuteContext(t.Context()))
 
-	proxyAddr := freePort(t)
-	served := run("serve", "--listen", proxyAddr, "--allow="+echo)
-	waitFor(proxyAddr)
-
-	connect := func(target string) string {
-		conn, err := net.Dial("tcp", proxyAddr)
-		require.NoError(t, err)
-		defer func() { _ = conn.Close() }()
-		_, err = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", target, target)
-		require.NoError(t, err)
-		status, err := bufio.NewReader(conn).ReadString('\n')
-		require.NoError(t, err)
-		return strings.TrimSpace(status)
-	}
-	assert.Equal(t, "HTTP/1.1 200 Connection Established", connect(echo))
-	assert.Equal(t, "HTTP/1.1 403 Forbidden", connect("203.0.113.9:443"))
-
-	// A wait for an address that nobody serves fails after the timeout.
-	start := time.Now()
-	root := egressRoot()
-	root.SetOut(io.Discard)
-	root.SetErr(io.Discard)
-	root.SetArgs([]string{"egress-proxy", "wait", "--addr", freePort(t), "--timeout", "300ms"})
-	err := root.ExecuteContext(t.Context())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not accept connections")
-	assert.Less(t, time.Since(start), 5*time.Second)
+	assert.Equal(t, "HTTP/1.1 200 Connection Established", connect(t, proxyAddr, echo))
+	assert.Equal(t, "HTTP/1.1 403 Forbidden", connect(t, proxyAddr, "203.0.113.9:443"))
 
 	cancel()
-	for _, done := range []chan error{served} {
-		select {
-		case <-done:
-		case <-time.After(10 * time.Second):
-			t.Fatal("the command does not end when its context ends")
-		}
-	}
+	requireEnded(t, served)
+}
+
+// wait fails after its timeout when no attempt connects, with the error of the
+// last attempt.
+func TestEgressProxyCommandWaitTimesOut(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now()
+	root := refusingRoot()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs([]string{"egress-proxy", "wait", "--addr", "proxy.test:8081", "--timeout", "300ms"})
+	err := root.ExecuteContext(t.Context())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "proxy.test:8081 does not accept connections after 300ms")
+	assert.Contains(t, err.Error(), "connection refused")
+	assert.Less(t, time.Since(start), 5*time.Second)
 }
 
 // --max-connections bounds the connections that serve holds: while one tunnel
@@ -177,32 +212,11 @@ func TestEgressProxyCommandBoundsConnections(t *testing.T) {
 	defer cancel()
 
 	echo := startEcho(t)
-	proxyAddr := freePort(t)
-	root := egressRoot()
-	root.SetOut(io.Discard)
-	root.SetErr(io.Discard)
+	root, proxyAddr := servingRoot(t)
 	root.SetArgs([]string{"egress-proxy", "serve", "--listen", proxyAddr, "--allow=" + echo, "--max-connections", "1"})
-	served := make(chan error, 1)
-	go func() { served <- root.ExecuteContext(ctx) }()
+	served := runInBackground(ctx, root)
 
-	// Each attempt before serve listens is refused by the system and takes no
-	// place of the bound.
-	var tunnel net.Conn
-	require.Eventually(t, func() bool {
-		conn, err := net.Dial("tcp", proxyAddr)
-		if err != nil {
-			return false
-		}
-		_, _ = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", echo, echo)
-		status, err := bufio.NewReader(conn).ReadString('\n')
-		if err != nil || strings.TrimSpace(status) != "HTTP/1.1 200 Connection Established" {
-			_ = conn.Close()
-			return false
-		}
-		tunnel = conn
-		return true
-	}, 10*time.Second, 20*time.Millisecond)
-	t.Cleanup(func() { _ = tunnel.Close() })
+	require.Equal(t, "HTTP/1.1 200 Connection Established", connect(t, proxyAddr, echo))
 
 	extra, err := net.Dial("tcp", proxyAddr)
 	require.NoError(t, err)
@@ -215,9 +229,5 @@ func TestEgressProxyCommandBoundsConnections(t *testing.T) {
 	}
 
 	cancel()
-	select {
-	case <-served:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the command does not end when its context ends")
-	}
+	requireEnded(t, served)
 }
