@@ -644,6 +644,31 @@ func TestCmdStart_Only(t *testing.T) {
 		require.Equal(t, "RESULT=got-from-source", outputVariable(t, status.Nodes[1], "RESULT"))
 	})
 
+	// A carried step that changed since its run is refused with what changed,
+	// and --allow-changed reuses its outputs anyway and records the change.
+	t.Run("ChangedStep", func(t *testing.T) {
+		t.Parallel()
+		th := test.SetupCommand(t)
+		dag := th.DAG(t, outputsDAG)
+		th.RunCommand(t, cmd.Start(), test.CmdTest{
+			Args: []string{"start", "--run-id=source", dag.Location},
+		})
+		require.NoError(t, os.WriteFile(dag.Location, []byte(strings.Replace(outputsDAG, "echo from-source", "echo from-edit", 1)), 0o600))
+
+		err := th.RunCommandWithError(t, cmd.Start(), test.CmdTest{
+			Args: []string{"start", "--run-id=refused", "--only=consume", "--outputs-from=source", dag.Location},
+		})
+		require.ErrorContains(t, err, "step produce cannot be reused from run source: the step changed since that run; pass --allow-changed to reuse the changed steps anyway")
+
+		th.RunCommand(t, cmd.Start(), test.CmdTest{
+			Args: []string{"start", "--run-id=allowed", "--only=consume", "--outputs-from=source", "--allow-changed", dag.Location},
+		})
+		status := readRunStatus(t, th, dag.Name, "allowed")
+		require.Equal(t, "RESULT=got-from-source", outputVariable(t, status.Nodes[1], "RESULT"))
+		require.Len(t, status.ReusedInputs, 1)
+		require.Equal(t, []ir.StepChange{ir.StepChangeStep}, status.ReusedInputs[0].Changes)
+	})
+
 	// --reuse-from runs only the steps that changed since a run, and the
 	// steps after them; the others carry their outputs from that run.
 	t.Run("ReuseFrom", func(t *testing.T) {

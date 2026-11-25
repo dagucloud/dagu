@@ -81,14 +81,19 @@ func (c CarriedStep) Changed() bool {
 	return c.Unavailable == "" && len(c.Changes) > 0
 }
 
+// Reason says why the run cannot give the step, or what changed for it, such
+// as "the step changed since that run".
+func (c CarriedStep) Reason() string {
+	if c.Unavailable != "" {
+		return c.Unavailable
+	}
+	return changeReason(c.Changes)
+}
+
 // Message says why the step cannot be reused from its run, as
 // "step X cannot be reused from run Y: <reason>".
 func (c CarriedStep) Message() string {
-	reason := c.Unavailable
-	if reason == "" {
-		reason = changeReason(c.Changes)
-	}
-	return fmt.Sprintf("step %s cannot be reused from run %s: %s", c.Ref, c.DAGRunID, reason)
+	return fmt.Sprintf("step %s cannot be reused from run %s: %s", c.Ref, c.DAGRunID, c.Reason())
 }
 
 // RefusedStepsError reports the carried steps that a run of selected steps

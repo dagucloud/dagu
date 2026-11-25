@@ -370,7 +370,7 @@ A step changed since a run when one of these differs between that run and the ne
 
 - `reuseFrom` cannot be sent with `steps`, `outputsFromRunId`, `outputsFromRuns`, `outputs`, or `outputsSources`; the server rejects such a request with HTTP 400. A run that does not exist for the DAG is rejected with HTTP 404, and a run that is not finished with HTTP 400.
 
-- `dagu start --reuse-from <run-id>` is the command line form. It cannot be combined with `--only`, `--outputs-from`, `--output-from`, `--output`, or `--from-run-id`, nor with `--parent`, `--root`, or `--worker-id`; an empty value is an error.
+- `dagu start --reuse-from <run-id>` is the command line form. It cannot be combined with `--only`, `--outputs-from`, `--output-from`, `--output`, `--allow-changed`, or `--from-run-id`, nor with `--parent`, `--root`, or `--worker-id`; an empty value is an error.
 
 #### Command Line
 
@@ -380,7 +380,11 @@ A step changed since a run when one of these differs between that run and the ne
 
 - `--output-from <step>=<run-id>` is the command line form of `outputsFromRuns`. It names the run that gives the outputs of one skipped step. Repeat the flag for more than one step. The step is a step name or ID. It requires `--only`.
 
-- The command applies the same rules and gives the same errors as the server does for `outputsFromRuns`, with the message `step X cannot be reused from run Y: <reason>`. The command reads the run with the same code as the server. It stops before it starts a run when one entry is not valid.
+- The command applies the same rules and gives the same errors as the server does for `outputsFromRunId` and `outputsFromRuns`, with the message `step X cannot be reused from run Y: <reason>`. The command reads the runs and plans the run with the same code as the server. It stops before it starts a run when one carried step is refused.
+
+- `--allow-changed` is the command line form of `allowChangedSteps` for every carried step: the run reuses each changed step, and the command prints `reusing step X from run Y although <reason>` for it on standard error. It requires `--only`. Without the flag, a refusal that names a changed step ends with `; pass --allow-changed to reuse the changed steps anyway`.
+
+- Against a remote node, the command sends the start without consent. With `--allow-changed`, a refusal that names only changed steps is sent again once, with those steps in `allowChangedSteps`.
 
 - A step selected by `--only` MUST NOT be named in `--output-from`. Two entries for one step are an error.
 
