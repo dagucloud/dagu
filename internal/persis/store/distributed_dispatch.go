@@ -286,7 +286,7 @@ func (idx *dispatchTaskIndex) candidatePendingIDs(workerID string, workerLabels 
 		if entry.targetWorkerID != "" && entry.targetWorkerID != workerID {
 			continue
 		}
-		if !matchesDispatchSelector(workerLabels, entry.workerSelector) {
+		if !ir.MatchWorkerSelector(workerLabels, entry.workerSelector) {
 			continue
 		}
 		if ids == nil {
@@ -663,7 +663,7 @@ func (s *DispatchTaskStore) claimNextPending(ctx context.Context, claim dispatch
 			s.index.addPending(rec, payload)
 			continue
 		}
-		if !matchesDispatchSelector(claim.Labels, payload.Task.WorkerSelector) {
+		if !ir.MatchWorkerSelector(claim.Labels, payload.Task.WorkerSelector) {
 			s.index.addPending(rec, payload)
 			continue
 		}
@@ -1451,16 +1451,4 @@ func clearDispatchTaskClaim(task *dispatch.DispatchTask) *dispatch.DispatchTask 
 	task.ClaimToken = ""
 	task.WorkerID = ""
 	return task
-}
-
-func matchesDispatchSelector(workerLabels, selector map[string]string) bool {
-	if len(selector) == 0 {
-		return true
-	}
-	for key, value := range selector {
-		if workerLabels[key] != value {
-			return false
-		}
-	}
-	return true
 }

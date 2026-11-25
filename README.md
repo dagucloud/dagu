@@ -1040,7 +1040,7 @@ The auth, remote node, Git sync and Vault secrets can also be read from files, s
 | `DAGU_WORKER_MAX_ACTIVE_RUNS` | `100` | Max concurrent runs per worker |
 | `DAGU_WORKER_HEALTH_PORT` | `8092` | Worker health check port |
 | `DAGU_WORKER_SHUTDOWN_TIMEOUT` | `60s` | How long a worker stopping on `SIGINT`/`SIGTERM` drains running DAG runs before it cancels them (`0` waits without a bound). Set the supervisor's stop timeout at least `15s` above it: systemd `TimeoutStopSec` defaults to `90s`, `docker stop` to `10s`, Kubernetes `terminationGracePeriodSeconds` to `30s` |
-| `DAGU_WORKER_LABELS` | - | Worker labels (`key=value,key=value`); `os` and `arch` are built in and cannot be overridden |
+| `DAGU_WORKER_LABELS` | - | Worker labels (`key=value,key=value`), lowercased; a worker with an invalid label does not start. `os` and `arch` are built in and cannot be overridden |
 | `DAGU_COORDINATOR_ADVERTISE` | auto-detected hostname | Address advertised in the service registry |
 | `DAGU_WORKER_COORDINATORS` | - | Coordinator addresses required by `dagu worker` (`host:port,...`) |
 

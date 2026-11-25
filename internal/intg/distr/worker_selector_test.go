@@ -40,6 +40,32 @@ func (f *testFixture) waitForNoMatchingWorker() {
 	)
 }
 
+// A selector matches worker labels without case, whichever side is written
+// in upper case.
+func TestWorkerSelector_MatchesWithoutCase(t *testing.T) {
+	t.Parallel()
+
+	const yaml = `
+worker_selector:
+  Zone: B
+steps:
+  - name: echo
+    run: echo routed
+`
+	f := newTestFixture(t, yaml, withWorkerCount(0))
+	f.workers = append(f.workers,
+		f.setupWorker("worker-a", map[string]string{"zone": "a"}, ""),
+		f.setupWorker("worker-b", map[string]string{"ZONE": "b"}, ""),
+	)
+
+	require.NoError(t, f.enqueue())
+	f.waitForQueued()
+	f.startScheduler(30 * time.Second)
+
+	status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
+	f.assertWorkerID(status, "worker-b")
+}
+
 // A run enqueued with its own selector goes to the workers that selector
 // names, not to the ones the DAG file names.
 func TestEnqueue_PerRunWorkerSelector(t *testing.T) {

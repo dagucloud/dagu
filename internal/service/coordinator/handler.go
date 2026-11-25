@@ -1134,7 +1134,7 @@ func (h *Handler) ensureWaitingWorkerAvailability(ctx context.Context, selector 
 		if targetWorkerID != "" && worker.workerID != targetWorkerID {
 			continue
 		}
-		if !matchesSelector(worker.labels, selector) {
+		if !ir.MatchWorkerSelector(worker.labels, selector) {
 			continue
 		}
 		h.mu.Unlock()
@@ -1168,7 +1168,7 @@ func (h *Handler) dispatchToWaitingPoller(ctx context.Context, task *coordinator
 		if task.TargetWorkerId != "" && worker.workerID != task.TargetWorkerId {
 			continue
 		}
-		if !matchesSelector(worker.labels, task.WorkerSelector) {
+		if !ir.MatchWorkerSelector(worker.labels, task.WorkerSelector) {
 			continue
 		}
 		matched = true
@@ -2070,18 +2070,6 @@ func anyWorkerMatches(workers []dispatch.WorkerHeartbeatRecord, selector map[str
 		}
 	}
 	return false
-}
-
-func matchesSelector(workerLabels, selector map[string]string) bool {
-	if len(selector) == 0 {
-		return true
-	}
-	for key, value := range selector {
-		if workerLabels[key] != value {
-			return false
-		}
-	}
-	return true
 }
 
 func (h *Handler) collectAndRemoveStaleHeartbeats() []*heartbeatInfo {
