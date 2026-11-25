@@ -1005,6 +1005,22 @@ describe('DAGTable', () => {
     ).toHaveAttribute('aria-pressed', 'false');
   });
 
+  // A thicker border under the last pinned row parts it from the others.
+  it('ends the pinned rows of the table with a line', () => {
+    renderTable('', {
+      dags: [
+        workflow({ name: 'reports', pinned: true }),
+        workflow({ name: 'alpha' }),
+      ],
+    });
+    const table = screen.getByRole('table');
+    const rowOf = (name: string) =>
+      within(table).getByRole('link', { name }).closest('tr');
+
+    expect(rowOf('reports')).toHaveClass('border-b-2');
+    expect(rowOf('alpha')).not.toHaveClass('border-b-2');
+  });
+
   it('ends the pinned cards with a line after a pinned group', () => {
     renderTable('', {
       panelWidth: 600,

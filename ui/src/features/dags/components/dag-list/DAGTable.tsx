@@ -2038,9 +2038,12 @@ function DAGTable({
           </TableHeader>
           <TableBody>
             {instance.getRowModel().rows.length ? (
-              instance.getRowModel().rows.map((row) => {
+              instance.getRowModel().rows.map((row, index) => {
                 // For DAG rows, make the entire row clickable
                 const isDAGRow = row.original?.kind === ItemKind.DAG;
+                const endsPinnedSection =
+                  index === pinnedRowCount - 1 &&
+                  index < instance.getRowModel().rows.length - 1;
                 const isDeleteSelected =
                   isDAGRow &&
                   'dag' in row.original &&
@@ -2060,7 +2063,7 @@ function DAGTable({
                       row.original?.kind === ItemKind.Group
                         ? 'bg-muted/50 font-semibold cursor-pointer hover:bg-muted/70'
                         : 'cursor-pointer hover:bg-muted/50'
-                    } ${row.depth > 0 ? 'animate-in fade-in-0 duration-200' : ''} ${isDAGRow && 'dag' in row.original && (row.original as DAGRow).dag.latestDAGRun?.status === Status.Running ? 'animate-running-row' : ''} group/row ${isDAGRow ? 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring' : ''}`}
+                    } ${row.depth > 0 ? 'animate-in fade-in-0 duration-200' : ''} ${isDAGRow && 'dag' in row.original && (row.original as DAGRow).dag.latestDAGRun?.status === Status.Running ? 'animate-running-row' : ''} group/row ${isDAGRow ? 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring' : ''} ${endsPinnedSection ? 'border-b-2' : ''}`}
                     tabIndex={isDAGRow ? 0 : undefined}
                     onKeyDown={
                       isDAGRow && 'dag' in row.original
