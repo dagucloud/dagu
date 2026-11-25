@@ -406,10 +406,8 @@ Rules:
   change them. A project's incident policies name providers.
 - A project's users see a channel's or a provider's name and type, never its
   URL, secret, or credentials.
-- Editing a project's settings needs the role in that project that editing
-  a workspace's settings needs on v2. A server-wide role covers the default
-  project, so whoever edits global entries on v2 edits the default
-  project's.
+- Changing a project's settings needs the role in that project that
+  [Roles](#roles) lists.
 - A credential that every project uses belongs in a secret provider
   (Spec 069), which each project's DAGs reference.
 
@@ -431,6 +429,17 @@ Rules:
   `DAGU_ENCRYPTION_KEY`, or `auth/encryption_key` in `<data_dir>`.
 - No project creates or holds a key of its own. A project's state directory
   copied to another server decrypts there only with the same key.
+
+#### Roles
+
+| Setting | Role in the project that changes it |
+| --- | --- |
+| Base config | `developer` or higher |
+| Secrets | `manager` or higher |
+| Profiles | `manager` or higher. A protected profile needs `admin` |
+| Profile defaults | `developer` or higher. The default project's need `admin` |
+| Notification routes | `developer` or higher |
+| Incident policies | `developer` or higher |
 
 ### Choosing a Project
 
