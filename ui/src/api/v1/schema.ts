@@ -7494,7 +7494,7 @@ export interface components {
         DAGRunChanges: {
             /**
              * Format: date-time
-             * @description The feed holds every change after this time, rounded up to the millisecond. It moves when the server starts or resumes reading run events, when its stream of app events resets, and when the feed drops a change older than 3 minutes or beyond 500 files. Equal to `readAt` while the server does not read run events.
+             * @description The feed holds every change after this time, rounded up to the millisecond. It moves when the server starts reading run events, when its stream of app events resets, and when the feed drops a change older than 3 minutes or beyond 2000 files. A pause in the reads of the run events delays changes and does not move it. Equal to `readAt` before the server reads run events, as without the event store.
              */
             since: string;
             /**

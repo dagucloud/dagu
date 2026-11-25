@@ -346,9 +346,9 @@ rows whose activity it read before `since`.
 
 - The topic reads the feed at most once a minute, and at least once a minute. It sends each read,
   since its `readAt` moves, so that a list learns once a minute that its rows are still current.
-- The server keeps a change for 3 minutes, and at most 500 files. `since` moves when the server
-  starts or resumes reading run events, when its stream of app events resets, and when the feed
-  drops a change.
+- The server keeps a change for 3 minutes, and at most 2000 files. `since` moves when the server
+  starts reading run events, when its stream of app events resets, and when the feed drops a
+  change. A pause in the reads of the run events delays changes and does not move `since`.
 - A server without the event store answers `unsupported_topic` for the topic, and its
   `GET /dag-run-changes` gives a `since` equal to `readAt`.
 - `changedAt` and `since` are rounded up, and `readAt` down, to the millisecond.

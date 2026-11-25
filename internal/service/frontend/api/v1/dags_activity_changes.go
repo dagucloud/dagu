@@ -22,8 +22,10 @@ const (
 	// list that reads each refetch does not find the feed short.
 	runChangeRetention = 3 * time.Minute
 	// runChangeLimit bounds the DAG files that the change feed keeps, and so
-	// the size of one refetch.
-	runChangeLimit = 500
+	// the size of one refetch: about 180 KB. Beyond it the feed drops changes
+	// and every list reads all its rows again, so it holds the DAGs that a
+	// schedule starts together at the top of an hour.
+	runChangeLimit = 2000
 )
 
 // DAGRunsChanged is told, after each read of the DAG-run events, the
@@ -32,12 +34,8 @@ const (
 // change feed, so that a list that reads the activity after the feed names a
 // file reads the new activity.
 func (a *API) DAGRunsChanged(changes []*eventstore.DAGRunStatusSnapshot) {
-	now := time.Now()
-	// The feed misses the changes of a pause in the reads of the events, and
-	// those before the first read.
-	resumed := !a.activities.follows(now)
-	a.activities.changed(changedDAGNames(changes), now)
-	a.runChanges.record(changes, resumed)
+	a.activities.changed(changedDAGNames(changes), time.Now())
+	a.runChanges.record(changes)
 }
 
 // ResetDAGRunChanges makes the change feed complete only from now, so that
@@ -59,7 +57,7 @@ func (a *API) GetDAGRunChangesData(ctx context.Context, _ string) (any, error) {
 }
 
 func (a *API) dagRunChanges(ctx context.Context) api.DAGRunChanges {
-	return a.runChanges.read(a.workspaceFilterForContext(ctx), a.activities.follows(time.Now()))
+	return a.runChanges.read(a.workspaceFilterForContext(ctx))
 }
 
 // changedDAGNames returns the names of the DAGs of changes, each once.
@@ -74,7 +72,9 @@ func changedDAGNames(changes []*eventstore.DAGRunStatusSnapshot) []string {
 }
 
 // runChanges keeps the DAG files whose root runs changed lately, the latest
-// change of each, oldest first. It holds every change after from.
+// change of each, oldest first. It holds every change after from, which is
+// zero before the first read of the run events. The run events are read from
+// a cursor, so a pause in their reads delays changes and loses none.
 type runChanges struct {
 	mu      sync.Mutex
 	entries []runChange
@@ -99,13 +99,12 @@ func (c *runChanges) clock() time.Time {
 // record lists the DAG files of changes as changed now. The time is taken
 // under the lock, after the caller dropped the kept activity of the DAGs, so
 // that a read of the activity that may miss a change began before the change
-// time that the feed tells. When resumed, the feed holds the changes from now
-// only.
-func (c *runChanges) record(changes []*eventstore.DAGRunStatusSnapshot, resumed bool) {
+// time that the feed tells. The first record starts the feed.
+func (c *runChanges) record(changes []*eventstore.DAGRunStatusSnapshot) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	at := c.clock()
-	if resumed {
+	if c.from.IsZero() {
 		c.from = at
 	}
 	for _, change := range changes {
@@ -141,16 +140,16 @@ func (c *runChanges) reset() {
 }
 
 // read returns the changes after from that filter lets the caller see, the
-// newest first. While the run events are not followed, the feed is complete
+// newest first. Before the first read of the run events, the feed is complete
 // from now only.
-func (c *runChanges) read(filter *workspace.WorkspaceFilter, following bool) api.DAGRunChanges {
+func (c *runChanges) read(filter *workspace.WorkspaceFilter) api.DAGRunChanges {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := c.clock()
 	c.trim(now)
 	readAt := now.UTC().Truncate(time.Millisecond)
 	changes := []api.DAGRunChange{}
-	if !following || c.from.IsZero() {
+	if c.from.IsZero() {
 		return api.DAGRunChanges{Since: readAt, ReadAt: readAt, Changes: changes}
 	}
 	for _, e := range slices.Backward(c.entries) {
