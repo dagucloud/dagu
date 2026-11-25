@@ -127,7 +127,9 @@ Promised:
   only when the connection's allow-list includes the run's workspace.
 - A refresh result never overwrites a newer reconnect.
 - A connection becomes `needs_reconnect` once per failure, and only a
-  successful reconnect clears it.
+  successful reconnect clears it. Each such change sends one notification.
+- An AI step never calls a write tool without a person's approval, unless
+  the DAG lists that tool in `unattended`.
 - Each connection refreshes at most once per token lifetime across all
   processes on a host, and across workers in distributed mode.
 
@@ -343,7 +345,7 @@ Refresh results:
 | Result | Effect |
 | --- | --- |
 | Success | The access token is saved. A rotated refresh token replaces the old one |
-| `invalid_grant` | `needs_reconnect`, set once. Later calls fail at once, without calling the provider |
+| `invalid_grant` | Read the token state once more. If the refresh token or `generation` changed, another process rotated or reconnected it, so retry once with the new state. Otherwise `needs_reconnect`, set once. Later calls fail at once, without calling the provider |
 | `invalid_client` or `unauthorized_client` | `app_invalid` on every connection of the app. Fixing the app returns them to `connected` on their next refresh |
 | 5xx, network error, or `temporarily_unavailable` | Transient. The status stays. The call fails, and the step's retry policy applies |
 | Service account clock or signature error | Reported on the connection. The status stays, since a reconnect would not help |
@@ -370,6 +372,37 @@ a new coordinator RPC, `ResolveConnectionToken`, modeled on
 Only coordinators refresh in distributed mode. Workers on a shared NFS
 mount could otherwise read a stale refresh token after another host rotated
 it, and a provider that detects reuse revokes the whole token family.
+
+**Shared storage without a coordinator.** Several hosts that share the data
+directory, with no coordinator, refresh through the same lock and need no
+separate path:
+
+- **Locking.** `dirlock` takes a lock by creating a directory, which is
+  atomic on NFS.
+- **Stale reads.** NFS attribute caching can still return a token record
+  older than another host's write.
+- **Google.** Its refresh tokens do not rotate, so a stale read costs one
+  extra refresh and nothing else.
+- **Rotating providers.** The re-read on `invalid_grant` recovers from a
+  stale read when another host has rotated the token.
+- **Reuse detection.** A provider that revokes the whole token family when an
+  old refresh token is reused is the remaining risk. The docs tell users of
+  such providers to run a coordinator, or to keep the data directory on local
+  disk.
+
+**Notifications.** A status change records one event in the event store,
+written by the process whose CAS write made the change. The notification
+service delivers it as it delivers run events. There are two events:
+
+- `connection.needs_attention`, when the status becomes `needs_reconnect` or
+  `app_invalid`. It carries the connection, the status, the provider's
+  reason, and a Reconnect URL.
+- `connection.restored`, when the status returns to `connected`.
+
+Each event goes to the notification settings of every workspace on the
+allow-list, and to the server-wide settings for a `*` allow-list. It is in
+the default event set for new channels. A failure produces one message,
+however many runs then fail on it.
 
 **Declared connections.** Building a DAG collects the connections it names
 into `ir.DAG.Connections`, as `CredentialRefs` collects SSH refs
@@ -420,6 +453,9 @@ print it. Masking is the second line of defense.
     `insufficient_scope` and the missing scope, and does not refresh.
 - An error of kind `auth` also carries the connection name and, when the
   connection needs reconnecting, `reconnect_required`.
+- HTTP 429 gets its own kind, `rate_limited`, with the provider's message and
+  any `Retry-After`. Today it counts as `transport` (Spec 098). A user who
+  hits a quota then sees a quota error, not a network failure.
 - Static `headers` stay. They may not set `Authorization` when `connection`
   is set. Today `observingTransport` applies static headers after the SDK,
   so such a header would replace the connection's token.
@@ -481,16 +517,29 @@ mcp_servers:
   - notion                          # an mcp connection
   - connection: work-google
     server: gmail
-    tools: [search_threads, get_thread, create_draft]
-    confirm: [create_draft]
+    tools: [search_threads, get_thread, create_draft, label_thread]
+    unattended: [create_draft]      # label_thread still waits for a person
 ```
 
 - `tools` is an allow-list. When it is left out, every tool listed when the
   run starts is offered.
-- `confirm` names tools that wait for a person before each call.
-- A harness, agent DAG, or chat step that uses a Google connection needs an
-  app with `agent` set. Without it the step fails validation. A service
-  account connection needs no flag.
+- **Write tools wait for a person by default.** Every tool that is not
+  read-only needs a person's approval before each call. `unattended` names
+  write tools that run without one. Read-only tools always run without one.
+- **Read-only, by server.** On the built-in presets, a tool is read-only when
+  its MCP annotation says `readOnlyHint: true`. Those servers are run by the
+  provider itself, so Dagu trusts their annotations. The MCP spec calls
+  annotations from other servers untrusted, so on an `mcp` connection every
+  tool counts as a write tool unless it is listed in `unattended`.
+- **Why tool kind, not content.** The rule depends on what a tool does, not on
+  what the agent read. Dagu cannot tell which tool output is untrusted:
+  `search_threads` returns email bodies, which is exactly the content that can
+  steer an agent. A write that stays inside the account, such as
+  `create_draft`, is a good candidate for `unattended`, since a person still
+  sends the draft.
+- **Google agent flag.** A harness, agent DAG, or chat step that uses a
+  Google connection needs an app with `agent` set. Without it the step fails
+  validation. A service account connection needs no flag.
 
 #### MCP gateway
 
@@ -534,8 +583,13 @@ Each built-in provider has an adapter that points the agent at the gateway:
 A custom provider without an adapter refuses `mcp_servers`, as do container
 and remote ACP steps. Today a harness option given inline lands in the
 process arguments (`configToFlags`, `harness.go:965`), so a token passed that
-way would be visible in `ps`. The gateway token is the only credential the agent sees,
-and it lasts only as long as the step.
+way would be visible in `ps`. The gateway token is the only credential the
+agent sees, and it lasts only as long as the step.
+
+A harness agent cannot pause in the middle of a turn to wait for a person.
+So in a harness step, the gateway refuses a call to a write tool that is not
+in `unattended`. The agent receives a tool error that names the rule, and
+the step log records the refused call.
 
 #### Agent DAGs and chat steps
 
@@ -544,8 +598,8 @@ type: agent
 mcp_servers:
   - connection: work-google
     server: gmail
-    tools: [search_threads, get_thread, create_draft]
-    confirm: [create_draft]
+    tools: [search_threads, get_thread, create_draft, label_thread]
+    unattended: [create_draft]
 steps:
   - name: escalate
     action: dag.run
@@ -564,14 +618,20 @@ tasks:
 - A call runs through the gateway, inside the agent loop. The result is
   added to the transcript under the observation limits that apply to step
   results.
-- `confirm` opens an `ask_user` human task before the call. The task shows
-  the tool and its arguments, and the run continues once a person decides.
-  Step `approval` cannot serve here. It waits after the step runs
+- A write tool that is not in `unattended` opens an `ask_user` human task
+  before the call.
+  - The task shows the tool and its arguments.
+  - The run waits without a process, and the existing `dag.run.waiting`
+    event tells someone.
+  - The run continues once a person decides. A rejection goes back to the
+    model as the tool result.
+- Step `approval` cannot serve here. It waits after the step runs
   (`internal/ir/step.go:132`), and it keeps a DAG off workers
   (`internal/ir/dag.go:489`).
 - Chat steps take the same field under `llm.mcp_servers`. The tool registry
   in `internal/runtime/builtin/chat/tools.go` gains MCP tools beside child
-  DAGs.
+  DAGs. A chat step's tool loop cannot pause either, so it refuses write
+  tools that are not in `unattended`, as harness steps do.
 - The integration points are `NewCatalog`
   (`internal/runtime/agentloop/catalog.go:43`), the planner's decision
   mapping, and `prepareAgentActionNode`
@@ -780,6 +840,26 @@ show them.
   connections section. An agent that writes DAGs then uses `connection:
   <name>` instead of asking for a token.
 
+### Quotas in the docs
+
+The docs state no free-tier number. A third-party write-up reports 5,000 MCP
+requests a day per project and product, but Google's own pages give none,
+and the tiers are new. Instead, the docs:
+
+- link Google's quota page, and the Workspace API usage dashboard, which
+  Google says shows each project's usage against the free tier's limits,
+  with estimated costs;
+- state only what Google has announced:
+  - the free tier has published limits;
+  - paid usage tier billing starts on 2027-04-01;
+  - projects marked internal keep higher limits within the Workspace
+    subscription;
+- show how to estimate usage. A DAG that calls one Gmail tool every minute
+  makes about 1,440 requests a day, and each agent turn makes one request per
+  tool call;
+- explain the `rate_limited` error kind, so a user who reaches a limit
+  recognizes it.
+
 ## Permissions
 
 | Action | Role |
@@ -821,9 +901,9 @@ keeps its connections.
   its step's bearer token, offers only allowed tools, and refuses calls to
   tools whose descriptions changed.
 - **Prompt injection.** An agent that reads email or documents can be steered
-  by their content. `confirm` puts a person in front of write tools, and the
-  docs recommend it for every tool that sends, shares, or deletes. [Open
-  questions](#open-questions) asks whether to require it.
+  by their content. So write tools wait for a person by default, and only
+  the DAG author can exempt a tool, by name, in `unattended`. Annotations from
+  servers other than the built-in presets are not trusted.
 - **Masking.** Tokens are masked in local logs, status, and outputs.
   Rollout step 0 extends masking to log streams from workers, which are not
   masked today (`internal/runtime/output.go:484`). Token export waits for
@@ -848,7 +928,9 @@ keeps its connections.
 | The callback arrives after 10 minutes, twice, or for another user | Refused. Nothing changes |
 | The user unticks a scope | The connection is created. Services missing a scope show it, and steps that need it fail with `insufficient_scope` |
 | A Google MCP probe is rejected | The service shows the agent flag hint and a link. Other services are unaffected |
-| The refresh token is revoked or expires | `needs_reconnect` once, a badge in the UI, and every step that uses the connection fails with `reconnect_required` and the connection's name |
+| The refresh token is revoked or expires | `needs_reconnect` once, one `connection.needs_attention` notification, a badge in the UI, and every step that uses the connection fails with `reconnect_required` and the connection's name |
+| A refresh fails with `invalid_grant` because another host on shared storage rotated the token | The re-read finds the new refresh token and the refresh is retried once. Status is unchanged |
+| The provider answers HTTP 429 | The step fails with kind `rate_limited` and the provider's message. Status is unchanged |
 | The OAuth app's secret is rotated or deleted at the provider | `app_invalid` on the app's connections. Updating the app restores them |
 | The token endpoint is down | Steps fail as transient, and retry under their own policy. Status is unchanged |
 | A reconnect happens while a refresh is running | The refresh result is dropped. Both processes end with the reconnected token |
@@ -857,6 +939,8 @@ keeps its connections.
 | A worker's coordinator is older and lacks the token RPC | The step fails, saying the coordinator must be upgraded |
 | An upstream MCP tool's description changes during a run | Calls to that tool fail until the next run, which records the new description |
 | A harness step in a container sets `mcp_servers` | Validation fails, naming the limit |
+| A harness or chat step calls a write tool that is not in `unattended` | The gateway refuses the call. The model receives a tool error that names the rule, and the step continues |
+| Nobody answers a write tool's approval in an agent DAG | The run stays waiting, as for any human task |
 
 ## Performance
 
@@ -880,6 +964,8 @@ keeps its connections.
   path polls.
 - **Gateway.** One loopback listener per AI step with `mcp_servers`, tied to
   the step's context. It adds one local hop per tool call.
+- **Notifications.** One event per status change, not per failed run. A
+  connection that stays broken while 1,000 runs fail sends one message.
 - **Storage.** About 2 KB per connection and 1 KB per app. Nothing is added
   to run status, logs, or indexes. Audit grows only with management actions
   and tool calls from the UI.
@@ -899,6 +985,12 @@ keeps its connections.
   is unaffected, since it never sees connection fields it would need to
   resolve.
 - **API.** New paths only. Existing schemas are unchanged.
+- **`mcp.call` errors.** HTTP 429 moves from kind `transport` to the new
+  kind `rate_limited`. A DAG that branches on `transport` to catch rate
+  limits must check `rate_limited` too.
+- **Notifications.** The two `connection.*` events join the default event
+  set for new channels only. Existing channels keep their event lists, and
+  must opt in.
 - **Specs.** 098 (`mcp.call`), 045 (`http.request`), 073 (mail), 032 (agent
   DAGs), 059 (chat), 067 (harness), and 069 (secret providers) gain the new
   fields. A new spec defines connections, the broker, and the connect flow.
@@ -910,7 +1002,9 @@ Rollout, in pull requests that each work on their own:
    first and separately.
 1. **Records and broker.**
    - The two collections, providers, and the broker with locking,
-     generation checks, and saving rotated tokens.
+     generation checks, the re-read on `invalid_grant`, and saving rotated
+     tokens.
+   - The `connection.needs_attention` and `connection.restored` events.
    - `dagu connection import`, plus `add` for service accounts and client
      credentials, which need no consent screen.
    - `mail_accounts.*.connection`. This alone fixes Microsoft rotation for
@@ -927,9 +1021,10 @@ Rollout, in pull requests that each work on their own:
    templates, `dagu_read`, and the docs.
 6. **Token export.** The `connection` secret provider, behind
    `allow_token_export`.
-7. **Gateway and harness steps.** Claude Code, Codex, and ACP adapters.
-8. **Agent DAGs and chat steps.** MCP tools, `confirm`, and the Google
-   policy lint.
+7. **Gateway and harness steps.** Claude Code, Codex, and ACP adapters, and
+   `unattended`. Write tools not listed in it are refused.
+8. **Agent DAGs and chat steps.** MCP tools, an approval before write tools,
+   and the Google policy lint.
 
 ## Verification and acceptance criteria
 
@@ -959,11 +1054,19 @@ Rollout, in pull requests that each work on their own:
 11. A harness step with `mcp_servers` completes a turn longer than the
     access token's lifetime. The agent process's arguments and environment
     contain no provider token.
-12. An agent DAG calls an MCP tool with arguments. A `confirm` tool waits
-    for a person, and runs only after approval.
-13. Each role can do what [Permissions](#permissions) lists and nothing
+12. An agent DAG calls an MCP tool with arguments. A write tool not in
+    `unattended` waits for a person and runs only after approval. A harness
+    step's call to such a tool is refused.
+13. A Gmail read-only tool runs unattended. Every tool of a generic `mcp`
+    connection waits for a person unless `unattended` lists it.
+14. A revoked connection that 100 runs then use sends exactly one
+    `connection.needs_attention` notification, and a reconnect sends one
+    `connection.restored`.
+15. Two hosts sharing the data directory without a coordinator both keep
+    working after one of them rotates a Microsoft refresh token.
+16. Each role can do what [Permissions](#permissions) lists and nothing
     more.
-14. Every case in [Failure behavior](#failure-behavior) ends as stated.
+17. Every case in [Failure behavior](#failure-behavior) ends as stated.
 
 ## Alternatives considered
 
@@ -993,6 +1096,17 @@ Rollout, in pull requests that each work on their own:
   setup. But Gmail scopes are restricted, which takes Google verification
   and a yearly security assessment, and the app would depend on Dagu Cloud.
   The `hosted` app kind leaves room for it.
+- **Opt-in confirmation (`confirm: [tool]`).** The safe setting would depend
+  on the author remembering it, and a scheduled agent that reads email would
+  run every write unattended by default.
+- **Requiring confirmation only when the agent reads untrusted content.**
+  Dagu cannot tell which tool output is untrusted. Read tools return the
+  email bodies and documents that carry injected instructions, so the rule
+  could not be enforced.
+- **A separate refresh path for shared storage without a coordinator,** such
+  as routing every refresh through the server process. A second code path
+  for a deployment where the lock already works. The re-read guard covers
+  stale reads, and the docs cover providers that detect reuse.
 - **Naming the concept "accounts", "integrations", or "credentials".**
   "Accounts" clashes with `mail_accounts`, and does not fit client
   credentials or MCP servers. "Integrations" is broader than a sign-in.
@@ -1002,24 +1116,18 @@ Rollout, in pull requests that each work on their own:
 
 ## Open questions
 
-1. Should `needs_reconnect` send a notification through the server's
-   channels, once per change?
-2. Should `confirm` be required for write tools when an agent's catalog also
-   reads untrusted content, such as email or shared documents?
-3. Should an agent DAG list its tools when it is loaded, which needs network
+1. Should an agent DAG list its tools when it is loaded, which needs network
    access during validation, or only when it runs, as this RFC proposes?
-4. Can a host without a coordinator, sharing the data directory over NFS,
-   refresh safely, or must such deployments run a coordinator?
-5. May any manager reconnect a connection with a different account, or only
+2. May any manager reconnect a connection with a different account, or only
    when the account stays the same?
-6. Should a second connection for the same account and client be refused,
+3. Should a second connection for the same account and client be refused,
    rather than warned about?
-7. Which free-tier limits should the docs state? A third-party write-up
-   reports 5,000 MCP requests a day per project and product. Google's own
-   pages do not state a number.
-8. Should a later Dagu-hosted app use Client ID Metadata Documents, which
+4. Should a later Dagu-hosted app use Client ID Metadata Documents, which
    newer MCP authorization specs describe, rather than registration? This
    needs checking against the current MCP spec.
+5. Does Microsoft keep a rotated-out refresh token valid until it expires?
+   The re-read guard works either way, but the docs should state the
+   provider's behavior only once it is confirmed.
 
 ## Future enhancements
 
