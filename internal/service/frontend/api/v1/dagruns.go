@@ -245,6 +245,10 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	if err != nil {
 		return nil, err
 	}
+	targetNodes, err := a.checkTargetNodes(ctx, dag, request.Body.TargetNodes)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := a.ensureDAGRunIDUnique(ctx, dag, dagRunId); err != nil {
 		return nil, err
@@ -266,6 +270,9 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	}
 
 	var started *launcher.StartResult
+	if len(targetNodes) > 0 && (len(selection.steps) > 0 || selection.reuseFrom != "") {
+		return nil, targetNodesWithSelectedSteps()
+	}
 	if len(selection.steps) > 0 || selection.reuseFrom != "" {
 		if err := a.startSelectedSteps(ctx, dag, selectedStepsStart{
 			selection:      selection,
@@ -288,6 +295,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 			profileName:    profileName,
 			noReuse:        valueOf(request.Body.NoReuse),
 			workerSelector: workerSelector,
+			targetNodes:    targetNodes,
 		})
 	}
 	if started != nil {
@@ -316,6 +324,9 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	}
 	if len(workerSelector) > 0 {
 		detailsMap["worker_selector"] = workerSelector
+	}
+	if len(targetNodes) > 0 {
+		detailsMap["target_nodes"] = targetNodes
 	}
 	addSelectedStepsAudit(detailsMap, selection)
 	a.logAudit(ctx, audit.CategoryDAG, "dag_execute", detailsMap)
@@ -385,6 +396,10 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 	if err != nil {
 		return nil, err
 	}
+	targetNodes, err := a.checkTargetNodes(ctx, dag, request.Body.TargetNodes)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := a.ensureDAGRunIDUnique(ctx, dag, dagRunId); err != nil {
 		return nil, err
@@ -424,6 +439,7 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 		profileName:    profileName,
 		noReuse:        valueOf(request.Body.NoReuse),
 		workerSelector: workerSelector,
+		targetNodes:    targetNodes,
 	}); err != nil {
 		return nil, fmt.Errorf("error enqueuing dag-run: %w", err)
 	}
@@ -438,6 +454,9 @@ func (a *API) EnqueueDAGRunFromSpec(ctx context.Context, request api.EnqueueDAGR
 	}
 	if len(workerSelector) > 0 {
 		detailsMap["worker_selector"] = workerSelector
+	}
+	if len(targetNodes) > 0 {
+		detailsMap["target_nodes"] = targetNodes
 	}
 	a.logAudit(ctx, audit.CategoryDAG, "dag_enqueue", detailsMap)
 

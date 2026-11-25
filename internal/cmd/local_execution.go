@@ -41,6 +41,8 @@ type runOptions struct {
 	preparedAttempt     dagrun.Attempt
 	noReuse             bool
 	recursiveOutput     bool
+	// targetNodes narrows the run's steps with nodes (RFC 013).
+	targetNodes []string
 	// seed is the queued status of a selected-steps run, which is dispatched
 	// as a retry of that attempt.
 	seed *ir.DAGRunStatus

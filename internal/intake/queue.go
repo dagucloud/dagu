@@ -53,6 +53,8 @@ type QueueRequest struct {
 	// BackfillID names the backfill the run belongs to, which also gives
 	// the run low queue priority.
 	BackfillID string
+	// TargetNodes narrows the run's steps with nodes to the nodes it names.
+	TargetNodes []string
 
 	AttemptOptions persis.DAGRunCreateAttemptOptions
 
@@ -205,6 +207,7 @@ func queuedStatus(req QueueRequest, dagRun ir.DAGRunRef, attemptID, logFile, arc
 		ir.WithNoReuse(req.NoReuse),
 		ir.WithEphemeral(req.AttemptOptions.Ephemeral),
 		ir.WithBackfillID(req.BackfillID),
+		ir.WithTargetNodes(req.TargetNodes),
 	}
 	if req.ScheduleTime != "" {
 		opts = append(opts, ir.WithScheduleTime(req.ScheduleTime), ir.WithScheduleWindow(req.ScheduleWindow))

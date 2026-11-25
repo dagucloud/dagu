@@ -343,6 +343,14 @@ func (a *API) buildEditRetryPlan(
 
 	stepPlan := planEditRetrySteps(status, editedDAG, opts.skipSteps)
 	validationErrors = append(validationErrors, stepPlan.validationErrors...)
+	// The run keeps a narrowed source run's node list, and so runs on the
+	// Dagu host.
+	if len(status.TargetNodes) > 0 {
+		if len(editedDAG.WorkerSelector) > 0 {
+			validationErrors = append(validationErrors, fmt.Sprintf("DAG %q: %v", editedDAG.Name, ir.ErrNodeListOnWorkers))
+		}
+		editedDAG.ForceLocal = true
+	}
 
 	warnings := editRetryWarnings(stepPlan.skippedSteps, stepPlan.ineligible, stepPlan.reusableSourceSteps)
 	return &editRetryPlan{
@@ -544,6 +552,8 @@ func (a *API) launchEditRetryDAGRun(ctx context.Context, plan *editRetryPlan) (q
 		triggerType: queue.ExecutionTriggerType(plan.sourceStatus),
 		backfillID:  plan.sourceStatus.BackfillID,
 		enqueue:     true,
+		targetNodes: plan.sourceStatus.TargetNodes,
+		nodeList:    plan.sourceStatus.NodeList,
 	})
 }
 

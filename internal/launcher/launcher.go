@@ -212,6 +212,7 @@ func (b *SubCmdBuilder) Start(dag *ir.DAG, opts StartOptions) CmdSpec {
 		args = append(args, "--no-reuse")
 	}
 	args = append(args, workerLabelArgs(opts.WorkerSelector)...)
+	args = append(args, nodeArgs(opts.TargetNodes)...)
 	if b.configFile != "" {
 		args = append(args, "--config", b.configFile)
 	}
@@ -272,6 +273,7 @@ func (b *SubCmdBuilder) Enqueue(dag *ir.DAG, opts EnqueueOptions) CmdSpec {
 		args = append(args, "--no-reuse")
 	}
 	args = append(args, workerLabelArgs(opts.WorkerSelector)...)
+	args = append(args, nodeArgs(opts.TargetNodes)...)
 	args = append(args, dag.Location)
 
 	return CmdSpec{
@@ -406,6 +408,8 @@ type StartOptions struct {
 	NoReuse      bool    // Disable build materialization reuse
 	// WorkerSelector replaces the DAG's worker_selector for this run.
 	WorkerSelector map[string]string
+	// TargetNodes narrows the run's steps with nodes (RFC 013).
+	TargetNodes []string
 }
 
 // EnqueueOptions contains options for enqueuing a dag-run.
@@ -425,6 +429,8 @@ type EnqueueOptions struct {
 	NoReuse      bool   // Disable build materialization reuse
 	// WorkerSelector replaces the DAG's worker_selector for this run.
 	WorkerSelector map[string]string
+	// TargetNodes narrows the run's steps with nodes (RFC 013).
+	TargetNodes []string
 }
 
 // workerLabelArgs renders a per-run worker selector as repeatable
@@ -433,6 +439,15 @@ func workerLabelArgs(selector map[string]string) []string {
 	args := make([]string, 0, len(selector))
 	for _, key := range slices.Sorted(maps.Keys(selector)) {
 		args = append(args, fmt.Sprintf("--worker-label=%s=%s", key, selector[key]))
+	}
+	return args
+}
+
+// nodeArgs renders a run's node list as repeatable --node flags.
+func nodeArgs(names []string) []string {
+	args := make([]string, 0, len(names))
+	for _, name := range names {
+		args = append(args, "--node="+name)
 	}
 	return args
 }

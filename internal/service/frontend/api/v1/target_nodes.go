@@ -1,0 +1,50 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package api
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+
+	"github.com/dagucloud/dagu/v2/api/v1"
+	"github.com/dagucloud/dagu/v2/internal/intake"
+	"github.com/dagucloud/dagu/v2/internal/ir"
+)
+
+// checkTargetNodes checks a request's node list against the project's nodes
+// and returns it as the run carries it, or nil without one (RFC 013
+// §Narrowing a run). The run starts in a subprocess, so a mistake in the list
+// is answered here, before the launch.
+func (a *API) checkTargetNodes(ctx context.Context, dag *ir.DAG, names *api.TargetNodes) ([]string, error) {
+	if names == nil || len(*names) == 0 {
+		return nil, nil
+	}
+	if a.inventoryStore == nil {
+		return nil, inventoryStoreUnavailable()
+	}
+	known, err := a.inventoryStore.Nodes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read inventory nodes: %w", err)
+	}
+	listed, err := intake.CheckTargetNodes(dag, *names, known)
+	if err != nil {
+		return nil, &Error{
+			HTTPStatus: http.StatusBadRequest,
+			Code:       api.ErrorCodeBadRequest,
+			Message:    "invalid targetNodes: " + err.Error(),
+		}
+	}
+	return listed, nil
+}
+
+// targetNodesWithSelectedSteps refuses a selected-steps start with a node
+// list.
+func targetNodesWithSelectedSteps() *Error {
+	return &Error{
+		HTTPStatus: http.StatusBadRequest,
+		Code:       api.ErrorCodeBadRequest,
+		Message:    "targetNodes cannot be combined with selected steps",
+	}
+}

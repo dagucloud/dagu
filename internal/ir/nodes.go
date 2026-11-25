@@ -4,9 +4,14 @@
 package ir
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 )
+
+// ErrNodeListOnWorkers refuses a run with a node list that selects workers:
+// steps with nodes run on the Dagu host (RFC 013 §Narrowing a run).
+var ErrNodeListOnWorkers = errors.New("a run with a node list runs on the Dagu host and cannot select workers")
 
 // NodeTargets is a step's nodes field (RFC 013): which inventory nodes the
 // step runs on, and how it dispatches them.
@@ -18,6 +23,33 @@ type NodeTargets struct {
 	MaxConcurrent int `json:"maxConcurrent"`
 	// KeepGoing starts the remaining nodes after one fails.
 	KeepGoing bool `json:"keepGoing,omitempty"`
+}
+
+// HasNodeOrSubDAGSteps reports whether a step of the DAG, a foreach body or
+// a handler included, sets nodes or runs a child DAG: the steps a run's node
+// list can narrow.
+func (d *DAG) HasNodeOrSubDAGSteps() bool {
+	var narrows func(steps []Step) bool
+	narrows = func(steps []Step) bool {
+		for _, step := range steps {
+			if step.Nodes != nil || step.SubDAG != nil {
+				return true
+			}
+			if step.Foreach != nil && narrows(step.Foreach.Steps) {
+				return true
+			}
+		}
+		return false
+	}
+	if narrows(d.Steps) {
+		return true
+	}
+	for _, handler := range []*Step{d.HandlerOn.Init, d.HandlerOn.Failure, d.HandlerOn.Success, d.HandlerOn.Abort, d.HandlerOn.Exit, d.HandlerOn.Wait} {
+		if handler != nil && narrows([]Step{*handler}) {
+			return true
+		}
+	}
+	return false
 }
 
 const (

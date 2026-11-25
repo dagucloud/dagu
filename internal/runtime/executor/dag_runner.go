@@ -314,6 +314,9 @@ func validateSubWorkflowRequest(req SubWorkflowRequest) error {
 	if req.RootDAGRun.Zero() {
 		return errRootDAGRunNotSet
 	}
+	if len(req.TargetNodes) > 0 && len(req.WorkerSelector) > 0 {
+		return fmt.Errorf("DAG %q: %w", req.DAG.Name, ir.ErrNodeListOnWorkers)
+	}
 	return nil
 }
 
@@ -341,6 +344,7 @@ func (e *SubDAGExecutor) subWorkflowRequest(ctx context.Context, runParams RunPa
 		ScheduleWindow:    rCtx.ScheduleWindow,
 		Node:              runParams.Node,
 		NodeStep:          e.nodeStep,
+		TargetNodes:       rCtx.TargetNodes,
 	}
 	if e.workspaceSeed != nil {
 		req.Workspace = &SubWorkflowWorkspace{

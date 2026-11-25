@@ -8,6 +8,7 @@ import (
 	"io"
 	"maps"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/build"
@@ -72,6 +73,65 @@ type Context struct {
 	// SecretValues, when non-nil, holds the secret values the run resolved
 	// its secrets from in place of their providers.
 	SecretValues map[string]string
+	// TargetNodes narrows the steps with nodes of the run and of its child
+	// runs to the nodes it names (RFC 013 §Narrowing a run).
+	TargetNodes []string
+	// NodeList records what the steps with nodes of a narrowed run did with
+	// its list, foreach bodies, handlers, and dag.run child runs included.
+	// Nil without a list.
+	NodeList *NodeListOutcome
+}
+
+// NodeListOutcome records whether a step with nodes of a narrowed run was
+// skipped because the list named none of its nodes, and whether one ran on a
+// listed node. It is safe for concurrent use.
+type NodeListOutcome struct {
+	skipped atomic.Bool
+	ran     atomic.Bool
+}
+
+// NewNodeListOutcome starts the record of a narrowed run from what the
+// attempt it retries recorded, or empty when from is nil.
+func NewNodeListOutcome(from *ir.NodeListRecord) *NodeListOutcome {
+	o := &NodeListOutcome{}
+	if from != nil {
+		o.skipped.Store(from.Skipped)
+		o.ran.Store(from.Ran)
+	}
+	return o
+}
+
+// Record returns what o holds, for the run's status, or nil for a nil o.
+func (o *NodeListOutcome) Record() *ir.NodeListRecord {
+	if o == nil {
+		return nil
+	}
+	return &ir.NodeListRecord{Skipped: o.Skipped(), Ran: o.Ran()}
+}
+
+// MarkSkipped records a step skipped because the list named none of its
+// nodes.
+func (o *NodeListOutcome) MarkSkipped() {
+	if o != nil {
+		o.skipped.Store(true)
+	}
+}
+
+// MarkRan records a step that runs on listed nodes.
+func (o *NodeListOutcome) MarkRan() {
+	if o != nil {
+		o.ran.Store(true)
+	}
+}
+
+// Skipped reports whether a step was skipped because of the list.
+func (o *NodeListOutcome) Skipped() bool {
+	return o != nil && o.skipped.Load()
+}
+
+// Ran reports whether a step ran on listed nodes.
+func (o *NodeListOutcome) Ran() bool {
+	return o != nil && o.ran.Load()
 }
 
 // RedirectRoot moves the stdout and stderr redirect files of steps under Dir,
@@ -432,6 +492,16 @@ type NodeSelector interface {
 func WithNodeSelector(nodes NodeSelector) ContextOption {
 	return func(o *contextOptions) {
 		o.Nodes = nodes
+	}
+}
+
+// WithTargetNodes sets the nodes the run is narrowed to, and the record of
+// what its steps with nodes do with them, which a dag.run child run shares
+// with its parent.
+func WithTargetNodes(names []string, record *NodeListOutcome) ContextOption {
+	return func(o *contextOptions) {
+		o.TargetNodes = names
+		o.NodeList = record
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -404,4 +405,293 @@ steps:
 	require.Equal(t, "web01", child.BoundNode)
 	require.Equal(t, []string{"version=2.1"}, child.ParamsList)
 	require.Equal(t, ir.Succeeded, child.Status)
+}
+
+// runNarrowed runs a DAG narrowed to the listed nodes and returns its status.
+func runNarrowed(t *testing.T, nodes staticNodes, yaml string, listed []string, wantErr string) *ir.DAGRunStatus {
+	t.Helper()
+
+	th := test.Setup(t)
+	dag := th.DAG(t, yaml)
+	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{NodeSelector: nodes, TargetNodes: listed}))
+	if wantErr == "" {
+		dagAgent.RunSuccess(t)
+	} else {
+		dagAgent.RunCheckErr(t, wantErr)
+	}
+	status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+	require.NoError(t, err)
+	return &status
+}
+
+func dbNode(name string) inventory.ResolvedNode {
+	return inventory.ResolvedNode{Name: name, Host: name + ".internal", Labels: ir.NewLabels([]string{"db"})}
+}
+
+// A run's node list narrows each step with nodes to the nodes it names. A
+// step none of whose nodes is listed is skipped without blocking the steps
+// after it, and a run whose list leaves every such step with no node fails
+// (RFC 013 §Narrowing a run).
+func TestNodeSteps_Narrowed(t *testing.T) {
+	t.Parallel()
+
+	nodes := staticNodes{dbNode("db01"), webNode("web01"), webNode("web02"), webNode("web03")}
+	dag := `
+steps:
+  - id: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: web
+  - id: migrate
+    depends: [deploy]
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: db
+  - id: notify
+    depends: [migrate]
+    action: noop
+` + boundChildSucceeds
+
+	t.Run("runs only the listed nodes, and skips a step none of whose nodes is listed", func(t *testing.T) {
+		t.Parallel()
+
+		status := runNarrowed(t, nodes, dag, []string{"web03"}, "")
+		require.Equal(t, ir.Succeeded, status.Status)
+		require.Equal(t, []string{"web03"}, status.TargetNodes)
+		var bound []string
+		for _, run := range status.Nodes[0].SubRuns {
+			bound = append(bound, run.Node)
+		}
+		require.Equal(t, []string{"web03"}, bound)
+
+		migrate := status.Nodes[1]
+		require.Equal(t, ir.NodeSkipped, migrate.Status)
+		require.True(t, migrate.SkippedByNodeList)
+		require.Equal(t, ir.NodeSucceeded, status.Nodes[2].Status)
+	})
+
+	t.Run("fails when the list leaves every step with nodes without a node", func(t *testing.T) {
+		t.Parallel()
+
+		status := runNarrowed(t, staticNodes{dbNode("db01"), webNode("web01")}, `
+steps:
+  - id: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: web
+`+boundChildSucceeds, []string{"db01"}, "no listed node was selected")
+		require.Equal(t, ir.Failed, status.Status)
+		require.True(t, status.Nodes[0].SkippedByNodeList)
+	})
+
+	t.Run("binds a node: required DAG to its one listed node", func(t *testing.T) {
+		t.Parallel()
+
+		status := runNarrowed(t, nodes, `
+node: required
+steps:
+  - action: noop
+`, []string{"web01"}, "")
+		require.Equal(t, ir.Succeeded, status.Status)
+		require.Equal(t, "web01", status.BoundNode)
+	})
+}
+
+// The node list counts the steps with nodes of foreach bodies, handlers, and
+// dag.run child runs toward the run it was given to, and a child of a
+// narrowed run stays on the Dagu host.
+func TestNodeSteps_NarrowedBodiesAndHandlers(t *testing.T) {
+	t.Parallel()
+
+	nodes := staticNodes{dbNode("db01"), webNode("web01")}
+
+	t.Run("a foreach body that runs a listed node counts", func(t *testing.T) {
+		t.Parallel()
+
+		status := runNarrowed(t, nodes, `
+steps:
+  - id: migrate
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: db
+  - id: each
+    depends: [migrate]
+    foreach:
+      items: [a]
+      steps:
+        - id: deploy
+          action: dag.run
+          with:
+            dag: deploy-one
+          nodes: web
+`+boundChildSucceeds, []string{"web01"}, "")
+		require.Equal(t, ir.Succeeded, status.Status)
+		require.True(t, status.Nodes[0].SkippedByNodeList)
+	})
+
+	t.Run("a handler that runs no listed node fails the run", func(t *testing.T) {
+		t.Parallel()
+
+		status := runNarrowed(t, nodes, `
+steps:
+  - action: noop
+handler_on:
+  exit:
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: web
+`+boundChildSucceeds, []string{"db01"}, "no listed node was selected")
+		require.Equal(t, ir.NodeSkipped, status.OnExit.Status)
+		require.True(t, status.OnExit.SkippedByNodeList)
+	})
+
+	t.Run("a child whose steps the list skips does not fail", func(t *testing.T) {
+		t.Parallel()
+
+		// The child runs before any listed node does.
+		status := runNarrowed(t, nodes, `
+steps:
+  - id: maint
+    action: dag.run
+    with:
+      dag: db-maint
+  - id: deploy
+    depends: [maint]
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: web
+---
+name: db-maint
+steps:
+  - id: migrate
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: db
+`+boundChildSucceeds, []string{"web01"}, "")
+		require.Equal(t, ir.NodeSucceeded, status.Nodes[0].Status)
+	})
+
+	t.Run("a listed node that runs in a child counts", func(t *testing.T) {
+		t.Parallel()
+
+		status := runNarrowed(t, nodes, `
+steps:
+  - id: web
+    action: dag.run
+    with:
+      dag: web-tier
+  - id: migrate
+    depends: [web]
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: db
+---
+name: web-tier
+steps:
+  - id: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: web
+`+boundChildSucceeds, []string{"web01"}, "")
+		require.True(t, status.Nodes[1].SkippedByNodeList)
+	})
+
+	t.Run("a child that selects workers is refused", func(t *testing.T) {
+		t.Parallel()
+
+		runNarrowed(t, nodes, `
+steps:
+  - id: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: web
+  - id: report
+    depends: [deploy]
+    action: dag.run
+    with:
+      dag: report
+---
+name: deploy-one
+node: required
+steps:
+  - action: noop
+---
+name: report
+worker_selector:
+  gpu: "true"
+steps:
+  - action: noop
+`, []string{"web01"}, "cannot select workers")
+	})
+}
+
+// A retry continues the node list record of the attempt it retries, so the
+// steps it keeps, and their child runs, still count toward the list.
+func TestNodeSteps_NarrowedRetry(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		steps   string
+		wantErr string
+	}{
+		{name: "a listed node that ran in a kept child counts", steps: `
+  - id: web
+    action: dag.run
+    with:
+      dag: web-tier`},
+		{name: "a kept skip fails the run once the steps succeed", wantErr: "no listed node was selected"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// check fails until its marker exists, so the first attempt fails
+			// for check alone, and the retry reruns only check.
+			marker := filepath.Join(t.TempDir(), "ready")
+			th := test.Setup(t)
+			dag := th.DAG(t, fmt.Sprintf(`
+steps:%s
+  - id: migrate
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: db
+  - id: check
+    depends: [migrate]
+    run: test -f %q
+---
+name: web-tier
+steps:
+  - id: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: web
+`, tc.steps, marker)+boundChildSucceeds)
+			opts := agent.Options{NodeSelector: staticNodes{dbNode("db01"), webNode("web01")}, TargetNodes: []string{"web01"}}
+			dag.Agent(test.WithAgentOptions(opts)).RunError(t)
+			status, err := th.DAGRunMgr.GetLatestStatus(th.Context, dag.DAG)
+			require.NoError(t, err)
+
+			require.NoError(t, os.WriteFile(marker, nil, 0o600))
+			// The retry keeps the list of the run it retries.
+			opts.TargetNodes, opts.RetryTarget = nil, &status
+			retry := dag.Agent(test.WithAgentOptions(opts))
+			if tc.wantErr == "" {
+				retry.RunSuccess(t)
+			} else {
+				retry.RunCheckErr(t, tc.wantErr)
+			}
+		})
+	}
 }

@@ -43,6 +43,9 @@ var (
 	ErrUpstreamSkipped  = fmt.Errorf("upstream skipped")
 	ErrUpstreamRejected = fmt.Errorf("upstream rejected")
 	ErrDeadlockDetected = errors.New("deadlock detected: no runnable nodes but DAG not finished")
+	// ErrNoListedNode fails a narrowed run whose node list left every step
+	// with nodes that matched nodes without a node (RFC 013).
+	ErrNoListedNode = errors.New("no listed node was selected")
 )
 
 // ChatMessagesHandler handles chat session messages for persistence.
@@ -88,6 +91,7 @@ type Runner struct {
 	dagRunAutoRetryCount int
 	dagRunAutoRetryLimit int
 	dagRunIsRoot         bool
+	checkNodeList        bool
 
 	canceled      int32
 	failed        int32
@@ -150,6 +154,7 @@ func New(cfg *Config) *Runner {
 		dagRunAutoRetryCount: cfg.DAGRunAutoRetryCount,
 		dagRunAutoRetryLimit: cfg.DAGRunAutoRetryLimit,
 		dagRunIsRoot:         cfg.DAGRunIsRoot,
+		checkNodeList:        cfg.CheckNodeList,
 	}
 }
 
@@ -177,6 +182,10 @@ type Config struct {
 	// the steps: on wait, on success, on failure, on abort, and on exit. The
 	// init handler runs before the steps and is not affected.
 	SkipHandlers bool
+	// CheckNodeList fails the run when its node list selected no node
+	// (RFC 013 §Narrowing a run). Only the runner of a run's own steps sets
+	// it, not the runner of a foreach body.
+	CheckNodeList bool
 	// ExecutorOverride supplies the executors of the steps and handlers it
 	// covers in place of their actions. Nil runs every action.
 	ExecutorOverride ExecutorOverride
@@ -310,6 +319,8 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 	if !r.isError() {
 		if err := upstreamBlock(plan); err != nil {
 			r.setLastError(err)
+		} else if r.noListedNode(ctx) {
+			r.setLastError(ErrNoListedNode)
 		}
 	}
 
@@ -410,6 +421,10 @@ func (r *Runner) Run(ctx context.Context, plan *Plan, progressCh chan ProgressUp
 		}
 
 		r.report(handlerCtx, progressCh, handlerNode)
+	}
+	// A handler with nodes counts too, and runs after the check above.
+	if !r.isError() && r.noListedNode(ctx) {
+		r.setLastError(ErrNoListedNode)
 	}
 
 	logger.Debug(handlerCtx, "Runner execution complete",
@@ -1606,6 +1621,18 @@ func upstreamBlock(plan *Plan) error {
 	return block
 }
 
+// noListedNode reports a narrowed run whose node list skipped a step with
+// nodes and let no step with nodes run on a listed node. It reads the run's
+// record, which holds its foreach bodies, handlers, and dag.run child runs,
+// and the attempts a retry continues.
+func (r *Runner) noListedNode(ctx context.Context) bool {
+	if !r.checkNodeList {
+		return false
+	}
+	outcome := GetDAGContext(ctx).NodeList
+	return outcome.Skipped() && !outcome.Ran()
+}
+
 func blockedByUpstream(plan *Plan, node *Node) bool {
 	err := node.State().Error
 	return plan.inRetrySelection(node) && (errors.Is(err, ErrUpstreamFailed) || errors.Is(err, ErrUpstreamAborted))
@@ -1652,6 +1679,11 @@ func isReady(ctx context.Context, plan *Plan, node *Node) bool {
 		case ir.NodeSkipped:
 			if dep.State().SkippedByRetry {
 				logger.Debug(ctx, "Dependency skipped by retry",
+					tag.Step(node.Name()), tag.Dependency(dep.Name()))
+				continue
+			}
+			if dep.State().SkippedByNodeList {
+				logger.Debug(ctx, "Dependency skipped by the node list",
 					tag.Step(node.Name()), tag.Dependency(dep.Name()))
 				continue
 			}
@@ -1745,7 +1777,10 @@ func (r *Runner) runEventHandler(ctx context.Context, plan *Plan, node *Node, ex
 		return err
 	}
 
-	node.SetStatus(ir.NodeSucceeded)
+	// A handler the node list left with no node stays skipped.
+	if !node.State().SkippedByNodeList {
+		node.SetStatus(ir.NodeSucceeded)
+	}
 	return nil
 }
 

@@ -218,6 +218,46 @@ func TestEditRetryDAGRun_KeepsBackfillIdentity(t *testing.T) {
 	require.Equal(t, ir.TriggerTypeBackfill, status.TriggerType)
 }
 
+// An edit-retry of a narrowed run keeps the list and its record, and runs on
+// the Dagu host (RFC 013 §Narrowing a run).
+func TestEditRetryDAGRun_KeepsNodeList(t *testing.T) {
+	ctx := context.Background()
+	api, dag := setupEditRetryAPI(t, t.TempDir(), editRetrySourceYAML())
+	record := &ir.NodeListRecord{Skipped: true, Ran: true}
+	seedEditRetrySourceAttemptWithProfileName(t, ctx, api.dagRunRepository, dag, "source-run", "",
+		ir.WithTargetNodes([]string{"web01"}), ir.WithNodeListRecord(record))
+	// The run waits in a queue, so the test reads it without launching it.
+	api.config.Queues.Enabled = true
+	api.config.Queues.Config = []config.QueueConfig{{Name: dag.ProcGroup(), MaxActiveRuns: 1}}
+	api.queueStore = persiststore.NewQueueStore(testutil.NewMemoryBackend().Collection("queue"))
+
+	editRetry := func(runID, spec string) error {
+		_, err := api.EditRetryDAGRun(ctx, openapiv1.EditRetryDAGRunRequestObject{
+			Name:     dag.Name,
+			DagRunId: "source-run",
+			Body:     &openapiv1.EditRetryDAGRunJSONRequestBody{DagRunId: ptrOf(runID), Spec: spec},
+		})
+		return err
+	}
+
+	require.NoError(t, editRetry("edit-run", editRetryEditedYAML()))
+	attempt, err := api.dagRunRepository.FindAttempt(ctx, ir.NewDAGRunRef(dag.Name, "edit-run"))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []string{"web01"}, status.TargetNodes)
+	require.Equal(t, record, status.NodeList)
+	snapshot, err := attempt.ReadDAG(ctx)
+	require.NoError(t, err)
+	require.True(t, snapshot.ForceLocal)
+
+	err = editRetry("edit-run-workers", editRetryEditedYAMLWithWorkerSelector())
+	var apiErr *Error
+	require.ErrorAs(t, err, &apiErr)
+	require.Equal(t, http.StatusBadRequest, apiErr.HTTPStatus)
+	require.Contains(t, apiErr.Message, "cannot select workers")
+}
+
 func TestEditRetryDAGRun_RejectsDistributedBuildWorkflow(t *testing.T) {
 	ctx := context.Background()
 	tmpDir := t.TempDir()

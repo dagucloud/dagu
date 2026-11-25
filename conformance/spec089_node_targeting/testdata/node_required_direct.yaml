@@ -1,0 +1,9 @@
+node: required
+params:
+  - DIR: ""
+steps:
+  - action: file.write
+    with:
+      path: ${params.DIR}/bound-${node.name}
+      content: ran
+      overwrite: true
