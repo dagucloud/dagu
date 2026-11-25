@@ -112,19 +112,13 @@ func (e *parallelExecutor) SetNodes(matched []executor.NodeRun) {
 	e.nodes.reuse = make(map[string]bool)
 	e.runParamsList = nil
 	for _, node := range matched {
-		if runsNode(node) {
+		if node.Runs() {
 			e.runParamsList = append(e.runParamsList, node.Run)
 		}
 		if node.Reuse {
 			e.nodes.reuse[node.Run.RunID] = true
 		}
 	}
-}
-
-// runsNode reports whether a matched node has a child run in the step: one
-// that runs or whose earlier result the step keeps.
-func runsNode(node executor.NodeRun) bool {
-	return !node.Disabled && !node.Removed
 }
 
 // reusesNode reports whether the step keeps the earlier result of a node's
@@ -290,13 +284,13 @@ func (e *parallelExecutor) nodeEntries() ([]nodeResult, []map[string]string, int
 					outputs = append(outputs, result.Outputs)
 				}
 			}
-			switch status {
-			case ir.NodeRunNotStarted, ir.NodeRunRemoved, ir.NodeRunDisabled:
-			case ir.NodeRunSucceeded, ir.NodeRunPartiallySucceeded:
-				succeeded++
-			default:
-				failed++
-			}
+		}
+		switch status {
+		case ir.NodeRunNotStarted, ir.NodeRunRemoved, ir.NodeRunDisabled:
+		case ir.NodeRunSucceeded, ir.NodeRunPartiallySucceeded:
+			succeeded++
+		default:
+			failed++
 		}
 		entries = append(entries, entry)
 	}
@@ -352,7 +346,7 @@ func (e *parallelExecutor) nodeStatusDetails() []ir.NodeStatusDetail {
 	details := make([]ir.NodeStatusDetail, 0, len(e.nodes.matched))
 	for _, node := range e.nodes.matched {
 		status := ir.NodeSkipped
-		if runsNode(node) {
+		if node.Runs() {
 			_, started := e.nodes.started[node.Run.RunID]
 			result, finished := e.results[node.Run.RunID]
 			switch {

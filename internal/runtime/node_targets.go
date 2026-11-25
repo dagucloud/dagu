@@ -71,7 +71,7 @@ func (n *Node) setupNodesExecutor(ctx context.Context, override ExecutorOverride
 		// A disabled or removed node keeps the child run an earlier attempt
 		// gave it, so a retry that finds it able to run again retries that
 		// run. One that never had a child run gets none.
-		if (node.Disabled || node.Removed) && node.Run.RunID == "" {
+		if !node.Runs() && node.Run.RunID == "" {
 			continue
 		}
 		run := child
@@ -105,7 +105,7 @@ func (n *Node) setupNodesExecutor(ctx context.Context, override ExecutorOverride
 	}
 	var subRuns []executor.RunParams
 	for _, run := range runs {
-		if !run.Disabled && !run.Removed {
+		if run.Runs() {
 			subRuns = append(subRuns, run.Run)
 		}
 	}
@@ -169,7 +169,7 @@ func recordedNodes(ctx context.Context, records ir.NodeRuns) ([]executor.NodeRun
 		case node.Disabled:
 			run.Disabled = true
 		}
-		runnable = runnable || (!run.Disabled && !run.Removed)
+		runnable = runnable || run.Runs()
 		runs[i] = run
 	}
 	if !runnable {

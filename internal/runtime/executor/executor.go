@@ -138,6 +138,12 @@ type NodeRun struct {
 	Run RunParams
 }
 
+// Runs reports whether the node has a child run in the step: one that runs,
+// or one whose earlier result the step keeps.
+func (n NodeRun) Runs() bool {
+	return !n.Disabled && !n.Removed
+}
+
 // RunParams holds the parameters for running a sub DAG.
 type RunParams struct {
 	RunID          string
