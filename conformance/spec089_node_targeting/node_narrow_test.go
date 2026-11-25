@@ -73,6 +73,25 @@ func TestNarrowedRuns(t *testing.T) {
 		dagu.RunWithEnv(env, "retry", "--run-id=narrowed-1", "stop_at_failure").ExpectNonZeroExitCode()
 		require.Equal(t, []string{"web03=failed"}, nodeStatuses(t, dagu))
 	})
+
+	// A new run from a narrowed run keeps its list, as it keeps its params,
+	// so it takes no list of its own.
+	t.Run("a new run from a run keeps the list", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		env := []string{"DAGU_DATA_DIR=" + nodesDataDirWith(t, narrowFleet)}
+		dir := "DIR=" + filepath.ToSlash(dagu.ProjectPath("."))
+		dagu.RunWithEnv(env, "start", "--run-id=narrowed-2", "--node", "web03", "narrow.yaml", "--", dir).ExpectExitCode(0)
+
+		require.NoError(t, os.Remove(dagu.ProjectPath("nodes.json")))
+		dagu.RunWithEnv(env, "start", "--from-run-id=narrowed-2", "narrow").ExpectExitCode(0)
+		require.Equal(t, []string{"web03=succeeded"}, nodeStatuses(t, dagu))
+
+		result := dagu.RunWithEnv(env, "start", "--from-run-id=narrowed-2", "--node", "web01", "narrow")
+		result.ExpectNonZeroExitCode()
+		result.ExpectStderrContains("--node cannot be combined with --from-run-id")
+	})
 }
 
 // A list that names no node of the project, or that the DAG cannot take, is

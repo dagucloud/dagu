@@ -1274,7 +1274,7 @@ func (a *API) ExecuteDAG(ctx context.Context, request api.ExecuteDAGRequestObjec
 	if err != nil {
 		return nil, err
 	}
-	targetNodes, err := a.checkTargetNodes(ctx, dag, request.Body.TargetNodes)
+	targetNodes, err := a.checkTargetNodes(ctx, dag, valueOf(request.Body.TargetNodes))
 	if err != nil {
 		return nil, err
 	}
@@ -1429,7 +1429,7 @@ func (a *API) ExecuteDAGSync(ctx context.Context, request api.ExecuteDAGSyncRequ
 	if err != nil {
 		return nil, err
 	}
-	targetNodes, err := a.checkTargetNodes(ctx, dag, request.Body.TargetNodes)
+	targetNodes, err := a.checkTargetNodes(ctx, dag, valueOf(request.Body.TargetNodes))
 	if err != nil {
 		return nil, err
 	}
@@ -2117,7 +2117,7 @@ func (a *API) EnqueueDAGDAGRun(ctx context.Context, request api.EnqueueDAGDAGRun
 	if err != nil {
 		return nil, err
 	}
-	targetNodes, err := a.checkTargetNodes(ctx, dag, request.Body.TargetNodes)
+	targetNodes, err := a.checkTargetNodes(ctx, dag, valueOf(request.Body.TargetNodes))
 	if err != nil {
 		return nil, err
 	}

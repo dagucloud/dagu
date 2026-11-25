@@ -4,6 +4,7 @@
 package api_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -45,17 +46,12 @@ steps:
 		list := api.TargetNodes(names)
 		return &list
 	}
-
-	t.Run("a queued run keeps its list and runs on the Dagu host", func(t *testing.T) {
-		resp := server.Client().Post("/api/v1/dags/narrowed/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{
-			TargetNodes: nodes("WEB01"),
-		}).ExpectStatus(http.StatusOK).Send(t)
-		var enqueued api.EnqueueDAGDAGRun200JSONResponse
-		resp.Unmarshal(t, &enqueued)
-
+	// statusOf waits for the status of a run.
+	statusOf := func(t *testing.T, name, runID string) ir.DAGRunStatus {
+		t.Helper()
 		var status ir.DAGRunStatus
 		require.Eventually(t, func() bool {
-			attempt, err := server.DAGRunRepository.FindAttempt(server.Context, ir.NewDAGRunRef("narrowed", enqueued.DagRunId))
+			attempt, err := server.DAGRunRepository.FindAttempt(server.Context, ir.NewDAGRunRef(name, runID))
 			if err != nil {
 				return false
 			}
@@ -66,8 +62,37 @@ steps:
 			status = *read
 			return true
 		}, 5*time.Second, 100*time.Millisecond)
-		require.Equal(t, []string{"web01"}, status.TargetNodes)
-		require.True(t, snapshotDAGOf(t, server, "narrowed", enqueued.DagRunId).ForceLocal)
+		return status
+	}
+	enqueueNarrowed := func(t *testing.T) string {
+		t.Helper()
+		var enqueued api.EnqueueDAGDAGRun200JSONResponse
+		server.Client().Post("/api/v1/dags/narrowed/enqueue", api.EnqueueDAGDAGRunJSONRequestBody{
+			TargetNodes: nodes("WEB01"),
+		}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &enqueued)
+		return enqueued.DagRunId
+	}
+
+	t.Run("a queued run keeps its list and runs on the Dagu host", func(t *testing.T) {
+		runID := enqueueNarrowed(t)
+		require.Equal(t, []string{"web01"}, statusOf(t, "narrowed", runID).TargetNodes)
+		require.True(t, snapshotDAGOf(t, server, "narrowed", runID).ForceLocal)
+	})
+
+	// A new run from a narrowed run keeps its list, whether it is built from
+	// the run's snapshot or from the current file.
+	t.Run("a rescheduled run keeps its list", func(t *testing.T) {
+		source := enqueueNarrowed(t)
+		statusOf(t, "narrowed", source)
+		for _, currentFile := range []bool{false, true} {
+			var resp api.RescheduleDAGRun200JSONResponse
+			server.Client().Post(fmt.Sprintf("/api/v1/dag-runs/narrowed/%s/reschedule", source), api.RescheduleDAGRunJSONRequestBody{
+				UseCurrentDagFile: &currentFile,
+			}).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &resp)
+
+			require.Equal(t, []string{"web01"}, statusOf(t, "narrowed", resp.DagRunId).TargetNodes, "current file: %v", currentFile)
+			require.True(t, snapshotDAGOf(t, server, "narrowed", resp.DagRunId).ForceLocal, "current file: %v", currentFile)
+		}
 	})
 
 	for _, tc := range []struct {
