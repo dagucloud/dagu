@@ -91,9 +91,9 @@ func SkipDirectories(dirs []string) EntryReaderOption {
 	}
 }
 
-// SkipRoots makes recursive discovery omit the given directories wherever
-// it meets them below the DAG directory, so their DAGs are neither
-// scheduled nor watched.
+// SkipRoots makes discovery omit the given directories, and file symlinks
+// into them, wherever they lie below the DAG directory, so their DAGs are
+// neither scheduled nor watched.
 func SkipRoots(dirs []string) EntryReaderOption {
 	return func(er *entryReaderImpl) {
 		er.skipRoots = dirs
