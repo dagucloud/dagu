@@ -372,8 +372,10 @@ const keepAliveIdleTimeout = 2 * time.Minute
 // pipe copies the bytes of both directions until each side has ended, and closes
 // both connections. It closes both at once when no byte moved for idle.
 func pipe(client net.Conn, buffered io.Reader, upstream net.Conn, idle time.Duration) {
+	// last holds the time of the last write as a duration since start, which
+	// keeps the monotonic clock: a step of the wall clock ends no tunnel.
+	start := time.Now()
 	var last atomic.Int64
-	last.Store(time.Now().UnixNano())
 	done := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(idle / 4)
@@ -383,7 +385,7 @@ func pipe(client net.Conn, buffered io.Reader, upstream net.Conn, idle time.Dura
 			case <-done:
 				return
 			case <-ticker.C:
-				if time.Since(time.Unix(0, last.Load())) >= idle {
+				if time.Since(start)-time.Duration(last.Load()) >= idle {
 					_ = client.Close()
 					_ = upstream.Close()
 					return
@@ -395,12 +397,12 @@ func pipe(client net.Conn, buffered io.Reader, upstream net.Conn, idle time.Dura
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(activityWriter{upstream, &last}, buffered)
+		_, _ = io.Copy(activityWriter{upstream, start, &last}, buffered)
 		closeWrite(upstream)
 	}()
 	go func() {
 		defer wg.Done()
-		_, _ = io.Copy(activityWriter{client, &last}, upstream)
+		_, _ = io.Copy(activityWriter{client, start, &last}, upstream)
 		closeWrite(client)
 	}()
 	wg.Wait()
@@ -409,14 +411,15 @@ func pipe(client net.Conn, buffered io.Reader, upstream net.Conn, idle time.Dura
 	_ = upstream.Close()
 }
 
-// activityWriter notes the time of each write of a tunnel.
+// activityWriter notes the time of each write of a tunnel, since start.
 type activityWriter struct {
-	w    io.Writer
-	last *atomic.Int64
+	w     io.Writer
+	start time.Time
+	last  *atomic.Int64
 }
 
 func (a activityWriter) Write(p []byte) (int, error) {
-	a.last.Store(time.Now().UnixNano())
+	a.last.Store(int64(time.Since(a.start)))
 	return a.w.Write(p)
 }
 
