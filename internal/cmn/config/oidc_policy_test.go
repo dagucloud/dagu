@@ -46,6 +46,7 @@ auth:
 	loader := NewOIDCPolicyLoader(
 		cfg.Paths.ConfigFilesUsed,
 		cfg.Server.Auth.OIDC.Policy(),
+		false,
 	)
 	policy, err := loader.Load()
 	require.NoError(t, err)
@@ -85,6 +86,7 @@ auth:
 	loader := NewOIDCPolicyLoader(
 		[]string{configFile},
 		OIDCPolicy{},
+		false,
 	)
 	_, err := loader.Load()
 	require.ErrorContains(t, err, "invalid role")
@@ -107,6 +109,7 @@ auth:
 	policy, err := NewOIDCPolicyLoader(
 		[]string{configFile},
 		OIDCPolicy{},
+		false,
 	).Load()
 	require.NoError(t, err)
 	require.False(t, policy.AutoSignup)
@@ -121,6 +124,7 @@ func TestOIDCPolicyLoaderAppliesPolicyDefaults(t *testing.T) {
 	policy, err := NewOIDCPolicyLoader(
 		[]string{configFile},
 		OIDCPolicy{},
+		false,
 	).Load()
 	require.NoError(t, err)
 	require.True(t, policy.AutoSignup)
@@ -137,7 +141,7 @@ func TestOIDCPolicyLoaderUsesFallbackWithoutConfigFiles(t *testing.T) {
 		},
 	}
 
-	policy, err := NewOIDCPolicyLoader(nil, fallback).Load()
+	policy, err := NewOIDCPolicyLoader(nil, fallback, false).Load()
 	require.NoError(t, err)
 	require.Equal(t, fallback, policy)
 }

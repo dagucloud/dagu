@@ -543,6 +543,7 @@ func NewServer(setup ServerConfig, opts ...ServerOption) (*Server, error) {
 			loader := config.NewOIDCPolicyLoader(
 				cfg.Paths.ConfigFilesUsed,
 				configPolicy,
+				cfg.ProjectsEnabled,
 			)
 
 			provisionCfg := oidcprovision.Config{

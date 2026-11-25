@@ -236,6 +236,9 @@ type OIDCRoleMappingDef struct {
 	RoleAttributePath      string                          `mapstructure:"role_attribute_path"`      // jq expression for role extraction
 	RoleAttributeStrict    *bool                           `mapstructure:"role_attribute_strict"`    // Deny login if no global or workspace mapping matches
 	SkipOrgRoleSync        *bool                           `mapstructure:"skip_org_role_sync"`       // Keep first-login authorization assignments
+
+	ProjectMappings      map[string][]ProjectMappingGrant `mapstructure:"project_mappings"`       // IdP group -> project grants
+	DefaultProjectAccess string                           `mapstructure:"default_project_access"` // Default: "all"; required with project mappings
 }
 
 // AuthTrustedProxyDef configures authentication delegated to an authenticating reverse proxy.
@@ -262,6 +265,9 @@ type TrustedProxyRoleMappingDef struct {
 	DefaultWorkspaceAccess *string                                 `mapstructure:"default_workspace_access" yaml:"default_workspace_access"`
 	RequireMapping         *bool                                   `mapstructure:"require_mapping" yaml:"require_mapping"`
 	SkipOrgRoleSync        *bool                                   `mapstructure:"skip_org_role_sync" yaml:"skip_org_role_sync"`
+
+	ProjectMappings      map[string][]ProjectMappingGrant `mapstructure:"project_mappings" yaml:"project_mappings"`
+	DefaultProjectAccess *string                          `mapstructure:"default_project_access" yaml:"default_project_access"`
 }
 
 // PermissionsDef configures UI and API permissions.
