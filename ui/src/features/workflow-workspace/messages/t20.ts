@@ -52,4 +52,16 @@ export default defineMessages({
     '{count} more notice': '{count} weiterer Hinweis',
     '{count} more notices': '{count} weitere Hinweise',
   },
+  fr: {
+    Issues: 'Problèmes',
+    'Issues ({count})': 'Problèmes ({count})',
+    'No issues': 'Aucun problème',
+    Warnings: 'Avertissements',
+    Errors: 'Erreurs',
+    'Value references': 'Références de valeurs',
+    'Show step {name}': 'Afficher l’étape {name}',
+    'More notices': 'Autres avis',
+    '{count} more notice': '{count} autre avis',
+    '{count} more notices': '{count} autres avis',
+  },
 });

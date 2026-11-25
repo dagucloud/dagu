@@ -9,11 +9,11 @@ import { baseStaticMessages, staticMessages } from '@/i18n/staticMessages';
 import { workspaceMessages, workspaceModules } from '..';
 
 type Catalog = Readonly<Record<string, string>>;
-type LocaleId = 'en' | 'zh-CN' | 'ja' | 'de';
+type LocaleId = 'en' | 'zh-CN' | 'ja' | 'de' | 'fr';
 type MessageModule = Readonly<Record<LocaleId, Catalog>>;
 
-const LOCALES: readonly LocaleId[] = ['en', 'zh-CN', 'ja', 'de'];
-const TRANSLATED: readonly LocaleId[] = ['zh-CN', 'ja', 'de'];
+const LOCALES: readonly LocaleId[] = ['en', 'zh-CN', 'ja', 'de', 'fr'];
+const TRANSLATED: readonly LocaleId[] = ['zh-CN', 'ja', 'de', 'fr'];
 
 function hasOwn(catalog: Catalog, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(catalog, key);
@@ -84,18 +84,23 @@ const base: MessageModule = {
   'zh-CN': { Save: '保存' },
   ja: { Save: '保存' },
   de: { Save: 'Speichern' },
+  fr: { Save: 'Enregistrer' },
 };
 
 function module(
   en: Catalog,
   zh: Catalog = en,
   ja: Catalog = en,
-  // de follows the base catalog, so a fixture adds no de problem of its own.
+  // de and fr follow the base catalog, so a fixture adds no de or fr problem
+  // of its own.
   de: Catalog = Object.fromEntries(
     Object.keys(en).map((key) => [key, base.de[key] ?? en[key]!])
+  ),
+  fr: Catalog = Object.fromEntries(
+    Object.keys(en).map((key) => [key, base.fr[key] ?? en[key]!])
   )
 ): MessageModule {
-  return { en, 'zh-CN': zh, ja, de };
+  return { en, 'zh-CN': zh, ja, de, fr };
 }
 
 describe('workspace message modules', () => {

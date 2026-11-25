@@ -55,4 +55,18 @@ export default defineMessages({
     'Sub-run {name} is waiting for an action.':
       'Unterlauf {name} wartet auf eine Aktion.',
   },
+  fr: {
+    'The run in the link was not found. The latest run is shown.':
+      'L’exécution indiquée par le lien est introuvable. La dernière exécution est affichée.',
+    'Approval saved; resume failed.':
+      'Approbation enregistrée\u00a0; échec de la reprise.',
+    'Tasks saved; resume failed.':
+      'Tâches enregistrées\u00a0; échec de la reprise.',
+    'Open actions': 'Ouvrir les actions',
+    'An action is waiting.': 'Une action est en attente.',
+    '{count} actions are waiting.': '{count} actions sont en attente.',
+    'Open agent': 'Ouvrir l’agent',
+    'Sub-run {name} is waiting for an action.':
+      'La sous-exécution {name} attend une action.',
+  },
 });

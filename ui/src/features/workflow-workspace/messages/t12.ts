@@ -36,4 +36,12 @@ export default defineMessages({
     'This secret is shown only once. Leave only after you copy it.':
       'Dieses Geheimnis wird nur einmal angezeigt. Erst verlassen, nachdem du es kopiert hast.',
   },
+  fr: {
+    'Leave without saving?': 'Quitter sans enregistrer\u00a0?',
+    Leave: 'Quitter',
+    'The changes in this section are not saved. Leave and discard them?':
+      'Les modifications de cette section ne sont pas enregistrées. Quitter et les abandonner\u00a0?',
+    'This secret is shown only once. Leave only after you copy it.':
+      'Ce secret ne s’affiche qu’une seule fois. Copiez-le avant de quitter.',
+  },
 });

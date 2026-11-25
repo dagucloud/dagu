@@ -20,4 +20,8 @@ export default defineMessages({
     'Too large to format, shown as it is':
       'Zu groß zum Formatieren, unverändert angezeigt',
   },
+  fr: {
+    'Too large to format, shown as it is':
+      'Trop volumineux pour être mis en forme, affiché tel quel',
+  },
 });

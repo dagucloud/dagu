@@ -52,4 +52,17 @@ export default defineMessages({
     'Pinned run': 'Angehefteter Lauf',
     'Open the run timeline': 'Zeitleiste des Laufs öffnen',
   },
+  fr: {
+    'This run used a different definition.':
+      'Cette exécution a utilisé une autre définition.',
+    'This run used a different definition. {count} step of the run is not on the canvas.':
+      'Cette exécution a utilisé une autre définition. {count} étape de l’exécution n’est pas sur le canevas.',
+    'This run used a different definition. {count} steps of the run are not on the canvas.':
+      'Cette exécution a utilisé une autre définition. {count} étapes de l’exécution ne sont pas sur le canevas.',
+    'Show the definition of this run':
+      'Afficher la définition de cette exécution',
+    'Back to the current definition': 'Revenir à la définition actuelle',
+    'Pinned run': 'Exécution épinglée',
+    'Open the run timeline': 'Ouvrir la chronologie des exécutions',
+  },
 });

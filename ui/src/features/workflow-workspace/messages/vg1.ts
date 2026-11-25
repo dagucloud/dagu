@@ -43,4 +43,14 @@ export default defineMessages({
       'Vor dem Formatieren den YAML-Syntaxfehler beheben',
     'The YAML is already formatted': 'Das YAML ist schon formatiert',
   },
+  fr: {
+    'Apply all quick fixes': 'Appliquer toutes les corrections rapides',
+    'No quick fix to apply': 'Aucune correction rapide à appliquer',
+    'Fix all quick fixes in the file':
+      'Appliquer toutes les corrections rapides du fichier',
+    'Format YAML': 'Formater le YAML',
+    'Fix the YAML syntax error before you format':
+      'Corrigez l’erreur de syntaxe YAML avant de formater',
+    'The YAML is already formatted': 'Le YAML est déjà formaté',
+  },
 });

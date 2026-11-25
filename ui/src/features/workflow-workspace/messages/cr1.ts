@@ -154,4 +154,41 @@ export default defineMessages({
     'The samples of a step of a sub-run are not available here.':
       'Die Messwerte eines Schritts in einem Unterlauf sind hier nicht verfügbar.',
   },
+  fr: {
+    Continuous: 'Continu',
+    'Availability {window}': 'Disponibilité {window}',
+    'Uptime {window}': 'Durée de fonctionnement {window}',
+    'Success rate {window}': 'Taux de réussite {window}',
+    'The share of the window in which a run was active':
+      'Part de la période pendant laquelle une exécution était active',
+    '{failures} failed of {count} executions':
+      'Exécutions en échec\u00a0: {failures} sur {count}',
+    'Current streak': 'Série en cours',
+    'since {time}': 'depuis le {time}',
+    'Last failure': 'Dernier échec',
+    Samples: 'Échantillons',
+    'No samples yet': 'Aucun échantillon pour l’instant',
+    'No events yet': 'Aucun événement pour l’instant',
+    'Loading samples...': 'Chargement des échantillons…',
+    'Loading events...': 'Chargement des événements…',
+    'Loading availability...': 'Chargement de la disponibilité…',
+    'the samples of this step': 'les échantillons de cette étape',
+    'the events of this step': 'les événements de cette étape',
+    'the availability of this step': 'la disponibilité de cette étape',
+    '{count} buckets of {resolution}, from {from} to {to}':
+      'Intervalles de {resolution} du {from} au {to}\u00a0: {count}',
+    Resolution: 'Résolution',
+    Min: 'Minimum',
+    Max: 'Maximum',
+    'Median (p50)': 'Médiane (p50)',
+    'Slow tail (p95)': 'Les plus lents (p95)',
+    Stopped: 'Arrêté',
+    Recovered: 'Rétabli',
+    'exit {code}': 'code de sortie {code}',
+    'outage {length}': 'panne de {length}',
+    '{from} to {to}': 'du {from} au {to}',
+    'Show all events': 'Afficher tous les événements',
+    'The samples of a step of a sub-run are not available here.':
+      'Les échantillons d’une étape de sous-exécution ne sont pas disponibles ici.',
+  },
 });

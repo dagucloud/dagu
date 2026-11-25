@@ -59,4 +59,18 @@ export default defineMessages({
     'Log of run {id} is no longer available':
       'Protokoll von Lauf {id} ist nicht mehr vorhanden',
   },
+  fr: {
+    'Run starts {time}': 'Début de l’exécution\u00a0: {time}',
+    'Reused, succeeded': 'Réutilisé, réussi',
+    'Reused, failed': 'Réutilisé, en échec',
+    'Old to new': 'Croissant',
+    'New to old': 'Décroissant',
+    'Reverse the order of the lines': 'Inverser l’ordre des lignes',
+    '1 cached step': '1 étape en cache',
+    '{count} cached steps': 'Étapes en cache\u00a0: {count}',
+    'Cached from run {id}: {step}':
+      'En cache depuis l’exécution {id}\u00a0: {step}',
+    'Log of run {id} is no longer available':
+      'Le journal de l’exécution {id} n’est plus disponible',
+  },
 });

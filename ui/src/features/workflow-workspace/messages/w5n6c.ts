@@ -23,4 +23,9 @@ export default defineMessages({
       'Wiederholt mit der Definition von Lauf {id}',
     'Open last run': 'Letzten Lauf öffnen',
   },
+  fr: {
+    'Retries with the definition of run {id}':
+      'La nouvelle tentative utilise la définition de l’exécution {id}',
+    'Open last run': 'Ouvrir la dernière exécution',
+  },
 });

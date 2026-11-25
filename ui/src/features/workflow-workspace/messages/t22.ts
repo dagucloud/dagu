@@ -44,4 +44,14 @@ export default defineMessages({
     'Select the step on the left': 'Schritt links wählen',
     'Select the step on the right': 'Schritt rechts wählen',
   },
+  fr: {
+    'Copy the selected step': 'Copier l’étape sélectionnée',
+    'Paste steps': 'Coller des étapes',
+    'Duplicate the selected step': 'Dupliquer l’étape sélectionnée',
+    'Zoom to 100%': 'Zoomer à 100\u00a0%',
+    'Select the step above': 'Sélectionner l’étape au-dessus',
+    'Select the step below': 'Sélectionner l’étape en dessous',
+    'Select the step on the left': 'Sélectionner l’étape à gauche',
+    'Select the step on the right': 'Sélectionner l’étape à droite',
+  },
 });

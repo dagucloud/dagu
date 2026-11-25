@@ -5,6 +5,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { BackfillStatus } from '@/api/v1/schema';
+import { UserPreferencesProvider } from '@/contexts/UserPreference';
+import { I18nProvider } from '@/i18n/I18nProvider';
 import { DISMISSED_BACKFILLS_KEY } from '../../hooks/useBackfillNotice';
 import { DAGBackfillChip } from '../DAGBackfillChip';
 
@@ -67,5 +69,42 @@ describe('DAGBackfillChip', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Dismiss' })[0]!);
     expect(screen.queryAllByRole('link')).toHaveLength(0);
+  });
+
+  it('tells the progress and the failure in French', () => {
+    localStorage.setItem('user_preferences', JSON.stringify({ locale: 'fr' }));
+    render(
+      <UserPreferencesProvider>
+        <I18nProvider>
+          <MemoryRouter>
+            <DAGBackfillChip
+              backfill={{
+                id: 'bf123456',
+                status: BackfillStatus.running,
+                slots: 28,
+                done: 12,
+                failed: 1,
+              }}
+            />
+            <DAGBackfillChip
+              backfill={{
+                id: 'bf654321',
+                status: BackfillStatus.failed,
+                slots: 28,
+                done: 28,
+                failed: 1,
+              }}
+            />
+          </MemoryRouter>
+        </I18nProvider>
+      </UserPreferencesProvider>
+    );
+
+    expect(screen.getAllByRole('link').map((link) => link.textContent)).toEqual(
+      [
+        'Rattrapage 12/28, 1 en échec',
+        'Échec du rattrapage – créneaux en échec\u00a0: 1',
+      ]
+    );
   });
 });

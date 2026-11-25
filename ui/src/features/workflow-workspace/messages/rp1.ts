@@ -27,4 +27,10 @@ export default defineMessages({
     'The value must be a positive integer.':
       'Der Wert muss eine positive ganze Zahl sein.',
   },
+  fr: {
+    'A service DAG cannot have a schedule or a retry_policy. Remove it first.':
+      'Un DAG de service ne peut avoir ni planification ni retry_policy. Supprimez-la d’abord.',
+    'The value must be a positive integer.':
+      'La valeur doit être un entier strictement positif.',
+  },
 });

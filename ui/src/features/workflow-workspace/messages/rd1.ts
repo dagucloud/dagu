@@ -46,4 +46,15 @@ export default defineMessages({
     'Failed to load the saved definition':
       'Gespeicherte Definition konnte nicht geladen werden',
   },
+  fr: {
+    'Same as the saved definition': 'Identique à la définition enregistrée',
+    'Changed since this run': 'Modifié depuis cette exécution',
+    'This run has no stored definition.':
+      'Aucune définition n’est stockée pour cette exécution.',
+    Changes: 'Modifications',
+    'This run': 'Cette exécution',
+    'Open on canvas': 'Ouvrir sur le canevas',
+    'Failed to load the saved definition':
+      'Impossible de charger la définition enregistrée',
+  },
 });
