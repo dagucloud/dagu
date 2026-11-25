@@ -125,7 +125,8 @@ type NodesExecutor interface {
 type NodeRun struct {
 	// Node is the node's name.
 	Node string
-	// Disabled reports a node that does not run, and so has no Run.
+	// Disabled reports a node that does not run. It has a Run only when an
+	// earlier attempt of the step gave it a child run.
 	Disabled bool
 	// Removed reports a node of a retried step that has left the inventory.
 	// It does not run.

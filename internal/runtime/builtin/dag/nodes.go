@@ -281,7 +281,7 @@ func (e *parallelExecutor) nodeEntries() ([]nodeResult, []map[string]string, int
 	for _, node := range e.nodes.matched {
 		status := e.nodeRunStatus(node, true)
 		entry := nodeResult{Node: node.Node, Status: string(status)}
-		if !node.Disabled {
+		if node.Run.RunID != "" {
 			entry.Name, entry.Params, entry.DAGRunID = node.Run.DAGName, node.Run.Params, node.Run.RunID
 			if result, ok := e.results[node.Run.RunID]; ok {
 				entry.Name, entry.Params = result.Name, result.Params
@@ -291,7 +291,7 @@ func (e *parallelExecutor) nodeEntries() ([]nodeResult, []map[string]string, int
 				}
 			}
 			switch status {
-			case ir.NodeRunNotStarted, ir.NodeRunRemoved:
+			case ir.NodeRunNotStarted, ir.NodeRunRemoved, ir.NodeRunDisabled:
 			case ir.NodeRunSucceeded, ir.NodeRunPartiallySucceeded:
 				succeeded++
 			default:

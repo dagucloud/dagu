@@ -8423,9 +8423,9 @@ export interface components {
             /** @description Name of the step with nodes */
             step: string;
             status: components["schemas"]["NodeRunStatus"];
-            /** @description Name of the DAG of the child run. Absent for a disabled node. */
+            /** @description Name of the DAG of the child run. Absent for a node that has none, such as one disabled when the step first matched it. */
             dagName?: string;
-            /** @description ID of the child run, a sub DAG-run of the root run. Absent for a disabled node. */
+            /** @description ID of the child run, a sub DAG-run of the root run. Absent for a node that has none, such as one disabled when the step first matched it. */
             dagRunId?: string;
             /** @description RFC 3339 timestamp with millisecond precision when the child run started */
             startedAt?: string;

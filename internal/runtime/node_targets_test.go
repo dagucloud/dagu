@@ -55,7 +55,7 @@ func TestRecordedNodes(t *testing.T) {
 		{Node: "web02", Reuse: true, Run: executor.RunParams{RunID: "run-2"}},
 		{Node: "web03", Run: executor.RunParams{RunID: "run-3"}},
 		{Node: "web04", Removed: true, Run: executor.RunParams{RunID: "run-4"}},
-		{Node: "web05", Disabled: true},
+		{Node: "web05", Disabled: true, Run: executor.RunParams{RunID: "run-5"}},
 		{Node: "WEB06"},
 	}, runs)
 }

@@ -141,7 +141,7 @@ func (e *parallelExecutor) nodeRuns(ended bool) []ir.NodeRun {
 	runs := make([]ir.NodeRun, 0, len(e.nodes.matched))
 	for _, node := range e.nodes.matched {
 		run := ir.NodeRun{Node: node.Node, Status: e.nodeRunStatus(node, ended)}
-		if !node.Disabled {
+		if node.Run.RunID != "" {
 			id := node.Run.RunID
 			run.DAGName, run.DAGRunID = node.Run.DAGName, id
 			run.StartedAt = stringutil.FormatTime(e.nodes.started[id])
