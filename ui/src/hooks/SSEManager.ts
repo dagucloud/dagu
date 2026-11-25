@@ -46,6 +46,8 @@ interface ManagedConnection {
   drainTimeout: ReturnType<typeof setTimeout> | null;
   mutationTimeout: ReturnType<typeof setTimeout> | null;
   mutationInFlight: boolean;
+  /** Topic changes that failed in a row; the next waits longer. */
+  mutationFailures: number;
   topics: Map<string, TopicSubscription>;
   serverTopics: Set<string>;
   pendingAdd: Set<string>;
@@ -256,6 +258,11 @@ function calculateRetryDelay(retryCount: number): number {
   return Math.min(1000 * 2 ** retryCount, MAX_RETRY_DELAY_MS);
 }
 
+/** The wait before a topic change that failed is asked for again. */
+function mutationRetryDelay(failures: number): number {
+  return Math.min(MUTATION_DEBOUNCE_MS * 2 ** failures, MAX_RETRY_DELAY_MS);
+}
+
 export class SSEManager {
   private connections = new Map<string, ManagedConnection>();
 
@@ -351,6 +358,7 @@ export class SSEManager {
       drainTimeout: null,
       mutationTimeout: null,
       mutationInFlight: false,
+      mutationFailures: 0,
       topics: new Map(),
       serverTopics: new Set(),
       pendingAdd: new Set(),
@@ -513,6 +521,7 @@ export class SSEManager {
         conn.sessionId = control.sessionID;
         conn.serverTopics = new Set(control.subscribed ?? []);
         conn.retryCount = 0;
+        conn.mutationFailures = 0;
 
         if (conn.connectTimeout) {
           clearTimeout(conn.connectTimeout);
@@ -672,6 +681,8 @@ export class SSEManager {
       conn.eventSource !== mutationEventSource;
 
     conn.mutationInFlight = true;
+    // Set when the change failed and can be asked for again later.
+    let retryDelay: number | null = null;
     try {
       const response = await fetch(
         buildMutationUrl(conn.apiURL, conn.remoteNode),
@@ -711,12 +722,25 @@ export class SSEManager {
       }
 
       if (!response.ok && response.status !== 403) {
-        throw new Error(
+        const message =
           'message' in body && typeof body.message === 'string'
             ? body.message
-            : 'Failed to update SSE topics'
-        );
+            : 'Failed to update SSE topics';
+        if (response.status >= 400 && response.status < 500) {
+          // The server rejects the same change again: the topics that it
+          // would add fall back to polling instead.
+          for (const topic of add) {
+            conn.pendingAdd.delete(topic);
+          }
+          for (const topic of remove) {
+            conn.pendingRemove.delete(topic);
+          }
+          this.updateState(conn, { error: new Error(message) });
+          return;
+        }
+        throw new Error(message);
       }
+      conn.mutationFailures = 0;
 
       if ('subscribed' in body) {
         conn.serverTopics = new Set(body.subscribed ?? []);
@@ -752,6 +776,8 @@ export class SSEManager {
             ? error
             : new Error('Failed to update SSE topics'),
       });
+      retryDelay = mutationRetryDelay(conn.mutationFailures);
+      conn.mutationFailures += 1;
     } finally {
       conn.mutationInFlight = false;
       if (
@@ -759,7 +785,7 @@ export class SSEManager {
         conn.sessionId &&
         conn.state.isConnected
       ) {
-        this.scheduleMutation(conn, 0);
+        this.scheduleMutation(conn, retryDelay ?? 0);
       }
     }
   }
