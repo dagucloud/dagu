@@ -74,7 +74,7 @@ func NewDraft(ctx context.Context, dagPath string, opts ...spec.LoadOption) (*Dr
 	if beside, _ := testedDAGPath(path, ""); beside != dagPath {
 		d.dag = filepath.Base(dagPath)
 	}
-	decoded, errs := decodeFile(d.render(draftExpect))
+	decoded, errs := decodeFile(path, d.render(draftExpect))
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("the test file drafted for %s does not decode: %v", dagPath, errs)
 	}

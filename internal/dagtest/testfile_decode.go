@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/dagucloud/dagu/v2/internal/spec"
 	"gopkg.in/yaml.v3"
 )
 
@@ -114,15 +115,19 @@ type notificationSpec struct {
 	to   []string
 }
 
-// decodeFile decodes a test file strictly: a field Spec 101 does not define
-// or a value of the wrong type is an error labeled with its path in the
-// file. A file with top-level steps and no cases reads as a DAG and gets one
-// error that asks for a rename.
-func decodeFile(data []byte) (fileSpec, []Finding) {
+// decodeFile decodes the test file at path strictly: a field Spec 101 does
+// not define or a value of the wrong type is an error labeled with its path
+// in the file. A file whose first document has top-level steps and no cases
+// reads as a DAG, even with sub-DAGs after it, and gets one error that
+// suggests a rename.
+func decodeFile(path string, data []byte) (fileSpec, []Finding) {
 	var root yaml.Node
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	if err := dec.Decode(&root); err != nil && !errors.Is(err, io.EOF) {
 		return fileSpec{}, []Finding{{Message: "not valid YAML: " + err.Error()}}
+	}
+	if readsAsDAG(&root) {
+		return fileSpec{}, []Finding{{Message: spec.TestNamedDAGHint(path)}}
 	}
 	var next yaml.Node
 	if err := dec.Decode(&next); !errors.Is(err, io.EOF) {
@@ -135,13 +140,20 @@ func decodeFile(data []byte) (fileSpec, []Finding) {
 		return fileSpec{}, []Finding{{Message: "the top level must be a map"}}
 	}
 	top := resolve(root.Content[0])
-	if hasKey(top, "steps") && !hasKey(top, "cases") {
-		return fileSpec{}, []Finding{{Message: "reads as a DAG, with steps and no cases; rename it so its name does not end in .test.yaml or .test.yml"}}
-	}
 
 	d := &decoder{}
 	f := d.file(top)
 	return f, d.errs
+}
+
+// readsAsDAG reports whether the document root is a map with top-level steps
+// and no cases, the shape of a DAG.
+func readsAsDAG(root *yaml.Node) bool {
+	if len(root.Content) == 0 {
+		return false
+	}
+	top := resolve(root.Content[0])
+	return top.Kind == yaml.MappingNode && hasKey(top, "steps") && !hasKey(top, "cases")
 }
 
 // maxExpandedNodes bounds the nodes of a test file with its aliases

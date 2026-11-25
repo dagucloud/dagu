@@ -5,6 +5,8 @@ package spec
 
 import (
 	"errors"
+	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -32,4 +34,14 @@ func CutTestFileSuffix(path string) (string, bool) {
 		}
 	}
 	return path, false
+}
+
+// TestNamedDAGHint explains that the test file at path, which holds
+// top-level steps and no cases, does not run as a DAG, and suggests a name
+// under which it does. The text continues a sentence that starts with the
+// file's name.
+func TestNamedDAGHint(path string) string {
+	name := filepath.Base(path)
+	stem, _ := CutTestFileSuffix(name)
+	return fmt.Sprintf("reads as a DAG, with steps and no cases, but Dagu treats it as a test file and does not run it as a DAG; rename it, for example to %s-test%s", stem, filepath.Ext(name))
 }

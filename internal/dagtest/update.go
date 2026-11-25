@@ -60,7 +60,7 @@ func NewUpdate(f *File) (*Update, error) {
 	if len(doc.Content) == 0 {
 		return nil, fmt.Errorf("%s holds no test file", f.Path)
 	}
-	decoded, errs := decodeFile(f.data)
+	decoded, errs := decodeFile(f.Path, f.data)
 	if len(errs) > 0 {
 		return nil, fmt.Errorf("%s: %s", f.Path, joinFindings(errs))
 	}
@@ -109,7 +109,7 @@ func (u *Update) Set(name string, expect Expect) (bool, error) {
 func (u *Update) accept(i int, expect Expect, edits []textEdit) error {
 	all := append(slices.Clone(u.edits), edits...)
 	text := u.text.apply(slices.Clone(all))
-	decoded, errs := decodeFile(text)
+	decoded, errs := decodeFile(u.file.Path, text)
 	if len(errs) > 0 || len(decoded.cases) != len(u.decoded.cases) {
 		return errNotInPlace
 	}
