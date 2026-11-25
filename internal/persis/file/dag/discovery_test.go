@@ -147,6 +147,27 @@ func TestDiscoverRecursiveSkipsSkillsDir(t *testing.T) {
 	}, result.Dirs)
 }
 
+// A file system that ignores case serves a root directory spelled Skills for
+// the path root/skills, so discovery skips it too. Where case matters, it is
+// an ordinary directory.
+func TestDiscoverRecursiveSkipsSkillsDirInOtherCase(t *testing.T) {
+	root := t.TempDir()
+	writeDAGFiles(t,
+		filepath.Join(root, "root.yaml"),
+		filepath.Join(root, "Skills", "guide", "assets", "example.yaml"),
+	)
+
+	result, err := Discover(root, DiscoveryOptions{Recursive: true})
+	require.NoError(t, err)
+
+	if fileutil.IsCaseInsensitiveFS(root) {
+		assert.Equal(t, []string{"root.yaml"}, relPaths(result))
+		assert.Equal(t, []string{root}, result.Dirs)
+		return
+	}
+	assert.Equal(t, []string{"Skills/guide/assets/example.yaml", "root.yaml"}, relPaths(result))
+}
+
 // A skip root is omitted wherever it lies below root, and matched by
 // identity, so another spelling of its path still matches.
 func TestDiscoverRecursiveSkipsNestedRoots(t *testing.T) {
