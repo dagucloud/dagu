@@ -276,6 +276,25 @@ func TestHTTPProxyNamedInStderr(t *testing.T) {
 	requireOneLine(t, stderr, "wait: http GET request via proxy "+proxyURL.Host+" failed: ")
 }
 
+// A 502 from the proxy reads the same as one from the target, so the status
+// line names the proxy too. An http:// target is proxied without CONNECT, so
+// the proxy answers the request itself.
+func TestHTTPProxyNamedInStatusLine(t *testing.T) {
+	t.Parallel()
+
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer proxy.Close()
+	proxyURL, err := url.Parse(proxy.URL)
+	require.NoError(t, err)
+
+	exec := newHTTPWait(t, map[string]any{"url": "http://example.invalid/ready?token=secret"})
+	exec.proxy = http.ProxyURL(proxyURL)
+	stderr := runHTTPUntilLogged(t, exec)
+	requireOneLine(t, stderr, "wait: http GET via proxy "+proxyURL.Host+" got status 502, want 200")
+}
+
 // requireOneLine checks that stderr holds a single line starting with prefix
 // and nothing from the URL's query string.
 func requireOneLine(t *testing.T, stderr, prefix string) {
