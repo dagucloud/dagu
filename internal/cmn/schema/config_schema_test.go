@@ -162,6 +162,21 @@ cloud:
 `)))
 }
 
+// The schema accepts every worker.labels form the config loader reads.
+func TestConfigSchemaWorkerLabels(t *testing.T) {
+	t.Parallel()
+
+	resolved := mustResolveConfigSchema(t)
+	for name, doc := range map[string]string{
+		"String": "worker:\n  labels: gpu=true,ssd\n",
+		"List":   "worker:\n  labels: [gpu=true, ssd]\n",
+		"Map":    "worker:\n  labels:\n    gpu: true\n    cores: 64\n    zone: us-east\n    ssd:\n",
+	} {
+		require.NoError(t, resolved.Validate(mustParseYAMLDocument(t, doc)), name)
+	}
+	require.Error(t, resolved.Validate(mustParseYAMLDocument(t, "worker:\n  labels:\n    zone: [a, b]\n")))
+}
+
 func TestConfigSchemaSecretFiles(t *testing.T) {
 	t.Parallel()
 

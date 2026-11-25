@@ -27,6 +27,8 @@ const h = vi.hoisted(() => ({
   get: vi.fn(),
   queries: [] as { path: string; init: unknown }[],
   history: [] as unknown[],
+  /** The remote node of the workspace. */
+  remoteNode: 'edge',
   /** The runs that the server still has, by id, for the check of the cache. */
   details: {} as Record<string, unknown>,
   specs: {
@@ -138,8 +140,13 @@ function wrapper(
     registerHistory: () => () => undefined,
   };
   return function Wrapper({ children }: { children: ReactNode }) {
+    // A test can move the workspace to another remote node.
+    const current =
+      h.remoteNode === value.remoteNode
+        ? value
+        : { ...value, remoteNode: h.remoteNode };
     return (
-      <WorkspaceDataContext.Provider value={value}>
+      <WorkspaceDataContext.Provider value={current}>
         {children}
       </WorkspaceDataContext.Provider>
     );
@@ -193,6 +200,7 @@ beforeEach(() => {
     }
   );
   h.queries.length = 0;
+  h.remoteNode = 'edge';
   h.history = [runOf('new'), runOf('old')];
   h.specs.run = SPEC;
   h.specs.saved = undefined;
@@ -451,6 +459,93 @@ describe('useReuseSource', () => {
       expect(asked[0]?.[1]).toMatchObject({
         params: { path: { name: 'example', dagRunId: 'r0' } },
       });
+    });
+
+    // The answers are held back, so that a test decides when each arrives.
+    describe('with answers that wait', () => {
+      type RunInit = {
+        params: { path: { dagRunId: string }; query: { remoteNode: string } };
+      };
+      const runCalls = () =>
+        h.get.mock.calls.filter(
+          (call) => call[0] === '/dag-runs/{name}/{dagRunId}'
+        );
+      const askedIds = () =>
+        runCalls().map((call) => (call[1] as RunInit).params.path.dagRunId);
+      // Gives the functions that let an answer arrive, by `<node>/<run id>`.
+      // A key of `gone` answers 404.
+      function gate(gone: readonly string[] = []) {
+        const open: Record<string, () => void> = {};
+        h.get.mockImplementation(async (path: string, init: RunInit) => {
+          if (path !== '/dag-runs/{name}/{dagRunId}') {
+            return { data: { outputs: [{ name: 'x', value: '1' }] } };
+          }
+          const id = init.params.path.dagRunId;
+          const key = `${init.params.query.remoteNode}/${id}`;
+          await new Promise<void>((resolve) => {
+            open[key] = resolve;
+          });
+          return gone.includes(key)
+            ? { data: undefined, response: { status: 404 } }
+            : { data: { dagRunDetails: runOf(id) }, response: { status: 200 } };
+        });
+        return open;
+      }
+      // Lets the answers that arrived, and the effects after them, finish.
+      const settle = () =>
+        act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+
+      it('keeps at most five requests in flight', async () => {
+        h.history = [];
+        const open = gate();
+        const steps = ['s1', 's2', 's3', 's4', 's5', 's6'];
+        steps.forEach((step, i) =>
+          cacheStep(step, SPEC, { x: '1' }, `r${i + 1}`)
+        );
+        render({ liveText: SPEC, previous: steps });
+        await waitFor(() => expect(runCalls()).toHaveLength(5));
+        await settle();
+        expect(askedIds()).toEqual(['r1', 'r2', 'r3', 'r4', 'r5']);
+        // An answer makes room for the run that waited.
+        await act(async () => open['edge/r1']!());
+        await waitFor(() =>
+          expect(askedIds()).toEqual(['r1', 'r2', 'r3', 'r4', 'r5', 'r6'])
+        );
+      });
+
+      // The same run id is asked again on the other node; the answer of the
+      // first node, which says that the run is gone, arrives last.
+      it('ignores a late answer of another remote node', async () => {
+        h.history = [];
+        const open = gate(['edge/r0']);
+        cacheStep('a', SPEC);
+        const view = render({ liveText: SPEC });
+        await waitFor(() => expect(runCalls()).toHaveLength(1));
+        h.remoteNode = 'other';
+        view.rerender();
+        await waitFor(() => expect(runCalls()).toHaveLength(2));
+        await act(async () => open['other/r0']!());
+        await waitFor(() => expect(view.result.current.cached).toEqual(['a']));
+        await act(async () => open['edge/r0']!());
+        await settle();
+        expect(view.result.current.cached).toEqual(['a']);
+        expect(view.result.current.gone).toEqual([]);
+      });
+    });
+
+    it('leaves the decision to the server when a 200 answer holds no run', async () => {
+      h.history = [];
+      h.get.mockImplementation(async (path: string) =>
+        path === '/dag-runs/{name}/{dagRunId}'
+          ? { data: {}, response: { status: 200 } }
+          : { data: { outputs: [{ name: 'x', value: '1' }] } }
+      );
+      cacheStep('a', SPEC);
+      const view = render({ liveText: SPEC });
+      await waitFor(() => expect(view.result.current.loading).toBe(false));
+      expect(view.result.current.cached).toEqual(['a']);
     });
 
     // An answer must not drop the requests still in flight: each run is asked

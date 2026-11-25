@@ -3,7 +3,9 @@
 
 //go:build !windows
 
-package dag
+// Package othername creates directories that a second name also opens, for
+// tests that compare paths by file identity.
+package othername
 
 import (
 	"os"
@@ -13,11 +15,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mkdirWithOtherName creates a directory in parent and returns its path and
-// another name that opens it: the name in decomposed Unicode form, which file
-// systems that ignore normalization, such as APFS, accept. It skips the test
-// on a file system that tells the forms apart.
-func mkdirWithOtherName(t *testing.T, parent string) (string, string) {
+// Mkdir creates a directory in parent and returns its path and another name
+// that opens it: the name in decomposed Unicode form, which file systems that
+// ignore normalization, such as APFS, accept. It skips the test on a file
+// system that tells the forms apart.
+func Mkdir(t *testing.T, parent string) (string, string) {
 	t.Helper()
 	dir := filepath.Join(parent, "café")
 	require.NoError(t, os.Mkdir(dir, 0750))

@@ -8,11 +8,18 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 )
+
+// notificationCodec converts notification configuration to and from its
+// stored form, encrypting secrets with encryptor.
+type notificationCodec struct {
+	encryptor *crypto.Encryptor
+}
 
 type settingsRecord struct {
 	ID            string               `json:"id"`
@@ -134,14 +141,14 @@ type telegramTargetRecord struct {
 	MessageTemplate string `json:"messageTemplate,omitempty"`
 }
 
-func (s *NotificationStore) settingsToRecord(settings *notification.Settings) (*settingsRecord, error) {
+func (c notificationCodec) settingsToRecord(settings *notification.Settings) (*settingsRecord, error) {
 	events := make([]string, 0, len(settings.Events))
 	for _, event := range settings.Events {
 		events = append(events, string(event))
 	}
 	targets := make([]targetRecord, 0, len(settings.Targets))
 	for _, target := range settings.Targets {
-		stored, err := s.targetToRecord(target)
+		stored, err := c.targetToRecord(target)
 		if err != nil {
 			return nil, err
 		}
@@ -169,8 +176,8 @@ func (s *NotificationStore) settingsToRecord(settings *notification.Settings) (*
 	}, nil
 }
 
-func (s *NotificationStore) channelToRecord(channel *notification.Channel) (*channelRecord, error) {
-	target, err := s.targetToRecord(channel.ToTarget())
+func (c notificationCodec) channelToRecord(channel *notification.Channel) (*channelRecord, error) {
+	target, err := c.targetToRecord(channel.ToTarget())
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +198,7 @@ func (s *NotificationStore) channelToRecord(channel *notification.Channel) (*cha
 	}, nil
 }
 
-func (s *NotificationStore) workspaceSettingsToRecord(
+func (c notificationCodec) workspaceSettingsToRecord(
 	settings *notification.WorkspaceSettings,
 ) (*workspaceSettingsRecord, error) {
 	stored := &workspaceSettingsRecord{
@@ -209,7 +216,7 @@ func (s *NotificationStore) workspaceSettingsToRecord(
 		From:     settings.SMTP.From,
 	}
 	var err error
-	stored.SMTP.PasswordEnc, err = s.encryptSecret(settings.SMTP.Password)
+	stored.SMTP.PasswordEnc, err = c.encryptSecret(settings.SMTP.Password)
 	if err != nil {
 		return nil, err
 	}
@@ -221,15 +228,15 @@ func (s *NotificationStore) workspaceSettingsToRecord(
 		TenantID: settings.SMTP.OAuth.TenantID,
 		ClientID: settings.SMTP.OAuth.ClientID,
 	}
-	stored.SMTP.OAuth.ClientSecretEnc, err = s.encryptSecret(settings.SMTP.OAuth.ClientSecret)
+	stored.SMTP.OAuth.ClientSecretEnc, err = c.encryptSecret(settings.SMTP.OAuth.ClientSecret)
 	if err != nil {
 		return nil, err
 	}
-	stored.SMTP.OAuth.RefreshTokenEnc, err = s.encryptSecret(settings.SMTP.OAuth.RefreshToken)
+	stored.SMTP.OAuth.RefreshTokenEnc, err = c.encryptSecret(settings.SMTP.OAuth.RefreshToken)
 	if err != nil {
 		return nil, err
 	}
-	stored.SMTP.OAuth.ServiceAccountJSONEnc, err = s.encryptSecret(settings.SMTP.OAuth.ServiceAccountJSON)
+	stored.SMTP.OAuth.ServiceAccountJSONEnc, err = c.encryptSecret(settings.SMTP.OAuth.ServiceAccountJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +266,7 @@ func routeSetToRecord(routeSet *notification.RouteSet) *routeSetRecord {
 	}
 }
 
-func (s *NotificationStore) targetToRecord(target notification.Target) (targetRecord, error) {
+func (c notificationCodec) targetToRecord(target notification.Target) (targetRecord, error) {
 	stored := targetRecord{
 		ID:      target.ID,
 		Name:    target.Name,
@@ -276,27 +283,27 @@ func (s *NotificationStore) targetToRecord(target notification.Target) (targetRe
 			MessageTemplate:     target.Webhook.MessageTemplate,
 			BodyTemplate:        target.Webhook.BodyTemplate,
 		}
-		stored.Webhook.URLEnc, err = s.encryptSecret(target.Webhook.URL)
+		stored.Webhook.URLEnc, err = c.encryptSecret(target.Webhook.URL)
 		if err != nil {
 			return stored, err
 		}
 		if len(target.Webhook.Headers) > 0 {
 			stored.Webhook.HeadersEnc = make(map[string]string, len(target.Webhook.Headers))
 			for key, value := range target.Webhook.Headers {
-				stored.Webhook.HeadersEnc[key], err = s.encryptSecret(value)
+				stored.Webhook.HeadersEnc[key], err = c.encryptSecret(value)
 				if err != nil {
 					return stored, err
 				}
 			}
 		}
-		stored.Webhook.HMACSecretEnc, err = s.encryptSecret(target.Webhook.HMACSecret)
+		stored.Webhook.HMACSecretEnc, err = c.encryptSecret(target.Webhook.HMACSecret)
 		if err != nil {
 			return stored, err
 		}
 	}
 	if target.Slack != nil {
 		stored.Slack = &slackTargetRecord{MessageTemplate: target.Slack.MessageTemplate}
-		stored.Slack.WebhookURLEnc, err = s.encryptSecret(target.Slack.WebhookURL)
+		stored.Slack.WebhookURLEnc, err = c.encryptSecret(target.Slack.WebhookURL)
 		if err != nil {
 			return stored, err
 		}
@@ -307,14 +314,14 @@ func (s *NotificationStore) targetToRecord(target notification.Target) (targetRe
 			TopicID:         target.Telegram.TopicID,
 			MessageTemplate: target.Telegram.MessageTemplate,
 		}
-		stored.Telegram.BotTokenEnc, err = s.encryptSecret(target.Telegram.BotToken)
+		stored.Telegram.BotTokenEnc, err = c.encryptSecret(target.Telegram.BotToken)
 		if err != nil {
 			return stored, err
 		}
 	}
 	if target.Teams != nil {
 		stored.Teams = &teamsTargetRecord{MessageTemplate: target.Teams.MessageTemplate}
-		stored.Teams.WebhookURLEnc, err = s.encryptSecret(target.Teams.WebhookURL)
+		stored.Teams.WebhookURLEnc, err = c.encryptSecret(target.Teams.WebhookURL)
 		if err != nil {
 			return stored, err
 		}
@@ -325,14 +332,14 @@ func (s *NotificationStore) targetToRecord(target notification.Target) (targetRe
 	return stored, nil
 }
 
-func (s *NotificationStore) settingsFromRecord(rec *persis.Record) (*notification.Settings, error) {
+func (c notificationCodec) settingsFromRecord(rec *persis.Record) (*notification.Settings, error) {
 	var stored settingsRecord
 	if err := persis.Decode(rec, &stored); err != nil {
 		return nil, fmt.Errorf("notification store: parse settings: %w", err)
 	}
 	targets := make([]notification.Target, 0, len(stored.Targets))
 	for _, target := range stored.Targets {
-		decoded, err := s.targetFromRecord(target)
+		decoded, err := c.targetFromRecord(target)
 		if err != nil {
 			return nil, err
 		}
@@ -360,12 +367,12 @@ func (s *NotificationStore) settingsFromRecord(rec *persis.Record) (*notificatio
 	}, nil
 }
 
-func (s *NotificationStore) channelFromRecord(rec *persis.Record) (*notification.Channel, error) {
+func (c notificationCodec) channelFromRecord(rec *persis.Record) (*notification.Channel, error) {
 	var stored channelRecord
 	if err := persis.Decode(rec, &stored); err != nil {
 		return nil, fmt.Errorf("notification store: parse channel: %w", err)
 	}
-	target, err := s.targetFromRecord(targetRecord{
+	target, err := c.targetFromRecord(targetRecord{
 		ID:       stored.ID,
 		Name:     stored.Name,
 		Type:     stored.Type,
@@ -399,7 +406,7 @@ func (s *NotificationStore) channelFromRecord(rec *persis.Record) (*notification
 	}, nil
 }
 
-func (s *NotificationStore) workspaceSettingsFromRecord(rec *persis.Record) (*notification.WorkspaceSettings, error) {
+func (c notificationCodec) workspaceSettingsFromRecord(rec *persis.Record) (*notification.WorkspaceSettings, error) {
 	var stored workspaceSettingsRecord
 	if err := persis.Decode(rec, &stored); err != nil {
 		return nil, fmt.Errorf("notification store: parse workspace settings: %w", err)
@@ -414,7 +421,7 @@ func (s *NotificationStore) workspaceSettingsFromRecord(rec *persis.Record) (*no
 	if stored.SMTP == nil {
 		return settings, nil
 	}
-	password, err := s.decryptSecret(stored.SMTP.PasswordEnc)
+	password, err := c.decryptSecret(stored.SMTP.PasswordEnc)
 	if err != nil {
 		return nil, err
 	}
@@ -428,15 +435,15 @@ func (s *NotificationStore) workspaceSettingsFromRecord(rec *persis.Record) (*no
 	if stored.SMTP.OAuth == nil {
 		return settings, nil
 	}
-	clientSecret, err := s.decryptSecret(stored.SMTP.OAuth.ClientSecretEnc)
+	clientSecret, err := c.decryptSecret(stored.SMTP.OAuth.ClientSecretEnc)
 	if err != nil {
 		return nil, err
 	}
-	refreshToken, err := s.decryptSecret(stored.SMTP.OAuth.RefreshTokenEnc)
+	refreshToken, err := c.decryptSecret(stored.SMTP.OAuth.RefreshTokenEnc)
 	if err != nil {
 		return nil, err
 	}
-	serviceAccountJSON, err := s.decryptSecret(stored.SMTP.OAuth.ServiceAccountJSONEnc)
+	serviceAccountJSON, err := c.decryptSecret(stored.SMTP.OAuth.ServiceAccountJSONEnc)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +487,7 @@ func routeSetFromRecord(rec *persis.Record) (*notification.RouteSet, error) {
 	}, nil
 }
 
-func (s *NotificationStore) targetFromRecord(stored targetRecord) (notification.Target, error) {
+func (c notificationCodec) targetFromRecord(stored targetRecord) (notification.Target, error) {
 	target := notification.Target{
 		ID:      stored.ID,
 		Name:    stored.Name,
@@ -497,27 +504,27 @@ func (s *NotificationStore) targetFromRecord(stored targetRecord) (notification.
 			MessageTemplate:     stored.Webhook.MessageTemplate,
 			BodyTemplate:        stored.Webhook.BodyTemplate,
 		}
-		target.Webhook.URL, err = s.decryptSecret(stored.Webhook.URLEnc)
+		target.Webhook.URL, err = c.decryptSecret(stored.Webhook.URLEnc)
 		if err != nil {
 			return target, err
 		}
 		if len(stored.Webhook.HeadersEnc) > 0 {
 			target.Webhook.Headers = make(map[string]string, len(stored.Webhook.HeadersEnc))
 			for key, value := range stored.Webhook.HeadersEnc {
-				target.Webhook.Headers[key], err = s.decryptSecret(value)
+				target.Webhook.Headers[key], err = c.decryptSecret(value)
 				if err != nil {
 					return target, err
 				}
 			}
 		}
-		target.Webhook.HMACSecret, err = s.decryptSecret(stored.Webhook.HMACSecretEnc)
+		target.Webhook.HMACSecret, err = c.decryptSecret(stored.Webhook.HMACSecretEnc)
 		if err != nil {
 			return target, err
 		}
 	}
 	if stored.Slack != nil {
 		target.Slack = &notification.SlackTarget{MessageTemplate: stored.Slack.MessageTemplate}
-		target.Slack.WebhookURL, err = s.decryptSecret(stored.Slack.WebhookURLEnc)
+		target.Slack.WebhookURL, err = c.decryptSecret(stored.Slack.WebhookURLEnc)
 		if err != nil {
 			return target, err
 		}
@@ -528,14 +535,14 @@ func (s *NotificationStore) targetFromRecord(stored targetRecord) (notification.
 			TopicID:         stored.Telegram.TopicID,
 			MessageTemplate: stored.Telegram.MessageTemplate,
 		}
-		target.Telegram.BotToken, err = s.decryptSecret(stored.Telegram.BotTokenEnc)
+		target.Telegram.BotToken, err = c.decryptSecret(stored.Telegram.BotTokenEnc)
 		if err != nil {
 			return target, err
 		}
 	}
 	if stored.Teams != nil {
 		target.Teams = &notification.TeamsTarget{MessageTemplate: stored.Teams.MessageTemplate}
-		target.Teams.WebhookURL, err = s.decryptSecret(stored.Teams.WebhookURLEnc)
+		target.Teams.WebhookURL, err = c.decryptSecret(stored.Teams.WebhookURLEnc)
 		if err != nil {
 			return target, err
 		}
@@ -576,22 +583,22 @@ func parseSettingsTime(field, value string) time.Time {
 	return parsed
 }
 
-func (s *NotificationStore) encryptSecret(value string) (string, error) {
+func (c notificationCodec) encryptSecret(value string) (string, error) {
 	if value == "" {
 		return "", nil
 	}
-	if s.encryptor == nil {
+	if c.encryptor == nil {
 		return "", notification.ErrSecretStoreMissing
 	}
-	return s.encryptor.Encrypt(value)
+	return c.encryptor.Encrypt(value)
 }
 
-func (s *NotificationStore) decryptSecret(value string) (string, error) {
+func (c notificationCodec) decryptSecret(value string) (string, error) {
 	if value == "" {
 		return "", nil
 	}
-	if s.encryptor == nil {
+	if c.encryptor == nil {
 		return "", notification.ErrSecretStoreMissing
 	}
-	return s.encryptor.Decrypt(value)
+	return c.encryptor.Decrypt(value)
 }

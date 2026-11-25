@@ -92,10 +92,15 @@ func newFilePersistence(
 		backend.Collection(persis.CollectionSchedulerState),
 	)
 	schedulerPauseStore := store.NewSchedulerPauseStore(
-		backend.Collection(persis.CollectionSchedulerState),
+		backend.Collection(persis.CollectionSchedulerProcess),
 	)
 	restartBackoffStore := store.NewRestartBackoffStore(
+		backend.Collection(persis.CollectionSchedulerProcess),
+	)
+	periodStore := store.NewPeriodStore(
 		backend.Collection(persis.CollectionSchedulerState),
+		backend.Collection(persis.CollectionSchedulerProcess),
+		schedulerPauseStore,
 	)
 	watchStateStore := store.NewWatchStateStore(backend.Collection(persis.CollectionWatchState))
 	serviceRegistry := file.NewServiceRegistry(cfg)
@@ -126,7 +131,7 @@ func newFilePersistence(
 		SchedulerStateStore:       schedulerStateStore,
 		SchedulerPauseStore:       schedulerPauseStore,
 		RestartBackoffStore:       restartBackoffStore,
-		PeriodStore:               store.NewPeriodStore(backend.Collection(persis.CollectionSchedulerState), schedulerPauseStore),
+		PeriodStore:               periodStore,
 		WatchStateStore:           watchStateStore,
 		ServiceRegistry:           serviceRegistry,
 		DispatchTaskStore:         dispatchTaskStore,

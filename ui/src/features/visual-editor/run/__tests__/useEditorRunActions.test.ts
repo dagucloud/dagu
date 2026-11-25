@@ -50,7 +50,12 @@ describe('useEditorRunActions', () => {
     expect(id).toBe('run-1');
     expect(POST).toHaveBeenCalledWith('/dag-runs', {
       params: { query: { remoteNode: 'node-1' } },
-      body: { spec: 'steps: [x]', name: 'my-dag', labels: LABELS },
+      body: {
+        spec: 'steps: [x]',
+        name: 'my-dag',
+        draftOf: 'my-dag',
+        labels: LABELS,
+      },
     });
   });
 
@@ -69,7 +74,12 @@ describe('useEditorRunActions', () => {
     });
     expect(POST).toHaveBeenCalledWith('/dag-runs', {
       params: { query: { remoteNode: 'node-1' } },
-      body: { spec: 'newer', name: 'my-dag', labels: LABELS },
+      body: {
+        spec: 'newer',
+        name: 'my-dag',
+        draftOf: 'my-dag',
+        labels: LABELS,
+      },
     });
   });
 
@@ -112,6 +122,7 @@ describe('useEditorRunActions', () => {
       body: {
         spec: 'draft',
         name: 'my-dag',
+        draftOf: 'my-dag',
         steps: ['a', 'b'],
         ephemeral: true,
         labels: LABELS,
@@ -170,6 +181,7 @@ describe('useEditorRunActions', () => {
     expect(body).toEqual({
       spec: 'draft',
       name: 'my-dag',
+      draftOf: 'my-dag',
       steps: ['b'],
       outputsFromRuns,
       ephemeral: true,
@@ -201,6 +213,7 @@ describe('useEditorRunActions', () => {
       body: {
         spec: 'draft',
         name: 'my-dag',
+        draftOf: 'my-dag',
         steps: ['b'],
         outputsFromRunId: 'r1',
         ephemeral: true,
@@ -236,6 +249,53 @@ describe('useEditorRunActions', () => {
     expect(result.current.error).toBe(
       'outputs are reused only from a finished run'
     );
+  });
+
+  it('names the changed steps that the user reuses anyway', async () => {
+    const { result } = setup();
+    await act(async () => {
+      await result.current.runStep('b', {
+        outputsFromRuns: { a: 'RunA' },
+        allowChangedSteps: ['a'],
+      });
+    });
+    const body = POST.mock.calls[0]?.[1]?.body;
+    expect(body.allowChangedSteps).toEqual(['a']);
+  });
+
+  // The caller shows the refused steps again for the user to decide; no
+  // error is set, so no error dialog opens.
+  it('hands a refusal of carried steps to the caller instead of an error', async () => {
+    const refusedSteps = [
+      {
+        step: 'a',
+        runId: 'RunA',
+        status: 'changed',
+        changes: ['baseConfig'],
+        message:
+          'step a cannot be reused from run RunA: the base config changed since that run',
+      },
+    ];
+    POST.mockResolvedValue({
+      error: {
+        code: 'bad_request',
+        message: refusedSteps[0]?.message,
+        details: { refusedSteps },
+      },
+      response: { status: 400 },
+    });
+    const onRefused = vi.fn();
+    const { result } = setup();
+    let id: string | null = 'x';
+    await act(async () => {
+      id = await result.current.runStep('b', {
+        outputsFromRuns: { a: 'RunA' },
+        onRefused,
+      });
+    });
+    expect(id).toBeNull();
+    expect(onRefused).toHaveBeenCalledWith(refusedSteps);
+    expect(result.current.error).toBeNull();
   });
 
   it('falls back to the HTTP status without a server message', async () => {

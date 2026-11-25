@@ -13,11 +13,13 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
-// checkInitArgs returns the usage error of --init with other than one
-// argument, or with a flag that selects or reports cases. --timeout bounds
-// the run of its one case.
+// checkInitArgs returns the usage error of --init with --update, with other
+// than one argument, or with a flag that selects or reports cases.
+// --timeout bounds the run of its one case.
 func checkInitArgs(opts testOptions, args []string) error {
 	switch {
+	case opts.update:
+		return errors.New("--update cannot be used with --init")
 	case len(args) != 1:
 		return fmt.Errorf("--init takes exactly one DAG file, got %d arguments", len(args))
 	case opts.run != nil:

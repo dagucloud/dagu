@@ -99,7 +99,7 @@ type TickPlannerConfig struct {
 	Restart         RestartFunc
 	Clock           Clock
 	Location        *time.Location // timezone for cron schedule evaluation
-	DataDir         string         // data directory, part of each slot's run ID
+	SlotSeed        string         // seed of each slot's run ID; see GenerateSlotRunID
 	Events          <-chan DAGChangeEvent
 	ProfileResolver DAGProfileResolver
 
@@ -1326,7 +1326,7 @@ func scheduleDueAt(schedule ir.Schedule, now time.Time) (time.Time, bool) {
 // deterministic, so a slot planned twice, as around a failover, names one run.
 func (tp *TickPlanner) createPlannedRun(entry DAGEntry, schedule ir.Schedule, scheduledTime time.Time, triggerType ir.TriggerType) PlannedRun {
 	dag := entry.DAG
-	runID := GenerateSlotRunID(tp.cfg.DataDir, dag.Name, scheduledTime)
+	runID := GenerateSlotRunID(tp.cfg.SlotSeed, dag.Name, scheduledTime)
 	if triggerType != ir.TriggerTypeCatchUp && schedule.IsOneOff() {
 		runID = GenerateOneOffRunID(dag.Name, schedule.Fingerprint(), scheduledTime)
 	}

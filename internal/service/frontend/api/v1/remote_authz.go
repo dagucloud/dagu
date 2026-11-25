@@ -164,6 +164,7 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"ClearDAGBrowserCache":                 remoteNodeAccessExecute,
 	"EnqueueDAGDAGRun":                     remoteNodeAccessExecute,
 	"ExecuteDAG":                           remoteNodeAccessExecute,
+	"PreviewExecuteDAG":                    remoteNodeAccessExecute,
 	"ExecuteDAGSync":                       remoteNodeAccessExecute,
 	"StopAllDAGRuns":                       remoteNodeAccessExecute,
 	"UpdateDAGSuspensionState":             remoteNodeAccessExecute,
@@ -197,10 +198,11 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"RenameWikiPage":           remoteNodeAccessWrite,
 
 	// Runs from an inline or edited spec, which need write and run permission.
-	"ExecuteDAGRunFromSpec":  remoteNodeAccessWriteAndRun,
-	"EnqueueDAGRunFromSpec":  remoteNodeAccessWriteAndRun,
-	"EditRetryDAGRun":        remoteNodeAccessWriteAndRun,
-	"PreviewEditRetryDAGRun": remoteNodeAccessWriteAndRun,
+	"ExecuteDAGRunFromSpec":        remoteNodeAccessWriteAndRun,
+	"PreviewExecuteDAGRunFromSpec": remoteNodeAccessWriteAndRun,
+	"EnqueueDAGRunFromSpec":        remoteNodeAccessWriteAndRun,
+	"EditRetryDAGRun":              remoteNodeAccessWriteAndRun,
+	"PreviewEditRetryDAGRun":       remoteNodeAccessWriteAndRun,
 
 	// System status and workspace changes, open to developers and above.
 	"GetCoordinatorStatus": remoteNodeAccessDeveloper,
@@ -247,11 +249,13 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 // Running with a protected profile needs an administrator, and only the remote
 // node knows which of its profiles are protected.
 var remoteNodeProfileOperations = map[string]bool{
-	"ExecuteDAG":            true,
-	"ExecuteDAGSync":        true,
-	"EnqueueDAGDAGRun":      true,
-	"ExecuteDAGRunFromSpec": true,
-	"EnqueueDAGRunFromSpec": true,
+	"ExecuteDAG":                   true,
+	"PreviewExecuteDAG":            true,
+	"ExecuteDAGSync":               true,
+	"EnqueueDAGDAGRun":             true,
+	"ExecuteDAGRunFromSpec":        true,
+	"PreviewExecuteDAGRunFromSpec": true,
+	"EnqueueDAGRunFromSpec":        true,
 }
 
 // maxRemoteNodeProfileProbeBody bounds how much of a run request body is read

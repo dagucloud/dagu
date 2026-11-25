@@ -996,8 +996,12 @@ function PanelView({
   };
   // The marks tell of the run that the header shows.
   const markOf = (name: string): RowMark | undefined => {
-    if (!inputRun || runId === null) return undefined;
-    if (inputRun.stale.has(name)) return { kind: 'stale', runId };
+    if (!inputRun) return undefined;
+    const staleRun = inputRun.staleRuns?.get(name) ?? runId;
+    if (inputRun.stale.has(name) && staleRun !== null) {
+      return { kind: 'stale', runId: staleRun };
+    }
+    if (runId === null) return undefined;
     if (inputRun.missing.has(name)) return { kind: 'missing', runId };
     return undefined;
   };
@@ -1131,6 +1135,17 @@ function PanelView({
             </p>
           )
         )}
+        {inputRun &&
+        !followed &&
+        inputRun.checked === false &&
+        (inputRun.runId !== null || (inputRun.cache?.cached.size ?? 0) > 0) ? (
+          <p
+            data-testid="upstream-input-unchecked"
+            className="text-[10px] text-muted-foreground"
+          >
+            {ts('The server checks these marks when you run the step.')}
+          </p>
+        ) : null}
         {upstreamRun && followed && (
           <div
             data-testid="upstream-last-run"

@@ -332,7 +332,8 @@ export interface StepRunRef {
  * `fromRuns` (sent as `outputsFromRuns`) comes from that run; another step
  * that the source run holds comes from the source run, with the times of its
  * node there. A step that the run executes, and a step that nothing covers,
- * have no record. `stale` lists the steps that changed since the source run.
+ * have no record. `stale` lists the steps that changed since the run that
+ * gives them.
  */
 export function reusedInputs(p: {
   previous: readonly string[];
@@ -360,7 +361,7 @@ export function reusedInputs(p: {
         step,
         source: 'run',
         runId: own.runId,
-        stale: false,
+        stale: p.stale.includes(step),
         capturedAt: isoMs(own.finishedAt),
         startedAt: isoMs(own.startedAt),
         finishedAt: isoMs(own.finishedAt),

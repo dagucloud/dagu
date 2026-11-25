@@ -31,9 +31,10 @@ type Setting struct {
 
 // Settings reports every key in the environment binding table, in table
 // order, with the value read from its source before Dagu applies its own
-// defaults. The exception is auth.mode, which reports the mode cfg runs in.
-// Keys for projects are left out while projects are off. Secret values are
-// masked. cfg is the Config that Load returned.
+// defaults. A key that Load filled from a deprecated key or variable reports
+// the deprecated value and its source instead, and auth.mode reports the
+// mode cfg runs in. Keys for projects are left out while projects are off.
+// Secret values are masked. cfg is the Config that Load returned.
 func (l *ConfigLoader) Settings(cfg *Config) []Setting {
 	type keyInfo struct {
 		envs   []string
@@ -61,6 +62,10 @@ func (l *ConfigLoader) Settings(cfg *Config) []Setting {
 	for _, key := range keys {
 		info := infos[key]
 		value := formatSettingValue(l.v.Get(key))
+		source := l.settingSource(key, info.envs)
+		if legacy, ok := l.legacySettings[key]; ok {
+			value, source = legacy.Value, legacy.Source
+		}
 		// Load picks a mode when none or an invalid one is configured, and
 		// whether auth is on is what this report is most often read for.
 		if key == "auth.mode" && cfg.Server.Auth.Mode != "" {
@@ -72,7 +77,7 @@ func (l *ConfigLoader) Settings(cfg *Config) []Setting {
 		settings = append(settings, Setting{
 			Key:    key,
 			Value:  value,
-			Source: l.settingSource(key, info.envs),
+			Source: source,
 		})
 	}
 	return settings
@@ -89,6 +94,22 @@ func envNames(key string) []string {
 		}
 	}
 	return envs
+}
+
+// reportLegacyKey records that Load filled key from the deprecated config
+// key legacyKey, so Settings reports legacyKey's value and source for key.
+func (l *ConfigLoader) reportLegacyKey(key, legacyKey string) {
+	l.reportLegacy(key, formatSettingValue(l.v.Get(legacyKey)), l.settingSource(legacyKey, envNames(legacyKey)))
+}
+
+// reportLegacy records value and source as what Settings reports for key.
+// A later call for the same key replaces an earlier one, as the later
+// deprecated value replaces the earlier one in Load.
+func (l *ConfigLoader) reportLegacy(key, value, source string) {
+	if l.legacySettings == nil {
+		l.legacySettings = make(map[string]Setting)
+	}
+	l.legacySettings[key] = Setting{Key: key, Value: value, Source: source}
 }
 
 // settingSource follows Viper's precedence: the first variable in envs that

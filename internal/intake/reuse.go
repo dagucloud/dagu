@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/ir"
-	"github.com/goccy/go-yaml"
+	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
 // StepsToRun returns, in the order of dag, the steps a run of dag must run
@@ -32,11 +32,11 @@ func StepsToRun(dag *ir.DAG, profile string, sourceDAG *ir.DAG, source *ir.DAGRu
 	if source == nil || sourceDAG == nil {
 		return nil, errors.New("no run to reuse is given")
 	}
-	current, err := stepFingerprints(dag, strings.Join(dag.Params, " "), profile)
+	current, err := newFingerprint(dag, strings.Join(dag.Params, " "), profile)
 	if err != nil {
 		return nil, err
 	}
-	earlier, err := stepFingerprints(sourceDAG, source.Params, source.ProfileName)
+	earlier, err := newFingerprint(sourceDAG, source.Params, source.ProfileName)
 	if err != nil {
 		return nil, fmt.Errorf("the run to reuse: %w", err)
 	}
@@ -55,10 +55,11 @@ func StepsToRun(dag *ir.DAG, profile string, sourceDAG *ir.DAG, source *ir.DAGRu
 			sharedRuns[share] = true
 		}
 	}
+	tainted := taintedSteps(dag, source)
 	for i := range dag.Steps {
 		step := &dag.Steps[i]
 		node := nodes[step.Name]
-		if current[step.Name] != earlier[step.Name] || node == nil || !carriesOutputs(node) {
+		if len(current.changes(earlier, step.Name)) > 0 || tainted[step.Name] || node == nil || !carriesOutputs(node) {
 			run(step)
 		}
 	}
@@ -86,79 +87,333 @@ func StepsToRun(dag *ir.DAG, profile string, sourceDAG *ir.DAG, source *ir.DAGRu
 	return names, nil
 }
 
-// stepFingerprints returns, by step name, a digest of what decides what each
-// step of dag does: its definition, the DAG's definition other than its
-// steps, the base config, the run's parameters and runtime profile, and the
-// digests of the steps it depends on.
-func stepFingerprints(dag *ir.DAG, params, profile string) (map[string]string, error) {
-	base, err := definitionDigest(dag, params, profile)
-	if err != nil {
-		return nil, err
+// changeNouns names each change that a definition can show, for a reason.
+var changeNouns = map[ir.StepChange]string{
+	ir.StepChangeStep:       "the step",
+	ir.StepChangeDependency: "a step it depends on",
+	ir.StepChangeParams:     "the parameters",
+	ir.StepChangeProfile:    "the runtime profile",
+	ir.StepChangeBaseConfig: "the base config",
+	ir.StepChangeSettings:   "the top-level settings",
+}
+
+// changeReason says what changed for a step since a run, such as "the step
+// and the parameters (MAX) changed since that run". params names the
+// parameters whose values changed, when it knows them.
+func changeReason(changes []ir.StepChange, params []string) string {
+	nouns := make([]string, 0, len(changes))
+	var parts []string
+	for _, change := range changes {
+		noun, ok := changeNouns[change]
+		if !ok {
+			continue
+		}
+		if change == ir.StepChangeParams && len(params) > 0 {
+			noun += " (" + strings.Join(params, ", ") + ")"
+		}
+		nouns = append(nouns, noun)
+	}
+	if len(nouns) > 0 {
+		parts = append(parts, joinWords(nouns)+" changed since that run")
+	}
+	if slices.Contains(changes, ir.StepChangeCarried) {
+		parts = append(parts, "in that run it or a step it depends on took outputs of a changed step")
+	}
+	if slices.Contains(changes, ir.StepChangeUnknown) {
+		parts = append(parts, "what that run ran cannot be compared")
+	}
+	return strings.Join(parts, ", and ")
+}
+
+// changedParams names the parameters whose values differ between now and
+// earlier, two lists of resolved parameters as NAME=value or a positional
+// value, which is named $1, $2, and so on: in the order of now, then the
+// names that only earlier has.
+func changedParams(now, earlier []string) []string {
+	byName := func(params []string) ([]string, map[string]string) {
+		names := make([]string, 0, len(params))
+		values := make(map[string]string, len(params))
+		position := 0
+		for _, param := range params {
+			name, value, named := strings.Cut(param, "=")
+			if !named || name == "" {
+				position++
+				name, value = fmt.Sprintf("$%d", position), param
+			}
+			if _, seen := values[name]; !seen {
+				names = append(names, name)
+			}
+			values[name] = value
+		}
+		return names, values
+	}
+	nowNames, nowValues := byName(now)
+	earlierNames, earlierValues := byName(earlier)
+	var changed []string
+	for _, name := range nowNames {
+		if value, ok := earlierValues[name]; !ok || value != nowValues[name] {
+			changed = append(changed, name)
+		}
+	}
+	for _, name := range earlierNames {
+		if _, ok := nowValues[name]; !ok {
+			changed = append(changed, name)
+		}
+	}
+	return changed
+}
+
+// taintedSteps returns, by name, the steps of dag that took outputs of a
+// changed step in run, with consent, and every step that depends on one of
+// them, directly or not.
+func taintedSteps(dag *ir.DAG, run *ir.DAGRunStatus) map[string]bool {
+	changed := make(map[string]bool)
+	for _, input := range run.ReusedInputs {
+		if len(input.Changes) > 0 {
+			changed[input.Step] = true
+		}
+	}
+	if len(changed) == 0 {
+		return nil
 	}
 	steps := make(map[string]*ir.Step, len(dag.Steps))
 	for i := range dag.Steps {
 		steps[dag.Steps[i].Name] = &dag.Steps[i]
 	}
-	digests := make(map[string]string, len(dag.Steps))
+	tainted := make(map[string]bool, len(dag.Steps))
+	visited := make(map[string]bool, len(dag.Steps))
+	var visit func(name string) bool
+	visit = func(name string) bool {
+		if visited[name] {
+			return tainted[name]
+		}
+		visited[name] = true
+		tainted[name] = changed[name]
+		if step, ok := steps[name]; ok {
+			for _, dep := range step.AllDepends() {
+				if visit(dep) {
+					tainted[name] = true
+				}
+			}
+		}
+		return tainted[name]
+	}
+	for name := range steps {
+		visit(name)
+	}
+	return tainted
+}
+
+// joinWords joins words as a list in an English sentence.
+func joinWords(words []string) string {
+	switch len(words) {
+	case 0:
+		return ""
+	case 1:
+		return words[0]
+	case 2:
+		return words[0] + " and " + words[1]
+	}
+	return strings.Join(words[:len(words)-1], ", ") + ", and " + words[len(words)-1]
+}
+
+// handlerOnKey is the key of the handlers in a definition and a base config.
+const handlerOnKey = "handler_on"
+
+// fingerprint holds, as digests, what decides what each step of a definition
+// does, so that two definitions compare part by part.
+type fingerprint struct {
+	// settings is the DAG's definition other than its steps.
+	settings   string
+	baseConfig string
+	params     string
+	profile    string
+	steps      map[string]stepDigests
+}
+
+// stepDigests are the digests of one step: its own definition, the steps it
+// depends on, and both together.
+type stepDigests struct {
+	own   string
+	deps  string
+	chain string
+}
+
+// newFingerprint returns the fingerprint of dag run with params and profile.
+func newFingerprint(dag *ir.DAG, params, profile string) (*fingerprint, error) {
+	settings, err := settingsDigest(dag.YamlData)
+	if err != nil {
+		return nil, err
+	}
+	base, err := baseConfigDigest(dag.BaseConfigData)
+	if err != nil {
+		return nil, err
+	}
+	steps, err := stepDigestsOf(dag)
+	if err != nil {
+		return nil, err
+	}
+	return &fingerprint{settings: settings, baseConfig: base, params: params, profile: profile, steps: steps}, nil
+}
+
+// changes lists what changed for step name since earlier, in the order of the
+// StepChange constants. It is empty when the step can be reused.
+func (f *fingerprint) changes(earlier *fingerprint, name string) []ir.StepChange {
+	var changes []ir.StepChange
+	now := f.steps[name]
+	then, existed := earlier.steps[name]
+	if !existed || now.own != then.own {
+		changes = append(changes, ir.StepChangeStep)
+	}
+	if existed && now.deps != then.deps {
+		changes = append(changes, ir.StepChangeDependency)
+	}
+	if f.params != earlier.params {
+		changes = append(changes, ir.StepChangeParams)
+	}
+	if f.profile != earlier.profile {
+		changes = append(changes, ir.StepChangeProfile)
+	}
+	if f.baseConfig != earlier.baseConfig {
+		changes = append(changes, ir.StepChangeBaseConfig)
+	}
+	if f.settings != earlier.settings {
+		changes = append(changes, ir.StepChangeSettings)
+	}
+	return changes
+}
+
+// metadataKeys are the top-level keys of a definition that describe, schedule,
+// notify, retain, or limit runs. They cannot change what a step that succeeded
+// gave, so a change of them does not count. The web UI leaves out the same keys
+// (runSpecDiff.ts).
+var metadataKeys = []string{
+	"group", "description", "labels", "tags",
+	"schedule", "skip_if_successful", "catchup_window", "overlap_policy", "webhook", "watch",
+	"smtp", "mail_accounts", "mail_on", "error_mail", "info_mail", "wait_mail",
+	"hist_retention_days", "hist_retention_runs", "slot_retention_days", "log_dir", "otel",
+	"queue", "max_active_runs", "max_active_steps", "timeout_sec", "delay_sec",
+	"restart_wait_sec", "restart_policy", "retry_policy", "max_clean_up_time_sec",
+}
+
+// settingsDigest is a digest of the DAG's definition other than its steps, as
+// written, with the local sub-DAGs that follow it in the file. The parameters
+// count as the run resolved them instead, of the handlers only init counts
+// (it runs before the steps, the others after them), and metadataKeys do not
+// count.
+func settingsDigest(yamlData []byte) (string, error) {
+	if len(yamlData) == 0 {
+		return "", errors.New("the DAG keeps no definition to compare")
+	}
+	documents, err := spec.Documents(yamlData)
+	if err != nil {
+		return "", fmt.Errorf("read the DAG's definition: %w", err)
+	}
+	if len(documents) > 0 {
+		head := documents[0]
+		delete(head, "steps")
+		delete(head, "params")
+		keepBehavior(head)
+	}
+	return digestOf(documents)
+}
+
+// baseConfigDigest is a digest of the base config as values. SMTP only sends
+// mail, and the base config counts as a definition does.
+func baseConfigDigest(data []byte) (string, error) {
+	values, err := spec.BaseConfigValues(data)
+	if err != nil {
+		return "", fmt.Errorf("read the base config: %w", err)
+	}
+	keepBehavior(values)
+	if len(values) == 0 {
+		return "", nil
+	}
+	return digestOf(values)
+}
+
+// keepBehavior leaves in the values of a definition what can change what a
+// step does: no metadataKeys, and only the init handler.
+func keepBehavior(values map[string]any) {
+	for _, key := range metadataKeys {
+		delete(values, key)
+	}
+	keepInitHandler(values)
+}
+
+// keepInitHandler leaves only the init handler in the values of a definition:
+// the other handlers run after the steps and cannot change what a step does.
+func keepInitHandler(values map[string]any) {
+	handlers, ok := values[handlerOnKey].(map[string]any)
+	if !ok {
+		return
+	}
+	if init, ok := handlers["init"]; ok {
+		values[handlerOnKey] = map[string]any{"init": init}
+		return
+	}
+	delete(values, handlerOnKey)
+}
+
+// stepDigestsOf returns the digests of each step of dag by step name.
+func stepDigestsOf(dag *ir.DAG) (map[string]stepDigests, error) {
+	steps := make(map[string]*ir.Step, len(dag.Steps))
+	for i := range dag.Steps {
+		steps[dag.Steps[i].Name] = &dag.Steps[i]
+	}
+	digests := make(map[string]stepDigests, len(dag.Steps))
 	visiting := make(map[string]bool, len(dag.Steps))
-	var digest func(name string) (string, error)
-	digest = func(name string) (string, error) {
+	var visit func(name string) (stepDigests, error)
+	visit = func(name string) (stepDigests, error) {
 		if d, ok := digests[name]; ok {
 			return d, nil
 		}
 		step, ok := steps[name]
 		if !ok {
-			return "", fmt.Errorf("step %q depends on a step the DAG does not have", name)
+			return stepDigests{}, fmt.Errorf("step %q depends on a step the DAG does not have", name)
 		}
 		if visiting[name] {
-			return "", fmt.Errorf("step %q depends on itself", name)
+			return stepDigests{}, fmt.Errorf("step %q depends on itself", name)
 		}
 		visiting[name] = true
 		definition, err := stepDefinition(step)
 		if err != nil {
-			return "", err
+			return stepDigests{}, err
 		}
-		hash := sha256.New()
-		_, _ = fmt.Fprintf(hash, "%s\x00%s", base, definition)
-		deps := slices.Sorted(slices.Values(step.AllDepends()))
-		for _, dep := range deps {
-			d, err := digest(dep)
+		deps := sha256.New()
+		for _, dep := range slices.Sorted(slices.Values(step.AllDepends())) {
+			d, err := visit(dep)
 			if err != nil {
-				return "", err
+				return stepDigests{}, err
 			}
-			_, _ = fmt.Fprintf(hash, "\x00%s=%s", dep, d)
+			_, _ = fmt.Fprintf(deps, "%s=%s\x00", dep, d.chain)
 		}
-		digests[name] = hex.EncodeToString(hash.Sum(nil))
-		return digests[name], nil
+		d := stepDigests{own: hashOf(definition), deps: hex.EncodeToString(deps.Sum(nil))}
+		d.chain = hashOf([]byte(d.own + "\x00" + d.deps))
+		digests[name] = d
+		return d, nil
 	}
 	for name := range steps {
-		if _, err := digest(name); err != nil {
+		if _, err := visit(name); err != nil {
 			return nil, err
 		}
 	}
 	return digests, nil
 }
 
-// definitionDigest is a digest of the DAG's definition other than its steps,
-// as written, with the base config and the run's parameters and runtime
-// profile. The definition as written holds what its loaded form leaves out,
-// such as the environment.
-func definitionDigest(dag *ir.DAG, params, profile string) (string, error) {
-	if len(dag.YamlData) == 0 {
-		return "", errors.New("the DAG keeps no definition to compare")
-	}
-	var document map[string]any
-	if err := yaml.Unmarshal(dag.YamlData, &document); err != nil {
-		return "", fmt.Errorf("read the DAG's definition: %w", err)
-	}
-	delete(document, "steps")
-	data, err := json.Marshal(document)
+// digestOf is a digest of value as JSON, which sorts the keys of its maps.
+func digestOf(value any) (string, error) {
+	data, err := json.Marshal(value)
 	if err != nil {
 		return "", fmt.Errorf("read the DAG's definition: %w", err)
 	}
-	hash := sha256.New()
-	_, _ = fmt.Fprintf(hash, "%s\x00%s\x00%s\x00%s", data, dag.BaseConfigData, params, profile)
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	return hashOf(data), nil
+}
+
+// hashOf is the SHA-256 of data in hex.
+func hashOf(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 // stepDefinition is a step's loaded definition as a run keeps it, so a step

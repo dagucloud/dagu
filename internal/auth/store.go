@@ -146,15 +146,24 @@ type AuthorizationSyncResult struct {
 	PreviousRole Role
 	// PreviousWorkspaceAccess is the workspace policy observed immediately before synchronization.
 	PreviousWorkspaceAccess *WorkspaceAccess
+	// PreviousProjectGrants are the project grants observed immediately before synchronization.
+	PreviousProjectGrants []ProjectGrant
 }
 
 // AuthorizationSyncUserStore atomically synchronizes externally managed authorization.
 type AuthorizationSyncUserStore interface {
 	UserStore
 
-	// SyncAuthorization updates role and, when non-nil, workspace access on an enabled user.
+	// SyncAuthorization updates role and, when non-nil, workspace access and project grants
+	// on an enabled user. Project grants compare without regard to order.
 	// It returns the current user and the authorization state observed under the same lock.
-	SyncAuthorization(ctx context.Context, id string, role Role, workspaceAccess *WorkspaceAccess) (AuthorizationSyncResult, error)
+	SyncAuthorization(
+		ctx context.Context,
+		id string,
+		role Role,
+		workspaceAccess *WorkspaceAccess,
+		projectGrants *[]ProjectGrant,
+	) (AuthorizationSyncResult, error)
 }
 
 // APIKeyStore defines the interface for API key persistence operations.

@@ -367,7 +367,7 @@ func (it *dagRunStatusIterator) readsLazily(runs int) bool {
 // loadDay reads a whole day and returns its matching runs created before
 // before, or all of them when before is zero, newest first.
 func (it *dagRunStatusIterator) loadDay(ctx context.Context, dayPath string, entries []os.DirEntry, before time.Time) ([]dagRunListItem, error) {
-	runs, err := loadDayRuns(ctx, dayPath, entries, it.statusesFilter, it.hasStatusFilter)
+	runs, err := it.store.loadDayRuns(ctx, dayPath, entries, it.statusesFilter, it.hasStatusFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +400,7 @@ func (it *dagRunStatusIterator) nextLazyGroup(ctx context.Context) ([]dagRunList
 		group, groupStart := nextRunGroup(day.entries, day.pos)
 		runs := make([]*DAGRun, 0, len(group))
 		for _, entry := range group {
-			if run, err := NewDAGRun(filepath.Join(day.path, entry.Name())); err == nil {
+			if run, err := it.store.dagRun(filepath.Join(day.path, entry.Name())); err == nil {
 				runs = append(runs, run)
 			}
 		}
@@ -592,7 +592,7 @@ func listDayPathsInRange(root DataRoot, from, to persis.TimeInUTC) ([]string, er
 	return dayPaths, nil
 }
 
-func loadDayRuns(ctx context.Context, dayPath string, dayEntries []os.DirEntry, statusesFilter map[ir.Status]struct{}, hasStatusFilter bool) ([]*DAGRun, error) {
+func (store *Store) loadDayRuns(ctx context.Context, dayPath string, dayEntries []os.DirEntry, statusesFilter map[ir.Status]struct{}, hasStatusFilter bool) ([]*DAGRun, error) {
 	indexEntries, _, indexErr := dagrunindex.TryLoadForDay(ctx, dayPath, dayEntries)
 	if indexErr == nil && indexEntries != nil && len(indexEntries) == countDAGRunDirs(dayEntries) {
 		runs := make([]*DAGRun, 0, len(indexEntries))
@@ -602,7 +602,7 @@ func loadDayRuns(ctx context.Context, dayPath string, dayEntries []os.DirEntry, 
 					continue
 				}
 			}
-			run, err := NewDAGRun(filepath.Join(dayPath, indexEntry.DagRunDir))
+			run, err := store.dagRun(filepath.Join(dayPath, indexEntry.DagRunDir))
 			if err != nil {
 				continue
 			}
@@ -628,7 +628,7 @@ func loadDayRuns(ctx context.Context, dayPath string, dayEntries []os.DirEntry, 
 
 	runs := make([]*DAGRun, 0, len(files))
 	for _, filePath := range files {
-		run, err := NewDAGRun(filePath)
+		run, err := store.dagRun(filePath)
 		if err != nil {
 			continue
 		}

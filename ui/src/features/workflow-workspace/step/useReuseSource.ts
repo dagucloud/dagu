@@ -38,11 +38,16 @@ import { useClient } from '@/hooks/api';
 import { useWorkspaceData } from '../data/context';
 import { useRunHistory } from '../data/useRunHistory';
 
-/** The most requests that one evaluation makes to check the runs of the cache. */
+/** The most run checks of the cache that wait for an answer at one time. */
 const MAX_RUN_CHECKS = 5;
 
 /** The most outputs requests that one evaluation makes. */
 export const MAX_OUTPUT_REQUESTS = 3;
+
+/** What a request for a run of the cache answered. */
+type RunAnswer = ReuseRun | 'gone' | 'unknown';
+
+const NO_ANSWERS: Readonly<Record<string, RunAnswer>> = {};
 
 // The step that stands for the agent in the runs of an agent DAG.
 const AGENT_RUN_STEP = '__agent__';
@@ -249,10 +254,11 @@ export function useReuseSource(p: {
 
   // The runs that the entries and the choice name must still exist. The
   // history says so for the runs that it lists; the others are asked once (a
-  // removed run, or a test run that expired, answers 404).
-  const [asked, setAsked] = useState<
-    Record<string, ReuseRun | 'gone' | 'unknown'>
-  >({});
+  // removed run, or a test run that expired, answers 404). The answers belong
+  // to one workflow on one node: those of another are not read.
+  const scopeKey = `${dagName}\u0001${remoteNode}`;
+  const [answers, setAnswers] = useState({ scopeKey, runs: NO_ANSWERS });
+  const asked = answers.scopeKey === scopeKey ? answers.runs : NO_ANSWERS;
   const runIds = useMemo(
     () => [
       ...new Set([
@@ -266,22 +272,39 @@ export function useReuseSource(p: {
   );
   const listed = history.runs;
   const runOfId = useCallback(
-    (id: string): ReuseRun | 'gone' | 'unknown' | undefined =>
+    (id: string): RunAnswer | undefined =>
       listed.find((r) => r.dagRunId === id) ??
       (selected?.dagRunId === id ? selected : undefined) ??
       asked[id],
     [asked, listed, selected]
   );
-  // Each run is asked once. A pass never drops the answers of an earlier
-  // one, and the pass after an answer asks for the runs past the limit.
-  const requested = useRef(new Set<string>());
+  // The runs already requested stay requested: a pass that starts again (a new
+  // answer, a polled selected run) must not cancel or repeat them. The answers
+  // of another workflow or node are ignored.
+  const requested = useRef({ scopeKey, ids: new Set<string>() });
   useEffect(() => {
+    if (requested.current.scopeKey !== scopeKey) {
+      requested.current = { scopeKey, ids: new Set() };
+    }
     if (history.isLoading) return;
-    const missingIds = runIds.filter(
-      (id) => !requested.current.has(id) && runOfId(id) === undefined
-    );
-    for (const id of missingIds.slice(0, MAX_RUN_CHECKS)) {
-      requested.current.add(id);
+    const sent = requested.current.ids;
+    // At most `MAX_RUN_CHECKS` requests wait for an answer at one time.
+    const inFlight = [...sent].filter((id) => asked[id] === undefined).length;
+    const toSend = runIds
+      .filter((id) => !sent.has(id) && runOfId(id) === undefined)
+      .slice(0, Math.max(0, MAX_RUN_CHECKS - inFlight));
+    const answer = (id: string, value: RunAnswer) => {
+      if (requested.current.scopeKey !== scopeKey) return;
+      setAnswers((held) => ({
+        scopeKey,
+        runs: {
+          ...(held.scopeKey === scopeKey ? held.runs : NO_ANSWERS),
+          [id]: value,
+        },
+      }));
+    };
+    for (const id of toSend) {
+      sent.add(id);
       void clientRef.current
         .GET('/dag-runs/{name}/{dagRunId}', {
           params: {
@@ -292,18 +315,26 @@ export function useReuseSource(p: {
         .then(({ data, response }) => {
           // Only a clear "not found" says that the run is gone.
           // Another failure leaves the decision to the server.
-          const answer: ReuseRun | 'gone' | 'unknown' = data
-            ? data.dagRunDetails
-            : response.status === 404
-              ? 'gone'
-              : 'unknown';
-          setAsked((held) => ({ ...held, [id]: answer }));
+          answer(
+            id,
+            data?.dagRunDetails
+              ? data.dagRunDetails
+              : response.status === 404
+                ? 'gone'
+                : 'unknown'
+          );
         })
-        .catch(() => {
-          setAsked((held) => ({ ...held, [id]: 'unknown' }));
-        });
+        .catch(() => answer(id, 'unknown'));
     }
-  }, [dagName, history.isLoading, remoteNode, runIds, runOfId]);
+  }, [
+    asked,
+    dagName,
+    history.isLoading,
+    remoteNode,
+    runIds,
+    runOfId,
+    scopeKey,
+  ]);
   const check = useCallback(
     (step: string, entry: { runId: string }): RunCheck => {
       const found = runOfId(entry.runId);

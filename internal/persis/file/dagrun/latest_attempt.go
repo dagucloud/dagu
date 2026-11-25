@@ -99,14 +99,14 @@ func (dr DataRoot) latestAttemptFromPointer(ctx context.Context, cache *fileutil
 	if err != nil {
 		return nil, err
 	}
-	run, err := newDAGRun(info.runDir, dr.artifactDir)
+	run, err := newDAGRun(info.runDir, dr.artifactDir, dr.paths)
 	if err != nil {
 		return nil, err
 	}
 	if !cutoff.IsZero() && run.timestamp.Before(cutoff.Time) {
 		return nil, errLatestAttemptBeforeCutoff
 	}
-	attempt, err := NewAttempt(info.statusFile, cache, WithArtifactRoot(dr.artifactDir))
+	attempt, err := NewAttempt(info.statusFile, cache, run.attemptOptions()...)
 	if err != nil {
 		return nil, err
 	}

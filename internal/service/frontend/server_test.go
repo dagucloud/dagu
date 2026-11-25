@@ -875,7 +875,11 @@ func newNotificationStores(t *testing.T, newLease func() chatbridge.Lease) Store
 	encryptor, err := crypto.NewEncryptor(key)
 	require.NoError(t, err)
 	backend := persisfile.NewBackend(config.PathsConfig{DataDir: dataDir})
-	notifications, err := persisfile.NewNotificationStore(backend.Collection(persis.CollectionNotifications), encryptor)
+	notifications, err := persisfile.NewNotificationStore(
+		backend.Collection(persis.CollectionNotifications),
+		backend.Collection(persis.CollectionNotificationChannels),
+		encryptor,
+	)
 	require.NoError(t, err)
 	return Stores{
 		Event:                eventstore.New(events),

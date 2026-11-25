@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -267,8 +266,9 @@ func TestAnUnreadServiceHistorySendsItsHoursLater(t *testing.T) {
 
 	history := newServiceHistory(t)
 	history.record(testClockStart.Add(-20*time.Minute), 3, never)
-	unreadable := filepath.Join(t.TempDir(), "history")
-	require.NoError(t, os.WriteFile(unreadable, nil, 0o600))
+	// A NUL byte makes every open of the path fail on every platform, as
+	// an error rather than as a history that does not exist yet.
+	unreadable := filepath.Join(t.TempDir(), "history\x00")
 	dir := newEventDir(t)
 	console := newFakeConsole(t)
 	report := func(services *fakeServices, at time.Time) (serviceDAGEntry, time.Time) {

@@ -540,6 +540,36 @@ func FormatWorkerSelector(selector map[string]string) string {
 	return "{" + strings.Join(parts, ", ") + "}"
 }
 
+// MatchWorkerSelector reports whether a worker's labels satisfy every entry
+// of a worker selector. Keys and values match without case, as label filters
+// do. An entry with an empty value also matches a worker without that key.
+func MatchWorkerSelector(labels, selector map[string]string) bool {
+	for key, value := range selector {
+		if !strings.EqualFold(workerLabelValue(labels, key), value) {
+			return false
+		}
+	}
+	return true
+}
+
+// workerLabelValue returns the value of the label whose key equals key
+// without case, or "" when there is none. Labels reported by workers from
+// before labels were lowercased may hold upper case, and may hold one key in
+// two cases; then the key that sorts first wins, so every check agrees.
+func workerLabelValue(labels map[string]string, key string) string {
+	if value, ok := labels[key]; ok {
+		return value
+	}
+	var match, value string
+	found := false
+	for k, v := range labels {
+		if strings.EqualFold(k, key) && (!found || k < match) {
+			match, value, found = k, v, true
+		}
+	}
+	return value
+}
+
 // HasHumanTaskSteps reports whether the DAG declares a human task. An agent
 // DAG's synthesized ask_user task does not count: it is scaffolding every
 // agent carries, and the agent declines to use it outside a root run,

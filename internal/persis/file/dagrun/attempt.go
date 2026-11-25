@@ -32,6 +32,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/artifact"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/dagrun/statusfile"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/runpath"
 )
 
 // Error definitions for common issues
@@ -87,6 +88,9 @@ type Attempt struct {
 	// artifactRoot is the configured global artifact directory, where this
 	// attempt records its run in the artifact index. Empty disables indexing.
 	artifactRoot string
+	// paths converts the paths of the record between the forms that callers
+	// and the file hold.
+	paths runpath.Mapper
 }
 
 // AttemptOption configures an Attempt.
@@ -289,12 +293,13 @@ func (att *Attempt) Write(ctx context.Context, status ir.DAGRunStatus) error {
 
 	ir.NormalizeDAGRunConditions(&status)
 
-	if writeErr := att.writer.Write(ctx, status); writeErr != nil {
+	stored := storedPaths(att.paths, status)
+	if writeErr := att.writer.Write(ctx, stored); writeErr != nil {
 		return fmt.Errorf("%w: %w", ErrWriteFailed, writeErr)
 	}
 
 	att.appended++
-	att.compactIfLargeLocked(ctx, &status)
+	att.compactIfLargeLocked(ctx, &stored)
 
 	// Invalidate cache after successful write
 	if att.cache != nil {
@@ -366,7 +371,9 @@ func (att *Attempt) updateArtifactIndex(status ir.DAGRunStatus) error {
 	if err != nil || !hasEntries {
 		return err
 	}
-	return artifact.WriteRecord(metaPath, artifact.RecordFromStatus(status))
+	record := artifact.RecordFromStatus(status)
+	record.Dir = att.paths.StoreArtifact(record.Dir)
+	return artifact.WriteRecord(metaPath, record)
 }
 
 // Close properly closes the status file, performs compaction, and invalidates the cache.
@@ -584,7 +591,12 @@ func (att *Attempt) ReadStatusUncached(ctx context.Context) (*ir.DAGRunStatus, e
 // parseLocked reads the status file and returns the last valid status.
 // Must be called with a lock (read or write) already held.
 func (att *Attempt) parseLocked(ctx context.Context) (*ir.DAGRunStatus, error) {
-	return parseStatusFileWithContext(ctx, att.file)
+	status, err := parseStatusFileWithContext(ctx, att.file)
+	if err != nil {
+		return nil, err
+	}
+	resolvePaths(att.paths, status)
+	return status, nil
 }
 
 // ParseStatusFile reads the status file and returns the last valid status.

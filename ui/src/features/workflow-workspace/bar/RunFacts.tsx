@@ -87,6 +87,7 @@ export function hasHiddenFacts(
   if (
     fields.workerId ||
     fields.boundNode ||
+    fields.targetNodes?.length ||
     fields.profileName ||
     fields.params ||
     waited

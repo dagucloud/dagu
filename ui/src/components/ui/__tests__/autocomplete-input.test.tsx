@@ -137,6 +137,21 @@ describe('AutocompleteInput', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument();
   });
 
+  // The Enter that ends an IME composition confirms the text, so it neither
+  // submits nor picks a suggestion.
+  it('ignores the Enter that ends an IME composition', () => {
+    const onEnterPress = vi.fn();
+    render(<TestAutocomplete onEnterPress={onEnterPress} />);
+
+    const input = screen.getByRole('combobox', { name: 'Filter...' });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: 'ノード' } });
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true });
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229 });
+
+    expect(onEnterPress).not.toHaveBeenCalled();
+  });
+
   it('keeps combobox aria state collapsed while the listbox is absent', () => {
     render(<TestAutocomplete />);
 

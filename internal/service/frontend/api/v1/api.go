@@ -53,6 +53,7 @@ import (
 	frontendauth "github.com/dagucloud/dagu/v2/internal/service/frontend/auth"
 	incidentservice "github.com/dagucloud/dagu/v2/internal/service/incident"
 	notificationservice "github.com/dagucloud/dagu/v2/internal/service/notification"
+	"github.com/dagucloud/dagu/v2/internal/service/projectaccess"
 	"github.com/dagucloud/dagu/v2/internal/service/resource"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/tunnel"
@@ -116,8 +117,9 @@ type API struct {
 	publicWebhookStore   publicwebhook.Store
 	cloudReport          CloudReportService
 	cloudAccess          CloudAccessService
-	apiKeyCreateMu       sync.Mutex
+	apiKeyWriteMu        sync.Mutex // Serializes API key writes, so each checks the state it changes
 	workspaceStore       workspace.Store
+	projectAccess        *projectaccess.Checker
 	leaseStaleThreshold  time.Duration
 	runSortDAGLimit      int
 	schedulerStateStore  schedulerstate.Store
@@ -435,6 +437,14 @@ func WithWorkspaceStore(s workspace.Store) APIOption {
 func WithWorkspaceDeprecation(src deprecation.Sources) APIOption {
 	return func(a *API) {
 		a.workspaceDeprecation = src
+	}
+}
+
+// WithProjectAccess sets the project access checker. Setting it turns on the
+// API surface of projects, which stays off while projects are off.
+func WithProjectAccess(c *projectaccess.Checker) APIOption {
+	return func(a *API) {
+		a.projectAccess = c
 	}
 }
 
@@ -935,12 +945,16 @@ func (a *API) handleError(w http.ResponseWriter, r *http.Request, err error) {
 		logger.Errorf(r.Context(), "Internal server error: %v", err)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(httpStatusCode)
-	_ = json.NewEncoder(w).Encode(api.Error{
+	resp := api.Error{
 		Code:    code,
 		Message: message,
-	})
+	}
+	if apiErr, ok := errors.AsType[*Error](err); ok && apiErr.Details != nil {
+		resp.Details = &apiErr.Details
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(httpStatusCode)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (a *API) resolveError(err error) (api.ErrorCode, string, int) {

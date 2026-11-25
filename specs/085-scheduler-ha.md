@@ -60,11 +60,13 @@ reading logs, which instance is active and how long a failover takes.
 
 ### Run identity
 
-- Each slot of a recurring schedule has one run ID, derived from the data
-  directory, the DAG name, and the slot's time, in the form
-  `sched-<hash>-<UTC time>`. A live run and a catch-up of the same slot share
-  it, so a slot has at most one run, including around a failover. Installations
-  with different data directories never share an ID.
+- Each slot of a recurring schedule has one run ID, derived from a seed, the
+  DAG name, and the slot's time, in the form `sched-<hash>-<UTC time>`. The
+  seed is the data directory while projects are off, and the slot seed of the
+  DAG's project while they are on ([Spec 102](102-projects.md)). A live run
+  and a catch-up of the same slot share it, so a slot has at most one run,
+  including around a failover. Installations with different data directories
+  never share an ID.
 - When existing runs cannot be read, a run is not created.
 
 ### Runs in progress

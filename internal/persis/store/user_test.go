@@ -342,7 +342,7 @@ func TestUserPatchPreservesUnspecifiedAuthorization(t *testing.T) {
 	u.TrustedProxyUser = "patch-identity"
 	require.NoError(t, s.Create(ctx, u))
 
-	_, err := s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{}})
+	_, err := s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{}}, nil)
 	require.NoError(t, err)
 	username := "proxy-renamed"
 	patched, err := s.Patch(ctx, u.ID, auth.UserPatch{Username: &username})
@@ -368,7 +368,7 @@ func TestUserKeepsProjectGrants(t *testing.T) {
 	role := auth.RoleOperator
 	_, err := s.Patch(ctx, u.ID, auth.UserPatch{Role: &role})
 	require.NoError(t, err)
-	result, err := s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, nil)
+	result, err := s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, grants, result.User.ProjectGrants)
 
@@ -376,6 +376,38 @@ func TestUserKeepsProjectGrants(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, auth.RoleViewer, got.Role)
 	assert.Equal(t, grants, got.ProjectGrants)
+}
+
+func TestUserSyncAuthorizationSetsProjectGrants(t *testing.T) {
+	ctx := context.Background()
+	s := newUserStore(t)
+	u := newUser("mapped")
+	u.Role = auth.RoleViewer
+	before := []auth.ProjectGrant{{ProjectID: "project-a", Role: auth.RoleManager}}
+	u.ProjectGrants = before
+	require.NoError(t, s.Create(ctx, u))
+
+	mapped := []auth.ProjectGrant{
+		{ProjectID: "project-b", Role: auth.RoleViewer},
+		{ProjectID: "project-a", Role: auth.RoleOperator},
+	}
+	result, err := s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, nil, &mapped)
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	assert.Equal(t, before, result.PreviousProjectGrants)
+	assert.Equal(t, mapped, result.User.ProjectGrants)
+
+	reordered := []auth.ProjectGrant{mapped[1], mapped[0]}
+	result, err = s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, nil, &reordered)
+	require.NoError(t, err)
+	assert.False(t, result.Changed, "grants in another order are the same grants")
+
+	result, err = s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, nil, &[]auth.ProjectGrant{})
+	require.NoError(t, err)
+	assert.True(t, result.Changed)
+	got, err := s.GetByID(ctx, u.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got.ProjectGrants)
 }
 
 func TestUserSyncAuthorizationPreservesAdministrativeFields(t *testing.T) {
@@ -392,7 +424,7 @@ func TestUserSyncAuthorizationPreservesAdministrativeFields(t *testing.T) {
 	require.NoError(t, s.Update(ctx, u))
 	result, err := s.SyncAuthorization(ctx, u.ID, auth.RoleOperator, &auth.WorkspaceAccess{
 		Grants: []auth.WorkspaceGrant{{Workspace: "payments", Role: auth.RoleDeveloper}},
-	})
+	}, nil)
 	require.NoError(t, err)
 	assert.True(t, result.Changed)
 	assert.Equal(t, auth.RoleViewer, result.PreviousRole)
@@ -417,7 +449,7 @@ func TestUserSyncAuthorizationPreservesWorkspaceAccessWhenUnmanaged(t *testing.T
 	}
 	require.NoError(t, s.Create(ctx, u))
 
-	result, err := s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, nil)
+	result, err := s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, nil, nil)
 	require.NoError(t, err)
 	assert.False(t, result.Changed)
 	updated := result.User
@@ -433,7 +465,7 @@ func TestUserSyncAuthorizationRejectsDisabledUser(t *testing.T) {
 	u.IsDisabled = true
 	require.NoError(t, s.Create(ctx, u))
 
-	result, err := s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, auth.AllWorkspaceAccess())
+	result, err := s.SyncAuthorization(ctx, u.ID, auth.RoleViewer, auth.AllWorkspaceAccess(), nil)
 	assert.Nil(t, result.User)
 	assert.ErrorIs(t, err, auth.ErrUserDisabled)
 

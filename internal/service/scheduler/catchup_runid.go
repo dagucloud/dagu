@@ -39,10 +39,11 @@ func GenerateCatchupRunID(dagName string, scheduledTime time.Time) string {
 
 // GenerateSlotRunID produces the run ID of one slot of a recurring schedule. A
 // live run and a catch-up of the slot share it, so whichever comes second is
-// rejected as a duplicate. dataDir keeps installations on one host from sharing
-// an ID, and with it a control socket.
-func GenerateSlotRunID(dataDir, dagName string, scheduledTime time.Time) string {
-	return generateScheduledRunID(slotPrefix, dataDir+":"+dagName, scheduledTime)
+// rejected as a duplicate. seed is the slot seed of the DAG's project, or
+// paths.data_dir while projects are off. It keeps installations on one host
+// from sharing an ID, and with it a control socket.
+func GenerateSlotRunID(seed, dagName string, scheduledTime time.Time) string {
+	return generateScheduledRunID(slotPrefix, seed+":"+dagName, scheduledTime)
 }
 
 // GenerateOneOffRunID produces a deterministic run ID for a one-off schedule.

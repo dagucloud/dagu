@@ -190,6 +190,10 @@ func NewContext(cmd *cobra.Command, flags []commandLineFlag) (*Context, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Refuse before any store creates a directory.
+	if err := cfg.CheckProjectPaths(); err != nil {
+		return nil, err
+	}
 	ctx = config.WithConfig(ctx, cfg)
 
 	requestedContextName, err := requestedCLIContextName(cmd)

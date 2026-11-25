@@ -43,6 +43,9 @@ type remoteError struct {
 	Message    string
 	// Rules are the broken rules a refused inventory change lists.
 	Rules []api.InventoryRuleError
+	// Refused are the carried steps that a refused start of selected steps
+	// lists.
+	Refused []api.CarriedStepCheck
 }
 
 func (e *remoteError) Error() string {
@@ -336,11 +339,14 @@ func decodeRemoteError(resp *http.Response) error {
 		Code    string                   `json:"code"`
 		Message string                   `json:"message"`
 		Errors  []api.InventoryRuleError `json:"errors"`
+		Details struct {
+			RefusedSteps []api.CarriedStepCheck `json:"refusedSteps"`
+		} `json:"details"`
 	}
 	if err := json.Unmarshal(data, &apiErr); err == nil {
 		switch {
 		case apiErr.Message != "":
-			return &remoteError{StatusCode: resp.StatusCode, Message: apiErr.Message, Rules: apiErr.Errors}
+			return &remoteError{StatusCode: resp.StatusCode, Message: apiErr.Message, Rules: apiErr.Errors, Refused: apiErr.Details.RefusedSteps}
 		case apiErr.Code != "":
 			// A server error hides its cause and sends only its code.
 			return &remoteError{StatusCode: resp.StatusCode, Message: fmt.Sprintf("%s (%s)", resp.Status, apiErr.Code)}
