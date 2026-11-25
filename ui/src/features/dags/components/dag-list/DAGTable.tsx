@@ -173,6 +173,11 @@ interface DAGCardProps {
   service?: components['schemas']['ServiceDAG'];
   /** The activity of the workflow, once the list has read it. */
   activity?: components['schemas']['DAGListActivity'];
+  /**
+   * The cards show activity: the card keeps the room of its strip until the
+   * activity arrives.
+   */
+  showActivity?: boolean;
   /** The list does not gather by group: the group shows before the name. */
   showGroup?: boolean;
   className?: string;
@@ -229,6 +234,7 @@ function DAGCard({
   isShown = false,
   service,
   activity,
+  showActivity = false,
   showGroup = false,
   className = '',
 }: DAGCardProps) {
@@ -335,7 +341,7 @@ function DAGCard({
       </div>
 
       {/* A service DAG has no runs to draw as bars. */}
-      {activity && !isService && (
+      {showActivity && !isService && (
         <ActivityBars activity={activity} className="mb-1.5" />
       )}
 
@@ -2231,6 +2237,7 @@ function DAGTable({
                               isShown={isShown({ dag: dagRow.dag.fileName })}
                               service={services.get(dagRow.dag.fileName)}
                               activity={cardActivity?.get(dagRow.dag.fileName)}
+                              showActivity={cardActivity !== undefined}
                               className="ml-2"
                             />
                           );
@@ -2277,6 +2284,7 @@ function DAGTable({
                     isShown={isShown({ dag: dagRow.dag.fileName })}
                     service={services.get(dagRow.dag.fileName)}
                     activity={cardActivity?.get(dagRow.dag.fileName)}
+                    showActivity={cardActivity !== undefined}
                     showGroup={!groupByGroup}
                   />
                   {endsPinnedSection && (

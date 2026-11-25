@@ -24,6 +24,8 @@ type Activity = components['schemas']['DAGListActivity'];
 // The bars move once a minute: a pixel of a 196 px strip spans about 7
 // minutes of the 24 hours.
 const REFRESH_MS = 60_000;
+/** The height of the strip: its bars and the axis under them. */
+const STRIP_HEIGHT_PX = ACTIVITY_HEIGHT_PX + 1;
 
 interface ActivityBarsProps {
   activity?: Activity;
@@ -97,10 +99,18 @@ function ActivityBars({
     [runs, minute, width, ts]
   );
   if (!activity || !runs) {
+    // Until the activity arrives, the strip keeps its room and draws nothing:
+    // the layout does not move when it arrives, and a bare axis would read as
+    // no runs.
     return (
       <div
         ref={ref}
-        style={fluid ? undefined : { width: ACTIVITY_WIDTH_PX }}
+        aria-hidden="true"
+        data-testid="dag-activity-pending"
+        style={{
+          width: fluid ? undefined : ACTIVITY_WIDTH_PX,
+          height: STRIP_HEIGHT_PX,
+        }}
         className={cn(fluid && 'min-w-0 flex-1', className)}
       />
     );
@@ -123,7 +133,7 @@ function ActivityBars({
       ref={ref}
       style={{
         width: fluid ? undefined : ACTIVITY_WIDTH_PX,
-        height: ACTIVITY_HEIGHT_PX + 1,
+        height: STRIP_HEIGHT_PX,
       }}
       className={cn(
         'relative',

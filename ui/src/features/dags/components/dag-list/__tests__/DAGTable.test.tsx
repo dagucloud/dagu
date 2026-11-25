@@ -1438,7 +1438,21 @@ describe('DAGTable', () => {
       // The card of alpha.
       expect(screen.getAllByTestId('dag-activity')).toHaveLength(1);
     });
-  });
+
+    // A card keeps the room of its strip while the activity loads, so that it
+    // does not grow, and move its buttons, when the activity arrives.
+    it('keeps the height of a card strip until its activity arrives', () => {
+      renderTable('', {
+        dags: [withActivity([run('r1', HOUR)]), workflow({ name: 'beta' })],
+        panelWidth: 600,
+      });
+      const cards = screen.getByTestId('workflow-card-view');
+
+      const strip = within(cards).getByTestId('dag-activity');
+      const pending = within(cards).getByTestId('dag-activity-pending');
+      expect(pending.style.height).not.toBe('');
+      expect(pending.style.height).toBe(strip.style.height);
+    });  });
 
   // The Last Run column of a service DAG shows the state of the service.
   describe('state of a service DAG', () => {
