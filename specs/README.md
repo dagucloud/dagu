@@ -88,6 +88,7 @@ It must not be treated as product behavior until implementation catches up.
 | [087: Label Filters](087-label-filters.md) | Implemented |
 | [088: Node Inventory](088-node-inventory.md) | Partially implemented |
 | [089: Node Targeting](089-node-targeting.md) | Partially implemented |
+| [092: Agent Workers](092-agent-workers.md) | Partially implemented |
 | [097: Derived Dates](097-derived-dates.md) | Partially implemented |
 | [098: MCP Call Action](098-mcp-call.md) | Implemented |
 | [099: A2A Actions](099-a2a.md) | Implemented |
