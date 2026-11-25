@@ -26,8 +26,8 @@ import (
 // Every nodes subcommand runs against a remote context.
 func TestNodesCommandsAreContextAware(t *testing.T) {
 	t.Parallel()
-	for _, name := range []string{"list", "show", "add", "remove", "test", "import", "export"} {
-		assert.Equal(t, commandScopeContextAware, scopeForCommand("nodes "+name), name)
+	for _, sub := range Nodes().Commands() {
+		assert.Equal(t, commandScopeContextAware, scopeForCommand("nodes "+sub.Name()), sub.Name())
 	}
 }
 
