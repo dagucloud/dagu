@@ -25,6 +25,7 @@ import {
   DAGTable,
   type DAGDeleteResult,
 } from '../../features/dags/components/dag-list';
+import { useListShowsActivity } from '../../features/dags/components/dag-list/activityVisibility';
 import DAGListHeader from '../../features/dags/components/dag-list/DAGListHeader';
 import {
   isRunSortField,
@@ -37,6 +38,7 @@ import {
   viewScopeForSelection,
 } from '../../features/views/viewScope';
 import { buildDAGPageURL } from '../../features/dag-runs/lib/dagRunUrls';
+import { useDAGListActivity } from '../../features/dags/hooks/useDAGListActivity';
 import { setDAGPinned } from '../../features/dags/lib/dagPins';
 import { PeekHost } from '../../features/peek/PeekHost';
 import { withoutPeek } from '../../features/peek/peekParams';
@@ -643,6 +645,14 @@ function DAGsContent() {
     }
   );
   useSSECacheSync(dagsListSSE, mutate);
+  // The activity is read once the list has rows to draw it in, so that the
+  // list does not wait for it.
+  const showsActivity = useListShowsActivity();
+  const activity = useDAGListActivity(
+    queryParams,
+    { through: loadedPages.through, readWith: loadedPages.headOrder },
+    filtersReady && showsActivity && (data?.dags.length ?? 0) > 0
+  );
 
   React.useEffect(() => {
     resetLoadedPages();
@@ -1246,6 +1256,7 @@ function DAGsContent() {
           />
           <DAGTable
             dags={dagFiles}
+            activity={activity}
             group={group}
             refreshFn={refreshFn}
             searchText={searchText}

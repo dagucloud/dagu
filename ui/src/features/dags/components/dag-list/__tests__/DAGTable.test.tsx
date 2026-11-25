@@ -12,12 +12,14 @@ import React from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  NodeStatus,
   RestartPolicy,
   ScheduleKind,
   ServiceDAGState,
   Status,
   ViewSortField,
   ViewSortOrder,
+  type components,
 } from '@/api/v1/schema';
 import { PanelWidthContext } from '@/components/SplitLayout';
 import { AppBarContext } from '@/contexts/AppBarContext';
@@ -29,14 +31,20 @@ import { WorkspaceKind } from '@/lib/workspace';
 import DAGTable from '../DAGTable';
 
 const api = vi.hoisted(() => ({ post: vi.fn() }));
+const recentRuns = vi.hoisted(() => ({
+  dagRuns: [] as unknown[],
+}));
 
 vi.mock('@/hooks/api', () => ({
   useClient: () => ({ POST: api.post }),
-  useQuery: () => ({
-    data: {
-      labels: ['team=ops'],
-    },
-  }),
+  useQuery: (path: string) =>
+    path === '/dags/{fileName}/dag-runs'
+      ? { data: { dagRuns: recentRuns.dagRuns }, isLoading: false }
+      : {
+          data: {
+            labels: ['team=ops'],
+          },
+        },
 }));
 
 const serviceDAGs = vi.hoisted(() => ({
@@ -87,6 +95,21 @@ function LocationProbe() {
   );
 }
 
+type Activity = components['schemas']['DAGListActivity'];
+
+// A fixture may carry the activity of its workflow. The table takes it by
+// file name, as the Workflows page joins the activity of a list page.
+function activityOf(
+  dags: React.ComponentProps<typeof DAGTable>['dags']
+): ReadonlyMap<string, Activity> {
+  return new Map(
+    dags.flatMap((dag) => {
+      const { activity } = dag as typeof dag & { activity?: Activity };
+      return activity ? [[dag.fileName, activity] as const] : [];
+    })
+  );
+}
+
 function renderTable(
   searchText = '',
   options: {
@@ -120,6 +143,20 @@ function renderTable(
       );
   const onSetDAGPinned = vi.fn().mockResolvedValue(undefined);
   const onSetDAGsPinned = vi.fn().mockResolvedValue(undefined);
+  const dags = options.dags ?? [
+    {
+      fileName: 'example.yaml',
+      dag: {
+        name: searchText || 'example',
+      },
+      latestDAGRun: {
+        status: Status.Success,
+        statusLabel: 'Success',
+      },
+      suspended: false,
+      errors: [],
+    } as never,
+  ];
   const result = render(
     <MemoryRouter initialEntries={['/dags']}>
       <LocationProbe />
@@ -136,22 +173,8 @@ function renderTable(
         >
           <PanelWidthContext.Provider value={options.panelWidth ?? null}>
             <DAGTable
-              dags={
-                options.dags ?? [
-                  {
-                    fileName: 'example.yaml',
-                    dag: {
-                      name: searchText || 'example',
-                    },
-                    latestDAGRun: {
-                      status: Status.Success,
-                      statusLabel: 'Success',
-                    },
-                    suspended: false,
-                    errors: [],
-                  } as never,
-                ]
-              }
+              dags={dags}
+              activity={activityOf(dags)}
               group=""
               refreshFn={vi.fn()}
               searchText={searchText}
@@ -531,14 +554,18 @@ describe('DAGTable', () => {
     expect(screen.getByRole('button', { name: 'Delete (1)' })).toBeEnabled();
   });
 
-  it('deletes a workflow from the actions column after confirmation', async () => {
+  // The row has no delete button: its checkbox and the "Delete (N)" button do it.
+  it('deletes a workflow selected by its checkbox after confirmation', async () => {
     const { onDeleteDAGs } = renderTable();
+    const table = screen.getByRole('table');
 
+    expect(
+      within(table).queryByRole('button', { name: 'Delete workflow example' })
+    ).not.toBeInTheDocument();
     fireEvent.click(
-      within(screen.getByRole('table')).getByRole('button', {
-        name: 'Delete workflow example',
-      })
+      within(table).getByRole('checkbox', { name: 'Select workflow example' })
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Delete (1)' }));
 
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveTextContent('Delete workflow?');
@@ -551,6 +578,9 @@ describe('DAGTable', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
+    expect(
+      screen.queryByRole('button', { name: /^Delete \(/ })
+    ).not.toBeInTheDocument();
   });
 
   // A group row holds its own checkbox, even when the group is folded.
@@ -1231,6 +1261,328 @@ describe('DAGTable', () => {
       }
     );
   });
+
+  describe('activity of the last 24 hours', () => {
+    const HOUR = 3_600_000;
+    function withActivity(runs: unknown[], truncated = false) {
+      return {
+        ...workflow({ name: 'alpha' }),
+        activity: { runs, truncated },
+      } as never;
+    }
+    // A workflow that has a run: only then does its row hold the chevron.
+    function withLatestRun() {
+      return {
+        ...workflow({ name: 'alpha' }),
+        latestDAGRun: {
+          dagRunId: 'latest',
+          status: Status.Success,
+          statusLabel: 'Success',
+        },
+        activity: { runs: [], truncated: false },
+      } as never;
+    }
+    function run(id: string, agoMs: number, status = Status.Success) {
+      const start = Date.now() - agoMs;
+      return {
+        dagRunId: id,
+        status,
+        startedAt: new Date(start).toISOString(),
+        finishedAt: new Date(start + 60_000).toISOString(),
+      };
+    }
+
+    // jsdom has no layout: the observer of the strip tells it a width.
+    class MeasuringObserver {
+      callback: ResizeObserverCallback;
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+      observe(target: Element) {
+        if (target.getAttribute('data-testid') !== 'dag-activity') return;
+        this.callback(
+          [{ target, contentRect: { width: 300 } } as ResizeObserverEntry],
+          this as unknown as ResizeObserver
+        );
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+
+    beforeEach(() => {
+      recentRuns.dagRuns = [];
+      vi.stubGlobal('ResizeObserver', MeasuringObserver);
+    });
+
+    it('draws a bar for each run of the window and tells how many', () => {
+      renderTable('', {
+        dags: [withActivity([run('r1', HOUR), run('r2', 2 * HOUR)])],
+      });
+      const table = screen.getByRole('table');
+
+      const strip = within(table).getByTestId('dag-activity');
+      expect(strip).toHaveAttribute(
+        'aria-label',
+        '2 runs in the last 24 hours'
+      );
+      expect(strip.querySelectorAll('[data-run-id]')).toHaveLength(2);
+      // The time axis and the line of the greatest height frame the bars.
+      expect(
+        within(strip).getByTestId('dag-activity-axis')
+      ).toBeInTheDocument();
+      expect(
+        within(strip).getByTestId('dag-activity-ceiling')
+      ).toBeInTheDocument();
+    });
+
+    // The strip draws its bars once it knows its width, not at a default width.
+    it('draws no bar until the strip has a width', () => {
+      class SilentObserver {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+      vi.stubGlobal('ResizeObserver', SilentObserver);
+      renderTable('', { dags: [withActivity([run('r1', HOUR)])] });
+
+      const strip = within(screen.getByRole('table')).getByTestId(
+        'dag-activity'
+      );
+      expect(strip).toHaveAttribute('aria-label', '1 run in the last 24 hours');
+      expect(strip.querySelectorAll('[data-run-id]')).toHaveLength(0);
+    });
+
+    it('says when the window holds no run', () => {
+      renderTable('', { dags: [withActivity([])] });
+      expect(
+        within(screen.getByRole('table')).getByTestId('dag-activity')
+      ).toHaveAttribute('aria-label', 'No runs in the last 24 hours');
+    });
+
+    it('says when the list of runs of the window is cut', () => {
+      renderTable('', {
+        dags: [
+          withActivity(
+            Array.from({ length: 60 }, (_, i) => run(`r${i}`, HOUR)),
+            true
+          ),
+        ],
+      });
+      expect(
+        within(screen.getByRole('table')).getByTestId('dag-activity')
+      ).toHaveAttribute('aria-label', '60+ runs in the last 24 hours');
+    });
+
+    it('opens the workflow on the run of a bar without opening the row', () => {
+      renderTable('', { dags: [withActivity([run('r1', HOUR)])] });
+      const bar = within(screen.getByRole('table'))
+        .getByTestId('dag-activity')
+        .querySelector('[data-run-id="r1"]')!;
+
+      fireEvent.click(bar);
+
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        '/dags/alpha.yaml?remoteNode=local&run=r1'
+      );
+    });
+
+    it('has no chevron for a workflow without run', () => {
+      renderTable('', { dags: [withActivity([])] });
+      const table = screen.getByRole('table');
+
+      expect(within(table).getByTestId('dag-activity')).toBeInTheDocument();
+      expect(within(table).queryByTestId('dag-activity-toggle')).toBeNull();
+    });
+
+    it('has a chevron for a workflow whose window holds a run', () => {
+      renderTable('', {
+        dags: [
+          {
+            ...workflow({ name: 'alpha' }),
+            activity: { runs: [run('r1', HOUR)], truncated: false },
+          } as never,
+        ],
+      });
+
+      expect(
+        within(screen.getByRole('table')).getByTestId('dag-activity-toggle')
+      ).toBeInTheDocument();
+    });
+
+    it('unfolds the recent runs under the row from the chevron', () => {
+      recentRuns.dagRuns = [
+        run('older', 3 * HOUR, Status.Failed),
+        run('newer', HOUR),
+      ];
+      renderTable('', { dags: [withActivity([run('r1', HOUR)])] });
+      const table = screen.getByRole('table');
+      expect(within(table).queryByTestId('dag-recent-runs')).toBeNull();
+
+      const toggle = within(table).getByTestId('dag-activity-toggle');
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      fireEvent.click(toggle);
+
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      const panel = within(table).getByTestId('dag-recent-runs');
+      expect(within(panel).getByText('older')).toBeInTheDocument();
+      expect(within(panel).getByText('newer')).toBeInTheDocument();
+      // The runs have no "Open the workflow" link: a line opens its run.
+      expect(within(panel).queryByText('Open the workflow')).toBeNull();
+      // The chevron neither opens the workflow nor selects the row.
+      expect(screen.getByTestId('location')).toHaveTextContent(/^\/dags$/);
+
+      fireEvent.click(within(panel).getByText('older'));
+      expect(screen.getByTestId('location')).toHaveTextContent(
+        '/dags/alpha.yaml?remoteNode=local&run=older'
+      );
+
+      fireEvent.click(toggle);
+      expect(within(table).queryByTestId('dag-recent-runs')).toBeNull();
+    });
+
+    // A run of a service DAG that never ends reads Healthy.
+    it('reads a continuous run of a service DAG as Healthy and its start as "3h ago"', () => {
+      recentRuns.dagRuns = [
+        {
+          ...run('service', 3 * HOUR, Status.Running),
+          nodes: [
+            {
+              step: {
+                name: 'serve',
+                repeatPolicy: { repeat: 'while', condition: 'true' },
+              },
+              status: NodeStatus.Running,
+            },
+          ],
+        },
+        run('plain', 5 * 60_000),
+      ];
+      const alpha = withLatestRun() as { dag: object };
+      renderTable('', {
+        dags: [
+          {
+            ...alpha,
+            dag: { ...alpha.dag, restartPolicy: RestartPolicy.always },
+          },
+        ] as never,
+      });
+      const table = screen.getByRole('table');
+      fireEvent.click(within(table).getByTestId('dag-activity-toggle'));
+
+      const panel = within(table).getByTestId('dag-recent-runs');
+      // The status is a dot alone: its name is the accessible label.
+      expect(
+        within(panel).getByRole('img', { name: 'Healthy' })
+      ).toBeInTheDocument();
+      expect(within(panel).queryByRole('img', { name: 'Running' })).toBeNull();
+      expect(within(panel).queryByText('Healthy')).toBeNull();
+      // A run without a scheduled time tells when it ended next to the dot:
+      // one minute after its start, which rounds to the same "3h ago".
+      expect(within(panel).getAllByText('3h ago')).toHaveLength(2);
+      expect(within(panel).getByText('5m ago')).toBeInTheDocument();
+      expect(within(panel).getByText('4m ago')).toBeInTheDocument();
+      expect(within(panel).getAllByText('·')).toHaveLength(2);
+    });
+
+    // A cron or manual workflow keeps the normal status for a step that never ends.
+    it('reads a continuous run of a workflow that is not a service DAG as Running', () => {
+      recentRuns.dagRuns = [
+        {
+          ...run('service', 3 * HOUR, Status.Running),
+          nodes: [
+            {
+              step: {
+                name: 'serve',
+                repeatPolicy: { repeat: 'while', condition: 'true' },
+              },
+              status: NodeStatus.Running,
+            },
+          ],
+        },
+        run('plain', 5 * 60_000),
+      ];
+      renderTable('', { dags: [withLatestRun()] });
+      const table = screen.getByRole('table');
+      fireEvent.click(within(table).getByTestId('dag-activity-toggle'));
+
+      const panel = within(table).getByTestId('dag-recent-runs');
+      expect(
+        within(panel).getByRole('img', { name: 'Running' })
+      ).toBeInTheDocument();
+      expect(within(panel).queryByRole('img', { name: 'Healthy' })).toBeNull();
+    });
+
+    it('tells the trigger, the cause of a failure, the labels and the queue wait', () => {
+      recentRuns.dagRuns = [
+        {
+          ...run('broken', HOUR, Status.Failed),
+          triggerType: 'scheduler',
+          queuedAt: new Date(Date.now() - HOUR - 12_000).toISOString(),
+          labels: ['env=prod', 'team=data', 'extra'],
+          workerId: 'worker-7',
+          nodes: [
+            {
+              step: { name: 'load' },
+              status: NodeStatus.Failed,
+              error: 'exit status 2\nmore',
+            },
+          ],
+        },
+        {
+          ...run('param', 2 * HOUR),
+          triggerType: 'manual',
+          params: 'DATE=2026-10-29',
+        },
+      ];
+      renderTable('', { dags: [withLatestRun()] });
+      const table = screen.getByRole('table');
+      fireEvent.click(within(table).getByTestId('dag-activity-toggle'));
+
+      const panel = within(table).getByTestId('dag-recent-runs');
+      expect(within(panel).getByText('Scheduled')).toBeInTheDocument();
+      expect(within(panel).getByText('Manual')).toBeInTheDocument();
+      expect(
+        within(panel).getByText('load: exit status 2')
+      ).toBeInTheDocument();
+      expect(within(panel).getByText('DATE=2026-10-29')).toBeInTheDocument();
+      expect(within(panel).getByText(/queued 1\ds/)).toBeInTheDocument();
+      expect(within(panel).getByText('env=prod')).toBeInTheDocument();
+      expect(within(panel).getByText('team=data')).toBeInTheDocument();
+      expect(within(panel).getByText('+1')).toBeInTheDocument();
+      expect(within(panel).getByText('worker-7')).toBeInTheDocument();
+    });
+
+    it('counts the cached time of a run in its time', () => {
+      recentRuns.dagRuns = [
+        {
+          ...run('stepwise', HOUR),
+          startedAt: '2026-10-29T12:00:00Z',
+          finishedAt: '2026-10-29T12:00:05Z',
+          reusedInputs: [
+            {
+              step: 'slow',
+              runId: 'source',
+              via: 'run',
+              startedAt: '2026-10-29T11:00:00Z',
+              finishedAt: '2026-10-29T11:00:55Z',
+            },
+          ],
+        },
+      ];
+      renderTable('', { dags: [withLatestRun()] });
+      const table = screen.getByRole('table');
+      fireEvent.click(within(table).getByTestId('dag-activity-toggle'));
+
+      // 5 s of its own and 55 s that it took from the earlier run.
+      const panel = within(table).getByTestId('dag-recent-runs');
+      expect(within(panel).getByText('1m').parentElement).toHaveAttribute(
+        'title',
+        'Total 1m = own 5s + cached 55s'
+      );
+      expect(within(panel).getByText(/5s \+ 55s cached/)).toBeInTheDocument();
+    });
+  });
+
   // The Last Run column of a service DAG shows the state of the service.
   describe('state of a service DAG', () => {
     function svc(name: string) {
