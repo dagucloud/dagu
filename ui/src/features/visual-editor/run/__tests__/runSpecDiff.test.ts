@@ -87,7 +87,7 @@ steps:
     expect(diffRunSpec(child, reordered).headChanged).toBe(false);
   });
 
-  it('does not count a handler as the head', () => {
+  it('does not count a handler that runs after the steps as the head', () => {
     const withHandler = `${BASE}handler_on:
   failure:
     run: echo failed
@@ -96,6 +96,24 @@ steps:
     const diff = diffRunSpec(withHandler, changed);
     expect(diff.headChanged).toBe(false);
     expect([...diff.changed]).toEqual([]);
+  });
+
+  // init runs before the steps, so it can change what they do.
+  it('counts the init handler as the head', () => {
+    const withInit = `${BASE}handler_on:
+  init:
+    run: echo ready
+  failure:
+    run: echo failed
+`;
+    expect(
+      diffRunSpec(withInit, withInit.replace('echo failed', 'echo broken'))
+        .headChanged
+    ).toBe(false);
+    expect(
+      diffRunSpec(withInit, withInit.replace('echo ready', 'echo set'))
+        .headChanged
+    ).toBe(true);
   });
 
   it('lists added and removed steps', () => {

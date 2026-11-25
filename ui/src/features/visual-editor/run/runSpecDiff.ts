@@ -39,11 +39,11 @@ export interface RunSpecNames {
 }
 
 // Top-level keys that hold steps and not the head of the DAG.
-const NON_HEAD_KEYS: ReadonlySet<string> = new Set([
-  'steps',
-  'handler_on',
-  'handlerOn',
-]);
+const NON_HEAD_KEYS: ReadonlySet<string> = new Set(['steps']);
+
+// Keys of the handlers. Of them only init is the head: it runs before the
+// steps, and the others after them.
+const HANDLER_KEYS: ReadonlySet<string> = new Set(['handler_on', 'handlerOn']);
 
 /** JSON text with sorted keys: equal values give equal text. */
 export function canonical(value: unknown): string {
@@ -65,16 +65,23 @@ function headValue(js: unknown): unknown {
   if (js === null || js === undefined) return {};
   if (typeof js !== 'object' || Array.isArray(js)) return js;
   return Object.fromEntries(
-    Object.entries(js as Record<string, unknown>).filter(
-      ([key]) => !NON_HEAD_KEYS.has(key)
-    )
+    Object.entries(js as Record<string, unknown>).flatMap(([key, value]) => {
+      if (NON_HEAD_KEYS.has(key)) return [];
+      if (!HANDLER_KEYS.has(key)) return [[key, value]];
+      const init =
+        value !== null && typeof value === 'object' && !Array.isArray(value)
+          ? (value as Record<string, unknown>)['init']
+          : undefined;
+      return init === undefined ? [] : [[key, { init }]];
+    })
   );
 }
 
 /**
- * The parsed top-level keys without the steps and the handlers, with the
- * later documents: they define the local sub-DAGs that steps can call. Null
- * when the text cannot be read.
+ * The parsed top-level keys without the steps and the handlers other than
+ * init, with the later documents: they define the local sub-DAGs that steps
+ * can call. The server compares the same head. Null when the text cannot be
+ * read.
  */
 export function headOf(model: DagDocModel): string | null {
   try {
