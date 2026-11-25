@@ -5,6 +5,7 @@ package migration
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -90,6 +91,20 @@ func TestMoveStopsWithoutLock(t *testing.T) {
 			assert.NoDirExists(t, to+copySuffix)
 		})
 	}
+}
+
+// Run stores are mostly small files, which take whole blocks on disk.
+func TestCopySizeCountsAllocationUnits(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	for i := range 100 {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, fmt.Sprintf("status-%d.json", i)), make([]byte, 100), 0o600))
+	}
+
+	size, err := copySize(dir)
+	require.NoError(t, err)
+	units := uint64(100 + 1) // the files and their directory
+	assert.Equal(t, units*allocationUnit+units*allocationUnit/16, size)
 }
 
 func holding() error { return nil }

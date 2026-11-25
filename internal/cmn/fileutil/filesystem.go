@@ -8,6 +8,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/shirou/gopsutil/v4/disk"
 )
 
 // SameFileSystem reports whether a and b are on one file system. A path
@@ -23,6 +25,20 @@ func SameFileSystem(a, b string) (bool, error) {
 		return false, err
 	}
 	return sameFileSystem(existingA, existingB)
+}
+
+// FreeSpace returns the bytes free for an unprivileged writer on the file
+// system that holds path, or would hold it once created.
+func FreeSpace(path string) (uint64, error) {
+	existing, err := existingAncestor(path)
+	if err != nil {
+		return 0, err
+	}
+	usage, err := disk.Usage(existing)
+	if err != nil {
+		return 0, err
+	}
+	return usage.Free, nil
 }
 
 func existingAncestor(path string) (string, error) {

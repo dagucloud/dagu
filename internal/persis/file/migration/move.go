@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
-	"github.com/shirou/gopsutil/v4/disk"
 )
 
 const (
@@ -23,6 +22,9 @@ const (
 	// copySuffix names the directory a copy fills before it takes the
 	// destination's name, so a destination never holds part of a copy.
 	copySuffix = ".migrating"
+	// allocationUnit is the block size of common file systems. A copy takes
+	// at least one per file and per directory, whatever their length.
+	allocationUnit = 4096
 )
 
 // mover moves state by rename, and by copy to another file system.
@@ -34,14 +36,14 @@ type mover struct {
 	beforeInstall func() error
 }
 
-// pendingCopy is a move to another file system and the bytes it copies.
+// pendingCopy is a move to another file system and the space it needs.
 type pendingCopy struct {
 	move
 	size uint64
 }
 
 func newMover() mover {
-	return mover{sameFileSystem: fileutil.SameFileSystem, freeSpace: freeSpace}
+	return mover{sameFileSystem: fileutil.SameFileSystem, freeSpace: fileutil.FreeSpace}
 }
 
 // move moves mv.From to mv.To. It finishes a move that an earlier attempt
@@ -86,19 +88,22 @@ func (mr mover) move(ctx context.Context, mv move, held func() error) error {
 }
 
 // copyMove copies mv.From beside mv.To, gives the copy mv.To's name once
-// it is durable, and then removes mv.From.
+// it is durable, and then removes mv.From. A copy that fills its file
+// system is discarded, so its space is free again while the caller waits.
 func (mr mover) copyMove(ctx context.Context, mv move, held func() error) error {
 	staging := mv.To + copySuffix
 	if err := discardStaging(staging, held); err != nil {
 		return err
 	}
-	if err := copyTree(ctx, mv.From, staging, held); err != nil {
-		return err
+	err := copyTree(ctx, mv.From, staging, held)
+	if err == nil && mr.beforeInstall != nil {
+		err = mr.beforeInstall()
 	}
-	if mr.beforeInstall != nil {
-		if err := mr.beforeInstall(); err != nil {
-			return err
-		}
+	if isNoSpace(err) {
+		return errors.Join(err, discardStaging(staging, held))
+	}
+	if err != nil {
+		return err
 	}
 	if err := held(); err != nil {
 		return err
@@ -128,9 +133,10 @@ func discardStaging(staging string, held func() error) error {
 }
 
 // pendingCopies returns the moves that still copy to another file system,
-// with the bytes each copies. It discards the part of a copy that a killed
-// attempt left, so its bytes count as free.
-func (mr mover) pendingCopies(moves []move, held func() error) ([]pendingCopy, error) {
+// with the space each needs: its estimate, or its floor when larger. It
+// discards the part of a copy that a killed attempt left, so its space
+// counts as free.
+func (mr mover) pendingCopies(moves []move, floors map[string]uint64, held func() error) ([]pendingCopy, error) {
 	var copies []pendingCopy
 	for _, mv := range moves {
 		if _, err := os.Lstat(mv.From); errors.Is(err, fs.ErrNotExist) {
@@ -154,11 +160,11 @@ func (mr mover) pendingCopies(moves []move, held func() error) ([]pendingCopy, e
 		if err := discardStaging(mv.To+copySuffix, held); err != nil {
 			return nil, err
 		}
-		size, err := treeSize(mv.From)
+		size, err := copySize(mv.From)
 		if err != nil {
 			return nil, err
 		}
-		copies = append(copies, pendingCopy{move: mv, size: size})
+		copies = append(copies, pendingCopy{move: mv, size: max(size, floors[mv.To])})
 	}
 	return copies, nil
 }
@@ -191,20 +197,6 @@ func (mr mover) shortage(copies []pendingCopy) (*SpaceShortage, error) {
 	return nil, nil
 }
 
-// freeSpace returns the bytes free for an unprivileged writer on the file
-// system that holds path, or would hold it once created.
-func freeSpace(path string) (uint64, error) {
-	existing, err := existingAncestor(path)
-	if err != nil {
-		return 0, err
-	}
-	usage, err := disk.Usage(existing)
-	if err != nil {
-		return 0, err
-	}
-	return usage.Free, nil
-}
-
 // exists reports whether an entry, a dangling symbolic link included, is at
 // path.
 func exists(path string) (bool, error) {
@@ -219,36 +211,29 @@ func exists(path string) (bool, error) {
 	}
 }
 
-func existingAncestor(path string) (string, error) {
-	current := filepath.Clean(path)
-	for {
-		_, err := os.Stat(current)
-		if err == nil || !errors.Is(err, fs.ErrNotExist) {
-			return current, err
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return "", err
-		}
-		current = parent
-	}
-}
-
-// treeSize returns the bytes of the regular files under root.
-func treeSize(root string) (uint64, error) {
+// copySize estimates the space a copy of root takes on any common file
+// system: each file rounded up to whole allocation units, one unit for each
+// directory and symbolic link, and a sixteenth more for the metadata the file
+// system keeps.
+func copySize(root string) (uint64, error) {
 	var size uint64
 	err := filepath.WalkDir(root, func(_ string, entry fs.DirEntry, err error) error {
-		if err != nil || !entry.Type().IsRegular() {
+		if err != nil {
 			return err
+		}
+		if !entry.Type().IsRegular() {
+			size += allocationUnit
+			return nil
 		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
 		}
-		size += uint64(info.Size()) //nolint:gosec // a file size is never negative
+		length := uint64(info.Size()) //nolint:gosec // a file size is never negative
+		size += max(1, (length+allocationUnit-1)/allocationUnit) * allocationUnit
 		return nil
 	})
-	return size, err
+	return size + size/16, err
 }
 
 // copyTree copies the file or directory src to dst, which must not exist.

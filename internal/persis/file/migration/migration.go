@@ -208,10 +208,10 @@ func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) er
 	if done, err := m.checkDone(); err != nil || done {
 		return err
 	}
-	if err := m.waitForV2(ctx, ticks); err != nil {
+	if err := m.waitForV2(ctx, ticks, held); err != nil {
 		return err
 	}
-	moves, err := m.loadOrPlan(ctx)
+	moves, err := m.loadOrPlan(ctx, held)
 	if err != nil {
 		return err
 	}
@@ -220,32 +220,49 @@ func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) er
 		return err
 	}
 	progress := Progress{Phase: phaseMoving, Moved: len(moved), Total: len(moves)}
-	if err := m.waitForSpace(ctx, ticks, moves, moved, progress, held); err != nil {
+	// floors holds, by destination, the space a copy needs at least, learned
+	// when its file system filled up during the copy.
+	floors := make(map[string]uint64)
+	if err := m.waitForSpace(ctx, ticks, pendingMoves(moves, moved, 0), floors, progress, held); err != nil {
 		return err
 	}
-	if err := m.publish(progress); err != nil {
+	if err := m.publishHeld(progress, held); err != nil {
 		return err
 	}
 	logger.Info(ctx, "Migrating state to projects",
 		slog.Int("moves", len(moves)), slog.Int("done", len(moved)))
 
-	for i, mv := range moves {
+	for i := 0; i < len(moves); {
 		if _, ok := moved[i]; ok {
+			i++
 			continue
 		}
-		if err := m.moveOne(ctx, i, mv, held); err != nil {
+		err := m.moveOne(ctx, i, moves[i], held)
+		if isNoSpace(err) {
+			// The estimate fell short, or another writer took the room.
+			err = m.waitAfterFull(ctx, ticks, moves[i], pendingMoves(moves, moved, i), floors, progress, held)
+			if err != nil {
+				return err
+			}
+			if err := m.publishHeld(progress, held); err != nil {
+				return err
+			}
+			continue
+		}
+		if err != nil {
 			return err
 		}
+		i++
 		progress.Moved++
 		if progress.Moved%statusEvery != 0 {
 			m.setProgress(progress)
-		} else if err := m.publish(progress); err != nil {
+		} else if err := m.publishHeld(progress, held); err != nil {
 			return err
 		}
 	}
 
 	progress.Phase = phaseDone
-	if err := m.publish(progress); err != nil {
+	if err := m.publishHeld(progress, held); err != nil {
 		return err
 	}
 	logger.Info(ctx, "Migrated state to projects", slog.Int("moves", len(moves)))
@@ -308,10 +325,14 @@ func (m *Migrator) keepLock(ctx context.Context) (held func() error, stop func()
 
 // waitForV2 returns once no v2 scheduler or coordinator is live. A v2
 // server has no service registry entry, so stopping it is the operator's
-// step.
-func (m *Migrator) waitForV2(ctx context.Context, ticks <-chan time.Time) error {
+// step. It returns an error once this process loses the lock: after the
+// process that took it over finishes, the live schedulers are v3.0 ones.
+func (m *Migrator) waitForV2(ctx context.Context, ticks <-chan time.Time, held func() error) error {
 	var reported []string
 	for {
+		if err := held(); err != nil {
+			return err
+		}
 		live, err := m.liveV2(ctx)
 		if err != nil {
 			return err
@@ -322,7 +343,7 @@ func (m *Migrator) waitForV2(ctx context.Context, ticks <-chan time.Time) error 
 		if !slices.Equal(live, reported) {
 			logger.Info(ctx, "Waiting for v2 processes to stop before migrating state to projects",
 				slog.Any("processes", live))
-			if err := m.publish(Progress{Phase: phaseWaitingForV2, WaitingFor: live}); err != nil {
+			if err := m.publishHeld(Progress{Phase: phaseWaitingForV2, WaitingFor: live}, held); err != nil {
 				return err
 			}
 			reported = live
@@ -353,7 +374,7 @@ func (m *Migrator) liveV2(ctx context.Context) ([]string, error) {
 
 // loadOrPlan returns the plan of an earlier attempt, or plans the moves and
 // records them before the first one.
-func (m *Migrator) loadOrPlan(ctx context.Context) ([]move, error) {
+func (m *Migrator) loadOrPlan(ctx context.Context, held func() error) ([]move, error) {
 	moves, found, err := m.journal.readPlan()
 	if err != nil || found {
 		return moves, err
@@ -363,6 +384,9 @@ func (m *Migrator) loadOrPlan(ctx context.Context) ([]move, error) {
 		return nil, fmt.Errorf("plan the migration: %w", err)
 	}
 	if err := checkPlan(moves); err != nil {
+		return nil, err
+	}
+	if err := held(); err != nil {
 		return nil, err
 	}
 	if err := m.journal.writePlan(moves); err != nil {
@@ -392,23 +416,33 @@ func checkPlan(moves []move) error {
 	return nil
 }
 
+// pendingMoves returns the moves from index from on that the journal does
+// not record.
+func pendingMoves(moves []move, moved map[int]struct{}, from int) []move {
+	var pending []move
+	for i := from; i < len(moves); i++ {
+		if _, ok := moved[i]; !ok {
+			pending = append(pending, moves[i])
+		}
+	}
+	return pending
+}
+
 // waitForSpace returns once every copy the pending moves need fits in the
 // free space of its file system. Until then it moves nothing.
 func (m *Migrator) waitForSpace(
-	ctx context.Context, ticks <-chan time.Time, moves []move, moved map[int]struct{}, progress Progress, held func() error,
+	ctx context.Context, ticks <-chan time.Time, pending []move, floors map[string]uint64,
+	progress Progress, held func() error,
 ) error {
-	var pending []move
-	for i, mv := range moves {
-		if _, ok := moved[i]; !ok {
-			pending = append(pending, mv)
-		}
-	}
-	copies, err := m.mover.pendingCopies(pending, held)
+	copies, err := m.mover.pendingCopies(pending, floors, held)
 	if err != nil || len(copies) == 0 {
 		return err
 	}
 	var reported *SpaceShortage
 	for {
+		if err := held(); err != nil {
+			return err
+		}
 		shortage, err := m.mover.shortage(copies)
 		if err != nil {
 			return err
@@ -421,10 +455,7 @@ func (m *Migrator) waitForSpace(
 				tag.Path(shortage.Path),
 				slog.Uint64("needed-bytes", shortage.Needed),
 				slog.Uint64("free-bytes", shortage.Free))
-			waiting := progress
-			waiting.Phase = phaseWaitingForSpace
-			waiting.Space = shortage
-			if err := m.publish(waiting); err != nil {
+			if err := m.publishShortage(progress, shortage, held); err != nil {
 				return err
 			}
 			reported = shortage
@@ -435,9 +466,44 @@ func (m *Migrator) waitForSpace(
 	}
 }
 
-// publish records progress for this process and writes it for the
-// processes that wait.
-func (m *Migrator) publish(progress Progress) error {
+// waitAfterFull waits after the file system of mv filled up during the
+// move: at least one tick, and, for a copy, until its file system has more
+// room than the copy ran out of.
+func (m *Migrator) waitAfterFull(
+	ctx context.Context, ticks <-chan time.Time, mv move, pending []move, floors map[string]uint64,
+	progress Progress, held func() error,
+) error {
+	free, err := m.mover.freeSpace(mv.To)
+	if err != nil {
+		return fmt.Errorf("check free space for %s: %w", mv.To, err)
+	}
+	floors[mv.To] = free + free/4 + allocationUnit
+	shortage := &SpaceShortage{Path: filepath.Dir(mv.To), Needed: floors[mv.To], Free: free}
+	logger.Warn(ctx, "File system filled up while migrating state; waiting for free space",
+		tag.Path(shortage.Path), slog.Uint64("free-bytes", free))
+	if err := m.publishShortage(progress, shortage, held); err != nil {
+		return err
+	}
+	if err := waitTick(ctx, ticks); err != nil {
+		return err
+	}
+	return m.waitForSpace(ctx, ticks, pending, floors, progress, held)
+}
+
+func (m *Migrator) publishShortage(progress Progress, shortage *SpaceShortage, held func() error) error {
+	progress.Phase = phaseWaitingForSpace
+	progress.Space = shortage
+	return m.publishHeld(progress, held)
+}
+
+// publishHeld records progress for this process and, while it holds the
+// lock, writes it for the processes that wait. A process that lost the lock
+// writes nothing, so it never replaces the status of the one that took the
+// lock over.
+func (m *Migrator) publishHeld(progress Progress, held func() error) error {
+	if err := held(); err != nil {
+		return err
+	}
 	m.setProgress(progress)
 	return m.journal.writeStatus(progress)
 }

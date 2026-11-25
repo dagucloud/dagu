@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -116,7 +117,7 @@ func TestRunWaitsForV2Processes(t *testing.T) {
 	m, ticks := newTestMigrator(t, dataDir, services, []move{mv})
 
 	done := runAsync(m)
-	ticks <- time.Now() // received once Run waits
+	tickWaiting(t, ticks, done)
 
 	waiting := Progress{
 		Phase:      phaseWaitingForV2,
@@ -156,7 +157,7 @@ func TestRunWaitsForAnotherProcess(t *testing.T) {
 	second, ticks := newTestMigrator(t, dataDir, &fakeServices{}, nil)
 	second.planMoves = refusePlan(t)
 	secondDone := runAsync(second)
-	ticks <- time.Now() // received once the second process waits
+	tickWaiting(t, ticks, secondDone)
 
 	assert.Equal(t, Progress{Phase: phaseMoving, Total: 1}, second.Progress())
 
@@ -179,12 +180,14 @@ func TestRunWaitsForFreeSpace(t *testing.T) {
 	m.mover.freeSpace = func(string) (uint64, error) { return free.Load(), nil }
 
 	done := runAsync(m)
-	ticks <- time.Now() // received once Run waits
+	tickWaiting(t, ticks, done)
 
 	assert.Equal(t, Progress{
 		Phase: phaseWaitingForSpace,
 		Total: 1,
-		Space: &SpaceShortage{Path: filepath.Dir(mv.To), Needed: 10, Free: 4},
+		// A 10-byte file and its directory take a block each, and a
+		// sixteenth more.
+		Space: &SpaceShortage{Path: filepath.Dir(mv.To), Needed: 8704, Free: 4},
 	}, m.Progress())
 	assert.DirExists(t, mv.From, "nothing moves while space is short")
 	assert.NoDirExists(t, mv.To)
@@ -208,12 +211,12 @@ func TestRunReclaimsStagedCopyBeforeSpaceCheck(t *testing.T) {
 	staging := v2Dir(t, filepath.Dir(mv.To), filepath.Base(mv.To)+copySuffix, "etl", "item.json")
 	m, ticks := newTestMigrator(t, dataDir, &fakeServices{}, []move{mv})
 	m.mover.sameFileSystem = otherFileSystem
-	// The staged copy holds 8 of the 12 bytes free.
+	// The staged copy holds the room the copy needs.
 	m.mover.freeSpace = func(string) (uint64, error) {
 		if _, err := os.Stat(staging); err == nil {
-			return 4, nil
+			return allocationUnit, nil
 		}
-		return 12, nil
+		return 1 << 20, nil
 	}
 
 	requireNoWait(t, runAsync(m), ticks)
@@ -238,6 +241,73 @@ func TestRunSkipsInstalledCopyInSpaceCheck(t *testing.T) {
 	requireNoWait(t, runAsync(m), ticks)
 	assert.NoDirExists(t, from)
 	assert.FileExists(t, filepath.Join(to, "item.json"))
+}
+
+// A copy that fills its file system despite the estimate frees its space
+// again and waits for more room than it ran out of, instead of exiting.
+func TestRunWaitsWhenCopyFillsDisk(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	mv := move{From: v2Dir(t, dataDir, "queue", "etl", "item.json"), To: filepath.Join(dataDir, "projects", "default", "state", "queue", "etl")}
+	m, ticks := newTestMigrator(t, dataDir, &fakeServices{}, []move{mv})
+	m.mover.sameFileSystem = otherFileSystem
+	var free atomic.Uint64
+	free.Store(1 << 20)
+	m.mover.freeSpace = func(string) (uint64, error) { return free.Load(), nil }
+	var attempts atomic.Int32
+	m.mover.beforeInstall = func() error {
+		if attempts.Add(1) == 1 {
+			return errNoSpace
+		}
+		return nil
+	}
+
+	done := runAsync(m)
+	tickWaiting(t, ticks, done)
+
+	progress := m.Progress()
+	assert.Equal(t, phaseWaitingForSpace, progress.Phase)
+	require.NotNil(t, progress.Space)
+	assert.Equal(t, uint64(1<<20+1<<18+allocationUnit), progress.Space.Needed, "more than the copy ran out of")
+	assert.NoDirExists(t, mv.To+copySuffix, "the failed copy frees its space")
+	assert.DirExists(t, mv.From)
+
+	free.Store(2 << 20)
+	require.NoError(t, tickUntilDone(ticks, done))
+	assert.FileExists(t, filepath.Join(mv.To, "item.json"))
+	assert.NoDirExists(t, mv.From)
+	assert.Equal(t, int32(2), attempts.Load())
+}
+
+// A process that lost the lock while it waits for v2 processes stops: the
+// schedulers it sees may be v3.0 ones that registered after the process that
+// took the lock over finished, and it must not replace that one's status.
+func TestRunStopsWaitingForV2WithoutLock(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	services := &fakeServices{}
+	services.set(serviceregistry.ServiceNameScheduler, serviceregistry.HostInfo{ID: "s1", Host: "v2-host"})
+	stalled, ticks := newTestMigrator(t, dataDir, services, nil)
+	stalledDone := runAsync(stalled)
+	tickWaiting(t, ticks, stalledDone)
+
+	// The lock passes to another process, as after a stall past the stale
+	// threshold, and that process finishes.
+	require.NoError(t, dirlock.ForceUnlock(filepath.Join(dataDir, dirName)))
+	other, _ := newTestMigrator(t, dataDir, &fakeServices{}, nil)
+	require.NoError(t, other.Run(context.Background()))
+	services.set(serviceregistry.ServiceNameScheduler, serviceregistry.HostInfo{ID: "s2", Host: "v3-host"})
+
+	tickWaiting(t, ticks, stalledDone) // wakes the first process
+	select {
+	case ticks <- time.Now():
+		t.Fatal("kept waiting without the lock")
+	case err := <-stalledDone:
+		require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
+	}
+	done, err := New(dataDir, &fakeServices{}).Done()
+	require.NoError(t, err)
+	assert.True(t, done, "the status of the finished migration stays")
 }
 
 // A destination that exists when the plan is made would read, on resume,
@@ -334,6 +404,17 @@ func requireNoWait(t *testing.T, done <-chan error, ticks chan<- time.Time) {
 		require.NoError(t, err)
 	case ticks <- time.Now():
 		t.Fatal("Run waited")
+	}
+}
+
+// tickWaiting sends a tick that a waiting Run receives, and fails the test
+// when Run returns instead.
+func tickWaiting(t *testing.T, ticks chan<- time.Time, done <-chan error) {
+	t.Helper()
+	select {
+	case ticks <- time.Now():
+	case err := <-done:
+		t.Fatalf("Run returned instead of waiting: %v", err)
 	}
 }
 
