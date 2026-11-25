@@ -20,7 +20,8 @@ import {
 
 type Activity = components['schemas']['DAGListActivity'];
 
-// The bars stand again at each minute: a pixel of the strip is 13 minutes.
+// The bars move once a minute: a pixel of a 196 px strip spans about 7
+// minutes of the 24 hours.
 const REFRESH_MS = 60_000;
 
 interface ActivityBarsProps {
