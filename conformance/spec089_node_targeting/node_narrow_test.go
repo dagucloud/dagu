@@ -4,11 +4,11 @@
 package spec089_node_targeting_test
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/stretchr/testify/require"
 )
@@ -69,7 +69,7 @@ func TestNarrowedRuns(t *testing.T) {
 		require.Equal(t, []string{"web03=failed"}, nodeStatuses(t, dagu))
 
 		// The retry appends its aggregate to the step's stdout file.
-		require.NoError(t, os.Remove(dagu.ProjectPath("nodes.json")))
+		require.NoError(t, fileutil.Remove(dagu.ProjectPath("nodes.json")))
 		dagu.RunWithEnv(env, "retry", "--run-id=narrowed-1", "stop_at_failure").ExpectNonZeroExitCode()
 		require.Equal(t, []string{"web03=failed"}, nodeStatuses(t, dagu))
 	})
@@ -84,7 +84,7 @@ func TestNarrowedRuns(t *testing.T) {
 		dir := "DIR=" + filepath.ToSlash(dagu.ProjectPath("."))
 		dagu.RunWithEnv(env, "start", "--run-id=narrowed-2", "--node", "web03", "narrow.yaml", "--", dir).ExpectExitCode(0)
 
-		require.NoError(t, os.Remove(dagu.ProjectPath("nodes.json")))
+		require.NoError(t, fileutil.Remove(dagu.ProjectPath("nodes.json")))
 		dagu.RunWithEnv(env, "start", "--from-run-id=narrowed-2", "narrow").ExpectExitCode(0)
 		require.Equal(t, []string{"web03=succeeded"}, nodeStatuses(t, dagu))
 
