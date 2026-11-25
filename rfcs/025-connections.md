@@ -91,7 +91,8 @@ bearer token, which expires after an hour.
    or audit entries.
 5. Each connection refreshes at most once per token lifetime for each
    resource it serves, however many runs use it, and a rotated refresh token
-   is saved.
+   is saved. Token export, which needs a longer-lived token, refreshes more
+   often, within a fixed bound.
 6. An expired or revoked sign-in is reported once, names the connection, and
    offers Reconnect.
 7. Connections work in a single process, behind several frontend replicas,
@@ -124,8 +125,8 @@ bearer token, which expires after an hour.
 Promised:
 
 - A refresh token or client secret is stored only encrypted. It is never
-  returned by the API, CLI, or MCP server, and it never reaches a run or a
-  worker.
+  returned by the API, CLI, or MCP server, and it never reaches a step's
+  process, a step's environment, or a worker.
 - An access token is sent only to the hosts the connection is bound to. It
   does not follow a redirect to another host.
 - A run receives a token only for a connection that its DAG declares, and
@@ -139,13 +140,15 @@ Promised:
 - Dagu never answers a server's confirmation request on its own. Only a
   person accepts one.
 - Each connection refreshes each resource at most once per token lifetime
-  across all processes on a host. Workers never refresh.
+  across all processes on a host, except while runs export its token, as
+  [Token broker](#token-broker) bounds. Workers never refresh.
 
 Not promised:
 
 - **Isolation from the run process in local mode.** The run process can
-  read the encryption key, so a workspace allow-list is a policy there, not
-  an operating system boundary. In distributed mode the worker never holds
+  read the encryption key, and it decrypts the refresh token in memory when
+  it refreshes. So a workspace allow-list is a policy there, not an
+  operating system boundary. In distributed mode the worker never holds
   the key.
 - **Secrecy of an exported token.** A token exported to an environment
   variable can be printed by the script that receives it. Masking hides the
@@ -176,8 +179,8 @@ connections share.
 | `provider` | `google`, `microsoft`, `oauth2`, or `mcp` |
 | `kind` | `byo` (user's own client), `dcr` (registered by Dagu through RFC 7591), or `hosted` (reserved) |
 | `client_id` | |
-| `client_secret` | Encrypted. Optional for public clients |
-| `client_type` | `web`, `desktop`, or `public` (no secret, as the device code flow needs). Decides which redirect modes work |
+| `client_secret` | Encrypted. Optional for public clients. For a service account, its private key |
+| `client_type` | `web`, `desktop`, `public` (no secret, as the device code flow needs), or `service_account` (a Google service account key). Decides which grants and redirect modes work |
 | `agent` | The user attests that the client has "Use this client for an AI-powered agent" set |
 | `endpoints` | Only for `oauth2` and `mcp`: authorize, token, revoke, and device URLs |
 | `status`, `status_reason` | `ok` or `invalid`, with the provider's error. The broker sets `invalid` with a CAS write when the provider rejects the client. An admin's update to the client ID or secret resets it to `ok` |
@@ -191,7 +194,7 @@ admins:
 | Field | Notes |
 | --- | --- |
 | `name` | Lowercase letters, digits, and hyphens, up to 63 characters. Unique on the server |
-| `provider`, `app` | The app is absent for a service account |
+| `provider`, `app` | The app holds the client, or, for a service account, its key. A key is rotated by updating the app |
 | `grant` | `authorization_code`, `device_code`, `client_credentials`, or `service_account` |
 | `services` | Presets such as `gmail` or `calendar`, each with `read` or `write` |
 | `scopes` | Scopes added beyond the services' presets. The presets' own scopes are not stored |
@@ -315,7 +318,7 @@ Redirect modes:
 
 | Mode | When | Client type |
 | --- | --- | --- |
-| Server callback | The server has a usable public URL: `server.public_url`, else the tunnel URL. The redirect URI is `<public_url>/oauth/callback`, a public route beside `oidc-callback` (`internal/service/frontend/server.go:1445`) | `web` |
+| Server callback | The server has a usable public URL: `server.public_url`, else the tunnel URL, else the UI's origin when the browser reaches Dagu at `localhost`, which Google accepts over HTTP. The redirect URI is `<public_url>/oauth/callback`, a public route beside `oidc-callback` (`internal/service/frontend/server.go:1445`) | `web` |
 | Loopback | The CLI runs where a browser can open. The CLI listens on `127.0.0.1` on a random port and sends the code to the server | `desktop` |
 | Paste | Neither works, as for a server on a private address. The browser lands on a loopback URL that fails to load, and the user pastes that URL into the UI or CLI | `desktop` |
 | Device code | Microsoft, over SSH. The CLI shows a code to enter on another device | `public` |
@@ -349,9 +352,11 @@ tokens stay live until the user confirms, and confirming increments
 `generation`. A different account than before is never confirmed without
 asking.
 
-**Remove** revokes the refresh token where the provider supports revocation,
-then deletes both records. A DAG that still names the connection fails at
-run start, naming it.
+**Remove** takes the connection's lock, revokes the refresh token where the
+provider supports revocation, then deletes both records. A DAG that still
+names the connection fails at run start, naming it. Creating a connection
+replaces any token state record left under its name, so a new connection
+never inherits an old one's tokens.
 
 ### Token broker
 
@@ -364,23 +369,35 @@ Every token passes through one interface:
 Token(ctx context.Context, conn, resource string, minTTL time.Duration) (token string, expiresIn time.Duration, err error)
 ```
 
+Steps that use a token in process ask for a `minTTL` of 5 minutes, and ask
+again when the token runs low. Only token export asks for more, 50 minutes,
+because a script cannot ask again. A token refreshes when its remaining life
+is shorter than the `minTTL` asked for. So a connection whose token runs keep
+exporting refreshes about once per token lifetime minus 50 minutes: every 10
+minutes for a Google token, however many runs start.
+
 Local path, used by the server, the scheduler, and local runs:
 
 1. Read the token state. If the resource's access token stays valid for
    longer than `minTTL`, return it.
-2. Take the `connection-tokens` collection's lock through
-   `persis.Backend.Lock` (`internal/persis/file/backend.go:103`). The lock
-   covers the whole collection, so refreshes of different connections wait
-   for each other. A server holds tens of connections that each refresh
-   about once an hour, so a wait is rare, and the token call's timeout bounds
-   it. The lock renews itself while it is held, and refuses writes once lost.
+2. Take the connection's lock: a `dirlock` per connection
+   (`internal/cmn/dirlock/dirlock.go:168`), renewed as `persis.Backend.Lock`
+   renews a collection's lock (`internal/persis/file/backend.go:103`). That
+   lock covers a whole collection, so a token endpoint that hangs at one
+   provider would hold back every other connection's refresh. The lock
+   renews itself while it is held, and refuses writes once lost.
 3. Read the state again. Another process may have refreshed it.
 4. Refresh with the resource's scopes. The token endpoint call times out
    before three quarters of the lock's stale threshold.
 5. Write the new access token, and any rotated refresh token, with a CAS
-   write (`createOrSwap`, `internal/persis/store/cas_retry.go:15`). Apply the
-   write only if `generation` is unchanged. If a reconnect was confirmed
-   during the refresh, drop the result and return the reconnected token.
+   write (`createOrSwap`, `internal/persis/store/cas_retry.go:15`). The
+   connect flow writes `session` in the same record without the lock, so a
+   conflict is expected. On a conflict, read the record again and reapply
+   only the token fields, so a rotated refresh token is never dropped:
+   - If `generation` changed, a reconnect was confirmed during the refresh.
+     Drop the result and return the reconnected token.
+   - If the record is gone, the connection was removed. Drop the result and
+     fail. The broker never creates a token state record.
 
 Each run process also caches tokens in memory, behind the single-flight gate
 the mail code uses today (`oauth.go:261-330`). So a run reads the state at
@@ -395,7 +412,12 @@ Refresh results:
 | `invalid_grant` | Read the token state once more. If the refresh token or `generation` changed, another process rotated or reconnected it, so retry once with the new state. Otherwise `needs_reconnect`, set once. Later calls fail at once, without calling the provider |
 | `invalid_client` or `unauthorized_client` | The app becomes `invalid`, set once. Every connection of the app then fails at once, without calling the provider, until an admin updates the app's client ID or secret |
 | 5xx, network error, or `temporarily_unavailable` | Transient. The status stays. The call fails, and the step's retry policy applies |
-| Service account clock or signature error | Reported on the connection. The status stays, since a reconnect would not help |
+| Service account key unknown, disabled, or deleted | The app becomes `invalid`, set once, as for `invalid_client`. An admin uploads a new key |
+| Service account clock error | Transient. Reported on the connection, and the status stays |
+
+A grant without a refresh token, a service account or client credentials,
+never becomes `needs_reconnect`, since there is nothing to reconnect. Its
+permanent failures mark the app `invalid`.
 
 The refresh code moves from `internal/cmn/mailer/oauth` into the
 `connection` package without its mail-specific assumptions. That code is
@@ -412,9 +434,14 @@ a new coordinator RPC, `ResolveConnectionToken`, modeled on
 - The run's DAG snapshot must declare the connection, checked as
   `secretReferenceDeclared` checks secret refs (`:354`).
 - The connection's allow-list must include the run's workspace.
-- The coordinator calls the local broker and returns only the access token
-  and its lifetime in seconds. A relative lifetime makes clock skew on the
-  worker irrelevant.
+- The coordinator calls the local broker and returns the access token, its
+  lifetime in seconds, and the connection's binding: provider, services,
+  bound hosts, and resource URL. The binding holds no secret, and the worker
+  enforces it as a local run does. A relative lifetime makes clock skew on
+  the worker irrelevant.
+- With `check_only`, as `ResolveSecretReference` has, the RPC runs the same
+  checks and returns the binding without a token. A worker uses it for
+  admission.
 
 Workers never refresh, so a worker cannot send a refresh token that another
 host has already rotated.
@@ -469,14 +496,22 @@ into `ir.DAG.Connections`, as `CredentialRefs` collects SSH refs
 - `secrets` entries with `provider: connection`;
 - `mcp_servers` on agent DAGs, chat steps, and harness steps.
 
+Each name must be a literal. A name taken from a parameter or variable fails
+validation, since the coordinator checks every token request against the
+declared names.
+
 **Admission checks.** Spec validation stays offline: building a DAG only
-collects names. Checks that need connection records run at run admission,
-before any step starts, and in the editor's server-side diagnostics:
+collects names. Checks that need connection records run at run admission: in
+the run process, before its first step, where secrets resolve. A local run
+reads the records, and a run on a worker reads the binding through the token
+RPC with `check_only`. The editor's server-side diagnostics run the same
+checks:
 
 - the connection exists, and its allow-list includes the run's workspace;
 - `server` names one of the connection's services;
 - a literal `http.request` URL is on the bound hosts;
-- a Google AI step or Google MCP preset uses an app with `agent` set.
+- a Google AI step or Google MCP preset on a user connection, not a service
+  account, uses an app with `agent` set.
 
 A failed check fails the run before its first step, naming the connection,
 as an unresolvable secret does.
@@ -485,7 +520,9 @@ as an unresolvable secret does.
 secrets (`internal/runtime/output.go:78`). A step that uses a connection
 mints its token before node setup and adds it with
 `EnvScope.WithMaskedSecrets` (`internal/cmn/value/envscope.go:409`), which
-masks a value without making it an environment variable. The masker also
+masks a value without making it an environment variable. The masker gains a
+way to add a value while the step runs, so a token minted later in the step,
+by a forced refresh or during a long agent turn, is masked too. It also
 gains provider token patterns (`ya29.` and `1//` for Google), as audit
 already masks GitHub and Slack tokens (`internal/audit/mask.go:67`). Steps
 that use a token in process, such as `mcp.call` and `http.request`, never
@@ -538,11 +575,13 @@ print it. Masking is the second line of defense.
     url: https://www.googleapis.com/calendar/v3/calendars/primary/events
 ```
 
-- The token is added only when the request host is in the connection's
-  bound hosts. A URL with another host fails at admission when it is
-  literal, and fails at run time when it comes from a reference.
-- A redirect to another host is refused. Today resty follows redirects, and
-  `oauth2.Transport` would add the token again on every hop.
+- The token is added only to an HTTPS request whose host is in the
+  connection's bound hosts. A URL with another host or scheme fails at
+  admission when it is literal, and fails at run time when it comes from a
+  reference.
+- A redirect to another host, or to plain HTTP, is refused. Today resty
+  follows redirects, and `oauth2.Transport` would add the token again on
+  every hop.
 - `connection` cannot be combined with `debug: true`, because resty's debug
   output prints request headers. It also cannot be combined with
   `headers.Authorization`.
@@ -626,11 +665,24 @@ request by the kind of step:
   answer, accept with the form's values, decline, or cancel, goes back to
   the server. After `llm.confirmation_timeout`, 10 minutes by default, Dagu
   declines.
+- **Delivering the answer.** A human task today is answered while its run
+  has no process. A confirmation needs a path to a live process, and reuses
+  the ones that stop a run:
+  - a local run receives the answer on its run socket, beside `/stop`
+    (`internal/runtime/agent/agent.go:2314`);
+  - a run on a worker receives it in the `RunHeartbeat` response, as it
+    receives cancellations (`proto/coordinator/v1/coordinator.proto:318`).
+
+  Where the run socket is unavailable, Dagu declines at once.
 - **Harness steps, chat steps, and `mcp.call`.** Dagu declines at once,
   since these steps cannot wait mid-call. A harness or chat agent receives a
   tool error that names the rule. `mcp.call` fails with kind
   `confirmation_required`.
 - **Try it in the UI.** The person is present, so the form is shown inline.
+  The call request returns the form and a call ID. The server holds the call
+  open in memory, up to the timeout, and the page posts the answer to
+  `POST /connections/{name}/calls/{id}/confirmation`, which returns the
+  tool's result.
 
 Dagu never accepts a request on its own, even for a tool in `unattended`.
 The request is the provider's own check that a person is present, and
@@ -715,9 +767,11 @@ tasks:
 ```
 
 - When the run starts, the agent loop lists each server's tools through the
-  gateway. Each MCP tool becomes one function tool named `<server>__<tool>`,
-  sanitized and kept within the 64-character limit like step tool names, and
-  its input schema becomes the tool's parameters. The catalog is saved with
+  gateway. Each MCP tool becomes one function tool named
+  `<connection>__<server>__<tool>`, or `<connection>__<tool>` for an `mcp`
+  connection, so two accounts with the same service never collide. The name
+  is sanitized and kept within the 64-character limit like step tool names,
+  and the tool's input schema becomes its parameters. The catalog is saved with
   the `__agent__` node, as Spec 032 already requires, so a run's tools stay
   fixed while it runs.
 - A call runs through the gateway, inside the agent loop. The result is
@@ -839,14 +893,15 @@ Connection work-google is ready. Try: dagu connection tools work-google --server
 | `GET`, `PATCH`, `DELETE /oauth-apps/{id}` | Read, change, or delete an app that no connection uses |
 | `GET /connections`, `POST /connections` | List connections with their status, or create one in `pending` |
 | `GET`, `PATCH`, `DELETE /connections/{name}` | Read, change metadata, or remove |
-| `POST /connections/{name}/authorization` | Start a connect or reconnect, optionally naming the expected account. Returns the authorization URL, the mode, and a session handle |
+| `POST /connections/{name}/authorization` | Start a connect or reconnect. Takes the redirect mode, the loopback redirect URI in CLI loopback mode, and optionally the expected account. Returns the authorization URL and a session handle |
 | `GET /connections/{name}/authorization` | Poll: `waiting`, `confirm` (with the account), `connected`, or `failed` |
 | `POST /connections/{name}/authorization/complete` | Paste mode and CLI loopback: the code or the redirect URL |
 | `POST /connections/{name}/authorization/confirm` | Confirm the account. Only the user who started the session may |
 | `DELETE /connections/{name}/authorization` | Cancel |
 | `POST /connections/{name}/test` | Probe each service |
 | `GET /connections/{name}/tools?server=` | MCP tools with their input schemas, for the UI and editor |
-| `POST /connections/{name}/tools/{tool}/call` | Try a tool with arguments |
+| `POST /connections/{name}/tools/{tool}/call` | Try a tool with arguments. Returns the result, or a confirmation form and a call ID |
+| `POST /connections/{name}/calls/{id}/confirmation` | Answer a confirmation request for a call in flight. Returns the result |
 | `GET /connection-templates?provider=` | Starter DAGs for a provider |
 
 - `GET /oauth/callback` sits outside the generated API, as `oidc-callback`
@@ -987,6 +1042,11 @@ and the tiers are new. Instead, the docs:
 | Use a connection in a DAG | Whoever may edit the DAG, if the DAG's workspace is on the allow-list |
 | See connections: name, provider, account, status | `viewer` |
 
+A service account key is an app, so adding a service account connection
+needs `admin`. A manager's `mcp` connect may register a client through RFC
+7591. The resulting `dcr` app belongs to that connection alone: it is created
+and deleted with it, and no other connection may use it.
+
 These follow the secret store, where managers manage a workspace's secrets
 (`requireSecretManageForWorkspace`, `secrets.go:383`). OAuth apps follow
 notification channels, which stay server-wide and admin-only under RFC 003.
@@ -1004,7 +1064,8 @@ connections.
   encrypted at rest with the server's key, in directories readable only by
   the Dagu user.
 - **Audience binding.** A token goes only to its connection's bound hosts or
-  resource, and never follows a redirect off them.
+  resource, over HTTPS, and never follows a redirect off them. A worker
+  enforces the binding it receives from the coordinator.
 - **Allow-list enforcement.** It is checked twice: at run admission, and by
   the coordinator for each token. In local mode the run process can read
   the encryption key, so the check there is a policy, as
@@ -1029,9 +1090,12 @@ connections.
   Rollout step 0 extends masking to log streams from workers, which are not
   masked today (`internal/runtime/output.go:484`). Token export waits for
   that fix.
-- **SSRF.** `oauth2` and `mcp` endpoints come only from managers and admins.
-  Endpoints other than HTTPS are refused unless the host is a loopback
-  address.
+- **SSRF.** Managers and admins set `oauth2` endpoints and `mcp` server URLs,
+  but an `mcp` server's metadata names its authorization server, token, and
+  registration URLs. Every URL Dagu fetches, and every redirect it follows,
+  must be HTTPS. Plain HTTP to a loopback address, for local testing, is
+  allowed only for a URL an admin enters. Authorization server metadata is
+  accepted only when its `issuer` matches the URL it came from (RFC 8414).
 - **Audit.** These are written to the audit log:
   - app and connection changes;
   - connects, reconnects, and removals;
@@ -1057,7 +1121,11 @@ connections.
 | The OAuth app's secret is rotated or deleted at the provider | The app becomes `invalid`, and its connections fail at once without calling the provider. Updating the app restores them |
 | The token endpoint is down | Steps fail as transient, and retry under their own policy. Status is unchanged |
 | A reconnect is confirmed while a refresh is running | The refresh result is dropped. Both processes end with the reconnected token |
+| A connect session starts while a refresh is running | The refresh's write conflicts, re-reads, and keeps both the session and any rotated refresh token |
+| A connection is removed while a refresh is running | The refresh result is dropped and the call fails. The connection stays removed |
 | Two processes refresh at once | One holds the lock. The other waits, reads the new token, and does not refresh |
+| One provider's token endpoint hangs | Only that connection's refreshes wait, up to the token call's timeout. Other connections are unaffected |
+| A service account key is deleted at Google | Its app becomes `invalid`, and its connections fail at once without calling Google. Uploading a new key restores them |
 | A DAG names an unknown connection, or one its workspace may not use | The editor reports it. A run fails before its first step, naming the connection |
 | A worker's coordinator is older and lacks the token RPC | The step fails, saying the coordinator must be upgraded |
 | A worker is older than the token RPC | The coordinator does not dispatch a DAG that declares connections to it |
@@ -1074,15 +1142,18 @@ connections.
 - **Refresh rate.** At most once per connection and resource per token
   lifetime on a host, about one an hour, regardless of the number of runs.
   Today mail refreshes once per run, so a mail DAG that runs every minute
-  drops from 60 refreshes an hour to one.
-- **Refresh lock.** One lock serializes refreshes of every connection. Tens
-  of connections refreshing hourly rarely contend, and the token call's
-  timeout bounds a wait.
-- **Per run.** A run that uses a connection reads its token state at most
-  once per token lifetime: one small file read locally, or one coordinator
-  RPC on a worker. Steps and `foreach` items share the run's cache, so the
-  cost grows with runs that use connections, not with steps. At one run per
-  second, that is at most one read or RPC per second.
+  drops from 60 refreshes an hour to one. Token export shortens this to
+  about every 10 minutes for a Google connection, while runs keep starting
+  that export it.
+- **Refresh lock.** One lock per connection. Refreshes of different
+  connections never wait for each other, and a slow provider delays only its
+  own connections.
+- **Per run.** A run that uses a connection checks it once at admission, and
+  reads its token state at most once per token lifetime: small file reads
+  locally, or two coordinator RPCs on a worker. Steps and `foreach` items
+  share the run's cache, so the cost grows with runs that use connections,
+  not with steps. At one run per second, that is at most two reads or RPCs
+  per second for each connection a run uses.
 - **Requests.** Connection lists read one small record per connection. A
   server holds tens of connections, not thousands, and no request reads run
   or DAG directories.
@@ -1097,8 +1168,14 @@ connections.
 - **Confirmation waits.** An agent DAG run that waits on a confirmation
   request holds its process and worker slot, for at most
   `llm.confirmation_timeout`. Approval tasks before a call release both.
+  The answer arrives on the run socket or in the existing run heartbeat, so
+  the wait adds no polling. Try it holds one call in server memory per open
+  confirmation, for at most the same timeout.
 - **Notifications.** One event per status change, not per failed run. A
-  connection that stays broken while 1,000 runs fail sends one message.
+  connection that stays broken while 1,000 runs fail sends one message. The
+  monitor's reader for `connection` events runs on its existing poll interval
+  (`internal/service/chatbridge/monitor.go:403`). It adds one cursor read of
+  the event store per tick, which returns nothing between status changes.
 - **Storage.** About 2 KB per connection, plus about 1 KB per extra resource
   of a Microsoft connection, and 1 KB per app. An agent DAG run with
   `mcp_servers` saves its MCP tools in the `__agent__` catalog: names,
@@ -1163,7 +1240,7 @@ ships after confirmation requests are tested against Google's servers
    `dagu connection add`, test, and reconnect.
 3. **Steps.**
    - `ir.DAG.Connections`, admission checks, and the coordinator RPC with
-     the worker version check.
+     the binding, `check_only`, and the worker version check.
    - `http.request` with bound hosts.
    - `mcp.call` with connections, the Google presets, and the
      `rate_limited` and `confirmation_required` kinds.
@@ -1176,7 +1253,8 @@ ships after confirmation requests are tested against Google's servers
    `unattended`, pinned tools, and declining confirmation requests. Write
    tools not listed in `unattended` are refused.
 8. **Agent DAGs and chat steps.** MCP tools, approval tasks before write
-   tools, confirmation tasks, and the Google policy lint.
+   tools, confirmation tasks with their delivery over the run socket and run
+   heartbeat, and the Google policy lint.
 
 ## Verification and acceptance criteria
 
@@ -1200,8 +1278,9 @@ ships after confirmation requests are tested against Google's servers
 8. No refresh token, access token, or client secret appears in any API
    response, CLI output, MCP result, run status, step log, worker log
    stream, or audit entry. A test searches each of them for the values.
-9. `http.request` with a connection never sends the token to a host outside
-   the bound hosts, including through a redirect.
+9. `http.request` with a connection, locally and on a worker, never sends
+   the token to a host outside the bound hosts or over plain HTTP, including
+   through a redirect.
 10. A run on a worker cannot obtain a token for a connection its DAG does not
     declare, or one whose allow-list excludes its workspace.
 11. A harness step with `mcp_servers` completes a turn longer than the
@@ -1229,7 +1308,14 @@ ships after confirmation requests are tested against Google's servers
 19. In server-callback mode started from the CLI over SSH, a browser with no
     Dagu session completes consent, and only the user who started the
     session can confirm it.
-20. Every case in [Failure behavior](#failure-behavior) ends as stated.
+20. A connect session written during a Microsoft refresh keeps the rotated
+    refresh token. A connection removed during a refresh stays removed, and
+    a new connection with its name starts without tokens.
+21. A token endpoint that hangs for one connection does not delay another
+    connection's refresh.
+22. An agent DAG's confirmation answer reaches the waiting call both in a
+    local run and on a worker.
+23. Every case in [Failure behavior](#failure-behavior) ends as stated.
 
 ## Alternatives considered
 
