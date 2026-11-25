@@ -399,14 +399,15 @@ If-Match: 3b9c...e41a
 
 ## Conformance
 
-These rows have no binary-level test. Go tests of `internal/skill/` check them: the rule
-`folder-link`, the cache, the lock that a holder leaves after a crash, and the refusal of a write
-through a link. The roles of the API need a license, so a Go test of the handlers covers them. The
-UI contract has the tests of the UI.
+The binary-level tests are in `conformance/spec096_skills/`. The unit tests are in
+`internal/persis/file/dag/`.
 
-These rows are not covered: the rules `special-file`, `changing` and `total-too-large`. A test of
-`total-too-large` writes more than 16 MiB, and a test of `changing` needs a writer that races the
-reader.
+| Test | Proves |
+| --- | --- |
+| `TestRecursiveDiscoverySkipsTheSkillsDirectory` | With recursive discovery, `dagu ls` lists no DAG file below `skills/` at the root of the DAGs directory, and lists the DAG files of a `skills` directory deeper in the tree. |
+| `TestDiscoverRecursiveSkipsSkillsDir` (unit) | Discovery neither lists nor returns for watching anything below `skills/` at the root, and reads a `skills` directory deeper in the tree. |
+
+The format, the folder rules, the hash, the API and the ZIP download have no test yet.
 
 ## Open items
 
