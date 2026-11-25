@@ -98,7 +98,7 @@ credential of the model API.
 | The agent connects to the coordinator. | The coordinator needs a client certificate. The restricted user cannot read it. | None. |
 | The agent calls a tool of the tool bridge with wrong arguments. | The tools are DAGs of the author. The bridge needs the secret of the attempt. The agent cannot set a fixed input of `params`, or an input that the tool does not show. The child run gets the inputs as one JSON object. | A tool that trusts its arguments. The author designs each tool for any argument. |
 | A general worker claims an agent run, or an agent worker claims another run. | The coordinator takes the labels from the pool of the certificate. An agent pool claims only runs of its provider. | A stolen certificate of a pool acts as that pool. |
-| Files or processes of one run reach the next run. | An agent worker takes one run, then exits. The deployment gives a new file system for each start. | None. A deployment that keeps a volume keeps its files. |
+| Files or processes of one run reach the next run. | An agent worker takes one run, then exits. On Docker, each start of the container gets a new `tmpfs`. | On Kubernetes, an `emptyDir` lives as long as the pod. A container that restarts in the same pod keeps the files of `/tmp` and of the Dagu home, and the next run on the pod can read them. See [Open items](#open-items). A deployment that keeps another volume keeps its files too. |
 | The agent returns a false result. | The typed result fixes the form. A gate that Dagu runs and `human.task` protect an action. | The content of a result can be false. |
 | The agent breaks out of the restricted user with a kernel flaw. | Out of scope. A user namespace or a runtime such as gVisor reduces the risk. | The flaw. |
 
@@ -1458,6 +1458,8 @@ sends `POST https://api.openai.com/v1/chat/completions` with the real key.
   `check_paths` keeps a change to the verify script, the tests and the CI out of the push. See [The
   log](#the-log).
 - A trusted step that runs a file of the work directory runs code of the agent.
+- On Kubernetes, the next run on a pod can read the files that an earlier run on the pod left in
+  `/tmp` and in the Dagu home, because an `emptyDir` lives as long as the pod.
 - Each user can read the arguments of a process in `/proc/<pid>/cmdline`. No process of the
   restricted user runs at the same time as a trusted step of its run. But a process of another run
   can read them. Pass a secret in the environment, never in an argument.
@@ -1470,6 +1472,7 @@ Each item has a default. The default applies until the owner decides.
 | --- | --- |
 | The change of user in a pod of the level `restricted`, which forbids `CAP_SETUID`. A path with no capability, such as Landlock, is a candidate. | Level `baseline`, user ID 0 with six capabilities, `hostUsers: false` when the cluster supports it. A worker that cannot change user stops at start. |
 | The restart delay of Kubernetes after each exit of a container, also with the code 0. | A `Deployment`. A controller that starts one Job for each run is a later item. |
+| The files of an earlier run on a pod of Kubernetes. A container that restarts in the same pod keeps its `emptyDir` volumes. | The files stay. A worker that empties `/tmp` and its run folders before it polls, or one Job for each run, is a later item. |
 | The paths that the route of the upstream allows. | Each path. A list of allowed paths is a later item. |
 | A real rate limit with `retry_policy` and `exit_code: [75]`. | Not verified. |
 | The name of the label `agent.provider.<provider>` and of the key `untrusted`. | As in this spec. |
