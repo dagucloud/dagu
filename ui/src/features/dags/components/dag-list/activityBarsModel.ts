@@ -34,7 +34,6 @@ export interface ActivityBar {
   left: number;
   height: number;
   startedAt: string;
-  finishedAt?: string;
   /** The time of the run, in ms; up to now for a running run. */
   durationMs: number;
 }
@@ -97,7 +96,6 @@ export function activityBars(
       left: slot * slotPx,
       height,
       startedAt: p.run.startedAt,
-      finishedAt: p.run.finishedAt,
       durationMs: p.durationMs,
     });
   });

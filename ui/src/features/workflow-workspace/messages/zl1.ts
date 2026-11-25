@@ -6,7 +6,6 @@ import { defineMessages } from './define';
 // The Workflows and Runs lists: their rows, groups and saved views.
 export default defineMessages({
   en: {
-    'Runs in the last 24 hours': 'Runs in the last 24 hours',
     '1 run in the last 24 hours': '1 run in the last 24 hours',
     '{count} runs in the last 24 hours': '{count} runs in the last 24 hours',
     '{count}+ runs in the last 24 hours': '{count}+ runs in the last 24 hours',
@@ -32,7 +31,6 @@ export default defineMessages({
       'Are you sure you want to {action} the webhooks of the {count} workflows of "{name}"?',
   },
   'zh-CN': {
-    'Runs in the last 24 hours': '过去 24 小时内的运行',
     '1 run in the last 24 hours': '过去 24 小时内有 1 次运行',
     '{count} runs in the last 24 hours': '过去 24 小时内有 {count} 次运行',
     '{count}+ runs in the last 24 hours': '过去 24 小时内有 {count} 次以上运行',
@@ -58,7 +56,6 @@ export default defineMessages({
       '确定要{action}“{name}”中 {count} 个工作流的 Webhook 吗？',
   },
   ja: {
-    'Runs in the last 24 hours': '過去 24 時間の実行',
     '1 run in the last 24 hours': '過去 24 時間に 1 件の実行',
     '{count} runs in the last 24 hours': '過去 24 時間に {count} 件の実行',
     '{count}+ runs in the last 24 hours': '過去 24 時間に {count} 件以上の実行',
@@ -85,7 +82,6 @@ export default defineMessages({
       '「{name}」の {count} 件のワークフローの Webhook を{action}しますか？',
   },
   de: {
-    'Runs in the last 24 hours': 'Läufe in den letzten 24 Stunden',
     '1 run in the last 24 hours': '1 Lauf in den letzten 24 Stunden',
     '{count} runs in the last 24 hours':
       '{count} Läufe in den letzten 24 Stunden',
