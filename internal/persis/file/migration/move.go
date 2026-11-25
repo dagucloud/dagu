@@ -47,18 +47,25 @@ func newMover() mover {
 // move moves mv.From to mv.To. It finishes a move that an earlier attempt
 // stopped partway: a missing source was moved already, and a destination
 // beside its source is a copy that was installed before the source was
-// removed. The plan guarantees that no destination existed before.
-func (mr mover) move(ctx context.Context, mv move) error {
+// removed. The plan guarantees that no destination existed before. held
+// is called before each step that changes state, and an error from it
+// stops the move.
+func (mr mover) move(ctx context.Context, mv move, held func() error) error {
 	if _, err := os.Lstat(mv.From); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
 		return err
 	}
-	if _, err := os.Lstat(mv.To); err == nil {
-		return fileutil.RemoveAll(mv.From)
-	} else if !errors.Is(err, fs.ErrNotExist) {
+	installed, err := exists(mv.To)
+	if err != nil {
 		return err
+	}
+	if installed {
+		if err := held(); err != nil {
+			return err
+		}
+		return fileutil.RemoveAll(mv.From)
 	}
 
 	parent := filepath.Dir(mv.To)
@@ -70,20 +77,22 @@ func (mr mover) move(ctx context.Context, mv move) error {
 		return err
 	}
 	if same {
+		if err := held(); err != nil {
+			return err
+		}
 		return fileutil.Rename(mv.From, mv.To)
 	}
-	return mr.copyMove(ctx, mv)
+	return mr.copyMove(ctx, mv, held)
 }
 
 // copyMove copies mv.From beside mv.To, gives the copy mv.To's name once
 // it is durable, and then removes mv.From.
-func (mr mover) copyMove(ctx context.Context, mv move) error {
+func (mr mover) copyMove(ctx context.Context, mv move, held func() error) error {
 	staging := mv.To + copySuffix
-	// A killed attempt may have left part of a copy.
-	if err := fileutil.RemoveAll(staging); err != nil {
+	if err := discardStaging(staging, held); err != nil {
 		return err
 	}
-	if err := copyTree(ctx, mv.From, staging); err != nil {
+	if err := copyTree(ctx, mv.From, staging, held); err != nil {
 		return err
 	}
 	if mr.beforeInstall != nil {
@@ -91,21 +100,48 @@ func (mr mover) copyMove(ctx context.Context, mv move) error {
 			return err
 		}
 	}
+	if err := held(); err != nil {
+		return err
+	}
 	if err := fileutil.Rename(staging, mv.To); err != nil {
 		return err
 	}
 	if err := fileutil.SyncDir(filepath.Dir(mv.To)); err != nil {
 		return err
 	}
+	if err := held(); err != nil {
+		return err
+	}
 	return fileutil.RemoveAll(mv.From)
 }
 
-// planCopies returns the moves that copy to another file system, with the
-// bytes each copies.
-func (mr mover) planCopies(moves []move) ([]pendingCopy, error) {
+// discardStaging removes the part of a copy that a killed attempt left.
+func discardStaging(staging string, held func() error) error {
+	found, err := exists(staging)
+	if err != nil || !found {
+		return err
+	}
+	if err := held(); err != nil {
+		return err
+	}
+	return fileutil.RemoveAll(staging)
+}
+
+// pendingCopies returns the moves that still copy to another file system,
+// with the bytes each copies. It discards the part of a copy that a killed
+// attempt left, so its bytes count as free.
+func (mr mover) pendingCopies(moves []move, held func() error) ([]pendingCopy, error) {
 	var copies []pendingCopy
 	for _, mv := range moves {
 		if _, err := os.Lstat(mv.From); errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		// An installed copy only waits for its source to be removed.
+		installed, err := exists(mv.To)
+		if err != nil {
+			return nil, err
+		}
+		if installed {
 			continue
 		}
 		same, err := mr.sameFileSystem(mv.From, mv.To)
@@ -114,6 +150,9 @@ func (mr mover) planCopies(moves []move) ([]pendingCopy, error) {
 		}
 		if same {
 			continue
+		}
+		if err := discardStaging(mv.To+copySuffix, held); err != nil {
+			return nil, err
 		}
 		size, err := treeSize(mv.From)
 		if err != nil {
@@ -166,6 +205,20 @@ func freeSpace(path string) (uint64, error) {
 	return usage.Free, nil
 }
 
+// exists reports whether an entry, a dangling symbolic link included, is at
+// path.
+func exists(path string) (bool, error) {
+	_, err := os.Lstat(path)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	default:
+		return false, err
+	}
+}
+
 func existingAncestor(path string) (string, error) {
 	current := filepath.Clean(path)
 	for {
@@ -201,7 +254,7 @@ func treeSize(root string) (uint64, error) {
 // copyTree copies the file or directory src to dst, which must not exist.
 // It keeps permissions and modification times, which some stores read, and
 // syncs each file so the copy outlasts a crash.
-func copyTree(ctx context.Context, src, dst string) error {
+func copyTree(ctx context.Context, src, dst string, held func() error) error {
 	type dirTime struct {
 		path    string
 		modTime time.Time
@@ -214,6 +267,9 @@ func copyTree(ctx context.Context, src, dst string) error {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := held(); err != nil {
 			return err
 		}
 		rel, err := filepath.Rel(src, path)

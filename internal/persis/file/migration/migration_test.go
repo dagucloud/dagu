@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -196,21 +197,86 @@ func TestRunWaitsForFreeSpace(t *testing.T) {
 	assert.NoDirExists(t, mv.From)
 }
 
+// The part of a copy that a killed attempt left does not count against the
+// free space the copy needs again.
+func TestRunReclaimsStagedCopyBeforeSpaceCheck(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	from := v2Dir(t, dataDir, "queue", "etl", "item.json")
+	require.NoError(t, os.WriteFile(filepath.Join(from, "item.json"), []byte("0123456789"), 0o600))
+	mv := move{From: from, To: filepath.Join(dataDir, "projects", "default", "state", "queue", "etl")}
+	staging := v2Dir(t, filepath.Dir(mv.To), filepath.Base(mv.To)+copySuffix, "etl", "item.json")
+	m, ticks := newTestMigrator(t, dataDir, &fakeServices{}, []move{mv})
+	m.mover.sameFileSystem = otherFileSystem
+	// The staged copy holds 8 of the 12 bytes free.
+	m.mover.freeSpace = func(string) (uint64, error) {
+		if _, err := os.Stat(staging); err == nil {
+			return 4, nil
+		}
+		return 12, nil
+	}
+
+	requireNoWait(t, runAsync(m), ticks)
+	assert.FileExists(t, filepath.Join(mv.To, "item.json"))
+	assert.NoDirExists(t, filepath.Dir(staging))
+}
+
+// A copy installed before its source was removed needs no space, only the
+// removal.
+func TestRunSkipsInstalledCopyInSpaceCheck(t *testing.T) {
+	t.Parallel()
+	dataDir := t.TempDir()
+	from := v2Dir(t, dataDir, "queue", "etl", "item.json")
+	to := v2Dir(t, filepath.Join(dataDir, "projects", "default", "state"), "queue", "etl", "item.json")
+	mv := move{From: from, To: to}
+	m, ticks := newTestMigrator(t, dataDir, &fakeServices{}, nil)
+	require.NoError(t, m.journal.writePlan([]move{mv}), "the plan of the killed attempt")
+	m.planMoves = refusePlan(t)
+	m.mover.sameFileSystem = otherFileSystem
+	m.mover.freeSpace = func(string) (uint64, error) { return 0, nil }
+
+	requireNoWait(t, runAsync(m), ticks)
+	assert.NoDirExists(t, from)
+	assert.FileExists(t, filepath.Join(to, "item.json"))
+}
+
 // A destination that exists when the plan is made would read, on resume,
 // as a finished copy whose source may be removed.
 func TestRunRefusesPlanOverExistingState(t *testing.T) {
 	t.Parallel()
-	dataDir := t.TempDir()
-	mv := move{From: v2Dir(t, dataDir, "dag-runs", "etl", "f"), To: v2Dir(t, dataDir, "elsewhere", "etl", "g")}
-	m, _ := newTestMigrator(t, dataDir, &fakeServices{}, []move{mv})
 
-	err := m.Run(context.Background())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), mv.To+" already exists")
-	assert.FileExists(t, filepath.Join(mv.From, "f"))
-	done, err := m.Done()
-	require.NoError(t, err)
-	assert.False(t, done)
+	for _, tc := range []struct {
+		name string
+		// destination creates the entry the plan moves onto.
+		destination func(t *testing.T, dataDir string) string
+	}{
+		{name: "Directory", destination: func(t *testing.T, dataDir string) string {
+			return v2Dir(t, dataDir, "elsewhere", "etl", "g")
+		}},
+		{name: "DanglingSymlink", destination: func(t *testing.T, dataDir string) string {
+			if runtime.GOOS == "windows" {
+				t.Skip("creating a symbolic link needs a privilege on Windows")
+			}
+			link := filepath.Join(dataDir, "dangling")
+			require.NoError(t, os.Symlink(filepath.Join(dataDir, "missing"), link))
+			return link
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			dataDir := t.TempDir()
+			mv := move{From: v2Dir(t, dataDir, "dag-runs", "etl", "f"), To: tc.destination(t, dataDir)}
+			m, _ := newTestMigrator(t, dataDir, &fakeServices{}, []move{mv})
+
+			err := m.Run(context.Background())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), mv.To+" already exists")
+			assert.FileExists(t, filepath.Join(mv.From, "f"))
+			done, err := m.Done()
+			require.NoError(t, err)
+			assert.False(t, done)
+		})
+	}
 }
 
 func TestDoneRefusesUnreadableStatus(t *testing.T) {
@@ -258,6 +324,17 @@ func runAsync(m *Migrator) <-chan error {
 	done := make(chan error, 1)
 	go func() { done <- m.Run(context.Background()) }()
 	return done
+}
+
+// requireNoWait fails the test when Run waits instead of returning.
+func requireNoWait(t *testing.T, done <-chan error, ticks chan<- time.Time) {
+	t.Helper()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case ticks <- time.Now():
+		t.Fatal("Run waited")
+	}
 }
 
 // tickUntilDone ticks a waiting Run until it returns.

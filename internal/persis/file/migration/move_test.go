@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -32,7 +33,7 @@ func TestMoveCopyKeepsModesAndTimes(t *testing.T) {
 	to := filepath.Join(root, "projects", "default", "state", "proc")
 	mr := newMover()
 	mr.sameFileSystem = otherFileSystem
-	require.NoError(t, mr.move(context.Background(), move{From: from, To: to}))
+	require.NoError(t, mr.move(context.Background(), move{From: from, To: to}, holding))
 
 	assert.NoDirExists(t, from)
 	copied := filepath.Join(to, "etl", "2026", "heartbeat")
@@ -55,8 +56,40 @@ func TestMoveFinishesInstalledCopy(t *testing.T) {
 	from := v2Dir(t, root, "queue", "etl", "item.json")
 	to := v2Dir(t, filepath.Join(root, "projects"), "queue", "etl", "item.json")
 
-	require.NoError(t, newMover().move(context.Background(), move{From: from, To: to}))
+	require.NoError(t, newMover().move(context.Background(), move{From: from, To: to}, holding))
 
 	assert.NoDirExists(t, from)
 	assert.FileExists(t, filepath.Join(to, "item.json"))
 }
+
+// A move whose process lost the lock changes nothing, so the process that
+// took the lock over never races it.
+func TestMoveStopsWithoutLock(t *testing.T) {
+	t.Parallel()
+	lost := func() error { return dirlock.ErrLockNotHeld }
+
+	for _, tc := range []struct {
+		name           string
+		sameFileSystem func(string, string) (bool, error)
+	}{
+		{name: "Rename", sameFileSystem: func(string, string) (bool, error) { return true, nil }},
+		{name: "Copy", sameFileSystem: otherFileSystem},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			from := v2Dir(t, root, "queue", "etl", "item.json")
+			to := filepath.Join(root, "projects", "default", "state", "queue", "etl")
+			mr := newMover()
+			mr.sameFileSystem = tc.sameFileSystem
+
+			err := mr.move(context.Background(), move{From: from, To: to}, lost)
+			require.ErrorIs(t, err, dirlock.ErrLockNotHeld)
+			assert.FileExists(t, filepath.Join(from, "item.json"))
+			assert.NoDirExists(t, to)
+			assert.NoDirExists(t, to+copySuffix)
+		})
+	}
+}
+
+func holding() error { return nil }

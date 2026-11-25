@@ -20,10 +20,10 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
 	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
@@ -198,7 +198,7 @@ func (m *Migrator) checkDone() (bool, error) {
 }
 
 func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) error {
-	stopRenewing := m.keepLock(ctx)
+	held, stopRenewing := m.keepLock(ctx)
 	defer func() {
 		stopRenewing()
 		_ = m.lock.Unlock()
@@ -220,7 +220,7 @@ func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) er
 		return err
 	}
 	progress := Progress{Phase: phaseMoving, Moved: len(moved), Total: len(moves)}
-	if err := m.waitForSpace(ctx, ticks, moves, moved, progress); err != nil {
+	if err := m.waitForSpace(ctx, ticks, moves, moved, progress, held); err != nil {
 		return err
 	}
 	if err := m.publish(progress); err != nil {
@@ -233,7 +233,7 @@ func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) er
 		if _, ok := moved[i]; ok {
 			continue
 		}
-		if err := m.moveOne(ctx, i, mv); err != nil {
+		if err := m.moveOne(ctx, i, mv, held); err != nil {
 			return err
 		}
 		progress.Moved++
@@ -253,11 +253,8 @@ func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) er
 }
 
 // moveOne makes the move at index and records it in the journal.
-func (m *Migrator) moveOne(ctx context.Context, index int, mv move) error {
-	if !m.lock.IsHeldByMe() {
-		return fmt.Errorf("lost the migration lock before moving %s: %w", mv.From, dirlock.ErrLockNotHeld)
-	}
-	if err := m.mover.move(ctx, mv); err != nil {
+func (m *Migrator) moveOne(ctx context.Context, index int, mv move, held func() error) error {
+	if err := m.mover.move(ctx, mv, held); err != nil {
 		return fmt.Errorf("move %s to %s: %w", mv.From, mv.To, err)
 	}
 	if m.afterMove != nil {
@@ -268,9 +265,13 @@ func (m *Migrator) moveOne(ctx context.Context, index int, mv move) error {
 	return m.journal.markMoved(index)
 }
 
-// keepLock renews the lock until the returned function is called, so a
-// long migration keeps it.
-func (m *Migrator) keepLock(ctx context.Context) func() {
+// keepLock renews the lock until stop is called, so a long migration keeps
+// it. held fences each step that changes state: it refuses once this process
+// lost the lock, or once its last renewal is three quarters of the stale
+// threshold old, before a waiting process could judge the lock stale.
+func (m *Migrator) keepLock(ctx context.Context) (held func() error, stop func()) {
+	var renewedAt atomic.Int64
+	renewedAt.Store(time.Now().UnixNano())
 	ctx, cancel := context.WithCancel(ctx)
 	stopped := make(chan struct{})
 	go func() {
@@ -282,16 +283,27 @@ func (m *Migrator) keepLock(ctx context.Context) func() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+				start := time.Now()
 				if err := m.lock.Heartbeat(ctx); err != nil {
 					logger.Warn(ctx, "Failed to renew the migration lock", tag.Error(err))
+					continue
 				}
+				renewedAt.Store(start.UnixNano())
 			}
 		}
 	}()
-	return func() {
+	held = func() error {
+		renewed := time.Unix(0, renewedAt.Load())
+		if time.Since(renewed) > lockStaleThreshold*3/4 || !m.lock.IsHeldByMe() {
+			return fmt.Errorf("lost the migration lock: %w", dirlock.ErrLockNotHeld)
+		}
+		return nil
+	}
+	stop = func() {
 		cancel()
 		<-stopped
 	}
+	return held, stop
 }
 
 // waitForV2 returns once no v2 scheduler or coordinator is live. A v2
@@ -369,7 +381,11 @@ func checkPlan(moves []move) error {
 			return fmt.Errorf("plan the migration: two moves to %s", mv.To)
 		}
 		targets[mv.To] = struct{}{}
-		if _, err := fileutil.Stat(mv.To); err == nil {
+		found, err := exists(mv.To)
+		switch {
+		case err != nil:
+			return fmt.Errorf("plan the migration: %w", err)
+		case found:
 			return fmt.Errorf("plan the migration: %s already exists", mv.To)
 		}
 	}
@@ -379,7 +395,7 @@ func checkPlan(moves []move) error {
 // waitForSpace returns once every copy the pending moves need fits in the
 // free space of its file system. Until then it moves nothing.
 func (m *Migrator) waitForSpace(
-	ctx context.Context, ticks <-chan time.Time, moves []move, moved map[int]struct{}, progress Progress,
+	ctx context.Context, ticks <-chan time.Time, moves []move, moved map[int]struct{}, progress Progress, held func() error,
 ) error {
 	var pending []move
 	for i, mv := range moves {
@@ -387,7 +403,7 @@ func (m *Migrator) waitForSpace(
 			pending = append(pending, mv)
 		}
 	}
-	copies, err := m.mover.planCopies(pending)
+	copies, err := m.mover.pendingCopies(pending, held)
 	if err != nil || len(copies) == 0 {
 		return err
 	}
