@@ -106,6 +106,19 @@ func TestMatchWorkerSelector(t *testing.T) {
 	}
 }
 
+// An older worker may report one key in two cases. The key that sorts first
+// decides, so every check agrees; the loop catches a result that follows map
+// iteration order.
+func TestMatchWorkerSelectorKeyInTwoCases(t *testing.T) {
+	t.Parallel()
+
+	labels := map[string]string{"Zone": "a", "ZONE": "b"}
+	for range 100 {
+		require.True(t, ir.MatchWorkerSelector(labels, map[string]string{"zone": "b"}))
+		require.False(t, ir.MatchWorkerSelector(labels, map[string]string{"zone": "a"}))
+	}
+}
+
 func TestFormatWorkerSelector(t *testing.T) {
 	t.Parallel()
 	assert.Equal(t, "{}", ir.FormatWorkerSelector(nil))

@@ -554,17 +554,20 @@ func MatchWorkerSelector(labels, selector map[string]string) bool {
 
 // workerLabelValue returns the value of the label whose key equals key
 // without case, or "" when there is none. Labels reported by workers from
-// before labels were lowercased may hold upper case.
+// before labels were lowercased may hold upper case, and may hold one key in
+// two cases; then the key that sorts first wins, so every check agrees.
 func workerLabelValue(labels map[string]string, key string) string {
 	if value, ok := labels[key]; ok {
 		return value
 	}
+	var match, value string
+	found := false
 	for k, v := range labels {
-		if strings.EqualFold(k, key) {
-			return v
+		if strings.EqualFold(k, key) && (!found || k < match) {
+			match, value, found = k, v, true
 		}
 	}
-	return ""
+	return value
 }
 
 // HasHumanTaskSteps reports whether the DAG declares a human task. An agent
