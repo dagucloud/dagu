@@ -378,7 +378,7 @@ func newScheduler(
 		},
 		Clock:           defaultClock,
 		Location:        timeLoc,
-		DataDir:         cfg.Paths.DataDir,
+		SlotSeed:        cfg.Paths.DataDir,
 		Events:          eventCh,
 		ProfileResolver: profileResolver,
 		QueuesEnabled:   queuesEnabled,
