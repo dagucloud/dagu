@@ -7119,6 +7119,8 @@ export interface components {
             queue?: string;
             /** @description Maximum number of concurrent steps allowed in a DAG run */
             maxActiveSteps?: number;
+            /** @description The DAG declares `node: required`: it runs only bound to one inventory node, so a start or enqueue names exactly one node in `targetNodes`. Omitted when false. */
+            nodeRequired?: boolean;
             /** @description List of parameter names that can be passed to DAG-runs created from this DAG */
             params?: string[];
             /** @description Ordered parameter definitions derived from DAG params for typed UI rendering and validation */

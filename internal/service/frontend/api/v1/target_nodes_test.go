@@ -101,6 +101,15 @@ steps:
 		}
 	})
 
+	t.Run("details tell a node: required DAG", func(t *testing.T) {
+		for dag, want := range map[string]bool{"bound": true, "plain": false} {
+			var details api.GetDAGDetails200JSONResponse
+			server.Client().Get("/api/v1/dags/"+dag).ExpectStatus(http.StatusOK).Send(t).Unmarshal(t, &details)
+			require.NotNil(t, details.Dag)
+			require.Equal(t, want, valueOf(details.Dag.NodeRequired), dag)
+		}
+	})
+
 	for _, tc := range []struct {
 		name    string
 		dag     string
