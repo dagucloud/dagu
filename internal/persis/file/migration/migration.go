@@ -1,0 +1,442 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// Package migration moves v2 state into the state directories of projects
+// on the first start with projects on. One process migrates under a lock;
+// every other process waits for it.
+//
+//	<data_dir>/migration/
+//	├── .dagu_lock/   held by the process that migrates
+//	├── plan.json     the moves, written once before the first move
+//	├── moved.log     the index of each finished move
+//	└── status.json   progress, which waiting processes read
+package migration
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"path/filepath"
+	"slices"
+	"sync"
+	"time"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
+)
+
+const (
+	dirName = "migration"
+
+	// pollInterval is how often a process checks again what it waits for:
+	// the lock, v2 processes, or free space.
+	pollInterval = time.Second
+	// lockStaleThreshold frees the lock of a process killed while it
+	// migrates, so the next start resumes.
+	lockStaleThreshold = 30 * time.Second
+	// statusEvery is how many moves pass between two writes of the status
+	// that waiting processes report.
+	statusEvery = 100
+)
+
+// Phase is a stage of the migration.
+type Phase string
+
+const (
+	// phaseStarting is reported until the migrating process writes its
+	// first status.
+	phaseStarting Phase = "starting"
+	// phaseWaitingForV2 waits while a v2 scheduler or coordinator is live.
+	phaseWaitingForV2 Phase = "waiting-for-v2"
+	// phaseMoving moves state.
+	phaseMoving Phase = "moving"
+	// phaseWaitingForSpace waits for free space to copy state to another
+	// file system.
+	phaseWaitingForSpace Phase = "waiting-for-space"
+	// phaseDone reports that the state is migrated.
+	phaseDone Phase = "done"
+)
+
+// Progress reports how far the migration has come.
+type Progress struct {
+	Phase Phase `json:"phase"`
+	// WaitingFor names each live v2 scheduler and coordinator.
+	WaitingFor []string `json:"waitingFor,omitempty"`
+	Moved      int      `json:"moved"`
+	Total      int      `json:"total"`
+	// Space describes the copy that waits for free space.
+	Space *SpaceShortage `json:"space,omitempty"`
+}
+
+// SpaceShortage names a file system that lacks the free space a copy needs.
+type SpaceShortage struct {
+	Path   string `json:"path"`
+	Needed uint64 `json:"neededBytes"`
+	Free   uint64 `json:"freeBytes"`
+}
+
+// Migrator migrates the state of one paths.data_dir. Progress may be called
+// while Run runs, and several processes may each run a Migrator on the same
+// directory.
+type Migrator struct {
+	journal  journal
+	lock     dirlock.DirLock
+	services serviceregistry.ServiceRegistry
+	mover    mover
+	// planMoves returns the moves of the v2 state. It runs once, under the
+	// lock, before the first move.
+	planMoves func(context.Context) ([]move, error)
+	// pollTicks returns the ticks on which a waiting process checks again,
+	// and a function that stops them.
+	pollTicks func() (<-chan time.Time, func())
+	// afterMove, when set by tests, runs after each move and before the
+	// journal records it.
+	afterMove func(index int) error
+
+	mu       sync.Mutex
+	progress Progress
+}
+
+// move moves the file or directory From to To.
+type move struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// New returns the Migrator of dataDir. services lists the live schedulers
+// and coordinators, each of which is a v2 process while the migration is
+// not done, since a v3.0 process registers only after it.
+func New(dataDir string, services serviceregistry.ServiceRegistry) *Migrator {
+	dir := filepath.Join(dataDir, dirName)
+	return &Migrator{
+		journal: journal{dir: dir},
+		lock: dirlock.New(dir, &dirlock.LockOptions{
+			StaleThreshold:   lockStaleThreshold,
+			ObserveHeartbeat: true,
+		}),
+		services:  services,
+		mover:     newMover(),
+		planMoves: planNoMoves,
+		pollTicks: newPollTicker,
+		progress:  Progress{Phase: phaseStarting},
+	}
+}
+
+// planNoMoves moves nothing; the state stays where v2 keeps it.
+func planNoMoves(context.Context) ([]move, error) {
+	return nil, nil
+}
+
+func newPollTicker() (<-chan time.Time, func()) {
+	ticker := time.NewTicker(pollInterval)
+	return ticker.C, ticker.Stop
+}
+
+// Done reports whether the state is migrated. It changes nothing on disk.
+func (m *Migrator) Done() (bool, error) {
+	status, found, err := m.journal.readStatus()
+	if err != nil || !found {
+		return false, err
+	}
+	return status.Phase == phaseDone, nil
+}
+
+// Progress returns the progress of the migration, whichever process runs it.
+func (m *Migrator) Progress() Progress {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	progress := m.progress
+	progress.WaitingFor = slices.Clone(progress.WaitingFor)
+	return progress
+}
+
+// Run returns once the state is migrated, by this process under the lock or
+// by another one it waits for. A migration that a killed process left
+// resumes where it stopped. Run waits while a v2 scheduler or coordinator is
+// live, and while a copy to another file system lacks free space, until ctx
+// ends.
+func (m *Migrator) Run(ctx context.Context) error {
+	ticks, stop := m.pollTicks()
+	defer stop()
+
+	waitLogged := false
+	for {
+		if done, err := m.checkDone(); err != nil || done {
+			return err
+		}
+		err := m.lock.TryLock()
+		if err == nil {
+			return m.migrateLocked(ctx, ticks)
+		}
+		if !errors.Is(err, dirlock.ErrLockConflict) {
+			return fmt.Errorf("take the migration lock: %w", err)
+		}
+		if !waitLogged {
+			logger.Info(ctx, "Waiting for another process to migrate state to projects",
+				tag.Dir(m.journal.dir))
+			waitLogged = true
+		}
+		if err := waitTick(ctx, ticks); err != nil {
+			return err
+		}
+	}
+}
+
+// checkDone reads the status that the migrating process writes, so this
+// process reports it while it waits.
+func (m *Migrator) checkDone() (bool, error) {
+	status, found, err := m.journal.readStatus()
+	if err != nil || !found {
+		return false, err
+	}
+	m.setProgress(status)
+	return status.Phase == phaseDone, nil
+}
+
+func (m *Migrator) migrateLocked(ctx context.Context, ticks <-chan time.Time) error {
+	stopRenewing := m.keepLock(ctx)
+	defer func() {
+		stopRenewing()
+		_ = m.lock.Unlock()
+	}()
+
+	// Another process may have finished between the check and the lock.
+	if done, err := m.checkDone(); err != nil || done {
+		return err
+	}
+	if err := m.waitForV2(ctx, ticks); err != nil {
+		return err
+	}
+	moves, err := m.loadOrPlan(ctx)
+	if err != nil {
+		return err
+	}
+	moved, err := m.journal.readMoved(len(moves))
+	if err != nil {
+		return err
+	}
+	progress := Progress{Phase: phaseMoving, Moved: len(moved), Total: len(moves)}
+	if err := m.waitForSpace(ctx, ticks, moves, moved, progress); err != nil {
+		return err
+	}
+	if err := m.publish(progress); err != nil {
+		return err
+	}
+	logger.Info(ctx, "Migrating state to projects",
+		slog.Int("moves", len(moves)), slog.Int("done", len(moved)))
+
+	for i, mv := range moves {
+		if _, ok := moved[i]; ok {
+			continue
+		}
+		if err := m.moveOne(ctx, i, mv); err != nil {
+			return err
+		}
+		progress.Moved++
+		if progress.Moved%statusEvery != 0 {
+			m.setProgress(progress)
+		} else if err := m.publish(progress); err != nil {
+			return err
+		}
+	}
+
+	progress.Phase = phaseDone
+	if err := m.publish(progress); err != nil {
+		return err
+	}
+	logger.Info(ctx, "Migrated state to projects", slog.Int("moves", len(moves)))
+	return nil
+}
+
+// moveOne makes the move at index and records it in the journal.
+func (m *Migrator) moveOne(ctx context.Context, index int, mv move) error {
+	if !m.lock.IsHeldByMe() {
+		return fmt.Errorf("lost the migration lock before moving %s: %w", mv.From, dirlock.ErrLockNotHeld)
+	}
+	if err := m.mover.move(ctx, mv); err != nil {
+		return fmt.Errorf("move %s to %s: %w", mv.From, mv.To, err)
+	}
+	if m.afterMove != nil {
+		if err := m.afterMove(index); err != nil {
+			return err
+		}
+	}
+	return m.journal.markMoved(index)
+}
+
+// keepLock renews the lock until the returned function is called, so a
+// long migration keeps it.
+func (m *Migrator) keepLock(ctx context.Context) func() {
+	ctx, cancel := context.WithCancel(ctx)
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		ticker := time.NewTicker(lockStaleThreshold / 4)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := m.lock.Heartbeat(ctx); err != nil {
+					logger.Warn(ctx, "Failed to renew the migration lock", tag.Error(err))
+				}
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-stopped
+	}
+}
+
+// waitForV2 returns once no v2 scheduler or coordinator is live. A v2
+// server has no service registry entry, so stopping it is the operator's
+// step.
+func (m *Migrator) waitForV2(ctx context.Context, ticks <-chan time.Time) error {
+	var reported []string
+	for {
+		live, err := m.liveV2(ctx)
+		if err != nil {
+			return err
+		}
+		if len(live) == 0 {
+			return nil
+		}
+		if !slices.Equal(live, reported) {
+			logger.Info(ctx, "Waiting for v2 processes to stop before migrating state to projects",
+				slog.Any("processes", live))
+			if err := m.publish(Progress{Phase: phaseWaitingForV2, WaitingFor: live}); err != nil {
+				return err
+			}
+			reported = live
+		}
+		if err := waitTick(ctx, ticks); err != nil {
+			return err
+		}
+	}
+}
+
+func (m *Migrator) liveV2(ctx context.Context) ([]string, error) {
+	var live []string
+	for _, name := range []serviceregistry.ServiceName{
+		serviceregistry.ServiceNameScheduler,
+		serviceregistry.ServiceNameCoordinator,
+	} {
+		members, err := m.services.GetServiceMembers(ctx, name)
+		if err != nil {
+			return nil, fmt.Errorf("list live %s processes: %w", name, err)
+		}
+		for _, member := range members {
+			live = append(live, fmt.Sprintf("%s %s on %s", name, member.ID, member.Host))
+		}
+	}
+	slices.Sort(live)
+	return live, nil
+}
+
+// loadOrPlan returns the plan of an earlier attempt, or plans the moves and
+// records them before the first one.
+func (m *Migrator) loadOrPlan(ctx context.Context) ([]move, error) {
+	moves, found, err := m.journal.readPlan()
+	if err != nil || found {
+		return moves, err
+	}
+	moves, err = m.planMoves(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("plan the migration: %w", err)
+	}
+	if err := checkPlan(moves); err != nil {
+		return nil, err
+	}
+	if err := m.journal.writePlan(moves); err != nil {
+		return nil, err
+	}
+	return moves, nil
+}
+
+// checkPlan refuses a plan whose moves could overwrite state. A destination
+// that exists when the plan is made would read, on resume, as a copy that
+// an earlier attempt finished.
+func checkPlan(moves []move) error {
+	targets := make(map[string]struct{}, len(moves))
+	for _, mv := range moves {
+		if _, dup := targets[mv.To]; dup {
+			return fmt.Errorf("plan the migration: two moves to %s", mv.To)
+		}
+		targets[mv.To] = struct{}{}
+		if _, err := fileutil.Stat(mv.To); err == nil {
+			return fmt.Errorf("plan the migration: %s already exists", mv.To)
+		}
+	}
+	return nil
+}
+
+// waitForSpace returns once every copy the pending moves need fits in the
+// free space of its file system. Until then it moves nothing.
+func (m *Migrator) waitForSpace(
+	ctx context.Context, ticks <-chan time.Time, moves []move, moved map[int]struct{}, progress Progress,
+) error {
+	var pending []move
+	for i, mv := range moves {
+		if _, ok := moved[i]; !ok {
+			pending = append(pending, mv)
+		}
+	}
+	copies, err := m.mover.planCopies(pending)
+	if err != nil || len(copies) == 0 {
+		return err
+	}
+	var reported *SpaceShortage
+	for {
+		shortage, err := m.mover.shortage(copies)
+		if err != nil {
+			return err
+		}
+		if shortage == nil {
+			return nil
+		}
+		if reported == nil || *reported != *shortage {
+			logger.Warn(ctx, "Waiting for free space to copy state to another file system",
+				tag.Path(shortage.Path),
+				slog.Uint64("needed-bytes", shortage.Needed),
+				slog.Uint64("free-bytes", shortage.Free))
+			waiting := progress
+			waiting.Phase = phaseWaitingForSpace
+			waiting.Space = shortage
+			if err := m.publish(waiting); err != nil {
+				return err
+			}
+			reported = shortage
+		}
+		if err := waitTick(ctx, ticks); err != nil {
+			return err
+		}
+	}
+}
+
+// publish records progress for this process and writes it for the
+// processes that wait.
+func (m *Migrator) publish(progress Progress) error {
+	m.setProgress(progress)
+	return m.journal.writeStatus(progress)
+}
+
+func (m *Migrator) setProgress(progress Progress) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.progress = progress
+}
+
+func waitTick(ctx context.Context, ticks <-chan time.Time) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-ticks:
+		return nil
+	}
+}
