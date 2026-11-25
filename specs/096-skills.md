@@ -177,9 +177,15 @@ The folder `skills/<name>/` in the DAGs directory is the only source of truth of
 keeps no state of a skill in the memory of a process. Every operation reads the folder from the disk
 when it needs it.
 
-Dagu supports several instances that share the same DAGs directory (a shared volume, or git-based
-sync) and use the scheduler lock for failover. The instances need no coordination of skills beyond
-the shared files and the hash precondition of a write. Dagu does not depend on a file watcher.
+Dagu supports several instances that share one DAGs directory, for example on a shared volume, and
+use the scheduler lock for failover. The instances need no coordination of skills beyond the shared
+files, the lock of a write and the hash precondition. Dagu does not depend on a file watcher.
+
+Instances can also each keep their own copy of the DAGs directory and sync the copies with git.
+Each copy then has its own lock, so the lock and the precondition guard the writes to one copy only.
+Two instances can each accept a write with the same hash. Dagu does not merge the two changes: the
+git sync meets them as changes of any other file of the DAGs directory and settles them by its own
+rules. Each instance then reads the files that the sync leaves, with their hash.
 
 A read can use a cache in the process. The key of the cache is the path of the folder and the data of
 each entry: the path, the kind, the mode, the size and the time of the last change. The cache gives a result only
@@ -256,7 +262,8 @@ A write without `If-Match`, other than a create with `If-None-Match: *`, is refu
 status 428. A write with a stale hash or with `If-None-Match: *` on an existing skill gives 409 with
 the code `conflict` and the current hash (`hash`). The write changes nothing. The check and the
 write are one step under the lock of the skill. So two writers that hold the same hash never both
-succeed, also on two Dagu instances.
+succeed, also on two Dagu instances that share one DAGs directory. Copies that git syncs are outside
+this guarantee, as [Source of truth](#source-of-truth) states.
 
 The precondition does not see an edit of a file above 4 MiB that keeps its size, because the hash
 holds only the size of such a file. Such a file is the error `file-too-large`, and the API never
