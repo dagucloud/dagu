@@ -667,8 +667,19 @@ reference to an output of an untrusted step is a validation error in these field
 step "gate": the field steps[2].run refers to ${steps.code.outputs.tool_calls}, an output of the untrusted step "code"; Dagu would put the value of the agent in the command: pass it through env and use "$VAR" in the command
 ```
 
-The reference is valid in the `env`, the `preconditions` and the `repeat_policy` of a step, and in
-the `with` of an action. Pass the value through `env`, and use `"$VAR"` in the command:
+Dagu runs some fields as the process user on each step, trusted or untrusted. See [Rules in each
+process](#rules-in-each-process). The reference is also a validation error in these fields of each
+step:
+
+- a command check of `preconditions` or of `repeat_policy`, which is a condition with no
+  `expected` (Spec 023, Spec 075). Dagu puts the value in the text that the shell runs.
+- the `eval` of a condition. Dagu resolves the reference first, then runs the command
+  substitutions of the text (Spec 011).
+- a field of `with` that the action runs as a command or a script, such as `with.command` of
+  `ssh.run`. The command runs on the remote host with the credentials of the step.
+
+The reference is valid in the `env` of a step, in a condition with `expected`, and in a field of
+`with` that the action reads as data. Pass the value through `env`, and use `"$VAR"` in the command:
 
 ```yaml
   - id: gate
@@ -1038,6 +1049,9 @@ These points describe behavior that Dagu has without this spec. The verify loop 
 - a reference to an output of an untrusted step in the `run`, the `command`, the `script`, the
   `shell` or the `shell_args` of a trusted step. A step that is untrusted by default is an untrusted
   step.
+- a reference to an output of an untrusted step, on any step, in a command check of
+  `preconditions` or of `repeat_policy`, in the `eval` of a condition, or in a field of `with`
+  that the action runs as a command or a script
 
 These cases stop a process at start with the exit code 1:
 
