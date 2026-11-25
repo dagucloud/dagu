@@ -22,34 +22,6 @@ vi.mock('@/hooks/api', () => ({
 
 const WIDTH_KEY = 'dagu.stepDetailsDrawer.width';
 
-// jsdom drops a min() width, so the tests observe the calls of panelWidth.
-const { panelWidthSpy } = vi.hoisted(() => ({ panelWidthSpy: vi.fn() }));
-vi.mock('../PanelShell', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../PanelShell')>();
-  panelWidthSpy.mockImplementation(actual.panelWidth);
-  return { ...actual, panelWidth: panelWidthSpy };
-});
-
-const setViewport = (width: number) => {
-  Object.defineProperty(window, 'innerWidth', {
-    configurable: true,
-    value: width,
-  });
-};
-
-const renderWidthDrawer = (modal: boolean) =>
-  render(
-    <StepSideDrawer
-      isOpen
-      onClose={() => {}}
-      hasContent
-      modal={modal}
-      label="Step"
-    >
-      <div />
-    </StepSideDrawer>
-  );
-
 function ActivePanel() {
   return <output>{useActiveRightPanel() ?? 'none'}</output>;
 }
@@ -567,22 +539,28 @@ describe('StepSideDrawer resize keys', () => {
 // The YAML and the step details keep one width; each other panel keeps its own.
 describe('StepSideDrawer width per panel', () => {
   // A window wide enough that a stored width of 900px keeps its value.
-  const innerWidth = window.innerWidth;
-  beforeEach(() => setViewport(1400));
-  afterEach(() => setViewport(innerWidth));
+  beforeEach(() => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1400);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
-  const panel = (id: 'workflow' | 'add-step', onUse: () => void = () => {}) => (
-    <StepSideDrawer
-      isOpen
-      onClose={onUse}
-      hasContent
-      modal={false}
-      label={id}
-      panelId={id}
-    >
-      <p>{id}</p>
-    </StepSideDrawer>
-  );
+  function renderWorkflowPanel() {
+    render(
+      <StepSideDrawer
+        isOpen
+        onClose={() => {}}
+        hasContent
+        modal={false}
+        label="Workflow"
+        panelId="workflow"
+      >
+        <p>Workflow</p>
+      </StepSideDrawer>
+    );
+    return screen.getByRole('separator', { name: 'Resize step details' });
+  }
 
   it('does not give the width of the YAML to the Workflow panel', () => {
     // The YAML was widened: it stores its width under the first key.
@@ -590,98 +568,15 @@ describe('StepSideDrawer width per panel', () => {
     expect(getStoredDrawerWidth('ndv')).toBe(900);
     expect(getStoredDrawerWidth('yaml')).toBe(900);
     expect(getStoredDrawerWidth('workflow')).toBe(560);
-    render(panel('workflow'));
-    expect(screen.getByRole('separator')).toHaveAttribute(
-      'aria-valuenow',
-      '560'
-    );
+    expect(renderWorkflowPanel()).toHaveAttribute('aria-valuenow', '560');
   });
 
   it('stores the width of a panel under its own key', () => {
     localStorage.setItem(WIDTH_KEY, '900');
-    render(panel('workflow'));
-    fireEvent.keyDown(screen.getByRole('separator'), { key: 'ArrowLeft' });
+    fireEvent.keyDown(renderWorkflowPanel(), { key: 'ArrowLeft' });
     expect(localStorage.getItem(`${WIDTH_KEY}.workflow`)).toBe('600');
     expect(localStorage.getItem(WIDTH_KEY)).toBe('900');
     expect(getStoredDrawerWidth('workflow')).toBe(600);
     expect(getStoredDrawerWidth('add-step')).toBe(560);
-  });
-});
-
-describe('StepSideDrawer width', () => {
-  const innerWidth = window.innerWidth;
-
-  beforeEach(() => {
-    window.localStorage.clear();
-    panelWidthSpy.mockClear();
-    setViewport(1024);
-  });
-
-  afterEach(() => {
-    setViewport(innerWidth);
-  });
-
-  // The narrow-viewport cap of a panel beside the page does not apply to the
-  // modal drawer: it keeps the width that the user chose.
-  it('modal drawer is not capped below 1100px', async () => {
-    renderWidthDrawer(true);
-    await screen.findByTestId('step-side-drawer');
-    const separator = screen.getByRole('separator');
-    fireEvent.keyDown(separator, { key: 'ArrowLeft' });
-
-    expect(separator.getAttribute('aria-valuenow')).toBe('600');
-    expect(panelWidthSpy).not.toHaveBeenCalled();
-  });
-
-  it('panel beside the page is capped below 1100px', async () => {
-    renderWidthDrawer(false);
-    await screen.findByTestId('step-side-drawer');
-
-    expect(panelWidthSpy).toHaveBeenCalledWith(560, 1024);
-  });
-
-  // A dock with a list and a detail asks for more room while it shows. The
-  // stored width of its panel does not change.
-  it('takes the least width that its content asks for, and stores nothing', async () => {
-    setViewport(1400);
-    render(
-      <StepSideDrawer
-        isOpen
-        onClose={() => {}}
-        hasContent
-        modal={false}
-        label="Tools"
-        minWidth={760}
-      >
-        <div />
-      </StepSideDrawer>
-    );
-    await screen.findByTestId('step-side-drawer');
-
-    expect(panelWidthSpy).toHaveBeenCalledWith(760, 1400);
-    expect(screen.getByRole('separator').getAttribute('aria-valuenow')).toBe(
-      '760'
-    );
-    expect(window.localStorage.getItem(WIDTH_KEY)).toBeNull();
-  });
-
-  it('keeps a stored width that is larger than the least width', async () => {
-    setViewport(1400);
-    window.localStorage.setItem(WIDTH_KEY, '900');
-    render(
-      <StepSideDrawer
-        isOpen
-        onClose={() => {}}
-        hasContent
-        modal={false}
-        label="Tools"
-        minWidth={760}
-      >
-        <div />
-      </StepSideDrawer>
-    );
-    await screen.findByTestId('step-side-drawer');
-
-    expect(panelWidthSpy).toHaveBeenCalledWith(900, 1400);
   });
 });

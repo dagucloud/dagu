@@ -55,12 +55,6 @@ type StepSideDrawerProps = {
    * the body of a tab: no shell, width or claim of a right-panel slot.
    */
   column?: HTMLElement | null;
-  /**
-   * The least width, in pixels, for the content that shows now. The drawer is
-   * this wide while that content shows, even when the stored width is smaller,
-   * and the stored width does not change. A larger stored width still applies.
-   */
-  minWidth?: number;
   children: React.ReactNode;
 };
 
@@ -214,7 +208,6 @@ export function PanelResizeHandle({
   shown,
   modal = false,
   panelId,
-  leastWidth = 0,
 }: {
   /** True while the panel is shown, so that the size of its zone is known. */
   shown: boolean;
@@ -222,8 +215,6 @@ export function PanelResizeHandle({
   modal?: boolean;
   /** The panel that the handle sizes; the panel that shows when omitted. */
   panelId?: RightPanelId | null;
-  /** The width that the content asks for: the handle shows at least this. */
-  leastWidth?: number;
 }) {
   const { ts } = useI18n();
   const handleRef = React.useRef<HTMLDivElement>(null);
@@ -235,11 +226,7 @@ export function PanelResizeHandle({
   const cap = modal ? undefined : viewport;
   const maxWidth = panelMaxWidthIn(room, cap);
   const minWidth = Math.min(PANEL_MIN_WIDTH, maxWidth);
-  const width = clampPanelWidth(
-    Math.max(usePanelWidth(sizedPanel), leastWidth),
-    room,
-    cap
-  );
+  const width = clampPanelWidth(usePanelWidth(sizedPanel), room, cap);
   const clamp = (next: number) => clampPanelWidth(next, room, cap);
 
   const onMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -312,15 +299,12 @@ export function StepSideDrawer({
   onRestore,
   closeOnPageEscape = false,
   column,
-  minWidth = 0,
   children,
 }: StepSideDrawerProps) {
   useRightPanelClaim(column ? null : panelId, isOpen, onClose, onRestore);
   const placement = usePanelPlacement();
   const viewport = useViewportWidth();
-  const storedWidth = usePanelWidth(panelId ?? null);
-  // A dock with a list and a detail asks for more room while it shows.
-  const shownWidth = Math.max(storedWidth, minWidth);
+  const drawerWidth = usePanelWidth(panelId ?? null);
   const [shouldRender, setShouldRender] = React.useState(false);
   const [isVisible, setIsVisible] = React.useState(false);
   const drawerRef = React.useRef<HTMLElement>(null);
@@ -546,15 +530,14 @@ export function StepSideDrawer({
       style={{
         // A modal drawer covers the page: the cap beside the page does not apply.
         width: modal
-          ? `min(100vw, ${shownWidth}px)`
-          : panelWidth(shownWidth, viewport),
+          ? `min(100vw, ${drawerWidth}px)`
+          : panelWidth(drawerWidth, viewport),
       }}
     >
       <PanelResizeHandle
         shown={isOpen}
         modal={modal}
         panelId={panelId ?? null}
-        leastWidth={minWidth}
       />
       {header}
       {children}
