@@ -335,6 +335,15 @@ describe('RunActionsCluster', () => {
     expect(screen.queryByTestId('ww-run-actions')).toBeNull();
   });
 
+  // The actions act on the shown run, not on the workflow that Start runs.
+  it('names the run that its actions act on', () => {
+    setup(details('failed'));
+    const group = screen.getByRole('group', { name: 'This run' });
+    expect(
+      within(group).getByRole('button', { name: 'Retry' })
+    ).toBeInTheDocument();
+  });
+
   // parity:actions-stop
   // parity:api-stop
   it('stops the selected run, or every running instance', async () => {

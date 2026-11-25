@@ -198,10 +198,11 @@ export function WorkflowBar({
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {/* The run icons never shrink: a long name or label gives way first,
             so that no icon is cut by a pixel. They sit before Start, which
-            stays at the same place whatever the run shows. */}
+            stays at the same place whatever the run shows, and a rule parts
+            them from it: Stop never sits right next to Start. */}
         <div
           data-testid="ww-bar-run-actions"
-          className="flex shrink-0 items-center"
+          className="flex shrink-0 items-center gap-2 empty:hidden after:mr-1 after:h-5 after:w-px after:bg-border"
         >
           <RunActionsCluster {...slot} />
         </div>

@@ -23,9 +23,10 @@ import { cn } from '@/lib/utils';
 /**
  * The actions of the selected run, past or active, with runDags: the button
  * that opens the Actions tab for a run that waits for a person, then stop,
- * cancel auto-retry, reject, retry, reschedule and dequeue. The actions have
- * one slot of one icon, there, empty, when the run has no action. Absent for
- * a workflow that never ran.
+ * cancel auto-retry, reject, retry, reschedule and dequeue. One box named
+ * "This run" holds them, so that they read apart from Start, which starts a
+ * new run. The actions have one slot of one icon, there, empty, when the run
+ * has no action. Absent for a workflow that never ran.
  */
 export function RunActionsCluster({ fileName, dag }: BarSlotProps) {
   const { ts } = useI18n();
@@ -53,7 +54,20 @@ export function RunActionsCluster({ fileName, dag }: BarSlotProps) {
       waitingSubRunNodes.length >
       0;
   return (
-    <div data-testid="ww-run-actions" className="flex items-center gap-1">
+    <div
+      data-testid="ww-run-actions"
+      role="group"
+      aria-label={ts('This run')}
+      className="flex items-center gap-1 rounded-lg border border-border/80 bg-muted/50 p-0.5 @5xl:pl-2"
+    >
+      {/* The name shows from a bar of 1024px; below it the box alone parts
+          the actions from Start. */}
+      <span
+        aria-hidden="true"
+        className="hidden pr-0.5 text-xs font-medium text-muted-foreground @5xl:inline"
+      >
+        {ts('This run')}
+      </span>
       {actionsWaiting && (
         <ActionButton
           label="wide"
