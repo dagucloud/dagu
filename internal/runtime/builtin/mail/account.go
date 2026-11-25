@@ -13,7 +13,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailbox"
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
-	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
+	"github.com/dagucloud/dagu/v2/internal/cmn/oauth"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
