@@ -6,6 +6,7 @@ package dagrun
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,4 +50,28 @@ func TestRunPathsRetryCandidateRebuild(t *testing.T) {
 	status, err := attempt.ReadStatus(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, logFile, status.Log)
+}
+
+// A write that compacts a status file grown past its limit keeps the record
+// in its stored form, so a long-running run keeps relative paths.
+func TestRunPathsSizeCompaction(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	dirs := runpath.Dirs{Log: filepath.Join(root, "logs"), Artifact: filepath.Join(root, "artifacts")}
+	file := filepath.Join(createTempDir(t), "status.dat")
+	att, err := NewAttempt(file, nil, withRunPaths(runpath.New(dirs, dirs, true)))
+	require.NoError(t, err)
+	require.NoError(t, att.Open(ctx))
+	defer func() { _ = att.Close(ctx) }()
+
+	big := createTestStatus(ir.Running)
+	big.Log = filepath.Join(dirs.Log, "etl", "dag-run_run-1", "dag-run.log")
+	big.Nodes[0].Error = strings.Repeat("y", statusFileMaxSize+1)
+	require.NoError(t, att.Write(ctx, big))
+	require.NoError(t, att.Write(ctx, big))
+	require.Zero(t, att.appended, "the second write compacts")
+
+	stored, err := ParseStatusFile(file)
+	require.NoError(t, err)
+	assert.Equal(t, "./etl/dag-run_run-1/dag-run.log", stored.Log)
 }
