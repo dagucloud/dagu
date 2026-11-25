@@ -1481,6 +1481,27 @@ describe('DagsPage', () => {
       expect(activityReads()).toHaveLength(2);
       expect(runsOf('next.yaml')).toBe('3');
     });
+
+    // A new query starts from its first page: the second page that the list
+    // loaded for the query before is not read for it.
+    it('reads no later page for a new query that has not loaded one', async () => {
+      answerNextPage();
+      renderPage();
+      await loadMore();
+
+      await act(async () => {
+        fireEvent.change(screen.getByRole('textbox', { name: 'Search DAGs' }), {
+          target: { value: 'demo' },
+        });
+        vi.advanceTimersByTime(500);
+        await settle();
+      });
+
+      expect(lastQuery('/dag-list-activity')).toEqual(
+        expect.objectContaining({ name: 'demo' })
+      );
+      expect(activityReads()).toHaveLength(1);
+    });
   });
 
   // The first page is live and the next pages are read once. A workflow that
