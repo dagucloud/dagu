@@ -22,6 +22,9 @@ type instanceInfo struct {
 	PID       int                           `json:"pid"`
 	Status    serviceregistry.ServiceStatus `json:"status"`
 	StartedAt time.Time                     `json:"startedAt"`
+	// ReleasedProjects lists the projects whose stores the instance has
+	// released.
+	ReleasedProjects []string `json:"releasedProjects,omitempty"`
 }
 
 // instanceFilePath returns the file path for an instance
