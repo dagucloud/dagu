@@ -2301,9 +2301,10 @@ func (l *ConfigLoader) loadLegacyPaths(cfg *Config, def Definition) error {
 // loadLegacyEnv maps deprecated environment variables to current configuration.
 func (l *ConfigLoader) loadLegacyEnv(cfg *Config) {
 	type legacyEnvMapping struct {
-		newKey   string
-		setting  string
-		setter   func(*Config, string)
+		newKey  string
+		setting string
+		// setter applies the value and reports whether it accepted it.
+		setter   func(*Config, string) bool
 		requires ConfigSection
 	}
 
@@ -2311,53 +2312,56 @@ func (l *ConfigLoader) loadLegacyEnv(cfg *Config) {
 		"DAGU__ADMIN_NAVBAR_COLOR": {
 			newKey:   "DAGU_NAVBAR_COLOR",
 			setting:  "ui.navbar_color",
-			setter:   func(c *Config, v string) { c.UI.NavbarColor = v },
+			setter:   func(c *Config, v string) bool { c.UI.NavbarColor = v; return true },
 			requires: SectionUI,
 		},
 		"DAGU__ADMIN_NAVBAR_TITLE": {
 			newKey:   "DAGU_NAVBAR_TITLE",
 			setting:  "ui.navbar_title",
-			setter:   func(c *Config, v string) { c.UI.NavbarTitle = v },
+			setter:   func(c *Config, v string) bool { c.UI.NavbarTitle = v; return true },
 			requires: SectionUI,
 		},
 		"DAGU__ADMIN_PORT": {
 			newKey:  "DAGU_PORT",
 			setting: "port",
-			setter: func(c *Config, v string) {
-				if i, err := strconv.Atoi(v); err == nil {
-					c.Server.Port = i
+			setter: func(c *Config, v string) bool {
+				i, err := strconv.Atoi(v)
+				if err != nil {
+					return false
 				}
+				c.Server.Port = i
+				return true
 			},
 			requires: SectionServer,
 		},
 		"DAGU__ADMIN_HOST": {
 			newKey:   "DAGU_HOST",
 			setting:  "host",
-			setter:   func(c *Config, v string) { c.Server.Host = v },
+			setter:   func(c *Config, v string) bool { c.Server.Host = v; return true },
 			requires: SectionServer,
 		},
 		"DAGU__DATA": {
 			newKey:   "DAGU_DATA_DIR",
 			setting:  "paths.data_dir",
-			setter:   func(c *Config, v string) { c.Paths.DataDir = fileutil.ResolvePathOrBlank(v) },
+			setter:   func(c *Config, v string) bool { c.Paths.DataDir = fileutil.ResolvePathOrBlank(v); return true },
 			requires: SectionNone,
 		},
 		"DAGU__SUSPEND_FLAGS_DIR": {
 			newKey:   "DAGU_SUSPEND_FLAGS_DIR",
 			setting:  "paths.suspend_flags_dir",
-			setter:   func(c *Config, v string) { c.Paths.SuspendFlagsDir = fileutil.ResolvePathOrBlank(v) },
+			setter:   func(c *Config, v string) bool { c.Paths.SuspendFlagsDir = fileutil.ResolvePathOrBlank(v); return true },
 			requires: SectionNone,
 		},
 		"DAGU__ADMIN_LOGS_DIR": {
 			newKey:   "DAGU_ADMIN_LOG_DIR",
 			setting:  "paths.admin_logs_dir",
-			setter:   func(c *Config, v string) { c.Paths.AdminLogsDir = fileutil.ResolvePathOrBlank(v) },
+			setter:   func(c *Config, v string) bool { c.Paths.AdminLogsDir = fileutil.ResolvePathOrBlank(v); return true },
 			requires: SectionNone,
 		},
 		"DAGU__EVENT_STORE_DIR": {
 			newKey:   "DAGU_EVENT_STORE_DIR",
 			setting:  "paths.event_store_dir",
-			setter:   func(c *Config, v string) { c.Paths.EventStoreDir = fileutil.ResolvePathOrBlank(v) },
+			setter:   func(c *Config, v string) bool { c.Paths.EventStoreDir = fileutil.ResolvePathOrBlank(v); return true },
 			requires: SectionNone,
 		},
 	}
@@ -2369,8 +2373,9 @@ func (l *ConfigLoader) loadLegacyEnv(cfg *Config) {
 
 		if value := os.Getenv(oldKey); value != "" {
 			log.Printf("%s is deprecated. Use %s instead.", oldKey, mapping.newKey)
-			mapping.setter(cfg, value)
-			l.reportLegacy(mapping.setting, value, SourceEnvPrefix+oldKey)
+			if mapping.setter(cfg, value) {
+				l.reportLegacy(mapping.setting, value, SourceEnvPrefix+oldKey)
+			}
 		}
 	}
 }

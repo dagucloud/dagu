@@ -174,13 +174,24 @@ scheduler:
 // A deprecated DAGU__ variable overrides the config file, and the report
 // names it as the source.
 func TestSettingsLegacyEnv(t *testing.T) {
-	t.Setenv("DAGU__DATA", "/srv/env-data")
-	t.Setenv("DAGU__ADMIN_PORT", "9090")
+	t.Run("Applied", func(t *testing.T) {
+		t.Setenv("DAGU__DATA", "/srv/env-data")
+		t.Setenv("DAGU__ADMIN_PORT", "9090")
 
-	settings := loadSettings(t, "data_dir: /srv/data\nport: 8090\n")
+		settings := loadSettings(t, "data_dir: /srv/data\nport: 8090\n")
 
-	assert.Equal(t, Setting{Key: "paths.data_dir", Value: "/srv/env-data", Source: "env:DAGU__DATA"}, settings["paths.data_dir"])
-	assert.Equal(t, Setting{Key: "port", Value: "9090", Source: "env:DAGU__ADMIN_PORT"}, settings["port"])
+		assert.Equal(t, Setting{Key: "paths.data_dir", Value: "/srv/env-data", Source: "env:DAGU__DATA"}, settings["paths.data_dir"])
+		assert.Equal(t, Setting{Key: "port", Value: "9090", Source: "env:DAGU__ADMIN_PORT"}, settings["port"])
+	})
+
+	// Load ignores a port that is not a number, so the file value stays.
+	t.Run("Ignored", func(t *testing.T) {
+		t.Setenv("DAGU__ADMIN_PORT", "invalid")
+
+		settings := loadSettings(t, "port: 8090\n")
+
+		assert.Equal(t, Setting{Key: "port", Value: "8090", Source: SourceFile}, settings["port"])
+	})
 }
 
 // admin.yaml still accepts the camelCase signal handling key; the report
