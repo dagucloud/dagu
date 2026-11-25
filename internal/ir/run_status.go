@@ -330,6 +330,26 @@ type ReusedInput struct {
 	Via        ReusedInputVia `json:"via"`
 }
 
+// StepChange names what changed for a step since a run that it carries
+// outputs from.
+type StepChange string
+
+const (
+	// StepChangeStep marks a change of the step's own definition.
+	StepChangeStep StepChange = "step"
+	// StepChangeDependency marks a change of a step it depends on.
+	StepChangeDependency StepChange = "dependency"
+	// StepChangeParams marks other resolved parameters.
+	StepChangeParams StepChange = "params"
+	// StepChangeProfile marks another runtime profile.
+	StepChangeProfile StepChange = "profile"
+	// StepChangeBaseConfig marks other values of the base config.
+	StepChangeBaseConfig StepChange = "baseConfig"
+	// StepChangeSettings marks a change of the DAG's definition other than its
+	// steps.
+	StepChangeSettings StepChange = "settings"
+)
+
 // EffectiveClaimKey returns ClaimKey, falling back to AttemptKey when no claim
 // is recorded.
 func (s DAGRunStatus) EffectiveClaimKey() string {

@@ -306,7 +306,7 @@ Shell selection order is:
 
 - The server MUST reject an entry of `outputsFromRuns` with HTTP 400 and the message `step X cannot be reused from run Y: <reason>` when one of these is true. The run does not exist for the DAG (it was removed, or it belongs to another DAG). The run is not finished. The run has no node for the step. The step did not succeed in the run and carried no outputs into it, neither from another run nor from `outputs`. A normal run and an ephemeral run that still exists can both be the source.
 
-- The server MUST also reject an entry of `outputsFromRuns`, with the same message, when the step is not as it was in that run, as `reuseFrom` compares a step: its definition, the DAG's definition other than its steps, the base config, the run's resolved parameters and runtime profile, and the steps it depends on. The reason is `the parameters, runtime profile, base config, or top-level settings differ from that run` when what every step shares changed, and `the step or a step it depends on changed since that run` otherwise. These reasons come after the reasons above, and the message names every entry refused for them, joined by `; `. `outputsFromRunId` is not checked this way.
+- The server MUST also reject an entry of `outputsFromRuns`, with the same message, when the step changed since that run, as [Changed Steps](#changed-steps) defines. These reasons come after the reasons above, and the message names every entry refused for them, joined by `; `. `outputsFromRunId` is not checked this way.
 
 - A step selected to run MUST NOT be a key of `outputsFromRuns`. An unknown step, a run ID that is not valid, or two keys that address one step is rejected with HTTP 400.
 
@@ -324,11 +324,28 @@ Shell selection order is:
 
 - A reference to an output that nobody supplied is not an error of the request. The reference stays literal text, as Spec 007 defines, and the selected step runs with that text.
 
+#### Changed Steps
+
+A step changed since a run when one of these differs between that run and the new run. Each change has a name and a noun for the reason.
+
+| Change | What differs | Noun |
+|---|---|---|
+| `step` | the step's own definition, as loaded | the step |
+| `dependency` | a step it depends on (by `depends`, an inferred dependency, or a router), or a step that one depends on | a step it depends on |
+| `params` | the resolved parameters | the parameters |
+| `profile` | the runtime profile | the runtime profile |
+| `baseConfig` | the base config, by its values | the base config |
+| `settings` | the DAG's definition other than its steps, with the local sub-DAGs that follow it in the file | the top-level settings |
+
+- The base config counts by its values: comments, spacing, and SMTP do not count.
+- `settings` leaves out `params`, which count as resolved. Of the handlers, only `handler_on.init` counts, since it runs before the steps; the other handlers run after them. The handlers of the base config count the same way.
+- The reason names every change in the order of the table, joined as a sentence and followed by `changed since that run`, such as `the step and the parameters changed since that run`.
+
 #### Reusing Unchanged Steps
 
 `reuseFrom` names a finished run of the same DAG, a normal run or an ephemeral run that still exists. The run chooses its steps itself and reuses the steps that did not change since that run.
 
-- A step is reused when its definition, the DAG's definition other than its steps, the base config, the run's resolved parameters and runtime profile, and the steps it depends on (by `depends`, an inferred dependency, or a router) are as they were in that run, and its node there succeeded or carried outputs, from another run or from `outputs`. The base config counts by its values: comments, spacing and SMTP do not count. A reused step is recorded as skipped and carries its outputs from that run, as a step of `outputsFromRuns` does. The run takes that run's work directory, as with `outputsFromRunId`.
+- A step is reused when it did not change since that run, as [Changed Steps](#changed-steps) defines, and its node there succeeded or carried outputs, from another run or from `outputs`. A reused step is recorded as skipped and carries its outputs from that run, as a step of `outputsFromRuns` does. The run takes that run's work directory, as with `outputsFromRunId`.
 
 - Every other step runs, and so does every step after a step that runs, so it reads what that step does now. Every step that gives the same `browser.share` as a step that runs runs too, since each starts on the page the step before it left.
 

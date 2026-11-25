@@ -44,6 +44,18 @@ func loadReuseDAG(t *testing.T, yaml string) *ir.DAG {
 	return dag
 }
 
+// localDAGSpec is a local sub-DAG that a DAG file can define after its DAG.
+const localDAGSpec = `---
+name: archive
+steps:
+  - run: echo archive
+`
+
+// withHandler adds a handler of the event to the DAG spec, before its steps.
+func withHandler(spec, event string) string {
+	return strings.Replace(spec, "steps:", "handler_on:\n  "+event+":\n    run: echo "+event+"\nsteps:", 1)
+}
+
 func succeededRun(dag *ir.DAG) *ir.DAGRunStatus {
 	status := &ir.DAGRunStatus{DAGRunID: "earlier", Status: ir.Succeeded, Params: strings.Join(dag.Params, " ")}
 	for _, step := range dag.Steps {
@@ -75,6 +87,9 @@ func TestStepsToRun(t *testing.T) {
 		{name: "ChangedProfile", yaml: reuseSpec, profile: "staging", want: []string{"page", "filter", "report", "notes"}},
 		{name: "FailedStepAndTheStepsAfterIt", yaml: reuseSpec, failed: "filter", want: []string{"filter", "report"}},
 		{name: "AddedStep", yaml: reuseSpec + "  - id: archive\n    run: echo archive\n", want: []string{"archive"}},
+		{name: "AddedSuccessHandler", yaml: withHandler(reuseSpec, "success"), want: nil},
+		{name: "AddedInitHandler", yaml: withHandler(reuseSpec, "init"), want: []string{"page", "filter", "report", "notes"}},
+		{name: "AddedLocalDAG", yaml: reuseSpec + localDAGSpec, want: []string{"page", "filter", "report", "notes"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -95,14 +110,12 @@ func TestStepsToRun(t *testing.T) {
 	}
 }
 
-// A step carried from a run must be as StepsToRun would reuse it: a change of
-// the step, a step it depends on, the parameters, the profile, or the settings
-// outside the steps rejects it, and the error says which kind of change.
+// A step carried from a run must be as StepsToRun would reuse it, and the
+// error names each kind of change.
 func TestCheckRunStepsUnchanged(t *testing.T) {
 	t.Parallel()
 
-	const settingsChanged = "step filter cannot be reused from run earlier: the parameters, runtime profile, base config, or top-level settings differ from that run"
-	const stepChanged = "step filter cannot be reused from run earlier: the step or a step it depends on changed since that run"
+	const refused = "step filter cannot be reused from run earlier: "
 	earlier := loadReuseDAG(t, reuseSpec)
 	for _, tc := range []struct {
 		name string
@@ -116,11 +129,17 @@ func TestCheckRunStepsUnchanged(t *testing.T) {
 	}{
 		{name: "Unchanged", yaml: reuseSpec},
 		{name: "ChangedStepThatItDoesNotNeed", yaml: strings.Replace(reuseSpec, "echo notes", "echo all notes", 1)},
-		{name: "ChangedStep", yaml: strings.Replace(reuseSpec, "under 7000", "under 5000", 1), wantErr: stepChanged},
-		{name: "ChangedStepThatItNeeds", yaml: strings.Replace(reuseSpec, "echo rows", "echo all rows", 1), wantErr: stepChanged},
-		{name: "ChangedParameters", yaml: reuseSpec, params: []string{"MAX=5000"}, wantErr: settingsChanged},
-		{name: "ChangedProfile", yaml: reuseSpec, profile: "staging", wantErr: settingsChanged},
-		{name: "ChangedEnvironment", yaml: strings.Replace(reuseSpec, "homes.example.com", "homes.example.org", 1), wantErr: settingsChanged},
+		{name: "AddedSuccessHandler", yaml: withHandler(reuseSpec, "success")},
+		{name: "ChangedStep", yaml: strings.Replace(reuseSpec, "under 7000", "under 5000", 1), wantErr: refused + "the step changed since that run"},
+		{name: "ChangedStepThatItNeeds", yaml: strings.Replace(reuseSpec, "echo rows", "echo all rows", 1), wantErr: refused + "a step it depends on changed since that run"},
+		{name: "ChangedParameters", yaml: reuseSpec, params: []string{"MAX=5000"}, wantErr: refused + "the parameters changed since that run"},
+		// The default counts once, as the parameters the run resolves.
+		{name: "ChangedParameterDefault", yaml: strings.Replace(reuseSpec, "MAX: 7000", "MAX: 5000", 1), wantErr: refused + "the parameters changed since that run"},
+		{name: "ChangedProfile", yaml: reuseSpec, profile: "staging", wantErr: refused + "the runtime profile changed since that run"},
+		{name: "ChangedEnvironment", yaml: strings.Replace(reuseSpec, "homes.example.com", "homes.example.org", 1), wantErr: refused + "the top-level settings changed since that run"},
+		{name: "AddedInitHandler", yaml: withHandler(reuseSpec, "init"), wantErr: refused + "the top-level settings changed since that run"},
+		{name: "AddedLocalDAG", yaml: reuseSpec + localDAGSpec, wantErr: refused + "the top-level settings changed since that run"},
+		{name: "ChangedStepAndParameters", yaml: strings.Replace(reuseSpec, "under 7000", "under 5000", 1), params: []string{"MAX=5000"}, profile: "staging", wantErr: refused + "the step, the parameters, and the runtime profile changed since that run"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -142,7 +161,7 @@ func TestCheckRunStepsUnchanged(t *testing.T) {
 
 // A run keeps the base config as its snapshot writes it again: without
 // comments, with SMTP taken out, and with an env mapping as a list. Only a
-// change of a value other than SMTP counts.
+// change of a value other than SMTP and the handlers after the steps counts.
 func TestCheckRunStepsUnchangedBaseConfig(t *testing.T) {
 	t.Parallel()
 
@@ -154,7 +173,9 @@ func TestCheckRunStepsUnchangedBaseConfig(t *testing.T) {
 	}{
 		{name: "SameValues", base: ran},
 		{name: "OtherSMTP", base: strings.Replace(ran, "mail.example.com", "mail.example.org", 1)},
-		{name: "OtherValue", base: strings.Replace(ran, "max_active_steps: 10", "max_active_steps: 5", 1), wantErr: "step filter cannot be reused from run earlier: the parameters, runtime profile, base config, or top-level settings differ from that run"},
+		{name: "OtherSuccessHandler", base: ran + "handler_on:\n  success:\n    run: echo done\n"},
+		{name: "OtherValue", base: strings.Replace(ran, "max_active_steps: 10", "max_active_steps: 5", 1), wantErr: "step filter cannot be reused from run earlier: the base config changed since that run"},
+		{name: "OtherInitHandler", base: ran + "handler_on:\n  init:\n    run: echo ready\n", wantErr: "step filter cannot be reused from run earlier: the base config changed since that run"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -187,8 +208,8 @@ func TestCheckRunStepsUnchangedNamesEach(t *testing.T) {
 	err := intake.CheckRunStepsUnchanged(dag, "",
 		intake.RunStepSources{"page": run, "filter": run, "notes": run},
 		intake.RunDefinitions{"earlier": earlier})
-	require.EqualError(t, err, "step filter cannot be reused from run earlier: the step or a step it depends on changed since that run; "+
-		"step page cannot be reused from run earlier: the step or a step it depends on changed since that run")
+	require.EqualError(t, err, "step filter cannot be reused from run earlier: a step it depends on changed since that run; "+
+		"step page cannot be reused from run earlier: the step changed since that run")
 }
 
 // A step that the earlier run skipped by retry is reused when the caller

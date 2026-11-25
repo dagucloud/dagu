@@ -261,13 +261,13 @@ func TestStartStepsRejectsAChangedStep(t *testing.T) {
 			name:    "OtherParameters",
 			dag:     dag,
 			runID:   "params-run",
-			wantMsg: "step build cannot be reused from run params-run: the parameters, runtime profile, base config, or top-level settings differ from that run",
+			wantMsg: "step build cannot be reused from run params-run: the parameters changed since that run",
 		},
 		{
 			name:    "ChangedStep",
 			dag:     edited,
 			runID:   "same-run",
-			wantMsg: "step build cannot be reused from run same-run: the step or a step it depends on changed since that run",
+			wantMsg: "step build cannot be reused from run same-run: the step changed since that run",
 		},
 	}
 	for _, tt := range tests {
