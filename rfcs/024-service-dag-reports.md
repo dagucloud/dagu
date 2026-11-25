@@ -167,14 +167,16 @@ protocol stays 2.
   sum of durations, and the uptime with the run in progress, as the run
   history API does with `WithActive`
   (`internal/service/frontend/api/v1/run_history.go:129`). `up_ms` is null
-  for a history with no uptime record and for the hour it first recorded a
-  run's active time in and before, so the time before a new service ran
-  does not count as down. An hour with no run and no known uptime is left
+  for a history with no uptime record and for the hours that start before
+  it first recorded a run's active time, so the time before a new service
+  ran does not count as down. An hour with no run and no known uptime is left
   out. `samples.Bucket` (`internal/samples/contract.go:101`) gains `Sum`;
   the stored aggregate already keeps it.
 - **Limits.** At most 500 entries and 256 KiB. Past them the reporter drops
   the oldest hours first, then the oldest events, then whole entries, and
-  sets `service_dags_total` to the count of service DAGs. The report stays
+  sets `service_dags_total` to the count of service DAGs. A DAG cut whole
+  keeps what the last accepted report sent of it, and so does the newest
+  event of an entry whose events were all cut. The report stays
   under the 2 MiB Console accepts with the finished runs (512 KiB) and the
   runs in progress it carries today.
 
@@ -190,10 +192,12 @@ protocol stays 2.
   ended in the events it read, for the next three checks.
 - A recovery waits for the next report, since Console resolves the alert
   only after the same 10 minutes.
-- The reporter keeps, per DAG, the newest event time, the hour, and the
-  start hour of the run then in progress that the last accepted report
-  sent, with the events position, so a restart of the server resends no
-  event and only the hours since.
+- The reporter keeps, per DAG, the newest event time and the hour that the
+  last accepted report sent, and the start of a run whose sample the history
+  had yet to file: the run then in progress, or one that ended before the
+  history filed its sample, until the history holds a sample ending after
+  that start. It keeps them with the events position, so a restart of the
+  server resends no event and only the hours since.
 - Nothing else about a service DAG sends early: a restart, a change from
   `running` to `waiting`, or a new hour waits for the next report.
 
@@ -210,8 +214,10 @@ protocol stays 2.
 ## Failure behavior
 
 - A run history that cannot be read leaves that DAG's outage, events, and
-  hours out of the report; the state and latest run are still sent. The
-  error is logged at most once a minute per DAG.
+  hours out of the report; the state and latest run are still sent. What
+  the reporter keeps of the DAG stays as the last accepted report left it,
+  so the next report sends what this one could not. The error is logged at
+  most once a minute per DAG.
 - A report Console does not accept leaves the events and hours to be sent
   again in the next report.
 - An older Console ignores `service_dags` and receives no service runs. Its

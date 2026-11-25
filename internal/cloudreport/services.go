@@ -6,6 +6,7 @@ package cloudreport
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"time"
 
@@ -73,13 +74,12 @@ const (
 )
 
 // serviceMark is what the last accepted report sent of a service DAG: its
-// newest event, the hour it ran up to, and the hour its run then in
-// progress started, whose sample its history files under that hour once
-// the run ends.
+// newest event, the hour it ran up to, and the start of the run whose sample
+// its history had yet to file, which goes under the hour the run started.
 type serviceMark struct {
-	EventAt     time.Time `json:"event_at,omitzero"`
-	Hour        time.Time `json:"hour,omitzero"`
-	OpenRunHour time.Time `json:"open_run_hour,omitzero"`
+	EventAt      time.Time `json:"event_at,omitzero"`
+	Hour         time.Time `json:"hour,omitzero"`
+	OpenRunStart time.Time `json:"open_run_start,omitzero"`
 }
 
 // serviceDAGEntry is a service DAG as a report lists it.
@@ -163,12 +163,34 @@ func (f *eventFeed) serviceDAGs(ctx context.Context, withErrors bool, now time.T
 		marks[d.Name] = mark
 	}
 	entries = fitServiceDAGs(entries)
-	f.sentServices = marks
+	f.sentServices = keptMarks(entries, marks, f.state.Services)
 	return &entries, &total
 }
 
+// keptMarks are what the fitted entries send of each DAG in marks. A DAG
+// whose entry was cut keeps what the last accepted report sent of it, and an
+// entry whose events were all cut keeps its last accepted event, so the next
+// report sends them.
+func keptMarks(entries []serviceDAGEntry, marks, accepted map[string]serviceMark) map[string]serviceMark {
+	kept := make(map[string]serviceMark, len(marks))
+	for name := range marks {
+		if mark, ok := accepted[name]; ok {
+			kept[name] = mark
+		}
+	}
+	for _, e := range entries {
+		mark := marks[e.Workflow]
+		if len(e.Events) == 0 {
+			mark.EventAt = accepted[e.Workflow].EventAt
+		}
+		kept[e.Workflow] = mark
+	}
+	return kept
+}
+
 // serviceDAG is one service DAG as the next report lists it, and what the
-// report sends of it, after mark.
+// report sends of it after mark. What a run history that cannot be read
+// holds after mark waits for the next report.
 func (f *eventFeed) serviceDAG(ctx context.Context, d ServiceDAG, mark serviceMark, withErrors bool, now time.Time) (serviceDAGEntry, serviceMark) {
 	entry := serviceDAGEntry{
 		Workflow: d.Name, RestartPolicy: d.RestartPolicy, RestartWaitSec: int(d.RestartWait / time.Second), State: d.State,
@@ -192,24 +214,20 @@ func (f *eventFeed) serviceDAG(ctx context.Context, d ServiceDAG, mark serviceMa
 			runStart, _ = stringutil.ParseTime(latest.StartedAt)
 		}
 	}
-	next := serviceMark{EventAt: mark.EventAt, Hour: now.UTC().Truncate(time.Hour)}
-	if !runStart.IsZero() {
-		next.OpenRunHour = runStart.UTC().Truncate(time.Hour)
-	}
 	dir, ok := f.services.HistoryDir(d.Name)
 	if !ok {
-		return entry, next
+		return entry, mark
 	}
 	reader := samples.OpenReaderWith(dir, samples.Options{Now: func() time.Time { return now }})
 	outage, err := samples.ReadOutage(dir)
 	if err != nil {
 		logger.Warn(ctx, "Failed to read the outage of a service DAG for Dagu Console", tag.DAG(d.Name), tag.Error(err))
-		return entry, next
+		return entry, mark
 	}
 	availability, err := reader.Availability(ctx, now)
 	if err != nil {
 		logger.Warn(ctx, "Failed to read the run history of a service DAG for Dagu Console", tag.DAG(d.Name), tag.Error(err))
-		return entry, next
+		return entry, mark
 	}
 	entry.Outage = &serviceOutage{Open: outage.Open, FailedCount: outage.FailedCount}
 	if outage.Open {
@@ -218,9 +236,35 @@ func (f *eventFeed) serviceDAG(ctx context.Context, d ServiceDAG, mark serviceMa
 	if !availability.LastFailureAt.IsZero() {
 		entry.Outage.LastFailureAt = formatTime(availability.LastFailureAt)
 	}
+	next := mark
 	entry.Events, next.EventAt = serviceEvents(ctx, reader, mark.EventAt, withErrors, now)
-	entry.Hours = serviceHours(ctx, reader, mark, runStart, now)
+	hours, err := serviceHours(ctx, reader, mark, runStart, now)
+	if err != nil {
+		logger.Warn(ctx, "Failed to read the hours of a service DAG for Dagu Console", tag.DAG(d.Name), tag.Error(err))
+		return entry, next
+	}
+	entry.Hours = hours
+	next.Hour = now.UTC().Truncate(time.Hour)
+	next.OpenRunStart = openRunStart(ctx, reader, mark, runStart)
 	return entry, next
+}
+
+// openRunStart is the start of the run whose sample the run history is yet
+// to file, zero for none: the run in progress since runStart, else the open
+// run of mark until the history holds a sample that ends no earlier than the
+// run started. Runs of a service DAG do not overlap, so that sample is the
+// run's own or a later run's.
+func openRunStart(ctx context.Context, reader samples.Reader, mark serviceMark, runStart time.Time) time.Time {
+	if !runStart.IsZero() {
+		return runStart.UTC().Truncate(time.Millisecond)
+	}
+	if mark.OpenRunStart.IsZero() {
+		return time.Time{}
+	}
+	if end, ok, err := reader.NewestEnd(ctx); err != nil || !ok || end.Before(mark.OpenRunStart) {
+		return mark.OpenRunStart
+	}
+	return time.Time{}
 }
 
 // serviceEvents are the failed, recovered, and gap events of a run history
@@ -262,7 +306,7 @@ func serviceEvents(ctx context.Context, reader samples.Reader, since time.Time, 
 // hour, and the hours that a run in progress then or now started in, as far
 // back as the history keeps hours. The run in progress since runStart counts
 // in them.
-func serviceHours(ctx context.Context, reader samples.Reader, mark serviceMark, runStart time.Time, now time.Time) []serviceHour {
+func serviceHours(ctx context.Context, reader samples.Reader, mark serviceMark, runStart time.Time, now time.Time) ([]serviceHour, error) {
 	current := now.UTC().Truncate(time.Hour)
 	oldest := current.Add(-(serviceHourDays*24 - 1) * time.Hour)
 	from := mark.Hour
@@ -272,37 +316,48 @@ func serviceHours(ctx context.Context, reader samples.Reader, mark serviceMark, 
 	if from.Before(oldest) {
 		from = oldest
 	}
-	hours := readServiceHours(ctx, reader, from, current.Add(time.Hour), runStart, now)
-	for _, h := range []time.Time{mark.OpenRunHour, runStart.UTC().Truncate(time.Hour)} {
-		if h.IsZero() || !h.Before(from) || h.Before(oldest) {
+	hours, err := readServiceHours(ctx, reader, from, current.Add(time.Hour), runStart, now)
+	if err != nil {
+		return nil, err
+	}
+	for _, start := range []time.Time{mark.OpenRunStart, runStart} {
+		h := start.UTC().Truncate(time.Hour)
+		if start.IsZero() || !h.Before(from) || h.Before(oldest) {
 			continue
 		}
-		hours = append(hours, readServiceHours(ctx, reader, h, h.Add(time.Hour), runStart, now)...)
+		more, err := readServiceHours(ctx, reader, h, h.Add(time.Hour), runStart, now)
+		if err != nil {
+			return nil, err
+		}
+		hours = append(hours, more...)
 	}
 	slices.SortFunc(hours, func(a, b serviceHour) int { return a.start.Compare(b.start) })
-	return slices.CompactFunc(hours, func(a, b serviceHour) bool { return a.start.Equal(b.start) })
+	return slices.CompactFunc(hours, func(a, b serviceHour) bool { return a.start.Equal(b.start) }), nil
 }
 
 // readServiceHours reads the hours of a run history from from to to, with
-// the run in progress since runStart. The uptime of an hour is known only
-// after the hour the history first recorded a run's active time in, so that
-// the time before a new service ran does not count as down. An hour with no
-// run and no known uptime is left out.
-func readServiceHours(ctx context.Context, reader samples.Reader, from, to, runStart, now time.Time) []serviceHour {
+// the run in progress since runStart. An hour's uptime is known only when the
+// hour starts no earlier than the history's first recorded active time, so
+// that the time before a new service ran does not count as down. An hour with
+// no run and no known uptime is left out.
+func readServiceHours(ctx context.Context, reader samples.Reader, from, to, runStart, now time.Time) ([]serviceHour, error) {
 	n := int(to.Sub(from) / time.Hour)
 	series, err := reader.Samples(ctx, samples.SampleQuery{From: from, To: to, MaxPoints: n})
-	if err != nil || series.Tier != samples.TierHour {
-		return nil
+	if err != nil {
+		return nil, err
+	}
+	if series.Tier != samples.TierHour {
+		return nil, fmt.Errorf("run history gave samples by %v, not by the hour", series.Tier)
 	}
 	uptime, err := reader.Uptime(ctx, from, to)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	known := !uptime.Since.IsZero()
 	var last time.Time
 	if known && !runStart.IsZero() {
 		if last, _, err = reader.NewestEnd(ctx); err != nil {
-			return nil
+			return nil, err
 		}
 	}
 	var out []serviceHour
@@ -321,7 +376,7 @@ func readServiceHours(ctx context.Context, reader samples.Reader, from, to, runS
 		}
 		out = append(out, h)
 	}
-	return out
+	return out, nil
 }
 
 // fitServiceDAGs cuts the entries to maxServiceDAGBytes: the oldest hours go

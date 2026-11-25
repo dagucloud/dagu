@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -66,6 +68,28 @@ func (h *serviceHistory) record(at time.Time, runs int, fail func(i int) bool) {
 		require.NoError(h.t, rec.Record(context.Background(), s))
 	}
 	require.NoError(h.t, rec.Close(context.Background()))
+}
+
+// recordRun records one run that started at start and took d.
+func (h *serviceHistory) recordRun(start time.Time, d time.Duration) {
+	h.t.Helper()
+	end := start.Add(d)
+	rec, err := samples.OpenRecorder(context.Background(), h.dir, samples.Options{Now: func() time.Time { return end }, RunHistory: true})
+	require.NoError(h.t, err)
+	require.NoError(h.t, rec.Record(context.Background(), samples.Sample{Time: start, Duration: d, RunID: "long"}))
+	require.NoError(h.t, rec.Close(context.Background()))
+}
+
+// hourOf is the hour of entry that starts at start.
+func hourOf(t *testing.T, entry serviceDAGEntry, start string) serviceHour {
+	t.Helper()
+	for _, h := range entry.Hours {
+		if h.Start == start {
+			return h
+		}
+	}
+	require.Failf(t, "no such hour", "%s not in %v", start, entry.Hours)
+	return serviceHour{}
 }
 
 func always(bool) func(int) bool { return func(int) bool { return true } }
@@ -236,6 +260,90 @@ func TestServiceMarksSurviveARestart(t *testing.T) {
 	assert.Equal(t, "2026-10-10T09:00:00Z", again.Hours[0].Start)
 }
 
+// A report that cannot read a service DAG's run history sends none of it,
+// and the next report sends the hours it missed.
+func TestAnUnreadServiceHistorySendsItsHoursLater(t *testing.T) {
+	t.Parallel()
+
+	history := newServiceHistory(t)
+	history.record(testClockStart.Add(-20*time.Minute), 3, never)
+	unreadable := filepath.Join(t.TempDir(), "history")
+	require.NoError(t, os.WriteFile(unreadable, nil, 0o600))
+	dir := newEventDir(t)
+	console := newFakeConsole(t)
+	report := func(services *fakeServices, at time.Time) (serviceDAGEntry, time.Time) {
+		t.Helper()
+		reporter, clock := startServiceReporter(t, console, dir, services, config.ReportRuns, at)
+		defer reporter.Stop()
+		return (*decodeServices(t, nextReport(t, clock, console)).ServiceDAGs)[0], clock.now()
+	}
+	_, now := report(loopServices(history.dir), testClockStart)
+
+	unread, now := report(loopServices(unreadable), now.Add(2*time.Hour))
+	assert.Nil(t, unread.Outage)
+	assert.Empty(t, unread.Hours)
+
+	later, _ := report(loopServices(history.dir), now)
+	assert.Equal(t, uint64(3), hourOf(t, later, "2026-10-10T09:00:00Z").Count)
+}
+
+// A run that ends before its run history files its sample has the hour it
+// started in sent again until the sample is in.
+func TestAnEndedRunsHourWaitsForItsSample(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, 10, 10, 7, 40, 0, 0, time.UTC)
+	end := testClockStart.Add(4 * time.Minute)
+	history := newServiceHistory(t)
+	history.record(start.Add(-10*time.Minute), 3, never)
+	dir := newEventDir(t)
+	console := newFakeConsole(t)
+	report := func(status ir.Status, at time.Time) (serviceDAGEntry, time.Time) {
+		t.Helper()
+		services := loopServices(history.dir)
+		latest := run("loop", "long", status)
+		latest.StartedAt = formatTime(start)
+		if !status.IsActive() {
+			latest.FinishedAt = formatTime(end)
+		}
+		services.dags[0].Latest = latest
+		reporter, clock := startServiceReporter(t, console, dir, services, config.ReportRuns, at)
+		defer reporter.Stop()
+		return (*decodeServices(t, nextReport(t, clock, console)).ServiceDAGs)[0], clock.now()
+	}
+	report(ir.Running, testClockStart)
+
+	ended, now := report(ir.Succeeded, end.Add(time.Minute))
+	assert.Equal(t, uint64(3), hourOf(t, ended, "2026-10-10T07:00:00Z").Count, "before the sample is filed")
+
+	history.recordRun(start, end.Sub(start))
+	filed, _ := report(ir.Succeeded, now)
+	assert.Equal(t, uint64(4), hourOf(t, filed, "2026-10-10T07:00:00Z").Count)
+}
+
+// What a report cut for size records of its service DAGs: a DAG cut whole
+// keeps what the last accepted report sent of it, and one whose events were
+// all cut keeps its last accepted event.
+func TestKeptMarksHoldWhatTheReportCut(t *testing.T) {
+	t.Parallel()
+
+	before := time.Date(2026, 10, 10, 8, 0, 0, 0, time.UTC)
+	after := before.Add(time.Hour)
+	accepted := map[string]serviceMark{"cut": {EventAt: before, Hour: before}, "quiet": {EventAt: before, Hour: before}}
+	marks := map[string]serviceMark{
+		"cut": {EventAt: after, Hour: after}, "quiet": {EventAt: after, Hour: after}, "sent": {EventAt: after, Hour: after},
+	}
+	entries := []serviceDAGEntry{{Workflow: "quiet"}, {Workflow: "sent", Events: []serviceEvent{{Type: "failed", At: formatTime(after)}}}}
+
+	kept := keptMarks(entries, marks, accepted)
+
+	assert.Equal(t, map[string]serviceMark{
+		"cut":   {EventAt: before, Hour: before},
+		"quiet": {EventAt: before, Hour: after},
+		"sent":  {EventAt: after, Hour: after},
+	}, kept)
+}
+
 // Service DAGs past the size of a report lose their oldest hours first, then
 // their oldest events, then the last DAGs.
 func TestFitServiceDAGsDropsTheOldestHoursFirst(t *testing.T) {
@@ -252,7 +360,7 @@ func TestFitServiceDAGsDropsTheOldestHoursFirst(t *testing.T) {
 	var entries []serviceDAGEntry
 	for i := range 200 {
 		entries = append(entries, serviceDAGEntry{Workflow: fmt.Sprintf("dag-%03d", i), State: "running",
-			Hours: hours(24, start.Add(time.Duration(i)*time.Minute)),
+			Hours:  hours(24, start.Add(time.Duration(i)*time.Minute)),
 			Events: []serviceEvent{{Type: "failed", At: formatTime(start)}}})
 	}
 
