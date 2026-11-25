@@ -704,7 +704,7 @@ worker, with the repository that the first step cloned.
 ### Why a chain
 
 - `repeat_policy` repeats one step. A group of steps does not repeat. The agent step and the
-  verify step are two steps. See [Verified points](#verified-points).
+  verify step are two steps. See [Existing behavior](#existing-behavior).
 - A sub-DAG is another run. An agent worker takes one run and exits, so a run of a sub-DAG that
   needs a provider goes to another agent worker. That worker does not have the repository.
 
@@ -738,8 +738,8 @@ Dagu then does this:
 
 A run in which a verify failed and a later verify passed ends with the status `partially
 succeeded`. The steps after the loop ran, so the push is done. `dagu start` returns the exit code 1
-for this status. A run in which no verify failed ends with `succeeded`. A run in which the last
-verify failed ends with `failed`.
+for this run, because a step failed. A run in which no verify failed ends with `succeeded`. A run in
+which the last verify failed ends with `failed`.
 
 ### The log
 
@@ -971,10 +971,12 @@ The worker starts as user ID 0 because the change to the restricted user needs `
 Pod Security Standard `restricted` forbids it. A deployment uses the level `baseline`. See [Open
 items](#open-items).
 
-## Verified points
+## Existing behavior
 
-- `repeat_policy` on an `agent.run` step repeats the whole step. Each repetition is a new execution,
-  with new attempts. A group of steps does not repeat.
+These points describe behavior that Dagu has without this spec. The verify loop relies on them.
+
+- `repeat_policy` repeats one whole step. Each repetition is a new execution of the step. A group of
+  steps does not repeat.
 - A parent step reads the outputs that a sub-DAG publishes (`outputs.write` or `stdout.outputs`)
   as `${steps.<id>.outputs.<name>}`. A plain `output:` variable of the sub-DAG is not an output of
   the parent step.
@@ -982,16 +984,17 @@ items](#open-items).
   capture above the limit fails the step, and a published output above the limit fails the step
   too. Dagu does not cut the value. Keep a diff in a file of the work directory, or in an artifact,
   and publish its path.
-- A `repeat_policy` condition cannot read an output of its own step (Spec 007). The reference stays
-  as text. Use a command condition that reads the stdout file of the step.
+- A `repeat_policy` condition cannot read `${steps.<id>.outputs.<name>}` of its own step (Spec 007,
+  reason `self_reference`). The reference stays as text. Use a command condition that reads the
+  stdout file of the step.
 - A step with `continue_on: {failure: true}` stays `failed` in the run view, and the next step
   runs. A precondition on `${verify_1.exit_code}` with `expected: "0"` and `negate: true` skips the
   next step when the exit code is 0. It runs the next step for each other exit code. A skipped step makes
   the steps that depend on it skip, until a step has `continue_on: {skipped: true}`. A failed
-  step makes the steps that depend on it `aborted`. The conformance tests of the loop check these
-  statuses.
-- `${DAG_RUN_STEP_NAME}` is the name of the current step. A `run` can use it in the name of a file
-  in `${DAG_RUN_WORK_DIR}`, so the same text serves each `verify` step.
+  step makes the steps that depend on it `aborted`.
+- `${DAG_RUN_STEP_NAME}` is the name of the current step. A step with an `id` and no `name` has its
+  `id` as its name. A `run` can use it in the name of a file in `${DAG_RUN_WORK_DIR}`, so the same
+  text serves each `verify` step.
 
 ## Errors
 
@@ -1218,7 +1221,8 @@ steps:
             allow: ["./scripts/test.sh", "git diff *", "git status *", "git log *"]
             deny: ["git push *", "git remote *"]
 
-  # This step also runs when a round before it passed. Then Dagu skipped code_3.
+  # Dagu skips this step when a round before it passed, because it skipped code_3. With
+  # continue_on skipped, the steps after the loop still run.
   - id: verify_3
     depends: [code_3]
     working_dir: repo
