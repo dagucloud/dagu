@@ -85,6 +85,7 @@ func TestFileBackendPreservesCollectionLayout(t *testing.T) {
 		{persis.CollectionWatchState, filepath.Join(dataDir, "watch_state"), false},
 		{persis.CollectionWebhooks, paths.WebhooksDir, true},
 		{persis.CollectionWorkerHeartbeats, filepath.Join(distributedDir, "workers"), false},
+		{persis.CollectionWorkerNodes, filepath.Join(dataDir, "worker-nodes"), true},
 		{persis.CollectionWorkspaces, paths.WorkspacesDir, true},
 		{"custom", filepath.Join(dataDir, "custom"), false},
 	}
