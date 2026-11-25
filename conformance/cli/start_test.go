@@ -4,6 +4,7 @@
 package cli_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
@@ -140,4 +141,41 @@ func TestStartOnlyUnknownStep(t *testing.T) {
 	result.ExpectNonZeroExitCode()
 	result.ExpectStderrContains(`unknown step "missing"`)
 	dagu.ExpectNoFile("only.out")
+}
+
+// changedOutputsYAML gives consume the output of produce; the edit of
+// produce makes a run before it a run of another produce.
+const changedOutputsYAML = `working_dir: .
+steps:
+  - id: produce
+    run: printf 'value=from-source\n' >> "$DAGU_OUTPUT_FILE"
+    outputs:
+      - name: value
+  - id: consume
+    depends: produce
+    run: printf '%s\n' '${steps.produce.outputs.value}' > consume.out
+`
+
+// TestStartOnlyChangedStep proves that a skipped step that changed since the
+// run it carries outputs from is refused with what changed and how to reuse
+// it anyway, and that --allow-changed reuses its outputs.
+func TestStartOnlyChangedStep(t *testing.T) {
+	t.Parallel()
+
+	dagu := harness.NewRunner(t)
+	env := sharedEnv(t)
+	dagu.WriteFile("changed_outputs.yaml", changedOutputsYAML)
+	source := dagu.RunWithEnv(env, "start", "--run-id=cli-start-changed-source", "changed_outputs.yaml")
+	source.ExpectExitCode(0)
+	dagu.WriteFile("changed_outputs.yaml", strings.Replace(changedOutputsYAML, "from-source", "from-edit", 1))
+
+	refused := dagu.RunWithEnv(env, "start", "--only=consume", "--outputs-from=cli-start-changed-source", "changed_outputs.yaml")
+	refused.ExpectNonZeroExitCode()
+	refused.ExpectStderrContains("step produce cannot be reused from run cli-start-changed-source: the step changed since that run; pass --allow-changed to reuse the changed steps anyway")
+	dagu.ExpectNoFile("consume.out")
+
+	allowed := dagu.RunWithEnv(env, "start", "--only=consume", "--outputs-from=cli-start-changed-source", "--allow-changed", "changed_outputs.yaml")
+	allowed.ExpectExitCode(0)
+	allowed.ExpectStderrContains("reusing step produce from run cli-start-changed-source although the step changed since that run")
+	dagu.ExpectFileContent("consume.out", "from-source\n")
 }
