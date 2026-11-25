@@ -1365,6 +1365,23 @@ describe('DAGTable', () => {
         '/dags/alpha.yaml?remoteNode=local&run=r1'
       );
     });
+
+    // A service DAG has no runs to draw: its row and its card hold no strip.
+    it('draws no strip for a service DAG', () => {
+      renderTable('', {
+        dags: [
+          withActivity([run('r1', HOUR)]),
+          {
+            ...workflow({ name: 'service' }),
+            dag: { name: 'service', restartPolicy: RestartPolicy.always },
+            activity: { runs: [], truncated: false },
+          } as never,
+        ],
+      });
+
+      // The row and the card of alpha.
+      expect(screen.getAllByTestId('dag-activity')).toHaveLength(2);
+    });
   });
 
   // The Last Run column of a service DAG shows the state of the service.

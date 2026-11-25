@@ -207,24 +207,6 @@ function EditDAGButton({ dag }: { dag: components['schemas']['DAGFile'] }) {
 }
 
 /**
- * The strip of the activity of a workflow. A service DAG draws the buckets of
- * its run history, and nothing when the server sends no buckets. Any other
- * workflow draws its runs as bars: a running run has no band, since only a
- * service DAG reads as healthy.
- */
-function HeartbeatAwareActivity({
-  dag,
-  activity,
-  onOpenRun,
-}: {
-  dag: components['schemas']['DAGFile'];
-  activity?: components['schemas']['DAGListActivity'];
-  onOpenRun: (runId: string, event: React.MouseEvent) => void;
-}) {
-  return <ActivityBars activity={activity} fluid onOpenRun={onOpenRun} />;
-}
-
-/**
  * The mark of the card that the overlay shows: PEEK_SHOWN_ROW with a tint.
  * card-obsidian is plain CSS, which wins over the utility layer, so the
  * mark needs !important; the class stays literal for the Tailwind scan.
@@ -351,10 +333,10 @@ function DAGCard({
         )}
       </div>
 
-      {activity &&
-        (isService ? null : (
-          <ActivityBars activity={activity} className="mb-1.5" />
-        ))}
+      {/* A service DAG has no runs to draw as bars. */}
+      {activity && !isService && (
+        <ActivityBars activity={activity} className="mb-1.5" />
+      )}
 
       {/* Labels */}
       {labels.length > 0 && (
@@ -960,17 +942,17 @@ const defaultColumns = [
     ),
     cell: ({ row, table }) => {
       const data = row.original!;
-      if (data.kind !== ItemKind.DAG) {
+      // A service DAG has no runs to draw as bars.
+      if (data.kind !== ItemKind.DAG || isServiceDAG(data.dag.dag)) {
         return null;
       }
       const meta = table.options.meta;
       const fileName = data.dag.fileName;
-      const activity = meta?.activity?.get(fileName);
       return (
         <div className="flex items-center">
-          <HeartbeatAwareActivity
-            dag={data.dag}
-            activity={activity}
+          <ActivityBars
+            activity={meta?.activity?.get(fileName)}
+            fluid
             onOpenRun={(runId, event) =>
               meta?.onOpenRun?.(fileName, runId, event)
             }
