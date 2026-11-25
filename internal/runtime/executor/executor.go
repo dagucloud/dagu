@@ -127,6 +127,12 @@ type NodeRun struct {
 	Node string
 	// Disabled reports a node that does not run, and so has no Run.
 	Disabled bool
+	// Removed reports a node of a retried step that has left the inventory.
+	// It does not run.
+	Removed bool
+	// Reuse reports a node of a retried step whose child run succeeded. The
+	// step keeps that run's result without running it again.
+	Reuse bool
 	// Run starts the child run bound to the node.
 	Run RunParams
 }

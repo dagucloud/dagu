@@ -125,6 +125,10 @@ type Node struct {
 	// SkippedByNodeList marks a step with nodes that the run's node list left
 	// with no node. Like SkippedByRetry, it does not block later steps.
 	SkippedByNodeList bool `json:"skippedByNodeList,omitempty"`
+	// RetryNodeRunsDir is the directory of the node run records whose nodes
+	// a retry of this step with nodes keeps: those of the step's latest
+	// attempt that recorded its nodes (RFC 013 §Retry).
+	RetryNodeRunsDir string `json:"retryNodeRunsDir,omitempty"`
 	// HumanTaskCompletedBy records who completed this human task.
 	HumanTaskCompletedBy string `json:"humanTaskCompletedBy,omitempty"`
 	// HumanTaskCompletedByID records the subject ID that completed this human task.

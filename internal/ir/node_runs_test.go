@@ -38,10 +38,11 @@ func TestCountNodeRuns(t *testing.T) {
 		ir.NodeRunNotStarted, ir.NodeRunRunning, ir.NodeRunWaiting,
 		ir.NodeRunSucceeded, ir.NodeRunPartiallySucceeded,
 		ir.NodeRunFailed, ir.NodeRunRejected, ir.NodeRunAborted, ir.NodeRunDisabled,
+		ir.NodeRunRemoved,
 	} {
 		runs = append(runs, ir.NodeRun{Status: status})
 	}
 	require.Equal(t, ir.NodeRunCounts{
-		Total: 9, NotStarted: 1, Running: 1, Waiting: 1, Succeeded: 2, Failed: 2, Aborted: 1, Disabled: 1,
+		Total: 10, NotStarted: 1, Running: 1, Waiting: 1, Succeeded: 2, Failed: 2, Aborted: 1, Disabled: 1, Removed: 1,
 	}, ir.CountNodeRuns(runs))
 }

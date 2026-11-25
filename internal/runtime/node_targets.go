@@ -5,12 +5,18 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
@@ -36,11 +42,11 @@ func runsOnEachNode(step ir.Step) bool {
 	return step.Nodes != nil && step.SubDAG == nil
 }
 
-// setupNodesExecutor prepares a step with nodes (RFC 013). It matches the
-// step's selector against the project's nodes and gives each enabled node a
-// child run bound to it. A command step's command resolves in each child run,
-// so the parent resolves none of it. An executor from override replaces every
-// node's child run, so the selector is not matched and no child is recorded.
+// setupNodesExecutor prepares a step with nodes (RFC 013). It finds the
+// step's nodes and gives each enabled node a child run bound to it. A command
+// step's command resolves in each child run, so the parent resolves none of
+// it. An executor from override replaces every node's child run, so the
+// selector is not matched and no child is recorded.
 func (n *Node) setupNodesExecutor(ctx context.Context, override ExecutorOverride) (context.Context, executor.Executor, error) {
 	if cmd, ok := replacementExecutor(ctx, override, n.Step()); ok {
 		n.cmd = cmd
@@ -50,7 +56,7 @@ func (n *Node) setupNodesExecutor(ctx context.Context, override ExecutorOverride
 		return ctx, cmd, nil
 	}
 
-	matched, err := matchStepNodes(ctx, n.Step().Nodes.Selector)
+	runs, err := n.stepNodes(ctx)
 	if err != nil {
 		return ctx, nil, err
 	}
@@ -61,15 +67,16 @@ func (n *Node) setupNodesExecutor(ctx context.Context, override ExecutorOverride
 		return ctx, nil, err
 	}
 
-	runs := make([]executor.NodeRun, len(matched))
-	for i, node := range matched {
-		runs[i] = executor.NodeRun{Node: node.Name, Disabled: node.Disabled}
+	for i, node := range runs {
 		if node.Disabled {
 			continue
 		}
 		run := child
-		run.Node = node.Name
-		run.RunID = GenerateSubDAGRunIDForTarget(ctx, child.DAGName, child.Params+"\x00node="+node.Name, false)
+		run.Node = node.Node
+		run.RunID = node.Run.RunID
+		if run.RunID == "" {
+			run.RunID = GenerateSubDAGRunIDForTarget(ctx, child.DAGName, child.Params+"\x00node="+node.Node, false)
+		}
 		runs[i].Run = run
 	}
 
@@ -95,13 +102,106 @@ func (n *Node) setupNodesExecutor(ctx context.Context, override ExecutorOverride
 	}
 	var subRuns []executor.RunParams
 	for _, run := range runs {
-		if !run.Disabled {
+		if !run.Disabled && !run.Removed {
 			subRuns = append(subRuns, run.Run)
 		}
 	}
 	n.SetSubRuns(subRunsFromParams(subRuns))
 	nodesExecutor.SetNodes(runs)
 	return ctx, cmd, nil
+}
+
+// stepNodes returns the nodes of a step with nodes, in name order. A retry
+// keeps the nodes the step's first attempt recorded (RFC 013 §Retry). A step
+// that records none, or whose records cannot be read, matches its selector.
+func (n *Node) stepNodes(ctx context.Context) ([]executor.NodeRun, error) {
+	if dir := n.State().RetryNodeRunsDir; dir != "" {
+		records, err := readNodeRuns(dir)
+		if err == nil {
+			return recordedNodes(ctx, records)
+		}
+		logger.Warn(ctx, "Failed to read the nodes the step ran on; matching its selector again",
+			tag.Dir(dir), tag.Error(err))
+	}
+	matched, err := matchStepNodes(ctx, n.Step().Nodes.Selector)
+	if err != nil {
+		return nil, err
+	}
+	runs := make([]executor.NodeRun, len(matched))
+	for i, node := range matched {
+		runs[i] = executor.NodeRun{Node: node.Name, Disabled: node.Disabled}
+	}
+	return runs, nil
+}
+
+// recordedNodes returns the nodes an earlier attempt of a step recorded, each
+// with its child run, as the inventory holds them now. A node whose child run
+// succeeded keeps its result. Any other node is removed when it has left the
+// inventory, and disabled when it is disabled now. A node added since is not
+// added. The step fails when no node can run or keep its result.
+func recordedNodes(ctx context.Context, records ir.NodeRuns) ([]executor.NodeRun, error) {
+	inventoryNodes := GetDAGContext(ctx).Nodes
+	if inventoryNodes == nil {
+		return nil, errNoNodeInventory
+	}
+	current, err := inventoryNodes.Nodes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the nodes: %w", err)
+	}
+	byName := make(map[string]inventory.ResolvedNode, len(current))
+	for _, node := range current {
+		byName[strings.ToLower(node.Name)] = node
+	}
+
+	runs := make([]executor.NodeRun, len(records.Runs))
+	runnable := false
+	for i, record := range records.Runs {
+		run := executor.NodeRun{Node: record.Node, Run: executor.RunParams{RunID: record.DAGRunID}}
+		node, found := byName[strings.ToLower(record.Node)]
+		switch {
+		case record.DAGRunID != "" && (record.Status == ir.NodeRunSucceeded || record.Status == ir.NodeRunPartiallySucceeded):
+			run.Reuse = true
+		case !found:
+			run.Removed = true
+		case node.Disabled:
+			run = executor.NodeRun{Node: record.Node, Disabled: true}
+		}
+		runnable = runnable || (!run.Disabled && !run.Removed)
+		runs[i] = run
+	}
+	if !runnable {
+		return nil, fmt.Errorf("none of the %d nodes the step ran on before can run: each has left the inventory or is disabled", len(runs))
+	}
+	return runs, nil
+}
+
+// readNodeRuns reads the node run records a step with nodes wrote to dir.
+func readNodeRuns(dir string) (ir.NodeRuns, error) {
+	var records ir.NodeRuns
+	data, err := fileutil.ReadFile(filepath.Join(dir, logpath.NodeRunsFile))
+	if err != nil {
+		return records, err
+	}
+	if err := json.Unmarshal(data, &records); err != nil {
+		return records, fmt.Errorf("failed to parse the node run records: %w", err)
+	}
+	return records, nil
+}
+
+// nodeRunsToRetry returns the directory of the records whose nodes a retry
+// of a step with nodes keeps: the records the step's last attempt wrote, or,
+// when it wrote none, the records that attempt kept.
+func nodeRunsToRetry(step ir.Step, state NodeState) string {
+	if step.Nodes == nil {
+		return ""
+	}
+	if state.Stdout != "" {
+		dir := logpath.NodeRunsDir(filepath.Dir(state.Stdout), step.Name)
+		if fileutil.FileExists(filepath.Join(dir, logpath.NodeRunsFile)) {
+			return dir
+		}
+	}
+	return state.RetryNodeRunsDir
 }
 
 // resolveNodeChild returns what every node's child run shares: for dag.run,

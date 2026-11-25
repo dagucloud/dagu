@@ -32,6 +32,9 @@ type nodesExecutor struct {
 type nodeDispatch struct {
 	// matched lists the matched nodes in name order.
 	matched []executor.NodeRun
+	// reuse holds the run IDs of the nodes whose earlier child run the step
+	// keeps.
+	reuse map[string]bool
 	// keepGoing starts the remaining nodes after one fails.
 	keepGoing bool
 	// failed records that a node failed.
@@ -106,12 +109,33 @@ func (e *parallelExecutor) SetNodes(matched []executor.NodeRun) {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 	e.nodes.matched = matched
+	e.nodes.reuse = make(map[string]bool)
 	e.runParamsList = nil
 	for _, node := range matched {
-		if !node.Disabled {
+		if runsNode(node) {
 			e.runParamsList = append(e.runParamsList, node.Run)
 		}
+		if node.Reuse {
+			e.nodes.reuse[node.Run.RunID] = true
+		}
 	}
+}
+
+// runsNode reports whether a matched node has a child run in the step: one
+// that runs or whose earlier result the step keeps.
+func runsNode(node executor.NodeRun) bool {
+	return !node.Disabled && !node.Removed
+}
+
+// reusesNode reports whether the step keeps the earlier result of a node's
+// child run instead of running it.
+func (e *parallelExecutor) reusesNode(runID string) bool {
+	if e.nodes == nil {
+		return false
+	}
+	e.lock.Lock()
+	defer e.lock.Unlock()
+	return e.nodes.reuse[runID]
 }
 
 // checkNodeChild fails a dag.run step with nodes before any child starts when
@@ -149,13 +173,14 @@ func (e *parallelExecutor) startsNoMoreNodes() bool {
 }
 
 // dropUnstartedNodes removes the first attempts of nodes that never started.
-// Retries of nodes that did start remain, since a running node finishes.
+// Retries of nodes that did start remain, since a running node finishes, and
+// so do the nodes whose earlier result the step keeps, since they run nothing.
 func (e *parallelExecutor) dropUnstartedNodes(pending []scheduledAttempt) []scheduledAttempt {
 	e.lock.Lock()
 	defer e.lock.Unlock()
 	kept := pending[:0]
 	for _, attempt := range pending {
-		if _, started := e.nodes.started[attempt.runParams.RunID]; started {
+		if _, started := e.nodes.started[attempt.runParams.RunID]; started || attempt.reuse {
 			kept = append(kept, attempt)
 		}
 	}
@@ -204,6 +229,9 @@ func (e *parallelExecutor) noteNodeFinish(runID string, result *ir.RunStatus, re
 func (e *parallelExecutor) nodeRunStatus(node executor.NodeRun, ended bool) ir.NodeRunStatus {
 	if node.Disabled {
 		return ir.NodeRunDisabled
+	}
+	if node.Removed {
+		return ir.NodeRunRemoved
 	}
 	id := node.Run.RunID
 	if _, started := e.nodes.started[id]; !started {
@@ -263,7 +291,7 @@ func (e *parallelExecutor) nodeEntries() ([]nodeResult, []map[string]string, int
 				}
 			}
 			switch status {
-			case ir.NodeRunNotStarted:
+			case ir.NodeRunNotStarted, ir.NodeRunRemoved:
 			case ir.NodeRunSucceeded, ir.NodeRunPartiallySucceeded:
 				succeeded++
 			default:
@@ -319,12 +347,12 @@ func (e *parallelExecutor) outputNodeResults() error {
 }
 
 // nodeStatusDetails lists the matched nodes in name order with their
-// statuses. A disabled node shows as skipped.
+// statuses. A disabled or removed node shows as skipped.
 func (e *parallelExecutor) nodeStatusDetails() []ir.NodeStatusDetail {
 	details := make([]ir.NodeStatusDetail, 0, len(e.nodes.matched))
 	for _, node := range e.nodes.matched {
 		status := ir.NodeSkipped
-		if !node.Disabled {
+		if runsNode(node) {
 			_, started := e.nodes.started[node.Run.RunID]
 			result, finished := e.results[node.Run.RunID]
 			switch {
