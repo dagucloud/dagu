@@ -259,13 +259,12 @@ changes a skill: both `PUT` routes and both `DELETE` routes.
 - `If-Match: <hash>` applies the write only when the skill still has this hash. The value can be in quotes,
   and a prefix `W/` is ignored. A value that is not 64 hexadecimal characters gives 400.
 - `If-None-Match: *` applies the write only when the skill folder does not exist. This creates a skill.
-  Another value of `If-None-Match` gives 400. Only `PUT /skills/{name}` accepts this header, so a
-  delete needs `If-Match`.
+  Of the writes, only `PUT /skills/{name}` accepts this header. Another value, or the header on
+  another write, gives 400. So a delete and a file write need `If-Match`.
 
-A write without `If-Match`, other than a create with `If-None-Match: *`, is refused with the HTTP
-status 428. A write with a stale hash or with `If-None-Match: *` on an existing skill gives 409 with
-the code `conflict` and the current hash (`hash`). The write changes nothing. The check and the
-write are one step under the lock of the skill. So two writers that hold the same hash never both
+A write with neither header is refused with the HTTP status 428. A write with a stale hash, or a
+create on an existing skill, gives 409 with the code `conflict` and the current hash (`hash`). The
+write changes nothing. The check and the write are one step under the lock of the skill. So two writers that hold the same hash never both
 succeed, also on two Dagu instances that share one DAGs directory. Copies that git syncs are outside
 this guarantee, as [Source of truth](#source-of-truth) states.
 
@@ -333,11 +332,11 @@ The status codes:
 
 | Status | Code | Case |
 | --- | --- | --- |
-| 400 | `bad_request` | The name, the path or the content breaks a rule. The body lists the issues. |
+| 400 | `bad_request` | The name, the path, the content or a precondition header breaks a rule. The body lists the issues. |
 | 404 | `not_found` | The skill or the file does not exist. |
 | 409 | `conflict` | The precondition fails. The body has the current `hash`. |
 | 413 | `payload_too_large` | The body of `PUT /skills/{name}/files` is larger than 4 MiB, or `GET /skills/{name}/files` reads a file above 4 MiB. A `SKILL.md` above 4 MiB gives 400 with the rule `file-too-large`. |
-| 428 | `bad_request` | The request has no `If-Match` and no `If-None-Match`. |
+| 428 | `bad_request` | A write has neither `If-Match` nor `If-None-Match`. |
 
 A path MUST be relative, with `/` separators, and without an empty, `.` or `..` part. A route never
 reads or writes a file outside the folder of the skill. The name of a skill in a route MUST be a
@@ -386,6 +385,7 @@ A skill holds no secret. See [Secrets](#secrets).
 | --- | --- |
 | A write or a delete has no precondition | 428. |
 | A write or a delete has a stale hash | 409 with the current hash. |
+| A delete or a file write has `If-None-Match` | 400. |
 | A download names an unknown skill | 404, no ZIP file. |
 
 ## Examples
