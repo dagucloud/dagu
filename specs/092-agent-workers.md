@@ -659,17 +659,36 @@ the outputs of each other untrusted step. This includes a step that is untrusted
 controls each value. An output of an untrusted step is not a gate. A gate is a check that Dagu
 decides, such as the exit code of the tests of the repository.
 
-Dagu puts the value of a reference `${steps.<id>.outputs.<name>}` in the text of a command. A
-reference to an output of an untrusted step is a validation error in these fields of a trusted step:
-`run`, `command`, `script`, `shell` and `shell_args`. The error names the step, the field and the reference:
+The rules of this section follow the data of the agent, not the form of a reference. These values
+are data of the agent:
+
+- each output of an untrusted step, `${steps.<id>.outputs.<name>}`
+- the `output:` variable of an untrusted step
+- an `env` entry of a step whose value refers to data of the agent
+- each output and the `output:` variable of a step that refers to data of the agent
+
+A reference to data of the agent is `${steps.<id>.outputs.<name>}` of such an output, or `$VAR`,
+`${VAR}` or `${VAR.<path>}` of such a variable.
+
+Dagu puts the value of a reference in the text of a command before the command runs, with one
+exception. In `run`, `command` and `script` with a POSIX shell, such as `sh` or `bash`, Dagu leaves
+`$VAR` and `${VAR}` to the shell. The shell reads the value from the environment and does not run
+it. Dagu still puts the value of `${steps.<id>.outputs.<name>}` and of `${VAR.<path>}` in the text.
+
+A reference to data of the agent is a validation error in these fields of a trusted step:
+
+- `run`, `command` and `script`, except `$VAR` and `${VAR}` with a POSIX shell
+- `shell` and `shell_args`
+
+The error names the step, the field and the reference:
 
 ```text
 step "gate": the field steps[2].run refers to ${steps.code.outputs.tool_calls}, an output of the untrusted step "code"; Dagu would put the value of the agent in the command: pass it through env and use "$VAR" in the command
 ```
 
 Dagu runs some fields as the process user on each step, trusted or untrusted. See [Rules in each
-process](#rules-in-each-process). The reference is also a validation error in these fields of each
-step:
+process](#rules-in-each-process). A reference to data of the agent, in each form, is also a
+validation error in these fields of each step:
 
 - a command check of `preconditions` or of `repeat_policy`, which is a condition with no
   `expected` (Spec 023, Spec 075). Dagu puts the value in the text that the shell runs.
@@ -678,8 +697,9 @@ step:
 - a field of `with` that the action runs as a command or a script, such as `with.command` of
   `ssh.run`. The command runs on the remote host with the credentials of the step.
 
-The reference is valid in the `env` of a step, in the `condition` of a condition with `expected`,
-and in a field of `with` that the action reads as data. Pass the value through `env`, and use `"$VAR"` in the command:
+A reference to data of the agent is valid in the `env` of a step, in the `condition` of a condition
+with `expected`, and in a field of `with` that the action reads as data. To use the value in a
+command, pass it through `env`, and use `"$VAR"` in `run` or `script` with a POSIX shell:
 
 ```yaml
   - id: gate
@@ -1046,10 +1066,11 @@ These points describe behavior that Dagu has without this spec. The verify loop 
 - a reference `${NAME}` to a secret that the step does not get, in a DAG with step scope
 - `untrusted` on a step that does not run a process, on a step with `container`, or in `defaults`
 - `untrusted: false` on an `agent.run` step with a CLI provider
-- a reference to an output of an untrusted step in the `run`, the `command`, the `script`, the
-  `shell` or the `shell_args` of a trusted step. A step that is untrusted by default is an untrusted
-  step.
-- a reference to an output of an untrusted step, on any step, in a command check of
+- a reference to data of the agent (see [Trusted steps after an untrusted
+  step](#trusted-steps-after-an-untrusted-step)) in the `shell` or the `shell_args` of a trusted
+  step, or in its `run`, `command` or `script`, except `$VAR` and `${VAR}` with a POSIX shell. A
+  step that is untrusted by default is an untrusted step.
+- a reference to data of the agent, in each form, on any step, in a command check of
   `preconditions` or of `repeat_policy`, in the `eval` of a condition, or in a field of `with`
   that the action runs as a command or a script
 
