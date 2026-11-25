@@ -21,6 +21,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/agentstep"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/stepoauth"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -109,7 +110,15 @@ func (c *caller) Run(ctx context.Context) error {
 func (c *caller) call(ctx context.Context, redact redactor) (*sdk.CallToolResult, *callError) {
 	base := http.DefaultTransport.(*http.Transport).Clone()
 	defer base.CloseIdleConnections()
-	obs := &observingTransport{base: base, headers: c.cfg.Headers}
+	var next http.RoundTripper = base
+	if c.cfg.OAuth != nil {
+		authorized, err := stepoauth.NewTransport(ctx, c.cfg.OAuth, base)
+		if err != nil {
+			return nil, &callError{kindAuth, redact.apply(err.Error())}
+		}
+		next = authorized
+	}
+	obs := &observingTransport{base: next, headers: c.cfg.Headers}
 
 	transport := &sdk.StreamableClientTransport{
 		Endpoint: c.cfg.URL,
@@ -158,6 +167,9 @@ func classify(ctx context.Context, err error, obs *observingTransport, redact re
 		return &callError{kindTimeout, "call timed out"}
 	case errors.Is(ctx.Err(), context.Canceled):
 		return &callError{kindCanceled, "call canceled"}
+	}
+	if tokenErr, ok := errors.AsType[*stepoauth.TokenError](obs.networkError()); ok {
+		return &callError{kindAuth, redact.apply(tokenErr.Error())}
 	}
 	if status := obs.authStatus(); status != 0 {
 		return &callError{kindAuth, "server rejected credentials (HTTP " + strconv.Itoa(status) + ")"}

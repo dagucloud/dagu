@@ -5,6 +5,7 @@ package http
 
 import (
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
+	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/internal/stepoauth"
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
@@ -42,6 +43,7 @@ var configSchema = &jsonschema.Schema{
 		"output":          {Type: "string", Description: "File path to write the response body to. When set, the response body is written to this file instead of stdout."},
 		"json":            {Type: "boolean", Description: "Format output as JSON"},
 		"skip_tls_verify": {Type: "boolean", Description: "Skip TLS certificate verification"},
+		"oauth":           stepoauth.Schema(),
 		"status_exit_codes": {
 			Type: "object",
 			Description: "Map a non-2xx HTTP status code (e.g. \"404\") or class (e.g. \"5xx\") to the step exit code (0-255). " +
