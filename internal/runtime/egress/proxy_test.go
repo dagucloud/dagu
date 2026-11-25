@@ -424,6 +424,35 @@ func TestWildcardRefusesPrivateAddressLiterals(t *testing.T) {
 	assert.Equal(t, []string{"8.8.8.8:80"}, dials.seen(), "only the public address is dialed")
 }
 
+// A wildcard also matches an IPv6 literal whose zone ends with its name. A zone
+// hides no address from the check: such a literal is refused, and nothing is
+// dialed. Without the check, the NAT64 form of 10.0.0.1 would be dialed.
+func TestWildcardRefusesZonedAddressLiterals(t *testing.T) {
+	t.Parallel()
+
+	dials := &dialRecord{}
+	resolver := &fakeResolver{answers: map[string][]netip.Addr{}}
+	proxyAddr := startProxy(t, []string{"*.wild.example.test"}, resolver, dials.noRoute)
+	status := func(request string) string {
+		conn, err := net.Dial("tcp", proxyAddr)
+		require.NoError(t, err)
+		defer func() { _ = conn.Close() }()
+		_, err = io.WriteString(conn, request)
+		require.NoError(t, err)
+		line, err := bufio.NewReader(conn).ReadString('\n')
+		require.NoError(t, err)
+		return strings.TrimSpace(line)
+	}
+
+	for _, target := range []string{"64:ff9b::a00:1%25x.wild.example.test", "2001:db8::1%25x.wild.example.test"} {
+		assert.Equal(t, "HTTP/1.1 403 Forbidden",
+			status("GET http://["+target+"]/ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"), target)
+		assert.Equal(t, "HTTP/1.1 403 Forbidden",
+			status("CONNECT ["+target+"]:443 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"), "CONNECT %s", target)
+	}
+	assert.Empty(t, dials.seen(), "a zoned literal is not dialed")
+}
+
 // A kept connection on which no next request comes ends, so a client cannot
 // hold the descriptors of the proxy with idle connections.
 func TestIdleKeepAliveEnds(t *testing.T) {

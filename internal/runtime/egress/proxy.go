@@ -224,10 +224,11 @@ var (
 
 // publicAddr reports whether addr is an address of the internet: not loopback,
 // private, link-local, multicast, unspecified or special-purpose. A NAT64 or
-// 6to4 address is public when the IPv4 address in it is.
+// 6to4 address is public when the IPv4 address in it is. An address with a zone
+// is not public: no prefix contains it, so it would pass the range checks.
 func publicAddr(addr netip.Addr) bool {
 	addr = addr.Unmap()
-	if !addr.IsGlobalUnicast() || addr.IsPrivate() {
+	if addr.Zone() != "" || !addr.IsGlobalUnicast() || addr.IsPrivate() {
 		return false
 	}
 	for _, prefix := range specialPrefixes {
