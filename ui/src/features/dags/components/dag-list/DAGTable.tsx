@@ -112,7 +112,7 @@ import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
 import {
-  ACTIVITY_COLUMN_MIN_WIDTH,
+  activityColumnClasses,
   CARD_VIEW_THRESHOLD,
   useActivityPlacement,
 } from './activityVisibility';
@@ -1740,14 +1740,10 @@ function DAGTable({
   const panelWidth = useContext(PanelWidthContext);
 
   const useCardView = panelWidth !== null && panelWidth < CARD_VIEW_THRESHOLD;
-  // Whole class names, so that the style sheet keeps them.
-  const activityColumn =
-    activity === undefined ||
-    (panelWidth !== null && panelWidth < ACTIVITY_COLUMN_MIN_WIDTH)
-      ? { cell: 'hidden', col: 'hidden' }
-      : panelWidth === null
-        ? { cell: 'hidden xl:table-cell', col: 'hidden xl:table-column' }
-        : { cell: '', col: '' };
+  const activityColumn = activityColumnClasses(
+    panelWidth,
+    activity !== undefined
+  );
 
   const { data: uniqueLabels } = useQuery('/dags/labels', {
     params: {
