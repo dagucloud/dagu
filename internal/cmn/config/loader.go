@@ -72,6 +72,9 @@ type ConfigLoader struct {
 	trustedProxyWorkspaceMappings    map[string][]TrustedProxyWorkspaceGrant
 	trustedProxyWorkspaceMappingsSet bool
 	legacySuspendFlagsDir            string
+	// legacySettings holds, by setting key, what Settings reports for a
+	// setting that Load filled from a deprecated key or variable.
+	legacySettings map[string]Setting
 }
 
 // ConfigLoaderOption defines a functional option for configuring a ConfigLoader.
@@ -705,6 +708,7 @@ func (l *ConfigLoader) loadPathsConfig(cfg *Config, def Definition) error {
 	} else if def.Paths.DocsDir != "" {
 		wikiDir = def.Paths.DocsDir
 		cfg.Paths.WikiDirLegacy = true
+		l.reportLegacyKey("paths.wiki_dir", "paths.docs_dir")
 		l.warnings = append(l.warnings, "paths.docs_dir is deprecated; use paths.wiki_dir instead")
 	}
 	if wikiDir != "" {
@@ -1834,6 +1838,7 @@ func (l *ConfigLoader) applyDeprecatedProcAlias(
 	}
 
 	*target = l.parseDuration(legacyKey, legacyValue)
+	l.reportLegacyKey(canonicalKey, legacyKey)
 	l.warnings = append(l.warnings, fmt.Sprintf("%s is deprecated; use %s instead", legacyKey, canonicalKey))
 }
 
@@ -2061,8 +2066,9 @@ func (l *ConfigLoader) loadExecutionModeConfig(cfg *Config, _ Definition) {
 func (l *ConfigLoader) loadSignalHandlingConfig(cfg *Config, def Definition) {
 	if l.v.IsSet("signal_handling.enable_propagation") {
 		cfg.SignalHandling.EnablePropagation = l.v.GetBool("signal_handling.enable_propagation")
-	} else {
+	} else if l.v.IsSet("signalhandling.enablepropagation") {
 		cfg.SignalHandling.EnablePropagation = l.v.GetBool("signalhandling.enablepropagation")
+		l.reportLegacyKey("signal_handling.enable_propagation", "signalhandling.enablepropagation")
 	}
 
 	if def.SignalHandling == nil || def.SignalHandling.DrainTimeout == "" {
@@ -2228,7 +2234,7 @@ func pathExists(path string) (bool, error) {
 // LoadLegacyFields applies deprecated configuration fields to the current Config.
 func (l *ConfigLoader) LoadLegacyFields(cfg *Config, def Definition) error {
 	if l.requires(SectionServer) {
-		setIfNotEmpty(&cfg.Server.APIBasePath, def.APIBaseURL)
+		l.applyLegacyString(&cfg.Server.APIBasePath, def.APIBaseURL, "api_base_path", "api_base_url")
 	}
 
 	if err := l.loadLegacyPaths(cfg, def); err != nil {
@@ -2236,44 +2242,57 @@ func (l *ConfigLoader) LoadLegacyFields(cfg *Config, def Definition) error {
 	}
 
 	if l.requires(SectionUI) {
-		setIfNotEmpty(&cfg.UI.LogEncodingCharset, def.LogEncodingCharset)
-		setIfNotEmpty(&cfg.UI.NavbarColor, def.NavbarColor)
-		setIfNotEmpty(&cfg.UI.NavbarTitle, def.NavbarTitle)
+		l.applyLegacyString(&cfg.UI.LogEncodingCharset, def.LogEncodingCharset, "ui.log_encoding_charset", "log_encoding_charset")
+		l.applyLegacyString(&cfg.UI.NavbarColor, def.NavbarColor, "ui.navbar_color", "navbar_color")
+		l.applyLegacyString(&cfg.UI.NavbarTitle, def.NavbarTitle, "ui.navbar_title", "navbar_title")
 		if def.MaxDashboardPageLimit > 0 {
 			cfg.UI.MaxDashboardPageLimit = def.MaxDashboardPageLimit
+			l.reportLegacyKey("ui.max_dashboard_page_limit", "max_dashboard_page_limit")
 		}
 	}
 
 	return nil
 }
 
+// applyLegacyString sets target to value, read from the deprecated key
+// legacyKey in place of setting, when value is not empty.
+func (l *ConfigLoader) applyLegacyString(target *string, value, setting, legacyKey string) {
+	if value == "" {
+		return
+	}
+	*target = value
+	l.reportLegacyKey(setting, legacyKey)
+}
+
 func (l *ConfigLoader) loadLegacyPaths(cfg *Config, def Definition) error {
 	legacyPaths := []struct {
-		name   string
-		target *string
-		source string
+		key     string
+		setting string
+		target  *string
+		value   string
 	}{
-		{"legacy DAGs", &cfg.Paths.DAGsDir, def.DAGs},
-		{"legacy DAGsDir", &cfg.Paths.DAGsDir, def.DAGsDir},
-		{"legacy Executable", &cfg.Paths.Executable, def.Executable},
-		{"legacy LogDir", &cfg.Paths.LogDir, def.LogDir},
-		{"legacy ArtifactDir", &cfg.Paths.ArtifactDir, def.ArtifactDir},
-		{"legacy DataDir", &cfg.Paths.DataDir, def.DataDir},
-		{"legacy SuspendFlagsDir", &cfg.Paths.SuspendFlagsDir, def.SuspendFlagsDir},
-		{"legacy AdminLogsDir", &cfg.Paths.AdminLogsDir, def.AdminLogsDir},
-		{"legacy EventStoreDir", &cfg.Paths.EventStoreDir, def.EventStoreDir},
-		{"legacy BaseConfig", &cfg.Paths.BaseConfig, def.BaseConfig},
+		{"dags", "paths.dags_dir", &cfg.Paths.DAGsDir, def.DAGs},
+		{"dags_dir", "paths.dags_dir", &cfg.Paths.DAGsDir, def.DAGsDir},
+		{"executable", "paths.executable", &cfg.Paths.Executable, def.Executable},
+		{"log_dir", "paths.log_dir", &cfg.Paths.LogDir, def.LogDir},
+		{"artifact_dir", "paths.artifact_dir", &cfg.Paths.ArtifactDir, def.ArtifactDir},
+		{"data_dir", "paths.data_dir", &cfg.Paths.DataDir, def.DataDir},
+		{"suspend_flags_dir", "paths.suspend_flags_dir", &cfg.Paths.SuspendFlagsDir, def.SuspendFlagsDir},
+		{"admin_logs_dir", "paths.admin_logs_dir", &cfg.Paths.AdminLogsDir, def.AdminLogsDir},
+		{"event_store_dir", "paths.event_store_dir", &cfg.Paths.EventStoreDir, def.EventStoreDir},
+		{"base_config", "paths.base_config", &cfg.Paths.BaseConfig, def.BaseConfig},
 	}
 
 	for _, lp := range legacyPaths {
-		if lp.source == "" {
+		if lp.value == "" {
 			continue
 		}
-		resolved, err := l.resolvePath(lp.name, lp.source)
+		resolved, err := l.resolvePath(lp.key, lp.value)
 		if err != nil {
 			return err
 		}
 		*lp.target = resolved
+		l.reportLegacyKey(lp.setting, lp.key)
 	}
 
 	return nil
@@ -2283,6 +2302,7 @@ func (l *ConfigLoader) loadLegacyPaths(cfg *Config, def Definition) error {
 func (l *ConfigLoader) loadLegacyEnv(cfg *Config) {
 	type legacyEnvMapping struct {
 		newKey   string
+		setting  string
 		setter   func(*Config, string)
 		requires ConfigSection
 	}
@@ -2290,16 +2310,19 @@ func (l *ConfigLoader) loadLegacyEnv(cfg *Config) {
 	legacyEnvs := map[string]legacyEnvMapping{
 		"DAGU__ADMIN_NAVBAR_COLOR": {
 			newKey:   "DAGU_NAVBAR_COLOR",
+			setting:  "ui.navbar_color",
 			setter:   func(c *Config, v string) { c.UI.NavbarColor = v },
 			requires: SectionUI,
 		},
 		"DAGU__ADMIN_NAVBAR_TITLE": {
 			newKey:   "DAGU_NAVBAR_TITLE",
+			setting:  "ui.navbar_title",
 			setter:   func(c *Config, v string) { c.UI.NavbarTitle = v },
 			requires: SectionUI,
 		},
 		"DAGU__ADMIN_PORT": {
-			newKey: "DAGU_PORT",
+			newKey:  "DAGU_PORT",
+			setting: "port",
 			setter: func(c *Config, v string) {
 				if i, err := strconv.Atoi(v); err == nil {
 					c.Server.Port = i
@@ -2309,26 +2332,31 @@ func (l *ConfigLoader) loadLegacyEnv(cfg *Config) {
 		},
 		"DAGU__ADMIN_HOST": {
 			newKey:   "DAGU_HOST",
+			setting:  "host",
 			setter:   func(c *Config, v string) { c.Server.Host = v },
 			requires: SectionServer,
 		},
 		"DAGU__DATA": {
 			newKey:   "DAGU_DATA_DIR",
+			setting:  "paths.data_dir",
 			setter:   func(c *Config, v string) { c.Paths.DataDir = fileutil.ResolvePathOrBlank(v) },
 			requires: SectionNone,
 		},
 		"DAGU__SUSPEND_FLAGS_DIR": {
 			newKey:   "DAGU_SUSPEND_FLAGS_DIR",
+			setting:  "paths.suspend_flags_dir",
 			setter:   func(c *Config, v string) { c.Paths.SuspendFlagsDir = fileutil.ResolvePathOrBlank(v) },
 			requires: SectionNone,
 		},
 		"DAGU__ADMIN_LOGS_DIR": {
 			newKey:   "DAGU_ADMIN_LOG_DIR",
+			setting:  "paths.admin_logs_dir",
 			setter:   func(c *Config, v string) { c.Paths.AdminLogsDir = fileutil.ResolvePathOrBlank(v) },
 			requires: SectionNone,
 		},
 		"DAGU__EVENT_STORE_DIR": {
 			newKey:   "DAGU_EVENT_STORE_DIR",
+			setting:  "paths.event_store_dir",
 			setter:   func(c *Config, v string) { c.Paths.EventStoreDir = fileutil.ResolvePathOrBlank(v) },
 			requires: SectionNone,
 		},
@@ -2342,6 +2370,7 @@ func (l *ConfigLoader) loadLegacyEnv(cfg *Config) {
 		if value := os.Getenv(oldKey); value != "" {
 			log.Printf("%s is deprecated. Use %s instead.", oldKey, mapping.newKey)
 			mapping.setter(cfg, value)
+			l.reportLegacy(mapping.setting, value, SourceEnvPrefix+oldKey)
 		}
 	}
 }

@@ -1868,10 +1868,10 @@ func TestLoad_LegacyEnv(t *testing.T) {
 
 func TestLoad_LoadLegacyFields(t *testing.T) {
 	t.Parallel()
-	loader := &ConfigLoader{}
 
 	t.Run("AllFieldsSet", func(t *testing.T) {
 		t.Parallel()
+		loader := NewConfigLoader(viper.New())
 		tempDir := t.TempDir()
 		testPaths := filepath.Join(tempDir, "test")
 
@@ -1916,6 +1916,7 @@ func TestLoad_LoadLegacyFields(t *testing.T) {
 
 	t.Run("DAGsPrecedence", func(t *testing.T) {
 		t.Parallel()
+		loader := NewConfigLoader(viper.New())
 		tempDir := t.TempDir()
 
 		def := Definition{
