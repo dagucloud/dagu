@@ -634,13 +634,14 @@ export function WorkspaceCanvas({
   // step panel) and the Activity panel take turns. A panel that opens
   // collapses Activity, which comes back when the panel closes. Activity that
   // opens closes the panel. A maximized column holds the room of the Run
-  // panel too.
+  // panel too. The YAML panel counts from the first render, before the editor
+  // loads and claims it, so that Activity does not show and then fold.
   useDockYield(
     paneActive &&
       (activePanel !== null ||
         shownNdv === 'expanded' ||
         columnFills ||
-        (stepPanel.shown && !columnMode))
+        (!columnMode && (shownNdv === 'docked' || stepPanel.shown)))
   );
   // Esc in the YAML of the step view closes the view too.
   useEscInStepYaml({

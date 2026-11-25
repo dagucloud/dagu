@@ -1632,12 +1632,13 @@ describe('WorkspaceCanvas', () => {
       expect(yieldToView).toHaveBeenLastCalledWith(false);
     });
 
-    // The YAML panel sits in the zone above Activity: both stay open.
-    it('keeps Activity open beside the docked YAML panel', () => {
+    // The YAML panel and Activity take turns. The stand-in claims no panel:
+    // the docked state alone folds Activity, before the editor has loaded.
+    it('yields to the docked YAML panel from the first render', () => {
       const yieldToView = vi.fn();
       ws.dock = { ...dock, open: true, yieldToView };
       renderCanvas('/dags/example.yaml?step=extract&ndv=docked');
-      expect(yieldToView).not.toHaveBeenCalledWith(true, expect.anything());
+      expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
       expect(screen.getByTestId('dag-spec-stand-in')).toBeInTheDocument();
     });
 
