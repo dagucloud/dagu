@@ -148,13 +148,13 @@ func (c *runChanges) read(filter *workspace.WorkspaceFilter, following bool) api
 	defer c.mu.Unlock()
 	now := c.clock()
 	c.trim(now)
-	since := c.from
-	if !following || since.IsZero() {
-		since = now
-	}
+	readAt := now.UTC().Truncate(time.Millisecond)
 	changes := []api.DAGRunChange{}
+	if !following || c.from.IsZero() {
+		return api.DAGRunChanges{Since: readAt, ReadAt: readAt, Changes: changes}
+	}
 	for _, e := range slices.Backward(c.entries) {
-		if !e.at.After(since) {
+		if !e.at.After(c.from) {
 			break
 		}
 		if !filter.MatchesLabels(e.labels) {
@@ -162,11 +162,7 @@ func (c *runChanges) read(filter *workspace.WorkspaceFilter, following bool) api
 		}
 		changes = append(changes, api.DAGRunChange{FileName: e.fileName, ChangedAt: ceilMillis(e.at)})
 	}
-	return api.DAGRunChanges{
-		Since:   ceilMillis(since),
-		ReadAt:  now.UTC().Truncate(time.Millisecond),
-		Changes: changes,
-	}
+	return api.DAGRunChanges{Since: ceilMillis(c.from), ReadAt: readAt, Changes: changes}
 }
 
 // ceilMillis rounds t up to the millisecond, in UTC. A change after a read

@@ -115,10 +115,11 @@ func TestRunChangesKeepsAtMost500Files(t *testing.T) {
 // feed is complete from now only, so a list reads all of its activity again.
 func TestRunChangesCompleteFromWhenFollowed(t *testing.T) {
 	t.Parallel()
-	feed, setNow := feedAt(feedStart)
+	feed, setNow := feedAt(feedStart.Add(500 * time.Microsecond))
 	changes := feed.read(nil, false)
 	assert.True(t, changes.Since.Equal(changes.ReadAt), "not followed")
 	assert.Empty(t, changes.Changes)
+	setNow(feedStart)
 
 	feed.record([]*eventstore.DAGRunStatusSnapshot{changeOf("a", "a")}, true)
 	resumed := feedStart.Add(time.Minute)
