@@ -2,7 +2,16 @@
 
 ## Status
 
-Not implemented.
+Partially implemented.
+
+Two parts are built:
+
+- `dagu validate` rejects a secret `ref` that starts with `ai/`, as [Secrets of a step](#secrets-of-a-step)
+  and Spec 069 state.
+- `dagu egress-proxy serve` forwards a request only to a destination of `--allow` and refuses the
+  others with the status 403. See [Key injection](#key-injection). The options
+  `--allow-with-credential`, `--proxy-credential-env`, `--proxy-credential-file` and `--upstream`
+  with its key options are not built yet.
 
 No version of Dagu reads the new keys of this spec yet. A configuration that sets
 `coordinator.worker_pools`, `coordinator.dispatchers` or `untrusted` has no effect, and
@@ -1534,7 +1543,16 @@ Each item has a default. The default applies until the owner decides.
 ## Conformance
 
 Black-box tests go in `conformance/spec092_agent_workers/`. They use static fixtures, test
-certificates, a fake CLI and a fake model API. No test covers this spec yet.
+certificates, a fake CLI and a fake model API. No test is there yet.
+
+The built parts have these tests:
+
+| Test | Proves |
+| --- | --- |
+| `TestSecretValidation` (`conformance/spec069_secrets/`) | `dagu validate` rejects a secret `ref` that starts with `ai/`. |
+| `internal/runtime/egress/` (unit) | The proxy allows the destinations of `--allow` and refuses the others. |
+
+The proxy has no black-box test yet.
 
 A test that changes to the restricted user needs Linux, the user ID 0 and the flag no-new-privileges.
 It skips on another host. Run these tests in a root container with the flag no-new-privileges.
