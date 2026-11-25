@@ -42,6 +42,12 @@ steps:
   - id: echo
     run: echo hi
 `)
+	createDAG("bound", `
+node: required
+steps:
+  - id: echo
+    run: echo hi
+`)
 	nodes := func(names ...string) *api.TargetNodes {
 		list := api.TargetNodes(names)
 		return &list
@@ -103,6 +109,7 @@ steps:
 	}{
 		{name: "unknown node", dag: "narrowed", body: api.ExecuteDAGJSONRequestBody{TargetNodes: nodes("web1")}, message: `node "web1" is not a node of the project`},
 		{name: "nothing to narrow", dag: "plain", body: api.ExecuteDAGJSONRequestBody{TargetNodes: nodes("web01")}, message: "a node list narrows nothing"},
+		{name: "node: required without a node", dag: "bound", message: "starts with exactly one node, not 0"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, path := range []string{"/start", "/enqueue"} {
