@@ -18,7 +18,7 @@ Write the resource model's nodes as inventories: a JSON array that `dagu nodes i
 | `ssh-password-storage-path`, `ssh-key-passphrase-storage-path` | `password`, `passphrase`: `{"secret": "<ref>"}` only |
 | Settings every node shares | `defaults`; `defaults.labels` are added to each node's labels |
 
-- Label keys and values are lowercased. A key is a letter or digit, then letters, digits, `-`, `_`, or `.`; a value may also hold `/`. Rename an attribute whose value holds anything else, such as a space.
+- Label keys and values are lowercased. A key is a letter or digit, then letters, digits, `-`, `_`, or `.`; a value may also hold `/`. Rewrite a value that holds anything else, such as a space (`osName: Mac OS X` as `osname=mac-os-x`), or leave the attribute out.
 - An inventory never holds a secret value: a `password` or `passphrase` given as text is an error.
 - To refresh an inventory from its source, write the JSON again and run `dagu nodes import --replace`. A node that keeps its name keeps its trusted host key.
 
@@ -99,6 +99,7 @@ params:
   - version: ""
 steps:
   - id: install
+    # ${params.version} is inserted as shell text, unescaped: pass only trusted values
     run: sudo apt-get install -y "app=${params.version}"
   - id: restart
     depends: [install]
@@ -154,6 +155,7 @@ steps:
 | Per-node output of an execution | The run's Nodes tab; `GET /api/v1/dag-runs/{name}/{id}/node-runs` |
 | Retry failed nodes | Not available yet. Start a new run narrowed with `--node` to the nodes to run again; steps without `nodes` run again too |
 
+- Dagu inserts `${params.*}` and step outputs into `run:` as shell text, without escaping, so a value such as `$(...)` runs as a command. Pass only trusted values, or limit a param with `pattern`, as in `- name: version`, `type: string`, `pattern: '^[0-9A-Za-z.+~-]+$'`, which refuses any other value before the run starts.
 - A node list only removes nodes: a step runs on a node that its selector matches and the list names. A step none of whose nodes is listed is skipped without blocking later steps.
 - A `node: required` DAG started directly takes exactly one node: `--node`, or the Node field of the run dialog. The run dialog has no node list for other DAGs.
 - Each name must be an inventory node. Queued runs, retries, `dagu restart`, and `dagu start --from-run-id` keep the list.

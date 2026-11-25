@@ -3422,7 +3422,7 @@ Write the resource model's nodes as inventories: a JSON array that `dagu nodes i
 | `ssh-password-storage-path`, `ssh-key-passphrase-storage-path` | `password`, `passphrase`: `{"secret": "<ref>"}` only |
 | Settings every node shares | `defaults`; `defaults.labels` are added to each node's labels |
 
-- Label keys and values are lowercased. A key is a letter or digit, then letters, digits, `-`, `_`, or `.`; a value may also hold `/`. Rename an attribute whose value holds anything else, such as a space.
+- Label keys and values are lowercased. A key is a letter or digit, then letters, digits, `-`, `_`, or `.`; a value may also hold `/`. Rewrite a value that holds anything else, such as a space (`osName: Mac OS X` as `osname=mac-os-x`), or leave the attribute out.
 - An inventory never holds a secret value: a `password` or `passphrase` given as text is an error.
 - To refresh an inventory from its source, write the JSON again and run `dagu nodes import --replace`. A node that keeps its name keeps its trusted host key.
 
@@ -3503,6 +3503,7 @@ params:
   - version: ""
 steps:
   - id: install
+    # ${params.version} is inserted as shell text, unescaped: pass only trusted values
     run: sudo apt-get install -y "app=${params.version}"
   - id: restart
     depends: [install]
@@ -3558,6 +3559,7 @@ steps:
 | Per-node output of an execution | The run's Nodes tab; `GET /api/v1/dag-runs/{name}/{id}/node-runs` |
 | Retry failed nodes | Not available yet. Start a new run narrowed with `--node` to the nodes to run again; steps without `nodes` run again too |
 
+- Dagu inserts `${params.*}` and step outputs into `run:` as shell text, without escaping, so a value such as `$(...)` runs as a command. Pass only trusted values, or limit a param with `pattern`, as in `- name: version`, `type: string`, `pattern: '^[0-9A-Za-z.+~-]+$'`, which refuses any other value before the run starts.
 - A node list only removes nodes: a step runs on a node that its selector matches and the list names. A step none of whose nodes is listed is skipped without blocking later steps.
 - A `node: required` DAG started directly takes exactly one node: `--node`, or the Node field of the run dialog. The run dialog has no node list for other DAGs.
 - Each name must be an inventory node. Queued runs, retries, `dagu restart`, and `dagu start --from-run-id` keep the list.
@@ -3651,7 +3653,7 @@ dagu nodes list --labels web                   # like `ansible-inventory --list`
 | `forks` | `nodes.max_concurrent`, 1 to 1000. The default is `1` |
 | `any_errors_fatal: true` | `keep_going: false`, the default: no node starts after one fails, and running nodes finish |
 | A play that goes on with the other hosts after one fails | `keep_going: true`: every node runs, and the step fails if any node failed |
-| `run_once`, `delegate_to: localhost` | A step outside the bound DAG |
+| `run_once` with `delegate_to: localhost` | A step outside the bound DAG |
 | `delegate_to: localhost` on each host, such as a load balancer call | A step with an action such as `http.request` in the bound DAG: it runs on the Dagu host, once per node |
 | `serial` as a percentage or a list, `max_fail_percentage`, `order` | Not supported. Nodes start in name order |
 
@@ -3665,7 +3667,7 @@ dagu nodes list --labels web                   # like `ansible-inventory --list`
 params:
   - version: ""
 steps:
-  - id: announce                # run_once, delegate_to: localhost
+  - id: announce                # run_once with delegate_to: localhost
     action: http.request
     with:
       method: POST
@@ -3695,6 +3697,7 @@ steps:
       url: https://lb.internal/pools/web/${node.name}/drain
   - id: install                 # runs on the node
     depends: [drain]
+    # ${params.version} is inserted as shell text, unescaped: pass only trusted values
     run: sudo apt-get install -y "app=${params.version}"
   - id: enable
     depends: [install]
@@ -3711,7 +3714,7 @@ steps:
 | `command`, `shell` | `run:` |
 | `copy` | `sftp.upload` |
 | `fetch` | `sftp.download`. Put `${node.name}` in `destination` so nodes do not write one local path; a step with `nodes` must |
-| `template` | `template.render` writes the file on the Dagu host (`with.output`), then `sftp.upload` copies it |
+| `template` | `template.render` writes the file on the Dagu host, then `sftp.upload` copies it. Put `${node.name}` in `with.output`, such as `rendered/${node.name}/app.conf`, so nodes running at once do not share one file |
 | `become: true` | `sudo` in the command. Dagu does not answer a `sudo` password prompt |
 | Other modules, facts, and handlers | Not supported. Run the commands they would run |
 | `{{ inventory_hostname }}` | `${node.name}` |
@@ -3722,6 +3725,7 @@ steps:
 - A reference to a label the node lacks fails the run before any step, naming the node and the key.
 - Outside a bound run, `${node.*}` stays as text, with a notice.
 - Quote references in shell commands: `"${node.labels.role}"`.
+- Dagu inserts `${params.*}` and step outputs into `run:` as shell text, without escaping, so a value such as `$(...)` runs as a command. Pass only trusted values, or limit a param with `pattern`, as in `- name: version`, `type: string`, `pattern: '^[0-9A-Za-z.+~-]+$'`, which refuses any other value before the run starts.
 
 ## Limits
 

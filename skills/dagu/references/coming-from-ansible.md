@@ -80,7 +80,7 @@ dagu nodes list --labels web                   # like `ansible-inventory --list`
 | `forks` | `nodes.max_concurrent`, 1 to 1000. The default is `1` |
 | `any_errors_fatal: true` | `keep_going: false`, the default: no node starts after one fails, and running nodes finish |
 | A play that goes on with the other hosts after one fails | `keep_going: true`: every node runs, and the step fails if any node failed |
-| `run_once`, `delegate_to: localhost` | A step outside the bound DAG |
+| `run_once` with `delegate_to: localhost` | A step outside the bound DAG |
 | `delegate_to: localhost` on each host, such as a load balancer call | A step with an action such as `http.request` in the bound DAG: it runs on the Dagu host, once per node |
 | `serial` as a percentage or a list, `max_fail_percentage`, `order` | Not supported. Nodes start in name order |
 
@@ -94,7 +94,7 @@ dagu nodes list --labels web                   # like `ansible-inventory --list`
 params:
   - version: ""
 steps:
-  - id: announce                # run_once, delegate_to: localhost
+  - id: announce                # run_once with delegate_to: localhost
     action: http.request
     with:
       method: POST
@@ -124,6 +124,7 @@ steps:
       url: https://lb.internal/pools/web/${node.name}/drain
   - id: install                 # runs on the node
     depends: [drain]
+    # ${params.version} is inserted as shell text, unescaped: pass only trusted values
     run: sudo apt-get install -y "app=${params.version}"
   - id: enable
     depends: [install]
@@ -140,7 +141,7 @@ steps:
 | `command`, `shell` | `run:` |
 | `copy` | `sftp.upload` |
 | `fetch` | `sftp.download`. Put `${node.name}` in `destination` so nodes do not write one local path; a step with `nodes` must |
-| `template` | `template.render` writes the file on the Dagu host (`with.output`), then `sftp.upload` copies it |
+| `template` | `template.render` writes the file on the Dagu host, then `sftp.upload` copies it. Put `${node.name}` in `with.output`, such as `rendered/${node.name}/app.conf`, so nodes running at once do not share one file |
 | `become: true` | `sudo` in the command. Dagu does not answer a `sudo` password prompt |
 | Other modules, facts, and handlers | Not supported. Run the commands they would run |
 | `{{ inventory_hostname }}` | `${node.name}` |
@@ -151,6 +152,7 @@ steps:
 - A reference to a label the node lacks fails the run before any step, naming the node and the key.
 - Outside a bound run, `${node.*}` stays as text, with a notice.
 - Quote references in shell commands: `"${node.labels.role}"`.
+- Dagu inserts `${params.*}` and step outputs into `run:` as shell text, without escaping, so a value such as `$(...)` runs as a command. Pass only trusted values, or limit a param with `pattern`, as in `- name: version`, `type: string`, `pattern: '^[0-9A-Za-z.+~-]+$'`, which refuses any other value before the run starts.
 
 ## Limits
 
