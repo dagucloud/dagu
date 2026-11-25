@@ -255,6 +255,9 @@ func openTunnel(t *testing.T, proxyAddr, target string) (net.Conn, *bufio.Reader
 	response, err := http.ReadResponse(reader, &http.Request{Method: http.MethodConnect})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, response.StatusCode)
+	// The answer has no length, so its body ends the connection: Close reads
+	// nothing, and the tunnel bytes stay in reader.
+	require.NoError(t, response.Body.Close())
 	return conn, reader
 }
 
