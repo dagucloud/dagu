@@ -243,6 +243,34 @@ func serveTCP(t *testing.T, handle func(net.Conn)) string {
 	return listener.Addr().String()
 }
 
+// requestStatus sends a raw request to the proxy and returns the status line of
+// the answer.
+func requestStatus(t *testing.T, proxyAddr, request string) string {
+	t.Helper()
+	conn, err := net.Dial("tcp", proxyAddr)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+	_, err = io.WriteString(conn, request)
+	require.NoError(t, err)
+	line, err := bufio.NewReader(conn).ReadString('\n')
+	require.NoError(t, err)
+	return strings.TrimSpace(line)
+}
+
+// A CONNECT can name a host in Unicode, which the rules match. The proxy
+// resolves the IDNA ASCII form, the only form that the pure Go resolver takes.
+func TestConnectResolvesTheASCIIName(t *testing.T) {
+	t.Parallel()
+
+	host, port, err := net.SplitHostPort(serveTCP(t, func(net.Conn) {}))
+	require.NoError(t, err)
+	resolver := &fakeResolver{answers: map[string][]netip.Addr{"xn--bcher-kva.example": {netip.MustParseAddr(host)}}}
+	proxyAddr := startProxy(t, []string{"Bücher.example:" + port}, resolver, nil)
+
+	status := requestStatus(t, proxyAddr, "CONNECT bücher.example:"+port+" HTTP/1.1\r\nHost: xn--bcher-kva.example:"+port+"\r\n\r\n")
+	assert.Equal(t, "HTTP/1.1 200 Connection Established", status)
+}
+
 // openTunnel sends CONNECT for the target and reads the answer 200.
 func openTunnel(t *testing.T, proxyAddr, target string) (net.Conn, *bufio.Reader) {
 	t.Helper()
@@ -540,24 +568,14 @@ func TestWildcardRefusesZonedAddressLiterals(t *testing.T) {
 	dials := &dialRecord{}
 	resolver := &fakeResolver{answers: map[string][]netip.Addr{}}
 	proxyAddr := startProxy(t, []string{"*.wild.example.test"}, resolver, dials.noRoute)
-	status := func(request string) string {
-		conn, err := net.Dial("tcp", proxyAddr)
-		require.NoError(t, err)
-		defer func() { _ = conn.Close() }()
-		_, err = io.WriteString(conn, request)
-		require.NoError(t, err)
-		line, err := bufio.NewReader(conn).ReadString('\n')
-		require.NoError(t, err)
-		return strings.TrimSpace(line)
-	}
 
 	for _, target := range []string{
 		"64:ff9b::a00:1%25x.wild.example.test", "2001:db8::1%25x.wild.example.test", "::ffff:8.8.8.8%25x.wild.example.test",
 	} {
 		assert.Equal(t, "HTTP/1.1 403 Forbidden",
-			status("GET http://["+target+"]/ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"), target)
+			requestStatus(t, proxyAddr, "GET http://["+target+"]/ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"), target)
 		assert.Equal(t, "HTTP/1.1 403 Forbidden",
-			status("CONNECT ["+target+"]:443 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"), "CONNECT %s", target)
+			requestStatus(t, proxyAddr, "CONNECT ["+target+"]:443 HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"), "CONNECT %s", target)
 	}
 	assert.Empty(t, dials.seen(), "a zoned literal is not dialed")
 }
@@ -602,17 +620,8 @@ func TestMalformedAndFailedRequests(t *testing.T) {
 
 	resolver := &fakeResolver{answers: map[string][]netip.Addr{}}
 	proxyAddr := startProxy(t, []string{"gone.example.test"}, resolver, nil)
+	raw := func(request string) string { return requestStatus(t, proxyAddr, request) }
 
-	raw := func(request string) string {
-		conn, err := net.Dial("tcp", proxyAddr)
-		require.NoError(t, err)
-		defer func() { _ = conn.Close() }()
-		_, err = io.WriteString(conn, request)
-		require.NoError(t, err)
-		status, err := bufio.NewReader(conn).ReadString('\n')
-		require.NoError(t, err)
-		return strings.TrimSpace(status)
-	}
 	assert.Equal(t, "HTTP/1.1 400 Bad Request", raw("GET / HTTP/1.1\r\nHost: gone.example.test\r\nConnection: close\r\n\r\n"))
 	assert.Equal(t, "HTTP/1.1 400 Bad Request", raw("GET https://gone.example.test/ HTTP/1.1\r\nHost: gone.example.test\r\nConnection: close\r\n\r\n"))
 	assert.Equal(t, "HTTP/1.1 400 Bad Request", raw("CONNECT nohost HTTP/1.1\r\nHost: nohost\r\nConnection: close\r\n\r\n"))

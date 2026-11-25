@@ -178,7 +178,12 @@ func (p *Proxy) dialAllowed(ctx context.Context, network, address string) (net.C
 	if ip, parseErr := netip.ParseAddr(host); parseErr == nil {
 		addrs = []netip.Addr{ip}
 	} else {
-		addrs, err = p.resolver.LookupNetIP(ctx, "ip", host)
+		// The pure Go resolver takes the IDNA ASCII form only, and a CONNECT can
+		// name the host in Unicode.
+		var ascii string
+		if ascii, err = asciiHost(host); err == nil {
+			addrs, err = p.resolver.LookupNetIP(ctx, "ip", ascii)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("resolve %s: %w", host, err)
 		}
