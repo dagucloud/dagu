@@ -6,6 +6,7 @@ import {
   CalendarClock,
   Hash,
   Hourglass,
+  ListFilter,
   type LucideIcon,
   Network,
   Server,
@@ -51,6 +52,7 @@ type RunFields = Pick<
   | 'backfillId'
   | 'workerId'
   | 'boundNode'
+  | 'targetNodes'
   | 'profileName'
   | 'params'
   | 'dates'
@@ -219,6 +221,17 @@ const SECONDARY = 'hidden @max-3xl:flex @7xl:flex';
 
 /** Queue time shorter than this is noise, not waiting. */
 const MIN_QUEUE_WAIT_SECONDS = 1;
+
+/**
+ * The nodes a narrowed run runs on, or nothing when the list names only the
+ * node the run is bound to, which the Node item shows.
+ */
+function narrowedNodes(dagRun: RunFields): string | undefined {
+  const nodes = dagRun.targetNodes ?? [];
+  if (nodes.length === 0) return undefined;
+  if (nodes.length === 1 && nodes[0] === dagRun.boundNode) return undefined;
+  return nodes.join(', ');
+}
 
 function MetaItem({
   icon: Icon,
@@ -432,6 +445,7 @@ export function RunMetaLine({
   const started = parseTime(dagRun.startedAt) !== undefined;
   const durationOnLine = !(showTimes && durationInTimes);
   const queueWait = queueWaitSeconds(dagRun.queuedAt, dagRun.startedAt);
+  const narrowed = narrowedNodes(dagRun);
   const waitingTime = started
     ? undefined
     : parseTime(dagRun.queuedAt)
@@ -622,6 +636,20 @@ export function RunMetaLine({
             className={compact && !keepSecondary ? SECONDARY : undefined}
           >
             <span className="font-mono text-xs">{dagRun.boundNode}</span>
+          </MetaItem>
+        )}
+        {narrowed && (
+          <MetaItem
+            icon={ListFilter}
+            label="Narrowed to"
+            className={compact && !keepSecondary ? SECONDARY : undefined}
+          >
+            <span
+              className="block max-w-64 truncate font-mono text-xs"
+              title={narrowed}
+            >
+              {narrowed}
+            </span>
           </MetaItem>
         )}
         {dagRun.profileName && (
