@@ -80,8 +80,7 @@ function ActivityBars({
   );
   const runs = activity?.runs;
   const bars = useMemo(
-    () =>
-      runs ? activityBars(runs, minute * REFRESH_MS, undefined, width) : [],
+    () => (runs ? activityBars(runs, minute * REFRESH_MS, width) : []),
     [runs, minute, width]
   );
   if (!activity) {

@@ -121,8 +121,8 @@ describe('activityBarsModel', () => {
     const runs = Array.from({ length: 60 }, (_, i) =>
       run(`r${i}`, i * 10 * 60_000, 1_000)
     );
-    const narrow = activityBars(runs, NOW, undefined, 196);
-    const wide = activityBars(runs, NOW, undefined, 490);
+    const narrow = activityBars(runs, NOW, 196);
+    const wide = activityBars(runs, NOW, 490);
     expect(wide.length).toBeGreaterThan(narrow.length);
     const last = wide.reduce((a, b) => (b.left > a.left ? b : a));
     expect(last.left + ACTIVITY_BAR_PX).toBeLessThanOrEqual(490);

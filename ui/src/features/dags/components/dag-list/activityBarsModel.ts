@@ -58,10 +58,9 @@ function time(value: string | undefined): number | null {
 export function activityBars(
   runs: readonly ActivityRun[],
   now: number,
-  windowSeconds: number = ACTIVITY_WINDOW_SECONDS,
   widthPx: number = ACTIVITY_WIDTH_PX
 ): ActivityBar[] {
-  const windowMs = windowSeconds * 1000;
+  const windowMs = ACTIVITY_WINDOW_SECONDS * 1000;
   // As many slots as the strip holds; they share its width, so the last bar
   // meets the right edge. A wider column holds more slots, not wider bars.
   const slots = Math.max(1, Math.floor(widthPx / ACTIVITY_SLOT_PX));
