@@ -13,6 +13,7 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/dispatch"
+	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/runtime/builtin/sql"
@@ -284,10 +286,27 @@ func (w *Worker) Start(ctx context.Context) (err error) {
 	return nil
 }
 
+// workerLabels applies the label rules to the configured labels and adds the
+// built-in platform labels. Keys and values are lowercased and a label with no
+// value is kept. The error names every label that breaks the rules.
 func workerLabels(configured map[string]string) (map[string]string, error) {
-	labels := maps.Clone(configured)
-	if labels == nil {
-		labels = make(map[string]string, 2)
+	labels := make(map[string]string, len(configured)+2)
+	var errs []error
+	for _, key := range slices.Sorted(maps.Keys(configured)) {
+		text := ir.Label{Key: key, Value: configured[key]}.String()
+		label := ir.ParseLabel(text)
+		if err := ir.ValidateLabel(label); err != nil {
+			errs = append(errs, fmt.Errorf("worker label %q: %w", text, err))
+			continue
+		}
+		if _, ok := labels[label.Key]; ok {
+			errs = append(errs, fmt.Errorf("worker label %q: key %q is set more than once", text, label.Key))
+			continue
+		}
+		labels[label.Key] = label.Value
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 	for _, platform := range []struct {
 		key   string

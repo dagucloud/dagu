@@ -2774,45 +2774,43 @@ func (l *ConfigLoader) configureViper(configDir, configFile string) {
 	l.v.AutomaticEnv()
 }
 
-// parseLabels parses labels from comma-separated strings or map types.
+// parseLabels parses worker labels from a comma-separated string of key or
+// key=value entries, or from a map. A key with no value or a null value is a
+// label with no value. Entries are kept as written: the worker applies the
+// label rules, so a malformed entry stops it instead of being dropped.
 func parseLabels(input any) map[string]string {
 	labels := make(map[string]string)
 
 	switch v := input.(type) {
 	case string:
-		if v == "" {
-			return labels
-		}
 		for pair := range strings.SplitSeq(v, ",") {
 			pair = strings.TrimSpace(pair)
 			if pair == "" {
 				continue
 			}
-			if key, value, found := strings.Cut(pair, "="); found {
-				key = strings.TrimSpace(key)
-				value = strings.TrimSpace(value)
-				if key != "" {
-					labels[key] = value
-				}
-			}
+			key, value, _ := strings.Cut(pair, "=")
+			labels[strings.TrimSpace(key)] = strings.TrimSpace(value)
 		}
 	case map[string]any:
 		for key, val := range v {
-			if strVal, ok := val.(string); ok {
-				labels[key] = strVal
-			}
+			labels[key] = labelValue(val)
 		}
 	case map[any]any:
 		for key, val := range v {
-			if keyStr, ok := key.(string); ok {
-				if valStr, ok := val.(string); ok {
-					labels[keyStr] = valStr
-				}
-			}
+			labels[fmt.Sprint(key)] = labelValue(val)
 		}
 	}
 
 	return labels
+}
+
+// labelValue renders a label value from a config map, where YAML may give a
+// bool or a number, and null means no value.
+func labelValue(val any) string {
+	if val == nil {
+		return ""
+	}
+	return fmt.Sprint(val)
 }
 
 // parseStringList parses comma-separated strings or string slices, filtering empty entries.
