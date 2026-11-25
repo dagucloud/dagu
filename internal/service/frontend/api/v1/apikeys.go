@@ -108,8 +108,8 @@ func (a *API) CreateAPIKey(ctx context.Context, request api.CreateAPIKeyRequestO
 		return nil, errAPIKeyNeedsAdmin
 	}
 
-	a.apiKeyCreateMu.Lock()
-	defer a.apiKeyCreateMu.Unlock()
+	a.apiKeyWriteMu.Lock()
+	defer a.apiKeyWriteMu.Unlock()
 
 	if err := a.requireCommunityAPIKeyLimit(ctx); err != nil {
 		return nil, err
@@ -215,7 +215,10 @@ func (a *API) UpdateAPIKey(ctx context.Context, request api.UpdateAPIKeyRequestO
 	}
 
 	// While projects are on, the key's current grants decide who may change
-	// it and how its workspace access is checked.
+	// it and how its workspace access is checked. The lock keeps the key as
+	// read here until the update writes it.
+	a.apiKeyWriteMu.Lock()
+	defer a.apiKeyWriteMu.Unlock()
 	var currentKey *auth.APIKey
 	if manager.projectsOn {
 		if currentKey, err = a.managedAPIKey(ctx, manager, request.KeyId); err != nil {
@@ -388,6 +391,9 @@ func (a *API) DeleteAPIKey(ctx context.Context, request api.DeleteAPIKeyRequestO
 	if err != nil {
 		return nil, err
 	}
+
+	a.apiKeyWriteMu.Lock()
+	defer a.apiKeyWriteMu.Unlock()
 
 	// Get API key info before deletion for audit logging
 	targetKey, _ := a.authService.GetAPIKey(ctx, request.KeyId)

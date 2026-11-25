@@ -117,7 +117,7 @@ type API struct {
 	publicWebhookStore   publicwebhook.Store
 	cloudReport          CloudReportService
 	cloudAccess          CloudAccessService
-	apiKeyCreateMu       sync.Mutex
+	apiKeyWriteMu        sync.Mutex // Serializes API key writes, so each checks the state it changes
 	workspaceStore       workspace.Store
 	projectAccess        *projectaccess.Checker
 	leaseStaleThreshold  time.Duration
