@@ -97,6 +97,26 @@ func TestProjectStoreCacheRetriesFailedOpen(t *testing.T) {
 	assert.True(t, ok)
 }
 
+// After a failed record, the cache records again even when the projects
+// marked deleting are back to the set it recorded last, so the entry does
+// not keep a release the process took back.
+func TestProjectStoreCacheRetriesFailedRecord(t *testing.T) {
+	registry, releases := newFakeRegistry(), &releaseLog{}
+	cache := persisfile.NewProjectStoreCache(registry, &persisfile.ProjectStores{},
+		func(context.Context, project.Project) (*persisfile.ProjectStores, error) {
+			return &persisfile.ProjectStores{}, nil
+		}, releases)
+	runCache(t, cache)
+
+	deleting := weatherProject
+	deleting.Deleting = true
+	releases.setFailing(true)
+	registry.show(defaultProject, deleting)
+	releases.setFailing(false)
+	registry.show(defaultProject, weatherProject)
+	assert.Equal(t, [][]string{{weatherProject.ID}, nil}, releases.recorded())
+}
+
 // A process that starts while a project is marked deleting registers the
 // default project and records the release in its service registry entry,
 // where another process reads it.
@@ -184,17 +204,27 @@ func (r *fakeRegistry) Watch(ctx context.Context, onChange func([]project.Projec
 	}
 }
 
-// releaseLog keeps each set of released projects recorded.
+// releaseLog keeps each set of released projects the cache tries to record.
 type releaseLog struct {
-	mu   sync.Mutex
-	sets [][]string
+	mu      sync.Mutex
+	sets    [][]string
+	failing bool
 }
 
 func (l *releaseLog) SetReleasedProjects(_ context.Context, ids []string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.sets = append(l.sets, slices.Clone(ids))
+	if l.failing {
+		return errors.New("disk full")
+	}
 	return nil
+}
+
+func (l *releaseLog) setFailing(failing bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.failing = failing
 }
 
 func (l *releaseLog) recorded() [][]string {

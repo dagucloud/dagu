@@ -32,9 +32,10 @@ type ProjectStoreCache struct {
 
 	mu     sync.RWMutex
 	stores map[string]*ProjectStores
-	// released is the last set of IDs recorded. Only the goroutine that
-	// runs Run touches it.
-	released []string
+	// released is the last set of IDs recorded, and unrecorded reports that
+	// a later record failed. Only the goroutine that runs Run touches them.
+	released   []string
+	unrecorded bool
 }
 
 // ProjectStoreOpener opens the stores of a project other than the default
@@ -131,17 +132,18 @@ func (c *ProjectStoreCache) follow(ctx context.Context, projects []project.Proje
 	c.recordReleased(ctx, deleting)
 }
 
-// recordReleased records ids once the cache holds none of their stores, when
-// they differ from the IDs recorded last. A failed record is tried again on
-// the next change.
+// recordReleased records ids once the cache holds none of their stores,
+// unless they are the IDs recorded last. After a failed record, the next
+// change records its IDs whatever they are.
 func (c *ProjectStoreCache) recordReleased(ctx context.Context, ids []string) {
 	slices.Sort(ids)
-	if slices.Equal(ids, c.released) {
+	if !c.unrecorded && slices.Equal(ids, c.released) {
 		return
 	}
 	if err := c.releases.SetReleasedProjects(ctx, ids); err != nil {
+		c.unrecorded = true
 		logger.Warn(ctx, "Failed to record released projects", tag.Error(err))
 		return
 	}
-	c.released = ids
+	c.released, c.unrecorded = ids, false
 }
