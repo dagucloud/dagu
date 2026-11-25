@@ -126,15 +126,15 @@ func decodeFile(path string, data []byte) (fileSpec, []Finding) {
 	if err := dec.Decode(&root); err != nil && !errors.Is(err, io.EOF) {
 		return fileSpec{}, []Finding{{Message: "not valid YAML: " + err.Error()}}
 	}
+	if err := checkAliases(&root); err != nil {
+		return fileSpec{}, []Finding{{Message: "not valid YAML: " + err.Error()}}
+	}
 	if readsAsDAG(&root) {
 		return fileSpec{}, []Finding{{Message: spec.TestNamedDAGHint(path)}}
 	}
 	var next yaml.Node
 	if err := dec.Decode(&next); !errors.Is(err, io.EOF) {
 		return fileSpec{}, []Finding{{Message: "holds more than one YAML document"}}
-	}
-	if err := checkAliases(&root); err != nil {
-		return fileSpec{}, []Finding{{Message: "not valid YAML: " + err.Error()}}
 	}
 	if len(root.Content) == 0 || resolve(root.Content[0]).Kind != yaml.MappingNode {
 		return fileSpec{}, []Finding{{Message: "the top level must be a map"}}
@@ -147,13 +147,18 @@ func decodeFile(path string, data []byte) (fileSpec, []Finding) {
 }
 
 // readsAsDAG reports whether the document root is a map with top-level steps
-// and no cases, the shape of a DAG.
+// and no cases, merge keys expanded, the shape of a DAG. Its aliases must
+// have passed checkAliases.
 func readsAsDAG(root *yaml.Node) bool {
 	if len(root.Content) == 0 {
 		return false
 	}
-	top := resolve(root.Content[0])
-	return top.Kind == yaml.MappingNode && hasKey(top, "steps") && !hasKey(top, "cases")
+	var steps, cases bool
+	for _, f := range (&decoder{}).fields(root.Content[0], "") {
+		steps = steps || f.key == "steps"
+		cases = cases || f.key == "cases"
+	}
+	return steps && !cases
 }
 
 // maxExpandedNodes bounds the nodes of a test file with its aliases
@@ -192,15 +197,6 @@ func checkAliases(root *yaml.Node) error {
 	}
 	_, err := expand(root)
 	return err
-}
-
-func hasKey(mapping *yaml.Node, key string) bool {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			return true
-		}
-	}
-	return false
 }
 
 // decoder reads YAML nodes into a test file's fields and collects every

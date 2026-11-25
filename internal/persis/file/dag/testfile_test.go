@@ -43,6 +43,12 @@ func TestWarnTestNamedDAGs(t *testing.T) {
 			rename: "nightly-test.yml",
 		},
 		{
+			name:   "MergedSteps",
+			file:   "merged.test.yaml",
+			yaml:   "name: merged\n<<:\n  steps:\n    - run: echo merged\n",
+			rename: "merged-test.yaml",
+		},
+		{
 			name: "TestFile",
 			file: "release.test.yaml",
 			yaml: "cases:\n  - name: passes\n    expect:\n      status: succeeded\n",

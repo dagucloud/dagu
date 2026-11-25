@@ -78,6 +78,10 @@ func TestLoadFileInvalid(t *testing.T) {
 			file: "subdag.test.yaml",
 			want: []string{"reads as a DAG, with steps and no cases, but Dagu treats it as a test file and does not run it as a DAG; rename it, for example to subdag-test.yaml"},
 		},
+		{
+			file: "merged.test.yaml",
+			want: []string{"reads as a DAG, with steps and no cases, but Dagu treats it as a test file and does not run it as a DAG; rename it, for example to merged-test.yaml"},
+		},
 		{file: "list.test.yaml", want: []string{"the top level must be a map"}},
 		{file: "syntax.test.yaml", want: []string{"not valid YAML: yaml: line 1: did not find expected node content"}},
 		{file: "two_docs.test.yaml", want: []string{"holds more than one YAML document"}},
