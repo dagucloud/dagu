@@ -4,11 +4,20 @@
 package scheduler
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/dagrun"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
+	"github.com/dagucloud/dagu/v2/internal/project"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -164,11 +173,95 @@ func TestGenerateSlotRunID(t *testing.T) {
 
 	const dataDir = "/var/lib/dagu"
 	id := GenerateSlotRunID(dataDir, "etl-pipeline", slot)
-	assert.Regexp(t, `^sched-[0-9a-f]{12}-20260207T120000$`, id)
+	// The ID v2 gives this slot. Any other value re-runs slots that ran
+	// before an upgrade.
+	assert.Equal(t, "sched-4afabf0185aa-20260207T120000", id)
 	assert.LessOrEqual(t, len(id), maxRunIDLen)
 
 	assert.Equal(t, id, GenerateSlotRunID(dataDir, "etl-pipeline", slot.In(time.FixedZone("JST", 9*3600))))
 	assert.NotEqual(t, id, GenerateSlotRunID(dataDir, "other", slot))
 	assert.NotEqual(t, id, GenerateSlotRunID("/srv/other-install", "etl-pipeline", slot))
 	assert.NotEqual(t, id, GenerateSlotRunID(dataDir, "etl-pipeline", slot.Add(time.Minute)))
+}
+
+// v2 hashes paths.data_dir into each slot's run ID. Migration moves a
+// project's runs under <data_dir>/projects/<name>/, and the registry seeds the
+// default project and each migrated one with paths.data_dir, so a slot that
+// ran on v2 keeps its run ID and is refused as a duplicate after the upgrade.
+func TestSlotRunIDAcrossMigration(t *testing.T) {
+	t.Parallel()
+
+	slot := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	for name, register := range map[string]func(context.Context, project.Registry) (project.Project, error){
+		"Default": func(ctx context.Context, reg project.Registry) (project.Project, error) {
+			return reg.EnsureDefault(ctx)
+		},
+		"Migrated": func(ctx context.Context, reg project.Registry) (project.Project, error) {
+			return reg.Create(ctx, project.CreateInput{Name: "billing", MigratedFrom: "billing"})
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+			dataDir := t.TempDir()
+			cfg := &config.Config{Paths: config.PathsConfig{
+				DataDir:    dataDir,
+				DAGRunsDir: filepath.Join(dataDir, "dag-runs"),
+			}}
+			dag := &ir.DAG{Name: "invoices", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+
+			v2Paths, err := cfg.ProjectPaths(project.DefaultName)
+			require.NoError(t, err)
+			ranID := planSlotRunID(t, cfg.Paths.DataDir, dag, slot)
+			_, err = testutil.NewFileDAGRunRepository(v2Paths.DAGRunsDir, persis.DAGRunRepositoryOptions{}).
+				CreateAttempt(ctx, dag, slot, ranID, persis.DAGRunCreateAttemptOptions{})
+			require.NoError(t, err)
+
+			// Migration registers the project and moves its runs.
+			cfg.ProjectsEnabled = true
+			registered, err := register(ctx, projectregistry.New(cfg.Paths.DataDir))
+			require.NoError(t, err)
+			paths, err := cfg.ProjectPaths(registered.Name)
+			require.NoError(t, err)
+			require.NoError(t, os.MkdirAll(filepath.Dir(paths.DAGRunsDir), 0o750))
+			require.NoError(t, os.Rename(v2Paths.DAGRunsDir, paths.DAGRunsDir))
+
+			restarted, err := projectregistry.New(cfg.Paths.DataDir).GetByID(ctx, registered.ID)
+			require.NoError(t, err)
+			runID := planSlotRunID(t, restarted.SlotSeed, dag, slot)
+			require.Equal(t, ranID, runID)
+			_, err = testutil.NewFileDAGRunRepository(paths.DAGRunsDir, persis.DAGRunRepositoryOptions{}).
+				CreateAttempt(ctx, dag, slot, runID, persis.DAGRunCreateAttemptOptions{})
+			require.ErrorIs(t, err, dagrun.ErrDAGRunAlreadyExists)
+		})
+	}
+}
+
+// A new project is seeded with its ID, so its slots never take the run IDs of
+// a DAG of the same name in the default project.
+func TestNewProjectSlotRunID(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	reg := projectregistry.New(t.TempDir())
+	def, err := reg.EnsureDefault(ctx)
+	require.NoError(t, err)
+	created, err := reg.Create(ctx, project.CreateInput{Name: "weather"})
+	require.NoError(t, err)
+
+	slot := time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC)
+	dag := &ir.DAG{Name: "forecast", Schedule: []ir.Schedule{mustParseSchedule(t, "0 * * * *")}}
+	assert.NotEqual(t, planSlotRunID(t, def.SlotSeed, dag, slot), planSlotRunID(t, created.SlotSeed, dag, slot))
+}
+
+// planSlotRunID returns the run ID that a tick planner with seed gives the
+// slot of dag at slot.
+func planSlotRunID(t *testing.T, seed string, dag *ir.DAG, slot time.Time) string {
+	t.Helper()
+	tp, _ := newTestTickPlanner(&mockStateStore{})
+	tp.cfg.SlotSeed = seed
+	tp.cfg.Clock = func() time.Time { return slot }
+	require.NoError(t, tp.Init(t.Context(), testDAGEntries(dag)))
+	runs := tp.Plan(t.Context(), slot)
+	require.Len(t, runs, 1)
+	return runs[0].RunID
 }
