@@ -330,15 +330,12 @@ Rules:
 
 ### Activity in the DAG List
 
-`GET /dag-list-activity` gives the activity of each DAG of one page of the DAG list, in the window
-that ends now (`window`, in seconds). It takes the paging, the filters and the sort of `GET /dags`,
-and gives the DAGs of the same page in the same order. For a service DAG, the activity holds
-buckets of the run history instead of runs. A service DAG with no run history has no bucket.
-
-The `daglistactivity` topic of the stream gives the same activity. Its identifier is the query of
-the `dagslist` topic of the page with `window`. It reads the activity again at most once in 10
-seconds after a change of a run or of a DAG, and once in 60 seconds otherwise. It sends the
-activity only when it changed.
+`GET /dag-list-activity` gives the activity in the window that ends now (`window`, in seconds) of
+each DAG that a repeated `fileName` names, at most 100, in the order of the request, each once. A
+name that names no DAG of `GET /dags` that the caller can see is left out, with no error. `readAt`
+is the server time when the activity was read, rounded down to the millisecond. For a service DAG,
+the activity holds buckets of the run history instead of runs. A service DAG with no run history
+has no bucket.
 
 The activity of a service DAG has:
 
@@ -355,8 +352,8 @@ Rules:
 - The cost of the activity of a service DAG does not depend on its count of runs.
 - The activity of a service DAG does not depend on the status of its latest run. A queued run, or a
   run that has not started, does not empty it.
-- A `window` that is missing, or outside 60 to 604800 seconds, gets `400`. A `perPage` above 200
-  reads 200 DAGs, as `GET /dags` does.
+- A `window` that is missing, or outside 60 to 604800 seconds, gets `400`. No `fileName`, or more
+  than 100, gets `400`.
 - For a DAG that is not a service DAG, the activity lists the runs that started in the window, the
   last started first, at most 60, and the runs still in progress. It finds them among the runs
   created since one window before the window, at most the 1000 created last, so a run that waited
@@ -581,7 +578,7 @@ The `gap` event of a scheduler that was stopped for 20 minutes:
  "gapSeconds": 1200}
 ```
 
-The entry of a service DAG in `GET /dag-list-activity?window=86400`:
+The entry of a service DAG in `GET /dag-list-activity?fileName=service_ok&window=86400`:
 
 ```json
 {
@@ -626,13 +623,13 @@ succeeds, and a service DAG whose runs fail when a file exists.
 - The run in progress counts in the uptime at the time of the query. A service DAG whose step lasts
   longer than the restart wait has an uptime near 1 while a run is in progress.
 - A run history that has no `up` directory gives no uptime, and its other figures do not change.
-- The samples query and the activity of a DAG list page give `upMs`. A bucket of a long run that has no
+- The samples query and the activity of the DAG list give `upMs`. A bucket of a long run that has no
   sample has `count` 0 and `upMs` more than 0. The run in progress has `upMs` in the buckets that it
   covers, and no sample.
 - The success rate does not change: a killed run is one failure.
 - A DAG that is not a service DAG and has no run history gets `404` from the three queries.
-- The activity of a DAG list page gives at most 60 buckets for a service DAG, and runs for the
-  other DAGs, for the DAGs of the page of `GET /dags` with the same query.
+- The activity of the DAG list gives at most 60 buckets for a service DAG, and runs for the other
+  DAGs, for the DAGs that the request names, in its order.
 - The response of the samples query for a window of three years has at most `points` buckets.
 - The events of a run history stay under 4 MiB after 100 000 runs that fail one time in two.
 - A service run that a worker executes has a sample.
@@ -641,5 +638,5 @@ succeeds, and a service DAG whose runs fail when a file exists.
 
 `conformance/spec100_service_run_history/` checks the samples, the events and the retention.
 It also checks the gap after a stop of the scheduler, and the three queries and their
-errors. It checks `upMs` in the buckets, and the live part of the run in progress. It checks a window of three years and the activity of a service DAG on a DAG list page. Each
+errors. It checks `upMs` in the buckets, and the live part of the run in progress. It checks a window of three years and the activity of a service DAG that a request names. Each
 test starts a scheduler and a server with static fixtures.

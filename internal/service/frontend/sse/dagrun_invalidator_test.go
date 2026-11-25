@@ -647,23 +647,3 @@ func TestHandleDAGRunEventsTellsTheChangedDAGs(t *testing.T) {
 
 	require.Equal(t, [][]string{{"a", "b"}, nil}, told)
 }
-
-// A batch with a lifecycle event of a root run wakes the DAG list activity
-// topics. A batch with no event, or with only updates that keep the state of
-// runs or only sub-DAG runs, wakes none.
-func TestHandleDAGRunEventsWakesListActivity(t *testing.T) {
-	const topic = "daglistactivity:page=1&window=86400"
-	mux, refreshes := countingTopics(t, TopicTypeDAGListActivity, topic)
-
-	for _, events := range [][]*eventstore.Event{
-		nil,
-		{runEvent(eventstore.TypeDAGRunUpdated, ir.Running, "a", "r1", "")},
-		{runEvent(eventstore.TypeDAGRunRunning, ir.Running, "child", "c1", "a")},
-	} {
-		handleDAGRunEvents(mux, events, nil, nil)
-	}
-	require.Never(t, func() bool { return refreshes(topic) != 0 }, 200*time.Millisecond, 20*time.Millisecond)
-
-	handleDAGRunEvents(mux, []*eventstore.Event{runEvent(eventstore.TypeDAGRunSucceeded, ir.Succeeded, "a", "r1", "")}, nil, nil)
-	require.Eventually(t, func() bool { return refreshes(topic) == 1 }, time.Second, 10*time.Millisecond)
-}

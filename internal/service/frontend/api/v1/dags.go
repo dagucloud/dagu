@@ -2503,12 +2503,6 @@ func (a *API) GetDAGsListDataIncludingAltDirs(ctx context.Context, queryString s
 type dagListSource struct {
 	includeSearchPaths bool
 	pinnedFirst        bool
-	// skipBackfills leaves out the backfills of the DAGs, for a caller that
-	// does not read them.
-	skipBackfills bool
-	// visit, when set, is told each DAG of the page with its latest run, in
-	// page order.
-	visit func(item persis.DAGListItem, latest ir.DAGRunStatus)
 }
 
 func (a *API) getDAGsListData(ctx context.Context, queryString string, source dagListSource) (any, error) {
@@ -2643,15 +2637,10 @@ func (a *API) listDAGsDataWithSearchPaths(ctx context.Context, listOpts persis.D
 		if statusErr != nil {
 			errList = append(errList, statusErr.Error())
 		}
-		if source.visit != nil {
-			source.visit(item, dagStatus)
-		}
 		dagFiles = append(dagFiles, dagFile)
 	}
 
-	if !source.skipBackfills {
-		errList = a.attachBackfills(ctx, dagFiles, errList)
-	}
+	errList = a.attachBackfills(ctx, dagFiles, errList)
 	return api.ListDAGs200JSONResponse{
 		Dags:       dagFiles,
 		Errors:     errList,
@@ -2807,15 +2796,10 @@ func (a *API) listDAGsDataSortedByRun(ctx context.Context, listOpts persis.DAGLi
 		if k.statusErr != nil {
 			errList = append(errList, k.statusErr.Error())
 		}
-		if source.visit != nil {
-			source.visit(item, k.dagStatus)
-		}
 		dagFiles = append(dagFiles, dagFile)
 	}
 
-	if !source.skipBackfills {
-		errList = a.attachBackfills(ctx, dagFiles, errList)
-	}
+	errList = a.attachBackfills(ctx, dagFiles, errList)
 	return api.ListDAGs200JSONResponse{
 		Dags:       dagFiles,
 		Errors:     errList,

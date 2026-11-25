@@ -179,9 +179,6 @@ func handleDAGRunEvents(mux *Multiplexer, events []*eventstore.Event, serviceDAG
 	if changed != nil {
 		changed(names)
 	}
-	if len(names) > 0 {
-		mux.WakeTopicType(TopicTypeDAGListActivity)
-	}
 	if len(events) == 0 {
 		return
 	}
