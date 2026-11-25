@@ -678,8 +678,8 @@ step:
 - a field of `with` that the action runs as a command or a script, such as `with.command` of
   `ssh.run`. The command runs on the remote host with the credentials of the step.
 
-The reference is valid in the `env` of a step, in a condition with `expected`, and in a field of
-`with` that the action reads as data. Pass the value through `env`, and use `"$VAR"` in the command:
+The reference is valid in the `env` of a step, in the `condition` of a condition with `expected`,
+and in a field of `with` that the action reads as data. Pass the value through `env`, and use `"$VAR"` in the command:
 
 ```yaml
   - id: gate
