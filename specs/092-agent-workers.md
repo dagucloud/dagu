@@ -607,6 +607,11 @@ A value out of the range, one key without the other, a value of the wrong type, 
 expected range and the value. The user needs no entry in `/etc/passwd`. Only untrusted steps use this
 user ID.
 
+Each process that runs untrusted steps MUST have its own restricted user, unless it runs in its own
+container. The rule one at a time of [Isolation](#isolation) holds in one process only. Two
+processes with the same restricted user could stop each other's untrusted step at its end, and an
+untrusted step of one could reach the work directory of the other.
+
 The block `untrusted` is file only. If the variable `DAGU_UNTRUSTED` exists in the environment, Dagu
 stops at start. The error names the variable and the key, and never shows the value:
 
