@@ -242,7 +242,7 @@ describe('NodeRunsPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Failed only' }));
 
-    expect(api.calls.at(-1)?.query).toMatchObject({
+    expect(api.calls[api.calls.length - 1]?.query).toMatchObject({
       failedOnly: true,
       page: 1,
     });
@@ -332,7 +332,7 @@ describe('NodeRunsPanel', () => {
     api.list = pages(3);
     const { rerender } = renderPanel(details());
     fireEvent.click(screen.getByRole('button', { name: /Page 3/ }));
-    expect(api.calls.at(-1)?.query).toMatchObject({ page: 3 });
+    expect(api.calls[api.calls.length - 1]?.query).toMatchObject({ page: 3 });
 
     api.list = pages(1);
     rerender(
@@ -340,7 +340,7 @@ describe('NodeRunsPanel', () => {
         <NodeRunsPanel details={details()} />
       </SubRunOpenProvider>
     );
-    expect(api.calls.at(-1)?.query).toMatchObject({ page: 1 });
+    expect(api.calls[api.calls.length - 1]?.query).toMatchObject({ page: 1 });
   });
 
   it('says when the run recorded no node runs', () => {
