@@ -263,6 +263,19 @@ function mutationRetryDelay(failures: number): number {
   return Math.min(MUTATION_DEBOUNCE_MS * 2 ** failures, MAX_RETRY_DELAY_MS);
 }
 
+/**
+ * Client errors that a later topic change can pass: Request Timeout and Too
+ * Many Requests, as a proxy in front of the server can answer.
+ */
+const TRANSIENT_CLIENT_STATUSES: ReadonlySet<number> = new Set([408, 429]);
+
+/** Whether the server rejects a topic change again when asked again. */
+function rejectsTopicChange(status: number): boolean {
+  return (
+    status >= 400 && status < 500 && !TRANSIENT_CLIENT_STATUSES.has(status)
+  );
+}
+
 export class SSEManager {
   private connections = new Map<string, ManagedConnection>();
 
@@ -726,7 +739,7 @@ export class SSEManager {
           'message' in body && typeof body.message === 'string'
             ? body.message
             : 'Failed to update SSE topics';
-        if (response.status >= 400 && response.status < 500) {
+        if (rejectsTopicChange(response.status)) {
           // The server rejects the same change again: the topics that it
           // would add fall back to polling instead. Its removals are asked
           // for again on their own, so that the server stops sending those

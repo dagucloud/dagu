@@ -381,58 +381,62 @@ describe('SSEManager', () => {
   });
 
   // A server that fails a topic change can take it later: it is asked again
-  // after a wait that grows with each failure, not at once.
-  it('asks again for a failed topic change after a wait', async () => {
-    const manager = new SSEManager();
-    const secondaryStates: SSEConnectionState[] = [];
-    const unsubscribePrimary = manager.subscribeTopic(
-      'dag:test.yaml',
-      'local',
-      '/api/v1',
-      { onData: () => undefined, onStateChange: () => undefined }
-    );
-    MockEventSource.instances[0]!.emit('control', {
-      sessionID: 'session-1',
-      subscribed: ['dag:test.yaml'],
-    });
-    vi.mocked(fetch)
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 503,
-        json: async () => ({ message: 'unavailable' }),
-      } as Response)
-      .mockResolvedValue({
-        ok: true,
-        status: 200,
-        json: async () => ({
-          subscribed: ['dag:test.yaml', 'queueitems:default'],
-          errors: [],
-        }),
-      } as Response);
+  // after a wait that grows with each failure, not at once. A timeout or a
+  // rate limit, though client errors, can pass later too.
+  it.each([503, 408, 429])(
+    'asks again for a topic change that failed with %i after a wait',
+    async (status) => {
+      const manager = new SSEManager();
+      const secondaryStates: SSEConnectionState[] = [];
+      const unsubscribePrimary = manager.subscribeTopic(
+        'dag:test.yaml',
+        'local',
+        '/api/v1',
+        { onData: () => undefined, onStateChange: () => undefined }
+      );
+      MockEventSource.instances[0]!.emit('control', {
+        sessionID: 'session-1',
+        subscribed: ['dag:test.yaml'],
+      });
+      vi.mocked(fetch)
+        .mockResolvedValueOnce({
+          ok: false,
+          status,
+          json: async () => ({ message: 'unavailable' }),
+        } as Response)
+        .mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            subscribed: ['dag:test.yaml', 'queueitems:default'],
+            errors: [],
+          }),
+        } as Response);
 
-    const unsubscribeSecondary = manager.subscribeTopic(
-      'queueitems:default',
-      'local',
-      '/api/v1',
-      {
-        onData: () => undefined,
-        onStateChange: (state) => secondaryStates.push(snapshotState(state)),
-      }
-    );
-    await vi.advanceTimersByTimeAsync(200);
-    await vi.advanceTimersByTimeAsync(100);
-    expect(fetch).toHaveBeenCalledTimes(1);
+      const unsubscribeSecondary = manager.subscribeTopic(
+        'queueitems:default',
+        'local',
+        '/api/v1',
+        {
+          onData: () => undefined,
+          onStateChange: (state) => secondaryStates.push(snapshotState(state)),
+        }
+      );
+      await vi.advanceTimersByTimeAsync(200);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(fetch).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(100);
-    expect(fetch).toHaveBeenCalledTimes(2);
-    expect(lastState(secondaryStates)).toMatchObject({
-      isConnected: true,
-      isConnecting: false,
-    });
+      await vi.advanceTimersByTimeAsync(100);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(lastState(secondaryStates)).toMatchObject({
+        isConnected: true,
+        isConnecting: false,
+      });
 
-    unsubscribeSecondary();
-    unsubscribePrimary();
-  });
+      unsubscribeSecondary();
+      unsubscribePrimary();
+    }
+  );
 
   it('ignores stale 404 mutation responses after a reconnect', async () => {
     const manager = new SSEManager();
