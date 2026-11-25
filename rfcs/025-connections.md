@@ -158,7 +158,7 @@ Not promised:
 
 ### Records
 
-Server-wide records in three collections under the data directory, each
+Server-wide records in four collections under the data directory, each
 created with mode `0o700` as the license store's is
 (`internal/persis/file/shared_stores.go:102`). Secret fields are encrypted
 with `internal/cmn/crypto`, using the key from `DAGU_ENCRYPTION_KEY` or
@@ -223,6 +223,21 @@ upgrade that adds a scope to a preset therefore reaches every connection,
 and the service shows the missing scope until the user reconnects. Neither
 record is stored in the secret store; [Alternatives
 considered](#alternatives-considered) gives the reasons.
+
+**Tool catalog** (`<data_dir>/connection-catalogs/`): for each connection
+and MCP service, the tools it lists: names, descriptions, input schemas,
+annotations, a hash of each, and when it was listed. It holds no secret.
+It is the one copy of a tool list: the UI, the editor, and the AI steps of
+RFC 026 all read it.
+
+- A reader takes a catalog up to 10 minutes old. An older or missing one is
+  listed again with `tools/list`, under a lock per catalog, separate from
+  the connection's token lock because listing asks the broker for a token.
+- Readers that find the lock held wait for its release and read the new
+  catalog, as token readers do. So 100 runs that start together list a
+  service once.
+- A failed listing returns the provider's error and keeps the previous
+  catalog for the next attempt.
 
 ### Providers and services
 
@@ -420,13 +435,23 @@ Local path, used by the server, the scheduler, and local runs:
 
 1. Read the token state. If the resource's access token stays valid for
    longer than `minTTL`, return it.
-2. Take the connection's lock: a `dirlock` per connection
-   (`internal/cmn/dirlock/dirlock.go:168`), renewed as `persis.Backend.Lock`
-   renews a collection's lock (`internal/persis/file/backend.go:103`). That
-   lock covers a whole collection, so a token endpoint that hangs at one
-   provider would hold back every other connection's refresh. The lock
-   renews itself while it is held, and refuses writes once lost.
-3. Read the state again. Another process may have refreshed it.
+2. Try the connection's lock once, without queuing: a `dirlock` per
+   connection (`internal/cmn/dirlock/dirlock.go:168`), renewed as
+   `persis.Backend.Lock` renews a collection's lock
+   (`internal/persis/file/backend.go:103`). That lock covers a whole
+   collection, so a token endpoint that hangs at one provider would hold
+   back every other connection's refresh. The lock renews itself while it
+   is held, and refuses writes once lost.
+   - If another process holds it, a refresh is in flight. Wait for the lock
+     to be released, checking every 50 ms, then read the state once and
+     return the new token. Start again at step 1 only if it is still stale,
+     or if the holder died and its lock went stale.
+   - So when 100 runs reach an expired token together, one refreshes and
+     the other 99 each read the state once. `dirlock.Lock` would instead
+     queue all 99 for the lock, each polling with `mkdir` every 50 ms and
+     taking it in turn, which delays the last by seconds on NFS.
+3. Holding the lock, read the state again. Another process may have
+   refreshed it between steps 1 and 2.
 4. Refresh with the resource's scopes. The token endpoint call times out
    before three quarters of the lock's stale threshold.
 5. Write the new access token, and any rotated refresh token, with a CAS
@@ -855,8 +880,8 @@ Connection work-google is ready. Try: dagu connection tools work-google --server
 - A server answers these paths only for its own connections. A request
   whose `remoteNode` names another server is refused, as inventory requests
   are. Each server has its own callback URL.
-- The tool list is cached in server memory per connection and server, for
-  10 minutes, with a bounded size. Runs never read this cache.
+- `GET /connections/{name}/tools` reads the tool catalog, so open tabs
+  and editors never list a service more than once per 10 minutes.
 
 ### UI
 
@@ -987,9 +1012,14 @@ and the tiers are new. Instead, the docs:
     subscription;
 - show how to estimate usage. A DAG that calls one Gmail tool every minute
   makes about 1,440 requests a day. Each agent turn makes one request per
-  tool call, and each AI step lists each server's tools once when it starts;
+  tool call, and listing a service's tools costs one request per 10
+  minutes per host, through the tool catalog;
 - explain the `rate_limited` error kind, so a user who reaches a limit
-  recognizes it.
+  recognizes it;
+- show how to cap concurrent use of one account: put the DAGs that use it
+  in a queue whose `max_concurrency` limits how many run at once. Google's
+  limits are per account as well as per project, so 100 runs on one account
+  at once can reach them even within a daily quota.
 
 ## Permissions
 
@@ -1083,7 +1113,9 @@ connections.
 | A reconnect is confirmed while a refresh is running | The refresh result is dropped. Both processes end with the reconnected token |
 | A connect session starts while a refresh is running | The refresh's write conflicts, re-reads, and keeps both the session and any rotated refresh token |
 | A connection is removed while a refresh is running | The refresh result is dropped and the call fails. The connection stays removed |
-| Two processes refresh at once | One holds the lock. The other waits, reads the new token, and does not refresh |
+| Many processes reach an expired token at once | One takes the lock and refreshes. The others wait for its release and read the new token once, without taking the lock |
+| Many runs read a tool catalog older than 10 minutes at once | One lists the service. The others wait for its release and read the new catalog |
+| Listing a service's tools fails | The reader gets the provider's error. The previous catalog stays for the next attempt |
 | One provider's token endpoint hangs | Only that connection's refreshes wait, up to the token call's timeout. Other connections are unaffected |
 | A service account key is deleted at Google | Its app becomes `invalid`, and its connections fail at once without calling Google. Uploading a new key restores them |
 | A DAG names an unknown connection, or one its workspace may not use | The editor reports it. A run fails before its first step, naming the connection |
@@ -1117,9 +1149,10 @@ connections.
 - **Requests.** Connection lists read one small record per connection. A
   server holds tens of connections, not thousands, and no request reads run
   or DAG directories.
-- **Tool lists.** Cached in server memory for the UI and editor: 10 minutes,
-  bounded in size, and fetched once per connection and server whatever the
-  number of open tabs. It does not poll.
+- **Tool lists.** One `tools/list` per connection and service per 10
+  minutes on a host, through the tool catalog, whatever the number of open
+  tabs or runs. Nothing lists on a timer: a catalog is refreshed only when
+  read after it is 10 minutes old.
 - **Try it.** A confirmation holds one call in server memory, for at most
   10 minutes.
 - **Notifications.** One event per status change, not per failed run. A
@@ -1135,8 +1168,10 @@ connections.
   adds about 100 bytes to its node status: the connection's name and account.
   A run that fails on a broken connection adds about 70 bytes for its cause.
   The DAG index adds the connection names of each DAG that uses one, tens of
-  bytes per entry. Audit grows only with management actions and tool calls
-  from the UI.
+  bytes per entry. The tool catalog holds roughly 1 to 2 KB per tool, so 20 to
+  40 KB per Google service, bounded by connections times services and
+  rewritten at most every 10 minutes. Audit grows only with management actions
+  and tool calls from the UI.
 - **Upgrade.** No migration. The DAG index version goes up, so the first
   start rebuilds the index once, reading each DAG file as a rebuild does
   today. RFC 003's v3.0 migration rewrites allow-lists, as
@@ -1188,7 +1223,7 @@ confirmation requests are tested against Google's servers.
    the coordinator without `MaskingWriter`. This is an existing bug that
    already exposes `secrets` values, fixed first and separately.
 1. **Records and broker.**
-   - The three collections, providers, and the broker with locking,
+   - The four collections, providers, and the broker with locking,
      generation checks, per-resource tokens, the re-read on
      `invalid_grant`, and saving rotated tokens.
    - The `connection` event kind, its two events, and the notification
@@ -1239,7 +1274,8 @@ Connect:
 Broker:
 
 6. With 100 concurrent runs using one connection whose access token has
-   expired, the provider receives exactly one refresh request.
+   expired, the provider receives exactly one refresh request, and only one
+   process takes the connection's lock.
 7. A rotated refresh token is saved, and the next refresh uses it, across
    process restarts.
 8. A reconnect confirmed during a refresh leaves the reconnected token in

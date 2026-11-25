@@ -153,12 +153,18 @@ server-sent events, and protocol versions work as each side expects.
 - Upstream calls take tokens from the broker. Long agent turns therefore
   outlive any single access token, and the agent never holds a provider
   token.
-- When the step starts, it records each allowed tool's name and a hash of
-  its description, input schema, and annotations. A tool the upstream adds
-  later is not offered, and a tool whose hash changes fails its calls until
-  the next run. This limits tool poisoning by a changed upstream, and keeps
-  a tool from becoming read-only mid-run. An agent DAG saves the hashes with
-  its catalog, so a run that resumes after a human task keeps them.
+- When the step starts, it reads RFC 025's tool catalog, not the upstream,
+  and pins each allowed tool's name and the hash of its description, input
+  schema, and annotations. A tool the upstream adds later is not offered.
+  The gateway checks for a newer catalog at most once a minute, and a tool
+  whose hash differs there fails its calls until the next run. This limits
+  tool poisoning by a changed upstream, and keeps a tool from becoming
+  read-only mid-run. An agent DAG saves the hashes with its catalog, so a
+  run that resumes after a human task keeps them.
+- When the upstream answers HTTP 429, the call fails with a tool error that
+  carries `Retry-After`, so the agent can wait. The gateway also holds
+  further calls to that server until `Retry-After` passes, so an agent that
+  retries at once does not reach the provider again.
 - Each tool call is written to the step log with its arguments masked.
 - The gateway closes when the step ends.
 
@@ -217,7 +223,7 @@ the refusals are made visible:
 
 - The editor warns when a harness or chat step's `mcp_servers` offers a
   write tool that is not in `unattended`, since the step can never call it.
-  The warning reads the cached tool list and its annotations.
+  The warning reads the tool catalog and its annotations.
 - The step records how many calls the gateway refused, and the run page
   shows the count beside the step's status.
 
@@ -294,6 +300,10 @@ tasks:
 
 - `mcp_servers` adds to the connections a DAG declares (RFC 025, Runs), so
   a worker gets their tokens from its coordinator.
+- A worker has no tool catalog of its own. A new coordinator RPC,
+  `ResolveConnectionTools`, returns the catalog for a connection and
+  service, with the authorization `ResolveConnectionToken` uses. The
+  coordinator reads or refreshes the catalog as any reader does.
 - A token the gateway mints during a step is masked, as RFC 025 masks any
   token minted mid-step.
 - RFC 025's starter templates gain an agent that prepares notes for today's
@@ -320,14 +330,20 @@ tasks:
 | A harness or chat step calls a write tool that is not in `unattended` | The gateway refuses the call. The model receives a tool error that names the rule, and the step continues. The run page shows the refused count |
 | A harness agent's own permission policy would deny a gateway tool | The adapter's pre-approval lets the call through. The gateway's rules still apply |
 | Nobody answers a write tool's approval in an agent DAG | The run stays waiting, as for any human task |
+| The provider answers HTTP 429 to a gateway call | The agent receives a tool error with `Retry-After`, and the gateway holds that server's calls until it passes |
+| Many agent DAG runs wait on confirmation requests at once | Each holds its worker slot up to the timeout, and runs queued behind them wait. A queue's `max_concurrency` caps how many do |
 
 ## Performance
 
 - **Idle cost.** None. A gateway lives only as long as its step, and
   nothing runs between steps.
-- **Tool lists.** Each AI step lists each server's tools once when it
-  starts: one `tools/list` per server per run, counted against the
-  provider's quota. It does not poll.
+- **Tool lists.** AI steps read RFC 025's tool catalog, so a service is
+  listed at most once per 10 minutes per host, however many runs start. At
+  one run per second, listing per run would send about 170,000 `tools/list`
+  calls a day for two services, against a quota Google has not published.
+  Each running gateway checks the catalog file for a newer version once a
+  minute, a single file stat. On a worker, the catalog costs one
+  coordinator RPC per service when the step starts.
 - **Gateway.** One loopback listener per harness step with `mcp_servers`,
   tied to the step's context. It adds one local hop per tool call. Agent
   DAGs and chat steps add no listener.
@@ -335,7 +351,11 @@ tasks:
   request holds its process and worker slot, for at most
   `llm.confirmation_timeout`. Approval tasks before a call release both.
   The answer arrives on the run socket or in the existing run heartbeat, so
-  the wait adds no polling.
+  the wait adds no polling. Many such waits at once can fill every worker
+  slot for up to the timeout, and runs queued behind them wait. A queue's
+  `max_concurrency` bounds how many runs of a DAG can hold slots this way.
+  The default timeout stays 10 minutes, since a person needs time to read
+  the provider's form.
 - **Storage.** An agent DAG run with `mcp_servers` saves its MCP tools in the
   `__agent__` catalog: names, descriptions, input schemas, and hashes,
   roughly 1 to 2 KB per tool, so 10 to 40 KB for two Google servers. A
@@ -384,11 +404,15 @@ questions](#open-questions)).
    such a tool is refused.
 4. A Gmail read-only tool runs unattended. Every tool of a generic `mcp`
    connection waits for a person unless `unattended` lists it.
-5. A Google tool that sends a confirmation request waits for a person in
+5. 100 agent DAG runs that start together cause one `tools/list` per
+   service, locally and on workers.
+6. An agent that retries a call at once after HTTP 429 does not reach the
+   provider again before `Retry-After` passes.
+7. A Google tool that sends a confirmation request waits for a person in
    an agent DAG, and the answer reaches the waiting call both in a local run
    and on a worker. Harness and chat steps decline it. No path accepts a
    request without a person.
-6. Every case in [Failure behavior](#failure-behavior) ends as stated.
+8. Every case in [Failure behavior](#failure-behavior) ends as stated.
 
 ## Alternatives considered
 
@@ -428,6 +452,10 @@ questions](#open-questions)).
    accepts only gateway tools, so an agent that does not name it falls back
    to `acp_permission` for every MCP call. This needs checking against each
    agent before this RFC ships.
+4. Should a person be able to approve a tool across runs, for one DAG and a
+   time window? Approval per run does not scale to 100 concurrent runs, each
+   asking for the same tool, but a wider grant weakens the default that
+   every write waits for a person.
 
 ## Future enhancements
 
@@ -436,6 +464,9 @@ questions](#open-questions)).
 - **Harness steps in containers.** The step would bind-mount a Unix socket
   for the gateway and run a stdio bridge inside the container. It would also
   work with `network: none`.
+- **A concurrency cap per connection.** The gateway would limit calls to
+  one account across all runs on a host. It needs a semaphore shared by
+  processes, so this RFC relies on queues instead.
 - **Approval timeouts.** A write tool's approval would be rejected after a
   set time. Human tasks have no timeout today, and a run that waits without
   a process needs a scheduler check to enforce one.
