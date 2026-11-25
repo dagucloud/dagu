@@ -350,8 +350,9 @@ The v3.0 Helm chart sets it.
 `paths.queue_dir`, `paths.suspend_flags_dir`, `paths.proc_dir`,
 `paths.dag_state_dir`, `paths.webhooks_dir`, `paths.views_dir`, and
 `paths.event_store_dir` place stores that belong to a project. They tell
-migration where v2 kept that data. When one is set, the server logs a
-warning at startup and does not use it.
+migration where v2 kept that data, and the server does not use them.
+When `paths.queue_dir`, `paths.suspend_flags_dir`, or `paths.proc_dir` is
+set, the server logs a warning at startup.
 
 #### File Systems
 
@@ -1191,8 +1192,9 @@ Delete is refused, and changes nothing, when:
   start and names the paths.
 - When `<projects_dir>` and `<dags_dir>` are on different file systems, the
   server logs a warning.
-- When a path that only migration reads is set, the server logs a warning
-  and does not use it. See
+- When `paths.queue_dir`, `paths.suspend_flags_dir`, or `paths.proc_dir`
+  is set, the server logs a warning. It uses no path that only migration
+  reads. See
   [Paths That Only Migration Reads](#paths-that-only-migration-reads).
 
 ### Migration
