@@ -12,11 +12,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/noderuns"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/require"
@@ -51,14 +51,10 @@ func recordingStep(t *testing.T) (*parallelExecutor, context.Context, string) {
 func readNodeRecords(t *testing.T, dir string) ([]string, ir.NodeRuns, ir.NodeRunCounts) {
 	t.Helper()
 
-	var records ir.NodeRuns
-	data, err := fileutil.ReadFile(filepath.Join(dir, logpath.NodeRunsFile))
+	records, err := noderuns.Read(dir)
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(data, &records))
-	var counts ir.NodeRunCounts
-	data, err = fileutil.ReadFile(filepath.Join(dir, logpath.NodeRunsSummaryFile))
+	counts, err := noderuns.ReadCounts(dir)
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(data, &counts))
 
 	statuses := make([]string, 0, len(records.Runs))
 	for _, run := range records.Runs {

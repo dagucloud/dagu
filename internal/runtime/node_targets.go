@@ -5,21 +5,18 @@ package runtime
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
-	"path/filepath"
 	"slices"
 	"strings"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
-	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/noderuns"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 )
 
@@ -119,7 +116,7 @@ func (n *Node) setupNodesExecutor(ctx context.Context, override ExecutorOverride
 // that records none, or whose records cannot be read, matches its selector.
 func (n *Node) stepNodes(ctx context.Context) ([]executor.NodeRun, error) {
 	if dir := n.State().RetryNodeRunsDir; dir != "" {
-		records, err := readNodeRuns(dir)
+		records, err := noderuns.Read(dir)
 		if err == nil {
 			return recordedNodes(ctx, records)
 		}
@@ -178,19 +175,6 @@ func recordedNodes(ctx context.Context, records ir.NodeRuns) ([]executor.NodeRun
 	return runs, nil
 }
 
-// readNodeRuns reads the node run records a step with nodes wrote to dir.
-func readNodeRuns(dir string) (ir.NodeRuns, error) {
-	var records ir.NodeRuns
-	data, err := fileutil.ReadFile(filepath.Join(dir, logpath.NodeRunsFile))
-	if err != nil {
-		return records, err
-	}
-	if err := json.Unmarshal(data, &records); err != nil {
-		return records, fmt.Errorf("failed to parse the node run records: %w", err)
-	}
-	return records, nil
-}
-
 // nodeRunsToRetry returns the directory of the records whose nodes a retry
 // of a step with nodes keeps: the records the step's last attempt wrote, or,
 // when it wrote none, the records that attempt kept. A step a seeded run
@@ -200,11 +184,8 @@ func nodeRunsToRetry(step ir.Step, state NodeState) string {
 	if step.Nodes == nil {
 		return ""
 	}
-	if state.Stdout != "" && !state.SkippedByRetry {
-		dir := logpath.NodeRunsDir(filepath.Dir(state.Stdout), step.Name)
-		if fileutil.FileExists(filepath.Join(dir, logpath.NodeRunsFile)) {
-			return dir
-		}
+	if dir := noderuns.Dir(state.Stdout, step.Name); dir != "" && !state.SkippedByRetry && noderuns.Exists(dir) {
+		return dir
 	}
 	return state.RetryNodeRunsDir
 }

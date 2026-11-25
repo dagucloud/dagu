@@ -11,6 +11,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/noderuns"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/test"
 	"github.com/stretchr/testify/require"
@@ -46,9 +47,8 @@ func seedNodeRuns(t *testing.T, deployStatus ir.NodeStatus) test.Server {
 		{Node: "web03", Status: ir.NodeRunNotStarted, DAGName: "node-runs-api", DAGRunID: "c3"},
 	}
 	for step, runs := range map[string][]ir.NodeRun{"deploy": deploy, "clean": clean} {
-		dir := logpath.NodeRunsDir(logDir, step)
-		writeJSON(t, filepath.Join(dir, logpath.NodeRunsFile), ir.NodeRuns{Runs: runs})
-		writeJSON(t, filepath.Join(dir, logpath.NodeRunsSummaryFile), ir.CountNodeRuns(runs))
+		_, err := noderuns.Write(logpath.NodeRunsDir(logDir, step), runs)
+		require.NoError(t, err)
 	}
 
 	nodes := &ir.NodeTargets{Selector: "web", MaxConcurrent: 1}

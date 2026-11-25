@@ -4,13 +4,10 @@
 package runtime_test
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/noderuns"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/assert"
@@ -27,12 +24,11 @@ func TestRetryRemovedNodeWithoutRun(t *testing.T) {
 	r.Context = executor.WithSubWorkflowRunner(r.Context, &childRuns{})
 
 	recordsDir := t.TempDir()
-	data, err := json.Marshal(ir.NodeRuns{Runs: []ir.NodeRun{
+	_, err := noderuns.Write(recordsDir, []ir.NodeRun{
 		{Node: "web01", Status: ir.NodeRunFailed, DAGName: "deploy-one", DAGRunID: "child-web01"},
 		{Node: "web03", Status: ir.NodeRunDisabled},
-	}})
+	})
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(recordsDir, logpath.NodeRunsFile), data, 0o600))
 
 	step := newStep("rollout", withExecutorType(ir.ExecutorTypeDAG), withSubDAG("deploy-one"), withNodes("web"))
 	dag := &ir.DAG{Name: "test_dag", Steps: []ir.Step{step}}
@@ -56,10 +52,8 @@ func TestRetryRemovedNodeWithoutRun(t *testing.T) {
 	}
 	node := ph.assertRun(t, ir.Succeeded).nodeByName(t, "rollout")
 
-	data, err = os.ReadFile(filepath.Join(logpath.NodeRunsDir(filepath.Dir(node.GetStdout()), "rollout"), logpath.NodeRunsFile))
+	records, err := noderuns.Read(noderuns.Dir(node.GetStdout(), "rollout"))
 	require.NoError(t, err)
-	var records ir.NodeRuns
-	require.NoError(t, json.Unmarshal(data, &records))
 	require.Len(t, records.Runs, 2)
 	assert.Equal(t, ir.NodeRunRemoved, records.Runs[1].Status)
 	assert.Empty(t, records.Runs[1].DAGRunID)
