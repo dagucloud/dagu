@@ -979,7 +979,7 @@ dag_discovery:
   recursive: true
 ```
 
-It scans `paths.dags_dir`, excluding `workspaces/`, dot-directories, and symlinks. File stems and effective DAG names must each be unique, using case-sensitive comparison; conflicting files are excluded until the conflict is resolved. `paths.alt_dags_dir` remains lookup-only.
+It scans `paths.dags_dir`, excluding `workspaces/`, `skills/`, dot-directories, and symlinks. `skills/` at the root is reserved for skill folders, so DAG files in it are not listed or scheduled; on a file system that ignores case, such as the default on macOS and Windows, a root `Skills/` is excluded too. File stems and effective DAG names must each be unique, using case-sensitive comparison; conflicting files are excluded until the conflict is resolved. `paths.alt_dags_dir` remains lookup-only.
 
 Set `dag_discovery.symlinks: true` (or
 `DAGU_DAG_DISCOVERY_SYMLINKS=true`) to include YAML file symlinks in recursive
