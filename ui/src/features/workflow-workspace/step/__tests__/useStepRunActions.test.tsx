@@ -1311,10 +1311,11 @@ describe('useStepRunActions run with references', () => {
       missing: ['extract users'],
     });
     await open();
+    // A changed or missing step has a box to run it again.
     expect(items()).toEqual([
       'seedreused',
-      'extract orderschanged since run run-1',
-      'extract usersno output in run run-1',
+      'extract orderschanged since run run-1rerun',
+      'extract usersno output in run run-1rerun',
     ]);
   });
 
