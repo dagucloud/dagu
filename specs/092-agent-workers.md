@@ -94,6 +94,7 @@ credential of the model API.
 | The agent reads or misuses the API key of the model. | A step of the provider `claude` names an endpoint. The key stays in the coordinator, and the agent has the secret of the relay only (Spec 094). For another CLI provider, the agent has a placeholder, and the proxy adds the real key. | The agent can send requests to the model API at the cost of the owner of the key. |
 | The agent sends data out. | The worker reaches only the coordinator and the proxy. The proxy allows a list of destinations. A destination that needs the proxy credential is closed to the agent. | Data can go to an allowed destination, such as the model API or the git server. |
 | The agent changes `.git` so that a later trusted step runs its code (hooks, `core.fsmonitor`, a new `.git`). | The restricted user cannot write `.git` and cannot rename or replace it. | A trusted step that runs a file of the work directory runs code of the agent. The author does not do this. |
+| An output of the agent becomes code that Dagu or a trusted step runs. | A reference to data of the agent is valid only as the whole value of an `env` entry and as `"$NAME"` in a `run` that `sh` or `bash` runs on the host of Dagu. See [Trusted steps after an untrusted step](#trusted-steps-after-an-untrusted-step). | A program that runs a value that it reads. Data that reaches a step through the work directory. |
 | The agent leaves a process that watches a later step. | At the end of an untrusted step, Dagu stops each process of the restricted user. Untrusted steps run one at a time. | None. |
 | The agent connects to the coordinator. | The coordinator needs a client certificate. The restricted user cannot read it. | None. |
 | The agent calls a tool of the tool bridge with wrong arguments. | The tools are DAGs of the author. The bridge needs the secret of the attempt. The agent cannot set a fixed input of `params`, or an input that the tool does not show. The child run gets the inputs as one JSON object. | A tool that trusts its arguments. The author designs each tool for any argument. |
@@ -659,47 +660,47 @@ the outputs of each other untrusted step. This includes a step that is untrusted
 controls each value. An output of an untrusted step is not a gate. A gate is a check that Dagu
 decides, such as the exit code of the tests of the repository.
 
-The rules of this section follow the data of the agent, not the form of a reference. These values
-are data of the agent:
+Each output of these steps, published or in the `output:` variable, is data of the agent:
 
-- each output of an untrusted step, `${steps.<id>.outputs.<name>}`
-- the `output:` variable of an untrusted step
-- an `env` entry of a step whose value refers to data of the agent
-- each output and the `output:` variable of a step that refers to data of the agent
+- an untrusted step
+- a `foreach` step whose body has an untrusted step, and a step that runs a sub-DAG with an
+  untrusted step at any depth. A step whose sub-DAG Dagu cannot name when it loads the DAG counts
+  as one.
+- a step that refers to data of the agent
 
-A reference to data of the agent is `${steps.<id>.outputs.<name>}` of such an output, or `$VAR`,
-`${VAR}` or `${VAR.<path>}` of such a variable.
+The variable of an `env` entry that refers to data of the agent is data of the agent too.
+`${<id>.exit_code}`, `${<id>.stdout}` and `${<id>.stderr}` are not: Dagu records the exit code and
+the paths of the log files.
 
-Dagu puts the value of a reference in the text of a command before the command runs, with one
-exception. In `run`, `command` and `script` with a POSIX shell, such as `sh` or `bash`, Dagu leaves
-`$VAR` and `${VAR}` to the shell. The shell reads the value from the environment and does not run
-it. Dagu still puts the value of `${steps.<id>.outputs.<name>}` and of `${VAR.<path>}` in the text.
+Dagu checks each reference to data of the agent when it loads the DAG, on each step, handler steps
+included. An untrusted step is checked too, because Dagu resolves its fields and runs its
+preconditions and handlers as the process user. A reference to data of the agent is valid in two
+places only, each in one form:
 
-A reference to data of the agent is a validation error in these fields of a trusted step:
+1. **An `env` entry.** The whole value of an entry of the step `env` is
+   `${steps.<id>.outputs.<name>}`. Dagu inserts the value of this form as it is and does not expand
+   a `$NAME` in it. Forms such as `$NAME` or `${<id>.outputs.<name>}` insert the value and then
+   expand each `$NAME` in it, so a value `${GIT_TOKEN}` would put a secret of the step in the
+   variable.
+2. **A shell variable.** `"$NAME"` in the `run` of a step, where `NAME` is an `output:` variable
+   that is data of the agent or the variable of an entry of place 1 on the same step. The step sets
+   `with.shell`, or else the DAG sets the root `shell`, to `sh` or `bash`. The default shell depends
+   on the host, so it does not qualify. Dagu starts the shell on its own host: a step that runs in a
+   container, over SSH, on a node of the inventory or through another executor does not qualify,
+   whichever key of the step or of the DAG sends it there. Dagu leaves `"$NAME"` to the shell, which
+   reads the value from the environment and does not run it.
 
-- `run`, `command` and `script`, except `$VAR` and `${VAR}` with a POSIX shell
-- `shell` and `shell_args`
-
-The error names the step, the field and the reference:
+Each other reference to data of the agent is a validation error. This covers each other field, such
+as `preconditions`, `repeat_policy`, `eval`, `with` or `working_dir`, and each other form that reads
+an output (Spec 069), such as `$NAME`, `${NAME}`, `"${NAME}"`, `${env.NAME}`, `${NAME.<path>}`,
+`$NAME.<path>`, `${<id>.outputs}` or `${<id>.output}` with a path or a slice. In most of them Dagu
+puts the value in a text that it builds, where a shell, a remote host or a second expansion can read
+it as code. The rule refuses them all, so it does not depend on how each field, shell or host treats
+a reference. The error names the step, the field and the reference:
 
 ```text
-step "gate": the field steps[2].run refers to ${steps.code.outputs.tool_calls}, an output of the untrusted step "code"; Dagu would put the value of the agent in the command: pass it through env and use "$VAR" in the command
+step "gate": the field steps[2].run refers to ${steps.code.outputs.tool_calls}, data of the untrusted step "code": make it the whole value of an env entry, and read it as "$NAME" in a run that sh or bash runs on this host
 ```
-
-Dagu runs some fields as the process user on each step, trusted or untrusted. See [Rules in each
-process](#rules-in-each-process). A reference to data of the agent, in each form, is also a
-validation error in these fields of each step:
-
-- a command check of `preconditions` or of `repeat_policy`, which is a condition with no
-  `expected` (Spec 023, Spec 075). Dagu puts the value in the text that the shell runs.
-- the `eval` of a condition. Dagu resolves the reference first, then runs the command
-  substitutions of the text (Spec 011).
-- a field of `with` that the action runs as a command or a script, such as `with.command` of
-  `ssh.run`. The command runs on the remote host with the credentials of the step.
-
-A reference to data of the agent is valid in the `env` of a step, in the `condition` of a condition
-with `expected`, and in a field of `with` that the action reads as data. To use the value in a
-command, pass it through `env`, and use `"$VAR"` in `run` or `script` with a POSIX shell:
 
 ```yaml
   - id: gate
@@ -707,11 +708,27 @@ command, pass it through `env`, and use `"$VAR"` in `run` or `script` with a POS
     untrusted: false
     env:
       - TOOL_CALLS: ${steps.code.outputs.tool_calls}
+    with: { shell: bash }
     run: printf '%s' "$TOOL_CALLS" | jq -e 'index("shell") != null'
 ```
 
 The step `gate` has `untrusted: false`. In a DAG that has an `agent.run` step, a step with `run` is
 untrusted by default.
+
+The check sees references only. It cannot cover:
+
+- What a program does with the value. `eval "$NAME"`, `sh -c "$NAME"` or `python3 -c "$NAME"` runs
+  it, and a value that starts with `-` can be read as an option. A program also reads some variable
+  names as code or as a path to run, such as `BASH_ENV`, `PATH`, `LD_PRELOAD` or `GIT_SSH_COMMAND`,
+  and an `output:` variable reaches the environment of each step that depends on its step, also with
+  no reference. Give the value to a program as data, on the standard input as `gate` does, under a
+  name that only this data uses.
+- Data of the agent that reaches a step with no reference: the files of the work directory, the log
+  files of an untrusted step, and each output of a step that reads them. For example,
+  `git diff --name-only` prints a file named `$(id)` as it is. Dagu cannot tell that such an output
+  is data of the agent. The author reads it only in the two places above.
+- The params that a tool call of the agent gives to a child run (Spec 091). See the threat about
+  the tool bridge in [Threats and controls](#threats-and-controls).
 
 In a run with an untrusted step, each process gets `safe.bareRepository=explicit` for git. Dagu adds it
 through `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, after the entries that
@@ -1066,13 +1083,10 @@ These points describe behavior that Dagu has without this spec. The verify loop 
 - a reference `${NAME}` to a secret that the step does not get, in a DAG with step scope
 - `untrusted` on a step that does not run a process, on a step with `container`, or in `defaults`
 - `untrusted: false` on an `agent.run` step with a CLI provider
-- a reference to data of the agent (see [Trusted steps after an untrusted
-  step](#trusted-steps-after-an-untrusted-step)) in the `shell` or the `shell_args` of a trusted
-  step, or in its `run`, `command` or `script`, except `$VAR` and `${VAR}` with a POSIX shell. A
-  step that is untrusted by default is an untrusted step.
-- a reference to data of the agent, in each form, on any step, in a command check of
-  `preconditions` or of `repeat_policy`, in the `eval` of a condition, or in a field of `with`
-  that the action runs as a command or a script
+- a reference to data of the agent, on any step, outside the two places of [Trusted steps after an
+  untrusted step](#trusted-steps-after-an-untrusted-step): the whole value of an `env` entry as
+  `${steps.<id>.outputs.<name>}`, and `"$NAME"` in a `run` that `sh` or `bash` runs on the host of
+  Dagu. A step that is untrusted by default is an untrusted step.
 
 These cases stop a process at start with the exit code 1:
 
@@ -1479,6 +1493,9 @@ sends `POST https://api.openai.com/v1/chat/completions` with the real key.
   `check_paths` keeps a change to the verify script, the tests and the CI out of the push. See [The
   log](#the-log).
 - A trusted step that runs a file of the work directory runs code of the agent.
+- Dagu checks the references to data of the agent, not the data. A program that runs a value that it
+  reads, and a step that reads the files of the work directory, handle data of the agent that no
+  check sees. See [Trusted steps after an untrusted step](#trusted-steps-after-an-untrusted-step).
 - On Kubernetes, the next run on a pod can read the files that an earlier run on the pod left in
   `/tmp` and in the Dagu home, because an `emptyDir` lives as long as the pod.
 - Each user can read the arguments of a process in `/proc/<pid>/cmdline`. No process of the
