@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Package egress holds the egress proxy that the command dagu egress-proxy
-// runs. The proxy forwards a connection to a listed destination only. It resolves the names itself, so a client that has no route
-// and no DNS can still reach the destinations of its policy.
+// runs. The proxy forwards a connection to a listed destination only. It
+// resolves the names itself, so a client that has no route and no DNS can
+// still reach the destinations of its policy.
 package egress
 
 import (
