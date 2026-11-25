@@ -480,7 +480,9 @@ func (p *Plan) isCyclic() bool {
 // preserve partially succeeded nodes so completed manual gates stay complete.
 func (p *Plan) setupRetry(ctx context.Context, steps map[string]ir.Step, opts RetryPlanOptions) error {
 	// Identify nodes that need to be retried, including partial nodes for an
-	// explicit retry but excluding them for a checkpoint resume.
+	// explicit retry but excluding them for a checkpoint resume. A run is
+	// retried only after it stopped, so a node it records as running did not
+	// finish: its process died before the run's status was repaired.
 	toRetry := make(map[int]bool)
 	nodeStatus := make(map[int]ir.NodeStatus)
 
@@ -503,6 +505,7 @@ func (p *Plan) setupRetry(ctx context.Context, steps map[string]ir.Step, opts Re
 				nodeStatus[u] == ir.NodeFailed ||
 				(nodeStatus[u] == ir.NodePartiallySucceeded && !opts.Resume) ||
 				nodeStatus[u] == ir.NodeRetrying ||
+				nodeStatus[u] == ir.NodeRunning ||
 				nodeStatus[u] == ir.NodeAborted ||
 				nodeStatus[u] == ir.NodeRejected
 
