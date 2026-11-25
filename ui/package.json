@@ -16,8 +16,8 @@
     "dev": "webpack-dev-server --config webpack.dev.js",
     "lint": "eslint --fix --ext .ts,.tsx .",
     "prettier": "prettier --write src/**/*.ts[x]",
-    "typecheck": "tsc",
-    "typecheck:watch": "tsc -w",
+    "typecheck": "tsc --noEmit",
+    "typecheck:watch": "tsc --noEmit -w",
     "profile": "webpack --profile --config webpack.prod.js --json=compilation-stats.json && webpack-bundle-analyzer ./compilation-stats.json",
     "gen:api": "openapi-typescript --enum ../api/v1/api.yaml -o src/api/v1/schema.ts"
   },

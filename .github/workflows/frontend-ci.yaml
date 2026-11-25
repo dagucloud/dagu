@@ -104,6 +104,12 @@ jobs:
         working-directory: ui
         run: pnpm install --frozen-lockfile
 
+      # The build and the tests strip types without checking them.
+      - name: Type-check
+        if: steps.changes.outputs.ui == 'true'
+        working-directory: ui
+        run: pnpm typecheck
+
       - name: Run tests
         if: steps.changes.outputs.ui == 'true'
         working-directory: ui
