@@ -444,8 +444,8 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
     [model, validation?.issues, names]
   );
   const catalog = useMemo(
-    () => buildActionCatalog(schema ?? {}, customActions),
-    [schema, customActions]
+    () => buildActionCatalog(schema ?? {}, customActions, model.hasLLM),
+    [schema, customActions, model.hasLLM]
   );
   const formSchema = useMemo(
     () => withLocalHarnesses(schema ?? {}, harnesses),

@@ -90,6 +90,8 @@ export interface DagDocModel {
   parseErrors: { message: string; line: number; column: number }[];
   documentCount: number; // only document 0 is edited; later documents are never changed
   dagType: DagType;
+  /** True when document 0 has a DAG-level `llm` block, which steps inherit. */
+  hasLLM: boolean;
   stepsForm: StepsForm;
   steps: StepView[];
   handlers: StepView[];

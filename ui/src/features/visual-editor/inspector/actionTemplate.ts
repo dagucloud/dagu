@@ -58,7 +58,9 @@ export function requiredWithValues(
   return values;
 }
 
-const LLM = { provider: 'anthropic', model: 'claude-sonnet-4-5' };
+// A placeholder for the user to replace: a fixed model ID goes stale once
+// the provider retires it.
+const LLM = { provider: 'anthropic', model: 'TODO' };
 const XLSX = 'file.xlsx';
 
 /**
@@ -175,16 +177,22 @@ const STARTER: Record<string, Record<string, unknown>> = {
  * The step that the palette inserts for an action. `with` holds the
  * required fields only; it is left out when there is none, unless
  * `keepEmptyWith` is set (custom actions always take a `with` block).
+ * With `dagHasLLM`, a starter leaves its `llm` block out, so the step
+ * inherits the DAG-level one.
  */
 export function actionTemplate(
   action: string,
   withSchema: JSONSchema | null,
-  keepEmptyWith = false
+  options: { keepEmptyWith?: boolean; dagHasLLM?: boolean } = {}
 ): NewStep {
+  const { keepEmptyWith = false, dagHasLLM = false } = options;
   const starter = keepEmptyWith ? undefined : STARTER[action];
   const values = starter
     ? structuredClone(starter)
     : requiredWithValues(withSchema);
+  if (starter && dagHasLLM) {
+    delete values.llm;
+  }
   if (Object.keys(values).length === 0 && !keepEmptyWith) {
     return { action };
   }

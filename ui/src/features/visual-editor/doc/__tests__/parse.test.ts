@@ -164,6 +164,12 @@ describe('forms', () => {
     ]);
   });
 
+  it('reports a DAG-level llm block', () => {
+    const steps = 'steps:\n  - run: a\n';
+    expect(parseDagDoc(`llm:\n  model: m\n${steps}`).hasLLM).toBe(true);
+    expect(parseDagDoc(steps).hasLLM).toBe(false);
+  });
+
   it('chain type', () => {
     const model = parseDagDoc(yamlChain);
     expect(model.dagType).toBe('chain');
@@ -461,6 +467,7 @@ describe('errors and documents', () => {
       ],
       documentCount: 1,
       dagType: 'graph',
+      hasLLM: false,
       stepsForm: 'none',
       steps: [],
       handlers: [],
@@ -517,6 +524,7 @@ describe('errors and documents', () => {
       parseErrors: [],
       documentCount: 0,
       dagType: 'graph',
+      hasLLM: false,
       stepsForm: 'none',
       steps: [],
       handlers: [],
