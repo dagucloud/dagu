@@ -38,7 +38,10 @@ import { PANEL_WATCH_MS } from '../useRightPanelClearance';
 import type { StepRunActions } from '../../step/useStepRunActions';
 import { useWorkspaceUrl } from '../../state/workspaceUrl';
 import { RIGHT_COLUMN_KEY } from '../useRightColumn';
-import { YAML_PANEL_OPEN_KEY } from '../useYamlPanelMemory';
+import {
+  WORKFLOW_PANEL_OPEN_KEY,
+  YAML_PANEL_OPEN_KEY,
+} from '../useYamlPanelMemory';
 import { WorkspaceCanvas } from '../WorkspaceCanvas';
 import {
   useWorkspaceEditor,
@@ -1640,6 +1643,17 @@ describe('WorkspaceCanvas', () => {
       renderCanvas('/dags/example.yaml?step=extract&ndv=docked');
       expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
       expect(screen.getByTestId('dag-spec-stand-in')).toBeInTheDocument();
+    });
+
+    // The Workflow panel that the page restores folds Activity too, before
+    // the editor has loaded and claimed it. A ?run link opens Activity.
+    it('yields to the restored Workflow panel from the first render', () => {
+      localStorage.setItem(WORKFLOW_PANEL_OPEN_KEY, 'true');
+      const yieldToView = vi.fn();
+      ws.dock = { ...dock, open: true, yieldToView };
+      renderCanvas('/dags/example.yaml?run=r1');
+      expect(props().initialWorkflowOpen).toBe(true);
+      expect(yieldToView).toHaveBeenCalledWith(true, { restore: true });
     });
 
     // A graph that fit the zone above the open Activity fit again, and
