@@ -570,7 +570,7 @@ func TestService_UpdateUserPreservesAuthorizationSynchronizedAfterRead(t *testin
 	case <-time.After(time.Second):
 		t.Fatal("UpdateUser did not reach the store read")
 	}
-	_, syncErr := baseStore.SyncAuthorization(ctx, user.ID, auth.RoleViewer, &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{}})
+	_, syncErr := baseStore.SyncAuthorization(ctx, user.ID, auth.RoleViewer, &auth.WorkspaceAccess{Grants: []auth.WorkspaceGrant{}}, nil)
 	close(pausingStore.resume)
 	require.NoError(t, syncErr)
 

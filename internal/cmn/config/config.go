@@ -588,8 +588,11 @@ const (
 )
 
 // WorkspaceAccessPolicyActive reports whether OIDC login manages workspace access.
+// While projects are on, it also reports whether login manages project
+// grants.
 func (m OIDCRoleMapping) WorkspaceAccessPolicyActive() bool {
-	return len(m.WorkspaceMappings) > 0 || m.DefaultWorkspaceAccess == OIDCDefaultWorkspaceAccessNone
+	return len(m.WorkspaceMappings) > 0 || m.DefaultWorkspaceAccess == OIDCDefaultWorkspaceAccessNone ||
+		len(m.ProjectMappings) > 0 || m.DefaultProjectAccess == projectAccessNone
 }
 
 // AuthTrustedProxy configures authentication delegated to an authenticating reverse proxy.

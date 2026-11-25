@@ -4,11 +4,13 @@
 package oidcprovision
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/dagucloud/dagu/v2/internal/auth"
+	"github.com/dagucloud/dagu/v2/internal/project"
 	"github.com/dagucloud/dagu/v2/internal/service/authmapping"
 	"github.com/itchyny/gojq"
 )
@@ -37,6 +39,12 @@ type RoleMapperConfig struct {
 	SkipOrgRoleSync bool
 	// DefaultRole is the fallback role when no mapping matches
 	DefaultRole auth.Role
+	// Projects turns project mapping on: ProjectMappings and
+	// DefaultProjectAccess replace WorkspaceMappings and
+	// DefaultWorkspaceAccess, and project names resolve through Projects.
+	Projects             project.Registry
+	ProjectMappings      map[string][]authmapping.ProjectGrantConfig
+	DefaultProjectAccess string
 }
 
 // RoleMapper maps OIDC claims to Dagu authorization.
@@ -88,6 +96,9 @@ func NewRoleMapper(config RoleMapperConfig) (*RoleMapper, error) {
 		WorkspaceMappings:      workspaceMappings,
 		DefaultWorkspaceAccess: config.DefaultWorkspaceAccess,
 		Strict:                 config.RoleAttributeStrict,
+		Projects:               config.Projects,
+		ProjectMappings:        config.ProjectMappings,
+		DefaultProjectAccess:   config.DefaultProjectAccess,
 	})
 	if err != nil {
 		return nil, err
@@ -132,18 +143,19 @@ func (rm *RoleMapper) MapRole(rawClaims map[string]any) (auth.Role, error) {
 	return role, err
 }
 
-// MapAccess determines the global role and workspace access from OIDC claims.
-func (rm *RoleMapper) MapAccess(rawClaims map[string]any) (auth.Role, *auth.WorkspaceAccess, error) {
+// MapAccess determines the global role and workspace access from OIDC claims,
+// and the project grants while project mapping is on.
+func (rm *RoleMapper) MapAccess(ctx context.Context, rawClaims map[string]any) (authmapping.Result, error) {
 	if rm.jqQuery != nil {
 		if role, found := rm.evaluateJqExpression(rawClaims); found {
-			return role, auth.AllWorkspaceAccess(), nil
+			return authmapping.Result{Role: role, WorkspaceAccess: auth.AllWorkspaceAccess()}, nil
 		}
 	}
-	result, err := rm.groupMapper.Map(rm.extractGroups(rawClaims))
+	result, err := rm.groupMapper.Map(ctx, rm.extractGroups(rawClaims))
 	if errors.Is(err, authmapping.ErrNoMatch) {
-		return auth.RoleNone, nil, ErrNoRoleFound
+		return authmapping.Result{}, ErrNoRoleFound
 	}
-	return result.Role, result.WorkspaceAccess, err
+	return result, err
 }
 
 // evaluateJqExpression runs the jq query against claims and returns the role.
