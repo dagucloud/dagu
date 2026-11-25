@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	localapi "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/test"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,6 +26,7 @@ func TestDAGRunChangesFollowsTheCaller(t *testing.T) {
 	apiImpl := newDAGPinAPIWithStore(helper, nil, localapi.WithAuthService(stubAuthService{}))
 	// The first read of the run events starts the feed.
 	apiImpl.DAGRunsChanged(nil)
+	testutil.WaitForClockTick(t)
 	apiImpl.DAGRunsChanged([]*eventstore.DAGRunStatusSnapshot{
 		{Name: "ops_dag", DAGFile: "ops_dag", Labels: []string{"workspace=ops"}},
 		{Name: "dev_dag", DAGFile: "dev_dag", Labels: []string{"workspace=dev"}},

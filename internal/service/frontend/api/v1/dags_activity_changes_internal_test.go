@@ -11,6 +11,7 @@ import (
 	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -157,6 +158,7 @@ func TestDAGRunsChangedDropsActivityFirst(t *testing.T) {
 	key := activityKey{dag: "d", window: 24 * time.Hour}
 	latest := ir.DAGRunStatus{DAGRunID: "r1", AttemptID: "a1", Status: ir.Succeeded}
 	a.DAGRunsChanged(nil)
+	testutil.WaitForClockTick(t)
 	readAt := time.Now()
 	a.activities.put(key, latest, readAt, &openapiv1.DAGListActivity{})
 

@@ -40,6 +40,7 @@ import (
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	frontendauth "github.com/dagucloud/dagu/v2/internal/service/frontend/auth"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend/sse"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/dagucloud/dagu/v2/internal/upgrade"
 )
 
@@ -1258,6 +1259,7 @@ func TestAppStreamResetRestartsRunChanges(t *testing.T) {
 		return len(data.(openapiv1.DAGRunChanges).Changes)
 	}
 	srv.apiV1.DAGRunsChanged(nil)
+	testutil.WaitForClockTick(t)
 	srv.apiV1.DAGRunsChanged([]*eventstore.DAGRunStatusSnapshot{{Name: "d", DAGFile: "d"}})
 	require.Equal(t, 1, changes())
 
