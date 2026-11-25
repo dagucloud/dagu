@@ -31,6 +31,7 @@ func storedPaths(paths runpath.Mapper, status ir.DAGRunStatus) ir.DAGRunStatus {
 		stored := *node
 		stored.Stdout = paths.StoreLog(node.Stdout)
 		stored.Stderr = paths.StoreLog(node.Stderr)
+		stored.PushBackPreviousStdout = paths.StoreLog(node.PushBackPreviousStdout)
 		return &stored
 	}
 	if status.Nodes != nil {
@@ -60,5 +61,6 @@ func resolvePaths(paths runpath.Mapper, status *ir.DAGRunStatus) {
 		}
 		node.Stdout = paths.ResolveLog(node.Stdout)
 		node.Stderr = paths.ResolveLog(node.Stderr)
+		node.PushBackPreviousStdout = paths.ResolveLog(node.PushBackPreviousStdout)
 	}
 }

@@ -70,7 +70,11 @@ func (f runPathsFixture) status(dirs runpath.Dirs, dagRunID string) ir.DAGRunSta
 		Log:        filepath.Join(logDir, "dag-run.log"),
 		ArchiveDir: filepath.Join(dirs.Artifact, "2026", "11", "25", "120000_etl_"+artifactpath.RunSuffix(dagRunID)),
 		Nodes: []*ir.Node{
-			{Step: ir.Step{Name: "extract"}, Stdout: filepath.Join(logDir, "extract.out"), Stderr: filepath.Join(logDir, "extract.err")},
+			{
+				Step:   ir.Step{Name: "extract"},
+				Stdout: filepath.Join(logDir, "extract.out"), Stderr: filepath.Join(logDir, "extract.err"),
+				PushBackPreviousStdout: filepath.Join(logDir, "extract.1.out"),
+			},
 			{Step: ir.Step{Name: "load"}, Stdout: f.outside, Stderr: f.outside},
 		},
 		OnExit: &ir.Node{Step: ir.Step{Name: "onExit"}, Stdout: filepath.Join(logDir, "on_exit.log"), Stderr: filepath.Join(logDir, "on_exit.log")},
@@ -106,6 +110,7 @@ func assertRunPaths(t *testing.T, want ir.DAGRunStatus, got *ir.DAGRunStatus) {
 	for i := range want.Nodes {
 		assert.Equal(t, want.Nodes[i].Stdout, got.Nodes[i].Stdout)
 		assert.Equal(t, want.Nodes[i].Stderr, got.Nodes[i].Stderr)
+		assert.Equal(t, want.Nodes[i].PushBackPreviousStdout, got.Nodes[i].PushBackPreviousStdout)
 	}
 	require.NotNil(t, got.OnExit)
 	assert.Equal(t, want.OnExit.Stdout, got.OnExit.Stdout)
@@ -124,6 +129,7 @@ func TestRunPathsStoredRelative(t *testing.T) {
 	assert.Equal(t, "./2026/11/25/120000_etl_"+artifactpath.RunSuffix("run-1"), stored.ArchiveDir)
 	assert.Equal(t, "./etl/dag-run_run-1/extract.out", stored.Nodes[0].Stdout)
 	assert.Equal(t, "./etl/dag-run_run-1/extract.err", stored.Nodes[0].Stderr)
+	assert.Equal(t, "./etl/dag-run_run-1/extract.1.out", stored.Nodes[0].PushBackPreviousStdout)
 	assert.Equal(t, f.outside, stored.Nodes[1].Stdout)
 	assert.Equal(t, "./etl/dag-run_run-1/on_exit.log", stored.OnExit.Stdout)
 
