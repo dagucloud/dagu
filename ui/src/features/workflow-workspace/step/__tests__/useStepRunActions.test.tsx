@@ -111,7 +111,6 @@ vi.mock('@/features/visual-editor/run/useEditorRunActions', async () => {
       editorRun.args = args as unknown as Record<string, unknown>;
       if (editorRun.real) return actual.useEditorRunActions(args);
       return {
-        runDag: vi.fn(),
         runDraft: vi.fn(),
         runStep: editorRun.runStep,
         runSteps: editorRun.runSteps,

@@ -2279,6 +2279,7 @@ function DAGSpec({
                         <VisualEditor
                           fileName={fileName}
                           dagName={data.dag.name}
+                          workspace={dagWorkspaceName}
                           text={
                             editable
                               ? (currentValue ?? serverSpec ?? '')

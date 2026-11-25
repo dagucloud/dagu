@@ -44,7 +44,9 @@ vi.mock('@/hooks/useDAGRunSSE', () => ({
     shouldUseFallback: true,
   }),
 }));
-vi.mock('@/contexts/AuthContext', () => ({ useCanExecute: () => true }));
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanExecuteForWorkspace: () => true,
+}));
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));

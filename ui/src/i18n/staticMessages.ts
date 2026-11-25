@@ -1565,14 +1565,10 @@ const baseEnglish = {
   'Run unsaved draft': 'Run unsaved draft',
   'No unsaved changes': 'No unsaved changes',
   'Starting run': 'Starting run',
-  'The saved definition differs from the editor. Save first, or run the unsaved draft.':
-    'The saved definition differs from the editor. Save first, or run the unsaved draft.',
   'You do not have permission to run workflows.':
     'You do not have permission to run workflows.',
   'This run used a different definition than the saved one.':
     'This run used a different definition than the saved one.',
-  'Save the DAG first, or run the unsaved draft.':
-    'Save the DAG first, or run the unsaved draft.',
   'Could not start the run (HTTP {status}).':
     'Could not start the run (HTTP {status}).',
   'Could not start the run.': 'Could not start the run.',
@@ -4882,13 +4878,9 @@ const baseChinese = {
   'Run unsaved draft': '运行未保存的草稿',
   'No unsaved changes': '没有未保存的更改',
   'Starting run': '正在启动运行',
-  'The saved definition differs from the editor. Save first, or run the unsaved draft.':
-    '已保存的定义与编辑器中的内容不同。请先保存，或运行未保存的草稿。',
   'You do not have permission to run workflows.': '您没有运行工作流的权限。',
   'This run used a different definition than the saved one.':
     '此运行使用的定义与已保存的定义不同。',
-  'Save the DAG first, or run the unsaved draft.':
-    '请先保存 DAG，或运行未保存的草稿。',
   'Could not start the run (HTTP {status}).': '无法启动运行（HTTP {status}）。',
   'Could not start the run.': '无法启动运行。',
   'Not run in this run': '此次运行中未执行',
@@ -8183,14 +8175,10 @@ const baseJapanese = {
   'Run unsaved draft': '未保存の下書きを実行',
   'No unsaved changes': '未保存の変更はありません',
   'Starting run': '実行を開始しています',
-  'The saved definition differs from the editor. Save first, or run the unsaved draft.':
-    '保存済みの定義はエディターの内容と異なります。先に保存するか、未保存の下書きを実行してください。',
   'You do not have permission to run workflows.':
     'ワークフローを実行する権限がありません。',
   'This run used a different definition than the saved one.':
     'この実行は保存済みとは異なる定義を使用しました。',
-  'Save the DAG first, or run the unsaved draft.':
-    '先に DAG を保存するか、未保存の下書きを実行してください。',
   'Could not start the run (HTTP {status}).':
     '実行を開始できませんでした (HTTP {status})。',
   'Could not start the run.': '実行を開始できませんでした。',
@@ -11559,14 +11547,10 @@ const baseGerman = {
   'Run unsaved draft': 'Ungespeicherten Entwurf ausführen',
   'No unsaved changes': 'Keine ungespeicherten Änderungen',
   'Starting run': 'Lauf wird gestartet',
-  'The saved definition differs from the editor. Save first, or run the unsaved draft.':
-    'Die gespeicherte Definition weicht vom Editor ab. Zuerst speichern oder den ungespeicherten Entwurf ausführen.',
   'You do not have permission to run workflows.':
     'Du darfst keine Abläufe ausführen.',
   'This run used a different definition than the saved one.':
     'Dieser Lauf hatte eine andere als die gespeicherte Definition.',
-  'Save the DAG first, or run the unsaved draft.':
-    'Zuerst den DAG speichern oder den ungespeicherten Entwurf ausführen.',
   'Could not start the run (HTTP {status}).':
     'Lauf konnte nicht gestartet werden (HTTP {status}).',
   'Could not start the run.': 'Lauf konnte nicht gestartet werden.',

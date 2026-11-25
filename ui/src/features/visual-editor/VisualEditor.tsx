@@ -146,6 +146,8 @@ export interface VisualEditorValidation {
 export interface VisualEditorProps extends EditorHostProps {
   fileName: string;
   dagName: string;
+  /** Workspace of the DAG, for the run permission. */
+  workspace?: string;
   /** The DAG YAML: the only state of the editor. */
   text: string;
   onTextChange(text: string): void;
@@ -380,6 +382,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
   const {
     fileName,
     dagName,
+    workspace,
     text,
     onTextChange,
     validation,
@@ -1700,6 +1703,7 @@ export function VisualEditor(props: VisualEditorProps): ReactElement {
           onRunIdChange={followRun}
           actions={actions}
           isDirty={isDirty}
+          workspace={workspace}
         />
       )}
       {readOnly ? null : (

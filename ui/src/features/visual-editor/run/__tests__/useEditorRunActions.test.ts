@@ -41,33 +41,6 @@ describe('useEditorRunActions', () => {
     });
   });
 
-  it('starts the saved DAG with the editor label', async () => {
-    const { result } = setup();
-    let id: string | null = null;
-    await act(async () => {
-      id = await result.current.runDag();
-    });
-    expect(id).toBe('run-1');
-    expect(POST).toHaveBeenCalledTimes(1);
-    expect(POST).toHaveBeenCalledWith('/dags/{fileName}/start', {
-      params: { path: { fileName: 'my-dag' }, query: { remoteNode: 'node-1' } },
-      body: { labels: LABELS },
-    });
-  });
-
-  it('sends no request for a dirty DAG and asks to save', async () => {
-    const { result } = setup({ isDirty: true });
-    let id: string | null = 'x';
-    await act(async () => {
-      id = await result.current.runDag();
-    });
-    expect(id).toBeNull();
-    expect(POST).not.toHaveBeenCalled();
-    expect(result.current.error).toBe(
-      'Save the DAG first, or run the unsaved draft.'
-    );
-  });
-
   it('starts the unsaved draft through /dag-runs', async () => {
     const { result } = setup({ isDirty: true, spec: 'steps: [x]' });
     let id: string | null = null;
@@ -269,7 +242,7 @@ describe('useEditorRunActions', () => {
     POST.mockResolvedValue({ error: {}, response: { status: 502 } });
     const { result } = setup();
     await act(async () => {
-      await result.current.runDag();
+      await result.current.runDraft();
     });
     expect(result.current.error).toBe('Could not start the run (HTTP 502).');
   });
@@ -309,7 +282,7 @@ describe('useEditorRunActions', () => {
     expect(result.current.isStarting).toBe(false);
     let pending: Promise<string | null> = Promise.resolve(null);
     act(() => {
-      pending = result.current.runDag();
+      pending = result.current.runDraft();
     });
     expect(result.current.isStarting).toBe(true);
     await act(async () => {

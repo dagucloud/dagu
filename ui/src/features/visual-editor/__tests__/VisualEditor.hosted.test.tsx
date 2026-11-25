@@ -87,7 +87,9 @@ vi.mock('@/hooks/useDAGRunSSE', () => ({
     shouldUseFallback: true,
   }),
 }));
-vi.mock('@/contexts/AuthContext', () => ({ useCanExecute: () => true }));
+vi.mock('@/contexts/AuthContext', () => ({
+  useCanExecuteForWorkspace: () => true,
+}));
 vi.mock('@/contexts/RemoteNodeContext', () => ({
   useRemoteNode: () => 'local',
 }));
@@ -919,10 +921,16 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
 
   describe('chrome and notices', () => {
     it('hides the run bar', () => {
-      renderEditor({ initial: yamlArraySteps, chrome: { hideRunBar: true } });
+      renderEditor({
+        initial: yamlArraySteps,
+        isDirty: true,
+        chrome: { hideRunBar: true },
+      });
 
       const toolbar = within(screen.getByTestId('ve-toolbar'));
-      expect(toolbar.queryByRole('button', { name: 'Run' })).toBeNull();
+      expect(
+        toolbar.queryByRole('button', { name: 'Run unsaved draft' })
+      ).toBeNull();
       expect(toolbar.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
     });
 
@@ -948,11 +956,11 @@ describe.skipIf(realSchema === null)('VisualEditor in a host', () => {
     });
 
     it('keeps the run bar by default', () => {
-      renderEditor({ initial: yamlArraySteps });
+      renderEditor({ initial: yamlArraySteps, isDirty: true });
 
       expect(
         within(screen.getByTestId('ve-toolbar')).getByRole('button', {
-          name: 'Run',
+          name: 'Run unsaved draft',
         })
       ).toBeInTheDocument();
     });
