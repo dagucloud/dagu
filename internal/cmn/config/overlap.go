@@ -28,7 +28,7 @@ import (
 // paths.data_dir under fixed names. Settings in paths place the others.
 var serverStoreDirNames = []string{
 	"auth", "cloud", "coordinator", "distributed", "incidents", "license",
-	"notifications", "scheduler", "server", "upgrade",
+	"notifications", "run-binaries", "scheduler", "server", "tailscale", "upgrade",
 }
 
 // Relations between a DAG root and the path it overlaps.

@@ -84,6 +84,14 @@ func TestPathOverlaps(t *testing.T) {
 			},
 		},
 		{
+			// The default tunnel state holds the node's keys.
+			name: "DAGsDirIsTunnelState",
+			edit: func(_ string, p *config.PathsConfig) []string {
+				p.DAGsDir = filepath.Join(p.DataDir, "tailscale")
+				return []string{overlap("paths.dags_dir", p.DAGsDir, "is", "paths.data_dir/tailscale", p.DAGsDir)}
+			},
+		},
+		{
 			name: "DAGsDirContainsServerStoreSetting",
 			edit: func(_ string, p *config.PathsConfig) []string {
 				p.UsersDir = filepath.Join(p.DAGsDir, "users")
