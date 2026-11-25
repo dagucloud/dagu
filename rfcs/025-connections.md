@@ -9,8 +9,9 @@
   `harness`, `chat`), `secret/providers` (a `connection` provider),
   `service/coordinator` and `service/worker` (token RPC), `service/frontend`
   (API, OAuth callback), `eventstore` and `service/chatbridge` (connection
-  notifications), `service/mcp`, `cmd`, `api/v1`, `proto`, `ui`, `specs`,
-  `conformance`, and `docs`
+  notifications), `license` (Cloud relay client), `service/mcp`, `cmd`,
+  `api/v1`, `proto`, `ui`, `specs`, `conformance`, `docs`, and Dagu Cloud
+  (Cloud relay endpoints)
 
 ## Summary
 
@@ -32,7 +33,8 @@ bearer token, which expires after an hour.
  dagu connection add google            Connections page: Connect Google
                  \                         /
                   v                       v
-      connect engine: state + PKCE; server callback | loopback | paste | device code
+      connect engine: state + PKCE; server callback | cloud relay | loopback
+                      | paste | device code
                                   |
           +-----------------------+------------------------+
           v                       v                        v
@@ -103,9 +105,10 @@ bearer token, which expires after an hour.
 
 ## Non-goals
 
-- **A Dagu-hosted OAuth app.** The user brings their own client in this RFC.
-  The records reserve a `hosted` app kind for a later app relayed through
-  Dagu Cloud.
+- **A Dagu-hosted OAuth app, and connections held by Dagu Cloud.** The user
+  brings their own client in this RFC, and the server keeps the tokens. The
+  records reserve both, as [Dagu Cloud](#dagu-cloud) describes. Dagu Cloud
+  takes part only in the connect flow, through the Cloud relay.
 - **Personal connections and run-as-user identity.** Connections are
   server-wide. A user's own account, used by runs they start, needs its own
   design.
@@ -178,7 +181,7 @@ connections share.
 | --- | --- |
 | `id`, `name` | Name shown in pickers |
 | `provider` | `google`, `microsoft`, `oauth2`, or `mcp` |
-| `kind` | `byo` (user's own client), `dcr` (registered by Dagu through RFC 7591), or `hosted` (reserved) |
+| `kind` | Who owns the client: `byo` (the user), `dcr` (registered by Dagu through RFC 7591), or `hosted` (reserved: a client Dagu owns, for one-click connect) |
 | `client_id` | |
 | `client_secret` | Encrypted. Optional for public clients. For a service account, its private key |
 | `client_type` | `web`, `desktop`, `public` (no secret, as the device code flow needs), or `service_account` (a Google service account key). Decides which grants and redirect modes work |
@@ -205,6 +208,7 @@ admins:
 | `resource` | MCP connections: the canonical server URL (RFC 8707) |
 | `workspaces` | The allow-list: workspace names, `.global` for DAGs without a workspace label as secrets name that scope (`internal/secret/secret.go:42`), or `*` for every workspace. Defaults to the workspace the creator has selected, or `.global` when none is |
 | `allow_token_export` | Admin opt-in for the `connection` secret provider. Off by default |
+| `holder` | Who keeps the tokens: `local`, this server. `cloud` is reserved for a connection Dagu Cloud keeps, which this server reads but does not change. The app's `kind` says who owns the client; `holder` says who keeps the tokens |
 
 The token state record (`<data_dir>/connection-tokens/`) is written only by
 the `connection` package: the connect flow and the token broker.
@@ -320,14 +324,36 @@ Redirect modes:
 | Mode | When | Client type |
 | --- | --- | --- |
 | Server callback | The server has a usable public URL: `server.public_url`, else the tunnel URL, else the UI's origin when the browser reaches Dagu at `localhost`, which Google accepts over HTTP. The redirect URI is `<public_url>/oauth/callback`, a public route beside `oidc-callback` (`internal/service/frontend/server.go:1445`) | `web` |
+| Cloud relay | The server has an online license (RFC 002) but no usable public URL. The redirect URI is Dagu Cloud's fixed callback, `<cloud_url>/oauth/callback`, and the server fetches the code from Dagu Cloud | `web` |
 | Loopback | The CLI runs where a browser can open. The CLI listens on `127.0.0.1` on a random port and sends the code to the server | `desktop` |
-| Paste | Neither works, as for a server on a private address. The browser lands on a loopback URL that fails to load, and the user pastes that URL into the UI or CLI | `desktop` |
+| Paste | None of the above works, as for an unlicensed server on a private address. The browser lands on a loopback URL that fails to load, and the user pastes that URL into the UI or CLI | `desktop` |
 | Device code | Microsoft, over SSH. The CLI shows a code to enter on another device | `public` |
 
 Google web clients accept only HTTPS or `localhost` redirect URIs, and
 Google's device flow does not cover Gmail scopes, so a Google connection uses
-one of the first three modes. The UI picks the mode from the server's public
-URL and the app's client type, and shows the exact redirect URI to register.
+one of the first four modes. The UI and CLI pick the first mode in the
+table that works, given the server's public URL, its license, and the app's
+client type, and show the exact redirect URI to register.
+
+**Cloud relay.** A server without a public URL still gets a fixed HTTPS
+callback, without paste mode and without Dagu Cloud holding any secret:
+
+- Starting a session, the server registers a callback with Dagu Cloud under
+  its license credentials, and gets a callback ID. The `state` parameter
+  starts with that ID in clear, followed by the encrypted state, so Dagu
+  Cloud routes the callback without reading it.
+- Dagu Cloud's callback page stores the code and state under the ID, and
+  tells the person they may close the page.
+- While the session waits, the server polls Dagu Cloud for the callback
+  every 3 seconds, as license activation polls (RFC 002). It then checks the
+  encrypted state and completes the callback as if it had received it.
+  Dagu Cloud deletes the code on the first fetch, or after 10 minutes.
+- Dagu Cloud sees only the code. The PKCE verifier and the client secret
+  stay on the server, so Dagu Cloud cannot exchange the code for tokens.
+  RFC 002's rules hold: Dagu Cloud stores no secret, and runs never depend
+  on it, since only connecting does.
+- One redirect URI serves every server, so a team with several servers
+  registers it once in each OAuth client.
 
 **Checks after consent:**
 
@@ -382,6 +408,12 @@ Every token passes through one interface:
 // resource selects the connection's only resource.
 Token(ctx context.Context, conn, resource string, minTTL time.Duration) (token string, expiresIn time.Duration, err error)
 ```
+
+The broker hides where a token comes from, so callers never change with the
+source. This RFC has two sources: the local refresh below, and the
+coordinator RPC that a worker uses. A connection whose `holder` is `cloud`
+would add a third, a token request to Dagu Cloud, as [Dagu
+Cloud](#dagu-cloud) describes.
 
 Steps that use a token in process ask for a `minTTL` of 5 minutes, and ask
 again when the token runs low. Only token export asks for more, 50 minutes,
@@ -899,6 +931,48 @@ authorization spec:
 go-sdk v1.7.0 already implements these calls in its `oauthex` package, and
 Dagu reuses it.
 
+### Dagu Cloud
+
+Dagu Cloud's part has three layers. This RFC ships the first and reserves
+room for the other two.
+
+| Layer | Client owned by | Tokens kept by | In this RFC |
+| --- | --- | --- | --- |
+| Cloud relay | The user | Each server | Ships, as a redirect mode |
+| Hosted app | Dagu | Each server | Reserved: app `kind: hosted` |
+| Cloud-held connection | The user or Dagu | Dagu Cloud | Reserved: connection `holder: cloud` |
+
+**Cloud-held connections** suit a team that runs several servers. Today each
+server connects on its own, so a team with five servers consents five times,
+reconnects five times, and holds five refresh tokens per account. If Dagu
+Cloud kept the connection instead:
+
+- one consent, one reconnect, and one notification would serve every
+  server;
+- an account would hold one refresh token per client, well under Google's
+  limit of 100 per account and client;
+- Dagu Cloud would be the one refresh owner, which removes the stale reads
+  of shared storage ([Open questions](#open-questions), item 7);
+- no server would hold a refresh token at all.
+
+On a server, such a connection would appear in the list read-only, with its
+name and binding from Dagu Cloud. A worker would still ask its coordinator,
+and the coordinator would ask Dagu Cloud through the broker's third source.
+Dagu Cloud would grant the connection to servers, and each server's admin
+would map it to workspaces, as for a local connection. A cloud connection
+whose name a local connection already uses would not be offered on that
+server until one is renamed. Status and notifications would come from Dagu
+Cloud once, not from each server, though each run would still record its
+failure cause.
+
+It breaks two of RFC 002's rules. Dagu Cloud would store refresh tokens for
+users' accounts, a valuable target that also gives Dagu Cloud the ability to
+read their data. And runs would depend on Dagu Cloud once their cached
+access token runs out, within about an hour. So it needs its own RFC that
+amends RFC 002, makes each cloud connection opt-in, and states the security
+review that holding users' tokens calls for. A hosted Google app with Gmail
+scopes also needs Google's verification and a yearly security assessment.
+
 ## Surfaces
 
 ### CLI
@@ -932,7 +1006,8 @@ dagu connection apps list | remove APP
   `term.ReadPassword`.
 - `add` picks a redirect mode as the UI does. It opens a browser when it
   can, prints the URL, and polls like `dagu license activate`. With
-  `--no-browser`, it prints the URL and asks for the pasted redirect URL.
+  `--no-browser`, it prints the URL, and in paste mode asks for the pasted
+  redirect URL.
 - `import` moves an existing `mail_accounts` refresh token into a
   connection, with no new consent. Its output says to replace the `oauth`
   block with `connection:`, since the copy in YAML goes stale at the first
@@ -1170,6 +1245,9 @@ connections.
   - Only the user who started a session confirms it, in the UI or CLI that
     started it. Tokens go live only on confirmation.
   - The callback page shows no token, and closes the popup.
+  - In Cloud relay mode, Dagu Cloud holds only the code, until the server
+    fetches it. Without the server's PKCE verifier and client secret, the
+    code is useless, and a forged callback fails the server's state check.
 - **Agents.** Agents never hold provider tokens. The gateway accepts only
   its step's bearer token, offers only allowed tools, and refuses calls to
   tools whose description, schema, or annotations changed.
@@ -1203,6 +1281,8 @@ connections.
 | --- | --- |
 | The user denies consent or closes the popup | The session fails or expires. The connection stays `pending`, or keeps its previous tokens on a reconnect |
 | Google returns a consent error, such as a missing test user or a Workspace admin's block | The session fails, and the UI or CLI shows the fix from [Consent errors](#connect-flow) |
+| Dagu Cloud is unreachable during a Cloud relay connect | The session fails, saying so, and offers the next mode. Runs and existing connections are unaffected |
+| Dagu Cloud lacks the relay endpoints | The server does not offer Cloud relay, and picks the next mode |
 | The callback arrives after 10 minutes, twice, or for a session that a newer one replaced | Refused. Nothing changes |
 | Another user tries to confirm the account | Refused. The session stays in `confirm` |
 | Nobody confirms the account | The session expires. The previous tokens stay live |
@@ -1249,6 +1329,9 @@ connections.
   share the run's cache, so the cost grows with runs that use connections,
   not with steps. At one run per second, that is at most two reads or RPCs
   per second for each connection a run uses.
+- **Cloud relay.** One request to Dagu Cloud every 3 seconds per waiting
+  session, for at most the session's 10 minutes. It stops when the session
+  completes, fails, or is cancelled, and nothing polls outside a connect.
 - **Requests.** Connection lists read one small record per connection. A
   server holds tens of connections, not thousands, and no request reads run
   or DAG directories.
@@ -1312,6 +1395,9 @@ connections.
   coordinator dispatches a DAG that declares connections only to workers new
   enough for the token RPC.
 - **API.** New paths only. Existing schemas are unchanged.
+- **Dagu Cloud.** Cloud relay needs two new Dagu Cloud endpoints: register
+  a callback, and fetch it. A server checks for them and offers the mode
+  only when they exist, so either side can upgrade first.
 - **`mcp.call` errors.** HTTP 429 moves from kind `transport` to the new
   kind `rate_limited`. A DAG that branches on `transport` to catch rate
   limits must check `rate_limited` too. A declined confirmation request has
@@ -1343,7 +1429,8 @@ ships after confirmation requests are tested against Google's servers
      credentials, which need no consent screen.
    - `mail_accounts.*.connection`, with the Microsoft `mailbox` preset. This
      alone fixes Microsoft rotation for mail.
-2. **Connect flows.** All four redirect modes, sessions and confirmation,
+2. **Connect flows.** All five redirect modes, Cloud relay once Dagu Cloud
+   serves its endpoints, sessions and confirmation,
    the REST API, the Connections page, the Google wizard with paired
    connections and consent error fixes, the expiry display,
    `dagu connection add`, test, and reconnect.
@@ -1376,8 +1463,9 @@ ships after confirmation requests are tested against Google's servers
    uploads a client JSON, consents, and lists Gmail tools without leaving
    the UI except for the Google Cloud console and the consent screen.
 2. `dagu connection add google` works in each mode: in a desktop session
-   (loopback), over SSH to a server with a public URL (server callback), and
-   over SSH to a server without one (paste).
+   (loopback), over SSH to a server with a public URL (server callback), over
+   SSH to a licensed server without one (Cloud relay), and over SSH to an
+   unlicensed server without one (paste).
 3. An `mcp.call` step with `connection` and `server: gmail` succeeds, both
    locally and on a worker with no shared filesystem.
 4. With 100 concurrent runs using one connection whose access token has
@@ -1438,7 +1526,11 @@ ships after confirmation requests are tested against Google's servers
 25. An agent DAG approves a write tool for the rest of the run. Later calls
     to that tool run without a task, and other write tools still wait.
 26. Each consent error in [Consent errors](#connect-flow) shows its fix.
-27. Every case in [Failure behavior](#failure-behavior) ends as stated.
+27. A licensed server without a public URL connects a Google account
+    through the Cloud relay, from the UI and from the CLI over SSH. Dagu
+    Cloud's stored data then holds no token, PKCE verifier, or client
+    secret, and the code is gone once the server fetched it.
+28. Every case in [Failure behavior](#failure-behavior) ends as stated.
 
 ## Alternatives considered
 
@@ -1469,6 +1561,12 @@ ships after confirmation requests are tested against Google's servers
   setup. But Gmail scopes are restricted, which takes Google verification
   and a yearly security assessment, and the app would depend on Dagu Cloud.
   The `hosted` app kind leaves room for it.
+- **Dagu Cloud keeping every connection now.** One consent for every server,
+  and one refresh owner. But it breaks RFC 002's rules against storing
+  secrets in Dagu Cloud and making runs depend on it. The Cloud relay gives
+  servers without a public URL the fixed callback, which is most of the
+  connect-time benefit, without storing anything. `holder: cloud` leaves
+  room for the rest.
 - **Opt-in confirmation (`confirm: [tool]`).** The safe setting would depend
   on the author remembering it, and a scheduled agent that reads email would
   run every write unattended by default.
@@ -1517,7 +1615,8 @@ ships after confirmation requests are tested against Google's servers
    elicitation? The answer decides how much of Part B works in harness and
    chat steps, and needs testing against Google before Part B ships.
 7. Should hosts that share storage pick one refresh owner, for providers
-   that revoke a token family on reuse?
+   that revoke a token family on reuse? Cloud-held connections would be one
+   answer, for teams that accept them.
 8. Do Google's Workspace MCP servers serve personal `@gmail.com` accounts,
    or only Workspace accounts? The wizard should say so before the user
    starts the Google Cloud setup.
@@ -1528,8 +1627,9 @@ ships after confirmation requests are tested against Google's servers
 
 ## Future enhancements
 
-- **A Dagu-hosted OAuth app,** relayed through Dagu Cloud, for one-click
-  Google and Microsoft connections.
+- **Cloud-held connections and a Dagu-hosted OAuth app,** as [Dagu
+  Cloud](#dagu-cloud) describes. Both need their own RFC, and cloud-held
+  connections amend RFC 002.
 - **Confirmation requests in harness and chat steps.** The step would hold
   the call open while a person answers, as agent DAGs do.
 - **Harness steps in containers.** The step would bind-mount a Unix socket
