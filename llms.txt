@@ -2497,7 +2497,7 @@ Start gRPC coordinator: `dagu coordinator [--coordinator.host/-H <host>] [--coor
 
 ### dagu worker
 
-Start distributed worker: `dagu worker --worker.coordinators <host:port,...> [--worker.id/-w <id>] [--worker.max-active-runs/-m <n>] [--worker.labels/-l <k=v,k,...>] [--peer.*]`. Coordinator addresses are required. Every worker advertises immutable `os` and `arch` platform labels in addition to configured labels. Worker labels follow the DAG label rules: keys and values are lowercased, a label with no value (`gpu`) is kept, and a worker with an invalid label, or with one key given twice in different case, does not start and names the label. `worker_selector` and `--worker-label` match worker labels without case.
+Start distributed worker: `dagu worker --worker.coordinators <host:port,...> [--worker.id/-w <id>] [--worker.max-active-runs/-m <n>] [--worker.labels/-l <k=v,...>] [--peer.*]`. Coordinator addresses are required. Every worker advertises immutable `os` and `arch` platform labels in addition to configured labels. `worker.labels` takes a comma-separated string, a list of `key=value` entries, or a map. Worker labels follow the DAG label rules: keys and values are lowercased, a label with no value (`gpu`) is kept, and a worker with an invalid label, or with one key given twice in different case, does not start and names the label. `worker_selector` and `--worker-label` match worker labels without case.
 
 ## Git Sync
 

@@ -2774,22 +2774,21 @@ func (l *ConfigLoader) configureViper(configDir, configFile string) {
 	l.v.AutomaticEnv()
 }
 
-// parseLabels parses worker labels from a comma-separated string of key or
-// key=value entries, or from a map. A key with no value or a null value is a
-// label with no value. Entries are kept as written: the worker applies the
+// parseLabels parses worker labels from a comma-separated string or a list of
+// key or key=value entries, or from a map. A key with no value or a null value
+// is a label with no value. Entries are kept as written: the worker applies the
 // label rules, so a malformed entry stops it instead of being dropped.
 func parseLabels(input any) map[string]string {
 	labels := make(map[string]string)
 
 	switch v := input.(type) {
 	case string:
-		for pair := range strings.SplitSeq(v, ",") {
-			pair = strings.TrimSpace(pair)
-			if pair == "" {
-				continue
-			}
-			key, value, _ := strings.Cut(pair, "=")
-			labels[strings.TrimSpace(key)] = strings.TrimSpace(value)
+		for entry := range strings.SplitSeq(v, ",") {
+			addLabelEntry(labels, entry)
+		}
+	case []any:
+		for _, entry := range v {
+			addLabelEntry(labels, labelValue(entry))
 		}
 	case map[string]any:
 		for key, val := range v {
@@ -2804,8 +2803,18 @@ func parseLabels(input any) map[string]string {
 	return labels
 }
 
-// labelValue renders a label value from a config map, where YAML may give a
-// bool or a number, and null means no value.
+// addLabelEntry adds one key or key=value entry, skipping a blank one.
+func addLabelEntry(labels map[string]string, entry string) {
+	entry = strings.TrimSpace(entry)
+	if entry == "" {
+		return
+	}
+	key, value, _ := strings.Cut(entry, "=")
+	labels[strings.TrimSpace(key)] = strings.TrimSpace(value)
+}
+
+// labelValue renders a label value from a config map or list, where YAML may
+// give a bool or a number, and null means no value.
 func labelValue(val any) string {
 	if val == nil {
 		return ""

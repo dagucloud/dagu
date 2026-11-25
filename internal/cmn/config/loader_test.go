@@ -1426,6 +1426,17 @@ worker:
 		assert.Equal(t, map[string]string{"gpu": "", "ssd": ""}, cfg.Worker.Labels)
 	})
 
+	t.Run("LabelsFromList", func(t *testing.T) {
+		cfg := loadFromYAML(t, `
+worker:
+  labels:
+    - gpu=true
+    - zone=us-east
+    - ssd
+`)
+		assert.Equal(t, map[string]string{"gpu": "true", "zone": "us-east", "ssd": ""}, cfg.Worker.Labels)
+	})
+
 	t.Run("ScalarValuesAreKeptAsText", func(t *testing.T) {
 		cfg := loadFromYAML(t, `
 worker:
