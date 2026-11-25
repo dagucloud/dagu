@@ -495,6 +495,7 @@ describe('RunSplitButton', () => {
       body: {
         spec: 'steps:\n  - echo draft\n',
         name: 'etl',
+        draftOf: FILE,
         labels: ['dagu.source=editor'],
       },
     });

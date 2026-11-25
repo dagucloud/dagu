@@ -306,6 +306,14 @@ Shell selection order is:
 
 - The server MUST reject an entry of `outputsFromRuns` with HTTP 400 and the message `step X cannot be reused from run Y: <reason>` when one of these is true. The run does not exist for the DAG (it was removed, or it belongs to another DAG). The run is not finished. The run has no node for the step. The step did not succeed in the run and carried no outputs into it, neither from another run nor from `outputs`. A normal run and an ephemeral run that still exists can both be the source.
 
+- The server MUST also refuse a carried step, with the same message, when it changed since its run, as [Changed Steps](#changed-steps) defines. A carried step is a skipped step that takes its outputs from a run: from its entry of `outputsFromRuns`, or from `outputsFromRunId` when a selected step depends on it. A step after the selected steps carries nothing and is not checked, and neither is a step of `outputs`.
+
+- The server checks every entry and every carried step before it answers. The message names each refusal, joined by `; `: first the entries whose run cannot give the step, then the changed steps, each group in the order of the steps as the request names them.
+
+- The response of a refusal has `details.refusedSteps`, one item per refused step in the order of the message. An item has `step` (the step name), `runId`, `status` (`unavailable` or `changed`), `changes` (the names of [Changed Steps](#changed-steps), empty for `unavailable`), `changedParams` (the parameters that the reason names, absent when it names none), `unavailable` (for `unavailable`: `gone` when the run does not exist for the DAG, `unfinished`, `noStep`, or `failed` when the step neither succeeded there nor carried outputs), and `message` (that step's part of the message).
+
+- `allowChangedSteps` names, by step name or ID, carried steps that the run reuses although they changed since their run. The server does not refuse such a step for its changes, and records them in [Reused Inputs](#reused-inputs). A name of a step that did not change has no effect. An unknown step is rejected with HTTP 400, and so is an empty name. It requires `steps`. A run that cannot give a step is refused whatever `allowChangedSteps` says.
+
 - A step selected to run MUST NOT be a key of `outputsFromRuns`. An unknown step, a run ID that is not valid, or two keys that address one step is rejected with HTTP 400.
 
 - `outputs` supplies values for the outputs of skipped steps, keyed by step name or ID and then by output name. It is for clients that are not the web UI: the web UI sends no values. It requires `steps` and works with or without `outputsFromRunId`. A supplied value takes precedence over the carried value of the same output.
@@ -322,11 +330,41 @@ Shell selection order is:
 
 - A reference to an output that nobody supplied is not an error of the request. The reference stays literal text, as Spec 007 defines, and the selected step runs with that text.
 
+#### Checking a Selection
+
+`POST /api/v1/dags/{fileName}/start-preview` and `POST /api/v1/dag-runs/preview` plan a run of selected steps as the matching start endpoint would, and start nothing. The body takes `steps` (required), `outputsFromRunId`, `outputsFromRuns`, `params`, and `profile`, as the start does; `POST /api/v1/dag-runs/preview` also takes `spec` (required) and `name`.
+
+- The response has `carried`, `missing`, and `profile`, the runtime profile the run would use, resolved as the start resolves it; it is empty for none. `carried` lists, in the order of the DAG, each skipped step that would carry outputs from a run, and each entry of `outputsFromRuns` whose run cannot give the step. An item has the fields of an item of `details.refusedSteps`, with `status` `unchanged`, `changed`, or `unavailable`, and `startedAt` and `finishedAt`, the times of the step in that run when it has them. `message` is absent for `unchanged`.
+- `missing` lists, in the order of the DAG, the steps that a selected step depends on and that take outputs from nowhere.
+- A request that the start would reject for another reason, such as an unknown step or a selected step named in `outputsFromRuns`, is rejected the same way. A run named by `outputsFromRunId` that does not exist is rejected with HTTP 404.
+- The preview evaluates the parameters as the start does, including command substitution, and needs the permission of the start.
+
+#### Changed Steps
+
+A step changed since a run when one of these differs between that run and the new run. Each change has a name and a noun for the reason.
+
+| Change | What differs | Noun |
+|---|---|---|
+| `step` | the step's own definition, as loaded | the step |
+| `dependency` | a step it depends on (by `depends`, an inferred dependency, or a router), or a step that one depends on | a step it depends on |
+| `params` | the resolved parameters | the parameters |
+| `profile` | the runtime profile | the runtime profile |
+| `baseConfig` | the base config, by its values | the base config |
+| `settings` | the DAG's definition other than its steps, with the local sub-DAGs that follow it in the file | the top-level settings |
+
+- The base config counts by its values: comments, spacing, and SMTP do not count.
+- `settings` leaves out `params`, which count as resolved. Of the handlers, only `handler_on.init` counts, since it runs before the steps; the other handlers run after them.
+- `settings` also leaves out the keys that describe, schedule, notify, retain, or limit runs, which cannot change what a step that succeeded gave: `group`, `description`, `labels`, `tags`, `schedule`, `skip_if_successful`, `catchup_window`, `overlap_policy`, `webhook`, `watch`, `smtp`, `mail_accounts`, `mail_on`, `error_mail`, `info_mail`, `wait_mail`, `hist_retention_days`, `hist_retention_runs`, `slot_retention_days`, `log_dir`, `otel`, `queue`, `max_active_runs`, `max_active_steps`, `timeout_sec`, `delay_sec`, `restart_wait_sec`, `restart_policy`, `retry_policy`, and `max_clean_up_time_sec`.
+- The base config counts the same way: its handlers other than init and the keys above do not count.
+- The reason names every change in the order of the table, joined as a sentence and followed by `changed since that run`, such as `the step and the parameters (MAX) changed since that run`. The noun of `params` names, in parentheses, the parameters whose values changed: in the order of the new run, then the ones that only that run had, with a positional parameter named `$1`, `$2`, and so on. It names none when that run kept no list of its parameters.
+- A step gives the change `carried` when, in that run, it or a step it depends on took outputs of a changed step with consent, as `changes` of [Reused Inputs](#reused-inputs) records. Its outputs there came from what the step did before, although the definitions now match. The reason is `in that run it or a step it depends on took outputs of a changed step`.
+- A run that keeps no definition that can be compared gives the change `unknown`, with the reason `what that run ran cannot be compared`.
+
 #### Reusing Unchanged Steps
 
 `reuseFrom` names a finished run of the same DAG, a normal run or an ephemeral run that still exists. The run chooses its steps itself and reuses the steps that did not change since that run.
 
-- A step is reused when its definition, the DAG's definition other than its steps, the base config, the run's resolved parameters and runtime profile, and the steps it depends on (by `depends`, an inferred dependency, or a router) are as they were in that run, and its node there succeeded or carried outputs, from another run or from `outputs`. A reused step is recorded as skipped and carries its outputs from that run, as a step of `outputsFromRuns` does. The run takes that run's work directory, as with `outputsFromRunId`.
+- A step is reused when it did not change since that run, as [Changed Steps](#changed-steps) defines, and its node there succeeded or carried outputs, from another run or from `outputs`. A reused step is recorded as skipped and carries its outputs from that run, as a step of `outputsFromRuns` does. The run takes that run's work directory, as with `outputsFromRunId`.
 
 - Every other step runs, and so does every step after a step that runs, so it reads what that step does now. Every step that gives the same `browser.share` as a step that runs runs too, since each starts on the page the step before it left.
 
@@ -334,7 +372,7 @@ Shell selection order is:
 
 - `reuseFrom` cannot be sent with `steps`, `outputsFromRunId`, `outputsFromRuns`, `outputs`, or `outputsSources`; the server rejects such a request with HTTP 400. A run that does not exist for the DAG is rejected with HTTP 404, and a run that is not finished with HTTP 400.
 
-- `dagu start --reuse-from <run-id>` is the command line form. It cannot be combined with `--only`, `--outputs-from`, `--output-from`, `--output`, or `--from-run-id`, nor with `--parent`, `--root`, or `--worker-id`; an empty value is an error.
+- `dagu start --reuse-from <run-id>` is the command line form. It cannot be combined with `--only`, `--outputs-from`, `--output-from`, `--output`, `--allow-changed`, or `--from-run-id`, nor with `--parent`, `--root`, or `--worker-id`; an empty value is an error.
 
 #### Command Line
 
@@ -344,7 +382,11 @@ Shell selection order is:
 
 - `--output-from <step>=<run-id>` is the command line form of `outputsFromRuns`. It names the run that gives the outputs of one skipped step. Repeat the flag for more than one step. The step is a step name or ID. It requires `--only`.
 
-- The command applies the same rules and gives the same errors as the server does for `outputsFromRuns`, with the message `step X cannot be reused from run Y: <reason>`. The command reads the run with the same code as the server. It stops before it starts a run when one entry is not valid.
+- The command applies the same rules and gives the same errors as the server does for `outputsFromRunId` and `outputsFromRuns`, with the message `step X cannot be reused from run Y: <reason>`. The command reads the runs and plans the run with the same code as the server. It stops before it starts a run when one carried step is refused.
+
+- `--allow-changed` is the command line form of `allowChangedSteps` for every carried step: the run reuses each changed step, and the command prints `reusing step X from run Y although <reason>` for it on standard error. It requires `--only`. Without the flag, a refusal that names a changed step ends with `; pass --allow-changed to reuse the changed steps anyway`.
+
+- Against a remote node, the command sends the start without consent. With `--allow-changed`, a refusal that names only changed steps is sent again once, with those steps in `allowChangedSteps`.
 
 - A step selected by `--only` MUST NOT be named in `--output-from`. Two entries for one step are an error.
 
@@ -376,7 +418,9 @@ A selected-steps run records where the carried outputs of its skipped steps come
 
 - Only a skipped step that a selected step depends on, directly or through other steps, carries outputs. This includes a step that `outputs` or `outputsFromRuns` names. A skipped step that no selected step depends on, such as a step after the selected steps, carries no outputs, no log and no times. It is recorded as skipped, has no entry, and shows no mark of reuse.
 
-- An entry has `step` (the step name), `runId`, `capturedAt`, `startedAt`, `finishedAt` and `via`. `capturedAt` is absent when it is unknown.
+- An entry has `step` (the step name), `runId`, `capturedAt`, `startedAt`, `finishedAt`, `via`, and `changes`. `capturedAt` is absent when it is unknown.
+
+- `changes` lists, by the names of [Changed Steps](#changed-steps), what had changed for a step of `via` `run` that the request consented to reuse anyway. It is absent when nothing changed.
 
 - `via` is `run` for a step whose outputs come from `outputsFromRunId`, or from `outputsFromRuns` for that step. Then `runId` is the run that gave the outputs. `startedAt` and `finishedAt` are the times that the step had in that run, with the precision that the source run stored (millisecond for a new run), and `capturedAt` is the finish time of the step in that run. A time is absent when the node of that run has none.
 

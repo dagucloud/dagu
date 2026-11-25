@@ -30,6 +30,17 @@ export interface StepRunOptions {
    * `inputLabel`), which the record of the server lacks.
    */
   reused?: readonly InputProvenance[];
+  /**
+   * The reused previous steps that changed since their run and that the user
+   * chose to reuse anyway (`allowChangedSteps`). The server refuses any other
+   * changed step.
+   */
+  allowChangedSteps?: readonly string[];
+  /**
+   * The runtime profile the user chose ('' for none). Absent, the server
+   * takes the default one.
+   */
+  profile?: string;
   /** The run leaves no trace. The server allows it only with `steps`. */
   ephemeral?: boolean;
 }
@@ -41,21 +52,28 @@ export function buildStartBody(step?: StepRunOptions) {
   };
 }
 
+/**
+ * The body of a run of the unsaved text of the file `draftOf`. Without a
+ * profile of its own, the server gives the run the default profile of that
+ * file, so the draft runs as the saved file would.
+ */
 export function buildDraftBody(
   spec: string,
   name: string,
+  draftOf: string,
   step?: StepRunOptions
 ) {
   return {
     spec,
     name,
+    draftOf,
     ...stepFields(step),
     labels: runLabels(step),
   };
 }
 
-// An absent reuse run id, no run of a step and a false ephemeral flag must
-// leave no key in the body.
+// An absent reuse run id, no run of a step, no allowed changed step and a
+// false ephemeral flag must leave no key in the body.
 function stepFields(step?: StepRunOptions) {
   if (!step) return {};
   return {
@@ -66,6 +84,10 @@ function stepFields(step?: StepRunOptions) {
     ...(step.outputsFromRuns && Object.keys(step.outputsFromRuns).length > 0
       ? { outputsFromRuns: { ...step.outputsFromRuns } }
       : {}),
+    ...(step.allowChangedSteps && step.allowChangedSteps.length > 0
+      ? { allowChangedSteps: [...step.allowChangedSteps] }
+      : {}),
+    ...(step.profile !== undefined ? { profile: step.profile } : {}),
     ...(step.ephemeral ? { ephemeral: true } : {}),
   };
 }

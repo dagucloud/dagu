@@ -430,6 +430,17 @@ describe('reusedInputs', () => {
     ]);
     expect(reusedInputs(base)).toEqual([]);
   });
+
+  // The user chose to reuse a cached step that changed since its run.
+  it('marks a step with a run of its own that changed since that run', () => {
+    expect(
+      reusedInputs({
+        ...base,
+        fromRuns: { seed: { runId: 'r0' } },
+        stale: ['seed'],
+      })
+    ).toMatchObject([{ step: 'seed', runId: 'r0', stale: true }]);
+  });
 });
 
 describe('the time of a reused step', () => {

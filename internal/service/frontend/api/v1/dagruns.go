@@ -191,7 +191,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 		}
 	}
 
-	selection, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId, request.Body.OutputsFromRuns, request.Body.Outputs, request.Body.OutputsSources, request.Body.Ephemeral, request.Body.ReuseFrom)
+	selection, err := selectedStepsFromBody(request.Body.Steps, request.Body.OutputsFromRunId, request.Body.OutputsFromRuns, request.Body.Outputs, request.Body.OutputsSources, request.Body.Ephemeral, request.Body.ReuseFrom, request.Body.AllowChangedSteps)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +264,7 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 		return nil, err
 	}
 
-	profileName, _, err := a.explicitRunProfile(ctx, request.Body.Profile)
+	profileName, err := a.draftRunProfile(ctx, request.Body.Profile, request.Body.DraftOf)
 	if err != nil {
 		return nil, err
 	}
@@ -273,8 +273,9 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	if len(targetNodes) > 0 && (len(selection.steps) > 0 || selection.reuseFrom != "") {
 		return nil, targetNodesWithSelectedSteps()
 	}
+	var consented []intake.CarriedStep
 	if len(selection.steps) > 0 || selection.reuseFrom != "" {
-		if err := a.startSelectedSteps(ctx, dag, selectedStepsStart{
+		if consented, err = a.startSelectedSteps(ctx, dag, selectedStepsStart{
 			selection:      selection,
 			params:         params,
 			dagRunID:       dagRunId,
@@ -328,12 +329,37 @@ func (a *API) ExecuteDAGRunFromSpec(ctx context.Context, request api.ExecuteDAGR
 	if len(targetNodes) > 0 {
 		detailsMap["target_nodes"] = targetNodes
 	}
-	addSelectedStepsAudit(detailsMap, selection)
+	addSelectedStepsAudit(detailsMap, selection, consented)
 	a.logAudit(ctx, audit.CategoryDAG, "dag_execute", detailsMap)
 
 	return api.ExecuteDAGRunFromSpec200JSONResponse{
 		DagRunId: dagRunId,
 	}, nil
+}
+
+// draftRunProfile returns the runtime profile of a run of a submitted spec:
+// the profile that the request names, else the default profile of the DAG
+// file that the spec is a draft of, else none. Naming the file needs write
+// permission for its workspace, as saving the spec there would.
+func (a *API) draftRunProfile(ctx context.Context, profile *api.RuntimeProfileOverride, draftOf *string) (string, error) {
+	fileName := strings.TrimSpace(valueOf(draftOf))
+	if fileName == "" {
+		profileName, _, err := a.explicitRunProfile(ctx, profile)
+		return profileName, err
+	}
+	draft, err := a.dagRepository.GetMetadata(ctx, fileName)
+	if err != nil {
+		return "", &Error{
+			HTTPStatus: http.StatusNotFound,
+			Code:       api.ErrorCodeNotFound,
+			Message:    fmt.Sprintf("DAG %s not found", fileName),
+		}
+	}
+	workspaceName := dagWorkspaceName(draft)
+	if err := a.requireDAGWriteForWorkspace(ctx, workspaceName); err != nil {
+		return "", err
+	}
+	return a.runProfileForDAG(ctx, fileName, workspaceName, profile)
 }
 
 // EnqueueDAGRunFromSpec implements api.StrictServerInterface.

@@ -541,6 +541,66 @@ steps:
 	assert.Empty(t, noProfileStatus.ProfileName)
 }
 
+// A run of an unsaved edit takes the default profile of the DAG file it is a
+// draft of, as a start of that file would, also a protected one without an
+// administrator. Without draftOf it runs without a profile.
+func TestRuntimeProfilesAPI_DraftUsesTheDefaultProfileOfItsFile(t *testing.T) {
+	server := setupBuiltinAuthServer(t)
+	adminToken := getAdminToken(t, server)
+	developerToken := createRuntimeProfileUserToken(
+		t, server, adminToken, "draft-profile-developer", "developerpass1", apigen.UserRoleDeveloper,
+	)
+
+	dagName := "draft_profile_dag"
+	spec := `
+steps:
+  - name: main
+    run: echo draft
+`
+	server.Client().Post("/api/v1/dags", apigen.CreateNewDAGJSONRequestBody{
+		Name: dagName,
+		Spec: &spec,
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+	server.Client().Post("/api/v1/profiles", apigen.CreateRuntimeProfileJSONRequestBody{
+		Name:      "prod",
+		Protected: new(true),
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusCreated).Send(t)
+	protectedProfile := apigen.RuntimeProfileName("prod")
+	server.Client().Put(fmt.Sprintf("/api/v1/dags/%s/settings", dagName), apigen.UpdateDAGSettingsJSONRequestBody{
+		Profile: &protectedProfile,
+	}).WithBearerToken(adminToken).ExpectStatus(http.StatusOK).Send(t)
+
+	draftRunID := "draft-takes-default"
+	server.Client().Post("/api/v1/dag-runs", apigen.ExecuteDAGRunFromSpecJSONRequestBody{
+		Spec:     spec,
+		Name:     &dagName,
+		DraftOf:  &dagName,
+		DagRunId: &draftRunID,
+	}).WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
+	status := waitForStoredDAGRunStatus(t, server, dagName, draftRunID, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.ProfileName == "prod"
+	})
+	assert.Equal(t, "prod", status.ProfileName)
+
+	plainRunID := "plain-spec-run"
+	server.Client().Post("/api/v1/dag-runs", apigen.ExecuteDAGRunFromSpecJSONRequestBody{
+		Spec:     spec,
+		Name:     &dagName,
+		DagRunId: &plainRunID,
+	}).WithBearerToken(developerToken).ExpectStatus(http.StatusOK).Send(t)
+	plain := waitForStoredDAGRunStatus(t, server, dagName, plainRunID, 10*time.Second, func(status *ir.DAGRunStatus) bool {
+		return status.DAGRunID == plainRunID
+	})
+	assert.Empty(t, plain.ProfileName)
+
+	missing := "no_such_dag"
+	server.Client().Post("/api/v1/dag-runs", apigen.ExecuteDAGRunFromSpecJSONRequestBody{
+		Spec:    spec,
+		Name:    &dagName,
+		DraftOf: &missing,
+	}).WithBearerToken(developerToken).ExpectStatus(http.StatusNotFound).Send(t)
+}
+
 func TestRuntimeProfilesAPI_WorkspaceDefaultProfileRun(t *testing.T) {
 	server := setupBuiltinAuthServer(t)
 	adminToken := getAdminToken(t, server)

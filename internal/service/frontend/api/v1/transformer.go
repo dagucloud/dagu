@@ -460,6 +460,9 @@ func toReusedInputs(inputs []ir.ReusedInput) *[]api.ReusedInput {
 		if input.FinishedAt != "" {
 			item.FinishedAt = ptrOf(input.FinishedAt)
 		}
+		if len(input.Changes) > 0 {
+			item.Changes = ptrOf(stepChangeKinds(input.Changes))
+		}
 		out = append(out, item)
 	}
 	return &out

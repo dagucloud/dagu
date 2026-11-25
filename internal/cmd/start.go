@@ -74,6 +74,11 @@ cannot be named in --output-from. The run records the source run of each reused
 output. The deprecated --output <step>.<name>=<value> still sets an output of a
 skipped step directly and takes precedence over both; use --output-from.
 
+A skipped step that changed since the run it carries outputs from (the step, a
+step it depends on, the parameters, the runtime profile, the base config, or the
+top-level settings) is refused, and the error says what changed. Add
+--allow-changed to reuse its outputs anyway; the run records what changed.
+
 Examples:
   echo '"hello world"' | dagu start --params-stdin my_dag
   dagu start my_dag -- P1=foo P2=bar
@@ -81,6 +86,7 @@ Examples:
   dagu start --only build my_dag
   dagu start --only test --only lint --outputs-from 20260101_120000 my_dag -- ENV=dev
   dagu start --only use --output-from slow=20260101_120000 --output-from middle=20260102_090000 my_dag
+  dagu start --only report --outputs-from 20260101_120000 --allow-changed my_dag
 
 This command parses the DAG definition, resolves parameters, and initiates the DAG-run execution.
 `,
@@ -90,7 +96,7 @@ This command parses the DAG definition, resolves parameters, and initiates the D
 }
 
 // Command line flags for the start command
-var startFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, workerLabelFlag, nodeFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFromFlag, outputFlag, reuseFromFlag, recursiveOutputFlag}
+var startFlags = []commandLineFlag{paramsFlag, paramsStdinFlag, nameFlag, dagRunIDFlag, fromRunIDFlag, parentDAGRunFlag, rootDAGRunFlag, workerLabelFlag, nodeFlag, labelsFlag, tagsFlag, defaultWorkingDirFlag, profileFlag, startWorkerIDFlag, attemptIDFlag, triggerTypeFlag, triggerActorFlag, scheduleTimeFlag, scheduledAtFlag, sourceFileFlag, noReuseFlag, onlyFlag, outputsFromFlag, outputFromFlag, outputFlag, allowChangedFlag, reuseFromFlag, recursiveOutputFlag}
 
 var fromRunIDFlag = commandLineFlag{
 	name:  "from-run-id",
@@ -112,6 +118,12 @@ var outputFromFlag = commandLineFlag{
 	name:          "output-from",
 	usage:         "Take the outputs of ONE skipped step from a finished dag-run, as <step>=<run-id>; repeatable; wins over --outputs-from for that step",
 	isStringArray: true,
+}
+
+var allowChangedFlag = commandLineFlag{
+	name:   "allow-changed",
+	usage:  "Reuse the outputs of skipped steps that changed since the run they come from (with --outputs-from or --output-from)",
+	isBool: true,
 }
 
 var reuseFromFlag = commandLineFlag{

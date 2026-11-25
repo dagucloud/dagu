@@ -98,6 +98,7 @@ import qa1 from './qa1';
 import ux1 from './ux1';
 import hp1 from './hp1';
 import rc1 from './rc1';
+import rc2 from './rc2';
 import sv1 from './sv1';
 import rp1 from './rp1';
 import nr1 from './nr1';
@@ -198,6 +199,7 @@ export const workspaceModules = {
   ux1,
   hp1,
   rc1,
+  rc2,
   sv1,
   rp1,
   nr1,
@@ -300,6 +302,7 @@ export const workspaceMessages = {
     ...ux1.en,
     ...hp1.en,
     ...rc1.en,
+    ...rc2.en,
     ...sv1.en,
     ...rp1.en,
     ...nr1.en,
@@ -400,6 +403,7 @@ export const workspaceMessages = {
     ...ux1['zh-CN'],
     ...hp1['zh-CN'],
     ...rc1['zh-CN'],
+    ...rc2['zh-CN'],
     ...sv1['zh-CN'],
     ...rp1['zh-CN'],
     ...nr1['zh-CN'],
@@ -500,6 +504,7 @@ export const workspaceMessages = {
     ...ux1.ja,
     ...hp1.ja,
     ...rc1.ja,
+    ...rc2.ja,
     ...sv1.ja,
     ...rp1.ja,
     ...nr1.ja,
@@ -600,6 +605,7 @@ export const workspaceMessages = {
     ...ux1.de,
     ...hp1.de,
     ...rc1.de,
+    ...rc2.de,
     ...sv1.de,
     ...rp1.de,
     ...nr1.de,

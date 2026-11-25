@@ -319,6 +319,72 @@ func TestRemoteStartSendsSteps(t *testing.T) {
 	assert.Equal(t, map[string]map[string]string{"transform": {"rows": "3"}}, *body.Outputs)
 }
 
+// A start refused for a changed carried step says how to reuse it anyway;
+// with --allow-changed it is sent again with that step allowed.
+func TestRemoteStartRefusedChangedStep(t *testing.T) {
+	t.Parallel()
+
+	const refusal = `{"code":"bad_request","message":"step extract cannot be reused from run source: the step changed since that run",` +
+		`"details":{"refusedSteps":[{"step":"extract","runId":"source","status":"changed","changes":["step"],` +
+		`"message":"step extract cannot be reused from run source: the step changed since that run"}]}}`
+	for _, tc := range []struct {
+		name         string
+		allowChanged bool
+		wantErr      string
+		wantAllowed  [][]string
+	}{
+		{name: "WithoutConsent", wantErr: "the step changed since that run; pass --allow-changed to reuse the changed steps anyway", wantAllowed: [][]string{nil}},
+		{name: "WithConsent", allowChanged: true, wantAllowed: [][]string{nil, {"extract"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var allowed [][]string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.Method == http.MethodGet {
+					_, _ = w.Write([]byte(`{"dag":{"name":"etl"}}`))
+					return
+				}
+				var body api.ExecuteDAGJSONBody
+				require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+				if body.AllowChangedSteps == nil {
+					allowed = append(allowed, nil)
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = w.Write([]byte(refusal))
+					return
+				}
+				allowed = append(allowed, *body.AllowChangedSteps)
+				_, _ = w.Write([]byte(`{"dagRunId":"run-1"}`))
+			}))
+			defer server.Close()
+
+			command := &cobra.Command{Use: "start"}
+			initFlags(command, startFlags...)
+			require.NoError(t, command.Flags().Set("only", "load"))
+			require.NoError(t, command.Flags().Set("outputs-from", "source"))
+			if tc.allowChanged {
+				require.NoError(t, command.Flags().Set("allow-changed", "true"))
+			}
+			var stderr strings.Builder
+			command.SetErr(&stderr)
+			ctx := &Context{
+				Context: context.Background(),
+				Command: command,
+				Remote:  &remoteClient{baseURL: server.URL, client: server.Client()},
+			}
+
+			err := remoteRunStart(ctx, []string{"etl"})
+			assert.Equal(t, tc.wantAllowed, allowed)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, "reusing step extract from run source although the step changed since that run\n", stderr.String())
+		})
+	}
+}
+
 // A remote start prints no summary, so it rejects the flag that expands one.
 func TestRemoteStartRejectsRecursiveOutput(t *testing.T) {
 	t.Parallel()
