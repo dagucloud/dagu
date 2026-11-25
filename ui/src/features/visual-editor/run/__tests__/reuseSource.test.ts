@@ -556,6 +556,19 @@ describe('composeCarriers', () => {
     expect(plan.missing).toEqual([]);
   });
 
+  // The source run gives the step, changed; the run of its entry is gone.
+  it('keeps why a cache entry cannot give a step that another run gives', () => {
+    const plan = composeCarriers({
+      previous: ['a'],
+      fromSource: { a: check('a', 'src', changed, [StepChangeKind.step]) },
+      fromCache: { a: check('a', 'gone', unavailable) },
+    });
+    expect(plan.carriers['a']?.from).toBe('source');
+    expect(plan.unavailable).toEqual({
+      a: 'step a cannot be reused from run gone: why',
+    });
+  });
+
   it('reports a step that no run gives, and why its cache entry cannot', () => {
     const plan = composeCarriers({
       previous: ['a', 'b'],

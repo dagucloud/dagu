@@ -322,7 +322,7 @@ export interface CarrierPlan {
   changed: string[];
   /** The previous steps that no run gives, in the order of `previous`. */
   missing: string[];
-  /** Why the run of a missing step's cache entry cannot give it, by step. */
+  /** Why the run of a step's cache entry cannot give it, by step. */
   unavailable: Record<string, string>;
 }
 
@@ -351,15 +351,15 @@ export function composeCarriers(p: {
   const unchanged = (check: CarriedStepCheck | undefined) =>
     check?.status === CarriedStepCheckStatus.unchanged ? check : undefined;
   for (const step of p.previous) {
+    const gone = p.fromCache[step];
+    if (gone?.status === CarriedStepCheckStatus.unavailable && gone.message) {
+      unavailable[step] = gone.message;
+    }
     const source = usable(p.fromSource[step]);
     const cache = usable(p.fromCache[step]);
     const pick = unchanged(source) ?? unchanged(cache) ?? source ?? cache;
     if (!pick) {
       missing.push(step);
-      const gone = p.fromCache[step];
-      if (gone?.status === CarriedStepCheckStatus.unavailable && gone.message) {
-        unavailable[step] = gone.message;
-      }
       continue;
     }
     carriers[step] = {

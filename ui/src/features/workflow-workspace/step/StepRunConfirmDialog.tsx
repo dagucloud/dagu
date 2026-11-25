@@ -468,22 +468,20 @@ export function StepRunReuseDialog({
       </span>
     );
   };
-  // The row of a step that the server checked.
+  // The row of a step that the server checked. A cache entry whose run is
+  // gone is named unless an unchanged run gives the step, as the browser's
+  // view names it.
   const verifiedMark = (checked: CarrierPlan, name: string): ReactNode => {
     const carrier = checked.carriers[name];
+    const gone = checked.unavailable[name];
+    const goneMark =
+      gone !== undefined && (!carrier || carrier.changes.length > 0) ? (
+        <span data-testid="run-step-gone" className="text-warning" title={gone}>
+          {ts('source run no longer available')}
+        </span>
+      ) : null;
     if (!carrier) {
-      const gone = checked.unavailable[name];
-      if (gone !== undefined) {
-        return (
-          <span
-            data-testid="run-step-gone"
-            className="text-warning"
-            title={gone}
-          >
-            {ts('source run no longer available')}
-          </span>
-        );
-      }
+      if (goneMark) return goneMark;
       return sourceId === null ? null : (
         <span className="text-warning" title={sourceId}>
           {ts('no output in run {id}', { id: shortRunId(sourceId) })}
@@ -518,13 +516,16 @@ export function StepRunReuseDialog({
           })
         : ts('changed since run {id}', { id });
     return (
-      <span
-        data-testid="run-step-changed"
-        className="text-warning"
-        title={carrier.message ?? carrier.runId}
-      >
-        {text}
-      </span>
+      <>
+        {goneMark}
+        <span
+          data-testid="run-step-changed"
+          className="text-warning"
+          title={carrier.message ?? carrier.runId}
+        >
+          {text}
+        </span>
+      </>
     );
   };
   const mark = (name: string): ReactNode => {
