@@ -321,8 +321,8 @@ as `paths.dags_dir: /data/dags` does in the Helm chart. See
 #### Overlapping Paths
 
 A DAG directory never shares a directory with state. The DAG roots are
-`<dags_dir>`, `<projects_dir>`, and `paths.alt_dags_dir`. The state
-directories are `<data_dir>/projects/`, each
+`<dags_dir>`, `<projects_dir>`, and `paths.alt_dags_dir`. The state roots
+are `<data_dir>/projects/`, each
 [path set apart](#paths-set-apart), and the directory of each server-wide
 store, such as `<data_dir>/server/` or the one a `paths` setting like
 `paths.users_dir` places.
@@ -332,7 +332,7 @@ effect after `config.yaml`, the environment, and flags. It refuses to
 start, and says which paths overlap, when:
 
 - a DAG root is `<data_dir>` or contains it;
-- a DAG root is, contains, or lies inside a state directory;
+- a DAG root is, contains, or lies inside a state root;
 - two DAG roots are the same directory.
 
 Any other directory inside `<data_dir>` may hold a DAG root.
