@@ -33,7 +33,7 @@ func NewArtifactRepository(cfg *config.Config, opts ...ArtifactRepositoryOption)
 		}
 	}
 
-	storeOpts := []fileartifact.StoreOption{}
+	storeOpts := []fileartifact.StoreOption{fileartifact.WithRunPaths(runPaths(cfg))}
 	if options.RecordCache != nil {
 		storeOpts = append(storeOpts, fileartifact.WithRecordCache(options.RecordCache))
 	}

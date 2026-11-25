@@ -17,6 +17,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/artifact"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/runpath"
 	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -505,5 +506,51 @@ func TestQueryArtifactsFileNameFilter(t *testing.T) {
 			query.Cursor = page.NextCursor
 		}
 		assert.Equal(t, []string{"run-2:b.csv", "run-1:a.csv"}, seen)
+	})
+}
+
+func TestQueryArtifactsRunPaths(t *testing.T) {
+	// recordDir rewrites a run's index record to hold dir.
+	recordDir := func(t *testing.T, root, runDir, dir string) {
+		t.Helper()
+		metaPath, ok := artifactpath.MetaPath(root, runDir)
+		require.True(t, ok)
+		rec, err := artifact.ReadRecord(metaPath)
+		require.NoError(t, err)
+		rec.Dir = dir
+		require.NoError(t, artifact.WriteRecord(metaPath, *rec))
+	}
+
+	t.Run("RelativeDir", func(t *testing.T) {
+		f := newStoreFixture(t)
+		dirs := runpath.Dirs{Artifact: f.root}
+		f.store = artifact.NewStore(f.root, artifact.WithRunPaths(runpath.New(dirs, dirs, true)))
+		runDir := f.index(t, "alpha", "run-1", day2, nil, "report.csv")
+		rel, err := filepath.Rel(f.root, runDir)
+		require.NoError(t, err)
+		recordDir(t, f.root, runDir, "./"+filepath.ToSlash(rel))
+
+		page := f.query(t, persis.ArtifactQuery{})
+
+		require.Len(t, page.Items, 1)
+		assert.Equal(t, []string{"report.csv"}, filesOf(page.Items[0]))
+	})
+
+	// A record written before projects names its directory under the v2
+	// artifact directory, and lists the directory in its new place.
+	t.Run("V2Dir", func(t *testing.T) {
+		f := newStoreFixture(t)
+		legacy := t.TempDir()
+		f.store = artifact.NewStore(f.root, artifact.WithRunPaths(
+			runpath.New(runpath.Dirs{Artifact: f.root}, runpath.Dirs{Artifact: legacy}, true)))
+		runDir := f.index(t, "alpha", "run-1", day2, nil, "report.csv")
+		rel, err := filepath.Rel(f.root, runDir)
+		require.NoError(t, err)
+		recordDir(t, f.root, runDir, filepath.Join(legacy, rel))
+
+		page := f.query(t, persis.ArtifactQuery{})
+
+		require.Len(t, page.Items, 1)
+		assert.Equal(t, []string{"report.csv"}, filesOf(page.Items[0]))
 	})
 }

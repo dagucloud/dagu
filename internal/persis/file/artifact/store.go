@@ -22,6 +22,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/stringutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/runpath"
 )
 
 var _ persis.ArtifactStore = (*Store)(nil)
@@ -44,6 +45,7 @@ const maxFilesPerRun = 100
 type Store struct {
 	rootDir string
 	cache   *fileutil.Cache[*Record]
+	paths   runpath.Mapper
 }
 
 // StoreOption configures artifact listing.
@@ -53,6 +55,14 @@ type StoreOption func(*Store)
 func WithRecordCache(cache *fileutil.Cache[*Record]) StoreOption {
 	return func(s *Store) {
 		s.cache = cache
+	}
+}
+
+// WithRunPaths sets how index records store the artifact directories of
+// their runs.
+func WithRunPaths(paths runpath.Mapper) StoreOption {
+	return func(s *Store) {
+		s.paths = paths
 	}
 }
 
@@ -135,9 +145,10 @@ func (s *Store) collectDay(
 			continue
 		}
 
-		files, truncated, err := listRunFiles(rec.Dir, query.FileName)
+		dir := s.paths.ResolveArtifact(rec.Dir)
+		files, truncated, err := listRunFiles(dir, query.FileName)
 		if err != nil {
-			logger.Warn(ctx, "Failed to list artifact files", tag.Error(err), tag.Dir(rec.Dir))
+			logger.Warn(ctx, "Failed to list artifact files", tag.Error(err), tag.Dir(dir))
 			continue
 		}
 		if len(files) == 0 {
