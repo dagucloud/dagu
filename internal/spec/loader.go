@@ -135,6 +135,14 @@ func DeferAllParamEvals() LoadOption {
 	}
 }
 
+// KeepActionWith makes each step written with action keep its with object
+// as written in ir.Step.ActionWith.
+func KeepActionWith() LoadOption {
+	return func(o *buildOpts) {
+		o.Flags |= buildFlagKeepActionWith
+	}
+}
+
 // OnlyMetadata sets the flag to load only metadata.
 func OnlyMetadata() LoadOption {
 	return func(o *buildOpts) {

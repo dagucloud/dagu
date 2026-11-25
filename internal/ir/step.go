@@ -31,6 +31,10 @@ type Step struct {
 	Dir string `json:"dir,omitempty"`
 	// ExecutorConfig contains the configuration for the executor.
 	ExecutorConfig ExecutorConfig `json:"executorConfig,omitzero"`
+	// ActionWith is the with object of a step written with action, as
+	// written, before any of its inputs move into other fields. Only a load
+	// that asks for it sets it, and it is never persisted.
+	ActionWith map[string]any `json:"-"`
 	// CmdWithArgs is the command with arguments for display purposes.
 	// Deprecated: Use Commands[0].CmdWithArgs instead. Kept for JSON backward compatibility.
 	CmdWithArgs string `json:"cmdWithArgs,omitempty"`
