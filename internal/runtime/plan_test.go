@@ -170,6 +170,26 @@ func TestRetryPlan(t *testing.T) {
 	require.Equal(t, ir.NodeSucceeded, nodes[11].State().Status)
 }
 
+// A run is retried only after it stopped, so a node it records as running
+// never finished, as when its process died, and runs again.
+func TestRetryPlanRunningNode(t *testing.T) {
+	t.Parallel()
+
+	dag := &ir.DAG{Steps: []ir.Step{
+		{Name: "start"}, {Name: "gate", Depends: []string{"start"}}, {Name: "mark", Depends: []string{"gate"}},
+	}}
+	nodes := []*runtime.Node{
+		makeNode("start", ir.NodeSucceeded),
+		makeNode("gate", ir.NodeRunning, "start"),
+		makeNode("mark", ir.NodeNotStarted, "gate"),
+	}
+	_, err := runtime.CreateRetryPlan(context.Background(), dag, nodes...)
+	require.NoError(t, err)
+	require.Equal(t, ir.NodeSucceeded, nodes[0].State().Status)
+	require.Equal(t, ir.NodeNotStarted, nodes[1].State().Status)
+	require.Equal(t, ir.NodeNotStarted, nodes[2].State().Status)
+}
+
 // Checkpoint resume preserves partial work, human completion, and approval
 // inputs, while leaving downstream work eligible and explicit retry behavior unchanged.
 func TestRetryPlanResume(t *testing.T) {

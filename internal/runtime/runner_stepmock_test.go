@@ -619,6 +619,16 @@ func (webNodes) Nodes(context.Context) ([]inventory.ResolvedNode, error) {
 	return []inventory.ResolvedNode{{Name: "web01"}, {Name: "web02"}}, nil
 }
 
+// deployOneDAG returns a child DAG that runs on a node, for a dag.run step
+// with nodes.
+func deployOneDAG() *ir.DAG {
+	return &ir.DAG{
+		Name:         "deploy-one",
+		NodeRequired: true,
+		YamlData:     []byte("name: deploy-one\nnode: required\nsteps:\n  - run: ./deploy.sh\n"),
+	}
+}
+
 func withNodes(selector string) stepOption {
 	return func(step *ir.Step) {
 		step.Nodes = &ir.NodeTargets{Selector: selector, MaxConcurrent: 1}
@@ -640,12 +650,8 @@ func TestStepMockReplacesChildRuns(t *testing.T) {
 	t.Parallel()
 
 	localDAGs := map[string]*ir.DAG{
-		"deploy": {Name: "deploy", YamlData: []byte("name: deploy\nsteps:\n  - run: ./deploy.sh\n")},
-		"deploy-one": {
-			Name:         "deploy-one",
-			NodeRequired: true,
-			YamlData:     []byte("name: deploy-one\nnode: required\nsteps:\n  - run: ./deploy.sh\n"),
-		},
+		"deploy":     {Name: "deploy", YamlData: []byte("name: deploy\nsteps:\n  - run: ./deploy.sh\n")},
+		"deploy-one": deployOneDAG(),
 	}
 	parallel := func(step *ir.Step) {
 		step.Parallel = &ir.ParallelConfig{Items: []ir.ParallelItem{{Value: "a"}, {Value: "b"}}}

@@ -12,7 +12,10 @@ import { stepsWithNodeRuns } from '../data/runFacts';
 
 export const NODE_RUNS_PER_PAGE = 50;
 
-/** The step status a node run reads as. A disabled node reads as skipped. */
+/**
+ * The step status a node run reads as. A disabled or removed node reads as
+ * skipped.
+ */
 export const NODE_RUN_STATUS: Record<NodeRunStatus, NodeStatus> = {
   [NodeRunStatus.not_started]: NodeStatus.NotStarted,
   [NodeRunStatus.running]: NodeStatus.Running,
@@ -23,6 +26,7 @@ export const NODE_RUN_STATUS: Record<NodeRunStatus, NodeStatus> = {
   [NodeRunStatus.aborted]: NodeStatus.Aborted,
   [NodeRunStatus.rejected]: NodeStatus.Rejected,
   [NodeRunStatus.disabled]: NodeStatus.Skipped,
+  [NodeRunStatus.removed]: NodeStatus.Skipped,
 };
 
 /**

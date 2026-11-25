@@ -230,6 +230,7 @@ describe('buildRunOverlay node runs', () => {
       failed: 1,
       aborted: 0,
       disabled: 0,
+      removed: 0,
     };
     const overlay = buildRunOverlay(
       details({ nodes: [node('deploy', { nodeRuns }), node('notify', {})] })

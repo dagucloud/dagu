@@ -4,18 +4,18 @@
 package dag
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 
-	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logpath"
 	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
 	cmnvalue "github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/ir"
+	"github.com/dagucloud/dagu/v2/internal/noderuns"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/stretchr/testify/require"
@@ -50,20 +50,46 @@ func recordingStep(t *testing.T) (*parallelExecutor, context.Context, string) {
 func readNodeRecords(t *testing.T, dir string) ([]string, ir.NodeRuns, ir.NodeRunCounts) {
 	t.Helper()
 
-	var records ir.NodeRuns
-	data, err := fileutil.ReadFile(filepath.Join(dir, logpath.NodeRunsFile))
+	records, err := noderuns.Read(dir)
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(data, &records))
-	var counts ir.NodeRunCounts
-	data, err = fileutil.ReadFile(filepath.Join(dir, logpath.NodeRunsSummaryFile))
+	counts, err := noderuns.ReadCounts(dir)
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(data, &counts))
 
 	statuses := make([]string, 0, len(records.Runs))
 	for _, run := range records.Runs {
 		statuses = append(statuses, run.Node+"="+string(run.Status))
 	}
 	return statuses, records, counts
+}
+
+// A node disabled since an earlier attempt keeps that attempt's child run in
+// its record and aggregate entry, so a retry that finds the node enabled
+// again retries the same run. It still counts in the total only.
+func TestNodeRunRecordsKeepDisabledRun(t *testing.T) {
+	t.Parallel()
+
+	e, ctx, dir := recordingStep(t)
+	e.SetNodes([]executor.NodeRun{
+		{Node: "web01", Disabled: true, Run: executor.RunParams{RunID: "a", DAGName: "deploy-one"}},
+		{Node: "web02", Disabled: true},
+	})
+	var out bytes.Buffer
+	e.SetStdout(&out)
+	e.recordNodeRuns(ctx)()
+	require.NoError(t, e.outputNodeResults())
+
+	_, records, counts := readNodeRecords(t, dir)
+	require.Equal(t, []ir.NodeRun{
+		{Node: "web01", Status: ir.NodeRunDisabled, DAGName: "deploy-one", DAGRunID: "a"},
+		{Node: "web02", Status: ir.NodeRunDisabled},
+	}, records.Runs)
+	require.Equal(t, ir.NodeRunCounts{Total: 2, Disabled: 2}, counts)
+
+	aggregate := readNodeAggregate(t, out.Bytes())
+	require.Equal(t, 2, aggregate.Summary.Total)
+	require.Zero(t, aggregate.Summary.Succeeded+aggregate.Summary.Failed)
+	require.Equal(t, "a", aggregate.Results[0].DAGRunID)
+	require.Empty(t, aggregate.Results[1].DAGRunID)
 }
 
 // The records exist before any node starts, follow the nodes as they run,

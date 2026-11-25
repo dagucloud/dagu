@@ -177,6 +177,12 @@ function StepHeader({
   );
 }
 
+/** Labels of the statuses of a node that did not run. */
+const NODE_RUN_LABEL: Partial<Record<NodeRunStatus, string>> = {
+  [NodeRunStatus.disabled]: 'Disabled',
+  [NodeRunStatus.removed]: 'Removed',
+};
+
 function NodeRunCell({
   node,
   run,
@@ -198,7 +204,7 @@ function NodeRunCell({
     );
   }
   const duration = formatElapsed(run.startedAt, run.finishedAt);
-  const label = run.status === NodeRunStatus.disabled ? 'Disabled' : run.status;
+  const label = NODE_RUN_LABEL[run.status] ?? run.status;
   const content = (
     <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
       <NodeStatusChip status={NODE_RUN_STATUS[run.status]} size="sm">

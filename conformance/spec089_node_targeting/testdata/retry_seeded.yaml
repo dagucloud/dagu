@@ -1,0 +1,30 @@
+# deploy runs deploy-one on each web node and writes ran-<node> to DIR.
+# verify fails until the file ok-verify exists in DIR.
+working_dir: .
+params:
+  - DIR: ""
+steps:
+  - id: deploy
+    action: dag.run
+    stdout: nodes.json
+    with:
+      dag: deploy-one
+      params:
+        DIR: ${params.DIR}
+    nodes: web
+  - id: verify
+    depends: [deploy]
+    action: file.stat
+    with:
+      path: ${params.DIR}/ok-verify
+---
+name: deploy-one
+node: required
+params:
+  - DIR: ""
+steps:
+  - action: file.write
+    with:
+      path: ${params.DIR}/ran-${node.name}
+      content: ${node.host}
+      overwrite: true
