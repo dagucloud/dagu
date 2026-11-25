@@ -18,8 +18,9 @@ import (
 //
 // An admin manages every key. While projects are on, a manager of a project
 // also manages each key whose only roles are grants on projects in which the
-// caller is manager. A key with a server-wide role or a workspace grant needs
-// an admin.
+// caller is manager, up to the manager role, and that is a service account
+// or owned by the caller. A key with a server-wide role, a workspace grant,
+// or another user as owner needs an admin.
 type apiKeyManager struct {
 	// user is the caller while projects are on and roles apply to it.
 	user  *auth.User
@@ -68,10 +69,13 @@ func (a *API) apiKeyManager(ctx context.Context) (*apiKeyManager, error) {
 }
 
 // manages reports whether the caller may create, see, change, or delete a key
-// with the workspace access and project grants of key.
+// with the workspace access, project grants, and owner of key.
 func (m *apiKeyManager) manages(key *auth.APIKey) bool {
 	if m.admin {
 		return true
+	}
+	if key.AttributionClass == auth.APIKeyAttributionUserOwned && (m.user == nil || m.user.ID != key.OwnerUserID) {
+		return false
 	}
 	access := auth.NormalizeWorkspaceAccess(key.WorkspaceAccess)
 	if access.All || len(access.Grants) > 0 || len(key.ProjectGrants) == 0 {
@@ -83,12 +87,6 @@ func (m *apiKeyManager) manages(key *auth.APIKey) bool {
 		}
 	}
 	return true
-}
-
-// mayOwn reports whether the caller may make a key owned by the user with the
-// given ID. Only an admin attributes a key to another user.
-func (m *apiKeyManager) mayOwn(ownerUserID string) bool {
-	return m.admin || m.user != nil && m.user.ID == ownerUserID
 }
 
 // projectGrants resolves the project names of grants. A project the caller

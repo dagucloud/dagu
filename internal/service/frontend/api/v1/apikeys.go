@@ -99,8 +99,12 @@ func (a *API) CreateAPIKey(ctx context.Context, request api.CreateAPIKeyRequestO
 			HTTPStatus: http.StatusUnauthorized,
 		}
 	}
-	if !manager.manages(&auth.APIKey{WorkspaceAccess: workspaceAccess, ProjectGrants: projectGrants}) ||
-		attributionClass == auth.APIKeyAttributionUserOwned && !manager.mayOwn(valueOf(request.Body.OwnerUserId)) {
+	if !manager.manages(&auth.APIKey{
+		WorkspaceAccess:  workspaceAccess,
+		ProjectGrants:    projectGrants,
+		AttributionClass: attributionClass,
+		OwnerUserID:      valueOf(request.Body.OwnerUserId),
+	}) {
 		return nil, errAPIKeyNeedsAdmin
 	}
 
@@ -291,7 +295,13 @@ func (a *API) UpdateAPIKey(ctx context.Context, request api.UpdateAPIKeyRequestO
 		if input.ProjectGrants != nil {
 			updated.ProjectGrants = *input.ProjectGrants
 		}
-		if !manager.manages(&updated) || input.OwnerUserID != nil && !manager.mayOwn(*input.OwnerUserID) {
+		if input.AttributionClass != nil {
+			updated.AttributionClass = *input.AttributionClass
+		}
+		if input.OwnerUserID != nil {
+			updated.OwnerUserID = *input.OwnerUserID
+		}
+		if !manager.manages(&updated) {
 			return nil, errAPIKeyNeedsAdmin
 		}
 	}

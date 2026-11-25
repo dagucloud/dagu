@@ -96,6 +96,9 @@ func TestAPIKeys_ProjectManagerCreatesProjectKeys(t *testing.T) {
 		newProjectAPIKeyRequest("payments-runner", api.ProjectGrant{Project: "Payments", Role: api.UserRoleOperator}))
 	require.NotNil(t, created.ApiKey.ProjectGrants)
 	assert.Equal(t, api.ProjectGrants{{Project: "payments", Role: api.UserRoleOperator}}, *created.ApiKey.ProjectGrants)
+	// Grants go up to the manager role, which the caller already holds there.
+	createAPIKey(t, server, manager.Key,
+		newProjectAPIKeyRequest("payments-deputy", api.ProjectGrant{Project: "payments", Role: api.UserRoleManager}))
 
 	refused := []struct {
 		name    string
@@ -185,6 +188,36 @@ func TestAPIKeys_ProjectManagerManagesOnlyItsKeys(t *testing.T) {
 
 	server.Client().Delete(runnerPath).WithBearerToken(manager.Key).ExpectStatus(http.StatusNoContent).Send(t)
 	assert.Empty(t, listAPIKeyNames(t, server, manager.Key))
+}
+
+// A key owned by another user needs an admin, even when its grants name only
+// projects the caller manages: a manager must not change what a key acting
+// as that user may do.
+func TestAPIKeys_ProjectManagerCannotManageAnotherUsersKey(t *testing.T) {
+	t.Parallel()
+	server := setupProjectsAuthServer(t, "payments", "infra")
+	resp := server.Client().Post("/api/v1/auth/login", api.LoginRequest{
+		Username: "admin",
+		Password: "adminpass",
+	}).ExpectStatus(http.StatusOK).Send(t)
+	var login api.LoginResponse
+	resp.Unmarshal(t, &login)
+
+	manager := createProjectManagerKey(t, server, login.Token)
+	owned := newProjectAPIKeyRequest("admin-owned", api.ProjectGrant{Project: "payments", Role: api.UserRoleViewer})
+	owned.AttributionClass = api.CreateAPIKeyRequestAttributionClassUserOwned
+	owned.OwnerUserId = &login.User.Id
+	created := createAPIKey(t, server, login.Token, owned)
+	path := "/api/v1/api-keys/" + created.ApiKey.Id
+
+	assert.Empty(t, listAPIKeyNames(t, server, manager.Key))
+	server.Client().Get(path).WithBearerToken(manager.Key).ExpectStatus(http.StatusNotFound).Send(t)
+	raised := api.ProjectGrants{{Project: "payments", Role: api.UserRoleManager}}
+	server.Client().Patch(path, api.UpdateAPIKeyRequest{ProjectGrants: &raised}).
+		WithBearerToken(manager.Key).
+		ExpectStatus(http.StatusNotFound).
+		Send(t)
+	server.Client().Delete(path).WithBearerToken(manager.Key).ExpectStatus(http.StatusNotFound).Send(t)
 }
 
 // A key without the manager role in any project still needs an admin.
