@@ -107,3 +107,38 @@ func TestResolverFailsForDisabledProfile(t *testing.T) {
 	_, err = profile.NewResolver(profileStore, nil).Resolve(ctx, "local")
 	assert.ErrorIs(t, err, profile.ErrDisabled)
 }
+
+// A project's resolver applies the project's defaults and the selected
+// profile, and no workspace defaults, even for a request that names the
+// workspace.
+func TestProjectResolverSkipsWorkspaceDefaults(t *testing.T) {
+	ctx := context.Background()
+	profileStore, err := store.NewProfileStore(testutil.NewMemoryBackend().Collection("profiles"))
+	require.NoError(t, err)
+	workspaceRef, err := profile.WorkspaceInheritedRef("payments")
+	require.NoError(t, err)
+	for ref, value := range map[profile.InheritedRef]string{
+		profile.GlobalInheritedRef(): "project",
+		workspaceRef:                 "workspace",
+	} {
+		defaults, err := profile.NewInherited(ref, profile.InheritedCreateInput{CreatedBy: "alice"}, time.Now())
+		require.NoError(t, err)
+		require.NoError(t, defaults.SetVariable("TIER", value, "alice", time.Now()))
+		require.NoError(t, profileStore.Create(ctx, defaults))
+	}
+	selected, err := profile.New(profile.CreateInput{Name: "local", CreatedBy: "alice"}, time.Now())
+	require.NoError(t, err)
+	require.NoError(t, selected.SetVariable("LOG_LEVEL", "debug", "alice", time.Now()))
+	require.NoError(t, profileStore.Create(ctx, selected))
+
+	req := profile.RuntimeRequest{ProfileName: "local", Workspace: "payments"}
+	resolved, err := profile.NewProjectResolver(profileStore, nil).ResolveRuntime(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"TIER": "project"}, resolved.Defaults.Variables)
+	assert.Equal(t, map[string]string{"LOG_LEVEL": "debug"}, resolved.Selected.Variables)
+
+	// The resolver of v2 layers the workspace's defaults over the global ones.
+	resolved, err = profile.NewResolver(profileStore, nil).ResolveRuntime(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"TIER": "workspace"}, resolved.Defaults.Variables)
+}

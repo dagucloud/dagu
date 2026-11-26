@@ -167,6 +167,24 @@ func (r *Resolver) ResolveRuntime(ctx context.Context, req RuntimeRequest) (*Run
 	return &RuntimeResolved{Defaults: defaults, Selected: selected}, nil
 }
 
+// projectResolver resolves the runtime layers of a run in one project's
+// settings.
+type projectResolver struct {
+	resolver *Resolver
+}
+
+// NewProjectResolver returns a resolver of the runtime layers of a run in
+// the project whose stores it is given: the project's profile defaults, then
+// the selected profile. The workspace a request names adds no layer.
+func NewProjectResolver(profileStore Store, secretStore secret.Store) RuntimeResolver {
+	return projectResolver{resolver: NewResolver(profileStore, secretStore)}
+}
+
+func (r projectResolver) ResolveRuntime(ctx context.Context, req RuntimeRequest) (*RuntimeResolved, error) {
+	req.Workspace = ""
+	return r.resolver.ResolveRuntime(ctx, req)
+}
+
 func (r *Resolver) resolve(ctx context.Context, p *Profile) (*Resolved, error) {
 	if p.Status == StatusDisabled {
 		return nil, ErrDisabled
