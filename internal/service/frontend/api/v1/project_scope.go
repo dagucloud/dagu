@@ -15,6 +15,7 @@ import (
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/project"
@@ -69,19 +70,51 @@ func WithProjectAPIs(
 	}
 }
 
-// projectOperations returns the IDs of the operations that take project.
-func projectOperations(swagger *openapi3.T) map[string]bool {
-	ops := make(map[string]bool)
-	for _, item := range swagger.Paths.Map() {
-		for _, op := range item.Operations() {
+// projectOperations tells the operations that take project apart from the
+// others.
+type projectOperations struct {
+	// takes holds the IDs of the operations that take project.
+	takes map[string]bool
+	// byRoute holds the ID of each operation by its method and path
+	// template, such as "GET /dags/{fileName}".
+	byRoute map[string]string
+}
+
+func newProjectOperations(swagger *openapi3.T) projectOperations {
+	ops := projectOperations{takes: make(map[string]bool), byRoute: make(map[string]string)}
+	for path, item := range swagger.Paths.Map() {
+		for method, op := range item.Operations() {
+			ops.byRoute[method+" "+path] = op.OperationID
 			for _, param := range op.Parameters {
 				if param.Value != nil && param.Value.In == openapi3.ParameterInQuery && param.Value.Name == projectParam {
-					ops[op.OperationID] = true
+					ops.takes[op.OperationID] = true
 				}
 			}
 		}
 	}
 	return ops
+}
+
+// refusal returns the error for a request to routes that names a project
+// on an operation that does not take one, and nil for any other request.
+func (ops projectOperations) refusal(routes http.Handler, r *http.Request) error {
+	mux, ok := routes.(chi.Routes)
+	if !ok {
+		return nil
+	}
+	path := r.URL.Path
+	if rctx := chi.RouteContext(r.Context()); rctx != nil && rctx.RoutePath != "" {
+		path = rctx.RoutePath
+	}
+	id, ok := ops.byRoute[r.Method+" "+mux.Find(chi.NewRouteContext(), r.Method, path)]
+	if !ok || ops.takes[id] {
+		return nil
+	}
+	return &Error{
+		HTTPStatus: http.StatusBadRequest,
+		Code:       api.ErrorCodeBadRequest,
+		Message:    fmt.Sprintf("%s does not take the %s parameter", id, projectParam),
+	}
 }
 
 // projectRoutes returns the handler of the API's routes, built once by
@@ -96,20 +129,27 @@ func (a *API) projectRoutes(build func(*API) http.Handler) http.Handler {
 // dispatchProjects serves a request that names a project with that
 // project's API, and any other request with the API of the default
 // project. Each API serves the operations with middlewares and options.
+// A request that names a project on an operation that does not take one
+// gets 400 before its project is looked up.
 func (a *API) dispatchProjects(
 	swagger *openapi3.T,
 	middlewares []api.StrictMiddlewareFunc,
 	options api.StrictHTTPServerOptions,
 ) http.Handler {
-	ops := projectOperations(swagger)
+	ops := newProjectOperations(swagger)
 	build := func(target *API) http.Handler {
-		scoped := append(slices.Clone(middlewares), target.projectScopeMiddleware(ops))
+		scoped := append(slices.Clone(middlewares), target.projectScopeMiddleware(ops.takes))
 		return api.Handler(api.NewStrictHandlerWithOptions(target, scoped, options))
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routes := a.projectRoutes(build)
 		values, named := r.URL.Query()[projectParam]
 		if !named {
-			a.projectRoutes(build).ServeHTTP(w, r)
+			routes.ServeHTTP(w, r)
+			return
+		}
+		if err := ops.refusal(routes, r); err != nil {
+			a.handleError(w, r, err)
 			return
 		}
 		name := ""
@@ -131,21 +171,11 @@ func (a *API) dispatchProjects(
 }
 
 // projectScopeMiddleware gives an operation that takes project the caller's
-// access to the default project when the request names none, and refuses
-// project on any other operation.
-func (a *API) projectScopeMiddleware(ops map[string]bool) api.StrictMiddlewareFunc {
+// access to the default project when the request names none.
+func (a *API) projectScopeMiddleware(takes map[string]bool) api.StrictMiddlewareFunc {
 	return func(next api.StrictHandlerFunc, operationID string) api.StrictHandlerFunc {
-		if !ops[operationID] {
-			return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
-				if _, named := projectScopeFrom(ctx); named {
-					return nil, &Error{
-						HTTPStatus: http.StatusBadRequest,
-						Code:       api.ErrorCodeBadRequest,
-						Message:    fmt.Sprintf("%s does not take the %s parameter", operationID, projectParam),
-					}
-				}
-				return next(ctx, w, r, request)
-			}
+		if !takes[operationID] {
+			return next
 		}
 		return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
 			if _, ok := projectScopeFrom(ctx); !ok {
@@ -252,26 +282,30 @@ func (a *API) refuseWorkerRun() error {
 	return a.refuseInProject(project.ErrWorkerRun)
 }
 
-// refuseQueuedResume refuses a manual action on the run of attempt, whose
-// status is status, when resuming the run would queue it outside the default
-// project. It runs before the action is saved, so a refused action changes
-// nothing.
-func (a *API) refuseQueuedResume(ctx context.Context, attempt dagrun.Attempt, status *ir.DAGRunStatus) error {
+// refuseResume refuses a manual action on the run of attempt, whose status
+// is status, when resuming the run would queue it or send it to a worker
+// outside the default project. queues reports whether the resume goes
+// through the queue of a run's group, as a root run's does. It runs before
+// the action is saved, so a refused action changes nothing.
+func (a *API) refuseResume(ctx context.Context, attempt dagrun.Attempt, status *ir.DAGRunStatus, queues bool) error {
 	if !a.inOtherProject() {
 		return nil
 	}
+	dag, err := attempt.ReadDAG(ctx)
+	if err != nil {
+		return fmt.Errorf("read DAG: %w", err)
+	}
 	group := status.ProcGroup
 	if group == "" {
-		dag, err := attempt.ReadDAG(ctx)
-		if err != nil {
-			return fmt.Errorf("read DAG: %w", err)
-		}
 		group = dag.ProcGroup()
 	}
-	if a.config.FindQueueConfig(group) == nil {
-		return nil
+	if queues && a.config.FindQueueConfig(group) != nil {
+		return a.refuseQueuedRun()
 	}
-	return a.refuseQueuedRun()
+	if dispatch.ShouldDispatchToCoordinator(dag, a.coordinatorCli != nil, a.defaultExecMode) {
+		return a.refuseWorkerRun()
+	}
+	return nil
 }
 
 // inOtherProject reports whether the API serves a project other than the

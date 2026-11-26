@@ -325,7 +325,9 @@ func TestProjectParam_RefusesQueuedResume(t *testing.T) {
 	resp := server.Client().Post("/api/v1/dag-runs/review/"+review.DagRunId+"/human-tasks/review/complete?project=payments",
 		map[string]any{"count": 3}).WithBearerToken(token).ExpectStatus(http.StatusBadRequest).Send(t)
 	assert.Equal(t, queuedRunRefusal("payments"), errorMessage(t, resp))
-	assert.True(t, waitingRun(waitProjectRun(t, server, token, "payments", "review", review.DagRunId, waitingRun)))
+	task := waitProjectRun(t, server, token, "payments", "review", review.DagRunId, waitingRun).Nodes[0]
+	assert.Equal(t, api.NodeStatus(ir.NodeWaiting), task.Status)
+	assert.Nil(t, task.HumanTaskCompletedBy, "the completion is saved")
 
 	gated := startProjectRun(t, server, token, "payments", "gated", waitingRun)
 	resp = server.Client().Post("/api/v1/dag-runs/gated/"+gated.DagRunId+"/steps/gate/approve?project=payments",
@@ -342,6 +344,12 @@ func TestProjectParam_RefusedWhereNotTaken(t *testing.T) {
 	server, token := setupProjectDAGsServer(t)
 
 	resp := projectGet(t, server, token, "/api/v1/dags/etl/settings?project=payments")
+	require.Equal(t, http.StatusBadRequest, resp.Response.StatusCode())
+	assert.Contains(t, errorMessage(t, resp), "does not take the project parameter")
+
+	// The refusal comes before the project is looked up, so a public path
+	// refuses it without credentials.
+	resp = server.Client().Get("/api/v1/health?project=payments").Send(t)
 	require.Equal(t, http.StatusBadRequest, resp.Response.StatusCode())
 	assert.Contains(t, errorMessage(t, resp), "does not take the project parameter")
 }

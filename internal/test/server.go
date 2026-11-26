@@ -81,7 +81,7 @@ func SetupServer(t *testing.T, opts ...HelperOption) Server {
 
 	srv := Server{Helper: helper}
 
-	server, err := srv.newFrontendServer(listener)
+	server, err := srv.newFrontendServer(t, listener)
 	if err != nil {
 		_ = listener.Close()
 		t.Fatalf("server failed to initialize: %v", err)
@@ -98,7 +98,7 @@ func SetupServer(t *testing.T, opts ...HelperOption) Server {
 }
 
 // newFrontendServer constructs the HTTP server with the provided listener.
-func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, error) {
+func (srv *Server) newFrontendServer(t *testing.T, listener net.Listener) (*frontend.Server, error) {
 	cc := coordinator.New(srv.ServiceRegistry, CoordinatorClientConfig(srv.Config.Paths.DataDir))
 
 	// Pass the pre-bound listener to the server to avoid port race conditions
@@ -122,7 +122,7 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 		srv.Backend.Collection(persis.CollectionSchedulerProcess),
 		pauses,
 	)
-	projects, err := srv.followProjects(serverStores)
+	projects, err := srv.followProjects(t, serverStores)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +154,8 @@ func (srv *Server) newFrontendServer(listener net.Listener) (*frontend.Server, e
 
 // followProjects keeps the stores of every registered project open while
 // projects are on, and returns them. It returns nil while projects are off.
-func (srv *Server) followProjects(server *file.ServerStores) (*file.ProjectStoreCache, error) {
+// The cache stops before the test's directories are removed.
+func (srv *Server) followProjects(t *testing.T, server *file.ServerStores) (*file.ProjectStoreCache, error) {
 	if !srv.Config.ProjectsEnabled {
 		return nil, nil
 	}
@@ -166,7 +167,16 @@ func (srv *Server) followProjects(server *file.ServerStores) (*file.ProjectStore
 		return nil, fmt.Errorf("failed to open the default project's stores: %w", err)
 	}
 	cache := file.NewProjectStoreCache(projectregistry.New(srv.Config.Paths.DataDir), defaults, open, server.ProjectReleases)
-	go cache.Run(srv.Context)
+	ctx, cancel := context.WithCancel(srv.Context)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cache.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
 	return cache, nil
 }
 

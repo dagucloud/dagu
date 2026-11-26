@@ -60,7 +60,10 @@ func (p *projectAPIs) get(proj project.Project) (*apiv1.API, bool) {
 	if api, ok := p.kept(proj.ID, stores); ok {
 		return api, true
 	}
-	built, err, _ := p.builds.Do(proj.ID, func() (any, error) {
+	// The key names the stores too, so a lookup never joins a build on
+	// stores that the cache has since replaced.
+	key := fmt.Sprintf("%s\x00%p", proj.ID, stores)
+	built, err, _ := p.builds.Do(key, func() (any, error) {
 		if api, ok := p.kept(proj.ID, stores); ok {
 			return api, nil
 		}
@@ -69,15 +72,20 @@ func (p *projectAPIs) get(proj project.Project) (*apiv1.API, bool) {
 			return nil, err
 		}
 		p.mu.Lock()
+		defer p.mu.Unlock()
+		// The cache may have released the stores while the API was built.
+		if current, ok := p.stores.Get(proj.ID); !ok || current != stores {
+			return (*apiv1.API)(nil), nil
+		}
 		p.apis[proj.ID] = projectAPI{stores: stores, api: api}
-		p.mu.Unlock()
 		return api, nil
 	})
 	if err != nil {
 		logger.Warn(p.ctx, "Failed to open the API of a project", tag.Name(proj.Name), tag.Error(err))
 		return nil, false
 	}
-	return built.(*apiv1.API), true
+	api, _ := built.(*apiv1.API)
+	return api, api != nil
 }
 
 // kept returns the API kept for the project with the given ID when it was

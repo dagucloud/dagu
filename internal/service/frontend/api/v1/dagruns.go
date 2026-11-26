@@ -1523,7 +1523,7 @@ func (a *API) ApproveDAGRunStep(ctx context.Context, request api.ApproveDAGRunSt
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for dag-run to settle: %w", err)
 	}
-	if err := a.refuseQueuedResume(ctx, attempt, dagStatus); err != nil {
+	if err := a.refuseResume(ctx, attempt, dagStatus, true); err != nil {
 		return nil, err
 	}
 	if dagStatus.Status != ir.Waiting {
@@ -1648,6 +1648,9 @@ func (a *API) ApproveSubDAGRunStep(ctx context.Context, request api.ApproveSubDA
 	dagStatus, err = a.waitForManualStepMutationReady(ctx, attempt, dagStatus)
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for sub DAG-run to settle: %w", err)
+	}
+	if err := a.refuseResume(ctx, attempt, dagStatus, false); err != nil {
+		return nil, err
 	}
 	if dagStatus.Status != ir.Waiting {
 		return &api.ApproveSubDAGRunStep400JSONResponse{
@@ -2091,7 +2094,7 @@ func (a *API) PushBackDAGRunStep(ctx context.Context, request api.PushBackDAGRun
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for dag-run to settle: %w", err)
 	}
-	if err := a.refuseQueuedResume(ctx, attempt, dagStatus); err != nil {
+	if err := a.refuseResume(ctx, attempt, dagStatus, true); err != nil {
 		return nil, err
 	}
 	if dagStatus.Status != ir.Waiting {
@@ -2229,6 +2232,9 @@ func (a *API) PushBackSubDAGRunStep(ctx context.Context, request api.PushBackSub
 	dagStatus, err = a.waitForManualStepMutationReady(ctx, attempt, dagStatus)
 	if err != nil {
 		return nil, fmt.Errorf("error waiting for sub DAG-run to settle: %w", err)
+	}
+	if err := a.refuseResume(ctx, attempt, dagStatus, false); err != nil {
+		return nil, err
 	}
 	if dagStatus.Status != ir.Waiting {
 		return &api.PushBackSubDAGRunStep400JSONResponse{

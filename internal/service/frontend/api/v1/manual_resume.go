@@ -45,7 +45,7 @@ func (a *API) ResumeDAGRun(ctx context.Context, request api.ResumeDAGRunRequestO
 	if err != nil {
 		return nil, err
 	}
-	if err := a.refuseQueuedResume(ctx, attempt, status); err != nil {
+	if err := a.refuseResume(ctx, attempt, status, true); err != nil {
 		return nil, err
 	}
 	if !hasRootApproval(status) {
