@@ -26,6 +26,8 @@ func isolate(_ context.Context, req Request, _ *Step) (*Step, error) {
 
 func (*isolation) end(context.Context) error { return nil }
 
+func (*isolation) watchStart() func() { return func() {} }
+
 func (*isolation) started(int) {}
 
 func (*isolation) abandon() {}

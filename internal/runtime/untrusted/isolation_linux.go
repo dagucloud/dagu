@@ -507,6 +507,34 @@ func closeOnExec() error {
 	return nil
 }
 
+// startTimeout limits the start of a process of the step. The child runs as
+// the restricted user from its setuid to its execve, and Go waits for that
+// execve with the fork lock of the worker held: a process of the user that
+// stops the child there would block each later start of the worker.
+const startTimeout = 5 * time.Second
+
+// watchStart sends SIGKILL to each task of the restricted user, the stopped
+// child included, while a start of a process of the step takes more than
+// startTimeout. It uses the /proc scan only: the kill helper would need a
+// start too. The returned function ends the watch.
+func (iso *isolation) watchStart() (stop func()) {
+	done := make(chan struct{})
+	go func() {
+		timer := time.NewTimer(startTimeout)
+		defer timer.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-timer.C:
+			}
+			killTaskGroups(iso.uid)
+			timer.Reset(10 * time.Millisecond)
+		}
+	}()
+	return func() { close(done) }
+}
+
 // started and abandon have nothing to do: end stops each process of the
 // restricted user.
 func (*isolation) started(int) {}

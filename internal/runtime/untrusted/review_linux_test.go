@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/dagucloud/dagu/v2/internal/cmn/cmdutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -223,4 +224,99 @@ func TestReviewForkHopIsKilled(t *testing.T) {
 		killAllAs(t)
 	}
 	assert.Zero(t, escaped, "a process of the restricted user is alive after a successful End")
+}
+
+// stopperSource waits 500 ms, so that the shell that starts it can end, then
+// sends SIGSTOP to each process of its user from four threads for 45 s.
+// kill(-1) spares the thread group of the caller.
+const stopperSource = `#include <pthread.h>
+#include <signal.h>
+#include <time.h>
+#include <unistd.h>
+static void *stop(void *arg) {
+	(void)arg;
+	time_t end = time(0) + 45;
+	while (time(0) < end) kill(-1, SIGSTOP);
+	return 0;
+}
+int main(void) {
+	usleep(500000);
+	pthread_t t[4];
+	for (int i = 0; i < 4; i++) pthread_create(&t[i], 0, stop, 0);
+	for (int i = 0; i < 4; i++) pthread_join(t[i], 0);
+	return 0;
+}
+`
+
+// Property (Spec 103, "Isolation", rule 7): End and each start of a process of
+// the step return. The attack: a process of the restricted user sends SIGSTOP
+// to each process of that user. A child that Dagu starts runs as that user
+// from its setuid on, before its execve, and Go waits for that execve; a
+// child stopped there would block the start, and the kill helper of End,
+// forever.
+func TestReviewStopperBlocksNoStart(t *testing.T) {
+	requireIsolation(t)
+	gcc, err := exec.LookPath("gcc")
+	if err != nil {
+		t.Skip("needs gcc")
+	}
+	resetPoison(t)
+	t.Cleanup(func() { killAllAs(t) })
+	dir, err := os.MkdirTemp("", "dagu-review-stopper-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	require.NoError(t, os.Chmod(dir, 0o755))
+	src := filepath.Join(dir, "stopper.c")
+	require.NoError(t, os.WriteFile(src, []byte(stopperSource), 0o644))
+	bin := filepath.Join(dir, "stopper")
+	out, err := exec.Command(gcc, "-O2", "-pthread", "-o", bin, src).CombinedOutput()
+	require.NoError(t, err, string(out))
+
+	ctx := context.Background()
+	workDir := testWorkDir(t)
+	repo := filepath.Join(workDir, "repo")
+	step, err := beginStep(t, ctx, testRequest(t, workDir, repo))
+	require.NoError(t, err)
+	stepCtx := WithStep(ctx, step)
+	runAs(t, stepCtx, repo, bin+" </dev/null >/dev/null 2>&1 &")
+
+	// Up to 200 starts in 3 s, while the stopper runs. A blocked start shows
+	// within startTimeout and 10 s of slack.
+	var processes []*cmdutil.ManagedProcess
+	slow := 0
+	for begin, n := time.Now(), 0; n < 200 && time.Since(begin) < 3*time.Second; n++ {
+		started := make(chan *cmdutil.ManagedProcess, 1)
+		startedAt := time.Now()
+		go func() {
+			cmd := exec.Command("/bin/true")
+			cmd.Dir = repo
+			process, _ := StartManagedProcess(stepCtx, cmd)
+			started <- process
+		}()
+		select {
+		case process := <-started:
+			if process != nil {
+				processes = append(processes, process)
+			}
+		case <-time.After(startTimeout + 10*time.Second):
+			t.Fatal("a start of a process of the step is blocked")
+		}
+		if time.Since(startedAt) > time.Second {
+			slow++
+		}
+	}
+	t.Logf("%d processes started, %d starts took more than 1 s", len(processes), slow)
+
+	ended := make(chan error, 1)
+	go func() { ended <- step.End(ctx) }()
+	select {
+	case err := <-ended:
+		require.NoError(t, err)
+	case <-time.After(killTimeout + 10*time.Second):
+		t.Fatal("End is blocked")
+	}
+	for _, process := range processes {
+		_ = process.Wait()
+		_ = process.Release()
+	}
 }
