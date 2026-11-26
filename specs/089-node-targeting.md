@@ -13,7 +13,8 @@ start`, `dagu start --from-run-id`, and `dagu retry`, and retries of steps
 with nodes through `dagu retry`. Worker nodes match as SSH nodes do, and a
 child bound to a worker node runs on that worker; Go tests with a
 coordinator and workers cover it. Steps with nodes in runs on workers do not
-run yet. Further sections are added as RFC 013 lands.
+run yet, and a `node: required` DAG started with a worker node is refused,
+since such a run is not yet dispatched to its worker. Further sections are added as RFC 013 lands.
 
 ## Scope
 
