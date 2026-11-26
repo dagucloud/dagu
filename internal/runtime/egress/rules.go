@@ -150,6 +150,26 @@ func (r Rule) matches(host string, port int) bool {
 	return host == r.Host
 }
 
+// overlaps reports whether one host and port can match both rules. A rule with
+// no port overlaps each port. A wildcard overlaps each name below its host and
+// each wildcard below or above it.
+func (r Rule) overlaps(other Rule) bool {
+	if r.Port != 0 && other.Port != 0 && r.Port != other.Port {
+		return false
+	}
+	below := func(name, host string) bool { return strings.HasSuffix(name, "."+host) }
+	switch {
+	case !r.Wildcard && !other.Wildcard:
+		return r.Host == other.Host
+	case r.Wildcard && !other.Wildcard:
+		return below(other.Host, r.Host)
+	case !r.Wildcard && other.Wildcard:
+		return below(r.Host, other.Host)
+	default:
+		return r.Host == other.Host || below(r.Host, other.Host) || below(other.Host, r.Host)
+	}
+}
+
 // Rules is the allow list of a policy. The zero value allows nothing.
 type Rules struct {
 	rules []Rule
@@ -170,6 +190,15 @@ func ParseRules(list []string) (*Rules, error) {
 
 // Len returns the number of rules.
 func (r *Rules) Len() int { return len(r.rules) }
+
+// List returns the rules as they were written.
+func (r *Rules) List() []string {
+	list := make([]string, 0, len(r.rules))
+	for _, rule := range r.rules {
+		list = append(list, rule.Text)
+	}
+	return list
+}
 
 // Allows reports whether the policy lets a connection go to the host and the
 // port. The host is a name or an address, as the client wrote it. An address

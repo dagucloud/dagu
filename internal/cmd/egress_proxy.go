@@ -102,6 +102,10 @@ func egressProxyServe(listen listenFunc) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			credentialRules, credential, err := readProxyCredential(cmd)
+			if err != nil {
+				return err
+			}
 			maxConnections, err := cmd.Flags().GetInt("max-connections")
 			if err != nil {
 				return err
@@ -110,15 +114,20 @@ func egressProxyServe(listen listenFunc) *cobra.Command {
 				return fmt.Errorf("flag --max-connections: expected a number above zero, got %d", maxConnections)
 			}
 			proxy, err := egress.New(egress.Options{
-				Rules:          rules,
-				Upstream:       upstream,
-				MaxConnections: maxConnections,
+				Rules:           rules,
+				Upstream:        upstream,
+				CredentialRules: credentialRules,
+				ProxyCredential: credential,
+				MaxConnections:  maxConnections,
 				Log: func(format string, args ...any) {
 					_, _ = fmt.Fprintf(os.Stderr, format+"\n", args...)
 				},
 			})
 			if errors.Is(err, egress.ErrUpstreamNotAllowed) {
-				return fmt.Errorf("flag --upstream: expected a host and port that an --allow entry lists: %w", err)
+				return fmt.Errorf("flag --upstream: expected a host and port that an --allow or an --allow-with-credential entry lists: %w", err)
+			}
+			if errors.Is(err, egress.ErrCredentialRules) {
+				return fmt.Errorf("flag --allow-with-credential: %w", err)
 			}
 			if err != nil {
 				return err
@@ -137,6 +146,9 @@ func egressProxyServe(listen listenFunc) *cobra.Command {
 			if upstream != nil {
 				_, _ = fmt.Fprintf(os.Stderr, "egress proxy: requests in origin form go to %s:%d\n", upstream.Host(), upstream.Port())
 			}
+			if credentialRules != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "egress proxy: %v need the proxy credential\n", credentialRules.List())
+			}
 			return proxy.Serve(listener)
 		},
 	}
@@ -146,6 +158,9 @@ func egressProxyServe(listen listenFunc) *cobra.Command {
 	command.Flags().String("upstream-auth", string(egress.AuthXAPIKey), "form of the key for the upstream: x-api-key, bearer or anthropic-oauth")
 	command.Flags().String("upstream-key-env", "", "name of the environment variable that holds the key of the upstream")
 	command.Flags().String("upstream-key-file", "", "path of the file that holds the key of the upstream")
+	command.Flags().StringArray("allow-with-credential", nil, "destination, as host, host:port or [IPv6 address]:port, for a client that sends the proxy credential; repeat the flag")
+	command.Flags().String("proxy-credential-env", "", "name of the environment variable that holds the proxy credential")
+	command.Flags().String("proxy-credential-file", "", "path of the file that holds the proxy credential")
 	command.Flags().Int("max-connections", egress.DefaultMaxConnections, "most client connections open at once, tunnels included; the proxy closes a connection over it")
 	return command
 }
@@ -190,6 +205,36 @@ func readUpstream(cmd *cobra.Command) (*egress.Upstream, error) {
 		return nil, fmt.Errorf("flag --upstream: %w", err)
 	}
 	return upstream, nil
+}
+
+// readProxyCredential reads the destinations that need the proxy credential and
+// the credential. It returns nil and "" when the command has no
+// --allow-with-credential. New checks the rest: the length of the credential and
+// the overlap with --allow. No error holds the credential.
+func readProxyCredential(cmd *cobra.Command) (*egress.Rules, string, error) {
+	flags := cmd.Flags()
+	if !flags.Changed("allow-with-credential") {
+		for _, name := range []string{"proxy-credential-env", "proxy-credential-file"} {
+			if flags.Changed(name) {
+				value, _ := flags.GetString(name)
+				return nil, "", fmt.Errorf("flag --%s: needs the flag --allow-with-credential, got %q", name, value)
+			}
+		}
+		return nil, "", nil
+	}
+	list, err := flags.GetStringArray("allow-with-credential")
+	if err != nil {
+		return nil, "", err
+	}
+	rules, err := egress.ParseRules(list)
+	if err != nil {
+		return nil, "", fmt.Errorf("flag --allow-with-credential: %w", err)
+	}
+	credential, _, err := readSecretOption(cmd, "allow-with-credential", "proxy-credential-env", "proxy-credential-file")
+	if err != nil {
+		return nil, "", err
+	}
+	return rules, credential, nil
 }
 
 // readSecretOption reads a secret from the one source that the command names:

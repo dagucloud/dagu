@@ -5,6 +5,8 @@ package egress
 
 import (
 	"context"
+	"crypto/subtle"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -43,8 +45,16 @@ type Options struct {
 	Dial DialFunc
 	// Upstream is the route of a request in origin form. It can be nil: the proxy
 	// then refuses such a request. The host and the port of the upstream MUST
-	// match a rule of Rules.
+	// match a rule of Rules or of CredentialRules.
 	Upstream *Upstream
+	// CredentialRules are the destinations that need the proxy credential. A
+	// client that sends it in the header Proxy-Authorization (Basic, the password
+	// part) reaches them. Other clients get the status 407. A rule of this list
+	// MUST NOT overlap a rule of Rules. It can be nil.
+	CredentialRules *Rules
+	// ProxyCredential is the value that CredentialRules need. It is set exactly
+	// when CredentialRules has a rule.
+	ProxyCredential string
 	// Log receives one line for each decision. It can be nil.
 	Log func(format string, args ...any)
 	// MaxConnections bounds the client connections that the proxy holds at
@@ -65,6 +75,9 @@ type Proxy struct {
 	log      func(format string, args ...any)
 	upstream *Upstream
 
+	credentialRules *Rules
+	credential      string
+
 	// tunnelIdle ends a tunnel in which no byte moved for this time.
 	tunnelIdle time.Duration
 	// keepAliveIdle ends a kept connection with no request for this time.
@@ -83,20 +96,38 @@ var ErrUpstreamNotAllowed = errors.New("the upstream is not in the allow list")
 // connectTimeout limits the time to open one upstream connection.
 const connectTimeout = 15 * time.Second
 
+// minProxyCredentialLen is the shortest proxy credential that New accepts.
+const minProxyCredentialLen = 16
+
+// proxyRealm is the realm of the header Proxy-Authenticate of a 407 answer.
+const proxyRealm = "dagu egress proxy"
+
 // DefaultMaxConnections is the bound of client connections when
 // Options.MaxConnections is not set.
 const DefaultMaxConnections = 512
 
-// New makes a proxy.
+// New makes a proxy. The upstream can match a rule of Rules or of
+// CredentialRules. With a rule of CredentialRules, a client reaches the host of
+// the upstream directly only with the proxy credential.
 func New(opts Options) (*Proxy, error) {
-	if opts.Rules == nil || opts.Rules.Len() == 0 {
+	if opts.Rules == nil {
+		opts.Rules = &Rules{}
+	}
+	if opts.CredentialRules == nil {
+		opts.CredentialRules = &Rules{}
+	}
+	if opts.Rules.Len() == 0 && opts.CredentialRules.Len() == 0 {
 		return nil, errors.New("egress proxy: the allow list is empty; a policy with no destination uses no proxy")
 	}
-	if up := opts.Upstream; up != nil && !opts.Rules.Allows(up.host, up.port) {
+	if err := checkCredentialRules(opts.Rules, opts.CredentialRules, opts.ProxyCredential); err != nil {
+		return nil, err
+	}
+	if up := opts.Upstream; up != nil && !opts.Rules.Allows(up.host, up.port) && !opts.CredentialRules.Allows(up.host, up.port) {
 		return nil, fmt.Errorf("%w: %s:%d", ErrUpstreamNotAllowed, up.host, up.port)
 	}
 	p := &Proxy{
 		rules: opts.Rules, resolver: opts.Resolver, dial: opts.Dial, log: opts.Log, upstream: opts.Upstream,
+		credentialRules: opts.CredentialRules, credential: opts.ProxyCredential,
 		tunnelIdle: tunnelIdleTimeout, keepAliveIdle: keepAliveIdleTimeout,
 		maxConnections: opts.MaxConnections,
 	}
@@ -161,6 +192,51 @@ func New(opts Options) (*Proxy, error) {
 	return p, nil
 }
 
+// ErrCredentialRules is the error of a bad pair of CredentialRules and
+// ProxyCredential.
+var ErrCredentialRules = errors.New("the destinations with a proxy credential are not valid")
+
+// checkCredentialRules checks the destinations that need the proxy credential.
+// The credential is set exactly when a rule needs it. Two lists that can both
+// match one destination contradict each other: a client would reach it with no
+// credential. A plain wildcard voids the credential too: a client that controls
+// the DNS of a name below it points the name at a guarded host and tunnels there
+// with no credential. The error never holds the credential.
+func checkCredentialRules(plain, guarded *Rules, credential string) error {
+	hasRules := guarded.Len() > 0
+	switch {
+	case hasRules && credential == "":
+		return fmt.Errorf("%w: the destinations %v need a proxy credential, got none", ErrCredentialRules, guarded.List())
+	case !hasRules && credential != "":
+		return fmt.Errorf("%w: a proxy credential needs at least one destination that uses it, got none", ErrCredentialRules)
+	case !hasRules:
+		return nil
+	}
+	if len(credential) < minProxyCredentialLen {
+		return fmt.Errorf("%w: the proxy credential has %d characters, expected at least %d", ErrCredentialRules, len(credential), minProxyCredentialLen)
+	}
+	for i := 0; i < len(credential); i++ {
+		if credential[i] < 0x20 || credential[i] == 0x7f {
+			return fmt.Errorf("%w: the proxy credential has a control character at byte %d", ErrCredentialRules, i)
+		}
+	}
+	for _, rule := range guarded.rules {
+		for _, other := range plain.rules {
+			if rule.overlaps(other) {
+				return fmt.Errorf("%w: the destination %q that needs the proxy credential overlaps the destination %q that needs none",
+					ErrCredentialRules, rule.Text, other.Text)
+			}
+		}
+	}
+	for _, other := range plain.rules {
+		if other.Wildcard {
+			return fmt.Errorf("%w: the destination %q that needs no proxy credential is a wildcard; a name below it can point at a destination that needs the credential, so list each name",
+				ErrCredentialRules, other.Text)
+		}
+	}
+	return nil
+}
+
 // refuseSwitch fails a 101 answer: no forwarded request asks for an upgrade.
 // Refusing it here also closes the connection that the answer hands over, which
 // the reverse proxy leaves open on its own refusal.
@@ -219,14 +295,45 @@ func clientCredential(header http.Header) string {
 	return "none"
 }
 
+// hasCredential reports whether the request carries the proxy credential in its
+// only header Proxy-Authorization, in the form Basic with any user name. The
+// check takes the same time for each wrong value of the same length.
+func (p *Proxy) hasCredential(r *http.Request) bool {
+	values := r.Header.Values("Proxy-Authorization")
+	if p.credential == "" || len(values) != 1 {
+		return false
+	}
+	scheme, encoded, ok := strings.Cut(values[0], " ")
+	if !ok || !strings.EqualFold(scheme, "Basic") {
+		return false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
+	if err != nil {
+		return false
+	}
+	_, password, ok := strings.Cut(string(decoded), ":")
+	return ok && subtle.ConstantTimeCompare([]byte(password), []byte(p.credential)) == 1
+}
+
 // admit decides for a destination of a request in absolute form or of CONNECT.
-// It writes the answer of a refused request and returns false.
-func (p *Proxy) admit(w http.ResponseWriter, host string, port int) bool {
+// It writes the answer of a refused request and returns false. A destination of
+// CredentialRules needs the proxy credential.
+func (p *Proxy) admit(w http.ResponseWriter, r *http.Request, host string, port int) bool {
 	if p.rules.Allows(host, port) {
 		return true
 	}
-	p.deny(w, host, port)
-	return false
+	if !p.credentialRules.Allows(host, port) {
+		p.deny(w, host, port)
+		return false
+	}
+	if !p.hasCredential(r) {
+		p.log("egress proxy: deny %s %s:%d: no valid proxy credential", r.Method, host, port)
+		w.Header().Set("Proxy-Authenticate", `Basic realm="`+proxyRealm+`"`)
+		http.Error(w, fmt.Sprintf("egress proxy: the destination %s:%d needs the proxy credential", host, port), http.StatusProxyAuthRequired)
+		return false
+	}
+	p.log("egress proxy: allow %s %s:%d (proxy credential)", r.Method, host, port)
+	return true
 }
 
 // dialAllowed checks the destination and dials the address that the name
@@ -241,7 +348,9 @@ func (p *Proxy) dialAllowed(ctx context.Context, network, address string) (net.C
 	if err != nil || port < 1 || port > 65535 {
 		return nil, fmt.Errorf("the destination %q has no valid port", address)
 	}
-	if !p.rules.Allows(host, port) {
+	// A destination of CredentialRules gets here only after admit checked the
+	// credential.
+	if !p.rules.Allows(host, port) && !p.credentialRules.Allows(host, port) {
 		return nil, &DeniedError{Host: host, Port: port}
 	}
 	var addrs []netip.Addr
@@ -263,7 +372,7 @@ func (p *Proxy) dialAllowed(ctx context.Context, network, address string) (net.C
 	// destination that only a wildcard allows gets public addresses only. A rule
 	// that names the host can reach any address. The answer belongs to the
 	// resolver, so the filter works on a copy.
-	if !p.rules.AllowsExactly(host, port) {
+	if !p.rules.AllowsExactly(host, port) && !p.credentialRules.AllowsExactly(host, port) {
 		addrs = slices.DeleteFunc(slices.Clone(addrs), func(addr netip.Addr) bool { return !publicAddr(addr) })
 		if len(addrs) == 0 {
 			return nil, &DeniedError{Host: host, Port: port}
@@ -396,10 +505,12 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		port = parsed
 	}
-	if !p.admit(w, host, port) {
+	if !p.admit(w, r, host, port) {
 		return
 	}
-	p.log("egress proxy: allow %s %s:%d", r.Method, host, port)
+	if p.rules.Allows(host, port) {
+		p.log("egress proxy: allow %s %s:%d", r.Method, host, port)
+	}
 	p.reverse.ServeHTTP(w, r)
 }
 
@@ -419,7 +530,7 @@ func (p *Proxy) serveConnect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "egress proxy: the port is not valid", http.StatusBadRequest)
 		return
 	}
-	if !p.admit(w, host, port) {
+	if !p.admit(w, r, host, port) {
 		return
 	}
 	upstream, err := p.dialAllowed(r.Context(), "tcp", net.JoinHostPort(host, portText))
@@ -443,7 +554,9 @@ func (p *Proxy) serveConnect(w http.ResponseWriter, r *http.Request) {
 		_ = upstream.Close()
 		return
 	}
-	p.log("egress proxy: allow CONNECT %s:%d", host, port)
+	if p.rules.Allows(host, port) {
+		p.log("egress proxy: allow CONNECT %s:%d", host, port)
+	}
 	_, _ = io.WriteString(client, "HTTP/1.1 200 Connection Established\r\n\r\n")
 	pipe(client, buffered, upstream, p.tunnelIdle)
 }
