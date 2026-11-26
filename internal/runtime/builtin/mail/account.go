@@ -14,7 +14,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailbox"
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer"
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauth"
-	"github.com/dagucloud/dagu/v2/internal/connection/oauthrefresh"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
@@ -108,7 +107,7 @@ func tokenSource(address string, account *ir.MailAccount) (func(context.Context)
 // accountError names the account and states a revoked or expired sign-in,
 // or one without Gmail access, plainly.
 func accountError(address string, err error) error {
-	if tokenErr, ok := errors.AsType[*oauthrefresh.TokenError](err); ok {
+	if tokenErr, ok := errors.AsType[*oauth.TokenError](err); ok {
 		if tokenErr.Code == "invalid_grant" {
 			return fmt.Errorf("mail account %q: sign-in is no longer valid (invalid_grant)", address)
 		}

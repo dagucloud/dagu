@@ -39,6 +39,10 @@ var tokenHTTPClient = &http.Client{Timeout: tokenRequestTimeout}
 // TokenFunc returns an access token using the supplied operation context.
 type TokenFunc func(context.Context) (*oauth2.Token, error)
 
+// TokenError is an OAuth error response from a token endpoint, such as
+// invalid_grant for a revoked or expired refresh token.
+type TokenError = oauthrefresh.TokenError
+
 // NewTokenFunc validates resolved credentials and returns a process-cached token function.
 func NewTokenFunc(username string, cfg *oauthconfig.Config) (TokenFunc, error) {
 	if cfg == nil {
