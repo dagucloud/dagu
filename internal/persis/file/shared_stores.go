@@ -13,6 +13,7 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger/tag"
+	"github.com/dagucloud/dagu/v2/internal/connection"
 	"github.com/dagucloud/dagu/v2/internal/dagsettings"
 	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/license"
@@ -103,6 +104,18 @@ func NewNotificationStore(col, channels persis.Collection, enc *crypto.Encryptor
 		return nil, err
 	}
 	return store.NewNotificationStore(col, channelStore, enc)
+}
+
+// NewConnectionStore creates the store of OAuth apps, connections, their
+// token state, and their tool catalogs, creating each collection's
+// directory owner-only.
+func NewConnectionStore(apps, conns, tokens, catalogs persis.Collection, enc *crypto.Encryptor) (connection.Store, error) {
+	for _, col := range []persis.Collection{apps, conns, tokens, catalogs} {
+		if err := createCollectionDirs(col, "connection store", 0o700, ""); err != nil {
+			return nil, err
+		}
+	}
+	return store.NewConnectionStore(apps, conns, tokens, catalogs, enc)
 }
 
 func NewLicenseStore(ctx context.Context, col persis.Collection) license.ActivationStore {

@@ -18,6 +18,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
+	"github.com/dagucloud/dagu/v2/internal/connection"
 	"github.com/dagucloud/dagu/v2/internal/incident"
 	"github.com/dagucloud/dagu/v2/internal/notification"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -166,6 +167,67 @@ func TestCollectionStoresPreserveCorruptFileHandling(t *testing.T) {
 	require.NoError(t, os.WriteFile(statePath, []byte("{"), 0o600))
 	_, err = incidentStore.ListOpenStates(ctx)
 	assert.Error(t, err)
+}
+
+// Every connection collection is owner-only, and no secret reaches a file
+// in plaintext.
+func TestNewConnectionStoreKeepsSecretsOwnerOnly(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	backend := persisfile.NewBackend(config.PathsConfig{DataDir: dataDir})
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+	s, err := persisfile.NewConnectionStore(
+		backend.Collection(persis.CollectionOAuthApps),
+		backend.Collection(persis.CollectionConnections),
+		backend.Collection(persis.CollectionConnectionTokens),
+		backend.Collection(persis.CollectionConnectionCatalogs),
+		enc,
+	)
+	require.NoError(t, err)
+
+	_, err = s.CreateApp(ctx, &connection.App{
+		Name:         "Google",
+		Provider:     connection.ProviderGoogle,
+		Kind:         connection.AppKindBYO,
+		ClientID:     "client-id",
+		ClientSecret: "plain-client-secret",
+		ClientType:   connection.ClientTypeWeb,
+	})
+	require.NoError(t, err)
+	conn, err := s.Create(ctx, &connection.Connection{
+		Workspace: "payments",
+		Name:      "mail",
+		Provider:  connection.ProviderGoogle,
+		App:       "app-1",
+		Grant:     connection.GrantAuthorizationCode,
+	})
+	require.NoError(t, err)
+	_, err = s.UpdateTokenState(ctx, conn, func(state *connection.TokenState) error {
+		state.RefreshToken = "plain-refresh-token"
+		state.AccessTokens = map[string]connection.AccessToken{"gmail": {Token: "plain-access-token"}}
+		state.Session = &connection.Session{ID: "s1", Tokens: connection.Tokens{RefreshToken: "plain-session-token"}}
+		return nil
+	})
+	require.NoError(t, err)
+
+	for _, dir := range []string{"oauth-apps", "connections", "connection-tokens", "connection-catalogs"} {
+		info, err := os.Stat(filepath.Join(dataDir, dir))
+		require.NoError(t, err)
+		if runtime.GOOS != "windows" {
+			assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), dir)
+		}
+	}
+	require.NoError(t, filepath.WalkDir(dataDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		data, err := os.ReadFile(path) //nolint:gosec // Test reads files in its temporary directory.
+		require.NoError(t, err)
+		assert.False(t, bytes.Contains(data, []byte("plain-")), path)
+		return nil
+	}))
 }
 
 func hashedFileName(value string) string {

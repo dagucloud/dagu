@@ -96,6 +96,9 @@ func serverCollectionSpecs(paths config.PathsConfig) map[string]collectionSpec {
 	return map[string]collectionSpec{
 		persis.CollectionAPIKeys:               {dir: paths.APIKeysDir, indented: true},
 		persis.CollectionActiveDistributedRuns: {dir: filepath.Join(distributedDir, "active-runs")},
+		persis.CollectionConnectionCatalogs:    {dir: filepath.Join(paths.DataDir, "connection-catalogs")},
+		persis.CollectionConnectionTokens:      {dir: filepath.Join(paths.DataDir, "connection-tokens")},
+		persis.CollectionConnections:           {dir: filepath.Join(paths.DataDir, "connections"), indented: true},
 		persis.CollectionDAGRunLeases:          {dir: filepath.Join(distributedDir, "leases")},
 		persis.CollectionDispatchTasks: {
 			dir:        distributedDir,
@@ -112,6 +115,7 @@ func serverCollectionSpecs(paths config.PathsConfig) map[string]collectionSpec {
 			idPrefixes: notificationChannelIDPrefixes,
 			indented:   true,
 		},
+		persis.CollectionOAuthApps:        {dir: filepath.Join(paths.DataDir, "oauth-apps"), indented: true},
 		persis.CollectionPublicWebhooks:   {dir: filepath.Join(paths.DataDir, "public-webhooks"), indented: true},
 		persis.CollectionRemoteNodes:      {dir: paths.RemoteNodesDir, indented: true},
 		persis.CollectionSchedulerProcess: {dir: SchedulerProcessDir(paths), idPrefixes: schedulerProcessIDPrefixes, indented: true},
