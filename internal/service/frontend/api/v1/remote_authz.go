@@ -124,6 +124,8 @@ var remoteNodeOperationAccess = map[string]remoteNodeAccess{
 	"SearchWikiPageMatches":           remoteNodeAccessRead,
 	"ListServiceDAGs":                 remoteNodeAccessRead,
 	"ListSkills":                      remoteNodeAccessRead,
+	"GetSkill":                        remoteNodeAccessRead,
+	"GetSkillFile":                    remoteNodeAccessRead,
 	"GetSchedulerPauseState":          remoteNodeAccessRead,
 	"GetWorkspaceBaseConfig":          remoteNodeAccessRead,
 	"GetSyncConfig":                   remoteNodeAccessRead,

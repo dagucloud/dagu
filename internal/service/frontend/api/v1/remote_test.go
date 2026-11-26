@@ -132,6 +132,8 @@ func TestRemoteNodeAuthorization(t *testing.T) {
 		{name: "operator cannot preview an inline spec", method: http.MethodPost, path: "/api/v1/dag-runs/preview", user: operator, permissions: writeAndRun},
 		{name: "developer reads workers", method: http.MethodGet, path: "/api/v1/workers", user: developer, wantCall: true},
 		{name: "viewer lists skills", method: http.MethodGet, path: "/api/v1/skills", user: viewer, wantCall: true},
+		{name: "viewer reads a skill", method: http.MethodGet, path: "/api/v1/skills/demo", user: viewer, wantCall: true},
+		{name: "viewer reads a skill file", method: http.MethodGet, path: "/api/v1/skills/demo/files", user: viewer, wantCall: true},
 		{name: "node lists are never forwarded", method: http.MethodGet, path: "/api/v1/nodes", user: admin, permissions: writeAndRun},
 		{name: "nodes are never forwarded", method: http.MethodGet, path: "/api/v1/nodes/web01", user: admin, permissions: writeAndRun},
 		{name: "node labels are never forwarded", method: http.MethodGet, path: "/api/v1/node-labels", user: admin, permissions: writeAndRun},
