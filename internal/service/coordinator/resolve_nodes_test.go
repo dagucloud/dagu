@@ -63,6 +63,8 @@ type nodeStores struct {
 	inventory inventory.Store
 	hostKeys  inventory.HostKeyStore
 	secrets   secretpkg.Store
+	// workers holds the worker nodes, or is nil for none.
+	workers inventory.WorkerNodeStore
 }
 
 func newNodeStores(t *testing.T) nodeStores {
@@ -151,6 +153,7 @@ func newNodeRun(t *testing.T, stores nodeStores, dagYAML string, heartbeat time.
 		SecretStore:         stores.secrets,
 		NodeInventory:       stores.inventory,
 		TrustedHostKeys:     stores.hostKeys,
+		WorkerNodeStore:     stores.workers,
 		DAGRunRepository:    repo,
 		DAGRunLeaseStore:    leases,
 		StaleLeaseThreshold: time.Minute,
@@ -235,6 +238,41 @@ func TestResolveNodesByName(t *testing.T) {
 	resp, err = run.resolveNodes("", "db-1")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"db-1"}, protoNodeNames(resp.GetNodes()))
+	assert.Empty(t, resp.GetBastions())
+	assert.Empty(t, resp.GetTrustedHostKeys())
+}
+
+// Worker nodes match as inventory nodes do, each with its own kind, except a
+// worker whose ID an inventory node holds.
+func TestResolveNodesWorkerNodes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	stores := newNodeStores(t)
+	workers, err := store.NewWorkerNodeStore(testutil.NewMemoryBackend().Collection(persis.CollectionWorkerNodes), nil)
+	require.NoError(t, err)
+	for _, worker := range []inventory.WorkerNode{
+		{Name: "web-gw", Host: "gw.example.com", Labels: ir.NewLabels([]string{"role=web", "site=tokyo"}), Online: true},
+		{Name: "WEB-1", Host: "clash.example.com", Labels: ir.NewLabels([]string{"role=web"}), Online: true},
+	} {
+		require.NoError(t, workers.Record(ctx, worker))
+	}
+	stores.workers = workers
+	run := newNodeRun(t, stores, nodeStepDAG, time.Now())
+
+	resp, err := run.resolveNodes("role=web")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"web-1", "web-2", "web-gw"}, protoNodeNames(resp.GetNodes()))
+	assert.Equal(t, coordinatorv1.NodeKind_NODE_KIND_SSH, resp.GetNodes()[0].GetKind())
+	assert.Equal(t, "10.0.0.1", resp.GetNodes()[0].GetHost())
+	gw := resp.GetNodes()[2]
+	assert.Equal(t, coordinatorv1.NodeKind_NODE_KIND_WORKER, gw.GetKind())
+	assert.Equal(t, "gw.example.com", gw.GetHost())
+	assert.Equal(t, []string{"role=web", "site=tokyo"}, gw.GetLabels())
+	assert.Empty(t, gw.GetBastion())
+
+	resp, err = run.resolveNodes("", "WEB-GW")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"web-gw"}, protoNodeNames(resp.GetNodes()))
 	assert.Empty(t, resp.GetBastions())
 	assert.Empty(t, resp.GetTrustedHostKeys())
 }

@@ -75,9 +75,17 @@ func (h *Handler) ResolveNodes(ctx context.Context, req *coordinatorv1.ResolveNo
 }
 
 // candidateNodes lists the nodes a run on a worker can target, in name
-// order: the project's inventory nodes.
+// order: the project's inventory nodes and worker nodes.
 func (h *Handler) candidateNodes(ctx context.Context) ([]inventory.ResolvedNode, error) {
-	return h.nodeInventory.Nodes(ctx)
+	nodes, err := h.nodeInventory.Nodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	workers, err := h.workerNodes.list(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return inventory.WithWorkers(nodes, workers), nil
 }
 
 // authorizeNodeSecret lets a run read ref for node when the run targets
@@ -90,7 +98,8 @@ func (h *Handler) authorizeNodeSecret(ctx context.Context, dag *ir.DAG, node, re
 	if !targetsNodes(dag) {
 		return status.Error(codes.PermissionDenied, secretReferenceAccessDenied)
 	}
-	candidates, err := h.candidateNodes(ctx)
+	// Worker nodes have no credentials.
+	candidates, err := h.nodeInventory.Nodes(ctx)
 	if err != nil {
 		return status.Error(codes.Internal, err.Error())
 	}
@@ -178,8 +187,9 @@ func findNode(nodes []inventory.ResolvedNode, name string) *inventory.ResolvedNo
 	return &nodes[i]
 }
 
-// trustedHostKeysOf returns the host key trusted for each of nodes that has
-// one, once per node, under the node's name as the inventory spells it.
+// trustedHostKeysOf returns the host key trusted for each SSH node of nodes
+// that has one, once per node, under the node's name as the inventory spells
+// it.
 func (h *Handler) trustedHostKeysOf(ctx context.Context, nodes []inventory.ResolvedNode) ([]*coordinatorv1.TrustedHostKey, error) {
 	if h.trustedHostKeys == nil {
 		return nil, nil
@@ -187,6 +197,9 @@ func (h *Handler) trustedHostKeysOf(ctx context.Context, nodes []inventory.Resol
 	var keys []*coordinatorv1.TrustedHostKey
 	seen := make(map[string]struct{}, len(nodes))
 	for _, node := range nodes {
+		if node.Kind == inventory.NodeKindWorker {
+			continue
+		}
 		folded := strings.ToLower(node.Name)
 		if _, dup := seen[folded]; dup {
 			continue
@@ -215,7 +228,7 @@ func resolvedNodesToProto(nodes []inventory.ResolvedNode) []*coordinatorv1.Resol
 		// the credentials are a key path and secret refs only.
 		out[i] = &coordinatorv1.ResolvedNode{
 			Name:             node.Name,
-			Kind:             coordinatorv1.NodeKind_NODE_KIND_SSH,
+			Kind:             nodeKindToProto(node.Kind),
 			InventoryId:      node.InventoryID,
 			InventoryName:    node.InventoryName,
 			Host:             node.Host,
@@ -236,4 +249,11 @@ func resolvedNodesToProto(nodes []inventory.ResolvedNode) []*coordinatorv1.Resol
 		}
 	}
 	return out
+}
+
+func nodeKindToProto(kind inventory.NodeKind) coordinatorv1.NodeKind {
+	if kind == inventory.NodeKindWorker {
+		return coordinatorv1.NodeKind_NODE_KIND_WORKER
+	}
+	return coordinatorv1.NodeKind_NODE_KIND_SSH
 }
