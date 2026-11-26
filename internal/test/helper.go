@@ -413,7 +413,7 @@ func writeHelperConfigFile(t *testing.T, cfg *config.Config, configPath string) 
 		configData["tz"] = cfg.Core.TZ
 	}
 
-	configData["paths"] = map[string]any{
+	paths := map[string]any{
 		"dags_dir":             cfg.Paths.DAGsDir,
 		"log_dir":              cfg.Paths.LogDir,
 		"artifact_dir":         cfg.Paths.ArtifactDir,
@@ -429,6 +429,11 @@ func writeHelperConfigFile(t *testing.T, cfg *config.Config, configPath string) 
 		"service_registry_dir": cfg.Paths.ServiceRegistryDir,
 		"users_dir":            cfg.Paths.UsersDir,
 		"executable":           cfg.Paths.Executable,
+	}
+	configData["paths"] = paths
+	if cfg.ProjectsEnabled {
+		configData["experimental_projects"] = true
+		paths["projects_dir"] = cfg.Paths.ProjectsDir
 	}
 	configData["dag_discovery"] = map[string]any{
 		"recursive": cfg.DAGDiscovery.Recursive,
