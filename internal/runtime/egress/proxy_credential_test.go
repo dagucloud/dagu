@@ -84,10 +84,10 @@ func connectWith(t *testing.T, proxyAddr, target string, auth ...string) connect
 
 // A destination of CredentialRules needs the proxy credential in the header
 // Proxy-Authorization, in the form Basic, with any user name. Without it, with a
-// wrong value or with two values, the proxy answers 407 with Proxy-Authenticate
-// and dials nothing. With it, CONNECT opens the tunnel and a request in absolute
-// form reaches the destination without the header. Other destinations keep their
-// rules. The credential is in no log.
+// wrong value or with two values, the proxy answers 407 with Proxy-Authenticate,
+// and resolves and dials nothing. With it, CONNECT opens the tunnel and a
+// request in absolute form reaches the destination without the header. Other
+// destinations keep their rules. The credential is in no log.
 func TestCredentialRulesNeedTheProxyCredential(t *testing.T) {
 	t.Parallel()
 
@@ -118,6 +118,9 @@ func TestCredentialRulesNeedTheProxyCredential(t *testing.T) {
 		assert.Equal(t, `Basic realm="dagu egress proxy"`, reply.challenge, tc.name)
 	}
 	assert.Empty(t, dials.seen(), "a refused request dials nothing")
+	resolver.mu.Lock()
+	assert.Empty(t, resolver.calls, "a refused request resolves no name, so its answer tells nothing of the DNS")
+	resolver.mu.Unlock()
 
 	tunnel := connectWith(t, proxyAddr, guarded, basic("anyone", testProxyCredential))
 	require.Equal(t, "200 Connection Established", tunnel.status)
