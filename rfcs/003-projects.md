@@ -982,9 +982,10 @@ These specs define workspace behavior, and v3.0 rewrites them for projects:
 Criteria 23 and 24 apply from the release that ships the feature.
 
 1. A v2 data directory with no workspaces starts on v3.0 as the default
-   project, with no manual step. Its DAG files and URLs do not change, and
-   its runs, logs, and settings move to `<data_dir>/projects/default/` and
-   open as before.
+   project, with no manual step outside the four exceptions that follow
+   [Goals](#goals). Its DAG files and URLs do not change, and its runs,
+   logs, and settings move to `<data_dir>/projects/default/` and open as
+   before.
 2. After migration, each DAG outside the library runs with the same base
    config, secrets, profile, notification routes, and incident policies, and
    in the same working directory, as on v2. The exceptions are a DAG that
@@ -1005,11 +1006,12 @@ Criteria 23 and 24 apply from the release that ships the feature.
 6. One scheduler process schedules every project. A newly created project
    starts scheduling without a restart.
 7. A distributed run of a project DAG records its status in that project.
-8. The first v3.0 start migrates every workspace with no manual step,
-   waits while a v2 scheduler or coordinator is live or space is short,
-   cancels every run still running, resumes after being killed, answers
-   200 on its health endpoint throughout, and reports every item that
-   needs attention, each cancelled run included.
+8. The first v3.0 start migrates every workspace with no manual step
+   outside the four exceptions that follow [Goals](#goals), waits while a
+   v2 scheduler or coordinator is live or space is short, cancels every run
+   still running, resumes after being killed, answers 200 on its health
+   endpoint throughout, and reports every item that needs attention, each
+   cancelled run included.
 9. `dagu migrate workspaces` changes nothing on disk and shows the names,
    display names, and moves that the first start would make, and every item
    its report would list as needing attention.
