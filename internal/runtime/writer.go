@@ -5,8 +5,11 @@ package runtime
 
 import (
 	"bufio"
+	"errors"
 	"io"
 	"sync"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/masking"
 )
 
 // flushableMultiWriter creates a MultiWriter that can flush all underlying writers
@@ -96,4 +99,53 @@ func (s *safeBufferedWriter) Flush() error {
 		return f.Flush()
 	}
 	return nil
+}
+
+// maskingStreamWriter masks secrets in step output streamed to a remote log.
+// A partial line is held until it completes or Flush or Close is called, so a
+// secret split across writes is masked whole.
+type maskingStreamWriter struct {
+	mu     sync.Mutex
+	masked *masking.MaskingWriter
+	stream io.WriteCloser
+}
+
+func newMaskingStreamWriter(stream io.WriteCloser, masker *masking.Masker) *maskingStreamWriter {
+	return &maskingStreamWriter{masked: masking.NewMaskingWriter(stream, masker), stream: stream}
+}
+
+func (w *maskingStreamWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.masked.Write(p)
+}
+
+// FlushIfDue sends due output to the stream. A held partial line stays held.
+func (w *maskingStreamWriter) FlushIfDue() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if f, ok := w.stream.(interface{ FlushIfDue() error }); ok {
+		return f.FlushIfDue()
+	}
+	return nil
+}
+
+// Flush sends all output to the stream, including a held partial line.
+func (w *maskingStreamWriter) Flush() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if err := w.masked.Flush(); err != nil {
+		return err
+	}
+	if f, ok := w.stream.(interface{ Flush() error }); ok {
+		return f.Flush()
+	}
+	return nil
+}
+
+// Close sends a held partial line and closes the stream.
+func (w *maskingStreamWriter) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return errors.Join(w.masked.Flush(), w.stream.Close())
 }

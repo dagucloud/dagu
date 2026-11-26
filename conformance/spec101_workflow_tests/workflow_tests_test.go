@@ -414,6 +414,51 @@ func TestWorkflowTestSelection(t *testing.T) {
 	})
 }
 
+// A DAG file argument, or a DAG name resolved against the DAGs directory,
+// runs the test files beside the DAG file, and a test file selected twice
+// runs once. A DAG file without one exits with status 2 and names the
+// command that writes one.
+func TestWorkflowTestDAGArgument(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DAG file", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		result := dagu.Run("test", "workflows/release.yaml", "workflows/release.test.yaml")
+		result.ExpectExitCode(0)
+		expectLines(t, result.Stdout(),
+			"PASS workflows/release.test.yaml: deploys the built image (",
+			"PASS workflows/release.test.yaml: a failed build stops the deploy (",
+			"2 cases: 2 passed, 0 failed\n",
+		)
+	})
+
+	t.Run("DAG name", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		env := []string{"DAGU_DAGS_DIR=" + dagu.ProjectPath("workflows")}
+		result := dagu.RunWithEnv(env, "test", "--run", "deploys", "release")
+		result.ExpectExitCode(0)
+		expectLines(t, result.Stdout(),
+			"PASS workflows/release.test.yaml: deploys the built image (",
+			"1 case: 1 passed, 0 failed\n",
+		)
+	})
+
+	t.Run("no test file", func(t *testing.T) {
+		t.Parallel()
+
+		dagu := harness.NewRunner(t)
+		require.NoError(t, os.Remove(dagu.ProjectPath("workflows/release.test.yaml")))
+		result := dagu.Run("test", "workflows/release.yaml")
+		result.ExpectExitCode(2)
+		result.ExpectStdout("")
+		result.ExpectStderrContains("workflows/release.yaml has no test file; write one with: dagu test --init workflows/release.yaml")
+	})
+}
+
 func TestWorkflowTestTimeout(t *testing.T) {
 	t.Parallel()
 
@@ -462,18 +507,21 @@ func TestWorkflowTestArguments(t *testing.T) {
 	t.Parallel()
 
 	for name, args := range map[string][]string{
-		"missing path":    {"workflows/missing.test.yaml"},
-		"not a test file": {"workflows/release.yaml"},
-		"zero timeout":    {"--timeout", "0s", "workflows/release.test.yaml"},
-		"invalid timeout": {"--timeout", "soon", "workflows/release.test.yaml"},
-		"unknown flag":    {"--no-such-flag", "workflows/release.test.yaml"},
-		"invalid run":     {"--run", "(", "workflows/release.test.yaml"},
-		"unknown format":  {"--format", "yaml", "workflows/release.test.yaml"},
+		"missing path":     {"workflows/missing.test.yaml"},
+		"unknown DAG name": {"missing"},
+		"not a test file":  {"workflows/notes.txt"},
+		"zero timeout":     {"--timeout", "0s", "workflows/release.test.yaml"},
+		"invalid timeout":  {"--timeout", "soon", "workflows/release.test.yaml"},
+		"unknown flag":     {"--no-such-flag", "workflows/release.test.yaml"},
+		"invalid run":      {"--run", "(", "workflows/release.test.yaml"},
+		"unknown format":   {"--format", "yaml", "workflows/release.test.yaml"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
 			dagu := harness.NewRunner(t)
+			// notes.txt is neither a test file nor a DAG file.
+			dagu.WriteFile("workflows/notes.txt", "")
 			result := dagu.Run(append([]string{"test"}, args...)...)
 			result.ExpectExitCode(2)
 			result.ExpectStderrNotEmpty()

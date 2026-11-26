@@ -758,6 +758,9 @@ type AppStreamService struct {
 
 type AppStreamConfig struct {
 	Paths config.PathsConfig
+	// Project holds the directories of the project whose scheduler state,
+	// queue, and suspend flags the stream watches.
+	Project config.ProjectPaths
 }
 
 func NewAppStreamService(cfg AppStreamConfig) (*AppStreamService, error) {
@@ -810,7 +813,7 @@ func NewAppStreamService(cfg AppStreamConfig) (*AppStreamService, error) {
 	if cfg.Paths.DataDir != "" {
 		// The scheduler state and the pause flag share one watcher while they
 		// share a directory.
-		for _, dir := range uniqueNonEmptyPaths(persisfile.SchedulerStateDir(cfg.Paths), persisfile.SchedulerProcessDir(cfg.Paths)) {
+		for _, dir := range uniqueNonEmptyPaths(persisfile.ProjectSchedulerStateDir(cfg.Project), persisfile.SchedulerProcessDir(cfg.Paths)) {
 			service.watchers = append(service.watchers, newDirectoryWatcher(
 				dir,
 				true,
@@ -821,12 +824,12 @@ func NewAppStreamService(cfg AppStreamConfig) (*AppStreamService, error) {
 	}
 	service.watchers = append(service.watchers,
 		newWikiDirectoryWatcher(cfg.Paths.WikiDir, true, service.handleWikiPageEvent, service.publishReset),
-		newOneLevelDirectoryWatcher(cfg.Paths.QueueDir, true, service.handleQueueEvent, service.publishReset),
+		newOneLevelDirectoryWatcher(cfg.Project.QueueDir, true, service.handleQueueEvent, service.publishReset),
 	)
-	for _, flagsDir := range uniqueNonEmptyPaths(cfg.Paths.SuspendFlagsDir, cfg.Paths.SuspendFlagsDirLegacy) {
+	for _, flagsDir := range uniqueNonEmptyPaths(cfg.Project.SuspendFlagsDir, cfg.Project.LegacySuspendFlagsDir) {
 		service.watchers = append(service.watchers, newDirectoryWatcher(
 			flagsDir,
-			flagsDir == filepath.Clean(cfg.Paths.SuspendFlagsDir),
+			flagsDir == filepath.Clean(cfg.Project.SuspendFlagsDir),
 			service.handleSuspendFlagEvent,
 			service.publishReset,
 		))

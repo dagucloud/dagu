@@ -107,7 +107,7 @@ func TestNewEventServiceAllowsUnavailableStorage(t *testing.T) {
 		Paths:      config.PathsConfig{EventStoreDir: filepath.Join(blocker, "events")},
 	}
 
-	require.Nil(t, newEventService(t.Context(), cfg))
+	require.Nil(t, newEventService(t.Context(), cfg, cfg.Paths.EventStoreDir))
 }
 
 func TestNewCoordinatorClientRejectsInvalidEnabledConfig(t *testing.T) {

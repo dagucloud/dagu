@@ -264,6 +264,26 @@ func TestSafeBufferedWriter_MaskedPartialLine(t *testing.T) {
 	assert.Equal(t, "*******", out.String())
 }
 
+// A periodic flush must not send a partial line to the stream, or a secret
+// split across writes reaches the coordinator unmasked.
+func TestMaskingStreamWriter_PartialLine(t *testing.T) {
+	stream := &recordingStream{}
+	masker := masking.NewMasker(masking.SourcedEnvVars{Secrets: []string{"TOKEN=s3cr3t"}})
+	w := newMaskingStreamWriter(stream, masker)
+
+	_, err := w.Write([]byte("s3c"))
+	require.NoError(t, err)
+	require.NoError(t, w.FlushIfDue())
+	assert.Empty(t, stream.String())
+	assert.True(t, stream.flushedIfDue)
+
+	_, err = w.Write([]byte("r3t"))
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	assert.Equal(t, "*******", stream.String())
+	assert.True(t, stream.closed)
+}
+
 // Helper types for testing
 
 type errorWriter struct {
@@ -303,4 +323,20 @@ type syncableWriter struct {
 func (s *syncableWriter) Sync() error {
 	s.synced = true
 	return s.err
+}
+
+type recordingStream struct {
+	bytes.Buffer
+	flushedIfDue bool
+	closed       bool
+}
+
+func (r *recordingStream) FlushIfDue() error {
+	r.flushedIfDue = true
+	return nil
+}
+
+func (r *recordingStream) Close() error {
+	r.closed = true
+	return nil
 }

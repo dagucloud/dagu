@@ -13,11 +13,13 @@ import (
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 )
 
-func newEventService(ctx context.Context, cfg *config.Config) *eventstore.Service {
+// newEventService opens the run events of the project whose event directory
+// is dir, or returns nil when the event store is off or cannot open.
+func newEventService(ctx context.Context, cfg *config.Config, dir string) *eventstore.Service {
 	if !cfg.EventStore.Enabled {
 		return nil
 	}
-	store, err := fileeventstore.New(cfg.Paths.EventStoreDir)
+	store, err := fileeventstore.New(dir)
 	if err != nil {
 		logger.Warn(ctx, "Failed to initialize event store; continuing without event persistence", tag.Error(err))
 		return nil

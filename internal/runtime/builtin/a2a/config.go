@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/value"
 	"github.com/dagucloud/dagu/v2/internal/executor/registry"
@@ -45,9 +46,10 @@ type common struct {
 
 type sendConfig struct {
 	common            `mapstructure:",squash"`
-	Message           string `mapstructure:"message"`
-	ContextID         string `mapstructure:"context_id"`
-	ReturnImmediately *bool  `mapstructure:"return_immediately"`
+	Message           string  `mapstructure:"message"`
+	ContextID         string  `mapstructure:"context_id"`
+	MessageID         *string `mapstructure:"message_id"`
+	ReturnImmediately *bool   `mapstructure:"return_immediately"`
 }
 
 type getTaskConfig struct {
@@ -150,6 +152,14 @@ func (c config) validate(loadTime bool) error {
 			return errors.New(prefix + "with.message is required")
 		}
 		fields["with.context_id"] = c.send.ContextID
+		if id := c.send.MessageID; id != nil {
+			// An explicit ID is never replaced by the default, so an empty
+			// value is an error.
+			if *id == "" {
+				return errors.New(prefix + "with.message_id must not be empty")
+			}
+			fields["with.message_id"] = *id
+		}
 	case opGetTask:
 		if strings.TrimSpace(c.get.TaskID) == "" {
 			return errors.New(prefix + "with.task_id is required")
@@ -163,7 +173,7 @@ func (c config) validate(loadTime bool) error {
 		if skip(v) {
 			continue
 		}
-		if len(v) > maxIDLength || strings.ContainsFunc(v, func(r rune) bool { return r < ' ' || r == 0x7f }) {
+		if utf8.RuneCountInString(v) > maxIDLength || strings.ContainsFunc(v, func(r rune) bool { return r < ' ' || r == 0x7f }) {
 			return fmt.Errorf("%s%s must be at most %d characters without control characters", prefix, name, maxIDLength)
 		}
 	}
@@ -212,6 +222,7 @@ var configSchema = &jsonschema.Schema{
 		"tenant":             str("Tenant to route to; defaults to the tenant of the selected Agent Card interface."),
 		"message":            str("a2a.send: text of the user message."),
 		"context_id":         str("a2a.send: context to continue."),
+		"message_id":         str("a2a.send: messageId to send, as given. Defaults to a UUIDv5 of the run attempt ID, step name, repeat index, and message, so a step retry resends the same ID."),
 		"return_immediately": {Type: "boolean", Description: "a2a.send: request nonblocking execution (default true)."},
 		"task_id":            str("a2a.get_task: ID of the task to read."),
 		"history_length":     {AnyOf: []*jsonschema.Schema{{Type: "integer", Minimum: new(0.0)}, {Type: "string"}}, Description: "a2a.get_task: number of most recent history messages."},

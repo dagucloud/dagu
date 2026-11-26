@@ -19,8 +19,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/launcher"
 	"github.com/dagucloud/dagu/v2/internal/opencodehost"
-	"github.com/dagucloud/dagu/v2/internal/persis"
-	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	fileeventstore "github.com/dagucloud/dagu/v2/internal/persis/file/eventstore"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend"
@@ -129,13 +127,10 @@ func runStartAll(ctx *Context, _ []string) error {
 
 	// Create a signal-aware context for services (used for auth init and all service operations)
 	serviceCtx := ctx.WithContext(ctx.withRunRegistry(signalCtx))
-	if _, err := persisfile.NewDAGSettingsStore(
-		serviceCtx.Config,
-		serviceCtx.backend.Collection(persis.CollectionDAGSettings),
-	); err != nil {
+	if _, err := serviceCtx.settings.DAGSettingsStore(); err != nil {
 		return fmt.Errorf("failed to initialize DAG settings store: %w", err)
 	}
-	stores, err := frontendfile.NewStores(serviceCtx, serviceCtx.Config, serviceCtx.backend)
+	stores, err := frontendfile.NewStores(serviceCtx, serviceCtx.Config, serviceCtx.serverStores, serviceCtx.settings)
 	if err != nil {
 		return err
 	}
@@ -144,7 +139,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	var collector func(context.Context)
 	if stores.Event != nil {
 		eventCollector, err := fileeventstore.NewCollector(
-			serviceCtx.Config.Paths.EventStoreDir,
+			serviceCtx.settings.Paths.EventStoreDir,
 			serviceCtx.Config.EventStore.RetentionDays,
 			fileeventstore.WithDedupeCacheBytes(serviceCtx.Config.Cache.Limits().EventStoreBytes),
 		)
@@ -250,6 +245,7 @@ func runStartAll(ctx *Context, _ []string) error {
 	// The drain runs alongside the scheduler's and coordinator's shutdown.
 	defer watchCloudAudit(signalCtx, webStopped, auditShipper, ctx.Config.Cloud.AuditDrainTimeout)()
 	defer startCloudAccess(serviceCtx, cloudAccess, server)()
+	serviceCtx.followProjects(serviceCtx)
 
 	// WaitGroup to track all services
 	var wg sync.WaitGroup

@@ -31,7 +31,7 @@ func TestRuntimeStoresResolveInProject(t *testing.T) {
 	for _, name := range projects {
 		settings, err := file.NewProjectSettings(cfg, server, name)
 		require.NoError(t, err)
-		contexts[name] = &Context{Context: context.Background(), Config: cfg, settings: settings, projectStores: &file.ProjectStores{ProjectSettings: settings}}
+		contexts[name] = &Context{Context: context.Background(), Config: cfg, serverStores: server, settings: settings, projectStores: &file.ProjectStores{ProjectSettings: settings}}
 		seedRuntimeSettings(t, contexts[name].runtimeStores(), name)
 	}
 
