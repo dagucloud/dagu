@@ -130,7 +130,7 @@ steps.
 ### Running Tests
 
 ```sh
-dagu test [flags] [<test file or directory>...]
+dagu test [flags] [<test file, DAG file, DAG name, or directory>...]
 ```
 
 Each case runs the tested DAG once, through the same runner as `dagu start`,
@@ -142,7 +142,24 @@ itself, and the isolation this spec defines differ.
 
 Rules:
 
-- Without `--init`, a file argument must be a test file.
+- Without `--init`, a file argument must be a test file or a DAG file. A
+  DAG file is a file whose name ends in `.yaml` or `.yml` and is not a test
+  file.
+- A DAG file argument selects the test files beside it whose names are the
+  DAG file's name without `.yaml` or `.yml`, followed by `.test.yaml` or
+  `.test.yml`, whichever exist: `release.yaml`, like `release.yml`,
+  selects `release.test.yaml` and `release.test.yml`. The selection goes by
+  name, and each selected test file tests the DAG file that
+  [Where Test Files Live](#where-test-files-live) gives it.
+- An argument that is not an existing path is a DAG name. It resolves to a
+  DAG file as `dagu start` resolves a DAG name: the file of that name in
+  the DAGs directory of the loaded configuration, with `.yaml` appended
+  unless the name ends in `.yaml` or `.yml`. `release` resolves to
+  `release.yaml` there, and `etl/daily` to `etl/daily.yaml`. The DAG name
+  selects the test files beside that DAG file by the rule above. An
+  existing path always wins over a DAG name.
+- Every flag applies to the test files that a DAG file or DAG name selects
+  as it applies to a test file argument.
 - A directory argument selects every test file under it, at any depth.
   Directories whose names start with `.` are skipped, and symbolic links are
   not followed.
@@ -1339,7 +1356,7 @@ a step it adds in the same shape:
   already exists beside it, under either suffix, or when the argument is
   not one DAG file that loads.
 
-`dagu test --update [<test file or directory>...]`:
+`dagu test --update [<test file, DAG file, DAG name, or directory>...]`:
 
 - Selects test files and cases as `dagu test` does without it, `--run`
   included. `--timeout` bounds each run, and `--keep` and `--format json`
@@ -1433,8 +1450,13 @@ The highest applicable status wins.
 `dagu test` exits with status 2, runs no case, and writes the error to
 stderr when:
 
-- a path argument does not exist;
-- without `--init`, a file argument is not a test file;
+- an argument is not an existing path, and does not resolve to an
+  existing DAG file as a DAG name;
+- without `--init`, a file argument is neither a test file nor a DAG file;
+- no test file sits beside the DAG file that a DAG file or DAG name argument
+  selects. The error names the command that writes one:
+  `release.yaml has no test file; write one with: dagu test --init release.yaml`.
+  For a DAG name, the command names the resolved DAG file;
 - `--init` has other than one argument, or is set together with `--update`,
   `--run`, `--keep`, or `--format json`;
 - `--run` is not a valid regular expression;
