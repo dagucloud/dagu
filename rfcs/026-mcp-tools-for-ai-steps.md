@@ -91,8 +91,8 @@ mcp_servers:
     unattended: [create_draft]      # label_thread still waits for a person
 ```
 
-- A name resolves as RFC 025's Scopes describe: the project's own
-  connection, or a server connection that lists the project.
+- A name resolves to the project's own connection, as RFC 025's Ownership
+  describes.
 - `tools` is an allow-list. When it is left out, every tool listed when the
   run starts is offered.
 - **Write tools wait for a person by default.** Every tool that is not
