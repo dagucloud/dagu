@@ -47,7 +47,7 @@ type Local struct {
 	queueStore               queue.QueueStore
 	stateStore               dagrun.StateStore
 	stateStoreFor            func(ctx context.Context, path string) (dagrun.StateStore, error)
-	enqueueStoresFor         func(ctx context.Context, path string) (*persis.DAGRunRepository, queue.QueueStore, error)
+	enqueueStoresFor         func(ctx context.Context, path string) (EnqueueStores, error)
 	secretStore              secretpkg.Store
 	secretResolver           func(*ir.DAG) providers.ReferenceResolver
 	nodes                    func(*ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys)
@@ -117,12 +117,20 @@ func WithLocalStateStoreFor(pick func(ctx context.Context, path string) (dagrun.
 	}
 }
 
+// EnqueueStores are the stores and directories that record a run that
+// Enqueue admits.
+type EnqueueStores struct {
+	DAGRunRepository *persis.DAGRunRepository
+	QueueStore       queue.QueueStore
+	LogDir           string
+	ArtifactDir      string
+}
+
 // WithLocalEnqueueStoresFor sets how Enqueue finds, from the file of a DAG,
-// the stores that record the run it admits. Without it, Enqueue uses the
-// DAG-run repository and the queue store.
-func WithLocalEnqueueStoresFor(
-	pick func(ctx context.Context, path string) (*persis.DAGRunRepository, queue.QueueStore, error),
-) LocalOption {
+// the stores and directories that record the run it admits. Without it,
+// Enqueue uses the DAG-run repository, the queue store, and the DAG-run
+// directories.
+func WithLocalEnqueueStoresFor(pick func(ctx context.Context, path string) (EnqueueStores, error)) LocalOption {
 	return func(r *Local) {
 		r.enqueueStoresFor = pick
 	}
@@ -307,13 +315,11 @@ func (r *Local) Run(ctx context.Context, req executor.SubWorkflowRequest) (*ir.R
 
 // Enqueue admits a child workflow to the local control-plane queue.
 func (r *Local) Enqueue(ctx context.Context, req executor.EnqueueRequest) (executor.EnqueueResult, error) {
-	dagRunRepository, queueStore := r.dagRunRepository, r.queueStore
-	if r.enqueueStoresFor != nil {
-		var err error
-		if dagRunRepository, queueStore, err = r.enqueueStoresFor(ctx, req.Location); err != nil {
-			return executor.EnqueueResult{}, err
-		}
+	stores, err := r.enqueueStores(ctx, req.Location)
+	if err != nil {
+		return executor.EnqueueResult{}, err
 	}
+	dagRunRepository, queueStore := stores.DAGRunRepository, stores.QueueStore
 	if dagRunRepository == nil {
 		return executor.EnqueueResult{}, fmt.Errorf("dag.enqueue requires a DAG-run repository")
 	}
@@ -336,23 +342,14 @@ func (r *Local) Enqueue(ctx context.Context, req executor.EnqueueRequest) (execu
 		return executor.EnqueueResult{}, fmt.Errorf("failed to check existing DAG run: %w", err)
 	}
 
-	rCtx := runctx.GetContext(ctx)
-	logDir := r.dagRunLogDir
-	if logDir == "" {
-		logDir = rCtx.DAGRunLogDir
-	}
-	artifactDir := r.dagRunArtifactDir
-	if artifactDir == "" {
-		artifactDir = rCtx.DAGRunArtifactDir
-	}
 	_, err = intake.EnqueueRun(ctx, intake.QueueRequest{
 		DAGRunRepository: dagRunRepository,
 		QueueStore:       queueStore,
 		DAG:              req.DAG,
 		DAGRunID:         req.RunID,
 		QueueName:        req.QueueName,
-		LogBaseDir:       logDir,
-		ArtifactBaseDir:  artifactDir,
+		LogBaseDir:       stores.LogDir,
+		ArtifactBaseDir:  stores.ArtifactDir,
 		TriggerType:      ir.TriggerTypeSubDAG,
 		TriggerActor:     req.TriggerActor,
 		ParallelItem:     req.ParallelItem,
@@ -365,6 +362,28 @@ func (r *Local) Enqueue(ctx context.Context, req executor.EnqueueRequest) (execu
 		return executor.EnqueueResult{}, fmt.Errorf("failed to enqueue DAG run: %w", err)
 	}
 	return executor.EnqueueResult{Status: ir.Queued}, nil
+}
+
+// enqueueStores returns the stores and directories that record a run of
+// the DAG file at path that Enqueue admits.
+func (r *Local) enqueueStores(ctx context.Context, path string) (EnqueueStores, error) {
+	if r.enqueueStoresFor != nil {
+		return r.enqueueStoresFor(ctx, path)
+	}
+	rCtx := runctx.GetContext(ctx)
+	stores := EnqueueStores{
+		DAGRunRepository: r.dagRunRepository,
+		QueueStore:       r.queueStore,
+		LogDir:           r.dagRunLogDir,
+		ArtifactDir:      r.dagRunArtifactDir,
+	}
+	if stores.LogDir == "" {
+		stores.LogDir = rCtx.DAGRunLogDir
+	}
+	if stores.ArtifactDir == "" {
+		stores.ArtifactDir = rCtx.DAGRunArtifactDir
+	}
+	return stores, nil
 }
 
 // Retry retries a child workflow step in the current process.

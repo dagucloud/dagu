@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	goruntime "runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -24,7 +25,6 @@ import (
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	filematerialization "github.com/dagucloud/dagu/v2/internal/persis/file/materialization"
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
-	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
@@ -149,43 +149,55 @@ func TestLocalEnqueueRecognizesExistingRunWithoutStatus(t *testing.T) {
 	require.Equal(t, ir.Queued, result.Status)
 }
 
-// Enqueue records the run it admits in the stores that its option picks for
-// the DAG, and refuses the run when the option does.
+// Enqueue records the run it admits in the stores and directories that its
+// option picks for the DAG, and refuses the run when the option does.
 func TestLocalEnqueueUsesStoresForDAG(t *testing.T) {
 	t.Parallel()
 
 	th := test.Setup(t)
 	child := th.DAG(t, "name: child\nsteps:\n  - name: ok\n    run: echo ok\n")
 	refused := errors.New("refused")
+	logDir := t.TempDir()
 	var picked string
 	runner := subflow.NewLocal(
 		th.DAGRunMgr,
 		th.DAGRepository,
 		subflow.WithLocalDAGRunDirs(t.TempDir(), t.TempDir()),
-		subflow.WithLocalEnqueueStoresFor(func(_ context.Context, path string) (*persis.DAGRunRepository, queue.QueueStore, error) {
+		subflow.WithLocalEnqueueStoresFor(func(_ context.Context, path string) (subflow.EnqueueStores, error) {
 			if picked != "" {
-				return nil, nil, refused
+				return subflow.EnqueueStores{}, refused
 			}
 			picked = path
-			return th.DAGRunRepository, th.QueueStore, nil
+			return subflow.EnqueueStores{
+				DAGRunRepository: th.DAGRunRepository,
+				QueueStore:       th.QueueStore,
+				LogDir:           logDir,
+				ArtifactDir:      t.TempDir(),
+			}, nil
 		}),
 	)
-	enqueue := func() error {
+	enqueue := func(runID string) error {
 		_, err := runner.Enqueue(th.Context, executor.EnqueueRequest{
 			DAG:      child.DAG,
-			RunID:    uuid.Must(uuid.NewV7()).String(),
+			RunID:    runID,
 			Location: child.Location,
 		})
 		return err
 	}
 
-	require.NoError(t, enqueue())
+	runID := uuid.Must(uuid.NewV7()).String()
+	require.NoError(t, enqueue(runID))
 	require.Equal(t, child.Location, picked)
 	items, err := th.QueueStore.List(th.Context, child.DAG.ProcGroup())
 	require.NoError(t, err)
 	require.Len(t, items, 1)
+	attempt, err := th.DAGRunRepository.FindAttempt(th.Context, ir.NewDAGRunRef(child.DAG.Name, runID))
+	require.NoError(t, err)
+	status, err := attempt.ReadStatus(th.Context)
+	require.NoError(t, err)
+	require.True(t, strings.HasPrefix(status.Log, logDir), "log %s is not under %s", status.Log, logDir)
 
-	require.ErrorIs(t, enqueue(), refused)
+	require.ErrorIs(t, enqueue(uuid.Must(uuid.NewV7()).String()), refused)
 }
 
 // A child agent keeps its DAG state in the store that its option picks for

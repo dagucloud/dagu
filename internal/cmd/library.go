@@ -9,9 +9,8 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/dagrun"
-	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
+	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 )
 
@@ -73,19 +72,24 @@ func (c *Context) subDAGStateStore() func(ctx context.Context, path string) (dag
 
 // enqueueStores returns how dag.enqueue finds the stores that record the run
 // it admits, or nil while projects are off. A library DAG's run is refused.
-func (c *Context) enqueueStores() func(ctx context.Context, path string) (*persis.DAGRunRepository, queue.QueueStore, error) {
+func (c *Context) enqueueStores() func(ctx context.Context, path string) (coordinator.EnqueueStores, error) {
 	if c.projectStores == nil || !c.Config.ProjectsEnabled {
 		return nil
 	}
 	stores := c.projectStores
-	return func(ctx context.Context, path string) (*persis.DAGRunRepository, queue.QueueStore, error) {
+	return func(ctx context.Context, path string) (coordinator.EnqueueStores, error) {
 		runs, err := stores.RunStores(ctx, path)
 		if err != nil {
-			return nil, nil, err
+			return coordinator.EnqueueStores{}, err
 		}
 		if runs.InLibrary() {
-			return nil, nil, errLibraryEnqueue
+			return coordinator.EnqueueStores{}, errLibraryEnqueue
 		}
-		return runs.DAGRunRepository, runs.QueueStore, nil
+		return coordinator.EnqueueStores{
+			DAGRunRepository: runs.DAGRunRepository,
+			QueueStore:       runs.QueueStore,
+			LogDir:           runs.Paths.LogDir,
+			ArtifactDir:      runs.Paths.ArtifactDir,
+		}, nil
 	}
 }
