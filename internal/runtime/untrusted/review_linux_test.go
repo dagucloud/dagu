@@ -6,6 +6,7 @@
 package untrusted
 
 import (
+	"cmp"
 	"context"
 	"os"
 	"os/exec"
@@ -153,11 +154,22 @@ func TestReviewZombieLeaderSurvivesEnd(t *testing.T) {
 	require.NoError(t, err)
 	// The agent writes its count in /tmp, which any user can write.
 	marker := filepath.Join(os.TempDir(), "dagu-review-zombie-"+strconv.Itoa(os.Getpid()))
+	_ = os.Remove(marker)
 	t.Cleanup(func() { _ = os.Remove(marker) })
 	runAs(t, WithStep(ctx, step), filepath.Join(workDir, "repo"), bin+" "+marker+" </dev/null >/dev/null 2>&1 &\nsleep 1")
-	// The thread makes the file, so an equal count below means a stopped
-	// thread, not a fixture that never started.
-	require.FileExists(t, marker, "the thread of the agent did not run")
+	// A count that changes shows that the thread runs before End, so an equal
+	// count below means a stopped thread. A read between the truncation and
+	// the write of the file is empty.
+	var seen string
+	require.Eventually(t, func() bool {
+		data, _ := os.ReadFile(marker)
+		count := strings.TrimSpace(string(data))
+		if count == "" || seen == "" {
+			seen = cmp.Or(seen, count)
+			return false
+		}
+		return count != seen
+	}, 5*time.Second, 20*time.Millisecond, "the thread of the agent does not run")
 	require.NoError(t, step.End(ctx))
 
 	first, err := os.ReadFile(marker)
