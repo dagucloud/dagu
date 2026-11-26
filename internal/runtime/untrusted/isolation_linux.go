@@ -421,15 +421,13 @@ func (iso *isolation) writeRestrictedFile(path string, data []byte, mode fs.File
 		return stepError(iso.step, "make the file", path, err)
 	}
 	_, writeErr := file.Write(data)
+	// The owner and the mode change through the descriptor: a link that
+	// replaces the path cannot redirect them.
+	chownErr := file.Chown(int(iso.uid), int(iso.gid))
+	chmodErr := file.Chmod(mode)
 	closeErr := file.Close()
-	if err := errors.Join(writeErr, closeErr); err != nil {
+	if err := errors.Join(writeErr, chownErr, chmodErr, closeErr); err != nil {
 		return stepError(iso.step, "write the file", path, err)
-	}
-	if err := os.Lchown(path, int(iso.uid), int(iso.gid)); err != nil {
-		return stepError(iso.step, "change the owner of", path, err)
-	}
-	if err := os.Chmod(path, mode); err != nil {
-		return stepError(iso.step, "change the mode of", path, err)
 	}
 	return nil
 }
