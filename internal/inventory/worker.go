@@ -13,6 +13,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/ir"
 )
 
+// daguHostWorkerID is the worker ID that runs on the Dagu host report.
+const daguHostWorkerID = "local"
+
 var (
 	// ErrWorkerNodeNotFound reports a name that names no worker node.
 	ErrWorkerNodeNotFound = errors.New("worker node not found")
@@ -65,11 +68,12 @@ type WorkerConflict struct {
 	Node ResolvedNode
 }
 
-// IsNodeName reports whether name can name a node. A worker is a node only
-// when its ID can, which the ID of a worker without worker.id, generated
-// as hostname@pid, never does.
+// IsNodeName reports whether a worker ID can name a node. A worker is a
+// node only when its ID can, which the ID of a worker without worker.id,
+// generated as hostname@pid, never does, and neither does local, the worker
+// ID of runs on the Dagu host.
 func IsNodeName(name string) bool {
-	return nodeNameError(name) == nil
+	return nodeNameError(name) == nil && !strings.EqualFold(name, daguHostWorkerID)
 }
 
 // Node returns the worker node as a node that selectors match and runs bind

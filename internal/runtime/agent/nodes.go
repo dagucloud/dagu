@@ -142,12 +142,12 @@ func (a *Agent) lookupBoundNode(ctx context.Context) (*nodeBinding, error) {
 	switch {
 	case node == nil:
 		return nil, fmt.Errorf("node %q is not in the project's inventories", a.boundNode)
-	case node.Kind == inventory.NodeKindWorker && !strings.EqualFold(node.Name, a.workerID):
+	case node.Kind == inventory.NodeKindWorker && !a.runsOnWorker(node.Name):
 		return nil, fmt.Errorf("the run is bound to worker node %q, so it runs only on that worker", node.Name)
 	case node.Kind == inventory.NodeKindWorker:
 		steps := allSteps(a.dag)
 		if i := slices.IndexFunc(steps, connectsToNode); i >= 0 {
-			return nil, fmt.Errorf("step %q connects to its node over SSH, but worker node %q has no SSH connection; set with.host", steps[i].Name, node.Name)
+			return nil, fmt.Errorf("step %q connects to its node over SSH, but worker node %q has no SSH connection; set with.host, or keep worker nodes out of the step's selector", steps[i].Name, node.Name)
 		}
 	case node.Disabled:
 		return nil, fmt.Errorf("node %q is disabled", node.Name)
@@ -165,6 +165,12 @@ func (a *Agent) lookupBoundNode(ctx context.Context) (*nodeBinding, error) {
 		return nil, err
 	}
 	return binding, nil
+}
+
+// runsOnWorker reports whether the run runs on the worker whose ID is
+// workerID. A run on the Dagu host runs on no worker.
+func (a *Agent) runsOnWorker(workerID string) bool {
+	return a.workerID != "" && a.workerID != localWorkerID && strings.EqualFold(a.workerID, workerID)
 }
 
 // valueNode returns the node as ${node.*} reads it.
@@ -236,12 +242,20 @@ func reachesNode(step ir.Step) bool {
 func connectsToNode(step ir.Step) bool {
 	switch step.ExecutorConfig.Type {
 	case "ssh", "sftp":
-		_, host := step.ExecutorConfig.Config["host"]
-		_, ip := step.ExecutorConfig.Config["ip"]
-		return !host && !ip
+		return !namesHost(step.ExecutorConfig.Config, "host") && !namesHost(step.ExecutorConfig.Config, "ip")
 	default:
 		return false
 	}
+}
+
+// namesHost reports whether with sets key to a host. An empty value names
+// none, so it does not reach whatever host an empty address dials.
+func namesHost(with map[string]any, key string) bool {
+	value, ok := with[key]
+	if text, isText := value.(string); isText {
+		return strings.TrimSpace(text) != ""
+	}
+	return ok
 }
 
 // isCommandStep reports whether a step runs on the command executor: a step

@@ -258,6 +258,26 @@ steps:
 	require.Zero(t, server.AuthAttempts())
 }
 
+// An empty with.host names no host, so the step reaches the node rather
+// than whatever host an empty address dials.
+func TestAgent_BoundRunEmptyHostReachesNode(t *testing.T) {
+	t.Parallel()
+
+	node, server := startNode(t, "web01")
+	dagAgent, _ := runBound(t, nodeInventory{node}, `
+node: required
+steps:
+  - id: connect
+    action: ssh.run
+    with:
+      host: ""
+      command: "true"
+`, newCountingSecretResolver(map[string]string{passwordRef: nodePassword}))
+	dagAgent.RunSuccess(t)
+
+	require.Len(t, server.Commands(), 1)
+}
+
 // A run whose steps all run where the run runs never connects, so it reads
 // none of the node's credentials.
 func TestAgent_BoundRunWithoutCommandsReadsNoCredential(t *testing.T) {
@@ -415,6 +435,12 @@ func TestAgent_WorkerBoundRunFailsBeforeAnyStep(t *testing.T) {
 			wantErr:  `step "connect" connects to its node over SSH, but worker node "tokyo-gw" has no SSH connection`,
 		},
 		{
+			name:     "SSHWithEmptyHost",
+			workerID: "tokyo-gw",
+			yaml:     "node: required\nsteps:\n  - id: connect\n    action: sftp.upload\n    with:\n      host: \" \"\n      source: a\n      destination: b\n",
+			wantErr:  `step "connect" connects to its node over SSH, but worker node "tokyo-gw" has no SSH connection`,
+		},
+		{
 			name:     "MissingLabel",
 			workerID: "tokyo-gw",
 			yaml:     "node: required\nsteps:\n  - id: restart\n    run: systemctl restart ${node.labels.zone}\n",
@@ -431,4 +457,19 @@ func TestAgent_WorkerBoundRunFailsBeforeAnyStep(t *testing.T) {
 			}
 		})
 	}
+}
+
+// local is the worker ID of runs on the Dagu host, so a run there bound to a
+// worker node of that name still runs on no worker.
+func TestAgent_WorkerBoundRunNotOnDaguHostAsLocal(t *testing.T) {
+	t.Parallel()
+
+	th := test.Setup(t)
+	dag := th.DAG(t, "node: required\nsteps:\n  - id: restart\n    run: systemctl restart app\n")
+	dagAgent := dag.Agent(test.WithAgentOptions(agent.Options{
+		BoundNode:    "local",
+		WorkerID:     "local",
+		NodeSelector: nodeInventory{{Name: "local", Kind: inventory.NodeKindWorker}},
+	}))
+	dagAgent.RunCheckErr(t, `the run is bound to worker node "local", so it runs only on that worker`)
 }

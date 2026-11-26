@@ -13,7 +13,7 @@ import (
 )
 
 // A worker is a node only when its ID names one; a worker without
-// worker.id reports hostname@pid.
+// worker.id reports hostname@pid, and runs on the Dagu host report local.
 func TestIsNodeName(t *testing.T) {
 	t.Parallel()
 
@@ -22,6 +22,7 @@ func TestIsNodeName(t *testing.T) {
 	assert.False(t, inventory.IsNodeName("build-host@4242"))
 	assert.False(t, inventory.IsNodeName(""))
 	assert.False(t, inventory.IsNodeName("-gw"))
+	assert.False(t, inventory.IsNodeName("Local"), "the worker ID of runs on the Dagu host")
 }
 
 func TestSplitWorkers(t *testing.T) {
