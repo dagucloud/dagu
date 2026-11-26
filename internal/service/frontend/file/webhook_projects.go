@@ -70,7 +70,9 @@ func (w *webhookProjects) Get(ctx context.Context, name string) (*apiv1.WebhookP
 
 // Migrated finds a migrated project whose webhook for the DAG predates the
 // project's registration, so migration brought it from v2 with the DAG, and
-// whose DAG of that name still exists as its own.
+// whose DAG of that name still exists as its own. A project whose webhooks
+// cannot be read fails the lookup only when it has a DAG of that name, since
+// the default project's DAG might then not be the one the URL reaches.
 func (w *webhookProjects) Migrated(ctx context.Context, dagName string) (*apiv1.WebhookProject, error) {
 	projects, err := w.registry.List(ctx)
 	if err != nil {
@@ -85,20 +87,23 @@ func (w *webhookProjects) Migrated(ctx context.Context, dagName string) (*apiv1.
 		if errors.Is(err, project.ErrNotFound) {
 			continue
 		}
-		if err != nil {
-			return nil, err
+		var webhook *auth.Webhook
+		if err == nil {
+			webhook, err = target.Webhooks.GetByDAGName(ctx, dagName)
 		}
-		webhook, err := target.Webhooks.GetByDAGName(ctx, dagName)
 		if errors.Is(err, auth.ErrWebhookNotFound) {
 			continue
 		}
 		if err != nil {
-			return nil, err
+			if err := w.unreadable(ctx, p, dagName, err); err != nil {
+				return nil, err
+			}
+			continue
 		}
 		if !webhook.CreatedAt.Before(p.CreatedAt) {
 			continue
 		}
-		own, err := w.ownDAG(ctx, target, dagName)
+		own, err := w.ownDAG(ctx, target.DAGRepository, p.Name, dagName)
 		if err != nil {
 			return nil, err
 		}
@@ -109,23 +114,38 @@ func (w *webhookProjects) Migrated(ctx context.Context, dagName string) (*apiv1.
 	return nil, nil
 }
 
+// unreadable returns err, the failure to read p's webhooks, when p has a
+// DAG called dagName, and logs it otherwise.
+func (w *webhookProjects) unreadable(ctx context.Context, p project.Project, dagName string, err error) error {
+	stores, ok := w.cache.Get(p.ID)
+	if !ok {
+		return nil
+	}
+	own, ownErr := w.ownDAG(ctx, stores.DAGRepository, p.Name, dagName)
+	if own || ownErr != nil {
+		return errors.Join(err, ownErr)
+	}
+	logger.Warn(ctx, "Failed to read a migrated project's webhooks", tag.Name(p.Name), tag.Error(err))
+	return nil
+}
+
 func (w *webhookProjects) Library(ctx context.Context, path string) (bool, error) {
 	owner, err := w.server.DAGOwners().Of(ctx, path)
 	return owner.Library, err
 }
 
-// ownDAG reports whether the project has a DAG called dagName of its own,
-// not one found in the library.
-func (w *webhookProjects) ownDAG(ctx context.Context, target *apiv1.WebhookProject, dagName string) (bool, error) {
-	dag, err := target.DAGRepository.GetMetadata(ctx, dagName)
+// ownDAG reports whether the project called projectName, whose DAGs dags
+// holds, has a DAG called dagName of its own, not one found in the library.
+func (w *webhookProjects) ownDAG(ctx context.Context, dags *persis.DAGRepository, projectName, dagName string) (bool, error) {
+	dag, err := dags.GetMetadata(ctx, dagName)
 	if errors.Is(err, persis.ErrDAGNotFound) || errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	owner, err := w.server.DAGOwners().OfIn(ctx, target.Name, dag.Location)
-	return owner.Is(target.Name), err
+	owner, err := w.server.DAGOwners().OfIn(ctx, projectName, dag.Location)
+	return owner.Is(projectName), err
 }
 
 // target returns the webhook target of p, built once for each opening of
@@ -142,9 +162,9 @@ func (w *webhookProjects) target(ctx context.Context, p project.Project) (*apiv1
 		return open.target, nil
 	}
 
-	enc, err := w.server.Encryptor()
-	if err != nil {
-		logger.Warn(ctx, "Failed to prepare encryption for a project's webhooks", tag.Name(p.Name), tag.Error(err))
+	enc, encErr := w.server.Encryptor()
+	if encErr != nil {
+		logger.Warn(ctx, "Failed to prepare encryption for a project's webhooks", tag.Name(p.Name), tag.Error(encErr))
 	}
 	webhooks, err := stores.WebhookStore(enc)
 	if err != nil {
@@ -169,7 +189,11 @@ func (w *webhookProjects) target(ctx context.Context, p project.Project) (*apiv1
 		ArtifactDir:      stores.Paths.ArtifactDir,
 		BaseConfig:       baseConfig,
 	}
-	w.open[p.ID] = webhookProject{stores: stores, target: target}
+	// Without the encryptor, the next request opens the webhooks again, so
+	// they become readable once the key is.
+	if encErr == nil {
+		w.open[p.ID] = webhookProject{stores: stores, target: target}
+	}
 	return target, nil
 }
 

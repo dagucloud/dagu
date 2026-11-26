@@ -14,6 +14,7 @@ import (
 
 	"github.com/dagucloud/dagu/v2/api/v1"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/fileutil"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	persisfile "github.com/dagucloud/dagu/v2/internal/persis/file"
 	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
@@ -220,7 +221,7 @@ func TestProjectWebhookLegacyURLReachesMigratedDAG(t *testing.T) {
 	server.requireRunIn(t, project.DefaultName, run, "ops", project.DefaultName)
 
 	// Once the migrated DAG is gone, the URL reaches the default project's.
-	require.NoError(t, os.Remove(filepath.Join(server.Config.Paths.ProjectsDir, "ops", "moved.yaml")))
+	require.NoError(t, fileutil.Remove(filepath.Join(server.Config.Paths.ProjectsDir, "ops", "moved.yaml")))
 	server.trigger(t, "moved", defaultToken, http.StatusOK)
 }
 
