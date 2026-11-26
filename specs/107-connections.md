@@ -227,7 +227,7 @@ A worker has neither.
 | `account_id` | The provider's immutable account ID: Google's `sub`, or Microsoft's tenant and object IDs |
 | `status` | `pending`, `connected`, or `needs_reconnect`. See [Status Transitions](#status-transitions) |
 | `status_reason` | The provider's error code and text, without secrets |
-| `generation` | Starts at 0. Increases by 1 on each confirm, on an import, and on each successful token fetch of a create or reconnect without a session |
+| `generation` | Starts at 0. Increases by 1 on each confirm, on an import, and on each successful token fetch without a session: at a create, a reconnect, or a change of `subject` |
 | `session` | The session in progress, if any. See [Sessions](#sessions) |
 | `refreshed_at` | Time of the last successful refresh |
 | `import_hash` | Only for an imported connection: a hash of the refresh token the import was given. See [Import](#import) |
@@ -269,8 +269,10 @@ A worker has neither.
   failed fetch on reconnect changes no status.
 - A change of `subject` discards the stored access tokens and repeats the
   token fetch for the new `subject`, as a reconnect replaces tokens. The
-  account fields then name the new `subject`. No token minted for the old
-  `subject` is used after the change.
+  account fields then name the new `subject`. After the change, neither the
+  broker nor the coordinator hands out a token minted for the old
+  `subject`. A run that already holds one, locally or on a worker, keeps
+  using it until its next token request, as runs do after a reconnect.
 - A `device_code` connect runs a session and needs the starter's confirm,
   as the other modes do.
 - A grant without a refresh token never becomes `needs_reconnect`.
