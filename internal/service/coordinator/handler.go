@@ -180,7 +180,7 @@ type Handler struct {
 	secretStore               secretpkg.Store                    // Secret registry for workers
 	profileStore              profilepkg.Store                   // Runtime profiles for workers
 	projectsEnabled           bool                               // Resolve secrets and profiles without workspace layers
-	nodeInventory             runctx.NodeSelector                // Inventory nodes for runs on workers
+	nodeInventory             inventory.Store                    // Inventory nodes for runs on workers
 	trustedHostKeys           runctx.TrustedHostKeys             // Host keys trusted for inventory nodes
 	agentSessionCleanupQueue  *agentsession.CleanupQueue         // Deferred provider cleanup owned by workers
 	workerNodes               *workerNodeRecorder                // Records workers that set an ID as nodes
@@ -268,7 +268,7 @@ type HandlerConfig struct {
 	// NodeInventory finds the project's inventory nodes for runs on workers.
 	// Optional - when nil, ResolveNodes and node secret refs return
 	// FailedPrecondition.
-	NodeInventory runctx.NodeSelector
+	NodeInventory inventory.Store
 
 	// TrustedHostKeys finds the host keys trusted for inventory nodes.
 	// Optional - when nil, ResolveNodes answers no trusted keys.
@@ -1072,6 +1072,10 @@ func (h *Handler) createSubAttemptForTask(ctx context.Context, task *coordinator
 // writeInitialStatus writes an initial NotStarted status to the attempt.
 // This ensures the status file is not empty when read before the worker reports its first status.
 func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt, task *coordinatorv1.Task, dagName string, root ir.DAGRunRef, labels []string) error {
+	nodeList, err := retriedNodeList(task)
+	if err != nil {
+		return err
+	}
 	initialStatus := ir.DAGRunStatus{
 		Name:             dagName,
 		DAGRunID:         task.DagRunId,
@@ -1089,10 +1093,29 @@ func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt
 		ScheduleTimezone: task.ScheduleTimezone,
 		DefinitionID:     task.DefinitionId,
 		ProfileName:      task.ProfileName,
+		TargetNodes:      task.TargetNodes,
+		NodeList:         nodeList,
 		// Every step's model usage is recorded from the start.
 		ModelUsageRecorded: true,
 	}
 	return attempt.Write(ctx, initialStatus)
+}
+
+// retriedNodeList returns the record of the node list that a retry of a
+// narrowed run continues, so an attempt lost before its agent writes a
+// status keeps it.
+func retriedNodeList(task *coordinatorv1.Task) (*ir.NodeListRecord, error) {
+	if len(task.TargetNodes) == 0 || task.Operation != coordinatorv1.Operation_OPERATION_RETRY || task.PreviousStatus == nil {
+		return nil, nil
+	}
+	previous, err := convert.ProtoToDAGRunStatus(task.PreviousStatus)
+	if err != nil {
+		return nil, fmt.Errorf("decode previous task status: %w", err)
+	}
+	if previous == nil {
+		return nil, nil
+	}
+	return previous.NodeList, nil
 }
 
 // applyTaskWorkerSelector records the selector the task was dispatched with in
@@ -2317,6 +2340,15 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	}
 	if dagRunStatus.TriggerSubject == nil {
 		dagRunStatus.TriggerSubject = latestStatus.TriggerSubject
+	}
+	// A worker that predates node lists reports neither, and both must
+	// outlive its report so a retry stays narrowed.
+	if len(dagRunStatus.TargetNodes) == 0 && len(latestStatus.TargetNodes) > 0 {
+		dagRunStatus.TargetNodes = append([]string(nil), latestStatus.TargetNodes...)
+	}
+	if dagRunStatus.NodeList == nil && latestStatus.NodeList != nil {
+		record := *latestStatus.NodeList
+		dagRunStatus.NodeList = &record
 	}
 
 	attempt := latestAttempt

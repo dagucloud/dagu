@@ -49,6 +49,10 @@ type SubWorkflowRunnerConfig struct {
 	WorkerID           string
 	DAGRunLogDir       string
 	DAGRunArtifactDir  string
+
+	// Nodes, when set, gives each child run the nodes of its DAG in place of
+	// its parent's.
+	Nodes func(*ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys)
 }
 
 // NewSubWorkflowRunnerFactory creates recursive child workflow runners.
@@ -77,6 +81,7 @@ func NewSubWorkflowRunnerFactory(cfg SubWorkflowRunnerConfig) func(context.Conte
 				subflow.WithLocalStateStore(cfg.StateStore),
 				subflow.WithLocalSecretStore(cfg.SecretStore),
 				subflow.WithLocalSecretResolver(cfg.SecretResolver),
+				subflow.WithLocalNodes(cfg.Nodes),
 				subflow.WithLocalProfileStore(cfg.ProfileStore),
 				subflow.WithLocalProfileResolver(cfg.ProfileResolver),
 				subflow.WithLocalServiceRegistry(cfg.ServiceRegistry),

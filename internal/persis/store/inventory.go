@@ -271,6 +271,14 @@ func (s *InventoryStore) Select(ctx context.Context, selector string) ([]invento
 	return inventory.Select(nodes, filters), nil
 }
 
+func (s *InventoryStore) Named(ctx context.Context, names []string) ([]inventory.ResolvedNode, error) {
+	nodes, err := s.Nodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return inventory.Named(nodes, names), nil
+}
+
 // loadLocked reads every inventory under the lock. An import writes one
 // inventory at a time, so a read between two of its writes could miss a node
 // that moves between inventories, and a step would then run on part of the

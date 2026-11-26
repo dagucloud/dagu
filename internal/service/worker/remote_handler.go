@@ -266,6 +266,8 @@ func (h *remoteTaskHandler) reportTaskLoadFailure(ctx context.Context, run remot
 		DefinitionID: task.DefinitionId,
 		TriggerActor: task.TriggerActor,
 		TriggerType:  run.triggerType(),
+		TargetNodes:  run.targetNodes(),
+		NodeList:     run.nodeList(),
 		// The run ended before any step could use a model.
 		ModelUsageRecorded: true,
 	}
@@ -324,6 +326,8 @@ func (h *remoteTaskHandler) reportDAGRunInitFailure(
 		DefinitionID: task.DefinitionId,
 		TriggerActor: task.TriggerActor,
 		TriggerType:  run.triggerType(),
+		TargetNodes:  run.targetNodes(),
+		NodeList:     run.nodeList(),
 		// The run ended before any step could use a model.
 		ModelUsageRecorded: true,
 	}
@@ -385,6 +389,24 @@ func (r remoteRun) triggerType() ir.TriggerType {
 		return r.retry.triggerType
 	}
 	return ir.ParseTriggerType(r.task.TriggerType)
+}
+
+// targetNodes is the run's node list: the task's, or for a retry from a
+// dispatcher that sent none, the list of the run it retries.
+func (r remoteRun) targetNodes() []string {
+	if len(r.task.TargetNodes) == 0 && r.retry != nil && r.retry.target != nil {
+		return r.retry.target.TargetNodes
+	}
+	return r.task.TargetNodes
+}
+
+// nodeList is the record of the node list a retry continues, so a failure
+// before the run starts keeps it.
+func (r remoteRun) nodeList() *ir.NodeListRecord {
+	if r.retry == nil || r.retry.target == nil {
+		return nil
+	}
+	return r.retry.target.NodeList
 }
 
 type taskInitError struct {
@@ -723,6 +745,15 @@ func (h *remoteTaskHandler) executeDAGRun(
 			WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID,
 		})
 	}
+	// Each run reads the nodes of its own DAG, so a child run gets its own.
+	nodes := func(current *ir.DAG) (runtime.NodeSelector, runtime.TrustedHostKeys) {
+		nodeRun := coordinator.SecretReferenceRun{WorkerID: h.workerID, AttemptKey: task.AttemptKey, AttemptID: attemptID}
+		if current != nil {
+			nodeRun.DAGName = current.Name
+		}
+		return newRemoteNodes(h.coordinatorClient, run.owner, nodeRun)
+	}
+	nodeSelector, hostKeys := nodes(dag)
 
 	toolEnvs, err := h.prepareDAGTools(ctx, dag)
 	if err != nil {
@@ -766,6 +797,7 @@ func (h *remoteTaskHandler) executeDAGRun(
 		StateStore:         h.stateStore,
 		SecretStore:        runtimeStores.SecretStore,
 		SecretResolver:     secretResolver,
+		Nodes:              nodes,
 		ProfileStore:       runtimeStores.ProfileStore,
 		ProfileResolver:    profileResolver,
 		ServiceRegistry:    h.serviceRegistry,
@@ -794,6 +826,9 @@ func (h *remoteTaskHandler) executeDAGRun(
 		StateStore:               h.stateStore,
 		SecretStore:              runtimeStores.SecretStore,
 		SecretReferenceResolver:  secretResolver(dag),
+		NodeSelector:             nodeSelector,
+		HostKeys:                 hostKeys,
+		TargetNodes:              run.targetNodes(),
 		ProfileStore:             runtimeStores.ProfileStore,
 		ProfileResolver:          profileResolver(dag),
 		ProfileName:              run.profileName,

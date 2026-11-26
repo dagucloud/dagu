@@ -476,6 +476,46 @@ describe('DAGRunActions', () => {
     expect(retry.parentElement).toHaveAttribute('tabindex', '0');
   });
 
+  it('keeps a focusable disabled Retry on a finished retry-disabled run when hiding unavailable actions', () => {
+    const run = {
+      name: 'nightly',
+      dagRunId: 'run-3',
+      status: Status.Failed,
+      statusLabel: StatusLabel.failed,
+      artifactsAvailable: false,
+      autoRetryCount: 0,
+      startedAt: '',
+      finishedAt: '',
+      retryDisabled: true,
+    };
+    const { rerender } = render(
+      <DAGRunActions
+        dagRun={run}
+        name="nightly"
+        displayMode="full"
+        hideUnavailable
+      />
+    );
+
+    const retry = screen.getByRole('button', { name: 'Retry' });
+    expect(retry).toBeDisabled();
+    expect(retry.parentElement).toHaveAttribute('tabindex', '0');
+
+    rerender(
+      <DAGRunActions
+        dagRun={{
+          ...run,
+          status: Status.Running,
+          statusLabel: StatusLabel.running,
+        }}
+        name="nightly"
+        displayMode="full"
+        hideUnavailable
+      />
+    );
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+
   // parity:actions-stop-all
   describe('stopAll', () => {
     it('changes nothing when absent', async () => {

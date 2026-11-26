@@ -611,12 +611,13 @@ func (c *childRuns) Enqueue(_ context.Context, req executor.EnqueueRequest) (exe
 // webNodes is an inventory in which every selector matches web01 and web02.
 type webNodes struct{}
 
-func (n webNodes) Select(ctx context.Context, _ string) ([]inventory.ResolvedNode, error) {
-	return n.Nodes(ctx)
+func (webNodes) Select(context.Context, string) ([]inventory.ResolvedNode, error) {
+	return []inventory.ResolvedNode{{Name: "web01"}, {Name: "web02"}}, nil
 }
 
-func (webNodes) Nodes(context.Context) ([]inventory.ResolvedNode, error) {
-	return []inventory.ResolvedNode{{Name: "web01"}, {Name: "web02"}}, nil
+func (n webNodes) Named(ctx context.Context, names []string) ([]inventory.ResolvedNode, error) {
+	nodes, err := n.Select(ctx, "")
+	return inventory.Named(nodes, names), err
 }
 
 // deployOneDAG returns a child DAG that runs on a node, for a dag.run step

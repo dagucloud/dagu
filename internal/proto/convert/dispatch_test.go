@@ -199,6 +199,16 @@ func TestDispatchTaskPassedEnvRoundTrips(t *testing.T) {
 	assert.Equal(t, []string{"TODAY=2026-01-01", "GH_USER=octocat"}, got.PassedEnv)
 }
 
+func TestDispatchTaskTargetNodesRoundTrips(t *testing.T) {
+	t.Parallel()
+
+	protoTask, err := convert.DispatchTaskToProto(&dispatch.DispatchTask{TargetNodes: []string{"web01", "web03"}})
+	require.NoError(t, err)
+	got, err := convert.ProtoToDispatchTask(protoTask)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"web01", "web03"}, got.TargetNodes)
+}
+
 func TestDispatchTaskScheduleWindowRoundTrips(t *testing.T) {
 	t.Parallel()
 

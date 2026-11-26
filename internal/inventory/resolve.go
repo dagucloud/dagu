@@ -379,6 +379,27 @@ func ParseSelector(selector string) ([]ir.LabelFilter, error) {
 	return filters, nil
 }
 
+// Named returns the nodes names names, compared without case, and each node
+// they connect through, in the order given. A name of no node is left out.
+func Named(nodes []ResolvedNode, names []string) []ResolvedNode {
+	wanted := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		wanted[strings.ToLower(name)] = struct{}{}
+	}
+	for _, n := range nodes {
+		if _, ok := wanted[strings.ToLower(n.Name)]; ok && n.Bastion != "" {
+			wanted[strings.ToLower(n.Bastion)] = struct{}{}
+		}
+	}
+	var named []ResolvedNode
+	for _, n := range nodes {
+		if _, ok := wanted[strings.ToLower(n.Name)]; ok {
+			named = append(named, n)
+		}
+	}
+	return named
+}
+
 // Select returns the nodes that match every filter, in the order given.
 func Select(nodes []ResolvedNode, filters []ir.LabelFilter) []ResolvedNode {
 	var matched []ResolvedNode

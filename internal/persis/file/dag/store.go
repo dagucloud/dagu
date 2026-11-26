@@ -59,6 +59,7 @@ type Options struct {
 	legacyFlagsBaseDir     string
 	indexDir               string
 	dagRecords             persis.Collection
+	project                *projectScope
 }
 
 // WithRecursiveDiscovery controls whether DAG files are discovered recursively.
@@ -88,6 +89,21 @@ func WithSkipDirs(dirs []string) Option {
 func WithSkipRoots(dirs []string) Option {
 	return func(o *Options) {
 		o.SkipRoots = dirs
+	}
+}
+
+// WithProject makes lookups resolve as the project called name does: in
+// its DAG directory and the other search paths, then in its files that run
+// in place, then in the library. A file that owners place in another
+// project, or in no project and not in the library, is not found, and the
+// error names the projects. Discovery and lookups follow no file symlink
+// out of the directory that holds it, whatever WithSymlinks says. Nil
+// owners leave lookups as they are.
+func WithProject(name string, owners *Owners) Option {
+	return func(o *Options) {
+		if owners != nil {
+			o.project = &projectScope{name: name, owners: owners}
+		}
 	}
 }
 
@@ -209,6 +225,7 @@ func NewStore(baseDir string, opts ...Option) *Store {
 		skipDirs:               options.SkipDirs,
 		skipRoots:              options.SkipRoots,
 		skipDirectoryCreation:  options.SkipDirectoryCreation,
+		project:                options.project,
 	}
 }
 
@@ -233,6 +250,7 @@ type Store struct {
 	skipDirs               []string                 // Root-level directories recursive discovery omits
 	skipRoots              []string                 // Directories discovery and lookups omit wherever they lie
 	skipDirectoryCreation  bool                     // Skip creating base directory for execution-scoped stores
+	project                *projectScope            // Project whose lookups the store resolves, or nil
 	baseConfigMu           sync.Mutex               // Protects base config state refresh and invalidation
 	indexMu                sync.Mutex               // Protects index load/rebuild/invalidate
 	serviceDAGs            serviceDAGNameCache      // Service DAG names of the last index read
@@ -241,6 +259,9 @@ type Store struct {
 func (store *Store) Get(ctx context.Context, id string) (persis.DAGDefinition, error) {
 	resolved, err := store.locateDAG(ctx, id)
 	if err != nil {
+		if store.project != nil && errors.Is(err, persis.ErrDAGNotFound) {
+			return persis.DAGDefinition{}, err
+		}
 		if errors.Is(err, os.ErrNotExist) {
 			return persis.DAGDefinition{}, persis.ErrDAGNotFound
 		}
@@ -945,40 +966,76 @@ func (store *Store) generateFilePath(name string) string {
 
 // locateDAG resolves a DAG beneath the configured DAG directories.
 func (store *Store) locateDAG(ctx context.Context, nameOrPath string) (ResolvedFile, error) {
-	relativePath := filepath.FromSlash(nameOrPath)
-	explicitPath := filepath.IsAbs(relativePath) || strings.ContainsAny(nameOrPath, `/\`)
+	if store.project != nil {
+		return store.locateInProject(ctx, nameOrPath)
+	}
+	return store.locateInDirs(ctx, nameOrPath, store.searchPaths)
+}
 
-	if store.recursive && !explicitPath {
+// locateInDirs resolves nameOrPath in the first of dirs that holds it. When
+// discovery is recursive and dirs starts with the base directory, a name is
+// looked up there in the catalog.
+func (store *Store) locateInDirs(ctx context.Context, nameOrPath string, dirs []string) (ResolvedFile, error) {
+	if store.recursive && !isExplicitPath(nameOrPath) && len(dirs) > 0 && dirs[0] == store.baseDir {
 		catalog, err := store.loadCatalog(ctx, false)
 		if err != nil {
 			return ResolvedFile{}, fmt.Errorf("failed to discover DAGs: %w", err)
 		}
-		fileName := fileutil.TrimYAMLFileExtension(filepath.Base(relativePath))
+		fileName := fileutil.TrimYAMLFileExtension(filepath.Base(filepath.FromSlash(nameOrPath)))
 		if entry, ok := catalog.byStem[fileName]; ok {
 			resolved, err := ResolveFile(
 				store.baseDir,
 				filepath.FromSlash(entry.FilePath),
 			)
-			if err == nil && (!resolved.ExternalSymlink || store.symlinks) {
+			if err == nil && (!resolved.ExternalSymlink || store.followsExternalSymlinks()) {
 				return resolved, nil
 			}
 		}
-		if len(store.searchPaths) > 1 {
-			return locateDAGInDirectories(nameOrPath, store.searchPaths[1:], store.symlinks, store.skipRoots)
+		dirs = dirs[1:]
+		if len(dirs) == 0 {
+			if _, skipped := catalog.skippedLinks[fileName]; skipped && store.project != nil {
+				return ResolvedFile{}, externalSymlinkLookupError(nameOrPath, true)
+			}
+			return ResolvedFile{}, fmt.Errorf("DAG %s not found: %w", nameOrPath, os.ErrNotExist)
 		}
-		return ResolvedFile{}, fmt.Errorf("DAG %s not found: %w", nameOrPath, os.ErrNotExist)
 	}
 
-	return locateDAGInDirectories(nameOrPath, store.searchPaths, store.symlinks, store.skipRoots)
+	return locateDAGInDirectories(nameOrPath, dirs, store.symlinks, store.project != nil, store.skipRoots)
+}
+
+// followsExternalSymlinks reports whether a lookup follows a file symlink
+// out of the directory that holds it.
+func (store *Store) followsExternalSymlinks() bool {
+	return store.symlinks && store.project == nil
+}
+
+// discoveryOptions returns the options of a discovery that lists what the
+// store's lookups find.
+func (store *Store) discoveryOptions(recursive bool) DiscoveryOptions {
+	return DiscoveryOptions{
+		Recursive:       recursive,
+		Symlinks:        store.symlinks,
+		SkipDirs:        store.skipDirs,
+		SkipRoots:       store.skipRoots,
+		ConfineSymlinks: store.project != nil,
+	}
+}
+
+// isExplicitPath reports whether a lookup names a file by path rather than
+// a DAG by name.
+func isExplicitPath(nameOrPath string) bool {
+	return filepath.IsAbs(filepath.FromSlash(nameOrPath)) || strings.ContainsAny(nameOrPath, `/\`)
 }
 
 // locateDAGInDirectories resolves nameOrPath in the first of directories
 // that holds it. A file below one of skipRootDirs, or a file symlink into
-// one, is not found there, as discovery does not list it.
+// one, is not found there, as discovery does not list it. A confined lookup
+// follows no file symlink out of its directory, whatever symlinks says.
 func locateDAGInDirectories(
 	nameOrPath string,
 	directories []string,
 	symlinks bool,
+	confined bool,
 	skipRootDirs []string,
 ) (ResolvedFile, error) {
 	// A skip root that cannot be looked up is not applied, so a lookup finds
@@ -1004,7 +1061,7 @@ func locateDAGInDirectories(
 			if err != nil || inSkipRoot(skipRoots, absDir, resolved) {
 				continue
 			}
-			if resolved.ExternalSymlink && !symlinks {
+			if resolved.ExternalSymlink && (!symlinks || confined) {
 				externalSymlinkDisabled = true
 				continue
 			}
@@ -1013,24 +1070,30 @@ func locateDAGInDirectories(
 	}
 
 	if externalSymlinkDisabled {
-		return ResolvedFile{}, fmt.Errorf(
-			"DAG %s uses an external file symlink; enable dag_discovery.symlinks: %w",
-			nameOrPath,
-			errors.Join(ErrExternalSymlinkDisabled, os.ErrNotExist),
-		)
+		return ResolvedFile{}, externalSymlinkLookupError(nameOrPath, confined)
 	}
 
 	// DAG not found
 	return ResolvedFile{}, fmt.Errorf("DAG %s not found: %w", nameOrPath, os.ErrNotExist)
 }
 
+// externalSymlinkLookupError reports a lookup whose only match is a file
+// symlink out of its DAG directory. It is os.ErrNotExist.
+func externalSymlinkLookupError(nameOrPath string, confined bool) error {
+	hint := "enable dag_discovery.symlinks"
+	if confined {
+		hint = "a project never follows a symbolic link out of its DAG directory"
+	}
+	return fmt.Errorf(
+		"DAG %s uses an external file symlink; %s: %w",
+		nameOrPath,
+		hint,
+		errors.Join(ErrExternalSymlinkDisabled, os.ErrNotExist),
+	)
+}
+
 func (store *Store) stemExists(name, exceptPath string) bool {
-	scan, err := Discover(store.baseDir, DiscoveryOptions{
-		Recursive: true,
-		Symlinks:  store.symlinks,
-		SkipDirs:  store.skipDirs,
-		SkipRoots: store.skipRoots,
-	})
+	scan, err := Discover(store.baseDir, store.discoveryOptions(true))
 	if err != nil {
 		return false
 	}

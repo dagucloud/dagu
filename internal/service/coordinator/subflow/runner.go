@@ -134,8 +134,8 @@ func (r *Runner) ShouldRun(_ context.Context, req executor.SubWorkflowRequest) b
 	if req.Node != "" {
 		return false
 	}
-	// So does a child of a narrowed run: steps with nodes run on the Dagu
-	// host, and a coordinator task would drop the list.
+	// So does a child of a narrowed run, which adds to its parent's record of
+	// the list.
 	if len(req.TargetNodes) > 0 {
 		return false
 	}

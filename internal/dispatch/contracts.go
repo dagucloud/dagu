@@ -76,6 +76,8 @@ type DispatchTask struct {
 	SourceWorkDir string
 
 	WorkerSelector map[string]string
+	// TargetNodes are the node names the run is narrowed to (RFC 013).
+	TargetNodes []string
 
 	// HoldUntil is set when the task was accepted with no healthy worker
 	// matching it. Until then the task waits for one to register; after it

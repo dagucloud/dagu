@@ -145,18 +145,17 @@ func TestEnqueueWorkerSelector(t *testing.T) {
 	assert.Equal(t, map[string]string{"host": "serverA"}, child.WorkerSelector)
 }
 
-// A child that a narrowed run enqueues keeps the list and runs on the Dagu
-// host, so it cannot select workers.
+// A child that a narrowed run enqueues keeps the list, also when it selects
+// workers.
 func TestEnqueueNarrowedChild(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
 		name     string
 		selector map[string]string
-		wantErr  string
 	}{
 		{name: "keeps the list"},
-		{name: "refuses workers", selector: map[string]string{"gpu": "true"}, wantErr: "cannot select workers"},
+		{name: "selects workers", selector: map[string]string{"gpu": "true"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -199,12 +198,7 @@ func TestEnqueueNarrowedChild(t *testing.T) {
 			require.True(t, ok)
 			parallelExec.SetParamsList([]executor.RunParams{{RunID: "child-run", DAGName: "child", WorkerSelector: tc.selector}})
 
-			err = execImpl.Run(ctx)
-			if tc.wantErr != "" {
-				require.ErrorContains(t, err, tc.wantErr)
-				return
-			}
-			require.NoError(t, err)
+			require.NoError(t, execImpl.Run(ctx))
 			attempt, err := th.DAGRunRepository.FindAttempt(ctx, ir.NewDAGRunRef("child", "child-run"))
 			require.NoError(t, err)
 			status, err := attempt.ReadStatus(ctx)
@@ -212,7 +206,7 @@ func TestEnqueueNarrowedChild(t *testing.T) {
 			assert.Equal(t, []string{"web01"}, status.TargetNodes)
 			child, err := attempt.ReadDAG(ctx)
 			require.NoError(t, err)
-			assert.True(t, child.ForceLocal)
+			assert.Equal(t, tc.selector, child.WorkerSelector)
 		})
 	}
 }

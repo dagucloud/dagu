@@ -258,8 +258,6 @@ admins:
 | `grant` | `authorization_code`, `device_code`, `client_credentials`, or `service_account` |
 | `services` | Presets such as `gmail` or `calendar`, each with `read` or `write` |
 | `scopes` | Scopes added beyond the services' presets. The presets' own scopes are not stored |
-| `account` | The account's name read after consent, such as an email address. Shown to people |
-| `account_id` | The provider's immutable ID for the account: Google's `sub`, or Microsoft's tenant and object IDs. Accounts are compared by it, never by `account` |
 | `subject` | For a service account, the impersonated user. For Microsoft client credentials, the mailbox that mail and SMTP use. Fixed by the admin |
 | `bound_hosts` | Hosts added beyond the services' presets that may receive the token. Required for `oauth2` |
 | `resource` | MCP connections: the canonical server URL (RFC 8707) |
@@ -275,7 +273,9 @@ the `connection` package: the connect flow and the token broker.
 | `access_tokens` | One encrypted access token and its expiry per resource. Google and MCP connections have one resource. A Microsoft connection has one per Microsoft resource it calls, such as Graph and Outlook |
 | `refresh_token_expires_at` | Only when the provider reports it |
 | `granted_scopes` | What the provider granted. It can be fewer than requested |
-| `status` | `pending`, `connected`, `needs_reconnect`, or `revoked` |
+| `account` | The account's name read after consent, written with the tokens, such as an email address. Shown to people |
+| `account_id` | The provider's immutable ID for the account: Google's `sub`, or Microsoft's tenant and object IDs. Accounts are compared by it, never by `account` |
+| `status` | `pending`, `connected`, or `needs_reconnect` |
 | `status_reason` | The provider's error code and text, without secrets |
 | `generation` | Incremented when a connect or reconnect is confirmed |
 | `session` | The connect session in progress, if any. See [Connect flow](#connect-flow) |
@@ -840,10 +840,12 @@ its token before node setup and adds it with `EnvScope.WithMaskedSecrets`
 (`internal/cmn/value/envscope.go:410`), which masks a value without making it
 an environment variable. The masker gains a way to add a value while the step
 runs, so a token minted later in the step, by a forced refresh, is masked too.
-It also gains provider token patterns (`ya29.` and `1//` for Google), as audit
-already masks GitHub and Slack tokens (`internal/audit/mask.go:67`). Steps
-that use a token in process, such as `mcp.call` and `http.request`, never
-print it. Masking is the second line of defense.
+Step logs also mask provider token patterns (`ya29.` and `1//` for Google),
+as audit already masks GitHub and Slack tokens (`internal/audit/mask.go:67`).
+Outputs and run status keep their values, so a DAG without connections
+stores what it did before. Steps that use a token in process, such as
+`mcp.call` and `http.request`, never print it. Masking is the second line of
+defense.
 
 ### Using connections in steps
 
@@ -989,10 +991,12 @@ events, sharing or trashing files, and reading shared data. The Workspace
 admin's rules decide, and Google publishes no list per tool, so a read can
 ask too.
 
-Dagu's MCP clients advertise form elicitation and use Google's `/mcp/v1`
-endpoints. Google serves clients that do not on `/mcp/v1self`, with only
-the tools and results that need no confirmation. Advertising therefore
-never skips Google's check, and a declined request fails only its call.
+Dagu's MCP clients advertise form elicitation when they use a connection,
+and use Google's `/mcp/v1` endpoints. An `mcp.call` without a connection
+advertises nothing, as before. Google serves clients that do not advertise
+on `/mcp/v1self`, with only the tools and results that need no
+confirmation. Advertising therefore never skips Google's check, and a
+declined request fails only its call.
 
 - **`mcp.call`** declines at once and fails with kind
   `confirmation_required`. Holding the call open for a person is a future

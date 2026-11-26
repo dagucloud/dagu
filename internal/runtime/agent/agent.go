@@ -1056,7 +1056,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		}
 		a.noteDryRunStartup(ctx, "profile", profileErr)
 		a.noteDryRunStartup(ctx, "secrets", secretErr)
-		a.noteDryRunStartup(ctx, "nodes", nodeTargetingError(a.dag, a.boundNode, a.workerID))
+		a.noteDryRunStartup(ctx, "nodes", nodeTargetingError(a.dag, a.boundNode))
 		a.noteDryRunStartup(ctx, "node", startup.nodeErr)
 		a.lock.Lock()
 		a.startupCancel = nil
@@ -1159,7 +1159,7 @@ func (a *Agent) Run(ctx context.Context) (runErr error) {
 		initErr = profileErr
 		return initErr
 	}
-	if err := nodeTargetingError(a.dag, a.boundNode, a.workerID); err != nil {
+	if err := nodeTargetingError(a.dag, a.boundNode); err != nil {
 		initErr = err
 		return initErr
 	}
@@ -2615,11 +2615,18 @@ func secretsFromValues(refs []secretref.Ref, values map[string]string) ([]string
 	return envs, nil
 }
 
+// nodeReferenceResolver resolves a credential ref by the inventory node whose
+// connection uses it, as a run on a worker reads node credentials (RFC 012
+// §Reading the inventory from a run).
+type nodeReferenceResolver interface {
+	ResolveNodeReference(ctx context.Context, node string, ref secretref.Ref) (string, error)
+}
+
 // resolveCredentialRefs resolves the secret refs that SSH connections read
 // credentials from, the DAG's and those of the node a bound run reaches, once
 // each, and returns the values keyed by ref.
-func (a *Agent) resolveCredentialRefs(ctx context.Context, nodeRefs []secretref.Ref) (map[string]string, error) {
-	refs := append(slices.Clone(a.dag.CredentialRefs), nodeRefs...)
+func (a *Agent) resolveCredentialRefs(ctx context.Context, binding *nodeBinding) (map[string]string, error) {
+	refs := append(slices.Clone(a.dag.CredentialRefs), binding.credentialRefs()...)
 	if len(refs) == 0 || !a.preparesForRealSteps() {
 		return nil, nil
 	}
@@ -2629,12 +2636,20 @@ func (a *Agent) resolveCredentialRefs(ctx context.Context, nodeRefs []secretref.
 	}
 
 	logger.Info(ctx, "Resolving SSH credential secrets", tag.Count(len(refs)))
+	nodeResolver, byNode := a.secretReferenceResolver.(nodeReferenceResolver)
 	values := make(map[string]string, len(refs))
-	for _, ref := range refs {
+	for i, ref := range refs {
 		if _, ok := values[ref.Ref]; ok {
 			continue
 		}
-		value, err := a.secretReferenceResolver.ResolveReference(ctx, ref)
+		var value string
+		var err error
+		// The refs after the DAG's are the bound node's.
+		if byNode && i >= len(a.dag.CredentialRefs) {
+			value, err = nodeResolver.ResolveNodeReference(ctx, binding.node.Name, ref)
+		} else {
+			value, err = a.secretReferenceResolver.ResolveReference(ctx, ref)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve %s from secret ref %q: %w", ref.Name, ref.Ref, err)
 		}

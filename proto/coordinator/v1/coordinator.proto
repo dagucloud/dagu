@@ -187,6 +187,8 @@ message Task {
   // The run's dates as JSON, resolved when the run was created. Empty when
   // the run resolves them as it starts.
   string dates_json = 46;
+  // Node names the run is narrowed to (RFC 013). Empty when not narrowed.
+  repeated string target_nodes = 47;
 }
 
 enum Operation {

@@ -4039,10 +4039,6 @@ func (a *API) enqueuePreparedDAGRun(
 	if err := reapplyWorkerSelector(resolvedDAG, workerSelector); err != nil {
 		return err
 	}
-	// A narrowed run runs on the Dagu host.
-	if len(targetNodes) > 0 {
-		resolvedDAG.ForceLocal = true
-	}
 	dag = resolvedDAG
 
 	if err := buildErrorsToAPIError(dag.BuildErrors); err != nil {
