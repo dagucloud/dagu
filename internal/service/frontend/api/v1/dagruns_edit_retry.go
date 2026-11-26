@@ -172,6 +172,9 @@ func (a *API) authorizeEditRetryPlan(ctx context.Context, plan *editRetryPlan) e
 	if err := a.requireEditRetryPermissions(ctx, plan); err != nil {
 		return err
 	}
+	if err := queue.CheckRetryable(plan.sourceStatus); err != nil {
+		return retryDisabledError(err)
+	}
 	profileName, err := a.inheritedRunProfileName(ctx, plan.sourceStatus.ProfileName)
 	if err != nil {
 		return err

@@ -129,8 +129,8 @@ show them to the person present. AI steps handle them by the kind of step:
   answer, accept with the form's values, decline, or cancel, goes back to
   the server. After `llm.confirmation_timeout`, 10 minutes by default, Dagu
   declines. This needs Google to keep the request open while a person
-  answers. If RFC 025's M0 tests show it does not, agent DAGs decline
-  confirmation requests, as harness steps do.
+  answers. If RFC 025's tests against Google show it does not, agent DAGs
+  decline confirmation requests, as harness steps do.
 - **Delivering the answer.** A human task today is answered while its run
   has no process. A confirmation needs a path to a live process, and reuses
   the ones that stop a run:
@@ -426,10 +426,10 @@ their own.
    Write tools not listed in `unattended` are refused, with the editor
    warning and the refused count. Declining confirmation requests needs no
    Google test to be safe.
-2. **Agent DAGs and chat steps, in M3,** after RFC 025's M0 tests. MCP
-   tools, approval tasks before write tools with approval for the rest of a
-   run, confirmation tasks with their delivery over the run socket and run
-   heartbeat, and the Google policy lint.
+2. **Agent DAGs and chat steps, in M3,** after RFC 025's tests against
+   Google. MCP tools, approval tasks before write tools with approval for
+   the rest of a run, confirmation tasks with their delivery over the run
+   socket and run heartbeat, and the Google policy lint.
 
 ## Verification and acceptance criteria
 
@@ -491,13 +491,15 @@ their own.
    access during validation, or only when it runs, as this RFC proposes?
 2. Does Google refuse a call, or skip its check, from a client that does
    not advertise elicitation? Harness and chat steps decline every request,
-   so the answer decides how much works there. RFC 025's M0 tests it.
+   so the answer decides how much works there. RFC 025's tests against
+   Google answer it.
 3. Do ACP agents name the MCP server in a permission request? The adapter
    accepts only gateway tools, so an agent that does not name it falls back
    to `acp_permission` for every MCP call. This needs checking against each
    agent before this RFC ships.
-4. How long does Google keep a confirmation request open? RFC 025's M0
-   tests it, and the answer decides whether agent DAGs wait or decline.
+4. How long does Google keep a confirmation request open? RFC 025's tests
+   against Google answer it, and the answer decides whether agent DAGs wait
+   or decline.
 5. Should a person be able to approve a tool across runs, for one DAG and a
    time window? Approval per run does not scale to 100 concurrent runs, each
    asking for the same tool, but a wider grant weakens the default that

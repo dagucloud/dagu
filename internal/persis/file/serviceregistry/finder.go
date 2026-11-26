@@ -137,11 +137,12 @@ func (f *finder) processInstanceFile(ctx context.Context, path string) *servicer
 	}
 
 	return &serviceregistry.HostInfo{
-		ID:        instance.ID,
-		Host:      instance.Host,
-		Port:      instance.Port,
-		Status:    instance.Status,
-		StartedAt: instance.StartedAt,
+		ID:               instance.ID,
+		Host:             instance.Host,
+		Port:             instance.Port,
+		Status:           instance.Status,
+		StartedAt:        instance.StartedAt,
+		ReleasedProjects: instance.ReleasedProjects,
 	}
 }
 

@@ -1726,6 +1726,8 @@ export const baseEnglish = {
   'Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation.':
     'Retry continues the existing OpenCode conversation and sends the step prompt again. Use “Start clean session” in the Agent session tab to begin a new conversation.',
   'Retry this run': 'Retry this run',
+  'This run cannot be retried. Start a new run by sending a new message.':
+    'This run cannot be retried. Start a new run by sending a new message.',
   'Retry edited run': 'Retry edited run',
   'Retry load more': 'Retry load more',
   'Retry loading more': 'Retry loading more',

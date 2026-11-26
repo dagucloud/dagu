@@ -87,6 +87,7 @@ type Entry struct {
 	ProcGroup            string
 	DefinitionID         string
 	BackfillID           string
+	RetryDisabled        bool
 	ArchiveDir           string
 	Dates                []ir.DateValue
 	latestStatusSize     int64
@@ -254,6 +255,7 @@ func rebuildForDay(dayDir string, dagRunDirs []os.DirEntry, cached map[string]En
 			ProcGroup:            status.ProcGroup,
 			DefinitionID:         status.DAGDefinitionID(),
 			BackfillID:           status.BackfillID,
+			RetryDisabled:        status.RetryDisabled,
 			Dates:                status.Dates,
 			ArchiveDir:           status.ArchiveDir,
 			latestStatusSize:     statusInfo.Size(),
@@ -605,6 +607,7 @@ func writeIndex(dayDir string, entries []Entry) error {
 			ProcGroup:            e.ProcGroup,
 			DefinitionId:         e.DefinitionID,
 			BackfillId:           e.BackfillID,
+			RetryDisabled:        e.RetryDisabled,
 			DatesJson:            encodeDates(e.Dates),
 			ArchiveDir:           e.ArchiveDir,
 		})
@@ -660,6 +663,7 @@ func protoToEntry(pe *indexv1.DAGRunIndexEntry) Entry {
 		ProcGroup:            pe.ProcGroup,
 		DefinitionID:         pe.DefinitionId,
 		BackfillID:           pe.BackfillId,
+		RetryDisabled:        pe.RetryDisabled,
 		Dates:                decodeDates(pe.DatesJson),
 		ArchiveDir:           pe.ArchiveDir,
 		latestStatusSize:     pe.LatestStatusSize,

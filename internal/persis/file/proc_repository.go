@@ -11,10 +11,15 @@ import (
 
 // NewProcRepository connects the released .proc file layout to the shared repository.
 func NewProcRepository(cfg *config.Config, opts ...procstore.StoreOption) *persis.ProcRepository {
+	return newProcRepository(cfg, cfg.Paths.ProcDir, opts...)
+}
+
+// newProcRepository opens the process heartbeats kept in dir.
+func newProcRepository(cfg *config.Config, dir string, opts ...procstore.StoreOption) *persis.ProcRepository {
 	storeOpts := []procstore.StoreOption{
 		procstore.WithStaleThreshold(cfg.Proc.StaleThreshold),
 		procstore.WithHeartbeatInterval(cfg.Proc.HeartbeatInterval),
 	}
 	storeOpts = append(storeOpts, opts...)
-	return persis.NewProcRepository(procstore.New(cfg.Paths.ProcDir, storeOpts...))
+	return persis.NewProcRepository(procstore.New(dir, storeOpts...))
 }

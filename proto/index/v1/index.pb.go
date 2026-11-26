@@ -332,7 +332,9 @@ type DAGRunIndexEntry struct {
 	DefinitionId    string `protobuf:"bytes,30,opt,name=definition_id,json=definitionId,proto3" json:"definition_id,omitempty"`
 	BackfillId      string `protobuf:"bytes,31,opt,name=backfill_id,json=backfillId,proto3" json:"backfill_id,omitempty"`
 	// The run's dates as JSON, as DAGRunStatus.Dates records them.
-	DatesJson     string `protobuf:"bytes,32,opt,name=dates_json,json=datesJson,proto3" json:"dates_json,omitempty"`
+	DatesJson string `protobuf:"bytes,32,opt,name=dates_json,json=datesJson,proto3" json:"dates_json,omitempty"`
+	// True when the run cannot be retried once terminal (DAGRunStatus.RetryDisabled).
+	RetryDisabled bool `protobuf:"varint,33,opt,name=retry_disabled,json=retryDisabled,proto3" json:"retry_disabled,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -592,6 +594,13 @@ func (x *DAGRunIndexEntry) GetDatesJson() string {
 	return ""
 }
 
+func (x *DAGRunIndexEntry) GetRetryDisabled() bool {
+	if x != nil {
+		return x.RetryDisabled
+	}
+	return false
+}
+
 var File_proto_index_v1_index_proto protoreflect.FileDescriptor
 
 const file_proto_index_v1_index_proto_rawDesc = "" +
@@ -621,7 +630,7 @@ const file_proto_index_v1_index_proto_rawDesc = "" +
 	"\vDAGRunIndex\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12\"\n" +
 	"\rbuilt_at_unix\x18\x02 \x01(\x03R\vbuiltAtUnix\x124\n" +
-	"\aentries\x18\x03 \x03(\v2\x1a.index.v1.DAGRunIndexEntryR\aentries\"\xa3\t\n" +
+	"\aentries\x18\x03 \x03(\v2\x1a.index.v1.DAGRunIndexEntryR\aentries\"\xca\t\n" +
 	"\x10DAGRunIndexEntry\x12\x1e\n" +
 	"\vdag_run_dir\x18\x01 \x01(\tR\tdagRunDir\x12\x1c\n" +
 	"\n" +
@@ -664,7 +673,8 @@ const file_proto_index_v1_index_proto_rawDesc = "" +
 	"\vbackfill_id\x18\x1f \x01(\tR\n" +
 	"backfillId\x12\x1d\n" +
 	"\n" +
-	"dates_json\x18  \x01(\tR\tdatesJsonB5Z3github.com/dagucloud/dagu/v2/proto/index/v1;indexv1b\x06proto3"
+	"dates_json\x18  \x01(\tR\tdatesJson\x12%\n" +
+	"\x0eretry_disabled\x18! \x01(\bR\rretryDisabledB5Z3github.com/dagucloud/dagu/v2/proto/index/v1;indexv1b\x06proto3"
 
 var (
 	file_proto_index_v1_index_proto_rawDescOnce sync.Once

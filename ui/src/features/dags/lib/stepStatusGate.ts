@@ -17,6 +17,10 @@ export interface StepRetryGate extends StepGate {
   disabled: boolean;
 }
 
+/** Shown where a retry-disabled run offers a retry. */
+export const RETRY_DISABLED_REASON =
+  'This run cannot be retried. Start a new run by sending a new message.';
+
 const STATUS_LOCKED_RUN_STATES: readonly Status[] = [
   Status.NotStarted,
   Status.Running,
@@ -59,7 +63,7 @@ export function canChangeStepStatus(
  * cannot retry its steps while its root run is running.
  */
 export function canRetryStep(
-  run: { status: Status } | null,
+  run: { status: Status; retryDisabled?: boolean } | null,
   node: Node,
   p: { runDags: boolean; rootRunning: boolean }
 ): StepRetryGate {
@@ -79,6 +83,9 @@ export function canRetryStep(
       disabled: true,
       reason: 'A waiting or queued DAG run cannot retry a step.',
     };
+  }
+  if (run.retryDisabled) {
+    return { ok: true, disabled: true, reason: RETRY_DISABLED_REASON };
   }
   if (node.step.humanTask) {
     return {

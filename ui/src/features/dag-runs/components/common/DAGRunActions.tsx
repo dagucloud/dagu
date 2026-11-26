@@ -20,6 +20,7 @@ import {
 import dayjs from '@/lib/dayjs';
 import ActionButton from '@/components/ui/action-button';
 import { Ban, CircleStop, RotateCcw, X } from 'lucide-react';
+import { RETRY_DISABLED_REASON } from '@/features/dags/lib/stepStatusGate';
 import React from 'react';
 import { components, NodeStatus, Status } from '../../../../api/v1/schema';
 import { useConfig } from '../../../../contexts/ConfigContext';
@@ -246,6 +247,7 @@ function DAGRunActions({
       dagRun?.status !== Status.Running &&
       dagRun?.status !== Status.Queued &&
       !isWaiting &&
+      !dagRun?.retryDisabled &&
       dagRun?.dagRunId !== '',
     dequeue: isRootLevel && dagRun?.status === Status.Queued,
   };
@@ -347,7 +349,9 @@ function DAGRunActions({
             </TooltipTrigger>
             <TooltipContent>
               <p>
-                {isRootLevel ? (
+                {dagRun?.retryDisabled ? (
+                  <I18nText text={RETRY_DISABLED_REASON} />
+                ) : isRootLevel ? (
                   <I18nText text={'Retry this run'} />
                 ) : (
                   <I18nText

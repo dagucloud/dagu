@@ -17,8 +17,6 @@ import (
 
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/nodeconn"
-	"github.com/dagucloud/dagu/v2/internal/persis"
-	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
 )
 
@@ -311,7 +309,7 @@ func (c *Context) nodeStores() (nodeStores, error) {
 
 // secretResolver resolves node credentials from this installation's secrets.
 func (c *Context) secretResolver() nodeconn.SecretResolver {
-	secrets := file.NewSecretStore(c.Context, c.Config, c.backend.Collection(persis.CollectionSecrets))
+	secrets := c.settings.SecretStore(c.Context)
 	return secretpkg.NewReferenceResolver(secrets, "")
 }
 

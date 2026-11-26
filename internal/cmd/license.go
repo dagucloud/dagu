@@ -21,7 +21,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/cloudreport"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/license"
-	"github.com/dagucloud/dagu/v2/internal/persis"
 	"github.com/dagucloud/dagu/v2/internal/persis/file"
 	filemonitor "github.com/dagucloud/dagu/v2/internal/persis/file/monitor"
 	"github.com/spf13/cobra"
@@ -435,7 +434,7 @@ func newLicenseManager(ctx *Context, configKey string) (*license.Manager, error)
 	}
 
 	licenseDir := file.LicenseDir(ctx.Config)
-	store := file.NewLicenseStore(ctx, ctx.backend.Collection(persis.CollectionLicense))
+	store := ctx.serverStores.LicenseStore(ctx)
 	return license.NewManager(license.ManagerConfig{
 		LicenseDir: licenseDir,
 		ConfigKey:  configKey,

@@ -224,6 +224,36 @@ func TestRegistry_HeartbeatRecreatesFile(t *testing.T) {
 	assert.Equal(t, "localhost:8080", fmt.Sprintf("%s:%d", info.Host, info.Port))
 }
 
+// Released projects recorded before the process registers reach its entry
+// once it does, and each later call replaces them. Another process reads
+// them from the entry.
+func TestRegistry_ReleasedProjects(t *testing.T) {
+	tmpDir := t.TempDir()
+	ctx := context.Background()
+	registry := New(tmpDir)
+	releasedInEntry := func() []string {
+		t.Helper()
+		members, err := New(tmpDir).GetServiceMembers(ctx, serviceregistry.ServiceNameScheduler)
+		require.NoError(t, err)
+		require.Len(t, members, 1)
+		return members[0].ReleasedProjects
+	}
+
+	require.NoError(t, registry.SetReleasedProjects(ctx, []string{"p1"}))
+	require.NoError(t, registry.Register(ctx, serviceregistry.ServiceNameScheduler, serviceregistry.HostInfo{
+		ID:   "scheduler-1",
+		Host: "localhost",
+	}))
+	defer registry.Unregister(ctx)
+	assert.Equal(t, []string{"p1"}, releasedInEntry())
+
+	require.NoError(t, registry.SetReleasedProjects(ctx, []string{"p1", "p2"}))
+	assert.Equal(t, []string{"p1", "p2"}, releasedInEntry())
+
+	require.NoError(t, registry.SetReleasedProjects(ctx, nil))
+	assert.Empty(t, releasedInEntry())
+}
+
 func TestRegistry_MultipleInstances(t *testing.T) {
 	tmpDir := t.TempDir()
 	ctx := context.Background()

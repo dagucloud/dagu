@@ -223,6 +223,34 @@ func TestTryLoadForDay_KeepsDates(t *testing.T) {
 	t.Fatal("the dated run is not in the index")
 }
 
+// The retry-disabled flag survives the index, and runs recorded without it
+// read as retryable.
+func TestTryLoadForDay_KeepsRetryDisabled(t *testing.T) {
+	dayDir := t.TempDir()
+	attemptDir := filepath.Join(dayDir, "dag-run_20240115_120000Z_task-run", "attempt_20240115_120000_001Z_abc123")
+	require.NoError(t, os.MkdirAll(attemptDir, 0750))
+	data, err := json.Marshal(ir.DAGRunStatus{
+		Name: "task-dag", DAGRunID: "task-run", AttemptID: "abc123", Status: ir.Failed,
+		StartedAt: "2024-01-15T12:00:00Z", FinishedAt: "2024-01-15T12:01:00Z",
+		RetryDisabled:  true,
+		TriggerSubject: &ir.TriggerSubject{Type: "a2a-task", ID: "t1"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(attemptDir, "status.jsonl"), append(data, '\n'), 0600))
+	createDayDir(t, dayDir, 9, ir.Succeeded)
+
+	// The first load writes the index; the second reads it.
+	_, _, err = TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
+	require.NoError(t, err)
+	entries, fromIndex, err := TryLoadForDay(t.Context(), dayDir, readDayDir(t, dayDir))
+	require.NoError(t, err)
+	require.True(t, fromIndex)
+	require.Len(t, entries, 10)
+	for _, entry := range entries {
+		assert.Equal(t, entry.DagRunID == "task-run", entry.RetryDisabled, entry.DagRunID)
+	}
+}
+
 func TestTryLoadForDay_StaleIndex_NewRun(t *testing.T) {
 	dayDir := t.TempDir()
 	createDayDir(t, dayDir, 10, ir.Succeeded)

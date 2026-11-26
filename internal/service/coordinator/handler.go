@@ -32,6 +32,7 @@ import (
 	profilepkg "github.com/dagucloud/dagu/v2/internal/profile"
 	"github.com/dagucloud/dagu/v2/internal/proto/convert"
 	"github.com/dagucloud/dagu/v2/internal/queue"
+	"github.com/dagucloud/dagu/v2/internal/runctx"
 	"github.com/dagucloud/dagu/v2/internal/runtime"
 	runtimeexec "github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/runtime/workspacebundle"
@@ -178,6 +179,8 @@ type Handler struct {
 	dagRepository             *persis.DAGRepository              // DAG definitions for the GetDAG RPC
 	secretStore               secretpkg.Store                    // Secret registry for workers
 	profileStore              profilepkg.Store                   // Runtime profiles for workers
+	nodeInventory             runctx.NodeSelector                // Inventory nodes for runs on workers
+	trustedHostKeys           runctx.TrustedHostKeys             // Host keys trusted for inventory nodes
 	agentSessionCleanupQueue  *agentsession.CleanupQueue         // Deferred provider cleanup owned by workers
 	workerNodes               *workerNodeRecorder                // Records workers that set an ID as nodes
 
@@ -257,6 +260,15 @@ type HandlerConfig struct {
 	// Optional - when nil, ResolveRuntimeProfile returns FailedPrecondition.
 	ProfileStore profilepkg.Store
 
+	// NodeInventory finds the project's inventory nodes for runs on workers.
+	// Optional - when nil, ResolveNodes and node secret refs return
+	// FailedPrecondition.
+	NodeInventory runctx.NodeSelector
+
+	// TrustedHostKeys finds the host keys trusted for inventory nodes.
+	// Optional - when nil, ResolveNodes answers no trusted keys.
+	TrustedHostKeys runctx.TrustedHostKeys
+
 	// AgentSessionCleanupQueue stores provider cleanup claimed by owning workers.
 	AgentSessionCleanupQueue *agentsession.CleanupQueue
 
@@ -329,6 +341,8 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		dagRepository:             cfg.DAGRepository,
 		secretStore:               cfg.SecretStore,
 		profileStore:              cfg.ProfileStore,
+		nodeInventory:             cfg.NodeInventory,
+		trustedHostKeys:           cfg.TrustedHostKeys,
 		agentSessionCleanupQueue:  cfg.AgentSessionCleanupQueue,
 		workerNodes:               newWorkerNodeRecorder(cfg.WorkerNodeStore),
 		staleHeartbeatThreshold:   cfg.StaleHeartbeatThreshold,
@@ -2290,6 +2304,13 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	h.keepLegacyLogPaths(latestStatus, dagRunStatus)
 	if len(latestStatus.Labels) > 0 {
 		dagRunStatus.Labels = append([]string(nil), latestStatus.Labels...)
+	}
+	// A worker's failure report is built from the task and lacks these.
+	if latestStatus.RetryDisabled {
+		dagRunStatus.RetryDisabled = true
+	}
+	if dagRunStatus.TriggerSubject == nil {
+		dagRunStatus.TriggerSubject = latestStatus.TriggerSubject
 	}
 
 	attempt := latestAttempt
