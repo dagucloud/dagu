@@ -265,7 +265,7 @@ workerSelector:
   gpu: "true"
 ```
 
-Each worker pod reports `<pod name>@<pid>` as its worker ID. A Deployment replaces its pods with new names on every rollout, so these workers are not nodes and leave no offline nodes behind. To make a pool's worker a node that steps select by label, give the pool a stable `workerId`. One ID names one worker, so the chart refuses a `workerId` on a pool with more than one replica, and the same ID on two pools:
+Each worker pod reports `<pod name>@<pid>` as its worker ID. A Deployment replaces its pods with new names on every rollout, so these workers are not nodes and leave no offline nodes behind. To keep a pool's worker ID across rollouts, give the pool a stable `workerId`; Dagu releases after 2.27.0 list such a worker as a worker node, with its labels, in `dagu nodes list` and on the Nodes page. One ID names one worker, so the chart refuses a `workerId` on a pool with more than one replica, and the same ID on two pools, and replaces the pod of such a pool with the `Recreate` strategy so two pods never share the ID:
 
 ```yaml
 workerPools:

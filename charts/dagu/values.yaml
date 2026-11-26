@@ -147,9 +147,10 @@ workerPools:
     affinity: {}
     priorityClassName: ""
     # Without a workerId, each pod reports <pod name>@<pid> as its ID, which
-    # changes when the pod is replaced, so it is not a node. A pool that sets
-    # one has a stable worker that steps can select by label, which fits only
-    # replicas: 0 or 1. IDs are unique across pools, compared without case.
+    # changes when the pod is replaced, so it is not a node. A stable workerId
+    # makes the pool's worker a worker node (Dagu releases after 2.27.0). It
+    # fits only replicas: 0 or 1, replaces the pod with the Recreate strategy,
+    # and is unique across pools, compared without case.
     # workerId: "general-01"
 
 # Server and UI configuration. In standalone mode this configures the combined

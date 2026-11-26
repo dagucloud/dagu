@@ -39,6 +39,11 @@ metadata:
     dagu.sh/worker-pool: {{ $poolName }}
 spec:
   replicas: {{ $pool.replicas }}
+  {{- if $pool.workerId }}
+  # The replacement pod takes the same worker ID, so the old pod stops first.
+  strategy:
+    type: Recreate
+  {{- end }}
   selector:
     matchLabels:
       {{- include "dagu.selectorLabels" $ | nindent 6 }}

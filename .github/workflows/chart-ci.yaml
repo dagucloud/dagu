@@ -196,6 +196,7 @@ jobs:
             >/tmp/dagu-worker-id-render.yaml
 
           grep -Fq 'value: "general-01"' /tmp/dagu-worker-id-render.yaml
+          grep -Fq 'type: Recreate' /tmp/dagu-worker-id-render.yaml
 
           # One ID names one worker, so a pool with more replicas is refused.
           if output="$(helm template dagu ./charts/dagu \
