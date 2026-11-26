@@ -1,7 +1,8 @@
 # RFC 025: Connections
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-25
+- **Accepted:** 2026-11-26
 - **Affected areas:** a new `connection` package (records, providers, connect
   flow, token broker), `cmn/mailer` (refresh code moves out, SMTP takes a
   connection), `spec` and `ir` (`connection` fields, declared connections),
