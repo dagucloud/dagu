@@ -22,7 +22,7 @@ type jsonValue struct {
 // holds it, which becomes the masked string. The rest of the document is
 // kept as written. A document that is not JSON is masked as plain text.
 func (m *Masker) MaskJSON(document string) string {
-	spans := m.spans(document)
+	spans := m.spans(document, false)
 	if len(spans) == 0 || !json.Valid([]byte(document)) {
 		return writeSpans(document, spans)
 	}
