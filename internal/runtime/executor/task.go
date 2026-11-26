@@ -262,11 +262,15 @@ func ResolveBaseConfig(baseConfigData []byte, fallbackPath string) string {
 
 // WithPreviousStatus sets the previous status for retry operations.
 // When set, workers can retry without querying local DAG-run persistence.
+// The task keeps the node list of the run it retries.
 func WithPreviousStatus(status *ir.DAGRunStatus) TaskOption {
 	return func(task *dispatch.DispatchTask) {
 		if status != nil {
 			if task.QueueName == "" && status.ProcGroup != "" {
 				task.QueueName = status.ProcGroup
+			}
+			if len(task.TargetNodes) == 0 {
+				task.TargetNodes = append([]string(nil), status.TargetNodes...)
 			}
 			task.PreviousStatus = status
 		}

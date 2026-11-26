@@ -1083,6 +1083,7 @@ func (h *Handler) writeInitialStatus(ctx context.Context, attempt dagrun.Attempt
 		ScheduleTimezone: task.ScheduleTimezone,
 		DefinitionID:     task.DefinitionId,
 		ProfileName:      task.ProfileName,
+		TargetNodes:      task.TargetNodes,
 		// Every step's model usage is recorded from the start.
 		ModelUsageRecorded: true,
 	}

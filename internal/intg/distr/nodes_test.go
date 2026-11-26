@@ -18,6 +18,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/dagucloud/dagu/v2/conformance/harness"
+	"github.com/dagucloud/dagu/v2/internal/dispatch"
 	"github.com/dagucloud/dagu/v2/internal/inventory"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/persis"
@@ -213,5 +214,36 @@ func TestNodes_NarrowedRunOnWorker(t *testing.T) {
 	require.Equal(t, []string{"web01"}, status.TargetNodes)
 	require.Equal(t, []string{"checked web01", "deployed web01"}, journalLines(t, journal))
 	require.Len(t, servers["web01"].Commands(), 2)
+	require.Empty(t, servers["web02"].Commands(), "web02 is not listed")
+}
+
+// A narrowed run that fails before its agent writes a status keeps its list,
+// so its retry on a worker stays narrowed. Here the coordinator fails the run
+// when no worker matches it in time.
+func TestNodes_NarrowedRetryKeepsList(t *testing.T) {
+	t.Parallel()
+
+	journal := filepath.Join(t.TempDir(), "journal")
+	f := newTestFixture(t, fleetDAG(journal),
+		withWorkerCount(0), withWorkerWaitTimeout(2*time.Second), withZombieDetectionInterval(500*time.Millisecond))
+	servers, _ := startFleet(t, f,
+		fleetNode{name: "web01", label: "role=web"},
+		fleetNode{name: "web02", label: "role=web"},
+	)
+
+	runID, err := f.dispatchDirect(executor.WithTargetNodes([]string{"web01"}))
+	require.NoError(t, err)
+	failed := f.waitForStatus(ir.Failed, distrTestTimeout(30*time.Second))
+	require.Equal(t, []string{"web01"}, failed.TargetNodes)
+
+	f.workers = append(f.workers, f.setupWorker("worker-1", map[string]string{"test": "true"}, ""))
+	dag := f.dagWrapper.DAG
+	retry := executor.CreateTask(dag.Name, string(dag.YamlData), dispatch.DispatchOperationRetry, runID,
+		executor.WithWorkerSelector(dag.WorkerSelector), executor.WithPreviousStatus(&failed))
+	require.NoError(t, f.coordinatorClient.Dispatch(f.coord.Context, dispatch.DispatchRequest{Task: retry}))
+
+	status := f.waitForStatus(ir.Succeeded, executionStatusTimeout())
+	require.Equal(t, []string{"web01"}, status.TargetNodes)
+	require.Equal(t, []string{"checked web01", "deployed web01"}, journalLines(t, journal))
 	require.Empty(t, servers["web02"].Commands(), "web02 is not listed")
 }
