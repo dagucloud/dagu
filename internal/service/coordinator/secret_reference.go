@@ -25,6 +25,9 @@ import (
 
 type SecretReferenceClient interface {
 	ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) (string, error)
+	// ResolveNodeSecretReference resolves ref for the connection to node, its
+	// bastion's included.
+	ResolveNodeSecretReference(ctx context.Context, owner serviceregistry.HostInfo, node string, ref secretref.Ref, workspace string, run SecretReferenceRun) (string, error)
 }
 
 type SecretReferenceRun struct {
@@ -68,12 +71,27 @@ func (r *secretReferenceResolver) resolve(ctx context.Context, ref secretref.Ref
 	return r.client.ResolveSecretReference(ctx, r.owner, ref, r.workspace, checkOnly, r.run)
 }
 
+// ResolveNodeReference resolves the credential ref of the connection to an
+// inventory node, its bastion's included.
+func (r *secretReferenceResolver) ResolveNodeReference(ctx context.Context, node string, ref secretref.Ref) (string, error) {
+	return r.client.ResolveNodeSecretReference(ctx, r.owner, node, ref, r.workspace, r.run)
+}
+
 func (cli *clientImpl) ResolveSecretReference(ctx context.Context, owner serviceregistry.HostInfo, ref secretref.Ref, workspace string, checkOnly bool, run SecretReferenceRun) (string, error) {
+	return cli.sendSecretReference(ctx, owner, secretReferenceRequest(ref, workspace, checkOnly, run))
+}
+
+func (cli *clientImpl) ResolveNodeSecretReference(ctx context.Context, owner serviceregistry.HostInfo, node string, ref secretref.Ref, workspace string, run SecretReferenceRun) (string, error) {
+	req := secretReferenceRequest(ref, workspace, false, run)
+	req.Name, req.Node = "", node
+	return cli.sendSecretReference(ctx, owner, req)
+}
+
+func (cli *clientImpl) sendSecretReference(ctx context.Context, owner serviceregistry.HostInfo, req *coordinatorv1.ResolveSecretReferenceRequest) (string, error) {
 	if !emptyCoordinatorOwner(owner) && !completeCoordinatorOwner(owner) {
 		return "", fmt.Errorf("secret reference owner coordinator endpoint is incomplete")
 	}
 
-	req := secretReferenceRequest(ref, workspace, checkOnly, run)
 	if completeCoordinatorOwner(owner) {
 		return cli.resolveSecretReferenceTo(ctx, owner, req)
 	}

@@ -26,7 +26,9 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/persis/store"
 	"github.com/dagucloud/dagu/v2/internal/persis/testutil"
 	secretpkg "github.com/dagucloud/dagu/v2/internal/secret"
+	secretref "github.com/dagucloud/dagu/v2/internal/secret/ref"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
+	"github.com/dagucloud/dagu/v2/internal/serviceregistry"
 	"github.com/dagucloud/dagu/v2/internal/spec"
 	runtestutil "github.com/dagucloud/dagu/v2/internal/testutil"
 	coordinatorv1 "github.com/dagucloud/dagu/v2/proto/coordinator/v1"
@@ -312,4 +314,47 @@ func TestResolveSecretReferenceForNode(t *testing.T) {
 		WorkerId: "worker-1", AttemptKey: run.attemptKey, AttemptId: run.attemptID,
 	})
 	assert.Equal(t, codes.InvalidArgument, status.Code(err), "a name and a node")
+}
+
+// A worker's client reads the nodes ResolveNodes answers as the inventory
+// holds them, and reads a node's credential by the node.
+func TestClientResolveNodes(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	stores := newNodeStores(t)
+	run := newNodeRun(t, stores, nodeStepDAG, time.Now())
+	server, addr := startMockServer(t, run.handler)
+	t.Cleanup(server.Stop)
+	host, port := parseHostPort(addr)
+	client := coordinator.New(&mockServiceMonitor{members: []serviceregistry.HostInfo{{
+		ID: "coord-1", Host: host, Port: port, Status: serviceregistry.ServiceStatusActive,
+	}}}, coordinator.DefaultConfig())
+	identity := coordinator.SecretReferenceRun{WorkerID: "worker-1", AttemptKey: run.attemptKey, AttemptID: run.attemptID}
+
+	nodeClient, ok := client.(coordinator.NodeClient)
+	require.True(t, ok)
+	resolved, err := nodeClient.ResolveNodes(ctx, serviceregistry.HostInfo{}, "", []string{"WEB-1"}, identity)
+	require.NoError(t, err)
+	stored, err := stores.inventory.Named(ctx, []string{"web-1"})
+	require.NoError(t, err)
+	require.Len(t, stored, 2)
+	assert.Equal(t, []inventory.ResolvedNode{stored[1]}, resolved.Nodes)
+	assert.Equal(t, []inventory.ResolvedNode{stored[0]}, resolved.Bastions)
+	require.Len(t, resolved.HostKeys, 2)
+	for _, key := range resolved.HostKeys {
+		trusted, err := stores.hostKeys.Get(ctx, key.Node)
+		require.NoError(t, err)
+		assert.Equal(t, trusted.Key, key.Key)
+		assert.Equal(t, trusted.Fingerprint, key.Fingerprint)
+	}
+
+	secrets, ok := client.(coordinator.SecretReferenceClient)
+	require.True(t, ok)
+	value, err := secrets.ResolveNodeSecretReference(ctx, serviceregistry.HostInfo{}, "web-1",
+		secretref.Ref{Name: "nodes.web-1.bastion.key", Ref: "ssh/jump-key"}, "", identity)
+	require.NoError(t, err)
+	assert.Equal(t, "jump-key-value", value)
+	_, err = secrets.ResolveNodeSecretReference(ctx, serviceregistry.HostInfo{}, "web-1",
+		secretref.Ref{Name: "nodes.web-1.key", Ref: "ssh/db-key"}, "", identity)
+	assert.ErrorContains(t, err, "secret reference access denied", "a ref of another node")
 }
