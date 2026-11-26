@@ -270,8 +270,8 @@ func TestNode_MaskedLogFinalLine(t *testing.T) {
 }
 
 // A step on a worker streams its logs to the coordinator through the log
-// writer factory. Secrets are masked there as in local logs, and the streams
-// are closed on teardown so the final partial line is delivered.
+// writer factory. Secrets are masked there as in local logs, the final partial
+// line is sent when the attempt ends, and both streams are closed on teardown.
 func TestNode_MaskedRemoteLog(t *testing.T) {
 	executorType := registerOutputTestExecutor(t, func(_ context.Context, exec *outputTestExecutor) error {
 		if _, err := io.WriteString(exec.stdout, "out s3cr3t\nlast s3cr3t"); err != nil {
