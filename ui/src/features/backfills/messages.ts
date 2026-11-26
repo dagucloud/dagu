@@ -644,4 +644,173 @@ export const backfillMessages = defineMessages({
     'Failed to resume the backfill':
       'Nachholen konnte nicht fortgesetzt werden',
   },
+  // A no-break space (\u00a0) comes before ":" and "?", as French writes
+  // them. A count that can be 0 or 1 never sits in front of a noun it would
+  // have to agree with: French writes those two in the singular.
+  fr: {
+    Backfills: 'Rattrapages',
+    'Backfill {id}': 'Rattrapage {id}',
+    'Running: {done} of {total} slots done':
+      'En cours – créneaux terminés\u00a0: {done} sur {total}',
+    'Running: {done} of {total} slots done, {failed} failed':
+      'En cours – créneaux terminés\u00a0: {done} sur {total}, en échec\u00a0: {failed}',
+    'Finishing: all {total} slots are done':
+      'Finalisation – tous les créneaux sont terminés ({total})',
+    'Waiting for a scheduler: {done} of {total} slots done':
+      'En attente d’un planificateur – créneaux terminés\u00a0: {done} sur {total}',
+    'No scheduler is running, so the backfill queues no run.':
+      'Aucun planificateur n’est actif, le rattrapage ne met donc aucune exécution en file d’attente.',
+    'Succeeded: all {total} slots': 'Réussi – tous les créneaux ({total})',
+    'Succeeded: {ran} slots ran, {skipped} skipped':
+      'Réussi – créneaux exécutés\u00a0: {ran}, ignorés\u00a0: {skipped}',
+    'Failed: {failed} of {total} slots failed':
+      'Échec – créneaux en échec\u00a0: {failed} sur {total}',
+    'Stopped: {failed} failed, {notRun} not run':
+      'Arrêté – en échec\u00a0: {failed}, non exécutés\u00a0: {notRun}',
+    'Cancelled: {cancelled} slots were not run':
+      'Annulé – créneaux non exécutés\u00a0: {cancelled}',
+    'Not run': 'Non exécuté',
+    Cancelled: 'Annulé',
+    Slots: 'Créneaux',
+    'Run past slots of the schedule':
+      'Exécuter les créneaux passés de la planification',
+    'Could not read the last success: {message}':
+      'Impossible de lire la dernière réussite\u00a0: {message}',
+    'Since the last success': 'Depuis la dernière réussite',
+    'Since the last success, {time}': 'Depuis la dernière réussite ({time})',
+    'Fire times': 'Heures de déclenchement',
+    'No slot succeeded in the last {days} days.':
+      'Aucun créneau n’a réussi au cours des {days} derniers jours.',
+    'First fire time': 'Première heure de déclenchement',
+    'Last fire time': 'Dernière heure de déclenchement',
+    'Times are in {zone}.': 'Les heures sont exprimées dans le fuseau {zone}.',
+    Options: 'Options',
+    '{count} at a time, stop after a failed slot':
+      '{count} à la fois, arrêt après un créneau en échec',
+    '{count} at a time, continue after a failed slot':
+      '{count} à la fois, poursuite après un créneau en échec',
+    "The DAG's default profile": 'Profil par défaut du DAG',
+    '{name} (protected)': '{name} (protégé)',
+    '{name} (admin only)': '{name} (administrateurs uniquement)',
+    'No slots in this state.': 'Aucun créneau dans cet état.',
+    'Slot {time}': 'Créneau {time}',
+    'Older definition': 'Définition antérieure',
+    'Backfill {done}/{total}': 'Rattrapage {done}/{total}',
+    'Backfill {done}/{total}, {failed} failed':
+      'Rattrapage {done}/{total}, {failed} en échec',
+    'Backfill failed: {failed} slots':
+      'Échec du rattrapage – créneaux en échec\u00a0: {failed}',
+    'Page {page} of {pages}': 'Page {page} sur {pages}',
+    'Submitted {time}': 'Soumis {time}',
+    'Submitted {time} by {actor}': 'Soumis {time} par {actor}',
+    'Resumed once': 'Repris une fois',
+    'Resumed {count} times': 'Repris {count} fois',
+    'Fill gaps': 'Combler les créneaux manquants',
+    'Fill gaps and redo failed':
+      'Combler les créneaux manquants et refaire ceux en échec',
+    'Redo everything': 'Tout refaire',
+    'Named slots': 'Créneaux désignés',
+    '{count} at a time': '{count} à la fois',
+    'Stops after a slot fails': 'S’arrête après l’échec d’un créneau',
+    'Goes on after a slot fails': 'Continue après l’échec d’un créneau',
+    'View runs': 'Voir les exécutions',
+    'Open backfill': 'Ouvrir le rattrapage',
+    'Open workflow': 'Ouvrir le workflow',
+    'Cancel backfill': 'Annuler le rattrapage',
+    'Cancel the backfill?': 'Annuler le rattrapage\u00a0?',
+    'Its queued runs are withdrawn and the slots it has not reached are cancelled. Runs in progress finish unless you stop them.':
+      'Ses exécutions en file d’attente sont retirées et les créneaux qu’il n’a pas encore atteints sont annulés. Les exécutions en cours se terminent, sauf si vous les arrêtez.',
+    'Also stop the run in progress': 'Arrêter aussi l’exécution en cours',
+    'Also stop the {count} runs in progress':
+      'Arrêter aussi les {count} exécutions en cours',
+    'Keep running': 'Laisser continuer',
+    'Resume backfill': 'Reprendre le rattrapage',
+    'Runs again the slots that did not succeed, with the current definition of the DAG and new runs.':
+      'Exécute de nouveau les créneaux qui n’ont pas réussi, avec la définition actuelle du DAG et de nouvelles exécutions.',
+    'Runs at once': 'Exécutions simultanées',
+    'The queue runs {limit} at a time.':
+      'La file d’attente en exécute {limit} à la fois.',
+    'After a slot fails': 'Après l’échec d’un créneau',
+    'Stop: for loads that build on the slot before':
+      'Arrêter\u00a0: pour les chargements qui dépendent du créneau précédent',
+    'Continue: for slots that do not depend on each other':
+      'Continuer\u00a0: pour les créneaux indépendants les uns des autres',
+    'Planning…': 'Calcul du plan…',
+    'Nothing to resume: every slot succeeded or was skipped.':
+      'Rien à reprendre\u00a0: chaque créneau a réussi ou a été ignoré.',
+    'The plan changed. Review it and resume again.':
+      'Le plan a changé. Vérifiez-le, puis relancez la reprise.',
+    'Resume 1 run': 'Reprendre 1 exécution',
+    'Resume {count} runs': 'Reprendre les exécutions ({count})',
+    'About {duration}': 'Environ {duration}',
+    'Backfill running: {done} of {total} slots done':
+      'Rattrapage en cours – créneaux terminés\u00a0: {done} sur {total}',
+    '{count} slots passed from {from} to {to} while {why}':
+      '{count} créneaux sont passés du {from} au {to} pendant que {why}',
+    '1 slot passed at {at} while {why}':
+      '1 créneau est passé le {at} pendant que {why}',
+    'this DAG was suspended': 'ce DAG était suspendu',
+    'the scheduler was paused': 'le planificateur était en pause',
+    'the scheduler was down': 'le planificateur était arrêté',
+    'this DAG could not run': 'ce DAG ne pouvait pas s’exécuter',
+    'The missed slots were not dismissed.':
+      'Impossible de masquer les créneaux manqués.',
+    'Please try again or check the server connection.':
+      'Réessayez ou vérifiez la connexion au serveur.',
+    'Backfill running: {done} of {total} slots done, {failed} failed':
+      'Rattrapage en cours – créneaux terminés\u00a0: {done} sur {total}, en échec\u00a0: {failed}',
+    'Backfill failed: {failed} slots did not succeed':
+      'Échec du rattrapage – créneaux sans succès\u00a0: {failed}',
+    'No backfills yet.': 'Aucun rattrapage pour l’instant.',
+    'A backfill runs the past slots of this schedule.':
+      'Un rattrapage exécute les créneaux passés de cette planification.',
+    'A backfill runs the past slots of this schedule. Start one from the slots above.':
+      'Un rattrapage exécute les créneaux passés de cette planification. Lancez-en un depuis les créneaux ci-dessus.',
+    'Backfill not found': 'Rattrapage introuvable',
+    'Failed to load the backfill': 'Impossible de charger le rattrapage',
+    'Failed to load the backfills': 'Impossible de charger les rattrapages',
+    'Slot states': 'États des créneaux',
+    'Failed to load the slots': 'Impossible de charger les créneaux',
+    'Last 90 days': '90 derniers jours',
+    Range: 'Plage',
+    'The schedule fires no slot in this range.':
+      'La planification ne déclenche aucun créneau sur cette plage.',
+    'Showing the newest {shown} of {total} slots. Pick a shorter range to see the rest.':
+      'Affichage des {shown} créneaux les plus récents sur {total}. Choisissez une plage plus courte pour voir les autres.',
+    'Pick missing': 'Sélectionner les manquants',
+    'Pick missing and failed':
+      'Sélectionner les créneaux manquants et en échec',
+    'Backfill 1 slot': 'Rattraper 1 créneau',
+    'Backfill {count} slots': 'Rattraper {count} créneaux',
+    'Backfill this range': 'Rattraper cette plage',
+    'Runs the {count} slots you picked, oldest first.':
+      'Exécute les créneaux choisis ({count}), du plus ancien au plus récent.',
+    'Runs the past slots of the range, oldest first.':
+      'Exécute les créneaux passés de la plage, du plus ancien au plus récent.',
+    'What to run': 'À exécuter',
+    'Fix the highlighted params before starting.':
+      'Corrigez les paramètres signalés avant de démarrer.',
+    'Nothing to run: every slot is done or held.':
+      'Rien à exécuter\u00a0: chaque créneau est terminé ou déjà en cours.',
+    'Slots {from} to {to}': 'Créneaux du {from} au {to}',
+    'Loads {from} to {to} ({entry})': 'Chargement du {from} au {to} ({entry})',
+    'Run 1 slot that succeeded again':
+      'Exécuter de nouveau 1 créneau déjà réussi',
+    'Run {count} slots that succeeded again':
+      'Exécuter de nouveau {count} créneaux déjà réussis',
+    'The plan changed. Review it and start again.':
+      'Le plan a changé. Vérifiez-le, puis relancez.',
+    'Failed to plan the backfill':
+      'Impossible de calculer le plan du rattrapage',
+    'Failed to start the backfill': 'Impossible de démarrer le rattrapage',
+    'Start 1 run': 'Démarrer 1 exécution',
+    'Start {count} runs': 'Démarrer les exécutions ({count})',
+    'Show backfill runs': 'Afficher les exécutions du rattrapage',
+    'Runs of backfill {id}': 'Exécutions du rattrapage {id}',
+    'Show all runs': 'Afficher toutes les exécutions',
+    'Runs 1 slot': 'Exécute 1 créneau',
+    'Runs {count} slots': 'Exécute {count} créneaux',
+    'Failed to cancel the backfill': 'Impossible d’annuler le rattrapage',
+    'Failed to resume the backfill': 'Impossible de reprendre le rattrapage',
+  },
 });

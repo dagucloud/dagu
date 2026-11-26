@@ -34,4 +34,13 @@ export default defineMessages({
     'Outputs of {name}': 'Ausgaben von {name}',
     'shown above': 'oben angezeigt',
   },
+  fr: {
+    'Reused from run {id}: succeeded':
+      'Réutilisé depuis l’exécution {id}\u00a0: réussi',
+    'Reused from run {id}: failed':
+      'Réutilisé depuis l’exécution {id}\u00a0: en échec',
+    'Open step {name}': 'Ouvrir l’étape {name}',
+    'Outputs of {name}': 'Sorties de {name}',
+    'shown above': 'voir ci-dessus',
+  },
 });

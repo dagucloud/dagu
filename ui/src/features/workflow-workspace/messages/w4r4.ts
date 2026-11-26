@@ -11,4 +11,7 @@ export default defineMessages({
   de: {
     'Show run': 'Lauf anzeigen',
   },
+  fr: {
+    'Show run': 'Afficher l’exécution',
+  },
 });

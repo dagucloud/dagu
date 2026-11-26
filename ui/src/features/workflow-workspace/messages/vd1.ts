@@ -35,4 +35,12 @@ export default defineMessages({
     'Apply every quick fix as one edit':
       'Alle Schnellkorrekturen als eine Änderung anwenden',
   },
+  fr: {
+    'Add id: {id}': 'Ajouter l’id\u00a0: {id}',
+    'Replace with {value}': 'Remplacer par {value}',
+    'Quick fix: {label}': 'Correction rapide\u00a0: {label}',
+    'Fix all ({count})': 'Tout corriger ({count})',
+    'Apply every quick fix as one edit':
+      'Appliquer toutes les corrections rapides en une seule modification',
+  },
 });

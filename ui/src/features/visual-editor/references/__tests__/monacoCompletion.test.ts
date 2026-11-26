@@ -1302,6 +1302,8 @@ describe('editorLocale', () => {
     document.documentElement.lang = 'ja';
     expect(editorLocale()).toBe('ja');
     document.documentElement.lang = 'fr';
+    expect(editorLocale()).toBe('fr');
+    document.documentElement.lang = 'ko';
     expect(editorLocale()).toBe('en');
   });
 });

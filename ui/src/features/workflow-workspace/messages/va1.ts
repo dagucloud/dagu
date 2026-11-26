@@ -24,4 +24,9 @@ export default defineMessages({
       'Vor dem Speichern die Probleme beheben ({count})',
     'line {line}': 'Zeile {line}',
   },
+  fr: {
+    'Fix the issues before you save ({count})':
+      'Corrigez les problèmes avant d’enregistrer ({count})',
+    'line {line}': 'ligne {line}',
+  },
 });

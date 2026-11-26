@@ -3,13 +3,14 @@
 
 import { describe, expect, it } from 'vitest';
 import { baseStaticMessages } from '@/i18n/staticMessages';
+import { SAME_IN_FRENCH } from '@/testing/frenchText';
 import { workspaceModules } from '..';
 
 type Catalog = Readonly<Record<string, string>>;
-type LocaleId = 'en' | 'zh-CN' | 'ja' | 'de';
+type LocaleId = 'en' | 'zh-CN' | 'ja' | 'de' | 'fr';
 type MessageModule = Readonly<Record<LocaleId, Catalog>>;
 
-const TRANSLATED = ['zh-CN', 'ja', 'de'] as const;
+const TRANSLATED = ['zh-CN', 'ja', 'de', 'fr'] as const;
 
 /** Words that every locale writes as in English. */
 const TECHNICAL_WORDS = [
@@ -49,6 +50,7 @@ function findUntranslated(
         if (value === undefined || value !== module.en[key]) continue;
         if (onlyTechnical(value)) continue;
         if (base[locale][key] === value) continue;
+        if (locale === 'fr' && SAME_IN_FRENCH.has(value)) continue;
         problems.push(`${id}: "${key}" is not translated in ${locale}`);
       }
     }
@@ -61,11 +63,12 @@ const base: MessageModule = {
   'zh-CN': { DAG: 'DAG', Save: '保存' },
   ja: { DAG: 'DAG', Save: '保存' },
   de: { DAG: 'DAG', Save: 'Speichern' },
+  fr: { DAG: 'DAG', Save: 'Enregistrer' },
 };
 
 describe('workspace message translations', () => {
   // parity:crit-i18n-locales
-  it('translate every module key in zh-CN, ja and de', () => {
+  it('translate every module key in zh-CN, ja, de and fr', () => {
     expect(findUntranslated(workspaceModules, baseStaticMessages)).toEqual([]);
   });
 
@@ -76,6 +79,7 @@ describe('workspace message translations', () => {
         'zh-CN': { 'Run now': 'Run now' },
         ja: { 'Run now': '今すぐ実行' },
         de: { 'Run now': 'Jetzt ausführen' },
+        fr: { 'Run now': 'Exécuter maintenant' },
       },
     };
     expect(findUntranslated(modules, base)).toEqual([
@@ -94,6 +98,20 @@ describe('workspace message translations', () => {
         },
         ja: { YAML: 'YAML', 'stdout / stderr': 'stdout / stderr', DAG: 'DAG' },
         de: { YAML: 'YAML', 'stdout / stderr': 'stdout / stderr', DAG: 'DAG' },
+        fr: { YAML: 'YAML', 'stdout / stderr': 'stdout / stderr', DAG: 'DAG' },
+      },
+    };
+    expect(findUntranslated(modules, base)).toEqual([]);
+  });
+
+  it('accept a French word that English writes the same way', () => {
+    const modules = {
+      t08: {
+        en: { Options: 'Options' },
+        'zh-CN': { Options: '选项' },
+        ja: { Options: 'オプション' },
+        de: { Options: 'Optionen' },
+        fr: { Options: 'Options' },
       },
     };
     expect(findUntranslated(modules, base)).toEqual([]);
@@ -106,6 +124,7 @@ describe('workspace message translations', () => {
         'zh-CN': { 'Show YAML': '显示 YAML' },
         ja: { 'Show YAML': 'Show YAML' },
         de: { 'Show YAML': 'YAML anzeigen' },
+        fr: { 'Show YAML': 'Afficher le YAML' },
       },
     };
     expect(findUntranslated(modules, base)).toEqual([

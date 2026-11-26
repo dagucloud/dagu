@@ -48,4 +48,15 @@ export default defineMessages({
     'Open {tab}': '{tab} öffnen',
     'Follow latest run': 'Neuestem Lauf folgen',
   },
+  fr: {
+    'This workflow': 'Ce workflow',
+    'Toggle YAML': 'Afficher ou masquer le YAML',
+    'Workflow panel': 'Panneau du workflow',
+    'Add step…': 'Ajouter une étape…',
+    'Go to step {name}': 'Aller à l’étape {name}',
+    'Toggle logs': 'Afficher ou masquer les journaux',
+    'Open run log': 'Ouvrir le journal de l’exécution',
+    'Open {tab}': 'Ouvrir l’onglet {tab}',
+    'Follow latest run': 'Suivre la dernière exécution',
+  },
 });

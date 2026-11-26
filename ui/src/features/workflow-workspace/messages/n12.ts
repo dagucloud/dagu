@@ -16,4 +16,8 @@ export default defineMessages({
   de: {
     'Zoom {percent}%, reset to 100%': 'Zoom {percent} %, zurück auf 100 %',
   },
+  fr: {
+    'Zoom {percent}%, reset to 100%':
+      'Zoom {percent}\u00a0%, réinitialiser à 100\u00a0%',
+  },
 });

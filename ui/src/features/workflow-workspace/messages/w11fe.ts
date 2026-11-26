@@ -190,4 +190,54 @@ export default defineMessages({
     'Reused from run {id}': 'Aus Lauf {id} übernommen',
     'In that run: {start} → {finish}': 'In diesem Lauf: {start} → {finish}',
   },
+  fr: {
+    'Inputs from': 'Source des entrées',
+    'Run to take the inputs from': 'Exécution source des entrées',
+    Automatic: 'Automatique',
+    'No run': 'Aucune exécution',
+    'missing: {steps}': 'étapes manquantes\u00a0: {steps}',
+    'still running': 'toujours en cours',
+    'Cached values': 'Valeurs en cache',
+    'Cached values (from run {id}, {time})':
+      'Valeurs en cache (de l’exécution {id}, {time})',
+    'Cached values (from runs {ids}, {time})':
+      'Valeurs en cache (des exécutions {ids}, {time})',
+    'cached from run {id}': 'en cache depuis l’exécution {id}',
+    'cached from run {id}, {time}': 'en cache depuis l’exécution {id}, {time}',
+    'Cached values from run {id}': 'Valeurs en cache de l’exécution {id}',
+    'Cached values from run {id}, {time}':
+      'Valeurs en cache de l’exécution {id}, {time}',
+    'Outputs reused from run {id}, {time}':
+      'Sorties réutilisées de l’exécution {id}, {time}',
+    'The step changed since': 'L’étape a changé depuis',
+    'run {id} (no longer available)': 'exécution {id} (n’est plus disponible)',
+    'Test run': 'Exécution de test',
+    'Test run, not kept. Back to latest':
+      'Exécution de test, non conservée. Revenir à la dernière exécution',
+    'Test run, not kept: it disappears {minutes} minutes after it ends':
+      'Exécution de test, non conservée\u00a0: elle disparaît {minutes} minutes après sa fin',
+    'Test run, not kept: it disappears at {time}':
+      'Exécution de test, non conservée\u00a0: elle disparaît à {time}',
+    'Hide test runs': 'Masquer les exécutions de test',
+    'Show test runs': 'Afficher les exécutions de test',
+    'Filter runs by trigger': 'Filtrer les exécutions par déclencheur',
+    'Triggered by': 'Déclencheur',
+    'Only one trigger type in these runs':
+      'Un seul type de déclencheur dans ces exécutions',
+    'No test run in these runs':
+      'Aucune exécution de test parmi ces exécutions',
+    'No cached time in these runs': 'Aucun temps en cache dans ces exécutions',
+    Reused: 'Réutilisé',
+    'Reused time: {time}': 'Temps réutilisé\u00a0: {time}',
+    'Time that the reused steps took in their source runs. It is not part of the duration of this run.':
+      'Temps qu’ont pris les étapes réutilisées dans leurs exécutions d’origine. Il n’entre pas dans la durée de cette exécution.',
+    'run {id}': 'exécution {id}',
+    'cache of run {id}': 'cache de l’exécution {id}',
+    'source run no longer available':
+      'l’exécution source n’est plus disponible',
+    'Took this long in run {id}': 'Durée mesurée dans l’exécution {id}',
+    'Reused from run {id}': 'Réutilisé depuis l’exécution {id}',
+    'In that run: {start} → {finish}':
+      'Dans cette exécution\u00a0: {start} → {finish}',
+  },
 });

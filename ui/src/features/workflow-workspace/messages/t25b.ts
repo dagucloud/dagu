@@ -28,4 +28,10 @@ export default defineMessages({
     'Layout direction': 'Ausrichtung',
     'Run status: {status}': 'Laufstatus: {status}',
   },
+  fr: {
+    Tools: 'Outils',
+    'Canvas tools': 'Outils du canevas',
+    'Layout direction': 'Sens de la disposition',
+    'Run status: {status}': 'Statut de l’exécution\u00a0: {status}',
+  },
 });

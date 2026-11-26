@@ -124,4 +124,36 @@ export default defineMessages({
     'The server checks these marks when you run the step.':
       'Der Server prüft diese Markierungen, wenn du den Schritt ausführst.',
   },
+  fr: {
+    'changed since run {id}: {changes}':
+      'modifié depuis l’exécution {id}\u00a0: {changes}',
+    'cannot compare with run {id}':
+      'impossible de comparer avec l’exécution {id}',
+    'Since run {id}, {changes} changed.':
+      'Ce qui a changé depuis l’exécution {id}\u00a0: {changes}.',
+    'the step': 'l’étape',
+    'an upstream step': 'une étape en amont',
+    'the parameters': 'les paramètres',
+    'the runtime profile': 'le profil d’exécution',
+    'the base config': 'la configuration de base',
+    'the top-level settings': 'les réglages de premier niveau',
+    'outputs of a changed step': 'les sorties d’une étape modifiée',
+    'Step only reuses the outputs of the changed steps as they are.':
+      '«\u00a0Étape seule\u00a0» réutilise telles quelles les sorties des étapes modifiées.',
+    'Could not check the earlier runs: {message}':
+      'Impossible de vérifier les exécutions précédentes\u00a0: {message}',
+    'Check again': 'Revérifier',
+    'The run did not start because something changed after the check:':
+      'L’exécution n’a pas démarré, car quelque chose a changé après la vérification\u00a0:',
+    'the parameters ({names})': 'les paramètres ({names})',
+    'run {id} has not finished': 'l’exécution {id} n’est pas terminée',
+    'Checking with the server': 'Vérification auprès du serveur',
+    'This node does not check earlier runs. The marks come from the browser.':
+      'Ce nœud ne vérifie pas les exécutions précédentes. Les indications affichées proviennent du navigateur.',
+    'Selected steps': 'Étapes sélectionnées',
+    rerun: 'réexécuter',
+    'Use the profile of run {id}': 'Utiliser le profil de l’exécution {id}',
+    'The server checks these marks when you run the step.':
+      'Le serveur vérifie ces indications quand vous exécutez l’étape.',
+  },
 });

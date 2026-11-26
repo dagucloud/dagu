@@ -70,4 +70,22 @@ export default defineMessages({
     'The runs before {time} are not kept.':
       'Die Läufe vor {time} werden nicht aufbewahrt.',
   },
+  fr: {
+    'Last year': '12 derniers mois',
+    'Last 3 years': '3 dernières années',
+    'Run history': 'Historique des exécutions',
+    'the run history': 'l’historique des exécutions',
+    'the availability of the runs': 'la disponibilité des exécutions',
+    'the events of the run history':
+      'les événements de l’historique des exécutions',
+    'No runs in this window': 'Aucune exécution sur cette période',
+    '{failures} failed of {count} runs':
+      'Exécutions en échec\u00a0: {failures} sur {count}',
+    Gap: 'Lacune',
+    'no run for {length}': 'aucune exécution pendant {length}',
+    'Running since {time}': 'En cours depuis le {time}',
+    'Open run {id}': 'Ouvrir l’exécution {id}',
+    'The runs before {time} are not kept.':
+      'Avant le {time}, les exécutions ne sont pas conservées.',
+  },
 });

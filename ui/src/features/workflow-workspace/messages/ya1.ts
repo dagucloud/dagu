@@ -9,4 +9,5 @@ export default defineMessages({
   'zh-CN': {},
   ja: {},
   de: {},
+  fr: {},
 });

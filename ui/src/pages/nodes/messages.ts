@@ -136,6 +136,40 @@ export const nodeTestMessages = defineMessages({
     'Bastion key': 'Bastion-Schlüssel',
     'Not tested': 'Nicht getestet',
   },
+  fr: {
+    'Connection test': 'Test de connexion',
+    'Tested {done} of {total}': 'Nœuds testés\u00a0: {done} sur {total}',
+    '{passed} passed, {failed} failed':
+      'Tests réussis\u00a0: {passed}, en échec\u00a0: {failed}',
+    'Trust {count} unknown keys': 'Faire confiance aux {count} clés inconnues',
+    'Replace key': 'Remplacer la clé',
+    'Trust key': 'Faire confiance à la clé',
+    Passed: 'Réussi',
+    'Changed key': 'Clé modifiée',
+    'Unknown key': 'Clé inconnue',
+    'Key replaced': 'Clé remplacée',
+    'Key trusted': 'Clé de confiance',
+    'Replace trusted host key': 'Remplacer la clé d’hôte de confiance',
+    'The host key of {node} has changed. A host that was reinstalled presents a new key, and so does a connection someone intercepts. Replace the key only if you know why it changed.':
+      'La clé d’hôte de {node} a changé. Un hôte réinstallé présente une nouvelle clé, tout comme une connexion interceptée par un tiers. Ne remplacez la clé que si vous savez pourquoi elle a changé.',
+    Trusted: 'De confiance',
+    Presented: 'Présentée',
+    'Trust host keys': 'Faire confiance aux clés d’hôte',
+    Trust: 'Faire confiance',
+    'Runs and tests will accept these keys. Trust them only if they are the keys of these hosts.':
+      'Les exécutions et les tests accepteront ces clés. Ne leur faites confiance que s’il s’agit bien des clés de ces hôtes.',
+    "Couldn't list the matched nodes.":
+      'Impossible de lister les nœuds correspondants.',
+    'A test takes at most 1,000 nodes. Narrow the filters, or check the nodes to test.':
+      'Un test porte sur 1\u00a0000 nœuds au maximum. Affinez les filtres ou cochez les nœuds à tester.',
+    'Test {count} checked': 'Tester la sélection ({count})',
+    'Test matched nodes': 'Tester les nœuds correspondants',
+    'Check the nodes of this page': 'Cocher les nœuds de cette page',
+    'Check {name}': 'Cocher {name}',
+    'Last test': 'Dernier test',
+    'Bastion key': 'Clé du bastion',
+    'Not tested': 'Non testé',
+  },
 });
 
 /** The static messages of worker nodes on the Nodes page. */
@@ -193,5 +227,19 @@ export const workerNodeMessages = defineMessages({
       'Worker {worker} ist kein Knoten: Inventar {inventory} hat einen Knoten mit diesem Namen.',
     'No SSH node matches these filters.':
       'Kein SSH-Knoten passt zu diesen Filtern.',
+  },
+  fr: {
+    "SSH hosts from this server's inventories, and workers that set an ID. Steps select them by label.":
+      'Hôtes SSH issus des inventaires de ce serveur, et workers qui définissent un ID. Les étapes les sélectionnent par étiquette.',
+    Online: 'En ligne',
+    'Last seen': 'Vu pour la dernière fois',
+    'Forget worker': 'Oublier le worker',
+    'Forget {name}? It is listed again when the worker connects.':
+      'Oublier {name}\u00a0? Il réapparaît dans la liste quand le worker se reconnecte.',
+    "Couldn't forget the worker.": 'Impossible d’oublier le worker.',
+    'Worker {worker} is not a node: inventory {inventory} has a node with that name.':
+      'Le worker {worker} n’est pas un nœud\u00a0: l’inventaire {inventory} a un nœud de ce nom.',
+    'No SSH node matches these filters.':
+      'Aucun nœud SSH ne correspond à ces filtres.',
   },
 });

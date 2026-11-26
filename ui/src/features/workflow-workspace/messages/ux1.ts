@@ -22,4 +22,8 @@ export default defineMessages({
     'Workflow views': 'Ablauf-Ansichten',
     'Switch to {panel}': 'Zu {panel} wechseln',
   },
+  fr: {
+    'Workflow views': 'Vues du workflow',
+    'Switch to {panel}': 'Passer au panneau {panel}',
+  },
 });

@@ -16,4 +16,7 @@ export default defineMessages({
   de: {
     'Answer in the Agent tab': 'Im Reiter Agent antworten',
   },
+  fr: {
+    'Answer in the Agent tab': 'Répondre dans l’onglet Agent',
+  },
 });
