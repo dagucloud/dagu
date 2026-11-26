@@ -193,8 +193,9 @@ func CheckSkillFile(name string, data []byte) (FrontMatter, string, []Issue) {
 			errorf(RuleDescriptionXML, "the description must not contain XML tags")
 		}
 		if n > MaxDescriptionLength {
-			// A list keeps the description of every skill, so a long one is cut.
-			meta.Description = cutRunes(meta.Description, MaxDescriptionLength)
+			// A list keeps the description of every skill, so a long one is cut. The
+			// copy lets the full text be freed.
+			meta.Description = strings.Clone(cutRunes(meta.Description, MaxDescriptionLength))
 		}
 		if n > 0 && n < WarnDescriptionLength {
 			warnf(RuleDescriptionShort, "the description has %d characters; say what the skill does and when to use it", n)
