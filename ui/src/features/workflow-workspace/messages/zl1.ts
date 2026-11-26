@@ -6,6 +6,9 @@ import { defineMessages } from './define';
 // The Workflows and Runs lists: their rows, groups and saved views.
 export default defineMessages({
   en: {
+    '1 run in the last 24 hours': '1 run in the last 24 hours',
+    '{count} runs in the last 24 hours': '{count} runs in the last 24 hours',
+    '{count}+ runs in the last 24 hours': '{count}+ runs in the last 24 hours',
     'Webhook of {name}': 'Webhook of {name}',
     'Enable webhook': 'Enable webhook',
     'Disable webhook': 'Disable webhook',
@@ -28,6 +31,9 @@ export default defineMessages({
       'Are you sure you want to {action} the webhooks of the {count} workflows of "{name}"?',
   },
   'zh-CN': {
+    '1 run in the last 24 hours': '过去 24 小时内有 1 次运行',
+    '{count} runs in the last 24 hours': '过去 24 小时内有 {count} 次运行',
+    '{count}+ runs in the last 24 hours': '过去 24 小时内有 {count} 次以上运行',
     'Webhook of {name}': '{name} 的 Webhook',
     'Enable webhook': '启用 Webhook',
     'Disable webhook': '停用 Webhook',
@@ -50,6 +56,9 @@ export default defineMessages({
       '确定要{action}“{name}”中 {count} 个工作流的 Webhook 吗？',
   },
   ja: {
+    '1 run in the last 24 hours': '過去 24 時間に 1 件の実行',
+    '{count} runs in the last 24 hours': '過去 24 時間に {count} 件の実行',
+    '{count}+ runs in the last 24 hours': '過去 24 時間に {count} 件以上の実行',
     'Webhook of {name}': '{name} の Webhook',
     'Enable webhook': 'Webhook を有効にする',
     'Disable webhook': 'Webhook を無効にする',
@@ -73,6 +82,11 @@ export default defineMessages({
       '「{name}」の {count} 件のワークフローの Webhook を{action}しますか？',
   },
   de: {
+    '1 run in the last 24 hours': '1 Lauf in den letzten 24 Stunden',
+    '{count} runs in the last 24 hours':
+      '{count} Läufe in den letzten 24 Stunden',
+    '{count}+ runs in the last 24 hours':
+      '{count}+ Läufe in den letzten 24 Stunden',
     'Webhook of {name}': 'Webhook von {name}',
     'Enable webhook': 'Webhook einschalten',
     'Disable webhook': 'Webhook abschalten',
@@ -96,5 +110,36 @@ export default defineMessages({
       'Zeitpläne der {count} Abläufe von "{name}" wirklich {action}?',
     'Are you sure you want to {action} the webhooks of the {count} workflows of "{name}"?':
       'Webhooks der {count} Abläufe von "{name}" wirklich {action}?',
+  },
+  fr: {
+    '1 run in the last 24 hours':
+      '1 exécution au cours des dernières 24 heures',
+    '{count} runs in the last 24 hours':
+      '{count} exécutions au cours des dernières 24 heures',
+    '{count}+ runs in the last 24 hours':
+      'Au moins {count} exécutions au cours des dernières 24 heures',
+    'Webhook of {name}': 'Webhook de {name}',
+    'Enable webhook': 'Activer le webhook',
+    'Disable webhook': 'Désactiver le webhook',
+    'Could not update the webhook': 'Impossible de mettre à jour le webhook',
+    'Rename view': 'Renommer la vue',
+    'Save the changes of “{name}”':
+      'Enregistrer les modifications de «\u00a0{name}\u00a0»',
+    'View actions': 'Actions de la vue',
+    'The view keeps its saved filters.':
+      'La vue conserve ses filtres enregistrés.',
+    'Pin group {name}': 'Épingler le groupe {name}',
+    'Pin group': 'Épingler le groupe',
+    'Unpin group': 'Désépingler le groupe',
+    'Gather the workflows by group': 'Regrouper les workflows par groupe',
+    'Could not update the schedules':
+      'Impossible de mettre à jour les planifications',
+    'Schedules of group {name}': 'Planifications du groupe {name}',
+    'Webhooks of group {name}': 'Webhooks du groupe {name}',
+    '{live} of {total} live': 'Actifs\u00a0: {live} sur {total}',
+    'Are you sure you want to {action} the schedules of the {count} workflows of "{name}"?':
+      'Voulez-vous vraiment {action} les planifications des workflows ({count}) du groupe «\u00a0{name}\u00a0»\u00a0?',
+    'Are you sure you want to {action} the webhooks of the {count} workflows of "{name}"?':
+      'Voulez-vous vraiment {action} les webhooks des workflows ({count}) du groupe «\u00a0{name}\u00a0»\u00a0?',
   },
 });

@@ -353,6 +353,30 @@ steps:
 	assert.Contains(t, err.Error(), "failed to locate DAG non-existent")
 }
 
+// The metadata of the DAGs that ids name, in a flat and in a recursive
+// store. An id that names no DAG is left out.
+func TestMetadataByIDs(t *testing.T) {
+	for _, recursive := range []bool{false, true} {
+		tmpDir := t.TempDir()
+		dir := tmpDir
+		if recursive {
+			dir = filepath.Join(tmpDir, "team")
+			require.NoError(t, os.MkdirAll(dir, 0o750))
+		}
+		for _, name := range []string{"alpha", "beta"} {
+			content := "labels: [workspace=ops]\nsteps:\n  - run: echo " + name + "\n"
+			require.NoError(t, os.WriteFile(filepath.Join(dir, name+".yaml"), []byte(content), 0600))
+		}
+		store := newRepository(tmpDir, WithSkipExamples(true), WithRecursiveDiscovery(recursive))
+
+		dags, err := store.MetadataByIDs(context.Background(), []string{"alpha", "missing", "beta"})
+		require.NoError(t, err)
+		require.Len(t, dags, 2, "recursive=%v", recursive)
+		assert.Equal(t, "alpha", dags["alpha"].Name)
+		assert.Equal(t, []string{"workspace=ops"}, dags["beta"].Labels.Strings())
+	}
+}
+
 func TestGetMetadata_InlineSchemaParamsPreserveMetadata(t *testing.T) {
 	tmpDir := fileutil.MustTempDir("test-get-metadata-inline-schema")
 	defer func() {

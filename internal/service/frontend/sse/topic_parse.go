@@ -17,6 +17,12 @@ var topicTypePattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 // lists the DAG's backfill runs too.
 const dagHistoryWithBackfill = "includeBackfill=true"
 
+// dagRunChangesIdentifier is the one identifier of the change feed topic. It
+// is not empty so that a server that does not know the topic type answers
+// unsupported_topic for this topic alone; an empty identifier fails the whole
+// subscription there.
+const dagRunChangesIdentifier = "all"
+
 // ParsedTopic is the canonical representation of a topic string.
 type ParsedTopic struct {
 	Type       TopicType
@@ -55,7 +61,7 @@ func canonicalizeTopicIdentifier(topicType TopicType, identifier string) (string
 	identifier = strings.TrimSpace(identifier)
 
 	switch topicType {
-	case TopicTypeDAGRuns, TopicTypeDAGRunActivity, TopicTypeQueues, TopicTypeDAGsList, TopicTypeDAGListActivity, TopicTypeServiceDAGs, TopicTypeWikiTree, TopicTypeLegacyDocTree:
+	case TopicTypeDAGRuns, TopicTypeDAGRunActivity, TopicTypeQueues, TopicTypeDAGsList, TopicTypeServiceDAGs, TopicTypeWikiTree, TopicTypeLegacyDocTree:
 		identifier = strings.TrimPrefix(identifier, "?")
 		return parseAndSanitizeQuery(identifier)
 	case TopicTypeDAGRunLogs, TopicTypeWikiPage, TopicTypeLegacyDoc:
@@ -87,6 +93,11 @@ func canonicalizeTopicIdentifier(topicType TopicType, identifier string) (string
 			return "", fmt.Errorf("topic %q takes only %s", topicType, dagHistoryWithBackfill)
 		}
 		return fileName + "?" + query, nil
+	case TopicTypeDAGRunChanges:
+		if identifier != dagRunChangesIdentifier {
+			return "", fmt.Errorf("topic %q takes only the identifier %q", topicType, dagRunChangesIdentifier)
+		}
+		return identifier, nil
 	case TopicTypeDAGRun, TopicTypeSubDAGRun, TopicTypeStepLog, TopicTypeQueueItems, TopicTypeBackfill:
 		if identifier == "" {
 			return "", fmt.Errorf("topic %q requires an identifier", topicType)

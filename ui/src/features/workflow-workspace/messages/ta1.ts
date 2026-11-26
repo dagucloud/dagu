@@ -21,4 +21,8 @@ export default defineMessages({
     'Last {n} runs': 'Letzte {n} Läufe',
     'Number of runs shown': 'Anzahl angezeigter Läufe',
   },
+  fr: {
+    'Last {n} runs': '{n} dernières exécutions',
+    'Number of runs shown': 'Nombre d’exécutions affichées',
+  },
 });

@@ -32,6 +32,7 @@ This command only lists DAGs from the local Dagu installation.
 
 Flags:
   -n, --next         Show next scheduled run time
+      --local-time   Show next scheduled run time in the configured timezone instead of UTC
   -l, --last         Show last run status and time
   -H, --history      Show a compact recent-history summary
   -t, --sort-last    Sort by last run time, newest first
@@ -53,6 +54,7 @@ Examples:
 
 var lsFlags = []commandLineFlag{
 	lsNextFlag,
+	lsLocalTimeFlag,
 	lsLastFlag,
 	lsHistoryFlag,
 	lsSortLastFlag,
@@ -70,6 +72,7 @@ type lsRow struct {
 
 func runLs(ctx *Context, args []string) error {
 	showNext, _ := ctx.Command.Flags().GetBool("next")
+	localTime, _ := ctx.Command.Flags().GetBool("local-time")
 	showLast, _ := ctx.Command.Flags().GetBool("last")
 	showHistory, _ := ctx.Command.Flags().GetBool("history")
 	sortLast, _ := ctx.Command.Flags().GetBool("sort-last")
@@ -137,7 +140,12 @@ func runLs(ctx *Context, args []string) error {
 		sortLsRowsByLastRun(rows, reverse)
 	}
 
-	return renderLsTable(ctx.Command.OutOrStdout(), rows, showNext, showLast, showHistory)
+	var nextRunLoc *time.Location
+	if localTime {
+		nextRunLoc = ctx.Config.Core.Location
+	}
+
+	return renderLsTable(ctx.Command.OutOrStdout(), rows, showNext, showLast, showHistory, nextRunLoc)
 }
 
 func lsNextRunProjection(ctx *Context) func(*ir.DAG, time.Time) time.Time {
@@ -221,7 +229,7 @@ func enrichLsRow(ctx *Context, row *lsRow, wantLast, wantHistory bool) error {
 	return nil
 }
 
-func renderLsTable(out io.Writer, rows []lsRow, showNext, showLast, showHistory bool) error {
+func renderLsTable(out io.Writer, rows []lsRow, showNext, showLast, showHistory bool, nextRunLoc *time.Location) error {
 	if len(rows) == 0 {
 		_, err := fmt.Fprintln(out, "No DAGs found")
 		return err
@@ -248,6 +256,8 @@ func renderLsTable(out io.Writer, rows []lsRow, showNext, showLast, showHistory 
 		if showNext {
 			if row.nextRun.IsZero() {
 				cols = append(cols, "-")
+			} else if nextRunLoc != nil {
+				cols = append(cols, row.nextRun.In(nextRunLoc).Format(time.RFC3339))
 			} else {
 				cols = append(cols, row.nextRun.UTC().Format(time.RFC3339))
 			}

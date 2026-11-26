@@ -51,3 +51,11 @@ func TestSameFileSystem(t *testing.T) {
 		assert.False(t, same)
 	})
 }
+
+func TestFreeSpace(t *testing.T) {
+	t.Parallel()
+
+	free, err := FreeSpace(filepath.Join(t.TempDir(), "not", "created"))
+	require.NoError(t, err)
+	assert.Positive(t, free, "judged by the nearest existing ancestor")
+}

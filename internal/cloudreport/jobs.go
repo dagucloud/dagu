@@ -96,6 +96,10 @@ type JobReports struct {
 	// Client sends the reports; nil uses Go's default transport, which
 	// honors HTTPS_PROXY, NO_PROXY, and the system's certificates.
 	Client *http.Client
+	// ServerReports reports whether a server sends the run to Dagu Console
+	// instead; nil is never. It is asked before each report, and the report
+	// is left out while it says so.
+	ServerReports func() bool
 
 	// now, after, and random stand in for the clock and jitter in tests;
 	// nil uses the real ones.
@@ -367,7 +371,9 @@ func (r *jobReporter) run() {
 		r.mu.Unlock()
 		switch {
 		case finish != nil:
-			r.sendFinish(finish, finishBy)
+			if !r.serverReports() {
+				r.sendFinish(finish, finishBy)
+			}
 			return
 		case progress != nil:
 		case closing:
@@ -375,7 +381,10 @@ func (r *jobReporter) run() {
 		default:
 			continue
 		}
-		next, ok := r.sendProgress(progress)
+		next, ok := time.Duration(0), true
+		if !r.serverReports() {
+			next, ok = r.sendProgress(progress)
+		}
 		if !ok || closing {
 			return
 		}
@@ -384,6 +393,11 @@ func (r *jobReporter) run() {
 		}
 		tick = r.after(r.jitter(interval))
 	}
+}
+
+// serverReports reports whether a server sends the run now.
+func (r *jobReporter) serverReports() bool {
+	return r.reports.ServerReports != nil && r.reports.ServerReports()
 }
 
 // sendProgress sends the run in progress once. It returns the interval

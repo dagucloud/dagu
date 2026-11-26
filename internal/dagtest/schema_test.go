@@ -44,13 +44,13 @@ func TestSchemaAccepts(t *testing.T) {
 	for name, data := range specExamples(t) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			_, errs := decodeFile(data)
+			_, errs := decodeFile(name, data)
 			err := validateYAML(full, data)
 			require.Equal(t, len(errs) == 0, err == nil, "decoder: %v\nschema: %v", errs, err)
 		})
 	}
 	for name, data := range testdataFiles(t) {
-		if _, errs := decodeFile(data); len(errs) > 0 {
+		if _, errs := decodeFile(name, data); len(errs) > 0 {
 			continue
 		}
 		t.Run(name, func(t *testing.T) {
@@ -120,7 +120,7 @@ func TestSchemaRejects(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			data := []byte(tt.yaml)
-			_, errs := decodeFile(data)
+			_, errs := decodeFile(tt.name, data)
 			require.Error(t, validateYAML(full, data))
 			if tt.caseError {
 				require.Empty(t, errs)

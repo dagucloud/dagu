@@ -259,7 +259,7 @@ func LoadFile(ctx context.Context, path string, opts ...spec.LoadOption) (*File,
 	if err != nil {
 		return nil, invalid(Finding{Message: err.Error()})
 	}
-	decoded, errs := decodeFile(data)
+	decoded, errs := decodeFile(path, data)
 	if len(errs) > 0 {
 		return nil, invalid(errs...)
 	}

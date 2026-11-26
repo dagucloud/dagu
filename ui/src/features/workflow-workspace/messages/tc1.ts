@@ -30,4 +30,10 @@ export default defineMessages({
       'Schritt {name} mit seinen vorherigen Schritten ausführen?',
     'Steps that run: {steps}': 'Auszuführende Schritte: {steps}',
   },
+  fr: {
+    'Step only': 'Étape seule',
+    'Run the step {name} with its previous steps?':
+      'Exécuter l’étape {name} avec ses étapes précédentes\u00a0?',
+    'Steps that run: {steps}': 'Étapes exécutées\u00a0: {steps}',
+  },
 });

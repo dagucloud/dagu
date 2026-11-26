@@ -179,6 +179,8 @@ func runStartAll(ctx *Context, _ []string) error {
 		}
 	}()
 
+	warnTestNamedDAGs(serviceCtx)
+
 	// Initialize all services using the signal-aware context
 	scheduler, err := newScheduler(serviceCtx, schedulerDeps)
 	if err != nil {

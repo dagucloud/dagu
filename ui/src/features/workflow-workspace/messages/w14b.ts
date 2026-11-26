@@ -80,4 +80,24 @@ export default defineMessages({
     'No older run in this view': 'Kein älterer Lauf in dieser Ansicht',
     'No newer run in this view': 'Kein neuerer Lauf in dieser Ansicht',
   },
+  fr: {
+    'Show cached time': 'Afficher le temps en cache',
+    'Hide cached time': 'Masquer le temps en cache',
+    'Total {total} = own {own} + cached {cached}':
+      'Total {total} = propre {own} + en cache {cached}',
+    'Newest runs': 'Exécutions les plus récentes',
+    'Last hour': 'Dernière heure',
+    'Last 6 hours': '6 dernières heures',
+    'Last 24 hours': '24 dernières heures',
+    'Edit custom range': 'Modifier la plage personnalisée',
+    'The start must not be after the end.':
+      'Le début ne doit pas être postérieur à la fin.',
+    'Only the last {n} runs are loaded':
+      'Seules les {n} dernières exécutions sont chargées',
+    'No runs in this time range': 'Aucune exécution sur cette plage de temps',
+    'Choose a longer range to see more runs.':
+      'Choisissez une plage plus longue pour voir plus d’exécutions.',
+    'No older run in this view': 'Aucune exécution précédente dans cette vue',
+    'No newer run in this view': 'Aucune exécution suivante dans cette vue',
+  },
 });

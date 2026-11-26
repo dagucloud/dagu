@@ -28,4 +28,10 @@ export default defineMessages({
     '{seconds}s': '{seconds} s',
     'exit:[{codes}]': 'Exit-Code:[{codes}]',
   },
+  fr: {
+    'Open {step}': 'Ouvrir l’étape {step}',
+    'YAML copied': 'YAML copié',
+    '{seconds}s': '{seconds}\u00a0s',
+    'exit:[{codes}]': 'exit:[{codes}]',
+  },
 });

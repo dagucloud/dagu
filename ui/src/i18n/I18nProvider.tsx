@@ -21,6 +21,8 @@ import {
 
 type I18nContextValue = {
   locale: Locale;
+  /** The static text of the locale failed to load and shows in English. */
+  catalogFailed: boolean;
   setLocale: (locale: Locale) => void;
   t: (key: TranslationKey, values?: TranslationValues) => string;
   ts: (source: string, values?: StaticTranslationValues) => string;
@@ -28,6 +30,7 @@ type I18nContextValue = {
 
 const defaultI18nContext: I18nContextValue = {
   locale: 'en',
+  catalogFailed: false,
   setLocale: () => {},
   t: (key, values) => translate('en', key, values),
   ts: (source, values) => translateStatic('en', source, values),
@@ -40,9 +43,9 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
   // Suspends until the catalog loads, so no text shows in English first. A
   // switch is a transition: the current language stays on screen meanwhile.
-  if (!hasStaticMessages(preferences.locale)) {
-    use(loadStaticMessages(preferences.locale));
-  }
+  const catalogFailed =
+    !hasStaticMessages(preferences.locale) &&
+    !use(loadStaticMessages(preferences.locale));
 
   useEffect(() => {
     document.documentElement.lang = preferences.locale;
@@ -51,13 +54,14 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<I18nContextValue>(
     () => ({
       locale: preferences.locale,
+      catalogFailed,
       setLocale: (locale) =>
         startTransition(() => updatePreference('locale', locale)),
       t: (key, values) => translate(preferences.locale, key, values),
       ts: (source, values) =>
         translateStatic(preferences.locale, source, values),
     }),
-    [preferences.locale, updatePreference]
+    [preferences.locale, catalogFailed, updatePreference]
   );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;

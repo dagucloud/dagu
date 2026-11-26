@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 
+	openapiv1 "github.com/dagucloud/dagu/v2/api/v1"
 	authmodel "github.com/dagucloud/dagu/v2/internal/auth"
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
 	"github.com/dagucloud/dagu/v2/internal/cmn/crypto"
@@ -39,6 +40,7 @@ import (
 	apiv1 "github.com/dagucloud/dagu/v2/internal/service/frontend/api/v1"
 	frontendauth "github.com/dagucloud/dagu/v2/internal/service/frontend/auth"
 	"github.com/dagucloud/dagu/v2/internal/service/frontend/sse"
+	"github.com/dagucloud/dagu/v2/internal/testutil"
 	"github.com/dagucloud/dagu/v2/internal/upgrade"
 )
 
@@ -1045,6 +1047,23 @@ func TestEvaluateConfiguredBasePathRejectsURLSyntax(t *testing.T) {
 	}
 }
 
+func TestHealthPath(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		basePath, apiBasePath, want string
+	}{
+		{want: "/api/v1/health"},
+		{basePath: "/dagu/", want: "/dagu/api/v1/health"},
+		{basePath: "/dagu", apiBasePath: "/rest", want: "/dagu/rest/health"},
+	} {
+		cfg := &config.Config{Server: config.Server{BasePath: tc.basePath, APIBasePath: tc.apiBasePath}}
+		got, err := HealthPath(testContext(t), cfg)
+		require.NoError(t, err)
+		assert.Equal(t, tc.want, got)
+	}
+}
+
 func TestPublicURLWithBasePath(t *testing.T) {
 	t.Parallel()
 
@@ -1216,4 +1235,51 @@ func TestRunShutdownSequence_WithoutHTTPStillShutsDownTerminalAndAudit(t *testin
 
 	require.ErrorIs(t, err, terminalErr)
 	assert.Equal(t, []string{"terminal", "audit"}, calls)
+}
+
+// The run events alone feed the change feed, so a server without them leaves
+// the topic out, and a list polls the activity instead.
+func TestRunChangesTopicNeedsTheEventService(t *testing.T) {
+	t.Parallel()
+	stream := func(srv *Server) string {
+		mux := sse.NewMultiplexer(sse.StreamConfig{HeartbeatInterval: time.Hour}, nil)
+		t.Cleanup(mux.Shutdown)
+		srv.registerDedicatedSSEFetchers(mux)
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		req := httptest.NewRequest(
+			http.MethodGet,
+			"/api/v1/events/stream?topic="+url.QueryEscape("dagrunchanges:all"),
+			nil,
+		).WithContext(ctx)
+		recorder := httptest.NewRecorder()
+		sse.NewMultiplexHandler(mux, nil).HandleStream(recorder, req)
+		return recorder.Body.String()
+	}
+
+	assert.Contains(t, stream(&Server{apiV1: &apiv1.API{}}), `"code":"unsupported_topic"`)
+	body := stream(&Server{apiV1: &apiv1.API{}, eventService: eventstore.New(nil)})
+	assert.NotContains(t, body, "unsupported_topic")
+	assert.Contains(t, body, `"topic":"dagrunchanges:all"`)
+}
+
+// A reset of the stream of app events tells of files, not of runs: the change
+// feed keeps its changes, so the lists do not read all their activity again.
+func TestAppStreamResetKeepsRunChanges(t *testing.T) {
+	t.Parallel()
+	mux := sse.NewMultiplexer(sse.StreamConfig{HeartbeatInterval: time.Hour}, nil)
+	t.Cleanup(mux.Shutdown)
+	srv := &Server{apiV1: &apiv1.API{}, sseMultiplexer: mux}
+	changes := func() int {
+		data, err := srv.apiV1.GetDAGRunChangesData(context.Background(), "all")
+		require.NoError(t, err)
+		return len(data.(openapiv1.DAGRunChanges).Changes)
+	}
+	srv.apiV1.DAGRunsChanged(nil)
+	testutil.WaitForClockTick(t)
+	srv.apiV1.DAGRunsChanged([]*eventstore.DAGRunStatusSnapshot{{Name: "d", DAGFile: "d"}})
+	require.Equal(t, 1, changes())
+
+	srv.wakeMultiplexedTopicsForAppEvent(sse.AppEvent{Type: sse.AppEventTypeReset})
+	assert.Equal(t, 1, changes())
 }

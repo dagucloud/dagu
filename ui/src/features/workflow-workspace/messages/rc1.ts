@@ -21,4 +21,8 @@ export default defineMessages({
     'Workflow and YAML': 'Ablauf und YAML',
     Collapse: 'Einklappen',
   },
+  fr: {
+    'Workflow and YAML': 'Workflow et YAML',
+    Collapse: 'Réduire',
+  },
 });

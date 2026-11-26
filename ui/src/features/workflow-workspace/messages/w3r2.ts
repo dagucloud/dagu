@@ -58,4 +58,17 @@ export default defineMessages({
     'no output in run {id}': 'keine Ausgabe in Lauf {id}',
     reused: 'übernommen',
   },
+  fr: {
+    'Changed steps': 'Étapes modifiées',
+    'Checking earlier runs': 'Vérification des exécutions précédentes',
+    'Inputs from run {id}': 'Entrées issues de l’exécution {id}',
+    'No earlier run holds the outputs that this step reads.':
+      'Aucune exécution précédente ne contient les sorties que lit cette étape.',
+    'Run {id} used other parameters. The step runs with the defaults.':
+      'L’exécution {id} a utilisé d’autres paramètres. L’étape s’exécute avec les valeurs par défaut.',
+    'Waits for run {id} to finish': 'Attend la fin de l’exécution {id}',
+    'changed since run {id}': 'modifié depuis l’exécution {id}',
+    'no output in run {id}': 'aucune sortie dans l’exécution {id}',
+    reused: 'réutilisé',
+  },
 });

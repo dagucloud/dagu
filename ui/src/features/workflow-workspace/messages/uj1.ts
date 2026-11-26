@@ -444,4 +444,120 @@ export default defineMessages({
     'Default (computed when the run starts)':
       'Standard (beim Start des Laufs berechnet)',
   },
+  fr: {
+    Cron: 'Cron',
+    'Cron, {count} schedule': 'Cron, {count} planification',
+    'Cron, {count} schedules': 'Cron, {count} planifications',
+    'Always on': 'Toujours actif',
+    'Cron or Always on': 'Cron ou Toujours actif',
+    'Not set up. Choose a cron schedule or Always on.':
+      'Non configuré. Choisissez une planification cron ou «\u00a0Toujours actif\u00a0».',
+    'Choose how the workflow starts':
+      'Choisir le mode de démarrage du workflow',
+    'Start on a schedule of cron expressions.':
+      'Démarrer selon une planification d’expressions cron.',
+    'Keep one run alive and start a new one when it ends.':
+      'Maintenir une exécution active et en démarrer une nouvelle quand elle se termine.',
+    'Switch to Always on': 'Passer à «\u00a0Toujours actif\u00a0»',
+    'Switch to Cron': 'Passer à Cron',
+    'Edit the schedule in the YAML to switch to Always on.':
+      'Modifiez la planification dans le YAML pour passer à «\u00a0Toujours actif\u00a0».',
+    'Not set up': 'Non configuré',
+    Launcher: 'Lanceur',
+    'Manual launch is always active':
+      'Le lancement manuel est toujours disponible',
+    'Use the Start button of the bar to run this workflow now. The run takes the parameters that you give in the Start dialog.':
+      'Utilisez le bouton «\u00a0Démarrer\u00a0» de la barre pour exécuter ce workflow maintenant. L’exécution utilise les paramètres que vous indiquez dans la boîte de dialogue de démarrage.',
+    'This workflow has no parameters': 'Ce workflow n’a aucun paramètre',
+    'Cron expression': 'Expression cron',
+    'New cron expression': 'Nouvelle expression cron',
+    'Add an expression': 'Ajouter une expression',
+    'Add schedule': 'Ajouter une planification',
+    'Use workflow default for {name}':
+      'Utiliser la valeur par défaut du workflow pour {name}',
+    'Remove schedule': 'Supprimer la planification',
+    'Next runs:': 'Prochaines exécutions\u00a0:',
+    'No preview for this expression': 'Aucun aperçu pour cette expression',
+    Hourly: 'Toutes les heures',
+    'Daily at 09:00': 'Tous les jours à 09:00',
+    'Weekdays at 09:00': 'Du lundi au vendredi à 09:00',
+    'Edit with the form': 'Modifier avec le formulaire',
+    Frequency: 'Fréquence',
+    'Choose a frequency': 'Choisir une fréquence',
+    'Custom expression': 'Expression personnalisée',
+    'Every few minutes': 'Toutes les X minutes',
+    Daily: 'Tous les jours',
+    Weekly: 'Toutes les semaines',
+    Monthly: 'Tous les mois',
+    'Minutes between runs': 'Minutes entre deux exécutions',
+    'Minute of the hour': 'Minute dans l’heure',
+    'Day of the month': 'Jour du mois',
+    'Time of day': 'Heure',
+    'Days of the week': 'Jours de la semaine',
+    'Every minute': 'Toutes les minutes',
+    'Every {n} minutes': 'Toutes les {n} minutes',
+    'Every hour at minute {minute}': 'Toutes les heures à la minute {minute}',
+    'Every day at {time}': 'Tous les jours à {time}',
+    'Every week on {days} at {time}': 'Toutes les semaines ({days}) à {time}',
+    'Every month on day {day} at {time}':
+      'Tous les mois, le jour {day} à {time}',
+    'A month without day {day} has no run.':
+      'Aucune exécution les mois sans jour {day}.',
+    'Times are in the time zone of the scheduler ({tz}).':
+      'Les heures sont exprimées dans le fuseau horaire du planificateur ({tz}).',
+    'Workflow sections': 'Sections du workflow',
+    Available: 'Disponible',
+    'Restarts after each run': 'Redémarre après chaque exécution',
+    'Restarts unless stopped': 'Redémarre sauf après un arrêt manuel',
+    '{state}, wait {seconds} s': '{state}, attente de {seconds}\u00a0s',
+    'Wait {seconds} s': 'Attente de {seconds}\u00a0s',
+    'Unless stopped, wait {seconds} s': 'Sauf arrêt manuel, {seconds}\u00a0s',
+    'Next run in {seconds} s': 'Exécution dans {seconds}\u00a0s',
+    Starting: 'Démarrage en cours',
+    '{detail}, {live}': '{detail}, {live}',
+    'next run in {seconds} s': 'prochaine exécution dans {seconds}\u00a0s',
+    starting: 'démarrage en cours',
+    'keeps {count} runs': 'exécutions conservées\u00a0: {count}',
+    'keeps {count} run': 'conserve {count} exécution',
+    'keeps {count} runs, or as many as the base configuration sets':
+      'conserve {count} exécutions, ou le nombre fixé par la configuration de base',
+    'keeps runs for {count} days': 'jours de conservation\u00a0: {count}',
+    'keeps runs for {count} day':
+      'conserve les exécutions pendant {count} jour',
+    '{state}, {history}': '{state}, {history}',
+    'Restart policy': 'Politique de redémarrage',
+    'Restart settings': 'Réglages de redémarrage',
+    Always: 'Toujours',
+    'Unless stopped': 'Sauf arrêt manuel',
+    'A new run follows each run, whatever its status.':
+      'Une nouvelle exécution suit chaque exécution, quel que soit son statut.',
+    'A new run follows each run, except a run that an operator stopped.':
+      'Une nouvelle exécution suit chaque exécution, sauf celle qu’un opérateur a arrêtée.',
+    'The scheduler keeps one run of this workflow alive. It starts a new run when the last run ends.':
+      'Le planificateur maintient active une exécution de ce workflow. Il en démarre une nouvelle quand la dernière se termine.',
+    'Wait before a new run (s)': 'Attente avant une nouvelle exécution (s)',
+    'Runs kept in the history': 'Exécutions conservées dans l’historique',
+    'With no value, the history keeps the latest 100 runs, or as many as the base configuration sets.':
+      'Sans valeur, l’historique conserve les 100 dernières exécutions, ou le nombre fixé par la configuration de base.',
+    'Remove the retry_policy of the workflow first: a workflow that is always on cannot have one.':
+      'Supprimez d’abord la retry_policy du workflow\u00a0: un workflow toujours actif ne peut pas en avoir.',
+    'Workflow > {tab}': 'Workflow > {tab}',
+    'Does not start at {time}: {schedule} starts instead.':
+      'Ne démarre pas le {time}\u00a0: la planification {schedule} démarre à la place.',
+    'The workflow starts on each of these schedules.':
+      'Le workflow démarre selon chacune de ces planifications.',
+    Schedules: 'Planifications',
+    'This expression is already in the schedule.':
+      'Cette expression figure déjà dans la planification.',
+    'Edit the timing of this entry in the YAML.':
+      'Modifiez l’horaire de cette entrée dans le YAML.',
+    'Edit this entry and its parameters in the YAML.':
+      'Modifiez cette entrée et ses paramètres dans le YAML.',
+    'Not a parameter of this workflow':
+      'Ce n’est pas un paramètre de ce workflow',
+    'Default ({value})': 'Par défaut ({value})',
+    'Default (not set)': 'Par défaut (non défini)',
+    'Default (computed when the run starts)':
+      'Par défaut (calculé au démarrage de l’exécution)',
+  },
 });

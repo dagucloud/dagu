@@ -12,6 +12,7 @@ beforeAll(async () => {
     loadStaticMessages('zh-CN'),
     loadStaticMessages('ja'),
     loadStaticMessages('de'),
+    loadStaticMessages('fr'),
   ]);
 });
 

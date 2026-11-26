@@ -70,8 +70,8 @@ func TestUptimeOfRunInProgress(t *testing.T) {
 		assert.LessOrEqual(t, *b.UpMs, int64(series.ResolutionSeconds)*1000)
 	}
 
-	// The activity of a DAG list page gives it too.
-	resp := getJSON[api.DAGListActivityPage](p, 200, "/dag-list-activity", url.Values{"window": {"3600"}})
+	// The activity of the DAG gives it too.
+	resp := getJSON[api.DAGListActivityPage](p, 200, "/dag-list-activity", url.Values{"window": {"3600"}, "fileName": {"service_long"}})
 	var activity *api.DAGListActivity
 	for _, entry := range resp.Dags {
 		if entry.FileName == "service_long" {

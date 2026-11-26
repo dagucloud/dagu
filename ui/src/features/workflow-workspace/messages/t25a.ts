@@ -16,4 +16,7 @@ export default defineMessages({
   de: {
     'Close logs sheet': 'Protokoll schließen',
   },
+  fr: {
+    'Close logs sheet': 'Fermer le panneau des journaux',
+  },
 });

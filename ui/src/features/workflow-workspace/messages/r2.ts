@@ -26,4 +26,10 @@ export default defineMessages({
       'Dieser Schritt läuft einmal je Eintrag.',
     'View items': 'Einträge ansehen',
   },
+  fr: {
+    'Previous error': 'Erreur précédente',
+    'This step runs once for each item.':
+      'Cette étape s’exécute une fois pour chaque élément.',
+    'View items': 'Voir les éléments',
+  },
 });

@@ -36,6 +36,16 @@ func TestServerCommand(t *testing.T) {
 			ExpectedOut: []string{port},
 		})
 	})
+	t.Run("WarnTestNamedDAG", func(t *testing.T) {
+		th := test.SetupCommand(t)
+		th.CreateDAGFile(t, "smoke.test.yaml", testNamedDAG)
+		cancelWhenLogContains(t, th, "Server is starting")
+		listener, port := test.ReserveServerListener(t)
+		th.RunCommand(t, cmd.Server(frontend.WithListener(listener)), test.CmdTest{
+			Args:        []string{"server", fmt.Sprintf("--port=%s", port)},
+			ExpectedOut: []string{"smoke.test.yaml reads as a DAG"},
+		})
+	})
 	t.Run("PortInUse", func(t *testing.T) {
 		th := test.SetupCommand(t)
 		_, port := test.ReserveServerListener(t)

@@ -28,4 +28,11 @@ export default defineMessages({
     'Open webhook settings': 'Webhook-Einstellungen öffnen',
     'No webhook': 'Kein Webhook',
   },
+  fr: {
+    'Show workflows with label {label}':
+      'Afficher les workflows avec l’étiquette {label}',
+    '{count} more labels': '{count} autres étiquettes',
+    'Open webhook settings': 'Ouvrir les réglages du webhook',
+    'No webhook': 'Aucun webhook',
+  },
 });

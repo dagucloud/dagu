@@ -25,6 +25,7 @@ import {
   DAGTable,
   type DAGDeleteResult,
 } from '../../features/dags/components/dag-list';
+import { useListShowsActivity } from '../../features/dags/components/dag-list/activityVisibility';
 import DAGListHeader from '../../features/dags/components/dag-list/DAGListHeader';
 import {
   isRunSortField,
@@ -37,7 +38,9 @@ import {
   viewScopeForSelection,
 } from '../../features/views/viewScope';
 import { buildDAGPageURL } from '../../features/dag-runs/lib/dagRunUrls';
+import { useDAGListActivity } from '../../features/dags/hooks/useDAGListActivity';
 import { setDAGPinned } from '../../features/dags/lib/dagPins';
+import { isServiceDAG } from '../../lib/dagSchedule';
 import { PeekHost } from '../../features/peek/PeekHost';
 import { withoutPeek } from '../../features/peek/peekParams';
 import { useClient, useQuery } from '../../hooks/api';
@@ -1080,6 +1083,23 @@ function DAGsContent() {
     };
   }, [data?.dags, olderDAGFiles]);
 
+  // The activity is read once the list has rows to draw it in, so that the
+  // list does not wait for it. A service DAG draws no strip, so its activity
+  // is not read.
+  const showsActivity = useListShowsActivity();
+  const activityFileNames = React.useMemo(
+    () =>
+      dagFiles
+        .filter((dag) => !isServiceDAG(dag.dag))
+        .map((dag) => dag.fileName),
+    [dagFiles]
+  );
+  const activity = useDAGListActivity(
+    activityFileNames,
+    remoteNode,
+    filtersReady && showsActivity && activityFileNames.length > 0
+  );
+
   // The order of the first page: its workflows and the total.
   const headOrder = React.useMemo(
     () =>
@@ -1246,6 +1266,7 @@ function DAGsContent() {
           />
           <DAGTable
             dags={dagFiles}
+            activity={activity}
             group={group}
             refreshFn={refreshFn}
             searchText={searchText}

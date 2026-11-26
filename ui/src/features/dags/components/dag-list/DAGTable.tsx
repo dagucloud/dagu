@@ -40,6 +40,7 @@ import { RunStatusChip } from '@/features/dag-runs/components/common/RunStatusCh
 import { CreateDAGButton, DAGPagination } from '../common';
 import DAGActions from '../common/DAGActions';
 import LiveSwitch from '../common/LiveSwitch';
+import ActivityBars from './ActivityBars';
 import { LastRunCell, ServiceStateChip } from './LastRunCell';
 import { ScheduleLine } from './ScheduleSummary';
 import { ServiceDAGNextRun } from '@/features/service-dags/components/ServiceDAGState';
@@ -110,10 +111,11 @@ import { DAGBackfillChip } from '@/features/backfills/components/DAGBackfillChip
 import { I18nText } from '@/i18n/I18nText';
 import { I18nProps } from '@/i18n/I18nProps';
 import { useI18n } from '@/i18n/I18nProvider';
-
-// Threshold in pixels below which we switch to card view
-// Set higher than table's comfortable minimum width (~700px for all columns)
-const CARD_VIEW_THRESHOLD = 700;
+import {
+  activityColumnClasses,
+  CARD_VIEW_THRESHOLD,
+  useActivityPlacement,
+} from './activityVisibility';
 
 /**
  * The name of a workflow. A plain click shows its peek, like a click on the
@@ -159,7 +161,6 @@ interface DAGCardProps {
   isDeleteSelected: boolean;
   onToggleDeleteSelection: (fileName: string) => void;
   canEdit: boolean;
-  onDeleteDAG: (dag: components['schemas']['DAGFile']) => void;
   canPin: boolean;
   isPinPending: boolean;
   onTogglePin: (dag: components['schemas']['DAGFile']) => void;
@@ -170,6 +171,13 @@ interface DAGCardProps {
    * chip shows the state in place of the run status.
    */
   service?: components['schemas']['ServiceDAG'];
+  /** The activity of the workflow, once the list has read it. */
+  activity?: components['schemas']['DAGListActivity'];
+  /**
+   * The cards show activity: the card keeps the room of its strip until the
+   * activity arrives.
+   */
+  showActivity?: boolean;
   /** The list does not gather by group: the group shows before the name. */
   showGroup?: boolean;
   className?: string;
@@ -204,30 +212,6 @@ function EditDAGButton({ dag }: { dag: components['schemas']['DAGFile'] }) {
   );
 }
 
-function DeleteDAGButton({
-  dag,
-  onDelete,
-}: {
-  dag: components['schemas']['DAGFile'];
-  onDelete: (dag: components['schemas']['DAGFile']) => void;
-}) {
-  return (
-    <I18nProps>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        className="hover:bg-destructive/10 hover:text-destructive focus-visible:text-destructive"
-        aria-label={`Delete workflow ${dag.dag.name}`}
-        title="Delete workflow"
-        onClick={() => onDelete(dag)}
-      >
-        <Trash2 className="h-4 w-4" />
-      </Button>
-    </I18nProps>
-  );
-}
-
 /**
  * The mark of the card that the overlay shows: PEEK_SHOWN_ROW with a tint.
  * card-obsidian is plain CSS, which wins over the utility layer, so the
@@ -244,12 +228,13 @@ function DAGCard({
   isDeleteSelected,
   onToggleDeleteSelection,
   canEdit,
-  onDeleteDAG,
   canPin,
   isPinPending,
   onTogglePin,
   isShown = false,
   service,
+  activity,
+  showActivity = false,
   showGroup = false,
   className = '',
 }: DAGCardProps) {
@@ -355,6 +340,11 @@ function DAGCard({
         )}
       </div>
 
+      {/* A service DAG has no runs to draw as bars. */}
+      {showActivity && !isService && (
+        <ActivityBars activity={activity} className="mb-1.5" />
+      )}
+
       {/* Labels */}
       {labels.length > 0 && (
         <div className="flex flex-wrap gap-0.5 mb-1.5">
@@ -420,11 +410,6 @@ function DAGCard({
               <EditDAGButton dag={dag} />
             </ActionSlot>
           )}
-          {canDeleteDAGs && (
-            <ActionSlot>
-              <DeleteDAGButton dag={dag} onDelete={onDeleteDAG} />
-            </ActionSlot>
-          )}
         </div>
       </div>
     </div>
@@ -432,12 +417,41 @@ function DAGCard({
 }
 
 // The actions of a row sit in fixed slots of 40 px, as in DAGActions: Start,
-// Retry, Stop, Edit and Delete, plus the padding of the cell.
-const ACTIONS_WIDTH = 5 * 40 + 16;
+// Retry, Stop and Edit, plus the padding of the cell.
+const ACTIONS_WIDTH = 4 * 40 + 16;
 
-/** The fixed slot of Edit or Delete, beside the slots of DAGActions. */
+/** The fixed slot of Edit, beside the slots of DAGActions. */
 function ActionSlot({ children }: { children: React.ReactNode }) {
   return <span className="flex w-10 shrink-0 justify-center">{children}</span>;
+}
+
+/**
+ * The strip of a table row. Its click handler keeps its identity while
+ * `onOpenRun` does, so a render of the table alone does not redraw the strip.
+ */
+function ActivityCell({
+  fileName,
+  activity,
+  onOpenRun,
+}: {
+  fileName: string;
+  activity?: components['schemas']['DAGListActivity'];
+  onOpenRun?: (
+    fileName: string,
+    runId: string,
+    event: React.MouseEvent
+  ) => void;
+}) {
+  const openRun = useCallback(
+    (runId: string, event: React.MouseEvent) =>
+      onOpenRun?.(fileName, runId, event),
+    [fileName, onOpenRun]
+  );
+  return (
+    <div className="flex items-center">
+      <ActivityBars activity={activity} fluid onOpenRun={openRun} />
+    </div>
+  );
 }
 
 // Pinned groups and DAGs lead the rows; the card view puts a divider after them.
@@ -467,6 +481,13 @@ function countLeadingPinnedRows(rows: Row<Data>[]): number {
 type Props = {
   /** List of DAG files to display */
   dags: components['schemas']['DAGFile'][];
+  /**
+   * The activity of the listed workflows, by file name. A workflow with no
+   * entry draws no strip. Without it, as on a node that gives no activity,
+   * the table leaves the Activity column out and the cards keep no room for a
+   * strip.
+   */
+  activity?: ReadonlyMap<string, components['schemas']['DAGListActivity']>;
   /** Current group filter */
   group: string;
   /** Function to refresh the data */
@@ -588,8 +609,6 @@ declare module '@tanstack/react-table' {
     onToggleGroupDeleteSelection?: (fileNames: string[]) => void;
     onToggleAllDeleteSelection?: (checked: boolean) => void;
     canEditDAG?: (dag: components['schemas']['DAGFile']) => boolean;
-    canDeleteDAGs?: boolean;
-    onOpenDeleteDAG?: (dag: components['schemas']['DAGFile']) => void;
     canPinDAG?: (dag: components['schemas']['DAGFile']) => boolean;
     onToggleGroupPin?: (dags: components['schemas']['DAGFile'][]) => void;
     /**
@@ -603,6 +622,13 @@ declare module '@tanstack/react-table' {
     onTogglePin?: (dag: components['schemas']['DAGFile']) => void;
     /** Each service DAG that the server lists, by file name. */
     services?: ReadonlyMap<string, components['schemas']['ServiceDAG']>;
+    /** The activity of the listed workflows, by file name. */
+    activity?: ReadonlyMap<string, components['schemas']['DAGListActivity']>;
+    onOpenRun?: (
+      fileName: string,
+      runId: string,
+      event: React.MouseEvent
+    ) => void;
   }
 }
 
@@ -943,6 +969,32 @@ const defaultColumns = [
     },
   }),
   columnHelper.accessor('kind', {
+    id: 'Activity',
+    size: 244,
+    minSize: 244,
+    header: () => (
+      <span className="block text-center text-xs">
+        <I18nText text={'Activity'} />
+      </span>
+    ),
+    cell: ({ row, table }) => {
+      const data = row.original!;
+      // A service DAG has no runs to draw as bars.
+      if (data.kind !== ItemKind.DAG || isServiceDAG(data.dag.dag)) {
+        return null;
+      }
+      const meta = table.options.meta;
+      const fileName = data.dag.fileName;
+      return (
+        <ActivityCell
+          fileName={fileName}
+          activity={meta?.activity?.get(fileName)}
+          onOpenRun={meta?.onOpenRun}
+        />
+      );
+    },
+  }),
+  columnHelper.accessor('kind', {
     id: 'Schedule',
     size: 220,
     minSize: 180,
@@ -1027,14 +1079,6 @@ const defaultColumns = [
           {table.options.meta?.canEditDAG?.(data.dag) && (
             <ActionSlot>
               <EditDAGButton dag={data.dag} />
-            </ActionSlot>
-          )}
-          {table.options.meta?.canDeleteDAGs && (
-            <ActionSlot>
-              <DeleteDAGButton
-                dag={data.dag}
-                onDelete={(dag) => table.options.meta?.onOpenDeleteDAG?.(dag)}
-              />
             </ActionSlot>
           )}
         </div>
@@ -1184,6 +1228,7 @@ const RunSortDisabledTooltip = () => (
  */
 function DAGTable({
   dags = [],
+  activity,
   group = '', // Keep group prop if needed for external filtering/logic
   refreshFn,
   searchText,
@@ -1248,6 +1293,16 @@ function DAGTable({
   const [deleteSelection, setDeleteSelection] = useState<Set<string>>(
     () => new Set()
   );
+  const openRun = useCallback(
+    (fileName: string, run: string, event: React.MouseEvent) =>
+      peekOrOpen({ dag: fileName, run }, event),
+    [peekOrOpen]
+  );
+  // The view off screen stays in the DOM, hidden: only the view on screen
+  // draws strips.
+  const placement = useActivityPlacement();
+  const rowActivity = placement.column ? activity : undefined;
+  const cardActivity = placement.cards ? activity : undefined;
   const [deleteTargets, setDeleteTargets] = useState<
     components['schemas']['DAGFile'][] | null
   >(null);
@@ -1461,12 +1516,6 @@ function DAGTable({
     }
   }, [deleteTargets, onDeleteDAGs]);
 
-  const openDeleteDAG = useCallback((dag: components['schemas']['DAGFile']) => {
-    setDeleteError(null);
-    setDeleteFailures({});
-    setDeleteTargets([dag]);
-  }, []);
-
   useEffect(() => {
     const nameFilter = columnFilters.find((f) => f.id === 'Name');
 
@@ -1657,15 +1706,15 @@ function DAGTable({
       onToggleGroupDeleteSelection: toggleGroupDeleteSelection,
       onToggleAllDeleteSelection: toggleAllDeleteSelection,
       canEditDAG,
-      canDeleteDAGs,
-      onOpenDeleteDAG: openDeleteDAG,
       canPinDAG,
       isPinPending: (fileName) => pendingPins.has(fileName),
       onTogglePin: (dag) => void togglePin(dag),
       onToggleGroupPin: (dags) => void toggleGroupPin(dags),
       groupMembers,
       showGroupPrefix: !groupByGroup,
+      onOpenRun: openRun,
       services,
+      activity: rowActivity,
     },
   });
   // The peek steps through the workflows that the table shows, in their
@@ -1689,6 +1738,10 @@ function DAGTable({
   const panelWidth = useContext(PanelWidthContext);
 
   const useCardView = panelWidth !== null && panelWidth < CARD_VIEW_THRESHOLD;
+  const activityColumn = activityColumnClasses(
+    panelWidth,
+    activity !== undefined
+  );
 
   const { data: uniqueLabels } = useQuery('/dags/labels', {
     params: {
@@ -1955,12 +2008,13 @@ function DAGTable({
           className={`w-full text-xs ${isLoading ? 'opacity-70' : ''}`}
           style={{ tableLayout: 'fixed' }}
         >
-          {/* Column widths: Select 24px, Pin 24px, Name 28%, LastRun 88px, Schedule 220px, Webhook 88px when shown, Actions ACTIONS_WIDTH */}
+          {/* Column widths: Select 24px, Pin 24px, Name 28%, LastRun 88px, Activity the rest when shown, Schedule 220px, Webhook 88px when shown, Actions ACTIONS_WIDTH */}
           <colgroup>
             {canDeleteDAGs && <col style={{ width: '24px' }} />}
             <col style={{ width: '24px' }} />
             <col style={{ width: '28%' }} />
             <col style={{ width: '88px' }} />
+            <col className={activityColumn.col} />
             <col style={{ width: '220px' }} />
             {showWebhooks && <col style={{ width: '88px' }} />}
             <col style={{ width: `${ACTIONS_WIDTH}px` }} />
@@ -1971,7 +2025,7 @@ function DAGTable({
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
-                    className={`py-1 text-muted-foreground text-xs overflow-hidden ${header.column.id === 'Select' || header.column.id === 'Pin' ? 'px-0' : 'px-2'}`}
+                    className={`py-1 text-muted-foreground text-xs overflow-hidden ${header.column.id === 'Select' || header.column.id === 'Pin' ? 'px-0' : 'px-2'} ${header.column.id === 'Activity' ? activityColumn.cell : ''}`}
                   >
                     {header.isPlaceholder ? null : (
                       <div>
@@ -2073,7 +2127,7 @@ function DAGTable({
                     {row.getVisibleCells().map((cell) => (
                       <TableCell
                         key={cell.id}
-                        className={`py-1 align-middle overflow-hidden truncate ${cell.column.id === 'Select' || cell.column.id === 'Pin' ? 'px-0' : 'px-2'}`}
+                        className={`py-1 align-middle overflow-hidden truncate ${cell.column.id === 'Select' || cell.column.id === 'Pin' ? 'px-0' : 'px-2'} ${cell.column.id === 'Activity' ? activityColumn.cell : ''}`}
                       >
                         {flexRender(
                           cell.column.columnDef.cell,
@@ -2172,7 +2226,6 @@ function DAGTable({
                               )}
                               onToggleDeleteSelection={toggleDeleteSelection}
                               canEdit={canEditDAG(dagRow.dag)}
-                              onDeleteDAG={openDeleteDAG}
                               canPin={canPinDAG(dagRow.dag)}
                               isPinPending={pendingPins.has(
                                 dagRow.dag.fileName
@@ -2180,6 +2233,8 @@ function DAGTable({
                               onTogglePin={(dag) => void togglePin(dag)}
                               isShown={isShown({ dag: dagRow.dag.fileName })}
                               service={services.get(dagRow.dag.fileName)}
+                              activity={cardActivity?.get(dagRow.dag.fileName)}
+                              showActivity={cardActivity !== undefined}
                               className="ml-2"
                             />
                           );
@@ -2220,12 +2275,13 @@ function DAGTable({
                     isDeleteSelected={deleteSelection.has(dagRow.dag.fileName)}
                     onToggleDeleteSelection={toggleDeleteSelection}
                     canEdit={canEditDAG(dagRow.dag)}
-                    onDeleteDAG={openDeleteDAG}
                     canPin={canPinDAG(dagRow.dag)}
                     isPinPending={pendingPins.has(dagRow.dag.fileName)}
                     onTogglePin={(dag) => void togglePin(dag)}
                     isShown={isShown({ dag: dagRow.dag.fileName })}
                     service={services.get(dagRow.dag.fileName)}
+                    activity={cardActivity?.get(dagRow.dag.fileName)}
+                    showActivity={cardActivity !== undefined}
                     showGroup={!groupByGroup}
                   />
                   {endsPinnedSection && (

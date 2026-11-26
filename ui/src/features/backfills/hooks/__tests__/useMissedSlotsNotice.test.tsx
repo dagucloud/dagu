@@ -11,10 +11,12 @@ import {
 } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MissedSlotsReason, type components } from '@/api/v1/schema';
+import { UserPreferencesProvider } from '@/contexts/UserPreference';
 import { NoticeLine } from '@/features/dags/components/dag-editor/NoticeLine';
 import { useQuery } from '@/hooks/api';
+import { I18nProvider } from '@/i18n/I18nProvider';
 import { formatAbsoluteTime } from '@/lib/dagRunTiming';
 import { useMissedSlotsNotice } from '../useMissedSlotsNotice';
 
@@ -160,6 +162,77 @@ describe('useMissedSlotsNotice', () => {
     expect(result.current.notice?.message).toBe(
       `10000+ slots passed ${span} while this DAG was suspended`
     );
+  });
+
+  describe('in French', () => {
+    beforeEach(() => {
+      localStorage.setItem(
+        'user_preferences',
+        JSON.stringify({ locale: 'fr' })
+      );
+    });
+
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    function frenchWrapper({ children }: { children: ReactNode }) {
+      return (
+        <UserPreferencesProvider>
+          <I18nProvider>{wrapper({ children })}</I18nProvider>
+        </UserPreferencesProvider>
+      );
+    }
+
+    const frenchSpan = `du ${bound(missed.first)} au ${bound(missed.last)}`;
+
+    // Each reason is a clause of the sentence, so the sentence is read whole.
+    it.each([
+      [[MissedSlotsReason.suspended], 'ce DAG était suspendu'],
+      [[MissedSlotsReason.paused], 'le planificateur était en pause'],
+      [[MissedSlotsReason.down], 'le planificateur était arrêté'],
+      [
+        [MissedSlotsReason.paused, MissedSlotsReason.down],
+        'ce DAG ne pouvait pas s’exécuter',
+      ],
+    ])('says why the slots passed: %j', (reasons, why) => {
+      const { result } = renderHook(
+        () => useNoticeAndLocation({ ...missed, reasons }),
+        { wrapper: frenchWrapper }
+      );
+
+      expect(result.current.notice?.message).toBe(
+        `12 créneaux sont passés ${frenchSpan} pendant que ${why}`
+      );
+    });
+
+    it('says when a single slot passed', () => {
+      const { result } = renderHook(
+        () =>
+          useNoticeAndLocation({
+            ...missed,
+            slots: 1,
+            last: missed.first,
+            reasons: [MissedSlotsReason.down],
+          }),
+        { wrapper: frenchWrapper }
+      );
+
+      expect(result.current.notice?.message).toBe(
+        `1 créneau est passé le ${bound(missed.first)} pendant que le planificateur était arrêté`
+      );
+    });
+
+    it('tells a count at the cap as a lower bound', () => {
+      const { result } = renderHook(
+        () => useNoticeAndLocation({ ...missed, slots: 10000 }),
+        { wrapper: frenchWrapper }
+      );
+
+      expect(result.current.notice?.message).toBe(
+        `10000+ créneaux sont passés ${frenchSpan} pendant que ce DAG était suspendu`
+      );
+    });
   });
 
   it('shows nothing when no slot was missed', () => {

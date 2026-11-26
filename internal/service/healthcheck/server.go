@@ -19,6 +19,9 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+// Path is the path of the health endpoint a Server serves.
+const Path = "/health"
+
 // Server represents a lightweight HTTP health check server for a service.
 type Server struct {
 	mu         sync.Mutex
@@ -94,7 +97,7 @@ func (h *Server) Start(ctx context.Context) error {
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
-	router.Get("/health", h.healthHandler)
+	router.Get(Path, h.healthHandler)
 
 	server := &http.Server{
 		Addr:              h.listenAddr,
