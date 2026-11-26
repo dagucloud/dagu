@@ -360,6 +360,13 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.origin != nil && r.URL.Scheme == "" && r.URL.Host == "" && strings.HasPrefix(r.URL.Path, "/") {
+		// TRACE asks the upstream to echo the request, with the key, back to the
+		// client. TRACK is the same method on IIS.
+		if strings.EqualFold(r.Method, http.MethodTrace) || strings.EqualFold(r.Method, "TRACK") {
+			p.log("egress proxy: deny %s %s:%d (upstream): the answer would echo the key", r.Method, p.upstream.host, p.upstream.port)
+			http.Error(w, "egress proxy: the upstream route does not forward TRACE or TRACK", http.StatusMethodNotAllowed)
+			return
+		}
 		// The log has no path, which can hold a secret, and only digests of the
 		// credentials.
 		p.log("egress proxy: allow %s %s:%d (upstream): client credential %s replaced by the key sha256:%s (%s)",

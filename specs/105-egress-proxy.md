@@ -97,6 +97,9 @@ A request in origin form, such as `POST /v1/messages`, goes to the upstream. The
 The form `anthropic-oauth` is for an OAuth token of a subscription. Claude Code sends the beta
 `oauth-2025-04-20` with such a token. A client with a placeholder API key does not send it.
 
+A request in origin form with the method `TRACE` or `TRACK` gets the status 405 and does not reach
+the upstream, because the answer would echo the key to the client.
+
 A request in absolute form and a `CONNECT` request keep their rules. A destination that `--allow`
 does not list gets the status 403. Without `--upstream`, a request in origin form gets the status
 400.
@@ -183,6 +186,7 @@ These cases give an HTTP status:
 | A destination that neither `--allow` nor `--allow-with-credential` lists | 403 |
 | A destination of `--allow-with-credential` without a valid `Proxy-Authorization` header | 407 |
 | A request in origin form without `--upstream` | 400 |
+| A request in origin form with the method `TRACE` or `TRACK` | 405 |
 | A destination that switches protocols after the proxy removed the upgrade | 502 |
 
 ## Examples

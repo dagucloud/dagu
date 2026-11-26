@@ -511,6 +511,27 @@ func TestUpstreamRedirectDoesNotLeave(t *testing.T) {
 	assert.Empty(t, other.all(), "the redirect target gets no request from the proxy")
 }
 
+// TRACE asks the upstream to echo the request, and so the key, back to the
+// client. TRACK is the same method on IIS. A request in origin form with either
+// method gets 405 and reaches no upstream.
+func TestUpstreamRefusesTrace(t *testing.T) {
+	t.Parallel()
+
+	// The upstream echoes the request headers, as a server with TRACE on does.
+	rec, host, port := startRecorder(t, false, func(w http.ResponseWriter, r *http.Request) {
+		_ = r.Header.Write(w)
+	})
+	upstream := mustUpstream(t, "http://allowed.example.test:"+port, egress.AuthXAPIKey)
+	proxyAddr, _ := upstreamProxy(t, []string{"allowed.example.test:" + port}, upstream, resolverFor("allowed.example.test", host), nil, nil)
+
+	for _, method := range []string{http.MethodTrace, "TRACK", "trace"} {
+		reply := originFormRequest(t, proxyAddr, method, "/v1/messages", "", nil)
+		assert.Equal(t, http.StatusMethodNotAllowed, reply.StatusCode, method)
+		assert.NotContains(t, reply.Body, testUpstreamKey, method)
+	}
+	assert.Empty(t, rec.all(), "the upstream gets no request")
+}
+
 // A switched protocol would hold a raw connection that no idle limit covers, and
 // the route of the upstream needs none. The proxy sends a request in origin form
 // without the upgrade, and an upstream that switches protocols anyway gives 502
