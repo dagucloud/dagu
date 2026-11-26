@@ -163,6 +163,12 @@ func NewProjectStores(
 	return s, nil
 }
 
+// BaseConfig returns the project's base config file and the directory of
+// the base configs of its v2 workspaces. Each is empty when none applies.
+func (s *ProjectStores) BaseConfig() (file, workspaceDir string) {
+	return s.dags.baseConfig, s.dags.workspaceBaseConfigDir
+}
+
 // OpenDAGRepository opens another repository of the project's DAG files,
 // which also finds DAGs in the library. Options apply as they do to
 // NewDAGRepository.

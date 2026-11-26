@@ -25,7 +25,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/queue"
 	"github.com/dagucloud/dagu/v2/internal/runtime/agent"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -445,14 +444,11 @@ func storedDAGHasNonDefaultWorkingDir(dag *ir.DAG) bool {
 // service: its current definition, which the scheduler follows, or the snapshot
 // once the definition is gone.
 func serviceDefinition(ctx *Context, snapshot *ir.DAG) *ir.DAG {
-	current, err := spec.Load(ctx, snapshot.Name,
-		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
-		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
+	current, err := spec.Load(ctx, snapshot.Name, append(ctx.projectLoadOptions(),
 		spec.OnlyMetadata(),
 		spec.WithoutEval(),
 		spec.SkipSchemaValidation(),
-	)
+	)...)
 	if err != nil {
 		return snapshot
 	}

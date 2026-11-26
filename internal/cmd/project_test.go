@@ -1,0 +1,227 @@
+// Copyright (C) 2026 Yota Hamada
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+package cmd
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strconv"
+	"testing"
+
+	"github.com/dagucloud/dagu/v2/internal/cmn/runenv"
+	"github.com/dagucloud/dagu/v2/internal/persis/file/projectregistry"
+	"github.com/dagucloud/dagu/v2/internal/project"
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// projectsHome is a Dagu home whose projects_dir and alt_dags_dir lie in its
+// dags directory, with the projects weather and intraday registered.
+type projectsHome struct {
+	home   string
+	config string
+	dags   string
+}
+
+func newProjectsHome(t *testing.T, switchOn bool) projectsHome {
+	t.Helper()
+	home := t.TempDir()
+	dags := filepath.Join(home, "dags")
+	content := "paths:\n" +
+		"  dags_dir: " + strconv.Quote(dags) + "\n" +
+		"  projects_dir: " + strconv.Quote(filepath.Join(dags, "projects")) + "\n" +
+		"  alt_dags_dir: " + strconv.Quote(filepath.Join(dags, "library")) + "\n"
+	if switchOn {
+		content += "experimental_projects: true\n"
+	}
+	configPath := filepath.Join(home, "config.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0o600))
+	registry := projectregistry.New(filepath.Join(home, "data"))
+	for _, name := range []string{"weather", "intraday"} {
+		_, err := registry.Create(context.Background(), project.CreateInput{Name: name})
+		require.NoError(t, err)
+		require.NoError(t, os.MkdirAll(filepath.Join(dags, "projects", name), 0o750))
+	}
+	require.NoError(t, os.MkdirAll(filepath.Join(dags, "library"), 0o750))
+	return projectsHome{home: home, config: configPath, dags: dags}
+}
+
+// command returns the command called name with the home's flags set, and
+// --project when projectName is set.
+func (h projectsHome) command(t *testing.T, name, projectName string) *cobra.Command {
+	t.Helper()
+	command := &cobra.Command{Use: name}
+	initFlags(command)
+	command.SetContext(context.Background())
+	require.NoError(t, command.Flags().Set("dagu-home", h.home))
+	require.NoError(t, command.Flags().Set("config", h.config))
+	if projectName != "" {
+		require.NoError(t, command.Flags().Set(projectFlag.name, projectName))
+	}
+	return command
+}
+
+func (h projectsHome) file(t *testing.T, rel string) string {
+	t.Helper()
+	path := filepath.Join(h.dags, rel)
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte("steps:\n  - run: echo ok\n"), 0o600))
+	return path
+}
+
+// TestAddressedProject proves the order of Spec 102 "CLI": --project, then
+// DAGU_PROJECT, then the project whose DAG directory holds the current
+// directory, then the default project. It sets the environment and the
+// working directory, so it does not run in parallel.
+func TestAddressedProject(t *testing.T) {
+	h := newProjectsHome(t, true)
+	weatherDir := filepath.Join(h.dags, "projects", "weather")
+	require.NoError(t, os.MkdirAll(filepath.Join(weatherDir, "etl"), 0o750))
+	require.NoError(t, os.MkdirAll(filepath.Join(h.dags, "projects", "stray"), 0o750))
+
+	tests := []struct {
+		name    string
+		flag    string
+		env     string
+		dir     string
+		project string
+		dagsDir string
+	}{
+		{name: "Default", dir: h.home, project: "default", dagsDir: h.dags},
+		{name: "Flag", flag: "weather", dir: h.home, project: "weather", dagsDir: weatherDir},
+		{name: "FlagAnyCase", flag: "WEATHER", dir: h.home, project: "weather", dagsDir: weatherDir},
+		{name: "FlagDefault", flag: "Default", dir: weatherDir, project: "default", dagsDir: h.dags},
+		{name: "Env", env: "weather", dir: h.home, project: "weather", dagsDir: weatherDir},
+		{name: "FlagBeforeEnv", flag: "intraday", env: "weather", dir: h.home, project: "intraday",
+			dagsDir: filepath.Join(h.dags, "projects", "intraday")},
+		{name: "EnvBeforeDirectory", env: "intraday", dir: weatherDir, project: "intraday",
+			dagsDir: filepath.Join(h.dags, "projects", "intraday")},
+		{name: "Directory", dir: filepath.Join(weatherDir, "etl"), project: "weather", dagsDir: weatherDir},
+		{name: "UnregisteredDirectory", dir: filepath.Join(h.dags, "projects", "stray"), project: "default", dagsDir: h.dags},
+		{name: "DefaultDirectory", dir: h.dags, project: "default", dagsDir: h.dags},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(runenv.EnvKeyProject, tt.env)
+			t.Chdir(tt.dir)
+
+			ctx, err := NewContext(h.command(t, "status", tt.flag), nil)
+			require.NoError(t, err)
+			assert.Equal(t, tt.project, ctx.project.Name)
+			assert.Equal(t, tt.project, ctx.DAGRunMgr.Project())
+			assert.Equal(t, tt.dagsDir, ctx.projectPaths().DAGsDir)
+		})
+	}
+
+	t.Run("Unknown", func(t *testing.T) {
+		for _, tt := range []struct{ flag, env string }{{flag: "nowhere"}, {env: "nowhere"}} {
+			t.Setenv(runenv.EnvKeyProject, tt.env)
+			_, err := NewContext(h.command(t, "status", tt.flag), nil)
+			require.ErrorContains(t, err, `project "nowhere" does not exist`)
+		}
+	})
+}
+
+// TestProjectsOff proves the dark rule: with projects off, --project is the
+// unknown flag it was, DAGU_PROJECT and the current directory change
+// nothing, and runs bind to no project.
+func TestProjectsOff(t *testing.T) {
+	h := newProjectsHome(t, false)
+	t.Setenv(runenv.EnvKeyProject, "nowhere")
+	t.Chdir(filepath.Join(h.dags, "projects", "weather"))
+
+	_, err := NewContext(h.command(t, "status", "weather"), nil)
+	require.ErrorIs(t, err, errProjectFlagUnknown)
+	assert.EqualError(t, err, "unknown flag: --project")
+
+	ctx, err := NewContext(h.command(t, "status", ""), nil)
+	require.NoError(t, err)
+	assert.Empty(t, ctx.DAGRunMgr.Project())
+	assert.Equal(t, h.dags, ctx.projectPaths().DAGsDir)
+	require.NoError(t, ctx.checkDAGFile([]string{h.file(t, "projects/weather/forecast.yaml")}))
+}
+
+func TestProjectFlagHidden(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range []*cobra.Command{Start(), Status(), Test(), Validate(), Server()} {
+		flag := command.Flags().Lookup(projectFlag.name)
+		require.NotNil(t, flag, command.Name())
+		assert.True(t, flag.Hidden, command.Name())
+		assert.NotContains(t, command.UsageString(), "--"+projectFlag.name, command.Name())
+	}
+}
+
+func TestProjectFlagRefusedByServices(t *testing.T) {
+	t.Parallel()
+	h := newProjectsHome(t, true)
+
+	for _, name := range []string{"server", "scheduler", "coordinator", "start-all", "worker"} {
+		_, err := NewContext(h.command(t, name, "weather"), nil)
+		require.ErrorContains(t, err, "serves every project", name)
+	}
+}
+
+// TestCheckDAGFile proves Spec 102 criterion 50: a DAG file of another
+// project is refused, and the error names its project. A file in the
+// library or in no project's DAG directory runs in the addressed project.
+func TestCheckDAGFile(t *testing.T) {
+	t.Parallel()
+	h := newProjectsHome(t, true)
+	ctx, err := NewContext(h.command(t, "start", "weather"), nil)
+	require.NoError(t, err)
+
+	for _, rel := range []string{"projects/weather/forecast.yaml", "library/abc.yaml", "projects/stray/x.yaml"} {
+		require.NoError(t, ctx.checkDAGFile([]string{h.file(t, rel)}), rel)
+	}
+	outside := filepath.Join(h.home, "elsewhere.yaml")
+	require.NoError(t, os.WriteFile(outside, []byte("steps: []\n"), 0o600))
+	require.NoError(t, ctx.checkDAGFile([]string{outside}))
+	require.NoError(t, ctx.checkDAGFile([]string{"forecast"}), "a name resolves in the project")
+
+	for rel, owner := range map[string]string{"cleanup.yaml": "default", "projects/intraday/auction.yaml": "intraday"} {
+		err := ctx.checkDAGFile([]string{h.file(t, rel)})
+		require.ErrorContains(t, err, "belongs to project "+owner+", not to project weather", rel)
+	}
+
+	ctx.Command = &cobra.Command{Use: "secret"}
+	require.NoError(t, ctx.checkDAGFile([]string{h.file(t, "cleanup.yaml")}), "only a DAG argument is checked")
+}
+
+// TestProjectTestFiles proves Spec 102 criterion 47: dagu test with no
+// argument selects the addressed project's test files and no other
+// project's, and a test file given by path runs in its own project.
+func TestProjectTestFiles(t *testing.T) {
+	t.Parallel()
+	h := newProjectsHome(t, true)
+	own := h.file(t, "ops/cleanup.test.yaml")
+	weather := h.file(t, "projects/weather/forecast.test.yaml")
+	h.file(t, "library/abc.test.yaml")
+
+	selected := func(projectName string) []string {
+		ctx, err := NewContext(h.command(t, "test", projectName), nil)
+		require.NoError(t, err)
+		files, err := selectTestFiles(ctx.projectPaths().DAGsDir, nil)
+		require.NoError(t, err)
+		files, err = ctx.ownTestFiles(files)
+		require.NoError(t, err)
+		var paths []string
+		for _, f := range files {
+			paths = append(paths, f.path)
+		}
+		return paths
+	}
+	assert.Equal(t, []string{own}, selected("default"))
+	assert.Equal(t, []string{weather}, selected("weather"))
+
+	ctx, err := NewContext(h.command(t, "test", ""), nil)
+	require.NoError(t, err)
+	fileCtx, err := ctx.inProjectOf(weather)
+	require.NoError(t, err)
+	assert.Equal(t, "weather", fileCtx.project.Name)
+	assert.Equal(t, "weather", fileCtx.DAGRunMgr.Project())
+	assert.Equal(t, "default", ctx.project.Name, "the addressed project stays as it was")
+}

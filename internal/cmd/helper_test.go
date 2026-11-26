@@ -143,7 +143,7 @@ func TestExtractDAGNameYAMLCase(t *testing.T) {
 
 			cfg := &config.Config{}
 			cfg.Paths.DAGsDir = dagsDir
-			stores, err := openDefaultProject(context.Background(), cfg, file.NewServerStores(cfg), file.ProjectStoreOptions{})
+			stores, err := openProject(context.Background(), cfg, file.NewServerStores(cfg), defaultProject(), file.ProjectStoreOptions{})
 			require.NoError(t, err)
 			ctx := &Context{Context: context.Background(), Config: cfg, projectStores: stores}
 

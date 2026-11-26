@@ -31,7 +31,6 @@ import (
 	"github.com/dagucloud/dagu/v2/internal/runtime/executor"
 	"github.com/dagucloud/dagu/v2/internal/service/coordinator"
 	"github.com/dagucloud/dagu/v2/internal/spec"
-	"github.com/dagucloud/dagu/v2/internal/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -505,11 +504,7 @@ func getDAGRunInfo(ctx *Context) (dagRunID, rootDAGRun, parentDAGRun string, isS
 func loadDAGWithParams(ctx *Context, args []string, isSubDAGRun bool) (*ir.DAG, string, error) {
 	dagPath := args[0]
 
-	loadOpts := []spec.LoadOption{
-		spec.WithBaseConfig(ctx.Config.Paths.BaseConfig),
-		spec.WithWorkspaceBaseConfigDir(workspace.BaseConfigDir(ctx.Config.Paths.DAGsDir)),
-		spec.WithDAGsDir(ctx.Config.Paths.DAGsDir),
-	}
+	loadOpts := ctx.projectLoadOptions()
 	if definitionID := dagDefinitionIDFromEnv(); definitionID != "" {
 		loadOpts = append(loadOpts, spec.WithDefaultName(
 			fileutil.TrimYAMLFileExtension(filepath.Base(definitionID)),
