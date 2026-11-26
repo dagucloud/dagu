@@ -37,8 +37,8 @@ func withJobReports(ctx *Context, store runstate.Store, run jobRun) runstate.Sto
 
 // jobReports returns how the run reports itself to Dagu Console, or nil when
 // it does not: without a run key, at a level that sends no runs, and for a
-// sub-DAG run, one a worker runs, or one a server on this data directory
-// reports.
+// sub-DAG run or one a worker runs. While a server reports the data
+// directory's runs, the run leaves its reports to the server.
 func jobReports(ctx *Context, run jobRun) *cloudreport.JobReports {
 	key := ctx.Config.Cloud.RunKey
 	if key == "" {
@@ -55,17 +55,15 @@ func jobReports(ctx *Context, run jobRun) *cloudreport.JobReports {
 	if !level.ReportsRuns() || !run.parent.Zero() || run.workerID != "local" {
 		return nil
 	}
-	// The server reports every run of its data directory, whatever started
-	// it, so a job report would count the run twice.
-	if cloudReportLease(ctx.Config).IsLocked() {
-		return nil
-	}
 	return &cloudreport.JobReports{
 		RunKey:      key,
 		CloudURL:    ctx.Config.License.CloudURL,
 		Level:       level,
 		KeepTrigger: run.keepTrigger,
 		Version:     config.Version,
+		// The server sends every run of its data directory, whatever started
+		// it, and the first report of a run is what Dagu Console counts.
+		ServerReports: serverReportsRuns(ctx.Config),
 	}
 }
 

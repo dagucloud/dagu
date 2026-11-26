@@ -537,6 +537,19 @@ func cloudReportLease(cfg *config.Config) *filemonitor.Lease {
 	return filemonitor.NewLease(cloudReportStateFile(cfg), &dirlock.LockOptions{StaleThreshold: cloudReportLeaseStaleThreshold})
 }
 
+// cloudReportLeaseFresh is how recently the lease must have been renewed for
+// a run to leave its reports to the server, which renews it about every 5
+// seconds. Taking a live server for stopped only sends a report Dagu Console
+// keeps once; taking a stopped one for live loses the run, so the window is
+// far shorter than the lease's own.
+const cloudReportLeaseFresh = 15 * time.Second
+
+// serverReportsRuns returns whether a server reports the data directory's DAG
+// runs to Dagu Console at the time it is called.
+func serverReportsRuns(cfg *config.Config) func() bool {
+	return filemonitor.NewLease(cloudReportStateFile(cfg), &dirlock.LockOptions{StaleThreshold: cloudReportLeaseFresh}).IsLocked
+}
+
 // cloudReportEvents configures the DAG runs that reports to Dagu Console carry
 // at the runs level: finished runs from the event store, runs in progress
 // followed through it, and the service DAGs, listed as services. A reporter below runs uses them only to discard where

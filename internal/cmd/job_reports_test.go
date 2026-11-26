@@ -5,13 +5,17 @@ package cmd
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/config"
+	"github.com/dagucloud/dagu/v2/internal/cmn/dirlock"
 	"github.com/dagucloud/dagu/v2/internal/cmn/logger"
 	"github.com/dagucloud/dagu/v2/internal/ir"
 	"github.com/dagucloud/dagu/v2/internal/license"
@@ -87,18 +91,30 @@ func TestJobReportsDespiteALicense(t *testing.T) {
 	assert.NotNil(t, jobReports(ctx, localRun))
 }
 
-// A run sends no job report while a server reports the data directory's
-// runs, and reports again once the server stops.
-func TestJobReportsSkipServerReportedRun(t *testing.T) {
+// A run leaves its reports to a server that holds the data directory's
+// reporting lease and renewed it lately, and sends them once it stops.
+func TestJobReportsLeaveRunsToAServer(t *testing.T) {
 	t.Parallel()
 	var logs bytes.Buffer
 	ctx := jobContext(t, config.CloudConfig{RunKey: testRunKey}, &logs)
+	reports := jobReports(ctx, localRun)
+	require.NotNil(t, reports)
+	assert.False(t, reports.ServerReports(), "no server")
+
 	lease := cloudReportLease(ctx.Config)
 	require.NoError(t, lease.TryLock())
+	assert.True(t, reports.ServerReports())
 
-	assert.Nil(t, jobReports(ctx, localRun))
+	// A server that stopped renewing is taken for stopped well before
+	// another process may take its lease over.
+	renewed := time.Now().Add(-2 * cloudReportLeaseFresh)
+	lockDir := filepath.Join(lease.Location(), dirlock.LockDirectoryName)
+	require.NoError(t, os.Chtimes(lockDir, renewed, renewed))
+	assert.True(t, lease.IsLocked(), "the lease itself is not stale yet")
+	assert.False(t, reports.ServerReports())
+
 	require.NoError(t, lease.Unlock())
-	assert.NotNil(t, jobReports(ctx, localRun))
+	assert.False(t, reports.ServerReports(), "server stopped")
 }
 
 // A key that is not a run key warns, naming the setting and not the value.
