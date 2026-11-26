@@ -427,7 +427,7 @@ describe('DAGActions', () => {
   // A service workflow has one run at a time, and the scheduler starts its
   // next run by itself. A list row or card keeps Start, Retry and Stop in
   // fixed slots; while the scheduler starts the runs, it takes the slots of
-  // Start and Retry. The bar keeps its Start.
+  // Start and Retry. The bar has no Start then.
   describe('service workflow', () => {
     const run = (status: Status) =>
       ({
@@ -593,9 +593,9 @@ describe('DAGActions', () => {
       expect(screen.queryByRole('button', { name: 'Submit start' })).toBeNull();
     });
 
-    // The bar has no service state to say why a start is refused, so its
-    // Start opens the dialog and the server gives the reason.
-    it('opens the Start dialog of a bar on request while a run is active', async () => {
+    // The server refuses the start: the bar has no Start, and a request
+    // opens no dialog.
+    it('has no Start in a bar while a run is active', () => {
       render(
         <MemoryRouter>
           <DAGContext.Provider value={{ autoOpenStartModal: true } as never}>
@@ -608,10 +608,41 @@ describe('DAGActions', () => {
           </DAGContext.Provider>
         </MemoryRouter>
       );
+      expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Submit start' })).toBeNull();
+    });
+
+    it('has no Start in a bar while the scheduler restarts the DAG', () => {
+      render(
+        <MemoryRouter>
+          <DAGActions
+            fileName="svc"
+            dag={always}
+            status={run(Status.Failed)}
+            service={svc({ state: ServiceDAGState.restarting })}
+            barStart
+          />
+        </MemoryRouter>
+      );
+      expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
+    });
+
+    it('keeps the Start of a bar while the restarts are on hold', () => {
+      render(
+        <MemoryRouter>
+          <DAGActions
+            fileName="svc"
+            dag={always}
+            status={run(Status.Failed)}
+            service={svc({
+              state: ServiceDAGState.failing,
+              restartHold: ServiceDAGRestartHold.paused,
+            })}
+            barStart
+          />
+        </MemoryRouter>
+      );
       expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled();
-      expect(
-        await screen.findByRole('button', { name: 'Submit start' })
-      ).toBeVisible();
     });
 
     it('shows the restart wait in the Stop tooltip for always', async () => {

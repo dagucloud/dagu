@@ -834,7 +834,10 @@ describe('RunSplitButton', () => {
         });
 
         expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
+        // The palette commands Run… and Retry find nothing to click.
         expect(barControlAvailable('retry')).toBe(false);
+        expect(barControlAvailable('start')).toBe(false);
         expect(
           screen.queryByRole('button', { name: 'More run options' })
         ).toBeNull();
@@ -850,6 +853,7 @@ describe('RunSplitButton', () => {
       });
 
       expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled();
       const menu = await openMenu();
       expect(
         within(menu).getByRole('menuitem', { name: 'Run unsaved draft' })
@@ -872,6 +876,7 @@ describe('RunSplitButton', () => {
         });
 
         expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
         expect(
           screen.queryByRole('button', { name: 'More run options' })
         ).toBeNull();
@@ -915,6 +920,7 @@ describe('RunSplitButton', () => {
         });
 
         expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+        expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled();
         expect(await menuItems()).toEqual(['Save & Run', 'Run unsaved draft']);
       }
     );
@@ -930,6 +936,7 @@ describe('RunSplitButton', () => {
       });
 
       expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+      expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled();
     });
 
     it('keeps Retry for a plain workflow and does not read the list', () => {
