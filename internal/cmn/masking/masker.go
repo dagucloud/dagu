@@ -27,13 +27,11 @@ type SourcedEnvVars struct {
 	Secrets []string // Environment variables from secrets
 }
 
-// providerTokenPatterns match the formats of provider OAuth tokens, which
-// a step can print without Dagu knowing the value: Google access tokens and
-// Google refresh tokens. Each starts with a literal, so a scan skips to it.
-// A match counts only where a token can start; see tokenStart.
-var providerTokenPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`ya29\.[0-9A-Za-z._-]{20,}`),
-	regexp.MustCompile(`1//[0-9A-Za-z_-]{40,}`),
+// providerTokens are the formats of provider OAuth tokens, which a step can
+// print without Dagu knowing the value.
+var providerTokens = []providerToken{
+	{prefix: "ya29.", symbols: "._-", minBody: 20}, // Google access tokens
+	{prefix: "1//", symbols: "_-", minBody: 40},    // Google refresh tokens
 }
 
 // Masker provides masking functionality for sensitive data. It is safe for
@@ -49,6 +47,14 @@ type Masker struct {
 	mu sync.Mutex
 	// secrets holds the values given so far, from which Add rebuilds values.
 	secrets []string
+}
+
+// providerToken is a token format: a literal prefix and a body of at least
+// minBody letters, digits, and symbols.
+type providerToken struct {
+	prefix  string
+	symbols string
+	minBody int
 }
 
 // span is a range of text to mask, from start up to end.
@@ -202,36 +208,48 @@ func (m *Masker) spans(text string, tokens bool) []span {
 		}
 	}
 	if tokens {
-		for _, pattern := range providerTokenPatterns {
-			spans = appendTokenSpans(spans, text, pattern)
+		for _, token := range providerTokens {
+			spans = appendTokenSpans(spans, text, token)
 		}
 	}
 	return joinSpans(spans)
 }
 
-// appendTokenSpans appends to spans the provider tokens in text that
-// pattern matches. A match that does not start a token can hold one, as
-// "ya29." does inside "xya29.ya29.<token>", so the search resumes just
-// after its start.
-func appendTokenSpans(spans []span, text string, pattern *regexp.Regexp) []span {
-	for offset := 0; offset < len(text); {
-		match := pattern.FindStringIndex(text[offset:])
-		if match == nil {
-			break
+// appendTokenSpans appends to spans the tokens of format token in text.
+// Only a prefix where a token can start is followed into its body, so text
+// is read once: a rejected prefix, as in "xya29.ya29.<token>", costs no
+// more than the search for the next one.
+func appendTokenSpans(spans []span, text string, token providerToken) []span {
+	for offset := 0; ; {
+		i := strings.Index(text[offset:], token.prefix)
+		if i < 0 {
+			return spans
 		}
-		start, end := offset+match[0], offset+match[1]
-		if !tokenStart(text, start) {
+		start := offset + i
+		body := start + len(token.prefix)
+		end := body
+		if tokenStart(text, start) {
+			for end < len(text) && token.inBody(text[end]) {
+				end++
+			}
+		}
+		if end-body < token.minBody {
 			offset = start + 1
 			continue
 		}
 		spans = append(spans, span{start: start, end: end})
 		offset = end
 	}
-	return spans
+}
+
+// inBody reports whether b can be part of a token body.
+func (t providerToken) inBody(b byte) bool {
+	return 'a' <= b && b <= 'z' || 'A' <= b && b <= 'Z' || '0' <= b && b <= '9' ||
+		strings.IndexByte(t.symbols, b) >= 0
 }
 
 // tokenStart reports whether a provider token can start at offset start of
-// text. A match right after a base64 or token character lies inside other
+// text. A prefix right after a base64 or token character lies inside other
 // text, such as base64 data.
 func tokenStart(text string, start int) bool {
 	if start == 0 {
