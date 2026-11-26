@@ -17,6 +17,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  getRestartAfterStopSec,
+  hasActiveServiceRun,
+  isServiceDAG,
+  restartsByItself,
+  type ServiceRestartFields,
+} from '@/lib/dagSchedule';
 import dayjs from '@/lib/dayjs';
 import ActionButton from '@/components/ui/action-button';
 import { Ban, CircleStop, RotateCcw, X } from 'lucide-react';
@@ -94,6 +101,18 @@ type Props = {
    * steps that run again, for a new run. The Retry dialog links to it.
    */
   onEditRetry?: () => void;
+  /**
+   * The restart policy of the workflow and its latest run. A service workflow
+   * with an active latest run has one run at a time: Retry is not shown, and
+   * the Stop tooltip says when a policy restarts the run. Retry is not shown
+   * either while the scheduler restarts the workflow by itself (`serviceDAG`).
+   */
+  service?: {
+    dag: components['schemas']['DAG'] | components['schemas']['DAGDetails'];
+    latestRun?: components['schemas']['DAGRunSummary'];
+    /** The service DAG, when the host knows it. */
+    serviceDAG?: ServiceRestartFields;
+  };
 };
 
 /**
@@ -110,6 +129,7 @@ function DAGRunActions({
   markActions = false,
   onRescheduled,
   onEditRetry,
+  service,
 }: Props) {
   const { ts } = useI18n();
   const remoteNode = useRemoteNode();
@@ -216,6 +236,15 @@ function DAGRunActions({
     },
   });
   const terminateAction = terminateDetails.action;
+  const serviceActive = hasActiveServiceRun(service?.dag, service?.latestRun);
+  const serviceRestarts =
+    !!service?.dag &&
+    isServiceDAG(service.dag) &&
+    restartsByItself(service.serviceDAG);
+  const restartAfterSec = getRestartAfterStopSec(
+    service?.dag,
+    service?.serviceDAG
+  );
   const offersStopAll = Boolean(stopAll) && terminateDetails.offersStopAll;
   const stopsAll = offersStopAll && stopAllRunning;
   const hasManagedAgentSession = Boolean(
@@ -247,6 +276,12 @@ function DAGRunActions({
   // A finished run that refuses retries keeps a disabled Retry, even where
   // unavailable actions are hidden, so the reason stays readable.
   const showRetryDisabledReason = retryEligible && !!dagRun?.retryDisabled;
+  // An eligible Retry shows, enabled or with the reason it is disabled. A
+  // service that has an active run or starts the next one by itself has none.
+  const showsRetry =
+    !serviceActive &&
+    !serviceRestarts &&
+    (!hideUnavailable || retryEligible || !isRootLevel);
 
   // Determine which buttons should be enabled based on current status and root level
   const buttonState = {
@@ -327,16 +362,20 @@ function DAGRunActions({
               </span>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{ts(terminateDetails.tooltipText)}</p>
+              <p>
+                {terminateAction === 'stop' && restartAfterSec !== null
+                  ? ts(
+                      'Stop this run. It restarts after {seconds} s. Suspend the restarts to stop it for good.',
+                      { seconds: restartAfterSec }
+                    )
+                  : ts(terminateDetails.tooltipText)}
+              </p>
             </TooltipContent>
           </Tooltip>
         )}
 
         {/* Retry Button */}
-        {(!hideUnavailable ||
-          buttonState.retry ||
-          !isRootLevel ||
-          showRetryDisabledReason) && (
+        {showsRetry && (
           <Tooltip>
             {/* A disabled button cannot take focus, so on a sub-run or a
                 retry-disabled run the wrapper does, letting keyboard users

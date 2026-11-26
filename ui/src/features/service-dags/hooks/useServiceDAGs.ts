@@ -4,6 +4,7 @@
 import { useContext, useMemo } from 'react';
 import { components, ServiceDAGState } from '@/api/v1/schema';
 import { AppBarContext } from '@/contexts/AppBarContext';
+import { useRemoteNode } from '@/contexts/RemoteNodeContext';
 import { useQuery } from '@/hooks/api';
 import { sseFallbackOptions, useSSECacheSync } from '@/hooks/useSSECacheSync';
 import { useServiceDAGsSSE } from '@/hooks/useServiceDAGsSSE';
@@ -36,7 +37,8 @@ export function useServiceDAGs({
   error: unknown;
 } {
   const appBarContext = useContext(AppBarContext);
-  const remoteNode = appBarContext.selectedRemoteNode || 'local';
+  // The node of the live stream, so that both reads are of the same node.
+  const remoteNode = useRemoteNode();
   const workspaceQuery = useMemo(
     () => workspaceSelectionQuery(appBarContext.workspaceSelection),
     [appBarContext.workspaceSelection]
