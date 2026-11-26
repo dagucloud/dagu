@@ -301,15 +301,20 @@ func (s *ConnectionStore) Delete(ctx context.Context, key connection.Key) error 
 	id := connectionRecordID(key)
 	return s.lifecycle.Do(ctx, func(held func() error) error {
 		// The lock keeps Create out until every record of the connection
-		// is gone, so no later connection with the key loses a record here.
-		if _, err := s.Get(ctx, key); err != nil {
+		// is gone. Each removal also checks that the record still carries
+		// the connection's ID, so a delete that resumes after losing the
+		// lock never removes a later connection's records.
+		conn, err := s.Get(ctx, key)
+		if err != nil {
 			return err
 		}
 		// Secrets go first, so an interrupted delete leaves no tokens.
-		if err := held(); err != nil {
-			return err
-		}
-		if err := s.tokens.Delete(ctx, id); err != nil {
+		err = deleteConnectionRecord(ctx, s.tokens, id, conn.ID, held, func(rec *persis.Record) (string, error) {
+			var stored tokenStateRecord
+			err := persis.Decode(rec, &stored)
+			return stored.ConnectionID, err
+		})
+		if err != nil {
 			return fmt.Errorf("connection store: delete token state: %w", err)
 		}
 		catalogs, err := listAll(ctx, s.catalogs.col, persis.ListQuery{Prefix: id + "/"})
@@ -317,17 +322,60 @@ func (s *ConnectionStore) Delete(ctx context.Context, key connection.Key) error 
 			return fmt.Errorf("connection store: list catalogs: %w", err)
 		}
 		for _, rec := range catalogs {
-			if err := held(); err != nil {
-				return err
-			}
-			if err := s.catalogs.col.Delete(ctx, rec.ID); err != nil {
+			err := deleteConnectionRecord(ctx, s.catalogs.col, rec.ID, conn.ID, held, func(rec *persis.Record) (string, error) {
+				var stored catalogRecord
+				err := persis.Decode(rec, &stored)
+				return stored.ConnectionID, err
+			})
+			if err != nil {
 				return fmt.Errorf("connection store: delete catalog: %w", err)
 			}
+		}
+		err = deleteConnectionRecord(ctx, s.conns.col, id, conn.ID, held, func(rec *persis.Record) (string, error) {
+			var stored connectionRecord
+			err := persis.Decode(rec, &stored)
+			return stored.ID, err
+		})
+		if err != nil {
+			return fmt.Errorf("connection store: delete connection: %w", err)
+		}
+		return nil
+	})
+}
+
+// deleteConnectionRecord removes record id of col while owner reads
+// connectionID from it. A record that is missing or belongs to another
+// connection is kept.
+func deleteConnectionRecord(
+	ctx context.Context,
+	col persis.Collection,
+	id, connectionID string,
+	held func() error,
+	owner func(*persis.Record) (string, error),
+) error {
+	return retryConflict(ctx, func(ctx context.Context) error {
+		rec, err := col.Get(ctx, id)
+		if errors.Is(err, persis.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		got, err := owner(rec)
+		if err != nil {
+			return err
+		}
+		if got != connectionID {
+			return nil
 		}
 		if err := held(); err != nil {
 			return err
 		}
-		return s.conns.delete(ctx, id, connection.ErrNotFound, "connection")
+		err = col.CompareAndDelete(ctx, rec)
+		if errors.Is(err, persis.ErrNotFound) {
+			return nil
+		}
+		return err
 	})
 }
 

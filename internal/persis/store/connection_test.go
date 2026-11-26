@@ -6,6 +6,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -128,6 +129,86 @@ func TestConnectionNameScopedToWorkspace(t *testing.T) {
 		require.Len(t, list, 1, ws)
 		assert.Equal(t, ws, list[0].Workspace)
 	}
+}
+
+// Workspace names may differ only in case, and each keeps its own
+// connections also where record IDs ignore case, as on macOS and Windows.
+func TestConnectionWorkspacesDifferingInCase(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	enc, err := crypto.NewEncryptor("test-key")
+	require.NoError(t, err)
+	backend := testutil.NewMemoryBackend()
+	fold := func(name string) persis.Collection { return caseFoldingCollection{backend.Collection(name)} }
+	s, err := store.NewConnectionStore(
+		fold(persis.CollectionOAuthApps),
+		fold(persis.CollectionConnections),
+		fold(persis.CollectionConnectionTokens),
+		fold(persis.CollectionConnectionCatalogs),
+		backend.Lock(persis.CollectionConnections),
+		enc,
+	)
+	require.NoError(t, err)
+
+	lower, err := s.Create(ctx, newTestConnection("payments", "mail"))
+	require.NoError(t, err)
+	upper, err := s.Create(ctx, newTestConnection("Payments", "mail"))
+	require.NoError(t, err)
+	_, err = s.UpdateTokenState(ctx, lower, setRefreshToken("lower-refresh"))
+	require.NoError(t, err)
+
+	got, err := s.Get(ctx, upper.Key())
+	require.NoError(t, err)
+	assert.Equal(t, upper.ID, got.ID)
+	state, err := s.TokenState(ctx, upper)
+	require.NoError(t, err)
+	assert.Empty(t, state.RefreshToken)
+
+	require.NoError(t, s.Delete(ctx, upper.Key()))
+	state, err = s.TokenState(ctx, lower)
+	require.NoError(t, err)
+	assert.Equal(t, "lower-refresh", state.RefreshToken)
+}
+
+// caseFoldingCollection keys records by their lowercased ID, as a file
+// system that ignores case does.
+type caseFoldingCollection struct {
+	persis.Collection
+}
+
+func foldRecord(rec *persis.Record) *persis.Record {
+	folded := *rec
+	folded.ID = strings.ToLower(rec.ID)
+	return &folded
+}
+
+func (c caseFoldingCollection) Get(ctx context.Context, id string) (*persis.Record, error) {
+	return c.Collection.Get(ctx, strings.ToLower(id))
+}
+
+func (c caseFoldingCollection) Put(ctx context.Context, rec *persis.Record) error {
+	return c.Collection.Put(ctx, foldRecord(rec))
+}
+
+func (c caseFoldingCollection) Create(ctx context.Context, rec *persis.Record) error {
+	return c.Collection.Create(ctx, foldRecord(rec))
+}
+
+func (c caseFoldingCollection) Delete(ctx context.Context, id string) error {
+	return c.Collection.Delete(ctx, strings.ToLower(id))
+}
+
+func (c caseFoldingCollection) CompareAndDelete(ctx context.Context, expected *persis.Record) error {
+	return c.Collection.CompareAndDelete(ctx, foldRecord(expected))
+}
+
+func (c caseFoldingCollection) CompareAndSwap(ctx context.Context, id string, expected, next []byte) error {
+	return c.Collection.CompareAndSwap(ctx, strings.ToLower(id), expected, next)
+}
+
+func (c caseFoldingCollection) List(ctx context.Context, q persis.ListQuery) (*persis.Page, error) {
+	q.Prefix = strings.ToLower(q.Prefix)
+	return c.Collection.List(ctx, q)
 }
 
 func TestConnectionCreateRefusesCloudHolder(t *testing.T) {
@@ -256,6 +337,7 @@ func TestDeleteWaitsForCreate(t *testing.T) {
 	conn, err := f.store.Create(ctx, newTestConnection("payments", "mail"))
 	require.NoError(t, err)
 	require.False(t, finishedEarly, "Delete finished while Create was writing token state")
+	require.Equal(t, int32(1), lock.holdersAtEntry.Load(), "Create did not hold the lock while writing token state")
 	require.NoError(t, <-deleted)
 
 	_, err = f.store.UpdateTokenState(ctx, conn, setRefreshToken("refresh"))
@@ -263,18 +345,26 @@ func TestDeleteWaitsForCreate(t *testing.T) {
 }
 
 // enteringLock, once armed, closes entered when the next caller asks for
-// the lock, before it waits for it.
+// the lock, before it waits for it, and records how many callers held the
+// lock at that moment.
 type enteringLock struct {
 	persis.Lock
-	armed   atomic.Bool
-	entered chan struct{}
+	armed          atomic.Bool
+	holders        atomic.Int32
+	holdersAtEntry atomic.Int32
+	entered        chan struct{}
 }
 
 func (l *enteringLock) Do(ctx context.Context, fn func(held func() error) error) error {
 	if l.armed.CompareAndSwap(true, false) {
+		l.holdersAtEntry.Store(l.holders.Load())
 		close(l.entered)
 	}
-	return l.Lock.Do(ctx, fn)
+	return l.Lock.Do(ctx, func(held func() error) error {
+		l.holders.Add(1)
+		defer l.holders.Add(-1)
+		return fn(held)
+	})
 }
 
 // Concurrent writers each see the previous writer's result, so none is lost.
