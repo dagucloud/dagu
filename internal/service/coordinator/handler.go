@@ -2313,6 +2313,11 @@ func (h *Handler) ReportStatus(ctx context.Context, req *coordinatorv1.ReportSta
 	if dagRunStatus.TriggerSubject == nil {
 		dagRunStatus.TriggerSubject = latestStatus.TriggerSubject
 	}
+	// A worker that predates node lists reports none, and the list must
+	// outlive its report so a retry stays narrowed.
+	if len(dagRunStatus.TargetNodes) == 0 && len(latestStatus.TargetNodes) > 0 {
+		dagRunStatus.TargetNodes = append([]string(nil), latestStatus.TargetNodes...)
+	}
 
 	attempt := latestAttempt
 	if dagRunStatus.Status == ir.Waiting {
