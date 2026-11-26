@@ -6,7 +6,9 @@ package sock
 import (
 	"crypto/md5" //nolint:gosec
 	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -36,6 +38,20 @@ func TestAddr(t *testing.T) {
 		require.Equal(t, addr, Addr(filepath.Join(dataDir, "..", "data"), "mydag", "run123"))
 		require.NotEqual(t, addr, Addr(filepath.Join(t.TempDir(), "data"), "mydag", "run123"))
 		require.NotEqual(t, addr, LegacyAddr("mydag", "run123"))
+	})
+
+	// Two processes of one home can reach its data directory through a
+	// symlink and through its target.
+	t.Run("SymlinkResolves", func(t *testing.T) {
+		t.Parallel()
+		if runtime.GOOS == "windows" {
+			t.Skip("creating a symlink needs a privilege on Windows")
+		}
+		target := filepath.Join(t.TempDir(), "data")
+		require.NoError(t, os.MkdirAll(target, 0o750))
+		link := filepath.Join(t.TempDir(), "current")
+		require.NoError(t, os.Symlink(target, link))
+		require.Equal(t, Addr(target, "mydag", "run123"), Addr(link, "mydag", "run123"))
 	})
 
 	// The socket name embeds the identity, so even a Windows device name

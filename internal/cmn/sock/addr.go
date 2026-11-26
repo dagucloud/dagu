@@ -65,6 +65,11 @@ func dataDirKey(dataDir string) string {
 	if abs, err := filepath.Abs(dataDir); err == nil {
 		dataDir = abs
 	}
+	// A run exists only once its data directory does, so the directory
+	// resolves whenever an address is looked up.
+	if resolved, err := filepath.EvalSymlinks(dataDir); err == nil {
+		dataDir = resolved
+	}
 	dataDir = filepath.Clean(dataDir)
 	if runtime.GOOS == "windows" {
 		dataDir = strings.ToLower(dataDir)
