@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -87,7 +88,7 @@ func addressedProject(ctx context.Context, cmd *cobra.Command, cfg *config.Confi
 	}
 	// Owners places files, so it is asked for a file the directory holds,
 	// which places the directory itself too.
-	owner, err := projectOf(ctx, owners, registry, filepath.Join(dir, directoryProbe))
+	owner, err := projectOf(ctx, cfg, owners, registry, filepath.Join(dir, directoryProbe))
 	if err != nil || owner == "" || strings.EqualFold(owner, project.DefaultName) {
 		return defaultProject(), err
 	}
@@ -101,17 +102,37 @@ const directoryProbe = "dagu-project.yaml"
 // "" when it belongs to the library or to no project. A file outside every
 // DAG root belongs to the project whose DAG directory links to where it
 // lies.
-func projectOf(ctx context.Context, owners *filedag.Owners, registry project.Registry, path string) (string, error) {
+func projectOf(ctx context.Context, cfg *config.Config, owners *filedag.Owners, registry project.Registry, path string) (string, error) {
 	owner, err := owners.Of(ctx, path)
 	if err != nil || owner.Project != "" || owner.Library {
 		return owner.Project, err
+	}
+	// One listing of paths.projects_dir finds the DAG directories that are
+	// links, so a file in no DAG root costs no lookup per project.
+	entries, err := os.ReadDir(cfg.Paths.ProjectsDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var links []string
+	for _, entry := range entries {
+		if entry.Type()&fs.ModeSymlink != 0 {
+			links = append(links, entry.Name())
+		}
+	}
+	if len(links) == 0 {
+		return "", nil
 	}
 	projects, err := registry.List(ctx)
 	if err != nil {
 		return "", err
 	}
 	for _, p := range projects {
-		if strings.EqualFold(p.Name, project.DefaultName) {
+		if strings.EqualFold(p.Name, project.DefaultName) || !slices.ContainsFunc(links, func(name string) bool {
+			return strings.EqualFold(name, p.Name)
+		}) {
 			continue
 		}
 		linked, err := owners.OfIn(ctx, p.Name, path)
@@ -176,7 +197,7 @@ func (c *Context) checkDAGFile(args []string) error {
 // projectOf returns the name of the project the file at path belongs to,
 // or "" when it belongs to the library or to no project.
 func (c *Context) projectOf(path string) (string, error) {
-	return projectOf(c, c.serverStores.DAGOwners(), projectregistry.New(c.Config.Paths.DataDir), path)
+	return projectOf(c, c.Config, c.serverStores.DAGOwners(), projectregistry.New(c.Config.Paths.DataDir), path)
 }
 
 // managesProjects reports whether the command manages projects rather than
@@ -185,30 +206,27 @@ func managesProjects(commandName string) bool {
 	return commandName == projectCommandName || strings.HasPrefix(commandName, projectCommandName+" ")
 }
 
-// inOtherProject reports whether the command addresses a project other than
-// the default one.
-func (c *Context) inOtherProject() bool {
-	return c.Config.ProjectsEnabled && c.project.Name != "" && !strings.EqualFold(c.project.Name, project.DefaultName)
+// projectName returns the addressed project's name while projects are on,
+// and "" while they are off.
+func (c *Context) projectName() string {
+	if !c.Config.ProjectsEnabled {
+		return ""
+	}
+	return c.project.Name
 }
 
 // checkProjectDispatch refuses to send a run of a project other than the
 // default one to a worker: a dispatch task does not carry its project until
 // P12, so the coordinator would record the run in the default project.
 func (c *Context) checkProjectDispatch() error {
-	if !c.inOtherProject() {
-		return nil
-	}
-	return fmt.Errorf("project %s cannot run DAGs on workers yet (P12); only the default project's runs are dispatched", c.project.Name)
+	return project.RefuseOtherProject(c.projectName(), project.ErrWorkerRun)
 }
 
 // checkProjectEnqueue refuses to queue a run of a project other than the
 // default one: no scheduler reads that project's queues until P10, so the
 // run would never start.
 func (c *Context) checkProjectEnqueue() error {
-	if !c.inOtherProject() {
-		return nil
-	}
-	return fmt.Errorf("project %s cannot queue runs yet (P10); only the default project's queues are processed", c.project.Name)
+	return project.RefuseOtherProject(c.projectName(), project.ErrQueuedRun)
 }
 
 // ownTestFiles keeps the test files that lie in the addressed project's DAG
