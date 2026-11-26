@@ -214,6 +214,10 @@ func (e *StepExecutor) execute(ctx context.Context, node *Node, onSetup []func()
 		// its action published before it failed.
 		node.clearOutputsValue()
 		node.clearStepOutputsValue()
+		if errors.Is(err, untrusted.ErrRunAborted) {
+			// The run still stops.
+			return errors.Join(err, outputErr)
+		}
 		return outputErr
 	}
 

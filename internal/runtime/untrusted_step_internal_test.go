@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -234,4 +235,23 @@ func TestStepGateHoldsRepeatCondition(t *testing.T) {
 	stop()
 	require.False(t, <-pollDone)
 	require.Equal(t, ir.NodeAborted, poll.State().Status)
+}
+
+// A failed capture of the outputs does not hide the error that stops the run.
+func TestRunAbortedSurvivesFailedCapture(t *testing.T) {
+	t.Parallel()
+
+	executorType := registerOutputTestExecutor(t, func(ctx context.Context, exec *outputTestExecutor) error {
+		_ = writeRepeatedX(ctx, exec.stdout, 4*1024)
+		return fmt.Errorf("end: %w", untrusted.ErrRunAborted)
+	})
+	step := ir.Step{Name: "verify", Output: "RESULT", ExecutorConfig: ir.ExecutorConfig{Type: executorType}}
+	ctx := NewContext(context.Background(), &ir.DAG{Name: "test", MaxOutputSize: 1024}, "run-1", "test.log")
+	node := NewNode(step, NodeState{})
+	require.NoError(t, node.Prepare(ctx, t.TempDir(), "run-1"))
+	defer func() { _ = node.Teardown() }()
+
+	err := node.Execute(ctx)
+	require.ErrorContains(t, err, "output exceeded maximum size limit")
+	require.ErrorIs(t, err, untrusted.ErrRunAborted)
 }
