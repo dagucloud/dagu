@@ -124,9 +124,15 @@ type nodeRun struct {
 	attemptID  string
 }
 
-func newNodeRun(t *testing.T, stores nodeStores, dagYAML string, heartbeat time.Time) nodeRun {
+// newNodeRun starts the run. children are the DAG files the run's DAG can
+// run, by name.
+func newNodeRun(t *testing.T, stores nodeStores, dagYAML string, heartbeat time.Time, children ...string) nodeRun {
 	t.Helper()
 	ctx := context.Background()
+	dagRepository := runtestutil.NewFileDAGRepository(filepath.Join(t.TempDir(), "dags"))
+	for _, child := range children {
+		require.NoError(t, dagRepository.Create(ctx, child, []byte("name: "+child+"\nnode: required\nsteps:\n  - run: \"true\"\n")))
+	}
 	dag, err := spec.LoadYAML(ctx, []byte(dagYAML))
 	require.NoError(t, err)
 	now := time.Now().UTC()
@@ -154,6 +160,7 @@ func newNodeRun(t *testing.T, stores nodeStores, dagYAML string, heartbeat time.
 		NodeInventory:       stores.inventory,
 		TrustedHostKeys:     stores.hostKeys,
 		DAGRunRepository:    repo,
+		DAGRepository:       dagRepository,
 		DAGRunLeaseStore:    leases,
 		StaleLeaseThreshold: time.Minute,
 	})
@@ -161,8 +168,13 @@ func newNodeRun(t *testing.T, stores nodeStores, dagYAML string, heartbeat time.
 }
 
 func (r nodeRun) resolveNodes(selector string, names ...string) (*coordinatorv1.ResolveNodesResponse, error) {
+	return r.resolveNodesFor("", selector, names...)
+}
+
+// resolveNodesFor asks as a run of dagName within the attempt.
+func (r nodeRun) resolveNodesFor(dagName, selector string, names ...string) (*coordinatorv1.ResolveNodesResponse, error) {
 	return r.handler.ResolveNodes(context.Background(), &coordinatorv1.ResolveNodesRequest{
-		WorkerId: "worker-1", AttemptKey: r.attemptKey, AttemptId: r.attemptID,
+		WorkerId: "worker-1", AttemptKey: r.attemptKey, AttemptId: r.attemptID, DagName: dagName,
 		Selector: selector, Names: names,
 	})
 }
@@ -277,6 +289,45 @@ func TestResolveNodesDenied(t *testing.T) {
 
 	_, err = coordinator.NewHandler(coordinator.HandlerConfig{}).ResolveNodes(context.Background(), &coordinatorv1.ResolveNodesRequest{Selector: "role=web"})
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err), "no inventory")
+}
+
+// A bound child reads nodes as a run of its own DAG, whether its parent runs
+// it from a step, a foreach body, or a handler. A DAG the parent does not run
+// reads none.
+func TestResolveNodesForChildDAG(t *testing.T) {
+	t.Parallel()
+	run := newNodeRun(t, newNodeStores(t), `
+name: fleet
+steps:
+  - name: deploy
+    action: dag.run
+    with:
+      dag: deploy-one
+    nodes: role=web
+  - name: each
+    foreach:
+      items: [a]
+      steps:
+        - name: deploy-each
+          action: dag.run
+          with:
+            dag: deploy-each
+          nodes: role=web
+handler_on:
+  failure:
+    action: dag.run
+    with:
+      dag: rollback-one
+    nodes: role=web
+`, time.Now(), "deploy-one", "deploy-each", "rollback-one", "unrelated")
+
+	for _, child := range []string{"deploy-one", "deploy-each", "rollback-one"} {
+		resp, err := run.resolveNodesFor(child, "", "web-1")
+		require.NoError(t, err, child)
+		assert.Equal(t, []string{"web-1"}, protoNodeNames(resp.GetNodes()), child)
+	}
+	_, err := run.resolveNodesFor("unrelated", "", "web-1")
+	assert.Equal(t, codes.PermissionDenied, status.Code(err), "a DAG the run does not run")
 }
 
 // A run that targets nodes reads the refs the connection to a node uses,

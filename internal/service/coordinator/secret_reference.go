@@ -353,16 +353,31 @@ func (h *Handler) reachableDAG(ctx context.Context, dag *ir.DAG, name string, vi
 	return nil
 }
 
+// externalSubDAGNames returns the child DAGs that steps of dag and of its
+// local DAGs run by name, foreach bodies and handlers included, except local
+// DAGs.
 func externalSubDAGNames(dag *ir.DAG) []string {
 	var names []string
+	var visit func(steps []ir.Step)
+	visit = func(steps []ir.Step) {
+		for _, step := range steps {
+			if step.SubDAG != nil && localDAGByName(dag, step.SubDAG.Name) == nil {
+				names = append(names, step.SubDAG.Name)
+			}
+			if step.Foreach != nil {
+				visit(step.Foreach.Steps)
+			}
+		}
+	}
 	var collect func(*ir.DAG)
 	collect = func(current *ir.DAG) {
 		if current == nil {
 			return
 		}
-		for _, step := range current.Steps {
-			if step.SubDAG != nil && localDAGByName(dag, step.SubDAG.Name) == nil {
-				names = append(names, step.SubDAG.Name)
+		visit(current.Steps)
+		for _, handler := range []*ir.Step{current.HandlerOn.Init, current.HandlerOn.Failure, current.HandlerOn.Success, current.HandlerOn.Abort, current.HandlerOn.Exit, current.HandlerOn.Wait} {
+			if handler != nil {
+				visit([]ir.Step{*handler})
 			}
 		}
 		for _, child := range current.LocalDAGs {
