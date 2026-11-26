@@ -19,18 +19,27 @@ var errInvalidWorkspaceLabel = errors.New("invalid workspace label")
 type dagProfileResolver struct {
 	settingsStore dagsettings.Store
 	profileStore  profile.Store
+	// projectsEnabled keeps a workspace from choosing a DAG's default
+	// profile.
+	projectsEnabled bool
 }
 
-func NewDAGProfileResolver(settingsStore dagsettings.Store, profileStore profile.Store) DAGProfileResolver {
+// NewDAGProfileResolver returns a resolver of the profile a DAG's runs use
+// by default. While projects are on, the workspace a DAG names chooses none.
+func NewDAGProfileResolver(settingsStore dagsettings.Store, profileStore profile.Store, projectsEnabled bool) DAGProfileResolver {
 	return &dagProfileResolver{
-		settingsStore: settingsStore,
-		profileStore:  profileStore,
+		settingsStore:   settingsStore,
+		profileStore:    profileStore,
+		projectsEnabled: projectsEnabled,
 	}
 }
 
 func (r *dagProfileResolver) ResolveProfile(ctx context.Context, dagName string, workspaceName string) (string, error) {
 	if r == nil {
 		return "", nil
+	}
+	if r.projectsEnabled {
+		workspaceName = ""
 	}
 	return dagsettings.ResolveProfile(ctx, r.settingsStore, r.profileStore, dagName, workspaceName)
 }

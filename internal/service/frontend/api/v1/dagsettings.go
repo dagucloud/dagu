@@ -183,6 +183,10 @@ func (a *API) GetDAGProfileSelection(ctx context.Context, fileName string) (DAGP
 }
 
 func (a *API) defaultRunProfileName(ctx context.Context, dagName string, workspaceName string) (string, error) {
+	// While projects are on, a workspace chooses no DAG's default profile.
+	if a.config != nil && a.config.ProjectsEnabled {
+		workspaceName = ""
+	}
 	profileName, err := dagsettings.ResolveProfile(ctx, a.dagSettingsStore, a.profileStore, dagName, workspaceName)
 	if err != nil {
 		return "", a.defaultRunProfileError(err)
