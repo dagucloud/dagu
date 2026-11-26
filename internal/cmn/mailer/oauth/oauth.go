@@ -9,10 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +20,7 @@ import (
 	"golang.org/x/oauth2/google"
 
 	"github.com/dagucloud/dagu/v2/internal/cmn/mailer/oauthconfig"
+	"github.com/dagucloud/dagu/v2/internal/connection/oauthrefresh"
 )
 
 const (
@@ -29,13 +28,10 @@ const (
 	googleMailScope = "https://mail.google.com/"
 	// microsoftMailScope covers the IMAP and SMTP permissions a person granted.
 	microsoftMailScope = "https://outlook.office.com/.default"
-	// offlineAccessScope keeps a refreshed Microsoft token refreshable.
-	offlineAccessScope = "offline_access"
 	googleTokenURL     = "https://oauth2.googleapis.com/token" //nolint:gosec // Fixed provider endpoint, not a credential.
 
 	maxCacheEntries     = 32
 	tokenRequestTimeout = 15 * time.Second
-	maxTokenResponse    = 1 << 20
 )
 
 var tokenHTTPClient = &http.Client{Timeout: tokenRequestTimeout}
@@ -80,12 +76,12 @@ func NewRefreshTokenFunc(username string, cfg *oauthconfig.Config) (TokenFunc, e
 		return nil, err
 	}
 
-	var refresh refreshFunc
+	var refresh oauthrefresh.RefreshFunc
 	switch cfgCopy.Provider {
 	case oauthconfig.ProviderGoogleRefresh:
 		refresh = refreshTokenGrant(cfgCopy, googleTokenURL, nil)
 	case oauthconfig.ProviderMicrosoftRefresh:
-		refresh = refreshTokenGrant(cfgCopy, microsoftTokenURL(cfgCopy.TenantID), microsoftScopes(cfgCopy))
+		refresh = refreshTokenGrant(cfgCopy, oauthrefresh.MicrosoftTokenURL(cfgCopy.TenantID), microsoftMailScopes(cfgCopy))
 	}
 	key, err := cacheKey(strings.TrimSpace(username), cfgCopy)
 	if err != nil {
@@ -94,111 +90,24 @@ func NewRefreshTokenFunc(username string, cfg *oauthconfig.Config) (TokenFunc, e
 	return cachedTokenFunc(key, refresh), nil
 }
 
-// TokenError is an OAuth error response from a token endpoint, such as
-// invalid_grant for a revoked or expired refresh token.
-type TokenError struct {
-	Code        string
-	Description string
-}
-
-func (e *TokenError) Error() string {
-	if e.Description == "" {
-		return "token endpoint returned " + e.Code
-	}
-	return fmt.Sprintf("token endpoint returned %s: %s", e.Code, e.Description)
-}
-
-// microsoftScopes returns the configured scopes, or every mail permission the
-// person granted, always with offline_access.
-func microsoftScopes(cfg oauthconfig.Config) []string {
+// microsoftMailScopes returns the configured scopes, or every mail permission
+// the person granted, always with offline_access.
+func microsoftMailScopes(cfg oauthconfig.Config) []string {
 	if len(cfg.Scopes) == 0 {
-		return []string{microsoftMailScope, offlineAccessScope}
+		return oauthrefresh.MicrosoftScopes([]string{microsoftMailScope})
 	}
-	scopes := make([]string, 0, len(cfg.Scopes)+1)
-	for _, scope := range cfg.Scopes {
-		scopes = append(scopes, strings.TrimSpace(scope))
-	}
-	if !slices.Contains(scopes, offlineAccessScope) {
-		scopes = append(scopes, offlineAccessScope)
-	}
-	return scopes
+	return oauthrefresh.MicrosoftScopes(cfg.Scopes)
 }
 
-func microsoftTokenURL(tenant string) string {
-	if tenant == "" {
-		tenant = "common"
-	}
-	return "https://login.microsoftonline.com/" + url.PathEscape(tenant) + "/oauth2/v2.0/token"
-}
-
-// refreshTokenGrant exchanges a refresh token for an access token. It sends
-// the scope explicitly because Microsoft requires it on refresh requests.
-func refreshTokenGrant(cfg oauthconfig.Config, tokenURL string, scopes []string) refreshFunc {
-	return func(ctx context.Context, cached *oauth2.Token) (*oauth2.Token, error) {
-		refreshToken := cfg.RefreshToken
-		if cached != nil && cached.RefreshToken != "" {
-			refreshToken = cached.RefreshToken
-		}
-		form := url.Values{
-			"grant_type":    {"refresh_token"},
-			"refresh_token": {refreshToken},
-			"client_id":     {cfg.ClientID},
-		}
-		if cfg.ClientSecret != "" {
-			form.Set("client_secret", cfg.ClientSecret)
-		}
-		if len(scopes) > 0 {
-			form.Set("scope", strings.Join(scopes, " "))
-		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(form.Encode()))
-		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.Header.Set("Accept", "application/json")
-
-		resp, err := tokenHTTPClient.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("token request failed: %w", err)
-		}
-		defer func() { _ = resp.Body.Close() }()
-		data, err := io.ReadAll(io.LimitReader(resp.Body, maxTokenResponse))
-		if err != nil {
-			return nil, fmt.Errorf("read token response: %w", err)
-		}
-
-		var body struct {
-			AccessToken      string `json:"access_token"`
-			RefreshToken     string `json:"refresh_token"`
-			TokenType        string `json:"token_type"`
-			ExpiresIn        int64  `json:"expires_in"`
-			Error            string `json:"error"`
-			ErrorDescription string `json:"error_description"`
-		}
-		if err := json.Unmarshal(data, &body); err != nil {
-			return nil, fmt.Errorf("token endpoint returned status %d", resp.StatusCode)
-		}
-		if body.Error != "" {
-			description, _, _ := strings.Cut(strings.TrimSpace(body.ErrorDescription), "\n")
-			return nil, &TokenError{Code: body.Error, Description: strings.TrimSpace(description)}
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("token endpoint returned status %d", resp.StatusCode)
-		}
-
-		token := &oauth2.Token{
-			AccessToken:  body.AccessToken,
-			TokenType:    body.TokenType,
-			RefreshToken: body.RefreshToken,
-		}
-		if token.RefreshToken == "" {
-			token.RefreshToken = refreshToken
-		}
-		if body.ExpiresIn > 0 {
-			token.Expiry = time.Now().Add(time.Duration(body.ExpiresIn) * time.Second)
-		}
-		return token, nil
-	}
+// refreshTokenGrant refreshes with the configured client and refresh token.
+func refreshTokenGrant(cfg oauthconfig.Config, tokenURL string, scopes []string) oauthrefresh.RefreshFunc {
+	return oauthrefresh.Grant{
+		TokenURL:     tokenURL,
+		ClientID:     cfg.ClientID,
+		ClientSecret: cfg.ClientSecret,
+		RefreshToken: cfg.RefreshToken,
+		Scopes:       scopes,
+	}.Refresh
 }
 
 func normalizedConfig(cfg oauthconfig.Config) oauthconfig.Config {
@@ -208,9 +117,7 @@ func normalizedConfig(cfg oauthconfig.Config) oauthconfig.Config {
 	return cfg
 }
 
-type refreshFunc func(context.Context, *oauth2.Token) (*oauth2.Token, error)
-
-func providerRefresh(username string, cfg oauthconfig.Config) (refreshFunc, error) {
+func providerRefresh(username string, cfg oauthconfig.Config) (oauthrefresh.RefreshFunc, error) {
 	switch cfg.Provider {
 	case oauthconfig.ProviderMicrosoft:
 		tokenURL := "https://login.microsoftonline.com/" + url.PathEscape(cfg.TenantID) + "/oauth2/v2.0/token"
@@ -258,73 +165,23 @@ func cacheKey(username string, cfg oauthconfig.Config) ([sha256.Size]byte, error
 	return sha256.Sum256(data), nil
 }
 
-type tokenState struct {
-	mu    sync.Mutex
-	token *oauth2.Token
-	gate  chan struct{}
-}
-
-func newTokenState() *tokenState {
-	gate := make(chan struct{}, 1)
-	gate <- struct{}{}
-	return &tokenState{gate: gate}
-}
-
-func (s *tokenState) current() *oauth2.Token {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.token
-}
-
-func (s *tokenState) set(token *oauth2.Token) {
-	s.mu.Lock()
-	s.token = token
-	s.mu.Unlock()
-}
-
-func (s *tokenState) get(ctx context.Context, refresh refreshFunc) (*oauth2.Token, error) {
-	if token := s.current(); token.Valid() {
-		return token, nil
-	}
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-s.gate:
-	}
-	defer func() { s.gate <- struct{}{} }()
-
-	cached := s.current()
-	if cached.Valid() {
-		return cached, nil
-	}
-	token, err := refresh(ctx, cached)
-	if err != nil {
-		return nil, err
-	}
-	if token == nil || strings.TrimSpace(token.AccessToken) == "" {
-		return nil, errors.New("OAuth provider returned an empty access token")
-	}
-	s.set(token)
-	return token, nil
-}
-
 var tokenCache = struct {
 	sync.Mutex
-	entries map[[sha256.Size]byte]*tokenState
-}{entries: make(map[[sha256.Size]byte]*tokenState)}
+	entries map[[sha256.Size]byte]*oauthrefresh.Gate
+}{entries: make(map[[sha256.Size]byte]*oauthrefresh.Gate)}
 
-func cachedTokenFunc(key [sha256.Size]byte, refresh refreshFunc) TokenFunc {
+func cachedTokenFunc(key [sha256.Size]byte, refresh oauthrefresh.RefreshFunc) TokenFunc {
 	tokenCache.Lock()
-	state := tokenCache.entries[key]
-	if state == nil {
+	gate := tokenCache.entries[key]
+	if gate == nil {
 		if len(tokenCache.entries) >= maxCacheEntries {
 			for cachedKey := range tokenCache.entries {
 				delete(tokenCache.entries, cachedKey)
 				break
 			}
 		}
-		state = newTokenState()
-		tokenCache.entries[key] = state
+		gate = oauthrefresh.NewGate()
+		tokenCache.entries[key] = gate
 	}
 	tokenCache.Unlock()
 
@@ -332,6 +189,6 @@ func cachedTokenFunc(key [sha256.Size]byte, refresh refreshFunc) TokenFunc {
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		return state.get(ctx, refresh)
+		return gate.Token(ctx, refresh)
 	}
 }
