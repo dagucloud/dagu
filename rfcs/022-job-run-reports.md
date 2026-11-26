@@ -131,8 +131,6 @@ It is on only when all of these hold:
   `local`). A worker's runs belong to the server that dispatched them.
 - The command is not a workflow test (`internal/cmd/case_run.go`) or a dry
   run.
-- No server reports this data directory's DAG runs: no live process holds
-  the server reporter's lease, `<data>/cloud/report-state.json.lock`.
 
 The machine's license plays no part: a run key is how a machine without a
 server reports, and an activation left in an image or a volume can outlive
@@ -141,10 +139,23 @@ the server it belonged to.
 A Dagu scheduler starts each run as a `dagu start` child with its own
 environment, so a scheduler with a run key reports every run it starts as
 a job run. RFC 020 allows this: such a machine is measured as job runs and
-gets nothing a server gets. A server that reports runs sends every run of
-its data directory, whichever process started it, and holds its lease while
-it does. A run that finds the lease held sends no job report, so Console
-counts the run once.
+gets nothing a server gets.
+
+Console keeps each run once: RFC 020 names a run by its workspace, project,
+DAG name, and run ID, whoever sends it. It counts the run by the first report
+it takes, and a job run's finish usually comes before the server's report,
+so a run a server also reports would spend the workspace's job runs. A
+server that reports runs sends every run of its data directory, whichever
+process started it, and renews its lease,
+`<data>/cloud/report-state.json.lock`, about every 5 seconds while it does.
+Before each report a run checks the lease and leaves the report out while
+the lease was renewed in the last 15 seconds. A server that stops before the
+run ends leaves the finish to the run. Taking a live server for stopped
+costs a report Console keeps once; taking a stopped one for live would lose
+the run, hence a window far shorter than the lease's own minute.
+
+A run key of a workspace other than the server's is not told apart: while
+the server reports, its runs go only to the server's workspace.
 
 ### What it sends
 
@@ -264,7 +275,7 @@ reporter, which never blocks the agent.
 | Console answers `503` because the workspace is busy | The finish waits `Retry-After` and tries again within its budget. |
 | The key is revoked mid-run | The next report gets `401`; the sender stops. |
 | The process is killed with SIGKILL | Nothing more is sent. Console sees the run as it last reported. |
-| A run key where a server reports this data directory's runs | The run sends no job report; the server reports it. |
+| A run key where a server reports this data directory's runs | The run sends no report while the server renews its lease; a server stopped by the finish leaves the finish to the run. |
 | A malformed run key | The sender stays off and warns once; the run starts. |
 
 ### What the run prints
@@ -293,7 +304,7 @@ Console's answer carries no workspace name, so the sender has none to print.
 - A 5-minute run sends about seven requests: start, about five progress
   reports, and the finish. Each is one small JSON body.
 - No disk is written. Beyond what the run already does, the only read is
-  one stat of the server reporter's lease.
+  one stat of the server reporter's lease before each report.
 - The start report is in the background, so the run starts at once. Only the
   finish adds to the process's exit, at most 10 seconds and usually one round
   trip.
