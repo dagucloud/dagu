@@ -469,13 +469,22 @@ Rules:
 - A command that names a project that does not exist fails and changes
   nothing.
 - A DAG file given by path must belong to the addressed project, in its DAG
-  directory or running in place as its, or be in the library. Any other
-  file is refused, and the error names the project the file belongs to.
+  directory or running in place as its, or be in the library. A file of
+  another project is refused, and the error names the project the file
+  belongs to. A file that belongs to no project and lies outside the
+  library, such as one in a temporary directory, runs in the addressed
+  project.
 - A local run starts its child process with `--project`. `DAGU_HOME` stays
   the server's, so the child reads the same `config.yaml`.
+- `dagu server`, `dagu scheduler`, `dagu coordinator`, `dagu start-all`,
+  and `dagu worker` serve every project and refuse `--project`.
+- The control socket of a run is addressed by its project, its DAG name,
+  and its run ID, so runs of DAGs of the same name in two projects never
+  share one. A run of the default project keeps the address v2 uses.
 - `dagu project create <name>` creates a project, `dagu project delete
   <name>` deletes one, and `dagu project list` lists the registered
-  projects. See [Lifecycle](#lifecycle).
+  projects with each one's display name, DAG directory, and state:
+  `active`, `missing`, or `deleting`. See [Lifecycle](#lifecycle).
 - `dagu test` with no argument selects the test files under the addressed
   project's DAG directory and beside its files that run in place. A test
   file given by path runs in the project of the DAG it tests. Spec 101
@@ -1161,9 +1170,9 @@ Delete is refused, and changes nothing, when:
 
 - A CLI command whose `--project` or `DAGU_PROJECT` names no registered
   project fails and changes nothing.
-- A CLI command given by path a DAG file that is neither the addressed
-  project's nor in the library refuses it, and the error names the file's
-  project.
+- A CLI command given by path a DAG file of a project other than the
+  addressed one refuses it, and the error names the file's project.
+- A command that serves every project fails when given `--project`.
 - A command or request that would start a run in a project marked deleting
   is refused.
 - An API request that names a project the caller cannot see, or one that

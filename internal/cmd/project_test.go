@@ -287,3 +287,43 @@ func TestProjectCommands(t *testing.T) {
 	assert.Equal(t, "ops", strings.Fields(lines[3])[0])
 	assert.Equal(t, "weather", strings.Fields(lines[4])[0])
 }
+
+// TestStartGivesStepsTheProject proves Spec 102 "Steps": each step of a run
+// gets DAGU_PROJECT set to the run's project while projects are on, and
+// none while they are off. It sets the environment, so it does not run in
+// parallel.
+func TestStartGivesStepsTheProject(t *testing.T) {
+	t.Setenv(runenv.EnvKeyProject, "")
+	out := t.TempDir()
+	writeDAG := func(t *testing.T, h projectsHome, rel string) string {
+		t.Helper()
+		name := strings.TrimSuffix(filepath.Base(rel), ".yaml")
+		target := filepath.ToSlash(filepath.Join(out, name))
+		path := filepath.Join(h.dags, rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+		require.NoError(t, os.WriteFile(path, []byte("steps:\n  - id: record\n    run: printf '%s' \"$"+runenv.EnvKeyProject+"\" > '"+target+"'\n"), 0o600))
+		return filepath.Join(out, name)
+	}
+	readOut := func(t *testing.T, path string) string {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		return string(data)
+	}
+
+	on := newProjectsHome(t, true)
+	forecast := writeDAG(t, on, "projects/weather/forecast.yaml")
+	cleanup := writeDAG(t, on, "cleanup.yaml")
+	_, stderr, err := on.runDagu(t, []*cobra.Command{Start()}, "start", "--project", "weather", "forecast")
+	require.NoError(t, err, stderr)
+	assert.Equal(t, "weather", readOut(t, forecast))
+	_, stderr, err = on.runDagu(t, []*cobra.Command{Start()}, "start", "cleanup")
+	require.NoError(t, err, stderr)
+	assert.Equal(t, "default", readOut(t, cleanup))
+
+	off := newProjectsHome(t, false)
+	cleanup = writeDAG(t, off, "cleanup.yaml")
+	_, stderr, err = off.runDagu(t, []*cobra.Command{Start()}, "start", "cleanup")
+	require.NoError(t, err, stderr)
+	assert.Empty(t, readOut(t, cleanup))
+}
