@@ -53,6 +53,7 @@ func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued boo
 		return false, buildRequiresLocalAPIError()
 	}
 
+	logDir, artifactDir := a.runDirs()
 	_, seedStatus, err := intake.SeedRun(ctx, intake.SeedRequest{
 		DAGRunRepository: a.dagRunRepository,
 		DAG:              run.dag,
@@ -72,8 +73,8 @@ func (a *API) launchSeededDAGRun(ctx context.Context, run seededRun) (queued boo
 		BackfillID:       run.backfillID,
 		TargetNodes:      run.targetNodes,
 		NodeList:         run.nodeList,
-		LogBaseDir:       a.runLogDir,
-		ArtifactBaseDir:  a.runArtifactDir,
+		LogBaseDir:       logDir,
+		ArtifactBaseDir:  artifactDir,
 	})
 	if err != nil {
 		return false, err

@@ -592,8 +592,6 @@ func New(
 		defaultExecMode:     cfg.DefaultExecMode,
 		leaseStaleThreshold: dagrun.DefaultStaleLeaseThreshold,
 		runSortDAGLimit:     maxRunSortDAGs,
-		runLogDir:           cfg.Paths.LogDir,
-		runArtifactDir:      cfg.Paths.ArtifactDir,
 	}
 	// A nil service must leave the field nil, not a typed nil.
 	if rs != nil {
@@ -616,6 +614,15 @@ func (a *API) requireValidBaseConfigWiring() {
 	if a.baseConfigStore != nil && a.baseConfigProvider == nil {
 		panic("api: workspace base config provider must be configured when base config store is configured")
 	}
+}
+
+// runDirs returns the log and artifact directories of the runs that the API
+// queues: those WithRunDirs set, else paths.log_dir and paths.artifact_dir.
+func (a *API) runDirs() (logDir, artifactDir string) {
+	if a.runLogDir == "" {
+		return a.config.Paths.LogDir, a.config.Paths.ArtifactDir
+	}
+	return a.runLogDir, a.runArtifactDir
 }
 
 func (a *API) notifyDAGMutation(fileName string) {
